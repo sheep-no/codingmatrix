@@ -5,7 +5,7 @@ export function createPptClient(client) {
   return {
     async generatePPT(pptData) {
       try {
-        const response = await client.post('/aiGeneratorPptx/generate', pptData)
+        const response = await client.post('/pptx/generate', pptData)
         if (response.ok) {
           return await response.json()
         } else {
@@ -19,7 +19,7 @@ export function createPptClient(client) {
 
     async getPPTSlides(pptId) {
       try {
-        const response = await client.get(`/aiGeneratorPptx/ppt/${pptId}`)
+        const response = await client.get(`/pptx/${pptId}/slides`)
         if (response.ok) {
           return await response.json()
         }
@@ -31,7 +31,7 @@ export function createPptClient(client) {
 
     async createPptTask(prompt, conversationId = null) {
       try {
-        const response = await client.post('/aiGeneratorPptx/create_task', {
+        const response = await client.post('/pptx/create_task', {
           prompt,
           conversation_id: conversationId
         })
@@ -48,8 +48,8 @@ export function createPptClient(client) {
 
     async generatePptx(prompt, conversationId = null, params = {}) {
       try {
-        const response = await client.post('/aiGeneratorPptx/generate_pptx', {
-          prompt,
+        const response = await client.post('/pptx/generate', {
+          topic: prompt,
           conversation_id: conversationId,
           ...params
         })
@@ -61,6 +61,18 @@ export function createPptClient(client) {
         }
       } catch (error) {
         throw error
+      }
+    },
+
+    async previewPPT(pptId) {
+      try {
+        const response = await client.get(`/pptx/preview/${pptId}`)
+        if (response.ok) {
+          return await response.text()
+        }
+        return null
+      } catch (error) {
+        return null
       }
     }
   }

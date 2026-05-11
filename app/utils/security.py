@@ -66,6 +66,7 @@ def verify_password(password: str, hashed_password: str) -> bool:
 
 def create_access_token(sub: str, permission_level: str, 
                         expires_delta: Optional[timedelta] = None,
+                        role: str = "user",
                         extra_claims: Optional[dict] = None) -> str:
     now = datetime.now(timezone.utc)
     refresh_until = now + timedelta(days=5)
@@ -76,7 +77,8 @@ def create_access_token(sub: str, permission_level: str,
         "iat": now,
         "type": "access",
         "refresh_until": int(refresh_until.timestamp()),
-        "permission_level": permission_level or "normal"
+        "permission_level": permission_level or "normal",
+        "role": role
     }
     if extra_claims:
         payload.update(extra_claims)

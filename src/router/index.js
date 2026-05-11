@@ -24,6 +24,11 @@ const router = createRouter({
       component: () => import('../views/PPTGenerate.vue')
     },
     {
+      path: '/ppt-preview/:id',
+      name: 'ppt-preview',
+      component: () => import('../views/PPTPreview.vue')
+    },
+    {
       path: '/image-generate',
       name: 'image-generate',
       component: () => import('../views/ImageGenerate.vue')

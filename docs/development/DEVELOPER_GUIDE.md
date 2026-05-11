@@ -40,12 +40,12 @@ npm run dev
 ```
 ├── app/                  # 后端 (FastAPI)
 │   ├── api/v1/          # v1 API 端点 (15 个模块)
-│   ├── api/v2/          # v2 API 端点 (5 个模块)
+│   ├── api/v2/          # v2 API 端点 (6 个模块)
 │   ├── core/            # 配置
 │   ├── db/              # 数据库
 │   ├── models/          # SQLAlchemy 模型
 │   ├── schema/          # Pydantic Schema
-│   └── utils/           # 工具层
+│   └── utils/           # 工具层 (41+ 模块)
 ├── src/                 # 前端 (Vue 3)
 │   ├── components/      # Vue 组件 (50 个)
 │   ├── stores/          # Pinia 状态
@@ -121,8 +121,18 @@ python3 -m pytest tests/ --ignore=tests/archive -v
 
 ## 权限级别
 
+### 权限级别 (permission_level)
 | 级别 | 名称 | 说明 |
 |------|------|------|
 | 0 | normal | 普通用户，基础 AI 功能 |
 | 1 | admin | 管理员，用户管理、监控 |
 | 2 | super | 超级管理员，系统配置、部署 |
+
+### JWT Token 角色 (role)
+| 角色 | 说明 | 并发限制 |
+|------|------|----------|
+| user | 普通用户 | 默认 1 (free) |
+| admin | 管理员 | 默认 2 (basic) |
+| superadmin | 超级管理员 | 默认 50 |
+
+**注意**: `permission_level` 用于端点访问控制，`role` 用于并发限制判断。登录时根据 `permission_level` 自动映射到 `role`。

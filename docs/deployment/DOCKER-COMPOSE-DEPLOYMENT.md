@@ -23,10 +23,20 @@ codingmatrix/
 ## 环境变量 (.env)
 
 ```env
+# 核心配置
 SECRET_KEY=your-secret-key-here
 SILICONFLOW_API_KEY=your-api-key
 DATABASE_URL=sqlite+aiosqlite:///./data/db/app.db
-MAX_PROJECT_SESSIONS_PER_USER=1
+
+# 并发限制配置
+# 用户默认角色并发限制 (free=1, basic=2, premium=5, enterprise=10, superadmin=50)
+USER_CONCURRENT_LIMIT_FREE=1
+USER_CONCURRENT_LIMIT_BASIC=2
+USER_CONCURRENT_LIMIT_PREMIUM=5
+USER_CONCURRENT_LIMIT_ENTERPRISE=10
+USER_CONCURRENT_LIMIT_SUPERADMIN=50
+
+# 其他配置
 NGINX_AI_MODEL=Qwen/Qwen2.5-Coder-7B-Instruct
 ```
 

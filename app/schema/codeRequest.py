@@ -51,6 +51,13 @@ class GenerateRequest(BaseModel):
     session_id: str = Field(..., description="会话 ID（用于文件锁隔离）")
     conversation_id: Optional[int] = Field(None, description="对话上下文 ID（可选，用于携带历史）")
 
+    # Agent 功能选项
+    enable_review: bool = Field(default=True, description="是否启用代码审查")
+    enable_validation: bool = Field(default=True, description="是否启用语法验证")
+    enable_error_recovery: bool = Field(default=True, description="是否启用自动错误恢复")
+    spec_first: bool = Field(default=True, description="是否启用 Spec-First 模式")
+    dependency_graph: bool = Field(default=True, description="是否启用依赖图分层生成")
+
     # 验证配置
     enable_venv_validation: bool = Field(default=False, description="是否启用 venv 隔离验证（已废弃，请使用 Docker）")
     enable_docker_validation: bool = Field(default=True, description="是否启用 Docker 容器化验证")

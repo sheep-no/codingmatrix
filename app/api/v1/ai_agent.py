@@ -902,7 +902,7 @@ def _build_agent_config(req: GenerateRequest, stream: bool = False) -> AgentConf
         max_thinking_tokens=req.max_thinking_tokens,
         max_output_tokens=req.max_output_tokens,
         temperature=req.temperature,
-        enable_validation=True,
+        enable_validation=req.enable_validation,
         enable_venv_validation=req.enable_venv_validation,
         shared_base_venv="/opt/base_venv" if req.enable_venv_validation else None,
         auto_install_deps=False,
@@ -1678,6 +1678,8 @@ class OrchestratorRequest(BaseModel):
     enable_validation: bool = Field(True, description="是否启用代码验证")
     enable_error_recovery: bool = Field(True, description="是否启用错误恢复")
     enable_memory: bool = Field(True, description="是否启用记忆系统")
+    spec_first: bool = Field(True, description="是否启用 Spec-First 模式")
+    dependency_graph: bool = Field(True, description="是否启用依赖图分层生成")
     # 增量生成
     session_id: Optional[str] = Field(None, description="会话ID（用于增量生成/续传）")
     incremental: bool = Field(False, description="是否启用增量生成")
@@ -1754,6 +1756,8 @@ async def orchestrate_project(
             enable_validation=request.enable_validation,
             enable_error_recovery=request.enable_error_recovery,
             memory_enabled=request.enable_memory,
+            spec_first=request.spec_first,
+            dependency_graph=request.dependency_graph,
             callback=lambda msg: logger.info(f"Orchestrator 进度: {msg[:200]}")
         )
 
@@ -1797,7 +1801,7 @@ async def orchestrate_project_stream(
     """
     使用 Orchestrator Agent 生成项目（流式输出）
 
-    每用户仅允许一个活跃会话。新会话会清理旧会话的资源（项目文件、会话状态、历史记录）。
+    支持用户并发限制，根据用户角色和配置决定最大并发会话数。
     """
     user_id = token.get("sub", "anonymous")
 
@@ -1805,13 +1809,28 @@ async def orchestrate_project_stream(
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
 
-    # 每用户仅允许一个会话：清理旧会话资源
-    await _cleanup_old_session(user_id, db)
+    # 检查用户并发限制
+    from app.utils.system_config import system_config_manager
+    
+    # 获取用户角色（从token中获取）
+    user_role = token.get("role", "user")
+    
+    if not system_config_manager.can_create_new_session(user_id, user_role):
+        active_sessions = system_config_manager.get_active_sessions_for_user(user_id)
+        limit = system_config_manager.get_user_concurrent_limit(user_id, user_role)
+        raise HTTPException(
+            status_code=429, 
+            detail=f"已达到并发会话限制 ({len(active_sessions)}/{limit})。请停止或删除现有项目后再创建新项目。"
+        )
 
-    # 生成新的 session_id（不允许用户指定）
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    session_id = f"project_{user_id}_{timestamp}"
-    output_dir = request.output_dir or f"./projects/orchestrator/{timestamp}_{user_id}"
+    # 使用前端传入的 session_id，如果没有则生成新的
+    if request.session_id:
+        session_id = request.session_id
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        session_id = f"project_{user_id}_{timestamp}"
+    
+    output_dir = request.output_dir or f"./projects/orchestrator/{session_id}"
 
     logger.info(f"Orchestrator 流式生成请求 | user={user_id} session={session_id}")
 
@@ -1861,6 +1880,8 @@ async def orchestrate_project_stream(
                 enable_validation=request.enable_validation,
                 enable_error_recovery=request.enable_error_recovery,
                 memory_enabled=request.enable_memory,
+                spec_first=request.spec_first,
+                dependency_graph=request.dependency_graph,
                 callback=stream_callback,
                 # 增量生成
                 session_manager=sm,

@@ -7,9 +7,10 @@ CodingMatrix 遵循 OWASP Top 10 安全最佳实践。
 ## 已实施的安全措施
 
 ### 1. 认证与授权
-- JWT Token 认证
+- JWT Token 认证 (包含 role 字段)
 - RSA-OAEP 加密密码传输
-- 三级 RBAC 权限模型
+- 三级 RBAC 权限模型 (normal/admin/super)
+- Token 角色映射 (user/admin/superadmin)
 - Token 过期自动刷新
 
 ### 2. CSRF 防护
@@ -22,6 +23,12 @@ CodingMatrix 遵循 OWASP Top 10 安全最佳实践。
 - 用户维度限流
 - 端点维度限流
 - 可动态配置限流规则
+
+### 4. 资源控制
+- 用户并发会话限制 (按角色分级)
+- 会话生命周期管理
+- 资源释放机制 (停止/删除项目)
+- 管理员动态配置能力
 
 ### 4. 输入验证
 - Pydantic Schema 严格类型验证

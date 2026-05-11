@@ -1,0 +1,36 @@
+{
+  "system_config": {
+    "version": "1.0",
+    "last_updated": "2026-05-11T10:30:00Z",
+    "user_concurrent_limits": {
+      "default_tiers": {
+        "free": 1,
+        "basic": 2,
+        "premium": 5,
+        "enterprise": 10,
+        "superadmin": 50
+      },
+      "user_overrides": {
+        // 格式: "user_id": {"limit": 3, "tier": "custom"}
+        // "123": {"limit": 3, "tier": "custom"},
+        // "456": {"limit": 8, "tier": "premium"}
+      }
+    },
+    "session_management": {
+      "cleanup_inactive_after_hours": 24,
+      "max_sessions_per_user": 10,
+      "auto_cleanup_enabled": true
+    },
+    "project_generation": {
+      "enabled": true,
+      "max_concurrent_per_user": 1
+    },
+    "ppt_generation": {
+      "enabled": true,
+      "max_slides_per_presentation": 50,
+      "supported_templates": ["modern", "classic", "creative", "business", "academic", "minimalist", "corporate"],
+      "preview_enabled": true,
+      "export_formats": ["pptx", "pdf", "html"]
+    }
+  }
+}

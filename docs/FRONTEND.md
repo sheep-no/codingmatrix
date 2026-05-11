@@ -99,12 +99,29 @@ src/
 ### 7. 三级权限 UI
 - normal: 基础 AI 功能
 - admin: 管理面板、用户管理
-- super: 系统配置、限流管理
+- super: 系统配置、限流管理、并发限制配置
+- superadmin: 用户并发限制动态配置
 
 ### 8. 分片上传
 - 大文件分片上传 (可配置大小)
 - 断点续传支持
 - 上传进度显示
+
+### 9. Agent 对话 (2026-05-11 新增)
+- **Agent 工作台**: `AgentChat.vue` 支持 ReAct 模式对话
+- **多轮会话**: 上下文自动管理，支持会话切换和历史查看
+- **SSE 流式输出**: 实时展示 Agent 思考过程 (Thought/Action/Observation)
+- **工具调用可视化**: 展示 Agent 调用的工具和返回结果
+- **知识库管理**: 在 Agent 对话界面添加/删除知识条目
+- **独立标签页**: 通过 `/agent` 路由在新标签页打开
+- **面板收缩**: 左侧工具面板支持展开/收起
+
+### 10. 文件预览 (2026-05-11 新增)
+- **多格式支持**: PDF/Word/Excel/图片/文本/代码
+- **智能解析**: Office 文档后端转换，前端渲染
+- **语法高亮**: 代码文件使用 Highlight.js 高亮
+- **缩略图**: 图片文件自动生成缩略图预览
+- **批量预览**: 支持多文件批量预览请求
 
 ## 构建配置
 
@@ -126,3 +143,4 @@ src/
 | 工作流历史 | views/Workflow.vue | GET /api/v1/workflow/history |
 | 系统监控 | AdminPanel.vue | GET /api/v2/Controller/admin/stats |
 | 管理员面板 | AdminPanel.vue | GET /api/v2/Controller/admin/config |
+| 并发限制管理 | AdminPanel.vue | POST /api/v2/admin/user-limit |

@@ -27,12 +27,13 @@
 | nginx_ai | AI 辅助 Nginx 分析 | /nginx/check | admin |
 | guardian_router | 服务守护/熔断 | /guard/start, /service/fuse | admin |
 | user_manage | 用户 CRUD | /users, /reset-password | admin |
+| admin_config | 系统配置/并发限制 | /admin/config, /admin/user-limit | super |
 
 ## 横切关注点
 
 | 关注点 | 实现位置 | 说明 |
 |--------|----------|------|
-| JWT 认证 | `app/utils/security.py` | Token 创建、验证、解析 |
+| JWT 认证 | `app/utils/security.py` | Token 创建、验证、解析 (含 role 字段) |
 | CSRF 防护 | `app/utils/csrf.py` | Double-submit Cookie |
 | 限流 | `app/utils/rate_limiter.py` | IP/用户/端点维度 |
 | 日志 | `app/utils/logging.py` | 结构化 JSON 日志 |
@@ -40,3 +41,4 @@
 | 权限 | `app/utils/permissions.py` | RBAC 三级权限检查 |
 | 缓存 | `app/utils/cache.py` | Redis/内存缓存 |
 | 熔断 | `app/utils/circuit_breaker.py` | 服务熔断保护 |
+| 系统配置 | `app/utils/system_config.py` | 用户并发限制、系统配置管理 |

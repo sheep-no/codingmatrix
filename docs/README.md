@@ -6,7 +6,7 @@
 
 CodingMatrix 是一个基于 FastAPI + Vue 3 的 AI 全栈开发平台，提供代码生成、图像生成、PPT 制作、工作流编排、虚拟 AI 对话等多种 AI 能力。
 
-**版本**: v4.2.1 | **技术栈**: FastAPI (Python 3.11) + Vue 3 + SQLite + APScheduler
+**版本**: v4.3.0 | **技术栈**: FastAPI (Python 3.11) + Vue 3 + SQLite + APScheduler
 
 ## 核心能力
 
@@ -23,6 +23,7 @@ CodingMatrix 是一个基于 FastAPI + Vue 3 的 AI 全栈开发平台，提供�
 | 用户管理 | 三级权限 (normal/admin/super)、RSA 加密登录 |
 | 系统监控 | 服务健康检查、熔断器、限流、日志管理 |
 | 主题系统 | 明亮/默认/暗色三套主题，CSS 变量驱动 |
+| 并发控制 | 用户级并发会话限制，支持管理员动态配置 |
 
 ## 快速开始
 
@@ -43,11 +44,11 @@ cd src && npm run dev
 - [docs/api/API-DOCUMENTATION.md](api/API-DOCUMENTATION.md) - API 文档
 - [docs/testing/COMPREHENSIVE-TEST-REPORT-20260508.md](testing/COMPREHENSIVE-TEST-REPORT-20260508.md) - 测试报告
 
-## 最新修复 (v4.2.1)
-- 修复 `/history` 接口 500 错误 (缓存装饰器兼容 Pydantic 模型)
-- 修复 `ProjectGenerate.vue` 编译报错 (清理重复代码块)
-- 修复 `security.py` JWT 异常处理兼容性
-- 修复 `bottominput.vue` 按钮重叠 UI 问题
+## 最新功能 (v4.3.0)
+- 新增用户并发会话限制功能（支持按角色/用户配置）
+- 新增系统配置管理 API（/api/v2/admin/*）
+- JWT Token 增加 role 字段支持
+- 项目支持停止和删除以释放资源槽位
 
 ## 测试状态
 
@@ -64,4 +65,5 @@ app/          # 后端 (203 Python 文件, ~57K 行)
 src/          # 前端 (90 文件, ~58K 行)
 tests/        # 测试
 docs/         # 文档
+configs/      # 系统配置文件
 ```

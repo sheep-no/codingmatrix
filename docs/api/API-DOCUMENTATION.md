@@ -1,6 +1,6 @@
 # API 文档
 
-> 最后更新: 2026-05-08 | 路由总数: 168
+> 最后更新: 2026-05-11 | 路由总数: 170+ | 版本: v1 (16 模块) + v2 (6 模块)
 
 ## 认证
 
@@ -48,7 +48,7 @@
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
 | POST | `/api/v1/agent/generate` | 生成项目 | normal |
-| POST | `/api/v1/agent/generate_stream` | 流式生成 | normal |
+| POST | `/api/v1/agent/generate_stream` | 流式生成 (SSE) | normal |
 | POST | `/api/v1/agent/generate_task` | 异步任务 | normal |
 | GET | `/api/v1/agent/generate/status/{task_id}` | 任务状态 | normal |
 | GET | `/api/v1/agent/generate/files` | 文件列表 | normal |
@@ -59,6 +59,21 @@
 | GET | `/api/v1/agent/saved` | 已保存列表 | normal |
 | GET | `/api/v1/agent/saved/{project_id}` | 加载项目 | normal |
 | DELETE | `/api/v1/agent/saved/{project_id}` | 删除项目 | normal |
+
+## AI Agent (`/api/v1/agent`)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| POST | `/api/v1/agent/process` | 处理任务 | normal |
+| POST | `/api/v1/agent/chat` | Agent 对话 | normal |
+| POST | `/api/v1/agent/chat/stream` | 流式对话 (SSE) | normal |
+| GET | `/api/v1/agent/sessions` | 会话列表 | normal |
+| GET | `/api/v1/agent/sessions/{session_id}` | 会话详情 | normal |
+| DELETE | `/api/v1/agent/sessions/{session_id}` | 删除会话 | normal |
+| GET | `/api/v1/agent/knowledge` | 知识列表 | normal |
+| POST | `/api/v1/agent/knowledge` | 添加知识 | normal |
+| DELETE | `/api/v1/agent/knowledge/{id}` | 删除知识 | normal |
+| GET | `/api/v1/agent/stats` | 统计信息 | normal |
 
 ## 虚拟 AI (`/api/v1/GirlAi`)
 
@@ -163,6 +178,15 @@
 | DELETE | `/api/v1/aicloud/knowledge/docs/{doc_id}` | 删除文档 | admin |
 | POST | `/api/v1/aicloud/knowledge/search` | 搜索知识 | admin |
 
+## 文件预览 (`/api/v1/preview`)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| GET | `/api/v1/preview/{file_id}` | 文件预览 | normal |
+| GET | `/api/v1/preview/{file_id}/raw` | 原始文件 | normal |
+| GET | `/api/v1/preview/{file_id}/thumbnail` | 缩略图 | normal |
+| POST | `/api/v1/preview/batch` | 批量预览 | normal |
+
 ## 系统管理 v2 (`/api/v2`)
 
 ### 用户管理
@@ -224,6 +248,15 @@
 | PUT | `/api/v2/Controller/admin/rate-limit/endpoint` | 端点限流 | super |
 | DELETE | `/api/v2/Controller/admin/rate-limit/endpoint/{endpoint}` | 删除限流 | super |
 | PUT | `/api/v2/Controller/admin/rate-limit/enabled` | 开关限流 | super |
+
+### 并发限制管理 (super)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| GET | `/api/v2/admin/config` | 获取系统配置 | super |
+| POST | `/api/v2/admin/config` | 更新系统配置 | super |
+| POST | `/api/v2/admin/user-limit` | 更新用户并发限制 | super |
+| DELETE | `/api/v2/admin/user-limit/{user_id}` | 移除用户并发限制 | super |
 
 ## 健康检查 (`/api/v1/health`)
 

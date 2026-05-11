@@ -179,8 +179,15 @@ async def login(
     # 登录成功，清除失败记录
     record_login_success(identifier)
     
+    # 根据权限级别确定用户角色
+    role = "user"
+    if permission_level == "superadmin":
+        role = "superadmin"
+    elif permission_level == "admin":
+        role = "admin"
+    
     # 生成 Access Token（短期，30 分钟）
-    access_token = create_access_token(sub=str(user.id), permission_level=permission_level)
+    access_token = create_access_token(sub=str(user.id), permission_level=permission_level, role=role)
     
     # 生成 Refresh Token（长期，7 天）- 用于 HttpOnly Cookie
     refresh_token = create_refresh_token(sub=str(user.id))
@@ -265,7 +272,8 @@ async def register(
     await db.commit()
     await db.refresh(new_user)
 
-    access_token = create_access_token(sub=str(new_user.id), permission_level=permission.permission_level)
+    # 新用户默认角色为user
+    access_token = create_access_token(sub=str(new_user.id), permission_level=permission.permission_level, role="user")
 
     logger.info(f"用户注册成功 | email={body.email} | user_id={new_user.id}")
 
@@ -386,8 +394,15 @@ async def refresh_token(
         permission = await perm_service.get_permission(user_id=int(user_id_str))
         permission_level = permission.permission_level if permission else "normal"
         
+        # 根据权限级别确定用户角色
+        role = "user"
+        if permission_level == "superadmin":
+            role = "superadmin"
+        elif permission_level == "admin":
+            role = "admin"
+        
         # 生成新的 Access Token
-        new_access_token = create_access_token(sub=user_id_str, permission_level=permission_level)
+        new_access_token = create_access_token(sub=user_id_str, permission_level=permission_level, role=role)
         
         # 生成新的 CSRF Token
         csrf_token = await get_csrf_token()

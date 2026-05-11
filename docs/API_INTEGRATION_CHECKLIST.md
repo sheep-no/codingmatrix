@@ -192,6 +192,12 @@
 - [x] DELETE /api/v2/Controller/admin/rate-limit/endpoint/{endpoint} - 删除限流
 - [x] PUT /api/v2/Controller/admin/rate-limit/enabled - 开关限流
 
+### 并发限制管理 (super)
+- [x] GET /api/v2/admin/config - 获取系统配置
+- [x] POST /api/v2/admin/config - 更新系统配置
+- [x] POST /api/v2/admin/user-limit - 更新用户并发限制
+- [x] DELETE /api/v2/admin/user-limit/{user_id} - 移除用户并发限制
+
 ## 健康检查
 
 - [x] GET /api/v1/health - 基础健康检查

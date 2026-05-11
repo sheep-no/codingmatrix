@@ -23,6 +23,9 @@ CodingMatrix 使用 RSA-OAEP + AES-CBC 混合加密方案保护登录过程中�
   |                  1. RSA 解密 AES Key |
   |                  2. AES 解密密码     |
   |                  3. bcrypt 验证      |
+  |                  4. 查询 permission_level |
+  |                  5. 映射到 role  |
+  |                  6. 创建 JWT (含 role) |
   |<---- JWT Token -----------------|
 ```
 

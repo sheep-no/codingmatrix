@@ -375,6 +375,48 @@ GracefulShutdownManager：
 
 ---
 
+## 用户并发限制功能
+
+### 系统配置管理
+- 文件：`app/utils/system_config.py`
+- `SystemConfigManager` 单例模式，管理用户并发限制
+- 配置文件：`configs/system_config.json`
+- 支持按用户角色（free/basic/premium/enterprise/superadmin）设置并发限制
+- 支持管理员为特定用户设置覆盖配置（user_overrides）
+
+### 并发限制默认值
+| 角色 | 并发数 |
+|------|--------|
+| free | 1 |
+| basic | 2 |
+| premium | 5 |
+| enterprise | 10 |
+| superadmin | 50 |
+
+### JWT Token 角色字段
+- `create_access_token` 函数新增 `role` 参数
+- 登录时根据 `permission_level` 映射到 `role`（user/admin/superadmin）
+- Token 中包含 `role` 字段用于并发限制判断
+
+### 会话管理集成
+- `SessionManager.get_user_sessions(user_id)` 获取用户活跃会话
+- `SystemConfigManager.can_create_new_session(user_id, role)` 检查是否可创建新会话
+- 项目生成前检查并发限制，超出时返回 429 错误
+
+### 管理 API
+- `POST /api/v2/admin/user-limit` - 更新用户并发限制
+- `DELETE /api/v2/admin/user-limit/{user_id}` - 移除用户覆盖配置
+- `POST /api/v2/admin/config` - 更新系统配置
+- `GET /api/v2/admin/config` - 获取系统配置
+- 所有管理 API 需要 `require_superadmin` 装饰器验证
+
+### 前端支持
+- 项目生成页面支持停止项目（释放资源槽位）
+- 项目生成页面支持删除项目（释放资源槽位）
+- 达到并发限制时显示明确提示信息
+
+---
+
 ## PPT 生成功能
 
 ### 视觉分析模块

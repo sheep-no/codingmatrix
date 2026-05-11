@@ -13,6 +13,7 @@
 - [x] 配置 CORS 允许域名
 - [x] 启用 CSRF 防护
 - [x] 配置限流策略
+- [x] 配置用户并发限制 (free/basic/premium/enterprise/superadmin)
 
 ### 性能
 - [x] 使用多 worker 启动 uvicorn
@@ -30,6 +31,7 @@
 - [x] 定期备份 SQLite 数据库
 - [x] 备份上传文件
 - [x] 备份配置
+- [x] 备份系统配置文件 (configs/system_config.json)
 
 ## 启动命令 (生产)
 

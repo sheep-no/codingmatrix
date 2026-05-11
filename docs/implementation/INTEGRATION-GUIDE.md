@@ -8,7 +8,7 @@
 
 ### 1. 创建 API 路由
 
-在 `app/api/v1/` 或 `app/api/v2/` 下创建新的路由文件:
+在 `app/api/v1/` (业务功能) 或 `app/api/v2/` (管理功能) 下创建新的路由文件:
 
 ```python
 from fastapi import APIRouter
@@ -25,9 +25,13 @@ async def my_feature():
 在 `app/main.py` 中注册:
 
 ```python
+# v1 业务 API
 from app.api.v1.my_feature import router as my_feature_router
-
 app.include_router(my_feature_router, prefix="/api/v1", tags=["MyFeature"])
+
+# v2 管理 API (需要权限控制)
+from app.api.v2.my_admin import router as my_admin_router
+app.include_router(my_admin_router, prefix="/api/v2/admin", tags=["Admin"])
 ```
 
 ### 3. 创建 Schema

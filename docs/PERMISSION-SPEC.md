@@ -36,10 +36,21 @@ class PermissionLevel:
 ```json
 {
   "sub": "user_id",
-  "permission_level": 1,
-  "exp": 1714665600
+  "permission_level": "normal",
+  "role": "user",
+  "exp": 1714665600,
+  "type": "access",
+  "refresh_until": 1714752000
 }
 ```
+
+**Token 字段说明**:
+- `sub`: 用户ID
+- `permission_level`: 权限级别 (normal/admin/super)
+- `role`: 用户角色 (user/admin/superadmin)，用于并发限制判断
+- `exp`: 过期时间
+- `type`: Token类型 (access/refresh)
+- `refresh_until`: Refresh Token 有效期截止时间
 
 ## 端点权限分配
 
@@ -98,6 +109,10 @@ class PermissionLevel:
 | POST /api/v2/nginx/generate | Nginx 配置生成 |
 | POST /api/v2/nginx/deploy | Nginx 部署 |
 | PUT /api/v2/Controller/service/{port}/fuse-config | 熔断配置 |
+| GET /api/v2/admin/config | 获取系统配置 |
+| POST /api/v2/admin/config | 更新系统配置 |
+| POST /api/v2/admin/user-limit | 更新用户并发限制 |
+| DELETE /api/v2/admin/user-limit/{user_id} | 移除用户并发限制 |
 
 ## 前端权限控制
 
@@ -123,10 +138,29 @@ router.beforeEach((to) => {
 
 ```
 请求 -> JWT 验证 -> Token 解析 -> 权限级别检查 -> 端点访问决策
-                                   |
-                                   v
-                            level >= required?
-                                   |
-                            yes -> 允许访问
-                            no  -> 403 Forbidden
+                                    |
+                                    v
+                             level >= required?
+                                    |
+                             yes -> 允许访问
+                             no  -> 403 Forbidden
+```
+
+## JWT Token 角色映射
+
+```
+登录时 permission_level -> role 映射:
+  permission_level=0 (normal)  -> role="user"
+  permission_level=1 (admin)   -> role="admin"
+  permission_level=2 (super)   -> role="superadmin"
+
+Token 结构:
+{
+  "sub": "user_id",
+  "permission_level": "normal",  // 用于端点权限检查
+  "role": "user",                // 用于并发限制判断
+  "type": "access",
+  "exp": timestamp,
+  "refresh_until": timestamp
+}
 ```

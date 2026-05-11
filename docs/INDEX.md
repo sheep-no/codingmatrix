@@ -52,6 +52,11 @@
 - [specs/admin-resource-control/](specs/admin-resource-control/) - 管理员资源控制规格
 - [specs/production-ready/](specs/production-ready/) - 生产就绪规格
 
+### 系统配置
+- [configs/system_config.json](../configs/system_config.json) - 系统配置文件
+- [app/utils/system_config.py](../app/utils/system_config.py) - SystemConfigManager 实现
+- [app/api/v2/admin_config.py](../app/api/v2/admin_config.py) - 管理 API 实现
+
 ### 测试
 - [testing/README.md](testing/README.md) - 测试概述
 - [testing/COMPREHENSIVE-TEST-REPORT-20260508.md](testing/COMPREHENSIVE-TEST-REPORT-20260508.md) - 最新测试报告

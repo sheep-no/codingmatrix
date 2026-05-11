@@ -67,6 +67,7 @@ from app.api.v1.aicloud import router as aicloudRouter
 from app.api.v1.aicloud_knowledge import router as aicloudKnowledgeRouter
 from app.api.v1.workflow import router as workflowRouter
 from app.api.v1.ai_agent import router as agentRouter
+from app.api.v2.admin_config import router as adminConfigRouter
 from app.api.v1.vision_api import router as visionRouter
 from app.api.v2.nginx_api import router as nginxRouter
 from app.api.v2.Controller import router as sysRouter
@@ -268,9 +269,11 @@ app.include_router(aicloudKnowledgeRouter, prefix="/api/v1", tags=["aicloud-know
 app.include_router(workflowRouter, tags=["workflow"])
 app.include_router(agentRouter, prefix="/api/v1", tags=["agent"])
 app.include_router(visionRouter, prefix="/api/v1", tags=["vision"])
+app.include_router(adminConfigRouter, prefix="/api/v1", tags=["admin-config"])  # 添加管理员配置路由
 app.include_router(nginxRouter, prefix="/api/v2", tags=["nginx"])
 app.include_router(sysRouter, prefix="/api/v2", tags=["sys"])
 app.include_router(userManageRouter, prefix="/api/v2", tags=["manage"])
+app.include_router(adminConfigRouter, prefix="/api/v2", tags=["admin-config"])  # 添加管理员配置路由
 app.include_router(guardian_router, prefix="/api/v2", tags=["guard"])
 
 # 健康检查路由（/api/v1/health）

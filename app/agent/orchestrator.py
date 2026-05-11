@@ -142,6 +142,8 @@ class OrchestratorAgent:
         enable_validation: bool = True,
         enable_error_recovery: bool = True,
         memory_enabled: bool = True,
+        spec_first: bool = True,
+        dependency_graph: bool = True,
         callback: Optional[Callable] = None,
         # 新增：增量生成
         session_manager: Optional[SessionManager] = None,
@@ -160,6 +162,8 @@ class OrchestratorAgent:
         self.enable_validation = enable_validation
         self.enable_error_recovery = enable_error_recovery
         self.memory_enabled = memory_enabled
+        self.spec_first = spec_first
+        self.dependency_graph = dependency_graph
         self.callback = callback
 
         # 增量生成
@@ -194,7 +198,7 @@ class OrchestratorAgent:
         self.error_recovery: Optional[ErrorRecoveryLoop] = None
         self.api_contract_checker: Optional[APIContractChecker] = None
         self.code_patcher: Optional[CodePatcher] = None
-        self.dependency_graph: Optional[DependencyGraph] = None
+        self.dependency_graph_obj: Optional[DependencyGraph] = None
 
         # 生成状态
         self.complexity: Optional[ComplexityAnalysis] = None
@@ -399,6 +403,10 @@ class OrchestratorAgent:
     async def generate(self, requirement: str) -> Dict[str, Any]:
         """
         生成项目主入口（并发优化 + 增量生成 + 缓存 + 反馈学习）
+        
+        根据 spec_first 选项选择生成策略：
+        - spec_first=True: 使用 Spec-First 策略（推荐）
+        - spec_first=False: 使用传统生成策略
 
         Args:
             requirement: 项目需求描述
@@ -406,6 +414,10 @@ class OrchestratorAgent:
         Returns:
             生成结果
         """
+        if self.spec_first:
+            return await self.generate_with_spec_first(requirement, self.callback)
+        else:
+            return await self._generate_traditional(requirement)
         start_time = time.time()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -810,30 +822,10 @@ class OrchestratorAgent:
                 **summary
             )
 
-            # 如果测试失败且启用了错误恢复，尝试自动修复
-            if not result.success and self.enable_error_recovery and self.error_recovery:
-                self._report_progress(PROGRESS_LABELS["tests_failed_recovering"], 0, 1, phase="recovering")
-                fix_result = await self.error_recovery.fix_from_test_logs(
-                    test_runner=runner,
-                    failed_tests=result.failed_tests,
-                    test_logs=result.logs,
-                    project_path=self.output_dir,
-                    callback=self.callback
-                )
-                
-                summary.update({
-                    "recovery_attempted": True,
-                    "recovery_success": fix_result.get("success"),
-                    "recovery_message": fix_result.get("message")
-                })
-                
-                # 如果修复成功，更新最终结果
-                if fix_result.get("success"):
-                    summary["success"] = True
-                    self._report_progress(PROGRESS_LABELS["recovery_success"], 1, 1, phase="testing")
-                else:
-                    self.warnings.append(f"测试失败自动修复未成功: {fix_result.get('message')}")
-                    self._report_progress(PROGRESS_LABELS["recovery_failed"], 1, 1, phase="testing")
+            # 如果测试失败，记录结果但不进行自动修复（根据用户需求）
+            if not result.success:
+                self.warnings.append(f"测试失败，按用户要求不进行自动修复: {result.logs[:200]}")
+                self._report_progress(PROGRESS_LABELS["tests_failed_recovering"], 1, 1, phase="testing")
 
             return summary
         except Exception as e:
