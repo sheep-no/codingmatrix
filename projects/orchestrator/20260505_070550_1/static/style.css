@@ -1,0 +1,104 @@
+/* static/style.css */
+
+/* 基本样式 */
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #f9f9f9;
+}
+
+/* 层次化样式 */
+header {
+  text-align: center;
+  padding: 20px 0;
+  background-color: #333;
+  color: white;
+  border-bottom: 1px solid #ddd;
+}
+
+nav {
+  display: flex;
+  justify-content: center;
+  background-color: #f4f4f4;
+  padding: 10px 0;
+}
+
+nav a {
+  margin: 0 15px;
+  color: #333;
+  text-decoration: none;
+}
+
+main {
+  padding: 20px;
+  background-color: white;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  margin: 0 auto;
+  width: 80%;
+}
+
+footer {
+  text-align: center;
+  padding: 10px 0;
+  background-color: #333;
+  color: white;
+  border-top: 1px solid #ddd;
+}
+
+/* 单元素样式 */
+article {
+  margin-bottom: 20px;
+}
+
+/* 响应式设计 */
+@media (max-width: 600px) {
+  header, nav, main, footer {
+    width: 95%;
+  }
+}
+
+/* 显示过渡 */
+.fade-in {
+  opacity: 0;
+  animation: fadeIn 1s;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 用户界面组件的样式（使用 Element Plus 作为 UI 组件库） */
+.el-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+}
+
+.el-header, .el-footer {
+  background-color: #B3C0D1;
+  color: #333;
+  text-align: center;
+  line-height: 60px;
+}
+
+.el-aside {
+  background-color: #D3DCE6;
+  color: #333;
+  text-align: center;
+  line-height: 200px;
+  padding: 0;
+}
+
+.el-main {
+  background-color: #E9EEF3;
+  color: #333;
+  text-align: center;
+  line-height: 160px;
+}

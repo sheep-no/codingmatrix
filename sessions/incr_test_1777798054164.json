@@ -1,0 +1,145 @@
+{
+  "session_id": "incr_test_1777798054164",
+  "requirement": "测试增量生成",
+  "status": "cancelled",
+  "created_at": "2026-05-03T08:48:26.481859",
+  "updated_at": "2026-05-03T08:48:26.483487",
+  "completed_at": "2026-05-03T08:48:26.483481",
+  "architecture": {
+    "project_type": "数据生成测试工具",
+    "tech_stack": [
+      "Python",
+      "FastAPI",
+      "SQLite"
+    ],
+    "directory_structure": {
+      "src": [
+        "main.py",
+        "config.py",
+        "data_templates/"
+      ],
+      "data_templates": [
+        "template1.json",
+        "template2.yaml"
+      ]
+    },
+    "file_plan": [
+      {
+        "path": "src/config.py",
+        "description": "配置文件，定义生成规则参数",
+        "priority": 1
+      },
+      {
+        "path": "src/data_templates/template1.json",
+        "description": "增量生成的数据模板文件",
+        "priority": 2
+      },
+      {
+        "path": "src/data_templates/template2.yaml",
+        "description": "增量生成的配置模板文件",
+        "priority": 3
+      }
+    ],
+    "api_spec": {
+      "paths": {
+        "/api/generate": {
+          "post": {
+            "summary": "执行增量数据生成",
+            "parameters": [
+              {
+                "name": "template_name",
+                "in": "query",
+                "required": true,
+                "description": "要使用的数据模板名称"
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "生成成功，返回结果数据"
+              }
+            }
+          }
+        }
+      }
+    },
+    "db_schema": {
+      "test_generation_logs": {
+        "columns": {
+          "id": "INTEGER PRIMARY KEY",
+          "template_name": "VARCHAR(255)",
+          "generated_count": "INTEGER",
+          "timestamp": "DATETIME"
+        }
+      }
+    },
+    "dependencies": {
+      "fastapi": "0.68.0",
+      "uvicorn": "0.15.0",
+      "sqlite3": "3.42.0"
+    },
+    "risks": [
+      "生成逻辑可能无法正确处理模板文件格式",
+      "数据库连接配置可能遗漏环境变量",
+      "并发生成时可能产生数据竞争问题"
+    ]
+  },
+  "file_plan": [
+    {
+      "path": "src/config.py",
+      "description": "配置文件，定义生成规则参数",
+      "priority": 1
+    },
+    {
+      "path": "src/data_templates/template1.json",
+      "description": "增量生成的数据模板文件",
+      "priority": 2
+    },
+    {
+      "path": "src/data_templates/template2.yaml",
+      "description": "增量生成的配置模板文件",
+      "priority": 3
+    }
+  ],
+  "file_statuses": {
+    "src/config.py": {
+      "path": "src/config.py",
+      "status": "pending",
+      "content_hash": "",
+      "content_embedding": null,
+      "last_modified": "",
+      "error": ""
+    },
+    "src/data_templates/template1.json": {
+      "path": "src/data_templates/template1.json",
+      "status": "pending",
+      "content_hash": "",
+      "content_embedding": null,
+      "last_modified": "",
+      "error": ""
+    },
+    "src/data_templates/template2.yaml": {
+      "path": "src/data_templates/template2.yaml",
+      "status": "pending",
+      "content_hash": "",
+      "content_embedding": null,
+      "last_modified": "",
+      "error": ""
+    }
+  },
+  "current_step": "",
+  "current_file": "",
+  "files_generated": 0,
+  "files_total": 3,
+  "errors": [],
+  "warnings": [],
+  "is_incremental": true,
+  "changed_files": [
+    "src/config.py",
+    "src/data_templates/template1.json",
+    "src/data_templates/template2.yaml"
+  ],
+  "unchanged_files": [],
+  "pause_reason": "",
+  "pause_file": "",
+  "output_dir": "projects/orchestrator/20260503_084734_1"
+}

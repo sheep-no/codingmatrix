@@ -1,0 +1,45 @@
+# 覆盖率配置 (pytest-cov)
+[tool.coverage.run]
+branch = true
+source = ["app", "src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/conftest.py",
+    "*/alembic/*",
+    "*/migrations/*",
+    "*node_modules*",
+    "*/venv/*",
+    "*/.venv/*",
+    "*/__pycache__/*",
+    "*/.git/*"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "except ImportError:",
+    "if sys.platform ==",
+    "if os.name ==",
+    "if DEBUG:",
+    "if settings.DEBUG",
+    "logger\\.",
+    "log\\.",
+    "except Exception:",
+]
+fail_under = 70
+show_missing = true
+sort = "Cover"
+precision = 2
+
+[tool.coverage.html]
+directory = "htmlcov"
+title = "Coverage Report"
+
+[tool.coverage.xml]
+output = "coverage.xml"

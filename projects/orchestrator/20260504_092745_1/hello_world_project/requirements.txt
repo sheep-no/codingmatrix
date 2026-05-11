@@ -1,0 +1,4 @@
+# projects/orchestrator/20260504_092745_1/hello_world_project/requirements.txt
+python==3.9
+fastapi
+uvicorn

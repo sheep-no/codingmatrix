@@ -1,0 +1,68 @@
+/* static/style.css */
+
+body {
+  background-color: #222;
+  color: #fff;
+  font-family: Arial, sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  margin: 0;
+}
+
+.game-board {
+  width: 350px;
+  height: 350px;
+  border: 10px solid #fff;
+  margin: auto;
+  position: relative;
+}
+
+.cell {
+  width: 25%;
+  height: 25%;
+  position: relative;
+  float: left;
+  border: 1px solid #000;
+}
+
+.cell::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  background-color: #fff;
+  transform: translate(-50%, -50%);
+}
+
+.cell.AI::before {
+  background-color: #ff0000;
+}
+
+.cell.player::before {
+  background-color: #00ff00;
+}
+
+.winning-line {
+  position: absolute;
+  background-color: red;
+  z-index: 1;
+}
+
+.winning-line.horizontal {
+  width: 100%;
+  height: 2px;
+}
+
+.winning-line.vertical {
+  width: 2px;
+  height: 100%;
+}
+
+.winning-line.diagonal {
+  width: 150%;
+  height: 150%;
+}

@@ -1,0 +1,84 @@
+# 文件到测试映射表
+# Agent 修改文件后，自动查找并运行关联的测试
+# 格式: {源文件模式}: [关联测试文件]
+
+mapping:
+  # 认证模块
+  "app/api/v1/auth.py":
+    - "tests/unit/test_auth.py"
+    - "tests/integration/test_auth_flow.py"
+
+  # 用户模块
+  "app/models/user.py":
+    - "tests/unit/test_user_model.py"
+  "app/schema/user.py":
+    - "tests/unit/test_user_schema.py"
+
+  # Agent 核心
+  "app/utils/agent_core.py":
+    - "tests/unit/test_agent_core.py"
+    - "tests/integration/test_agent_generation.py"
+  "app/agent/orchestrator.py":
+    - "tests/unit/test_orchestrator.py"
+    - "tests/integration/test_multi_agent.py"
+  "app/agent/multi_model_agent.py":
+    - "tests/unit/test_multi_model_agent.py"
+
+  # 任务队列
+  "app/api/v1/task_queue.py":
+    - "tests/unit/test_task_queue.py"
+  "app/tasks/base.py":
+    - "tests/unit/test_task_base.py"
+  "app/tasks/project_tasks.py":
+    - "tests/integration/test_project_tasks.py"
+
+  # 文件操作
+  "app/utils/file_operator.py":
+    - "tests/unit/test_file_operator.py"
+  "app/api/v1/file_upload.py":
+    - "tests/unit/test_file_upload.py"
+
+  # 工作流
+  "app/api/v1/workflow.py":
+    - "tests/unit/test_workflow.py"
+  "app/agent/workflow/*.py":
+    - "tests/unit/test_workflow_nodes.py"
+
+  # AI 云
+  "app/api/v1/aicloud.py":
+    - "tests/unit/test_aicloud.py"
+  "app/utils/aicloud/*.py":
+    - "tests/unit/test_aicloud_utils.py"
+
+  # 模型适配器
+  "app/adapter/model_adapter.py":
+    - "tests/unit/test_model_adapter.py"
+
+  # 数据库
+  "app/db/database.py":
+    - "tests/unit/test_db.py"
+  "app/models/*.py":
+    - "tests/unit/test_models.py"
+
+  # 中间件
+  "app/middleware/*.py":
+    - "tests/unit/test_middleware.py"
+
+  # 配置
+  "app/core/config.py":
+    - "tests/unit/test_config.py"
+
+# 全局测试（任何修改都运行）
+global_tests:
+  - "tests/unit/test_security.py"
+  - "tests/unit/test_logging.py"
+
+# 测试运行配置
+test_config:
+  command: "pytest"
+  args:
+    - "-v"
+    - "--tb=short"
+    - "--maxfail=3"
+  timeout: 120  # 秒
+  max_retries: 3  # Agent 自动修复最大重试次数

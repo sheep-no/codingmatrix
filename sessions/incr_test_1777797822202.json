@@ -1,0 +1,183 @@
+{
+  "session_id": "incr_test_1777797822202",
+  "requirement": "测试增量生成",
+  "status": "cancelled",
+  "created_at": "2026-05-03T08:44:48.818527",
+  "updated_at": "2026-05-03T08:44:48.822369",
+  "completed_at": "2026-05-03T08:44:48.822361",
+  "architecture": {
+    "project_type": "API Service",
+    "tech_stack": [
+      "Python",
+      "Flask",
+      "SQLite"
+    ],
+    "directory_structure": {
+      "app": [
+        "__init__.py",
+        "models.py",
+        "routes.py"
+      ],
+      "tests": [
+        "test_incremental_generation.py"
+      ]
+    },
+    "file_plan": [
+      {
+        "path": "app/__init__.py",
+        "description": "初始化Flask应用及核心配置",
+        "priority": 1
+      },
+      {
+        "path": "app/models.py",
+        "description": "定义数据库模型（任务状态表）",
+        "priority": 2
+      },
+      {
+        "path": "app/routes.py",
+        "description": "实现增量生成相关的API路由",
+        "priority": 3
+      }
+    ],
+    "api_spec": {
+      "/api/v1/generate": {
+        "post": {
+          "summary": "启动增量生成任务",
+          "parameters": [
+            {
+              "name": "task_id",
+              "in": "body",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "任务启动成功"
+            }
+          }
+        }
+      },
+      "/api/v1/status/{task_id}": {
+        "get": {
+          "summary": "查询增量生成任务状态",
+          "parameters": [
+            {
+              "name": "task_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "返回任务状态信息"
+            }
+          }
+        }
+      },
+      "/api/v1/result/{task_id}": {
+        "get": {
+          "summary": "获取增量生成最终结果",
+          "parameters": [
+            {
+              "name": "task_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "返回生成结果数据"
+            }
+          }
+        }
+      }
+    },
+    "db_schema": {
+      "tasks": {
+        "columns": {
+          "id": "INTEGER PRIMARY KEY",
+          "task_id": "VARCHAR(255) NOT NULL",
+          "status": "VARCHAR(50) NOT NULL",
+          "result": "TEXT",
+          "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        }
+      }
+    },
+    "dependencies": {
+      "Flask": "2.0.1",
+      "Flask-SQLAlchemy": "2.5.1"
+    },
+    "risks": [
+      "任务状态同步机制可能产生竞态条件",
+      "未实现并发控制可能导致资源争用"
+    ]
+  },
+  "file_plan": [
+    {
+      "path": "app/__init__.py",
+      "description": "初始化Flask应用及核心配置",
+      "priority": 1
+    },
+    {
+      "path": "app/models.py",
+      "description": "定义数据库模型（任务状态表）",
+      "priority": 2
+    },
+    {
+      "path": "app/routes.py",
+      "description": "实现增量生成相关的API路由",
+      "priority": 3
+    }
+  ],
+  "file_statuses": {
+    "app/__init__.py": {
+      "path": "app/__init__.py",
+      "status": "pending",
+      "content_hash": "",
+      "content_embedding": null,
+      "last_modified": "",
+      "error": ""
+    },
+    "app/models.py": {
+      "path": "app/models.py",
+      "status": "pending",
+      "content_hash": "",
+      "content_embedding": null,
+      "last_modified": "",
+      "error": ""
+    },
+    "app/routes.py": {
+      "path": "app/routes.py",
+      "status": "pending",
+      "content_hash": "",
+      "content_embedding": null,
+      "last_modified": "",
+      "error": ""
+    }
+  },
+  "current_step": "",
+  "current_file": "",
+  "files_generated": 0,
+  "files_total": 3,
+  "errors": [],
+  "warnings": [],
+  "is_incremental": true,
+  "changed_files": [
+    "app/__init__.py",
+    "app/models.py",
+    "app/routes.py"
+  ],
+  "unchanged_files": [],
+  "pause_reason": "",
+  "pause_file": "",
+  "output_dir": "projects/orchestrator/20260503_084342_1"
+}

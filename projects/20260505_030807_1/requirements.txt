@@ -1,0 +1,5 @@
+# Python依赖文件
+# 本项目仅需Python 3.x
+python>=3.6
+# 如果需要运行HTTP服务器，需要安装http.server模块（Python内置）
+# 其他依赖：none

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="/AiChat.jpeg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent</title>
+    <style>
+      .skip-link {
+        position: absolute;
+        top: -40px;
+        left: 0;
+        background: #2563eb;
+        color: white;
+        padding: 8px 16px;
+        z-index: 10000;
+        text-decoration: none;
+        font-weight: 600;
+        border-radius: 0 0 4px 0;
+        transition: top 0.2s;
+      }
+      .skip-link:focus {
+        top: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <a href="#main-content" class="skip-link">跳到主内容</a>
+    <div id="app"></div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

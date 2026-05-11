@@ -1,0 +1,9 @@
+{
+  "session_id": "extreme_test_incremental",
+  "output_dir": "projects/orchestrator/20260505_060547_1",
+  "generated_files": [],
+  "incremental": true,
+  "last_run_time": "2026-05-06T04:23:06.212Z",
+  "total_events": 1,
+  "success": false
+}

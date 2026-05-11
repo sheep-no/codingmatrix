@@ -1,0 +1,5 @@
+
+{
+  "filename": "requirements.txt",
+  "content": "python_dotenv==0.13.1\npeewee==3.19.0"
+}

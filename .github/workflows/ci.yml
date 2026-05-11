@@ -1,0 +1,101 @@
+name: CI/CD Auto Test
+
+on:
+  push:
+    branches: [ "*" ]
+  pull_request:
+    branches: [ "*" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11"]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Setup environment
+      run: |
+        cp .env.example .env || true
+        echo "SILICONFLOW_API_KEY=test_key" >> .env
+        echo "SECRET_KEY=test_secret_key_for_ci_test" >> .env
+        echo "DATABASE_URL=sqlite+aiosqlite:///./test.db" >> .env
+    
+    - name: Check Guard Contracts
+      run: |
+        python scripts/check_guard.py \
+          --target app/ \
+          --json-output guard_check_results.json \
+          --no-fail
+
+    - name: Upload Guard Check Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: guard-check-results-python${{ matrix.python-version }}
+        path: guard_check_results.json
+        retention-days: 30
+
+    - name: Run pytest tests
+      run: |
+        PYTHONPATH=/workspace:$PYTHONPATH pytest tests/ \
+          -v \
+          --tb=short \
+          --maxfail=5 \
+          -o log_cli=true \
+          -o log_cli_level=INFO \
+          --cov=app \
+          --cov=src \
+          --cov-report=xml \
+          --cov-report=html \
+          --cov-report=term-missing \
+          --junitxml=test-results.xml
+    
+    - name: Upload coverage reports
+      if: always()
+      uses: codecov/codecov-action@v5
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        fail_ci_if_error: false
+    
+    - name: Upload HTML coverage report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report-python${{ matrix.python-version }}
+        path: htmlcov/
+        retention-days: 7
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-python${{ matrix.python-version }}
+        path: |
+          test-results.xml
+          .pytest_cache/
+          logs/
+        retention-days: 7

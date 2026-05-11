@@ -1,0 +1,113 @@
+# 规格书模板
+# Agent 执行任务前，必须将需求整理成此格式的规格书
+
+templates:
+  # 重构任务
+  refactor:
+    title: "重构规格书"
+    sections:
+      - name: "目标"
+        description: "本次重构要解决什么问题？为什么需要重构？"
+        required: true
+        fields:
+          - target_files: "需要重构的文件列表"
+          - current_issues: "当前存在的问题"
+          - expected_outcome: "期望达到的效果"
+
+      - name: "架构"
+        description: "重构后的架构设计"
+        required: true
+        fields:
+          - new_structure: "新的文件/模块组织方式"
+          - design_patterns: "使用的设计模式"
+          - api_changes: "API 变更说明"
+
+      - name: "约束"
+        description: "重构过程中必须遵守的规则"
+        required: true
+        fields:
+          - backward_compatible: "是否向后兼容 (yes/no)"
+          - no_regression: "不能引入的已知问题"
+          - performance: "性能要求"
+          - security: "安全要求"
+
+      - name: "验收"
+        description: "如何验证重构成功"
+        required: true
+        fields:
+          - test_cases: "需要通过的测试用例"
+          - metrics: "量化指标 (代码行数减少 X%, 性能提升 Y%)"
+          - review_checklist: "代码审查检查项"
+
+  # 修改任务
+  modify:
+    title: "修改规格书"
+    sections:
+      - name: "目标"
+        description: "本次修改要解决什么问题？"
+        required: true
+        fields:
+          - target_files: "需要修改的文件列表"
+          - current_behavior: "当前行为"
+          - desired_behavior: "期望行为"
+
+      - name: "影响分析"
+        description: "修改会影响哪些模块"
+        required: true
+        fields:
+          - affected_files: "受影响的其他文件（查依赖图谱）"
+          - api_compatibility: "API 兼容性影响"
+          - breaking_changes: "破坏性变更"
+
+      - name: "约束"
+        description: "修改过程中必须遵守的规则"
+        required: true
+        fields:
+          - min_changes: "最小化修改原则"
+          - guard_rules: "守护合约规则（GC-XXX）"
+          - test_coverage: "测试覆盖率要求"
+
+      - name: "验收"
+        description: "如何验证修改正确"
+        required: true
+        fields:
+          - test_cases: "需要运行的测试"
+          - manual_checks: "需要手动检查的项"
+
+  # 新增任务
+  new_feature:
+    title: "新增功能规格书"
+    sections:
+      - name: "目标"
+        description: "新功能的描述"
+        required: true
+        fields:
+          - feature_name: "功能名称"
+          - user_story: "用户故事 (As a... I want... So that...)"
+          - acceptance_criteria: "验收标准"
+
+      - name: "架构"
+        description: "新功能的技术设计"
+        required: true
+        fields:
+          - new_files: "需要创建的文件"
+          - modifications: "需要修改的现有文件"
+          - dependencies: "新增依赖"
+          - api_design: "API 设计"
+
+      - name: "约束"
+        description: "实现过程中的约束"
+        required: true
+        fields:
+          - tech_stack: "技术栈要求"
+          - security: "安全要求"
+          - performance: "性能要求"
+          - compatibility: "兼容性要求"
+
+      - name: "验收"
+        description: "如何验证功能完成"
+        required: true
+        fields:
+          - test_cases: "测试用例"
+          - edge_cases: "边缘情况处理"
+          - documentation: "文档更新"

@@ -1,0 +1,83 @@
+# 覆盖率配置
+[run]
+branch = True
+source = 
+    app/
+    src/
+
+# 排除测试文件和配置
+omit =
+    */tests/*
+    */test_*
+    */conftest.py
+    */__init__.py
+    */alembic/*
+    */migrations/*
+    *node_modules*
+    */venv/*
+    */.venv/*
+    */__pycache__/*
+    */.git/*
+
+[report]
+# 排除特定模式的代码
+exclude_lines =
+    # 必须重新启用标准的 pragma 忽略
+    pragma: no cover
+    
+    # 忽略调试代码
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    
+    # 忽略类型检查代码
+    if TYPE_CHECKING:
+    
+    # 忽略导入失败处理
+    except ImportError:
+    
+    # 忽略平台特定代码
+    if sys.platform ==
+    if os.name ==
+    
+    # 忽略开发/调试模式代码
+    if DEBUG:
+    if settings.DEBUG
+    
+    # 忽略日志和错误处理
+    logger\.
+    log\.
+    except Exception:
+    
+    # 忽略测试辅助代码
+    if os.getenv.*TEST.*:
+
+# 覆盖率阈值
+fail_under = 70
+
+# 显示缺失行
+show_missing = True
+
+# 按文件排序
+sort = Cover
+
+# 精度设置
+precision = 2
+
+[html]
+directory = htmlcov
+title = Coverage Report
+show_contexts = True
+
+[xml]
+output = coverage.xml
+
+[json]
+output = coverage.json
+
+[paths]
+source =
+    app/
+    src/
+    */site-packages/

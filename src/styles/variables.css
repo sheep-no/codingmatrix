@@ -1,0 +1,448 @@
+/**
+ * 全局 CSS 变量定义
+ * 包含颜色、间距、阴影、动画等统一配置
+ *
+ * 三种主题模式:
+ * - theme-light: 明亮模式 (蓝色系)
+ * - theme-default: 默认模式 (青色 Teal)
+ * - theme-dark: 暗色模式 (深蓝/青色)
+ */
+
+/* ========================================
+   明亮模式 (Light)
+   ======================================== */
+.theme-light {
+  /* 主色调 - Blue */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+
+  /* 兼容性别名 */
+  --primary-color: #3b82f6;
+  --hover-bg: #f1f5f9;
+
+  /* 中性色 */
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+
+  /* 功能色 */
+  --color-success-500: #10b981;
+  --color-success-600: #059669;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-danger-500: #ef4444;
+  --color-danger-600: #dc2626;
+
+  /* 背景色 - 纯白亮色 */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-tertiary: #94a3b8;
+  --border-color: #e2e8f0;
+  --shadow-color: rgba(0, 0, 0, 0.08);
+
+  /* 渐变 */
+  --gradient-primary: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+  --gradient-bg: linear-gradient(180deg, #ffffff 0%, #f0f4f8 100%);
+
+  /* 别名映射 (确保组件使用 var(--slate-*) 时能正确响应主题) */
+  --slate-50: var(--color-slate-50);
+  --slate-100: var(--color-slate-100);
+  --slate-200: var(--color-slate-200);
+  --slate-300: var(--color-slate-300);
+  --slate-400: var(--color-slate-400);
+  --slate-500: var(--color-slate-500);
+  --slate-600: var(--color-slate-600);
+  --slate-700: var(--color-slate-700);
+  --slate-800: var(--color-slate-800);
+  --slate-900: var(--color-slate-900);
+  --primary-50: var(--color-primary-50);
+  --primary-100: var(--color-primary-100);
+  --primary-200: var(--color-primary-200);
+  --primary-300: var(--color-primary-300);
+  --primary-400: var(--color-primary-400);
+  --primary-500: var(--color-primary-500);
+  --primary-600: var(--color-primary-600);
+  --primary-700: var(--color-primary-700);
+  --teal: #14b8a6;
+  --teal-hover: #0d9488;
+  --teal-100: var(--color-primary-100);
+  --teal-200: var(--color-primary-200);
+  --teal-300: var(--color-primary-300);
+}
+
+/* ========================================
+   默认模式 (Default - Teal)
+   ======================================== */
+.theme-default {
+  /* 主色调 - Teal */
+  --color-primary-50: #f0fdfa;
+  --color-primary-100: #ccfbf1;
+  --color-primary-200: #99f6e4;
+  --color-primary-300: #5eead4;
+  --color-primary-400: #2dd4bf;
+  --color-primary-500: #14b8a6;
+  --color-primary-600: #0d9488;
+  --color-primary-700: #0f766e;
+
+  /* 兼容性别名 */
+  --primary-color: #14b8a6;
+  --hover-bg: #f0f7f6;
+
+  /* 中性色 */
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+
+  /* 功能色 */
+  --color-success-500: #10b981;
+  --color-success-600: #059669;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-danger-500: #ef4444;
+  --color-danger-600: #dc2626;
+
+  /* 背景色 - 微青色调，与 Light 有明显区分 */
+  --bg-primary: #fcfdfd;
+  --bg-secondary: #f0f7f6;
+  --bg-tertiary: #e6f2f0;
+  --text-primary: #1a2e35;
+  --text-secondary: #4a6670;
+  --text-tertiary: #7a9ba5;
+  --border-color: #d4e8e4;
+  --shadow-color: rgba(13, 148, 136, 0.08);
+
+  /* 渐变 */
+  --gradient-primary: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+  --gradient-bg: linear-gradient(180deg, #fcfdfd 0%, #e8f4f2 100%);
+
+  /* 别名映射 */
+  --slate-50: var(--color-slate-50);
+  --slate-100: var(--color-slate-100);
+  --slate-200: var(--color-slate-200);
+  --slate-300: var(--color-slate-300);
+  --slate-400: var(--color-slate-400);
+  --slate-500: var(--color-slate-500);
+  --slate-600: var(--color-slate-600);
+  --slate-700: var(--color-slate-700);
+  --slate-800: var(--color-slate-800);
+  --slate-900: var(--color-slate-900);
+  --primary-50: var(--color-primary-50);
+  --primary-100: var(--color-primary-100);
+  --primary-200: var(--color-primary-200);
+  --primary-300: var(--color-primary-300);
+  --primary-400: var(--color-primary-400);
+  --primary-500: var(--color-primary-500);
+  --primary-600: var(--color-primary-600);
+  --primary-700: var(--color-primary-700);
+  --teal: var(--color-primary-500);
+  --teal-hover: var(--color-primary-600);
+  --teal-100: var(--color-primary-100);
+  --teal-200: var(--color-primary-200);
+  --teal-300: var(--color-primary-300);
+}
+
+/* ========================================
+   暗色模式 (Dark)
+   ======================================== */
+.theme-dark {
+  /* 主色调 - 深青 */
+  --color-primary-50: #134e4a;
+  --color-primary-100: #115e59;
+  --color-primary-200: #0f766e;
+  --color-primary-300: #0d9488;
+  --color-primary-400: #14b8a6;
+  --color-primary-500: #2dd4bf;
+  --color-primary-600: #5eead4;
+  --color-primary-700: #99f6e4;
+
+  /* 兼容性别名 */
+  --primary-color: #2dd4bf;
+  --hover-bg: #334155;
+
+  /* 中性色 - 深色 */
+  --color-slate-50: #1e293b;
+  --color-slate-100: #334155;
+  --color-slate-200: #475569;
+  --color-slate-300: #64748b;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #cbd5e1;
+  --color-slate-600: #e2e8f0;
+  --color-slate-700: #f1f5f9;
+  --color-slate-800: #f8fafc;
+  --color-slate-900: #ffffff;
+
+  /* 功能色 */
+  --color-success-500: #34d399;
+  --color-success-600: #10b981;
+  --color-warning-500: #fbbf24;
+  --color-warning-600: #f59e0b;
+  --color-danger-500: #f87171;
+  --color-danger-600: #ef4444;
+
+  /* 背景色 */
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-tertiary: #334155;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-tertiary: #64748b;
+  --border-color: #334155;
+  --shadow-color: rgba(0, 0, 0, 0.4);
+
+  /* 渐变 */
+  --gradient-primary: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+  --gradient-bg: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+
+  /* 别名映射 */
+  --slate-50: var(--color-slate-50);
+  --slate-100: var(--color-slate-100);
+  --slate-200: var(--color-slate-200);
+  --slate-300: var(--color-slate-300);
+  --slate-400: var(--color-slate-400);
+  --slate-500: var(--color-slate-500);
+  --slate-600: var(--color-slate-600);
+  --slate-700: var(--color-slate-700);
+  --slate-800: var(--color-slate-800);
+  --slate-900: var(--color-slate-900);
+  --primary-50: var(--color-primary-50);
+  --primary-100: var(--color-primary-100);
+  --primary-200: var(--color-primary-200);
+  --primary-300: var(--color-primary-300);
+  --primary-400: var(--color-primary-400);
+  --primary-500: var(--color-primary-500);
+  --primary-600: var(--color-primary-600);
+  --primary-700: var(--color-primary-700);
+  --teal: var(--color-primary-500);
+  --teal-hover: var(--color-primary-600);
+  --teal-100: var(--color-primary-100);
+  --teal-200: var(--color-primary-200);
+  --teal-300: var(--color-primary-300);
+}
+
+/* ========================================
+   CSS 变量别名 (兼容旧代码)
+   ======================================== */
+:root {
+  /* 默认背景与文字颜色（在主题 class 加载前提供基础可读性） */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-tertiary: #94a3b8;
+  --border-color: #e2e8f0;
+  --shadow-color: rgba(0, 0, 0, 0.08);
+
+  /* 主色调默认值 */
+  --color-primary-50: #f0fdfa;
+  --color-primary-100: #ccfbf1;
+  --color-primary-200: #99f6e4;
+  --color-primary-300: #5eead4;
+  --color-primary-400: #2dd4bf;
+  --color-primary-500: #14b8a6;
+  --color-primary-600: #0d9488;
+  --color-primary-700: #0f766e;
+
+  /* 主色调别名 */
+  --color-blue-50: var(--color-primary-50);
+  --color-blue-100: var(--color-primary-100);
+  --color-blue-200: var(--color-primary-200);
+  --color-blue-300: var(--color-primary-300);
+  --color-blue-400: var(--color-primary-400);
+  --color-blue-500: var(--color-primary-500);
+  --color-blue-600: var(--color-primary-600);
+  --color-blue-700: var(--color-primary-700);
+
+  --color-teal-500: var(--color-primary-500);
+  --color-teal-600: var(--color-primary-600);
+  --color-teal-700: var(--color-primary-700);
+
+  /* 功能色 */
+  --color-success-500: #10b981;
+  --color-success-600: #059669;
+  --color-success-700: #047857;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+  --color-danger-500: #ef4444;
+  --color-danger-600: #dc2626;
+  --color-danger-700: #b91c1c;
+
+  /* 中性色别名 (不带 color- 前缀) */
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1e293b;
+  --slate-900: #0f172a;
+
+  /* 主色别名 (不带 color- 前缀) */
+  --primary-50: var(--color-primary-50);
+  --primary-100: var(--color-primary-100);
+  --primary-200: var(--color-primary-200);
+  --primary-300: var(--color-primary-300);
+  --primary-400: var(--color-primary-400);
+  --primary-500: var(--color-primary-500);
+  --primary-600: var(--color-primary-600);
+  --primary-700: var(--color-primary-700);
+
+  /* teal 别名 */
+  --teal: var(--color-primary-500);
+  --teal-hover: var(--color-primary-600);
+  --teal-100: var(--color-primary-100);
+  --teal-200: var(--color-primary-200);
+  --teal-300: var(--color-primary-300);
+
+  /* 功能色别名 */
+  --success: var(--color-success-500);
+  --success-hover: var(--color-success-600);
+  --warning: var(--color-warning-500);
+  --warning-hover: var(--color-warning-600);
+  --danger: var(--color-danger-500);
+  --danger-hover: var(--color-danger-600);
+
+  /* ========================================
+     尺寸系统
+     ======================================== */
+  /* 间距 */
+  --spacing-0: 0;
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+  --spacing-16: 64px;
+
+  /* 圆角 */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-full: 9999px;
+
+  /* 字体大小 */
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 15px;
+  --text-xl: 16px;
+  --text-2xl: 20px;
+  --text-3xl: 24px;
+
+  /* ========================================
+     阴影系统
+     ======================================== */
+  --shadow-xs: 0 1px 2px 0 var(--shadow-color);
+  --shadow-sm: 0 1px 3px 0 var(--shadow-color), 0 1px 2px -1px var(--shadow-color);
+  --shadow-md: 0 4px 6px -1px var(--shadow-color), 0 2px 4px -2px var(--shadow-color);
+  --shadow-lg: 0 10px 15px -3px var(--shadow-color), 0 4px 6px -4px var(--shadow-color);
+  --shadow-xl: 0 20px 25px -5px var(--shadow-color), 0 8px 10px -6px var(--shadow-color);
+  --shadow-inner: inset 0 2px 4px 0 var(--shadow-color);
+
+  /* ========================================
+     动画系统
+     ======================================== */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-spring: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ========================================
+     布局尺寸
+     ======================================== */
+  --sidebar-width: 280px;
+  --sidebar-collapsed-width: 76px;
+  --max-content-width: 900px;
+  --header-height: 60px;
+
+  /* ========================================
+     渐变效果 (默认使用主色)
+     ======================================== */
+  --gradient-primary: linear-gradient(
+    135deg,
+    var(--color-primary-600) 0%,
+    var(--color-primary-500) 100%
+  );
+  --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  --gradient-warning: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  --gradient-danger: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  --gradient-bg: linear-gradient(180deg, var(--slate-100) 0%, var(--slate-200) 100%);
+
+  /* ========================================
+     背景和边框
+     ======================================== */
+  --hover-bg: var(--slate-100);
+  --border-light: var(--slate-200);
+}
+
+/* ========================================
+   系统暗色模式支持
+   ======================================== */
+@media (prefers-color-scheme: dark) {
+  :root:not(.theme-light):not(.theme-default) {
+    /* 背景色 */
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #334155;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-tertiary: #64748b;
+    --border-color: #334155;
+    --shadow-color: rgba(0, 0, 0, 0.4);
+
+    /* 渐变 */
+    --gradient-bg: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  }
+}
+
+/* ========================================
+   主题切换平滑过渡
+   ======================================== */
+.theme-transitioning,
+.theme-transitioning *,
+.theme-transitioning *::before,
+.theme-transitioning *::after {
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease !important;
+}
+
+/* 系统主题自动跟随类 */
+.theme-auto {
+  /* 由 JavaScript 动态检测并应用对应主题 */
+}

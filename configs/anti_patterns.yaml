@@ -1,0 +1,87 @@
+# 常见错误模式库
+# Agent 修改代码后自动自查，避免引入已知反模式
+
+patterns:
+  # 安全类
+  - id: "AP-SEC-001"
+    category: "security"
+    name: "硬编码密钥"
+    description: "禁止在代码中硬编码 API Key、密码、Token 等敏感信息"
+    pattern: "(password|api_key|secret|token).*=.*['\"][^'\"]{8,}['\"]"
+    severity: "critical"
+    suggestion: "使用环境变量或密钥管理服务"
+
+  - id: "AP-SEC-002"
+    category: "security"
+    name: "SQL 拼接"
+    description: "禁止通过字符串拼接构造 SQL，存在 SQL 注入风险"
+    pattern: "(f\".*SELECT|f\".*INSERT|f\".*UPDATE|f\".*DELETE).*\\{.*\\}"
+    severity: "critical"
+    suggestion: "使用 ORM 或参数化查询"
+
+  - id: "AP-SEC-003"
+    category: "security"
+    name: "路径穿越"
+    description: "文件操作未验证路径，可能导致路径穿越"
+    pattern: "(open|read_file|write).*(\\.\\.|/etc/|/root/)"
+    severity: "critical"
+    suggestion: "使用 os.path.abspath 验证路径，禁止 '..'"
+
+  # 异常处理类
+  - id: "AP-ERR-001"
+    category: "error_handling"
+    name: "裸异常捕获"
+    description: "禁止使用 except: 或 except Exception: 而不做任何处理"
+    pattern: "except( Exception)?:\\s*\\n\\s*(pass|#|$)"
+    severity: "warning"
+    suggestion: "至少记录日志或重新抛出"
+
+  - id: "AP-ERR-002"
+    category: "error_handling"
+    name: "异常信息泄露"
+    description: "禁止将完整的异常堆栈返回给前端用户"
+    pattern: "return.*str\\(e\\)|return.*traceback"
+    severity: "warning"
+    suggestion: "返回友好的错误提示，详细错误记录到日志"
+
+  # 性能类
+  - id: "AP-PERF-001"
+    category: "performance"
+    name: "循环中数据库查询"
+    description: "禁止在循环中执行数据库查询（N+1 问题）"
+    pattern: "for.*:\\n.*\\.query\\(|for.*:\\n.*\\.filter\\(|for.*:\\n.*await.*session"
+    severity: "warning"
+    suggestion: "使用 JOIN 或批量查询"
+
+  - id: "AP-PERF-002"
+    category: "performance"
+    name: "同步阻塞调用"
+    description: "在异步函数中使用同步阻塞调用会阻塞事件循环"
+    pattern: "async def.*:\\n.*time\\.sleep|async def.*:\\n.*requests\\."
+    severity: "warning"
+    suggestion: "使用 asyncio.sleep 或 aiohttp"
+
+  # 代码质量类
+  - id: "AP-QUAL-001"
+    category: "code_quality"
+    name: "过长函数"
+    description: "函数超过 100 行，建议拆分"
+    pattern: "def .+:\\n(?:.*\\n){100,}"
+    severity: "notice"
+    suggestion: "将函数拆分为多个小函数"
+
+  - id: "AP-QUAL-002"
+    category: "code_quality"
+    name: "魔法数字"
+    description: "代码中出现未解释的常量数字"
+    pattern: "[^a-zA-Z_](?:60|300|1000|3600|86400)[^a-zA-Z_]"
+    severity: "notice"
+    suggestion: "使用命名常量"
+
+  - id: "AP-QUAL-003"
+    category: "code_quality"
+    name: "注释掉的代码"
+    description: "代码中存在被注释掉的代码块，应删除或说明原因"
+    pattern: "^\\s*#.*(?:def |class |if |for |while |return |import )"
+    severity: "notice"
+    suggestion: "删除注释代码，使用版本控制管理历史"

@@ -1,0 +1,89 @@
+# =============================================================================
+# Docker Compose 配置
+# 2核4G 服务器优化版
+# =============================================================================
+
+services:
+  # AI Agent API 服务
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-agent-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - ENV=production
+      - REDIS_URL=redis://redis:6379/0
+      - DB_POOL_SIZE=3
+      - DB_MAX_OVERFLOW=5
+      - WS_MAX_CONNECTIONS=50
+      - LOG_LEVEL=WARNING
+    volumes:
+      - ./app:/workspace/app
+      - ./logs:/workspace/logs
+      - ./data:/workspace/data
+    depends_on:
+      - redis
+    networks:
+      - ai-agent-net
+    mem_limit: 1.5g
+    memswap_limit: 2g
+    cpus: 1.5
+
+  # Celery Worker
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-agent-celery
+    restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=warning --concurrency=1 --max-tasks-per-child=50
+    environment:
+      - ENV=production
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=WARNING
+    volumes:
+      - ./app:/workspace/app
+      - ./logs:/workspace/logs
+    depends_on:
+      - redis
+    networks:
+      - ai-agent-net
+    mem_limit: 512m
+    cpus: 0.5
+
+  # Redis 缓存/消息队列
+  redis:
+    image: redis:7-alpine
+    container_name: ai-agent-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - ai-agent-net
+    mem_limit: 320m
+    cpus: 0.25
+
+  # Nginx 反向代理 + 静态文件服务
+  nginx:
+    image: nginx:alpine
+    container_name: ai-agent-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./src/dist:/workspace/src/dist:ro
+    depends_on:
+      - api
+    networks:
+      - ai-agent-net
+    mem_limit: 128m
+    cpus: 0.25
+
+networks:
+  ai-agent-net:
+    driver: bridge

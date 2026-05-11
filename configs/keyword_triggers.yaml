@@ -1,0 +1,58 @@
+# 关键词触发配置
+# 当用户输入匹配到关键词时，Agent 自动触发追问流程，生成规格书
+
+triggers:
+  # 重构类
+  - keywords: ["重构", "refactor", "重构代码", "优化代码", "重新设计"]
+    type: "refactor"
+    questions:
+      - "你需要重构哪些文件？请列出路径或模块名。"
+      - "当前代码存在什么问题？（性能/可读性/维护性/其他）"
+      - "重构后需要保持向后兼容吗？"
+      - "有没有不能修改的部分？（受守护合约保护的）"
+
+  # 拆分/迁移类
+  - keywords: ["拆分", "split", "迁移", "migrate", "移植", "port"]
+    type: "refactor"
+    questions:
+      - "你需要从什么迁移到什么？（模块/文件/技术栈）"
+      - "迁移过程中需要保持哪些功能不变？"
+      - "有没有可以废弃的旧代码？"
+
+  # 新增功能类
+  - keywords: ["新增", "添加", "new feature", "add", "实现", "implement"]
+    type: "new_feature"
+    questions:
+      - "请描述这个新功能要解决什么问题？"
+      - "用户怎么使用这个功能？（使用场景）"
+      - "有没有参考的现有实现？"
+
+  # Bug 修复类
+  - keywords: ["修复", "fix", "bug", "报错", "错误", "异常"]
+    type: "modify"
+    questions:
+      - "Bug 的具体表现是什么？"
+      - "能否复现这个 Bug？复现步骤是什么？"
+      - "大概出问题的模块/文件在哪里？"
+
+  # 性能优化类
+  - keywords: ["性能", "performance", "优化", "慢", "卡顿", "延迟"]
+    type: "refactor"
+    questions:
+      - "哪个操作/接口比较慢？"
+      - "大概的耗时是多少？期望降到多少？"
+      - "是数据库查询、网络请求、还是计算密集？"
+
+  # 安全相关类
+  - keywords: ["安全", "security", "漏洞", "注入", "越权", "xss", "csrf"]
+    type: "modify"
+    questions:
+      - "发现了什么安全问题？"
+      - "影响的模块/接口是什么？"
+      - "有没有已知的攻击路径？"
+
+# 追问配置
+follow_up:
+  max_questions: 3  # 每轮最多问几个问题
+  max_rounds: 2     # 最多追问几轮
+  auto_generate_spec: true  # 问答完成后自动生成规格书

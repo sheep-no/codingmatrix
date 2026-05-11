@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Todo List</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #f0f0f0;
+      margin: 0;
+    }
+    .container {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      width: 300px;
+    }
+    h1 {
+      text-align: center;
+    }
+    #todoInput {
+      width: calc(100% - 20px);
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    button {
+      padding: 10px;
+      width: 100%;
+    }
+    .todos {
+      list-style-type: none;
+      padding: 0;
+    }
+    .todos li {
+      padding: 10px;
+      border-bottom: 1px solid #ddd;
+    }
+    .todos li:last-child {
+      border-bottom: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Todo List</h1>
+    <input type="text" id="todoInput" placeholder="Add a new todo" />
+    <button onclick="addTodo()">Add Todo</button>
+    <ul id="todos"></ul>
+  </div>
+
+  <script>
+    let todos = JSON.parse(localStorage.getItem('todos')) || [];
+
+    function renderTodos() {
+      const todosElement = document.getElementById('todos');
+      todosElement.innerHTML = '';
+      todos.forEach((todo, index) => {
+        const li = document.createElement('li');
+        li.textContent = todo;
+        const deleteButton = document.createElement('button');
+        deleteButton.textContent = 'X';
+        deleteButton.onclick = () => deleteTodo(index);
+        li.appendChild(deleteButton);
+        todosElement.appendChild(li);
+      });
+    }
+
+    function addTodo() {
+      const input = document.getElementById('todoInput');
+      if (!input.value) return;
+      todos.push(input.value);
+      input.value = '';
+      localStorage.setItem('todos', JSON.stringify(todos));
+      renderTodos();
+    }
+
+    function deleteTodo(index) {
+      todos.splice(index, 1);
+      localStorage.setItem('todos', JSON.stringify(todos));
+      renderTodos();
+    }
+
+    function checkTodos() {
+      const todosElement = document.getElementById('todos');
+      todos.forEach((todo, index) => {
+        const li = todosElement.children[index];
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.onclick = () => toggleCompletion(index);
+        li.insertBefore(checkbox, li.firstChild);
+      });
+    }
+
+    function toggleCompletion(index) {
+      todos[index].completed = !todos[index].completed;
+      localStorage.setItem('todos', JSON.stringify(todos));
+      renderTodos();
+    }
+
+    window.onload = () => {
+      renderTodos();
+      checkTodos();
+    };
+  </script>
+</body>
+</html>

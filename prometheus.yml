@@ -1,0 +1,28 @@
+# Prometheus 配置文件
+# 用法: ./prometheus --config.file=prometheus.yml
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'ai-agent-server'
+    static_configs:
+      - targets: ['localhost:8080']
+    metrics_path: '/health/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    scheme: http
+
+  # 如果有多台服务器，添加更多 targets
+  # - job_name: 'ai-agent-server-2'
+  #   static_configs:
+  #     - targets: ['192.168.1.100:8080']
+  #   metrics_path: '/health/metrics'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []

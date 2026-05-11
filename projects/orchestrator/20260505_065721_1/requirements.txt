@@ -1,0 +1,121 @@
+# This file specifies the Python dependencies for the FastAPI blog CMS project
+# Generated for the backend service
+
+# Core framework and libraries
+fastapi>=0.100.0
+uvicorn>=0.23.0
+sqlalchemy>=1.4.0
+python-jose[cryptography]>=0.10.0
+passlib[bcrypt]>=2022.9.5
+python-multipart>=1.2.0
+sqlalchemy-utils>=0.37.0
+
+# Authentication and security
+# For JWT and OAuth2 password flow
+python-jose[cryptography]>=0.10.0
+# For password hashing
+passlib[bcrypt]>=2022.9.5
+# For token management
+python-dotenv>=0.19.2
+
+# Database tools
+alembic>=1.10.0
+# For async database operations
+anyio>=3.6.0
+# For database connection pooling
+databases>=0.2.3
+
+# Web framework enhancements
+# For rate limiting
+fastapi-rate-limiter>=0.1.12
+# For CORS middleware
+fastapi.middleware.cors>=0.3.0
+# For background tasks
+# For async support
+# For JSON encoding
+# For templating (if needed)
+jinja2>=3.1.2
+
+# Logging and monitoring
+# For structured logging
+structlog>=21.3.0
+# For log formatting
+python-json-logger>=2.10.0
+# For distributed tracing
+opentelemetry-api>=1.25.0
+
+# Testing and development
+# For async testing
+pytest>=7.4.0
+pytest-asyncio>=0.18.2
+# For HTTP client testing
+httpx>=0.26.1
+# For database testing
+pytest-database>=0.11.0
+# For mock objects
+pytest-mock>=5.0.1
+# For code coverage
+coverage>=7.3.0
+
+# Markdown and content processing
+# For Markdown rendering
+python-markdown>=3.4.1
+# For Pygments for syntax highlighting
+Pygments>=2.16.0
+# For sanitizing user input
+bleach>=6.0.0
+
+# File handling and upload
+# For handling file uploads
+# For image processing
+Pillow>=9.1.0
+# For handling large file uploads
+tornado>=6.1.2
+
+# Environment and configuration
+# For environment variables
+python-dotenv>=0.19.2
+# For configuration management
+pydantic-settings>=2.0.2
+
+# Additional utilities
+# For date and time handling
+python-dateutil>=2.8.2
+# For asynchronous task processing
+# For asynchronous task queues
+# For asynchronous task scheduling
+# For asynchronous task management
+# For asynchronous task monitoring
+
+# Development and documentation
+# For type hints
+typing-extensions>=4.4.0
+# For auto-generating API documentation
+# For code formatting
+# For dependency injection
+# For API versioning
+# For request validation
+
+# Optional dependencies (remove if not needed)
+# For email functionality
+yagmail>=0.15.0
+# For sending emails from the application
+# For sending email verification tokens
+# For sending password reset emails
+# For sending welcome emails
+
+# For rate limiting
+# For caching
+# For asynchronous task processing
+# For asynchronous task queues
+# For asynchronous task scheduling
+# For asynchronous task management
+# For asynchronous task monitoring
+
+# For database connection pooling
+# For database utilities
+# For database migration
+# For database version control
+# For database backup
+# For database restore
+# For database monitoring

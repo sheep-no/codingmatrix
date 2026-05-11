@@ -1,0 +1,17 @@
+# python-dotenv
+# 环境变量管理文件
+
+# Flask 应用端口
+PORT=5000
+
+# 是否开启调试模式
+DEBUG=False
+
+# 数据库连接字符串
+DATABASE_URL="postgresql://user:password@localhost/helloworld"
+
+# API 基础路径
+API_BASE_PATH="/api/v1"
+
+# 跨域资源共享设置
+CORS_ORIGINS=["*"]

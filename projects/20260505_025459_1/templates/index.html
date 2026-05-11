@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>贪吃蛇游戏</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .container {
+            text-align: center;
+        }
+        #game-board {
+            border: 1px solid #000;
+            margin: 20px auto;
+        }
+        canvas {
+            border: 1px solid black;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #ddd;
+        }
+        #game-info {
+            margin-top: 20px;
+        }
+        #game-info p {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>贪吃蛇游戏</h1>
+        <div id="game-board">
+            <canvas id="canvas" width="400" height="400"></canvas>
+        </div>
+        <div id="game-info">
+            <p>得分: <span id="score">0</span></p>
+            <p>最高分: <span id="high-score">0</span></p>
+        </div>
+        <div>
+            <button id="start-btn">开始游戏</button>
+            <button id="pause-btn">暂停游戏</button>
+            <button id="restart-btn">重新开始</button>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/game.js') }}"></script>
+</body>
+</html>
