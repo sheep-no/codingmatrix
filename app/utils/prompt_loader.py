@@ -66,7 +66,7 @@ class PromptLoader:
 def load_project_generation_prompt(output_dir: str, tools_description: str) -> Optional[str]:
     """加载项目生成系统提示词"""
     return PromptLoader.format(
-        "project_generation/system_prompt.md",
+        "project_generation/enhanced_system_prompt.md",
         output_dir=output_dir,
         tools_description=tools_description
     )
@@ -91,24 +91,29 @@ def load_directory_status_prompt(existing_files: list) -> Optional[str]:
     )
 
 
+def load_orchestrator_prompt() -> Optional[str]:
+    """加载增强的 Orchestrator 提示词"""
+    return PromptLoader.load("orchestrator/enhanced_orchestrator_prompt.md")
+
+
 def load_architect_prompt() -> Optional[str]:
-    """加载架构师提示词"""
-    return PromptLoader.load("orchestrator/architect_prompt.md")
+    """加载增强的架构师提示词"""
+    return PromptLoader.load("orchestrator/enhanced_architect_prompt.md")
 
 
 def load_frontend_engineer_prompt() -> Optional[str]:
-    """加载前端工程师提示词"""
-    return PromptLoader.load("orchestrator/frontend_engineer_prompt.md")
+    """加载增强的前端工程师提示词"""
+    return PromptLoader.load("orchestrator/enhanced_frontend_engineer_prompt.md")
 
 
 def load_backend_engineer_prompt() -> Optional[str]:
-    """加载后端工程师提示词"""
-    return PromptLoader.load("orchestrator/backend_engineer_prompt.md")
+    """加载增强的后端工程师提示词"""
+    return PromptLoader.load("orchestrator/enhanced_backend_engineer_prompt.md")
 
 
 def load_code_reviewer_prompt() -> Optional[str]:
-    """加载代码审查员提示词"""
-    return PromptLoader.load("orchestrator/code_reviewer_prompt.md")
+    """加载增强的代码审查员提示词"""
+    return PromptLoader.load("orchestrator/enhanced_code_reviewer_prompt.md")
 
 
 def load_complexity_analysis_prompt() -> Optional[str]:
