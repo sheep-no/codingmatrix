@@ -418,3 +418,42 @@ class StreamingExecutor(EnhancedExecutor):
             await self._stream_output(f"[失败] {result.error}\n")
 
         return result
+
+    async def execute_git_operation_with_sse(self, operation: str, params: Dict, sse_callback: Callable[[Dict], None]) -> ToolResult:
+        """执行 Git 操作并发送 SSE 事件"""
+        try:
+            # 发送开始事件
+            sse_callback({
+                "type": "git_operation_start",
+                "operation": operation,
+                "params": params
+            })
+            
+            # 执行操作
+            result = await self.execute_tool(operation, params)
+            
+            if result.success:
+                # 发送成功事件
+                sse_callback({
+                    "type": "git_operation_success",
+                    "operation": operation,
+                    "result": result.result
+                })
+            else:
+                # 发送失败事件
+                sse_callback({
+                    "type": "git_operation_error",
+                    "operation": operation,
+                    "error": result.error
+                })
+            
+            return result
+            
+        except Exception as e:
+            # 发送异常事件
+            sse_callback({
+                "type": "git_operation_error",
+                "operation": operation,
+                "error": str(e)
+            })
+            return ToolResult(False, None, str(e), 0, operation)

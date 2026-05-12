@@ -275,6 +275,7 @@ app.include_router(sysRouter, prefix="/api/v2", tags=["sys"])
 app.include_router(userManageRouter, prefix="/api/v2", tags=["manage"])
 app.include_router(adminConfigRouter, prefix="/api/v2", tags=["admin-config"])  # 添加管理员配置路由
 app.include_router(guardian_router, prefix="/api/v2", tags=["guard"])
+app.include_router(githubRouter, prefix="/api/v1", tags=["github"])
 
 # 健康检查路由（/api/v1/health）
 app.include_router(healthRouter, prefix="/api/v1")

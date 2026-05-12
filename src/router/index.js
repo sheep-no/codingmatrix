@@ -34,6 +34,11 @@ const router = createRouter({
       component: () => import('../views/ImageGenerate.vue')
     },
     {
+      path: '/github-config',
+      name: 'github-config',
+      component: () => import('../components/GithubConfigPanel.vue')
+    },
+    {
       path: '/admin',
       name: 'admin',
       component: () => import('../components/AdminPanel.vue'),
