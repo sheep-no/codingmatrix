@@ -1,122 +1,32 @@
-"""
-AI Agent 模块
+# 保留原有导出
+from app.agent.orchestrator import OrchestratorAgent
+from app.agent.multi_model_agent import MultiModelAgent
+from app.agent.react_agent import ReActAgent, ReActWithFallback
+from app.agent.session_manager import SessionManager
+from app.agent.spec_cache import SpecCache
+from app.agent.feedback_learner import FeedbackLearner
 
-多模型 Agent 架构，提供：
-- ModelRegistry: 模型注册表
-- ModelRouter: 任务路由
-- TaskPlanner: 任务规划
-- AgentExecutor: 执行器（增强版）
-- AIReviewer: AI审查器
-- FileContract: 文件契约
-- MultiModelAgent: 多模型Agent主类
-- AgentMemory: 记忆系统
-- ReActAgent: ReAct 自我反思Agent
-- StreamingExecutor: 流式执行器
-"""
-
-from app.agent.multi_model_agent import (
-    TaskType,
-    ModelCapability,
-    ModelInfo,
-    ModelRegistry,
-    ModelRouter,
-    FileContract,
-    ReviewResult,
-    AIReviewer,
-    TaskPlanner,
-    AgentExecutor,
-    MultiModelAgent,
-)
-
-from app.agent.memory import (
-    AgentMemory,
-    MemoryEntry,
-    ConversationMemory,
-    KnowledgeMemory,
-    ReflectionMemory,
-    BaseMemory,
-)
-
-from app.agent.executor import (
-    EnhancedExecutor,
-    ToolRegistry,
-    ToolResult,
-    ToolType,
-    StreamingExecutor,
-)
-
-from app.agent.react_agent import (
-    ReActAgent,
-    ReActStep,
-    ReActStepType,
-    ReActResult,
-    ReActWithFallback,
-)
-
-from app.agent.orchestrator import (
-    OrchestratorAgent,
-    ComplexityAnalyzer,
-    ComplexityAnalysis,
-    ProjectComplexity,
-    LayeredModelRouter,
-    ModelAssignment,
-    CodeValidator,
-    ErrorRecoveryLoop,
-    Architect,
-    FrontendEngineer,
-    BackendEngineer,
-    CodeReviewer,
-    GenerationProgress,
-)
+# 新增智能修改优化模块导出
+from app.agent.impact_analyzer import ImpactAnalyzer, ChangeSummary
+from app.agent.project_profiler import ProjectProfiler, ProjectProfile
+from app.agent.test_selector import TestSelector
+from app.agent.failure_clusterer import FailureClusterer, FailureCluster
 
 __all__ = [
-    # Multi-model Agent
-    "TaskType",
-    "ModelCapability",
-    "ModelInfo",
-    "ModelRegistry",
-    "ModelRouter",
-    "FileContract",
-    "ReviewResult",
-    "AIReviewer",
-    "TaskPlanner",
-    "AgentExecutor",
-    "MultiModelAgent",
-
-    # Memory System
-    "AgentMemory",
-    "MemoryEntry",
-    "ConversationMemory",
-    "KnowledgeMemory",
-    "ReflectionMemory",
-    "BaseMemory",
-
-    # Executor
-    "EnhancedExecutor",
-    "ToolRegistry",
-    "ToolResult",
-    "ToolType",
-    "StreamingExecutor",
-
-    # ReAct Agent
-    "ReActAgent",
-    "ReActStep",
-    "ReActStepType",
-    "ReActResult",
-    "ReActWithFallback",
-
-    # Orchestrator Agent
-    "OrchestratorAgent",
-    "ComplexityAnalyzer",
-    "ComplexityAnalysis",
-    "ProjectComplexity",
-    "LayeredModelRouter",
-    "ModelAssignment",
-    "CodeValidator",
-    "ErrorRecoveryLoop",
-    "Architect",
-    "FrontendEngineer",
-    "BackendEngineer",
-    "CodeReviewer",
-    "GenerationProgress",
+    # 原有模块
+    'OrchestratorAgent',
+    'MultiModelAgent',
+    'ReActAgent',
+    'ReActWithFallback',
+    'SessionManager',
+    'SpecCache',
+    'FeedbackLearner',
+    # 新增模块
+    'ImpactAnalyzer',
+    'ChangeSummary',
+    'ProjectProfiler',
+    'ProjectProfile',
+    'TestSelector',
+    'FailureClusterer',
+    'FailureCluster',
 ]

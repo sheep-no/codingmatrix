@@ -25,7 +25,7 @@ import logging
 
 from app.agent.memory import AgentMemory
 from app.agent.executor import EnhancedExecutor, ToolResult, ToolRegistry
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 from app.agent.multi_model_agent import ModelRegistry, TaskType
 
 logger = logging.getLogger(__name__)
@@ -121,9 +121,9 @@ class ReActAgent:
 请用简洁的语言描述你的思考。"""
 
         try:
-            response = await call_siliconflow(
-                prompt=prompt,
+            response = await call_llm(
                 model=self.model.name,
+                prompt=prompt,
                 stream=False,
                 max_tokens=self.model.max_tokens // 2,
                 temperature=0.6
@@ -164,9 +164,9 @@ class ReActAgent:
 }}"""
 
         try:
-            response = await call_siliconflow(
-                prompt=prompt,
+            response = await call_llm(
                 model=self.model.name,
+                prompt=prompt,
                 stream=False,
                 max_tokens=1024,
                 temperature=0.3
@@ -235,9 +235,9 @@ class ReActAgent:
 请用简洁的语言描述观察结果。"""
 
         try:
-            response = await call_siliconflow(
-                prompt=prompt,
+            response = await call_llm(
                 model=self.model.name,
+                prompt=prompt,
                 stream=False,
                 max_tokens=512,
                 temperature=0.5
@@ -284,9 +284,9 @@ class ReActAgent:
 }}"""
 
         try:
-            response = await call_siliconflow(
-                prompt=prompt,
+            response = await call_llm(
                 model=self.model.name,
+                prompt=prompt,
                 stream=False,
                 max_tokens=1024,
                 temperature=0.6
@@ -343,9 +343,9 @@ class ReActAgent:
 请生成最终答案，总结整个任务的执行结果。"""
 
         try:
-            response = await call_siliconflow(
-                prompt=prompt,
+            response = await call_llm(
                 model=self.model.name,
+                prompt=prompt,
                 stream=False,
                 max_tokens=self.model.max_tokens,
                 temperature=0.7

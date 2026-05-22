@@ -201,10 +201,11 @@ async def check_nginx(
         prompt = f"""下面是一个 Nginx 配置错误，请解释原因并给出正确配置片段：
 {error_text}"""
         
-        from app.utils.AiCodeUtil import call_siliconflow
-        stream_gen = await call_siliconflow(
-            prompt=prompt,
+        from app.utils import call_llm
+        stream_gen = await call_llm(
             model=DEFAULT_AI_MODEL,
+            prompt=prompt,
+            system_prompt="",
             stream=True,
         )
         
@@ -263,10 +264,10 @@ async def generate_nginx(
     cache = await get_cache()
     cached_result = await cache.get(cache_key)
     if cached_result:
-        logger.info(f"✅ 缓存命中 | key={cache_key[:50]}...")
+        logger.info(f"[SUCCESS] 缓存命中 | key={cache_key[:50]}...")
         return NginxGenerateResponse(**cached_result)
     
-    logger.debug(f"❌ 缓存未命中 | key={cache_key[:50]}...")
+    logger.debug(f"[ERROR] 缓存未命中 | key={cache_key[:50]}...")
     
     try:
         # 生成配置
@@ -288,7 +289,7 @@ async def generate_nginx(
         
         # 写入缓存
         await cache.set(cache_key, result.dict(), CACHE_TTL)
-        logger.debug(f"✅ 已缓存配置 | TTL={CACHE_TTL}s")
+        logger.debug(f"[SUCCESS] 已缓存配置 | TTL={CACHE_TTL}s")
         
         return result
         

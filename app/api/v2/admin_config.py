@@ -4,7 +4,7 @@ from app.db.database import get_db
 from app.utils.security import verify_token, require_superadmin
 from app.utils.system_config import system_config_manager
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -15,7 +15,7 @@ class UserLimitUpdate(BaseModel):
 
 class ConfigUpdate(BaseModel):
     path: str
-    value: any
+    value: Any
 
 @router.post("/user-limit")
 async def update_user_concurrent_limit(

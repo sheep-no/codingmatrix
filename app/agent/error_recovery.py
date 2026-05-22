@@ -5,19 +5,26 @@
 import re
 import json
 import asyncio
+import time
 import logging
 from typing import Optional, Dict, List, Callable, Tuple, Any
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 from app.agent.code_validator import CodeValidator
 from app.agent.specialists import CodeReviewer
 from app.agent.dynamic_model_router import LayeredModelRouter
 from app.agent.test_runner import TestRunner, TestResult
+from app.agent.error_classifier import error_classifier, ErrorClassification
+from app.agent.fix_pattern_cache import fix_pattern_cache, FixPattern
+from app.agent.api_contract_checker import APIContractChecker, check_api_consistency, generate_frontend_prompt_contract
+from app.agent.strategy_evaluator import strategy_evaluator
 
 # 从 orchestrator 获取的并发限制常量
 MAX_CONCURRENT_LLM_CALLS = 4
+
+from app.agent.tracing import traced
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +110,7 @@ class ErrorRecoveryLoop:
         backend_model: str,
         callback: Optional[Callable] = None
     ) -> Dict:
-        """智能修正循环：带模型降级策略"""
+        """智能修正循环：带模型降级策略、错误分类和 A/B 测试策略"""
         # 确定修复模型链：主模型 -> Qwen2.5-7B -> Qwen3-8B -> Qwen3.5-4B
         models_to_try = [
             backend_model,
@@ -120,13 +127,77 @@ class ErrorRecoveryLoop:
                 unique_models.append(m)
         models_to_try = unique_models
 
-        for attempt in range(self.MAX_FIX_ATTEMPTS):
-            # 选择当前尝试使用的模型（每次尝试使用不同模型）
-            current_model = models_to_try[attempt % len(models_to_try)]
-            fix_model_config = LayeredModelRouter.get_model_config(current_model, task_type="fix")
+        # 分析错误类型以选择最佳修复策略
+        error_messages = "; ".join(self._extract_error_messages(errors))
+        classification = await error_classifier.classify_error(error_messages, content)
+        error_classifier.add_to_history(classification)
 
-            # 构建更精准的修复提示
-            error_context = self._build_error_context(errors, content, attempt)
+        # 通过策略评估器获取修复模板
+        fix_template, strategy_id = strategy_evaluator.get_strategy_template(classification.error_type)
+        
+        # 如果没有预定义策略，使用默认模板
+        if fix_template is None:
+            fix_template = self._build_default_fix_template()
+
+        for attempt in range(self.MAX_FIX_ATTEMPTS):
+            # 根据错误类型选择合适的修复模型
+            fix_model = self._select_fix_model_by_error_type(classification.error_type, models_to_try, attempt)
+            fix_model_config = LayeredModelRouter.get_model_config(fix_model, task_type="fix")
+
+            # 构建针对性的修复提示（使用策略模板）
+            error_context = self._build_targeted_error_context_with_template(
+                errors, content, attempt, classification, fix_template
+            )
+
+            system_prompt = f"""你是一位资深代码修复专家。你的任务是修复代码中的{classification.description}。
+请遵循以下原则：
+1. 仅修复指出的问题，不要修改其他代码
+2. 保持原有代码结构和风格  
+3. 确保修复后的代码语法正确、导入完整
+4. 返回完整代码，不要省略任何部分"""
+
+            fix_prompt = f"""请修复以下代码中的错误。
+
+【当前代码】
+```
+{content}
+```
+
+【发现的错误】
+{error_context}
+
+【修复要求】
+1. {classification.suggested_fix_strategy}
+2. 仅修复指出的问题，保持其他代码不变
+3. 确保修复后的代码能通过语法、导入和依赖验证
+4. 返回完整修复后的代码，不要省略任何部分
+5. {"（这是最后一次尝试，请使用不同的修复策略）" if attempt == self.MAX_FIX_ATTEMPTS - 1 else ""}
+"""
+
+            system_prompt = f"""你是一位资深代码修复专家。你的任务是修复代码中的{classification.description}。
+请遵循以下原则：
+1. 仅修复指出的问题，不要修改其他代码
+2. 保持原有代码结构和风格  
+3. 确保修复后的代码语法正确、导入完整
+4. 返回完整代码，不要省略任何部分"""
+
+            fix_prompt = f"""请修复以下代码中的错误。
+
+【当前代码】
+```
+{content}
+```
+
+【发现的错误】
+{error_context}
+
+【修复要求】
+1. {classification.suggested_fix_strategy}
+2. 仅修复指出的问题，保持其他代码不变
+3. 确保修复后的代码能通过语法、导入和依赖验证
+4. 返回完整修复后的代码，不要省略任何部分
+5. {"（这是最后一次尝试，请使用不同的修复策略）" if attempt == self.MAX_FIX_ATTEMPTS - 1 else ""}
+"""
 
             # 增强修复提示词
             system_prompt = """你是一位资深代码修复专家。你的任务是修复代码中的特定错误。
@@ -155,15 +226,17 @@ class ErrorRecoveryLoop:
 
             async with self._semaphore:
                 try:
-                    response = await call_siliconflow(
+                    start_time = time.time()
+                    response = await call_llm(
+                        model=fix_model,
                         prompt=f"【USER】\n{fix_prompt}",
-                        model=current_model,
                         stream=False,
                         max_tokens=fix_model_config["max_tokens"],
                         thinking_budget=fix_model_config["thinking_budget"],
                         temperature=fix_model_config["temperature"],
                         system_prompt=system_prompt
                     )
+                    fix_time = time.time() - start_time
 
                     fixed_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
                     code_match = re.search(r'```(?:\w+)?\s*(.*?)\s*```', fixed_content, re.DOTALL)
@@ -171,7 +244,18 @@ class ErrorRecoveryLoop:
                         fixed_content = code_match.group(1).strip()
 
                     if not fixed_content:
-                        logger.warning(f"修复尝试 {attempt + 1} 返回空内容 (模型: {current_model})")
+                        logger.warning(f"修复尝试 {attempt + 1} 返回空内容 (模型: {fix_model})")
+                        # 记录失败评估结果
+                        if strategy_id:
+                            strategy_evaluator.record_evaluation_result(
+                                StrategyEvaluationResult(
+                                    strategy_id=strategy_id,
+                                    success=False,
+                                    fix_time=fix_time,
+                                    code_quality_score=0.0,
+                                    timestamp=time.time()
+                                )
+                            )
                         continue
 
                     # 验证修复后的代码（只验证单个文件）
@@ -184,14 +268,30 @@ class ErrorRecoveryLoop:
                         temp_file.unlink()
 
                     if validation["is_valid"]:
+                        # 评估代码质量（通过后续审查轮次的通过率）
+                        code_quality_score = await self._evaluate_code_quality(fixed_content, file_path)
+                        
                         self.fix_history.append(FixAttempt(
                             file_path=str(file_path),
-                            error_type="validation_error",
+                            error_type=classification.error_type,
                             error_message="; ".join(self._extract_error_messages(errors)),
                             fix_applied=True,
                             attempts=attempt + 1,
-                            model_used=current_model
+                            model_used=fix_model
                         ))
+                        
+                        # 记录成功评估结果
+                        if strategy_id:
+                            strategy_evaluator.record_evaluation_result(
+                                StrategyEvaluationResult(
+                                    strategy_id=strategy_id,
+                                    success=True,
+                                    fix_time=fix_time,
+                                    code_quality_score=code_quality_score,
+                                    timestamp=time.time()
+                                )
+                            )
+                        
                         return {"success": True, "fixed_content": fixed_content}
                     else:
                         # 构建详细的错误信息
@@ -207,21 +307,229 @@ class ErrorRecoveryLoop:
                         if validation.get("frontend_errors"):
                             error_details.extend([f"前端: {e}" for e in validation["frontend_errors"]])
                         error_msg = "; ".join(error_details) if error_details else "验证失败（无详细错误）"
-                        logger.warning(f"修复尝试 {attempt + 1} 未通过验证 (模型: {current_model}): {error_msg}")
+                        logger.warning(f"修复尝试 {attempt + 1} 未通过验证 (模型: {fix_model}): {error_msg}")
+                        
+                        # 记录失败评估结果
+                        if strategy_id:
+                            strategy_evaluator.record_evaluation_result(
+                                StrategyEvaluationResult(
+                                    strategy_id=strategy_id,
+                                    success=False,
+                                    fix_time=fix_time,
+                                    code_quality_score=0.0,
+                                    timestamp=time.time()
+                                )
+                            )
+                        
                         # 更新错误上下文用于下一次尝试
                         errors = validation
 
                 except Exception as e:
-                    logger.error(f"修复尝试 {attempt + 1} 失败 (模型: {current_model}): {e}")
+                    logger.error(f"修复尝试 {attempt + 1} 失败 (模型: {fix_model}): {e}")
+                    # 记录异常评估结果
+                    if strategy_id:
+                        strategy_evaluator.record_evaluation_result(
+                            StrategyEvaluationResult(
+                                strategy_id=strategy_id,
+                                success=False,
+                                fix_time=time.time() - start_time if 'start_time' in locals() else 0,
+                                code_quality_score=0.0,
+                                timestamp=time.time()
+                            )
+                        )
 
         self.fix_history.append(FixAttempt(
             file_path=str(file_path),
-            error_type="validation_error",
+            error_type=classification.error_type,
             error_message="多次修复失败: " + "; ".join(self._extract_error_messages(errors)),
             fix_applied=False,
             attempts=self.MAX_FIX_ATTEMPTS
         ))
+        
+        # 记录最终失败评估结果
+        if strategy_id:
+            strategy_evaluator.record_evaluation_result(
+                StrategyEvaluationResult(
+                    strategy_id=strategy_id,
+                    success=False,
+                    fix_time=0.0,
+                    code_quality_score=0.0,
+                    timestamp=time.time()
+                )
+            )
+        
         return {"success": False, "fixed_content": content}
+
+    async def _evaluate_code_quality(self, code: str, file_path: Path) -> float:
+        """评估修复后代码的质量（通过模拟审查轮次）"""
+        try:
+            # 创建临时文件进行审查
+            temp_file = file_path.parent / f".temp_quality_{file_path.name}"
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                f.write(code)
+            
+            # 运行轻量级审查（只检查基本问题）
+            validation = await self.validator.validate_single_file(temp_file)
+            if temp_file.exists():
+                temp_file.unlink()
+            
+            if validation["is_valid"]:
+                return 1.0
+            else:
+                # 根据错误数量计算质量分数
+                error_count = 0
+                for key in ["syntax_errors", "import_errors", "runtime_errors", "api_errors", "frontend_errors"]:
+                    error_count += len(validation.get(key, []))
+                
+                # 最多5个错误，超过5个按5算
+                error_count = min(error_count, 5)
+                return max(0.0, 1.0 - (error_count * 0.2))
+                
+        except Exception as e:
+            logger.warning(f"代码质量评估失败: {e}")
+            return 0.5  # 默认中等质量
+
+    def _build_default_fix_template(self) -> str:
+        """构建默认修复模板"""
+        return """请修复以下代码中的错误。
+
+【当前代码】
+```
+{content}
+```
+
+【发现的错误】
+{error_context}
+
+【修复要求】
+1. {suggested_fix_strategy}
+2. 仅修复指出的问题，保持其他代码不变
+3. 确保修复后的代码能通过语法、导入和依赖验证
+4. 返回完整修复后的代码，不要省略任何部分"""
+
+    def _build_targeted_error_context_with_template(
+        self, 
+        errors: Dict, 
+        content: str, 
+        attempt: int, 
+        classification: ErrorClassification,
+        template: str
+    ) -> str:
+        """使用策略模板构建针对性的错误上下文"""
+        # 这里可以进一步优化，根据模板动态生成上下文
+        return self._build_targeted_error_context(errors, content, attempt, classification)
+
+    def _select_fix_model_by_error_type(self, error_type: str, models_to_try: List[str], attempt: int) -> str:
+        """根据错误类型选择最佳修复模型"""
+        # 错误类型到模型的映射
+        ERROR_MODEL_MAPPING = {
+            "NameError": "Qwen/Qwen3.5-4B",      # 简单变量错误，快速模型即可
+            "AttributeError": "Qwen/Qwen2.5-7B-Instruct",  # 需要理解对象结构
+            "ImportError": "Qwen/Qwen2.5-7B-Instruct",     # 需要理解模块系统
+            "SyntaxError": "Qwen/Qwen3.5-4B",    # 语法错误，简单修复
+            "TypeError": "Qwen/Qwen2.5-7B-Instruct",       # 类型系统理解
+            "KeyError": "Qwen/Qwen3.5-4B",       # 简单字典操作
+            "IndexError": "Qwen/Qwen3.5-4B",     # 简单索引操作  
+            "LogicError": "Qwen/Qwen3-8B"        # 复杂逻辑需要强推理
+        }
+        
+        # 获取推荐模型
+        recommended_model = ERROR_MODEL_MAPPING.get(error_type, models_to_try[0])
+        
+        # 如果推荐模型不在可用模型列表中，使用第一个模型
+        if recommended_model in models_to_try:
+            return recommended_model
+        
+        # 否则按尝试次数选择模型
+        return models_to_try[attempt % len(models_to_try)]
+
+    def _build_targeted_error_context(self, errors: Dict, content: str, attempt: int, classification: ErrorClassification) -> str:
+        """构建针对性的错误上下文（基于错误分类）"""
+        context_parts = []
+        
+        # 添加错误分类信息
+        context_parts.append(f"## 错误类型\n{classification.error_type}: {classification.description}")
+        context_parts.append(f"**针对性修复建议**: {classification.suggested_fix_strategy}")
+        
+        # 根据错误类型添加特定上下文
+        if errors.get("syntax_errors"):
+            context_parts.append(f"## 语法错误\n" + "\n".join(f"- {e}" for e in errors["syntax_errors"]))
+            if classification.error_type == "SyntaxError":
+                context_parts.append("**重点检查**: 括号匹配、缩进、冒号、引号闭合等基本语法")
+
+        if errors.get("import_errors"):
+            context_parts.append(f"## 导入错误\n" + "\n".join(f"- {e}" for e in errors["import_errors"]))
+            if classification.error_type == "ImportError":
+                context_parts.append("**重点检查**: 模块已安装、导入路径正确、__init__.py 存在")
+
+        if errors.get("dependency_errors"):
+            context_parts.append(f"## 依赖错误\n" + "\n".join(f"- {e}" for e in errors["dependency_errors"]))
+            context_parts.append("**修复建议**: 运行 `pip install <包名>` 或在 requirements.txt 中添加缺失的包")
+
+        if errors.get("runtime_errors"):
+            runtime_errs = errors["runtime_errors"]
+            context_parts.append(f"## 运行时错误\n" + "\n".join(f"- {e}" for e in runtime_errs))
+            fix_suggestions = []
+            for e in runtime_errs:
+                if "passlib" in e:
+                    fix_suggestions.append("将 `import passlib.hash.bcrypt` 改为 `from passlib.hash import bcrypt`")
+                elif "运行时导入失败" in e:
+                    fix_suggestions.append(f"检查导入路径和模块是否存在: {e}")
+                elif "属性错误" in e or "API 版本" in e:
+                    fix_suggestions.append("检查库的 API 是否与已安装版本兼容，查阅官方文档确认正确的属性名")
+                elif "类型错误" in e or "API 参数" in e:
+                    fix_suggestions.append("检查函数调用参数名和类型是否与 API 定义匹配")
+            
+            # 根据错误类型添加特定建议
+            if classification.error_type == "NameError":
+                fix_suggestions.append("仔细检查所有变量名拼写，确保在使用前已定义")
+            elif classification.error_type == "AttributeError":
+                fix_suggestions.append("确认对象类型，检查是否有该属性，注意大小写")
+            elif classification.error_type == "TypeError":
+                fix_suggestions.append("检查函数参数数量和类型，确保传入正确的参数")
+            
+            if fix_suggestions:
+                context_parts.append("**针对性修复建议**:\n" + "\n".join(f"- {s}" for s in fix_suggestions))
+
+        if errors.get("api_errors"):
+            api_errs = errors["api_errors"]
+            context_parts.append(f"## API 兼容性错误\n" + "\n".join(f"- {e}" for e in api_errs))
+            fix_suggestions = []
+            for e in api_errs:
+                if "tokenUrl" in e:
+                    fix_suggestions.append("将 `OAuth2PasswordBearer(tokenUrl=...)` 改为 `OAuth2PasswordBearer(token_url=...)`")
+                elif "Middleware" in e:
+                    fix_suggestions.append("将 `from fastapi import Middleware` 改为 `from fastapi.middleware.cors import CORSMiddleware`")
+                elif "MRO" in e or "BaseModel" in e:
+                    fix_suggestions.append("SQLAlchemy 模型不应同时继承 Base 和 BaseModel，选择其一或使用 Pydantic v2 的模型验证")
+                elif "exception_handler" in e:
+                    fix_suggestions.append("异常处理器应在 app 级别注册: `app.exception_handler(Exception)(handler)`，而非 router 级别")
+            if fix_suggestions:
+                context_parts.append("**修复建议**:\n" + "\n".join(f"- {s}" for s in fix_suggestions))
+
+        if errors.get("frontend_errors"):
+            frontend_errs = errors["frontend_errors"]
+            context_parts.append(f"## 前端错误\n" + "\n".join(f"- {e}" for e in frontend_errs))
+            fix_suggestions = []
+            for e in frontend_errs:
+                if "JS 语法错误" in e:
+                    fix_suggestions.append("检查 JavaScript 语法：分号、括号匹配、变量声明等")
+                elif "HTML 结构" in e:
+                    fix_suggestions.append("检查 HTML 标签是否正确闭合，确保 html/head/body 标签完整")
+                elif "CSS 语法" in e:
+                    fix_suggestions.append("检查 CSS 大括号匹配、选择器语法、属性值格式")
+            if fix_suggestions:
+                context_parts.append("**修复建议**:\n" + "\n".join(f"- {s}" for s in fix_suggestions))
+
+        if errors.get("cross_file_errors"):
+            cross_errs = errors["cross_file_errors"]
+            context_parts.append(f"## 跨文件一致性错误\n" + "\n".join(f"- {e}" for e in cross_errs))
+            context_parts.append("**修复建议**: 确保导入的模块存在且导出了所需的符号，检查文件路径是否正确")
+
+        if attempt > 0:
+            context_parts.append(f"\n## 注意\n此前已尝试修复 {attempt} 次但未通过验证，请检查是否有遗漏的错误或逻辑问题。")
+
+        return "\n".join(context_parts) if context_parts else "未知验证错误"
 
     def _build_error_context(self, errors: Dict, content: str, attempt: int) -> str:
         """构建详细的错误上下文（包含修复建议）"""
@@ -356,9 +664,9 @@ class ErrorRecoveryLoop:
 
             async with self._semaphore:
                 try:
-                    response = await call_siliconflow(
-                        prompt=f"【USER】\n{fix_prompt}",
+                    response = await call_llm(
                         model=current_model,
+                        prompt=f"【USER】\n{fix_prompt}",
                         stream=False,
                         max_tokens=fix_model_config["max_tokens"],
                         thinking_budget=fix_model_config["thinking_budget"],

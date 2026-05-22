@@ -1,10 +1,10 @@
 """
 文件上传 API - 供 AI 对话时附加文件/图片使用
 """
+import asyncio
 import hashlib
 import logging
 import os
-import threading
 import uuid
 from typing import Optional, List
 from datetime import datetime
@@ -76,15 +76,15 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 CHUNK_SIZE = 5 * 1024 * 1024  # 分片大小 5MB
 
 # 分片上传锁（保护并发上传同一文件）
-_chunk_locks: dict[str, threading.Lock] = {}
-_chunk_locks_lock = threading.Lock()
+_chunk_locks: dict[str, asyncio.Lock] = {}
+_chunk_locks_lock = asyncio.Lock()
 
 
-def _get_chunk_lock(file_id: str) -> threading.Lock:
-    """获取文件分片锁（线程安全）"""
-    with _chunk_locks_lock:
+async def _get_chunk_lock(file_id: str) -> asyncio.Lock:
+    """获取文件分片锁（asyncio 安全，v4.8.0 改造）"""
+    async with _chunk_locks_lock:
         if file_id not in _chunk_locks:
-            _chunk_locks[file_id] = threading.Lock()
+            _chunk_locks[file_id] = asyncio.Lock()
         return _chunk_locks[file_id]
 ALLOWED_EXTENSIONS = {
     # 代码文件
@@ -132,7 +132,7 @@ def validate_file_upload(file: UploadFile) -> None:
 @router.post("/upload", response_model=FileUploadResponse, summary="上传文件")
 async def upload_file(
     file: UploadFile,
-    conversation_id: Optional[str] = None,
+    conversation_id: Optional[int] = None,
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db)
 ):
@@ -268,7 +268,7 @@ async def init_chunked_upload(
     filename: str,
     file_size: int,
     file_hash: str,
-    conversation_id: Optional[str] = None,
+    conversation_id: Optional[int] = None,
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db)
 ):
@@ -378,7 +378,7 @@ async def merge_chunks(
     file_hash: str,
     file_size: int,
     content_type: Optional[str] = None,
-    conversation_id: Optional[str] = None,
+    conversation_id: Optional[int] = None,
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db)
 ):

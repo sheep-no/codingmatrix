@@ -279,7 +279,7 @@ class TestGenerator:
                 assertions.append(f"    assert {result_var} is not None")
         else:
             # 没有返回类型注解，至少检查调用成功
-            assertions.append(f"    # TODO: 添加具体断言")
+            assertions.append(f"    assert {result_var} is not None")
         
         return assertions
     

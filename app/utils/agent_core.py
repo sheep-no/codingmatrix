@@ -14,11 +14,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import tiktoken
-from httpx import Timeout
 from pydantic import BaseModel, Field, PrivateAttr, ConfigDict, create_model
 
 from app.schema.codeRequest import ToolDefinition, AgentConfig
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 from app.utils.file_operator import FileOperator
 from app.adapter import ModelAdapter
 
@@ -1232,7 +1231,7 @@ async def validate_project(project_path: str) -> Dict[str, Any]:
 # ==================== 增强的ProjectGeneratorAgent ====================
 
 class ProjectGeneratorAgent(BaseModel):
-    """项目生成Agent核心（适配call_siliconflow + 动态工具注入）"""
+    """项目生成Agent核心（适配call_llm + 动态工具注入）"""
     config: AgentConfig = Field(default_factory=AgentConfig)
     _encoder: Any = PrivateAttr(default=None)
     _callback_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
@@ -1913,11 +1912,11 @@ class ProjectGeneratorAgent(BaseModel):
             logger.info(f"调用SiliconFlow API，模型: {model_to_use}, 流式: {stream}, "
                         f"thinking_budget: {thinking_budget}, max_tokens: {max_tokens}")
 
-            response_obj = await call_siliconflow(
-                prompt=prompt,
+            response_obj = await call_llm(
                 model=model_to_use,
+                prompt=prompt,
                 stream=stream,
-                timeout=Timeout(self.config.timeout, connect=10.0),
+                timeout=float(self.config.timeout),
                 max_tokens=max_tokens,
                 thinking_budget=thinking_budget,
                 temperature=temperature
@@ -1935,7 +1934,7 @@ class ProjectGeneratorAgent(BaseModel):
             logger.info("开始流式读取响应")
             chunk_count = 0
 
-            # call_siliconflow 返回的是异步生成器，每次yield的是JSON字符串
+            # call_llm 返回的是异步生成器，每次yield的是JSON字符串
             async for chunk_str in response_obj:
                 chunk_count += 1
 

@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 from app.utils.file_operator import FileOperator, PathSecurityError
 from app.utils.retry import retry_on_failure
 from app.utils.circuit_breaker import circuit_breaker, CircuitBreakerError
@@ -514,9 +514,9 @@ class AIReviewer:
 }}"""
 
         try:
-            response = await call_siliconflow(
-                prompt=prompt,
+            response = await call_llm(
                 model=self.model.name,
+                prompt=prompt,
                 stream=False,
                 max_tokens=self.model.max_tokens,
                 temperature=self.model.temperature
@@ -609,9 +609,9 @@ class AIReviewer:
 }}"""
 
         try:
-            response = await call_siliconflow(
-                prompt=prompt,
+            response = await call_llm(
                 model=self.model.name,
+                prompt=prompt,
                 stream=False,
                 max_tokens=self.model.max_tokens,
                 temperature=self.model.temperature
@@ -683,9 +683,9 @@ class TaskPlanner:
 ]"""
 
         try:
-            response = await call_siliconflow(
-                prompt=prompt,
+            response = await call_llm(
                 model=self.model.name,
+                prompt=prompt,
                 stream=False,
                 max_tokens=self.model.max_tokens,
                 temperature=0.6

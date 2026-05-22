@@ -14,7 +14,7 @@
 import logging
 import os
 from datetime import datetime, timezone
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Response, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db

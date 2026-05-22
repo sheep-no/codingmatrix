@@ -10,7 +10,7 @@ import uuid
 from typing import Dict, List, Any, Optional
 
 from app.schema.workflow import TaskGraph, TaskNode, TaskType
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +91,9 @@ class TaskDecomposer:
         """
         try:
             prompt = self._build_prompt(request)
-            response = await call_siliconflow(
-                prompt=prompt,
+            response = await call_llm(
                 model=self.model,
+                prompt=prompt,
                 stream=False,
                 temperature=0.3,
             )

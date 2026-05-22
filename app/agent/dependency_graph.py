@@ -12,15 +12,21 @@ DependencyGraph - 依赖图驱动生成
 - 配置文件 -> 无依赖（最早生成）
 """
 
-import json
 import logging
-import asyncio
-from typing import Optional, Dict, Any, List, Set, Tuple, Callable, Coroutine
+import re
+from typing import Optional, Dict, Any, List, Set, Tuple
 from pathlib import Path
 from dataclasses import dataclass, field
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
+
+# 扫描已有项目时跳过的目录
+SKIP_DIRS = {
+    '__pycache__', 'node_modules', '.git', 'venv', '.venv',
+    'dist', 'build', '.next', 'coverage', '.pytest_cache',
+    'playwright-report', 'test-results', '.turbo'
+}
 
 
 @dataclass
@@ -48,10 +54,12 @@ class DependencyGraph:
 
     # 文件类型到依赖类型的映射
     DEPENDENCY_RULES: Dict[str, List[str]] = {
-        # 配置文件 - 无依赖
+        # 基础设施层 - 最先生成
         "config": [],
         "env": [],
         "dockerfile": [],
+        "service_config": ["env"],  # v4.8.0: 服务连接配置依赖 env
+        "docker_compose": ["env", "config"],  # v4.8.0: docker-compose 依赖 env 和 config
 
         # 数据库相关
         "database": ["config"],
@@ -61,11 +69,11 @@ class DependencyGraph:
 
         # 类型和工具
         "types": ["config"],
-        "utils": ["config"],
+        "utils": ["config", "env"],  # v4.8.0: utils 可能读取 env 配置
         "constants": ["config"],
 
-        # 业务层
-        "service": ["model", "repository", "types", "utils"],
+        # 业务层 - v4.8.0: service 依赖 service_config 和 env
+        "service": ["model", "repository", "types", "utils", "service_config", "env"],
         "schema": ["model", "types"],
 
         # API 层
@@ -96,11 +104,25 @@ class DependencyGraph:
         ("package.json", "config"),
         (".env", "env"),
         (".env.example", "env"),
+        (".env.local", "env"),
         ("Dockerfile", "dockerfile"),
-        ("docker-compose.yml", "dockerfile"),
+        ("docker-compose.yml", "docker_compose"),  # v4.8.0: 独立类型
+        ("docker-compose.yaml", "docker_compose"),
         ("pyproject.toml", "config"),
         ("setup.py", "config"),
         ("Makefile", "config"),
+
+        # v4.8.0: 服务连接配置
+        ("redis_config.py", "service_config"),
+        ("redis_connection.py", "service_config"),
+        ("database_config.py", "service_config"),
+        ("db_connection.py", "service_config"),
+        ("mongodb_config.py", "service_config"),
+        ("rabbitmq_config.py", "service_config"),
+        ("elasticsearch_config.py", "service_config"),
+        ("connections.py", "service_config"),
+        ("connections/", "service_config"),
+        ("connectors/", "service_config"),
 
         # Python 配置
         ("config.py", "config"),
@@ -213,6 +235,52 @@ class DependencyGraph:
         self.nodes[file_path].dependencies.append(depends_on)
         self.adjacency[file_path].add(depends_on)
         self.reverse_adjacency[depends_on].add(file_path)
+
+    def get_affected_files(self, changed_files: List[str]) -> Dict[str, List[str]]:
+        """
+        给定变更文件列表，返回所有受影响的下游文件。
+
+        使用 reverse_adjacency 进行 BFS 遍历，计算传递依赖的受影响文件。
+
+        Args:
+            changed_files: 变更文件路径列表
+
+        Returns:
+            {变更文件: [受影响的下游文件列表]}
+        """
+        affected = {}
+        for changed in changed_files:
+            dependents = self._get_transitive_dependents(changed)
+            affected[changed] = dependents
+        return affected
+
+    def _get_transitive_dependents(self, file_path: str, max_depth: int = 10) -> List[str]:
+        """
+        BFS 遍历 reverse_adjacency，查找所有传递依赖的下游文件。
+
+        Args:
+            file_path: 源文件路径
+            max_depth: 最大遍历深度（防止循环依赖无限遍历）
+
+        Returns:
+            受影响的下游文件列表（不含源文件自身）
+        """
+        result = []
+        visited = set()
+        queue = [(file_path, 0)]
+
+        while queue:
+            current, depth = queue.pop(0)
+            if current in visited or depth > max_depth:
+                continue
+            visited.add(current)
+
+            for dep in self.reverse_adjacency.get(current, set()):
+                if dep not in visited and dep != file_path:
+                    result.append(dep)
+                    queue.append((dep, depth + 1))
+
+        return result
 
     def build_from_architecture(self, architecture: Dict[str, Any]):
         """从架构设计结果构建依赖图"""
@@ -538,3 +606,193 @@ class DependencyGraph:
         import re
         s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
         return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+    def build_from_existing_project(self, project_path: Path) -> Dict[str, Any]:
+        """
+        从已有项目目录构建依赖图（解析源代码 import/require 语句）
+
+        用于增量修改场景：用户上传项目后，构建真实依赖关系
+
+        v4.7.0 增强：附带阴影依赖扫描结果（只记录不阻断）
+        """
+        result = self._build_graph_from_project(project_path)
+
+        shadow_deps = self.scan_shadow_dependencies(project_path)
+        result["shadow_dependencies"] = shadow_deps
+
+        return result
+
+    def _build_graph_from_project(self, project_path: Path) -> Dict[str, Any]:
+        """核心构建逻辑（原有 build_from_existing_project 内容）"""
+        self.nodes.clear()
+        self.adjacency.clear()
+        self.reverse_adjacency.clear()
+
+        py_imports: Dict[str, List[str]] = {}
+        js_requires: Dict[str, List[str]] = {}
+
+        for file_path in project_path.rglob("*"):
+            if any(part in SKIP_DIRS for part in file_path.parts):
+                continue
+            if not file_path.is_file():
+                continue
+
+            rel_path = str(file_path.relative_to(project_path))
+            suffix = file_path.suffix.lower()
+
+            self.add_file(rel_path)
+
+            if suffix == '.py':
+                deps = self._parse_python_imports(file_path, project_path)
+                py_imports[rel_path] = deps
+
+            elif suffix in ('.js', '.ts', '.jsx', '.tsx', '.vue'):
+                deps = self._parse_js_requires(file_path, project_path)
+                js_requires[rel_path] = deps
+
+        self._auto_add_dependencies()
+
+        for file_path, dep_paths in py_imports.items():
+            for dep in dep_paths:
+                if dep in self.nodes and dep != file_path:
+                    self.add_dependency(file_path, dep)
+
+        for file_path, dep_paths in js_requires.items():
+            for dep in dep_paths:
+                if dep in self.nodes and dep != file_path:
+                    self.add_dependency(file_path, dep)
+
+        order = self.get_generation_order()
+
+        logger.info(
+            f"已有项目依赖图构建完成: "
+            f"{len(self.nodes)} 节点, "
+            f"{sum(len(d) for d in self.adjacency.values())} 边"
+        )
+
+        return {
+            "nodes": len(self.nodes),
+            "edges": sum(len(d) for d in self.adjacency.values()),
+            "order": order
+        }
+
+    def _parse_python_imports(self, file_path: Path, project_path: Path) -> List[str]:
+        """解析 Python 文件的 import 语句，映射到项目内的文件路径"""
+        deps = []
+        try:
+            content = file_path.read_text(encoding='utf-8', errors='ignore')
+        except Exception:
+            return deps
+
+        patterns = [
+            r'from\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s+import',
+            r'import\s+([a-zA-Z_][a-zA-Z0-9_.]*)',
+        ]
+
+        seen = set()
+        for pattern in patterns:
+            for match in re.finditer(pattern, content):
+                module = match.group(1)
+                parts = module.split('.')
+                base_path = Path(project_path) / "/".join(parts)
+                candidate = str(base_path / "__init__.py")
+                candidate_py = str(base_path) + ".py"
+
+                for candidate_path in [candidate, candidate_py]:
+                    rel = candidate_path.replace(str(project_path) + "/", "")
+                    if (project_path / rel).exists() and rel not in seen:
+                        deps.append(rel)
+                        seen.add(rel)
+
+        return deps
+
+    def _parse_js_requires(self, file_path: Path, project_path: Path) -> List[str]:
+        """解析 JS/TS/Vue 文件的 require/import 语句"""
+        deps = []
+        try:
+            content = file_path.read_text(encoding='utf-8', errors='ignore')
+        except Exception:
+            return deps
+
+        patterns = [
+            r'import\s+.*?\s+from\s+["\'](\./[^"\']+)["\']',
+            r'import\s+.*?\s+from\s+["\'](\.\./[^"\']+)["\']',
+            r'require\s*\(\s*["\'](\./[^"\']+)["\']\s*\)',
+            r'require\s*\(\s*["\'](\.\./[^"\']+)["\']\s*\)',
+        ]
+
+        seen = set()
+        for pattern in patterns:
+            for match in re.finditer(pattern, content):
+                import_path = match.group(1)
+                resolved = str((file_path.parent / import_path).resolve())
+
+                try:
+                    rel = resolved.replace(str(project_path.resolve()) + "/", "")
+                except ValueError:
+                    continue
+
+                for ext in ['', '.js', '.ts', '.jsx', '.tsx', '.vue', '/index.js', '/index.ts']:
+                    candidate = rel + ext
+                    if (project_path / candidate).exists() and candidate not in seen:
+                        deps.append(candidate)
+                        seen.add(candidate)
+                        break
+
+        return deps
+
+    def scan_shadow_dependencies(self, project_path: Path) -> Dict[str, List[str]]:
+        """
+        阴影依赖扫描：发现隐式依赖（只记录不阻断）
+
+        扫描以下模式：
+        - eval/exec 动态代码执行
+        - 动态 import (importlib.import_module)
+        - 环境变量依赖 (os.environ/os.getenv)
+        - 动态加载 (require.context, webpack dynamic import)
+        - 反射调用 (__import__, getattr 动态模块)
+
+        Returns:
+            {file_path: [发现的隐式依赖模式描述]}
+        """
+        shadow_deps: Dict[str, List[str]] = {}
+
+        patterns = {
+            'eval_exec': r'\beval\s*\(|\bexec\s*\(',
+            'dynamic_import': r'importlib\.import_module|__import__\s*\(',
+            'env_dependency': r'os\.environ\b|os\.getenv\s*\(',
+            'dynamic_require': r'require\.context|import\s*\(',
+            'getattr_dynamic': r'getattr\s*\([^,]+,\s*["\']',
+        }
+
+        for file_path in project_path.rglob("*"):
+            if any(part in SKIP_DIRS for part in file_path.parts):
+                continue
+            if not file_path.is_file():
+                continue
+
+            suffix = file_path.suffix.lower()
+            if suffix not in ('.py', '.js', '.ts', '.jsx', '.tsx', '.vue'):
+                continue
+
+            try:
+                content = file_path.read_text(encoding='utf-8', errors='ignore')
+            except Exception:
+                continue
+
+            rel_path = str(file_path.relative_to(project_path))
+            found = []
+
+            for pattern_name, regex in patterns.items():
+                if re.search(regex, content):
+                    found.append(pattern_name)
+
+            if found:
+                shadow_deps[rel_path] = found
+
+        if shadow_deps:
+            logger.info(f"阴影依赖扫描发现 {len(shadow_deps)} 个文件含有隐式依赖（仅记录）")
+            for path, patterns_found in shadow_deps.items():
+                logger.info(f"  {path}: {', '.join(patterns_found)}")
+
+        return shadow_deps

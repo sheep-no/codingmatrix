@@ -27,6 +27,8 @@ class SystemConfigManager:
         if not hasattr(self, '_initialized'):
             self._initialized = True
             self.load_config()
+            from app.utils.dynamic_concurrent import ConcurrentLimitManager
+            self.concurrent_mgr = ConcurrentLimitManager()
     
     def load_config(self):
         """加载系统配置"""
@@ -55,37 +57,37 @@ class SystemConfigManager:
             logger.error(f"保存系统配置失败: {e}")
     
     def _get_default_config(self) -> Dict[str, Any]:
-        """获取默认配置"""
+        """获取默认系统配置"""
         return {
             "system_config": {
                 "version": "1.0",
                 "last_updated": datetime.now().isoformat(),
-                "user_concurrent_limits": {
-                    "default_tiers": {
-                        "free": 1,
-                        "basic": 2,
-                        "premium": 5,
-                        "enterprise": 10,
-                        "superadmin": 50
-                    },
-                    "user_overrides": {}
-                },
-                "session_management": {
-                    "cleanup_inactive_after_hours": 24,
-                    "max_sessions_per_user": 10,
-                    "auto_cleanup_enabled": True
-                },
-                "project_generation": {
-                    "enabled": True,
-                    "max_concurrent_per_user": 1
-                },
-                "ppt_generation": {
-                    "enabled": True,
-                    "max_slides_per_presentation": 50,
-                    "supported_templates": ["modern", "classic", "creative", "business", "academic"],
-                    "preview_enabled": True,
-                    "export_formats": ["pptx", "pdf", "html"]
+                "health_aware_routing": {
+                    "enabled": False,
+                    "system_overload_threshold": 0.8,
+                    "model_load_weight": 0.6,
+                    "system_load_weight": 0.4,
+                    "max_concurrent_requests": 100
                 }
+            },
+            "user_concurrent_limits": {
+                "role_defaults": {
+                    "free": 1,
+                    "basic": 2, 
+                    "premium": 5,
+                    "enterprise": 10,
+                    "superadmin": 50
+                },
+                "user_overrides": {}
+            },
+            "session_management": {
+                "cleanup_enabled": True,
+                "max_active_sessions": 100,
+                "idle_timeout_minutes": 30
+            },
+            "ppt_generation": {
+                "max_slides": 20,
+                "supported_templates": ["simple", "business", "creative"]
             }
         }
     
@@ -113,9 +115,19 @@ class SystemConfigManager:
     
     def can_create_new_session(self, user_id: str, user_role: str = "free") -> bool:
         """检查用户是否可以创建新会话"""
-        limit = self.get_user_concurrent_limit(user_id, user_role)
-        active_sessions = self.get_active_sessions_for_user(user_id)
-        return len(active_sessions) < limit
+        return self.concurrent_mgr.can_create_session(user_role)
+
+    async def update_concurrent_limit(self, role: str, new_limit: int, changed_by: str, reason: str = ""):
+        """热更新并发限制（v4.8.0，无需重启）"""
+        return await self.concurrent_mgr.update_limit(role, new_limit, changed_by, reason)
+
+    def get_concurrent_limit(self, role: str) -> int:
+        """获取当前并发限制"""
+        return self.concurrent_mgr.get_limit(role)
+
+    def get_limit_change_history(self, limit: int = 50):
+        """获取限制变更历史"""
+        return self.concurrent_mgr.get_change_history(limit)
     
     def update_user_override(self, user_id: str, limit: int, tier: str = "custom"):
         """更新用户覆盖配置（管理员权限）"""

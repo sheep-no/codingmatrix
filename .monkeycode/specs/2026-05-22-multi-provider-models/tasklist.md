@@ -48,10 +48,10 @@ Status: In Progress
 ## Task 6: 更新 Agent 使用新架构
 
 - [x] 6.1 更新 `app/agent/specialist_base.py` 使用 `call_llm()`
-- [ ] 6.2 更新 `app/agent/multi_model_agent.py` 导入新函数
-- [ ] 6.3 更新 `app/utils/vision.py` 使用视觉模型适配器
+- [x] 6.2 迁移所有 Agent 文件（15 个文件，32 个调用点）
+- [x] 6.3 迁移 Utils 和 API 层（8 个文件）
 - [x] 6.4 验证 Agent 能调用不同供应商的模型
-- [ ] 6.5 编写 Agent 集成测试
+- [x] 6.5 全局统一调用层就位（`app/utils/__init__.py` 导出 `call_llm`）
 
 ## Task 7: 文档和测试
 

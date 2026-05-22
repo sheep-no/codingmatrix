@@ -16,7 +16,7 @@ import re
 import logging
 from typing import Optional, Dict, Any, List, Tuple, Callable
 
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 from app.agent.shared_context import SharedContext
 
 logger = logging.getLogger(__name__)
@@ -181,9 +181,9 @@ class SpecFirstGenerator:
 请生成完整的 OpenAPI 3.0 规范，包含所有 API 端点和数据模型。"""
 
         try:
-            response = await call_siliconflow(
-                prompt=f"【USER】\n{prompt}",
+            response = await call_llm(
                 model=self.architect_model,
+                prompt=f"【USER】\n{prompt}",
                 stream=False,
                 max_tokens=8192,
                 thinking_budget=4096,
@@ -225,9 +225,9 @@ OpenAPI 规范：
 请为每个 schema 生成对应的 Pydantic BaseModel 类。"""
 
         try:
-            response = await call_siliconflow(
-                prompt=f"【SYSTEM】\n{self.TYPES_SYSTEM_PROMPT}\n\n【USER】\n{prompt}",
+            response = await call_llm(
                 model=self.architect_model,
+                prompt=f"【SYSTEM】\n{self.TYPES_SYSTEM_PROMPT}\n\n【USER】\n{prompt}",
                 stream=False,
                 max_tokens=self.model_config["max_tokens"],
                 thinking_budget=self.model_config["thinking_budget"],
@@ -268,9 +268,9 @@ OpenAPI 规范：
 请生成完整的 SQLAlchemy Model 定义，包含所有必要的关系和索引。"""
 
         try:
-            response = await call_siliconflow(
-                prompt=f"【SYSTEM】\n{self.DB_SCHEMA_SYSTEM_PROMPT}\n\n【USER】\n{prompt}",
+            response = await call_llm(
                 model=self.architect_model,
+                prompt=f"【SYSTEM】\n{self.DB_SCHEMA_SYSTEM_PROMPT}\n\n【USER】\n{prompt}",
                 stream=False,
                 max_tokens=self.model_config["max_tokens"],
                 thinking_budget=self.model_config["thinking_budget"],
@@ -304,9 +304,9 @@ OpenAPI 规范：
 2. .env.example 文件内容"""
 
         try:
-            response = await call_siliconflow(
-                prompt=f"【SYSTEM】\n{self.CONFIG_SYSTEM_PROMPT}\n\n【USER】\n{prompt}",
+            response = await call_llm(
                 model=self.architect_model,
+                prompt=f"【SYSTEM】\n{self.CONFIG_SYSTEM_PROMPT}\n\n【USER】\n{prompt}",
                 stream=False,
                 max_tokens=self.model_config["max_tokens"],
                 thinking_budget=self.model_config["thinking_budget"],

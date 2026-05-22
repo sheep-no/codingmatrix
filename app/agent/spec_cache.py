@@ -27,7 +27,7 @@ from app.utils.math_utils import cosine_similarity
 logger = logging.getLogger(__name__)
 
 # 缓存存储目录
-CACHE_DIR = Path("./spec_cache")
+CACHE_DIR = Path("./cache/spec_cache")
 # 缓存过期时间（7 天）
 CACHE_TTL = timedelta(days=7)
 # 缓存最大条目数（超出时按 LRU 淘汰）

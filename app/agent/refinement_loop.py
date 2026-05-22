@@ -20,7 +20,7 @@ from typing import Optional, Dict, Any, List, Tuple, Callable
 from pathlib import Path
 from dataclasses import dataclass, field
 
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 from app.agent.shared_context import SharedContext
 
 logger = logging.getLogger(__name__)
@@ -156,7 +156,7 @@ class RefinementLoop:
 
             # Step 5: 调用 LLM 修复
             try:
-                response = await call_siliconflow(
+                response = await call_llm(
                     prompt=fix_prompt,
                     model=target_model,
                     stream=False,

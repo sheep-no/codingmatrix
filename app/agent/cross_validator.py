@@ -16,7 +16,7 @@ import re
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 from app.utils.json_parser import extract_json_from_llm
 from app.agent.shared_context import SharedContext
 from app.agent.refinement_loop import RefinementLoop, RefinementResult
@@ -116,9 +116,9 @@ class CrossValidator:
 并选择更好的版本或生成改进后的最终版本。"""
 
         try:
-            response = await call_siliconflow(
-                prompt=f"【SYSTEM】\n{self.JUDGE_SYSTEM_PROMPT}\n\n【USER】\n{prompt}",
+            response = await call_llm(
                 model=judge_model,
+                prompt=f"【SYSTEM】\n{self.JUDGE_SYSTEM_PROMPT}\n\n【USER】\n{prompt}",
                 stream=False,
                 max_tokens=8192,
                 thinking_budget=4096,

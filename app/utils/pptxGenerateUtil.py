@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import List, Literal, Dict, Optional, AsyncGenerator, Any
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 
 
 class SlideType(Enum):
@@ -130,9 +130,9 @@ class PptGenerator:
         for attempt in range(max_retries):
             try:
                 print(f"    AI调用尝试 {attempt + 1}/{max_retries}...")
-                resp = await call_siliconflow(
-                    prompt=prompt,
+                resp = await call_llm(
                     model=model,
+                    prompt=prompt,
                     temperature=temperature,
                     max_tokens=max_tokens
                 )

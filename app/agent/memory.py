@@ -90,10 +90,10 @@ class ConversationMemory(BaseMemory):
             return
 
         # 保留最新的 COMPRESSED_ENTRIES 条
-        recent_entries = self._entries[-self.COMPRESSION_ENTRIES:]
+        recent_entries = self._entries[-self.COMPRESSED_ENTRIES:]
 
         # 将旧条目压缩为一条摘要
-        old_entries = self._entries[:-self.COMPRESSION_ENTRIES]
+        old_entries = self._entries[:-self.COMPRESSED_ENTRIES]
         summary_parts = []
         
         # 按类型分组统计

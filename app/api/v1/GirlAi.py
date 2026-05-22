@@ -18,7 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.db.database import get_db
 from app.schema.girl_request import GirlRequest, GirlResponse, HistoryRecord, HistoryResponse
 from app.db.chat_history_service import ChatHistoryService
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 from app.utils.security import verify_token
 
 # import sys (adapter module moved to app.adapter)
@@ -296,9 +296,10 @@ async def generate_message(
         
         ai_start_time = time.time()
         response = await asyncio.wait_for(
-            call_siliconflow(
-                prompt=full_prompt,
+            call_llm(
                 model=character['model'],
+                prompt=full_prompt,
+                system_prompt="",
                 stream=False,
                 max_tokens=getattr(body, 'max_tokens', None) or character['max_tokens'],
                 thinking_budget=64,

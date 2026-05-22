@@ -349,41 +349,54 @@ async def _agent_fix_from_test_logs(test_logs: List[Dict], original_result: Dict
 
 
 def _run_tests(test_files: List[str]) -> Dict:
-    """运行测试文件"""
+    """运行测试文件（安全隔离版，使用 IsolatedTestRunner）"""
     if not test_files:
         return {"success": True, "message": "无测试文件"}
 
-    test_config = {
-        "command": "pytest",
-        "args": ["-v", "--tb=short", "--maxfail=3"],
-        "timeout": 120,
-    }
-
-    cmd = [test_config["command"]] + test_config["args"] + test_files
+    project_root = Path(__file__).parent.parent.parent
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=test_config["timeout"],
-            cwd=str(Path(__file__).parent.parent.parent)
+        from app.agent.test_runner import IsolatedTestRunner
+
+        runner = IsolatedTestRunner(
+            project_path=project_root,
+            timeout=120,
+            enable_security_scan=False,
+        )
+
+        result = asyncio.run(
+            runner.run_tests(test_paths=test_files)
         )
 
         return {
-            "success": result.returncode == 0,
-            "stdout": result.stdout[:2000],
-            "stderr": result.stderr[:2000],
-            "returncode": result.returncode,
-            "error": result.stderr if result.returncode != 0 else "",
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "error": f"测试超时 ({test_config['timeout']}s)",
+            "success": result.success,
+            "stdout": result.logs[:2000],
+            "stderr": "",
+            "returncode": 0 if result.success else 1,
+            "error": result.logs[:500] if not result.success else "",
+            "passed": result.passed,
+            "failed": result.failed,
+            "total": result.total_tests,
         }
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
+        logger.error(f"IsolatedTestRunner 执行失败，回退到直接调用: {e}")
+        cmd = ["pytest", "-v", "--tb=short", "--maxfail=3"] + test_files
+        try:
+            proc_result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=str(project_root),
+            )
+            return {
+                "success": proc_result.returncode == 0,
+                "stdout": proc_result.stdout[:2000],
+                "stderr": proc_result.stderr[:2000],
+                "returncode": proc_result.returncode,
+                "error": proc_result.stderr if proc_result.returncode != 0 else "",
+            }
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "测试超时 (120s)"}
+        except Exception as inner_e:
+            return {"success": False, "error": str(inner_e)}

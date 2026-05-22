@@ -10,8 +10,11 @@ import json
 import asyncio
 import importlib.util
 import logging
+from collections import OrderedDict
 from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
+
+from app.agent.tracing import traced
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +22,14 @@ logger = logging.getLogger(__name__)
 class CodeValidator:
     """代码验证器 - 语法、依赖、运行时、跨文件一致性验证（带缓存优化）"""
 
-    # 验证缓存：内容哈希 -> (验证结果, 时间戳)
-    _validation_cache: Dict[str, tuple] = {}
+    _lru_cache: OrderedDict = OrderedDict()
+    _max_cache_bytes = 500 * 1024 * 1024
+    _cache_size_bytes = 0
+    _cache_hits = 0
+    _cache_misses = 0
+    _validation_cache = _lru_cache
     MAX_CACHE_SIZE = 100
-    # 成功缓存过期时间（秒）
     SUCCESS_CACHE_TTL = 3600
-    # 失败缓存过期时间（秒）- 更短，因为代码可能很快被修复
     FAILURE_CACHE_TTL = 300
 
     # 常见 API 兼容性规则
@@ -54,50 +59,70 @@ class CodeValidator:
 
     @classmethod
     def _clear_old_cache(cls):
-        """清理旧缓存和过期缓存"""
         now = time.time()
         expired_keys = []
-        for key, (result, timestamp) in cls._validation_cache.items():
-            ttl = cls.SUCCESS_CACHE_TTL if result.get("is_valid", False) else cls.FAILURE_CACHE_TTL
-            if now - timestamp > ttl:
+        for key, entry in list(cls._lru_cache.items()):
+            ttl = cls.SUCCESS_CACHE_TTL if entry[0].get("is_valid", False) else cls.FAILURE_CACHE_TTL
+            if now - entry[1] > ttl:
                 expired_keys.append(key)
         for key in expired_keys:
-            del cls._validation_cache[key]
-
-        if len(cls._validation_cache) > cls.MAX_CACHE_SIZE:
-            # 按时间戳排序，保留最新的
-            items = sorted(cls._validation_cache.items(), key=lambda x: x[1][1])
-            cls._validation_cache = dict(items[len(items)//2:])
+            entry = cls._lru_cache.pop(key)
+            cls._cache_size_bytes -= sys.getsizeof(key) + sys.getsizeof(entry)
+        while cls._cache_size_bytes > cls._max_cache_bytes and cls._lru_cache:
+            oldest_key, oldest_entry = cls._lru_cache.popitem(last=False)
+            cls._cache_size_bytes -= sys.getsizeof(oldest_key) + sys.getsizeof(oldest_entry)
 
     def get_cached_validation(self, file_path: Path) -> Optional[Dict]:
-        """获取缓存的验证结果（支持过期检查）"""
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             content_hash = self._compute_content_hash(content)
             cache_key = f"{file_path.name}:{content_hash}"
-            if cache_key in self._validation_cache:
-                result, timestamp = self._validation_cache[cache_key]
-                ttl = self.SUCCESS_CACHE_TTL if result.get("is_valid", False) else self.FAILURE_CACHE_TTL
+            if cache_key in CodeValidator._lru_cache:
+                result, timestamp = CodeValidator._lru_cache[cache_key]
+                ttl = CodeValidator.SUCCESS_CACHE_TTL if result.get("is_valid", False) else CodeValidator.FAILURE_CACHE_TTL
                 if time.time() - timestamp <= ttl:
+                    CodeValidator._lru_cache.move_to_end(cache_key)
+                    CodeValidator._cache_hits += 1
                     return result
                 else:
-                    del self._validation_cache[cache_key]  # 过期清理
+                    entry = CodeValidator._lru_cache.pop(cache_key)
+                    CodeValidator._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(entry)
+            CodeValidator._cache_misses += 1
             return None
         except Exception:
+            CodeValidator._cache_misses += 1
             return None
 
     def cache_validation(self, file_path: Path, result: Dict):
-        """缓存验证结果（成功和失败都缓存，但过期时间不同）"""
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             content_hash = self._compute_content_hash(content)
             cache_key = f"{file_path.name}:{content_hash}"
-            self._validation_cache[cache_key] = (result, time.time())
-            self._clear_old_cache()
+            if cache_key in CodeValidator._lru_cache:
+                old_entry = CodeValidator._lru_cache.pop(cache_key)
+                CodeValidator._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(old_entry)
+            entry = (result, time.time())
+            CodeValidator._lru_cache[cache_key] = entry
+            CodeValidator._lru_cache.move_to_end(cache_key)
+            CodeValidator._cache_size_bytes += sys.getsizeof(cache_key) + sys.getsizeof(entry)
+            CodeValidator._clear_old_cache()
         except Exception:
             pass
+
+    @classmethod
+    def get_cache_stats(cls) -> Dict[str, Any]:
+        total_requests = cls._cache_hits + cls._cache_misses
+        hit_rate = cls._cache_hits / total_requests if total_requests > 0 else 0.0
+        return {
+            "entries": len(cls._lru_cache),
+            "size_bytes": cls._cache_size_bytes,
+            "max_bytes": cls._max_cache_bytes,
+            "hits": cls._cache_hits,
+            "misses": cls._cache_misses,
+            "hit_rate": hit_rate,
+        }
 
     async def validate_syntax(self, file_path: Path) -> Tuple[bool, List[str]]:
         """验证语法正确性"""

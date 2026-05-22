@@ -150,8 +150,6 @@ class ImageManager:
     ) -> Optional[ImageAsset]:
         """使用 Kolors API 生成图片"""
         try:
-            from app.utils.AiCodeUtil import call_siliconflow
-            
             # 构建提示词
             prompt = f"{description}, {style}, 高质量, 插画风格"
             
@@ -484,8 +482,8 @@ class ImageManager:
         """生成图标（使用 emoji 或简单形状作为备选）"""
         # 简单的 emoji 图标映射
         icon_map = {
-            "warning": "⚠️",
-            "info": "ℹ️",
+            "warning": "[WARNING]",
+            "info": "[INFO]",
             "check": "✓",
             "cross": "✗",
             "arrow": "→",
@@ -493,9 +491,9 @@ class ImageManager:
             "heart": "♥",
             "book": "📖",
             "people": "👥",
-            "chart": "📊",
-            "lightbulb": "💡",
-            "target": "🎯",
+            "chart": "[CHART]",
+            "lightbulb": "[TIP]",
+            "target": "[TARGET]",
         }
         
         emoji = icon_map.get(icon_type.lower(), "●")

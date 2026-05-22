@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.schema.codeRequest import CodeRequest
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 from app.utils.cache import cached
 from app.utils.web_search import FreeWebSearch
 from fastapi.responses import StreamingResponse
@@ -586,7 +586,13 @@ async def stream_response(
 
         full_response = prefix_text + "".join(response_parts)
 
-        logger.info(f"流式生成完成，保存历史记录")
+        # 检查响应是否为空，避免保存空记录
+        if not full_response or not full_response.strip():
+            logger.warning(f"AI 生成响应为空 | user_id={user_id} | prompt={prompt[:50]}...")
+            yield f'{{"error": "AI 生成响应为空，未保存历史记录"}}\n'
+            return
+
+        logger.info(f"流式生成完成，保存历史记录 | response_length={len(full_response)}")
         new_conv_id = await save_history_to_db(
             db=db,
             user_id=int(user_id),
@@ -653,6 +659,17 @@ async def generate_response(
     result = await call_siliconflow(final_prompt, model, stream=False)
     response = result["choices"][0]["message"]["content"]
     tokens_used = format_tokens_usage(result)
+    
+    # 检查响应是否为空，避免保存空记录
+    if not response or not response.strip():
+        logger.warning(f"AI 生成响应为空 | user_id={user_id} | prompt={prompt[:50]}...")
+        return {
+            "response": "",
+            "tokens_used": tokens_used,
+            "conversation_id": None,
+            "context_length": len(full_context),
+            "error": "AI 生成响应为空，未保存历史记录"
+        }
     
     new_conv_id = await save_history_to_db(
         db=db,

@@ -254,11 +254,11 @@ async def generate_code_from_image(
 请生成完整的代码文件。"""
     
     # 调用代码生成模型（复用现有函数）
-    from app.utils.AiCodeUtil import call_siliconflow
+    from app.utils import call_llm
     
-    code_result = await call_siliconflow(
+    code_result = await call_llm(
+        model="Qwen/Qwen2.5-7B-Instruct",
         prompt=code_prompt,
-        model="Qwen/Qwen2.5-7B-Instruct",  # 指令遵循、代码生成
         max_tokens=4096
     )
     

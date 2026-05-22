@@ -51,7 +51,7 @@ from app.schema.codeRequest import GenerateRequest, GenerateResponse, AgentConfi
 from app.models.saved_project import SavedProject
 from app.db.models import ProjectSession
 from app.models.agent_memory import AgentSession, ToolExecutionLog, ModelUsageStats
-from app.utils.agent_core import ProjectGeneratorAgent, ProjectFileManager
+from app.utils.agent_core import ProjectGeneratorAgent
 from app.utils.task_manager import task_manager
 from app.schema.task_schema import TaskResponse, TaskStatusEnum
 # Import database helper functions from AiProjectCode
@@ -127,16 +127,12 @@ class FileOperationRequest(BaseModel):
 
     @validator('path')
     def validate_path(cls, v):
+        resolved = str(Path(v).resolve())
         if ".." in v or v.startswith("/"):
             raise ValueError("路径格式不正确")
+        if "\\" in v:
+            raise ValueError("路径格式不正确")
         return v
-
-
-class FileContractRequest(BaseModel):
-    """文件契约请求"""
-    operation: str = Field(..., description="操作类型")
-    path: str = Field(..., description="文件路径")
-    content: Optional[str] = Field(None, description="文件内容")
 
 
 class ModelListResponse(BaseModel):
@@ -790,6 +786,8 @@ ALLOWED_PACKAGES = [
     "fastapi", "pydantic", "httpx", "sqlalchemy",
     "click", "typer", "pytest", "aiofiles"
 ]
+# NOTE: auto_install_deps=False in AgentConfig, so ALLOWED_PACKAGES
+# is currently inactive. Retained for future enablement.
 
 PROJECT_MIME_TYPES = {
     '.py': 'text/x-python',
@@ -922,7 +920,7 @@ def load_dependency_graph() -> Optional[Dict]:
     if _dependency_graph_cache is not None:
         return _dependency_graph_cache
 
-    graph_path = Path(__file__).parent.parent.parent.parent / "dependency_graph.json"
+    graph_path = Path(__file__).parent.parent.parent.parent / "data" / "dependency_graph.json"
     if graph_path.exists():
         try:
             _dependency_graph_cache = json.loads(graph_path.read_text(encoding='utf-8'))
@@ -1698,17 +1696,108 @@ class OrchestratorResponse(BaseModel):
     success: bool
     output_dir: str
     total_files_created: int
+    total_files_failed: Optional[int] = 0
     complexity: str
     models_used: Dict[str, str]
     files: List[Dict[str, Any]]
     validation: Dict[str, Any]
+    test_results: Optional[Dict[str, Any]] = None
+    specs_generated: Optional[List[str]] = None
+    context_summary: Optional[str] = None
+    context_full: Optional[Dict[str, Any]] = None
     errors: List[str]
     warnings: List[str]
     elapsed_time: float
     fix_attempts: List[Dict[str, Any]]
+    session_id: Optional[str] = None
+
+    class Config:
+        extra = "ignore"
 
 
-@router.post("/orchestrate", response_model=OrchestratorResponse)
+class ModifyRequest(BaseModel):
+    """增量修改请求"""
+    project_path: str = Field(..., description="已有项目路径")
+    requirement: str = Field(..., description="修改需求描述", min_length=1, max_length=5000)
+    session_id: Optional[str] = Field(None, description="已有会话 ID")
+    enable_review: bool = Field(True, description="是否启用代码审查")
+    enable_validation: bool = Field(True, description="是否启用代码验证")
+    enable_error_recovery: bool = Field(True, description="是否启用错误恢复")
+    enable_memory: bool = Field(True, description="是否启用记忆系统")
+    dependency_graph: bool = Field(True, description="是否启用依赖图")
+    enable_cross_file_analysis: bool = Field(True, description="是否启用跨文件依赖分析（v4.8.0）")
+    max_dependency_depth: int = Field(3, description="最大传递依赖深度（v4.8.0）", ge=1, le=10)
+
+
+@router.post("/modify", response_model=OrchestratorResponse)
+async def modify_project(
+    request: ModifyRequest,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    对已有项目进行增量修改
+
+    工作流程:
+    1. 解析已有项目路径，构建依赖图
+    2. 通过 SessionManager 检测增量变更
+    3. CodePatcher 或全量重新生成（根据变更幅度自动选择）
+    4. DockerRunner 运行测试验证，完成后释放容器
+    5. git commit 保存变更快照
+    """
+    user_id = token.get("sub", "anonymous")
+    if not user_id or user_id == "anonymous" or not user_id.isdigit():
+        raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+
+    # 解析项目路径
+    base_dir = Path("./projects").resolve()
+    project_dir = (base_dir / request.project_path).resolve()
+
+    if not str(project_dir).startswith(str(base_dir)):
+        raise HTTPException(status_code=403, detail="无权访问该路径")
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail=f"项目不存在: {request.project_path}")
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=400, detail="不是有效的项目文件夹")
+
+    session_id = request.session_id or f"modify_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    sm = await get_session_manager()
+
+    start_time = time.time()
+    try:
+        orchestrator = OrchestratorAgent(
+            output_dir=project_dir,
+            enable_review=request.enable_review,
+            enable_validation=request.enable_validation,
+            enable_error_recovery=request.enable_error_recovery,
+            memory_enabled=request.enable_memory,
+            spec_first=False,
+            dependency_graph=request.dependency_graph,
+            callback=lambda msg: logger.info(f"Modify 进度: {msg[:200]}"),
+            session_manager=sm,
+            session_id=session_id,
+            incremental=True
+        )
+
+        result = await orchestrator.generate(requirement=request.requirement)
+
+        execution_time = time.time() - start_time
+        await log_tool_execution(
+            db, session_id, "orchestrator_modify",
+            {"requirement": request.requirement, "project_path": request.project_path},
+            json.dumps(result, ensure_ascii=False)[:5000] if result else None,
+            success=result.get("success", False),
+            execution_time=execution_time
+        )
+
+        return OrchestratorResponse(**result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"增量修改失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"项目修改失败: {str(e)}")
 async def orchestrate_project(
     request: OrchestratorRequest,
     token: dict = Depends(verify_token),
@@ -1758,9 +1847,11 @@ async def orchestrate_project(
             memory_enabled=request.enable_memory,
             spec_first=request.spec_first,
             dependency_graph=request.dependency_graph,
-            callback=lambda msg: logger.info(f"Orchestrator 进度: {msg[:200]}")
+            callback=lambda msg: logger.info(f"Orchestrator 进度: {msg[:200]}"),
+            session_id=session_id,
+            incremental=request.incremental
         )
-
+        
         # 执行生成
         result = await orchestrator.generate(requirement=request.requirement)
 
@@ -1886,7 +1977,7 @@ async def orchestrate_project_stream(
                 # 增量生成
                 session_manager=sm,
                 session_id=session_id,
-                incremental=False,
+                incremental=request.incremental,
                 # 缓存
                 spec_cache=cache,
                 # 人机协作
@@ -1924,16 +2015,10 @@ async def orchestrate_project_stream(
             except asyncio.CancelledError:
                 # SSE 断开：取消后台生成任务
                 logger.info(f"客户端断开连接，取消生成任务 | session={session_id}")
-                cancel_event.set()
-                gen_task.cancel()
-                try:
-                    await asyncio.wait_for(gen_task, timeout=5.0)
-                except (asyncio.CancelledError, asyncio.TimeoutError):
-                    pass
             finally:
-                # 始终清理资源
+                # 始终清理资源（无论正常结束还是异常）
+                cancel_event.set()
                 if not gen_task.done():
-                    cancel_event.set()
                     gen_task.cancel()
                     try:
                         await asyncio.wait_for(gen_task, timeout=5.0)
@@ -2318,5 +2403,286 @@ async def update_project_session_config(
         "status": "updated",
         "max_sessions_per_user": request.max_sessions_per_user,
         "mode": "single-session" if request.max_sessions_per_user == 1 else "multi-session"
+    }
+
+
+# ==================== v4.8.0: Git 快照管理 API ====================
+
+@router.get("/snapshots/{session_id}")
+async def list_snapshots(
+    session_id: str,
+    token: dict = Depends(verify_token),
+):
+    """列出指定会话的所有 Git 快照"""
+    from app.agent.git_operations import GitOperations
+    git_ops = GitOperations()
+
+    project_dir = Path(f"orchestrator/{session_id}")
+    if not project_dir.exists():
+        project_dir = Path(f"user_uploads/{session_id}")
+
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail=f"项目目录不存在: {session_id}")
+
+    snapshots = await git_ops.list_snapshots(project_dir)
+    return {"session_id": session_id, "snapshots": [{"tag": s.tag, "commit": s.commit_hash, "message": s.message, "timestamp": s.timestamp} for s in snapshots]}
+
+
+@router.post("/rollback/{session_id}")
+async def rollback_to_snapshot(
+    session_id: str,
+    target_tag: str,
+    delete_branch: bool = True,
+    token: dict = Depends(verify_token),
+):
+    """回滚项目到指定快照"""
+    from app.agent.snapshot_manager import SnapshotManager, RollbackResult
+    from app.agent.git_operations import GitOperations
+    git_ops = GitOperations()
+    snapshot_mgr = SnapshotManager(git_ops)
+
+    project_dir = Path(f"orchestrator/{session_id}")
+    if not project_dir.exists():
+        project_dir = Path(f"user_uploads/{session_id}")
+
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail=f"项目目录不存在: {session_id}")
+
+    result = await snapshot_mgr.rollback_to_snapshot(
+        project_dir, target_tag, delete_branch
+    )
+
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"快照不存在: {target_tag}")
+
+    return {"success": result.success, "previous_tag": result.previous_tag, "current_tag": result.current_tag, "files_restored": result.files_restored}
+
+
+@router.get("/snapshot/diff")
+async def diff_snapshots(
+    session_id: str,
+    from_tag: str,
+    to_tag: str,
+    token: dict = Depends(verify_token),
+):
+    """查看两个快照之间的差异"""
+    from app.agent.git_operations import GitOperations
+    git_ops = GitOperations()
+
+    project_dir = Path(f"orchestrator/{session_id}")
+    if not project_dir.exists():
+        project_dir = Path(f"user_uploads/{session_id}")
+
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail=f"项目目录不存在: {session_id}")
+
+    diff = await git_ops.diff_between_commits(project_dir, from_tag, to_tag)
+    return {"session_id": session_id, "from": from_tag, "to": to_tag, "diff": diff[:5000]}
+
+
+def verify_admin_token(token: dict = Depends(verify_token)) -> dict:
+    """验证管理员 Token"""
+    if token.get("role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return token
+
+
+# ==================== v4.8.0: 并发限制热调整 API ====================
+
+@router.put("/concurrent-limits")
+async def update_concurrent_limits(
+    role: str,
+    new_limit: int,
+    token: dict = Depends(verify_admin_token),
+):
+    """热更新并发限制（无需重启服务，v4.8.0）"""
+    from app.utils.system_config import system_config_manager
+
+    if new_limit < 1:
+        raise HTTPException(status_code=400, detail="限制值必须为正整数")
+
+    username = token.get("sub", "admin")
+    record = await system_config_manager.update_concurrent_limit(
+        role, new_limit, username, "API 调用"
+    )
+    return {"role": role, "old_limit": record.old_limit, "new_limit": record.new_limit, "changed_by": record.changed_by, "timestamp": record.timestamp.isoformat()}
+
+
+@router.get("/concurrent-limits/recommended")
+async def get_recommended_limits(
+    token: dict = Depends(verify_token),
+):
+    """获取系统负载自适应推荐的并发限制"""
+    from app.utils.system_config import system_config_manager
+    recommendations = await system_config_manager.concurrent_mgr.get_recommended_limits()
+    return {"recommendations": recommendations}
+
+
+@router.get("/concurrent-limits/history")
+async def get_limit_change_history(
+    limit: int = 50,
+    token: dict = Depends(verify_token),
+):
+    """获取并发限制变更历史"""
+    from app.utils.system_config import system_config_manager
+    history = system_config_manager.get_limit_change_history(limit)
+    return {"history": [{"role": r.role, "old_limit": r.old_limit, "new_limit": r.new_limit, "changed_by": r.changed_by, "timestamp": r.timestamp.isoformat()} for r in history]}
+
+
+class RequirementAssociationRequest(BaseModel):
+    requirement: str = Field(..., description="项目需求描述", min_length=1, max_length=5000)
+    complexity_level: Optional[str] = Field(None, description="项目复杂度等级 (simple/small/medium/large/enterprise)")
+    skip_association: bool = Field(False, description="是否跳过联想环节")
+
+
+class RequirementAssociationConfirmRequest(BaseModel):
+    requirement: str = Field(..., description="原始需求描述")
+    confirmed_items: List[Dict[str, Any]] = Field(default_factory=list, description="用户确认的联想项")
+    removed_items: List[Dict[str, Any]] = Field(default_factory=list, description="用户删除的联想项")
+    modified_items: List[Dict[str, Any]] = Field(default_factory=list, description="用户修改的联想项")
+
+
+class RequirementAssociationHelpfulnessRequest(BaseModel):
+    session_id: str = Field(..., description="会话ID")
+    requirement: str = Field(..., description="原始需求描述")
+    helpfulness: str = Field(..., description="整体反馈: very_helpful / somewhat_helpful / not_helpful")
+
+
+class RequirementAssociationResponse(BaseModel):
+    skipped: bool = False
+    skip_reason: Optional[str] = None
+    domain_matched: Optional[str] = None
+    domains_matched: List[str] = Field(default_factory=list)
+    items: List[Dict[str, Any]] = Field(default_factory=list)
+    classified_items: Dict[str, Any] = Field(default_factory=dict)
+    enhanced_requirement: Optional[str] = None
+    devil_review_items: List[Dict[str, Any]] = Field(default_factory=list)
+    elapsed_seconds: float = 0.0
+
+
+@router.post("/requirement-association", response_model=RequirementAssociationResponse)
+async def requirement_association(
+    request: RequirementAssociationRequest,
+    token: dict = Depends(verify_token),
+):
+    """需求联想增强 - 分析需求并生成结构化补充清单"""
+    if request.skip_association:
+        return RequirementAssociationResponse(
+            skipped=True,
+            skip_reason="用户主动跳过联想环节"
+        )
+
+    from app.agent.orchestrator_requirements import RequirementAssociationMixin
+    from app.agent.complexity import ComplexityAnalyzer
+
+    complexity_level = request.complexity_level
+    if not complexity_level:
+        analyzer = ComplexityAnalyzer()
+        analysis = analyzer.analyze(request.requirement)
+        complexity_level = analysis.level.value
+
+    mixin = RequirementAssociationMixin()
+    mixin.callback = None
+    mixin._start_time = time.time()
+    mixin._current_phase = "requirement_association"
+
+    result = await mixin._generate_requirement_associations(
+        request.requirement, complexity_level
+    )
+
+    classified = mixin._classify_items_for_display(result.items) if result.items else {}
+
+    items_dicts = []
+    for item in result.items:
+        items_dicts.append({
+            "content": item.content,
+            "category": item.category,
+            "source": item.source,
+            "confidence": item.confidence,
+            "sub_category": item.sub_category,
+            "impact": item.impact,
+            "dual_model_agreement": item.dual_model_agreement,
+            "devil_review": item.devil_review,
+        })
+
+    return RequirementAssociationResponse(
+        skipped=result.skipped,
+        skip_reason=result.skip_reason if result.skipped else None,
+        domain_matched=result.domain_matched,
+        domains_matched=result.domains_matched,
+        items=items_dicts,
+        classified_items=classified,
+        enhanced_requirement=result.enhanced_requirement,
+        devil_review_items=result.devil_review_items,
+        elapsed_seconds=result.elapsed_seconds
+    )
+
+
+@router.post("/requirement-association/confirm")
+async def requirement_association_confirm(
+    request: RequirementAssociationConfirmRequest,
+    token: dict = Depends(verify_token),
+):
+    """确认需求联想结果 - 记录用户选择行为（数据闭环）"""
+    from app.agent.orchestrator_requirements import AssociationFeedbackTracker
+    from datetime import datetime
+
+    tracker = AssociationFeedbackTracker()
+    session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    tracker.record_choice(session_id, request.requirement, request.confirmed_items, "accepted")
+    tracker.record_choice(session_id, request.requirement, request.removed_items, "rejected")
+    tracker.record_choice(session_id, request.requirement, request.modified_items, "modified")
+
+    enhanced_parts = [request.requirement]
+    if request.confirmed_items:
+        enhanced_parts.append("\n\n[用户确认的需求联想项]")
+        for item in request.confirmed_items:
+            enhanced_parts.append(f"  - [{item.get('category', 'functional')}] {item.get('content', '')}")
+
+    return {
+        "success": True,
+        "session_id": session_id,
+        "confirmed_count": len(request.confirmed_items),
+        "removed_count": len(request.removed_items),
+        "modified_count": len(request.modified_items),
+        "enhanced_requirement": "\n".join(enhanced_parts)
+    }
+
+
+@router.post("/requirement-association/helpfulness")
+async def requirement_association_helpfulness(
+    request: RequirementAssociationHelpfulnessRequest,
+    token: dict = Depends(verify_token),
+):
+    """记录用户对联想建议的整体帮助性评价"""
+    from app.agent.orchestrator_requirements import AssociationFeedbackTracker
+
+    tracker = AssociationFeedbackTracker()
+    tracker.record_helpfulness(
+        request.session_id, request.requirement, request.helpfulness
+    )
+
+    return {
+        "success": True,
+        "session_id": request.session_id,
+        "helpfulness": request.helpfulness,
+    }
+
+
+@router.get("/requirement-association/stats")
+async def requirement_association_stats(
+    token: dict = Depends(verify_token),
+):
+    """获取联想反馈统计数据"""
+    from app.agent.orchestrator_requirements import AssociationFeedbackTracker
+
+    tracker = AssociationFeedbackTracker()
+    stats = tracker.get_feedback_stats()
+    rejection_reasons = tracker.get_rejection_reason_stats()
+
+    return {
+        "feedback_stats": stats,
+        "rejection_reason_stats": rejection_reasons,
     }
 

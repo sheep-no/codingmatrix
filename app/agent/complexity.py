@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Optional, List, Dict
 from dataclasses import dataclass
 
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -191,9 +191,9 @@ class ComplexityAnalyzer:
             )
             user_prompt = f"用户需求：\n{requirement}\n\n关键词初估：约 {keyword_result.estimated_files} 个文件，技术栈：{keyword_result.key_technologies}。请校准估算。"
 
-            response = await call_siliconflow(
-                prompt=user_prompt,
+            response = await call_llm(
                 model="Qwen/Qwen3.5-4B",
+                prompt=user_prompt,
                 max_tokens=512,
                 temperature=0.3,
                 system_prompt=system_prompt

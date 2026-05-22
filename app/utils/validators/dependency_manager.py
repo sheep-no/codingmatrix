@@ -142,7 +142,7 @@ class DependencyManager:
             logger.info(f"创建虚拟环境：{self.venv_path}")
             
             # 使用异步方式创建 venv
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
                 lambda: venv.create(self.venv_path, with_pip=True)

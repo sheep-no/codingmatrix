@@ -21,9 +21,9 @@ CodePatcher - 代码补丁生成器
 import re
 import logging
 import difflib
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -220,13 +220,15 @@ class CodePatcher:
 
         except Exception as e:
             result.errors.append(f"应用 patch 异常: {str(e)}")
+            logger.error(f"应用 patch 异常: {e}", exc_info=True)
 
         return result
 
     async def apply_patch_to_file(
         self,
         file_path: Path,
-        patch: str
+        patch: str,
+        output_dir: Optional[Path] = None,
     ) -> PatchResult:
         """
         应用 patch 到实际文件
@@ -234,6 +236,7 @@ class CodePatcher:
         Args:
             file_path: 文件路径
             patch: unified diff patch
+            output_dir: 安全边界目录，文件路径必须在此目录内
 
         Returns:
             PatchResult 结果
@@ -248,6 +251,23 @@ class CodePatcher:
                 errors=[f"文件不存在: {file_path}"],
                 warnings=[]
             )
+
+        # 路径穿越校验：确保文件在安全边界内
+        if output_dir is not None:
+            resolved_file = file_path.resolve()
+            resolved_dir = output_dir.resolve()
+            try:
+                resolved_file.relative_to(resolved_dir)
+            except ValueError:
+                return PatchResult(
+                    success=False,
+                    file_path=str(file_path),
+                    original_content="",
+                    patched_content="",
+                    diff=patch,
+                    errors=[f"路径穿越: {file_path} 不在 {output_dir} 内"],
+                    warnings=[]
+                )
 
         original_content = file_path.read_text(encoding='utf-8')
         result = await self.apply_patch(str(file_path), original_content, patch)
@@ -481,3 +501,130 @@ async def apply_incremental_change(
 
     # 应用 patch
     return await patcher.apply_patch(str(file_path), original_content, patch)
+
+
+@dataclass
+class CrossFilePatchResult:
+    """跨文件 patch 应用结果"""
+    primary_file: str
+    primary_result: Optional[PatchResult] = None
+    dependent_results: List[PatchResult] = field(default_factory=list)
+    failed_patches: List[str] = field(default_factory=list)
+    dependency_chain: Dict[str, List[str]] = field(default_factory=dict)
+
+
+class CrossFilePatcher:
+    """
+    跨文件 patch 生成器
+
+    v4.8.0 新增：
+    - 给定变更文件和依赖链，自动为所有受影响文件生成 patch
+    - 无法自动 patch 的文件标记为 "manual review required"
+    """
+
+    def __init__(self, code_patcher: CodePatcher):
+        self.code_patcher = code_patcher
+
+    async def generate_cross_file_patches(
+        self,
+        requirement: str,
+        changed_files: List[str],
+        affected_files: Dict[str, List[str]],
+        project_path: Path,
+        file_contents: Dict[str, str],
+    ) -> CrossFilePatchResult:
+        """
+        为变更文件和所有受影响文件生成 patch
+
+        Args:
+            requirement: 变更需求描述
+            changed_files: 直接变更的文件列表
+            affected_files: {变更文件: [受影响的下游文件]}
+            project_path: 项目根目录
+            file_contents: {文件路径: 文件内容}
+
+        Returns:
+            CrossFilePatchResult
+        """
+        result = CrossFilePatchResult(
+            primary_file=changed_files[0] if changed_files else "",
+            dependency_chain=affected_files,
+        )
+
+        for changed_file in changed_files:
+            content = file_contents.get(changed_file, "")
+            if not content:
+                try:
+                    content = (project_path / changed_file).read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    result.failed_patches.append(changed_file)
+                    continue
+
+            project_context = {
+                "requirement": requirement,
+                "affected_files": affected_files.get(changed_file, []),
+            }
+
+            patch = await self.code_patcher.generate_patch_from_requirement(
+                changed_file, content, requirement, project_context
+            )
+
+            if patch:
+                patch_result = await self.code_patcher.apply_patch(
+                    changed_file, content, patch
+                )
+                if patch_result.success:
+                    result.primary_result = patch_result
+                else:
+                    result.failed_patches.append(changed_file)
+                    result.primary_result = patch_result
+            else:
+                result.failed_patches.append(changed_file)
+
+        for source_file, dependents in affected_files.items():
+            for dep_file in dependents:
+                if dep_file in changed_files:
+                    continue
+
+                dep_content = file_contents.get(dep_file, "")
+                if not dep_content:
+                    try:
+                        dep_content = (project_path / dep_file).read_text(encoding="utf-8", errors="ignore")
+                    except Exception:
+                        result.failed_patches.append(dep_file)
+                        continue
+
+                dep_requirement = (
+                    f"文件 {source_file} 已修改（需求：{requirement}），"
+                    f"请调整 {dep_file} 以保持与 {source_file} 的依赖关系一致"
+                )
+
+                dep_project_context = {
+                    "requirement": requirement,
+                    "source_file": source_file,
+                    "source_changes": f"文件 {source_file} 已根据需求变更",
+                }
+
+                dep_patch = await self.code_patcher.generate_patch_from_requirement(
+                    dep_file, dep_content, dep_requirement, dep_project_context
+                )
+
+                if dep_patch:
+                    dep_result = await self.code_patcher.apply_patch(
+                        dep_file, dep_content, dep_patch
+                    )
+                    if dep_result.success:
+                        result.dependent_results.append(dep_result)
+                    else:
+                        result.failed_patches.append(dep_file)
+                else:
+                    result.failed_patches.append(dep_file)
+
+        logger.info(
+            f"跨文件 patch 生成完成: "
+            f"primary={result.primary_result is not None}, "
+            f"dependents={len(result.dependent_results)}, "
+            f"failed={len(result.failed_patches)}"
+        )
+
+        return result

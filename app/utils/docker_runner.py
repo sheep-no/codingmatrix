@@ -32,9 +32,15 @@ except ImportError:
     NotFound = Exception  # type: ignore
     APIError = Exception  # type: ignore
     logger = logging.getLogger(__name__)
-    logger.warning("⚠️ Docker 库未安装，容器化验证不可用")
+    logger.warning("[WARNING] Docker 库未安装，容器化验证不可用")
 
 logger = logging.getLogger(__name__)
+
+
+# 导入测试框架配置（v4.8.0）
+from app.agent.test_framework_config import FRAMEWORK_PRESETS, TestFrameworkConfig
+from app.agent.framework_detector import FrameworkDetector
+from app.agent.output_parser import OutputParser
 
 
 @dataclass
@@ -274,6 +280,10 @@ class DockerRunner:
         self.enable_security_scan = enable_security_scan
         self.client = None
 
+        # v4.8.0: 测试框架检测 + 服务容器管理
+        self.framework_detector = FrameworkDetector()
+        self._service_container_mgr = None
+
         self._resource_config: Dict[str, str] = {}
         self._init_docker_client()
         self._pull_image()
@@ -303,7 +313,7 @@ class DockerRunner:
         """同步加载资源配置（尝试加载，失败时使用默认）"""
         try:
             import asyncio
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             if loop.is_running():
                 asyncio.create_task(self._load_resource_config_async())
             else:
@@ -347,27 +357,27 @@ class DockerRunner:
             self.client = docker.from_env()
             # 测试连接
             self.client.ping()
-            logger.info("✅ Docker 客户端初始化成功")
+            logger.info("[SUCCESS] Docker 客户端初始化成功")
         except DockerException as e:
-            logger.error(f"❌ Docker 初始化失败：{e}")
+            logger.error(f"[ERROR] Docker 初始化失败：{e}")
             raise RuntimeError(f"Docker 不可用：{e}")
     
     def _pull_image(self):
         """拉取 Docker 镜像"""
         try:
-            logger.info(f"[IMG] 检查镜像 | {self.config.image}")
+            logger.info(f"[IMAGE] 检查镜像 | {self.config.image}")
             
             try:
                 # 检查本地是否有镜像
                 self.client.images.get(self.config.image)
-                logger.info("✅ 镜像已存在")
+                logger.info("[SUCCESS] 镜像已存在")
             except NotFound:
-                logger.info(f"⬇️  拉取镜像 | {self.config.image}")
+                logger.info(f"[DOWNLOAD]  拉取镜像 | {self.config.image}")
                 self.client.images.pull(self.config.image)
-                logger.info("✅ 镜像拉取完成")
+                logger.info("[SUCCESS] 镜像拉取完成")
                 
         except DockerException as e:
-            logger.error(f"❌ 镜像拉取失败：{e}")
+            logger.error(f"[ERROR] 镜像拉取失败：{e}")
             raise RuntimeError(f"无法拉取镜像：{e}")
     
     def _scan_code_security(self, project_path: Path) -> List[str]:
@@ -404,7 +414,7 @@ class DockerRunner:
                     for pattern in self.FORBIDDEN_PATTERNS:
                         if re.search(pattern, line, re.IGNORECASE):
                             warnings.append(
-                                f"⚠️ {py_file.relative_to(project_path)}:{line_num} "
+                                f"[WARNING] {py_file.relative_to(project_path)}:{line_num} "
                                 f"发现危险模式：{line.strip()[:100]}"
                             )
                 
@@ -412,9 +422,9 @@ class DockerRunner:
                 logger.debug(f"扫描文件失败 | {py_file}: {e}")
 
         if warnings:
-            logger.warning(f"⚠️ 发现 {len(warnings)} 个安全警告")
+            logger.warning(f"[WARNING] 发现 {len(warnings)} 个安全警告")
         else:
-            logger.info("✅ 安全扫描通过")
+            logger.info("[SUCCESS] 安全扫描通过")
 
         return warnings
 
@@ -423,7 +433,9 @@ class DockerRunner:
         project_path: Path,
         requirements_path: Optional[Path] = None,
         test_command: str = "python main.py",
-        install_deps: bool = True
+        install_deps: bool = True,
+        auto_detect_framework: bool = True,
+        required_services: Optional[List[str]] = None,
     ) -> ValidationResult:
         """
         在 Docker 容器中运行项目验证
@@ -433,13 +445,16 @@ class DockerRunner:
             requirements_path: requirements.txt 路径
             test_command: 测试命令
             install_deps: 是否安装依赖
+            auto_detect_framework: 是否自动检测测试框架
+            required_services: 需要的服务列表（Redis/PostgreSQL/MySQL/MongoDB/RabbitMQ/Elasticsearch）
             
         Returns:
             验证结果
         """
         result = ValidationResult()
         container = None
-        start_time = asyncio.get_event_loop().time()
+        service_containers = None
+        start_time = asyncio.get_running_loop().time()
 
         try:
             # 检查是否可以启动容器
@@ -449,20 +464,49 @@ class DockerRunner:
                 result.success = False
                 return result
 
+            # v4.8.0: 启动依赖服务容器
+            if required_services:
+                from app.utils.service_container_manager import ServiceContainerManager
+                self._service_container_mgr = ServiceContainerManager()
+                service_containers = await self._service_container_mgr.start_service_containers(
+                    required_services, self.client
+                )
+                logger.info(f"已启动 {len(service_containers)} 个服务容器：{list(service_containers.keys())}")
+
             # 安全扫描
             security_warnings = self._scan_code_security(project_path)
             result.logs.extend(security_warnings)
 
             # 根据配置设置网络模式
-            if self.config.network_enabled:
+            if self.config.network_enabled or required_services:
                 self.config.network_mode = "bridge"
-                logger.info("[NET] 网络模式: 启用 (用户明确要求)")
+                logger.info("[NET] 网络模式：启用 (服务依赖或用户要求)")
             else:
                 self.config.network_mode = "none"
-                logger.info("[SEC] 网络模式: 禁用 (默认安全模式)")
+                logger.info("[SEC] 网络模式：禁用 (默认安全模式)")
+
+            # v4.8.0: 自动检测测试框架
+            if auto_detect_framework:
+                detected_config = self.framework_detector.detect(project_path)
+                if detected_config:
+                    test_command = detected_config.test_command
+                    logger.info(f"自动检测到测试框架：{detected_config.framework}")
+
+                    if detected_config.docker_image:
+                        self.config.image = detected_config.docker_image
+                        logger.info(f"切换镜像：{detected_config.docker_image}")
 
             # 准备容器配置
             config = self._prepare_container_config(project_path)
+            
+            # v4.8.0: 注入服务容器的环境变量
+            if service_containers:
+                env_vars = self._service_container_mgr.generate_test_env_vars(service_containers)
+                if "environment" in config:
+                    config["environment"].update(env_vars)
+                else:
+                    config["environment"] = env_vars
+                logger.info(f"注入服务环境变量：{list(env_vars.keys())}")
             
             logger.info(f"[DOCKER] 创建容器 | project: {project_path.name}")
             
@@ -471,11 +515,21 @@ class DockerRunner:
             
             # 启动容器
             await asyncio.to_thread(container.start)
-            logger.info(f"▶️ 容器已启动 | id: {container.short_id}")
+            logger.info(f"[START] 容器已启动 | id: {container.short_id}")
+            
+            # v4.8.0: 等待服务健康检查
+            if service_containers and self._service_container_mgr:
+                logger.info("等待服务健康检查...")
+                health_ok = await self._service_container_mgr.wait_for_health(service_containers, self.client)
+                if not health_ok:
+                    result.error = "依赖服务健康检查失败"
+                    result.success = False
+                    return result
+                logger.info("所有服务健康检查通过")
             
             # 安装依赖
             if install_deps and requirements_path and requirements_path.exists():
-                logger.info("[PKG] 安装依赖")
+                logger.info("[CACHE] 安装依赖")
                 install_result = await self._exec_command(
                     container,
                     "pip install --no-cache-dir --disable-pip-version-check -r requirements.txt"
@@ -486,12 +540,12 @@ class DockerRunner:
                 if install_result.exit_code != 0:
                     result.error = "依赖安装失败"
                     result.logs.extend([
-                        f"❌ 依赖安装失败，exit code: {install_result.exit_code}"
+                        f"[ERROR] 依赖安装失败，exit code: {install_result.exit_code}"
                     ])
                     return result
             
             # 运行测试
-            logger.info(f"▶️ 运行测试 | cmd: {test_command}")
+            logger.info(f"[START] 运行测试 | cmd: {test_command}")
             test_result = await self._exec_command(container, test_command)
             result.logs.extend(test_result.logs)
             result.errors.extend(test_result.errors)
@@ -499,11 +553,11 @@ class DockerRunner:
             
             if test_result.exit_code == 0:
                 result.success = True
-                logger.info(f"✅ 验证通过 | project: {project_path.name}")
+                logger.info(f"[SUCCESS] 验证通过 | project: {project_path.name}")
             else:
                 result.error = "测试执行失败"
-                logger.warning(f"⚠️ 验证失败 | project: {project_path.name} | exit_code: {result.exit_code}")
-            
+                logger.warning(f"[WARNING] 验证失败 | project: {project_path.name} | exit_code: {result.exit_code}")
+
             return result
             
         except asyncio.TimeoutError:
@@ -514,23 +568,28 @@ class DockerRunner:
             
         except DockerException as e:
             result.error = f"Docker 错误：{str(e)}"
-            logger.error(f"❌ Docker 错误 | {e}")
+            logger.error(f"[ERROR] Docker 错误 | {e}")
             result.errors.append(result.error)
             return result
         
         except Exception as e:
             result.error = f"未知错误：{str(e)}"
-            logger.error(f"❌ 未知错误 | {e}", exc_info=True)
+            logger.error(f"[ERROR] 未知错误 | {e}", exc_info=True)
             result.errors.append(result.error)
             return result
             
         finally:
-            # 清理容器
+            # v4.8.0: 清理服务容器
+            if service_containers and self._service_container_mgr:
+                logger.info("清理服务容器...")
+                await self._service_container_mgr.cleanup_containers(self.client)
+            
+            # 清理测试容器
             if container:
                 await self._cleanup_container(container)
             
-            result.duration = asyncio.get_event_loop().time() - start_time
-            logger.info(f"⏱️ 验证耗时 | {result.duration:.2f}s")
+            result.duration = asyncio.get_running_loop().time() - start_time
+            logger.info(f"[TIME] 验证耗时 | {result.duration:.2f}s")
     
     def _prepare_container_config(self, project_path: Path) -> Dict[str, Any]:
         """准备容器配置"""
@@ -585,7 +644,7 @@ class DockerRunner:
             "labels": {
                 "ai.project.validator": "true",
                 "ai.project.path": str(project_path),
-                "ai.created_at": str(asyncio.get_event_loop().time())
+                "ai.created_at": str(asyncio.get_running_loop().time())
             }
         }
         
@@ -649,13 +708,13 @@ class DockerRunner:
                     lines = stderr.decode('utf-8', errors='ignore').splitlines()
                     result["errors"].extend(lines)
                     for line in lines[:10]:
-                        logger.warning(f"⚠️ STDERR: {line[:200]}")
+                        logger.warning(f"[WARNING] STDERR: {line[:200]}")
             
             return result
             
         except Exception as e:
             result["errors"].append(f"命令执行失败：{str(e)}")
-            logger.error(f"❌ 命令执行失败 | {e}")
+            logger.error(f"[ERROR] 命令执行失败 | {e}")
             return result
     
     async def _cleanup_container(self, container: Container):
@@ -669,10 +728,10 @@ class DockerRunner:
             # 删除容器
             await asyncio.to_thread(container.remove, force=True)
             
-            logger.info(f"✅ 容器已清理 | id: {container.short_id}")
+            logger.info(f"[SUCCESS] 容器已清理 | id: {container.short_id}")
             
         except Exception as e:
-            logger.warning(f"⚠️ 清理失败 | {e}")
+            logger.warning(f"[WARNING] 清理失败 | {e}")
     
     def get_container_stats(self, container_id: str) -> Optional[Dict[str, Any]]:
         """

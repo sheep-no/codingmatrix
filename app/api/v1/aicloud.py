@@ -48,7 +48,7 @@ from app.utils.aicloud.sandbox_operator import SandboxFileOperator
 from app.utils.aicloud.review_queue import create_review, approve_review, reject_review
 from app.utils.aicloud.audit_logger import log_operation, log_file_read, log_file_write
 from app.models.aicloud import AicloudSession, AicloudMessage, AicloudReview, AicloudAuditLog
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 from app.utils.aicloud.model_registry import get_model, get_default_model, get_available_models, get_provider_info
 from app.utils.aicloud.auto_executor import execute_with_llm_loop
 from app.utils.aicloud.sandbox import get_sandbox_workspace_path, ensure_user_sandbox
@@ -205,7 +205,7 @@ async def chat(
             system_prompt=formatted_system_prompt,
             model_key=model_info.model_key,
             max_tokens=model_info.max_tokens,
-            call_siliconflow_func=call_siliconflow,
+            call_llm_func=call_llm,
             user_id=user_id,
             workspace_path=workspace_path
         )
@@ -316,9 +316,10 @@ async def chat_stream(
         full_content = []
 
         try:
-            stream_gen = await call_siliconflow(
-                prompt=full_prompt,
+            stream_gen = await call_llm(
                 model=model_info.model_key,
+                prompt=full_prompt,
+                system_prompt="",
                 stream=True,
                 max_tokens=model_info.max_tokens
             )

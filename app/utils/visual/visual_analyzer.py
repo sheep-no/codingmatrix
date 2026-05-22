@@ -192,11 +192,9 @@ class PPTVisualPlan:
 class VisualAnalyzer:
     """视觉分析器 - 使用多模态 AI 分析内容并做出视觉决策"""
     
-    # 可用的多模态模型
+    # 可用的多模态模型（内置模型）
     MULTIMODAL_MODELS = [
-        "Qwen/Qwen2-VL-72B-Instruct",
-        "Qwen/Qwen2.5-VL-72B-Instruct",
-        "THUDM/GLM-4V-9B",
+        "THUDM/GLM-4.1V-9B-Thinking",  # 主力视觉模型
     ]
     
     def __init__(self, model_name: Optional[str] = None):
@@ -223,12 +221,12 @@ class VisualAnalyzer:
         prompt = self._build_analysis_prompt(title, slides_content, theme)
         
         # 调用多模态模型进行分析
-        from app.utils.AiCodeUtil import call_siliconflow
+        from app.utils import call_llm
         
         try:
-            response = await call_siliconflow(
-                prompt=prompt,
+            response = await call_llm(
                 model=self.model_name,
+                prompt=prompt,
                 stream=False,
                 max_tokens=4096,
                 temperature=0.3

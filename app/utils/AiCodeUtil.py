@@ -12,7 +12,7 @@ from app.core.config import settings
 
 
 # Embedding 本地缓存
-_embedding_cache_dir = Path("./embedding_cache")
+_embedding_cache_dir = Path("./cache/embedding_cache")
 _embedding_cache_dir.mkdir(parents=True, exist_ok=True)
 _embedding_memory_cache: dict = {}  # 内存缓存 {text_hash: vector}
 _embedding_memory_ttl = 3600  # 1 小时 TTL

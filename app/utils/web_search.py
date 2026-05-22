@@ -506,7 +506,7 @@ async def summarize_page_with_llm(page_text: str, url: str, max_length: int = 20
         摘要文本，失败返回 None
     """
     try:
-        from app.utils.AiCodeUtil import call_siliconflow
+        from app.utils import call_llm
 
         # 截断过长文本
         if len(page_text) > 5000:
@@ -529,9 +529,9 @@ async def summarize_page_with_llm(page_text: str, url: str, max_length: int = 20
 
 请直接输出摘要，不要有其他解释。"""
 
-        response = await call_siliconflow(
-            prompt=prompt,
+        response = await call_llm(
             model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+            prompt=prompt,
             stream=False,
             max_tokens=256,
             temperature=0.3

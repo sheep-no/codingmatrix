@@ -20,7 +20,7 @@ from sqlalchemy import select, and_, delete, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat_history import ChatHistory, ChatSummary
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils import call_llm
 from app.db.database import async_session
 
 logger = logging.getLogger(__name__)
@@ -226,9 +226,9 @@ class ChatArchiver:
                     summary_prompt = self._build_summary_prompt(conversation_text)
                     
                     # 调用 AI 生成摘要
-                    response = await call_siliconflow(
-                        prompt=summary_prompt,
+                    response = await call_llm(
                         model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+                        prompt=summary_prompt,
                         stream=False,
                         max_tokens=300,
                         thinking_budget=256

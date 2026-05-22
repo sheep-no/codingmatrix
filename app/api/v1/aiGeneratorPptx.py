@@ -911,9 +911,13 @@ async def generate_ppt_task(
                 OutputFormat.PPTX: "pptx",
                 OutputFormat.HTML: "html",
                 OutputFormat.MARKDOWN: "md",
-                OutputFormat.PDF: "pdf" # TODO: 实际生成 pptx 后转换
+                OutputFormat.PDF: "pdf"
             }
             ext = ext_map.get(req.output_format, "pptx")
+
+            if req.output_format == OutputFormat.PDF:
+                logger.warning("PDF 输出格式尚未实现 pptx-to-pdf 转换，将回退到 PPTX 格式")
+                ext = "pptx"
             
             filepath = output_dir / f"{task_id}.{ext}"
             slides_data = outline.get('slides', [])

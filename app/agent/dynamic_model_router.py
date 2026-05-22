@@ -1,13 +1,202 @@
-"""动态模型路由器 - 基于延迟、成功率、队列深度的智能路由"""
+"""动态模型路由器 - 基于延迟、成功率、队列深度的智能路由（支持全局健康感知）"""
 
 import asyncio
+import random
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from collections import deque
 import logging
 
+from app.utils.system_load import system_load_monitor, SystemLoadSnapshot
+
 logger = logging.getLogger(__name__)
+
+
+class ModelPerformanceTracker:
+
+    DB_PATH = "/tmp/model_performance.db"
+    MAX_DB_SIZE_BYTES = 1 * 1024 * 1024
+    RETENTION_DAYS = 30
+
+    def __init__(self):
+        self._conn = sqlite3.connect(self.DB_PATH, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS performance ("
+            "model_name TEXT NOT NULL, "
+            "task_type TEXT NOT NULL, "
+            "success_rate REAL NOT NULL DEFAULT 0.0, "
+            "avg_latency REAL NOT NULL DEFAULT 0.0, "
+            "total_calls INTEGER NOT NULL DEFAULT 0, "
+            "consecutive_failures INTEGER NOT NULL DEFAULT 0, "
+            "last_updated REAL NOT NULL, "
+            "PRIMARY KEY (model_name, task_type))"
+        )
+        self._conn.commit()
+        self._cleanup()
+
+    def _cleanup(self):
+        cutoff = time.time() - self.RETENTION_DAYS * 86400
+        self._conn.execute(
+            "DELETE FROM performance WHERE last_updated < ?", (cutoff,)
+        )
+        self._conn.commit()
+        try:
+            db_size = 0
+            cursor = self._conn.execute(
+                "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()"
+            )
+            row = cursor.fetchone()
+            if row:
+                db_size = row[0]
+            if db_size > self.MAX_DB_SIZE_BYTES:
+                self._conn.execute(
+                    "DELETE FROM performance WHERE last_updated < ?",
+                    (time.time() - 7 * 86400,)
+                )
+                self._conn.commit()
+                self._conn.execute("VACUUM")
+        except Exception:
+            pass
+
+    def record_call(self, model: str, task_type: str, success: bool, latency: float):
+        now = time.time()
+        cursor = self._conn.execute(
+            "SELECT success_rate, avg_latency, total_calls, consecutive_failures "
+            "FROM performance WHERE model_name = ? AND task_type = ?",
+            (model, task_type),
+        )
+        row = cursor.fetchone()
+        if row:
+            old_rate, old_latency, old_calls, old_cf = row
+            new_calls = old_calls + 1
+            if success:
+                new_successes = int(old_rate * old_calls) + 1
+                new_rate = new_successes / new_calls
+                new_latency = (old_latency * old_calls + latency) / new_calls
+                new_cf = 0
+            else:
+                new_rate = (old_rate * old_calls) / new_calls
+                new_latency = (old_latency * old_calls + latency) / new_calls
+                new_cf = old_cf + 1
+            self._conn.execute(
+                "UPDATE performance SET success_rate=?, avg_latency=?, "
+                "total_calls=?, consecutive_failures=?, last_updated=? "
+                "WHERE model_name=? AND task_type=?",
+                (new_rate, new_latency, new_calls, new_cf, now, model, task_type),
+            )
+        else:
+            rate = 1.0 if success else 0.0
+            cf = 0 if success else 1
+            self._conn.execute(
+                "INSERT INTO performance "
+                "(model_name, task_type, success_rate, avg_latency, "
+                "total_calls, consecutive_failures, last_updated) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (model, task_type, rate, latency, 1, cf, now),
+            )
+        self._conn.commit()
+
+    def get_best_model(self, task_type: str, top_k: int = 3) -> List[str]:
+        cursor = self._conn.execute(
+            "SELECT model_name, success_rate, avg_latency, total_calls, consecutive_failures "
+            "FROM performance WHERE task_type = ? "
+            "ORDER BY success_rate DESC, avg_latency ASC LIMIT ?",
+            (task_type, top_k),
+        )
+        rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            name, rate, latency, calls, cf = row
+            if cf < 5:
+                result.append(name)
+        return result
+
+    def get_total_records(self) -> int:
+        cursor = self._conn.execute("SELECT COUNT(*) FROM performance")
+        return cursor.fetchone()[0]
+
+    def close(self):
+        self._conn.close()
+
+
+class LearningRouter:
+
+    EXPLORATION_RATE = 0.2
+    DEGRADATION_THRESHOLD = 5
+
+    def __init__(self, tracker: Optional[ModelPerformanceTracker] = None):
+        self._tracker = tracker or ModelPerformanceTracker()
+        self._degraded_models: Dict[str, Dict[str, int]] = {}
+
+    def select_model(self, task_type: str, candidate_models: List[str]) -> str:
+        if not candidate_models:
+            return candidate_models[0] if candidate_models else "Qwen/Qwen3.5-4B"
+
+        degraded = self._degraded_models.get(task_type, {})
+        eligible = []
+        degraded_candidates = []
+        for m in candidate_models:
+            if m in degraded and degraded[m] >= self.DEGRADATION_THRESHOLD:
+                degraded_candidates.append(m)
+            else:
+                eligible.append(m)
+
+        if not eligible:
+            eligible = candidate_models
+            self._degraded_models.pop(task_type, None)
+
+        best_models = self._tracker.get_best_model(task_type, top_k=len(eligible))
+        ranked = []
+        for bm in best_models:
+            if bm in eligible:
+                ranked.append(bm)
+        for m in eligible:
+            if m not in ranked:
+                ranked.append(m)
+
+        if not ranked:
+            return candidate_models[0]
+
+        if len(ranked) == 1:
+            return ranked[0]
+
+        if random.random() < self.EXPLORATION_RATE:
+            explorables = ranked[1:]
+            if explorables:
+                return random.choice(explorables)
+
+        return ranked[0]
+
+    def record_call(self, model: str, task_type: str, success: bool, latency: float):
+        self._tracker.record_call(model, task_type, success, latency)
+        if not success:
+            if task_type not in self._degraded_models:
+                self._degraded_models[task_type] = {}
+            self._degraded_models[task_type][model] = self._degraded_models[task_type].get(model, 0) + 1
+        else:
+            if task_type in self._degraded_models and model in self._degraded_models[task_type]:
+                del self._degraded_models[task_type][model]
+                if not self._degraded_models[task_type]:
+                    del self._degraded_models[task_type]
+
+    def has_sufficient_data(self) -> bool:
+        return self._tracker.get_total_records() > 10
+
+
+_learning_router: Optional[LearningRouter] = None
+_learning_router_lock = asyncio.Lock()
+
+
+async def get_learning_router() -> LearningRouter:
+    global _learning_router
+    if _learning_router is None:
+        async with _learning_router_lock:
+            if _learning_router is None:
+                _learning_router = LearningRouter()
+    return _learning_router
 
 
 @dataclass
@@ -214,8 +403,36 @@ class DynamicModelRouter:
                 self._metrics.clear()
 
     def get_assignment(self, complexity) -> ModelAssignment:
-        """根据复杂度获取模型分配方案"""
-        return _LayeredModelRouterCompat.get_assignment(complexity)
+        static_assignment = _LayeredModelRouterCompat.get_assignment(complexity)
+        return static_assignment
+
+    async def get_assignment_with_learning(
+        self, complexity, learning_router: Optional[LearningRouter] = None
+    ) -> ModelAssignment:
+        static_assignment = _LayeredModelRouterCompat.get_assignment(complexity)
+        if learning_router is None:
+            learning_router = await get_learning_router()
+        if not learning_router.has_sufficient_data():
+            return static_assignment
+        task_types = [
+            ("architect", static_assignment.architect_model),
+            ("frontend", static_assignment.frontend_model),
+            ("backend", static_assignment.backend_model),
+            ("reviewer", static_assignment.reviewer_model),
+            ("fallback", static_assignment.fallback_model),
+        ]
+        all_models = [m for _, m in task_types]
+        selected = {}
+        for task_type, static_model in task_types:
+            chosen = learning_router.select_model(task_type, all_models)
+            selected[task_type] = chosen
+        return ModelAssignment(
+            architect_model=selected["architect"],
+            frontend_model=selected["frontend"],
+            backend_model=selected["backend"],
+            reviewer_model=selected["reviewer"],
+            fallback_model=selected["fallback"],
+        )
 
 
 # 全局单例
@@ -239,6 +456,16 @@ async def get_dynamic_router() -> DynamicModelRouter:
 
 # LayeredModelRouter 是 DynamicModelRouter 的别名
 LayeredModelRouter = DynamicModelRouter
+
+
+@dataclass
+class RoutingConfig:
+    """路由配置"""
+    system_overload_threshold: float = 0.8  # 系统过载阈值
+    model_load_weight: float = 0.6          # 模型负载权重
+    system_load_weight: float = 0.4         # 系统负载权重
+    max_concurrent_requests: int = 100      # 最大并发请求数（可配置）
+    enable_health_aware_routing: bool = False  # 是否启用健康感知路由（默认关闭）
 
 
 # ==================== 分层模型路由（向后兼容） ====================
@@ -289,6 +516,76 @@ class _LayeredModelRouterCompat:
     @classmethod
     def get_assignment(cls, complexity: ProjectComplexity) -> ModelAssignment:
         return cls.ASSIGNMENTS.get(complexity, cls.ASSIGNMENTS[ProjectComplexity.MEDIUM])
+
+    @classmethod
+    async def get_best_model_with_health_awareness(
+        cls, 
+        candidate_models: List[str], 
+        task_type: str = "general",
+        routing_config: Optional[RoutingConfig] = None
+    ) -> str:
+        """
+        带健康感知的模型选择
+
+        NOTE: Currently unused (enable_health_awareness defaults to False).
+        Callers should set RoutingConfig(enable_health_awareness=True) to activate.
+        """
+        if not candidate_models:
+            return "Qwen/Qwen3.5-4B"
+        
+        config = routing_config or RoutingConfig()
+        
+        # 如果未启用健康感知路由，使用传统方式
+        if not config.enable_health_awareness:
+            router = await get_dynamic_router()
+            return await router.get_best_model(candidate_models, task_type)
+        
+        # 获取系统负载快照
+        snapshot = await system_load_monitor.get_load_snapshot()
+        
+        # 检查系统是否过载
+        if system_load_monitor.is_system_overloaded(config.system_overload_threshold):
+            logger.warning(f"系统过载，启用降级策略: {snapshot}")
+            # 选择负载最轻的模型
+            best_model = min(
+                candidate_models,
+                key=lambda m: system_load_monitor.get_model_load_score(m)
+            )
+            logger.info(f"健康感知路由: 选择降级模型 {best_model} (系统过载)")
+            return best_model
+        
+        # 正常情况：结合模型健康和系统负载评分
+        router = await get_dynamic_router()
+        healthy_models = []
+        
+        for model_name in candidate_models:
+            metrics = router.get_or_create_metrics(model_name)
+            if metrics.consecutive_failures < 3:  # 未熔断
+                healthy_models.append(model_name)
+        
+        if not healthy_models:
+            return "Qwen/Qwen3.5-4B"
+        
+        # 计算综合评分
+        def calculate_comprehensive_score(model_name: str) -> float:
+            # 模型健康评分 (0-100)
+            metrics = router.get_or_create_metrics(model_name)
+            model_health_score = metrics.health_score / 100.0
+            
+            # 系统负载评分 (0-1, 越低越好)
+            system_load_score = system_load_monitor.get_model_load_score(model_name)
+            
+            # 综合评分 = 模型健康 * 权重 + (1 - 系统负载) * 权重
+            comprehensive_score = (
+                model_health_score * config.model_load_weight + 
+                (1.0 - system_load_score) * config.system_load_weight
+            )
+            
+            return comprehensive_score
+        
+        best_model = max(healthy_models, key=calculate_comprehensive_score)
+        logger.info(f"健康感知路由 [{task_type}]: {best_model}")
+        return best_model
 
 
 # ==================== get_model_config 工具函数 ====================

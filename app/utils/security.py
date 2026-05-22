@@ -50,7 +50,7 @@ def validate_password_strength(password: str) -> tuple[bool, str]:
 
 
 def hash_password(password: str) -> str:
-    password_bytes = password.encode("utf-8")
+    password_bytes = password.encode("utf-8")[:72]
     salt = bcrypt.gensalt(rounds=12)
     hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode("utf-8")
@@ -129,6 +129,16 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
         else:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=error_msg)
 
+    return payload
+
+
+def require_superadmin(payload: dict = Depends(verify_token)) -> dict:
+    """验证用户是否为超级管理员"""
+    if payload.get("permission_level") != "super":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要超级管理员权限"
+        )
     return payload
 
 

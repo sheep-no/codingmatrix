@@ -23,7 +23,7 @@ from app.utils.math_utils import cosine_similarity
 logger = logging.getLogger(__name__)
 
 # 学习数据存储目录
-LEARNING_DIR = Path("./learning_data")
+LEARNING_DIR = Path("./data/learning_data")
 # 会话记录最大数量（超出时自动裁剪最旧的记录）
 MAX_SESSION_RECORDS = 1000
 
@@ -41,8 +41,15 @@ class FixPattern:
     success_rate: float = 1.0     # 成功率
     last_seen: str = ""           # 最后出现时间
 
-    # 语义向量（用于向量化匹配）
+    failed_count: int = 0         # 累计验证失败次数（反模式追踪）
+    last_failed_at: Optional[str] = None  # 最后失败时间
+    failure_reason: Optional[str] = None  # 最近一次失败原因
+
     error_embedding: Optional[List[float]] = None
+
+    def is_anti_pattern(self, threshold: int = 3) -> bool:
+        """判定是否为反模式：失败次数超过阈值且成功率过低"""
+        return self.failed_count >= threshold and self.success_rate < 0.3
 
 
 @dataclass
@@ -99,10 +106,17 @@ class FeedbackLearner:
                     pattern = self._fix_patterns[pattern_key]
                     pattern.frequency += 1
                     pattern.last_seen = datetime.now().isoformat()
-                    pattern.success_rate = (
-                        pattern.success_rate * (pattern.frequency - 1) +
-                        (1.0 if success else 0.0)
-                    ) / pattern.frequency
+                    if success:
+                        pattern.success_rate = (
+                            pattern.success_rate * (pattern.frequency - 1) + 1.0
+                        ) / pattern.frequency
+                    else:
+                        pattern.failed_count += 1
+                        pattern.last_failed_at = datetime.now().isoformat()
+                        pattern.failure_reason = error_msg[:200]
+                        pattern.success_rate = (
+                            pattern.success_rate * (pattern.frequency - 1) + 0.0
+                        ) / pattern.frequency
                 else:
                     fix_description = self._extract_fix_description(
                         original_content, fixed_content, error_msg
@@ -127,6 +141,9 @@ class FeedbackLearner:
                         frequency=1,
                         success_rate=1.0 if success else 0.0,
                         last_seen=datetime.now().isoformat(),
+                        failed_count=0 if success else 1,
+                        last_failed_at=None if success else datetime.now().isoformat(),
+                        failure_reason=None if success else error_msg[:200],
                         error_embedding=embedding
                     )
 
@@ -201,7 +218,7 @@ class FeedbackLearner:
         if query_embedding is not None:
             scored_patterns = []
             for pattern_key, pattern in self._fix_patterns.items():
-                if pattern.error_embedding is not None and pattern.success_rate > 0.3:
+                if pattern.error_embedding is not None and pattern.success_rate > 0.3 and not pattern.is_anti_pattern():
                     similarity = self._cosine_similarity(query_embedding, pattern.error_embedding)
                     if similarity > 0.7:
                         scored_patterns.append((similarity, pattern))
@@ -210,7 +227,7 @@ class FeedbackLearner:
             relevant = [p for _, p in scored_patterns[:10]]
         else:
             for pattern in self._fix_patterns.values():
-                if pattern.frequency > 1 and pattern.success_rate > 0.5:
+                if pattern.frequency > 1 and pattern.success_rate > 0.5 and not pattern.is_anti_pattern():
                     if file_type in pattern.file_types or file_type == "unknown":
                         relevant.append(pattern)
             relevant.sort(key=lambda x: x.frequency, reverse=True)
@@ -390,6 +407,9 @@ class FeedbackLearner:
                     "frequency": v.frequency,
                     "success_rate": v.success_rate,
                     "last_seen": v.last_seen,
+                    "failed_count": v.failed_count,
+                    "last_failed_at": v.last_failed_at,
+                    "failure_reason": v.failure_reason,
                     "error_embedding": v.error_embedding
                 }
                 for k, v in self._fix_patterns.items()
