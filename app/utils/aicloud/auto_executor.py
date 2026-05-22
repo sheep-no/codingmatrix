@@ -131,7 +131,7 @@ async def execute_with_llm_loop(
         if not is_safe:
             logger.warning(f"代码安全检查失败: {safety_msg}")
             # 将安全警告注入上下文，让 LLM 重新生成
-            execution_result = f"⚠️ 代码安全检查未通过: {safety_msg}\n请修改代码，避免使用危险操作。"
+            execution_result = f"[WARNING] 代码安全检查未通过: {safety_msg}\n请修改代码，避免使用危险操作。"
         else:
             # 执行代码
             try:
@@ -143,17 +143,17 @@ async def execute_with_llm_loop(
                 )
                 
                 if result.success:
-                    execution_result = f"✅ 代码执行成功:\n输出:\n{result.output}"
+                    execution_result = f"[SUCCESS] 代码执行成功:\n输出:\n{result.output}"
                     if result.error:
                         execution_result += f"\n警告/Stderr:\n{result.error}"
                 else:
-                    execution_result = f"❌ 代码执行失败:\n错误:\n{result.error}\n退出码: {result.exit_code}"
+                    execution_result = f"[ERROR] 代码执行失败:\n错误:\n{result.error}\n退出码: {result.exit_code}"
                     
                 logger.info(f"代码执行结果: {execution_result[:200]}...")
                 
             except Exception as e:
                 logger.error(f"代码执行异常: {e}")
-                execution_result = f"❌ 代码执行异常: {str(e)}"
+                execution_result = f"[ERROR] 代码执行异常: {str(e)}"
         
         # 将执行结果注入下一轮对话
         current_prompt = f"{current_prompt}\n\n{ai_content}\n\n[代码执行结果]:\n{execution_result}\n\n请根据执行结果继续处理用户的请求，如果需要，可以生成新的代码块。"

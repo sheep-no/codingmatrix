@@ -39,12 +39,31 @@ class Settings(BaseSettings):
     SILICONFLOW_API_KEY: str = ""
     SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
 
+    # 多供应商支持
+    DASHSCOPE_API_KEY: str = ""
+    DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    
+    ZHIPU_API_KEY: str = ""
+    ZHIPU_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
+    
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
+    
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_BASE_URL: str = "https://api.anthropic.com/v1"
+    
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+
     ALLOWED_MODELS: str = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B,deepseek-ai/DeepSeek-OCR,Qwen/Qwen3.5-4B,Qwen/Qwen3-8B,Qwen/Qwen2.5-7B-Instruct,THUDM/GLM-4.1V-9B-Thinking,THUDM/GLM-4-9B-0414,THUDM/GLM-Z1-9B-0414,Kwai-Kolors/Kolors"
 
     ALLOWED_HOSTS: str = "localhost,127.0.0.1,0.0.0.0"
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     MAX_UPLOAD_SIZE_MB: int = 100
+    MAX_ACTIVE_REQUESTS: int = 100
     ALLOWED_FILE_TYPES: str = "image,document,code,archive"
 
     WS_MAX_CONNECTIONS: int = 50
@@ -73,7 +92,7 @@ class Settings(BaseSettings):
     ENABLE_KEYWORD_TRIGGERS: bool = True
 
     # 依赖图谱路径
-    DEPENDENCY_GRAPH_PATH: str = "dependency_graph.json"
+    DEPENDENCY_GRAPH_PATH: str = "data/dependency_graph.json"
 
     # 文件到测试映射路径
     FILE_TO_TEST_MAP_PATH: str = "configs/file_to_test_map.yaml"
@@ -93,6 +112,32 @@ class Settings(BaseSettings):
     @property
     def max_upload_size_mb(self) -> int:
         return int(os.getenv("MAX_UPLOAD_SIZE_MB", 100))
+    
+    def get_provider_registry(self) -> "ProviderRegistry":
+        """从配置构建供应商注册表"""
+        from app.utils.aicloud.providers import ModelProvider, ProviderConfig, ProviderRegistry
+        
+        registry = ProviderRegistry()
+        
+        provider_configs = [
+            (ModelProvider.SILICONFLOW, self.SILICONFLOW_API_KEY, self.SILICONFLOW_BASE_URL),
+            (ModelProvider.DASHSCOPE, self.DASHSCOPE_API_KEY, self.DASHSCOPE_BASE_URL),
+            (ModelProvider.ZHIPU, self.ZHIPU_API_KEY, self.ZHIPU_BASE_URL),
+            (ModelProvider.DEEPSEEK, self.DEEPSEEK_API_KEY, self.DEEPSEEK_BASE_URL),
+            (ModelProvider.OPENAI, self.OPENAI_API_KEY, self.OPENAI_BASE_URL),
+            (ModelProvider.ANTHROPIC, self.ANTHROPIC_API_KEY, self.ANTHROPIC_BASE_URL),
+            (ModelProvider.OLLAMA, "", self.OLLAMA_BASE_URL),
+        ]
+        
+        for provider, api_key, base_url in provider_configs:
+            config = ProviderConfig(
+                provider=provider,
+                api_key=api_key,
+                base_url=base_url,
+            )
+            registry.register(config)
+        
+        return registry
 
 
 @lru_cache()
