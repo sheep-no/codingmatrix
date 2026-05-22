@@ -31,34 +31,34 @@ Status: In Progress
 
 - [x] 4.1 创建 `SiliconFlowAdapter`（复用现有逻辑）
 - [x] 4.2 创建 `DashScopeAdapter`（阿里百炼）
-- [ ] 4.3 创建 `ZhipuAdapter`（智谱 GLM）
-- [ ] 4.4 创建 `DeepSeekAdapter`（DeepSeek 官方）
+- [x] 4.3 创建 `ZhipuAdapter`（智谱 GLM）
+- [x] 4.4 创建 `DeepSeekAdapter`（DeepSeek 官方）
 - [x] 4.5 创建 `OpenAIAdapter`
-- [ ] 4.6 创建 `AnthropicAdapter`（可选）
-- [ ] 4.7 编写适配器单元测试
+- [x] 4.6 创建 `AnthropicAdapter`
+- [x] 4.7 编写适配器单元测试
 
 ## Task 5: 创建统一调用函数
 
 - [x] 5.1 创建 `app/utils/aicloud/llm_caller.py`
 - [x] 5.2 实现 `call_llm()` 统一函数
-- [ ] 5.3 实现故障转移和重试逻辑
-- [ ] 5.4 保持 `call_siliconflow()` 向后兼容
+- [x] 5.3 实现故障转移和重试逻辑
+- [x] 5.4 保持 `call_siliconflow()` 向后兼容
 - [ ] 5.5 编写集成测试
 
 ## Task 6: 更新 Agent 使用新架构
 
-- [ ] 6.1 更新 `app/agent/specialist_base.py` 使用 `call_llm()`
+- [x] 6.1 更新 `app/agent/specialist_base.py` 使用 `call_llm()`
 - [ ] 6.2 更新 `app/agent/multi_model_agent.py` 导入新函数
 - [ ] 6.3 更新 `app/utils/vision.py` 使用视觉模型适配器
-- [ ] 6.4 验证 Agent 能调用不同供应商的模型
+- [x] 6.4 验证 Agent 能调用不同供应商的模型
 - [ ] 6.5 编写 Agent 集成测试
 
 ## Task 7: 文档和测试
 
-- [ ] 7.1 创建 `docs/MULTI_PROVIDER_SETUP.md` 配置指南
-- [ ] 7.2 更新 `docs/architecture/MODELS.md` 添加供应商信息
-- [ ] 7.3 更新 `.env.example` 添加新供应商配置示例
-- [ ] 7.4 运行所有测试确保通过
+- [x] 7.1 创建 `docs/guides/MULTI_PROVIDER_SETUP.md` 配置指南
+- [x] 7.2 更新 `docs/architecture/MODELS.md` 添加供应商信息
+- [x] 7.3 更新 `.env.example` 添加新供应商配置示例
+- [x] 7.4 运行所有测试确保通过（29 passed）
 
 ---
 

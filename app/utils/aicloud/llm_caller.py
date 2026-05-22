@@ -16,6 +16,8 @@ from app.utils.aicloud.adapters.siliconflow import SiliconFlowAdapter
 from app.utils.aicloud.adapters.dashscope import DashScopeAdapter
 from app.utils.aicloud.adapters.zhipu import ZhipuAdapter
 from app.utils.aicloud.adapters.openai import OpenAIAdapter
+from app.utils.aicloud.adapters.deepseek import DeepSeekAdapter
+from app.utils.aicloud.adapters.anthropic import AnthropicAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,9 @@ ADAPTER_FACTORIES = {
     ModelProvider.SILICONFLOW: lambda cfg: SiliconFlowAdapter(cfg),
     ModelProvider.DASHSCOPE: lambda cfg: DashScopeAdapter(cfg),
     ModelProvider.ZHIPU: lambda cfg: ZhipuAdapter(cfg),
+    ModelProvider.DEEPSEEK: lambda cfg: DeepSeekAdapter(cfg),
     ModelProvider.OPENAI: lambda cfg: OpenAIAdapter(cfg),
+    ModelProvider.ANTHROPIC: lambda cfg: AnthropicAdapter(cfg),
 }
 
 
