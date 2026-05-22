@@ -1,75 +1,86 @@
 # CodingMatrix 文档索引
 
+> 最后更新：2026-05-22 | 版本：v5.4.0（多供应商模型支持）
+
 ## 快速导航
 
 ### 入门
-- [README.md](README.md) - 项目概述
-- [development/DEVELOPER_GUIDE.md](development/DEVELOPER_GUIDE.md) - 开发者指南
-- [guides/QUICK_START_WINDOWS.md](guides/QUICK_START_WINDOWS.md) - Windows 快速启动
+- [README.md](../README.md) - 项目概述
+- [guides/GETTING-STARTED.md](guides/GETTING-STARTED.md) - 开发者指南（含 Windows 快速启动）
+- [PROJECT_STATUS.md](PROJECT_STATUS.md) - 项目状态
+- [guides/MULTI_PROVIDER_SETUP.md](guides/MULTI_PROVIDER_SETUP.md) - **多供应商模型配置指南** ⭐
+- [versions/MULTI_PROVIDER_MIGRATION_v5.4.md](versions/MULTI_PROVIDER_MIGRATION_v5.4.md) - v5.4.0 迁移报告
+- [versions/CHANGELOG-v5.1.2.md](versions/CHANGELOG-v5.1.2.md) - 版本历史
 
 ### 架构与设计
-- [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) - 系统架构
-- [architecture/AGENT-OPTIMIZATION.md](architecture/AGENT-OPTIMIZATION.md) - Agent 优化策略
-- [architecture/api-responsibility-matrix.md](architecture/api-responsibility-matrix.md) - API 职责矩阵
-- [MODULES.md](MODULES.md) - 模块说明
-- [FRONTEND.md](FRONTEND.md) - 前端架构
-- [PERMISSION-SPEC.md](PERMISSION-SPEC.md) - 权限规范
+- [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) - 系统架构（v5.4.0）
+- [architecture/MODULES.md](architecture/MODULES.md) - 模块说明 + 项目结构
+- [architecture/MODELS.md](architecture/MODELS.md) - 数据模型 + **多供应商 LLM 适配器**
+- [BUILTIN_MODELS.md](BUILTIN_MODELS.md) - **内置模型清单**（10个模型 + 多供应商支持）
 
 ### API 文档
-- [api/API-DOCUMENTATION.md](api/API-DOCUMENTATION.md) - 完整 API 文档
-- [API_INTEGRATION_CHECKLIST.md](API_INTEGRATION_CHECKLIST.md) - API 集成检查清单
+- [API-COMPLETE.md](API-COMPLETE.md) - **完整 API 文档**（v5.2.2）
+- [api/API-VERSIONS.md](api/API-VERSIONS.md) - API 版本管理
+
+### Agent 系统
+- [AGENT-COMPLETE-REPORT.md](AGENT-COMPLETE-REPORT.md) - **Agent 系统综合报告**（重设计 + 工具 + 修复）
+- [features/agent.md](features/agent.md) - Agent 系统架构
 
 ### 功能模块
-- [feature/aicloud/README.md](feature/aicloud/README.md) - AI 云管理
-- [feature/docker_implementation.md](feature/docker_implementation.md) - Docker 集成
-- [feature/ppt-generator-guide.md](feature/ppt-generator-guide.md) - PPT 生成
-- [feature/file-upload-detailed-guide.md](feature/file-upload-detailed-guide.md) - 文件上传
-- [feature/vision-integration-guide.md](feature/vision-integration-guide.md) - 视觉分析
-- [feature/web-search-guide.md](feature/web-search-guide.md) - 网络搜索
-- [feature/free-search-guide.md](feature/free-search-guide.md) - 免费搜索
-- [feature/web-search-deep-fetch.md](feature/web-search-deep-fetch.md) - 深度搜索
-- [feature/scheduler-cleanup-guide.md](feature/scheduler-cleanup-guide.md) - 定时任务清理
+- [features/aicloud.md](features/aicloud.md) - AI 云管理
+- [features/SSE-DISPLAY-OPTIMIZATION.md](features/SSE-DISPLAY-OPTIMIZATION.md) - v4.8.1 SSE 展示优化
 
 ### 部署与运维
-- [deployment/DOCKER-COMPOSE-DEPLOYMENT.md](deployment/DOCKER-COMPOSE-DEPLOYMENT.md) - Docker Compose 部署
-- [guides/production-ready.md](guides/production-ready.md) - 生产就绪指南
-- [guides/security-first.md](guides/security-first.md) - 安全优先指南
+- [guides/PRODUCTION.md](guides/PRODUCTION.md) - 生产部署指南（含 Docker Compose）
+- [SERVICES.md](SERVICES.md) - 服务管理文档
 
 ### 安全
+- [security/SECURITY-OVERVIEW.md](security/SECURITY-OVERVIEW.md) - 安全架构概览
 - [security/ENCRYPTED_LOGIN.md](security/ENCRYPTED_LOGIN.md) - RSA 加密登录
-- [security/CSRF-IMPLEMENTATION-COMPLETE.md](security/CSRF-IMPLEMENTATION-COMPLETE.md) - CSRF 防护
-- [security/FINAL-CSRF-SUMMARY.md](security/FINAL-CSRF-SUMMARY.md) - CSRF 总结
 
-### 模型适配
-- [model-adapter/README.md](model-adapter/README.md) - 模型适配器概述
-- [model-adapter/QUICKSTART.md](model-adapter/QUICKSTART.md) - 快速开始
-- [model-adapter/MODEL-CONFIG-GUIDE.md](model-adapter/MODEL-CONFIG-GUIDE.md) - 模型配置
-
-### 规范与设计
-- [specs/aicloud/](specs/aicloud/) - AI 云规格
-- [specs/ephemeral-workflow/](specs/ephemeral-workflow/) - 临时工作流规格
-- [specs/task-queue-improvements/](specs/task-queue-improvements/) - 任务队列改进规格
-- [specs/admin-resource-control/](specs/admin-resource-control/) - 管理员资源控制规格
-- [specs/production-ready/](specs/production-ready/) - 生产就绪规格
-
-### 系统配置
-- [configs/system_config.json](../configs/system_config.json) - 系统配置文件
-- [app/utils/system_config.py](../app/utils/system_config.py) - SystemConfigManager 实现
-- [app/api/v2/admin_config.py](../app/api/v2/admin_config.py) - 管理 API 实现
+### 可观测性
+- [observability/TRACING.md](observability/TRACING.md) - OpenTelemetry 分布式追踪
 
 ### 测试
-- [testing/README.md](testing/README.md) - 测试概述
-- [testing/COMPREHENSIVE-TEST-REPORT-20260508.md](testing/COMPREHENSIVE-TEST-REPORT-20260508.md) - 最新测试报告
-- [testing/ci-cd-setup-guide.md](testing/ci-cd-setup-guide.md) - CI/CD 配置
-- [testing/ci-cd-complete-report.md](testing/ci-cd-complete-report.md) - CI/CD 报告
+- [testing/TESTING.md](testing/TESTING.md) - 测试文档
 
-### 实施记录
-- [implementation/IMPLEMENTATION-SUMMARY.md](implementation/IMPLEMENTATION-SUMMARY.md) - v2.0.0 实施总结
-- [implementation/ENHANCED-FEATURES-README.md](implementation/ENHANCED-FEATURES-README.md) - 增强功能
-- [implementation/INTEGRATION-GUIDE.md](implementation/INTEGRATION-GUIDE.md) - 集成指南
+### 提示词
+- [prompts/PROMPTS.md](prompts/PROMPTS.md) - AI 提示词 (22 个)
 
-### 开发报告
-- [development/PROJECT_STATUS.md](development/PROJECT_STATUS.md) - 项目状态
-- [development/PROJECT-STRUCTURE.md](development/PROJECT_STRUCTURE.md) - 项目结构
-- [development/DEPENDENCY-AUDIT-REPORT.md](development/DEPENDENCY-AUDIT-REPORT.md) - 依赖审计
-- [development/project-cleanup-report.md](development/project-cleanup-report.md) - 清理报告
+### Skills
+- [skills/HISTORY.md](skills/HISTORY.md) - Skills 迁移与更新记录
+
+### 规格设计
+- [specs/admin-resource-control/](specs/admin-resource-control/) - 管理员资源控制
+- [specs/agent-git-operations/](specs/agent-git-operations/) - Agent Git 操作
+- [specs/aicloud/](specs/aicloud/) - AI 云规格
+- [specs/ephemeral-workflow/](specs/ephemeral-workflow/) - 临时工作流规格
+- [specs/production-ready/](specs/production-ready/) - 生产就绪规格
+
+---
+
+## 文档结构
+
+```
+docs/
+├── INDEX.md                     # 文档索引（本文件）
+├── README.md                    # 项目概述
+├── PROJECT_STATUS.md            # 项目状态
+├── COMPREHENSIVE_FIXES_v5.2.md # v5.2.x 综合修复报告
+├── API-COMPLETE.md              # 完整 API 文档
+├── AGENT-COMPLETE-REPORT.md     # Agent 系统综合报告
+├── versions/                    # 版本记录
+│   ├── CHANGELOG-v5.1.2.md      # v5.1.2 前端修复
+│   ├── CHANGELOG-v5.1.0.md      # v5.1.0 需求理解增强
+│   ├── CHANGELOG-v5.0.0.md      # v5.0.0 需求联想增强
+│   └── ...
+├── architecture/                # 架构设计
+├── api/                         # API 文档
+├── features/                    # 功能模块
+├── guides/                      # 开发指南
+├── security/                    # 安全文档
+├── observability/               # 可观测性
+├── testing/                     # 测试文档
+├── prompts/                     # AI 提示词
+└── specs/                       # 规格设计
+```
