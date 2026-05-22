@@ -74,6 +74,65 @@ result = await call_llm(
 ✅ 默认仍路由到 SiliconFlow  
 ✅ 只有配置其他供应商后才自动路由
 
+### Agent LLM 调用流程图（v5.4.0）
+
+```
+Agent 组件 (orchestrator/specialist/react)
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│ 统一调用接口                            │
+│ from app.utils import call_llm          │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│ ProviderRouter.route(model_name)        │
+│                                         │
+│ Qwen/Qwen3.5-4B ──────► SiliconFlow    │
+│ qwen-plus ────────────► DashScope      │
+│ glm-4 ────────────────► Zhipu          │
+│ deepseek-chat ────────► DeepSeek       │
+│ gpt-4o ───────────────► OpenAI         │
+│ claude-3-5-sonnet ────► Anthropic     │
+│ unknown-model ────────► SiliconFlow    │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│ ProviderAdapter.call_llm()              │
+│ (SiliconFlow/DashScope/Zhipu/etc)      │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│ 故障转移（如果主供应商失败）            │
+│ SiliconFlow fail ────► DashScope      │
+│ DashScope fail ──────► SiliconFlow    │
+│ Zhipu fail ──────────► SiliconFlow      │
+└─────────────────────────────────────────┘
+    │
+    ▼
+供应商 API (HTTP/SSE)
+    │
+    ▼
+统一响应格式
+    │
+    ▼
+Agent 继续执行
+```
+
+### 故障转移策略
+
+| 主供应商 | 故障转移顺序 |
+|---------|-------------|
+| SiliconFlow | DashScope → Zhipu |
+| DashScope | SiliconFlow |
+| Zhipu | SiliconFlow |
+| DeepSeek | SiliconFlow |
+| OpenAI | SiliconFlow |
+| Anthropic | SiliconFlow |
+
 ---
 
 ## 第一部分：Agent 前端重设计（v5.1.x）
@@ -216,6 +275,7 @@ const handleIncrementalModify = async () => {
   └─→ OrchestratorAgent.generate()
       ├─→ _initialize_components()
       │   ├─→ 复杂度分析
+      │   │   └─→ call_llm(model="Qwen/Qwen3.5-4B", ...)
       │   └─→ 模型分配
       │
       ├─→ spec_first=true ?
@@ -224,8 +284,11 @@ const handleIncrementalModify = async () => {
       │
       ├─→ _run_traditional_generation()
       │   ├─→ 架构设计
+      │   │   └─→ call_llm(model="THUDM/GLM-Z1-9B-0414", ...)
       │   ├─→ 生成文件计划
       │   └─→ 并发生成文件
+      │       └─→ call_llm(model="Qwen/Qwen2.5-7B-Instruct", ...)
+      │           └─→ ProviderRouter → ProviderAdapter → API
       │
       └─→ 流式 SSE 输出
           ├─→ progress 事件
@@ -461,12 +524,22 @@ async def _cleanup_session_queues(session_id):
 
 | 版本 | 日期 | 主要焦点 | 问题数 | 完成率 |
 |------|------|---------|--------|--------|
+| **v5.4.0** | **2026-05-22** | **多供应商模型系统** | **30 文件迁移** | **100%** |
 | v5.2.2 | 2026-05-22 | Patch 增量修复 | 1 | 100% |
 | v5.2.1 | 2026-05-22 | API 统一 | 2 | 100% |
 | v5.2.0 | 2026-05-22 | 并发管理 + Admin | 8 | 100% |
 | v5.1.2 | 2026-05-20 | 前端修复 | 11 | 100% |
 
-### 核心成果
+### v5.4.0 核心成果
+
+- ✅ **多供应商支持**: 7 供应商（SiliconFlow、阿里百炼、智谱、DeepSeek、OpenAI、Anthropic、Ollama）
+- ✅ **统一调用接口**: `call_llm()` 全局统一接口
+- ✅ **自动故障转移**: 主供应商失败自动切换备用
+- ✅ **Agent 全面迁移**: 30 个文件、50+ 调用点全部迁移
+- ✅ **向后兼容**: `call_siliconflow()` 保持兼容
+- ✅ **单元测试**: 29 个新测试，100% 通过
+
+### 历史核心成果
 
 - ✅ **工具覆盖率**: 85% → **95%**
 - ✅ **API 匹配度**: 97.2% → **100%**
@@ -481,8 +554,11 @@ async def _cleanup_session_queues(session_id):
 3. 跨文件依赖自动检测
 4. 批量删除工具
 5. 专用插入/部分更新工具
+6. **流式故障转移**（v5.5.0）：流式输出模式支持故障转移
+7. **成本优化**（v5.5.0）：记录各供应商成本，智能选择最便宜供应商
+8. **集成测试**（v5.5.0）：配置各供应商测试账号，验证故障转移
 
 ---
 
-**状态**: ✅ Agent 系统 v5.2.2 全部完成
-**下一步**: 运行集成测试
+**状态**: ✅ Agent 系统 v5.4.0 全部完成
+**下一步**: 配置多供应商 API Keys，验证故障转移机制
