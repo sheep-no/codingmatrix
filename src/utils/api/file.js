@@ -1,112 +1,79 @@
 /**
- * API 文件管理模块
+ * API 文件管理模块 (v5.0.2 端点修复)
+ * 后端端点:
+ * - POST /api/v1/files/upload
+ * - GET /api/v1/files/{file_id}/download
+ * - POST /api/v1/files/upload/init
+ * - POST /api/v1/files/upload/chunk/{file_id}/{chunk_index}
+ * - POST /api/v1/files/upload/merge/{file_id}
  */
 export function createFileClient(client) {
   return {
     async uploadFile(file, conversationId = null) {
-      try {
-        const formData = new FormData()
-        formData.append('file', file)
-        if (conversationId) {
-          formData.append('conversation_id', conversationId)
-        }
+      const formData = new FormData()
+      formData.append('file', file)
+      if (conversationId) {
+        formData.append('conversation_id', conversationId)
+      }
 
-        const response = await fetch(`${import.meta.env.VITE_API_BASE || '/api/v1'}/files/upload`, {
-          method: 'POST',
-          body: formData,
-          credentials: 'include'
-        })
+      const response = await fetch(`${import.meta.env.VITE_API_BASE || '/api/v1'}/files/upload`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+      })
 
-        if (response.ok) {
-          return await response.json()
-        } else {
-          const error = await response.json()
-          throw new Error(error.detail || 'Upload failed')
-        }
-      } catch (error) {
-        throw error
+      if (response.ok) {
+        return await response.json()
+      } else {
+        const error = await response.json()
+        throw new Error(error.detail || 'Upload failed')
       }
     },
 
     async initMultipartUpload(filename, fileSize, conversationId = null) {
-      try {
-        const response = await client.post('/files/multipart/init', {
-          filename,
-          file_size: fileSize,
-          conversation_id: conversationId
-        })
-        if (response.ok) {
-          return await response.json()
-        } else {
-          const error = await response.json()
-          throw new Error(error.detail || 'Init multipart failed')
-        }
-      } catch (error) {
-        throw error
+      const response = await client.post('/files/upload/init', {
+        filename,
+        file_size: fileSize,
+        conversation_id: conversationId
+      })
+      if (response.ok) {
+        return await response.json()
+      } else {
+        const error = await response.json()
+        throw new Error(error.detail || 'Init multipart failed')
       }
     },
 
     async uploadChunk(fileId, chunkIndex, chunk) {
-      try {
-        const formData = new FormData()
-        formData.append('file_id', fileId)
-        formData.append('chunk_index', chunkIndex)
-        formData.append('chunk', chunk)
+      const formData = new FormData()
+      formData.append('file_id', fileId)
+      formData.append('chunk_index', chunkIndex)
+      formData.append('chunk', chunk)
 
-        const response = await fetch(
-          `${import.meta.env.VITE_API_BASE || '/api/v1'}/files/multipart/upload`,
-          {
-            method: 'POST',
-            body: formData,
-            credentials: 'include'
-          }
-        )
-
-        if (response.ok) {
-          return await response.json()
-        } else {
-          const error = await response.json()
-          throw new Error(error.detail || 'Chunk upload failed')
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE || '/api/v1'}/files/upload/chunk/${fileId}/${chunkIndex}`,
+        {
+          method: 'POST',
+          body: formData,
+          credentials: 'include'
         }
-      } catch (error) {
-        throw error
+      )
+
+      if (response.ok) {
+        return await response.json()
+      } else {
+        const error = await response.json()
+        throw new Error(error.detail || 'Chunk upload failed')
       }
     },
 
-    async getFiles() {
-      try {
-        const response = await client.get('/files')
-        if (response.ok) {
-          return await response.json()
-        }
-        return { files: [] }
-      } catch (error) {
-        console.error('Failed to load files:', error)
-        return { files: [] }
-      }
-    },
-
-    async getFileDetail(fileId) {
-      try {
-        const response = await client.get(`/files/${fileId}`)
-        if (response.ok) {
-          return await response.json()
-        }
-        return null
-      } catch (error) {
-        return null
-      }
-    },
-
-    async deleteFile(fileId) {
-      try {
-        const response = await client.post('/files/delete', { file_id: fileId })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
+    async mergeChunks(fileId) {
+      const response = await client.post(`/files/upload/merge/${fileId}`)
+      if (response.ok) {
+        return await response.json()
+      } else {
+        const error = await response.json()
+        throw new Error(error.detail || 'Merge chunks failed')
       }
     },
 

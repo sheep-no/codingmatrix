@@ -7,6 +7,11 @@ from datetime import datetime
 import asyncio
 
 
+def escape_like_pattern(pattern: str) -> str:
+    """Escape special characters in LIKE pattern"""
+    return pattern.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 # 主函数：获取每个对话的最新记录（用于左侧历史列表）
 async def search_history_to_db(
         db: AsyncSession,
@@ -51,7 +56,8 @@ async def search_history_to_db(
     )
     
     if prompt_keyword:
-        stmt = stmt.where(History.response.like(f"%{prompt_keyword}%"))
+        escaped_keyword = escape_like_pattern(prompt_keyword)
+        stmt = stmt.where(History.response.like(f"%{escaped_keyword}%", escape="\\"))
     
     if start_date or end_date:
         conditions = []

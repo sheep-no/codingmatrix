@@ -68,19 +68,19 @@
 权限采用 `资源:操作` 格式：
 
 ```
-user:read          # 查看用户
-user:write         # 编辑用户
-user:delete        # 删除用户
-user:invite        # 邀请用户
-role:read          # 查看角色
-role:write         # 编辑角色
-dept:read          # 查看部门
-dept:write         # 管理部门
-project:read       # 查看项目
-project:write      # 编辑项目
-project:delete     # 删除项目
-setting:read       # 查看设置
-setting:write      # 修改设置
+user:read # 查看用户
+user:write # 编辑用户
+user:delete # 删除用户
+user:invite # 邀请用户
+role:read # 查看角色
+role:write # 编辑角色
+dept:read # 查看部门
+dept:write # 管理部门
+project:read # 查看项目
+project:write # 编辑项目
+project:delete # 删除项目
+setting:read # 查看设置
+setting:write # 修改设置
 ```
 
 **FR-023: 角色继承**
@@ -182,63 +182,63 @@ setting:write      # 修改设置
 
 **租户 API**
 ```
-GET    /api/v1/tenants              # 租户列表
-POST   /api/v1/tenants              # 创建租户
-GET    /api/v1/tenants/:id          # 租户详情
-PUT    /api/v1/tenants/:id          # 更新租户
-DELETE /api/v1/tenants/:id          # 删除租户
+GET /api/v1/tenants # 租户列表
+POST /api/v1/tenants # 创建租户
+GET /api/v1/tenants/:id # 租户详情
+PUT /api/v1/tenants/:id # 更新租户
+DELETE /api/v1/tenants/:id # 删除租户
 ```
 
 **用户 API**
 ```
-GET    /api/v1/users                # 用户列表
-POST   /api/v1/users                # 创建用户
-GET    /api/v1/users/:id            # 用户详情
-PUT    /api/v1/users/:id            # 更新用户
-DELETE /api/v1/users/:id            # 删除用户
-POST   /api/v1/users/:id/activate   # 激活用户
-POST   /api/v1/users/:id/disable    # 禁用用户
-POST   /api/v1/users/batch-import   # 批量导入
-GET    /api/v1/users/me             # 当前用户信息
-PUT    /api/v1/users/me             # 更新当前用户
+GET /api/v1/users # 用户列表
+POST /api/v1/users # 创建用户
+GET /api/v1/users/:id # 用户详情
+PUT /api/v1/users/:id # 更新用户
+DELETE /api/v1/users/:id # 删除用户
+POST /api/v1/users/:id/activate # 激活用户
+POST /api/v1/users/:id/disable # 禁用用户
+POST /api/v1/users/batch-import # 批量导入
+GET /api/v1/users/me # 当前用户信息
+PUT /api/v1/users/me # 更新当前用户
 ```
 
 **角色 API**
 ```
-GET    /api/v1/roles                # 角色列表
-POST   /api/v1/roles                # 创建角色
-GET    /api/v1/roles/:id            # 角色详情
-PUT    /api/v1/roles/:id            # 更新角色
-DELETE /api/v1/roles/:id            # 删除角色
-GET    /api/v1/permissions          # 权限点列表
+GET /api/v1/roles # 角色列表
+POST /api/v1/roles # 创建角色
+GET /api/v1/roles/:id # 角色详情
+PUT /api/v1/roles/:id # 更新角色
+DELETE /api/v1/roles/:id # 删除角色
+GET /api/v1/permissions # 权限点列表
 ```
 
 **部门 API**
 ```
-GET    /api/v1/departments          # 部门树
-POST   /api/v1/departments          # 创建部门
-PUT    /api/v1/departments/:id      # 更新部门
-DELETE /api/v1/departments/:id      # 删除部门
-POST   /api/v1/departments/:id/members  # 添加成员
-DELETE /api/v1/departments/:id/members/:uid  # 移除成员
+GET /api/v1/departments # 部门树
+POST /api/v1/departments # 创建部门
+PUT /api/v1/departments/:id # 更新部门
+DELETE /api/v1/departments/:id # 删除部门
+POST /api/v1/departments/:id/members # 添加成员
+DELETE /api/v1/departments/:id/members/:uid # 移除成员
 ```
 
 **认证 API**
 ```
-POST   /api/v1/auth/login           # 登录
-POST   /api/v1/auth/register        # 注册
-POST   /api/v1/auth/refresh         # 刷新 Token
-POST   /api/v1/auth/logout          # 登出
-POST   /api/v1/auth/2fa/enable      # 启用 2FA
-POST   /api/v1/auth/2fa/verify      # 验证 2FA
-GET    /api/v1/auth/sessions        # 活跃会话列表
-DELETE /api/v1/auth/sessions/:id    # 终止会话
+POST /api/v1/auth/login # 登录
+POST /api/v1/auth/register # 注册
+POST /api/v1/auth/refresh # 刷新 Token
+POST /api/v1/auth/logout # 登出
+POST /api/v1/auth/2fa/enable # 启用 2FA
+POST /api/v1/auth/2fa/verify # 验证 2FA
+GET /api/v1/auth/sessions # 活跃会话列表
+DELETE /api/v1/auth/sessions/:id # 终止会话
 ```
 
 **审计 API**
 ```
-GET    /api/v1/audit-logs           # 操作日志
-GET    /api/v1/audit-logs/login     # 登录日志
+GET /api/v1/audit-logs # 操作日志
+GET /api/v1/audit-logs/login # 登录日志
 ```
 
 ---

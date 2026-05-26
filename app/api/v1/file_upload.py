@@ -24,6 +24,19 @@ from app.schema.file_schema import FileUploadResponse, FileListResponse
 from app.core.file_validator import validate_file_content  # 新增安全验证
 from typing import List
 
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/files", tags=["文件上传"])
+
+# 配置
+UPLOAD_DIR = Path("./uploads")
+CHUNKS_DIR = UPLOAD_DIR / ".chunks"  # 断点续传分片目录
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+CHUNK_SIZE = 5 * 1024 * 1024  # 分片大小 5MB
+
+# 分片上传锁（保护并发上传同一文件）
+_chunk_locks: dict[str, asyncio.Lock] = {}
+_chunk_locks_lock = asyncio.Lock()
+
 
 class ChunkMetadata:
     """分片元数据"""
@@ -65,19 +78,6 @@ class ChunkMetadata:
         """检查是否所有分片都已上传"""
         return len(self.uploaded_chunks) == self.total_chunks and \
                set(self.uploaded_chunks) == set(range(self.total_chunks))
-
-logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/files", tags=["文件上传"])
-
-# 配置
-UPLOAD_DIR = Path("./uploads")
-CHUNKS_DIR = UPLOAD_DIR / ".chunks"  # 断点续传分片目录
-MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
-CHUNK_SIZE = 5 * 1024 * 1024  # 分片大小 5MB
-
-# 分片上传锁（保护并发上传同一文件）
-_chunk_locks: dict[str, asyncio.Lock] = {}
-_chunk_locks_lock = asyncio.Lock()
 
 
 async def _get_chunk_lock(file_id: str) -> asyncio.Lock:

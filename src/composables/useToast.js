@@ -1,11 +1,17 @@
 import { ref } from 'vue'
 
+const MAX_TOASTS = 10
+
 export const toasts = ref([])
 
 let nextId = 0
 
 export function useToast() {
   const add = (message, type = 'info', duration = 3000) => {
+    if (toasts.value.length >= MAX_TOASTS) {
+      toasts.value.shift()
+    }
+
     const id = nextId++
     const toast = { id, message, type, duration }
     toasts.value.push(toast)

@@ -35,12 +35,18 @@
     showError.value = false
     emit('retry')
   }
+
+  const handleRefresh = () => {
+    if (typeof window !== 'undefined' && window.location) {
+      window.location.reload()
+    }
+  }
 </script>
 
 <template>
   <div v-if="showError" class="error-boundary-fallback">
     <div class="error-content">
-      <div class="error-icon">⚠️</div>
+      <div class="error-icon">[WARNING]</div>
       <h3>{{ componentName }} 加载失败</h3>
       <p v-if="isDev" class="error-message">
         {{ error?.message || '未知错误' }}
@@ -48,7 +54,7 @@
       <p v-else class="error-message">组件渲染时发生错误，请尝试刷新页面</p>
       <div class="error-actions">
         <button class="retry-btn" @click="handleRetry">重试</button>
-        <button class="refresh-btn" @click="() => window.location.reload()">刷新页面</button>
+        <button class="refresh-btn" @click="handleRefresh">刷新页面</button>
       </div>
     </div>
   </div>

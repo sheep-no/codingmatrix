@@ -461,7 +461,7 @@
   async function refreshServices() {
     loading.value = true
     try {
-      const response = await api.get('/api/v2/Controller/services')
+      const response = await api.get('/api/v2/services')
 
       if (!response.ok) {
         let errorMsg = `获取服务列表失败 (${response.status})`
@@ -504,7 +504,7 @@
     }
 
     try {
-      const response = await api.post('/api/v2/Controller/guard/start', {
+      const response = await api.post('/api/v2/guard/start', {
         service_name: startForm.value.service_name,
         port: startForm.value.port,
         restart_cmd: startForm.value.restart_cmd
@@ -634,7 +634,7 @@
   // 显示熔断状态
   async function showFuseStatus(service) {
     try {
-      const response = await api.get(`/api/v2/Controller/service/${service.name}/fuse-status`)
+      const response = await api.get(`/api/v2/service/${service.name}/fuse-status`)
 
       if (!response.ok) {
         let errorMsg = `获取状态失败 (${response.status})`
@@ -671,7 +671,7 @@
   // 健康检查
   async function checkServiceHealth(service) {
     try {
-      const response = await api.get(`/api/v2/Controller/health/${service.port}`)
+      const response = await api.get(`/api/v2/health/${service.port}`)
 
       if (!response.ok) {
         let errorMsg = `健康检查失败 (${response.status})`

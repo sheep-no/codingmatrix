@@ -75,7 +75,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./configs/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./src/dist:/workspace/src/dist:ro
     depends_on:
       - api
@@ -87,3 +87,22 @@ services:
 networks:
   ai-agent-net:
     driver: bridge
+
+  # =============================================================================
+  # OpenTelemetry / Jaeger（可选：设置 OTEL_ENABLED=1 启用）
+  # 访问 http://localhost:16686 查看 Jaeger UI
+  # =============================================================================
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: ai-agent-jaeger
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:16686:16686"   # Jaeger UI
+      - "127.0.0.1:14268:14268"   # Jaeger HTTP Collector
+      - "127.0.0.1:14250:14250"   # Jaeger gRPC Collector
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - ai-agent-net
+    mem_limit: 256m
+    cpus: 0.25

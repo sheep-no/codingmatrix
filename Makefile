@@ -21,7 +21,7 @@ help:
 
 # 安装依赖
 install:
-	pip install -r requirements.txt
+	pip install -r configs/requirements.txt
 
 # 启动开发服务器
 dev:

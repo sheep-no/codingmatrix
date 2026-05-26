@@ -9,7 +9,7 @@ async def test_logs():
     uri = f"ws://localhost:8000/api/v2/Controller/logs?token={token}&log_type=app"
 
     async with websockets.connect(uri) as ws:
-        print("✅ 连接成功！")
+        print("[SUCCESS] 连接成功！")
 
         # 发送过滤器
         await ws.send(json.dumps({

@@ -735,6 +735,13 @@
 
     if (isSuperUser.value) {
       systemConfigItems.push({
+        id: 'dashboard',
+        name: '并发管理仪表板',
+        description: '管理用户并发项目限制',
+        viewBox: '0 0 24 24',
+        path: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5'
+      })
+      systemConfigItems.push({
         id: 'service-manager',
         name: '服务管理',
         description: '监控和管理系统服务',
@@ -759,8 +766,6 @@
     Object.keys(groups).forEach(key => {
       allItems = allItems.concat(groups[key].items)
     })
-
-    menuItems.value = allItems
 
     if (!searchKeyword.value.trim()) {
       return groups
@@ -788,8 +793,15 @@
     return filteredGroups
   })
 
-  // 所有菜单项（用于搜索）
-  const menuItems = ref([])
+  // 所有菜单项（从 menuGroups 派生，用于搜索）
+  const menuItems = computed(() => {
+    const groups = menuGroups.value
+    const allItems = []
+    Object.keys(groups).forEach(key => {
+      allItems.push(...groups[key].items)
+    })
+    return allItems
+  })
 
   // 过滤后的菜单项
   const filteredMenuItems = computed(() => {
@@ -864,6 +876,10 @@
 
   // 菜单切换
   const handleMenuChange = menuId => {
+    if (menuId === 'dashboard') {
+      router.push('/admin/dashboard')
+      return
+    }
     activeMenu.value = menuId
     saveMenuState()
   }
@@ -1378,11 +1394,14 @@
 
   // 权限检查 - 允许普通用户访问但只显示 Nginx 配置
   const checkPermission = () => {
-    const token = localStorage.getItem('access_token')
+    // 使用 userStore 获取 token（优先）, 回退到 localStorage
+    const token = userStore.getAccessToken() || localStorage.getItem('access_token')
     const permissionLevel = localStorage.getItem('permission_level')
 
     if (!token) {
       console.error('未登录，缺少访问令牌')
+      console.debug('[AdminPanel] Token check failed. sessionStorage:_token:', sessionStorage.getItem('_token'))
+      console.debug('[AdminPanel] localStorage:access_token:', localStorage.getItem('access_token'))
       accessDenied.value = true
       showAccessDenied()
       return false
@@ -1425,12 +1444,20 @@
   }
 
   // 组件挂载
+  let currentTimeInterval = null
+  const resizeHandler = () => {
+    cpuChart?.resize()
+    memoryChart?.resize()
+    diskChart?.resize()
+    networkChart?.resize()
+  }
+
   onMounted(() => {
     userStore.restoreUser()
 
     // 更新时间
     updateCurrentTime()
-    setInterval(updateCurrentTime, 1000)
+    currentTimeInterval = setInterval(updateCurrentTime, 1000)
 
     // 检查权限
     if (checkPermission()) {
@@ -1463,12 +1490,7 @@
     })
 
     // 响应式图表
-    window.addEventListener('resize', () => {
-      cpuChart?.resize()
-      memoryChart?.resize()
-      diskChart?.resize()
-      networkChart?.resize()
-    })
+    window.addEventListener('resize', resizeHandler)
   })
 
   // 清理
@@ -1479,6 +1501,8 @@
     diskChart?.dispose()
     networkChart?.dispose()
     saveMenuState()
+    if (currentTimeInterval) clearInterval(currentTimeInterval)
+    window.removeEventListener('resize', resizeHandler)
   })
 </script>
 

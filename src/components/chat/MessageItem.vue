@@ -194,15 +194,15 @@
   }))
 
   async function handleCopy() {
-    let text = ''
-    if (props.type === 'user') {
-      text = props.prompt
-    } else {
-      const parts = []
-      if (props.reasoning) parts.push(`思考过程：\n${props.reasoning}`)
-      if (props.response) parts.push(props.response)
-      text = parts.join('\n\n')
-    }
+    const text =
+      props.type === 'user'
+        ? props.prompt
+        : [
+            props.reasoning ? `思考过程：\n${props.reasoning}` : null,
+            props.response
+          ]
+            .filter(Boolean)
+            .join('\n\n')
     await copy(text)
   }
 

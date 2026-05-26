@@ -70,10 +70,23 @@ async def call_siliconflow(prompt: str, model: str,
                            thinking_budget:int =4096,
                            temperature: float = 0.7,
                            system_prompt: str = "",
-                           cancel_event: asyncio.Event = None
+                           cancel_event: asyncio.Event = None,
+                           api_key_token: str = None
                            ):
+    # 获取 API Key：优先使用用户自定义 Key，否则使用系统默认 Key
+    api_key = settings.SILICONFLOW_API_KEY
+    if api_key_token:
+        from app.services.apikey_manager import get_apikey_manager
+        try:
+            apikey_manager = get_apikey_manager()
+            user_key = apikey_manager.get_key("default_user", api_key_token)
+            if user_key:
+                api_key = user_key
+        except Exception as e:
+            logger.warning(f"获取用户 API Key 失败，使用系统默认 Key: {e}")
+    
     headers = {
-        "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
 

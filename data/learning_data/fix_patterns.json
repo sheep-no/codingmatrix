@@ -1,0 +1,597 @@
+{
+  "validation_error:多次修复失败": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败",
+    "error_pattern": "多次修复失败",
+    "fix_description": "修复: 多次修复失败",
+    "fix_example": "#!/usr/bin/env python\n# -*- coding: utf-8 -*-\n\nfrom fastapi import FastAPI, Request, HTTPException\nf",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 94,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-02T10:10:18.139193",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 未安装的包: fastapi>=LINE.LINE.LINE, uvicorn>=LINE.LINE.LINE, sqlalchemy>=LINE.LINE.LINE, python_": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 未安装的包: fastapi>=0.60.2, uvicorn>=0.15.0, sqlalchemy>=1.4.20, python_multipart>=0.0.5, python_jose>=3.3.0, passlib>=6.0.2, pydantic>=1.9.1, sqlalchemy_utils>=0.37.0, starlette>=0.13.8, jinja2>=3.0.1, swaggify>=0.1.8, pytest>=6.2.4, pytest_asyncio>=0.14.0, alembic>=1.10.0, \"fastapi>=0.60,<0.61\", \"sqlalchemy>=1.4,<1.5\", \"python_jose>=3.3,<3.4\"",
+    "error_pattern": "多次修复失败|未安装的包|fastapi|uvicorn|sqlalchemy",
+    "fix_description": "修复: 多次修复失败: 未安装的包: fastapi>=0.60.2, uvicorn>=0.15.0, s",
+    "fix_example": "# FastAPI Blog CMS Backend Requirements File\n# Generated for Python 3.9+\n\n# Core Frameworks\nfastapi>",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 10,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-05T05:58:43.062689",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 未安装的包: fastapi>=LINE.LINE.LINE, uvicorn>=LINE.LINE.LINE, sqlalchemy>=LINE.LINE, python_multi": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 未安装的包: fastapi>=0.100.0, uvicorn>=0.23.0, sqlalchemy>=2.0, python_multipart>=0.0.9, sqlalchemy_utils>=0.37.0, python_jose>=3.2.0, passlib>=6.1.0, python_multipart>=0.0.9, pymysql>=1.0.3, pydantic>=2.0,<2.1, jinja2>=3.1.2, anyio>=3.6.0, pytest>=6.2.4, pytest_asyncio>=0.16.0, httpx>=0.23.0, sphinx>=4.5.0, python_dotenv>=0.19.2, starlette>=0.13.8,<0.14.0",
+    "error_pattern": "多次修复失败|未安装的包|fastapi|uvicorn|sqlalchemy",
+    "fix_description": "修复: 多次修复失败: 未安装的包: fastapi>=0.100.0, uvicorn>=0.23.0, ",
+    "fix_example": "# 企业级在线博客内容管理系统 (CMS)\n\n## 一、项目概述\n这是一个功能完整的个人/团队博客平台，支持多用户、多角色、内容管理、评论互动、数据统计等功能。\n",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 1,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-05T04:29:55.569899",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:未安装的包: fastapi>=LINE.LINE.LINE, uvicorn>=LINE.LINE.LINE, sqlalchemy>=LINE.LINE.LINE, python_jose[cry": {
+    "error_type": "validation_error",
+    "error_message": "未安装的包: fastapi>=0.100.0, uvicorn>=0.23.0, sqlalchemy>=1.4.0, python_jose[cryptography]>=3.2.0, passlib[bcrypt]>=2022.9.0, python_multipart>=2.0.0, python_dotenv>=0.15.0, sqlalchemy_utils>=0.37.0, alembic>=1.12.0, httpx>=0.23.0, pytest>=7.0.0, pytest_asyncio>=0.21.0, anyio>=4.1.0, sphinx>=5.0.0, furo>=2022.1.0, docker>=6.0.0, async_generator>=1.10, typing_extensions>=4.0.0, python_dotenv>=0.15.0, pytest_asyncio>=0.21.0",
+    "error_pattern": "未安装的包|fastapi|uvicorn|sqlalchemy|python_jose",
+    "fix_description": "修复: 未安装的包: fastapi>=0.100.0, uvicorn>=0.23.0, sqlalche",
+    "fix_example": "# This file specifies the Python dependencies for the FastAPI-based blog CMS\n# Generated for the pro",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 18,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-05T07:17:15.575632",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 语法错误 LINE: invalid character '【' (u+LINE)": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 语法错误 第1行: invalid character '【' (U+3010)",
+    "error_pattern": "多次修复失败|语法错误|第|行|invalid",
+    "fix_description": "修复语法错误（检查括号、缩进、关键字拼写）",
+    "fix_example": "from fastapi import FastAPI, HTTPException, Request\nfrom fastapi.middleware.cors import CORSMiddlewa",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-05T06:17:10.294345",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:未安装的包: pyperclip": {
+    "error_type": "validation_error",
+    "error_message": "未安装的包: pyperclip",
+    "error_pattern": "未安装的包|pyperclip",
+    "fix_description": "修复: 未安装的包: pyperclip",
+    "fix_example": "import sys\nimport subprocess\n\ntry:\n    import pyperclip",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-05T07:36:15.612631",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:未安装的包: fastapi>=LINE.LINE.LINE, uvicorn>=LINE.LINE.LINE, sqlalchemy>=LINE.LINE.LINE, python_multipar": {
+    "error_type": "validation_error",
+    "error_message": "未安装的包: fastapi>=0.100.0, uvicorn>=0.23.0, sqlalchemy>=2.0.0, python_multipart>=0.0.9, passlib>=1.7.1, python_dotenv>=0.15.0, pydantic>=2.0.0, python_multipart>=0.0.9, sqlalchemy>=2.0.0, alembic>=1.12.0, python_dotenv>=0.15.0, fastapi[server]>=0.100.0, passlib>=1.7.1, python_jose>=3.3.0, sqlalchemy>=2.0.0, uvicorn>=0.23.0",
+    "error_pattern": "未安装的包|fastapi|uvicorn|sqlalchemy|python_multipart",
+    "fix_description": "修复: 未安装的包: fastapi>=0.100.0, uvicorn>=0.23.0, sqlalche",
+    "fix_example": "fastapi>=0.100.0\nuvicorn>=0.23.0\nsqlalchemy>=2.0.0\npython-multipart>=0.0.9\npasslib>=1.7.1",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 15,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-06T04:04:10.342660",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:未安装的包: python_dotenv, python_jose, sqlalchemy_utils, python_dotenv": {
+    "error_type": "validation_error",
+    "error_message": "未安装的包: python_dotenv, python_jose, sqlalchemy_utils, python_dotenv",
+    "error_pattern": "未安装的包|python_dotenv|python_jose|sqlalchemy_utils|python_dotenv",
+    "fix_description": "修复: 未安装的包: python_dotenv, python_jose, sqlalchemy_util",
+    "fix_example": "<!DOCTYPE html>\n<html lang=\"zh\">\n<head>\n    <meta charset=\"UTF-8\">\n    <title>博客CMS管理后台</title>",
+    "file_types": [
+      "frontend"
+    ],
+    "frequency": 3,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-06T04:05:24.758528",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:未安装的包: sqlalchemy_utils; 运行时导入失败: no module named 'app.routers'; 运行时导入失败: cannot import name 'base' ": {
+    "error_type": "validation_error",
+    "error_message": "未安装的包: sqlalchemy_utils; 运行时导入失败: No module named 'app.routers'; 运行时导入失败: cannot import name 'Base' from 'app' (/workspace/app/__init__.py); FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='; 跨文件引用: main.py 导入了不存在的模块 'fastapi'; 跨文件引用: main.py 导入了不存在的模块 'fastapi.security'; 跨文件引用: main.py 导入了不存在的模块 'sqlalchemy.orm'; 跨文件引用: main.py 导入了不存在的模块 'fastapi.responses'; 跨文件引用: 'app.routers' 模块未导出 'auth' (实际导出: ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, Article, ArticleCreate, ArticleRead, ArticleUpdate, Category, CategoryRead, Comment, CommentCreate, CommentRead, CommentUpdate, SECRET_KEY, SettingRead, StatsRead, Tag, TagRead, Token, TokenData, User, UserCreate, UserRead, articles_db, categories_db, comments_db, create_access_token, create_article, create_comment, delete_article, get_article, get_article_by_id, get_articles, get_articles_endpoint, get_categories, get_comments, get_comments_by_article, get_current_user, get_settings, get_stats, get_tags, get_user_by_email, get_user_by_id, like_comment, login, oauth2_scheme, pwd_context, refresh_token, register, router, tags_db, update_article, users_db, verify_token); 跨文件引用: 'app.routers' 模块未导出 'articles' (实际导出: ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, Article, ArticleCreate, ArticleRead, ArticleUpdate, Category, CategoryRead, Comment, CommentCreate, CommentRead, CommentUpdate, SECRET_KEY, SettingRead, StatsRead, Tag, TagRead, Token, TokenData, User, UserCreate, UserRead, articles_db, categories_db, comments_db, create_access_token, create_article, create_comment, delete_article, get_article, get_article_by_id, get_articles, get_articles_endpoint, get_categories, get_comments, get_comments_by_article, get_current_user, get_settings, get_stats, get_tags, get_user_by_email, get_user_by_id, like_comment, login, oauth2_scheme, pwd_context, refresh_token, register, router, tags_db, update_article, users_db, verify_token); 跨文件引用: 'app.routers' 模块未导出 'comments' (实际导出: ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, Article, ArticleCreate, ArticleRead, ArticleUpdate, Category, CategoryRead, Comment, CommentCreate, CommentRead, CommentUpdate, SECRET_KEY, SettingRead, StatsRead, Tag, TagRead, Token, TokenData, User, UserCreate, UserRead, articles_db, categories_db, comments_db, create_access_token, create_article, create_comment, delete_article, get_article, get_article_by_id, get_articles, get_articles_endpoint, get_categories, get_comments, get_comments_by_article, get_current_user, get_settings, get_stats, get_tags, get_user_by_email, get_user_by_id, like_comment, login, oauth2_scheme, pwd_context, refresh_token, register, router, tags_db, update_article, users_db, verify_token); 跨文件引用: 'app.routers' 模块未导出 'tags' (实际导出: ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, Article, ArticleCreate, ArticleRead, ArticleUpdate, Category, CategoryRead, Comment, CommentCreate, CommentRead, CommentUpdate, SECRET_KEY, SettingRead, StatsRead, Tag, TagRead, Token, TokenData, User, UserCreate, UserRead, articles_db, categories_db, comments_db, create_access_token, create_article, create_comment, delete_article, get_article, get_article_by_id, get_articles, get_articles_endpoint, get_categories, get_comments, get_comments_by_article, get_current_user, get_settings, get_stats, get_tags, get_user_by_email, get_user_by_id, like_comment, login, oauth2_scheme, pwd_context, refresh_token, register, router, tags_db, update_article, users_db, verify_token); 跨文件引用: 'app.routers' 模块未导出 'categories' (实际导出: ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, Article, ArticleCreate, ArticleRead, ArticleUpdate, Category, CategoryRead, Comment, CommentCreate, CommentRead, CommentUpdate, SECRET_KEY, SettingRead, StatsRead, Tag, TagRead, Token, TokenData, User, UserCreate, UserRead, articles_db, categories_db, comments_db, create_access_token, create_article, create_comment, delete_article, get_article, get_article_by_id, get_articles, get_articles_endpoint, get_categories, get_comments, get_comments_by_article, get_current_user, get_settings, get_stats, get_tags, get_user_by_email, get_user_by_id, like_comment, login, oauth2_scheme, pwd_context, refresh_token, register, router, tags_db, update_article, users_db, verify_token); 跨文件引用: 'app.routers' 模块未导出 'stats' (实际导出: ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, Article, ArticleCreate, ArticleRead, ArticleUpdate, Category, CategoryRead, Comment, CommentCreate, CommentRead, CommentUpdate, SECRET_KEY, SettingRead, StatsRead, Tag, TagRead, Token, TokenData, User, UserCreate, UserRead, articles_db, categories_db, comments_db, create_access_token, create_article, create_comment, delete_article, get_article, get_article_by_id, get_articles, get_articles_endpoint, get_categories, get_comments, get_comments_by_article, get_current_user, get_settings, get_stats, get_tags, get_user_by_email, get_user_by_id, like_comment, login, oauth2_scheme, pwd_context, refresh_token, register, router, tags_db, update_article, users_db, verify_token); 跨文件引用: 'app.routers' 模块未导出 'settings as settings_router\n\napp' (实际导出: ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, Article, ArticleCreate, ArticleRead, ArticleUpdate, Category, CategoryRead, Comment, CommentCreate, CommentRead, CommentUpdate, SECRET_KEY, SettingRead, StatsRead, Tag, TagRead, Token, TokenData, User, UserCreate, UserRead, articles_db, categories_db, comments_db, create_access_token, create_article, create_comment, delete_article, get_article, get_article_by_id, get_articles, get_articles_endpoint, get_categories, get_comments, get_comments_by_article, get_current_user, get_settings, get_stats, get_tags, get_user_by_email, get_user_by_id, like_comment, login, oauth2_scheme, pwd_context, refresh_token, register, router, tags_db, update_article, users_db, verify_token)",
+    "error_pattern": "未安装的包|sqlalchemy_utils|运行时导入失败|No|module",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# requirements.txt\nfastapi==0.103.0\nuvicorn==0.15.0\nsqlalchemy==1.4.25\npydantic==1.10.11",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 3,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-06T04:30:42.471681",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 运行时验证异常: name 'table' is not defined; fastapi 兼容性: oauthLINEpasswordbearer 参数应为 'token_url='": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 运行时验证异常: name 'Table' is not defined; FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='",
+    "error_pattern": "多次修复失败|运行时验证异常|name|Table|is",
+    "fix_description": "修复: 多次修复失败: 运行时验证异常: name 'Table' is not defined; Fast",
+    "fix_example": "import os\nimport sys\nfrom datetime import datetime, timedelta\nfrom typing import Optional, Dict, Any",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 1,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-06T04:32:11.679621",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:未安装的包: sqlitedb, sqlalchemy_utils; 运行时验证异常: name 'table' is not defined; 运行时验证异常: name 'table' is no": {
+    "error_type": "validation_error",
+    "error_message": "未安装的包: sqlitedb, sqlalchemy_utils; 运行时验证异常: name 'Table' is not defined; 运行时验证异常: name 'Table' is not defined; 运行时导入失败: cannot import name 'Base' from 'app' (/workspace/app/__init__.py); FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='; 跨文件引用: main.py 导入了不存在的模块 'datetime'; 跨文件引用: main.py 导入了不存在的模块 'fastapi.security'; 跨文件引用: main.py 导入了不存在的模块 'fastapi.responses'; 跨文件引用: main.py 导入了不存在的模块 'pydantic'; 跨文件引用: main.py 导入了不存在的模块 'passlib.context'",
+    "error_pattern": "未安装的包|sqlitedb|sqlalchemy_utils|运行时验证异常|name",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": ":static/style.css\n/* static/style.css */\n:root {\n  --primary-color: #409EFF;\n  --secondary-color: #6",
+    "file_types": [
+      "frontend"
+    ],
+    "frequency": 2,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-06T04:34:36.500783",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 语法错误 LINE: unterminated string literal (detected at line LINE); 运行时验证异常: unterminated string": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 语法错误 第1行: unterminated string literal (detected at line 1); 运行时验证异常: unterminated string literal (detected at line 1) (.temp_fix_models.py, line 1)",
+    "error_pattern": "多次修复失败|语法错误|第|行|unterminated",
+    "fix_description": "修复语法错误（检查括号、缩进、关键字拼写）",
+    "fix_example": "from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, ARRAY\nfrom sqla",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 1,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-06T04:38:57.558125",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:导入验证失败: empty module name; 导入验证失败: empty module name; 未安装的包: sqlitedb, sqlalchemy_utils; 运行时验证异常: na": {
+    "error_type": "validation_error",
+    "error_message": "导入验证失败: Empty module name; 导入验证失败: Empty module name; 未安装的包: sqlitedb, sqlalchemy_utils; 运行时验证异常: name 'Table' is not defined; 运行时验证异常: name 'Table' is not defined; 运行时导入失败: cannot import name 'jsonable_iterator' from 'fastapi.encoders' (/usr/local/lib/python3.11/dist-packages/fastapi/encoders.py); 运行时导入失败: cannot import name 'jsonable_iterator' from 'fastapi.encoders' (/usr/local/lib/python3.11/dist-packages/fastapi/encoders.py); FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='; FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='; 跨文件引用: main.py 导入了不存在的模块 'datetime'; 跨文件引用: main.py 导入了不存在的模块 'fastapi.security'; 跨文件引用: main.py 导入了不存在的模块 'fastapi.responses'; 跨文件引用: main.py 导入了不存在的模块 'pydantic'; 跨文件引用: main.py 导入了不存在的模块 'passlib.context'",
+    "error_pattern": "导入验证失败|Empty|module|name|导入验证失败",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content",
+    "file_types": [
+      "frontend"
+    ],
+    "frequency": 3,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-06T04:50:33.592860",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:导入验证失败: empty module name; 导入验证失败: empty module name; 未安装的包: sqlalchemy_utils, starlette_test, pytho": {
+    "error_type": "validation_error",
+    "error_message": "导入验证失败: Empty module name; 导入验证失败: Empty module name; 未安装的包: sqlalchemy_utils, starlette_test, python_markdown, mistune, async_generator, beautifulsoup4, brotli, sphinx, flask_sphinx_themes, black; 类型错误 (可能是 API 参数不兼容): OAuth2PasswordBearer.__init__() got an unexpected keyword argument 'token_url'; 类型错误 (可能是 API 参数不兼容): OAuth2PasswordBearer.__init__() got an unexpected keyword argument 'token_url'; 运行时验证异常: name 'Table' is not defined; 运行时导入失败: cannot import name 'jsonable_iterator' from 'fastapi.encoders' (/usr/local/lib/python3.11/dist-packages/fastapi/encoders.py); 运行时导入失败: cannot import name 'jsonable_iterator' from 'fastapi.encoders' (/usr/local/lib/python3.11/dist-packages/fastapi/encoders.py); FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='; FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='; 跨文件引用: main.py 导入了不存在的模块 'typing'; 跨文件引用: main.py 导入了不存在的模块 'fastapi.security'",
+    "error_pattern": "导入验证失败|Empty|module|name|导入验证失败",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "from fastapi import FastAPI, HTTPException\nfrom fastapi.security import OAuth2PasswordBearer\nimport ",
+    "file_types": [
+      "frontend"
+    ],
+    "frequency": 1,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-06T04:52:51.673639",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: js 语法错误: /workspace/projects/orchestrator/LINE_LINE_LINE/static/.temp_fix_app.js:LINE\n由于您提供的": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: JS 语法错误: /workspace/projects/orchestrator/20260505_060547_1/static/.temp_fix_app.js:1\n由于您提供的代码示例中存在无法识别的内容，在此，例，请直接提供具体的代码片段，以便我可以帮助您分析和修复问题。请提供完整、可读的代码片段，\n                    \n\nSyntaxError: Invalid or unexpected token\n    at wrapSafe (node:internal/modules/cjs/loader:1638:18)\n    at checkSyntax (node:internal/main/check_syntax:78:3)\n\nNode.js v22.22.0",
+    "error_pattern": "多次修复失败|JS|语法错误|workspace|projects",
+    "fix_description": "修复语法错误（检查括号、缩进、关键字拼写）",
+    "fix_example": ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ",
+    "file_types": [
+      "frontend"
+    ],
+    "frequency": 1,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-06T04:54:15.263951",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:缺少依赖: routers; 缺少依赖: routers; 未安装的包: python_jwt, sqlalchemy_utils, python_markdown, fastapi_ratelimi": {
+    "error_type": "validation_error",
+    "error_message": "缺少依赖: routers; 缺少依赖: routers; 未安装的包: python_jwt, sqlalchemy_utils, python_markdown, fastapi_ratelimiter; 类型错误 (可能是 API 参数不兼容): OAuth2PasswordBearer.__init__() got an unexpected keyword argument 'token_url'; 运行时导入失败: No module named 'routers'; 运行时导入失败: cannot import name 'db_helper' from 'routers' (/workspace/projects/orchestrator/20260505_060547_1/app/routers.py); JS 语法错误: /workspace/projects/orchestrator/20260505_060547_1/static/app.js:1\n. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 姒\n^\n\nSyntaxError: Unexpected token '.'\n    at wrapSafe (node:internal/modules/cjs/loader:1638:18)\n    at checkSyntax (node:internal/main/check_syntax:78:3)\n\nNode.js v22.22.0; 跨文件引用: main.py 导入了不存在的模块 'typing'; 跨文件引用: main.py 导入了不存在的模块 'fastapi.security'",
+    "error_pattern": "缺少依赖|routers|缺少依赖|routers|未安装的包",
+    "fix_description": "修复语法错误（检查括号、缩进、关键字拼写）",
+    "fix_example": "# requirements.txt for the Blog CMS Backend (FastAPI)\n\n# Core dependencies\nfastapi==0.110.0\nuvicorn>",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 12,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-06T05:23:35.049930",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 运行时验证异常: no signature found for builtin type <class 'str'>": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 运行时验证异常: no signature found for builtin type <class 'str'>",
+    "error_pattern": "多次修复失败|运行时验证异常|no|signature|found",
+    "fix_description": "修复类型错误（检查变量类型和注解）",
+    "fix_example": "from fastapi import FastAPI, Depends, HTTPException, status\nfrom fastapi.middleware.cors import CORS",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-06T05:23:35.050319",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 语法错误 LINE: invalid character '。' (u+LINE); 运行时验证异常: invalid character '。' (u+LINE) (.temp_fi": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 语法错误 第1行: invalid character '。' (U+3002); 运行时验证异常: invalid character '。' (U+3002) (.temp_fix_routers.py, line 1)",
+    "error_pattern": "多次修复失败|语法错误|第|行|invalid",
+    "fix_description": "修复语法错误（检查括号、缩进、关键字拼写）",
+    "fix_example": "from fastapi import APIRouter, Depends, HTTPException, status\nfrom pydantic import BaseModel\nfrom ty",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 4,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-11T07:32:26.566268",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:未安装的包: pygame": {
+    "error_type": "validation_error",
+    "error_message": "未安装的包: pygame",
+    "error_pattern": "未安装的包|pygame",
+    "fix_description": "修复: 未安装的包: pygame",
+    "fix_example": "# 五子棋小游戏项目文档\n\n## 项目概述\n本项目实现一个基于控制台的五子棋小游戏。棋盘由用户指定大小（最小5x5），支持玩家对战和AI对战模式。游戏通过命令行交互，提供创建游戏、落子操作和查询当前状",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-07T02:35:48.520407",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 缺少依赖: backend; 运行时导入失败: no module named 'backend'": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 缺少依赖: backend; 运行时导入失败: No module named 'backend'",
+    "error_pattern": "多次修复失败|缺少依赖|backend|运行时导入失败|No",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# backend/game_engine/game_logic.py\n\"\"\"\n五子棋胜负判断与游戏规则实现\n\"\"\"\n",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-11T05:58:22.734594",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 缺少依赖: game_engine; 运行时导入失败: no module named 'game_engine'": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 缺少依赖: game_engine; 运行时导入失败: No module named 'game_engine'",
+    "error_pattern": "多次修复失败|缺少依赖|game_engine|运行时导入失败|No",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# backend/game_engine/player.py\nimport logging\nfrom typing import Optional, Tuple\nfrom backend.game_",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-11T05:58:22.735400",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 语法错误 LINE: unterminated string literal (detected at line LINE); 导入验证失败: empty module name; 运": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 语法错误 第11行: unterminated string literal (detected at line 11); 导入验证失败: Empty module name; 运行时验证异常: unterminated string literal (detected at line 11) (.temp_fix_chess_board.py, line 11)",
+    "error_pattern": "多次修复失败|语法错误|第|行|unterminated",
+    "fix_description": "修复语法错误（检查括号、缩进、关键字拼写）",
+    "fix_example": "# backend/game_engine/chess_board.py\nimport logging\nimport json\nfrom typing import List, Dict, Tuple",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-11T05:58:22.736197",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:缺少依赖: backend; 缺少依赖: backend; 运行时导入失败: no module named 'backend'; 运行时导入失败: no module named 'backend'": {
+    "error_type": "validation_error",
+    "error_message": "缺少依赖: backend; 缺少依赖: backend; 运行时导入失败: No module named 'backend'; 运行时导入失败: No module named 'backend'",
+    "error_pattern": "缺少依赖|backend|缺少依赖|backend|运行时导入失败",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "import logging\nimport json\nfrom typing import Dict, List, Tuple, Optional\nimport numpy as np\n",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-11T06:08:25.527375",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 语法错误 LINE: unexpected indent; 缺少依赖: game_engine; 运行时验证异常: unexpected indent (.temp_fix_game_": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 语法错误 第1行: unexpected indent; 缺少依赖: game_engine; 运行时验证异常: unexpected indent (.temp_fix_game_logic.py, line 1)",
+    "error_pattern": "多次修复失败|语法错误|第|行|unexpected",
+    "fix_description": "修复语法错误（检查括号、缩进、关键字拼写）",
+    "fix_example": "import logging\nfrom typing import Tuple, Optional, Dict\nfrom backend.game_engine.chess_board import ",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-11T06:08:25.528849",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 语法错误 LINE: unterminated string literal (detected at line LINE); 缺少依赖: backend; 运行时验证异常: unte": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 语法错误 第14行: unterminated string literal (detected at line 14); 缺少依赖: backend; 运行时验证异常: unterminated string literal (detected at line 14) (.temp_fix_player.py, line 14)",
+    "error_pattern": "多次修复失败|语法错误|第|行|unterminated",
+    "fix_description": "修复语法错误（检查括号、缩进、关键字拼写）",
+    "fix_example": "# backend/game_engine/player.py\nimport logging\nfrom typing import Optional, Tuple, Dict, Any\nfrom ba",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-11T06:08:25.530232",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:运行时导入失败: `basesettings` has been moved to the `pydantic-settings` package. see https://docs.pydantic": {
+    "error_type": "validation_error",
+    "error_message": "运行时导入失败: `BaseSettings` has been moved to the `pydantic-settings` package. See https://docs.pydantic.dev/2.13/migration/#basesettings-has-moved-to-pydantic-settings for more details.\n\nFor further information visit https://errors.pydantic.dev/2.13/u/import-error; 运行时导入失败: `BaseSettings` has been moved to the `pydantic-settings` package. See https://docs.pydantic.dev/2.13/migration/#basesettings-has-moved-to-pydantic-settings for more details.\n\nFor further information visit https://errors.pydantic.dev/2.13/u/import-error",
+    "error_pattern": "运行时导入失败|BaseSettings|has|been|moved",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "import os\nfrom pydantic import BaseModel\n\nclass Settings(BaseModel):\n    # API 配置",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 4,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-11T07:32:26.567528",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:缺少依赖: core; 缺少依赖: config; 缺少依赖: core; 缺少依赖: config; 运行时导入失败: no module named 'core'; 运行时导入失败: no mod": {
+    "error_type": "validation_error",
+    "error_message": "缺少依赖: core; 缺少依赖: config; 缺少依赖: core; 缺少依赖: config; 运行时导入失败: No module named 'core'; 运行时导入失败: No module named 'core'; 运行时验证异常: name 'sessionmaker' is not defined; 运行时验证异常: name 'sessionmaker' is not defined; FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='; FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='",
+    "error_pattern": "缺少依赖|core|缺少依赖|config|缺少依赖",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "from fastapi import APIRouter, HTTPException, Depends, Query, Path, status, Response\nfrom fastapi.en",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-11T07:22:51.915311",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 缺少依赖: core; 缺少依赖: config; 运行时导入失败: no module named 'core'": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 缺少依赖: core; 缺少依赖: config; 运行时导入失败: No module named 'core'",
+    "error_pattern": "多次修复失败|缺少依赖|core|缺少依赖|config",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "from fastapi import APIRouter, Depends, HTTPException, status\nfrom fastapi.security import OAuth2Pas",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-11T07:22:51.916298",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: fastapi 兼容性: oauthLINEpasswordbearer 参数应为 'token_url=' 而非 'tokenurl='": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='",
+    "error_pattern": "多次修复失败|FastAPI|兼容性|OAuth|PasswordBearer",
+    "fix_description": "修复: 多次修复失败: FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'to",
+    "fix_example": "from fastapi import APIRouter, Depends, HTTPException, status\nfrom fastapi.security import OAuth2Pas",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-11T07:32:26.568482",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 导入验证失败: empty module name; 运行时导入失败: attempted relative import with no known parent package": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 导入验证失败: Empty module name; 运行时导入失败: attempted relative import with no known parent package",
+    "error_pattern": "多次修复失败|导入验证失败|Empty|module|name",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# game_logic/player.py\nimport pygame\nimport logging\nfrom typing import Optional, Tuple\nfrom game_log",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 4,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-11T07:37:29.179533",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 语法错误 LINE: invalid character '【' (u+LINE); 缺少依赖: pygame; 缺少依赖: game_logic; 运行时验证异常: invalid ": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 语法错误 第1行: invalid character '【' (U+3010); 缺少依赖: pygame; 缺少依赖: game_logic; 运行时验证异常: invalid character '【' (U+3010) (.temp_fix_main.py, line 1)",
+    "error_pattern": "多次修复失败|语法错误|第|行|invalid",
+    "fix_description": "修复语法错误（检查括号、缩进、关键字拼写）",
+    "fix_example": "# main.py\nimport pygame\nimport sys\nfrom game_logic.chess_board import ChessBoard\nfrom game_logic.pla",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-11T07:37:29.180765",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 缺少依赖: game_logic; 运行时导入失败: no module named 'game_logic'": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 缺少依赖: game_logic; 运行时导入失败: No module named 'game_logic'",
+    "error_pattern": "多次修复失败|缺少依赖|game_logic|运行时导入失败|No",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# game_logic/game_engine.py\nimport logging\nfrom typing import Tuple, Optional, List\nfrom game_logic.",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-05-11T07:37:29.181803",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:缺少依赖: pygame; 缺少依赖: game_logic; 缺少依赖: pygame; 缺少依赖: game_logic; 缺少依赖: pygame; 缺少依赖: game_logic; 缺少依赖": {
+    "error_type": "validation_error",
+    "error_message": "缺少依赖: pygame; 缺少依赖: game_logic; 缺少依赖: pygame; 缺少依赖: game_logic; 缺少依赖: pygame; 缺少依赖: game_logic; 缺少依赖: pygame; 缺少依赖: game_logic; 运行时导入失败: No module named 'pygame'; 运行时导入失败: No module named 'pygame'; 运行时导入失败: No module named 'pygame'; 运行时导入失败: No module named 'pygame'; 跨文件引用: main.py 导入了不存在的模块 'game_logic.chess_board'; 跨文件引用: main.py 导入了不存在的模块 'game_logic.game_engine'",
+    "error_pattern": "缺少依赖|pygame|缺少依赖|game_logic|缺少依赖",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# projects/orchestrator/20260511_072612_1/game_logic/chess_board.py\n\nclass ChessBoard:\n    def __ini",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-11T07:37:29.182840",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:errorLINE": {
+    "error_type": "validation_error",
+    "error_message": "error1",
+    "error_pattern": "error",
+    "fix_description": "修复: error1",
+    "fix_example": "new",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 65,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-26T08:57:03.069437",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:common error": {
+    "error_type": "validation_error",
+    "error_message": "common error",
+    "error_pattern": "common|error",
+    "fix_description": "修复: common error",
+    "fix_example": "new",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 1.0,
+    "last_seen": "2026-05-16T10:51:04.826083",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  }
+}

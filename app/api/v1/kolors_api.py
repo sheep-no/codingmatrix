@@ -207,6 +207,7 @@ class TextToImageRequest(BaseModel):
     num_images: int = 1
     seed: Optional[int] = None
     conversation_id: Optional[int] = Field(None, description="会话 ID（用于缓存和携带历史）")
+    api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
 
 
 class ImageToImageRequest(BaseModel):
@@ -222,6 +223,7 @@ class ImageToImageRequest(BaseModel):
     seed: Optional[int] = None
     image_path: str  # 参考图片路径
     conversation_id: Optional[int] = Field(None, description="会话 ID")
+    api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
 
 
 # API 端点
@@ -277,7 +279,8 @@ async def text_to_image_api(
             num_inferences=request.num_inferences,
             guidance_scale=request.guidance_scale,
             num_images=request.num_images,
-            seed=request.seed
+            seed=request.seed,
+            api_key_token=request.api_key_token
         )
         
         # Step 4: 缓存结果
@@ -394,7 +397,8 @@ async def image_to_image_api(
             num_inferences=request.num_inferences,
             guidance_scale=request.guidance_scale,
             num_images=request.num_images,
-            seed=request.seed
+            seed=request.seed,
+            api_key_token=request.api_key_token
         )
         
         # Step 5: 缓存结果

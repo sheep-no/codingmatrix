@@ -59,15 +59,6 @@ class FileOperationRequest(BaseModel):
             raise ValueError("路径格式不正确")
         return v
 
-    @validator('path')
-    def validate_path(cls, v):
-        resolved = str(Path(v).resolve())
-        if ".." in v or v.startswith("/"):
-            raise ValueError("路径格式不正确")
-        if "\\" in v:
-            raise ValueError("路径格式不正确")
-        return v
-
 
 class ModelListResponse(BaseModel):
     models: List[Dict[str, Any]]
@@ -195,6 +186,7 @@ class OrchestratorRequest(BaseModel):
     incremental: bool = Field(False, description="是否启用增量生成")
     require_approval: bool = Field(False, description="是否要求关键文件人工审批")
     evaluation_only: bool = Field(False, description="只评价不修改 - 输出分析报告和改进建议，不生成代码文件")
+    api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
 
 
 class SessionActionRequest(BaseModel):
@@ -235,6 +227,7 @@ class ModifyRequest(BaseModel):
     dependency_graph: bool = Field(True, description="是否启用依赖图")
     enable_cross_file_analysis: bool = Field(True, description="是否启用跨文件依赖分析（v4.8.0）")
     max_dependency_depth: int = Field(3, description="最大传递依赖深度（v4.8.0）", ge=1, le=10)
+    api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
 
 
 class ComplexityAnalysisRequest(BaseModel):
@@ -288,6 +281,7 @@ class EvaluateRequest(BaseModel):
     requirement: str = Field(..., description="项目需求描述", min_length=1, max_length=5000)
     output_dir: Optional[str] = Field(None, description="输出目录 (可选)")
     session_id: Optional[str] = Field(None, description="会话 ID")
+    api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
 
 
 class EvaluateResponse(BaseModel):
@@ -303,3 +297,14 @@ class EvaluateResponse(BaseModel):
     elapsed_seconds: float = 0.0
     success: bool = True
     models_used: Dict[str, str] = Field(default_factory=dict)
+
+
+class TokenUsageStatsResponse(BaseModel):
+    """Token 使用统计响应"""
+    total_tokens: int = Field(0, description="总 token 使用量")
+    prompt_tokens: int = Field(0, description="输入 token 数")
+    completion_tokens: int = Field(0, description="输出 token 数")
+    total_messages: int = Field(0, description="总消息数")
+    today_tokens: int = Field(0, description="今日 token 使用量")
+    this_month_tokens: int = Field(0, description="本月 token 使用量")
+    by_model: Dict[str, int] = Field(default_factory=dict, description="按模型统计")

@@ -18,99 +18,99 @@ from app.models.Permission import Permission
 
 @pytest.fixture(scope="session")
 def event_loop():
-    """创建事件循环"""
-    import asyncio
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+ """创建事件循环"""
+ import asyncio
+ loop = asyncio.get_event_loop_policy().new_event_loop()
+ yield loop
+ loop.close()
 
 
 @pytest.fixture(scope="session")
 def timeout():
-    """默认超时时间（秒）"""
-    return 30
+ """默认超时时间（秒）"""
+ return 30
 
 
 @pytest.fixture
 def test_user_id():
-    """测试用户 ID"""
-    return 1
+ """测试用户 ID"""
+ return 1
 
 
 @pytest.fixture
 def test_super_user_id():
-    """超级管理员用户 ID"""
-    return 1
+ """超级管理员用户 ID"""
+ return 1
 
 
 @pytest.fixture
 def auth_token():
-    """生成有效的 JWT token（普通用户）"""
-    return create_access_token(
-        sub="1",
-        permission_level="normal",
-        expires_delta=None
-    )
+ """生成有效的 JWT token（普通用户）"""
+ return create_access_token(
+ sub="1",
+ permission_level="normal",
+ expires_delta=None
+ )
 
 
 @pytest.fixture
 def super_auth_token():
-    """生成有效的 JWT token（超级管理员）"""
-    return create_access_token(
-        sub="1",
-        permission_level="super",
-        expires_delta=None
-    )
+ """生成有效的 JWT token（超级管理员）"""
+ return create_access_token(
+ sub="1",
+ permission_level="super",
+ expires_delta=None
+ )
 
 
 @pytest.fixture
 def user_token():
-    """生成有效的 JWT token（数字 sub）"""
-    return create_access_token(
-        sub="1",
-        permission_level="normal",
-        expires_delta=None
-    )
+ """生成有效的 JWT token（数字 sub）"""
+ return create_access_token(
+ sub="1",
+ permission_level="normal",
+ expires_delta=None
+ )
 
 
 @pytest.fixture
 def super_user_token():
-    """生成有效的 JWT token（数字 sub，超级管理员）"""
-    return create_access_token(
-        sub="1",
-        permission_level="super",
-        expires_delta=None
-    )
+ """生成有效的 JWT token（数字 sub，超级管理员）"""
+ return create_access_token(
+ sub="1",
+ permission_level="super",
+ expires_delta=None
+ )
 
 
 @pytest.fixture
 def auth_headers(user_token):
-    """认证请求头"""
-    return {"Authorization": f"Bearer {user_token}"}
+ """认证请求头"""
+ return {"Authorization": f"Bearer {user_token}"}
 
 
 @pytest.fixture
 def super_auth_headers(super_user_token):
-    """超级管理员认证请求头"""
-    return {"Authorization": f"Bearer {super_user_token}"}
+ """超级管理员认证请求头"""
+ return {"Authorization": f"Bearer {super_user_token}"}
 
 
 @pytest.fixture
 def api_base_url():
-    """API 基础 URL"""
-    return os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+ """API 基础 URL"""
+ return os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
 
 @pytest.fixture
 def api_v1_base_url(api_base_url):
-    """API v1 基础 URL"""
-    return f"{api_base_url}/api/v1"
+ """API v1 基础 URL"""
+ return f"{api_base_url}/api/v1"
 
 
 @pytest.fixture
 def api_v2_base_url(api_base_url):
-    """API v2 基础 URL"""
-    return f"{api_base_url}/api/v2"
+ """API v2 基础 URL"""
+ return f"{api_base_url}/api/v2"
 
 
 @pytest.fixture
@@ -125,75 +125,75 @@ async def test_db_setup():
     """创建测试数据库表"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    yield
+        yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 
 
 # Selenium 配置
 def pytest_addoption(parser):
-    """添加命令行选项"""
-    parser.addoption(
-        "--selenium-base-url",
-        action="store",
-        default="http://127.0.0.1:5173",
-        help="前端服务地址"
-    )
-    parser.addoption(
-        "--api-base-url",
-        action="store",
-        default="http://127.0.0.1:8000",
-        help="后端 API 地址"
-    )
-    parser.addoption(
-        "--headless",
-        action="store_true",
-        default=False,
-        help="Selenium 无头模式"
-    )
-    parser.addoption(
-        "--browser",
-        action="store",
-        default="chrome",
-        choices=["chrome", "firefox"],
-        help="Selenium 浏览器类型"
-    )
+ """添加命令行选项"""
+ parser.addoption(
+ "--selenium-base-url",
+ action="store",
+ default="http://127.0.0.1:5173",
+ help="前端服务地址"
+ )
+ parser.addoption(
+ "--api-base-url",
+ action="store",
+ default="http://127.0.0.1:8000",
+ help="后端 API 地址"
+ )
+ parser.addoption(
+ "--headless",
+ action="store_true",
+ default=False,
+ help="Selenium 无头模式"
+ )
+ parser.addoption(
+ "--browser",
+ action="store",
+ default="chrome",
+ choices=["chrome", "firefox"],
+ help="Selenium 浏览器类型"
+ )
 
 
 @pytest.fixture
 def selenium_base_url(request):
-    """获取前端服务地址"""
-    return request.config.getoption("--selenium-base-url")
+ """获取前端服务地址"""
+ return request.config.getoption("--selenium-base-url")
 
 
 @pytest.fixture
 def api_base_url_option(request):
-    """获取后端 API 地址"""
-    return request.config.getoption("--api-base-url")
+ """获取后端 API 地址"""
+ return request.config.getoption("--api-base-url")
 
 
 @pytest.fixture(scope="session")
 def chrome_options():
-    """Selenium Chrome 配置"""
-    from selenium.webdriver.chrome.options import Options
-    options = Options()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--window-size=1920,1080')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-    options.add_experimental_option('excludeSwitches', ['enable-logging'])
-    return options
+ """Selenium Chrome 配置"""
+ from selenium.webdriver.chrome.options import Options
+ options = Options()
+ options.add_argument('--headless')
+ options.add_argument('--no-sandbox')
+ options.add_argument('--disable-dev-shm-usage')
+ options.add_argument('--disable-gpu')
+ options.add_argument('--window-size=1920,1080')
+ options.add_argument('--disable-blink-features=AutomationControlled')
+ options.add_experimental_option('excludeSwitches', ['enable-logging'])
+ return options
 
 
 @pytest.fixture(scope="session")
 def firefox_options():
-    """Selenium Firefox 配置"""
-    from selenium.webdriver.firefox.options import Options
-    options = Options()
-    options.add_argument('--headless')
-    return options
+ """Selenium Firefox 配置"""
+ from selenium.webdriver.firefox.options import Options
+ options = Options()
+ options.add_argument('--headless')
+ return options
 
 
 @pytest.fixture(scope="session")
@@ -209,15 +209,15 @@ def driver(request, chrome_options, firefox_options):
             options = Options()
             options.add_argument('--disable-gpu')
             options.add_argument('--window-size=1920,1080')
-        driver = webdriver.Chrome(options=options)
-    else:
-        from selenium import webdriver
-        driver = webdriver.Firefox(options=firefox_options)
+            driver = webdriver.Chrome(options=options)
+        else:
+            from selenium import webdriver
+            driver = webdriver.Firefox(options=firefox_options)
 
-    driver.set_page_load_timeout(30)
-    driver.implicitly_wait(5)
-    yield driver
-    driver.quit()
+        driver.set_page_load_timeout(30)
+        driver.implicitly_wait(5)
+        yield driver
+        driver.quit()
 
 
 @pytest.fixture

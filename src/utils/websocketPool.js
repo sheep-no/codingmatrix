@@ -75,7 +75,7 @@ export class WebSocketPool {
       this.pool.set(connectionId, connection)
       this.stats.totalConnections++
 
-      console.log(`🔌 创建 WebSocket 共享连接：${connectionId}`)
+      console.log(`[API] 创建 WebSocket 共享连接：${connectionId}`)
     } else {
       this.stats.cacheHits++
     }
@@ -118,7 +118,7 @@ export class WebSocketPool {
 
       // 如果没有订阅者了，断开连接
       if (connection.subscriberCount === 0) {
-        console.log(`🔌 断开 WebSocket 连接（无订阅者）：${endpoint}`)
+        console.log(`[API] 断开 WebSocket 连接（无订阅者）：${endpoint}`)
         connection.disconnect()
 
         // 可选：从池中移除（保持连接可快速重连）
@@ -202,7 +202,7 @@ export class WebSocketPool {
     this.pool.forEach(connection => {
       connection.disconnect()
     })
-    console.log('[OK] All WebSocket connections disconnected')
+    console.log('[SUCCESS] All WebSocket connections disconnected')
   }
 
   /**
@@ -305,7 +305,7 @@ class SharedConnection {
    */
   _setupEventHandlers() {
     this.ws.onopen = () => {
-      console.log(`[OK] WebSocket connected: ${this.connectionId}`)
+      console.log(`[SUCCESS] WebSocket connected: ${this.connectionId}`)
       this.state = ConnectionState.CONNECTED
       this.reconnectAttempts = 0
       this.lastMessageAt = Date.now()
@@ -447,7 +447,7 @@ class SharedConnection {
     )
 
     console.log(
-      `🔄 WebSocket 将在 ${delay}ms 后重连 (${this.reconnectAttempts + 1}/${WS_CONFIG.MAX_RECONNECT_ATTEMPTS})`
+      `[PROXY] WebSocket 将在 ${delay}ms 后重连 (${this.reconnectAttempts + 1}/${WS_CONFIG.MAX_RECONNECT_ATTEMPTS})`
     )
 
     this.reconnectTimer = setTimeout(() => {

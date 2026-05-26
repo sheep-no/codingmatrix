@@ -14,7 +14,9 @@ const md = new MarkdownIt({
         return `<pre class="hljs"><code>${
           hljs.highlight(str, { language: lang, ignoreIllegals: true }).value
         }</code></pre>`
-      } catch (__) {}
+      } catch {
+        // Fallback if highlight fails
+      }
     }
     return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`
   }

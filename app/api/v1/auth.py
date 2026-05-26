@@ -146,7 +146,7 @@ async def login(
     user = await get_user_by_email(db, email)
     if not user:
         logger.warning(f"登录失败：用户不存在 | email={email}")
-        record_login_failure(email)
+        record_login_failure(identifier)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="邮箱或密码错误",

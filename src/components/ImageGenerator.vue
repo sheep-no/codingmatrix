@@ -462,6 +462,7 @@
 <script>
   import { ref, computed, reactive, toRefs } from 'vue'
   import { useNavigationStore } from '@/stores/navigation'
+  import { useApiKeyStore } from '@/stores/apikey'
   import { api } from '@/utils/api/index'
 
   const apiUrl = import.meta.env.VITE_API_BASE || '/api/v1'
@@ -477,6 +478,7 @@
     emits: ['close'],
     setup(props) {
       const navStore = useNavigationStore()
+      const apiKeyStore = useApiKeyStore()
       const fileInput = ref(null)
       const isGenerating = ref(false)
       const error = ref('')
@@ -656,7 +658,8 @@
                 height: parseInt(text2imgForm.resolution.split('x')[1]),
                 steps: text2imgForm.steps,
                 cfg_scale: text2imgForm.cfg_scale,
-                seed: text2imgForm.seed === -1 ? undefined : text2imgForm.seed
+                seed: text2imgForm.seed === -1 ? undefined : text2imgForm.seed,
+                api_key_token: apiKeyStore.siliconflowKey?.token
               })
             })
 
@@ -682,6 +685,7 @@
             if (img2imgForm.seed !== -1) {
               formData.append('seed', img2imgForm.seed.toString())
             }
+            formData.append('api_key_token', apiKeyStore.siliconflowKey?.token || '')
 
             const response = await fetch(`${apiUrl}/kolors/image-to-image`, {
               method: 'POST',

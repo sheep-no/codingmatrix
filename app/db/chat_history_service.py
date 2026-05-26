@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, delete
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.models.chat_history import ChatHistory, ChatSummary
 from typing import List, Optional, Tuple, Sequence
 
@@ -23,7 +23,7 @@ class ChatHistoryService:
         summary_text = summary.summary_text if summary else None
 
         # 获取最近3天的对话
-        three_days_ago = datetime.utcnow() - timedelta(days=3)
+        three_days_ago = datetime.now(timezone.utc) - timedelta(days=3)
         recent_stmt = (
             select(ChatHistory)
             .where(
@@ -102,7 +102,8 @@ class ChatHistoryService:
         return message_list, summary_text
 
     async def save_conversation_turn(self, user_id: str, user_content: str,
-                                     assistant_content: str, model: str, tokens_used: int):
+                                     assistant_content: str, model: str, tokens_used: int,
+                                     prompt_tokens: int = 0, completion_tokens: int = 0):
         """保存一轮对话（用户消息+助手回复）"""
         # 保存用户消息
         user_msg = ChatHistory(
@@ -119,7 +120,9 @@ class ChatHistoryService:
             role="assistant",
             content=assistant_content,
             model=model,
-            token_usage=tokens_used
+            token_usage=tokens_used,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens
         )
         self.db.add(assistant_msg)
 

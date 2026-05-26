@@ -1,7 +1,6 @@
 # app/models/chat_history.py
-from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, Index, Boolean,CHAR
+from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, Index, Boolean, CHAR
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import Base
 import uuid
@@ -17,6 +16,8 @@ class ChatHistory(Base):
     content = Column(Text, nullable=False)
     model = Column(String(100))
     token_usage = Column(Integer, default=0)
+    prompt_tokens = Column(Integer, default=0)
+    completion_tokens = Column(Integer, default=0)
     is_archived = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 

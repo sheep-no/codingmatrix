@@ -60,6 +60,28 @@
         role="menuitem"
         tabindex="0"
         class="toolkit-item highlight"
+        @click.stop="navigateToAgent"
+        @keydown.enter="navigateToAgent"
+        @keydown.space.prevent="navigateToAgent"
+      >
+        <svg
+          class="tool-icon-svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <path d="M12 2L2 7l10 5 10-5-10-5z" />
+          <path d="M2 17l10 5 10-5" />
+          <path d="M2 12l10 5 10-5" />
+        </svg>
+        <span>Agent</span>
+      </div>
+      <div
+        role="menuitem"
+        tabindex="0"
+        class="toolkit-item"
         @click.stop="useTool('chartEditor')"
         @keydown.enter="useTool('chartEditor')"
         @keydown.space.prevent="useTool('chartEditor')"
@@ -77,30 +99,6 @@
           <line x1="6" y1="20" x2="6" y2="14"></line>
         </svg>
         <span>图表编辑器</span>
-      </div>
-      <div
-        role="menuitem"
-        tabindex="0"
-        class="toolkit-item"
-        @click.stop="useTool('nginxConfig')"
-        @keydown.enter="useTool('nginxConfig')"
-        @keydown.space.prevent="useTool('nginxConfig')"
-      >
-        <svg
-          class="tool-icon-svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="2" y1="12" x2="22" y2="12"></line>
-          <path
-            d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
-          ></path>
-        </svg>
-        <span>Nginx 配置</span>
       </div>
       <div
         role="menuitem"
@@ -160,6 +158,7 @@
         @keydown.space.prevent="useTool('virtualGirl')"
       >
         <img src="../img/AiChat.jpeg" alt="AI 虚拟姬" class="tool-image" />
+        <span class="tool-text">虚拟姬</span>
       </div>
       <div
         role="menuitem"
@@ -208,27 +207,6 @@
         <span>AI 绘画</span>
       </div>
       <div
-        role="menuitem"
-        tabindex="0"
-        class="toolkit-item"
-        @click.stop="useTool('taskQueue')"
-        @keydown.enter="useTool('taskQueue')"
-        @keydown.space.prevent="useTool('taskQueue')"
-      >
-        <svg
-          class="tool-icon-svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"></path>
-          <polyline points="12 6 12 12 16 14"></polyline>
-        </svg>
-        <span>任务队列</span>
-      </div>
-      <div
         v-if="userStore.isAdmin"
         role="menuitem"
         tabindex="0"
@@ -255,9 +233,9 @@
         role="menuitem"
         tabindex="0"
         class="toolkit-item"
-        @click.stop="openAgent"
-        @keydown.enter="openAgent"
-        @keydown.space.prevent="openAgent"
+        @click.stop="navigateToDocs"
+        @keydown.enter="navigateToDocs"
+        @keydown.space.prevent="navigateToDocs"
       >
         <svg
           class="tool-icon-svg"
@@ -267,13 +245,13 @@
           stroke-width="2"
           aria-hidden="true"
         >
-          <path
-            d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
-          ></path>
-          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-          <line x1="12" y1="22.08" x2="12" y2="12"></line>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+          <polyline points="10 9 9 9 8 9"></polyline>
         </svg>
-        <span>Agent</span>
+        <span>文档中心</span>
       </div>
       <div
         role="menuitem"
@@ -363,6 +341,7 @@
         :search-keyword="searchKeyword"
         @select="selectHistory"
         @load-more="handleLoadMore"
+        @delete="handleDeleteHistory"
       />
 
       <!-- 空状态 -->
@@ -506,9 +485,9 @@
     window.open('/ppt-generate', '_blank')
   }
 
-  const openAgent = () => {
+  const navigateToAgent = () => {
     showToolkitMenu.value = false
-    window.open('/project-generate', '_blank')
+    window.location.href = '/agent'
   }
 
   const openImageGenerator = () => {
@@ -524,6 +503,11 @@
   const navigateToAdmin = () => {
     showToolkitMenu.value = false
     window.open('/admin', '_blank')
+  }
+
+  const navigateToDocs = () => {
+    showToolkitMenu.value = false
+    window.open('/docs', '_blank')
   }
 
   const closeSearchBox = () => {
@@ -631,16 +615,64 @@
       // 更新为真实的对话项
       historyList.value[index] = {
         ...newItem,
-        conversation_id: String(newItem.conversation_id)
+        conversation_id: parseInt(newItem.conversation_id, 10)
       }
-      console.log('[OK] Updated temp history item:', oldId, '->', newItem.conversation_id)
+      console.log('[SUCCESS] Updated temp history item:', oldId, '->', newItem.conversation_id)
     } else {
       // 如果找不到旧ID，直接添加新项
       addNewHistoryItem(newItem)
     }
   }
 
-  // 获取历史记录（使用带自动刷新的api客户端）
+  // 删除会话历史
+  const handleDeleteHistory = async (item) => {
+    if (!item || !item.conversation_id) return
+
+    const confirmed = window.confirm('确定要删除这个会话吗？此操作不可恢复。')
+    if (!confirmed) return
+
+    try {
+      // 调用后端 API 删除
+      const response = await api.deleteChatHistory([item.conversation_id])
+      
+      if (response.ok) {
+        const result = await response.json()
+        
+        // 从本地列表中移除
+        const index = historyList.value.findIndex(h => h.conversation_id === item.conversation_id)
+        if (index !== -1) {
+          historyList.value.splice(index, 1)
+        }
+        
+        // 如果当前选中的是被删除的会话，清空选中状态
+        if (activeId.value === item.conversation_id) {
+          activeId.value = null
+          emit('selectHistory', null)
+        }
+        
+        // 删除本地 IndexedDB 缓存
+        try {
+          const chatDb = await import('@/utils/chatDatabase')
+          const db = new chatDb.ChatDatabase()
+          await db.init()
+          await db.deleteConversation(item.conversation_id)
+        } catch (dbError) {
+          console.error('删除本地缓存失败:', dbError)
+        }
+        
+        console.log('[SUCCESS] 删除会话:', item.conversation_id)
+      } else {
+        const errorData = await response.json().catch(() => null)
+        console.error('[ERR] 删除失败详情:', response.status, errorData)
+        throw new Error(errorData?.message || errorData?.detail || `HTTP ${response.status}`)
+      }
+    } catch (error) {
+      console.error('删除会话失败:', error)
+      alert('删除失败：' + error.message)
+    }
+  }
+
+  // 获取历史记录（使用带自动刷新的 api 客户端）
   const fetchHistory = async (reset = true) => {
     if (!userStore.isLoggedIn) return
 
@@ -747,12 +779,14 @@
     emit('logout')
   }
 
-  // 组件挂载时检查登录状态
+  // 组件挂载时检查登录状态并加载历史记录
   onMounted(() => {
+    // 恢复用户信息并等待 token 刷新完成后再加载历史记录
     if (userStore.restoreUser()) {
+      // 等待 token 刷新完成后再加载历史记录，避免 401 错误
       setTimeout(() => {
         fetchHistory().catch(() => {})
-      }, 100)
+      }, 500)
     }
 
     handleClickOutside = event => {

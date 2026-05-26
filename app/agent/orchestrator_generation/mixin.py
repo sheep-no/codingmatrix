@@ -48,8 +48,12 @@ class GenerationMixin(
             tech_stack=self.complexity.key_technologies
         )
 
-        self.model_router = LayeredModelRouter()
-        self.model_assignment = self.model_router.get_assignment(self.complexity.level)
+        if getattr(self, 'use_dynamic_topology', True):
+            self.model_router = LayeredModelRouter()
+            self.model_assignment = self.model_router.get_assignment(self.complexity.level)
+        else:
+            self.model_router = None
+            self.model_assignment = None
 
         self._report_progress(
             PROGRESS_LABELS["assigning_models"],
@@ -63,10 +67,10 @@ class GenerationMixin(
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM_CALLS)
         Specialist.set_semaphore(semaphore)
 
-        self.architect = Architect("架构师", self.model_assignment.architect_model, task_type="generate")
-        self.frontend_engineer = FrontendEngineer("前端工程师", self.model_assignment.frontend_model, task_type="generate")
-        self.backend_engineer = BackendEngineer("后端工程师", self.model_assignment.backend_model, task_type="generate")
-        self.reviewer = CodeReviewer("审查员", self.model_assignment.reviewer_model, task_type="review")
+        self.architect = Architect("架构师", self.model_assignment.architect_model, task_type="generate", api_key_token=self.api_key_token)
+        self.frontend_engineer = FrontendEngineer("前端工程师", self.model_assignment.frontend_model, task_type="generate", api_key_token=self.api_key_token)
+        self.backend_engineer = BackendEngineer("后端工程师", self.model_assignment.backend_model, task_type="generate", api_key_token=self.api_key_token)
+        self.reviewer = CodeReviewer("审查员", self.model_assignment.reviewer_model, task_type="review", api_key_token=self.api_key_token)
         self.validator = CodeValidator(self.output_dir)
         self.error_recovery = ErrorRecoveryLoop(self.validator, self.reviewer)
         self.api_contract_checker = APIContractChecker()

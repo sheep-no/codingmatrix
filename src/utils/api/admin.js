@@ -1,12 +1,14 @@
 /**
  * API 系统管理模块
+ * 用户管理路由前缀: /api/v2/Controller
+ * 服务/配置路由前缀: /api/v2
  */
 export function createAdminClient(client) {
   return {
     // ========== 用户管理 ==========
     async getUsers(params = {}) {
       try {
-        const response = await client.get('/v2/users', params)
+        const response = await client.get('/api/v2/Controller/users', params)
         if (response.ok) {
           return await response.json()
         }
@@ -17,7 +19,7 @@ export function createAdminClient(client) {
     },
 
     async createUser(userData) {
-      const response = await client.post('/v2/users', userData)
+      const response = await client.post('/api/v2/Controller/create_user', userData)
       if (response.ok) {
         return await response.json()
       } else {
@@ -27,7 +29,7 @@ export function createAdminClient(client) {
     },
 
     async updateUser(userId, updateData) {
-      const response = await client.put(`/v2/users/${userId}`, updateData)
+      const response = await client.patch(`/api/v2/Controller/update_user/${userId}`, updateData)
       if (response.ok) {
         return await response.json()
       } else {
@@ -37,7 +39,7 @@ export function createAdminClient(client) {
     },
 
     async deleteUser(userId) {
-      const response = await client.delete(`/v2/users/${userId}`)
+      const response = await client.delete(`/api/v2/Controller/delete_user/${userId}`)
       if (response.ok) {
         return await response.json()
       } else {
@@ -47,7 +49,7 @@ export function createAdminClient(client) {
     },
 
     async resetUserPassword(userId, newPassword) {
-      const response = await client.post(`/v2/users/${userId}/reset-password`, {
+      const response = await client.post(`/api/v2/Controller/${userId}/reset-password`, {
         password: newPassword
       })
       if (response.ok) {
@@ -61,7 +63,7 @@ export function createAdminClient(client) {
     // ========== 服务管理 ==========
     async getServices() {
       try {
-        const response = await client.get('/v2/services')
+        const response = await client.get('/api/v2/services')
         if (response.ok) {
           return await response.json()
         }
@@ -72,24 +74,18 @@ export function createAdminClient(client) {
     },
 
     async startGuard(guardData) {
-      try {
-        const response = await client.post('/v2/services/start', guardData)
-        if (response.ok) {
-          return await response.json()
-        } else {
-          const error = await response.json()
-          throw new Error(error.detail || 'Start failed')
-        }
-      } catch (error) {
-        throw error
+      const response = await client.post('/api/v2/guard/start', guardData)
+      if (response.ok) {
+        return await response.json()
+      } else {
+        const error = await response.json()
+        throw new Error(error.detail || 'Start failed')
       }
     },
 
-    async renameService(port, processSignature, newName) {
+    async renameService(port, newName) {
       try {
-        const response = await client.post('/v2/services/rename', {
-          port,
-          process_signature: processSignature,
+        const response = await client.put(`/api/v2/service/${port}/rename`, {
           new_name: newName
         })
         if (response.ok) {
@@ -101,11 +97,9 @@ export function createAdminClient(client) {
       }
     },
 
-    async updateFuseConfig(port, processSignature, fuseConfig) {
+    async updateFuseConfig(port, fuseConfig) {
       try {
-        const response = await client.post('/v2/services/fuse', {
-          port,
-          process_signature: processSignature,
+        const response = await client.put(`/api/v2/service/${port}/fuse-config`, {
           fuse_config: fuseConfig
         })
         if (response.ok) {
@@ -119,7 +113,7 @@ export function createAdminClient(client) {
 
     async getFuseStatus(serviceName) {
       try {
-        const response = await client.get('/v2/services/fuse-status', { service_name: serviceName })
+        const response = await client.get(`/api/v2/service/${serviceName}/fuse-status`)
         if (response.ok) {
           return await response.json()
         }
@@ -131,7 +125,7 @@ export function createAdminClient(client) {
 
     async checkHealth(port) {
       try {
-        const response = await client.get('/v2/services/health', { port })
+        const response = await client.get(`/api/v2/health/${port}`)
         if (response.ok) {
           return await response.json()
         }
@@ -152,12 +146,14 @@ export function createAdminClient(client) {
         const healthChecks = await Promise.all(
           services.map(async service => {
             try {
-              const response = await client.get('/v2/services/health', { port: service.port })
+              const response = await client.get(`/api/v2/health/${service.port}`)
               if (response.ok) {
                 const health = await response.json()
                 return { ...service, ...health }
               }
-            } catch (e) {}
+            } catch {
+              // Health check failed, return unknown status
+            }
             return { ...service, status: 'unknown' }
           })
         )
@@ -171,7 +167,7 @@ export function createAdminClient(client) {
     // ========== 系统状态 ==========
     async getSystemStatus() {
       try {
-        const response = await client.get('/v2/system/status')
+        const response = await client.get('/api/v2/admin/stats')
         if (response.ok) {
           return await response.json()
         }
@@ -183,131 +179,179 @@ export function createAdminClient(client) {
 
     async getSystemInfo() {
       try {
-        const response = await client.get('/v2/system/info')
+        const response = await client.get('/api/v2/admin/config')
         if (response.ok) {
           return await response.json()
         }
         return null
       } catch (error) {
         return null
+      }
+    },
+
+    async getDockerContainers() {
+      try {
+        const response = await client.get('/api/v2/admin/docker/containers')
+        if (response.ok) {
+          return await response.json()
+        }
+        return { containers: [] }
+      } catch (error) {
+        return { containers: [] }
       }
     },
 
     // ========== Nginx 配置 ==========
-    async getNginxConfig() {
+    async getNginxConfig(configName) {
       try {
-        const response = await client.get('/v2/nginx/config')
+        const response = await client.get('/api/v2/nginx/config', { name: configName })
         if (response.ok) {
           return await response.json()
         }
         return { config: '' }
       } catch (error) {
         return { config: '' }
-      }
-    },
-
-    async updateNginxConfig(config) {
-      try {
-        const response = await client.post('/v2/nginx/config', { config })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
-      }
-    },
-
-    async validateNginxConfig(config) {
-      try {
-        const response = await client.post('/v2/nginx/validate', { config })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { valid: false }
-      } catch (error) {
-        return { valid: false }
-      }
-    },
-
-    async reloadNginx() {
-      try {
-        const response = await client.post('/v2/nginx/reload', {})
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
       }
     },
 
     async checkNginxConfig(config) {
       try {
-        const response = await client.post('/v2/nginx/check', { config })
+        const response = await client.post('/api/v2/nginx/check', { config })
         if (response.ok) {
           return await response.json()
         }
         return { valid: false }
       } catch (error) {
         return { valid: false }
+      }
+    },
+
+    async generateNginxConfig(configData) {
+      try {
+        const response = await client.post('/api/v2/nginx/generate', configData)
+        if (response.ok) {
+          return await response.json()
+        }
+        return { config: '' }
+      } catch (error) {
+        return { config: '' }
+      }
+    },
+
+    async deployNginxConfig(config) {
+      try {
+        const response = await client.post('/api/v2/nginx/deploy', { config })
+        if (response.ok) {
+          return await response.json()
+        }
+        return { success: false }
+      } catch (error) {
+        return { success: false }
+      }
+    },
+
+    async listNginxBackups() {
+      try {
+        const response = await client.get('/api/v2/nginx/backups')
+        if (response.ok) {
+          return await response.json()
+        }
+        return { backups: [] }
+      } catch (error) {
+        return { backups: [] }
+      }
+    },
+
+    async deleteNginxBackup(backupName) {
+      try {
+        const response = await client.delete(`/api/v2/nginx/backup/${backupName}`)
+        if (response.ok) {
+          return await response.json()
+        }
+        return { success: false }
+      } catch (error) {
+        return { success: false }
+      }
+    },
+
+    // ========== 配置管理 ==========
+    async getAdminConfig() {
+      try {
+        const response = await client.get('/api/v2/admin/config')
+        if (response.ok) {
+          return await response.json()
+        }
+        return null
+      } catch (error) {
+        return null
+      }
+    },
+
+    async getAdminConfigByKey(key) {
+      try {
+        const response = await client.get(`/api/v2/admin/config/${key}`)
+        if (response.ok) {
+          return await response.json()
+        }
+        return null
+      } catch (error) {
+        return null
+      }
+    },
+
+    async updateAdminConfig(configData) {
+      try {
+        const response = await client.post('/api/v2/admin/config', configData)
+        if (response.ok) {
+          return await response.json()
+        }
+        return { success: false }
+      } catch (error) {
+        return { success: false }
+      }
+    },
+
+    async updateAdminConfigByKey(key, value) {
+      try {
+        const response = await client.put(`/api/v2/admin/config/${key}`, { value })
+        if (response.ok) {
+          return await response.json()
+        }
+        return { success: false }
+      } catch (error) {
+        return { success: false }
+      }
+    },
+
+    async batchUpdateAdminConfig(configs) {
+      try {
+        const response = await client.put('/api/v2/admin/config/batch', { configs })
+        if (response.ok) {
+          return await response.json()
+        }
+        return { success: false }
+      } catch (error) {
+        return { success: false }
       }
     },
 
     // ========== 系统日志 ==========
     async getSystemLogs(params = {}) {
       try {
-        const response = await client.get('/v2/system/logs', params)
+        const response = await client.get('/api/v2/admin/log-config', params)
         if (response.ok) {
           return await response.json()
         }
         return { logs: [] }
       } catch (error) {
         return { logs: [] }
-      }
-    },
-
-    async clearSystemLogs() {
-      try {
-        const response = await client.post('/v2/system/logs/clear', {})
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
-      }
-    },
-
-    // ========== 数据库 ==========
-    async getDatabaseStatus() {
-      try {
-        const response = await client.get('/v2/system/database')
-        if (response.ok) {
-          return await response.json()
-        }
-        return null
-      } catch (error) {
-        return null
-      }
-    },
-
-    async optimizeDatabase() {
-      try {
-        const response = await client.post('/v2/system/database/optimize', {})
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
       }
     },
 
     // ========== WebSocket 统计 ==========
     async getWebSocketStats() {
       try {
-        const response = await client.get('/v2/system/websocket')
+        const response = await client.get('/api/v2/admin/ws-stats')
         if (response.ok) {
           return await response.json()
         }
@@ -320,7 +364,7 @@ export function createAdminClient(client) {
     // ========== 日志配置 ==========
     async getLogConfig() {
       try {
-        const response = await client.get('/v2/system/log-config')
+        const response = await client.get('/api/v2/admin/log-config')
         if (response.ok) {
           return await response.json()
         }
@@ -330,12 +374,9 @@ export function createAdminClient(client) {
       }
     },
 
-    async updateLogLevel(level, loggerName = 'app') {
+    async updateLogLevel(level, key) {
       try {
-        const response = await client.post('/v2/system/log-level', {
-          level,
-          logger_name: loggerName
-        })
+        const response = await client.put(`/api/v2/admin/log-config/${key}`, { level })
         if (response.ok) {
           return await response.json()
         }
@@ -346,13 +387,21 @@ export function createAdminClient(client) {
     },
 
     async updateGlobalLogLevel(level) {
-      return this.updateLogLevel(level, 'app')
+      try {
+        const response = await client.put('/api/v2/admin/log-config/global-level', { level })
+        if (response.ok) {
+          return await response.json()
+        }
+        return { success: false }
+      } catch (error) {
+        return { success: false }
+      }
     },
 
     // ========== 内存统计 ==========
     async getMemoryStats() {
       try {
-        const response = await client.get('/v2/system/memory')
+        const response = await client.get('/api/v2/admin/memory')
         if (response.ok) {
           return await response.json()
         }
@@ -365,7 +414,7 @@ export function createAdminClient(client) {
     // ========== 备份管理 ==========
     async createBackup() {
       try {
-        const response = await client.post('/v2/system/backup', {})
+        const response = await client.get('/api/v2/admin/backup')
         if (response.ok) {
           return await response.json()
         }
@@ -377,7 +426,7 @@ export function createAdminClient(client) {
 
     async listBackups() {
       try {
-        const response = await client.get('/v2/system/backups')
+        const response = await client.get('/api/v2/admin/backup/list')
         if (response.ok) {
           return await response.json()
         }
@@ -389,7 +438,7 @@ export function createAdminClient(client) {
 
     async downloadBackup(timestamp) {
       try {
-        const response = await client.get('/v2/system/backup/download', { timestamp })
+        const response = await client.get(`/api/v2/admin/backup/${timestamp}`)
         if (response.ok) {
           const blob = await response.blob()
           const url = window.URL.createObjectURL(blob)
@@ -410,7 +459,7 @@ export function createAdminClient(client) {
 
     async restoreBackup(backupData) {
       try {
-        const response = await client.post('/v2/system/backup/restore', backupData)
+        const response = await client.post('/api/v2/admin/backup/restore', backupData)
         if (response.ok) {
           return await response.json()
         }
@@ -422,7 +471,7 @@ export function createAdminClient(client) {
 
     async deleteBackup(filename) {
       try {
-        const response = await client.post('/v2/system/backup/delete', { filename })
+        const response = await client.delete(`/api/v2/admin/backup/${filename}`)
         if (response.ok) {
           return await response.json()
         }
@@ -435,7 +484,7 @@ export function createAdminClient(client) {
     // ========== 限流配置 ==========
     async getRateLimitStats() {
       try {
-        const response = await client.get('/v2/system/rate-limit')
+        const response = await client.get('/api/v2/admin/rate-limit')
         if (response.ok) {
           return await response.json()
         }
@@ -447,7 +496,7 @@ export function createAdminClient(client) {
 
     async updateGlobalRateLimit(limit, window) {
       try {
-        const response = await client.post('/v2/system/rate-limit/global', { limit, window })
+        const response = await client.put('/api/v2/admin/rate-limit/global', { limit, window })
         if (response.ok) {
           return await response.json()
         }
@@ -459,7 +508,7 @@ export function createAdminClient(client) {
 
     async updateIpRateLimit(limit, window) {
       try {
-        const response = await client.post('/v2/system/rate-limit/ip', { limit, window })
+        const response = await client.put('/api/v2/admin/rate-limit/ip', { limit, window })
         if (response.ok) {
           return await response.json()
         }
@@ -471,7 +520,7 @@ export function createAdminClient(client) {
 
     async updateUserRateLimit(limit, window) {
       try {
-        const response = await client.post('/v2/system/rate-limit/user', { limit, window })
+        const response = await client.put('/api/v2/admin/rate-limit/user', { limit, window })
         if (response.ok) {
           return await response.json()
         }
@@ -483,7 +532,7 @@ export function createAdminClient(client) {
 
     async updateEndpointRateLimit(endpoint, limit, window) {
       try {
-        const response = await client.post('/v2/system/rate-limit/endpoint', {
+        const response = await client.put('/api/v2/admin/rate-limit/endpoint', {
           endpoint,
           limit,
           window
@@ -499,7 +548,7 @@ export function createAdminClient(client) {
 
     async deleteEndpointRateLimit(endpoint) {
       try {
-        const response = await client.delete('/v2/system/rate-limit/endpoint', { endpoint })
+        const response = await client.delete(`/api/v2/admin/rate-limit/endpoint/${endpoint}`)
         if (response.ok) {
           return await response.json()
         }
@@ -511,7 +560,73 @@ export function createAdminClient(client) {
 
     async toggleRateLimit(enabled) {
       try {
-        const response = await client.post('/v2/system/rate-limit/toggle', { enabled })
+        const response = await client.put('/api/v2/admin/rate-limit/enabled', { enabled })
+        if (response.ok) {
+          return await response.json()
+        }
+        return { success: false }
+      } catch (error) {
+        return { success: false }
+      }
+    },
+
+    // ========== 超级管理员: 用户并发限制 ==========
+    async updateUserConcurrentLimit(userId, limit) {
+      try {
+        const response = await client.post('/api/v2/admin/user-limit', { user_id: userId, limit })
+        if (response.ok) {
+          return await response.json()
+        }
+        return { success: false }
+      } catch (error) {
+        return { success: false }
+      }
+    },
+
+    async removeUserConcurrentLimit(userId) {
+      try {
+        const response = await client.delete(`/api/v2/admin/user-limit/${userId}`)
+        if (response.ok) {
+          return await response.json()
+        }
+        return { success: false }
+      } catch (error) {
+        return { success: false }
+      }
+    },
+
+    async getConcurrentLimitHistory(limit = 50) {
+      try {
+        const response = await client.get('/agent/concurrent-limits/history', { limit })
+        if (response.ok) {
+          return await response.json()
+        }
+        return { history: [] }
+      } catch (error) {
+        return { history: [] }
+      }
+    },
+
+    async updateSystemConfig(configData) {
+      try {
+        const response = await client.post('/api/v2/admin/config', configData)
+        if (response.ok) {
+          return await response.json()
+        }
+        return { success: false }
+      } catch (error) {
+        return { success: false }
+      }
+    },
+
+    async saveRoleLimits(roleLimits) {
+      try {
+        const response = await client.put('/api/v2/admin/config/batch', {
+          configs: Object.entries(roleLimits).map(([role, limit]) => ({
+            path: `system_config.user_concurrent_limits.default_tiers.${role}`,
+            value: limit
+          }))
+        })
         if (response.ok) {
           return await response.json()
         }

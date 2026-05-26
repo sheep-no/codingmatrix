@@ -623,7 +623,7 @@
 
           <div class="stat-card">
             <div class="stat-header">
-              <span class="stat-icon">🔌</span>
+              <span class="stat-icon">[API]</span>
               <span class="stat-label">WebSocket</span>
             </div>
             <div class="stat-value">{{ wsStats.current || 0 }} / {{ wsStats.max || 50 }}</div>
@@ -1116,7 +1116,7 @@
     loading.value = true
     try {
       const [configResponse, logConfigResponse, rateLimitResponse] = await Promise.all([
-        api.get('/api/v2/Controller/admin/config'),
+        api.get('/api/v2/admin/config'),
         api.getLogConfig(),
         api.getRateLimitStats()
       ])
@@ -1168,7 +1168,7 @@
   const loadStats = async () => {
     try {
       const [statsResponse, wsResponse, memoryResponse] = await Promise.all([
-        api.get('/api/v2/Controller/admin/stats'),
+        api.get('/api/v2/admin/stats'),
         api.getWebSocketStats(),
         api.getMemoryStats()
       ])
@@ -1205,14 +1205,14 @@
         log_to_file: logConfig.log_to_file ? 'true' : 'false'
       }
 
-      await api.put('/api/v2/Controller/admin/config/batch', {
+      await api.put('/api/v2/admin/config/batch', {
         configs: updateConfigs
       })
 
       for (const key of Object.keys(featureSwitches)) {
         const configKey = featureKeys[key]
         if (configs[configKey] !== featureSwitches[key].enabled) {
-          await api.put(`/api/v2/Controller/admin/config/${configKey}`, {
+          await api.put(`/api/v2/admin/config/${configKey}`, {
             value: featureSwitches[key].enabled ? 'true' : 'false'
           })
         }

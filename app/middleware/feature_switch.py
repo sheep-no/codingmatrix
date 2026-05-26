@@ -23,7 +23,7 @@ class FeatureSwitchMiddleware(BaseHTTPMiddleware):
     PATH_FEATURE_MAP = {
         "/api/v1/aicloud": "aicloud",
         "/api/v1/docker": "docker",
-        "/api/v1/project": "project",
+        "/api/v1/agent": "project",
         "/api/v1/workflow": "workflow",
     }
 

@@ -264,7 +264,7 @@ More text'''
         ctx = SharedContext("test", tmp_path)
         cv = CrossValidator(ctx)
 
-        with patch("app.agent.cross_validator.call_siliconflow", new_callable=AsyncMock) as mock_call:
+        with patch("app.agent.cross_validator.call_llm", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {"choices": [{"message": {"content": ""}}]}
             result_code, winner = await cv.validate_and_select(
                 file_path="auth.py",

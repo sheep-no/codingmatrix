@@ -32,12 +32,16 @@ class EvaluationMixin:
                               estimated_files=self.complexity.estimated_files,
                               message="正在设计评价框架...")
 
-        self.model_router = LayeredModelRouter()
-        self.model_assignment = self.model_router.get_assignment(self.complexity.level)
+        if getattr(self, 'use_dynamic_topology', True):
+            self.model_router = LayeredModelRouter()
+            self.model_assignment = self.model_router.get_assignment(self.complexity.level)
+        else:
+            self.model_router = None
+            self.model_assignment = None
 
-        self.architect = Architect("评价架构师", self.model_assignment.architect_model,
+        self.architect = Architect("评价架构师", self.model_assignment.architect_model if self.model_assignment else "Qwen/Qwen2.5-7B",
                                 task_type="review")
-        self.reviewer = CodeReviewer("评价审查员", self.model_assignment.reviewer_model,
+        self.reviewer = CodeReviewer("评价审查员", self.model_assignment.reviewer_model if self.model_assignment else "Qwen/Qwen2.5-7B",
                                      task_type="review")
 
         self._report_progress("evaluation", 3, 5, phase="requirement_analysis",

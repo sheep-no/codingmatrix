@@ -28,13 +28,13 @@
 
 ```json
 {
-  "nodes": [
-    {"id": "1", "type": "search", "config": {"query": "..." }},
-    {"id": "2", "type": "generate", "config": {"model": "qwen2.5"}}
-  ],
-  "edges": [
-    {"from": "1", "to": "2"}
-  ]
+ "nodes": [
+ {"id": "1", "type": "search", "config": {"query": "..." }},
+ {"id": "2", "type": "generate", "config": {"model": "qwen2.5"}}
+ ],
+ "edges": [
+ {"from": "1", "to": "2"}
+ ]
 }
 ```
 

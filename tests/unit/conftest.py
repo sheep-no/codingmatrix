@@ -41,14 +41,11 @@ async def init_tables():
         await conn.run_sync(Base.metadata.create_all)
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="function", autouse=True)
 async def setup_database():
     """设置测试数据库"""
     await init_tables()
     yield
-    async with test_engine.begin() as conn:
-        from app.models.base import Base
-        await conn.run_sync(Base.metadata.drop_all)
 
 
 @pytest.fixture(scope="function")

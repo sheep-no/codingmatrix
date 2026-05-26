@@ -5,8 +5,8 @@
     <div class="config-section">
       <label class="switch">
         <input 
-          type="checkbox" 
           v-model="useGithub" 
+          type="checkbox" 
           @change="onUseGithubChange"
         >
         <span class="slider"></span>
@@ -22,8 +22,8 @@
         <label for="github-username">GitHub 用户名</label>
         <input
           id="github-username"
-          type="text"
           v-model="githubUsername"
+          type="text"
           placeholder="your-github-username"
           @blur="saveUsername"
         />
@@ -33,8 +33,8 @@
         <label for="github-token">GitHub Personal Access Token</label>
         <input
           id="github-token"
-          type="password"
           v-model="githubToken"
+          type="password"
           placeholder="ghp_..."
           @blur="saveToken"
         />
@@ -49,14 +49,19 @@
           ✓ GitHub 配置已完成
         </div>
         <div v-else class="status warning">
-          ⚠️ 请完成 GitHub 配置
+          [WARNING] 请完成 GitHub 配置
+        </div>
+        
+        <!-- 连接状态显示 -->
+        <div v-if="connectionStatus" class="connection-status" :class="connectionStatus.type">
+          {{ connectionStatus.message }}
         </div>
       </div>
 
       <button 
         class="test-button"
-        @click="testConnection"
         :disabled="!isConfigured"
+        @click="testConnection"
       >
         测试连接
       </button>
@@ -69,7 +74,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useGithubStore } from '@/stores/github'
 import { ElMessage } from 'element-plus'
 
@@ -78,10 +83,18 @@ const githubStore = useGithubStore()
 const useGithub = ref(false)
 const githubUsername = ref('')
 const githubToken = ref('')
+const connectionStatus = ref(null)
 
 // 计算属性
 const isConfigured = computed(() => {
   return useGithub.value && githubUsername.value && githubToken.value
+})
+
+// 监听配置变化，自动测试连接
+watch(isConfigured, async (newVal) => {
+  if (newVal) {
+    await autoTestConnection()
+  }
 })
 
 // 生命周期钩子
@@ -91,6 +104,11 @@ onMounted(() => {
   useGithub.value = githubStore.useGithub
   githubUsername.value = githubStore.githubUsername
   githubToken.value = githubStore.githubToken
+  
+  // 如果已配置，自动测试连接
+  if (isConfigured.value) {
+    autoTestConnection()
+  }
 })
 
 // 方法
@@ -100,10 +118,52 @@ const onUseGithubChange = () => {
 
 const saveUsername = () => {
   githubStore.setGithubUsername(githubUsername.value)
+  if (isConfigured.value) {
+    autoTestConnection()
+  }
 }
 
 const saveToken = () => {
   githubStore.setGithubToken(githubToken.value)
+  if (isConfigured.value) {
+    autoTestConnection()
+  }
+}
+
+const autoTestConnection = async () => {
+  try {
+    const response = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `token ${githubToken.value}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    })
+
+    if (response.ok) {
+      const userData = await response.json()
+      if (userData.login === githubUsername.value) {
+        connectionStatus.value = {
+          type: 'success',
+          message: '✓ GitHub 连接正常'
+        }
+      } else {
+        connectionStatus.value = {
+          type: 'warning',
+          message: '[WARNING] 用户名与 Token 不匹配'
+        }
+      }
+    } else {
+      connectionStatus.value = {
+        type: 'error',
+        message: '✗ GitHub 连接失败'
+      }
+    }
+  } catch (error) {
+    connectionStatus.value = {
+      type: 'error',
+      message: '✗ 网络连接错误'
+    }
+  }
 }
 
 const testConnection = async () => {
@@ -119,14 +179,30 @@ const testConnection = async () => {
       const userData = await response.json()
       if (userData.login === githubUsername.value) {
         ElMessage.success('GitHub 连接测试成功！')
+        connectionStatus.value = {
+          type: 'success',
+          message: '✓ GitHub 连接正常'
+        }
       } else {
         ElMessage.warning('用户名与 Token 不匹配')
+        connectionStatus.value = {
+          type: 'warning',
+          message: '[WARNING] 用户名与 Token 不匹配'
+        }
       }
     } else {
       ElMessage.error('GitHub 连接失败，请检查 Token')
+      connectionStatus.value = {
+        type: 'error',
+        message: '✗ GitHub 连接失败'
+      }
     }
   } catch (error) {
     ElMessage.error('网络错误：' + error.message)
+    connectionStatus.value = {
+      type: 'error',
+      message: '✗ 网络连接错误'
+    }
   }
 }
 </script>
@@ -237,20 +313,26 @@ input:checked + .slider:before {
   margin: 16px 0;
 }
 
-.status {
+.status, .connection-status {
   padding: 8px 12px;
   border-radius: 4px;
   font-weight: 500;
+  margin-bottom: 8px;
 }
 
-.status.success {
+.status.success, .connection-status.success {
   background: rgba(46, 204, 113, 0.1);
   color: #2ecc71;
 }
 
-.status.warning {
+.status.warning, .connection-status.warning {
   background: rgba(241, 196, 15, 0.1);
   color: #f1c40f;
+}
+
+.connection-status.error {
+  background: rgba(231, 76, 60, 0.1);
+  color: #e74c3c;
 }
 
 .test-button {

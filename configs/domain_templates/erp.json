@@ -1,0 +1,34 @@
+{
+  "domain": "erp",
+  "version": "1.0",
+  "description": "ERP/进销存领域模板",
+  "applicable_project_types": ["medium", "large", "enterprise"],
+  "core_modules": [
+    {"name": "采购管理", "category": "core", "impact": "供应链", "options": ["采购订单", "订单+审批+供应商管理"], "default": "订单+审批"},
+    {"name": "销售管理", "category": "core", "impact": "收入", "options": ["销售记录", "订单+退货+客户管理"], "default": "订单+客户"},
+    {"name": "库存管理", "category": "core", "impact": "资产", "options": ["简单出入库", "多仓库+预警+批次"], "default": "出入库+预警"},
+    {"name": "财务管理", "category": "core", "impact": "核算", "options": ["简单收支", "应收应付+对账"], "default": "应收应付"},
+    {"name": "商品/物料", "category": "core", "impact": "数据基础", "options": ["简单列表", "SKU+分类+规格"], "default": "SKU+分类"},
+    {"name": "审批流程", "category": "optional", "impact": "流程", "options": ["无", "多级审批+流转"], "default": "多级审批"},
+    {"name": "报表统计", "category": "optional", "impact": "分析", "options": ["无", "采购/销售/库存报表"], "default": "基础报表"},
+    {"name": "供应商管理", "category": "optional", "impact": "采购优化", "options": ["无", "评级+价格对比"], "default": "无"}
+  ],
+  "non_functional_requirements": [
+    {"category": "performance", "item": "库存查询实时性", "priority": "high"},
+    {"category": "security", "item": "财务数据权限隔离", "priority": "high"},
+    {"category": "reliability", "item": "数据一致性（库存不能算错）", "priority": "high"},
+    {"category": "usability", "item": "操作简便性（非技术用户）", "priority": "high"}
+  ],
+  "common_pitfalls": [
+    "库存数据不一致是ERP最常见问题，出入库需要事务保证",
+    "采购审批流程设计容易过于复杂或过于简单",
+    "财务对账需要处理小数精度问题",
+    "SKU管理比想象复杂，规格组合+单位换算",
+    "报表需求变化频繁，需要灵活配置"
+  ],
+  "key_decisions": [
+    {"question": "库存计算方式？", "impact": "data_model", "options": ["实时计算（精确但慢）", "定期快照+增量（快但可能延迟）"]},
+    {"question": "审批流程？", "impact": "architecture", "options": ["硬编码流程（简单）", "可配置流程引擎（灵活）"]},
+    {"question": "财务精度？", "impact": "data_model", "options": ["Decimal精确计算", "Float近似计算"]}
+  ]
+}

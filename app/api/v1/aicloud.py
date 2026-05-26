@@ -207,7 +207,8 @@ async def chat(
             max_tokens=model_info.max_tokens,
             call_llm_func=call_llm,
             user_id=user_id,
-            workspace_path=workspace_path
+            workspace_path=workspace_path,
+            api_key_token=request.api_key_token
         )
 
     except Exception as e:
@@ -321,7 +322,8 @@ async def chat_stream(
                 prompt=full_prompt,
                 system_prompt="",
                 stream=True,
-                max_tokens=model_info.max_tokens
+                max_tokens=model_info.max_tokens,
+                api_key_token=request.api_key_token
             )
 
             async for chunk_str in stream_gen:

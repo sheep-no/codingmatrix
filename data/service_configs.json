@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-05-11T07:48:30.369202",
+  "last_updated": "2026-05-24T09:04:52.753572",
   "services": [
     {
       "id": "3306_mysqld-nt.exe_mysqld-nt.exe",
@@ -15,7 +15,7 @@
       "fuse_enabled": true,
       "fuse_cooldown": 300,
       "fuse_retry_times": 0,
-      "fuse_retry_count": 7,
+      "fuse_retry_count": 2,
       "auto_start": true,
       "learned": false,
       "created_at": "2026-04-07T13:42:30.875200",
@@ -35,7 +35,7 @@
       "fuse_enabled": true,
       "fuse_cooldown": 300,
       "fuse_retry_times": 0,
-      "fuse_retry_count": 7,
+      "fuse_retry_count": 2,
       "auto_start": true,
       "learned": false,
       "created_at": "2026-04-09T08:55:29.407504",

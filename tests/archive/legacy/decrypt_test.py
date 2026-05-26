@@ -10,10 +10,10 @@ from cryptography.hazmat.primitives import padding as sym_padding
 
 # Read encrypted data from file
 with open('/tmp/encrypted_data.txt') as f:
-    encrypted_data_b64 = f.read().strip()
+ encrypted_data_b64 = f.read().strip()
 
 with open('/tmp/encrypted_key.txt') as f:
-    encrypted_key_b64 = f.read().strip()
+ encrypted_key_b64 = f.read().strip()
 
 print(f"Encrypted data (base64): {encrypted_data_b64[:50]}...")
 print(f"Encrypted key (base64): {encrypted_key_b64[:50]}...")
@@ -29,16 +29,16 @@ print(f"Decoded encrypted key length: {len(encrypted_key)}")
 
 # Load private key
 with open('/workspace/keys/rsa_private.pem', 'rb') as f:
-    private_key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
+ private_key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
 
 # Decrypt AES key
 aes_key = private_key.decrypt(
-    encrypted_key,
-    padding.OAEP(
-        mgf=padding.MGF1(algorithm=hashes.SHA256()),
-        algorithm=hashes.SHA256(),
-        label=None
-    )
+ encrypted_key,
+ padding.OAEP(
+ mgf=padding.MGF1(algorithm=hashes.SHA256()),
+ algorithm=hashes.SHA256(),
+ label=None
+ )
 )
 print(f"\nDecrypted AES key length: {len(aes_key)}")
 print(f"AES key: {aes_key.hex()}")

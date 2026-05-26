@@ -100,10 +100,10 @@ class GracefulShutdownManager:
     async def wait_for_connections_drain(self, timeout: Optional[int] = None):
         """等待所有连接处理完成"""
         timeout = timeout or self._shutdown_timeout
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
 
         while self.get_connections_inflight() > 0:
-            if asyncio.get_event_loop().time() - start_time > timeout:
+            if asyncio.get_running_loop().time() - start_time > timeout:
                 logger.warning(
                     f"等待连接关闭超时 | timeout={timeout}s | "
                     f"remaining={self.get_connections_inflight()}"

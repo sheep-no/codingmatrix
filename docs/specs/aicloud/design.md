@@ -27,12 +27,12 @@
 
 ```json
 {
-  "timestamp": "2026-05-08T00:00:00Z",
-  "user_id": "1",
-  "session_id": "uuid",
-  "action": "chat",
-  "model": "qwen2.5-coder",
-  "tokens_used": 1500
+ "timestamp": "2026-05-08T00:00:00Z",
+ "user_id": "1",
+ "session_id": "uuid",
+ "action": "chat",
+ "model": "qwen2.5-coder",
+ "tokens_used": 1500
 }
 ```
 

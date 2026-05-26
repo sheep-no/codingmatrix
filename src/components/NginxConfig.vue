@@ -85,7 +85,7 @@
               class="path-input"
             />
             <button class="path-hint-btn" @click="fillDefaultPath">
-              <span class="icon">🔄</span>
+              <span class="icon">[PROXY]</span>
               使用默认值
             </button>
           </div>

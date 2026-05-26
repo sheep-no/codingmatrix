@@ -1,0 +1,34 @@
+{
+  "domain": "cms",
+  "version": "1.0",
+  "description": "内容管理系统领域模板",
+  "applicable_project_types": ["small", "medium", "large"],
+  "core_modules": [
+    {"name": "文章管理", "category": "core", "impact": "数据模型基础", "options": ["简单发布", "草稿+审核+发布"], "default": "草稿+审核+发布"},
+    {"name": "栏目/分类", "category": "core", "impact": "组织结构", "options": ["平铺分类", "树形分类"], "default": "树形分类"},
+    {"name": "用户角色", "category": "core", "impact": "权限基础", "options": ["管理员+读者", "管理员+编辑+审核+读者"], "default": "管理员+编辑+审核+读者"},
+    {"name": "富文本编辑", "category": "core", "impact": "编辑体验", "options": ["Markdown编辑器", "富文本WYSIWYG"], "default": "富文本WYSIWYG"},
+    {"name": "图片/媒体管理", "category": "optional", "impact": "内容丰富度", "options": ["无", "图片上传+图库"], "default": "图片上传+图库"},
+    {"name": "评论系统", "category": "optional", "impact": "互动", "options": ["无", "评论+审核"], "default": "评论+审核"},
+    {"name": "搜索功能", "category": "optional", "impact": "内容检索", "options": ["无", "全文搜索"], "default": "全文搜索"},
+    {"name": "SEO管理", "category": "optional", "impact": "流量", "options": ["无", "SEO元数据"], "default": "无"},
+    {"name": "标签系统", "category": "optional", "impact": "内容组织", "options": ["无", "标签+关联"], "default": "标签+关联"}
+  ],
+  "non_functional_requirements": [
+    {"category": "performance", "item": "文章列表分页加载", "priority": "medium"},
+    {"category": "security", "item": "内容审核防注入", "priority": "medium"},
+    {"category": "security", "item": "XSS防护（富文本内容）", "priority": "high"},
+    {"category": "reliability", "item": "草稿自动保存", "priority": "medium"}
+  ],
+  "common_pitfalls": [
+    "富文本编辑器内容需要XSS过滤，但过度过滤会破坏正常HTML",
+    "树形分类需要处理无限层级和排序问题",
+    "文章草稿和发布版本需要版本管理机制",
+    "评论审核工作量容易被低估"
+  ],
+  "key_decisions": [
+    {"question": "编辑器类型？", "impact": "frontend", "options": ["Markdown（开发者友好）", "富文本WYSIWYG（普通用户友好）"]},
+    {"question": "内容审核流程？", "impact": "workflow", "options": ["无审核（直接发布）", "编辑提交→审核→发布"]},
+    {"question": "分类结构？", "impact": "data_model", "options": ["平铺分类（简单）", "树形分类（灵活但查询复杂）"]}
+  ]
+}

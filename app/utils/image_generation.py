@@ -125,7 +125,8 @@ async def text_to_image(
     num_images: int = 1,
     output_format: str = "png",
     seed: Optional[int] = None,
-    timeout: Timeout = Timeout(120.0, connect=10.0)
+    timeout: Timeout = Timeout(120.0, connect=10.0),
+    api_key_token: str = None
 ) -> Dict[str, Any]:
     """
     文生图 - 根据文字描述生成图片
@@ -166,7 +167,7 @@ async def text_to_image(
         data["seed"] = seed
 
     logger.info(f"文生图请求 | prompt={prompt[:50]}... | size={width}x{height}")
-    result = await _call_kolors_api(data, timeout)
+    result = await _call_kolors_api(data, timeout, api_key_token=api_key_token)
     images, image_paths = _save_images_from_response(result, "kolors", output_format)
     logger.info(f"文生图成功 | 生成 {len(images)} 张图片")
 
@@ -195,7 +196,8 @@ async def image_to_image(
     num_images: int = 1,
     output_format: str = "png",
     seed: Optional[int] = None,
-    timeout: Timeout = Timeout(120.0, connect=10.0)
+    timeout: Timeout = Timeout(120.0, connect=10.0),
+    api_key_token: str = None
 ) -> Dict[str, Any]:
     """
     图生图 - 基于参考图生成新图片
@@ -242,7 +244,7 @@ async def image_to_image(
         data["seed"] = seed
 
     logger.info(f"图生图请求 | ref={image_path} | prompt={prompt[:50]}... | strength={strength}")
-    result = await _call_kolors_api(data, timeout)
+    result = await _call_kolors_api(data, timeout, api_key_token=api_key_token)
     images, image_paths = _save_images_from_response(result, "kolors_img2img", output_format)
     logger.info(f"图生图成功 | 生成 {len(images)} 张图片")
 
@@ -312,11 +314,23 @@ async def inpaint_image(
     return {"success": True, "images": images, "paths": image_paths, "prompt": prompt}
 
 
-async def _call_kolors_api(data: dict, timeout: Timeout) -> dict:
+async def _call_kolors_api(data: dict, timeout: Timeout, api_key_token: str = None) -> dict:
     """Kolors API 调用公共逻辑"""
     try:
+        # 获取 API Key：优先使用用户自定义 Key，否则使用系统默认 Key
+        api_key = settings.SILICONFLOW_API_KEY
+        if api_key_token:
+            from app.services.apikey_manager import get_apikey_manager
+            try:
+                apikey_manager = get_apikey_manager()
+                user_key = apikey_manager.get_key("default_user", api_key_token)
+                if user_key:
+                    api_key = user_key
+            except Exception as e:
+                logger.warning(f"获取用户 API Key 失败，使用系统默认 Key: {e}")
+        
         headers = {
-            "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
         async with httpx.AsyncClient(timeout=timeout) as client:

@@ -120,6 +120,20 @@
               </div>
               <div class="message-text user-text">
                 <p>{{ message.prompt }}</p>
+                <div v-if="message.files && message.files.length > 0" class="message-attachments">
+                  <div
+                    v-for="(file, idx) in message.files"
+                    :key="idx"
+                    class="attachment-image"
+                  >
+                    <img
+                      :src="file.preview || file.localUrl"
+                      :alt="file.name"
+                      class="attachment-img"
+                    />
+                    <span class="attachment-name">{{ file.name }}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -153,17 +167,35 @@
                 <time class="message-time" :datetime="message.createdAt ? new Date(message.createdAt).toISOString() : ''">{{ formatMessageTime(message.createdAt) }}</time>
               </div>
 
+              <!-- 步骤进度条（项目生成模式） -->
+              <div
+                v-if="message.isProjectGenerator && message.isStreaming && message.maxSteps"
+                class="step-progress-bar"
+              >
+                <div class="step-progress-track">
+                  <div
+                    class="step-progress-fill"
+                    :style="{ width: ((message.currentStep || 0) / message.maxSteps) * 100 + '%' }"
+                  ></div>
+                </div>
+                <span class="step-progress-label">
+                  步骤 {{ message.currentStep || 0 }}/{{ message.maxSteps }}
+                  <span v-if="message.filesCreated"> | {{ message.filesCreated }} 个文件</span>
+                </span>
+              </div>
+
               <!-- 思考过程 -->
               <div v-if="message.reasoning && message.reasoning.trim()" class="thinking-section">
-                <details class="thinking-details" :open="message.thinkingOpen !== false">
+                <details class="thinking-details" :open="message.isStreaming || message.thinkingOpen !== false">
                   <summary class="thinking-summary" aria-label="深度思考过程，点击展开/收起">
                     <div class="thinking-indicator">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <div v-if="message.isStreaming" class="thinking-pulse" aria-hidden="true"></div>
+                      <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                         <circle cx="12" cy="12" r="10" />
                         <path d="M12 16v-4" />
                         <path d="M12 8h.01" />
                       </svg>
-                      <span>深度思考过程</span>
+                      <span>{{ message.isStreaming ? '正在思考...' : '深度思考过程' }}</span>
                     </div>
                     <svg
                       class="chevron"
@@ -192,7 +224,7 @@
                         d="M12 2a3 3 0 0 1 3 3v7h3a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3h3V5a3 3 0 0 1 3-3z"
                       />
                     </svg>
-                    <span>AI 回复</span>
+                    <span>{{ message.isProjectGenerator ? '项目生成' : 'AI 回复' }}</span>
                   </div>
                   <div
                     class="card-content markdown-body"
@@ -425,16 +457,16 @@
   }
 
   const carouselPrompts = [
-    { emoji: '🎮', text: '帮我写一个五子棋小游戏' },
-    { emoji: '📊', text: '用 Python 分析 CSV 数据并生成图表' },
-    { emoji: '🌐', text: '设计一个个人博客网站' },
-    { emoji: '🔧', text: '写一个 Docker 部署配置' },
-    { emoji: '📱', text: '做一个响应式登录页面' },
-    { emoji: '🤖', text: '解释 Transformer 模型原理' },
-    { emoji: '📝', text: '帮我润色这段英文邮件' },
-    { emoji: '🎨', text: '用 CSS 做一个加载动画' },
-    { emoji: '💡', text: '对比 React 和 Vue 的优缺点' },
-    { emoji: '🚀', text: '优化这段 SQL 查询性能' }
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>', text: '帮我写一个五子棋小游戏' },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>', text: '用 Python 分析 CSV 数据并生成图表' },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>', text: '设计一个个人博客网站' },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>', text: '写一个 Docker 部署配置' },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>', text: '做一个响应式登录页面' },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>', text: '解释 Transformer 模型原理' },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>', text: '帮我润色这段英文邮件' },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>', text: '用 CSS 做一个加载动画' },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>', text: '对比 React 和 Vue 的优缺点' },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>', text: '优化这段 SQL 查询性能' }
   ]
 
   // IndexedDB 相关
@@ -471,7 +503,7 @@
 
       request.onsuccess = () => {
         db = request.result
-        console.log('[OK] IndexedDB initialized')
+        // IndexedDB 初始化成功
         resolve(db)
       }
 
@@ -482,7 +514,7 @@
           const objectStore = database.createObjectStore(STORE_NAME, { keyPath: 'conversationId' })
           objectStore.createIndex('conversationId', 'conversationId', { unique: true })
           objectStore.createIndex('lastUpdated', 'lastUpdated', { unique: false })
-          console.log('[OK] IndexedDB store created')
+          // IndexedDB store 创建成功
         }
       }
     })
@@ -875,7 +907,7 @@
         try {
           document.execCommand('copy')
         } catch (err) {
-          throw new Error('复制失败')
+          throw new Error('复制失败', { cause: err })
         }
 
         document.body.removeChild(textArea)
@@ -1535,6 +1567,34 @@
     margin-bottom: 14px;
   }
 
+  .step-progress-bar {
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .step-progress-track {
+    flex: 1;
+    height: 6px;
+    background: #e5e7eb;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .step-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #2563eb);
+    border-radius: 3px;
+    transition: width 0.4s ease;
+  }
+
+  .step-progress-label {
+    font-size: 12px;
+    color: #6b7280;
+    white-space: nowrap;
+  }
+
   .thinking-details {
     background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
     border: 1px solid rgba(245, 158, 11, 0.2);
@@ -1546,6 +1606,19 @@
   .thinking-details:hover {
     border-color: rgba(245, 158, 11, 0.35);
     box-shadow: var(--shadow-md);
+  }
+
+  .thinking-pulse {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #d97706;
+    animation: thinkingPulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes thinkingPulse {
+    0%, 100% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.2); opacity: 1; }
   }
 
   .thinking-summary {
@@ -2256,9 +2329,18 @@
     transform: translateY(0);
   }
 
-  .carousel-emoji {
-    font-size: 18px;
+  .carousel-icon {
+    width: 20px;
+    height: 20px;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .carousel-icon svg {
+    width: 100%;
+    height: 100%;
   }
 
   .carousel-text {
@@ -2346,7 +2428,43 @@
       width: 38px;
       height: 38px;
     }
+  }
 
+  /* 消息图片附件 */
+  .message-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .attachment-image {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    max-width: 200px;
+  }
+
+  .attachment-img {
+    display: block;
+    max-width: 200px;
+    max-height: 150px;
+    object-fit: cover;
+  }
+
+  .attachment-name {
+    display: block;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    background: var(--bg-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  @media (max-width: 480px) {
     .messages-container {
       padding: 12px;
     }

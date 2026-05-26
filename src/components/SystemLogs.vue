@@ -80,7 +80,7 @@
     <!-- Database monitor panel -->
     <div v-if="enableDbMonitor && dbStatus" class="db-monitor">
       <h4>
-        <span class="icon">[DB]</span>
+        <span class="icon">[DATABASE]</span>
         Database Monitor
       </h4>
       <div class="db-stats-grid">

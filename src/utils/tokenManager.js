@@ -1,113 +1,125 @@
 /**
  * Token 管理模块
  *
- * 安全设计：
- * - Access Token 存储在内存中（Vue ref）
- * - Refresh Token 存储在 HttpOnly Cookie（后端设置）
- * - CSRF Token 存储在 Cookie（HttpOnly=false）
- * - 页面刷新后 Access Token 丢失，需通过 Refresh Token 重新获取
+ * 注意：使用纯 JS 变量而非 Vue ref，避免 HMR 导致状态丢失
  */
 
-import { ref } from 'vue'
+// 纯 JS 变量（不会被 HMR 重置）
+let accessToken = null
+let tokenExpiry = null
 
-// 内存中的 access token
-const accessToken = ref(null)
-const tokenExpiry = ref(null)
+// 初始化时尝试从 sessionStorage 恢复
+try {
+  const savedToken = sessionStorage.getItem('_token')
+  const savedExpiry = sessionStorage.getItem('_token_expiry')
+  if (savedToken && savedExpiry) {
+    const expiry = parseInt(savedExpiry, 10)
+    if (Date.now() <= expiry) {
+      accessToken = savedToken
+      tokenExpiry = expiry
+    } else {
+      sessionStorage.removeItem('_token')
+      sessionStorage.removeItem('_token_expiry')
+    }
+  }
+} catch (e) {}
 
 export const useTokenManager = () => {
   /**
-   * 保存 access token（仅内存）
+   * 保存 access token
    */
   function setToken(token, expiresIn) {
-    accessToken.value = token
-
-    // 设置过期时间（提前 2 分钟）
+    accessToken = token
     if (expiresIn) {
-      tokenExpiry.value = Date.now() + (expiresIn - 120) * 1000
+      tokenExpiry = Date.now() + (expiresIn - 120) * 1000
     } else {
-      tokenExpiry.value = Date.now() + 28 * 60 * 1000
+      tokenExpiry = Date.now() + 28 * 60 * 1000
     }
 
-    console.log('[OK] Token stored in memory')
+    // 保存到 sessionStorage（HMR 恢复用）
+    try {
+      sessionStorage.setItem('_token', token || '')
+      sessionStorage.setItem('_token_expiry', String(tokenExpiry || ''))
+      // 同时保存到 localStorage 作为备份，确保刷新页面后 token 仍然可用
+      localStorage.setItem('access_token', token || '')
+      localStorage.setItem('_token_expiry', String(tokenExpiry || ''))
+    } catch (e) {}
   }
 
   /**
    * 获取 access token
    */
   function getToken() {
-    if (tokenExpiry.value && Date.now() > tokenExpiry.value) {
-      console.warn('[WARN] Token expired, needs refresh')
-      clearToken()
-      return null
-    }
-
-    return accessToken.value
+    return accessToken
   }
 
   /**
    * 检查 token 是否有效
    */
   function isTokenValid() {
-    if (!accessToken.value) return false
-    if (!tokenExpiry.value) return false
-    return Date.now() <= tokenExpiry.value
+    if (!accessToken) return false
+    if (!tokenExpiry) return false
+    return Date.now() <= tokenExpiry
   }
 
   /**
    * 清除 token
    */
   function clearToken() {
-    accessToken.value = null
-    tokenExpiry.value = null
-    console.log('[DEL] Token cleared')
+    accessToken = null
+    tokenExpiry = null
+    try {
+      sessionStorage.removeItem('_token')
+      sessionStorage.removeItem('_token_expiry')
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('_token_expiry')
+    } catch (e) {}
   }
 
   /**
    * 刷新 access token
-   * 使用 HttpOnly Cookie 中的 refresh token
    */
   async function refreshAccessToken() {
     try {
-      // 获取 CSRF token
-      const csrfToken = getCsrfToken()
+      // 首先获取 CSRF token
+      let csrfToken = null
+      try {
+        const csrfResp = await fetch('/api/v1/csrf-token', { credentials: 'same-origin' })
+        if (csrfResp.ok) {
+          const csrfData = await csrfResp.json()
+          csrfToken = csrfData.csrf_token
+        }
+      } catch (e) {
+        // CSRF token 获取失败，继续尝试刷新
+      }
+
+      const headers = { 'Content-Type': 'application/json' }
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken
+      }
 
       const response = await fetch('/api/v1/refresh', {
         method: 'POST',
-        credentials: 'same-origin', // 自动发送 HttpOnly Cookie
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken || ''
-        }
+        credentials: 'same-origin',
+        headers
       })
 
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
-          console.warn('[WARN] Refresh token invalid or expired, please re-login')
+          console.warn('[WARN] Refresh token invalid, please re-login')
           clearToken()
           return false
         }
-        throw new Error('Token 刷新失败')
+        throw new Error('Token refresh failed')
       }
 
       const data = await response.json()
-
-      // 保存新的 access token
       if (data.access_token) {
         const payload = JSON.parse(atob(data.access_token.split('.')[1]))
         const expiresIn = Math.floor((payload.exp * 1000 - Date.now()) / 1000)
-
         setToken(data.access_token, expiresIn)
-
-        // 保存 CSRF Token（如果需要）
-        if (data.csrf_token) {
-          // CSRF token 已通过 Cookie 设置，这里可选保存到内存
-          console.log('[OK] CSRF token updated')
-        }
-
-        console.log('[OK] Token refreshed')
         return true
       }
-
       return false
     } catch (error) {
       console.error('[ERR] Token refresh failed:', error)
@@ -116,22 +128,11 @@ export const useTokenManager = () => {
     }
   }
 
-  /**
-   * 获取 CSRF Token
-   * 从 Cookie 中读取
-   */
-  function getCsrfToken() {
-    const match = document.cookie.match(/csrf_token=([^;]+)/)
-    return match ? match[1] : null
-  }
-
   return {
-    accessToken,
     setToken,
     getToken,
     isTokenValid,
     clearToken,
-    refreshAccessToken,
-    getCsrfToken
+    refreshAccessToken
   }
 }

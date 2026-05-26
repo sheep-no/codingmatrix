@@ -11,7 +11,7 @@ const props = defineProps({
   loadMoreThreshold: { type: Number, default: 5 }
 })
 
-const emit = defineEmits(['select', 'loadMore'])
+const emit = defineEmits(['select', 'loadMore', 'delete'])
 
 const containerRef = ref(null)
 const scrollTop = ref(0)
@@ -75,11 +75,12 @@ const handleSelect = item => {
   emit('select', item)
 }
 
-defineExpose({ scrollToBottom })
+const handleDelete = item => {
+  emit('delete', item)
+}
 
-onMounted(() => {
-  handleResize()
-  window.addEventListener('resize', handleResize)
+defineExpose({
+  scrollToBottom
 })
 
 onUnmounted(() => {
@@ -117,6 +118,7 @@ watch(
         :is-active="item.id === activeId"
         :search-keyword="searchKeyword"
         @select="handleSelect"
+        @delete="handleDelete"
       />
     </div>
     <div class="virtual-list-spacer-bottom" :style="{ height: `${spacerBottom}px` }"></div>

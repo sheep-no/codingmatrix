@@ -10,9 +10,11 @@ Agent Executor - 扩展执行器
 """
 
 import asyncio
+import glob
 import json
 import re
 import subprocess
+import os
 from typing import Dict, Any, List, Optional, Callable, Awaitable
 from dataclasses import dataclass
 from enum import Enum
@@ -208,6 +210,94 @@ class EnhancedExecutor:
                     }
                 },
                 "required": []
+            }
+        )
+
+        self.tool_registry.register(
+            name="insert_content",
+            func=self._tool_insert_content,
+            description="在文件指定位置插入内容（按行号或锚点文本）",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "文件路径"},
+                    "content": {"type": "string", "description": "要插入的内容"},
+                    "line": {"type": "integer", "description": "目标行号（1-based，在该行之前插入）"},
+                    "anchor": {"type": "string", "description": "锚点文本，内容将插入到匹配行之后"}
+                },
+                "required": ["path", "content"]
+            }
+        )
+
+        self.tool_registry.register(
+            name="partial_update",
+            func=self._tool_partial_update,
+            description="部分更新：替换文件中的特定函数/代码块",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "文件路径"},
+                    "target": {"type": "string", "description": "要被替换的目标代码块文本"},
+                    "replacement": {"type": "string", "description": "新的代码块文本"},
+                    "function_name": {"type": "string", "description": "目标函数名（精确替换整个函数体）"}
+                },
+                "required": ["path"]
+            }
+        )
+
+        self.tool_registry.register(
+            name="regex_replace",
+            func=self._tool_regex_replace,
+            description="基于正则表达式的批量替换",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "文件路径或目录模式（如 src/**/*.py）"},
+                    "pattern": {"type": "string", "description": "正则表达式模式"},
+                    "replacement": {"type": "string", "description": "替换文本（支持 \\1 等后向引用）"},
+                    "recursive": {"type": "boolean", "description": "是否递归处理匹配的文件"}
+                },
+                "required": ["path", "pattern", "replacement"]
+            }
+        )
+
+        self.tool_registry.register(
+            name="delete_files_by_pattern",
+            func=self._tool_delete_files_by_pattern,
+            description="按模式批量删除文件",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "目录路径"},
+                    "pattern": {"type": "string", "description": "Glob 匹配模式（如 *.log, __pycache__/**/*.pyc）"},
+                    "recursive": {"type": "boolean", "description": "是否递归搜索"}
+                },
+                "required": ["path", "pattern"]
+            }
+        )
+
+        self.tool_registry.register(
+            name="cross_file_patch_auto",
+            func=self._tool_cross_file_patch_auto,
+            description="自动跨文件补丁：应用补丁并自动检测/更新依赖文件",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "patches": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string", "description": "文件路径"},
+                                "diff": {"type": "string", "description": "unified diff 补丁"},
+                                "new_content": {"type": "string", "description": "或直接提供完整新内容"}
+                            }
+                        },
+                        "description": "补丁列表"
+                    },
+                    "base_dir": {"type": "string", "description": "项目根目录"}
+                },
+                "required": ["patches"]
             }
         )
 
@@ -571,6 +661,235 @@ class EnhancedExecutor:
 
         except Exception as e:
             return ToolResult(False, None, str(e), time.time() - start, "http_request")
+
+    async def _tool_insert_content(self, params: Dict) -> ToolResult:
+        import time
+        start = time.time()
+        try:
+            path = params.get("path")
+            content = params.get("content")
+            line = params.get("line")
+            anchor = params.get("anchor")
+            if not path or content is None:
+                return ToolResult(False, None, "缺少 path 或 content 参数", time.time() - start)
+            if self.file_operator:
+                original = await self.file_operator.read_async(path)
+            else:
+                with open(path, 'r', encoding='utf-8') as f:
+                    original = f.read()
+            lines = original.split('\n')
+            if line is not None:
+                insert_at = max(0, min(line - 1, len(lines)))
+            elif anchor:
+                insert_at = -1
+                for i, l in enumerate(lines):
+                    if anchor in l:
+                        insert_at = i + 1
+                        break
+                if insert_at == -1:
+                    return ToolResult(False, None, f"未找到锚点文本: {anchor}", time.time() - start)
+            else:
+                insert_at = len(lines)
+            content_lines = content.split('\n')
+            new_lines = lines[:insert_at] + content_lines + lines[insert_at:]
+            new_content = '\n'.join(new_lines)
+            if self.file_operator:
+                await self.file_operator.write_async(path, new_content)
+            else:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(new_content)
+            return ToolResult(True, {"path": path, "inserted_at_line": insert_at + 1, "lines_inserted": len(content_lines)}, None, time.time() - start, "insert_content")
+        except Exception as e:
+            return ToolResult(False, None, str(e), time.time() - start, "insert_content")
+
+    async def _tool_partial_update(self, params: Dict) -> ToolResult:
+        import time
+        start = time.time()
+        try:
+            path = params.get("path")
+            target = params.get("target")
+            replacement = params.get("replacement")
+            function_name = params.get("function_name")
+            if not path:
+                return ToolResult(False, None, "缺少 path 参数", time.time() - start)
+            if self.file_operator:
+                content = await self.file_operator.read_async(path)
+            else:
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+            if function_name:
+                lang_patterns = [
+                    (r'(\s*function\s+' + re.escape(function_name) + r'\s*\([^)]*\)\s*\{)', r'\s*function\s+\w+\s*\([^)]*\)\s*\{', '}'),
+                    (r'(\s*def\s+' + re.escape(function_name) + r'\s*\([^)]*\)\s*:)', r'(.*\n)(\s+)', None),
+                    (r'(\s*(?:const|let|var)\s+' + re.escape(function_name) + r'\s*=\s*(?:\([^)]*\)|[^=]*)\s*(?:=>)?\s*\{?)', r'\s*(?:const|let|var)\s+\w+\s*=\s*(?:\([^)]*\)|[^=]*)\s*(?:=>)?\s*\{?', None),
+                    (r'(\s*async\s+function\s+' + re.escape(function_name) + r'\s*\([^)]*\)\s*\{)', r'\s*async\s+function\s+\w+\s*\([^)]*\)\s*\{', '}'),
+                    (r'(\s*public\s+(?:static\s+)?(?:\w+\s+)?' + re.escape(function_name) + r'\s*\([^)]*\)\s*\{)', r'\s*public\s+(?:static\s+)?(?:\w+\s+)?\w+\s*\([^)]*\)\s*\{', '}'),
+                ]
+                found = False
+                for header_pat, _, end_marker in lang_patterns:
+                    m = re.search(header_pat, content)
+                    if m:
+                        start_pos = m.start()
+                        if end_marker:
+                            depth = 0
+                            i = m.end() - 1
+                            while i < len(content):
+                                if content[i] == '{':
+                                    depth += 1
+                                elif content[i] == '}':
+                                    depth -= 1
+                                    if depth == 0:
+                                        before = content[:start_pos]
+                                        after = content[i+1:]
+                                        content = before + replacement + after
+                                        found = True
+                                        break
+                                i += 1
+                        else:
+                            before = content[:start_pos]
+                            lines_after = content[start_pos:].split('\n')
+                            indent_level = len(lines_after[0]) - len(lines_after[0].lstrip())
+                            func_lines = []
+                            for j, l in enumerate(lines_after):
+                                stripped = l.strip()
+                                if j > 0 and stripped and (len(l) - len(l.lstrip()) <= indent_level) and not stripped.startswith('#') and not stripped.startswith('//'):
+                                    break
+                                func_lines.append(l)
+                            after_content = '\n'.join(lines_after[len(func_lines):])
+                            content = before + replacement + '\n' + after_content
+                            found = True
+                        break
+                if not found:
+                    return ToolResult(False, None, f"未找到函数: {function_name}", time.time() - start)
+            elif target and replacement is not None:
+                if target not in content:
+                    return ToolResult(False, None, "未找到目标代码块", time.time() - start)
+                content = content.replace(target, replacement, 1)
+            else:
+                return ToolResult(False, None, "需要提供 target+replacement 或 function_name", time.time() - start)
+            if self.file_operator:
+                await self.file_operator.write_async(path, content)
+            else:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+            return ToolResult(True, {"path": path, "size": len(content)}, None, time.time() - start, "partial_update")
+        except Exception as e:
+            return ToolResult(False, None, str(e), time.time() - start, "partial_update")
+
+    async def _tool_regex_replace(self, params: Dict) -> ToolResult:
+        import time
+        start = time.time()
+        try:
+            path = params.get("path")
+            pattern = params.get("pattern")
+            replacement = params.get("replacement")
+            recursive = params.get("recursive", False)
+            if not path or not pattern or replacement is None:
+                return ToolResult(False, None, "缺少 path、pattern 或 replacement 参数", time.time() - start)
+            files = glob.glob(path, recursive=recursive) if '*' in path or '?' in path else [path]
+            files = [f for f in files if os.path.isfile(f)]
+            if not files:
+                return ToolResult(False, None, f"未匹配到文件: {path}", time.time() - start)
+            compiled = re.compile(pattern)
+            modified = []
+            total_replacements = 0
+            for fp in files:
+                with open(fp, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                new_content, count = compiled.subn(replacement, content)
+                if count > 0:
+                    with open(fp, 'w', encoding='utf-8') as f:
+                        f.write(new_content)
+                    modified.append(fp)
+                    total_replacements += count
+            return ToolResult(True, {"files_modified": len(modified), "total_replacements": total_replacements, "modified_files": modified}, None, time.time() - start, "regex_replace")
+        except Exception as e:
+            return ToolResult(False, None, str(e), time.time() - start, "regex_replace")
+
+    async def _tool_delete_files_by_pattern(self, params: Dict) -> ToolResult:
+        import time
+        start = time.time()
+        try:
+            path = params.get("path")
+            pattern = params.get("pattern")
+            recursive = params.get("recursive", False)
+            if not path or not pattern:
+                return ToolResult(False, None, "缺少 path 或 pattern 参数", time.time() - start)
+            search_pattern = os.path.join(path, pattern)
+            files = glob.glob(search_pattern, recursive=recursive)
+            files = [f for f in files if os.path.isfile(f)]
+            if not files:
+                return ToolResult(True, {"deleted": 0, "files": []}, "未匹配到文件", time.time() - start, "delete_files_by_pattern")
+            deleted = []
+            errors = []
+            for fp in files:
+                try:
+                    os.remove(fp)
+                    deleted.append(fp)
+                except Exception as e:
+                    errors.append(f"{fp}: {str(e)}")
+            return ToolResult(True, {"deleted": len(deleted), "files": deleted, "errors": errors}, None, time.time() - start, "delete_files_by_pattern")
+        except Exception as e:
+            return ToolResult(False, None, str(e), time.time() - start, "delete_files_by_pattern")
+
+    async def _tool_cross_file_patch_auto(self, params: Dict) -> ToolResult:
+        import time
+        start = time.time()
+        try:
+            patches = params.get("patches", [])
+            base_dir = params.get("base_dir", ".")
+            if not patches:
+                return ToolResult(False, None, "缺少 patches 参数", time.time() - start)
+            applied = []
+            errors = []
+            for patch_info in patches:
+                fp = patch_info.get("path")
+                if not fp:
+                    errors.append("补丁缺少 path")
+                    continue
+                full_path = os.path.join(base_dir, fp) if not os.path.isabs(fp) else fp
+                new_content = patch_info.get("new_content")
+                diff_text = patch_info.get("diff")
+                try:
+                    if new_content:
+                        if self.file_operator:
+                            await self.file_operator.write_async(full_path, new_content)
+                        else:
+                            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                            with open(full_path, 'w', encoding='utf-8') as f:
+                                f.write(new_content)
+                        applied.append(fp)
+                    elif diff_text:
+                        if self.file_operator:
+                            original = await self.file_operator.read_async(full_path)
+                        else:
+                            with open(full_path, 'r', encoding='utf-8') as f:
+                                original = f.read()
+                        from app.agent.code_patcher import CodePatcher
+                        patcher = CodePatcher()
+                        result = await patcher.apply_patch(fp, original, diff_text)
+                        if result and result.success:
+                            if self.file_operator:
+                                await self.file_operator.write_async(full_path, result.patched_content)
+                            else:
+                                with open(full_path, 'w', encoding='utf-8') as f:
+                                    f.write(result.patched_content)
+                            applied.append(fp)
+                        else:
+                            errors.append(f"{fp}: patch 应用失败")
+                    else:
+                        errors.append(f"{fp}: 需要提供 new_content 或 diff")
+                except Exception as e:
+                    errors.append(f"{fp}: {str(e)}")
+            return ToolResult(
+                len(errors) == 0,
+                {"applied": len(applied), "files": applied, "errors": errors},
+                f"{len(errors)} 个补丁失败" if errors else None,
+                time.time() - start,
+                "cross_file_patch_auto"
+            )
+        except Exception as e:
+            return ToolResult(False, None, str(e), time.time() - start, "cross_file_patch_auto")
 
     async def execute_tool(self, tool_name: str, params: Dict) -> ToolResult:
         """执行单个工具"""

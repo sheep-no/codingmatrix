@@ -9,13 +9,29 @@ export default defineConfig({
       '@': fileURLToPath(new URL('.', import.meta.url))
     }
   },
+  css: {
+    devSourcemap: false,
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      exclude: ['node_modules/', 'src/test/', '**/*.spec.js']
+    }
+  },
   server: {
     port: 3000,
-    host: true,
-    allowedHosts: ['.monkeycode-ai.online'],
+    host: '0.0.0.0',
+    allowedHosts: true,
+    cors: true,
+    hmr: {
+      protocol: 'wss',
+    },
     proxy: {
-      '/api': {
-        target: 'http://localhost:8080',
+      '/api/v1': {
+        target: 'http://localhost:8000',
         changeOrigin: true,
         ws: true,
         secure: false,
@@ -29,27 +45,7 @@ export default defineConfig({
     assetsDir: 'static',
     sourcemap: true,
     chunkSizeWarningLimit: 500,
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (id.includes('node_modules')) {
-            if (id.includes('echarts')) {
-              return 'echarts'
-            }
-            if (id.includes('highlight.js')) {
-              return 'highlight'
-            }
-            if (id.includes('xlsx')) {
-              return 'xlsx'
-            }
-            if (id.includes('vue') || id.includes('pinia') || id.includes('vue-router')) {
-              return 'vue-vendor'
-            }
-            return 'vendor'
-          }
-        }
-      }
-    }
+    cssCodeSplit: false,
   },
   publicDir: 'public'
 })

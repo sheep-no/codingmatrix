@@ -78,6 +78,17 @@
 
           <!-- 流式输出日志 -->
           <div ref="logsContainer" class="generation-logs">
+            <!-- 思考内容折叠展示 -->
+            <div v-if="thinkingContent" class="thinking-log-block">
+              <details class="thinking-log-details" :open="isGenerating">
+                <summary class="thinking-log-summary">
+                  <span class="thinking-log-label">AI 思考过程</span>
+                  <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </summary>
+                <div class="thinking-log-content markdown-body" v-html="renderThinkingMarkdown(thinkingContent)"></div>
+              </details>
+            </div>
+            <!-- 普通日志 -->
             <div v-for="(log, index) in logs" :key="index" class="log-item" :class="log.type">
               <span class="log-time">{{ formatTime(log.time) }}</span>
               <span class="log-icon" v-html="getLogIcon(log.type)"></span>
@@ -166,6 +177,102 @@
         </div>
       </div>
 
+      <!-- 文件预览面板 -->
+      <FilePreviewPanel
+        v-if="showFilePreview"
+        :files="projectFiles"
+        :visible="showFilePreview"
+        @close="showFilePreview = false"
+        @select="onSelectProjectFile"
+        @copy="onCopyFileContent"
+        @delete="onDeleteFile"
+      />
+
+      <!-- 快照管理面板 -->
+      <div v-if="showSnapshotPanel" class="snapshot-panel">
+        <div class="panel-header">
+          <h3>快照管理</h3>
+          <button class="close-panel" @click="showSnapshotPanel = false">×</button>
+        </div>
+        <div class="snapshot-body">
+          <div v-if="snapshots.length === 0" class="snapshot-empty">
+            <p>暂无快照</p>
+          </div>
+          <div v-else class="snapshot-list">
+            <div
+              v-for="(snapshot, index) in snapshots"
+              :key="snapshot.tag || snapshot.name || index"
+              class="snapshot-item"
+            >
+              <div class="snapshot-info">
+                <span class="snapshot-tag">{{ snapshot.tag || snapshot.name }}</span>
+                <span class="snapshot-date">{{ snapshot.created_at || snapshot.date || '' }}</span>
+              </div>
+              <div class="snapshot-actions">
+                <button class="btn-small" @click="rollbackToSnapshot(snapshot.tag || snapshot.name)">回滚</button>
+                <button
+                  v-if="index < snapshots.length - 1"
+                  class="btn-small"
+                  @click="compareSnapshots(
+                    snapshot.tag || snapshot.name,
+                    snapshots[index + 1].tag || snapshots[index + 1].name
+                  )"
+                >对比</button>
+              </div>
+            </div>
+          </div>
+          <div v-if="diffResult" class="diff-view">
+            <h4>快照差异</h4>
+            <pre class="diff-code"><code>{{ JSON.stringify(diffResult, null, 2) }}</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- 知识库面板 -->
+      <div v-if="showKnowledgePanel" class="knowledge-panel">
+        <div class="panel-header">
+          <h3>知识库</h3>
+          <button class="close-panel" @click="showKnowledgePanel = false">×</button>
+        </div>
+        <div class="knowledge-body">
+          <div class="knowledge-add">
+            <textarea
+              v-model="newKnowledgeContent"
+              placeholder="添加知识条目..."
+              rows="3"
+              class="knowledge-input"
+            />
+            <input
+              v-model="newKnowledgeCategory"
+              placeholder="分类（可选）"
+              class="knowledge-category"
+            />
+            <button class="btn-small" @click="addKnowledge">添加</button>
+          </div>
+          <div class="knowledge-search">
+            <input
+              v-model="knowledgeSearchQuery"
+              placeholder="搜索知识库..."
+              class="knowledge-search-input"
+              @keyup.enter="searchKnowledge"
+            />
+            <button class="btn-small" @click="searchKnowledge">搜索</button>
+          </div>
+          <div v-if="knowledgeSearchResults.length > 0" class="knowledge-results">
+            <div v-for="result in knowledgeSearchResults" :key="result.id" class="knowledge-result">
+              <p>{{ result.content }}</p>
+              <span class="knowledge-score">相似度: {{ (result.score * 100).toFixed(1) }}%</span>
+            </div>
+          </div>
+          <div v-else class="knowledge-list">
+            <div v-for="entry in knowledgeEntries" :key="entry.id" class="knowledge-item">
+              <p>{{ entry.content }}</p>
+              <span v-if="entry.category" class="knowledge-category-tag">{{ entry.category }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 底部按钮 -->
       <div class="modal-footer">
         <button
@@ -226,6 +333,35 @@
           </svg>
           下载项目
         </button>
+        <button v-if="generationComplete" class="btn btn-info" @click="showFilePreview = true; loadProjectFiles()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          文件预览
+        </button>
+        <button v-if="generationComplete && form.sessionId" class="btn btn-info" @click="showSnapshotPanel = !showSnapshotPanel; loadSnapshots()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+          快照管理
+        </button>
+        <button v-if="generationComplete" class="btn btn-info" @click="showKnowledgePanel = !showKnowledgePanel; loadKnowledge()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+          </svg>
+          知识库
+        </button>
+        <button v-if="generationComplete" class="btn btn-warning" @click="enableIncrementalModify">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+          增量修改
+        </button>
         <button v-if="generationComplete" class="btn btn-success" @click="close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M20 6L9 17l-5-5"/>
@@ -239,6 +375,12 @@
 
 <script setup>
   import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
+  import { ElMessage } from 'element-plus'
+  import { useGithubStore } from '@/stores/github'
+  import { useApiKeyStore } from '@/stores/apikey'
+  import GithubConfigPanel from './GithubConfigPanel.vue'
+  import FilePreviewPanel from './FilePreviewPanel.vue'
+  import { createProjectClient } from '@/utils/api/project'
   import { api } from '@/utils/api/index'
 
   // ========== 1. Props & Emit ==========
@@ -251,7 +393,10 @@
 
   const emit = defineEmits(['close'])
 
-  // ========== 2. Reactive State (必须在 watch 和函数之前声明) ==========
+  // API Key Store
+  const apiKeyStore = useApiKeyStore()
+
+  // ========== 2. Reactive State ==========
   const form = ref({
     requirement: '',
     sessionId: ''
@@ -269,6 +414,74 @@
   const currentPhase = ref('')
   const completedPhases = ref([])
   const savedProjects = ref([])
+  const thinkingContent = ref('')
+
+  // 文件预览
+  const projectFiles = ref([])
+  const fileContent = ref('')
+  const showFilePreview = ref(false)
+  const filePreviewPanelRef = ref(null)
+
+  const onSelectProjectFile = async (filePath) => {
+    try {
+      const result = await api.readProjectFile(filePath)
+      fileContent.value = result.content || ''
+      if (filePreviewPanelRef.value) {
+        filePreviewPanelRef.value.setContent(fileContent.value)
+      }
+      showFilePreview.value = true
+    } catch (error) {
+      ElMessage.error('读取文件失败')
+    }
+  }
+
+  const onCopyFileContent = async () => {
+    try {
+      await navigator.clipboard.writeText(fileContent.value)
+      ElMessage.success('已复制到剪贴板')
+    } catch {
+      ElMessage.error('复制失败')
+    }
+  }
+
+  const onDeleteFile = async (filePath) => {
+    if (!filePath) return
+    if (!confirm(`确定要删除文件 "${filePath}" 吗？`)) return
+    try {
+      await api.deleteProjectFile(filePath)
+      ElMessage.success('文件已删除')
+      fileContent.value = ''
+      showFilePreview.value = false
+      if (filePreviewPanelRef.value) {
+        filePreviewPanelRef.value.reset()
+      }
+      await loadProjectFiles()
+    } catch (error) {
+      ElMessage.error('删除文件失败')
+    }
+  }
+
+  // 快照管理
+  const snapshots = ref([])
+  const showSnapshotPanel = ref(false)
+  const selectedSnapshotTag = ref('')
+  const diffResult = ref(null)
+  const showDiffView = ref(false)
+
+  // 知识库
+  const knowledgeEntries = ref([])
+  const showKnowledgePanel = ref(false)
+  const newKnowledgeContent = ref('')
+  const newKnowledgeCategory = ref('')
+  const knowledgeSearchQuery = ref('')
+  const knowledgeSearchResults = ref([])
+
+  // 需求联想
+  const associations = ref([])
+  const showAssociations = ref(false)
+
+  // 增量修改模式
+  const isIncrementalMode = ref(false)
 
   const MAX_SAVED_PROJECTS = 3
   let abortController = null
@@ -437,7 +650,7 @@
         savedProjects.value = []
       }
     } catch (error) {
-      console.error('加载保存项目失败:', error)
+      // 忽略加载失败
       savedProjects.value = []
     }
   }
@@ -477,7 +690,7 @@
         alert(`已加载项目: ${result.name}`)
       }
     } catch (error) {
-      console.error('加载项目失败:', error)
+      // 忽略加载失败
       alert('加载项目失败')
     }
   }
@@ -499,7 +712,7 @@
         alert('删除项目失败')
       }
     } catch (error) {
-      console.error('删除项目失败:', error)
+      // 忽略删除失败
       alert('删除项目失败')
     }
   }
@@ -524,9 +737,72 @@
     generationComplete.value = false
     hasStopped.value = false
     logs.value = []
+    thinkingContent.value = ''
     currentPhase.value = ''
     completedPhases.value = []
     abortController = new AbortController()
+
+    // 增量修改模式：复用 sessionId，调用 modify 端点
+    if (isIncrementalMode.value) {
+      form.value.sessionId = form.value.sessionId || `project_${Date.now()}`
+      addLog('info', '开始增量修改')
+      addLog('info', `修改需求: ${form.value.requirement}`)
+      addLog('info', `会话ID: ${form.value.sessionId}`)
+
+      try {
+        const response = await api.modifyProjectStream(
+          {
+            requirement: form.value.requirement,
+            session_id: form.value.sessionId,
+            incremental: true,
+            output_dir: outputDir.value || undefined,
+            api_key_token: apiKeyStore.siliconflowKey?.token
+          },
+          abortController.signal
+        )
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.detail || '修改失败')
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const chunk = decoder.decode(value)
+          const lines = chunk.split('\n').filter(line => line.trim())
+
+          for (const line of lines) {
+            try {
+              if (line.startsWith('data: ')) {
+                const data = JSON.parse(line.substring(6))
+                handleStreamData(data)
+              }
+            } catch (e) {
+              // 忽略解析错误
+            }
+          }
+        }
+
+        onGenerationComplete()
+        isIncrementalMode.value = false
+        addLog('success', '增量修改完成！')
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          addLog('error', `修改失败: ${error.message}`)
+        } else {
+          addLog('warning', '修改已取消')
+        }
+        isGenerating.value = false
+      }
+      return
+    }
+
+    // 全新项目生成
     form.value.sessionId = `project_${Date.now()}`
 
     addLog('info', '开始项目生成')
@@ -547,7 +823,8 @@
           enable_memory: true,
           session_id: form.value.sessionId,
           incremental: false,
-          require_approval: false
+          require_approval: false,
+          api_key_token: apiKeyStore.siliconflowKey?.token
         },
         abortController.signal
       )
@@ -631,7 +908,7 @@
         addLog('info', eventData.message || '')
         break
       case 'done':
-        generationComplete.value = true
+        onGenerationComplete()
         progressMessage.value = '生成完成！'
         outputDir.value = eventData.output_dir || ''
         if (eventData.total_files_created !== undefined) {
@@ -644,7 +921,9 @@
         break
       case 'thinking':
         progressMessage.value = 'AI 正在思考...'
-        addLog('thinking', eventData.message || '')
+        if (eventData.message) {
+          thinkingContent.value += eventData.message
+        }
         break
       case 'step_start':
         currentStep.value = eventData.step || 0
@@ -710,7 +989,7 @@
       case 'file_rejected':
         addLog('warning', `文件被拒绝: ${eventData.file_path || ''}`)
         break
-      case 'tests_finished':
+      case 'tests_finished': {
         const testSummary = []
         if (eventData.total) testSummary.push(`总计: ${eventData.total}`)
         if (eventData.passed) testSummary.push(`通过: ${eventData.passed}`)
@@ -723,6 +1002,7 @@
           }
         }
         break
+      }
       default:
         if (step && typeof step === 'string') {
           addLog('info', step)
@@ -754,6 +1034,18 @@
     })
   }
 
+  const renderThinkingMarkdown = text => {
+    if (!text) return ''
+    const html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>')
+    return html
+  }
+
   const formatTime = date => {
     return date.toLocaleTimeString('zh-CN', { hour12: false })
   }
@@ -777,6 +1069,143 @@
     const downloadUrl = api.downloadProject(outputDir.value)
     window.open(downloadUrl, '_blank')
     addLog('info', '开始下载项目...')
+  }
+
+  // ========== 文件预览 ==========
+  const loadProjectFiles = async () => {
+    try {
+      const result = await api.getProjectFiles()
+      projectFiles.value = result.files || []
+    } catch (error) {
+      // 忽略加载失败
+    }
+  }
+
+  // ========== 快照管理 ==========
+  const loadSnapshots = async () => {
+    if (!form.value.sessionId) return
+    try {
+      const result = await api.getSnapshots(form.value.sessionId)
+      snapshots.value = result.snapshots || result.tags || []
+    } catch (error) {
+      // 忽略加载失败
+    }
+  }
+
+  const rollbackToSnapshot = async (tag) => {
+    if (!form.value.sessionId || !tag) return
+    if (!confirm(`确定要回滚到快照 "${tag}" 吗？当前修改将会丢失。`)) return
+    try {
+      await api.rollbackToSnapshot(form.value.sessionId, tag)
+      ElMessage.success(`已回滚到快照 ${tag}`)
+      addLog('info', `回滚到快照: ${tag}`)
+      await loadSnapshots()
+    } catch (error) {
+      ElMessage.error('回滚失败')
+    }
+  }
+
+  const compareSnapshots = async (tag1, tag2) => {
+    if (!tag1 || !tag2) return
+    try {
+      const result = await api.getSnapshotDiff(tag1, tag2)
+      diffResult.value = result
+      showDiffView.value = true
+    } catch (error) {
+      ElMessage.error('获取快照差异失败')
+    }
+  }
+
+  // ========== 知识库管理 ==========
+  const loadKnowledge = async () => {
+    try {
+      const result = await api.listKnowledge(newKnowledgeCategory.value)
+      knowledgeEntries.value = result.entries || []
+    } catch (error) {
+      // 忽略加载失败
+    }
+  }
+
+  const addKnowledge = async () => {
+    if (!newKnowledgeContent.value.trim()) {
+      ElMessage.warning('请输入知识内容')
+      return
+    }
+    try {
+      await api.addKnowledge(
+        newKnowledgeContent.value,
+        newKnowledgeCategory.value,
+        []
+      )
+      ElMessage.success('知识已添加')
+      newKnowledgeContent.value = ''
+      await loadKnowledge()
+    } catch (error) {
+      ElMessage.error('添加知识失败')
+    }
+  }
+
+  const searchKnowledge = async () => {
+    if (!knowledgeSearchQuery.value.trim()) return
+    try {
+      const result = await api.searchKnowledge(knowledgeSearchQuery.value)
+      knowledgeSearchResults.value = result.results || []
+    } catch (error) {
+      // 忽略搜索失败
+    }
+  }
+
+  // ========== 需求联想 ==========
+  const loadAssociations = async () => {
+    if (!form.value.requirement.trim()) return
+    try {
+      const result = await api.getRequirementAssociations(form.value.requirement)
+      associations.value = result.associations || []
+      showAssociations.value = true
+    } catch (error) {
+      // 忽略加载失败
+    }
+  }
+
+  const confirmAssociation = async (associationId) => {
+    try {
+      await api.confirmAssociation(associationId)
+      ElMessage.success('已确认')
+      associations.value = associations.value.map(a =>
+        a.id === associationId ? { ...a, confirmed: true } : a
+      )
+    } catch (error) {
+      ElMessage.error('确认失败')
+    }
+  }
+
+  const rateAssociation = async (associationId, helpful) => {
+    try {
+      await api.submitAssociationHelpful(associationId, helpful)
+    } catch {
+      // 静默失败
+    }
+  }
+
+  // ========== 增量修改 ==========
+  const enableIncrementalModify = () => {
+    isIncrementalMode.value = true
+    generationComplete.value = false
+    hasStopped.value = true
+    addLog('info', '进入增量修改模式，请输入修改需求')
+    ElMessage.info('已进入增量修改模式，请输入修改需求')
+  }
+
+  // ========== 生成完成后自动加载文件 ==========
+  const onGenerationComplete = async () => {
+    generationComplete.value = true
+    currentPhase.value = 'complete'
+    completedPhases.value = phases.map(p => p.key)
+    addLog('success', '项目生成完成！')
+    // 自动生成后加载文件列表
+    if (outputDir.value) {
+      await loadProjectFiles()
+    }
   }
 </script>
 
@@ -1044,6 +1473,72 @@
     font-size: 12px;
     line-height: 1.8;
     border: 1px solid #1e293b;
+  }
+
+  .thinking-log-block {
+    margin-bottom: 8px;
+  }
+
+  .thinking-log-details {
+    background: rgba(139, 92, 246, 0.1);
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .thinking-log-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    cursor: pointer;
+    list-style: none;
+    color: #a78bfa;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .thinking-log-summary::marker {
+    display: none;
+  }
+
+  .thinking-log-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .thinking-log-details[open] .chevron-icon {
+    transform: rotate(180deg);
+  }
+
+  .chevron-icon {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.2s;
+  }
+
+  .thinking-log-content {
+    padding: 12px;
+    color: #c4b5fd;
+    font-size: 12px;
+    line-height: 1.6;
+    border-top: 1px solid rgba(139, 92, 246, 0.15);
+    background: rgba(139, 92, 246, 0.05);
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .thinking-log-content code {
+    background: rgba(139, 92, 246, 0.2);
+    color: #e9d5ff;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+
+  .thinking-log-content strong {
+    color: #e9d5ff;
   }
 
   .log-item {
@@ -1439,5 +1934,344 @@
 
   .btn-download:hover {
     background: #2563eb;
+  }
+
+  .btn-info {
+    background: #0ea5e9;
+    color: #fff;
+  }
+
+  .btn-info:hover {
+    background: #0284c7;
+  }
+
+  /* 面板通用样式 */
+  .file-preview-panel,
+  .snapshot-panel,
+  .knowledge-panel {
+    margin: 16px 28px;
+    background: #f8fafc;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #fff;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .panel-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1e293b;
+  }
+
+  .close-panel {
+    background: transparent;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #64748b;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+  }
+
+  .close-panel:hover {
+    background: #f1f5f9;
+  }
+
+  /* 文件预览 */
+  .file-preview-body {
+    display: flex;
+    max-height: 400px;
+  }
+
+  .file-list {
+    width: 220px;
+    overflow-y: auto;
+    border-right: 1px solid #e2e8f0;
+    background: #fff;
+  }
+
+  .file-list-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  .file-list-item:hover {
+    background: #f0fdfa;
+  }
+
+  .file-list-item.active {
+    background: #ccfbf1;
+    color: #0d9488;
+  }
+
+  .file-icon-small {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+
+  .file-path {
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-content-view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .file-content-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: #fff;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .file-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+  }
+
+  .file-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .file-code {
+    flex: 1;
+    overflow: auto;
+    padding: 12px;
+    margin: 0;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 12px;
+    line-height: 1.6;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+  }
+
+  .file-content-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+  }
+
+  .file-content-empty svg {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 12px;
+    opacity: 0.5;
+  }
+
+  /* 快照管理 */
+  .snapshot-body {
+    max-height: 400px;
+    overflow-y: auto;
+    background: #fff;
+  }
+
+  .snapshot-list {
+    padding: 8px;
+  }
+
+  .snapshot-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    margin-bottom: 8px;
+  }
+
+  .snapshot-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .snapshot-tag {
+    font-size: 14px;
+    font-weight: 500;
+    color: #1e293b;
+  }
+
+  .snapshot-date {
+    font-size: 12px;
+    color: #94a3b8;
+  }
+
+  .snapshot-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .snapshot-empty {
+    padding: 32px;
+    text-align: center;
+    color: #94a3b8;
+  }
+
+  .diff-view {
+    margin: 8px;
+    padding: 12px;
+    background: #0f172a;
+    border-radius: 8px;
+  }
+
+  .diff-view h4 {
+    margin: 0 0 8px;
+    color: #e2e8f0;
+  }
+
+  .diff-code {
+    margin: 0;
+    color: #e2e8f0;
+    font-size: 12px;
+    line-height: 1.6;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    max-height: 200px;
+    overflow: auto;
+  }
+
+  /* 知识库 */
+  .knowledge-body {
+    max-height: 400px;
+    overflow-y: auto;
+    background: #fff;
+    padding: 12px;
+  }
+
+  .knowledge-add {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .knowledge-input {
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+  }
+
+  .knowledge-category {
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+
+  .knowledge-search {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .knowledge-search-input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+
+  .knowledge-results {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .knowledge-result {
+    padding: 8px 12px;
+    background: #f0fdfa;
+    border-radius: 8px;
+  }
+
+  .knowledge-result p {
+    margin: 0 0 4px;
+    font-size: 13px;
+  }
+
+  .knowledge-score {
+    font-size: 11px;
+    color: #0d9488;
+  }
+
+  .knowledge-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .knowledge-item {
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-radius: 8px;
+  }
+
+  .knowledge-item p {
+    margin: 0 0 4px;
+    font-size: 13px;
+  }
+
+  .knowledge-category-tag {
+    font-size: 11px;
+    background: #e2e8f0;
+    color: #64748b;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+
+  /* 小按钮 */
+  .btn-small {
+    padding: 4px 10px;
+    font-size: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #fff;
+    color: #64748b;
+    cursor: pointer;
+  }
+
+  .btn-small:hover {
+    background: #f1f5f9;
+  }
+
+  .btn-danger-small {
+    color: #ef4444;
+    border-color: #fecaca;
+  }
+
+  .btn-danger-small:hover {
+    background: #fef2f2;
   }
 </style>

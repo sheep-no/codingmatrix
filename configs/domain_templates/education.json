@@ -1,0 +1,34 @@
+{
+  "domain": "education",
+  "version": "1.0",
+  "description": "教育/在线学习领域模板",
+  "applicable_project_types": ["medium", "large", "enterprise"],
+  "core_modules": [
+    {"name": "课程管理", "category": "core", "impact": "内容基础", "options": ["简单课程列表", "课程+章节+资源"], "default": "课程+章节"},
+    {"name": "用户系统", "category": "core", "impact": "角色区分", "options": ["单角色", "学生+教师+管理员"], "default": "学生+教师+管理员"},
+    {"name": "学习进度", "category": "core", "impact": "学习跟踪", "options": ["无", "进度追踪+完成率"], "default": "进度追踪"},
+    {"name": "考试系统", "category": "optional", "impact": "评估", "options": ["无", "题库+自动评分"], "default": "题库+自动评分"},
+    {"name": "作业系统", "category": "optional", "impact": "练习", "options": ["无", "布置+提交+批改"], "default": "无"},
+    {"name": "视频播放", "category": "core", "impact": "教学形式", "options": ["无", "视频播放+进度记录"], "default": "视频播放"},
+    {"name": "班级管理", "category": "optional", "impact": "组织", "options": ["无", "班级+分组"], "default": "无"},
+    {"name": "通知公告", "category": "optional", "impact": "沟通", "options": ["无", "公告+消息"], "default": "公告"}
+  ],
+  "non_functional_requirements": [
+    {"category": "performance", "item": "视频流畅播放", "priority": "high"},
+    {"category": "performance", "item": "并发考试处理", "priority": "medium"},
+    {"category": "security", "item": "考试防作弊", "priority": "medium"},
+    {"category": "accessibility", "item": "响应式设计（移动端学习）", "priority": "high"}
+  ],
+  "common_pitfalls": [
+    "视频播放需要考虑带宽和CDN加速",
+    "考试防作弊（切屏检测、时间限制）容易被绕过",
+    "题库随机组卷需要去重和难度均衡算法",
+    "学习进度追踪需要考虑断点续学",
+    "教师批改作业是人工环节，需要通知和提醒机制"
+  ],
+  "key_decisions": [
+    {"question": "视频方案？", "impact": "architecture", "options": ["本地存储（开发简单）", "对接视频云（性能好）"]},
+    {"question": "考试防作弊？", "impact": "security", "options": ["无（信任用户）", "基础检测（切屏+限时）", "严格检测（摄像头+行为分析）"]},
+    {"question": "学习内容形式？", "impact": "data_model", "options": ["仅视频", "视频+图文+练习混合"]}
+  ]
+}

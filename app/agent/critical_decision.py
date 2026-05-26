@@ -186,23 +186,36 @@ class CriticalDecisionExtractor:
         
         tech_stack = architecture.get("tech_stack", {})
         
-        if not tech_stack.get("auth_explicit"):
-            decisions_needed.append("auth_strategy")
-        
-        if not tech_stack.get("database_explicit"):
-            decisions_needed.append("database_choice")
-        
-        if complexity_analysis and complexity_analysis.get("has_frontend"):
-            if not tech_stack.get("frontend_framework"):
-                decisions_needed.append("frontend_framework")
-        
-        if complexity_analysis and complexity_analysis.get("estimated_files", 0) > 20:
-            if not tech_stack.get("architecture_pattern"):
-                decisions_needed.append("architecture_pattern")
-        
-        if complexity_analysis and complexity_analysis.get("has_backend"):
-            if not tech_stack.get("api_style"):
-                decisions_needed.append("api_style")
+        # tech_stack 可能是 list（如 ["FastAPI", "Vue3"]）或 dict
+        if isinstance(tech_stack, list):
+            tech_stack_str = " ".join(str(t).lower() for t in tech_stack)
+            if "auth" not in tech_stack_str and "jwt" not in tech_stack_str:
+                decisions_needed.append("auth_strategy")
+            if "sqlite" not in tech_stack_str and "mysql" not in tech_stack_str and "postgres" not in tech_stack_str:
+                decisions_needed.append("database_choice")
+            if complexity_analysis and complexity_analysis.get("has_frontend"):
+                if "vue" not in tech_stack_str and "react" not in tech_stack_str and "angular" not in tech_stack_str:
+                    decisions_needed.append("frontend_framework")
+            if complexity_analysis and complexity_analysis.get("estimated_files", 0) > 20:
+                if "microservice" not in tech_stack_str and "monolith" not in tech_stack_str:
+                    decisions_needed.append("architecture_pattern")
+            if complexity_analysis and complexity_analysis.get("has_backend"):
+                if "rest" not in tech_stack_str and "graphql" not in tech_stack_str:
+                    decisions_needed.append("api_style")
+        else:
+            if not tech_stack.get("auth_explicit"):
+                decisions_needed.append("auth_strategy")
+            if not tech_stack.get("database_explicit"):
+                decisions_needed.append("database_choice")
+            if complexity_analysis and complexity_analysis.get("has_frontend"):
+                if not tech_stack.get("frontend_framework"):
+                    decisions_needed.append("frontend_framework")
+            if complexity_analysis and complexity_analysis.get("estimated_files", 0) > 20:
+                if not tech_stack.get("architecture_pattern"):
+                    decisions_needed.append("architecture_pattern")
+            if complexity_analysis and complexity_analysis.get("has_backend"):
+                if not tech_stack.get("api_style"):
+                    decisions_needed.append("api_style")
         
         return decisions_needed
 

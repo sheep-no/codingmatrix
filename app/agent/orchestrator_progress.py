@@ -125,7 +125,8 @@ class ProgressMixin:
         }
         if self.callback:
             try:
-                self.callback(event)
+                import json as _json
+                self.callback(_json.dumps(event, ensure_ascii=False))
             except Exception as e:
                 logger.error(f"思考事件推送失败: {e}")
 

@@ -12,6 +12,7 @@ class SavedProject(Base):
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False, index=True)
     name = Column(String(200), nullable=False)
     description = Column(Text)
+    project_path = Column(String(500))
     project_data = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

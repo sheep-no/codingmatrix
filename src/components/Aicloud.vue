@@ -251,12 +251,14 @@
   import { ref, computed, watch, nextTick, onMounted } from 'vue'
   import Modal from './ui/Modal.vue'
   import Button from './ui/Button.vue'
+  import { useApiKeyStore } from '@/stores/apikey'
 
   const props = defineProps({
     visible: { type: Boolean, default: false }
   })
 
   const emit = defineEmits(['close'])
+  const apiKeyStore = useApiKeyStore()
 
   const activeTab = ref('chat')
   const inputMessage = ref('')
@@ -355,31 +357,6 @@
       console.error('上传失败:', error)
     }
   }
-      }
-
-      xhr.onload = () => {
-        uploadingFile.value = false
-        if (xhr.status === 200) {
-          const result = JSON.parse(xhr.responseText)
-          alert(`上传成功: ${result.message}`)
-          loadKnowledgeDocs()
-          showUploadModal.value = false
-        } else {
-          alert('上传失败')
-        }
-      }
-
-      xhr.onerror = () => {
-        uploadingFile.value = false
-        alert('上传请求失败')
-      }
-
-      xhr.send(formData)
-    } catch (error) {
-      uploadingFile.value = false
-      console.error('上传失败:', error)
-    }
-  }
 
   const deleteDoc = async docId => {
     if (!confirm('确定要删除此文档吗？')) return
@@ -428,12 +405,6 @@
       }
     } catch (error) {
       codeError.value = `请求失败：${error.message}`
-    } finally {
-      isExecuting.value = false
-    }
-  }
-    } catch (error) {
-      codeError.value = `请求失败: ${error.message}`
     } finally {
       isExecuting.value = false
     }
@@ -575,7 +546,8 @@
         body: JSON.stringify({
           message: userMessage.content,
           session_id: sessionId,
-          model_id: selectedModel.value
+          model_id: selectedModel.value,
+          api_key_token: apiKeyStore.siliconflowKey?.token
         })
       })
 
@@ -654,8 +626,19 @@
     }
   }
 
-  const toggleReview = () => {
-    reviewEnabled.value = !reviewEnabled.value
+  const toggleReview = async () => {
+    const newState = !reviewEnabled.value
+    try {
+      const result = await api.toggleReview(newState)
+      if (result.success || result.enabled !== undefined) {
+        reviewEnabled.value = result.enabled ?? newState
+      } else {
+        reviewEnabled.value = newState
+      }
+    } catch (error) {
+      // API 调用失败时仍更新本地状态
+      reviewEnabled.value = newState
+    }
   }
 
   const newSession = () => {

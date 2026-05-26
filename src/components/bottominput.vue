@@ -57,6 +57,32 @@
         </div>
       </div>
 
+      <!-- 需求联想面板 -->
+      <div v-if="associations.length > 0" class="associations-panel" role="list" aria-label="需求联想">
+        <div class="associations-header">
+          <span class="associations-title">需求联想</span>
+          <button class="associations-close" aria-label="关闭联想" @click="associations = []">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div class="associations-list">
+          <div
+            v-for="item in associations"
+            :key="item.id"
+            class="association-item"
+            :class="{ confirmed: item.confirmed }"
+            @click="selectAssociation(item)"
+          >
+            <span class="association-type">{{ item.type }}</span>
+            <span class="association-text">{{ item.text }}</span>
+            <span v-if="item.confirmed" class="association-check">✓</span>
+          </div>
+        </div>
+      </div>
+
       <!-- 已添加文件列表 -->
       <div
         v-if="attachedFiles.length > 0"
@@ -208,13 +234,17 @@
   const inputMessage = ref('')
   const useReasoning = ref(false)
   const useHybrid = ref(false)
-  const projectGeneratorMode = ref('')
   const showConfig = ref(true)
   const textareaRef = ref(null)
   const inputWrapperRef = ref(null)
   const dropZoneRef = ref(null)
   const fileInputRef = ref(null)
   const attachedFiles = ref([])
+  const associations = ref([])
+  let associationFetchTimer = null
+
+  // 监听 navigation store 的 ProjectGenerator 状态
+  const projectGeneratorMode = computed(() => navigationStore.showProjectGenerator)
 
   let fileCounter = 0
 
@@ -252,6 +282,35 @@
     }
   )
 
+  // 需求联想：输入较长时自动获取联想建议
+  watch(
+    () => inputMessage.value,
+    newText => {
+      if (associationFetchTimer) {
+        clearTimeout(associationFetchTimer)
+      }
+
+      if (newText.length < 20) {
+        associations.value = []
+        return
+      }
+
+      associationFetchTimer = setTimeout(async () => {
+        try {
+          const result = await api.getRequirementAssociations(newText)
+          const items = result.associations || result.items || []
+          if (items.length > 0) {
+            associations.value = items.slice(0, 5)
+          } else {
+            associations.value = []
+          }
+        } catch (e) {
+          associations.value = []
+        }
+      }, 800)
+    }
+  )
+
   // 监听混合思考的变化
   watch(useHybrid, newValue => {
     if (newValue) {
@@ -264,6 +323,17 @@
     if (props.isStreaming) {
       emit('stop')
     }
+  }
+
+  // 选择联想项，追加到输入框
+  const selectAssociation = item => {
+    if (item.text) {
+      inputMessage.value += '\n' + item.text
+    }
+    item.confirmed = true
+    setTimeout(() => {
+      associations.value = associations.value.filter(a => a.id !== item.id)
+    }, 300)
   }
 
   // 处理混合思考变化
@@ -316,7 +386,9 @@
         type: file.type,
         file: file,
         category: 'image',
-        uploading: true
+        uploading: true,
+        preview: URL.createObjectURL(file),
+        localUrl: URL.createObjectURL(file)
       }
       attachedFiles.value.push(fileObj)
 
@@ -508,6 +580,9 @@
         URL.revokeObjectURL(file.previewUrl)
       }
     }
+    if (associationFetchTimer) {
+      clearTimeout(associationFetchTimer)
+    }
   })
 
   defineExpose({
@@ -523,6 +598,85 @@
     --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  }
+
+  /* 需求联想面板 */
+  .associations-panel {
+    margin: 8px 16px 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .associations-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .associations-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .associations-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-tertiary);
+    padding: 2px;
+  }
+
+  .associations-close:hover {
+    color: var(--text-primary);
+  }
+
+  .associations-list {
+    padding: 4px;
+  }
+
+  .association-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .association-item:hover {
+    background: var(--bg-tertiary);
+  }
+
+  .association-item.confirmed {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  .association-type {
+    font-size: 11px;
+    padding: 2px 6px;
+    background: var(--accent-blue);
+    color: #fff;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  .association-text {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .association-check {
+    color: var(--accent-green);
+    font-weight: bold;
   }
 
   /* 焦点可见样式 */

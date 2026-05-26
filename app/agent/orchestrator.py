@@ -70,7 +70,8 @@ class OrchestratorAgent(
         require_approval: bool = False,
         approval_callback: Optional[Callable] = None,
         feedback_learner: Optional[FeedbackLearner] = None,
-        evaluation_only: bool = False
+        evaluation_only: bool = False,
+        api_key_token: Optional[str] = None
     ):
         self.output_dir = Path(output_dir)
         self.enable_review = enable_review
@@ -95,6 +96,8 @@ class OrchestratorAgent(
         self.feedback_learner = feedback_learner
 
         self.evaluation_only = evaluation_only
+        
+        self.api_key_token = api_key_token
 
         from app.agent.git_operations import GitOperations
         from app.agent.snapshot_manager import SnapshotManager

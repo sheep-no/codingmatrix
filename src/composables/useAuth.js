@@ -17,6 +17,7 @@ export function useAuth() {
       const data = await api.login({ email, password })
 
       userStore.setUser(data)
+      
       return { success: true }
     } catch (err) {
       showError(err.message || '登录失败，请稍后重试')

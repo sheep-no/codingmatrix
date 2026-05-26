@@ -17,6 +17,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="用户消息")
     session_id: Optional[str] = Field(None, description="会话 ID")
     model_id: Optional[str] = Field(None, description="模型 ID，默认使用系统默认模型")
+    api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
 
 
 class ChatResponse(BaseModel):
@@ -30,6 +31,7 @@ class ChatStreamRequest(BaseModel):
     message: str = Field(..., description="用户消息")
     session_id: Optional[str] = Field(None, description="会话 ID")
     model_id: Optional[str] = Field(None, description="模型 ID")
+    api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
 
 
 class FileReadRequest(BaseModel):

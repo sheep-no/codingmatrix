@@ -8,48 +8,44 @@ import { apiUrl } from './base'
 export function createAuthClient(client) {
   return {
     async login(credentials) {
-      try {
-        const fullUrl = `${apiUrl}/login`
+      const fullUrl = `${apiUrl}/login`
 
-        await fetch('/api/v1/csrf-token', { credentials: 'include' })
-        const csrfToken = getCsrfToken()
+      await fetch('/api/v1/csrf-token', { credentials: 'include' })
+      const csrfToken = getCsrfToken()
 
-        const headers = {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken || ''
-        }
+      const headers = {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken || ''
+      }
 
-        const encryptedData = await encryptLoginData({
+      const encryptedData = await encryptLoginData({
+        email: credentials.email,
+        password: credentials.password
+      })
+
+      let requestBody
+      if (encryptedData) {
+        requestBody = encryptedData
+      } else {
+        requestBody = {
           email: credentials.email,
           password: credentials.password
-        })
-
-        let requestBody
-        if (encryptedData) {
-          requestBody = encryptedData
-        } else {
-          requestBody = {
-            email: credentials.email,
-            password: credentials.password
-          }
         }
+      }
 
-        const response = await fetch(fullUrl, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(requestBody),
-          credentials: 'include'
-        })
+      const response = await fetch(fullUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+        credentials: 'include'
+      })
 
-        if (response.ok) {
-          const data = await response.json()
-          return data
-        } else {
-          const error = await response.json()
-          throw new Error(error.detail || 'Login failed')
-        }
-      } catch (error) {
-        throw error
+      if (response.ok) {
+        const data = await response.json()
+        return data
+      } else {
+        const error = await response.json()
+        throw new Error(error.detail || 'Login failed')
       }
     },
 

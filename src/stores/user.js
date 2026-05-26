@@ -42,10 +42,9 @@ export const useUserStore = defineStore(
       email.value = data.email || ''
       permissionLevel.value = data.permission_level || 'normal'
 
-      // 保存 access token 到内存中
+      // 保存 access token 到内存中（仅使用 tokenManager，不存 localStorage）
       if (data.access_token) {
         tokenManager.setToken(data.access_token, data.expires_in || 1800)
-        localStorage.setItem('access_token', data.access_token)
       }
 
       // 保存非敏感信息到 localStorage
@@ -87,14 +86,10 @@ export const useUserStore = defineStore(
         email.value = storedEmail || ''
         permissionLevel.value = localStorage.getItem('permission_level') || 'normal'
 
-        // 尝试刷新 access token
-        tokenManager.refreshAccessToken().then(success => {
-          if (success) {
-            console.log('[OK] Token refreshed, user restored')
-          } else {
-            console.warn('[WARN] Token refresh failed, please re-login')
-            clearUser()
-          }
+        // 尝试刷新 access token（刷新失败不立即清除用户，由路由守卫处理）
+        tokenManager.refreshAccessToken().catch(() => {
+          // 刷新失败是预期的（例如从 localStorage 恢复时没有 refresh token cookie）
+          // 不清除用户状态，让用户继续使用页面，实际 API 请求会触发 401 后再处理
         })
 
         return true

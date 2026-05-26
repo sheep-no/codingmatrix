@@ -45,14 +45,14 @@
 from app.api import deprecated
 
 @deprecated(
-    since_version="v1",
-    removal_version="v3",
-    alternative="/api/v2/users",
-    message="请使用 v2 版本的用户接口"
+ since_version="v1",
+ removal_version="v3",
+ alternative="/api/v2/users",
+ message="请使用 v2 版本的用户接口"
 )
 @router.get("/users/{user_id}")
 async def get_user(user_id: int):
-    ...
+ ...
 ```
 
 ### 响应头
@@ -77,14 +77,14 @@ v1_router = get_version_router("v1", tags=["认证"])
 
 @v1_router.post("/auth/login")
 async def login():
-    ...
+ ...
 
 # v2 路由器
 v2_router = get_version_router("v2", tags=["用户管理"])
 
 @v2_router.get("/users")
 async def list_users():
-    ...
+ ...
 ```
 
 ### 注册到应用
@@ -113,11 +113,11 @@ create_versioned_app_setup(app)
 
 ```json
 {
-    "success": false,
-    "code": "AUTH_1001",
-    "message": "需要认证",
-    "details": {},
-    "timestamp": "2024-01-01T00:00:00+00:00"
+ "success": false,
+ "code": "AUTH_1001",
+ "message": "需要认证",
+ "details": {},
+ "timestamp": "2024-01-01T00:00:00+00:00"
 }
 ```
 
@@ -134,16 +134,16 @@ create_versioned_app_setup(app)
 **响应格式:**
 ```json
 {
-    "success": true,
-    "data": [...],
-    "pagination": {
-        "total": 100,
-        "page": 1,
-        "size": 20,
-        "pages": 5,
-        "has_next": true,
-        "has_prev": false
-    }
+ "success": true,
+ "data": [...],
+ "pagination": {
+ "total": 100,
+ "page": 1,
+ "size": 20,
+ "pages": 5,
+ "has_next": true,
+ "has_prev": false
+ }
 }
 ```
 
@@ -158,12 +158,12 @@ create_versioned_app_setup(app)
 **响应格式:**
 ```json
 {
-    "success": true,
-    "data": [...],
-    "pagination": {
-        "next_cursor": "eyJpZCI6MTAwfQ==",
-        "has_more": true
-    }
+ "success": true,
+ "data": [...],
+ "pagination": {
+ "next_cursor": "eyJpZCI6MTAwfQ==",
+ "has_more": true
+ }
 }
 ```
 

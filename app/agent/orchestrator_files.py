@@ -273,7 +273,8 @@ class FilesMixin:
                 prompt=user_prompt,
                 max_tokens=4096,
                 temperature=0.4,
-                system_prompt=system_prompt
+                system_prompt=system_prompt,
+                api_key_token=self.api_key_token
             )
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
             return self._clean_code_block(content) if content else None

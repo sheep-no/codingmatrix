@@ -836,7 +836,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
       <button class="send-button" id="sendButton">发送</button>
     </div>
   </div>
-  <script src="${jsUrl}"><\/script>
+  <script src="${jsUrl}"><${'/'}}script>
 </body>
 </html>
     `)
@@ -944,6 +944,9 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     const minHeight = 450
     const maxWidth = 800
     const maxHeight = 700
+
+    const newWidth = windowSize.value.width + e.movementX
+    const newHeight = windowSize.value.height + e.movementY
 
     windowSize.value = {
       width: Math.max(minWidth, Math.min(newWidth, maxWidth)),

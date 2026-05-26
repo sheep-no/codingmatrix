@@ -1,29 +1,26 @@
 /**
- * API GirlAI 模块
+ * API GirlAI 模块 (v5.0.2 端点修复)
+ * 后端端点: /GirlAi (注意大写)
  */
 export function createGirlClient(client) {
   return {
     async sendGirlAiMessage(prompt, characterId = 'gentle') {
-      try {
-        const response = await client.post('/girlai/chat', {
-          prompt,
-          character_id: characterId
-        })
+      const response = await client.post('/GirlAi', {
+        prompt,
+        character_id: characterId
+      })
 
-        if (response.ok) {
-          return await response.json()
-        } else {
-          const error = await response.json()
-          throw new Error(error.detail || 'Send message failed')
-        }
-      } catch (error) {
-        throw error
+      if (response.ok) {
+        return await response.json()
+      } else {
+        const error = await response.json()
+        throw new Error(error.detail || 'Send message failed')
       }
     },
 
     async getGirlAiHistory(limit = 100, offset = 0) {
       try {
-        const response = await client.get('/girlai/history', { limit, offset })
+        const response = await client.get('/GirlAi/history', { limit, offset })
         if (response.ok) {
           return await response.json()
         }
@@ -36,7 +33,7 @@ export function createGirlClient(client) {
 
     async deleteGirlAiHistory(recordIds = [], deleteAll = false) {
       try {
-        const response = await client.post('/girlai/history/delete', {
+        const response = await client.delete('/GirlAi/history', {
           record_ids: recordIds,
           delete_all: deleteAll
         })

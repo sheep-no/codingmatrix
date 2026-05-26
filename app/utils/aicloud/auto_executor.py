@@ -68,7 +68,8 @@ async def execute_with_llm_loop(
     max_tokens: int,
     call_siliconflow_func,
     user_id: int = None,
-    workspace_path: str = None
+    workspace_path: str = None,
+    api_key_token: str = None
 ) -> str:
     """
     执行 LLM + 代码自动执行循环
@@ -82,6 +83,7 @@ async def execute_with_llm_loop(
         call_siliconflow_func: 调用 SiliconFlow 的函数
         user_id: 用户 ID（用于沙箱路径）
         workspace_path: 沙箱工作目录
+        api_key_token: 用户 API Key Token
         
     Returns:
         最终的 AI 回复内容
@@ -98,7 +100,8 @@ async def execute_with_llm_loop(
                 prompt=current_prompt,
                 model=model_key,
                 stream=False,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                api_key_token=api_key_token
             )
             
             if isinstance(response, dict):

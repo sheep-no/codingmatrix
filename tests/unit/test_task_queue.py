@@ -145,10 +145,8 @@ class TestWebSocketManager:
 
         await manager.connect(user_id=1, websocket=mock_ws)
 
-        assert await manager.get_connection_count() == 1
-        conn_info = await manager.get_user_connection(1)
-        assert conn_info is not None
-        assert conn_info.user_id == 1
+        assert manager.get_connection_count() == 1
+        assert manager.is_connected(1) is True
 
     @pytest.mark.asyncio
     async def test_disconnect_removes_connection(self):
@@ -160,10 +158,10 @@ class TestWebSocketManager:
         mock_ws.accept = AsyncMock()
 
         await manager.connect(user_id=1, websocket=mock_ws)
-        assert await manager.get_connection_count() == 1
+        assert manager.get_connection_count() == 1
 
         await manager.disconnect(user_id=1)
-        assert await manager.get_connection_count() == 0
+        assert manager.get_connection_count() == 0
 
     @pytest.mark.asyncio
     async def test_send_personal_message(self):

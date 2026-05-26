@@ -125,3 +125,43 @@ generated_images/
 # PPT output
 pptx_output/
 pptx_images/
+
+# Test output directories
+test_output/
+playwright-report/
+test-results/
+
+# Data and cache (managed separately)
+data/dependency_graph.json
+cache/
+
+# Sensitive files
+keys/cookies.txt
+
+# Test artifacts and temporary files
+test-results/
+src/test-results/
+playwright-report/
+projects/
+generated_project/
+test_output/
+test_output2/
+test/
+sessions/
+src-minimal/
+cache/
+embeddings/
+specs/
+*.webm
+.temp_*
+*.tmp
+*.pid
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+*.pyo
+coverage/
+.coverage
+.coveragerc
+htmlcov/

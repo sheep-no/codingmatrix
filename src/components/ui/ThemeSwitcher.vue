@@ -68,10 +68,7 @@
   onMounted(() => {
     const saved = getStoredTheme()
     currentTheme.value = saved
-    if (saved === 'theme-auto') {
-      const systemTheme = getPreferredSystemTheme()
-      document.documentElement.classList.add(systemTheme)
-    }
+    applyTheme(saved, false)
   })
 </script>
 

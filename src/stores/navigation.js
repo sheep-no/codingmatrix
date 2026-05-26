@@ -1,38 +1,81 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 
+const TOOL_KEYS = [
+  'showChartEditor',
+  'showNginxConfig',
+  'showDockerConfig',
+  'showSystemInfo',
+  'showSystemMonitor',
+  'showVirtualGirl',
+  'showServiceManager',
+  'showTaskQueue',
+  'showPPTGenerator',
+  'showImageGenerator',
+  'showEphemeralWorkflow',
+  'showAicloud'
+]
+
+function getStoredToolState() {
+  try {
+    const saved = localStorage.getItem('navigationState')
+    if (saved) {
+      return JSON.parse(saved)
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+const initialState = getStoredToolState() || {}
+
+function getDefaultValue(key) {
+  if (key === 'showProjectGenerator') return false
+  return Boolean(initialState[key] || false)
+}
+
 export const useNavigationStore = defineStore(
   'navigation',
   () => {
-    // 工具面板显示状态
-    const showChartEditor = ref(false)
-    const showNginxConfig = ref(false)
-    const showDockerConfig = ref(false)
-    const showSystemInfo = ref(false)
-    const showSystemMonitor = ref(false)
-    const showVirtualGirl = ref(false)
-    const showServiceManager = ref(false)
+    const showChartEditor = ref(getDefaultValue('showChartEditor'))
+    const showNginxConfig = ref(getDefaultValue('showNginxConfig'))
+    const showDockerConfig = ref(getDefaultValue('showDockerConfig'))
+    const showSystemInfo = ref(getDefaultValue('showSystemInfo'))
+    const showSystemMonitor = ref(getDefaultValue('showSystemMonitor'))
+    const showVirtualGirl = ref(getDefaultValue('showVirtualGirl'))
+    const showServiceManager = ref(getDefaultValue('showServiceManager'))
     const showProjectGenerator = ref(false)
-    const showTaskQueue = ref(false)
-    const showPPTGenerator = ref(false)
-    const showImageGenerator = ref(false)
-    const showEphemeralWorkflow = ref(false)
-    const showAicloud = ref(false)
+    const showTaskQueue = ref(getDefaultValue('showTaskQueue'))
+    const showPPTGenerator = ref(getDefaultValue('showPPTGenerator'))
+    const showImageGenerator = ref(getDefaultValue('showImageGenerator'))
+    const showEphemeralWorkflow = ref(getDefaultValue('showEphemeralWorkflow'))
+    const showAicloud = ref(getDefaultValue('showAicloud'))
 
-    // 侧边栏折叠状态
-    const isCollapsed = ref(false)
+    const isCollapsed = ref(initialState.isCollapsed || false)
+    const isBottomInputCollapsed = ref(
+      initialState.isBottomInputCollapsed !== undefined
+        ? Boolean(initialState.isBottomInputCollapsed)
+        : false
+    )
 
-    // 底部输入框折叠状态
-    const isBottomInputCollapsed = ref(false)
+    const toolRefs = {
+      showChartEditor,
+      showNginxConfig,
+      showDockerConfig,
+      showSystemInfo,
+      showSystemMonitor,
+      showVirtualGirl,
+      showServiceManager,
+      showTaskQueue,
+      showPPTGenerator,
+      showImageGenerator,
+      showEphemeralWorkflow,
+      showAicloud
+    }
 
-    /**
-     * 显示指定的工具面板
-     */
     function showTool(toolName) {
-      // 隐藏所有面板
       hideAllTools()
-
-      // 显示指定面板
       switch (toolName) {
         case 'projectGenerator':
           showProjectGenerator.value = true
@@ -74,14 +117,9 @@ export const useNavigationStore = defineStore(
           showAicloud.value = true
           break
       }
-
-      // 保存状态
       saveNavigationToStorage()
     }
 
-    /**
-     * 隐藏指定的工具面板
-     */
     function hideTool(toolName) {
       switch (toolName) {
         case 'projectGenerator':
@@ -124,49 +162,36 @@ export const useNavigationStore = defineStore(
           showAicloud.value = false
           break
       }
-
-      // 保存状态
       saveNavigationToStorage()
     }
 
-    /**
-     * 隐藏所有工具面板
-     */
     function hideAllTools() {
       showProjectGenerator.value = false
-      showChartEditor.value = false
-      showNginxConfig.value = false
-      showDockerConfig.value = false
-      showSystemInfo.value = false
-      showSystemMonitor.value = false
-      showVirtualGirl.value = false
-      showServiceManager.value = false
-      showTaskQueue.value = false
-      showPPTGenerator.value = false
-      showImageGenerator.value = false
-      showEphemeralWorkflow.value = false
-      showAicloud.value = false
+      Object.values(toolRefs).forEach(ref => {
+        ref.value = false
+      })
     }
 
-    /**
-     * 切换侧边栏折叠状态
-     */
     function toggleCollapse() {
       isCollapsed.value = !isCollapsed.value
       saveNavigationToStorage()
     }
 
-    /**
-     * 设置侧边栏折叠状态
-     */
     function setCollapsed(collapsed) {
       isCollapsed.value = collapsed
       saveNavigationToStorage()
     }
 
-    /**
-     * 保存导航状态到 localStorage
-     */
+    function toggleBottomInputCollapsed() {
+      isBottomInputCollapsed.value = !isBottomInputCollapsed.value
+      saveNavigationToStorage()
+    }
+
+    function setBottomInputCollapsed(collapsed) {
+      isBottomInputCollapsed.value = collapsed
+      saveNavigationToStorage()
+    }
+
     function saveNavigationToStorage() {
       try {
         const state = {
@@ -178,61 +203,48 @@ export const useNavigationStore = defineStore(
           showVirtualGirl: Boolean(showVirtualGirl.value),
           showServiceManager: Boolean(showServiceManager.value),
           showTaskQueue: Boolean(showTaskQueue.value),
+          showPPTGenerator: Boolean(showPPTGenerator.value),
+          showImageGenerator: Boolean(showImageGenerator.value),
+          showEphemeralWorkflow: Boolean(showEphemeralWorkflow.value),
+          showAicloud: Boolean(showAicloud.value),
           isCollapsed: Boolean(isCollapsed.value),
           isBottomInputCollapsed: Boolean(isBottomInputCollapsed.value),
           timestamp: Date.now()
         }
         localStorage.setItem('navigationState', JSON.stringify(state))
       } catch (err) {
-        console.warn('[WARN] Cannot save navigation state to localStorage:', err)
+        // ignore storage errors
       }
     }
 
-    /**
-     * 从 localStorage 恢复导航状态
-     */
     function restoreNavigationFromStorage() {
       try {
         const savedState = localStorage.getItem('navigationState')
         if (savedState) {
           const state = JSON.parse(savedState)
-
-          // 恢复状态（强制转换为 Boolean）
-          showChartEditor.value = Boolean(state.showChartEditor)
-          showNginxConfig.value = Boolean(state.showNginxConfig)
-          showDockerConfig.value = Boolean(state.showDockerConfig)
-          showSystemInfo.value = Boolean(state.showSystemInfo)
-          showSystemMonitor.value = Boolean(state.showSystemMonitor)
-          showVirtualGirl.value = Boolean(state.showVirtualGirl)
-          showServiceManager.value = Boolean(state.showServiceManager)
-          showTaskQueue.value = Boolean(state.showTaskQueue)
-          showPPTGenerator.value = Boolean(state.showPPTGenerator)
-          showImageGenerator.value = Boolean(state.showImageGenerator)
-          isCollapsed.value = Boolean(state.isCollapsed)
-          isBottomInputCollapsed.value =
-            state.isBottomInputCollapsed !== undefined
-              ? Boolean(state.isBottomInputCollapsed)
-              : false
-
+          Object.keys(state).forEach(key => {
+            if (key === 'timestamp') return
+            if (key === 'showProjectGenerator') return
+            if (toolRefs[key]) {
+              toolRefs[key].value = Boolean(state[key])
+            } else if (key === 'isCollapsed') {
+              isCollapsed.value = Boolean(state[key])
+            } else if (key === 'isBottomInputCollapsed') {
+              isBottomInputCollapsed.value = Boolean(state[key])
+            }
+          })
           return true
         }
-      } catch (err) {
-        console.error('[ERR] Restore navigation state failed:', err)
+      } catch {
         localStorage.removeItem('navigationState')
       }
       return false
     }
 
-    /**
-     * 清除 localStorage 中的导航状态
-     */
     function clearNavigationStorage() {
       localStorage.removeItem('navigationState')
     }
 
-    /**
-     * 获取当前激活的工具名称
-     */
     const activeTool = computed(() => {
       if (showChartEditor.value) return 'chartEditor'
       if (showNginxConfig.value) return 'nginxConfig'
@@ -249,20 +261,7 @@ export const useNavigationStore = defineStore(
       return null
     })
 
-    // 切换底部输入框折叠状态
-    function toggleBottomInputCollapsed() {
-      isBottomInputCollapsed.value = !isBottomInputCollapsed.value
-      saveNavigationToStorage()
-    }
-
-    // 设置底部输入框折叠状态
-    function setBottomInputCollapsed(collapsed) {
-      isBottomInputCollapsed.value = collapsed
-      saveNavigationToStorage()
-    }
-
     return {
-      // 状态
       showChartEditor,
       showNginxConfig,
       showDockerConfig,
@@ -279,8 +278,6 @@ export const useNavigationStore = defineStore(
       isCollapsed,
       isBottomInputCollapsed,
       activeTool,
-
-      // 方法
       showTool,
       hideTool,
       hideAllTools,

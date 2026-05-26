@@ -134,7 +134,7 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
 
 def require_superadmin(payload: dict = Depends(verify_token)) -> dict:
     """验证用户是否为超级管理员"""
-    if payload.get("permission_level") != "super":
+    if payload.get("permission_level") != "superadmin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="需要超级管理员权限"

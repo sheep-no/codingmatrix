@@ -1,0 +1,42 @@
+{
+  "domain": "banking",
+  "version": "1.0",
+  "description": "银行/金融领域模板",
+  "applicable_project_types": ["medium", "large", "enterprise"],
+  "core_modules": [
+    {"name": "账户体系", "category": "core", "impact": "数据模型基础", "options": ["单币种", "多币种"], "default": "单币种"},
+    {"name": "转账功能", "category": "core", "impact": "交易核心", "options": ["行内转账", "跨行转账"], "default": "行内转账"},
+    {"name": "余额查询", "category": "core", "impact": "查询服务", "options": ["实时", "T+1"], "default": "实时"},
+    {"name": "交易记录", "category": "core", "impact": "数据存储", "options": ["流水列表", "详情+统计"], "default": "流水列表"},
+    {"name": "用户认证", "category": "core", "impact": "安全基础", "options": ["密码登录", "双因素认证"], "default": "密码登录"},
+    {"name": "存款管理", "category": "optional", "impact": "业务扩展", "options": ["活期", "定期+活期"], "default": "活期"},
+    {"name": "贷款管理", "category": "optional", "impact": "业务扩展", "options": ["无", "简易贷款"], "default": "无"},
+    {"name": "理财功能", "category": "optional", "impact": "业务扩展", "options": ["无", "基金代销"], "default": "无"},
+    {"name": "限额管理", "category": "core", "impact": "风控", "options": ["单笔限额", "日限额+单笔"], "default": "单笔限额"},
+    {"name": "通知服务", "category": "optional", "impact": "用户体验", "options": ["短信", "短信+APP推送"], "default": "短信"}
+  ],
+  "non_functional_requirements": [
+    {"category": "security", "item": "双因素认证", "priority": "high"},
+    {"category": "security", "item": "反洗钱监测", "priority": "medium"},
+    {"category": "security", "item": "交易审计日志", "priority": "high"},
+    {"category": "security", "item": "数据加密存储", "priority": "high"},
+    {"category": "performance", "item": "交易并发处理", "priority": "high"},
+    {"category": "performance", "item": "余额查询延迟<200ms", "priority": "high"},
+    {"category": "compliance", "item": "监管报表", "priority": "medium"},
+    {"category": "compliance", "item": "数据保留期限合规", "priority": "medium"}
+  ],
+  "common_pitfalls": [
+    "并发转账可能导致余额不一致，需选择悲观锁或乐观锁",
+    "浮点数计算金额可能有精度问题，建议使用 Decimal 类型",
+    "跨行转账需要对接第三方支付网关，涉及异步回调处理",
+    "交易记录需要考虑分页查询和长期存储方案",
+    "贷款计息需提前确定计息基准（按日/按月）",
+    "监管报表格式可能随政策变化，需要灵活配置"
+  ],
+  "key_decisions": [
+    {"question": "选择悲观锁还是乐观锁处理并发转账？", "impact": "architecture", "options": ["悲观锁（安全但吞吐低）", "乐观锁（高吞吐但需冲突处理）"]},
+    {"question": "是否需要跨行转账？", "impact": "architecture", "options": ["仅行内转账（简单）", "跨行转账（需对接网关+异步回调）"]},
+    {"question": "金额精度用什么类型？", "impact": "data_model", "options": ["Decimal（精确）", "Float（简单但可能丢精度）"]},
+    {"question": "交易审计粒度？", "impact": "storage", "options": ["仅记录操作类型", "记录完整变更前后数据"]}
+  ]
+}

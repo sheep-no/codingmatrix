@@ -212,8 +212,10 @@
 <script setup>
   import { ref, computed, onMounted } from 'vue'
   import { useRouter } from 'vue-router'
+  import { useApiKeyStore } from '@/stores/apikey'
 
   const router = useRouter()
+  const apiKeyStore = useApiKeyStore()
   const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
 
   const mode = ref('text2img')
@@ -292,7 +294,8 @@
             height: h,
             steps: steps.value,
             cfg_scale: cfgScale.value,
-            seed: seed.value === -1 ? undefined : seed.value
+            seed: seed.value === -1 ? undefined : seed.value,
+            api_key_token: apiKeyStore.siliconflowKey?.token
           })
         })
         if (!res.ok) {
@@ -319,6 +322,7 @@
           formData.append('width', w)
           formData.append('height', h)
         }
+        formData.append('api_key_token', apiKeyStore.siliconflowKey?.token || '')
         const res = await fetch(`${API_BASE}/kolors/image-to-image`, {
           method: 'POST',
           headers,

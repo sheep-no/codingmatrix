@@ -24,27 +24,27 @@ from app.utils.csrf import generate_csrf_token, verify_csrf_token
 # 生成 Token
 @router.get("/csrf-token")
 async def get_csrf_token(response: Response):
-    token = generate_csrf_token()
-    response.set_cookie("csrf_token", token, httponly=False)
-    return {"csrf_token": token}
+ token = generate_csrf_token()
+ response.set_cookie("csrf_token", token, httponly=False)
+ return {"csrf_token": token}
 
 # 验证 (中间件自动执行)
 def verify_csrf(request: Request):
-    cookie_token = request.cookies.get("csrf_token")
-    header_token = request.headers.get("X-CSRF-Token")
-    if cookie_token != header_token:
-        raise HTTPException(403, "CSRF validation failed")
+ cookie_token = request.cookies.get("csrf_token")
+ header_token = request.headers.get("X-CSRF-Token")
+ if cookie_token != header_token:
+ raise HTTPException(403, "CSRF validation failed")
 ```
 
 ### 前端 (Axios 拦截器)
 
 ```javascript
 axios.interceptors.request.use(config => {
-  const csrfToken = getCookie('csrf_token')
-  if (csrfToken && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(config.method?.toUpperCase())) {
-    config.headers['X-CSRF-Token'] = csrfToken
-  }
-  return config
+ const csrfToken = getCookie('csrf_token')
+ if (csrfToken && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(config.method?.toUpperCase())) {
+ config.headers['X-CSRF-Token'] = csrfToken
+ }
+ return config
 })
 ```
 

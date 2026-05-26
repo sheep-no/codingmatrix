@@ -1,0 +1,37 @@
+{
+  "domain": "saas",
+  "version": "1.0",
+  "description": "SaaS 后台/管理平台领域模板",
+  "applicable_project_types": ["medium", "large", "enterprise"],
+  "core_modules": [
+    {"name": "租户管理", "category": "core", "impact": "数据隔离基础", "options": ["单租户", "多租户+数据隔离"], "default": "多租户+数据隔离"},
+    {"name": "用户管理", "category": "core", "impact": "认证基础", "options": ["简单用户", "RBAC角色权限"], "default": "RBAC角色权限"},
+    {"name": "权限系统", "category": "core", "impact": "安全基础", "options": ["功能级", "数据级+功能级"], "default": "功能级"},
+    {"name": "订阅/计费", "category": "core", "impact": "商业模式", "options": ["无", "套餐+计费+账单"], "default": "套餐+计费"},
+    {"name": "仪表盘", "category": "core", "impact": "用户体验", "options": ["简单统计", "图表+指标+报表"], "default": "图表+指标"},
+    {"name": "工作台", "category": "core", "impact": "用户效率", "options": ["列表视图", "列表+快捷操作+搜索"], "default": "列表+快捷操作"},
+    {"name": "通知中心", "category": "optional", "impact": "用户体验", "options": ["无", "站内通知+邮件"], "default": "站内通知"},
+    {"name": "操作日志", "category": "optional", "impact": "审计合规", "options": ["无", "全量操作日志"], "default": "全量操作日志"},
+    {"name": "数据导出", "category": "optional", "impact": "数据分析", "options": ["无", "CSV/Excel导出"], "default": "CSV导出"},
+    {"name": "系统配置", "category": "optional", "impact": "灵活性", "options": ["硬编码配置", "动态配置管理"], "default": "动态配置"}
+  ],
+  "non_functional_requirements": [
+    {"category": "performance", "item": "列表查询<300ms", "priority": "high"},
+    {"category": "security", "item": "租户数据隔离", "priority": "high"},
+    {"category": "security", "item": "操作审计日志", "priority": "high"},
+    {"category": "reliability", "item": "高可用部署", "priority": "medium"},
+    {"category": "scalability", "item": "租户数据独立扩展", "priority": "medium"}
+  ],
+  "common_pitfalls": [
+    "多租户数据隔离方案选择影响整体架构（共享数据库vs独立数据库）",
+    "RBAC权限设计过细会导致配置复杂，过粗会导致权限泄露",
+    "计费系统容易出错（时间边界、用量统计、退款计算）",
+    "操作日志量大需要考虑存储和查询性能",
+    "动态配置需要变更通知机制"
+  ],
+  "key_decisions": [
+    {"question": "多租户隔离方案？", "impact": "architecture", "options": ["共享数据库+租户ID字段（简单）", "独立数据库（安全但运维复杂）"]},
+    {"question": "权限粒度？", "impact": "security", "options": ["功能级（简单）", "数据级+功能级（灵活但复杂）"]},
+    {"question": "计费模式？", "impact": "business", "options": ["固定套餐价", "按用量计费", "套餐+超额按量"]}
+  ]
+}

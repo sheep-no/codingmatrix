@@ -1,8 +1,0 @@
-fastapi>=0.100.0
-uvicorn>=0.23.0
-sqlite3>=0.0.0
-python-multipart>=0.0.5
-Jinja2>=3.0.0
-sqlalchemy>=2.0.0
-alembic>=1.7.0
-python-dotenv>=0.19.2

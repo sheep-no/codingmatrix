@@ -54,12 +54,12 @@ export class WebSocketManager {
     const connectionId = endpoint
     const wsUrl = `${this.baseUrl}${endpoint}?token=${encodeURIComponent(token)}`
 
-    console.log(`🔌 尝试连接 WebSocket: ${wsUrl}`)
+    console.log(`[API] 尝试连接 WebSocket: ${wsUrl}`)
 
     const ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {
-      console.log(`[OK] WebSocket connected: ${endpoint}`)
+      console.log(`[SUCCESS] WebSocket connected: ${endpoint}`)
       this.reconnectAttempts.delete(connectionId)
       this.connections.set(connectionId, ws)
       if (onOpen) onOpen(ws)

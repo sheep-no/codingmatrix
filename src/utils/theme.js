@@ -28,17 +28,18 @@ export function applyTheme(theme, withTransition = false) {
     }, 350)
   }
 
+  // 先移除所有主题类
   validThemes.forEach(t => {
     if (t !== 'theme-auto') {
-      document.documentElement.classList.toggle(t, t === resolvedTheme)
+      document.documentElement.classList.remove(t)
     }
   })
+  
+  // 然后添加解析后的主题类
+  document.documentElement.classList.add(resolvedTheme)
 
-  if (theme !== 'theme-auto') {
-    localStorage.setItem(THEME_KEY, theme)
-  } else {
-    localStorage.setItem(THEME_KEY, 'theme-auto')
-  }
+  // 保存用户选择（包括 theme-auto）
+  localStorage.setItem(THEME_KEY, theme)
 }
 
 export function initTheme() {

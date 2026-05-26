@@ -24,7 +24,7 @@ from app.services.prometheus_metrics import generate_metrics_text
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["健康检查"])
 
-APP_VERSION = "v3.0"
+APP_VERSION = "v5.9.0"
 
 
 @router.get("", summary="基础健康检查")
@@ -120,7 +120,7 @@ async def _check_redis_quick() -> bool:
 
         from app.utils.cache import get_cache
         cache = await get_cache(redis_url)
-        await cache.set("_health_check", "ok", expire=5)
+        await cache.set("_health_check", "ok", ttl=5)
         value = await cache.get("_health_check")
         return value == "ok"
     except Exception as e:

@@ -56,6 +56,10 @@
   --border-color: #e2e8f0;
   --shadow-color: rgba(0, 0, 0, 0.08);
 
+  /* 主色别名 */
+  --primary: var(--color-primary-500);
+  --primary-hover: var(--color-primary-600);
+
   /* 渐变 */
   --gradient-primary: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
   --gradient-bg: linear-gradient(180deg, #ffffff 0%, #f0f4f8 100%);
@@ -133,6 +137,10 @@
   --text-tertiary: #7a9ba5;
   --border-color: #d4e8e4;
   --shadow-color: rgba(13, 148, 136, 0.08);
+
+  /* 主色别名 */
+  --primary: var(--color-primary-500);
+  --primary-hover: var(--color-primary-600);
 
   /* 渐变 */
   --gradient-primary: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
@@ -212,6 +220,10 @@
   --border-color: #334155;
   --shadow-color: rgba(0, 0, 0, 0.4);
 
+  /* 主色别名 */
+  --primary: var(--color-primary-500);
+  --primary-hover: var(--color-primary-600);
+
   /* 渐变 */
   --gradient-primary: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
   --gradient-bg: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
@@ -244,8 +256,9 @@
 
 /* ========================================
    CSS 变量别名 (兼容旧代码)
+   注意：这些默认值只在不使用主题类时生效
    ======================================== */
-:root {
+html:not(.theme-light):not(.theme-default):not(.theme-dark):not(.theme-auto) {
   /* 默认背景与文字颜色（在主题 class 加载前提供基础可读性） */
   --bg-primary: #ffffff;
   --bg-secondary: #f8fafc;
@@ -321,6 +334,8 @@
   --teal-300: var(--color-primary-300);
 
   /* 功能色别名 */
+  --primary: var(--color-primary-500);
+  --primary-hover: var(--color-primary-600);
   --success: var(--color-success-500);
   --success-hover: var(--color-success-600);
   --warning: var(--color-warning-500);
@@ -429,8 +444,8 @@
 }
 
 /* ========================================
-   主题切换平滑过渡
-   ======================================== */
+    主题切换平滑过渡
+    ======================================== */
 .theme-transitioning,
 .theme-transitioning *,
 .theme-transitioning *::before,
@@ -445,4 +460,209 @@
 /* 系统主题自动跟随类 */
 .theme-auto {
   /* 由 JavaScript 动态检测并应用对应主题 */
+}
+
+/* ========================================
+    GitHub Primer 兼容颜色 (用于 ErrorBoundary/MessageEditor 等)
+    ======================================== */
+html:not(.theme-light):not(.theme-default):not(.theme-dark):not(.theme-auto) {
+  --color-accent-fg: #0969da;
+  --color-accent-muted: #54aeff66;
+  --color-accent-subtle: #ddf4ff;
+  --color-attention-subtle: #fff8c5;
+  --color-border-default: #d0d7de;
+  --color-border-muted: #d8dee4;
+  --color-border-subtle: #d0d7de;
+  --color-btn-bg: #f6f8fa;
+  --color-btn-border: #d0d7de;
+  --color-btn-hover-bg: #f3f4f6;
+  --color-btn-hover-border: #c9ccd0;
+  --color-btn-text: #24292f;
+  --color-canvas-default: #ffffff;
+  --color-canvas-inset: #f6f8fa;
+  --color-canvas-overlay: #ffffff;
+  --color-canvas-subtle: #f6f8fa;
+  --color-fg-default: #24292f;
+  --color-fg-muted: #57606a;
+  --color-fg-on-emphasis: #ffffff;
+  --color-fg-subtle: #6e7781;
+  --color-primer-border-active: #0969da;
+  --color-primer-canvas-sticky: #ffffff;
+  --color-primer-shadow-inset: inset 0 1px 0 var(--color-canvas-inset);
+  --color-control-transparent-bg-hover: #eaeef280;
+  --color-checks-step-warning-text: #9a6700;
+
+  --color-scale-blue-0: #ddf4ff;
+  --color-scale-blue-1: #b6e3ff;
+  --color-scale-blue-2: #80ccff;
+  --color-scale-blue-3: #54aeff;
+  --color-scale-blue-4: #218bff;
+  --color-scale-blue-5: #0969da;
+  --color-scale-blue-6: #0550ae;
+  --color-scale-blue-7: #033d8b;
+  --color-scale-blue-8: #0a3069;
+  --color-scale-blue-9: #002155;
+
+  --color-scale-gray-0: #f6f8fa;
+  --color-scale-gray-1: #eaeef2;
+  --color-scale-gray-2: #d0d7de;
+  --color-scale-gray-3: #afb8c1;
+  --color-scale-gray-4: #8c959f;
+  --color-scale-gray-5: #6e7781;
+  --color-scale-gray-6: #57606a;
+  --color-scale-gray-7: #424a53;
+  --color-scale-gray-8: #32383f;
+  --color-scale-gray-9: #24292f;
+
+  --color-scale-coral-0: #fff0eb;
+  --color-scale-coral-5: #f45728;
+  --color-scale-orange-0: #fff1e5;
+  --color-scale-orange-5: #dd7532;
+  --color-scale-pink-0: #feeff7;
+  --color-scale-pink-5: #bf3989;
+  --color-scale-purple-0: #f5eefc;
+  --color-scale-purple-5: #8250df;
+  --color-scale-yellow-0: #fcf9be;
+  --color-scale-yellow-5: #9a6700;
+}
+
+/* GitHub Primer 暗色模式 */
+.theme-dark {
+  --color-accent-fg: #58a6ff;
+  --color-accent-muted: #58a6ff66;
+  --color-accent-subtle: #1f6feb26;
+  --color-attention-subtle: #bb800926;
+  --color-border-default: #30363d;
+  --color-border-muted: #21262d;
+  --color-border-subtle: #30363d;
+  --color-btn-bg: #21262d;
+  --color-btn-border: #30363d;
+  --color-btn-hover-bg: #30363d;
+  --color-btn-hover-border: #8b949e;
+  --color-btn-text: #c9d1d9;
+  --color-canvas-default: #0d1117;
+  --color-canvas-inset: #010409;
+  --color-canvas-overlay: #161b22;
+  --color-canvas-subtle: #161b22;
+  --color-fg-default: #c9d1d9;
+  --color-fg-muted: #8b949e;
+  --color-fg-on-emphasis: #ffffff;
+  --color-fg-subtle: #484f58;
+  --color-primer-border-active: #f78166;
+  --color-primer-canvas-sticky: #010409;
+  --color-primer-shadow-inset: inset 0 1px 0 var(--color-canvas-inset);
+
+  --color-scale-gray-0: #161b22;
+  --color-scale-gray-1: #21262d;
+  --color-scale-gray-2: #30363d;
+  --color-scale-gray-3: #484f58;
+  --color-scale-gray-4: #6e7781;
+  --color-scale-gray-5: #8b949e;
+  --color-scale-gray-6: #afb8c1;
+  --color-scale-gray-7: #c9d1d9;
+  --color-scale-gray-8: #e6edf3;
+  --color-scale-gray-9: #ffffff;
+}
+
+/* ========================================
+    highlight.js 语法高亮兼容变量
+    ======================================== */
+html:not(.theme-dark) .hljs {
+  --hljs-keyword: #d73a49;
+  --hljs-string: #032f62;
+  --hljs-comment: #6a737d;
+  --hljs-function: #6f42c1;
+  --hljs-number: #005cc5;
+  --hljs-title: #6f42c1;
+  --hljs-attr: #005cc5;
+  --hljs-tag: #22863a;
+}
+
+.theme-dark .hljs {
+  --hljs-keyword: #ff7b72;
+  --hljs-string: #a5d6ff;
+  --hljs-comment: #8b949e;
+  --hljs-function: #d2a8ff;
+  --hljs-number: #79c0ff;
+  --hljs-title: #d2a8ff;
+  --hljs-attr: #79c0ff;
+  --hljs-tag: #7ee787;
+}
+
+/* ========================================
+    补充组件使用的缺失变量
+    ======================================== */
+.theme-light {
+  --color-teal-50: #f0fdfa;
+  --color-teal-400: #2dd4bf;
+  --color-success-50: #ecfdf5;
+  --color-success-100: #d1fae5;
+  --color-danger-50: #fef2f2;
+  --color-danger-100: #fee2e2;
+  --color-primary-900: #1e3a8a;
+  --border-radius: 8px;
+  --box-shadow: 0 4px 6px -1px var(--shadow-color), 0 2px 4px -2px var(--shadow-color);
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 48px;
+  --gradient-ai: linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%);
+  --gradient-user: linear-gradient(135deg, #2563eb 0%, #0d9488 100%);
+  --bg-card: var(--bg-primary);
+  --bg-hover: var(--bg-secondary);
+  --bg-input: var(--bg-secondary);
+  --accent-color: var(--color-primary-500);
+  --primary: var(--color-primary-500);
+  --primary-hover: var(--color-primary-600);
+}
+
+.theme-default {
+  --color-teal-50: #f0fdfa;
+  --color-teal-400: #2dd4bf;
+  --color-success-50: #ecfdf5;
+  --color-success-100: #d1fae5;
+  --color-danger-50: #fef2f2;
+  --color-danger-100: #fee2e2;
+  --color-primary-900: #042f2e;
+  --border-radius: 8px;
+  --box-shadow: 0 4px 6px -1px var(--shadow-color), 0 2px 4px -2px var(--shadow-color);
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 48px;
+  --gradient-ai: linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%);
+  --gradient-user: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+  --bg-card: var(--bg-primary);
+  --bg-hover: var(--bg-secondary);
+  --bg-input: var(--bg-secondary);
+  --accent-color: var(--color-primary-500);
+  --primary: var(--color-primary-500);
+  --primary-hover: var(--color-primary-600);
+}
+
+.theme-dark {
+  --color-teal-50: #134e4a;
+  --color-teal-400: #2dd4bf;
+  --color-success-50: #052e16;
+  --color-success-100: #044f1e;
+  --color-danger-50: #450a0a;
+  --color-danger-100: #7f1d1d;
+  --color-primary-900: #134e4a;
+  --border-radius: 8px;
+  --box-shadow: 0 4px 6px -1px var(--shadow-color), 0 2px 4px -2px var(--shadow-color);
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 48px;
+  --gradient-ai: linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%);
+  --gradient-user: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+  --bg-card: var(--bg-primary);
+  --bg-hover: var(--bg-secondary);
+  --bg-input: var(--bg-secondary);
+  --accent-color: var(--color-primary-500);
+  --primary: var(--color-primary-500);
+  --primary-hover: var(--color-primary-600);
 }

@@ -243,6 +243,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """速率限制中间件"""
 
     async def dispatch(self, request: Request, call_next):
+        # 测试环境跳过速率限制
+        import os
+        if os.getenv("ENV") == "testing":
+            return await call_next(request)
+
         skip_paths = [
             "/health",
             "/ready",
@@ -340,12 +345,17 @@ def check_login_rate_limit(identifier: str) -> bool:
     """
     检查登录尝试限制
 
+    测试环境中跳过限制（ENV=testing）
+
     Args:
         identifier: 用户名或 IP
 
     Returns:
         bool: 是否允许尝试（True 表示允许）
     """
+    import os
+    if os.getenv("ENV") == "testing":
+        return True
     if login_tracker.is_blocked(identifier):
         return False
     return True

@@ -90,14 +90,14 @@ class TestResponseParsing:
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = """```json
 {
-  "nodes": [
+    "nodes": [
     {
       "id": "node_1",
       "type": "web_search",
       "params": {"query": "test"},
       "depends_on": []
     }
-  ]
+    ]
 }
 ```"""
 

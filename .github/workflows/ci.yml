@@ -9,40 +9,53 @@ on:
 jobs:
   test:
     runs-on: ubuntu-22.04
-    
+
     strategy:
       matrix:
         python-version: ["3.10", "3.11"]
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    
+
     - name: Cache dependencies
       uses: actions/cache@v4
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/configs/requirements.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-    
+        pip install -r configs/requirements.txt
+
+    - name: Security audit (pip-audit)
+      run: |
+        pip install pip-audit
+        pip-audit --format json --output pip-audit-results.json || true
+
+    - name: Upload pip-audit results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pip-audit-results-python${{ matrix.python-version }}
+        path: pip-audit-results.json
+        retention-days: 30
+
     - name: Setup environment
       run: |
         cp .env.example .env || true
         echo "SILICONFLOW_API_KEY=test_key" >> .env
         echo "SECRET_KEY=test_secret_key_for_ci_test" >> .env
         echo "DATABASE_URL=sqlite+aiosqlite:///./test.db" >> .env
-    
+
     - name: Check Guard Contracts
       run: |
         python scripts/check_guard.py \
@@ -72,7 +85,7 @@ jobs:
           --cov-report=html \
           --cov-report=term-missing \
           --junitxml=test-results.xml
-    
+
     - name: Upload coverage reports
       if: always()
       uses: codecov/codecov-action@v5
@@ -80,7 +93,7 @@ jobs:
         file: ./coverage.xml
         flags: unittests
         fail_ci_if_error: false
-    
+
     - name: Upload HTML coverage report
       if: always()
       uses: actions/upload-artifact@v4
@@ -88,7 +101,7 @@ jobs:
         name: coverage-report-python${{ matrix.python-version }}
         path: htmlcov/
         retention-days: 7
-    
+
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4

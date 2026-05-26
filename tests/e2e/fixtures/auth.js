@@ -1,87 +1,120 @@
 /**
- * 共享认证 Fixtures
- * 所有需要认证的测试都应使用此 fixtures 进行登录
+ * 认证测试 Fixtures
+ * 提供登录、登出等辅助函数
  */
-import { test as base } from '@playwright/test';
 
-const TEST_EMAIL = process.env.TEST_EMAIL || 'mr_yang@example.com';
-const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:8000'
 
-async function apiLogin(page, email = TEST_EMAIL, password = TEST_PASSWORD) {
-  await page.goto('/');
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForTimeout(500);
+export const TEST_EMAIL = 'admin@example.com'
+export const TEST_PASSWORD = 'admin123'
 
-  // Check if already logged in
-  const existingToken = await page.evaluate(() => localStorage.getItem('access_token'));
-  if (existingToken) return true;
-
-  // Click login button in sidebar
-  const loginBtn = page.locator('.login-prompt button');
-  const loginVisible = await loginBtn.isVisible({ timeout: 5000 }).catch(() => false);
-  if (!loginVisible) {
-    // Might already be logged in
-    const token = await page.evaluate(() => localStorage.getItem('access_token'));
-    return !!token;
-  }
-
-  await loginBtn.click();
-  await page.waitForTimeout(500);
-
-  // Wait for modal inputs
-  await page.waitForSelector('input[type="email"]', { timeout: 3000 }).catch(() => {});
-
-  // Fill credentials
-  const emailInput = page.locator('input[type="email"]').first();
-  const passwordInput = page.locator('input[type="password"]').first();
-
+/**
+ * API 登录 - 使用 page.request API
+ * @param {Page} page - Playwright page object
+ * @param {string} frontendUrl - Optional frontend URL (defaults to localhost:3000)
+ * @returns {Promise<{token: string, username: string}>}
+ */
+export async function apiLogin(page, frontendUrl) {
+  console.log('[apiLogin] Starting login for', TEST_EMAIL);
+  const FRONTEND_URL = frontendUrl || 'http://localhost:3000';
   try {
-    await emailInput.fill(email);
-    await passwordInput.fill(password);
-  } catch {
-    // Fallback: find all inputs in the modal
-    const inputs = page.locator('[class*="modal"] input, [class*="dialog"] input');
-    const count = await inputs.count();
-    if (count >= 2) {
-      await inputs.nth(0).fill(email);
-      await inputs.nth(1).fill(password);
+    // Get CSRF token and login via API (no page navigation needed for API calls)
+    const csrfResp = await page.request.get(`${BASE_URL}/api/v1/csrf-token`)
+    const csrfData = await csrfResp.json()
+    const csrfToken = csrfData.csrf_token
+
+    // Login via API
+    const loginResp = await page.request.post(`${BASE_URL}/api/v1/login`, {
+      data: { email: TEST_EMAIL, password: TEST_PASSWORD },
+      headers: { 'X-CSRF-Token': csrfToken }
+    })
+    const data = await loginResp.json()
+
+    if (!loginResp.ok || !data.access_token) {
+      throw new Error(`Login failed: ${data.message || data.detail || 'Unknown error'}`)
     }
+
+    // Navigate to frontend to set storage in correct origin
+    await page.goto(FRONTEND_URL);
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(300);
+
+    // Store in sessionStorage (where tokenManager stores it)
+    await page.evaluate((obj) => {
+      console.log('[sessionStorage] Setting token for tokenManager');
+      const expiry = Date.now() + 3600000; // 1 hour from now
+      sessionStorage.setItem('_token', obj.token)
+      sessionStorage.setItem('_token_expiry', String(expiry))
+      console.log('[sessionStorage] Token set, expiry:', new Date(expiry).toISOString())
+
+      // Set localStorage for username/email/permission (what app expects)
+      localStorage.setItem('username', obj.username)
+      localStorage.setItem('email', obj.email)
+      localStorage.setItem('permission_level', obj.permission_level)
+      localStorage.setItem('access_token', obj.token)
+      
+      // Set Pinia persisted user-store state
+      const userStoreState = {
+        isLoggedIn: true,
+        username: obj.username,
+        email: obj.email,
+        permissionLevel: obj.permission_level
+      }
+      localStorage.setItem('user-store', JSON.stringify(userStoreState))
+      console.log('[sessionStorage] Done')
+    }, {
+      token: data.access_token,
+      username: data.username || TEST_EMAIL,
+      email: TEST_EMAIL,
+      permission_level: data.permission_level || 'superadmin'
+    })
+    console.log('[apiLogin] Storage set, permission_level:', data.permission_level || 'user')
+    
+    // Wait for storage to persist
+    await page.waitForTimeout(300)
+    
+    console.log('[apiLogin] Login complete, returning token')
+    return {
+      ok: true,
+      token: data.access_token,
+      username: data.username || TEST_EMAIL,
+    }
+  } catch (e) {
+    console.log('[apiLogin] ERROR:', e.message)
+    console.error(e)
+    throw e
   }
-
-  // Click login
-  const submitBtn = page.locator('button[class*="btn-login"], button:has-text("登录")').first();
-  await submitBtn.click();
-  await page.waitForTimeout(2000);
-
-  const token = await page.evaluate(() => localStorage.getItem('access_token'));
-  return !!token;
 }
 
-async function logout(page) {
-  // Navigate to the app page first, then clear storage
-  await page.goto('/');
-  await page.waitForLoadState('domcontentloaded');
+/**
+ * 登出 - 清除 localStorage
+ * @param {Page} page - Playwright page object
+ */
+export async function logout(page) {
+  const FRONTEND_URL = 'http://localhost:3000';
 
-  // Clear storage from within the same origin
+  // Navigate to frontend first
+  await page.goto(FRONTEND_URL)
+  await page.waitForLoadState('domcontentloaded')
+  await page.waitForTimeout(300)
+
   await page.evaluate(() => {
-    localStorage.clear();
-    sessionStorage.clear();
-  });
-
-  // Clear cookies
-  const context = page.context();
-  await context.clearCookies();
-
-  // Reload to apply state
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(500);
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('username')
+    localStorage.removeItem('email')
+    localStorage.removeItem('permission_level')
+  })
+  
+  // Reload to apply changes
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(300)
 }
 
-export const test = base.extend({
-  authenticatedPage: async ({ page }, use) => {
-    await apiLogin(page);
-    await use(page);
-  },
-});
-
-export { apiLogin, logout, TEST_EMAIL, TEST_PASSWORD };
+/**
+ * 等待页面加载完成
+ * @param {Page} page
+ */
+export async function waitForPageReady(page) {
+  await page.waitForLoadState('domcontentloaded')
+  await page.waitForTimeout(500) // 额外等待 500ms 确保组件渲染
+}

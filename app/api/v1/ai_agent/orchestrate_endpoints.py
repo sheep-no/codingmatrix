@@ -26,6 +26,7 @@ from .schemas import (
     OrchestratorRequest, OrchestratorResponse,
     ModifyRequest, ComplexityAnalysisRequest, ComplexityAnalysisResponse,
     EvaluateRequest, EvaluateResponse,
+    TokenUsageStatsResponse,
 )
 from .helpers import (
     get_session_manager, get_spec_cache, get_feedback_learner,
@@ -91,7 +92,8 @@ async def modify_project(
             callback=lambda msg: logger.info(f"Modify 进度: {msg[:200]}"),
             session_manager=sm,
             session_id=session_id,
-            incremental=True
+            incremental=True,
+            api_key_token=request.api_key_token
         )
 
         result = await orchestrator.generate(requirement=request.requirement)
@@ -248,16 +250,25 @@ async def orchestrate_project_stream(
                     if progress_data.get("critical_decisions"):
                         await queue.put(f"data: {json.dumps({'type': 'critical_decisions', 'data': {'session_id': session_id, 'decisions': progress_data['critical_decisions']}}, ensure_ascii=False)}\n\n")
                         try:
-                            result = await asyncio.wait_for(
-                                asyncio.gather(decision_queue.get(), cancel_event.wait(), return_when=asyncio.FIRST_COMPLETED),
-                                timeout=120
+                            done, _ = await asyncio.wait(
+                                [asyncio.create_task(decision_queue.get()), asyncio.create_task(cancel_event.wait())],
+                                timeout=120,
+                                return_when=asyncio.FIRST_COMPLETED
                             )
                             if cancel_event.is_set():
                                 return
-                            decisions = result[0] if isinstance(result, tuple) else result
-                            logger.info(f"用户决策: {decisions}")
+                            for task in done:
+                                result = task.result()
+                                if result is not None:
+                                    decisions = result
+                                    logger.info(f"用户决策: {decisions}")
+                                    break
                         except asyncio.TimeoutError:
                             logger.warning("决策等待超时，使用默认值继续")
+                    # 特殊类型直接传递，不包装成 progress
+                    msg_type = progress_data.get("type", "")
+                    if msg_type in ("thinking", "model_info", "file", "file_diff"):
+                        await queue.put(f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n")
                     else:
                         await queue.put(f"data: {json.dumps({'type': 'progress', 'data': progress_data}, ensure_ascii=False)}\n\n")
                 except json.JSONDecodeError:
@@ -279,7 +290,8 @@ async def orchestrate_project_stream(
                 require_approval=request.require_approval,
                 approval_callback=approval_callback if request.require_approval else None,
                 feedback_learner=learner,
-                evaluation_only=request.evaluation_only
+                evaluation_only=request.evaluation_only,
+                api_key_token=request.api_key_token
             )
 
             async def run_generation():
@@ -521,6 +533,7 @@ async def evaluate_project(
             output_dir=output_dir,
             evaluation_only=True,
             callback=lambda msg: logger.info(f"Evaluate 进度: {msg[:200]}"),
+            api_key_token=request.api_key_token
         )
 
         result = await orchestrator.generate(requirement=request.requirement)
@@ -622,3 +635,98 @@ async def delete_session_endpoint(
             shutil.rmtree(session_dir, ignore_errors=True)
 
     return {"success": True, "message": "会话已删除"}
+
+
+@router.get("/token-usage", response_model=TokenUsageStatsResponse)
+async def get_token_usage_stats(
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """获取用户 token 使用统计"""
+    user_id = token.get("sub", "anonymous")
+    if not user_id or user_id == "anonymous" or not user_id.isdigit():
+        raise HTTPException(status_code=403, detail="无效的用户身份")
+    
+    user_id_int = int(user_id)
+    
+    try:
+        from sqlalchemy import func, select
+        from app.models.chat_history import ChatHistory
+        from datetime import datetime, timedelta
+        
+        # 总 token 使用量
+        total_result = await db.execute(
+            select(
+                func.sum(ChatHistory.token_usage).label("total_tokens"),
+                func.sum(ChatHistory.prompt_tokens).label("total_prompt_tokens"),
+                func.sum(ChatHistory.completion_tokens).label("total_completion_tokens"),
+                func.count(ChatHistory.id).label("total_messages")
+            ).where(ChatHistory.user_id == user_id_int)
+        )
+        total_row = total_result.first()
+        total_tokens = total_row.total_tokens or 0
+        total_prompt_tokens = total_row.total_prompt_tokens or 0
+        total_completion_tokens = total_row.total_completion_tokens or 0
+        total_messages = total_row.total_messages or 0
+        
+        # 今日 token 使用量
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_result = await db.execute(
+            select(
+                func.sum(ChatHistory.token_usage).label("today_tokens"),
+                func.sum(ChatHistory.prompt_tokens).label("today_prompt_tokens"),
+                func.sum(ChatHistory.completion_tokens).label("today_completion_tokens")
+            ).where(
+                ChatHistory.user_id == user_id_int,
+                ChatHistory.created_at >= today_start
+            )
+        )
+        today_row = today_result.first()
+        today_tokens = today_row.today_tokens or 0
+        today_prompt_tokens = today_row.today_prompt_tokens or 0
+        today_completion_tokens = today_row.today_completion_tokens or 0
+        
+        # 本月 token 使用量
+        month_start = today_start.replace(day=1)
+        month_result = await db.execute(
+            select(
+                func.sum(ChatHistory.token_usage).label("month_tokens"),
+                func.sum(ChatHistory.prompt_tokens).label("month_prompt_tokens"),
+                func.sum(ChatHistory.completion_tokens).label("month_completion_tokens")
+            ).where(
+                ChatHistory.user_id == user_id_int,
+                ChatHistory.created_at >= month_start
+            )
+        )
+        month_row = month_result.first()
+        this_month_tokens = month_row.month_tokens or 0
+        this_month_prompt_tokens = month_row.month_prompt_tokens or 0
+        this_month_completion_tokens = month_row.month_completion_tokens or 0
+        
+        # 按模型统计
+        model_result = await db.execute(
+            select(
+                ChatHistory.model,
+                func.sum(ChatHistory.token_usage).label("model_tokens"),
+                func.sum(ChatHistory.prompt_tokens).label("model_prompt_tokens"),
+                func.sum(ChatHistory.completion_tokens).label("model_completion_tokens")
+            ).where(
+                ChatHistory.user_id == user_id_int,
+                ChatHistory.model.isnot(None)
+            ).group_by(ChatHistory.model)
+        )
+        by_model = {row.model: row.model_tokens or 0 for row in model_result.all()}
+        
+        return TokenUsageStatsResponse(
+            total_tokens=total_tokens,
+            prompt_tokens=total_prompt_tokens,
+            completion_tokens=total_completion_tokens,
+            total_messages=total_messages,
+            today_tokens=today_tokens,
+            this_month_tokens=this_month_tokens,
+            by_model=by_model
+        )
+        
+    except Exception as e:
+        logger.error(f"获取 token 使用统计失败: {e}")
+        return TokenUsageStatsResponse()

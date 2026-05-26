@@ -11,7 +11,8 @@ import time
 import hashlib
 import math
 import logging
-from typing import Dict, List, Optional
+import threading
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
@@ -47,12 +48,14 @@ class FixPattern:
 
 
 class FixPatternCache:
-    """修复模式缓存管理器"""
+    """修复模式缓存管理器（含 LRU 淘汰机制）"""
     
-    def __init__(self, cache_file: Path = None):
+    def __init__(self, cache_file: Path = None, max_size: int = 1000):
         self.cache_file = cache_file or Path("fix_patterns_cache.json")
+        self.max_size = max_size  # 最大缓存条目数
         self.patterns: Dict[str, FixPattern] = {}
         self._load_cache()
+        self._save_lock = threading.Lock()  # 异步保存锁
     
     def _load_cache(self):
         """从文件加载缓存"""
@@ -69,13 +72,33 @@ class FixPatternCache:
                 logger.warning(f"加载修复模式缓存失败: {e}")
     
     def _save_cache(self):
-        """保存缓存到文件"""
-        try:
-            active_patterns = {k: v for k, v in self.patterns.items() if v.usage_count > 0}
-            with open(self.cache_file, 'w', encoding='utf-8') as f:
-                json.dump({k: asdict(v) for k, v in active_patterns.items()}, f, indent=2)
-        except Exception as e:
-            logger.warning(f"保存修复模式缓存失败: {e}")
+        """保存缓存到文件（线程安全）"""
+        with self._save_lock:
+            try:
+                active_patterns = {k: v for k, v in self.patterns.items() if v.usage_count > 0}
+                with open(self.cache_file, 'w', encoding='utf-8') as f:
+                    json.dump({k: asdict(v) for k, v in active_patterns.items()}, f, indent=2)
+            except Exception as e:
+                logger.warning(f"保存修复模式缓存失败：{e}")
+    
+    def _save_cache_async(self):
+        """异步保存缓存"""
+        def save_thread():
+            try:
+                self._save_cache()
+            except Exception as e:
+                logger.warning(f"异步保存修复模式缓存失败：{e}")
+        
+        threading.Thread(target=save_thread, daemon=True).start()
+    
+    def _get_eviction_priority(self, signature: str, pattern: FixPattern) -> tuple:
+        """获取淘汰优先级（返回值越小越优先淘汰）"""
+        return (
+            pattern.is_anti_pattern(),  # 反模式优先删除 (True=1 < False=0)
+            pattern.success_rate,       # 成功率低优先
+            pattern.last_hit_time or 0, # 时间久远优先（时间戳小优先）
+            -pattern.usage_count        # 使用次数少优先（负数使小的在前）
+        )
     
     def _generate_error_signature(self, classification: ErrorClassification, project_type: str, file_type: str) -> str:
         """生成错误特征签名"""
@@ -91,7 +114,7 @@ class FixPatternCache:
                 logger.warning(f"修复模式 {signature} 为反模式，跳过 (失败{pattern.failed_count}次, 成功率{pattern.success_rate:.0%})")
                 return None
             pattern.usage_count += 1
-            self._save_cache()
+            self._save_cache_async()
             return pattern
         return None
     
@@ -117,7 +140,8 @@ class FixPatternCache:
         )
         
         self.patterns[signature] = new_pattern
-        self._save_cache()
+        self._apply_decay_and_cleanup()
+        self._save_cache_async()
     
     def update_pattern_success(self, signature: str, success: bool, failure_reason: Optional[str] = None):
         """更新修复模式的成功率（含反模式追踪）"""
@@ -134,11 +158,11 @@ class FixPatternCache:
             pattern.last_hit_time = time.time()
             pattern.hit_count += 1
 
-            self._save_cache()
+            self._save_cache_async()
             self._apply_decay_and_cleanup()
     
     def _apply_decay_and_cleanup(self):
-        """应用缓存衰减和清理策略"""
+        """应用缓存衰减和清理策略（含 LRU 淘汰机制）"""
         current_time = time.time()
         patterns_to_remove = []
         
@@ -157,12 +181,28 @@ class FixPatternCache:
             if days_since_last_hit > 60:
                 patterns_to_remove.append(signature)
         
-        # 移除长期未命中的模式
+        # LRU 淘汰机制：当缓存超过容量上限时，按优先级淘汰
+        if len(self.patterns) > self.max_size:
+            # 计算需要删除的条目数
+            excess_count = len(self.patterns) - self.max_size
+            
+            # 按淘汰优先级排序
+            sorted_items = sorted(
+                self.patterns.items(),
+                key=lambda item: self._get_eviction_priority(item[0], item[1])
+            )
+            
+            # 添加需要淘汰的条目到删除列表
+            patterns_to_remove.extend([sig for sig, _ in sorted_items[:excess_count]])
+            logger.info(f"缓存触发容量上限 ({len(self.patterns)} > {self.max_size})，计划淘汰 {excess_count} 个条目")
+        
+        # 执行删除
         for signature in patterns_to_remove:
             del self.patterns[signature]
         
         if patterns_to_remove:
             self._save_cache()
+            logger.info(f"清理 {len(patterns_to_remove)} 个缓存条目，剩余 {len(self.patterns)} 个")
     
     def _tokenize(self, text: str) -> List[str]:
         tokens = text.lower().split()
@@ -222,5 +262,5 @@ class FixPatternCache:
         return [p for _, p in scored]
 
 
-# 全局修复模式缓存实例
-fix_pattern_cache = FixPatternCache()
+# 全局修复模式缓存实例（带容量上限）
+fix_pattern_cache = FixPatternCache(max_size=1000)

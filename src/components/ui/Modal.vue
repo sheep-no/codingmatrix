@@ -38,7 +38,7 @@
 </template>
 
 <script setup>
-  defineProps({
+  const props = defineProps({
     visible: { type: Boolean, default: false },
     title: { type: String, default: '' },
     size: {
@@ -49,7 +49,7 @@
     closeOnBackdrop: { type: Boolean, default: true }
   })
 
-  defineEmits(['close'])
+  const emit = defineEmits(['close'])
 
   const handleBackdropClick = () => {
     if (props.closeOnBackdrop) {

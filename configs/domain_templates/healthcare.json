@@ -1,0 +1,35 @@
+{
+  "domain": "healthcare",
+  "version": "1.0",
+  "description": "医疗健康领域模板",
+  "applicable_project_types": ["medium", "large", "enterprise"],
+  "core_modules": [
+    {"name": "挂号系统", "category": "core", "impact": "预约基础", "options": ["线上预约", "预约+排班管理"], "default": "预约+排班"},
+    {"name": "病历管理", "category": "core", "impact": "数据核心", "options": ["简易记录", "结构化病历+历史"], "default": "结构化病历"},
+    {"name": "用户系统", "category": "core", "impact": "角色", "options": ["患者端", "患者+医生+管理员"], "default": "患者+医生+管理员"},
+    {"name": "处方系统", "category": "optional", "impact": "诊疗", "options": ["无", "开处方+药品库"], "default": "开处方+药品库"},
+    {"name": "体检报告", "category": "optional", "impact": "健康数据", "options": ["无", "体检录入+报告查询"], "default": "无"},
+    {"name": "支付/收费", "category": "optional", "impact": "费用", "options": ["无", "挂号费+诊疗费"], "default": "挂号费"},
+    {"name": "消息通知", "category": "optional", "impact": "提醒", "options": ["无", "就诊提醒+报告通知"], "default": "就诊提醒"},
+    {"name": "健康档案", "category": "optional", "impact": "长期管理", "options": ["无", "健康数据追踪"], "default": "无"}
+  ],
+  "non_functional_requirements": [
+    {"category": "security", "item": "病历数据加密存储", "priority": "high"},
+    {"category": "security", "item": "HIPAA/隐私合规", "priority": "high"},
+    {"category": "security", "item": "数据访问权限控制", "priority": "high"},
+    {"category": "reliability", "item": "挂号不超卖", "priority": "high"},
+    {"category": "performance", "item": "排班查询响应快", "priority": "medium"}
+  ],
+  "common_pitfalls": [
+    "医疗数据隐私合规要求严格，需要细粒度权限控制",
+    "病历结构化需要考虑医学术语标准化（ICD编码）",
+    "挂号排班需要处理医生时间冲突和号源余量",
+    "处方需要药品库和配伍禁忌检查",
+    "医疗数据需要长期保留和备份"
+  ],
+  "key_decisions": [
+    {"question": "数据隐私合规？", "impact": "architecture", "options": ["基础加密", "HIPAA级别合规（审计+脱敏+授权）"]},
+    {"question": "挂号排班？", "impact": "data_model", "options": ["固定时段", "动态排班+余量实时更新"]},
+    {"question": "病历格式？", "impact": "data_model", "options": ["自由文本", "结构化表单+医学编码"]}
+  ]
+}

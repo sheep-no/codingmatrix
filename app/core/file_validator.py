@@ -211,7 +211,7 @@ def validate_svg_content(content: bytes) -> bool:
         
         for pattern in dangerous_patterns:
             if pattern in content_str:
-                print(f"⚠️ 检测到 SVG 中的危险模式：{pattern}")
+                print(f"[WARNING] 检测到 SVG 中的危险模式：{pattern}")
                 return False
         
         return True
@@ -237,7 +237,7 @@ def validate_archive_content(content: bytes, archive_type: str) -> bool:
                 for name in zf.namelist():
                     # 检查文件名是否安全
                     if not is_safe_filename(name):
-                        print(f"⚠️ 检测到不安全的文件名：{name}")
+                        print(f"[WARNING] 检测到不安全的文件名：{name}")
                         return False
                     
                     # 检查文件扩展名

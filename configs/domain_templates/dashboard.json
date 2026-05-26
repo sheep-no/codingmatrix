@@ -1,0 +1,33 @@
+{
+  "domain": "dashboard",
+  "version": "1.0",
+  "description": "数据大屏/Dashboard/BI 领域模板",
+  "applicable_project_types": ["small", "medium", "large"],
+  "core_modules": [
+    {"name": "数据源接入", "category": "core", "impact": "数据基础", "options": ["模拟数据", "API+数据库"], "default": "API+数据库"},
+    {"name": "图表组件", "category": "core", "impact": "可视化核心", "options": ["基础图表", "多类型图表库"], "default": "多类型图表库"},
+    {"name": "实时刷新", "category": "core", "impact": "时效性", "options": ["手动刷新", "定时自动刷新"], "default": "定时自动刷新"},
+    {"name": "数据筛选", "category": "optional", "impact": "交互", "options": ["无", "时间范围+维度筛选"], "default": "时间范围筛选"},
+    {"name": "布局系统", "category": "core", "impact": "展示效果", "options": ["固定布局", "拖拽自适应布局"], "default": "拖拽自适应"},
+    {"name": "报表导出", "category": "optional", "impact": "数据分析", "options": ["无", "PDF/Excel导出"], "default": "无"},
+    {"name": "告警通知", "category": "optional", "impact": "运维", "options": ["无", "阈值告警+推送"], "default": "无"},
+    {"name": "多页签", "category": "optional", "impact": "信息组织", "options": ["单页", "多页签切换"], "default": "单页"}
+  ],
+  "non_functional_requirements": [
+    {"category": "performance", "item": "图表渲染流畅", "priority": "high"},
+    {"category": "performance", "item": "数据查询<1s", "priority": "high"},
+    {"category": "reliability", "item": "数据源断连降级显示", "priority": "medium"},
+    {"category": "scalability", "item": "支持大数据量渲染", "priority": "medium"}
+  ],
+  "common_pitfalls": [
+    "ECharts大数据量渲染需要开启数据采样或增量渲染",
+    "实时刷新频率过高会压垮后端API",
+    "拖拽布局在不同屏幕尺寸下对齐困难",
+    "数据源异常时需要降级显示，不能直接空白"
+  ],
+  "key_decisions": [
+    {"question": "图表库选择？", "impact": "frontend", "options": ["ECharts（功能丰富）", "Chart.js（轻量）"]},
+    {"question": "实时刷新方式？", "impact": "architecture", "options": ["定时请求（简单）", "WebSocket推送（实时）"]},
+    {"question": "布局方案？", "impact": "frontend", "options": ["固定Grid布局（简单稳定）", "拖拽自适应（灵活但开发量大）"]}
+  ]
+}

@@ -6,10 +6,10 @@ Manages WebSocket connections for real-time task notifications.
 import asyncio
 import json
 import logging
-from typing import Dict, Set, Optional
+from typing import Dict, Set, List, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class ConnectionInfo:
     """WebSocket connection metadata"""
     websocket: WebSocket
     user_id: int
-    connected_at: datetime = field(default_factory=datetime.utcnow)
+    connected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     subscriptions: Set[str] = field(default_factory=set)
 
 
@@ -28,7 +28,7 @@ class WebSocketManager:
     Manages WebSocket connections and message broadcasting.
 
     Features:
-    - User-based connection grouping
+    - User-based connection grouping (multiple connections per user)
     - Task-specific subscriptions
     - Automatic reconnection handling
     - Connection health monitoring
@@ -36,7 +36,7 @@ class WebSocketManager:
     """
 
     def __init__(self, max_connections: int = 50):
-        self._connections: Dict[int, ConnectionInfo] = {}
+        self._connections: Dict[int, List[ConnectionInfo]] = {}
         self._lock = asyncio.Lock()
         self._max_connections = max_connections
 
@@ -52,7 +52,7 @@ class WebSocketManager:
             WebSocketDisconnect: If connection limit is reached
         """
         async with self._lock:
-            current_count = len(self._connections)
+            current_count = sum(len(conns) for conns in self._connections.values())
 
             if current_count >= self._max_connections:
                 logger.warning(
@@ -64,42 +64,72 @@ class WebSocketManager:
 
             await websocket.accept()
             conn_info = ConnectionInfo(websocket=websocket, user_id=user_id)
-            self._connections[user_id] = conn_info
+
+            if user_id not in self._connections:
+                self._connections[user_id] = []
+            self._connections[user_id].append(conn_info)
 
         logger.info(f"WebSocket connected: user_id={user_id} | total={current_count + 1}")
 
-    async def disconnect(self, user_id: int):
+    async def disconnect(self, user_id: int, websocket: Optional[WebSocket] = None):
         """
         Remove WebSocket connection.
 
         Args:
             user_id: User identifier
+            websocket: Specific WebSocket to remove (if None, remove all for user)
         """
         async with self._lock:
-            if user_id in self._connections:
+            if user_id not in self._connections:
+                return
+
+            if websocket is None:
+                # Remove all connections for user
                 del self._connections[user_id]
-                logger.info(f"WebSocket disconnected: user_id={user_id}")
+                logger.info(f"WebSocket disconnected: user_id={user_id} (all connections)")
+            else:
+                # Remove specific connection
+                self._connections[user_id] = [
+                    conn for conn in self._connections[user_id]
+                    if conn.websocket != websocket
+                ]
+                if not self._connections[user_id]:
+                    del self._connections[user_id]
+                logger.info(f"WebSocket disconnected: user_id={user_id} (specific connection)")
 
     async def send_personal_message(self, user_id: int, message: dict):
         """
-        Send message to specific user's connection.
+        Send message to all of user's connections.
 
         Args:
             user_id: User identifier
             message: Message data (will be JSON serialized)
         """
         async with self._lock:
-            conn_info = self._connections.get(user_id)
+            conn_list = self._connections.get(user_id, [])
 
-        if conn_info is None:
+        if not conn_list:
             logger.warning(f"Cannot send message to user {user_id}: no connection")
             return
 
-        try:
-            await conn_info.websocket.send_json(message)
-        except Exception as e:
-            logger.error(f"Error sending to user {user_id}: {e}")
-            self.disconnect(user_id)
+        failed_connections = []
+        for conn_info in conn_list:
+            try:
+                await conn_info.websocket.send_json(message)
+            except Exception as e:
+                logger.error(f"Error sending to user {user_id}: {e}")
+                failed_connections.append(conn_info)
+
+        # Clean up failed connections
+        if failed_connections:
+            async with self._lock:
+                if user_id in self._connections:
+                    self._connections[user_id] = [
+                        conn for conn in self._connections[user_id]
+                        if conn not in failed_connections
+                    ]
+                    if not self._connections[user_id]:
+                        del self._connections[user_id]
 
     async def send_task_update(
         self,
@@ -118,114 +148,41 @@ class WebSocketManager:
         message = {
             "type": "task_update",
             "task_id": task_id,
-            "timestamp": datetime.utcnow().isoformat(),
-            "data": data
+            "data": data,
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         await self.send_personal_message(user_id, message)
 
-    async def send_progress(
-        self,
-        user_id: int,
-        task_id: str,
-        progress: int,
-        message: str = ""
-    ):
-        """
-        Send task progress update.
-
-        Args:
-            user_id: User identifier
-            task_id: Task identifier
-            progress: Progress percentage (0-100)
-            message: Progress description
-        """
-        await self.send_task_update(
-            user_id,
-            task_id,
-            {
-                "status": "PROGRESS",
-                "progress": progress,
-                "message": message
-            }
-        )
-
-    async def broadcast(self, message: dict, exclude_users: set = None):
+    async def broadcast(self, message: dict):
         """
         Broadcast message to all connected users.
 
         Args:
-            message: Message data
-            exclude_users: User IDs to exclude from broadcast
+            message: Message data (will be JSON serialized)
         """
-        exclude_users = exclude_users or set()
-
         async with self._lock:
-            connections = list(self._connections.items())
+            all_connections = []
+            for conn_list in self._connections.values():
+                all_connections.extend(conn_list)
 
-        for user_id, conn_info in connections:
-            if user_id in exclude_users:
-                continue
-
+        for conn_info in all_connections:
             try:
                 await conn_info.websocket.send_json(message)
             except Exception as e:
-                logger.error(f"Error broadcasting to user {user_id}: {e}")
-                self.disconnect(user_id)
+                logger.error(f"Error broadcasting to user {conn_info.user_id}: {e}")
 
-    async def get_connection_count(self) -> int:
-        """Get number of active connections (thread-safe)."""
-        async with self._lock:
-            return len(self._connections)
+    def get_connection_count(self) -> int:
+        """Get total number of active connections."""
+        return sum(len(conns) for conns in self._connections.values())
 
-    async def get_connection_info(self) -> dict:
-        """Get connection statistics (thread-safe)."""
-        async with self._lock:
-            return {
-                "current": len(self._connections),
-                "max": self._max_connections,
-                "available": self._max_connections - len(self._connections)
-            }
+    def get_user_count(self) -> int:
+        """Get number of connected users."""
+        return len(self._connections)
 
-    async def set_max_connections(self, max_connections: int):
-        """Update max connections limit dynamically."""
-        async with self._lock:
-            self._max_connections = max_connections
-        logger.info(f"WebSocket max connections updated: {max_connections}")
-
-    async def get_user_connection(self, user_id: int) -> Optional[ConnectionInfo]:
-        """Get connection info for a user (thread-safe)."""
-        async with self._lock:
-            return self._connections.get(user_id)
+    def is_connected(self, user_id: int) -> bool:
+        """Check if user has any active connections."""
+        return user_id in self._connections and len(self._connections[user_id]) > 0
 
 
-def _get_max_connections() -> int:
-    """Get max connections from config, with fallback."""
-    try:
-        from app.core.config import settings
-        return getattr(settings, 'WS_MAX_CONNECTIONS', 50)
-    except Exception:
-        return 50
-
-
-# Lazy initialization singleton
-_ws_manager_instance: Optional[WebSocketManager] = None
-
-
-def get_ws_manager() -> WebSocketManager:
-    """Get or create WebSocketManager singleton."""
-    global _ws_manager_instance
-    if _ws_manager_instance is None:
-        _ws_manager_instance = WebSocketManager(max_connections=_get_max_connections())
-    return _ws_manager_instance
-
-
-# Backward compatible module-level access (lazy)
-class _WsManagerProxy:
-    """Proxy for backward compatible ws_manager access."""
-    _instance: Optional[WebSocketManager] = None
-
-    def __getattr__(self, name):
-        return getattr(get_ws_manager(), name)
-
-
-ws_manager = _WsManagerProxy()
+# Global WebSocket manager instance
+ws_manager = WebSocketManager()

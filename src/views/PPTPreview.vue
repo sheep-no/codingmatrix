@@ -18,7 +18,7 @@
         <span>PPT 预览</span>
       </div>
       <div class="header-actions">
-        <a :href="downloadUrl" class="btn btn-primary" v-if="downloadUrl">
+        <a v-if="downloadUrl" :href="downloadUrl" class="btn btn-primary">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
@@ -29,7 +29,7 @@
       </div>
     </header>
 
-    <div class="page-content" v-if="slides.length > 0">
+    <div v-if="slides.length > 0" class="page-content">
       <div class="slides-container">
         <div 
           v-for="(slide, index) in slides" 
@@ -48,7 +48,7 @@
       </div>
     </div>
 
-    <div class="page-content" v-else>
+    <div v-else class="page-content">
       <div class="empty-state">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>

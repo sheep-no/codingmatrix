@@ -10,11 +10,7 @@
         "enterprise": 10,
         "superadmin": 50
       },
-      "user_overrides": {
-        // 格式: "user_id": {"limit": 3, "tier": "custom"}
-        // "123": {"limit": 3, "tier": "custom"},
-        // "456": {"limit": 8, "tier": "premium"}
-      }
+      "user_overrides": {}
     },
     "session_management": {
       "cleanup_inactive_after_hours": 24,

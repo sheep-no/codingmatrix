@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.schema.codeRequest import CodeRequest
 from app.utils import call_llm
+from app.utils.AiCodeUtil import call_siliconflow
 from app.utils.cache import cached
 from app.utils.web_search import FreeWebSearch
 from fastapi.responses import StreamingResponse
@@ -518,7 +519,8 @@ async def stream_response(
     search_timelimit: Optional[str] = None,
     files_to_parse: List[str] = None,
     include_history: bool = True,
-    resume_from: Optional[str] = None
+    resume_from: Optional[str] = None,
+    api_key_token: str = None
 ) -> AsyncGenerator[str, None]:
     """
     通用流式响应（支持文件解析、历史上下文、联网搜索、SSE 断开检测）
@@ -555,7 +557,7 @@ async def stream_response(
     response_parts = []
 
     try:
-        result_gen = await call_siliconflow(final_prompt, model, stream=True, cancel_event=cancel_event)
+        result_gen = await call_siliconflow(final_prompt, model, stream=True, cancel_event=cancel_event, api_key_token=api_key_token)
 
         async for chunk in result_gen:
             # 检测 SSE 断开
@@ -635,7 +637,8 @@ async def generate_response(
     enable_search: Optional[bool] = None,
     search_count: int = 5,
     files_to_parse: List[str] = None,
-    include_history: bool = True
+    include_history: bool = True,
+    api_key_token: str = None
 ) -> Dict:
     """
     通用非流式响应
@@ -656,7 +659,7 @@ async def generate_response(
     
     logger.info(f"执行非流式请求 | user_id={user_id} | model={model}")
     
-    result = await call_siliconflow(final_prompt, model, stream=False)
+    result = await call_siliconflow(final_prompt, model, stream=False, api_key_token=api_key_token)
     response = result["choices"][0]["message"]["content"]
     tokens_used = format_tokens_usage(result)
     
@@ -754,7 +757,8 @@ async def generate_code(
                     search_timelimit=getattr(body, 'search_timelimit', None),
                     files_to_parse=files_to_parse if files_to_parse else None,
                     include_history=True,
-                    resume_from=getattr(body, 'resume_id', None)
+                    resume_from=getattr(body, 'resume_id', None),
+                    api_key_token=body.api_key_token
                 ),
                 media_type="text/plain"
             )
@@ -769,7 +773,8 @@ async def generate_code(
                 enable_search=body.enable_search,
                 search_count=body.search_count or 5,
                 files_to_parse=files_to_parse if files_to_parse else None,
-                include_history=True
+                include_history=True,
+                api_key_token=body.api_key_token
             )
     
     except HTTPException:

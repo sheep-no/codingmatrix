@@ -1,6 +1,6 @@
 # 安全架构概览
 
-> 最后更新: 2026-05-11 | 状态: 生产就绪
+> 最后更新: 2026-05-26 | 状态: 生产就绪 | 版本: v5.9.0
 
 ## 认证与授权
 
@@ -28,11 +28,49 @@
 ```python
 @require_role(Role.SUPERADMIN)
 async def handler(request):
-    pass
+ pass
 
 @require_role(Role.ADMIN, Role.SUPERADMIN)
 async def handler(request):
-    pass
+ pass
+```
+
+### API Key 安全 (v5.9.0)
+
+#### RSA-2048 加密传输
+
+用户 API Key 使用 RSA-2048 加密传输：
+
+1. 前端获取后端 RSA 公钥
+2. 使用公钥加密 API Key
+3. 加密后的 Token 存储在 Redis 中
+4. Token 有 TTL，自动过期
+
+#### Redis 内存存储
+
+```python
+# 存储结构
+api_key_token = {
+ "user_id": "user-uuid",
+ "encrypted_key": "RSA-encrypted-api-key",
+ "created_at": "2026-05-26T10:00:00Z",
+ "expires_at": "2026-05-26T18:00:00Z"  # 8 小时过期
+}
+```
+
+#### Token 使用统计
+
+```python
+# 从 chat_histories 表查询
+token_usage = {
+ "today": {"prompt_tokens": 1000, "completion_tokens": 2000},
+ "this_month": {"prompt_tokens": 50000, "completion_tokens": 100000},
+ "total": {"prompt_tokens": 200000, "completion_tokens": 400000},
+ "by_model": {
+   "THUDM/GLM-Z1-9B-0414": {"prompt_tokens": 5000, "completion_tokens": 10000},
+   "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": {"prompt_tokens": 3000, "completion_tokens": 8000}
+ }
+}
 ```
 
 ## 网络安全
@@ -75,13 +113,13 @@ async def handler(request):
 
 ```
 Request → LogMiddleware (请求日志)
-        → SecurityMiddleware (安全头部)
-        → CORSMiddleware (跨域控制)
-        → CSRFMiddleware (CSRF 验证)
-        → RateLimitMiddleware (速率限制)
-        → JWTMiddleware (认证)
-        → ConcurrencyLimitMiddleware (并发限制)
-        → Route Handler
+ → SecurityMiddleware (安全头部)
+ → CORSMiddleware (跨域控制)
+ → CSRFMiddleware (CSRF 验证)
+ → RateLimitMiddleware (速率限制)
+ → JWTMiddleware (认证)
+ → ConcurrencyLimitMiddleware (并发限制)
+ → Route Handler
 ```
 
 ### SecurityMiddleware 设置的头部
@@ -138,3 +176,33 @@ Request → LogMiddleware (请求日志)
 2. 监控异常请求模式
 3. 及时更新安全策略
 4. 定期备份数据
+
+## 输入验证
+
+CodingMatrix 遵循 OWASP Top 10 安全最佳实践。
+
+### 验证机制
+- **Pydantic Schema**: 严格类型验证
+- **SQL 参数化查询**: 防注入
+- **文件上传限制**: 类型/大小限制
+- **路径遍历防护**: 防止目录穿越
+
+### 安全端点
+
+| 端点 | 描述 |
+|------|------|
+| GET /api/v1/public-key | 获取 RSA 公钥 |
+| GET /api/v1/csrf-token | 获取 CSRF Token |
+| POST /api/v1/vision/check-safety | 图像安全检查 |
+
+### 服务保护
+- **熔断器**: 防止服务雪崩
+- **超时控制**: 防止请求 hang 住
+- **资源限制**: CPU/内存使用限制
+
+## 安全建议
+
+1. 定期更新依赖 (运行 `pip audit`)
+2. 定期轮换 SECRET_KEY
+3. 监控异常访问模式
+4. 保持 HTTPS 始终开启

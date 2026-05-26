@@ -22,9 +22,10 @@ class CodeRequest(BaseModel):
     model: Optional[str] = Field(None, description="指定模型（不指定则自动选择）")
     stream: Optional[bool] = Field(False, description="是否流式输出")
     use_reasoning: Optional[bool] = Field(False, description="是否启用深度推理")
-    conversation_id: Optional[str] = Field(None, description="会话 ID")
+    conversation_id: Optional[int] = Field(None, description="会话 ID")
+    api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
 
-    # 联网搜索配置
+    # 联网搜索的配置
     enable_search: Optional[bool] = Field(None, description="是否允许联网搜索（True=允许，False=禁止，None=AI 自主决定）")
     search_count: Optional[int] = Field(5, description="搜索结果数量")
     search_timelimit: Optional[str] = Field(None, description="搜索时间范围（如'week', 'month'）")

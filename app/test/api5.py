@@ -32,7 +32,7 @@ async def test_gaopin_api():
         # 尝试解析 JSON
         try:
             data = resp.json()
-            print(f"\n✅ JSON 解析成功!")
+            print(f"\n[SUCCESS] JSON 解析成功!")
             print(f"return_code: {data.get('return_code')}")
             print(f"total: {data.get('return_data', {}).get('total', 0)}")
 
@@ -44,10 +44,10 @@ async def test_gaopin_api():
                 print(f"  title: {img.get('title')}")
                 print(f"  thumbnailUrl300C: {img.get('thumbnailUrl300C', '')[:60]}...")
             else:
-                print("\n⚠️ 无图片数据")
+                print("\n[WARNING] 无图片数据")
 
         except json.JSONDecodeError as e:
-            print(f"\n❌ JSON 解析失败: {e}")
+            print(f"\n[ERROR] JSON 解析失败: {e}")
             print(f"响应可能是 HTML: {'<html' in resp.text[:100].lower()}")
 
 # 运行

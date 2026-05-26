@@ -72,6 +72,7 @@ class PPTGenerationRequest(BaseModel):
     conversation_id: Optional[int] = Field(None, description="会话 ID (用于携带历史上下文)")
     session_id: Optional[str] = Field(None, description="会话 ID (用于素材隔离)")
     material_file_ids: Optional[List[int]] = Field(None, description="已上传素材的文件 ID 列表")
+    api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
     
     # 增强选项
     template: str = Field(default="modern", description="模板风格")
@@ -421,7 +422,9 @@ def _render_slide_default(prs, blank_layout, style, slide_data, idx, total_slide
 
 
 # 导入 Aicode 的会话压缩和文件验证函数
-from app.api.v1.Aicode import compress_conversation_history, verify_file_access, call_siliconflow
+# call_siliconflow 从 AiCodeUtil.py 导入为独立函数
+from app.api.v1.Aicode import compress_conversation_history, verify_file_access
+from app.utils.AiCodeUtil import call_siliconflow
 
 # =============================================================================
 # 辅助函数：大纲生成、多格式导出、预览
@@ -471,7 +474,8 @@ async def generate_ppt_outline(req: PPTGenerationRequest) -> Dict[str, Any]:
     try:
         response = await call_siliconflow(
             prompt=prompt,
-            model=req.model
+            model=req.model,
+            api_key_token=req.api_key_token
         )
 
         # 从 API 响应中提取 content

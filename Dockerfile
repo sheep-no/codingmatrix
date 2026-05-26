@@ -24,7 +24,7 @@ FROM python:3.10-slim AS backend-deps
 
 WORKDIR /app
 
-COPY requirements.txt requirements-test.txt ./
+COPY configs/requirements.txt configs/requirements-test.txt ./
 
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -53,7 +53,7 @@ COPY --from=backend-deps /usr/local/bin /usr/local/bin
 
 # Copy backend source code
 COPY app/ ./app/
-COPY alembic.ini ./
+COPY configs/alembic.ini ./
 COPY migrations/ ./migrations/
 COPY pyproject.toml ./
 
@@ -61,7 +61,7 @@ COPY pyproject.toml ./
 COPY --from=frontend-builder /app/src/dist ./src/dist
 
 # Copy nginx configuration
-COPY nginx.conf /etc/nginx/nginx.conf
+COPY configs/nginx.conf /etc/nginx/nginx.conf
 
 # Install nginx
 RUN apt-get update && \

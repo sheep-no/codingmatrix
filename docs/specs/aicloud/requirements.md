@@ -15,25 +15,25 @@
 
 ```
 /api/v1/aicloud/
-├── chat                    # 聊天
-├── chat/stream             # 流式聊天
-├── read                    # 文件读取
-├── write                   # 文件写入
-├── history                 # 历史记录
-├── history/search          # 搜索历史
-├── history/export/{id}     # 导出会话
-├── history/{id}            # 删除会话 (DELETE)
-├── audit-logs              # 审计日志
-├── reviews                 # 审查列表
-├── reviews/approve         # 批准审查
-├── reviews/reject          # 拒绝审查
-├── models                  # 模型列表
-├── execute                 # 代码执行
-└── knowledge/              # 知识库
-    ├── upload              # 上传文档
-    ├── docs                # 文档列表
-    ├── docs/{id}           # 删除文档 (DELETE)
-    └── search              # 搜索知识
+├── chat # 聊天
+├── chat/stream # 流式聊天
+├── read # 文件读取
+├── write # 文件写入
+├── history # 历史记录
+├── history/search # 搜索历史
+├── history/export/{id} # 导出会话
+├── history/{id} # 删除会话 (DELETE)
+├── audit-logs # 审计日志
+├── reviews # 审查列表
+├── reviews/approve # 批准审查
+├── reviews/reject # 拒绝审查
+├── models # 模型列表
+├── execute # 代码执行
+└── knowledge/ # 知识库
+ ├── upload # 上传文档
+ ├── docs # 文档列表
+ ├── docs/{id} # 删除文档 (DELETE)
+ └── search # 搜索知识
 ```
 
 ## 实现状态: 完成

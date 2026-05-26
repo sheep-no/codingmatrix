@@ -27,6 +27,17 @@ export function createChatClient(client) {
         console.error('Failed to load conversation history:', error)
         return { messages: [] }
       }
+    },
+
+    async deleteChatHistory(conversationIds) {
+      const ids = Array.isArray(conversationIds) ? conversationIds : [conversationIds]
+      const params = ids.map(id => `conversation_ids=${id}`).join('&')
+      const url = `/code/history?${params}`
+      
+      // 返回原始 Response 对象，与 api.post 等行为保持一致
+      return await client.request(url, {
+        method: 'DELETE'
+      })
     }
   }
 }

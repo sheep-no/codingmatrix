@@ -1,0 +1,39 @@
+{
+  "domain": "ecommerce",
+  "version": "1.0",
+  "description": "电商/商城领域模板",
+  "applicable_project_types": ["medium", "large", "enterprise"],
+  "core_modules": [
+    {"name": "商品管理", "category": "core", "impact": "数据模型基础", "options": ["简单商品", "SKU+多规格"], "default": "SKU+多规格"},
+    {"name": "购物车", "category": "core", "impact": "交易核心", "options": ["基础购物车", "购物车+优惠券计算"], "default": "基础购物车"},
+    {"name": "订单管理", "category": "core", "impact": "交易核心", "options": ["简单下单", "订单+状态流转"], "default": "订单+状态流转"},
+    {"name": "支付集成", "category": "core", "impact": "交易核心", "options": ["模拟支付", "支付宝/微信支付"], "default": "模拟支付"},
+    {"name": "库存管理", "category": "core", "impact": "数据一致性", "options": ["简单计数", "库存+预扣+回滚"], "default": "简单计数"},
+    {"name": "用户系统", "category": "core", "impact": "认证基础", "options": ["注册登录", "注册登录+会员等级"], "default": "注册登录"},
+    {"name": "搜索功能", "category": "optional", "impact": "用户体验", "options": ["列表浏览", "关键词搜索+筛选"], "default": "列表浏览"},
+    {"name": "物流跟踪", "category": "optional", "impact": "用户体验", "options": ["无", "对接物流API"], "default": "无"},
+    {"name": "促销系统", "category": "optional", "impact": "业务扩展", "options": ["无", "优惠券+满减"], "default": "无"},
+    {"name": "评价系统", "category": "optional", "impact": "用户体验", "options": ["无", "评分+评论"], "default": "无"}
+  ],
+  "non_functional_requirements": [
+    {"category": "performance", "item": "商品列表加载<500ms", "priority": "high"},
+    {"category": "performance", "item": "高并发下单处理", "priority": "high"},
+    {"category": "security", "item": "支付安全（签名验证）", "priority": "high"},
+    {"category": "security", "item": "用户数据加密", "priority": "high"},
+    {"category": "reliability", "item": "库存超卖防护", "priority": "high"},
+    {"category": "reliability", "item": "支付回调幂等处理", "priority": "high"}
+  ],
+  "common_pitfalls": [
+    "库存超卖是电商最常见问题，下单时需预扣库存",
+    "支付回调需要幂等处理，避免重复扣款",
+    "商品SKU管理比想象复杂，需要规格组合+价格矩阵",
+    "订单状态流转需要考虑退款/取消的逆向流程",
+    "促销规则叠加计算容易出错（满减+优惠券+折扣）"
+  ],
+  "key_decisions": [
+    {"question": "库存扣减策略？", "impact": "architecture", "options": ["下单预扣（安全）", "支付后扣减（简单但可能超卖）"]},
+    {"question": "支付方式？", "impact": "architecture", "options": ["模拟支付（开发简单）", "对接真实支付网关（需异步回调）"]},
+    {"question": "商品搜索方案？", "impact": "performance", "options": ["数据库查询（简单）", "搜索引擎（高性能）"]},
+    {"question": "订单超时取消？", "impact": "architecture", "options": ["定时任务扫描", "延迟消息队列"]}
+  ]
+}

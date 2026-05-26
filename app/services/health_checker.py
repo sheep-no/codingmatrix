@@ -41,10 +41,10 @@ class HealthChecker:
 
     async def check_api(self) -> HealthCheckResult:
         """检查 API 应用状态"""
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         try:
             uptime = (datetime.utcnow() - self._start_time).total_seconds()
-            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            elapsed = (asyncio.get_running_loop().time() - start) * 1000
             return HealthCheckResult(
                 status="healthy",
                 response_time_ms=round(elapsed, 2),
@@ -55,7 +55,7 @@ class HealthChecker:
                 }
             )
         except Exception as e:
-            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            elapsed = (asyncio.get_running_loop().time() - start) * 1000
             return HealthCheckResult(
                 status="unhealthy",
                 response_time_ms=round(elapsed, 2),
@@ -64,20 +64,20 @@ class HealthChecker:
 
     async def check_database(self) -> HealthCheckResult:
         """检查数据库连接"""
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         try:
             from sqlalchemy import text
             from app.db.database import async_session
             async with async_session() as db:
                 await db.execute(text("SELECT 1"))
-            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            elapsed = (asyncio.get_running_loop().time() - start) * 1000
             return HealthCheckResult(
                 status="healthy",
                 response_time_ms=round(elapsed, 2),
                 message="数据库连接正常"
             )
         except Exception as e:
-            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            elapsed = (asyncio.get_running_loop().time() - start) * 1000
             logger.error(f"数据库健康检查失败: {e}")
             return HealthCheckResult(
                 status="unhealthy",
@@ -87,7 +87,7 @@ class HealthChecker:
 
     async def check_redis(self) -> HealthCheckResult:
         """检查 Redis 连接"""
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         try:
             import os
             redis_url = os.getenv("REDIS_URL")
@@ -100,19 +100,19 @@ class HealthChecker:
 
             from app.utils.cache import get_cache
             cache = await get_cache(redis_url)
-            await cache.set("health_check", "ok", expire=10)
+            await cache.set("health_check", "ok", ttl=10)
             value = await cache.get("health_check")
             if value != "ok":
                 raise Exception("Redis 读写验证失败")
 
-            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            elapsed = (asyncio.get_running_loop().time() - start) * 1000
             return HealthCheckResult(
                 status="healthy",
                 response_time_ms=round(elapsed, 2),
                 message="Redis 连接正常"
             )
         except Exception as e:
-            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            elapsed = (asyncio.get_running_loop().time() - start) * 1000
             logger.error(f"Redis 健康检查失败: {e}")
             return HealthCheckResult(
                 status="unhealthy",
@@ -122,7 +122,7 @@ class HealthChecker:
 
     async def check_celery(self) -> HealthCheckResult:
         """检查 Celery 队列状态"""
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         try:
             from app.celery_app import celery_app
             if not celery_app:
@@ -141,7 +141,7 @@ class HealthChecker:
                 for worker, info in stats.items():
                     queue_size += info.get("pool", {}).get("max-concurrency", 0)
 
-            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            elapsed = (asyncio.get_running_loop().time() - start) * 1000
             return HealthCheckResult(
                 status="healthy",
                 response_time_ms=round(elapsed, 2),
@@ -153,7 +153,7 @@ class HealthChecker:
                 }
             )
         except Exception as e:
-            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            elapsed = (asyncio.get_running_loop().time() - start) * 1000
             logger.warning(f"Celery 健康检查失败: {e}")
             return HealthCheckResult(
                 status="degraded",
@@ -163,13 +163,13 @@ class HealthChecker:
 
     async def check_websocket(self) -> HealthCheckResult:
         """检查 WebSocket 连接统计"""
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         try:
             from app.services.websocket_manager import get_ws_manager
             ws_manager = get_ws_manager()
             info = await ws_manager.get_connection_info()
 
-            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            elapsed = (asyncio.get_running_loop().time() - start) * 1000
             return HealthCheckResult(
                 status="healthy",
                 response_time_ms=round(elapsed, 2),
@@ -181,7 +181,7 @@ class HealthChecker:
                 }
             )
         except Exception as e:
-            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            elapsed = (asyncio.get_running_loop().time() - start) * 1000
             logger.error(f"WebSocket 健康检查失败: {e}")
             return HealthCheckResult(
                 status="unhealthy",
@@ -191,7 +191,7 @@ class HealthChecker:
 
     async def check_system(self) -> HealthCheckResult:
         """检查系统资源"""
-        start = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         try:
             disk = psutil.disk_usage("/")
             memory = psutil.virtual_memory()
@@ -205,7 +205,7 @@ class HealthChecker:
             elif memory_percent > 75 or disk.free < 5 * 1024 ** 3:
                 status = "degraded"
 
-            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            elapsed = (asyncio.get_running_loop().time() - start) * 1000
             return HealthCheckResult(
                 status=status,
                 response_time_ms=round(elapsed, 2),
@@ -218,7 +218,7 @@ class HealthChecker:
                 }
             )
         except Exception as e:
-            elapsed = (asyncio.get_event_loop().time() - start) * 1000
+            elapsed = (asyncio.get_running_loop().time() - start) * 1000
             logger.error(f"系统资源检查失败: {e}")
             return HealthCheckResult(
                 status="unhealthy",

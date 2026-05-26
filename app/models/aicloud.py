@@ -8,7 +8,7 @@ aicloud 数据模型
 - AicloudAuditLog: 审计日志
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Boolean, Index
 from sqlalchemy.orm import relationship
 from app.models.base import Base
@@ -20,8 +20,8 @@ class AicloudSession(Base):
 
     id = Column(String(36), primary_key=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    last_active_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_active_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     messages = relationship("AicloudMessage", back_populates="session", cascade="all, delete-orphan")
 
@@ -38,7 +38,7 @@ class AicloudMessage(Base):
     session_id = Column(String(36), ForeignKey("aicloud_sessions.id"), nullable=False, index=True)
     role = Column(String(20), nullable=False)
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     session = relationship("AicloudSession", back_populates="messages")
 

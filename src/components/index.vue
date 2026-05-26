@@ -58,8 +58,8 @@
 
       <!-- 工具组件们 -->
       <component
-        v-if="showChartEditor"
         :is="toolComponents.chartEditor"
+        v-if="showChartEditor"
         :visible="showChartEditor"
         @close="() => navigationStore.hideTool('chartEditor')"
       />
@@ -147,6 +147,7 @@
   import { streamManager } from '@/utils/streamManager'
   import { useNavigationStore } from '@/stores/navigation'
   import { useUserStore } from '@/stores/user'
+  import { useApiKeyStore } from '@/stores/apikey'
   import { useToast } from '@/composables/useToast'
   import { useOfflineQueue } from '@/composables/useOfflineQueue'
   import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
@@ -168,6 +169,7 @@
 
   const navigationStore = useNavigationStore()
   const userStore = useUserStore()
+  const apiKeyStore = useApiKeyStore()
   const { error: showError, success: showSuccess } = useToast()
   const offlineQueue = useOfflineQueue()
   const { register } = useKeyboardShortcuts()
@@ -214,7 +216,7 @@
       const key = String(conversationId)
       const historyToSave = customHistory !== null ? customHistory : conversationHistory.value
       conversationHistoryMap.value.set(key, JSON.parse(JSON.stringify(historyToSave)))
-      console.log('[SAVE] Saved chat history to dict:', key, 'message count:', historyToSave.length)
+
     }
   }
 
@@ -273,7 +275,7 @@
       try {
         isHistoryLoading.value = true
         const response = await api.post('/conversation/history', {
-          conversation_id: conversationId,
+          conversation_id: parseInt(conversationId, 10),
           last_history_id: null,
           limit: 50
         })
@@ -283,7 +285,7 @@
           if (data.items && data.items.length > 0) {
             const historyItems = data.items.map(message => ({
               id: message.id,
-              conversation_id: String(message.conversation_id),
+              conversation_id: parseInt(message.conversation_id, 10),
               prompt: message.prompt,
               response: message.response || '',
               reasoning: message.thinking || '',
@@ -358,7 +360,7 @@
   }
 
   const handlePPTGenerated = result => {
-    console.log('PPT 任务已创建:', result)
+
   }
 
   const handleQuickPrompt = prompt => {
@@ -420,7 +422,8 @@
       projectThinkingOpen: false,
       isProjectGenerator: messageData.is_project_generator || false,
       thinkingContent: '',
-      otherContent: ''
+      otherContent: '',
+      files: messageData.files?.filter(f => f.category === 'image') || []
     }
 
     conversationHistory.value.push(userMessage)
@@ -428,6 +431,7 @@
 
     const lastMessageIndex = conversationHistory.value.length - 1
     const currentMessageData = messageData
+    const streamConversationId = currentConversationId.value
 
     try {
       let response
@@ -448,17 +452,18 @@
         const requestData = {
           session_id: messageData.session_id || `project_${Date.now()}`,
           requirement: messageData.prompt,
-          model: messageData.model
+          model: messageData.model,
+          api_key_token: apiKeyStore.siliconflowKey?.token
         }
-        response = await api.stream('/agent/generate_stream', requestData, abortController.signal)
+        response = await api.stream('/agent/orchestrate/stream', requestData, abortController.signal)
       } else {
         const shouldSendConversationId =
           currentConversationId.value && !String(currentConversationId.value).startsWith('temp_')
         const sendConversationId = shouldSendConversationId
-          ? String(currentConversationId.value)
+          ? parseInt(String(currentConversationId.value), 10)
           : null
 
-        console.log('📤 发送请求时的 conversation_id:', sendConversationId)
+
 
         streamManager.saveStreamRequestState(
           {
@@ -477,7 +482,20 @@
           model: messageData.model || 'Qwen/Qwen2.5-7B-Instruct',
           stream: true,
           use_reasoning: messageData.use_reasoning || false,
-          conversation_id: sendConversationId
+          conversation_id: sendConversationId,
+          api_key_token: apiKeyStore.siliconflowKey?.token
+        }
+
+        // 集成 Vision: 将附件文件传递给后端自动处理
+        if (messageData.files && messageData.files.length > 0) {
+          requestData.files = messageData.files
+            .filter(f => f.serverPath)
+            .map(f => ({
+              server_path: f.serverPath,
+              name: f.name,
+              type: f.type,
+              category: f.category || 'document'
+            }))
         }
 
         response = await api.stream('/code', requestData, abortController.signal)
@@ -585,7 +603,7 @@
                     JSON.parse(JSON.stringify(cachedHistory))
                   )
                   conversationHistoryMap.value.delete(oldConversationId)
-                  console.log('🔄 已迁移字典数据:', oldConversationId, '->', newConversationId)
+
                 }
               }
 
@@ -732,77 +750,114 @@
 
     switch (data.type) {
       case 'thinking':
-        if (!message.hasThinking) {
-          message.response += `<details class="thinking-details"><summary>🤔 思考中...</summary>\n\n`
-          message.hasThinking = true
+        message.isProjectGenerator = true
+        if (!message.reasoning) {
+          message.reasoning = ''
         }
-        message.response += data.message
+        message.reasoning += data.message || ''
         break
 
       case 'status':
-        if (message.hasThinking && !message.thinkingClosed) {
-          message.response += `\n</details>\n\n`
-          message.thinkingClosed = true
-        }
+        message.isProjectGenerator = true
         message.response += `**${data.message}**\n\n`
         break
 
       case 'step_start':
-        message.response += `[INFO] ${data.message} (${data.step}/${data.max_steps})\n\n`
+        message.isProjectGenerator = true
+        message.currentStep = data.step || 0
+        message.maxSteps = data.max_steps || 0
+        message.response += `**[步骤 ${data.step}/${data.max_steps}]** ${data.message}\n\n`
         break
 
       case 'step_end':
-        if (message.hasThinking && !message.thinkingClosed) {
-          message.response += `\n</details>\n\n`
-          message.thinkingClosed = true
-        }
-        message.response += `[OK] ${data.message}\n\n`
+        message.isProjectGenerator = true
+        message.response += `[SUCCESS] ${data.message}\n\n`
         break
 
       case 'file_create_start':
-        if (message.hasThinking && !message.thinkingClosed) {
-          message.response += `\n</details>\n\n`
-          message.thinkingClosed = true
-        }
-        message.response += `📝 创建文件：${data.file_path}\n\n`
+        message.isProjectGenerator = true
+        message.response += `[CREATE] ${data.file_path}\n\n`
         break
 
       case 'file_created':
-        message.response += `[OK] File created: ${data.file_path}\n\n`
+        message.isProjectGenerator = true
+        message.filesCreated = (message.filesCreated || 0) + 1
+        message.response += `[SUCCESS] ${data.file_path} (${data.file_size || ''})\n\n`
         break
 
       case 'file_error':
-        message.response += `[ERR] File creation failed: ${data.file_path}\n${data.error}\n\n`
+        message.isProjectGenerator = true
+        message.response += `[ERROR] ${data.file_path}\n\n`
+        break
+
+      case 'file_skipped':
+        message.isProjectGenerator = true
+        message.response += `[SKIP] ${data.file_path}\n\n`
         break
 
       case 'validation':
-        message.response += `[FIND] ${data.message}\n\n`
-        if (data.status === 'failed' && data.missing_deps) {
-          message.response += `[WARN] Missing dependencies: ${data.missing_deps.join(', ')}\n\n`
+        message.isProjectGenerator = true
+        if (data.status === 'passed') {
+          message.response += `[SUCCESS] ${data.message}\n\n`
+        } else if (data.status === 'failed') {
+          message.response += `[WARNING] ${data.message}\n\n`
+          if (data.missing_deps) {
+            message.response += `[WARNING] 缺失依赖: ${data.missing_deps.join(', ')}\n\n`
+          }
+        } else {
+          message.response += `[INFO] ${data.message}\n\n`
         }
         break
 
+      case 'validation_progress':
+        message.isProjectGenerator = true
+        message.response += `[INFO] ${data.message}\n\n`
+        break
+
+      case 'validation_complete':
+        message.isProjectGenerator = true
+        message.response += `[SUCCESS] 验证完成\n\n`
+        break
+
       case 'complete':
-        if (message.hasThinking && !message.thinkingClosed) {
-          message.response += `\n</details>\n\n`
-          message.thinkingClosed = true
-        }
+        message.isProjectGenerator = true
         if (data.result && data.result.output_dir) {
           message.outputDir = data.result.output_dir
         }
-        message.response += `🎉 项目生成完成！\n`
-        message.response += `共创建 ${data.result?.total_files_created || data.total_files_created} 个文件\n`
-        message.response += `输出目录：${data.result?.output_dir || data.output_dir}\n\n`
+        const totalFiles = data.result?.total_files_created ?? data.total_files_created ?? 0
+        message.filesCreated = totalFiles
+        message.currentStep = data.step ?? data.total_steps ?? 0
+        message.maxSteps = data.max_steps ?? data.total_steps ?? 0
+        message.response += `\n---\n\n**[COMPLETE] 项目生成完成**\n\n`
+        message.response += `- 创建文件: ${totalFiles} 个\n`
+        message.response += `- 输出目录: ${data.result?.output_dir ?? data.output_dir ?? '未知'}\n\n`
         message.isStreaming = false
         break
 
       case 'error':
-        if (message.hasThinking && !message.thinkingClosed) {
-          message.response += `\n</details>\n\n`
-          message.thinkingClosed = true
-        }
-        message.response += `[ERR] Generation failed: ${data.message}\n\n`
+        message.isProjectGenerator = true
+        message.response += `[ERROR] 生成失败: ${data.message}\n\n`
         message.isStreaming = false
+        break
+
+      case 'dependency_check':
+        message.isProjectGenerator = true
+        message.response += `[INFO] 依赖检查: ${data.message}\n\n`
+        break
+
+      case 'structure_check':
+        message.isProjectGenerator = true
+        message.response += `[INFO] 结构检查: ${data.message}\n\n`
+        break
+
+      case 'tool_start':
+        message.isProjectGenerator = true
+        message.response += `[INFO] 执行工具: ${data.tool_name || data.message}\n\n`
+        break
+
+      case 'tool_result':
+        message.isProjectGenerator = true
+        message.response += `[SUCCESS] ${data.message}\n\n`
         break
     }
   }
@@ -830,7 +885,7 @@
             JSON.parse(JSON.stringify(cachedHistory))
           )
           conversationHistoryMap.value.delete(oldConversationId)
-          console.log('🔄 已迁移字典数据:', oldConversationId, '->', receivedConversationIdRef)
+
         }
       }
 
@@ -842,7 +897,7 @@
         if (leftlistRef.value && leftlistRef.value.addNewHistoryItem) {
           const newItem = {
             id: receivedConversationIdRef,
-            conversation_id: String(receivedConversationIdRef),
+            conversation_id: parseInt(receivedConversationIdRef, 10),
             title: messageData.prompt.slice(0, 50) + '...',
             prompt: messageData.prompt,
             created_at: new Date().toISOString()
@@ -875,7 +930,7 @@
         history[lastIndex].reasoning = currentReasoning + delta.reasoning_content
       } else if (delta.content) {
         if (model.includes('DeepSeek') || model.includes('deepseek')) {
-          history[lastIndex].reasoning = currentReasoning + content
+          history[lastIndex].reasoning = currentReasoning + delta.content
         } else if (model.includes('Qwen') || model.includes('qwen')) {
           history[lastIndex].response = currentResponse + delta.content
         } else {
@@ -921,7 +976,7 @@
     if (String(item.conversation_id).startsWith('temp_')) {
       if (cachedHistory) {
         conversationHistory.value = cachedHistory
-        console.log('[OK] Restored temp session history from dict:', item.conversation_id)
+
       } else {
         conversationHistory.value = []
       }
@@ -930,14 +985,14 @@
 
     if (cachedHistory) {
       conversationHistory.value = cachedHistory
-      console.log('[OK] Restored history from dict:', item.conversation_id)
+
     } else {
       conversationHistory.value = []
       isHistoryLoading.value = true
 
       try {
         const response = await api.post('/conversation/history', {
-          conversation_id: item.conversation_id,
+          conversation_id: parseInt(item.conversation_id, 10),
           last_history_id: null,
           limit: 50
         })
@@ -947,7 +1002,7 @@
           if (data.items && data.items.length > 0) {
             const historyItems = data.items.map(message => ({
               id: message.id,
-              conversation_id: String(message.conversation_id),
+              conversation_id: parseInt(message.conversation_id, 10),
               prompt: message.prompt,
               response: message.response || '',
               reasoning: message.thinking || '',
@@ -976,7 +1031,7 @@
   const handleLoadMoreHistory = async ({ conversation_id, last_history_id, limit }) => {
     try {
       const response = await api.post('/conversation/history', {
-        conversation_id,
+        conversation_id: parseInt(conversation_id, 10),
         last_history_id,
         limit
       })
@@ -1136,7 +1191,7 @@
 <style lang="css" scoped>
   .main-layout {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     width: 100%;
     height: 100vh;
     background: var(--bg-primary);

@@ -1,0 +1,634 @@
+<template>
+  <div class="api-key-manager">
+    <h2 class="section-title">API Key 管理</h2>
+    
+    <!-- 硅基流动 Key (必填) -->
+    <div class="key-card required-key">
+      <div class="key-card-header">
+        <span class="provider-icon">🔑</span>
+        <span class="provider-name">硅基流动 (SiliconFlow)</span>
+        <span class="required-badge">必填</span>
+        <span :class="['status-badge', siliconflowKey?.status || 'unverified']">
+          {{ getStatusText(siliconflowKey?.status) }}
+        </span>
+      </div>
+      
+      <div v-if="!siliconflowKey" class="key-card-body">
+        <p class="guide-text">
+          配置硅基流动 API Key 以使用 Agent 功能。
+          <a href="https://cloud.siliconflow.cn/" target="_blank" class="guide-link">前往注册 →</a>
+        </p>
+        <div class="add-key-form">
+          <input v-model="siliconflowForm.key" type="password" placeholder="输入 API Key" class="key-input" />
+          <select v-model="siliconflowForm.ttl" class="ttl-select">
+            <option value="24h">24 小时</option>
+            <option value="7d">7 天</option>
+            <option value="30d">30 天</option>
+          </select>
+          <button :disabled="loading" class="submit-btn" @click="submitSiliconflowKey">
+            {{ loading ? '保存中...' : '保存' }}
+          </button>
+        </div>
+      </div>
+      
+      <div v-else class="key-card-body">
+        <div class="key-info">
+          <span class="key-remark">{{ siliconflowKey.remark || '主 Key' }}</span>
+          <span class="key-expiry">剩余：{{ getRemainingTime(siliconflowKey) }}</span>
+        </div>
+        <div class="key-actions">
+          <button class="action-btn test-btn" @click="testKey(siliconflowKey.token)">测试连接</button>
+          <button class="action-btn delete-btn" @click="deleteKey(siliconflowKey.token)">清除</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 其他供应商 Key -->
+    <div class="other-keys-section">
+      <h3 class="subsection-title">其他供应商 (可选)</h3>
+      
+      <!-- 添加新 Key 表单 -->
+      <div class="add-key-form-expanded">
+        <select v-model="newKeyForm.provider" class="provider-select">
+          <option value="">选择供应商</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="bailian">阿里百炼</option>
+          <option value="glm">智谱 GLM</option>
+          <option value="deepseek">DeepSeek</option>
+        </select>
+        <input v-model="newKeyForm.key" type="password" placeholder="输入 API Key" class="key-input" />
+        <input v-model="newKeyForm.remark" type="text" placeholder="备注 (可选)" class="remark-input" />
+        <select v-model="newKeyForm.ttl" class="ttl-select">
+          <option value="1h">1 小时</option>
+          <option value="24h">24 小时</option>
+          <option value="7d">7 天</option>
+          <option value="30d">30 天</option>
+        </select>
+        <button :disabled="loading || !newKeyForm.provider || !newKeyForm.key" class="submit-btn" @click="submitNewKey">
+          {{ loading ? '添加中...' : '添加' }}
+        </button>
+      </div>
+      
+      <!-- Key 列表 -->
+      <div v-if="otherKeys.length > 0" class="key-list">
+        <div v-for="key in otherKeys" :key="key.token" class="key-card">
+          <div class="key-card-header">
+            <span class="provider-icon">{{ getProviderIcon(key.provider) }}</span>
+            <span class="provider-name">{{ getProviderName(key.provider) }}</span>
+            <span :class="['status-badge', key.status]">
+              {{ getStatusText(key.status) }}
+            </span>
+          </div>
+          <div class="key-card-body">
+            <div class="key-info">
+              <span class="key-remark">{{ key.remark || '-' }}</span>
+              <span class="key-expiry">剩余：{{ getRemainingTime(key) }}</span>
+            </div>
+            <div class="key-actions">
+              <button class="action-btn test-btn" @click="testKey(key.token)">测试</button>
+              <button class="action-btn toggle-btn" @click="toggleEnabled(key)">
+                {{ key.enabled ? '禁用' : '启用' }}
+              </button>
+              <button class="action-btn delete-btn" @click="deleteKey(key.token)">清除</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div v-else class="empty-state">
+        <p>暂无其他供应商 Key</p>
+      </div>
+    </div>
+    
+    <!-- 安全提示 -->
+    <div class="security-notice">
+      <h4 class="notice-title">🔒 安全说明</h4>
+      <ul class="notice-list">
+        <li>Key 使用 RSA 加密传输</li>
+        <li>仅存储在 Redis 内存中，不落库</li>
+        <li>到期自动清除，可随时手动删除</li>
+        <li>前端不保存任何 Key，仅保存无意义 Token</li>
+      </ul>
+    </div>
+
+    <!-- Token 使用统计 -->
+    <div class="token-usage-section">
+      <h3 class="subsection-title">Token 使用统计</h3>
+      <div v-if="tokenUsage" class="token-usage-stats">
+        <div class="stat-card">
+          <div class="stat-label">今日使用</div>
+          <div class="stat-value">{{ formatNumber(tokenUsage.today_tokens) }}</div>
+          <div class="stat-unit">tokens</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">本月使用</div>
+          <div class="stat-value">{{ formatNumber(tokenUsage.this_month_tokens) }}</div>
+          <div class="stat-unit">tokens</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">总使用量</div>
+          <div class="stat-value">{{ formatNumber(tokenUsage.total_tokens) }}</div>
+          <div class="stat-unit">tokens</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">消息总数</div>
+          <div class="stat-value">{{ formatNumber(tokenUsage.total_messages) }}</div>
+          <div class="stat-unit">条</div>
+        </div>
+      </div>
+      <div v-if="tokenUsage && Object.keys(tokenUsage.by_model).length > 0" class="model-usage">
+        <h4 class="model-usage-title">按模型统计</h4>
+        <div v-for="(tokens, model) in tokenUsage.by_model" :key="model" class="model-usage-item">
+          <span class="model-name">{{ model }}</span>
+          <span class="model-tokens">{{ formatNumber(tokens) }} tokens</span>
+        </div>
+      </div>
+      <div v-if="!tokenUsage" class="loading-text">加载中...</div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive, onMounted } from 'vue'
+import { useApiKeyStore } from '@/stores/apikey'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { api } from '@/utils/api/index'
+
+const store = useApiKeyStore()
+const loading = ref(false)
+const tokenUsage = ref(null)
+
+// Forms
+const siliconflowForm = reactive({ key: '', ttl: '24h' })
+const newKeyForm = reactive({ provider: '', key: '', remark: '', ttl: '24h' })
+
+onMounted(() => {
+  store.loadFromStorage()
+  store.listKeys().catch(() => {})
+  loadTokenUsage()
+})
+
+async function loadTokenUsage() {
+  try {
+    const result = await api.getTokenUsage()
+    tokenUsage.value = result
+  } catch (error) {
+    console.error('Failed to load token usage:', error)
+  }
+}
+
+function formatNumber(num) {
+  if (!num) return '0'
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1) + 'M'
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1) + 'K'
+  }
+  return num.toString()
+}
+
+// Computed
+const siliconflowKey = () => store.siliconflowKey
+const otherKeys = () => store.otherKeys
+
+// Methods
+async function submitSiliconflowKey() {
+  if (!siliconflowForm.key) {
+    ElMessage.warning('请输入 API Key')
+    return
+  }
+  
+  loading.value = true
+  try {
+    await store.submitKey('siliconflow', siliconflowForm.key, siliconflowForm.ttl, '主 Key')
+    ElMessage.success('硅基流动 Key 已保存')
+    siliconflowForm.key = ''
+  } catch (e) {
+    ElMessage.error('保存失败：' + (e.message || '未知错误'))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function submitNewKey() {
+  if (!newKeyForm.provider || !newKeyForm.key) {
+    ElMessage.warning('请选择供应商并输入 Key')
+    return
+  }
+  
+  loading.value = true
+  try {
+    await store.submitKey(newKeyForm.provider, newKeyForm.key, newKeyForm.ttl, newKeyForm.remark)
+    ElMessage.success(`${getProviderName(newKeyForm.provider)} Key 已添加`)
+    newKeyForm.provider = ''
+    newKeyForm.key = ''
+    newKeyForm.remark = ''
+  } catch (e) {
+    ElMessage.error('添加失败：' + (e.message || '未知错误'))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function testKey(token) {
+  try {
+    ElMessage.info('正在测试连接...')
+    const result = await store.testKey(token)
+    if (result.success) {
+      ElMessage.success('测试成功：' + result.message)
+    } else {
+      ElMessage.warning('测试失败：' + result.message)
+    }
+  } catch (e) {
+    ElMessage.error('测试失败：' + (e.message || '未知错误'))
+  }
+}
+
+async function deleteKey(token) {
+  try {
+    await ElMessageBox.confirm('确定要清除此 API Key 吗？此操作不可恢复。', '确认删除', {
+      type: 'warning',
+    })
+    await store.deleteKey(token)
+    ElMessage.success('Key 已清除')
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error('删除失败：' + (e.message || '未知错误'))
+    }
+  }
+}
+
+async function toggleEnabled(key) {
+  try {
+    await store.toggleEnabled(key.token, !key.enabled)
+    ElMessage.success(`Key 已${key.enabled ? '禁用' : '启用'}`)
+  } catch (e) {
+    ElMessage.error('操作失败：' + (e.message || '未知错误'))
+  }
+}
+
+// Helpers
+function getStatusText(status) {
+  const map = {
+    unverified: '未验证',
+    verified: '已验证',
+    invalid: '已失效',
+    expired: '已过期',
+  }
+  return map[status] || '未知'
+}
+
+function getProviderName(provider) {
+  const map = {
+    siliconflow: '硅基流动',
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    bailian: '阿里百炼',
+    glm: '智谱 GLM',
+    deepseek: 'DeepSeek',
+  }
+  return map[provider] || provider
+}
+
+function getProviderIcon(provider) {
+  const map = {
+    siliconflow: '🔑',
+    openai: '🟢',
+    anthropic: '🟣',
+    bailian: '🔵',
+    glm: '🟡',
+    deepseek: '🔵',
+  }
+  return map[provider] || '🔑'
+}
+
+function getRemainingTime(key) {
+  if (!key || !key.expires_at) return '未知'
+  const expiresAt = new Date(key.expires_at)
+  const now = new Date()
+  const diff = expiresAt - now
+  
+  if (diff <= 0) return '已过期'
+  
+  const hours = Math.floor(diff / (1000 * 60 * 60))
+  const days = Math.floor(hours / 24)
+  
+  if (days > 0) return `${days} 天`
+  return `${hours} 小时`
+}
+</script>
+
+<style scoped>
+.api-key-manager {
+  padding: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.section-title {
+  font-size: 20px;
+  margin-bottom: 20px;
+}
+
+.key-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  background: #fff;
+}
+
+.required-key {
+  border-color: #409eff;
+  background: #f0f9ff;
+}
+
+.key-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.provider-icon {
+  font-size: 20px;
+}
+
+.provider-name {
+  font-weight: 600;
+  flex: 1;
+}
+
+.required-badge {
+  background: #e6a23c;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.status-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.status-badge.verified {
+  background: #67c23a;
+  color: white;
+}
+
+.status-badge.unverified {
+  background: #909399;
+  color: white;
+}
+
+.status-badge.invalid {
+  background: #f56c6c;
+  color: white;
+}
+
+.status-badge.expired {
+  background: #909399;
+  color: white;
+}
+
+.key-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.key-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.key-remark {
+  color: #606266;
+}
+
+.key-expiry {
+  color: #909399;
+  font-size: 14px;
+}
+
+.key-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.action-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.test-btn {
+  background: #e1f3d8;
+  color: #67c23a;
+}
+
+.toggle-btn {
+  background: #d9ecff;
+  color: #409eff;
+}
+
+.delete-btn {
+  background: #fde2e2;
+  color: #f56c6c;
+}
+
+.guide-text {
+  color: #606266;
+  margin-bottom: 12px;
+}
+
+.guide-link {
+  color: #409eff;
+  text-decoration: none;
+}
+
+.add-key-form,
+.add-key-form-expanded {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.key-input,
+.remark-input,
+.provider-select,
+.ttl-select {
+  padding: 8px 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.key-input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.remark-input {
+  width: 120px;
+}
+
+.provider-select,
+.ttl-select {
+  width: 140px;
+}
+
+.submit-btn {
+  padding: 8px 20px;
+  background: #409eff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.submit-btn:disabled {
+  background: #a0cfff;
+  cursor: not-allowed;
+}
+
+.other-keys-section {
+  margin-top: 24px;
+}
+
+.subsection-title {
+  font-size: 16px;
+  margin-bottom: 16px;
+  color: #606266;
+}
+
+.key-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #909399;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+
+.security-notice {
+  margin-top: 32px;
+  padding: 16px;
+  background: #f0f9ff;
+  border: 1px solid #d9ecff;
+  border-radius: 8px;
+}
+
+.notice-title {
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: #409eff;
+}
+
+.notice-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.notice-list li {
+  font-size: 13px;
+  color: #606266;
+  padding: 4px 0;
+}
+
+.notice-list li::before {
+  content: '✓ ';
+  color: #67c23a;
+}
+
+.token-usage-section {
+  margin-top: 32px;
+  padding: 20px;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+
+.token-usage-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.stat-card {
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+  text-align: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 8px;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.stat-unit {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+
+.model-usage {
+  margin-top: 20px;
+}
+
+.model-usage-title {
+  font-size: 14px;
+  color: #606266;
+  margin-bottom: 12px;
+}
+
+.model-usage-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: white;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.model-name {
+  font-size: 13px;
+  color: #303133;
+}
+
+.model-tokens {
+  font-size: 13px;
+  color: #409eff;
+  font-weight: 500;
+}
+
+.loading-text {
+  text-align: center;
+  color: #909399;
+  padding: 20px;
+}
+</style>

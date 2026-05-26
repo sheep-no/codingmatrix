@@ -1,0 +1,35 @@
+{
+  "domain": "iot",
+  "version": "1.0",
+  "description": "物联网/IoT 领域模板",
+  "applicable_project_types": ["medium", "large", "enterprise"],
+  "core_modules": [
+    {"name": "设备管理", "category": "core", "impact": "核心基础", "options": ["设备列表", "设备+注册+分组"], "default": "设备+注册+分组"},
+    {"name": "数据采集", "category": "core", "impact": "数据基础", "options": ["定时上报", "实时推送+历史存储"], "default": "定时上报"},
+    {"name": "告警系统", "category": "core", "impact": "安全运维", "options": ["阈值告警", "多级告警+通知推送"], "default": "阈值告警"},
+    {"name": "远程控制", "category": "optional", "impact": "操作", "options": ["无", "指令下发+状态回传"], "default": "指令下发"},
+    {"name": "数据可视化", "category": "core", "impact": "展示", "options": ["简单图表", "实时曲线+仪表盘"], "default": "实时曲线"},
+    {"name": "设备拓扑", "category": "optional", "impact": "管理", "options": ["无", "网关+子设备拓扑"], "default": "无"},
+    {"name": "OTA升级", "category": "optional", "impact": "运维", "options": ["无", "固件版本管理+远程升级"], "default": "无"},
+    {"name": "规则引擎", "category": "optional", "impact": "自动化", "options": ["无", "条件触发+联动控制"], "default": "无"}
+  ],
+  "non_functional_requirements": [
+    {"category": "performance", "item": "高并发设备连接", "priority": "high"},
+    {"category": "performance", "item": "实时数据处理延迟<3s", "priority": "high"},
+    {"category": "reliability", "item": "设备断连自动重连", "priority": "high"},
+    {"category": "security", "item": "设备认证与加密通信", "priority": "high"},
+    {"category": "scalability", "item": "支持万级设备接入", "priority": "medium"}
+  ],
+  "common_pitfalls": [
+    "设备通信协议选型影响整体架构（MQTT/CoAP/HTTP）",
+    "海量设备数据存储需要时序数据库而非关系型",
+    "设备状态需要考虑离线缓存和断连重传",
+    "告警风暴问题（一个网关断连触发数百子设备告警）",
+    "OTA升级需要灰度发布和回滚机制"
+  ],
+  "key_decisions": [
+    {"question": "通信协议？", "impact": "architecture", "options": ["MQTT（低功耗实时）", "HTTP（简单通用）", "CoAP（极低功耗）"]},
+    {"question": "数据存储？", "impact": "data_model", "options": ["关系型数据库", "时序数据库（InfluxDB/TDengine）"]},
+    {"question": "设备认证？", "impact": "security", "options": ["Token认证（简单）", "证书双向认证（安全）"]}
+  ]
+}

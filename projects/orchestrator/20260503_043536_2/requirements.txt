@@ -1,6 +1,0 @@
-Flask==2.3.2
-Werkzeug>=3.0.0
-Jinja2>=3.0.0
-itsdangerous>=2.0.0
-click>=8.0.0
-python-dotenv>=1.0.0

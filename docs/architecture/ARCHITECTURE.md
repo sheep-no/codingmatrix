@@ -1,16 +1,18 @@
 # 系统架构
 
-> 最后更新: 2026-05-22 | 路由总数：180+ | 版本：v5.4.0
+> 最后更新: 2026-05-26 | 路由总数：180+ | 版本:v5.9.0
 
 ---
 
-## 架构概览 (v5.4.0)
+## 架构概览 (v5.9.0)
+
+v5.9.0 新增 **API Key 全局化** 和 **Token 使用统计**，所有前端功能均使用用户自定义 API Key。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Frontend (Vue 3)                                            │
 │ Vite 5 + Element Plus + Tailwind CSS + Pinia + ECharts     │
-│ 52 个组件 · 7 个视图 · 6 个 Store · 8 个路由                  │
+│ 44 个组件 · 7 个视图 · 6 个 Store · 12 个路由                │
 └──────────────────────────┬──────────────────────────────────┘
                            │ HTTP / SSE / WebSocket
 ┌──────────────────────────┴──────────────────────────────────┐
@@ -25,28 +27,48 @@
 │ │ Core     │ │ Engine   │ │ Analyze  │ │ Cloud    │        │
 │ └──────────┘ └──────────┘ └──────────┘ └──────────┘        │
 │                                                             │
-│ ┌─────────────────────────────────────────────────────┐  │
-│ │ Multi-Provider Model Layer (v5.4.0)                 │  │
-│ │ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │  │
-│ │ │SiliconFlw│ │ DashScope│ │ Zhipu    │ │DeepSeek  │  │  │
-│ │ └──────────┘ └──────────┘ └──────────┘ └──────────┘  │  │
-│ │ ┌──────────┐ ┌──────────┐ ┌──────────┐               │  │
-│ │ │ OpenAI   │ │Anthropic │ │ Ollama   │               │  │
-│ │ └──────────┘ └──────────┘ └──────────┘               │  │
-│ └─────────────────────────────────────────────────────┘  │
+│ ┌─────────────────────────────────────────────────────┐    │
+│ │ Multi-Provider Model Layer (v5.4.0)                 │    │
+│ │ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐    │    │
+│ │ │SiliconFlw│ │ DashScope│ │ Zhipu    │ │DeepSeek  │    │    │
+│ │ └──────────┘ └──────────┘ └──────────┘ └──────────┘    │    │
+│ │ ┌──────────┐ ┌──────────┐ ┌──────────┐               │    │
+│ │ │ OpenAI   │ │Anthropic │ │ Ollama   │               │    │
+│ │ └──────────┘ └──────────┘ └──────────┘               │    │
+│ └─────────────────────────────────────────────────────┘    │
 │                                                             │
-│ ┌──────────────────────────────────────────────────────┐ │
-│ │ Middleware Layer (7 层)                              │ │
-│ │ CORS │ RequestLog │ InputValidator │ RateLimit       │ │
-│ │ FeatureSwitch │ SecurityHeaders │ GZip │ Drain      │ │
-│ └──────────────────────────────────────────────────────┘ │
+│ ┌──────────────────────────────────────────────────────┐   │
+│ │ API Key Management (v5.9.0)                          │   │
+│ │ - RSA-2048 加密传输                                   │   │
+│ │ - Redis 内存存储 + TTL 自动过期                       │   │
+│ │ - 所有功能统一使用用户 API Key                        │   │
+│ └──────────────────────────────────────────────────────┘   │
+│                                                             │
+│ ┌──────────────────────────────────────────────────────┐   │
+│ │ Middleware Layer (8 层)                              │   │
+│ │ CORS │ RequestLog │ InputValidator │ RateLimit       │   │
+│ │ FeatureSwitch │ SecurityHeaders │ GZip │ Drain      │   │
+│ └──────────────────────────────────────────────────────┘   │
+│                                                             │
+│ ┌──────────────────────────────────────────────────────┐   │
+│ │ Prompt Optimizer (v5.8.1)                            │   │
+│ │ - 静态前缀缓存 (KV Cache 命中)                       │   │
+│ │ - 动态变量清理 (时间戳/UUID)                         │   │
+│ │ - JSON 键顺序固定                                     │   │
+│ └──────────────────────────────────────────────────────┘   │
+│                                                             │
+│ ┌──────────────────────────────────────────────────────┐   │
+│ │ Multi-Angle Review (v5.8.1)                          │   │
+│ │ - 性能师 (并行) │ 安全师 (并行) │ 可维护性师 (并行) │   │
+│ │ - 三档严格度：轻量/标准/严格                         │   │
+│ └──────────────────────────────────────────────────────┘   │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────┴──────────────────────────────────┐
 │ Data Layer                                                  │
 │                                                             │
 │ SQLite (Async SQLAlchemy + Alembic) │ APScheduler          │
-│ Redis (Cache/可选)                  │ Celery (异步任务)     │
+│ Redis (Cache/API Key)               │ Celery (异步任务)     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -59,9 +81,12 @@
 | 前端 | Vue 3 + Vite 5 + Element Plus | 响应式 UI |
 | 后端 | FastAPI + Python 3.11 | 异步 API |
 | 数据库 | SQLite + SQLAlchemy 2.0 | 异步 ORM |
-| 缓存 | Redis (可选) / 内存 | 分布式缓存 |
+| 缓存 | Redis | 会话、API Key 存储 |
 | 任务队列 | Celery + APScheduler | 异步任务 |
 | 模型层 | 多供应商适配器 | 7 供应商支持 |
+| **API Key** | **RSA-2048 + Redis** | **v5.9.0 新增** |
+| **Prompt 优化** | **KV Cache 优化** | **v5.8.1 新增** |
+| **审查系统** | **多角度并行审查** | **v5.8.1 新增** |
 | 监控 | OpenTelemetry + Jaeger | 分布式追踪 |
 | 容器 | Docker + Docker Compose | 服务编排 |
 
@@ -82,265 +107,137 @@
 │  │ Mapping      │ │ Strategy     │ │              │      │
 │  └──────────────┘ └──────────────┘ └──────────────┘      │
 └──────────────────────────┬──────────────────────────────────┘
-           │               │               │
-    ┌──────┴──────┐ ┌──────┴──────┐ ┌──────┴──────┐
-    │ SiliconFlow │ │ DashScope   │ │ Zhipu       │
-    │ (Default)   │ │ (Aliyun)    │ │ (GLM)       │
-    └─────────────┘ └─────────────┘ └─────────────┘
-    ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-    │ DeepSeek    │ │ OpenAI      │ │ Anthropic   │
-    │ (Official)  │ │ (GPT)       │ │ (Claude)    │
-    └─────────────┘ └─────────────┘ └─────────────┘
-    ┌─────────────┐
-    │ Ollama      │
-    │ (Local)     │
-    └─────────────┘
-```
-
-### 供应商支持
-
-| 供应商 | 枚举值 | Base URL | 需要 API Key |
-|--------|--------|----------|--------------|
-| SiliconFlow | siliconflow | https://api.siliconflow.cn/v1 | ✅ |
-| 阿里百炼 | dashscope | https://dashscope.aliyuncs.com/v1 | ✅ |
-| 智谱 GLM | zhipu | https://open.bigmodel.cn/api/paas/v4 | ✅ |
-| DeepSeek | deepseek | https://api.deepseek.com/v1 | ✅ |
-| OpenAI | openai | https://api.openai.com/v1 | ✅ |
-| Anthropic | anthropic | https://api.anthropic.com/v1 | ✅ |
-| Ollama | ollama | http://localhost:11434 | ❌ |
-
----
-
-## Agent 架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Orchestrator                                                │
-│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐         │
-│ │ 复杂度分析   │ │ 模型分配     │ │ 依赖图构建   │         │
-│ └──────────────┘ └──────────────┘ └──────────────┘         │
-└──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────┴──────────────────────────────────┐
-│ Multi-Provider LLM Layer (v5.4.0)                           │
-│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐         │
-│ │ Provider     │ │ Auto Route   │ │ Fallback     │         │
-│ │ Registry     │ │              │ │ Strategy     │         │
-│ └──────────────┘ └──────────────┘ └──────────────┘         │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────┴──────────────────────────────────┐
-│ Specialist Agents                                           │
-│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐         │
-│ │ 架构师       │ │ 前端工程师   │ │ 后端工程师   │         │
-│ └──────────────┘ └──────────────┘ └──────────────┘         │
-│ ┌──────────────┐ ┌──────────────┐                            │
-│ │ 代码审查员   │ │ 代码修复器   │                            │
-│ └──────────────┘ └──────────────┘                            │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────┴──────────────────────────────────┐
-│ Quality Assurance                                             │
-│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐         │
-│ │ 错误分类器   │ │ 契约检查器   │ │ 修复模式缓存 │         │
-│ └──────────────┘ └──────────────┘ └──────────────┘         │
+│ Provider Adapters                                           │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
+│  │SiliconFlw│ │DashScope │ │  Zhipu   │ │DeepSeek  │      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐                   │
+│  │  OpenAI  │ │Anthropic │ │  Ollama  │                   │
+│  └──────────┘ └──────────┘ └──────────┘                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
----
+### 供应商配置
 
-## 模块结构
-
-```
-app/
-├── main.py                 # FastAPI 应用入口
-├── celery_app.py          # Celery 异步任务配置
-│
-├── api/                   # API 路由层
-│ ├── v1/                  # 业务 API (17 个模块)
-│ │ ├── auth.py            # 认证 (RSA 加密登录)
-│ │ ├── Aicode.py          # AI 代码生成
-│ │ ├── AiProjectCode.py   # AI 项目生成
-│ │ ├── ai_agent/          # Agent 核心 (v5.2 重构)
-│ │ ├── github.py          # GitHub 集成
-│ │ ├── GirlAi.py          # 虚拟 AI 角色对话
-│ │ ├── kolors_api.py      # 图像生成
-│ │ ├── aiGeneratorPptx.py # PPT 生成
-│ │ ├── file_upload.py     # 文件上传
-│ │ ├── task_queue.py      # 任务队列
-│ │ ├── vision_api.py      # 视觉分析
-│ │ ├── workflow.py        # 工作流引擎
-│ │ ├── aicloud.py         # AI 云服务
-│ │ ├── aicloud_knowledge.py # 知识库
-│ │ ├── health.py          # 健康检查
-│ │ └── preview.py         # 文件预览
-│ │
-│ └── v2/                  # 系统管理 API (6 个模块)
-│     ├── Controller.py    # 系统控制器
-│     ├── nginx_api.py     # Nginx 配置
-│     ├── guardian_router.py # 服务守护
-│     ├── user_manage.py   # 用户管理
-│     └── admin_config.py  # 系统配置
-│
-├── agent/                 # AI Agent 引擎 (56 个模块)
-│ ├── orchestrator.py      # 总指挥
-│ ├── multi_model_agent.py # 多模型协调器
-│ ├── react_agent.py       # ReAct 自我反思
-│ ├── executor.py          # 执行器
-│ ├── specialists.py       # 专家角色
-│ ├── dynamic_model_router.py # 动态模型路由
-│ ├── git_operations.py    # Git 操作
-│ └── ... (其他 49 个模块)
-│
-├── core/                  # 核心配置
-│ ├── config.py           # 全局配置 (含多供应商 API Keys)
-│ ├── logging_config.py   # 日志配置
-│ └── graceful_shutdown.py # 优雅关闭
-│
-├── db/                    # 数据库层
-│ ├── base.py             # SQLAlchemy 基类
-│ ├── database.py         # 异步引擎
-│ └── models/             # 数据模型 (12 个)
-│
-├── middleware/            # 中间件层
-│ ├── rate_limiter.py     # 速率限制
-│ ├── security_headers.py # 安全头
-│ └── ...
-│
-└── utils/                 # 工具层 (50+ 模块)
-    ├── __init__.py        # 全局入口 (call_llm)
-    ├── aicloud/           # 多供应商模型系统 (v5.4.0)
-    │   ├── providers.py
-    │   ├── provider_router.py
-    │   ├── llm_caller.py
-    │   └── adapters/
-    ├── AiCodeUtil.py      # AI 代码工具 (兼容层)
-    ├── agent_core.py      # Agent 核心工具
-    └── ... (其他工具)
-```
+| 供应商 | 环境变量 | 默认模型 |
+|--------|----------|----------|
+| SiliconFlow | `SILICONFLOW_API_KEY` | THUDM/GLM-Z1-9B-0414 |
+| 阿里百炼 | `DASHSCOPE_API_KEY` | qwen-turbo |
+| 智谱 GLM | `ZHIPU_API_KEY` | glm-4-flash |
+| DeepSeek | `DEEPSEEK_API_KEY` | deepseek-chat |
+| OpenAI | `OPENAI_API_KEY` | gpt-3.5-turbo |
+| Anthropic | `ANTHROPIC_API_KEY` | claude-3-haiku |
+| Ollama | `OLLAMA_BASE_URL` | llama2 |
 
 ---
 
-## 数据流
-
-### 多供应商模型调用流
+## Agent 系统架构 (v5.9.0)
 
 ```
-用户请求 → Agent/API → call_llm(model, prompt)
-    ↓
-ProviderRouter.route(model)
-    ↓
-    ┌──────────────────────────────────────────┐
-    │ 模型名称匹配 → 选择供应商                │
-    │                                          │
-    │ Qwen/Qwen3.5-4B → SiliconFlow          │
-    │ qwen-plus → DashScope                   │
-    │ glm-4 → Zhipu                          │
-    │ deepseek-chat → DeepSeek               │
-    │ 未知模型 → SiliconFlow (默认)          │
-    └──────────────────────────────────────────┘
-    ↓
-ProviderAdapter.call_llm()
-    ↓
-HTTP Request → 供应商 API
-    ↓
-Response → 统一格式返回
+┌─────────────────────────────────────────────────────────────┐
+│ Agent Orchestrator                                          │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐      │
+│  │ Architect    │ │ Frontend     │ │ Backend      │      │
+│  │ Specialist   │ │ Specialist   │ │ Specialist   │      │
+│  └──────────────┘ └──────────────┘ └──────────────┘      │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐      │
+│  │ Reviewer     │ │ Tester       │ │ Memory       │      │
+│  │ Specialist   │ │ Specialist   │ │ Manager      │      │
+│  └──────────────┘ └──────────────┘ └──────────────┘      │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────┴──────────────────────────────────┐
+│ Tool System (19 Tools)                                      │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
+│  │read_file │ │write_file│ │edit_file │ │list_files│      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
+│  │run_cmd   │ │search    │ │insert    │ │partial   │      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
+│  │regex     │ │delete    │ │cross_file│ │generate  │      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### 项目生成流 (Orchestrator Agent)
+### Agent 功能
 
-```
-用户提示词 → POST /api/v1/orchestrate/generate
-    ↓
-OrchestratorAgent
-    ├── 复杂度分析 → ProviderRouter 路由 → LLM
-    ├── 规范生成 (OpenAPI/类型/DB Schema)
-    ├── 依赖图构建 → 分层并发生成
-    ├── 交叉验证 → call_llm 多次验证
-    ├── Git 操作 (可选)
-    └── SSE 进度推送
-    ↓
-前端展示文件树 → 保存到 SQLite/GitHub
-```
+| 功能 | API 端点 | 说明 |
+|------|----------|------|
+| 项目生成 | POST /agent/orchestrate/stream | 流式生成完整项目 |
+| 项目修改 | POST /agent/modify | 增量修改已有项目 |
+| 需求评价 | POST /agent/evaluate | 评价需求质量 |
+| 复杂度分析 | POST /agent/analyze_complexity | 分析需求复杂度 |
+| 快照管理 | GET /agent/snapshots/{id} | 项目快照列表 |
+| 快照回滚 | POST /agent/rollback/{id} | 回滚到指定快照 |
+| 快照对比 | GET /agent/snapshot/diff | 对比两个快照差异 |
+| 会话管理 | POST /agent/session/{id}/action | 暂停/恢复/取消会话 |
+| 决策提交 | POST /agent/session/{id}/decision | 提交人工决策 |
+| 知识库 | POST/GET /agent/knowledge | 知识库管理 |
+| 需求联想 | POST /agent/requirement-association | 需求关联分析 |
+| 性能监控 | GET /agent/performance | 性能指标统计 |
+| Token 统计 | GET /agent/token-usage | Token 使用统计 |
 
 ---
 
-## 中间件链
+## 数据库模型
 
-```
-请求 → CORS → RequestLog → InputValidator → RateLimit
-     → FeatureSwitch → SecurityHeaders → GZip → Drain
-     → 路由处理 → 响应
-```
+### 核心表
 
-| 中间件 | 功能 |
-|--------|------|
-| CORS | 跨域资源共享 |
-| RequestLog | 生成 request_id、记录请求耗时 |
-| InputValidator | SQL 注入/XSS 检测、请求体限制 |
-| RateLimit | IP/用户/端点速率限制 |
-| FeatureSwitch | 功能模块开关 |
-| SecurityHeaders | X-Frame-Options、CSP 等 |
-| GZip | 响应压缩 (≥500 字节) |
-| Drain | 优雅关闭时拒绝新请求 |
-
----
-
-## 生命周期管理
-
-```
-启动 (lifespan)
-├── 创建用户上传目录
-├── 初始化速率限制
-├── 初始化缓存 (Redis/内存)
-├── 数据库连接池预热
-├── 初始化 ProviderRegistry (v5.4.0)
-├── 启动 AsyncSmartGuardian (服务监控)
-├── 运行 Alembic 数据库迁移
-└── 启动 APScheduler 定时任务
-
-关闭
-├── 停止 Guardian 监控
-├── 优雅关闭 (graceful_shutdown)
-├── 清理 HTTP 客户端连接
-└── 关闭缓存管理器
-```
+| 表名 | 说明 | 主要字段 |
+|------|------|----------|
+| user | 用户表 | id, username, email, password_hash, permission_level |
+| permission | 权限表 | id, user_id, level, granted_at |
+| history | 对话历史 | id, user_id, prompt, response, created_at |
+| chat_histories | 新版对话 | id, user_id, session_id, message, token_usage |
+| files | 文件管理 | id, user_id, filename, path, size |
+| tasks | 任务队列 | id, user_id, status, result |
+| saved_projects | 保存项目 | id, user_id, name, project_data |
+| agent_sessions | Agent 会话 | id, user_id, status, session_data |
+| memory_entries | Agent 记忆 | id, session_id, content, category |
+| knowledge_entries | 知识库 | id, content, category, tags |
+| image_generation_history | 图像生成 | id, user_id, prompt, image_url |
+| workflow_history | 工作流 | id, user_id, workflow_data, status |
 
 ---
 
-## 部署架构
+## API 端点分类
 
-```
-Nginx (反向代理)
-├── / → Vue 前端 (dist/ 静态文件)
-├── /api/v1/ → FastAPI v1 (业务 API)
-├── /api/v2/ → FastAPI v2 (管理 API)
-└── /static/ → 静态资源
+### v1 API (用户功能)
 
-FastAPI (uvicorn workers)
-├── SQLite (持久化 + Alembic)
-├── APScheduler (后台任务)
-├── Celery (异步任务队列)
-├── Redis (缓存，可选)
-├── Multi-Provider Model Layer (v5.4.0)
-└── AsyncSmartGuardian (服务健康监控)
-```
+| 模块 | 端点前缀 | 功能 |
+|------|----------|------|
+| 认证 | /api/v1/login, /register | 用户认证 |
+| Agent | /api/v1/agent/* | 项目生成、代码审查 |
+| AI 代码 | /api/v1/code | 代码生成 |
+| PPT | /api/v1/pptx/* | PPT 生成 |
+| 图像 | /api/v1/kolors/* | 图像生成 |
+| AI Cloud | /api/v1/aicloud/* | AI 云管理 |
+| 文件 | /api/v1/files/* | 文件管理 |
+| 工作流 | /api/v1/workflow/* | 工作流编排 |
+| 健康 | /api/v1/health | 健康检查 |
 
----
+### v2 API (管理功能)
 
-## 版本演进
-
-| 版本 | 主要更新 |
-|------|----------|
-| v5.4.0 | 多供应商模型支持 (7 供应商) |
-| v5.3.x | 文档整合、模型名称修复 |
-| v5.2.x | 后端并发管理、Admin 仪表板 |
-| v5.1.x | 需求理解增强、前端优化 |
-| v5.0.0 | 需求联想增强 |
-| v4.9.0 | Agent 架构重构、性能优化 |
-| v4.8.x | SSE 展示优化、Agent 增量修改 |
-| v4.7.0 | OpenTelemetry 追踪、安全审计 |
+| 模块 | 端点前缀 | 功能 |
+|------|----------|------|
+| 管理 | /api/v2/Controller/* | 系统监控 |
+| 用户 | /api/v2/Controller/users/* | 用户管理 |
+| Nginx | /api/v2/nginx/* | Nginx 配置 |
+| 配置 | /api/v2/admin/* | 系统配置 |
 
 ---
 
-*本架构文档最后更新：2026-05-22*
+## 相关文档
+
+- [模块说明](MODULES.md)
+- [模型系统](MODELS.md)
+- [API 责任矩阵](api-responsibility-matrix.md)
+- [权限规范](../PERMISSION-SPEC.md)
+- [技术债务](../TECH-DEBT.md)
+
+---
+
+最后更新：2026-05-26

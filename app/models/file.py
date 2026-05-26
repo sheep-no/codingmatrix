@@ -1,7 +1,7 @@
 """
 文件管理模型
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import Column, Integer, String, DateTime, BigInteger, ForeignKey, Index, Text
 from sqlalchemy.orm import relationship
 from app.models.base import Base
@@ -28,11 +28,11 @@ class File(Base):
     user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # 会话关联（文件属于特定对话上下文）
-    conversation_id = Column(String(64), index=True)
+    conversation_id = Column(Integer, index=True)
     
     # 时间戳
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # 删除标记（软删除）
     is_deleted = Column(Integer, default=0)  # 0:未删除，1:已删除

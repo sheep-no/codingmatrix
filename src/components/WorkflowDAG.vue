@@ -39,7 +39,7 @@
     </div>
 
     <!-- 图形模式 -->
-    <div v-show="viewMode === 'graph'" class="dag-canvas" ref="canvasRef" @wheel="onWheel">
+    <div v-show="viewMode === 'graph'" ref="canvasRef" class="dag-canvas" @wheel="onWheel">
       <svg
         :width="svgWidth"
         :height="svgHeight"
@@ -319,10 +319,10 @@
   function getNodeEmoji(node) {
     const emojis = {
       web_search: '🔍', code_execution: '💻', chart_generation: '📊',
-      file_processing: '📁', data_analysis: '📈', api_call: '🌐',
+      file_processing: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`, data_analysis: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>`, api_call: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
       text_generation: '✍️', image_generation: '🎨'
     }
-    return emojis[node.type] || '⚙️'
+    return emojis[node.type] || ''
   }
 
   function getNodeTypeLabel(type) {

@@ -31,7 +31,7 @@ class ChatDatabase {
       request.onsuccess = () => {
         this.db = request.result
         this.initialized = true
-        console.log('[OK] IndexedDB initialized')
+        console.log('[SUCCESS] IndexedDB initialized')
         resolve(this.db)
       }
 
@@ -48,7 +48,7 @@ class ChatDatabase {
           // 创建 TTL 索引用于自动清理
           objectStore.createIndex('expiresAt', 'expiresAt', { unique: false })
 
-          console.log('[OK] IndexedDB store created')
+          console.log('[SUCCESS] IndexedDB store created')
         }
       }
     })
@@ -206,7 +206,7 @@ class ChatDatabase {
           }
           cursor.continue()
         } else {
-          console.log('[OK] Cleaned', deletedCount, 'expired chats')
+          console.log('[SUCCESS] Cleaned', deletedCount, 'expired chats')
         }
       }
 
