@@ -16,6 +16,14 @@
       <aside class="docs-sidebar">
         <nav class="sidebar-nav">
           <div class="nav-section">
+            <h3 class="nav-heading">功能介绍</h3>
+            <ul>
+              <li v-for="item in featureIntro" :key="item.id">
+                <a :href="`#feature-${item.id}`" class="nav-link" @click.prevent="scrollTo(`feature-${item.id}`)">{{ item.title }}</a>
+              </li>
+            </ul>
+          </div>
+          <div class="nav-section">
             <h3 class="nav-heading">常见问题</h3>
             <ul>
               <li v-for="item in faqs" :key="item.id">
@@ -43,6 +51,24 @@
       </aside>
 
       <main class="docs-main">
+        <section class="doc-section" id="features">
+          <h2 class="section-title">项目功能介绍</h2>
+          <div class="feature-hero">
+            <div class="hero-text">
+              <h3>CodingMatrix 智能代码生成平台</h3>
+              <p>基于多 Agent 协作的 AI 开发助手，支持智能对话、项目生成、代码审查等功能。</p>
+            </div>
+          </div>
+          <div class="doc-cards">
+            <div class="doc-card" v-for="feature in featureIntro" :key="feature.id" :id="`feature-${feature.id}`">
+              <div class="card-icon">{{ feature.icon }}</div>
+              <h3 class="card-title">{{ feature.title }}</h3>
+              <p class="card-desc">{{ feature.description }}</p>
+              <router-link :to="feature.link" class="card-link">了解详细 →</router-link>
+            </div>
+          </div>
+        </section>
+
         <section class="doc-section" id="faq">
           <h2 class="section-title">常见问题</h2>
           <div class="notice-card">
@@ -95,22 +121,33 @@
 <script setup>
 import { ref } from 'vue'
 
+const featureIntro = ref([
+  { id: 1, title: '智能对话与代码生成', description: '支持多轮对话，自动理解需求并生成代码。覆盖 Python、JavaScript、Go、Rust 等主流语言，支持在线测试验证。', icon: '💬', link: '/docs/features' },
+  { id: 2, title: 'Agent 协作开发', description: '多 Agent 分工合作：决策层分析规划、执行层生成代码、审查层检查质量、修复层改进问题，交叉验证确保方案可行性。', icon: '🤖', link: '/docs/features' },
+  { id: 3, title: '多供应商支持', description: '内置硅基流动、阿里百炼、智谱、DeepSeek、OpenAI、Anthropic 等供应商。支持自定义 base_url + 协议类型添加任意 API 服务，自动拉取模型列表。', icon: '☁️', link: '/docs/features' },
+  { id: 4, title: '项目生成与管理', description: '输入需求一键生成完整项目结构，支持 Git 集成、GitHub 推送、分支管理。工作流可视化管理，支持审批和执行。', icon: '📂', link: '/docs/features' },
+  { id: 5, title: 'API Key 管理', description: 'RSA 加密传输，Redis 内存存储，TTL 自动过期。支持多供应商 Key 同时配置，Token 使用统计可视化。', icon: '🔑', link: '/docs/apikey-guide' },
+  { id: 6, title: '特色功能', description: 'PPT 自动生成、图像生成 (Kolors)、GirlAI 虚拟助手、知识库管理、文件预览、任务队列、系统监控等丰富功能。', icon: '✨', link: '/docs/features' }
+])
+
 const faqs = ref([
-  { id: 1, title: '支持哪些编程语言？', description: '平台目前仅支持 Python 和 JavaScript 的在线编译和验证。其他语言生成的代码无法在服务器端测试，请在本地环境中验证。', link: '/docs/supported-languages' },
-  { id: 2, title: '如何开始使用？', description: '了解如何使用平台生成项目的完整流程。', link: '/docs/getting-started' },
-  { id: 3, title: '生成失败怎么办？', description: '了解错误处理和问题排查方法。', link: '/docs/troubleshooting' }
+  { id: 10, title: '支持哪些编程语言？', description: '平台目前仅支持 Python 和 JavaScript 的在线编译和验证。其他语言生成的代码无法在服务器端测试，请在本地环境中验证。', link: '/docs/supported-languages' },
+  { id: 11, title: '如何开始使用？', description: '了解如何使用平台生成项目的完整流程。', link: '/docs/getting-started' },
+  { id: 12, title: '生成失败怎么办？', description: '了解错误处理和问题排查方法。', link: '/docs/troubleshooting' }
 ])
 
 const guides = ref([
-  { id: 10, title: '项目结构说明', description: '了解生成项目的标准目录结构。', link: '/docs/project-structure' },
-  { id: 11, title: '模型配置指南', description: '如何根据不同的任务需求选择合适的模型。', link: '/docs/model-config' },
-  { id: 12, title: 'API 使用规范', description: '平台 API 的使用方法和限制说明。', link: '/docs/api-guide' }
+  { id: 20, title: '快速开始', description: '环境配置、依赖安装、启动服务、常见问题排查。', link: '/docs/getting-started' },
+  { id: 21, title: 'API Key 使用指南', description: 'API Key 配置、管理和使用详细说明，包含多供应商和 Token 统计。', link: '/docs/apikey-guide' },
+  { id: 22, title: '模型配置指南', description: '如何根据不同的任务需求选择合适的模型和供应商。', link: '/docs/model-config' },
+  { id: 23, title: '项目结构说明', description: '了解生成项目的标准目录结构和开发约定。', link: '/docs/project-structure' }
 ])
 
 const techDocs = ref([
-  { id: 20, title: '架构设计', description: '了解系统整体架构和各组件职责。', link: '/docs/architecture' },
-  { id: 21, title: '部署指南', description: '如何部署平台到生产环境。', link: '/docs/deployment' },
-  { id: 22, title: '安全说明', description: '平台安全机制和用户数据保护措施。', link: '/docs/security' }
+  { id: 30, title: '架构设计', description: '了解系统整体架构和各组件职责划分。', link: '/docs/architecture' },
+  { id: 31, title: '部署指南', description: '如何部署平台到生产环境。', link: '/docs/deployment' },
+  { id: 32, title: '安全说明', description: '平台安全机制和用户数据保护措施。', link: '/docs/security' },
+  { id: 33, title: 'API 文档', description: '完整的 API 端点文档和使用示例。', link: '/docs/api' }
 ])
 
 const scrollTo = (id) => {
@@ -230,6 +267,33 @@ const scrollTo = (id) => {
   margin: 0 0 24px 0;
   padding-bottom: 12px;
   border-bottom: 2px solid rgba(99, 102, 241, 0.4);
+}
+
+.feature-hero {
+  padding: 28px 32px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 16px;
+  margin-bottom: 24px;
+}
+
+.hero-text h3 {
+  font-size: 22px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0 0 8px 0;
+}
+
+.hero-text p {
+  font-size: 15px;
+  color: #cbd5e1;
+  line-height: 1.7;
+  margin: 0;
+}
+
+.card-icon {
+  font-size: 28px;
+  margin-bottom: 12px;
 }
 
 .notice-card {
