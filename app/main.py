@@ -1,10 +1,9 @@
 import logging
 import os
-import re
 import sys
 import asyncio
-from pathlib import Path
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 # =============================================================================
 # 跨平台环境变量加载（支持 Windows 和 Linux）
@@ -35,17 +34,15 @@ except ImportError:
 except Exception as e:
     logging.getLogger(__name__).error(f"加载.env 文件失败：{e}")
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import delete
+from starlette.responses import FileResponse
+from starlette.staticfiles import StaticFiles
 
 from app.models.history import History
 from app.models.saved_project import SavedProject
-from app.db.models import ProjectSession
 from app.utils.async_enhanced_guard import AsyncSmartGuardian
+from fastapi import FastAPI
+from starlette.datastructures import State
 # Alembic 迁移导入
 from migrations.runner import run_async_migrations
 
@@ -76,13 +73,13 @@ from app.api.v2.nginx_api import router as nginxRouter
 from app.api.v2.Controller import router as sysRouter
 from app.api.v2.user_manage import router as userManageRouter
 from app.api.v2.guardian_router import router as guardian_router
-from app.api.v1.github import router as githubRouter
-from app.api.v1.apikey import router as apikeyRouter
-from app.api.v1.providers import router as providersRouter
 from app.db.database import engine, async_session
 from app.db.scheduler import start_scheduler
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
+from fastapi import Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from app.middleware.rate_limiter import RateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.feature_switch import FeatureSwitchMiddleware
@@ -101,12 +98,7 @@ async def lifespan(App: FastAPI):
     # 确保用户项目上传目录存在
     user_uploads_dir = Path("./projects/user_uploads")
     user_uploads_dir.mkdir(parents=True, exist_ok=True)
-    logger.info(f"用户上传目录已就绪：{user_uploads_dir.resolve()}")
-
-    # 初始化 RSA 密钥管理器
-    from app.utils.crypto import init_rsa_key_manager
-    init_rsa_key_manager()
-    logger.info("RSA 密钥管理器已初始化")
+    logger.info(f"用户上传目录已就绪: {user_uploads_dir.resolve()}")
 
     init_rate_limit(App)
 
@@ -114,13 +106,6 @@ async def lifespan(App: FastAPI):
     if redis_url:
         cache = await get_cache_manager(redis_url=redis_url)
         logger.info(f"Redis 缓存已初始化 | backend={cache.backend}")
-        
-        # 初始化 API Key 管理器
-        import redis as redis_lib
-        from app.services.apikey_manager import init_apikey_manager
-        redis_client = redis_lib.from_url(redis_url, decode_responses=False)
-        init_apikey_manager(redis_client)
-        logger.info("API Key 管理器已初始化")
     else:
         cache = await get_cache_manager()
         logger.info(f"内存缓存已初始化（Redis 未配置）| backend={cache.backend}")
@@ -128,22 +113,15 @@ async def lifespan(App: FastAPI):
 
     await _warm_up_database_pool()
 
-    skip_guardian = os.getenv("SKIP_GUARDIAN", "false").lower() == "true"
-    if not skip_guardian:
-        guardian = AsyncSmartGuardian(check_interval=10)
-        await guardian.scan_and_learn(auto_enable_trusted=True)
-        await guardian.start_monitoring_enabled_services()
-        App.state.guardian = guardian
-    else:
-        logger.info("进程守护已跳过（SKIP_GUARDIAN=true）")
-        App.state.guardian = None
+    guardian = AsyncSmartGuardian(check_interval=10)
+    await guardian.scan_and_learn(auto_enable_trusted=True)
+    await guardian.start_monitoring_enabled_services()
+    App.state.guardian = guardian
     App.state.shutdown_manager = shutdown_manager
 
     yield
 
-    guardian = App.state.guardian
-    if guardian:
-        await guardian.shutdown()
+    await guardian.shutdown()
     await shutdown_manager.shutdown_async()
     await _cleanup_http_client()
 
@@ -187,7 +165,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_origin_regex="|".join(re.escape(h.strip()) for h in settings.ALLOWED_HOSTS.split(",")),
+    allow_origin_regex=settings.ALLOWED_HOSTS.replace(",", "|"),
 )
 
 # 请求日志中间件（生成 request_id、记录请求耗时）
@@ -217,6 +195,7 @@ setup_performance_monitoring(app, slow_threshold=1.0)
 async def drain_mode_middleware(request, call_next):
     """Draining 模式下拒绝新请求"""
     if shutdown_manager.is_draining:
+        from fastapi.responses import JSONResponse
         return JSONResponse(
             status_code=503,
             content={
@@ -255,7 +234,8 @@ async def create_tables():
 # 启动事件
 @app.on_event("startup")
 async def on_startup():
-    await create_tables()
+    # await clear_history_table()
+    # await create_tables()  # 已注释，改用 Alembic
 
     # 调用 Alembic 迁移
     try:
@@ -289,14 +269,13 @@ app.include_router(aicloudKnowledgeRouter, prefix="/api/v1", tags=["aicloud-know
 app.include_router(workflowRouter, tags=["workflow"])
 app.include_router(agentRouter, prefix="/api/v1", tags=["agent"])
 app.include_router(visionRouter, prefix="/api/v1", tags=["vision"])
+app.include_router(adminConfigRouter, prefix="/api/v1", tags=["admin-config"])  # 添加管理员配置路由
 app.include_router(nginxRouter, prefix="/api/v2", tags=["nginx"])
 app.include_router(sysRouter, prefix="/api/v2", tags=["sys"])
 app.include_router(userManageRouter, prefix="/api/v2", tags=["manage"])
-app.include_router(adminConfigRouter, prefix="/api/v2", tags=["admin-config"])
+app.include_router(adminConfigRouter, prefix="/api/v2", tags=["admin-config"])  # 添加管理员配置路由
 app.include_router(guardian_router, prefix="/api/v2", tags=["guard"])
 app.include_router(githubRouter, prefix="/api/v1", tags=["github"])
-app.include_router(apikeyRouter, tags=["API Key"])
-app.include_router(providersRouter, tags=["动态供应商管理"])
 
 # 健康检查路由（/api/v1/health）
 app.include_router(healthRouter, prefix="/api/v1")
@@ -304,10 +283,9 @@ app.include_router(healthRouter, prefix="/api/v1")
 # 静态文件服务（Vue前端）----------
 # 配置dist路径（与main.py同级的dist文件夹）
 DIST_PATH = rf"{BASE_DIR_PATH}/dist"
-STATIC_DIST_PATH = os.path.join(DIST_PATH, "static")
 os.makedirs(DIST_PATH, exist_ok=True)
 # 挂载静态文件到/static路径（供Vue加载JS/CSS等资源）
-app.mount("/static", StaticFiles(directory=STATIC_DIST_PATH), name="static")
+app.mount("/static", StaticFiles(directory=DIST_PATH), name="static")
 
 # 根路径返回Vue首页
 @app.get("/", response_class=FileResponse)
@@ -320,6 +298,7 @@ async def serve_vue():
 async def serve_vue_routes(full_path: str):
     # 跳过 API 请求，返回 404
     if full_path.startswith("api/"):
+        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Not Found")
 
     # 如果是真实存在的文件，直接返回
@@ -329,3 +308,5 @@ async def serve_vue_routes(full_path: str):
 
     # 其他路径返回 index.html，让 Vue Router 处理
     return FileResponse(os.path.join(DIST_PATH, "index.html"))
+
+# .\cloudflared.exe tunnel --config="C:\Users\admin\Downloads\cloudflared\cloudflared\config\config.yml" run 93dbf689-e460-4139-8318-cbd8f5956567
