@@ -43,7 +43,7 @@ class FixAttempt:
 class ErrorRecoveryLoop:
     """错误恢复循环 - 智能自我修正（验证-修复-重试 + 模型降级）"""
 
-    MAX_FIX_ATTEMPTS = 2  # 智能修正循环最多尝试 2 次（避免过度耗时）
+    MAX_FIX_ATTEMPTS = 3  # 智能修正循环最多尝试 3 次（捕获深层问题）
 
     # 模型降级链：主模型失败时按顺序尝试备选模型
     MODEL_FALLBACK_CHAIN = [

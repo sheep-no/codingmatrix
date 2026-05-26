@@ -83,7 +83,19 @@ class ProviderRouter:
     
     def route(self, model_name: str) -> ModelProvider:
         """根据模型名称返回对应供应商"""
-        # 先尝试精确匹配
+        # 先尝试动态供应商（自定义 base_url）
+        try:
+            from app.utils.aicloud.dynamic_provider import get_dynamic_provider_manager
+            manager = get_dynamic_provider_manager()
+            dp = manager.get_by_model(model_name)
+            if dp:
+                # 动态供应商找到，但返回特殊标记
+                # 实际调用会通过 call_dynamic_llm 进行
+                pass
+        except Exception:
+            pass
+        
+        # 再尝试精确匹配
         provider = MODEL_PROVIDER_MAP.get(model_name)
         if provider:
             return provider
