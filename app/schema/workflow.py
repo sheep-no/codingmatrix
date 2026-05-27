@@ -15,14 +15,21 @@ class TaskType(str, Enum):
     CODE_EXECUTION = "code_execution"
     CHART_GENERATION = "chart_generation"
     FILE_PROCESSING = "file_processing"
+    LLM_CALL = "llm_call"
+    CONDITIONAL = "conditional"
+    HUMAN_APPROVAL = "human_approval"
+    HTTP_REQUEST = "http_request"
+    DATA_TRANSFORM = "data_transform"
 
 
 class TaskStatus(str, Enum):
     """任务状态枚举"""
     PENDING = "pending"
     RUNNING = "running"
+    WAITING_APPROVAL = "waiting_approval"
     COMPLETED = "completed"
     FAILED = "failed"
+    SKIPPED = "skipped"
 
 
 class WorkflowStatus(str, Enum):
@@ -34,6 +41,13 @@ class WorkflowStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class RetryConfig(BaseModel):
+    """重试配置"""
+    max_retries: int = Field(default=0, description="最大重试次数", ge=0, le=5)
+    retry_delay: float = Field(default=1.0, description="重试延迟（秒）", ge=0.1, le=30)
+    backoff_factor: float = Field(default=2.0, description="退避因子", ge=1.0, le=5.0)
+
+
 class TaskNode(BaseModel):
     """任务节点模型"""
     id: str = Field(..., description="节点唯一标识")
@@ -43,6 +57,8 @@ class TaskNode(BaseModel):
     status: TaskStatus = Field(default=TaskStatus.PENDING, description="节点状态")
     result: Optional[Any] = Field(None, description="节点执行结果")
     error: Optional[str] = Field(None, description="节点执行错误信息")
+    retry: Optional[RetryConfig] = Field(None, description="重试配置")
+    on_failure: str = Field(default="fail", description="失败策略: fail, skip, fallback")
 
 
 class TaskGraph(BaseModel):

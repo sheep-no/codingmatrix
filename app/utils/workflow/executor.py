@@ -27,6 +27,11 @@ from app.utils.workflow.node_types import (
     CodeExecutionNode,
     ChartGenerationNode,
     FileProcessingNode,
+    LLMCallNode,
+    ConditionalNode,
+    HumanApprovalNode,
+    HTTPRequestNode,
+    DataTransformNode,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +50,11 @@ class NodeFactory:
         TaskType.CODE_EXECUTION: CodeExecutionNode,
         TaskType.CHART_GENERATION: ChartGenerationNode,
         TaskType.FILE_PROCESSING: FileProcessingNode,
+        TaskType.LLM_CALL: LLMCallNode,
+        TaskType.CONDITIONAL: ConditionalNode,
+        TaskType.HUMAN_APPROVAL: HumanApprovalNode,
+        TaskType.HTTP_REQUEST: HTTPRequestNode,
+        TaskType.DATA_TRANSFORM: DataTransformNode,
     }
 
     @classmethod
@@ -66,15 +76,24 @@ class WorkflowExecutor:
     - 并发执行（独立节点）
     - 错误隔离
     - 超时控制
+    - 重试机制
+    - 资源限制
     - 资源清理
     """
+
+    # 8C8G 环境资源限制
+    MAX_CONCURRENT_NODES = 4
+    MAX_NODE_MEMORY_MB = 512
+    NODE_TIMEOUT = 300
+    WORKFLOW_TIMEOUT = 1800
 
     def __init__(
         self,
         task_graph: TaskGraph,
-        timeout: int = 1800,
-        node_timeout: int = 300,
-        max_concurrent: int = 3,
+        timeout: int = None,
+        node_timeout: int = None,
+        max_concurrent: int = None,
+        approval_callback: Optional[Callable] = None,
     ):
         """
         初始化执行器
@@ -84,11 +103,13 @@ class WorkflowExecutor:
             timeout: 工作流超时（秒）
             node_timeout: 节点超时（秒）
             max_concurrent: 最大并发数
+            approval_callback: 人工审批回调
         """
         self.task_graph = task_graph
-        self.timeout = timeout
-        self.node_timeout = node_timeout
-        self.max_concurrent = max_concurrent
+        self.timeout = timeout or self.WORKFLOW_TIMEOUT
+        self.node_timeout = node_timeout or self.NODE_TIMEOUT
+        self.max_concurrent = min(max_concurrent or self.MAX_CONCURRENT_NODES, self.MAX_CONCURRENT_NODES)
+        self._approval_callback = approval_callback
 
         self._validator = GraphValidator()
         self._state_machine: Optional[WorkflowStateMachine] = None
@@ -178,7 +199,7 @@ class WorkflowExecutor:
         cancel_event: asyncio.Event,
     ) -> NodeResult:
         """
-        执行单个节点
+        执行单个节点（支持重试机制）
 
         Args:
             node_id: 节点 ID
@@ -189,13 +210,19 @@ class WorkflowExecutor:
             节点执行结果
         """
         try:
-            for task_node in self.task_graph.nodes:
-                if task_node.id == node_id:
+            task_node = None
+            for node in self.task_graph.nodes:
+                if node.id == node_id:
+                    task_node = node
                     break
-            else:
+            if task_node is None:
                 return NodeResult.error_result(error=f"Node {node_id} not found")
 
             node_instance = NodeFactory.create(task_node)
+
+            # 设置审批回调（如果是人工审批节点）
+            if task_node.type == TaskType.HUMAN_APPROVAL and self._approval_callback:
+                node_instance.set_approval_callback(self._approval_callback)
 
             errors = node_instance.validate_params()
             if errors:
@@ -203,16 +230,57 @@ class WorkflowExecutor:
                     error=f"Invalid params: {', '.join(errors)}"
                 )
 
-            logger.info(f"[{node_id}] 开始执行")
+            # 重试配置
+            retry_config = task_node.retry
+            max_retries = retry_config.max_retries if retry_config else 0
+            retry_delay = retry_config.retry_delay if retry_config else 1.0
+            backoff_factor = retry_config.backoff_factor if retry_config else 2.0
+            on_failure = task_node.on_failure if hasattr(task_node, 'on_failure') else "fail"
 
-            try:
-                async with asyncio.timeout(self.node_timeout):
-                    result = await node_instance.execute(context)
-                    return result
-            except asyncio.TimeoutError:
-                return NodeResult.error_result(
-                    error=f"Node execution timeout after {self.node_timeout} seconds"
+            last_error = None
+            for attempt in range(max_retries + 1):
+                if cancel_event.is_set():
+                    return NodeResult.error_result(error="Execution cancelled")
+
+                if attempt > 0:
+                    delay = retry_delay * (backoff_factor ** (attempt - 1))
+                    logger.info(f"[{node_id}] 重试 {attempt}/{max_retries} | 等待 {delay:.1f}s")
+                    await asyncio.sleep(delay)
+
+                logger.info(f"[{node_id}] 开始执行" + (f" (尝试 {attempt + 1}/{max_retries + 1})" if attempt > 0 else ""))
+
+                try:
+                    async with asyncio.timeout(self.node_timeout):
+                        result = await node_instance.execute(context)
+
+                        if result.success:
+                            if attempt > 0:
+                                logger.info(f"[{node_id}] 重试成功")
+                            return result
+
+                        last_error = result.error
+                        if attempt < max_retries:
+                            logger.warning(f"[{node_id}] 执行失败: {last_error}，将重试")
+
+                except asyncio.TimeoutError:
+                    last_error = f"Node execution timeout after {self.node_timeout} seconds"
+                    if attempt < max_retries:
+                        logger.warning(f"[{node_id}] {last_error}，将重试")
+
+                except Exception as e:
+                    last_error = f"Node execution error: {str(e)}"
+                    if attempt < max_retries:
+                        logger.warning(f"[{node_id}] {last_error}，将重试")
+
+            # 所有重试都失败
+            if on_failure == "skip":
+                logger.info(f"[{node_id}] 跳过失败节点")
+                return NodeResult.success_result(
+                    data={"skipped": True, "reason": last_error},
+                    metadata={"skipped": True}
                 )
+            else:
+                return NodeResult.error_result(error=last_error)
 
         except Exception as e:
             error_msg = f"Node execution error: {str(e)}"

@@ -77,7 +77,7 @@
 | 图像生成 | `/api/v1/kolors/*` | 文生图、图生图 |
 | AI Cloud | `/api/v1/aicloud/*` | 沙箱执行、审查队列 |
 | 文件管理 | `/api/v1/files/*` | 分片上传、去重、解析缓存 |
-| 工作流 | `/api/v1/workflow/*` | 可视化编排 |
+| 工作流 | `/api/v1/workflow/*` | DAG 编排、9 种节点、重试机制 |
 | 用户管理 | `/api/v2/Controller/*` | CRUD、权限管理 |
 | 健康检查 | `/api/v1/health` | Prometheus 指标 |
 

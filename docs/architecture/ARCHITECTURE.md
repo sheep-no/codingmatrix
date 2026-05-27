@@ -199,7 +199,7 @@ v5.9.0 新增 **API Key 全局化** 和 **Token 使用统计**，所有前端功
 | memory_entries | Agent 记忆 | id, session_id, content, category |
 | knowledge_entries | 知识库 | id, content, category, tags |
 | image_generation_history | 图像生成 | id, user_id, prompt, image_url |
-| workflow_history | 工作流 | id, user_id, workflow_data, status |
+| workflow_history | 工作流 | id, user_id, workflow_data, status (pending/running/completed/failed/waiting_approval/skipped) |
 
 ---
 
@@ -216,7 +216,7 @@ v5.9.0 新增 **API Key 全局化** 和 **Token 使用统计**，所有前端功
 | 图像 | /api/v1/kolors/* | 图像生成 |
 | AI Cloud | /api/v1/aicloud/* | AI 云管理 |
 | 文件 | /api/v1/files/* | 文件管理 |
-| 工作流 | /api/v1/workflow/* | 工作流编排 |
+| 工作流 | /api/v1/workflow/* | DAG 编排、9 种节点、重试、条件分支 |
 | 健康 | /api/v1/health | 健康检查 |
 
 ### v2 API (管理功能)

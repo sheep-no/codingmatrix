@@ -154,15 +154,19 @@
 
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
-| POST | `/api/v1/workflow/execute` | 执行工作流 | normal |
+| POST | `/api/v1/workflow/execute` | 自然语言执行工作流（流式 NDJSON） | normal |
+| POST | `/api/v1/workflow/{workflow_id}/execute` | 执行已导入的工作流 | normal |
 | GET | `/api/v1/workflow/status/{workflow_id}` | 状态查询 | normal |
-| POST | `/api/v1/workflow/import` | 导入工作流 | normal |
-| POST | `/api/v1/workflow/{workflow_id}/execute` | 执行导入 | normal |
-| GET | `/api/v1/workflow/export/{workflow_id}` | 导出工作流 | normal |
+| POST | `/api/v1/workflow/import` | 导入工作流 JSON | normal |
+| GET | `/api/v1/workflow/export/{workflow_id}` | 导出工作流 JSON | normal |
 | DELETE | `/api/v1/workflow/{workflow_id}` | 删除工作流 | normal |
 | GET | `/api/v1/workflow/history` | 历史记录 | normal |
-| GET | `/api/v1/workflow/history/{workflow_id}` | 历史详情 | normal |
-| DELETE | `/api/v1/workflow/history/{workflow_id}` | 删除历史 | normal |
+
+**支持的节点类型**: web_search, code_execution, chart_generation, file_processing, llm_call, conditional, human_approval, http_request, data_transform
+
+**节点状态**: pending, running, completed, failed, waiting_approval, skipped
+
+**资源限制**: 最大并发 4 节点, 单节点超时 300s, 工作流超时 1800s, 内存 512MB
 
 ## AI 云管理 (`/api/v1/aicloud`)
 

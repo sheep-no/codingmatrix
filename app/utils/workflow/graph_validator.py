@@ -53,6 +53,7 @@ class GraphValidator:
         self._check_dependency_existence(task_graph)
         self._check_task_type_validity(task_graph)
         self._check_circular_dependency(task_graph)
+        self._check_conditional_branches(task_graph)
 
         return len(self.errors) == 0, self.errors
 
@@ -112,6 +113,21 @@ class GraphValidator:
                 node_id for node_id, degree in in_degree.items() if degree > 0
             ]
             self.errors.append(f"Circular dependency detected involving nodes: {cyclic_nodes}")
+
+    def _check_conditional_branches(self, task_graph: TaskGraph) -> None:
+        """检查条件分支节点的分支引用是否有效"""
+        node_ids = {node.id for node in task_graph.nodes}
+
+        for node in task_graph.nodes:
+            if node.type == TaskType.CONDITIONAL:
+                true_branch = node.params.get("true_branch", [])
+                false_branch = node.params.get("false_branch", [])
+
+                for branch_id in true_branch + false_branch:
+                    if branch_id not in node_ids:
+                        self.errors.append(
+                            f"Conditional node '{node.id}' references non-existent node '{branch_id}'"
+                        )
 
     def validate_or_raise(self, task_graph: TaskGraph) -> None:
         """
