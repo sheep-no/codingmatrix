@@ -11,17 +11,16 @@
 - [测试文档](testing/TESTING.md) - 111+ 测试文件，850+ 测试用例
 
 ### 架构与设计
-- [系统架构](architecture/ARCHITECTURE.md) - v5.9.0 完整架构
+- [系统架构](architecture/ARCHITECTURE.md) - v5.10.0 完整架构
 - [模块说明](architecture/MODULES.md) - 代码结构、职责划分
 - [模型系统](architecture/MODELS.md) - 多供应商 LLM 适配器
 
 ### API 文档
-- [API 文档](api/) - 25+ 个 API 端点完整文档
-- [Agent API](api/AGENT-API.md) - Agent 系统 API
+- [API 文档](api/API-DOCUMENTATION.md) - 180+ 个 API 端点完整文档
+- [API 版本](api/API-VERSIONS.md) - 版本管理和迁移指南
 
 ### Agent 系统
 - [Agent 系统架构](features/agent.md) - 多角色协作、项目生成
-- [Agent 工具](features/AGENT-TOOLS.md) - 19 个工具
 
 ### 功能模块
 - [AI 云管理](features/aicloud.md) - 模型切换、故障转移
@@ -33,7 +32,6 @@
 
 ### 测试
 - [测试文档](testing/TESTING.md) - 完整测试指南
-- [E2E 测试](testing/E2E.md) - Playwright 测试
 
 ### 部署与运维
 - [生产部署](guides/PRODUCTION.md) - Docker Compose、服务管理
@@ -42,12 +40,11 @@
 ### 安全
 - [安全架构](security/SECURITY-OVERVIEW.md) - 安全概览
 - [加密登录](security/ENCRYPTED_LOGIN.md) - RSA 加密登录
-- [CSRF 防护](security/CSRF.md) - CSRF 实现
+- [CSRF 防护](security/CSRF-IMPLEMENTATION-COMPLETE.md) - CSRF 实现
 - [权限规范](PERMISSION-SPEC.md) - 权限系统设计
 
 ### 可观测性
 - [分布式追踪](observability/TRACING.md) - OpenTelemetry
-- [日志系统](observability/LOGGING.md) - 结构化日志
 
 ### 提示词
 - [AI 提示词](prompts/PROMPTS.md) - 提示词模板
@@ -104,7 +101,7 @@ docs/
 
 | 指标 | 数值 |
 |------|------|
-| 后端 API | 25+ 端点 |
+| 后端 API | 180+ 端点 |
 | Agent 系统 | 58 个文件 |
 | 数据库模型 | 24 个表 |
 | 前端视图 | 7 个页面 |

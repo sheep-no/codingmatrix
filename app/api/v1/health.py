@@ -24,7 +24,7 @@ from app.services.prometheus_metrics import generate_metrics_text
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["健康检查"])
 
-APP_VERSION = "v5.9.0"
+APP_VERSION = "v5.10.0"
 
 
 @router.get("", summary="基础健康检查")

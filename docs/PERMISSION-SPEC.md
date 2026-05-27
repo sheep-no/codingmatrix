@@ -111,6 +111,8 @@ class PermissionLevel:
 | POST /api/v1/vision/* | 视觉分析 |
 | POST /api/v1/workflow/* | 工作流 |
 | POST /api/v1/aicloud/* | AI 云功能 |
+| GET /api/v1/models | 免费模型列表 |
+| GET /api/v1/models/default | 默认模型 |
 | GET /api/v1/user/profile | 用户资料 |
 | GET /api/v1/conversations | 对话列表 |
 
@@ -147,6 +149,7 @@ class PermissionLevel:
 | POST /api/v2/admin/config | 更新系统配置 |
 | POST /api/v2/admin/user-limit | 更新用户并发限制 |
 | DELETE /api/v2/admin/user-limit/{user_id} | 移除用户并发限制 |
+| POST /api/v1/models/switch | 切换默认模型 |
 
 ## 前端权限控制
 
@@ -201,14 +204,6 @@ Token 结构:
 
 ## 已知问题
 
-### 权限检查值不匹配
-
-**问题**: `require_superadmin` 检查 `permission_level != "super"`，但系统定义为 `"superadmin"`
-
-**影响**: 所有超级管理员会被拒绝访问
-
-**修复**: 将检查改为 `permission_level != "superadmin"`
-
 详见 [TECH-DEBT.md](TECH-DEBT.md)
 
 ---
@@ -217,7 +212,7 @@ Token 结构:
 
 - [安全架构](security/SECURITY-OVERVIEW.md)
 - [加密登录](security/ENCRYPTED_LOGIN.md)
-- [CSRF 防护](security/CSRF.md)
+- [CSRF 防护](security/CSRF-IMPLEMENTATION-COMPLETE.md)
 - [技术债务](TECH-DEBT.md)
 
 ---

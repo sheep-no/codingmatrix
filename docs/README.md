@@ -10,14 +10,15 @@
 - [测试文档](testing/TESTING.md) - 111+ 测试文件，850+ 测试用例
 
 ### 核心架构
-- [系统架构](architecture/ARCHITECTURE.md) - v5.9.0 完整架构
+- [系统架构](architecture/ARCHITECTURE.md) - v5.10.0 完整架构
 - [模块说明](architecture/MODULES.md) - 代码结构、职责划分
 - [模型系统](architecture/MODELS.md) - 多供应商 LLM 适配器
 
 ### API 与功能
-- [API 文档](api/) - 25+ 个 API 端点完整文档
+- [API 文档](api/API-DOCUMENTATION.md) - 180+ 个 API 端点完整文档
 - [Agent 系统](features/agent.md) - 多角色协作、项目生成
 - [AI 云管理](features/aicloud.md) - 模型切换、故障转移
+- [免费模型管理](features/MODEL-MANAGER.md) - 内置模型查看、切换和管理
 
 ### 部署运维
 - [生产部署](guides/PRODUCTION.md) - Docker Compose、服务管理
@@ -49,6 +50,16 @@
 | Pinia Store | 6 | 状态管理 |
 | 测试文件 | 111+ | 850+ 测试用例 |
 
+### v5.10.0 核心特性
+
+- **工作流节点扩展**: 9 种节点类型（web_search, code_execution, chart_generation, file_processing, llm_call, conditional, human_approval, http_request, data_transform）
+- **重试机制**: 每个节点可配置 RetryConfig（max_retries, retry_delay, backoff_factor）
+- **失败策略**: 支持 fail（中断）和 skip（跳过继续）两种策略
+- **条件分支**: conditional 节点支持 12 种运算符
+- **资源限制**: 适配 8C8G 服务器（最大并发 4 节点，节点超时 300s，内存 512MB）
+- **免费模型管理**: `/api/v1/models` 端点，支持查看、切换内置模型
+- **Web 搜索增强**: 智能查询优化、结果去重、质量评分
+
 ### v5.9.0 核心特性
 
 - **API Key 全局化**: 所有前端功能（项目生成、代码对话、PPT、图像生成、AI Cloud）均使用用户自定义 API Key
@@ -78,6 +89,7 @@
 | AI Cloud | `/api/v1/aicloud/*` | 沙箱执行、审查队列 |
 | 文件管理 | `/api/v1/files/*` | 分片上传、去重、解析缓存 |
 | 工作流 | `/api/v1/workflow/*` | DAG 编排、9 种节点、重试机制 |
+| 免费模型 | `/api/v1/models` | 内置模型查看、切换 |
 | 用户管理 | `/api/v2/Controller/*` | CRUD、权限管理 |
 | 健康检查 | `/api/v1/health` | Prometheus 指标 |
 
@@ -161,20 +173,6 @@ pytest tests/integration/ -v
 ```
 
 ## 已知问题
-
-### 严重 Bug
-
-1. **启动时清空 history 表**: `on_startup()` 调用 `clear_history_table()` 会删除所有对话历史
-2. **权限检查值不匹配**: `require_superadmin` 检查 `"super"` 但系统定义为 `"superadmin"`
-3. **路由器重复注册**: `adminConfigRouter` 被注册两次导致路由冲突
-4. **缺少导入**: `drain_mode_middleware` 使用 `JSONResponse` 但未导入
-
-### 高危问题
-
-5. **Celery 信号中错误使用 asyncio**: 同步函数中调用 `asyncio.create_task()` 无事件循环
-6. **datetime.utcnow() 无时区**: 多处使用已弃用的无时区时间函数
-7. **WebSocket 单连接限制**: 同一用户新连接会覆盖旧连接
-8. **CORS 正则构造错误**: 主机名点号未转义
 
 详见 [TECH-DEBT.md](TECH-DEBT.md)
 
