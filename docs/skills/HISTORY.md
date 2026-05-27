@@ -9,6 +9,7 @@
 | feature-implementer | 功能实施 |
 | implementation-planner | 实施计划生成 |
 | project-wiki | 项目文档生成 |
+| workflow-planner | 工作流任务分解 |
 
 ## 迁移记录
 
@@ -32,5 +33,6 @@
 |-------|----------|
 | deploy-website | 支持更多项目类型 |
 | feature-design | 改进 EARS 模式 |
+| workflow-planner | 新增：工作流任务分解，支持 9 种节点类型 |
 
 **验证:** 所有 Skills 功能正常，无兼容性问题。

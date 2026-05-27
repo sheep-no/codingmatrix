@@ -1,6 +1,14 @@
 # Agent 系统文档
 
-> 最后更新：2026-05-26 | 版本：v5.9.0
+> 最后更新：2026-05-27 | 版本：v5.10.0
+
+### v5.10.0 更新
+
+- **工作流节点扩展**: 新增 5 种节点类型（llm_call、conditional、human_approval、http_request、data_transform）
+- **重试机制**: 每个节点可配置 RetryConfig（max_retries、retry_delay、backoff_factor）
+- **失败策略**: 支持 fail（中断）和 skip（跳过继续）两种策略
+- **条件分支**: conditional 节点支持 12 种运算符
+- **资源限制**: 适配 8C8G 服务器（最大并发 4 节点，节点超时 300s，内存 512MB）
 
 ### v5.9.0 更新
 

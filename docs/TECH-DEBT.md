@@ -1,6 +1,6 @@
 # 技术债务跟踪
 
-> 最后更新：2026-05-26 | v5.9.0
+> 最后更新：2026-05-27 | v5.10.0
 
 ## 已修复的问题
 
@@ -144,6 +144,27 @@
 
 ---
 
+### 工作流节点类型扩展 ✅ 已完成
+
+**偿还日期**: 2026-05-27 | **版本**: v5.10.0
+
+**问题**: 工作流仅支持 4 种节点类型，无法满足复杂业务需求
+
+**解决方案**:
+- 新增 5 种节点类型：`llm_call`、`conditional`、`human_approval`、`http_request`、`data_transform`
+- 新增重试机制：`RetryConfig`（max_retries, retry_delay, backoff_factor）
+- 新增失败策略：`fail`（中断）、`skip`（跳过继续）
+- 新增状态：`waiting_approval`、`skipped`
+- 提取提示词到 `skills/workflow-planner/system_prompt.md`
+
+**效果**:
+- 节点类型从 4 种扩展到 9 种
+- 支持 LLM 调用覆盖 80% 工作流场景
+- 支持条件分支和人工审批
+- 资源限制适配 8C8G 服务器（最大并发 4 节点，节点超时 300s，内存 512MB）
+
+---
+
 ## 相关文档
 
 - [安全架构](security/SECURITY-OVERVIEW.md)
@@ -152,4 +173,4 @@
 
 ---
 
-最后更新：2026-05-26
+最后更新：2026-05-27

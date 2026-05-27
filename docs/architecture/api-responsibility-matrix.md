@@ -14,7 +14,7 @@
 | file_upload | 文件管理 | /files/upload, /files/download | 文件系统 |
 | task_queue | 异步任务 | /tasks | APScheduler |
 | vision_api | 视觉分析 | /vision/analyze | LLM Vision |
-| workflow | 工作流引擎 | /workflow/execute | 图执行引擎 |
+| workflow | 工作流引擎 | /workflow/execute | 图执行引擎, 9 种节点类型 |
 | aicloud | AI 云管理 | /aicloud/chat | LLM |
 | health | 健康检查 | /health | - |
 

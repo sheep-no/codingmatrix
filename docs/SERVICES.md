@@ -1,6 +1,6 @@
 # 服务启动说明
 
-> 最后更新：2026-05-26 | v5.9.0
+> 最后更新：2026-05-27 | v5.10.0
 
 ## 重要说明
 
@@ -160,7 +160,7 @@ curl http://localhost:8000/api/v1/system/health
 {
   "status": "healthy",
   "timestamp": "2026-05-26T...",
-  "version": "v5.9.0"
+  "version": "v5.10.0"
 }
 ```
 
@@ -243,4 +243,4 @@ DEEPSEEK_API_KEY=your-deepseek-key
 
 ---
 
-最后更新：2026-05-26
+最后更新：2026-05-27
