@@ -28,6 +28,8 @@
 - [PPT 生成](features/PPT.md) - 异步任务、多格式输出
 - [图像生成](features/IMAGE.md) - 文生图、图生图
 - [工作流](features/WORKFLOW.md) - DAG 编排、9 种节点类型、重试机制、条件分支
+- [免费模型管理](features/MODEL-MANAGER.md) - 内置模型查看、切换和管理
+- [Web 搜索增强](features/WEB-SEARCH-ENHANCEMENTS.md) - 智能查询优化、结果去重、质量评分
 
 ### 测试
 - [测试文档](testing/TESTING.md) - 完整测试指南

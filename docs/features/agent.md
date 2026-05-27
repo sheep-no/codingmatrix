@@ -465,10 +465,10 @@ result = await executor.execute_with_stream(step)
 |------|---------|------|-----------|------|
 | deepseek-r1-qwen3-8b | DeepSeek-R1-0528-Qwen3-8B | REASONING, CODE | 8192 | 0.7 |
 | deepseek-ocr | DeepSeek-OCR | OCR, VISION | 2048 | 1.0 |
+| paddleocr-vl-1.5 | PaddlePaddle/PaddleOCR-VL-1.5 | VISION | 2048 | 0.8 |
 | qwen3.5-4b | Qwen/Qwen3.5-4B | FAST | 4096 | 2.0 |
 | qwen3-8b | Qwen/Qwen3-8B | REASONING, FAST | 4096 | 1.5 |
 | qwen2.5-7b | Qwen/Qwen2.5-7B-Instruct | CODE, FAST | 4096 | 1.8 |
-| glm-4.1v-9b | THUDM/GLM-4.1V-9B-Thinking | VISION, REASONING | 4096 | 0.8 |
 | glm-4-9b | THUDM/GLM-4-9B-0414 | FAST, CODE | 4096 | 1.6 |
 | glm-z1-9b | THUDM/GLM-Z1-9B-0414 | REASONING | 4096 | 0.9 |
 | kolors | Kwai-Kolors/Kolors | CREATIVE | 512 | 0.5 |
@@ -482,7 +482,7 @@ TASK_MODEL_MAP = {
  TaskType.CODE_GENERATION: ["qwen2.5-7b", "deepseek-r1-qwen3-8b"],
  TaskType.CODE_REVIEW: ["deepseek-r1-qwen3-8b", "glm-z1-9b"],
  TaskType.FILE_OPERATION: ["glm-4-9b", "qwen3.5-4b"],
- TaskType.VISUAL_UNDERSTANDING: ["glm-4.1v-9b", "deepseek-ocr"],
+ TaskType.VISUAL_UNDERSTANDING: ["paddleocr-vl-1.5", "deepseek-ocr"],
  TaskType.IMAGE_GENERATION: ["kolors"],
  TaskType.REASONING: ["deepseek-r1-qwen3-8b", "glm-z1-9b"],
  TaskType.FAST_RESPONSE: ["qwen3.5-4b", "glm-4-9b"],

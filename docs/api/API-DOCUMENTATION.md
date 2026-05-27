@@ -168,6 +168,17 @@
 
 **资源限制**: 最大并发 4 节点, 单节点超时 300s, 工作流超时 1800s, 内存 512MB
 
+## 免费模型管理 (`/api/v1/models`)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| GET | `/api/v1/models` | 获取所有免费模型列表 | normal |
+| GET | `/api/v1/models/default` | 获取当前默认模型 | normal |
+| POST | `/api/v1/models/switch` | 切换默认模型 | superadmin |
+| GET | `/api/v1/models/capability/{capability}` | 按能力筛选模型 | normal |
+
+**能力类型**: CODE, FAST, REASONING, VISION, OCR, EMBEDDING, CREATIVE
+
 ## AI 云管理 (`/api/v1/aicloud`)
 
 | 方法 | 路径 | 描述 | 权限 |

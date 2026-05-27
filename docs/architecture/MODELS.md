@@ -95,10 +95,10 @@ CodingMatrix 通过统一适配器接口调用多种 LLM 模型，实现三层�
 |---------|--------|------|------|
 | deepseek-ai/DeepSeek-R1-0528-Qwen3-8B | DeepSeek | 攻坚层推理 | 深度推理与复杂分析 |
 | deepseek-ai/DeepSeek-OCR | DeepSeek | OCR | 图像文字识别 |
+| PaddlePaddle/PaddleOCR-VL-1.5 | PaddlePaddle | 视觉理解 | 图像分析、视觉推理 |
 | Qwen/Qwen3.5-4B | Alibaba | 简单层对话 | 轻量快速响应 |
 | Qwen/Qwen3-8B | Alibaba | 标准层对话 | 通用代码与对话 |
 | Qwen/Qwen2.5-7B-Instruct | Alibaba | 标准层代码 | 代码生成与补全 |
-| THUDM/GLM-4.1V-9B-Thinking | THUDM | 视觉推理 | 图像分析 + 推理链 |
 | THUDM/GLM-4-9B-0414 | THUDM | 标准层对话 | 通用对话与协作 |
 | THUDM/GLM-Z1-9B-0414 | THUDM | 攻坚层推理 | 深度推理与验证 |
 | Kwai-Kolors/Kolors | Kuaishou | 图像生成 | 文生图 |
@@ -124,8 +124,8 @@ class Settings:
  SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
 
  DEFAULT_MODEL: str = "Qwen/Qwen2.5-7B-Instruct"
- VISION_MODEL: str = "THUDM/GLM-4.1V-9B-Thinking"
- OCR_MODEL: str = "deepseek-ai/DeepSeek-OCR"
+ VISION_MODEL: str = "deepseek-ai/DeepSeek-OCR"
+  OCR_MODEL: str = "deepseek-ai/DeepSeek-OCR"
  IMAGE_GEN_MODEL: str = "Kwai-Kolors/Kolors"
 
  MAX_TOKENS: int = 4096
@@ -140,7 +140,7 @@ class Settings:
 | SILICONFLOW_API_KEY | - | API Key (必填) |
 | SILICONFLOW_BASE_URL | https://api.siliconflow.cn/v1 | API 地址 |
 | DEFAULT_MODEL | Qwen/Qwen2.5-7B-Instruct | 默认模型 |
-| VISION_MODEL | THUDM/GLM-4.1V-9B-Thinking | 视觉模型 |
+| VISION_MODEL | deepseek-ai/DeepSeek-OCR | 视觉模型 |
 | OCR_MODEL | deepseek-ai/DeepSeek-OCR | OCR 模型 |
 | IMAGE_GEN_MODEL | Kwai-Kolors/Kolors | 图像生成模型 |
 | MAX_TOKENS | 4096 | 最大输出 token |
@@ -192,7 +192,8 @@ curl http://localhost:8000/api/v1/health/models
 | 功能 | 环境变量 | 默认模型 |
 |------|----------|----------|
 | 代码生成 | DEFAULT_MODEL | Qwen/Qwen2.5-7B-Instruct |
-| 图像分析 | VISION_MODEL | THUDM/GLM-4.1V-9B-Thinking |
+| 图像分析 | VISION_MODEL | deepseek-ai/DeepSeek-OCR |
+| 视觉理解 | - | PaddlePaddle/PaddleOCR-VL-1.5 |
 | OCR | OCR_MODEL | deepseek-ai/DeepSeek-OCR |
 | 图像生成 | IMAGE_GEN_MODEL | Kwai-Kolors/Kolors |
 | PPT 生成 | DEFAULT_MODEL | Qwen/Qwen2.5-7B-Instruct |
