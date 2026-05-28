@@ -1,17 +1,21 @@
 """
 AI Cloud 模型注册表
 
-当前仅支持硅基流动 (SiliconFlow) 供应商。
-保留多供应商扩展能力，后续预算宽裕时可接入 OpenAI、Anthropic 等。
+支持多供应商模型调用：
+1. 内置供应商：SiliconFlow（默认）、阿里百炼、智谱、DeepSeek官方、OpenAI、Anthropic
+2. 动态供应商：支持用户自定义 base_url 和协议类型（OpenAI兼容/Anthropic原生）
 
-当前可用模型（均来自硅基流动）：
+当前内置模型（SiliconFlow）：
 1. deepseek-r1 (DeepSeek-R1-0528-Qwen3-8B) - 默认推理模型
 2. qwen2.5-7b (Qwen2.5-7B-Instruct) - 代码生成
 3. qwen3-8b (Qwen/Qwen3-8B) - 通用对话
 4. qwen3.5-4b (Qwen/Qwen3.5-4B) - 轻量快速
 5. glm-z1-9b (THUDM/GLM-Z1-9B-0414) - 评测审查
 6. deepseek-ocr (DeepSeek-OCR) - 图片理解
-7. bce-embedding (netease-youdao/bce-embedding-base_v1) - 文本嵌入
+7. paddleocr-vl-1.5 (PaddleOCR-VL-1.5) - 视觉理解
+8. glm-4-9b (THUDM/GLM-4-9B-0414) - 通用对话
+9. kolors (Kwai-Kolors/Kolors) - 图像生成
+10. bce-embedding (netease-youdao/bce-embedding-base_v1) - 文本嵌入
 """
 from dataclasses import dataclass, field
 from enum import Enum

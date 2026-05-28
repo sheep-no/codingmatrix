@@ -296,6 +296,48 @@ monolith/
 
 解析器支持整个单体应用的依赖分析。
 
+## 高级依赖提取功能
+
+### 1. 阴影依赖扫描 (Shadow Dependencies)
+
+除标准 import/require 语句外，系统还能检测隐式依赖模式：
+
+| 模式 | 描述 | 检测正则 |
+|------|------|----------|
+| `eval_exec` | eval/exec 动态代码执行 | `\beval\s*\(|\bexec\s*\(` |
+| `dynamic_import` | 动态 import (importlib) | `importlib\.import_module` |
+| `env_dependency` | 环境变量依赖 | `os\.environ\|os\.getenv` |
+| `dynamic_require` | 动态 require (webpack) | `require\.context` |
+| `getattr_dynamic` | 反射动态调用 | `getattr\s*\([^,]+,\s*["']` |
+
+```python
+from app.agent.dependency_graph import DependencyGraph
+
+dep_graph = DependencyGraph()
+shadow_deps = dep_graph.scan_shadow_dependencies(project_path)
+# 返回: {'file.py': ['dynamic_import', 'env_dependency']}
+```
+
+### 2. 内容反推依赖 (增量场景)
+
+从文件内容提取依赖（无需文件系统）：
+
+```python
+deps = dep_graph.extract_dependencies_from_content(
+    file_path="src/main.py",
+    content="import os\nfrom models import User"
+)
+```
+
+### 3. 传递依赖分析
+
+获取变更文件的下游影响：
+
+```python
+affected = dep_graph.get_affected_files(["models/user.py"])
+# 返回: {'models/user.py': ['services/user.py', 'api/users.py']}
+```
+
 ## 性能优化
 
 ### 1. 缓存解析结果

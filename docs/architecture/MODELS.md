@@ -218,20 +218,62 @@ curl http://localhost:8000/api/v1/health/models
 | Anthropic | `anthropic` | https://api.anthropic.com/v1 | Claude 系列 |
 | Ollama | `ollama` | http://localhost:11434 | 本地部署模型 |
 
+### 动态供应商支持 (v5.10.0+)
+
+除内置供应商外，支持用户通过 base_url 自定义供应商：
+
+| 参数 | 说明 | 示例 |
+|------|------|------|
+| `name` | 供应商名称 | MyCustomAPI |
+| `base_url` | API 端点地址 | https://api.example.com/v1 |
+| `protocol` | 协议类型 | `openai` / `anthropic` |
+| `api_key` | 认证密钥 | sk-... |
+
+**支持的协议类型**：
+- `openai`: OpenAI 兼容格式 (`/v1/chat/completions`)
+- `anthropic`: Anthropic 原生格式 (`/v1/messages`)
+
+**动态供应商调用**：
+
+```python
+from app.utils.aicloud.dynamic_provider import get_dynamic_provider_manager
+from app.utils.aicloud.llm_caller import call_dynamic_llm
+
+# 添加自定义供应商
+manager = get_dynamic_provider_manager()
+provider = manager.add(
+    name="My API",
+    base_url="https://api.example.com/v1",
+    protocol="openai",  # 或 "anthropic"
+    api_key="sk-xxx"
+)
+
+# 调用
+result = await call_dynamic_llm(
+    provider_id=provider.id,
+    model="gpt-4",
+    prompt="你好"
+)
+```
+
 ### 核心组件
 
 ```
 app/utils/aicloud/
-├── providers.py        # ModelProvider 枚举、ProviderConfig、ProviderRegistry
-├── provider_router.py  # ProviderRouter 模型路由和故障转移
-├── llm_caller.py      # call_llm() 统一调用入口
+├── providers.py            # ModelProvider 枚举、ProviderConfig
+├── provider_router.py      # ProviderRouter 模型路由
+├── llm_caller.py          # call_llm() 统一调用入口
+├── dynamic_provider.py     # 动态供应商管理
 ├── adapters/
-│   ├── base.py         # BaseProviderAdapter 抽象基类
-│   ├── siliconflow.py  # SiliconFlow 适配器
-│   ├── dashscope.py    # 阿里百炼适配器
-│   ├── zhipu.py        # 智谱 GLM 适配器
-│   └── openai.py       # OpenAI 适配器
-└── test_providers.py   # 单元测试
+│   ├── base.py            # BaseProviderAdapter 基类
+│   ├── siliconflow.py     # SiliconFlow 适配器
+│   ├── dashscope.py       # 阿里百炼适配器
+│   ├── zhipu.py           # 智谱 GLM 适配器
+│   ├── openai.py          # OpenAI 适配器
+│   ├── anthropic.py       # Anthropic 适配器
+│   ├── deepseek.py        # DeepSeek 适配器
+│   └── dynamic.py         # 动态供应商适配器
+└── test_providers.py      # 单元测试
 ```
 
 ### 环境变量
