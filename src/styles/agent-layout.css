@@ -62,7 +62,7 @@
   align-items: center;
   padding: 16px 32px;
   border-bottom: 1px solid color-mix(in srgb, var(--border-color), transparent 30%);
-  background: rgba(255, 255, 255, 0.8);
+  background: color-mix(in srgb, var(--bg-primary), transparent 20%);
   backdrop-filter: blur(12px);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
   position: sticky;
@@ -88,7 +88,7 @@
   padding: 8px 16px; 
   border: 1px solid color-mix(in srgb, var(--border-color), transparent 50%);
   border-radius: 10px; 
-  background: rgba(255, 255, 255, 0.9);
+  background: color-mix(in srgb, var(--bg-primary), transparent 10%);
   backdrop-filter: blur(8px);
   color: var(--text-primary); 
   font-size: 13px;
@@ -118,7 +118,7 @@
 .code-preview-section, .progress-section {
   
   /* Glassmorphism 效果 */
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--bg-primary), transparent 30%);
   backdrop-filter: blur(12px);
   border: 1px solid color-mix(in srgb, var(--border-color), transparent 40%);
   border-radius: 16px;
@@ -208,7 +208,7 @@
   border-color: var(--primary);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary), transparent 85%);
   outline: none;
-  background: rgba(255, 255, 255, 0.9);
+  background: color-mix(in srgb, var(--bg-primary), transparent 10%);
 }
 .prompt-textarea::placeholder {
   color: color-mix(in srgb, var(--text-secondary), transparent 50%);
@@ -242,7 +242,7 @@
   border-radius: 12px; 
   cursor: pointer; 
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  background: rgba(255, 255, 255, 0.5);
+  background: color-mix(in srgb, var(--bg-primary), transparent 50%);
 }
 .template-item:hover { 
   border-color: var(--primary); 
@@ -332,13 +332,13 @@
 }
 
 .btn-outline { 
-  background: rgba(255, 255, 255, 0.6); 
+  background: color-mix(in srgb, var(--bg-primary), transparent 40%); 
   border: 1.5px solid color-mix(in srgb, var(--border-color), transparent 30%); 
   color: var(--text-primary);
   backdrop-filter: blur(8px);
 }
 .btn-outline:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.9);
+  background: color-mix(in srgb, var(--bg-primary), transparent 10%);
   border-color: var(--primary);
   color: var(--primary);
   box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
@@ -349,7 +349,7 @@
 /* ==================== 文件树部分 ==================== */
 
 .files-section { 
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--bg-primary), transparent 30%);
   backdrop-filter: blur(12px);
   border: 1px solid color-mix(in srgb, var(--border-color), transparent 40%);
   border-radius: 16px;
@@ -383,7 +383,7 @@
   border-color: var(--primary);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary), transparent 85%);
   outline: none;
-  background: rgba(255, 255, 255, 0.9);
+  background: color-mix(in srgb, var(--bg-primary), transparent 10%);
 }
 .file-filter-select {
   padding: 8px 12px; 
@@ -726,14 +726,14 @@
   gap: 12px;
 }
 .merged-section {
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--bg-primary), transparent 30%);
   backdrop-filter: blur(12px);
   border: 1px solid color-mix(in srgb, var(--border-color), transparent 40%);
   border-radius: 14px;
   box-shadow: 
     0 4px 6px -1px rgba(0, 0, 0, 0.05),
     0 10px 15px -3px rgba(0, 0, 0, 0.05),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    inset 0 1px 0 color-mix(in srgb, var(--bg-primary), transparent 40%);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
 }
@@ -795,7 +795,7 @@
   font-weight: 500;
   border: 1px solid color-mix(in srgb, var(--border-color), transparent 50%);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.6);
+  background: color-mix(in srgb, var(--bg-primary), transparent 40%);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
@@ -989,7 +989,7 @@
   border-radius: 10px;
 }
 .decision-card {
-  background: rgba(255,255,255,0.6);
+  background: color-mix(in srgb, var(--bg-primary), transparent 40%);
   border-radius: 10px;
   padding: 14px;
   margin-bottom: 8px;
@@ -1019,7 +1019,7 @@
   padding: 10px 12px;
   border: 1.5px solid color-mix(in srgb, var(--border-color), transparent 50%);
   border-radius: 8px;
-  background: rgba(255,255,255,0.5);
+  background: color-mix(in srgb, var(--bg-primary), transparent 50%);
   cursor: pointer;
   transition: all 0.2s ease;
   text-align: left;
@@ -1073,12 +1073,12 @@
   filter: brightness(1.1);
 }
 .btn-decision-secondary {
-  background: rgba(255,255,255,0.7);
+  background: color-mix(in srgb, var(--bg-primary), transparent 30%);
   color: var(--text-primary);
   border: 1px solid color-mix(in srgb, var(--border-color), transparent 30%);
 }
 .btn-decision-secondary:hover {
-  background: rgba(255,255,255,0.9);
+  background: color-mix(in srgb, var(--bg-primary), transparent 10%);
 }
 
 /* ==================== 编辑器区域 ==================== */
@@ -1218,7 +1218,7 @@
 
 /* Thinking 区域 - 现代化消息流样式 */
 .thinking-section {
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--bg-primary), transparent 30%);
   backdrop-filter: blur(12px);
   border: 1px solid color-mix(in srgb, var(--border-color), transparent 40%);
   border-radius: 16px;
@@ -1327,7 +1327,7 @@
 
 /* Steps 区域 */
 .steps-section {
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--bg-primary), transparent 30%);
   backdrop-filter: blur(12px);
   border: 1px solid color-mix(in srgb, var(--border-color), transparent 40%);
   border-radius: 16px;
@@ -1402,7 +1402,7 @@
 
 /* Logs 区域 */
 .logs-section {
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--bg-primary), transparent 30%);
   backdrop-filter: blur(12px);
   border: 1px solid color-mix(in srgb, var(--border-color), transparent 40%);
   border-radius: 16px;
@@ -1500,7 +1500,7 @@
 }
 
 .modal-content {
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--bg-primary), transparent 5%);
   backdrop-filter: blur(20px);
   border: 1px solid color-mix(in srgb, var(--border-color), transparent 30%);
   border-radius: 20px;
@@ -1611,7 +1611,7 @@
   padding: 10px 12px; 
   border: 1.5px solid color-mix(in srgb, var(--border-color), transparent 50%);
   border-radius: 10px; 
-  background: rgba(255, 255, 255, 0.8);
+  background: color-mix(in srgb, var(--bg-primary), transparent 20%);
   color: var(--text-primary); 
   font-size: 13px;
   transition: all 0.2s ease;
@@ -1641,7 +1641,7 @@
 /* 学习统计 */
 .learning-stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .learning-stat-card { 
-  background: linear-gradient(145deg, rgba(255,255,255,0.8), rgba(255,255,255,0.4));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--bg-primary), transparent 20%), color-mix(in srgb, var(--bg-primary), transparent 60%));
   backdrop-filter: blur(8px);
   padding: 20px; 
   border-radius: 14px; 
@@ -1681,7 +1681,7 @@
 .perf-modal { max-width: 900px; }
 .perf-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
 .perf-stat-card { 
-  background: linear-gradient(145deg, rgba(255,255,255,0.8), rgba(255,255,255,0.4));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--bg-primary), transparent 20%), color-mix(in srgb, var(--bg-primary), transparent 60%));
   backdrop-filter: blur(8px);
   padding: 18px; 
   border-radius: 14px;
@@ -1794,4 +1794,83 @@
 ::-webkit-scrollbar-thumb:hover { 
   background: linear-gradient(180deg, var(--primary) 0%, color-mix(in srgb, var(--primary), transparent 30%) 100%);
   background-clip: padding-box;
+}
+
+/* ==================== 暗色模式适配 ==================== */
+
+@media (prefers-color-scheme: dark) {
+  .page-header {
+    background: color-mix(in srgb, var(--bg-secondary), transparent 20%);
+  }
+
+  .session-select {
+    background: color-mix(in srgb, var(--bg-tertiary), transparent 30%);
+  }
+
+  .input-section, .files-section, .center-panel, .merged-section, 
+  .code-preview-section, .progress-section {
+    background: color-mix(in srgb, var(--bg-secondary), transparent 20%);
+    box-shadow: 
+      0 4px 6px -1px rgba(0, 0, 0, 0.3),
+      0 10px 15px -3px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .thinking-section, .steps-section, .logs-section {
+    background: color-mix(in srgb, var(--bg-secondary), transparent 20%);
+    box-shadow: 
+      0 4px 6px -1px rgba(0, 0, 0, 0.3),
+      0 10px 15px -3px rgba(0, 0, 0, 0.3);
+  }
+
+  .merged-section {
+    background: color-mix(in srgb, var(--bg-secondary), transparent 20%);
+    box-shadow: 
+      0 4px 6px -1px rgba(0, 0, 0, 0.3),
+      0 10px 15px -3px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .modal-content {
+    background: var(--bg-secondary);
+    box-shadow: 
+      0 25px 50px -12px rgba(0, 0, 0, 0.5),
+      0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  }
+
+  .btn-outline {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+  .btn-outline:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.15);
+  }
+
+  .learning-stat-card {
+    background: linear-gradient(145deg, color-mix(in srgb, var(--bg-tertiary), transparent 20%), color-mix(in srgb, var(--bg-tertiary), transparent 40%));
+  }
+
+  .perf-stat-card {
+    background: linear-gradient(145deg, color-mix(in srgb, var(--bg-tertiary), transparent 20%), color-mix(in srgb, var(--bg-tertiary), transparent 40%));
+  }
+
+  .template-item {
+    background: color-mix(in srgb, var(--bg-tertiary), transparent 40%);
+  }
+
+  .prompt-textarea:focus {
+    background: color-mix(in srgb, var(--bg-tertiary), transparent 20%);
+  }
+
+  .file-search-input:focus {
+    background: color-mix(in srgb, var(--bg-tertiary), transparent 20%);
+  }
+
+  .setting-select, .setting-input {
+    background: color-mix(in srgb, var(--bg-tertiary), transparent 20%);
+  }
+
+  .merged-clear-btn {
+    background: rgba(255, 255, 255, 0.06);
+  }
 }
