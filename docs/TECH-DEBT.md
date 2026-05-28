@@ -35,7 +35,7 @@
 
 | # | 问题 | 文件 | 修复内容 |
 |---|------|------|----------|
-| 18 | health.py 版本号 | `app/api/v1/health.py` | 更新为 `v5.9.0` |
+| 18 | health.py 版本号 | `app/api/v1/health.py` | 更新为 `v5.10.0` |
 | 19 | main.py 遗留注释 | `app/main.py` | 移除 cloudflared 注释 |
 | 20 | ai_agent.py.orig 文件 | `app/api/v1/ai_agent.py.orig` | 删除文件 |
 | 21 | FeatureSwitchMiddleware 路径 | `app/middleware/feature_switch.py` | `/api/v1/project` → `/api/v1/agent` |
