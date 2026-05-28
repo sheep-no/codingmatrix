@@ -67,8 +67,8 @@ v5.10.0 新增 **工作流节点扩展**（9种节点类型）和 **重试机制
 ┌──────────────────────────┴──────────────────────────────────┐
 │ Data Layer                                                  │
 │                                                             │
-│ SQLite (Async SQLAlchemy + Alembic) │ APScheduler          │
-│ Redis (Cache/API Key)               │ 定时任务调度          │
+│ SQLite (Async SQLAlchemy + Alembic) │ Celery + APScheduler          │
+│ Redis (Cache/API Key)               │ 异步任务 + 定时任务          │
 └─────────────────────────────────────────────────────────────┘
 ```
 

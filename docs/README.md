@@ -33,7 +33,7 @@
 | 后端 | FastAPI + Python 3.11 | 异步 Web 框架 |
 | 数据库 | SQLAlchemy + SQLite | 异步 ORM |
 | 缓存 | Redis | 会话、API Key 存储 |
-| 任务调度 | APScheduler | 定时任务调度 |
+| 任务队列 | Celery + APScheduler | 异步任务 + 定时任务 |
 | 前端 | Vue 3 + Vite + Pinia | 响应式 SPA |
 | 测试 | Playwright + pytest | E2E + 单元测试 |
 | 部署 | Docker + Nginx | 容器化部署 |
