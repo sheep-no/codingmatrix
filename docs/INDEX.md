@@ -24,11 +24,11 @@
 
 ### 功能模块
 - [AI 云管理](features/aicloud.md) - 模型切换、故障转移
-- [PPT 生成](features/PPT.md) - 异步任务、多格式输出
-- [图像生成](features/IMAGE.md) - 文生图、图生图
 - [工作流](features/WORKFLOW.md) - DAG 编排、9 种节点类型、重试机制、条件分支
 - [免费模型管理](features/MODEL-MANAGER.md) - 内置模型查看、切换和管理
 - [Web 搜索增强](features/WEB-SEARCH-ENHANCEMENTS.md) - 智能查询优化、结果去重、质量评分
+- [多语言依赖解析](features/MULTI_LANGUAGE_DEPENDENCY_PARSER.md) - 14种语言依赖分析
+- [动态供应商](features/DYNAMIC-PROVIDERS.md) - 自定义 base_url 接入任意 API
 
 ### 测试
 - [测试文档](testing/TESTING.md) - 完整测试指南
@@ -68,29 +68,33 @@ docs/
 │   ├── MODULES.md               # 模块说明
 │   └── MODELS.md                # 模型系统
 ├── api/                         # API 文档
-│   ├── AGENT-API.md             # Agent API
-│   └── ...
+│   ├── API-DOCUMENTATION.md     # API 完整文档
+│   └── API-VERSIONS.md          # API 版本管理
 ├── features/                    # 功能模块
 │   ├── agent.md                 # Agent 系统
 │   ├── aicloud.md               # AI 云
-│   ├── PPT.md                   # PPT 生成
-│   ├── IMAGE.md                 # 图像生成
-│   └── WORKFLOW.md              # 工作流
+│   ├── WORKFLOW.md              # 工作流
+│   ├── MODEL-MANAGER.md         # 免费模型管理
+│   ├── DYNAMIC-PROVIDERS.md     # 动态供应商
+│   ├── WEB-SEARCH-ENHANCEMENTS.md # Web 搜索增强
+│   └── MULTI_LANGUAGE_DEPENDENCY_PARSER.md # 多语言依赖解析
 ├── guides/                      # 开发指南
 │   ├── GETTING-STARTED.md       # 快速开始
 │   ├── MULTI_PROVIDER_SETUP.md  # 多供应商配置
-│   └── PRODUCTION.md            # 生产部署
+│   ├── PRODUCTION.md            # 生产部署
+│   └── API-KEY-GUIDE.md         # API Key 指南
 ├── security/                    # 安全文档
 │   ├── SECURITY-OVERVIEW.md     # 安全概览
 │   ├── ENCRYPTED_LOGIN.md       # 加密登录
-│   └── CSRF.md                  # CSRF 防护
+│   └── CSRF-IMPLEMENTATION-COMPLETE.md # CSRF 防护
 ├── observability/               # 可观测性
-│   ├── TRACING.md               # 分布式追踪
-│   └── LOGGING.md               # 日志系统
+│   └── TRACING.md               # 分布式追踪
 ├── testing/                     # 测试文档
 │   └── TESTING.md               # 完整测试指南
 ├── prompts/                     # AI 提示词
+│   └── PROMPTS.md               # 提示词模板
 ├── skills/                      # Skills 文档
+│   └── HISTORY.md               # Skills 历史
 ├── specs/                       # 规格设计
 └── versions/                    # 版本历史
 ```

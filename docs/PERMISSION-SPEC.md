@@ -113,6 +113,7 @@ class PermissionLevel:
 | POST /api/v1/aicloud/* | AI 云功能 |
 | GET /api/v1/models | 免费模型列表 |
 | GET /api/v1/models/default | 默认模型 |
+| POST /api/v1/models/switch | 切换默认模型 (super) |
 | GET /api/v1/user/profile | 用户资料 |
 | GET /api/v1/conversations | 对话列表 |
 

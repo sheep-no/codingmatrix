@@ -9,5 +9,4 @@
 - [AI Cloud 沙箱](aicloud.md) - 在线代码执行、文件读写、知识库
 - [Web 搜索增强](WEB-SEARCH-ENHANCEMENTS.md) - 智能查询优化、结果去重、质量评分
 - [SSE 显示优化](SSE-DISPLAY-OPTIMIZATION.md) - 流式输出优化
-- [多语言依赖解析](MULTI_LANGUAGE_DEPENDENCY_PARSER.md) - 智能语言识别
-- [隔离测试运行器](ISOLATED-TEST-RUNNER-ENHANCED.md) - Python/JS 在线验证
+- [多语言依赖解析](MULTI_LANGUAGE_DEPENDENCY_PARSER.md) - 14种语言依赖分析

@@ -482,3 +482,44 @@
 - [x] POST /api/v2/admin/config - 更新系统配置
 - [x] POST /api/v2/admin/user-limit - 更新用户并发限制
 - [x] DELETE /api/v2/admin/user-limit/{user_id} - 移除用户并发限制
+
+## 其他端点
+
+### API Key 管理 (`/api/v1/agent/apikey`)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| POST | `/api/v1/agent/apikey` | 提交加密 Key | normal |
+| POST | `/api/v1/agent/apikey/test` | 测试 Key | normal |
+| DELETE | `/api/v1/agent/apikey/{token}` | 清除 Key | normal |
+| GET | `/api/v1/agent/apikeys` | 获取 Key 列表 | normal |
+| PUT | `/api/v1/agent/apikey/{token}/enabled` | 启用/禁用 Key | normal |
+
+### GitHub 集成 (`/api/v1/github`)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| POST | `/api/v1/github/config` | 保存 GitHub 配置 | normal |
+| GET | `/api/v1/github/config` | 获取 GitHub 配置 | normal |
+| POST | `/api/v1/github/save-project` | 保存项目至 GitHub | normal |
+| GET | `/api/v1/github/verify-token` | 验证 Token 有效性 | normal |
+
+### 提供商管理 (`/api/v1/providers`)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| GET | `/api/v1/providers` | 获取提供商列表 | normal |
+| POST | `/api/v1/providers` | 添加动态提供商 | normal |
+| GET | `/api/v1/providers/{provider_id}` | 获取提供商详情 | normal |
+| DELETE | `/api/v1/providers/{provider_id}` | 删除提供商 | normal |
+| PUT | `/api/v1/providers/{provider_id}/toggle` | 启用/禁用提供商 | normal |
+| POST | `/api/v1/providers/{provider_id}/sync` | 同步模型列表 | normal |
+
+### 文件预览 (`/api/v1/preview`)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| GET | `/api/v1/preview/{file_id}` | 文件预览 | normal |
+| GET | `/api/v1/preview/{file_id}/raw` | 原始文件 | normal |
+| GET | `/api/v1/preview/{file_id}/thumbnail` | 缩略图 | normal |
+| POST | `/api/v1/preview/batch` | 批量预览 | normal |
