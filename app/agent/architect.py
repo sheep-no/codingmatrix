@@ -40,6 +40,23 @@ class Architect(Specialist):
         logger.info(f"检测到目标语言: {target_language} (置信度: {lang_detection.confidence:.2f})")
         logger.info(f"检测依据: {lang_detection.evidence}")
 
+        # 构建语言规则部分（如果语言未知，让 LLM 推断）
+        if lang_detection.needs_clarification or lang_rules.get('needs_clarification'):
+            lang_rules_text = f"""目标语言：{target_language}
+注意：该语言不在已知列表中，请根据语言名称推断正确的文件扩展名、入口文件、语法约定等。
+例如：Zig → .zig，Nim → .nim，Crystal → .cr 等。"""
+        else:
+            lang_rules_text = f"""目标语言：{target_language}
+语言规则：
+- 文件扩展名：{lang_rules['file_extension']}
+- 包入口文件：{lang_rules['package_init']}
+- 导入语法：{lang_rules['import_syntax']}
+- 入口文件：{lang_rules['entry_point']}
+- 测试框架：{lang_rules['test_framework']}
+- 包管理器：{lang_rules['package_manager']}
+- 配置文件：{', '.join(lang_rules['config_files']) if lang_rules['config_files'] else '无'}
+- 推荐结构：{chr(10).join('- ' + s for s in lang_rules['common_structure'])}"""
+
         prompt = f"""请为以下需求设计项目架构：
 
 需求：{requirement}
@@ -53,16 +70,7 @@ class Architect(Specialist):
 - 技术栈：{', '.join(complexity.key_technologies)}
 - 风险因素：{', '.join(complexity.risk_factors)}
 
-目标语言：{target_language}
-语言规则：
-- 文件扩展名：{lang_rules['file_extension']}
-- 包入口文件：{lang_rules['package_init']}
-- 导入语法：{lang_rules['import_syntax']}
-- 入口文件：{lang_rules['entry_point']}
-- 测试框架：{lang_rules['test_framework']}
-- 包管理器：{lang_rules['package_manager']}
-- 配置文件：{', '.join(lang_rules['config_files']) if lang_rules['config_files'] else '无'}
-- 推荐结构：{chr(10).join('- ' + s for s in lang_rules['common_structure'])}
+{lang_rules_text}
 
 请输出完整的架构设计，必须包含 api_spec（后端接口定义）和 db_schema（数据库表结构）。
 
@@ -74,12 +82,12 @@ class Architect(Specialist):
 
 file_plan 格式要求（每个文件必须包含 imports 字段）：
 ```json
-{{
+{
   "file_plan": [
-    {{"path": "{lang_rules['entry_point']}", "description": "主程序入口", "priority": 1, "imports": [...]}},
+    {"path": "<入口文件>", "description": "主程序入口", "priority": 1, "imports": [...]},
     ...
   ]
-}}
+}
 ```
 
 重要规则：
@@ -87,7 +95,7 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
 2. imports 字段列出该文件需要导入的其他项目内模块（不包括第三方库）
 3. 确保所有 import 路径都能在 file_plan 中找到对应文件
 4. 使用 {target_language} 的标准语法和约定
-5. {f"包入口文件使用 {lang_rules['package_init']}" if lang_rules['package_init'] != "根据语言约定" else "根据语言约定处理包结构"}"""
+5. 如果语言不在已知列表中，请根据语言名称推断正确的文件扩展名和语法约定"""
 
         response = await self.call_llm(prompt, self.SYSTEM_PROMPT)
 

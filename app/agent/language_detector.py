@@ -20,6 +20,7 @@ class LanguageDetectionResult:
     confidence: float                # 置信度 0-1
     evidence: List[str]              # 检测依据
     adapter_name: str                # 对应的适配器名
+    needs_clarification: bool = False  # 是否需要用户澄清（如未知语言的文件扩展名）
 
 
 class LanguageDetector:
@@ -100,13 +101,40 @@ class LanguageDetector:
         "perl": [
             "perl", "cpan",
         ],
-        "易语言": [
+            "易语言": [
             "易语言", "e语言", "ec", "易程序",
         ],
         "renpy": [
             "ren'py", "renpy", "galgame", "视觉小说", "visual novel",
             ".rpy", "rpy文件",
         ],
+    }
+
+    # 通用语言扩展名映射（不常见但已知的语言）
+    LANGUAGE_EXTENSION_MAP: Dict[str, str] = {
+        "renpy": ".rpy",
+        "lua": ".lua",
+        "perl": ".pl",
+        "elixir": ".ex",
+        "haskell": ".hs",
+        "scala": ".scala",
+        "dart": ".dart",
+        "swift": ".swift",
+        "kotlin": ".kt",
+        "rust": ".rs",
+        "go": ".go",
+        "ruby": ".rb",
+        "php": ".php",
+        "r": ".r",
+        "zig": ".zig",
+        "nim": ".nim",
+        "crystal": ".cr",
+        "odin": ".odin",
+        "jai": ".jai",
+        "v": ".v",
+        "vale": ".vale",
+        "gleam": ".gleam",
+        "roc": ".roc",
     }
 
     # 框架 → 语言的强映射
@@ -266,13 +294,16 @@ class LanguageDetector:
                         adapter_name=cls._get_adapter_name(potential_lang)
                     )
                 # 不在列表中，但看起来像语言名（短且无特殊字符），低置信度
+                # 如果在扩展名映射表中有记录，则不需要澄清
                 if len(potential_lang) <= 15 and potential_lang.isalnum():
-                    evidence.append(f"中文模式推断（未知语言）: '{match.group(group_idx)}' → {potential_lang}")
+                    has_ext = potential_lang in cls.LANGUAGE_EXTENSION_MAP
+                    evidence.append(f"中文模式推断（{'已知' if has_ext else '未知'}语言）: '{match.group(group_idx)}' → {potential_lang}")
                     return LanguageDetectionResult(
                         language=potential_lang,
-                        confidence=0.40,
+                        confidence=0.70 if has_ext else 0.40,
                         evidence=evidence,
-                        adapter_name="generic"
+                        adapter_name="generic",
+                        needs_clarification=not has_ext
                     )
 
         # 默认：Python（最通用）
@@ -404,39 +435,26 @@ class LanguageDetector:
         }
 
         # 对于没有专门适配器的语言，使用通用规则
-        # 通用语言扩展名映射（不常见的语言）
-        LANGUAGE_EXTENSION_MAP = {
-            "renpy": ".rpy",
-            "lua": ".lua",
-            "perl": ".pl",
-            "elixir": ".ex",
-            "haskell": ".hs",
-            "scala": ".scala",
-            "dart": ".dart",
-            "swift": ".swift",
-            "kotlin": ".kt",
-            "rust": ".rs",
-            "go": ".go",
-            "ruby": ".rb",
-            "php": ".php",
-            "r": ".r",
-            "zig": ".zig",
-            "nim": ".nim",
-            "crystal": ".cr",
-            "odin": ".odin",
-            "jai": ".jai",
-            "v": ".v",
-            "vale": ".vale",
-            "gleam": ".gleam",
-            "roc": ".roc",
-        }
         if language not in rules:
-            ext = LANGUAGE_EXTENSION_MAP.get(language, f".{language}")
+            ext = cls.LANGUAGE_EXTENSION_MAP.get(language)
+            # 如果扩展名不在映射表中，返回需要澄清的标志
+            if ext is None:
+                return {
+                    "file_extension": None,  # 需要用户指定
+                    "package_init": "",
+                    "import_syntax": "根据语言约定",
+                    "entry_point": None,
+                    "test_framework": "根据语言约定",
+                    "package_manager": "根据语言约定",
+                    "config_files": [],
+                    "common_structure": ["请根据语言最佳实践组织代码结构"],
+                    "needs_clarification": True,
+                }
             return {
-                "file_extension": ext or "根据语言约定",
+                "file_extension": ext,
                 "package_init": "",
                 "import_syntax": "根据语言约定",
-                "entry_point": f"main{ext}" if ext else "根据语言约定",
+                "entry_point": f"main{ext}",
                 "test_framework": "根据语言约定",
                 "package_manager": "根据语言约定",
                 "config_files": [],
