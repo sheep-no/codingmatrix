@@ -31,6 +31,21 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
 
 ## 条目
 
+### 多模型 Agent 异常防护机制
+- Date: 2026-05-29
+- Context: Agent 在执行异常场景分析和防护实现时发现
+- Category: 代码模式
+- Instructions:
+  - 防护模块位于 `app/utils/guardrails.py`
+  - Prompt 注入检测：使用正则模式 + 关键词密度 + 结构异常检测
+  - 会话 ID 验证：`^[-a-zA-Z0-9]{5,128}$` 格式，禁止保留前缀 `sys_/admin_/internal_/test_`
+  - 路径安全检查：禁止绝对路径、父目录遍历、系统目录访问、配置文件访问
+  - 磁盘空间监控：低于 1GB 或 10% 时拒绝新请求
+  - 内存级速率限制：默认每用户每 60 秒最多 10 个 stream 请求
+  - 会话所有权验证：所有 session action 端点必须验证 `user_id` 所有权
+  - Schema 验证增强：`output_dir` 和 `project_path` 使用 `validate_path_safety()` 验证
+  - 磁盘空间检查集成：stream 和 modify 端点启动前调用 `check_disk_space()`
+
 ### 测试框架配置
 - Date: 2026-05-12
 - Context: Agent 在执行修复单元测试任务时发现

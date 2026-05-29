@@ -1,6 +1,6 @@
 # 技术债务跟踪
 
-> 最后更新：2026-05-27 | v5.10.0
+> 最后更新：2026-05-29 | v5.10.0
 
 ## 已修复的问题
 
@@ -168,8 +168,8 @@
 ## 相关文档
 
 - [安全架构](security/SECURITY-OVERVIEW.md)
-- [权限规范](PERMISSION-SPEC.md)
-- [服务架构](SERVICES.md)
+- [权限规范](security/PERMISSION-SPEC.md)
+- [服务架构](guides/SERVICES.md)
 
 ---
 

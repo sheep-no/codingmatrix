@@ -72,6 +72,6 @@ CodingMatrix 是一个基于 AI 的智能代码生成平台，支持多供应商
 ## 相关文档
 
 - [快速开始](../guides/GETTING-STARTED.md) - 环境配置和开发流程
-- [架构设计](../architecture/README.md) - 系统架构和各组件职责
+- [架构设计](../architecture/ARCHITECTURE.md) - 系统架构和各组件职责
 - [API 文档](../api/API-DOCUMENTATION.md) - 完整的 API 端点文档
-- [安全说明](../security/README.md) - 安全机制和数据保护措施
+- [安全说明](../security/SECURITY-OVERVIEW.md) - 安全机制和数据保护措施

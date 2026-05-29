@@ -47,7 +47,7 @@
 - **Qwen 系列**：qwen-plus, qwen-turbo, qwen-max
 - **DeepSeek 系列**：deepseek-chat, deepseek-reasoner
 - **GLM 系列**：glm-4, glm-4v
-- **其他**：THUDM/chatglm3-6b, Kwai-Kolors/Kolors 等
+- **其他**：THUDM/chatglm3-6b, kolors 等
 
 ### 2.2 其他供应商 Key（可选）
 
@@ -196,7 +196,7 @@
 
 ## 相关文档
 
-- [多供应商配置指南](MULTI_PROVIDER_SETUP.md)
-- [项目功能介绍](../features/PROJECT-INTRODUCTION.md)
-- [安全说明](../security/README.md)
+- [多供应商配置指南](MULTI-PROVIDER-SETUP.md)
+
+- [安全说明](../security/SECURITY-OVERVIEW.md)
 - [快速开始](GETTING-STARTED.md)

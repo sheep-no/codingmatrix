@@ -288,7 +288,6 @@ lynis audit system
 
 ## 相关文档
 
-- [INDEX.md](../INDEX.md) - 文档索引
-- [PROJECT_STATUS.md](../PROJECT_STATUS.md) - 项目状态
-- [SECURITY-OVERVIEW.md](../security/SECURITY-OVERVIEW.md) - 安全架构
-- [TRACING.md](../observability/TRACING.md) - 分布式追踪
+- [文档首页](../README.md) - 文档导航
+- [安全架构](../security/SECURITY-OVERVIEW.md) - 安全架构
+- [分布式追踪](../observability/TRACING.md) - 分布式追踪

@@ -230,16 +230,16 @@ ZHIPU_API_KEY=your-zhipu-key
 DEEPSEEK_API_KEY=your-deepseek-key
 ```
 
-详见 [guides/MULTI_PROVIDER_SETUP.md](guides/MULTI_PROVIDER_SETUP.md)
+详见 [多供应商配置](MULTI-PROVIDER-SETUP.md)
 
 ---
 
 ## 相关文档
 
-- [快速开始](guides/GETTING-STARTED.md)
-- [生产部署](guides/PRODUCTION.md)
-- [多供应商配置](guides/MULTI_PROVIDER_SETUP.md)
-- [API 文档](api/)
+- [快速开始](GETTING-STARTED.md)
+- [生产部署](PRODUCTION.md)
+- [多供应商配置](MULTI-PROVIDER-SETUP.md)
+- [API 文档](../api/API-DOCUMENTATION.md)
 
 ---
 

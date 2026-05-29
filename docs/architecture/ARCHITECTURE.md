@@ -11,8 +11,8 @@ v5.10.0 新增 **工作流节点扩展**（9种节点类型）和 **重试机制
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Frontend (Vue 3)                                            │
-│ Vite 5 + Element Plus + Tailwind CSS + Pinia + ECharts     │
-│ 44 个组件 · 7 个视图 · 6 个 Store · 12 个路由                │
+│ Vite 5 + Element Plus + Pinia + ECharts                      │
+│ 62 个组件 · 8 个视图 · 7 个 Store                              │
 └──────────────────────────┬──────────────────────────────────┘
                            │ HTTP / SSE / WebSocket
 ┌──────────────────────────┴──────────────────────────────────┐
@@ -124,7 +124,7 @@ v5.10.0 新增 **工作流节点扩展**（9种节点类型）和 **重试机制
 
 | 供应商 | 环境变量 | 默认模型 |
 |--------|----------|----------|
-| SiliconFlow | `SILICONFLOW_API_KEY` | THUDM/GLM-Z1-9B-0414 |
+| SiliconFlow | `SILICONFLOW_API_KEY` | glm-z1-9b |
 | 阿里百炼 | `DASHSCOPE_API_KEY` | qwen-turbo |
 | 智谱 GLM | `ZHIPU_API_KEY` | glm-4-flash |
 | DeepSeek | `DEEPSEEK_API_KEY` | deepseek-chat |
@@ -185,6 +185,8 @@ v5.10.0 新增 **工作流节点扩展**（9种节点类型）和 **重试机制
 
 ## 数据库模型
 
+共 22 个表，分布在 13 个模型文件中。
+
 ### 核心表
 
 | 表名 | 说明 | 主要字段 |
@@ -193,34 +195,64 @@ v5.10.0 新增 **工作流节点扩展**（9种节点类型）和 **重试机制
 | permission | 权限表 | id, user_id, level, granted_at |
 | history | 对话历史 | id, user_id, prompt, response, created_at |
 | chat_histories | 新版对话 | id, user_id, session_id, message, token_usage |
+| chat_summaries | 对话摘要 | id, user_id, session_id, summary |
 | files | 文件管理 | id, user_id, filename, path, size |
 | tasks | 任务队列 | id, user_id, status, result |
 | saved_projects | 保存项目 | id, user_id, name, project_data |
-| agent_sessions | Agent 会话 | id, user_id, status, session_data |
-| memory_entries | Agent 记忆 | id, session_id, content, category |
-| knowledge_entries | 知识库 | id, content, category, tags |
-| image_generation_history | 图像生成 | id, user_id, prompt, image_url |
-| workflow_history | 工作流 | id, user_id, workflow_data, status (pending/running/completed/failed/waiting_approval/skipped) |
+| server_config | 服务配置 | id, key, value |
+| server_stats | 服务统计 | id, metric, value, recorded_at |
+
+### Agent 表
+
+| 表名 | 说明 |
+|------|------|
+| agent_sessions | Agent 会话 |
+| memory_entries | Agent 记忆 |
+| agent_reflections | Agent 反思 |
+| knowledge_entries | 知识库 |
+| tool_execution_logs | 工具执行日志 |
+| model_usage_stats | 模型使用统计 |
+
+### AI Cloud 表
+
+| 表名 | 说明 |
+|------|------|
+| aicloud_sessions | AI Cloud 会话 |
+| aicloud_messages | AI Cloud 消息 |
+| aicloud_reviews | AI Cloud 审查 |
+| aicloud_audit_logs | AI Cloud 审计 |
+| aicloud_knowledge_docs | 知识库文档 |
+| aicloud_knowledge_chunks | 知识库分块 |
 
 ---
 
 ## API 端点分类
 
-### v1 API (用户功能)
+### v1 API (用户功能, 19 个模块)
 
 | 模块 | 端点前缀 | 功能 |
 |------|----------|------|
 | 认证 | /api/v1/login, /register | 用户认证 |
 | Agent | /api/v1/agent/* | 项目生成、代码审查 |
 | AI 代码 | /api/v1/code | 代码生成 |
+| AI 项目代码 | /api/v1/AiProjectCode | 项目代码生成 |
 | PPT | /api/v1/pptx/* | PPT 生成 |
 | 图像 | /api/v1/kolors/* | 图像生成 |
+| 图像历史 | /api/v1/kolors-history | 图像生成历史 |
 | AI Cloud | /api/v1/aicloud/* | AI 云管理 |
+| AI Cloud 知识 | /api/v1/aicloud-knowledge | 知识库管理 |
 | 文件 | /api/v1/files/* | 文件管理 |
 | 工作流 | /api/v1/workflow/* | DAG 编排、9 种节点、重试、条件分支 |
+| 视觉分析 | /api/v1/vision | 图像理解 |
 | 健康 | /api/v1/health | 健康检查 |
+| API Key | /api/v1/apikey | API Key 管理 |
+| GitHub | /api/v1/github | GitHub 集成 |
+| 预览 | /api/v1/preview | 项目预览 |
+| 模型管理 | /api/v1/models | 免费模型管理 |
+| 供应商 | /api/v1/providers | 动态供应商管理 |
+| 任务队列 | /api/v1/tasks | 任务管理 |
 
-### v2 API (管理功能)
+### v2 API (管理功能, 7 个模块)
 
 | 模块 | 端点前缀 | 功能 |
 |------|----------|------|
@@ -228,6 +260,8 @@ v5.10.0 新增 **工作流节点扩展**（9种节点类型）和 **重试机制
 | 用户 | /api/v2/Controller/users/* | 用户管理 |
 | Nginx | /api/v2/nginx/* | Nginx 配置 |
 | 配置 | /api/v2/admin/* | 系统配置 |
+| 模型管理 | /api/v2/models | 模型管理 |
+| 守护路由 | /api/v2/guardian | 安全守护 |
 
 ---
 
@@ -235,8 +269,8 @@ v5.10.0 新增 **工作流节点扩展**（9种节点类型）和 **重试机制
 
 - [模块说明](MODULES.md)
 - [模型系统](MODELS.md)
-- [API 责任矩阵](api-responsibility-matrix.md)
-- [权限规范](../PERMISSION-SPEC.md)
+- [API 职责矩阵](API-RESPONSIBILITY-MATRIX.md)
+- [权限规范](../security/PERMISSION-SPEC.md)
 - [技术债务](../TECH-DEBT.md)
 
 ---

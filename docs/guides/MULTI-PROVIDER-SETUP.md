@@ -8,7 +8,7 @@
 
 | 供应商 | 环境变量前缀 | 支持模型 | 说明 |
 |--------|------------|---------|------|
-| SiliconFlow | `SILICONFLOW_` | 所有 10 个内置模型 | 默认供应商 |
+| SiliconFlow | `SILICONFLOW_` | 所有 17 个内置模型 | 默认供应商 |
 | 阿里百炼 | `DASHSCOPE_` | qwen-plus、qwen-turbo 等 Qwen 系列 | 阿里云 |
 | 智谱 GLM | `ZHIPU_` | glm-4、glm-4v 等 GLM 系列 | 智谱 AI |
 | DeepSeek 官方 | `DEEPSEEK_` | deepseek-chat、deepseek-reasoner | DeepSeek 官方 |
@@ -20,7 +20,7 @@
 
 ### 1. 最小配置
 
-只需要配置 SiliconFlow API Key 即可使用所有 10 个内置模型：
+只需要配置 SiliconFlow API Key 即可使用所有 17 个内置模型：
 
 ```bash
 SILICONFLOW_API_KEY=your-api-key
@@ -49,7 +49,7 @@ from app.utils.aicloud import call_llm
 
 # 会自动路由到 SiliconFlow
 result = await call_llm(
-    model="Qwen/Qwen3.5-4B",
+    model="qwen3.5-4b",
     prompt="你好",
 )
 
@@ -69,7 +69,7 @@ result = await call_llm(
 | `deepseek-ai/*` | SiliconFlow |
 | `Qwen/*` | SiliconFlow |
 | `THUDM/*` | SiliconFlow |
-| `Kwai-Kolors/*` | SiliconFlow |
+| `kolors` | SiliconFlow |
 | `qwen-plus` / `qwen-turbo` | 阿里百炼 |
 | `glm-4` / `glm-4v` | 智谱 GLM |
 | `deepseek-chat` / `deepseek-reasoner` | DeepSeek 官方 |
@@ -95,7 +95,7 @@ from app.utils.AiCodeUtil import call_siliconflow
 
 result = await call_siliconflow(
     prompt="你好",
-    model="Qwen/Qwen3.5-4B",
+    model="qwen3.5-4b",
 )
 ```
 

@@ -245,7 +245,7 @@ DELETE /api/v1/providers/{id}
 
 ## 相关文档
 
-- [API Key 使用指南](API-KEY-GUIDE.md)
-- [多供应商配置指南](MULTI_PROVIDER_SETUP.md)
-- [项目功能介绍](../features/PROJECT-INTRODUCTION.md)
-- [架构设计](../architecture/README.md)
+- [API Key 使用指南](../guides/API-KEY-GUIDE.md)
+- [多供应商配置指南](../guides/MULTI-PROVIDER-SETUP.md)
+- [项目功能介绍](PROJECT-INTRODUCTION.md)
+- [架构设计](../architecture/ARCHITECTURE.md)

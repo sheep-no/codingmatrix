@@ -2,7 +2,7 @@
 
 **AI 驱动的全栈代码生成与开发平台**
 
-> 版本：v5.4.0 | 技术栈：FastAPI (Python 3.11) + Vue 3 + SQLite + Playwright
+> 版本：v5.10.0 | 技术栈：FastAPI (Python 3.11) + Vue 3 + SQLite + Playwright
 
 ## 🚀 快速开始
 
@@ -36,8 +36,7 @@ pytest tests/integration/ -v
 
 ### 入门
 - [快速开始](docs/guides/GETTING-STARTED.md)
-- [多供应商配置](docs/guides/MULTI_PROVIDER_SETUP.md)
-- [项目状态](docs/PROJECT_STATUS.md)
+- [多供应商配置](docs/guides/MULTI-PROVIDER-SETUP.md)
 
 ### 架构
 - [系统架构](docs/architecture/ARCHITECTURE.md)
@@ -45,12 +44,11 @@ pytest tests/integration/ -v
 - [模型系统](docs/architecture/MODELS.md)
 
 ### API
-- [完整 API 文档](docs/API-COMPLETE.md)
-- [内置模型清单](docs/BUILTIN_MODELS.md)
+- [API 文档](docs/api/API-DOCUMENTATION.md)
 
 ### 功能
-- [Agent 系统](docs/features/agent.md)
-- [AI 云管理](docs/features/aicloud.md)
+- [Agent 系统](docs/features/AGENT.md)
+- [AI 云管理](docs/features/AICLOUD.md)
 - [SSE 优化](docs/features/SSE-DISPLAY-OPTIMIZATION.md)
 
 ### 测试
@@ -59,7 +57,7 @@ pytest tests/integration/ -v
 
 ### 部署
 - [生产部署](docs/guides/PRODUCTION.md)
-- [服务管理](docs/SERVICES.md)
+- [服务管理](docs/guides/SERVICES.md)
 
 ## 🏗️ 项目结构
 
@@ -70,12 +68,12 @@ pytest tests/integration/ -v
 | `app/agent/` | Agent 系统 | ~15K LOC |
 | `app/utils/aicloud/` | 多供应商模型 | ~3K LOC |
 | `src/` | 前端 (Vue 3) | ~162K LOC |
-| `src/views/` | 页面组件 (5 个主视图) | ~120K LOC |
-| `src/components/` | 组件库 | ~42K LOC |
-| `tests/` | 测试 (111+ 文件) | ~850+ 测试 |
+| `src/views/` | 页面组件 (8 个主视图) | ~120K LOC |
+| `src/components/` | 组件库 (62 个) | ~42K LOC |
+| `tests/` | 测试 (136 文件) | ~1100+ 测试 |
 | `docs/` | 项目文档 | 50+ 文档 |
 
-## ✨ v5.4.0 核心特性
+## ✨ 核心特性
 
 | 特性 | 状态 | 说明 |
 |------|------|------|
@@ -94,10 +92,10 @@ pytest tests/integration/ -v
 
 | 类型 | 文件数 | 测试用例 | 通过率 |
 |------|--------|----------|--------|
-| 单元测试 | 40+ | 500+ | ~95% |
-| 集成测试 | 20+ | 150+ | ~90% |
-| **E2E 测试** | **48** | **200+** | **100% (冒烟)** |
-| **总计** | **111+** | **850+** | **~94%** |
+| 单元测试 | 50+ | 600+ | ~95% |
+| 集成测试 | 30+ | 250+ | ~90% |
+| **E2E 测试** | **56** | **250+** | **100% (冒烟)** |
+| **总计** | **136** | **1100+** | **~94%** |
 
 ## 🛠️ 开发指南
 
@@ -136,19 +134,19 @@ http://localhost:8000/api/v1/health
 |------|------|
 | 后端代码 | ~50,000 LOC |
 | 前端代码 | ~162,000 LOC |
-| API 端点 | 19+ |
-| Agent 工具 | 19 |
-| 测试文件 | 111+ |
-| 测试用例 | 850+ |
+| API 端点 | 26 (v1=19, v2=7) |
+| Agent 工具 | 21 |
+| 测试文件 | 136 |
+| 测试用例 | 1100+ |
 | 文档数量 | 50+ |
 
 ## 🔗 相关资源
 
-- [完整文档索引](docs/INDEX.md)
+- [完整文档索引](docs/README.md)
 - [测试报告](tests/e2e/E2E-TEST-REPORT.md)
 - [技术债务跟踪](docs/TECH-DEBT.md)
 - [版本历史](docs/versions/)
 
 ---
 
-**许可证**: MIT | **最后更新**: 2026-05-23
+**许可证**: MIT | **最后更新**: 2026-05-29

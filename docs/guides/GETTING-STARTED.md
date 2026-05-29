@@ -103,7 +103,7 @@ cd src && yarn dev
 
 ## 开发流程
 
-详见 [guides/README.md](README.md)
+详见 [服务管理](SERVICES.md)
 
 ## 常见问题
 
@@ -131,8 +131,7 @@ rm app/data.db
 
 ## 相关文档
 
-- [INDEX.md](../INDEX.md) - 文档索引
-- [PROJECT_STATUS.md](../PROJECT_STATUS.md) - 项目状态
-- [PRODUCTION.md](PRODUCTION.md) - 生产部署
+- [文档首页](../README.md) - 文档导航
+- [生产部署](PRODUCTION.md) - 生产部署
 - [API Key 使用指南](API-KEY-GUIDE.md) - API Key 详细说明
 - [动态供应商](../features/DYNAMIC-PROVIDERS.md) - 自定义供应商功能说明

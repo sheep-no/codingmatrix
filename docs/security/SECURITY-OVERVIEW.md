@@ -5,15 +5,14 @@
 ## 认证与授权
 
 ### JWT 认证
-- **Access Token**: 短期有效 (15 分钟)
+- **Access Token**: 短期有效 (30 分钟)
 - **Refresh Token**: 长期有效 (7 天)
 - **Token 轮换**: 刷新时生成新的 Refresh Token，旧的失效
-- **Cookie 存储**: HttpOnly + Secure + SameSite=Strict
+- **Cookie 存储**: HttpOnly + Secure + SameSite=lax
 
 ### 密码安全
 - **RSA-OAEP 加密**: 前端使用后端公钥加密密码后再传输
-- **Argon2id 哈希**: 后端存储密码使用 Argon2id 算法
-- **参数配置**: `time_cost=3, memory_cost=65536, parallelism=4`
+- **bcrypt 哈希**: 后端存储密码使用 bcrypt 算法 (rounds=12)
 
 ### 三级权限系统
 
@@ -67,8 +66,8 @@ token_usage = {
  "this_month": {"prompt_tokens": 50000, "completion_tokens": 100000},
  "total": {"prompt_tokens": 200000, "completion_tokens": 400000},
  "by_model": {
-   "THUDM/GLM-Z1-9B-0414": {"prompt_tokens": 5000, "completion_tokens": 10000},
-   "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": {"prompt_tokens": 3000, "completion_tokens": 8000}
+   "glm-z1-9b": {"prompt_tokens": 5000, "completion_tokens": 10000},
+   "deepseek-r1": {"prompt_tokens": 3000, "completion_tokens": 8000}
  }
 }
 ```

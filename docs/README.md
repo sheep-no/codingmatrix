@@ -1,28 +1,52 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-05-27 | 版本：v5.10.0（工作流节点扩展 + 重试机制）
+> 最后更新：2026-05-29 | 版本：v5.10.0
 
 ## 快速导航
 
-### 入门必读
+### 入门
 - [快速开始](guides/GETTING-STARTED.md) - 环境配置、快速启动
-- [多供应商配置](guides/MULTI_PROVIDER_SETUP.md) - 7 个 LLM 供应商配置
-- [测试文档](testing/TESTING.md) - 111+ 测试文件，850+ 测试用例
+- [多供应商配置](guides/MULTI-PROVIDER-SETUP.md) - 7 个 LLM 供应商配置
+- [API Key 指南](guides/API-KEY-GUIDE.md) - API Key 管理和使用
 
-### 核心架构
-- [系统架构](architecture/ARCHITECTURE.md) - v5.10.0 完整架构
+### 架构
+- [系统架构](architecture/ARCHITECTURE.md) - 完整架构设计
 - [模块说明](architecture/MODULES.md) - 代码结构、职责划分
 - [模型系统](architecture/MODELS.md) - 多供应商 LLM 适配器
+- [API 职责矩阵](architecture/API-RESPONSIBILITY-MATRIX.md) - v1/v2 路由职责
 
-### API 与功能
-- [API 文档](api/API-DOCUMENTATION.md) - 180+ 个 API 端点完整文档
-- [Agent 系统](features/agent.md) - 多角色协作、项目生成
-- [AI 云管理](features/aicloud.md) - 模型切换、故障转移
-- [免费模型管理](features/MODEL-MANAGER.md) - 内置模型查看、切换和管理
+### API
+- [API 文档](api/API-DOCUMENTATION.md) - 180+ 个端点完整文档
+- [API 版本管理](api/API-VERSIONS.md) - 版本策略和迁移指南
+
+### 功能模块
+- [Agent 系统](features/AGENT.md) - 多角色协作、项目生成
+- [AI 云管理](features/AICLOUD.md) - 模型切换、故障转移
+- [工作流引擎](features/WORKFLOW.md) - DAG 编排、9 种节点类型
+- [免费模型管理](features/MODEL-MANAGER.md) - 内置模型查看、切换
+- [动态供应商](features/DYNAMIC-PROVIDERS.md) - 自定义 API 接入
+- [Web 搜索增强](features/WEB-SEARCH-ENHANCEMENTS.md) - 查询优化、结果去重
+- [多语言依赖解析](features/MULTI-LANGUAGE-DEPENDENCY-PARSER.md) - 14 种语言依赖分析
+- [SSE 展示优化](features/SSE-DISPLAY-OPTIMIZATION.md) - 流式响应展示
+- [项目介绍](features/PROJECT-INTRODUCTION.md) - 平台功能总览
 
 ### 部署运维
 - [生产部署](guides/PRODUCTION.md) - Docker Compose、服务管理
-- [后端端口](#端口说明) - 重要：8000 端口统一服务
+- [服务管理](guides/SERVICES.md) - 服务启停、健康检查
+
+### 安全
+- [安全架构](security/SECURITY-OVERVIEW.md) - 安全概览
+- [加密登录](security/ENCRYPTED-LOGIN.md) - RSA 加密登录
+- [CSRF 防护](security/CSRF-IMPLEMENTATION.md) - CSRF 实现
+- [权限规范](security/PERMISSION-SPEC.md) - RBAC 权限模型
+
+### 其他
+- [分布式追踪](observability/TRACING.md) - OpenTelemetry
+- [AI 提示词](prompts/PROMPTS.md) - 22 个提示词模板
+- [Skills](skills/HISTORY.md) - Skills 历史和列表
+- [技术债务](TECH-DEBT.md) - 技术债务跟踪
+
+---
 
 ## 项目概览
 
@@ -37,46 +61,6 @@
 | 前端 | Vue 3 + Vite + Pinia | 响应式 SPA |
 | 测试 | Playwright + pytest | E2E + 单元测试 |
 | 部署 | Docker + Nginx | 容器化部署 |
-
-### 代码统计
-
-| 模块 | 文件数 | 说明 |
-|------|--------|------|
-| 后端 API | 19+ | FastAPI 路由 |
-| Agent 系统 | 58 | 多角色协作编排 |
-| 数据库模型 | 24 | SQLAlchemy ORM |
-| 前端视图 | 7 | 主页面组件 |
-| 前端组件 | 44 | 可复用组件 |
-| Pinia Store | 6 | 状态管理 |
-| 测试文件 | 111+ | 850+ 测试用例 |
-
-### v5.10.0 核心特性
-
-- **工作流节点扩展**: 9 种节点类型（web_search, code_execution, chart_generation, file_processing, llm_call, conditional, human_approval, http_request, data_transform）
-- **重试机制**: 每个节点可配置 RetryConfig（max_retries, retry_delay, backoff_factor）
-- **失败策略**: 支持 fail（中断）和 skip（跳过继续）两种策略
-- **条件分支**: conditional 节点支持 12 种运算符
-- **资源限制**: 适配 8C8G 服务器（最大并发 4 节点，节点超时 300s，内存 512MB）
-- **免费模型管理**: `/api/v1/models` 端点，支持查看、切换内置模型
-- **Web 搜索增强**: 智能查询优化、结果去重、质量评分
-
-### v5.9.0 核心特性
-
-- **API Key 全局化**: 所有前端功能（项目生成、代码对话、PPT、图像生成、AI Cloud）均使用用户自定义 API Key
-- **Token 使用统计**: 设置页面展示今日/本月/总计 Token 消耗量，按模型分类
-- **RSA-2048 加密**: API Key 通过 RSA 加密传输，Redis 内存存储，支持 TTL 自动过期
-- **7 供应商支持**: SiliconFlow（必填）、阿里百炼、智谱 GLM、DeepSeek、OpenAI、Anthropic、Ollama
-- **智能故障转移**: 主供应商失败自动切换备用供应商
-
-### v5.8.x 核心特性
-
-- **KV Cache 命中率优化**: 静态前缀缓存、动态变量清理、JSON 键固定顺序
-  - 缓存命中率：~0% → 75-97%
-  - 延迟降低：≥20%
-- **多角度审查系统**: 3 个专业审查角色并行执行
-  - 性能师：N+1 查询/大数据量/缓存策略/内存泄漏/并发问题
-  - 安全师：SQL 注入/XSS/越权/敏感数据/认证缺陷/输入验证
-  - 可维护性师：代码清晰度/模块耦合/代码重复/设计模式/测试友好性
 
 ### 功能模块
 
@@ -93,88 +77,77 @@
 | 用户管理 | `/api/v2/Controller/*` | CRUD、权限管理 |
 | 健康检查 | `/api/v1/health` | Prometheus 指标 |
 
+---
+
+## 快速开始
+
+### 启动服务
+
+```bash
+# 启动后端 (端口 8000，包含前端 dist)
+PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# 访问前端
+open http://localhost:8000
+```
+
+### 运行测试
+
+```bash
+# E2E 冒烟测试 (推荐，18 秒)
+npx playwright test tests/e2e/smoke-test-simple.spec.js
+
+# 所有 E2E 测试
+npx playwright test tests/e2e/
+
+# 单元测试
+pytest tests/unit/ -v
+```
+
+---
+
 ## 文档结构
 
 ```
 docs/
-├── INDEX.md                     # 文档索引
-├── README.md                    # 本文件
+├── README.md                    # 本文件（主入口）
 ├── TECH-DEBT.md                 # 技术债务跟踪
-├── PERMISSION-SPEC.md           # 权限规范
-├── SERVICES.md                  # 服务架构
 ├── architecture/                # 架构设计
+│   ├── ARCHITECTURE.md          # 系统架构
+│   ├── MODULES.md               # 模块说明
+│   ├── MODELS.md                # 模型系统
+│   └── API-RESPONSIBILITY-MATRIX.md
 ├── api/                         # API 文档
+│   ├── API-DOCUMENTATION.md     # API 完整文档
+│   └── API-VERSIONS.md          # API 版本管理
 ├── features/                    # 功能模块
+│   ├── AGENT.md                 # Agent 系统
+│   ├── AICLOUD.md               # AI 云
+│   ├── WORKFLOW.md              # 工作流
+│   ├── MODEL-MANAGER.md         # 免费模型管理
+│   ├── DYNAMIC-PROVIDERS.md     # 动态供应商
+│   └── ...                      # 其他功能文档
 ├── guides/                      # 开发指南
+│   ├── GETTING-STARTED.md       # 快速开始
+│   ├── MULTI-PROVIDER-SETUP.md  # 多供应商配置
+│   ├── PRODUCTION.md            # 生产部署
+│   ├── SERVICES.md              # 服务管理
+│   └── API-KEY-GUIDE.md         # API Key 指南
 ├── security/                    # 安全文档
+│   ├── SECURITY-OVERVIEW.md     # 安全概览
+│   ├── ENCRYPTED-LOGIN.md       # 加密登录
+│   ├── CSRF-IMPLEMENTATION.md   # CSRF 防护
+│   └── PERMISSION-SPEC.md       # 权限规范
 ├── observability/               # 可观测性
-├── testing/                     # 测试文档
+│   └── TRACING.md               # 分布式追踪
 ├── prompts/                     # AI 提示词
+│   └── PROMPTS.md               # 提示词模板
 ├── skills/                      # Skills 文档
-├── specs/                       # 规格设计
-└── versions/                    # 版本历史
+│   └── HISTORY.md               # Skills 历史
+└── specs/                       # 规格设计
 ```
 
-## 端口说明
-
-重要：后端服务统一在 8000 端口提供前后端服务
-
-```bash
-# 启动后端 (包含前端 dist)
-python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-# 访问前端
-http://localhost:8000
-
-# API 端点
-http://localhost:8000/api/v1/health
-```
-
-## 测试说明
-
-### E2E 测试 (Playwright)
-
-- 48 个测试文件，200+ 测试用例
-- 冒烟测试 5/5 通过 (100%)
-- 执行时间：18.3 秒
-
-```bash
-# 运行冒烟测试 (推荐日常使用)
-npx playwright test tests/e2e/smoke-test-simple.spec.js
-
-# 运行所有 E2E
-npx playwright test tests/e2e/
-
-# 查看报告
-npx playwright show-report
-```
-
-### 单元测试 (Pytest)
-
-- 40+ 测试文件，500+ 测试用例
-- 覆盖率：~95%
-
-```bash
-# 运行单元测试
-pytest tests/unit/ -v
-
-# 运行特定测试
-pytest tests/unit/test_aicloud.py -v
-```
-
-### 集成测试
-
-- 20+ 测试文件，150+ 测试用例
-- 覆盖率：~90%
-
-```bash
-# 运行集成测试
-pytest tests/integration/ -v
-```
-
-## 已知问题
-
-详见 [TECH-DEBT.md](TECH-DEBT.md)
+---
 
 ## 版本历史
 
@@ -183,20 +156,9 @@ pytest tests/integration/ -v
 | v5.10.0 | 2026-05-27 | 工作流节点扩展（9种） + 重试机制 + 条件分支 |
 | v5.9.0 | 2026-05-26 | API Key 全局化 + Token 统计 |
 | v5.8.1 | 2026-05-23 | KV Cache 优化 + 多角度审查系统 |
-| v5.7.0 | 2026-05-23 | 批量操作 + 审计日志 |
-| v5.6.0 | 2026-05-23 | CI/CD集成 |
-| v5.5.0 | 2026-05-23 | 多供应商 API Key 管理 |
-| v5.4.0 | 2026-05-22 | 多供应商模型 + E2E 测试完成 |
 
-详细版本历史见 [versions/](versions/) 目录
-
-## 相关资源
-
-- [完整文档索引](INDEX.md)
-- [技术债务](TECH-DEBT.md)
-- [权限规范](PERMISSION-SPEC.md)
-- [服务架构](SERVICES.md)
+详细版本历史见 [versions/](../versions/) 目录
 
 ---
 
-最后更新：2026-05-27
+最后更新：2026-05-29

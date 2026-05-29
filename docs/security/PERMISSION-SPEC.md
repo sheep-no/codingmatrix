@@ -211,10 +211,10 @@ Token 结构:
 
 ## 相关文档
 
-- [安全架构](security/SECURITY-OVERVIEW.md)
-- [加密登录](security/ENCRYPTED_LOGIN.md)
-- [CSRF 防护](security/CSRF-IMPLEMENTATION-COMPLETE.md)
-- [技术债务](TECH-DEBT.md)
+- [安全架构](SECURITY-OVERVIEW.md)
+- [加密登录](ENCRYPTED-LOGIN.md)
+- [CSRF 防护](CSRF-IMPLEMENTATION.md)
+- [技术债务](../TECH-DEBT.md)
 
 ---
 

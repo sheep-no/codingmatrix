@@ -87,32 +87,39 @@
 
 CodingMatrix 通过统一适配器接口调用多种 LLM 模型，实现三层路由策略按任务复杂度自动分派。
 
-### 支持的模型 (ALLOWED_MODELS)
+### 支持的模型
 
-**最后更新**: 2026-05-22 | **版本**: v5.3.1
+**最后更新**: 2026-05-29
 
 | 模型 ID | 提供商 | 用途 | 说明 |
 |---------|--------|------|------|
-| deepseek-ai/DeepSeek-R1-0528-Qwen3-8B | DeepSeek | 攻坚层推理 | 深度推理与复杂分析 |
-| deepseek-ai/DeepSeek-OCR | DeepSeek | OCR | 图像文字识别 |
-| PaddlePaddle/PaddleOCR-VL-1.5 | PaddlePaddle | 视觉理解 | 图像分析、视觉推理 |
-| Qwen/Qwen3.5-4B | Alibaba | 简单层对话 | 轻量快速响应 |
-| Qwen/Qwen3-8B | Alibaba | 标准层对话 | 通用代码与对话 |
-| Qwen/Qwen2.5-7B-Instruct | Alibaba | 标准层代码 | 代码生成与补全 |
-| THUDM/GLM-4-9B-0414 | THUDM | 标准层对话 | 通用对话与协作 |
-| THUDM/GLM-Z1-9B-0414 | THUDM | 攻坚层推理 | 深度推理与验证 |
-| Kwai-Kolors/Kolors | Kuaishou | 图像生成 | 文生图 |
-| netease-youdao/bce-embedding-base_v1 | NetEase | 嵌入/相似度 | 文本向量化 |
+| deepseek-r1 | DeepSeek | 攻坚层推理 | 深度推理与复杂分析 |
+| deepseek-ocr | DeepSeek | OCR | 图像文字识别 |
+| glm-4.1v-9b | THUDM | 视觉理解 | 图像分析、视觉推理 |
+| glm-4-9b | THUDM | 标准层对话 | 通用对话与协作 |
+| glm-z1-9b | THUDM | 攻坚层推理 | 深度推理与验证 |
+| qwen2.5-7b | Alibaba | 标准层代码 | 代码生成与补全 |
+| qwen3-8b | Alibaba | 标准层对话 | 通用代码与对话 |
+| qwen3.5-4b | Alibaba | 简单层对话 | 轻量快速响应 |
+| kolors | Kuaishou | 图像生成 | 文生图 |
+| bce-embedding | NetEase | 嵌入 | 文本向量化 |
+| bge-m3 | BAAI | 嵌入 | 多语言文本向量化 |
+| bge-large-zh | BAAI | 嵌入 | 中文文本向量化 |
+| bge-reranker-v2-m3 | BAAI | 重排序 | 搜索结果重排序 |
+| bce-reranker | NetEase | 重排序 | 搜索结果重排序 |
+| sense-voice | FunASR | 语音识别 | 语音转文字 |
+| telespeech-asr | Tencent | 语音识别 | 语音转文字 |
+| hunyuan-mt | Tencent | 翻译 | 机器翻译 |
 
-**共 10 个内置模型**（不包括用户在前端调用 API Key 的自付费模型）
+**共 17 个内置模型**
 
 ### 三层路由策略
 
 | 层级 | 模型 | 适用场景 |
 |------|------|----------|
-| 简单层 | Qwen/Qwen3.5-4B | 快速问答、格式化、简单改写 |
-| 标准层 | Qwen/Qwen2.5-7B-Instruct, THUDM/GLM-4-9B-0414 | 代码生成、通用对话、常规开发任务 |
-| 攻坚层 | deepseek-ai/DeepSeek-R1-0528-Qwen3-8B, THUDM/GLM-Z1-9B-0414 | 深度推理、复杂 bug 分析、架构设计 |
+| 简单层 | qwen3.5-4b | 快速问答、格式化、简单改写 |
+| 标准层 | qwen2.5-7b, glm-4-9b | 代码生成、通用对话、常规开发任务 |
+| 攻坚层 | deepseek-r1, glm-z1-9b | 深度推理、复杂 bug 分析、架构设计 |
 
 ### 配置
 
@@ -123,10 +130,10 @@ class Settings:
  SILICONFLOW_API_KEY: str
  SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
 
- DEFAULT_MODEL: str = "Qwen/Qwen2.5-7B-Instruct"
- VISION_MODEL: str = "deepseek-ai/DeepSeek-OCR"
-  OCR_MODEL: str = "deepseek-ai/DeepSeek-OCR"
- IMAGE_GEN_MODEL: str = "Kwai-Kolors/Kolors"
+ DEFAULT_MODEL: str = "qwen2.5-7b"
+ VISION_MODEL: str = "deepseek-ocr"
+  OCR_MODEL: str = "deepseek-ocr"
+ IMAGE_GEN_MODEL: str = "kolors"
 
  MAX_TOKENS: int = 4096
  TEMPERATURE: float = 0.7
@@ -139,10 +146,10 @@ class Settings:
 |------|--------|------|
 | SILICONFLOW_API_KEY | - | API Key (必填) |
 | SILICONFLOW_BASE_URL | https://api.siliconflow.cn/v1 | API 地址 |
-| DEFAULT_MODEL | Qwen/Qwen2.5-7B-Instruct | 默认模型 |
-| VISION_MODEL | deepseek-ai/DeepSeek-OCR | 视觉模型 |
-| OCR_MODEL | deepseek-ai/DeepSeek-OCR | OCR 模型 |
-| IMAGE_GEN_MODEL | Kwai-Kolors/Kolors | 图像生成模型 |
+| DEFAULT_MODEL | qwen2.5-7b | 默认模型 |
+| VISION_MODEL | deepseek-ocr | 视觉模型 |
+| OCR_MODEL | deepseek-ocr | OCR 模型 |
+| IMAGE_GEN_MODEL | kolors | 图像生成模型 |
 | MAX_TOKENS | 4096 | 最大输出 token |
 | TEMPERATURE | 0.7 | 创造性参数 |
 
@@ -169,12 +176,12 @@ from app.utils.AiCodeUtil import call_siliconflow
 
 result = await call_siliconflow(
  prompt="写一个快速排序",
- model="Qwen/Qwen2.5-7B-Instruct"
+ model="qwen2.5-7b"
 )
 
 async for chunk in await call_siliconflow(
  prompt="写一个快速排序",
- model="Qwen/Qwen2.5-7B-Instruct",
+ model="qwen2.5-7b",
  stream=True
 ):
  print(chunk)
@@ -191,12 +198,12 @@ curl http://localhost:8000/api/v1/health/models
 
 | 功能 | 环境变量 | 默认模型 |
 |------|----------|----------|
-| 代码生成 | DEFAULT_MODEL | Qwen/Qwen2.5-7B-Instruct |
-| 图像分析 | VISION_MODEL | deepseek-ai/DeepSeek-OCR |
-| 视觉理解 | - | PaddlePaddle/PaddleOCR-VL-1.5 |
-| OCR | OCR_MODEL | deepseek-ai/DeepSeek-OCR |
-| 图像生成 | IMAGE_GEN_MODEL | Kwai-Kolors/Kolors |
-| PPT 生成 | DEFAULT_MODEL | Qwen/Qwen2.5-7B-Instruct |
+| 代码生成 | DEFAULT_MODEL | qwen2.5-7b |
+| 图像分析 | VISION_MODEL | deepseek-ocr |
+| 视觉理解 | - | glm-4.1v-9b |
+| OCR | OCR_MODEL | deepseek-ocr |
+| 图像生成 | IMAGE_GEN_MODEL | kolors |
+| PPT 生成 | DEFAULT_MODEL | qwen2.5-7b |
 
 ---
 
@@ -210,7 +217,7 @@ curl http://localhost:8000/api/v1/health/models
 
 | 供应商 | 枚举值 | Base URL | 说明 |
 |--------|--------|----------|------|
-| SiliconFlow | `siliconflow` | https://api.siliconflow.cn/v1 | 默认供应商，支持所有 10 个内置模型 |
+| SiliconFlow | `siliconflow` | https://api.siliconflow.cn/v1 | 默认供应商，支持所有 17 个内置模型 |
 | 阿里百炼 | `dashscope` | https://dashscope.aliyuncs.com/compatible-mode/v1 | 支持 Qwen 系列 |
 | 智谱 GLM | `zhipu` | https://open.bigmodel.cn/api/paas/v4 | 支持 GLM 系列 |
 | DeepSeek 官方 | `deepseek` | https://api.deepseek.com/v1 | DeepSeek 官方 API |
@@ -295,7 +302,7 @@ app/utils/aicloud/
 from app.utils.aicloud import call_llm
 
 result = await call_llm(
-    model="Qwen/Qwen3.5-4B",
+    model="qwen3.5-4b",
     prompt="你好",
     system_prompt="你是助手",
     temperature=0.7,
@@ -307,7 +314,7 @@ from app.utils.AiCodeUtil import call_siliconflow
 
 result = await call_siliconflow(
     prompt="你好",
-    model="Qwen/Qwen3.5-4B",
+    model="qwen3.5-4b",
 )
 ```
 
@@ -325,7 +332,7 @@ result = await call_siliconflow(
 ### 模型路由规则
 
 ```python
-# 完整模型名称（如 deepseek-ai/DeepSeek-R1-0528-Qwen3-8B）→ SiliconFlow
+# 完整模型名称（如 deepseek-r1）→ SiliconFlow
 # 简短名称（如 qwen-plus、glm-4、deepseek-chat）→ 对应供应商
 # 未知模型 → SiliconFlow (默认)
 ```

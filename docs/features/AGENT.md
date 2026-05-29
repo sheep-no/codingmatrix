@@ -459,20 +459,27 @@ result = await executor.execute_with_stream(step)
 
 ### 模型注册表
 
-**文件**: `app/agent/multi_model_agent.py`
+**文件**: `app/utils/aicloud/model_registry.py`
 
 | 键名 | 模型名称 | 能力 | 最大 Token | 速度 |
 |------|---------|------|-----------|------|
-| deepseek-r1-qwen3-8b | DeepSeek-R1-0528-Qwen3-8B | REASONING, CODE | 8192 | 0.7 |
-| deepseek-ocr | DeepSeek-OCR | OCR, VISION | 2048 | 1.0 |
-| paddleocr-vl-1.5 | PaddlePaddle/PaddleOCR-VL-1.5 | VISION | 2048 | 0.8 |
-| qwen3.5-4b | Qwen/Qwen3.5-4B | FAST | 4096 | 2.0 |
-| qwen3-8b | Qwen/Qwen3-8B | REASONING, FAST | 4096 | 1.5 |
-| qwen2.5-7b | Qwen/Qwen2.5-7B-Instruct | CODE, FAST | 4096 | 1.8 |
-| glm-4-9b | THUDM/GLM-4-9B-0414 | FAST, CODE | 4096 | 1.6 |
-| glm-z1-9b | THUDM/GLM-Z1-9B-0414 | REASONING | 4096 | 0.9 |
-| kolors | Kwai-Kolors/Kolors | CREATIVE | 512 | 0.5 |
-| bce-embedding | netease-youdao/bce-embedding-base_v1 | EMBEDDING | 512 | 1.0 |
+| deepseek-r1 | DeepSeek R1 | REASONING, CODE | 8192 | 0.7 |
+| deepseek-ocr | DeepSeek OCR | OCR, VISION | 2048 | 1.0 |
+| glm-4.1v-9b | GLM-4.1V 9B | VISION | 2048 | 0.8 |
+| qwen3.5-4b | Qwen3.5 4B | FAST | 4096 | 2.0 |
+| qwen3-8b | Qwen3 8B | REASONING, FAST | 4096 | 1.5 |
+| qwen2.5-7b | Qwen2.5 7B | CODE, FAST | 4096 | 1.8 |
+| glm-4-9b | GLM-4 9B | FAST, CODE | 4096 | 1.6 |
+| glm-z1-9b | GLM-Z1 9B | REASONING | 4096 | 0.9 |
+| kolors | Kolors | CREATIVE | 512 | 0.5 |
+| bce-embedding | BCE Embedding | EMBEDDING | 512 | 1.0 |
+| bge-m3 | BGE M3 | EMBEDDING | 512 | 1.0 |
+| bge-large-zh | BGE Large ZH | EMBEDDING | 512 | 1.0 |
+| bge-reranker-v2-m3 | BGE Reranker V2 M3 | RERANKING | 512 | 1.0 |
+| bce-reranker | BCE Reranker | RERANKING | 512 | 1.0 |
+| sense-voice | SenseVoice Small | ASR | 512 | 1.0 |
+| telespeech-asr | TeleSpeech ASR | ASR | 512 | 1.0 |
+| hunyuan-mt | Hunyuan MT 7B | TRANSLATION | 512 | 1.0 |
 
 ### 静态路由策略
 
@@ -560,7 +567,7 @@ TASK_MODEL_MAP = {
 #### FrontendEngineer (前端工程师)
 
 - **职责**: 前端文件生成 (Vue/React/HTML/CSS/JS)
-- **使用模型**: Qwen2.5-7B-Instruct (快速) / Qwen3-8B (企业级)
+- **使用模型**: qwen2.5-7b (快速) / Qwen3-8B (企业级)
 - **规则**: 每次只创建一个文件，代码完整可运行
 
 #### BackendEngineer (后端工程师)
@@ -1253,7 +1260,7 @@ OrchestratorAgent 推送的进度事件：
  "elapsed_seconds": 120.5,
  "eta_seconds": 120.5,
  "file_path": "src/api/user.py",
- "model": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+ "model": "deepseek-r1"
 }
 ```
 

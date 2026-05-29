@@ -20,8 +20,8 @@
   "models": [
     {
       "id": "qwen2.5-7b",
-      "name": "Qwen2.5-7B-Instruct",
-      "model_key": "Qwen/Qwen2.5-7B-Instruct",
+      "name": "qwen2.5-7b",
+      "model_key": "qwen2.5-7b",
       "description": "代码生成与补全",
       "capabilities": ["CODE", "FAST"],
       "tags": ["标准层"],
@@ -48,7 +48,7 @@
 **请求体**:
 ```json
 {
-  "model_id": "deepseek-r1-qwen3-8b"
+  "model_id": "deepseek-r1"
 }
 ```
 
@@ -69,18 +69,27 @@
 
 ## 内置模型列表
 
-| 模型 ID | 全名 | 能力 | 层级 |
-|---------|------|------|------|
-| deepseek-r1-qwen3-8b | DeepSeek-R1-0528-Qwen3-8B | REASONING, CODE | 攻坚层 |
-| deepseek-ocr | DeepSeek-OCR | OCR, VISION | 专用 |
-| paddleocr-vl-1.5 | PaddlePaddle/PaddleOCR-VL-1.5 | VISION | 专用 |
-| qwen3.5-4b | Qwen/Qwen3.5-4B | FAST | 简单层 |
-| qwen3-8b | Qwen/Qwen3-8B | REASONING, FAST | 标准层 |
-| qwen2.5-7b | Qwen/Qwen2.5-7B-Instruct | CODE, FAST | 标准层 |
-| glm-4-9b | THUDM/GLM-4-9B-0414 | FAST, CODE | 标准层 |
-| glm-z1-9b | THUDM/GLM-Z1-9B-0414 | REASONING | 攻坚层 |
-| kolors | Kwai-Kolors/Kolors | CREATIVE | 专用 |
-| bce-embedding | netease-youdao/bce-embedding-base_v1 | EMBEDDING | 专用 |
+共 17 个内置模型。
+
+| 模型 ID | 能力 | 层级 |
+|---------|------|------|
+| deepseek-r1 | REASONING, CODE | 攻坚层 |
+| deepseek-ocr | OCR, VISION | 专用 |
+| glm-4.1v-9b | VISION | 专用 |
+| qwen3.5-4b | FAST | 简单层 |
+| qwen3-8b | REASONING, FAST | 标准层 |
+| qwen2.5-7b | CODE, FAST | 标准层 |
+| glm-4-9b | FAST, CODE | 标准层 |
+| glm-z1-9b | REASONING | 攻坚层 |
+| kolors | CREATIVE | 专用 |
+| bce-embedding | EMBEDDING | 专用 |
+| bge-m3 | EMBEDDING | 专用 |
+| bge-large-zh | EMBEDDING | 专用 |
+| bge-reranker-v2-m3 | RERANKING | 专用 |
+| bce-reranker | RERANKING | 专用 |
+| sense-voice | ASR | 专用 |
+| telespeech-asr | ASR | 专用 |
+| hunyuan-mt | TRANSLATION | 专用 |
 
 ## 相关文件
 
