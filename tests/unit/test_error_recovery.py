@@ -21,4 +21,4 @@ class TestErrorRecoveryLoop:
         # 简化测试：只验证对象创建成功
         assert recovery.validator is not None
         assert recovery.reviewer is not None
-        assert recovery.MAX_FIX_ATTEMPTS == 2
+        assert recovery.MAX_FIX_ATTEMPTS == 3

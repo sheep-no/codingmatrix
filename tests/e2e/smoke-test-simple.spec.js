@@ -41,7 +41,7 @@ test.describe('冒烟测试 - 核心功能验证', () => {
       // 等待至少 2 秒让 React/Vue 组件渲染
       await page.waitForTimeout(2000)
       const title = await page.title()
-      expect(title).toContain('AI')
+      expect(title).toContain('CodingMatrix')
     })
     
     await test.step('验证页面元素', async () => {

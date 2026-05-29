@@ -131,12 +131,12 @@ class TestDependencyGraph:
         assert "config.py" in g.adjacency["main.py"]
 
     def test_add_dependency_missing_node(self):
-        """依赖不存在的节点应该记录警告"""
+        """依赖不存在的节点不会被记录（避免引入外部库作为节点）"""
         g = DependencyGraph()
         g.add_file("main.py", priority=2)
         g.add_dependency("main.py", "nonexistent.py")
-        # 依赖仍然被记录，但会记录警告
-        assert "nonexistent.py" in g.adjacency.get("main.py", set())
+        # 依赖不会被记录，因为目标节点不存在
+        assert "nonexistent.py" not in g.adjacency.get("main.py", set())
 
     def test_generation_order_no_deps(self):
         g = DependencyGraph()
