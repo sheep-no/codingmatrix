@@ -1,0 +1,86 @@
+{
+  "version": "1.0",
+  "description": "Agent 模型配置 - 管理各环节使用的模型",
+  "last_updated": "2026-05-29T05:45:00.000000",
+  "assignments": {
+    "SIMPLE": {
+      "architect_model": "glm-4-9b",
+      "frontend_model": "glm-4-9b",
+      "backend_model": "glm-4-9b",
+      "reviewer_model": "glm-4-9b",
+      "fallback_model": "glm-4-9b"
+    },
+    "SMALL": {
+      "architect_model": "glm-4-9b",
+      "frontend_model": "glm-4-9b",
+      "backend_model": "glm-4-9b",
+      "reviewer_model": "glm-4-9b",
+      "fallback_model": "glm-4-9b"
+    },
+    "MEDIUM": {
+      "architect_model": "glm-z1-9b",
+      "frontend_model": "glm-4-9b",
+      "backend_model": "glm-4-9b",
+      "reviewer_model": "glm-4-9b",
+      "fallback_model": "glm-4-9b"
+    },
+    "LARGE": {
+      "architect_model": "glm-z1-9b",
+      "frontend_model": "glm-4-9b",
+      "backend_model": "glm-4-9b",
+      "reviewer_model": "glm-4-9b",
+      "fallback_model": "glm-4-9b"
+    },
+    "ENTERPRISE": {
+      "architect_model": "glm-z1-9b",
+      "frontend_model": "glm-4-9b",
+      "backend_model": "glm-4-9b",
+      "reviewer_model": "glm-4-9b",
+      "fallback_model": "glm-4-9b"
+    }
+  },
+  "fallback_chains": {
+    "default": [
+      "glm-4-9b",
+      "qwen2.5-7b",
+      "glm-z1-9b",
+      "deepseek-r1"
+    ],
+    "error_recovery": [
+      "glm-4-9b",
+      "qwen2.5-7b",
+      "glm-z1-9b",
+      "deepseek-r1"
+    ],
+    "code_generation": [
+      "glm-4-9b",
+      "qwen2.5-7b",
+      "glm-z1-9b",
+      "deepseek-r1"
+    ],
+    "embedding": [
+      "bge-m3",
+      "bge-large-zh",
+      "bce-embedding"
+    ],
+    "reranker": [
+      "bge-reranker-v2-m3",
+      "bce-reranker"
+    ]
+  },
+  "error_type_models": {
+    "NameError": "glm-4-9b",
+    "AttributeError": "glm-4-9b",
+    "ImportError": "glm-4-9b",
+    "SyntaxError": "glm-4-9b",
+    "TypeError": "glm-4-9b",
+    "KeyError": "glm-4-9b",
+    "IndexError": "glm-4-9b",
+    "LogicError": "glm-4-9b"
+  },
+  "settings": {
+    "max_concurrent_requests": 100,
+    "circuit_breaker_threshold": 3,
+    "circuit_breaker_cooldown_seconds": 300
+  }
+}

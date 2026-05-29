@@ -73,6 +73,11 @@ from app.api.v2.nginx_api import router as nginxRouter
 from app.api.v2.Controller import router as sysRouter
 from app.api.v2.user_manage import router as userManageRouter
 from app.api.v2.guardian_router import router as guardian_router
+from app.api.v1.github import router as githubRouter
+from app.api.v1.apikey import router as apikeyRouter
+from app.api.v1.providers import router as providersRouter
+from app.api.v1.model_manager import router as modelManagerRouter
+from app.api.v2.model_admin import router as modelAdminRouter
 from app.db.database import engine, async_session
 from app.db.scheduler import start_scheduler
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -269,13 +274,16 @@ app.include_router(aicloudKnowledgeRouter, prefix="/api/v1", tags=["aicloud-know
 app.include_router(workflowRouter, tags=["workflow"])
 app.include_router(agentRouter, prefix="/api/v1", tags=["agent"])
 app.include_router(visionRouter, prefix="/api/v1", tags=["vision"])
-app.include_router(adminConfigRouter, prefix="/api/v1", tags=["admin-config"])  # 添加管理员配置路由
 app.include_router(nginxRouter, prefix="/api/v2", tags=["nginx"])
 app.include_router(sysRouter, prefix="/api/v2", tags=["sys"])
 app.include_router(userManageRouter, prefix="/api/v2", tags=["manage"])
-app.include_router(adminConfigRouter, prefix="/api/v2", tags=["admin-config"])  # 添加管理员配置路由
+app.include_router(adminConfigRouter, prefix="/api/v2", tags=["admin-config"])
 app.include_router(guardian_router, prefix="/api/v2", tags=["guard"])
+app.include_router(modelAdminRouter, prefix="/api/v2", tags=["model-admin"])
 app.include_router(githubRouter, prefix="/api/v1", tags=["github"])
+app.include_router(apikeyRouter)
+app.include_router(providersRouter, tags=["providers"])
+app.include_router(modelManagerRouter, prefix="/api/v1", tags=["models"])
 
 # 健康检查路由（/api/v1/health）
 app.include_router(healthRouter, prefix="/api/v1")
@@ -285,7 +293,11 @@ app.include_router(healthRouter, prefix="/api/v1")
 DIST_PATH = rf"{BASE_DIR_PATH}/dist"
 os.makedirs(DIST_PATH, exist_ok=True)
 # 挂载静态文件到/static路径（供Vue加载JS/CSS等资源）
-app.mount("/static", StaticFiles(directory=DIST_PATH), name="static")
+STATIC_PATH = os.path.join(DIST_PATH, "static")
+if os.path.isdir(STATIC_PATH):
+    app.mount("/static", StaticFiles(directory=STATIC_PATH), name="static")
+else:
+    app.mount("/static", StaticFiles(directory=DIST_PATH), name="static")
 
 # 根路径返回Vue首页
 @app.get("/", response_class=FileResponse)
