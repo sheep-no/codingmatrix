@@ -103,6 +103,10 @@ class LanguageDetector:
         "易语言": [
             "易语言", "e语言", "ec", "易程序",
         ],
+        "renpy": [
+            "ren'py", "renpy", "galgame", "视觉小说", "visual novel",
+            ".rpy", "rpy文件",
+        ],
     }
 
     # 框架 → 语言的强映射
@@ -161,19 +165,26 @@ class LanguageDetector:
         requirement_lower = requirement.lower()
         evidence = []
 
-        # 策略 1: 显式语言关键词
+        # 策略 1: 显式语言关键词（全局按关键词长度降序匹配，避免短关键词误匹配）
+        # 收集所有 (keyword, language) 对
+        all_keywords = []
         for lang, keywords in cls.LANGUAGE_KEYWORDS.items():
             for keyword in keywords:
-                # 使用词边界匹配，避免误匹配
-                pattern = r'\b' + re.escape(keyword) + r'\b'
-                if re.search(pattern, requirement_lower):
-                    evidence.append(f"关键词匹配: '{keyword}' → {lang}")
-                    return LanguageDetectionResult(
-                        language=lang,
-                        confidence=0.95,
-                        evidence=evidence,
-                        adapter_name=cls._get_adapter_name(lang)
-                    )
+                all_keywords.append((keyword, lang))
+        # 按关键词长度降序排列
+        all_keywords.sort(key=lambda x: len(x[0]), reverse=True)
+        # 遍历匹配
+        for keyword, lang in all_keywords:
+            # 使用词边界匹配，避免误匹配
+            pattern = r'\b' + re.escape(keyword) + r'\b'
+            if re.search(pattern, requirement_lower):
+                evidence.append(f"关键词匹配: '{keyword}' → {lang}")
+                return LanguageDetectionResult(
+                    language=lang,
+                    confidence=0.95,
+                    evidence=evidence,
+                    adapter_name=cls._get_adapter_name(lang)
+                )
 
         # 策略 2: 框架推断
         for framework, lang in cls.FRAMEWORK_LANGUAGE.items():
@@ -233,18 +244,19 @@ class LanguageDetector:
 
         # 策略 5: 中文需求的常见模式
         chinese_patterns = [
-            (r'用([\w]+)写', 1),
-            (r'使用([\w]+)开发', 1),
-            (r'基于([\w]+)的', 1),
-            (r'([\w]+)项目', 1),
-            (r'([\w]+)应用', 1),
-            (r'([\w]+)程序', 1),
+            (r'用\s*([\w]+)\s*写', 1),
+            (r'用\s*([\w]+)\s*开发', 1),
+            (r'使用\s*([\w]+)\s*开发', 1),
+            (r'基于\s*([\w]+)\s*的', 1),
+            (r'([\w]+)\s*项目', 1),
+            (r'([\w]+)\s*应用', 1),
+            (r'([\w]+)\s*程序', 1),
         ]
         for pattern, group_idx in chinese_patterns:
             match = re.search(pattern, requirement)
             if match:
                 potential_lang = match.group(group_idx).lower()
-                # 检查是否是已知语言
+                # 在已知语言列表中，高置信度
                 if potential_lang in cls.LANGUAGE_KEYWORDS:
                     evidence.append(f"中文模式推断: '{match.group(group_idx)}' → {potential_lang}")
                     return LanguageDetectionResult(
@@ -252,6 +264,15 @@ class LanguageDetector:
                         confidence=0.70,
                         evidence=evidence,
                         adapter_name=cls._get_adapter_name(potential_lang)
+                    )
+                # 不在列表中，但看起来像语言名（短且无特殊字符），低置信度
+                if len(potential_lang) <= 15 and potential_lang.isalnum():
+                    evidence.append(f"中文模式推断（未知语言）: '{match.group(group_idx)}' → {potential_lang}")
+                    return LanguageDetectionResult(
+                        language=potential_lang,
+                        confidence=0.40,
+                        evidence=evidence,
+                        adapter_name="generic"
                     )
 
         # 默认：Python（最通用）
@@ -286,6 +307,7 @@ class LanguageDetector:
             "lua": "generic",
             "perl": "generic",
             "易语言": "generic",
+            "renpy": "generic",
         }
         return adapter_map.get(language, "generic")
 
@@ -382,12 +404,39 @@ class LanguageDetector:
         }
 
         # 对于没有专门适配器的语言，使用通用规则
+        # 通用语言扩展名映射（不常见的语言）
+        LANGUAGE_EXTENSION_MAP = {
+            "renpy": ".rpy",
+            "lua": ".lua",
+            "perl": ".pl",
+            "elixir": ".ex",
+            "haskell": ".hs",
+            "scala": ".scala",
+            "dart": ".dart",
+            "swift": ".swift",
+            "kotlin": ".kt",
+            "rust": ".rs",
+            "go": ".go",
+            "ruby": ".rb",
+            "php": ".php",
+            "r": ".r",
+            "zig": ".zig",
+            "nim": ".nim",
+            "crystal": ".cr",
+            "odin": ".odin",
+            "jai": ".jai",
+            "v": ".v",
+            "vale": ".vale",
+            "gleam": ".gleam",
+            "roc": ".roc",
+        }
         if language not in rules:
+            ext = LANGUAGE_EXTENSION_MAP.get(language, f".{language}" if len(language) <= 5 else "")
             return {
-                "file_extension": "根据语言约定",
-                "package_init": "根据语言约定",
+                "file_extension": ext or "根据语言约定",
+                "package_init": "",
                 "import_syntax": "根据语言约定",
-                "entry_point": "根据语言约定",
+                "entry_point": f"main{ext}" if ext else "根据语言约定",
                 "test_framework": "根据语言约定",
                 "package_manager": "根据语言约定",
                 "config_files": [],
