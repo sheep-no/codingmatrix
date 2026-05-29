@@ -431,7 +431,7 @@ class LanguageDetector:
             "roc": ".roc",
         }
         if language not in rules:
-            ext = LANGUAGE_EXTENSION_MAP.get(language, f".{language}" if len(language) <= 5 else "")
+            ext = LANGUAGE_EXTENSION_MAP.get(language, f".{language}")
             return {
                 "file_extension": ext or "根据语言约定",
                 "package_init": "",
