@@ -226,7 +226,7 @@ def select_model_for_prompt(prompt: str, use_reasoning: bool, has_files: bool) -
     prompt_lower = prompt.lower()
     
     if any(kw in prompt_lower for kw in code_keywords):
-        return "Qwen/Qwen2.5-7B-Instruct"
+        return "Qwen/Qwen3-8B"
     elif any(kw in prompt_lower for kw in analysis_keywords):
         return "THUDM/GLM-Z1-9B-0414"
     elif any(kw in prompt_lower for kw in creative_keywords):

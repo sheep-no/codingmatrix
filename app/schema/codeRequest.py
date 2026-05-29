@@ -18,7 +18,7 @@ ALLOWED_MODELS_LIST = [
 
 class CodeRequest(BaseModel):
     """代码生成请求"""
-    prompt: str = Field(..., description="代码生成需求描述")
+    prompt: str = Field(..., min_length=1, description="代码生成需求描述")
     model: Optional[str] = Field(None, description="指定模型（不指定则自动选择）")
     stream: Optional[bool] = Field(False, description="是否流式输出")
     use_reasoning: Optional[bool] = Field(False, description="是否启用深度推理")
