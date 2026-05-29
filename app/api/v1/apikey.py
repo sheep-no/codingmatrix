@@ -31,6 +31,59 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/agent/apikey", tags=["API Key 管理"])
 
 
+# --- Pydantic 模型 ---
+
+class SubmitKeyRequest(BaseModel):
+    """提交 API Key 请求"""
+    encrypted_key: str = Field(..., description="RSA 加密后的 API Key")
+    provider: str = Field(..., description="供应商名称")
+    ttl: int = Field(default=86400, description="TTL 秒数")
+    remark: str = Field(default="", description="备注")
+
+class SubmitKeyResponse(BaseModel):
+    """提交 API Key 响应"""
+    success: bool
+    token: str
+    message: str
+
+class TestKeyRequest(BaseModel):
+    """测试 API Key 请求"""
+    token: str = Field(..., description="Key Token")
+
+class TestKeyResponse(BaseModel):
+    """测试 API Key 响应"""
+    success: bool
+    message: str
+    models: list = Field(default_factory=list)
+
+class BatchImportRequest(BaseModel):
+    """批量导入请求"""
+    keys: list = Field(..., description="Key 列表")
+
+class BatchImportResponse(BaseModel):
+    """批量导入响应"""
+    success_count: int
+    failed_count: int
+    results: list
+
+class BatchExportResponse(BaseModel):
+    """批量导出响应"""
+    format: str
+    data: str
+    count: int
+
+class KeyMetadataResponse(BaseModel):
+    """Key 元数据响应"""
+    token: str
+    provider: str
+    remark: str
+    status: str
+    created_at: str
+    expires_at: str
+    ttl_seconds: int
+    enabled: bool
+
+
 def get_current_user_id(token: dict = Depends(verify_token)) -> str:
     """
     从 JWT token 中获取当前用户 ID

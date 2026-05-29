@@ -82,12 +82,12 @@ class Architect(Specialist):
 
 file_plan 格式要求（每个文件必须包含 imports 字段）：
 ```json
-{
+{{{{
   "file_plan": [
-    {"path": "<入口文件>", "description": "主程序入口", "priority": 1, "imports": [...]},
+    {{"path": "<入口文件>", "description": "主程序入口", "priority": 1, "imports": [...]}},
     ...
   ]
-}
+}}}}
 ```
 
 重要规则：
