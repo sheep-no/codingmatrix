@@ -121,6 +121,63 @@
 | DELETE | `/api/v1/pptx/{task_id}/cancel` | 取消任务 | normal |
 | POST | `/api/v1/pptx/{task_id}/update` | 更新任务 | normal |
 
+### PPT Agent 端点 (新增 v5.11.0)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| POST | `/api/v1/ppt/generate-text` | 生成大纲（仅返回结构化数据） | normal |
+| POST | `/api/v1/ppt/generate-from-text` | 端到端生成（大纲 -> 搜图 -> PPTX） | normal |
+
+**POST /api/v1/ppt/generate-text**
+
+请求体：
+```json
+{
+  "topic": "PPT 主题",
+  "description": "详细描述（可选）",
+  "num_slides": 10,
+  "model": "Qwen/Qwen2.5-7B-Instruct"
+}
+```
+
+响应：
+```json
+{
+  "title": "PPT 标题",
+  "slides": [
+    {
+      "type": "content",
+      "title": "页面标题",
+      "bullets": ["要点1", "要点2"],
+      "image_keywords": ["关键词1"],
+      "notes": "备注"
+    }
+  ],
+  "total_slides": 10
+}
+```
+
+**POST /api/v1/ppt/generate-from-text**
+
+请求体：同上
+
+响应：
+```json
+{
+  "task_id": "uuid",
+  "task_type": "ppt_generation",
+  "status": "pending",
+  "progress": 0,
+  "progress_message": "等待中..."
+}
+```
+
+功能特性：
+- 自然语言输入：输入主题描述自动生成结构化大纲
+- 文本防溢出：自动拆分长文本、调整字号
+- 自动搜图配图：根据关键词搜索图片并自动插入
+- 智能排版布局：根据内容类型自动选择最佳版式
+
 ## 文件上传 (`/api/v1/files`)
 
 | 方法 | 路径 | 描述 | 权限 |

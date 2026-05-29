@@ -126,3 +126,15 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 主组件只负责组装 composables 和传递 props/events 给子组件
   - Vue 3 模板中 ref 自动解包，不需要 `.value`；但 `<script setup>` 中操作 refs 需要 `.value`
   - 样式保留在主组件中（276 行），不提取到 composables
+
+### PPT Agent 功能实现
+- Date: 2026-05-29
+- Context: Agent 在执行 PPT 增强功能开发时发现
+- Category: 代码模式
+- Instructions:
+  - PPT Agent 位于 `app/agent/ppt_agent.py`，负责自然语言到结构化大纲的转换
+  - 文本防溢出函数 `prevent_text_overflow()` 在 `app/api/v1/aiGeneratorPptx.py`
+  - 自动搜图功能使用 DuckDuckGo 搜索，缓存到 `./static/images/cache/`
+  - 配图自动插入到幻灯片右侧位置 (9, 2) 英寸，尺寸 3.5x2.5 英寸
+  - API 端点：`/generate-text` (仅大纲) 和 `/generate-from-text` (端到端)
+  - 前端支持两种模式：AI Agent 生成和手动输入大纲
