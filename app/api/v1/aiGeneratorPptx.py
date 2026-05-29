@@ -366,7 +366,7 @@ def _render_slide_default(prs, blank_layout, style, slide_data, idx, total_slide
     line.fill.fore_color.rgb = style.PRIMARY_LIGHT
     line.line.fill.background()
 
-    # 内容区域
+    # 内容区域 (使用防溢出处理)
     content_items = slide_data.get('content', [])
     if isinstance(content_items, str):
         content_items = [content_items]
@@ -374,6 +374,29 @@ def _render_slide_default(prs, blank_layout, style, slide_data, idx, total_slide
         content_items = [str(content_items)]
     elif not content_items:
         content_items = ['暂无内容']
+    
+    # 防溢出处理
+    processed_items = []
+    for item in content_items:
+        if isinstance(item, str):
+            processed_items.extend(prevent_text_overflow(item, max_chars_per_line=70, max_lines=6))
+        else:
+            processed_items.append(str(item))
+    content_items = processed_items
+
+    # 自动配图 (如果有搜索到的图片)
+    local_images = slide_data.get('local_images', [])
+    if local_images:
+        try:
+            img_path = local_images[0]
+            if Path(img_path).exists():
+                content_slide.shapes.add_picture(
+                    img_path, 
+                    Inches(9), Inches(2), 
+                    Inches(3.5), Inches(2.5)
+                )
+        except Exception as e:
+            logger.warning(f"图片添加失败: {e}")
 
     # 逐行添加内容
     y_pos = 1.6
@@ -1280,3 +1303,286 @@ async def update_ppt_task(
         progress_message="等待中...",
         created_at=datetime.now().isoformat()
     )
+
+
+# =============================================================================
+# 文本防溢出
+# =============================================================================
+
+def prevent_text_overflow(
+    text: str, 
+    max_chars_per_line: int = 80, 
+    max_lines: int = 10, 
+    shrink_font: bool = True
+) -> List[str]:
+    """
+    防止文本在 PPT 幻灯片中溢出。
+    
+    Args:
+        text: 原始文本
+        max_chars_per_line: 每行最大字符数
+        max_lines: 最大行数限制
+        shrink_font: 是否建议缩小字号
+        
+    Returns:
+        处理后的文本行列表
+    """
+    if not text:
+        return ['暂无内容']
+    
+    lines = text.strip().split('\n')
+    processed_lines = []
+    
+    for line in lines:
+        while len(line) > max_chars_per_line:
+            processed_lines.append(line[:max_chars_per_line])
+            line = line[max_chars_per_line:]
+        if line:
+            processed_lines.append(line)
+            
+    if len(processed_lines) > max_lines:
+        if shrink_font:
+            logger.debug(f"文本行数 ({len(processed_lines)}) 超出限制 ({max_lines})，建议缩小字号")
+        else:
+            processed_lines = processed_lines[:max_lines - 1]
+            processed_lines.append("... (已省略超出部分)")
+            
+    return processed_lines
+
+
+# =============================================================================
+# 自动搜图
+# =============================================================================
+
+IMAGE_SEARCH_TIMEOUT = 10
+
+async def search_image_url(keyword: str) -> Optional[str]:
+    """搜索图片 URL (使用 DuckDuckGo)"""
+    import aiohttp
+    from urllib.parse import quote
+    
+    url = f"https://html.duckduckgo.com/html/?q={quote(keyword)}+photo"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MonkeyCode-PPT/1.0"}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=IMAGE_SEARCH_TIMEOUT) as resp:
+                if resp.status == 200:
+                    html = await resp.text()
+                    # DuckDuckGo 图片解析
+                    import re
+                    # 查找图片 URL
+                    match = re.search(r'src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', html, re.IGNORECASE)
+                    if match:
+                        return match.group(1)
+    except Exception as e:
+        logger.warning(f"图片搜索失败 {keyword}: {e}")
+    
+    return None
+
+
+async def download_image(url: str, save_path: Path) -> bool:
+    """下载图片到本地"""
+    import aiohttp
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=IMAGE_SEARCH_TIMEOUT) as resp:
+                if resp.status == 200:
+                    data = await resp.read()
+                    save_path.write_bytes(data)
+                    return True
+    except Exception as e:
+        logger.warning(f"图片下载失败 {url}: {e}")
+    
+    return False
+
+
+IMAGE_CACHE_DIR = Path("./static/images/cache")
+
+async def get_image_for_slide(keywords: List[str], slide_index: int) -> Optional[str]:
+    """获取幻灯片配图 (缓存优先)"""
+    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    for kw in keywords[:2]:
+        import hashlib
+        cache_key = hashlib.md5(kw.encode()).hexdigest()
+        cache_path = IMAGE_CACHE_DIR / f"{cache_key}.jpg"
+        
+        if cache_path.exists():
+            return str(cache_path)
+        
+        url = await search_image_url(kw)
+        if url:
+            success = await download_image(url, cache_path)
+            if success:
+                return str(cache_path)
+    
+    return None
+
+
+# =============================================================================
+# PPT Agent API 端点
+# =============================================================================
+
+from pydantic import BaseModel, Field as PydanticField
+
+class OutlineSlide(BaseModel):
+    """大纲中的单页幻灯片"""
+    type: str = PydanticField(..., description="幻灯片类型")
+    title: str = PydanticField(..., description="幻灯片标题")
+    bullets: List[str] = PydanticField(default_factory=list, description="要点列表")
+    image_keywords: List[str] = PydanticField(default_factory=list, description="配图关键词")
+    notes: str = PydanticField(default="", description="备注")
+
+class OutlineGenerationRequest(BaseModel):
+    """大纲生成请求"""
+    topic: str = PydanticField(..., description="PPT 主题", max_length=500)
+    description: str = PydanticField(default="", description="详细描述", max_length=2000)
+    num_slides: int = PydanticField(default=10, ge=1, le=30, description="幻灯片数量")
+    model: str = PydanticField(default="Qwen/Qwen2.5-7B-Instruct", description="AI 模型")
+
+class OutlineGenerationResponse(BaseModel):
+    """大纲生成响应"""
+    title: str
+    slides: List[OutlineSlide]
+    total_slides: int
+
+
+@router.post("/generate-text", response_model=OutlineGenerationResponse)
+async def generate_ppt_from_text(
+    req: OutlineGenerationRequest,
+    token: dict = Depends(verify_token),
+):
+    """
+    自然语言生成 PPT 大纲 (仅返回结构化数据，不生成文件)
+    """
+    user_id = token.get("sub", "anonymous")
+    logger.info("PPT Agent 请求 | user: %s | topic: %s", user_id, req.topic[:50])
+
+    try:
+        from app.agent.ppt_agent import PPTAgent
+
+        agent = PPTAgent(model=req.model)
+        outline = await agent.generate_outline(
+            topic=req.topic,
+            description=req.description,
+            num_slides=req.num_slides,
+        )
+
+        return OutlineGenerationResponse(
+            title=outline.title,
+            slides=[
+                OutlineSlide(
+                    type=s.type,
+                    title=s.title,
+                    bullets=s.bullets,
+                    image_keywords=s.image_keywords,
+                    notes=s.notes,
+                )
+                for s in outline.slides
+            ],
+            total_slides=len(outline.slides),
+        )
+
+    except Exception as exc:
+        logger.error("PPT Agent 大纲生成失败 | error: %s", exc)
+        raise HTTPException(status_code=500, detail=f"大纲生成失败: {exc}")
+
+
+@router.post("/generate-from-text", response_model=TaskResponse)
+async def generate_ppt_from_text_task(
+    req: OutlineGenerationRequest,
+    token: dict = Depends(verify_token),
+):
+    """
+    端到端: 自然语言 -> 大纲 -> PPTX 文件 (任务队列)
+    """
+    user_id = token.get("sub", "anonymous")
+    logger.info("PPT Agent 端到端请求 | user: %s | topic: %s", user_id, req.topic[:50])
+
+    try:
+        from app.agent.ppt_agent import PPTAgent
+        import uuid
+        from app.schema.task_schema import TaskResponse as SchemaTaskResponse
+
+        agent = PPTAgent(model=req.model)
+        outline = await agent.generate_outline(
+            topic=req.topic,
+            description=req.description,
+            num_slides=req.num_slides,
+        )
+
+        ppt_id = str(uuid.uuid4())
+        outline_dict = PPTAgent.adapt_for_pptx_engine(outline)
+
+        async def run_ppt_gen(task_id: str, **kwargs):
+            async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None):
+                await task_manager.update_progress(task_id, progress, message)
+
+            try:
+                await update_progress(progress=5, message="正在准备上下文...")
+
+                # 搜图
+                await update_progress(progress=15, message="正在搜索配图...")
+                for i, slide in enumerate(outline_dict['slides']):
+                    if slide.get('image_keywords'):
+                        try:
+                            img_path = await get_image_for_slide(slide['image_keywords'], i)
+                            if img_path:
+                                outline_dict['slides'][i]['local_images'] = [img_path]
+                        except Exception as e:
+                            logger.warning(f"幻灯片 {i+1} 配图失败: {e}")
+
+                # 构建兼容请求
+                compat_req = PPTGenerationRequest(
+                    topic=outline.title,
+                    model=req.model,
+                    template=req.template if hasattr(req, 'template') else "modern",
+                    slide_count=len(outline.slides),
+                )
+
+                output_dir = Path("./pptx_output")
+                output_dir.mkdir(exist_ok=True)
+                filepath = output_dir / f"{task_id}.pptx"
+
+                await update_progress(progress=20, message="正在生成 PPTX 文件...")
+                await generate_pptx_file_enhanced(filepath, outline_dict, compat_req, update_progress=update_progress)
+
+                await update_progress(
+                    progress=100,
+                    message="PPT 生成完成",
+                    status="completed",
+                    result_data=json.dumps({
+                        "filename": filepath.name,
+                        "ppt_id": task_id,
+                        "download_url": f"/api/v1/pptx/download/{task_id}?format=pptx",
+                        "preview_url": f"/api/v1/pptx/preview/{task_id}",
+                    })
+                )
+
+            except asyncio.CancelledError:
+                await update_progress(status="cancelled", message="任务已取消")
+            except Exception as exc:
+                await update_progress(status="failed", message=f"生成失败: {exc}", error_message=str(exc))
+                logger.error("PPT 生成任务失败 | task_id: %s | error: %s", task_id, exc)
+
+        task_response = await task_manager.create_task(
+            task_type="ppt_generation",
+            user_id=user_id,
+            func=run_ppt_gen,
+            params={},
+        )
+
+        return SchemaTaskResponse(
+            task_id=task_response,
+            task_type="ppt_generation",
+            status="pending",
+            progress=0,
+            progress_message="等待中...",
+            created_at=datetime.now().isoformat()
+        )
+
+    except Exception as exc:
+        logger.error("PPT Agent 端到端失败 | error: %s", exc)
+        raise HTTPException(status_code=500, detail=f"生成失败: {exc}")
