@@ -11,6 +11,22 @@
 
       <textarea :value="prompt" :placeholder="placeholderText" class="prompt-textarea" rows="8" @input="$emit('update:prompt', $event.target.value)" />
 
+      <!-- 模型选择器 -->
+      <div v-if="dynamicModels.length > 0" class="model-selector">
+        <label class="model-selector-label">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          使用自定义模型（可选）
+        </label>
+        <select :value="selectedProviderModel" class="model-select" @change="$emit('update:selectedProviderModel', $event.target.value)">
+          <option value="">系统默认模型</option>
+          <optgroup v-for="group in groupedDynamicModels" :key="group.provider" :label="group.provider">
+            <option v-for="m in group.models" :key="m.provider_id + ':' + m.model_id" :value="m.provider_id + '::' + m.model_id">
+              {{ m.model_id }}
+            </option>
+          </optgroup>
+        </select>
+      </div>
+
       <div v-if="!hasFiles" class="quick-templates">
         <h3>快速模板</h3>
         <div class="template-grid">
@@ -97,6 +113,8 @@ v-for="file in category.files" :key="file.path" class="file-item"
 </template>
 
 <script setup>
+import { computed } from 'vue'
+
 const props = defineProps({
   mode: { type: String, required: true },
   prompt: { type: String, required: true },
@@ -107,9 +125,22 @@ const props = defineProps({
   categories: { type: Array, required: true },
   searchQuery: { type: String, required: true },
   filterType: { type: String, required: true },
-  selectedPath: { type: String, default: '' }
+  selectedPath: { type: String, default: '' },
+  dynamicModels: { type: Array, default: () => [] },
+  selectedProviderModel: { type: String, default: '' }
 })
-const emit = defineEmits(['update:mode', 'update:prompt', 'update:searchQuery', 'update:filterType', 'generate', 'incremental-generate', 'debug', 'regenerate', 'clear', 'stop', 'select-template', 'toggle-category', 'select-file'])
+const emit = defineEmits(['update:mode', 'update:prompt', 'update:searchQuery', 'update:filterType', 'update:selectedProviderModel', 'generate', 'incremental-generate', 'debug', 'regenerate', 'clear', 'stop', 'select-template', 'toggle-category', 'select-file'])
+
+const groupedDynamicModels = computed(() => {
+  const groups = {}
+  for (const m of props.dynamicModels) {
+    if (!groups[m.provider_name]) {
+      groups[m.provider_name] = { provider: m.provider_name, models: [] }
+    }
+    groups[m.provider_name].models.push(m)
+  }
+  return Object.values(groups)
+})
 
 function getFileIcon(filePath) {
   const ext = filePath.split('.').pop().toLowerCase()
@@ -121,3 +152,29 @@ function getFileName(filePath) {
   return filePath.split('/').pop()
 }
 </script>
+
+<style scoped>
+.model-selector {
+  margin: 8px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.model-selector-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #909399;
+}
+.model-select {
+  padding: 6px 8px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #fff;
+  cursor: pointer;
+}
+.model-select:hover { border-color: #409eff; }
+.model-select:focus { border-color: #409eff; outline: none; }
+</style>

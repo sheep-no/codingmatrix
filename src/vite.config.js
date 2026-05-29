@@ -37,6 +37,14 @@ export default defineConfig({
         secure: false,
         cookieDomainRewrite: '127.0.0.1',
         cookiePathRewrite: '/'
+      },
+      '/api/v2': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        ws: true,
+        secure: false,
+        cookieDomainRewrite: '127.0.0.1',
+        cookiePathRewrite: '/'
       }
     }
   },

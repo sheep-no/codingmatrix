@@ -137,9 +137,15 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     }
   }
 
-  const buildStreamParams = (requirement, sessionId, mode) => {
+  const buildStreamParams = (requirement, sessionId, mode, selectedProviderModel) => {
     // 获取用户 SiliconFlow API Key token
     const siliconflowKey = apiKeyStore.siliconflowKey
+    
+    // 解析动态供应商选择 (格式: "provider_id::model_id")
+    let providerId = undefined
+    if (selectedProviderModel && selectedProviderModel.includes('::')) {
+      providerId = selectedProviderModel.split('::')[0]
+    }
     
     return {
       requirement,
@@ -152,8 +158,8 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       dependency_graph: true,
       incremental: mode !== 'create',
       require_approval: false,
-      // 传递 SiliconFlow API Key token
       api_key_token: siliconflowKey ? siliconflowKey.token : undefined,
+      provider_id: providerId,
       ...(mode && mode !== 'create' ? {
         project_path: currentProjectPath.value,
         ...(mode === 'debug' ? { mode: 'debug' } : {})
@@ -161,10 +167,10 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     }
   }
 
-  const streamGenerate = async (mode) => {
-    // 检查是否有 SiliconFlow API Key
-    if (!apiKeyStore.hasSiliconflowKey) {
-      ElMessage.warning('请先配置 SiliconFlow API Key')
+  const streamGenerate = async (mode, selectedProviderModel) => {
+    // 检查是否有 SiliconFlow API Key 或动态供应商
+    if (!apiKeyStore.hasSiliconflowKey && !selectedProviderModel) {
+      ElMessage.warning('请先配置 SiliconFlow API Key 或选择自定义供应商模型')
       return
     }
 
@@ -177,13 +183,13 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     addLog('info', mode === 'create' ? '开始生成项目...' : mode === 'modify' ? '开始增量更新...' : '开始调试修复...')
 
     try {
-      const sessionId = session.currentSessionId.value || session.createNewSession({})
-      const params = buildStreamParams(session.projectPrompt.value, sessionId, mode)
+      const sessionId = session.currentSessionId || session.createNewSession({})
+      const params = buildStreamParams(session.projectPrompt, sessionId, mode, selectedProviderModel)
       const response = await projectApi.generateProjectStream(params)
       await processSseResponse(response)
       generation.isGenerating = false
       addLog('success', mode === 'create' ? '项目生成完成' : mode === 'modify' ? '增量更新完成' : '调试修复完成')
-      workspace.projectPrompt.value = ''
+      session.projectPrompt = ''
     } catch (error) {
       generation.isGenerating = false
       addLog('error', `${mode === 'create' ? '生成' : mode === 'modify' ? '增量更新' : '调试修复'}失败: ${error.message}`)

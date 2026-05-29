@@ -108,12 +108,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useProviderStore } from '@/stores/providers'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const store = useProviderStore()
 const loading = ref(false)
+const providers = computed(() => store.providers)
 
 const form = reactive({
   name: '',
