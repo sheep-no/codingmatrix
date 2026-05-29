@@ -15,6 +15,7 @@ RefinementLoop - 迭代修复循环
 import json
 import re
 import ast
+import asyncio
 import logging
 from typing import Optional, Dict, Any, List, Tuple, Callable
 from pathlib import Path
@@ -74,6 +75,7 @@ class RefinementLoop:
         self.default_model = context.model_assignment.get("backend_model", "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B") if context.model_assignment else "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
         from app.agent.orchestrator import LayeredModelRouter
         self.model_config = LayeredModelRouter.get_model_config(self.default_model)
+        self._pending_tasks = set()
 
     async def refine(
         self,
@@ -445,6 +447,10 @@ class RefinementLoop:
             "max_attempts": self.MAX_ATTEMPTS
         }
         try:
-            callback(json.dumps(progress, ensure_ascii=False))
+            result = callback(json.dumps(progress, ensure_ascii=False))
+            if asyncio.iscoroutine(result):
+                task = asyncio.create_task(result)
+                self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks.discard)
         except Exception as e:
             logger.error(f"修复进度回调失败: {e}")

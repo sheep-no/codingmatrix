@@ -102,6 +102,16 @@ class SharedContext:
         self.warnings: List[str] = []
         self.metrics: Dict[str, Any] = {}
 
+    # ==================== 指标管理 ====================
+
+    def set_metric(self, key: str, value: Any):
+        """设置指标"""
+        self.metrics[key] = value
+
+    def get_metric(self, key: str, default: Any = None) -> Any:
+        """获取指标"""
+        return self.metrics.get(key, default)
+
     # ==================== 阶段管理 ====================
 
     def start_phase(self, phase_name: str, total_files: int = 0):

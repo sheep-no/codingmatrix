@@ -378,6 +378,21 @@ class ArchitectureInspector:
         if not tech_stack:
             return violations
         
+        # tech_stack 可能是列表或字典，统一处理
+        if isinstance(tech_stack, list):
+            # 如果是列表，转换为字典格式
+            tech_stack_dict = {}
+            for item in tech_stack:
+                if isinstance(item, dict):
+                    tech_stack_dict.update(item)
+                elif isinstance(item, str):
+                    # 如果是字符串，尝试解析
+                    if "backend" in item.lower() or "python" in item.lower() or "node" in item.lower():
+                        tech_stack_dict["backend"] = item
+                    elif "frontend" in item.lower() or "react" in item.lower() or "vue" in item.lower():
+                        tech_stack_dict["frontend"] = item
+            tech_stack = tech_stack_dict
+        
         backend_framework = tech_stack.get("backend") or self.user_decisions.get("backend_framework")
         frontend_framework = tech_stack.get("frontend") or self.user_decisions.get("frontend_framework")
         

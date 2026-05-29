@@ -25,12 +25,13 @@ class Specialist:
     def set_semaphore(cls, sem: asyncio.Semaphore):
         cls._semaphore = sem
 
-    def __init__(self, role_name: str, model_name: str, task_type: str = "generate", api_key_token: Optional[str] = None):
+    def __init__(self, role_name: str, model_name: str, task_type: str = "generate", api_key_token: Optional[str] = None, provider_id: Optional[str] = None):
         self.role_name = role_name
         self.model_name = model_name
         self.task_type = task_type
         self.model_config = LayeredModelRouter.get_model_config(model_name, task_type=task_type)
         self.api_key_token = api_key_token
+        self.provider_id = provider_id
 
     @traced("specialist.call_llm", attributes={"component": "specialist"})
     async def call_llm(self, prompt: str, system_prompt: str = "") -> str:
@@ -49,6 +50,7 @@ class Specialist:
                     thinking_budget=self.model_config["thinking_budget"],
                     temperature=self.model_config["temperature"],
                     api_key_token=self.api_key_token,
+                    provider_id=self.provider_id,
                 )
 
             if self._semaphore:

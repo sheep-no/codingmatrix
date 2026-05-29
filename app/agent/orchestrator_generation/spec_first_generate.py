@@ -13,6 +13,7 @@ from app.agent.critical_decision import CriticalDecisionExtractor
 from app.agent.global_constraint import GlobalConstraintParser
 from app.agent.architecture_inspector import ArchitectureInspector
 from app.agent.orchestrator_progress import MAX_CONTENT_FOR_CONTEXT
+from app.agent.adapters import LanguageAdapterRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,13 @@ class SpecFirstGenerateMixin:
 
         self._report_progress("context_initialized", 1, 6, callback=callback)
 
-        spec_generator = SpecFirstGenerator(ctx)
+        # 提前检测语言，用于规范生成
+        from app.agent.language_detector import LanguageDetector
+        lang_result = LanguageDetector.detect(requirement)
+        detected_language = lang_result.language
+        logger.info(f"语言检测: {detected_language} (置信度: {lang_result.confidence:.2f})")
+
+        spec_generator = SpecFirstGenerator(ctx, language=detected_language)
         specs_success = await spec_generator.generate_all_specs(
             requirement, ctx.complexity, callback
         )
@@ -78,6 +85,12 @@ class SpecFirstGenerateMixin:
 
         architecture = await self.architect.design_architecture(requirement, self.complexity)
         file_plan = architecture.get("file_plan", [])
+
+        # 如果 file_plan 为空，使用默认架构
+        if not file_plan:
+            logger.warning("架构师未返回 file_plan，使用默认架构")
+            architecture = self.architect._get_default_architecture(self.complexity)
+            file_plan = architecture.get("file_plan", [])
 
         self._report_progress(
             "architecture_design", 3, 6,
@@ -103,25 +116,6 @@ class SpecFirstGenerateMixin:
                 callback=callback
             )
 
-        constraint_prompt = constraint_parser.generate_prompt_fragment("all", "all")
-        if constraint_prompt:
-            project_context["global_constraints"] = constraint_prompt
-
-        dep_graph = DependencyGraph()
-        dep_graph.build_from_architecture(architecture)
-
-        if specs_success:
-            dep_graph.build_from_specs(ctx.specs)
-
-        generation_order = dep_graph.get_generation_order()
-        ctx.set_metric("generation_order", generation_order)
-
-        self._report_progress(
-            "dependency_graph_built", 4, 6,
-            files_in_order=len(generation_order),
-            callback=callback
-        )
-
         refinement_loop_instance = RefinementLoop(ctx)
         generated_contents: Dict[str, str] = {}
         files_generated = 0
@@ -134,10 +128,23 @@ class SpecFirstGenerateMixin:
             "output_dir": str(self.output_dir)
         }
 
-        for file_info in file_plan:
-            path = file_info.get("path", "")
-            if path and path not in dep_graph.nodes:
-                dep_graph.add_file(path, priority=file_info.get("priority", 3))
+        constraint_prompt = constraint_parser.generate_prompt_fragment("all", "all")
+        if constraint_prompt:
+            project_context["global_constraints"] = constraint_prompt
+
+        # 获取语言适配器
+        detected_language = architecture.get("language", "python")
+        language_adapter = LanguageAdapterRegistry.get_adapter(detected_language)
+        logger.info(f"使用语言适配器: {language_adapter.language} (检测语言: {detected_language})")
+
+        # 设置 file_plan 数据（用于 GenericLanguageAdapter）
+        if hasattr(language_adapter, 'set_file_plan_data'):
+            language_adapter.set_file_plan_data(file_plan)
+
+        dep_graph = DependencyGraph(language_adapter=language_adapter)
+        dep_graph.build_from_architecture(architecture)
+
+        logger.info(f"依赖图构建完成: {len(dep_graph.nodes)} 个文件节点, file_plan={len(file_plan)} 个文件")
 
         layers = dep_graph.get_generation_layers()
         ctx.set_metric("generation_layers", len(layers))
@@ -146,7 +153,7 @@ class SpecFirstGenerateMixin:
         if hasattr(self, 'use_dynamic_topology') and self.use_dynamic_topology:
             result = await self._generate_with_dynamic_topology(
                 ctx, dep_graph, spec_generator, architecture, requirement,
-                project_context, generated_contents, callback
+                project_context, generated_contents, callback, language_adapter
             )
             files_generated = result.get("files_generated", 0)
             files_failed = result.get("files_failed", 0)
@@ -166,7 +173,7 @@ class SpecFirstGenerateMixin:
 
             state_lock = asyncio.Lock()
 
-            cross_validator = CrossValidator(ctx)
+            cross_validator = CrossValidator(ctx, language_adapter=language_adapter)
 
             async def generate_single_file(
                 file_path: str,
@@ -179,6 +186,7 @@ class SpecFirstGenerateMixin:
                 engineer = self._select_engineer(file_path)
                 model_name = self._select_model_for_file(file_path)
 
+                self._report_model_info(engineer.name if hasattr(engineer, 'name') else str(engineer), model_name)
                 self._report_progress(
                     "generating_file",
                     4 + file_index,
@@ -259,6 +267,7 @@ class SpecFirstGenerateMixin:
                 return {
                     "path": file_path,
                     "description": description,
+                    "file_type": file_type,
                     "success": result.success,
                     "size": len(final_content),
                     "refinement_attempts": result.attempts,
@@ -306,6 +315,7 @@ class SpecFirstGenerateMixin:
                     async with state_lock:
                         content = result.pop("content")
                         model_name = result.pop("model_name")
+                        file_type = result.pop("file_type", "unknown")
                         validation_issues = result.pop("validation_issues", [])
 
                         ctx.save_file_content(file_path, content, model_name)
@@ -319,9 +329,115 @@ class SpecFirstGenerateMixin:
                             ctx.add_warning(f"文件 {file_path} 验证未完全通过")
                             self.warnings.append(f"文件验证未完全通过: {file_path}")
 
+                    description = result.get("description", f"生成 {file_path}")
+                    self._report_file_event(file_path, content, description, file_type)
+
                 current_index += layer_size
 
         self._report_progress("files_generated", total_files + 4, total_files + 5, callback=callback)
+
+        # ============ 完整性验证（新增） ============
+        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        
+        # 1. IntegrityValidator - 完整性验证
+        from app.agent.integrity_validator import IntegrityValidator
+        integrity_validator = IntegrityValidator(language_adapter=language_adapter)
+        integrity_result = integrity_validator.validate(generated_files_dict)
+        
+        if not integrity_result.passed:
+            logger.warning(f"完整性验证发现 {integrity_result.error_count} 个错误")
+            self.warnings.extend([issue.message for issue in integrity_result.issues if issue.severity == "error"])
+            
+            # 自动生成修复文件（如 __init__.py）
+            fixes = integrity_validator.generate_fixes(integrity_result, generated_files_dict)
+            if fixes:
+                for fix_path, fix_content in fixes.items():
+                    full_path = self.output_dir / fix_path
+                    full_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(full_path, 'w', encoding='utf-8') as f:
+                        f.write(fix_content)
+                    ctx.save_file_content(fix_path, fix_content, "integrity_fix")
+                    logger.info(f"自动修复文件: {fix_path}")
+                    self._report_file_event(fix_path, fix_content, "自动补充的包初始化文件", "python")
+        
+        # 2. DependencyGraph 完整性验证
+        dep_graph_issues = dep_graph.validate_completeness()
+        if dep_graph_issues:
+            logger.warning(f"依赖图完整性验证发现 {len(dep_graph_issues)} 个问题")
+            missing_files = dep_graph.get_missing_files()
+            if missing_files:
+                architecture = dep_graph.add_missing_files(architecture)
+                # 为新发现的文件生成内容
+                for missing_file in missing_files:
+                    if missing_file not in generated_files_dict:
+                        # 使用默认内容
+                        init_filename = language_adapter.package_init_filename if language_adapter else '__init__.py'
+                        if init_filename and missing_file.endswith(init_filename):
+                            default_content = '"""Package initialization"""\n'
+                        else:
+                            default_content = f'"""Module: {missing_file}"""\n'
+                        
+                        full_path = self.output_dir / missing_file
+                        full_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(full_path, 'w', encoding='utf-8') as f:
+                            f.write(default_content)
+
+                        ctx.save_file_content(missing_file, default_content, "integrity_fix")
+                        logger.info(f"自动补充完整性文件: {missing_file}")
+                        self._report_file_event(missing_file, default_content, "自动补充的模块文件", "python")
+                        files_generated += 1
+        
+        # 2. DependencyGraph 完整性验证
+        dep_graph_issues = dep_graph.validate_completeness()
+        if dep_graph_issues:
+            logger.warning(f"依赖图完整性验证发现 {len(dep_graph_issues)} 个问题")
+            missing_files = dep_graph.get_missing_files()
+            if missing_files:
+                architecture = dep_graph.add_missing_files(architecture)
+                for missing_file in missing_files:
+                    if missing_file not in generated_files_dict:
+                        init_filename = language_adapter.package_init_filename if language_adapter else '__init__.py'
+                        if init_filename and missing_file.endswith(init_filename):
+                            default_content = '"""Package initialization"""\n'
+                        else:
+                            default_content = f'"""Module: {missing_file}"""\n'
+                        
+                        full_path = self.output_dir / missing_file
+                        full_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(full_path, 'w', encoding='utf-8') as f:
+                            f.write(default_content)
+                        ctx.save_file_content(missing_file, default_content, "auto_generated")
+                        logger.info(f"自动生成缺失文件: {missing_file}")
+                        self._report_file_event(missing_file, default_content, "自动补充的模块文件", "python")
+        
+        # 3. CrossValidator 跨文件一致性验证
+        if hasattr(self, 'model_assignment') and self.model_assignment:
+            cross_validator = CrossValidator(ctx, language_adapter=language_adapter)
+            fix_model = self.model_assignment.reviewer_model
+            
+            # 更新生成文件字典
+            generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+            
+            fixed_files, cross_issues = await cross_validator.validate_and_fix(
+                generated_files_dict, architecture, fix_model
+            )
+            
+            if cross_issues:
+                logger.warning(f"跨文件一致性验证发现 {len(cross_issues)} 个问题")
+                self.warnings.extend([issue.get("message", "") for issue in cross_issues])
+                
+                # 应用修复
+                for fix_path, fix_content in fixed_files.items():
+                    if fix_content != generated_files_dict.get(fix_path):
+                        full_path = self.output_dir / fix_path
+                        full_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(full_path, 'w', encoding='utf-8') as f:
+                            f.write(fix_content)
+                        ctx.save_file_content(fix_path, fix_content, "cross_validator_fix")
+                        logger.info(f"跨文件一致性修复: {fix_path}")
+        
+        self._report_progress("integrity_validated", total_files + 4, total_files + 5, callback=callback)
+        # ============ 完整性验证结束 ============
 
         final_validation = {}
         if self.enable_validation:
@@ -335,7 +451,7 @@ class SpecFirstGenerateMixin:
         architecture_inspector = ArchitectureInspector()
         architecture_inspector.set_context(
             architecture=architecture,
-            generated_files={f: ctx.get_file_content(f) for f in ctx.generated_files.keys()},
+            generated_files={f: ctx.get_file_content(f) for f in ctx.files.keys()},
             constraints=global_constraints if global_constraints else [],
             decisions=decision_extractor.get_all_choices() if decision_extractor else {}
         )
@@ -388,13 +504,14 @@ class SpecFirstGenerateMixin:
         requirement: str,
         project_context: Dict,
         generated_contents: Dict[str, str],
-        callback: Optional[Callable] = None
+        callback: Optional[Callable] = None,
+        language_adapter=None
     ) -> Dict[str, Any]:
         """使用动态拓扑调度生成文件"""
         scheduler = TopologyScheduler(max_concurrent=5, max_retries=2)
         scheduler.build_from_dependency_graph(dep_graph)
 
-        cross_validator = CrossValidator(ctx)
+        cross_validator = CrossValidator(ctx, language_adapter=language_adapter)
         refinement_loop = RefinementLoop(ctx)
 
         files_generated = 0
@@ -414,6 +531,7 @@ class SpecFirstGenerateMixin:
 
         async def file_generator(file_path: str, upstream_context: Dict[str, str]) -> str:
             """单文件生成器（供 TopologyScheduler 调用）"""
+            nonlocal files_generated, files_failed
             file_node = dep_graph.nodes.get(file_path)
             description = file_node.description if file_node else f"生成 {file_path}"
             file_type = file_node.file_type if file_node else "unknown"
@@ -421,6 +539,7 @@ class SpecFirstGenerateMixin:
             engineer = self._select_engineer(file_path)
             model_name = self._select_model_for_file(file_path)
 
+            self._report_model_info(engineer.name if hasattr(engineer, 'name') else str(engineer), model_name)
             combined_context = {**project_context}
             if upstream_context:
                 combined_context["upstream_files"] = {
@@ -483,6 +602,8 @@ class SpecFirstGenerateMixin:
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(final_content)
 
+            self._report_file_event(file_path, final_content, description, file_type)
+
             async with state_lock:
                 ctx.save_file_content(file_path, final_content, model_name)
                 ctx.update_file_validation(file_path, result.success, [])
@@ -522,6 +643,81 @@ class SpecFirstGenerateMixin:
             stats=scheduler.get_stats(),
             callback=callback
         )
+
+        # ============ 完整性验证（新增） ============
+        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        
+        # 1. IntegrityValidator - 完整性验证
+        from app.agent.integrity_validator import IntegrityValidator
+        integrity_validator = IntegrityValidator(language_adapter=language_adapter)
+        integrity_result = integrity_validator.validate(generated_files_dict)
+        
+        if not integrity_result.passed:
+            logger.warning(f"完整性验证发现 {integrity_result.error_count} 个错误")
+            warnings_list.extend([issue.message for issue in integrity_result.issues if issue.severity == "error"])
+            
+            # 自动生成修复文件（如 __init__.py）
+            fixes = integrity_validator.generate_fixes(integrity_result, generated_files_dict)
+            if fixes:
+                for fix_path, fix_content in fixes.items():
+                    full_path = self.output_dir / fix_path
+                    full_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(full_path, 'w', encoding='utf-8') as f:
+                        f.write(fix_content)
+                    ctx.save_file_content(fix_path, fix_content, "integrity_fix")
+                    logger.info(f"自动修复文件: {fix_path}")
+                    self._report_file_event(fix_path, fix_content, "自动补充的包初始化文件", "python")
+                    files_generated += 1
+        
+        # 2. DependencyGraph 完整性验证
+        dep_graph_issues = dep_graph.validate_completeness()
+        if dep_graph_issues:
+            logger.warning(f"依赖图完整性验证发现 {len(dep_graph_issues)} 个问题")
+            missing_files = dep_graph.get_missing_files()
+            if missing_files:
+                architecture = dep_graph.add_missing_files(architecture)
+                for missing_file in missing_files:
+                    if missing_file not in generated_files_dict:
+                        if missing_file.endswith('__init__.py'):
+                            default_content = '"""Package initialization"""\n'
+                        else:
+                            default_content = f'"""Module: {missing_file}"""\n'
+                        
+                        full_path = self.output_dir / missing_file
+                        full_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(full_path, 'w', encoding='utf-8') as f:
+                            f.write(default_content)
+                        ctx.save_file_content(missing_file, default_content, "auto_generated")
+                        logger.info(f"自动生成缺失文件: {missing_file}")
+                        self._report_file_event(missing_file, default_content, "自动补充的模块文件", "python")
+                        files_generated += 1
+        
+        # 3. CrossValidator 跨文件一致性验证
+        if hasattr(self, 'model_assignment') and self.model_assignment:
+            cross_validator = CrossValidator(ctx, language_adapter=language_adapter)
+            fix_model = self.model_assignment.reviewer_model
+            
+            generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+            
+            fixed_files, cross_issues = await cross_validator.validate_and_fix(
+                generated_files_dict, architecture, fix_model
+            )
+            
+            if cross_issues:
+                logger.warning(f"跨文件一致性验证发现 {len(cross_issues)} 个问题")
+                warnings_list.extend([issue.get("message", "") for issue in cross_issues])
+                
+                for fix_path, fix_content in fixed_files.items():
+                    if fix_content != generated_files_dict.get(fix_path):
+                        full_path = self.output_dir / fix_path
+                        full_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(full_path, 'w', encoding='utf-8') as f:
+                            f.write(fix_content)
+                        ctx.save_file_content(fix_path, fix_content, "cross_validator_fix")
+                        logger.info(f"跨文件一致性修复: {fix_path}")
+        
+        self._report_progress("integrity_validated", total_files + 4, total_files + 5, callback=callback)
+        # ============ 完整性验证结束 ============
 
         return {
             "files_generated": files_generated,

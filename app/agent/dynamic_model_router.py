@@ -1,6 +1,8 @@
 """动态模型路由器 - 基于延迟、成功率、队列深度的智能路由（支持全局健康感知）"""
 
 import asyncio
+import json
+import os
 import random
 import sqlite3
 import time
@@ -12,6 +14,66 @@ import logging
 from app.utils.system_load import system_load_monitor, SystemLoadSnapshot
 
 logger = logging.getLogger(__name__)
+
+# Agent 模型配置文件路径
+AGENT_MODEL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../data/agent_model_config.json")
+
+# 模型 ID 到模型 Key 的映射（从 model_registry 同步）
+MODEL_ID_TO_KEY = {
+    "deepseek-r1": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+    "qwen2.5-7b": "Qwen/Qwen2.5-7B-Instruct",
+    "qwen3-8b": "Qwen/Qwen3-8B",
+    "qwen3.5-4b": "Qwen/Qwen3.5-4B",
+    "glm-z1-9b": "THUDM/GLM-Z1-9B-0414",
+    "glm-4-9b": "THUDM/GLM-4-9B-0414",
+    "glm-4.1v-9b": "THUDM/GLM-4.1V-9B-Thinking",
+    "deepseek-ocr": "deepseek-ai/DeepSeek-OCR",
+    "kolors": "Kwai-Kolors/Kolors",
+    "bce-embedding": "netease-youdao/bce-embedding-base_v1",
+}
+
+# 模型 Key 到模型 ID 的反向映射
+MODEL_KEY_TO_ID = {v: k for k, v in MODEL_ID_TO_KEY.items()}
+
+
+def resolve_model_key(model_id_or_key: str) -> str:
+    """将模型 ID 或模型 Key 统一转换为模型 Key
+    
+    支持两种格式：
+    - 模型 ID: "qwen3-8b" (registry 中的 ID)
+    - 模型 Key: "Qwen/Qwen3-8B" (API 调用时使用的名称)
+    """
+    # 如果已经是完整的模型 Key 格式，直接返回
+    if "/" in model_id_or_key:
+        return model_id_or_key
+    # 否则尝试从 ID 映射到 Key
+    return MODEL_ID_TO_KEY.get(model_id_or_key, model_id_or_key)
+
+
+def load_agent_model_config() -> Optional[Dict[str, Any]]:
+    """从配置文件加载 Agent 模型配置"""
+    try:
+        if os.path.exists(AGENT_MODEL_CONFIG_PATH):
+            with open(AGENT_MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                logger.info(f"已加载 Agent 模型配置: {AGENT_MODEL_CONFIG_PATH}")
+                return config
+    except Exception as e:
+        logger.warning(f"加载 Agent 模型配置失败: {e}")
+    return None
+
+
+def save_agent_model_config(config: Dict[str, Any]) -> bool:
+    """保存 Agent 模型配置到文件"""
+    try:
+        os.makedirs(os.path.dirname(AGENT_MODEL_CONFIG_PATH), exist_ok=True)
+        with open(AGENT_MODEL_CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        logger.info(f"已保存 Agent 模型配置: {AGENT_MODEL_CONFIG_PATH}")
+        return True
+    except Exception as e:
+        logger.error(f"保存 Agent 模型配置失败: {e}")
+        return False
 
 
 class ModelPerformanceTracker:
@@ -302,14 +364,35 @@ class DynamicModelRouter:
     支持熔断机制：连续失败 3 次自动降级
     """
 
+    # 默认降级链（硬编码兜底）
+    DEFAULT_FALLBACK_ORDER = [
+        "Qwen/Qwen3-8B",
+        "THUDM/GLM-4-9B-0414",
+        "Qwen/Qwen3.5-4B"
+    ]
+
     def __init__(self):
         self._metrics: Dict[str, ModelMetrics] = {}
         self._lock = asyncio.Lock()
-        self._fallback_order = [
-            "Qwen/Qwen3-8B",
-            "THUDM/GLM-4-9B-0414",
-            "Qwen/Qwen3.5-4B"
-        ]
+        self._fallback_order = self._load_fallback_chain("default")
+
+    def _load_fallback_chain(self, chain_name: str = "default") -> List[str]:
+        """从配置文件加载降级链"""
+        config = load_agent_model_config()
+        if config and "fallback_chains" in config:
+            chain = config["fallback_chains"].get(chain_name, [])
+            if chain:
+                # 将模型 ID 转换为模型 Key
+                resolved = [resolve_model_key(m) for m in chain]
+                logger.info(f"已从配置加载降级链 '{chain_name}': {resolved}")
+                return resolved
+        
+        logger.info(f"使用默认降级链 '{chain_name}': {self.DEFAULT_FALLBACK_ORDER}")
+        return self.DEFAULT_FALLBACK_ORDER.copy()
+
+    def reload_fallback_chain(self, chain_name: str = "default"):
+        """重新加载降级链"""
+        self._fallback_order = self._load_fallback_chain(chain_name)
 
     def get_or_create_metrics(self, model_name: str) -> ModelMetrics:
         """获取或创建模型指标（线程安全）"""
@@ -475,31 +558,32 @@ from app.agent.complexity import ProjectComplexity
 class _LayeredModelRouterCompat:
     """分层模型路由器 - 根据复杂度分配最优模型组合（向后兼容）"""
 
-    ASSIGNMENTS = {
+    # 默认分配（硬编码兜底）
+    DEFAULT_ASSIGNMENTS = {
         ProjectComplexity.SIMPLE: ModelAssignment(
-            architect_model="Qwen/Qwen3-8B",
-            frontend_model="Qwen/Qwen2.5-7B-Instruct",
+            architect_model="Qwen/Qwen3.5-4B",
+            frontend_model="Qwen/Qwen3-8B",
             backend_model="Qwen/Qwen3-8B",
             reviewer_model="Qwen/Qwen3-8B",
             fallback_model="Qwen/Qwen3.5-4B"
         ),
         ProjectComplexity.SMALL: ModelAssignment(
             architect_model="THUDM/GLM-Z1-9B-0414",
-            frontend_model="Qwen/Qwen2.5-7B-Instruct",
+            frontend_model="Qwen/Qwen3-8B",
             backend_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
             reviewer_model="THUDM/GLM-Z1-9B-0414",
             fallback_model="Qwen/Qwen3-8B"
         ),
         ProjectComplexity.MEDIUM: ModelAssignment(
             architect_model="THUDM/GLM-Z1-9B-0414",
-            frontend_model="Qwen/Qwen2.5-7B-Instruct",
+            frontend_model="Qwen/Qwen3-8B",
             backend_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
             reviewer_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
             fallback_model="Qwen/Qwen3-8B"
         ),
         ProjectComplexity.LARGE: ModelAssignment(
             architect_model="THUDM/GLM-Z1-9B-0414",
-            frontend_model="Qwen/Qwen2.5-7B-Instruct",
+            frontend_model="Qwen/Qwen3-8B",
             backend_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
             reviewer_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
             fallback_model="Qwen/Qwen3-8B"
@@ -513,9 +597,59 @@ class _LayeredModelRouterCompat:
         ),
     }
 
+    # 运行时缓存的分配（从配置文件加载）
+    _cached_assignments: Optional[Dict[ProjectComplexity, ModelAssignment]] = None
+    _config_loaded: bool = False
+
+    @classmethod
+    def _load_config_assignments(cls) -> Dict[ProjectComplexity, ModelAssignment]:
+        """从配置文件加载模型分配"""
+        if cls._config_loaded:
+            return cls._cached_assignments or cls.DEFAULT_ASSIGNMENTS
+
+        config = load_agent_model_config()
+        if not config or "assignments" not in config:
+            cls._config_loaded = True
+            cls._cached_assignments = None
+            return cls.DEFAULT_ASSIGNMENTS
+
+        assignments = {}
+        for complexity_name, model_ids in config["assignments"].items():
+            try:
+                complexity = ProjectComplexity[complexity_name]
+                # 将模型 ID 转换为模型 Key
+                assignments[complexity] = ModelAssignment(
+                    architect_model=resolve_model_key(model_ids.get("architect_model", "")),
+                    frontend_model=resolve_model_key(model_ids.get("frontend_model", "")),
+                    backend_model=resolve_model_key(model_ids.get("backend_model", "")),
+                    reviewer_model=resolve_model_key(model_ids.get("reviewer_model", "")),
+                    fallback_model=resolve_model_key(model_ids.get("fallback_model", "")),
+                )
+            except (KeyError, ValueError) as e:
+                logger.warning(f"解析配置文件中的复杂度 '{complexity_name}' 失败: {e}")
+                continue
+
+        if assignments:
+            cls._cached_assignments = assignments
+            cls._config_loaded = True
+            logger.info(f"已从配置文件加载 {len(assignments)} 个模型分配")
+            return assignments
+
+        cls._config_loaded = True
+        cls._cached_assignments = None
+        return cls.DEFAULT_ASSIGNMENTS
+
+    @classmethod
+    def reload_config(cls):
+        """重新加载配置文件（用于动态更新）"""
+        cls._config_loaded = False
+        cls._cached_assignments = None
+        return cls._load_config_assignments()
+
     @classmethod
     def get_assignment(cls, complexity: ProjectComplexity) -> ModelAssignment:
-        return cls.ASSIGNMENTS.get(complexity, cls.ASSIGNMENTS[ProjectComplexity.MEDIUM])
+        assignments = cls._load_config_assignments()
+        return assignments.get(complexity, cls.DEFAULT_ASSIGNMENTS[ProjectComplexity.MEDIUM])
 
     @classmethod
     async def get_best_model_with_health_awareness(

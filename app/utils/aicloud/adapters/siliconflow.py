@@ -5,6 +5,7 @@ SiliconFlow 供应商适配器
 """
 
 import asyncio
+import logging
 from typing import AsyncIterator, Optional, Union
 
 import httpx
@@ -14,6 +15,8 @@ from fastapi import HTTPException
 from app.core.config import settings
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 from app.utils.aicloud.adapters.base import BaseProviderAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class SiliconFlowAdapter(BaseProviderAdapter):
@@ -41,6 +44,7 @@ class SiliconFlowAdapter(BaseProviderAdapter):
         thinking_budget: int = 4096,
         cancel_event: Optional[asyncio.Event] = None,
     ) -> Union[dict, AsyncIterator[str]]:
+        logger.info(f"[SiliconFlowAdapter] Calling model: {model}, enable_thinking will be set to False for non-reasoning models")
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -78,7 +82,8 @@ class SiliconFlowAdapter(BaseProviderAdapter):
             data = {
                 "model": model,
                 "messages": messages + [{"role": "user", "content": cleaned_prompt}],
-                "stream": stream
+                "stream": stream,
+                "enable_thinking": False  # 禁用深度思考，避免 Qwen3 等模型浪费大量 token
             }
         
         if stream:

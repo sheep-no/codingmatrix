@@ -103,9 +103,14 @@ class BaseProviderAdapter(abc.ABC):
             "max_tokens": max_tokens,
         }
         
-        # 添加 thinking budget（仅支持 reasoning 模型）
-        if thinking_budget > 0 and self._is_reasoning_model(model):
-            body["extra_body"] = {"thinking_budget": thinking_budget}
+        # 判断是否为推理模型
+        if self._is_reasoning_model(model):
+            # 推理模型：添加 thinking budget
+            if thinking_budget > 0:
+                body["extra_body"] = {"thinking_budget": thinking_budget}
+        else:
+            # 非推理模型：禁用深度思考（避免 Qwen3 等模型浪费大量 token 在思考上）
+            body["enable_thinking"] = False
         
         return body
     

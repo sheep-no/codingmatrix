@@ -355,7 +355,7 @@ class UtilsMixin:
                 session_id=self.session_id or "default",
                 description=message,
                 files_changed=[],
-                model_used=self.model_name or "",
+                model_used=getattr(self, 'model_name', '') or "",
                 duration=0.0,
             )
             if snapshot:

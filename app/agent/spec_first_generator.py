@@ -13,6 +13,7 @@ SpecFirstGenerator - 规范先行生成器
 
 import json
 import re
+import asyncio
 import logging
 from typing import Optional, Dict, Any, List, Tuple, Callable
 
@@ -28,7 +29,7 @@ class SpecFirstGenerator:
 
     生成顺序：
     1. OpenAPI 接口规范（定义所有 API 端点、请求/响应格式）
-    2. 类型定义（Pydantic models、TypeScript interfaces）
+    2. 类型定义（语言原生类型系统）
     3. 数据库 Schema（表结构、关系、索引）
     4. 配置规范（环境变量、配置文件结构）
     """
@@ -64,38 +65,36 @@ class SpecFirstGenerator:
   }
 }"""
 
-    TYPES_SYSTEM_PROMPT = """你是一位资深类型系统设计师，擅长 Pydantic 和 TypeScript 类型定义。
+    TYPES_SYSTEM_PROMPT = """你是一位资深类型系统设计师。
 
 你的任务：根据 OpenAPI 规范，生成对应的类型定义文件。
 
 要求：
-1. 为每个 API schema 生成 Pydantic BaseModel
-2. 包含字段验证（max_length, gt, ge, regex 等）
-3. 包含 docstring 说明
-4. 使用 typing 模块的 Optional, List, Dict 等
-5. 输出 Python 代码
+1. 为每个 API schema 生成类型定义
+2. 包含字段验证（必填/可选、长度限制、范围限制等）
+3. 包含注释说明
+4. 使用语言原生的类型系统
 
 输出要求：
-- 只返回 Python 代码
+- 只返回代码
 - 不要返回 markdown 代码块标记
-- 包含所有必要的 import"""
+- 包含所有必要的 import/using/include"""
 
-    DB_SCHEMA_SYSTEM_PROMPT = """你是一位资深数据库设计师，擅长 SQLAlchemy ORM 和数据库建模。
+    DB_SCHEMA_SYSTEM_PROMPT = """你是一位资深数据库设计师。
 
 你的任务：根据项目需求和 OpenAPI 规范，生成数据库 Schema 定义。
 
 要求：
-1. 为每个实体生成 SQLAlchemy Model 类
+1. 为每个实体生成数据库模型定义
 2. 包含主键、外键、索引
 3. 包含字段类型和约束
-4. 定义表之间的关系（relationship）
-5. 使用 Mixin 类管理公共字段（created_at, updated_at）
-6. 输出 Python 代码
+4. 定义表之间的关系
+5. 管理公共字段（created_at, updated_at 等）
 
 输出要求：
-- 只返回 Python 代码
+- 只返回代码
 - 不要返回 markdown 代码块标记
-- 包含所有必要的 import"""
+- 包含所有必要的 import/using/include"""
 
     CONFIG_SYSTEM_PROMPT = """你是一位资深配置管理专家。
 
@@ -105,18 +104,19 @@ class SpecFirstGenerator:
 1. 定义所有必要的环境变量
 2. 每个变量包含：名称、类型、默认值、说明
 3. 生成配置文件模板（.env.example）
-4. 生成配置加载代码（使用 pydantic-settings）
-5. 输出 Python 代码和 .env 内容
+4. 生成配置加载代码
 
 输出要求：
-- 返回 Python 配置类代码
+- 返回配置类代码
 - 同时返回 .env.example 内容（用分隔符分开）"""
 
-    def __init__(self, context: SharedContext):
+    def __init__(self, context: SharedContext, language: str = "python"):
         self.context = context
+        self.language = language
         self.architect_model = context.model_assignment.get("architect_model", "THUDM/GLM-Z1-9B-0414") if context.model_assignment else "THUDM/GLM-Z1-9B-0414"
         from app.agent.orchestrator import LayeredModelRouter
         self.model_config = LayeredModelRouter.get_model_config(self.architect_model)
+        self._pending_tasks = set()
 
     async def generate_all_specs(
         self,
@@ -215,14 +215,29 @@ class SpecFirstGenerator:
         if not openapi_spec:
             return False
 
-        prompt = f"""请根据以下 OpenAPI 规范生成 Python Pydantic 类型定义：
+        # 根据语言选择类型生成策略
+        lang = self.language
+        if lang == "python":
+            type_hint = "生成 Python Pydantic BaseModel 类，使用 typing 模块的 Optional, List, Dict 等"
+        elif lang == "javascript":
+            type_hint = "生成 TypeScript interface 和 type 定义"
+        elif lang == "go":
+            type_hint = "生成 Go struct 定义，包含 json tag"
+        elif lang == "java":
+            type_hint = "生成 Java POJO 类，使用 Jakarta Validation 注解"
+        elif lang == "rust":
+            type_hint = "生成 Rust struct 和 enum 定义，使用 serde 注解"
+        else:
+            type_hint = f"生成 {lang} 的类型定义"
+
+        prompt = f"""请根据以下 OpenAPI 规范生成类型定义：
 
 OpenAPI 规范：
 ```json
 {json.dumps(openapi_spec, ensure_ascii=False, indent=2)[:3000]}
 ```
 
-请为每个 schema 生成对应的 Pydantic BaseModel 类。"""
+{type_hint}。"""
 
         try:
             response = await call_llm(
@@ -253,7 +268,22 @@ OpenAPI 规范：
         """生成数据库 Schema"""
         openapi_spec = self.context.get_spec("openapi")
 
-        prompt = f"""请为以下项目生成 SQLAlchemy 数据库模型定义：
+        # 根据语言选择 ORM 策略
+        lang = self.language
+        if lang == "python":
+            db_hint = "生成 SQLAlchemy Model 定义，包含主键、外键、索引和 relationship"
+        elif lang == "javascript":
+            db_hint = "生成 Prisma Schema 或 TypeORM Entity 定义"
+        elif lang == "go":
+            db_hint = "生成 GORM Model 定义，包含 gorm tag"
+        elif lang == "java":
+            db_hint = "生成 JPA Entity 定义，使用 Jakarta Persistence 注解"
+        elif lang == "rust":
+            db_hint = "生成 Diesel 或 SeaORM Model 定义"
+        else:
+            db_hint = f"生成 {lang} 的数据库模型定义"
+
+        prompt = f"""请为以下项目生成数据库模型定义：
 
 需求：{requirement}
 
@@ -264,8 +294,8 @@ OpenAPI 规范：
 {json.dumps(openapi_spec.get('components', {}).get('schemas', {}), ensure_ascii=False, indent=2)[:2000]}
 ```
 """
-        prompt += """
-请生成完整的 SQLAlchemy Model 定义，包含所有必要的关系和索引。"""
+        prompt += f"""
+{db_hint}。"""
 
         try:
             response = await call_llm(
@@ -294,14 +324,27 @@ OpenAPI 规范：
 
     async def _generate_config(self, requirement: str, complexity: Dict) -> bool:
         """生成配置规范"""
+        # 根据语言选择配置策略
+        lang = self.language
+        if lang == "python":
+            config_hint = "使用 pydantic-settings 的配置类，生成 .env.example"
+        elif lang == "javascript":
+            config_hint = "生成 dotenv 配置和 .env.example"
+        elif lang == "go":
+            config_hint = "生成 Viper 配置结构和 .env.example"
+        elif lang == "java":
+            config_hint = "生成 application.yml 和 Spring Boot 配置类"
+        elif lang == "rust":
+            config_hint = "生成 config crate 配置和 .env.example"
+        else:
+            config_hint = f"生成 {lang} 的配置管理代码和 .env.example"
+
         prompt = f"""请为以下项目生成配置管理代码：
 
 需求：{requirement}
 技术栈：{', '.join(complexity.get('key_technologies', []))}
 
-请生成：
-1. 使用 pydantic-settings 的配置类
-2. .env.example 文件内容"""
+{config_hint}。"""
 
         try:
             response = await call_llm(
@@ -373,7 +416,11 @@ OpenAPI 规范：
             "specs_generated": list(self.context.specs.keys())
         }
         try:
-            callback(json.dumps(progress, ensure_ascii=False))
+            result = callback(json.dumps(progress, ensure_ascii=False))
+            if asyncio.iscoroutine(result):
+                task = asyncio.create_task(result)
+                self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks.discard)
         except Exception as e:
             logger.error(f"Spec 进度回调失败: {e}")
 

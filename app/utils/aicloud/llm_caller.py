@@ -60,6 +60,7 @@ async def call_llm(
     timeout: float = 360.0,
     cancel_event: Optional[asyncio.Event] = None,
     api_key_token: Optional[str] = None,
+    provider_id: Optional[str] = None,
 ) -> Union[dict, AsyncIterator[str]]:
     """
     统一模型调用函数（带故障转移）
@@ -75,21 +76,30 @@ async def call_llm(
         timeout: 超时时间（秒）
         cancel_event: 取消事件
         api_key_token: 用户 API Key Token（用于从 Redis 获取用户自定义 Key）
+        provider_id: 动态供应商 ID（直接指定动态供应商调用）
     
     Returns:
         非流式: OpenAI 兼容响应字典
         流式: AsyncIterator[str]
     """
-    # 检查是否有用户自定义的 token
     adapter = None
-    using_user_key = False
     
-    if api_key_token:
-        # 尝试从 Redis 获取用户自定义 Key
+    # 优先级 1: 直接指定动态供应商
+    if provider_id:
+        from app.utils.aicloud.dynamic_provider import get_dynamic_provider_manager
+        manager = get_dynamic_provider_manager()
+        provider = manager.get(provider_id)
+        if provider and provider.enabled:
+            adapter = DynamicAdapter(provider)
+            adapter.timeout = timeout
+            logger.debug(f"使用动态供应商 {provider.name} 调用模型: {model}")
+        else:
+            logger.warning(f"动态供应商 {provider_id} 不存在或已禁用，降级到其他路由")
+    
+    # 优先级 2: 用户 API Key Token（内置供应商）
+    if adapter is None and api_key_token:
         api_key = _get_user_api_key_from_token(api_key_token)
         if api_key:
-            using_user_key = True
-            # 使用用户自定义 Key 创建临时适配器
             provider = _detect_provider_from_model(model)
             if provider:
                 try:
@@ -100,24 +110,31 @@ async def call_llm(
                     )
                     adapter = get_adapter(provider, config)
                     adapter.timeout = timeout
-                    logger.debug(f"使用用户自定义 Key 调用模型：{model}")
+                    logger.debug(f"使用用户自定义 Key 调用模型: {model}")
                 except Exception as e:
                     logger.warning(f"创建用户自定义适配器失败：{e}，降级到系统默认 Key")
-                    using_user_key = False
     
-    # 如果没有用户自定义 Key，使用系统默认路由
-    if not using_user_key or adapter is None:
+    # 优先级 3: 检查动态供应商中是否有该模型
+    if adapter is None:
+        from app.utils.aicloud.dynamic_provider import get_dynamic_provider_manager
+        manager = get_dynamic_provider_manager()
+        dp = manager.get_by_model(model)
+        if dp:
+            adapter = DynamicAdapter(dp)
+            adapter.timeout = timeout
+            logger.debug(f"通过动态供应商 {dp.name} 调用模型: {model}")
+    
+    # 优先级 4: 系统默认路由
+    if adapter is None:
         router = ProviderRouter.get_instance(settings.get_provider_registry())
         primary_provider = router.route(model)
         
-        # 尝试主供应商
         try:
             adapter = get_adapter(primary_provider)
             adapter.timeout = timeout
         except Exception as e:
             logger.warning(f"Primary provider {primary_provider.value} failed: {e}")
             
-            # 故障转移（流式模式不重试）
             if stream:
                 raise
             
@@ -138,7 +155,6 @@ async def call_llm(
             if adapter is None:
                 raise RuntimeError(f"All providers failed. Last error: {last_error}") from last_error
     
-    # 执行调用
     return await adapter.call_llm(
         model=model,
         prompt=prompt,

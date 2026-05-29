@@ -58,6 +58,7 @@ class GenerationProgress:
 
 
 class ProgressMixin:
+    _pending_tasks: set = set()
 
     def _report_progress(self, step: str, current: int, total: int, callback: Optional[Callable] = None, **kwargs):
         percentage = round((current / total * 100) if total > 0 else 0, 1)
@@ -87,7 +88,9 @@ class ProgressMixin:
             try:
                 result = cb(json.dumps(progress, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
-                    asyncio.create_task(result)
+                    task = asyncio.create_task(result)
+                    self._pending_tasks.add(task)
+                    task.add_done_callback(self._pending_tasks.discard)
             except Exception as e:
                 logger.error(f"进度回调失败: {e}")
 
@@ -115,6 +118,78 @@ class ProgressMixin:
             **kwargs
         }
 
+    def _report_file_event(self, file_path: str, content: str, description: str = "", file_type: str = "", operation: str = "create"):
+        event = {
+            "type": "file",
+            "path": file_path,
+            "content": content,
+            "description": description,
+            "file_type": file_type,
+            "operation": operation
+        }
+        if self.callback:
+            try:
+                import json as _json
+                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                if asyncio.iscoroutine(result):
+                    task = asyncio.create_task(result)
+                    self._pending_tasks.add(task)
+                    task.add_done_callback(self._pending_tasks.discard)
+            except Exception as e:
+                logger.error(f"文件事件推送失败: {e}")
+
+    def _report_file_diff_event(self, file_path: str, old_content: str, new_content: str, operation: str = "create"):
+        event = {
+            "type": "file_diff",
+            "path": file_path,
+            "old_content": old_content,
+            "new_content": new_content,
+            "operation": operation
+        }
+        if self.callback:
+            try:
+                import json as _json
+                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                if asyncio.iscoroutine(result):
+                    task = asyncio.create_task(result)
+                    self._pending_tasks.add(task)
+                    task.add_done_callback(self._pending_tasks.discard)
+            except Exception as e:
+                logger.error(f"文件差异事件推送失败: {e}")
+
+    def _report_model_info(self, agent: str, model: str):
+        event = {
+            "type": "model_info",
+            "agent": agent,
+            "model": model
+        }
+        if self.callback:
+            try:
+                import json as _json
+                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                if asyncio.iscoroutine(result):
+                    task = asyncio.create_task(result)
+                    self._pending_tasks.add(task)
+                    task.add_done_callback(self._pending_tasks.discard)
+            except Exception as e:
+                logger.error(f"模型信息事件推送失败: {e}")
+
+    def _report_done_event(self, result_data: dict):
+        event = {
+            "type": "done",
+            **result_data
+        }
+        if self.callback:
+            try:
+                import json as _json
+                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                if asyncio.iscoroutine(result):
+                    task = asyncio.create_task(result)
+                    self._pending_tasks.add(task)
+                    task.add_done_callback(self._pending_tasks.discard)
+            except Exception as e:
+                logger.error(f"完成事件推送失败: {e}")
+
     def _report_thinking(self, agent: str, message: str, **kwargs):
         event = {
             "type": "thinking",
@@ -126,7 +201,11 @@ class ProgressMixin:
         if self.callback:
             try:
                 import json as _json
-                self.callback(_json.dumps(event, ensure_ascii=False))
+                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                if asyncio.iscoroutine(result):
+                    task = asyncio.create_task(result)
+                    self._pending_tasks.add(task)
+                    task.add_done_callback(self._pending_tasks.discard)
             except Exception as e:
                 logger.error(f"思考事件推送失败: {e}")
 

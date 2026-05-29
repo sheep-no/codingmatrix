@@ -186,6 +186,9 @@ class FilesMixin:
             content_preview=content[:300]
         )
 
+        file_type = "frontend" if self._is_frontend_file(file_path) else "backend"
+        self._report_file_event(file_path, content, description, file_type)
+
         if self.api_contract_checker and self._should_check_api_consistency(file_path):
             await self._check_and_report_api_issues(file_path, content)
 
@@ -227,7 +230,7 @@ class FilesMixin:
     def _select_model_for_file(self, file_path: str) -> str:
         ext = Path(file_path).suffix.lower()
         if ext in {'.vue', '.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.scss', '.sass', '.less'}:
-            return self.model_assignment.frontend_model if self.model_assignment else "Qwen/Qwen2.5-7B-Instruct"
+            return self.model_assignment.frontend_model if self.model_assignment else "Qwen/Qwen3-8B"
         elif ext in {'.py', '.go', '.java', '.rs', '.rb', '.php'}:
             return self.model_assignment.backend_model if self.model_assignment else "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
         else:
@@ -355,16 +358,15 @@ class FilesMixin:
 
     def _select_alternative_model(self, primary_model: str) -> str:
         alt_map = {
-            "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": "Qwen/Qwen2.5-7B-Instruct",
-            "Qwen/Qwen2.5-7B-Instruct": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-            "Qwen/Qwen3-8B": "Qwen/Qwen2.5-7B-Instruct",
+            "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": "Qwen/Qwen3-8B",
+            "Qwen/Qwen3-8B": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
             "Qwen/Qwen3.5-4B": "Qwen/Qwen3-8B",
             "THUDM/GLM-Z1-9B-0414": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
         }
-        return alt_map.get(primary_model, "Qwen/Qwen2.5-7B-Instruct")
+        return alt_map.get(primary_model, "Qwen/Qwen3-8B")
 
     def _select_engineer_for_model(self, model_name: str) -> Specialist:
-        frontend_models = {"Qwen/Qwen3.5-4B", "Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen3-8B"}
+        frontend_models = {"Qwen/Qwen3.5-4B", "Qwen/Qwen3-8B"}
         if model_name in frontend_models:
             return self.frontend_engineer
         return self.backend_engineer

@@ -5,6 +5,7 @@ from typing import Dict
 from app.agent.specialist_base import Specialist
 from app.utils.prompt_loader import load_frontend_engineer_prompt
 from app.agent.tracing import traced
+from app.agent.language_detector import LanguageDetector
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +28,22 @@ class FrontendEngineer(Specialist):
 
     @traced("frontend.generate_file", attributes={"component": "specialist", "role": "frontend"})
     async def generate_file(self, file_path: str, description: str, project_context: Dict) -> str:
+        # 从 project_context 中提取语言信息
+        architecture = project_context.get("architecture", {})
+        language = architecture.get("language", "javascript")
+        lang_rules = LanguageDetector.get_language_specific_rules(language)
+
         prompt = f"""请创建以下前端文件：
 
 文件路径：{file_path}
 文件描述：{description}
+目标语言：{language}
+语言规则：
+- 文件扩展名：{lang_rules['file_extension']}
+- 导入语法：{lang_rules['import_syntax']}
+
 项目上下文：{json.dumps(project_context, ensure_ascii=False, indent=2)}
 
-请返回完整的文件内容，不要省略任何部分。"""
+请返回完整的文件内容，使用 {language} 语法编写，不要省略任何部分。"""
 
         return await self.call_llm(prompt, self.SYSTEM_PROMPT)

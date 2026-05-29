@@ -45,10 +45,10 @@ class ErrorRecoveryLoop:
 
     MAX_FIX_ATTEMPTS = 3  # 智能修正循环最多尝试 3 次（捕获深层问题）
 
-    # 模型降级链：主模型失败时按顺序尝试备选模型
-    MODEL_FALLBACK_CHAIN = [
-        "Qwen/Qwen2.5-7B-Instruct",  # 代码修复首选
-        "Qwen/Qwen3-8B",             # 通用修复
+    # 默认模型降级链（硬编码兜底）
+    DEFAULT_FALLBACK_CHAIN = [
+        "Qwen/Qwen3-8B",             # 代码修复首选
+        "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",  # 通用修复
         "Qwen/Qwen3.5-4B",           # 快速降级
     ]
 
@@ -57,6 +57,18 @@ class ErrorRecoveryLoop:
         self.reviewer = reviewer
         self.fix_history: List[FixAttempt] = []
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM_CALLS)
+        self.MODEL_FALLBACK_CHAIN = self._load_fallback_chain("error_recovery")
+
+    def _load_fallback_chain(self, chain_name: str = "error_recovery") -> List[str]:
+        """从配置文件加载降级链"""
+        from app.agent.dynamic_model_router import load_agent_model_config, resolve_model_key
+        config = load_agent_model_config()
+        if config and "fallback_chains" in config:
+            chain = config["fallback_chains"].get(chain_name, [])
+            if chain:
+                resolved = [resolve_model_key(m) for m in chain]
+                return resolved
+        return self.DEFAULT_FALLBACK_CHAIN.copy()
 
     async def validate_and_fix(
         self,
@@ -111,11 +123,11 @@ class ErrorRecoveryLoop:
         callback: Optional[Callable] = None
     ) -> Dict:
         """智能修正循环：带模型降级策略、错误分类和 A/B 测试策略"""
-        # 确定修复模型链：主模型 -> Qwen2.5-7B -> Qwen3-8B -> Qwen3.5-4B
+        # 确定修复模型链：主模型 -> Qwen3-8B -> DeepSeek-R1 -> Qwen3.5-4B
         models_to_try = [
             backend_model,
-            "Qwen/Qwen2.5-7B-Instruct",
             "Qwen/Qwen3-8B",
+            "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
             "Qwen/Qwen3.5-4B"
         ]
         # 去重并保持顺序
@@ -421,17 +433,27 @@ class ErrorRecoveryLoop:
 
     def _select_fix_model_by_error_type(self, error_type: str, models_to_try: List[str], attempt: int) -> str:
         """根据错误类型选择最佳修复模型"""
-        # 错误类型到模型的映射
-        ERROR_MODEL_MAPPING = {
+        # 从配置文件加载错误类型到模型的映射
+        from app.agent.dynamic_model_router import load_agent_model_config, resolve_model_key
+        config = load_agent_model_config()
+        
+        # 默认映射（硬编码兜底）
+        DEFAULT_ERROR_MODEL_MAPPING = {
             "NameError": "Qwen/Qwen3.5-4B",      # 简单变量错误，快速模型即可
-            "AttributeError": "Qwen/Qwen2.5-7B-Instruct",  # 需要理解对象结构
-            "ImportError": "Qwen/Qwen2.5-7B-Instruct",     # 需要理解模块系统
+            "AttributeError": "Qwen/Qwen3-8B",  # 需要理解对象结构
+            "ImportError": "Qwen/Qwen3-8B",     # 需要理解模块系统
             "SyntaxError": "Qwen/Qwen3.5-4B",    # 语法错误，简单修复
-            "TypeError": "Qwen/Qwen2.5-7B-Instruct",       # 类型系统理解
+            "TypeError": "Qwen/Qwen3-8B",       # 类型系统理解
             "KeyError": "Qwen/Qwen3.5-4B",       # 简单字典操作
             "IndexError": "Qwen/Qwen3.5-4B",     # 简单索引操作  
             "LogicError": "Qwen/Qwen3-8B"        # 复杂逻辑需要强推理
         }
+        
+        # 尝试从配置文件加载
+        ERROR_MODEL_MAPPING = DEFAULT_ERROR_MODEL_MAPPING.copy()
+        if config and "error_type_models" in config:
+            for error_type_key, model_id in config["error_type_models"].items():
+                ERROR_MODEL_MAPPING[error_type_key] = resolve_model_key(model_id)
         
         # 获取推荐模型
         recommended_model = ERROR_MODEL_MAPPING.get(error_type, models_to_try[0])

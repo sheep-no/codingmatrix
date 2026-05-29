@@ -205,10 +205,11 @@ class DependencyGraph:
         ("docs/", "docs"),
     ]
 
-    def __init__(self):
+    def __init__(self, language_adapter=None):
         self.nodes: Dict[str, FileNode] = {}
         self.adjacency: Dict[str, Set[str]] = defaultdict(set)  # file -> set of files it depends on
         self.reverse_adjacency: Dict[str, Set[str]] = defaultdict(set)  # file -> set of files that depend on it
+        self.language_adapter = language_adapter  # 语言适配器（可选）
 
     def add_file(self, path: str, file_type: Optional[str] = None, priority: int = 3, description: str = ""):
         """添加文件节点"""
@@ -285,7 +286,7 @@ class DependencyGraph:
         """从架构设计结果构建依赖图（优先使用 LLM 声明的依赖）"""
         file_plan = architecture.get("file_plan", [])
 
-        # 1. 优先添加所有文件节点和 LLM 显式声明的依赖
+        # 1. 先添加所有文件节点（确保所有文件都在图中）
         for file_info in file_plan:
             path = file_info.get("path", "")
             description = file_info.get("description", "")
@@ -296,15 +297,73 @@ class DependencyGraph:
 
             self.add_file(path, priority=priority, description=description)
 
-            # 使用 LLM 显式声明的依赖
+        # 2. 再处理依赖关系（此时所有文件都在图中）
+        for file_info in file_plan:
+            path = file_info.get("path", "")
+            if not path:
+                continue
+
+            # 使用 LLM 显式声明的依赖（dependencies 字段）
             explicit_deps = file_info.get("dependencies", [])
             if isinstance(explicit_deps, list):
                 for dep in explicit_deps:
                     if dep and dep != path:  # 避免自依赖
                         self.add_dependency(path, dep)
 
-        # 2. 硬编码规则作为兜底（补充 LLM 可能遗漏的依赖）
+            # 使用 imports 字段构建依赖关系（新增）
+            imports = file_info.get("imports", [])
+            if isinstance(imports, list):
+                for imp in imports:
+                    if imp and imp != path:
+                        # 转换 import 路径为文件路径
+                        dep_path = self._import_to_file_path(imp)
+                        if dep_path:
+                            self.add_dependency(path, dep_path)
+
+        # 3. 硬编码规则作为兜底（补充 LLM 可能遗漏的依赖）
         self._auto_add_dependencies()
+
+    def _import_to_file_path(self, import_path: str) -> Optional[str]:
+        """将 import 路径转换为文件路径"""
+        # 使用语言适配器
+        if self.language_adapter:
+            from .adapters import ImportInfo
+            import_info = ImportInfo(module=import_path, symbols=[], is_relative=False)
+            candidates = self.language_adapter.resolve_import_to_file(import_info, "")
+
+            # 在已知节点中查找匹配
+            for candidate in candidates:
+                if candidate in self.nodes:
+                    return candidate
+
+            # 返回第一个候选（后续会补充）
+            if candidates:
+                return candidates[0]
+
+        # Fallback: 通用规则
+        pkg_path = import_path.replace('.', '/')
+
+        # 检查是否是包（在 nodes 中存在入口文件）
+        if self.language_adapter:
+            init_path = self.language_adapter.get_package_init_file(pkg_path)
+            if init_path and init_path in self.nodes:
+                return init_path
+        else:
+            # 通用默认值
+            init_path = pkg_path + '/__init__.py'
+            if init_path in self.nodes:
+                return init_path
+
+        # 检查是否是模块文件
+        extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
+        for ext in extensions:
+            file_path = pkg_path + ext
+            if file_path in self.nodes:
+                return file_path
+
+        # 尝试返回最可能的路径（后续会补充）
+        default_ext = list(extensions)[0] if extensions else '.py'
+        return pkg_path + default_ext
 
     def build_from_specs(self, specs: Dict[str, Any]):
         """根据规范构建基础依赖"""
@@ -339,9 +398,55 @@ class DependencyGraph:
         for path, node in self.nodes.items():
             dep_types = self.DEPENDENCY_RULES.get(node.file_type, [])
             for dep_type in dep_types:
-                for other_path in type_to_files.get(dep_type, []):
-                    if other_path != path:
-                        self.add_dependency(path, other_path)
+                # 只为实际存在的文件类型添加依赖
+                if dep_type in type_to_files:
+                    for other_path in type_to_files.get(dep_type, []):
+                        if other_path != path:
+                            self.add_dependency(path, other_path)
+
+    def ensure_package_files(self) -> List[str]:
+        """
+        确保所有包都有入口文件（如 __init__.py）
+
+        使用 language_adapter 检查包结构，添加缺失的文件。
+
+        Returns:
+            添加的文件路径列表
+        """
+        added_files = []
+
+        # 收集所有包路径
+        packages = set()
+        init_file_name = self.language_adapter.package_init_filename if self.language_adapter else '__init__.py'
+        for path in self.nodes:
+            if '/' in path:
+                parts = path.rsplit('/', 1)
+                if len(parts) == 2:
+                    pkg = parts[0]
+                    # 检查是否是包（有文件但没有入口文件）
+                    if not path.endswith(init_file_name):
+                        packages.add(pkg)
+
+        # 检查每个包
+        for pkg in packages:
+            if self.language_adapter:
+                missing = self.language_adapter.validate_package_structure(
+                    pkg, {p: "" for p in self.nodes}
+                )
+                for init_path in missing:
+                    if init_path not in self.nodes:
+                        self.add_file(init_path, file_type="config", priority=1,
+                                     description=f"Package init file for {pkg}")
+                        added_files.append(init_path)
+            else:
+                # Fallback: 通用规则
+                init_path = f"{pkg}/{init_file_name}"
+                if init_path not in self.nodes:
+                    self.add_file(init_path, file_type="config", priority=1,
+                                 description=f"Package init file for {pkg}")
+                    added_files.append(init_path)
+
+        return added_files
 
     def get_generation_order(self) -> List[str]:
         """
@@ -560,14 +665,24 @@ class DependencyGraph:
 
     def _infer_file_type(self, path: str) -> str:
         """根据文件路径推断文件类型"""
+        # 优先使用语言适配器
+        if self.language_adapter:
+            return self.language_adapter.infer_file_type(path)
+
+        # 使用硬编码规则作为 fallback
         for pattern, file_type in self.PATH_TYPE_RULES:
             if path == pattern or path.startswith(pattern) or path.endswith(pattern):
                 return file_type
 
+        # 特殊处理包入口文件
+        if self.language_adapter and self.language_adapter.package_init_filename:
+            init_file_name = self.language_adapter.package_init_filename
+            if path.endswith(init_file_name):
+                return 'config'
+
         # 根据扩展名推断
         ext = Path(path).suffix.lower()
         ext_map = {
-            '.py': 'model',  # 默认 Python 文件为 model 类型
             '.js': 'frontend_component',
             '.ts': 'frontend_types',
             '.vue': 'frontend_component',
@@ -717,8 +832,12 @@ class DependencyGraph:
                 module = match.group(1)
                 parts = module.split('.')
                 base_path = Path(project_path) / "/".join(parts)
-                candidate = str(base_path / "__init__.py")
-                candidate_py = str(base_path) + ".py"
+                # 检查包入口文件和模块文件
+                init_file_name = self.language_adapter.package_init_filename if self.language_adapter else '__init__.py'
+                candidate = str(base_path / init_file_name)
+                extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
+                default_ext = list(extensions)[0] if extensions else '.py'
+                candidate_py = str(base_path) + default_ext
 
                 for candidate_path in [candidate, candidate_py]:
                     rel = candidate_path.replace(str(project_path) + "/", "")
@@ -908,3 +1027,146 @@ class DependencyGraph:
         # 添加新依赖
         for dep in new_deps:
             self.add_dependency(file_path, dep)
+
+    def validate_completeness(self) -> List[Dict[str, str]]:
+        """
+        验证依赖图完整性：检查被引用的模块是否在图中
+
+        Returns:
+            问题列表，每个问题包含 type, file, message, suggestion
+        """
+        issues = []
+
+        for path, node in self.nodes.items():
+            # 检查所有依赖是否都在图中
+            for dep in self.adjacency.get(path, set()):
+                if dep not in self.nodes:
+                    issues.append({
+                        "type": "missing_dependency",
+                        "file": path,
+                        "message": f"依赖的文件不在依赖图中: {dep}",
+                        "suggestion": f"将 {dep} 添加到 file_plan"
+                    })
+
+            # 检查包的入口文件
+            if self.language_adapter:
+                init_file_name = self.language_adapter.package_init_filename
+                if '/' in path and not path.endswith(init_file_name):
+                    # 检查是否是需要入口文件的语言
+                    if self.language_adapter.package_init_filename:
+                        parts = path.split('/')
+                        for i in range(1, len(parts)):
+                            pkg = '/'.join(parts[:i])
+                            init_path = self.language_adapter.get_package_init_file(pkg)
+                            if init_path and init_path not in self.nodes:
+                                issues.append({
+                                    "type": "missing_init",
+                                    "file": path,
+                                    "message": f"包缺少入口文件: {pkg}",
+                                    "suggestion": f"将 {init_path} 添加到 file_plan"
+                                })
+
+        return issues
+
+    def get_missing_files(self) -> List[str]:
+        """获取缺失的文件列表（被依赖但不在图中的文件）"""
+        missing = set()
+
+        for path in self.nodes:
+            for dep in self.adjacency.get(path, set()):
+                if dep not in self.nodes:
+                    missing.add(dep)
+
+        # 检查包入口文件
+        if self.language_adapter and self.language_adapter.package_init_filename:
+            init_file_name = self.language_adapter.package_init_filename
+            for path in list(self.nodes):
+                if '/' in path and not path.endswith(init_file_name):
+                    parts = path.split('/')
+                    for i in range(1, len(parts)):
+                        pkg = '/'.join(parts[:i])
+                        init_path = self.language_adapter.get_package_init_file(pkg)
+                        if init_path and init_path not in self.nodes:
+                            missing.add(init_path)
+
+        return list(missing)
+
+    def add_missing_files(self, architecture: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        补充缺失的文件到架构和依赖图
+
+        Args:
+            architecture: 原始架构设计
+
+        Returns:
+            更新后的架构设计
+        """
+        missing = self.get_missing_files()
+        if not missing:
+            return architecture
+
+        file_plan = architecture.get("file_plan", [])
+        planned_paths = {f["path"] for f in file_plan}
+
+        added_count = 0
+        for file_path in missing:
+            if file_path not in planned_paths:
+                # 推断文件描述和优先级
+                description = self._infer_file_description(file_path)
+                priority = self._infer_file_priority(file_path)
+
+                file_plan.append({
+                    "path": file_path,
+                    "description": description,
+                    "priority": priority,
+                    "imports": []
+                })
+
+                # 添加到依赖图
+                self.add_file(file_path, priority=priority, description=description)
+                added_count += 1
+
+                logger.info(f"自动补充缺失文件: {file_plan}")
+
+        if added_count > 0:
+            architecture["file_plan"] = file_plan
+            logger.info(f"共补充 {added_count} 个缺失文件")
+
+        return architecture
+
+    def _infer_file_description(self, file_path: str) -> str:
+        """推断文件描述"""
+        # 检查是否是包入口文件
+        if self.language_adapter and self.language_adapter.package_init_filename:
+            init_file_name = self.language_adapter.package_init_filename
+            if file_path.endswith(init_file_name):
+                pkg = file_path.rsplit('/', 1)[0] if '/' in file_path else ''
+                return f"{pkg} 包初始化文件"
+        elif 'database' in file_path.lower():
+            return "数据库连接配置"
+        elif 'config' in file_path.lower():
+            return "配置文件"
+        elif 'schema' in file_path.lower():
+            return "数据模式定义"
+        elif 'core' in file_path.lower():
+            return "核心模块"
+        else:
+            return f"自动补充的模块文件"
+
+    def _infer_file_priority(self, file_path: str) -> int:
+        """推断文件优先级（1-5，越小越优先）"""
+        # 检查是否是包入口文件
+        if self.language_adapter and self.language_adapter.package_init_filename:
+            init_file_name = self.language_adapter.package_init_filename
+            if file_path.endswith(init_file_name):
+                return 1
+        elif 'database' in file_path.lower() or 'config' in file_path.lower():
+            return 1
+        elif 'core' in file_path.lower():
+            return 1
+        elif 'model' in file_path.lower():
+            return 2
+        elif 'service' in file_path.lower():
+            return 3
+        else:
+            return 3

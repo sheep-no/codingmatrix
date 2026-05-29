@@ -16,6 +16,13 @@ AI Cloud 模型注册表
 8. glm-4-9b (THUDM/GLM-4-9B-0414) - 通用对话
 9. kolors (Kwai-Kolors/Kolors) - 图像生成
 10. bce-embedding (netease-youdao/bce-embedding-base_v1) - 文本嵌入
+11. bge-m3 (BAAI/bge-m3) - 多语言嵌入
+12. bge-reranker-v2-m3 (BAAI/bge-reranker-v2-m3) - 重排序
+13. bce-reranker (netease-youdao/bce-reranker-base_v1) - 重排序
+14. bge-large-zh (BAAI/bge-large-zh-v1.5) - 中文嵌入
+15. sense-voice (FunAudioLLM/SenseVoiceSmall) - 语音识别
+16. telespeech-asr (TeleAI/TeleSpeechASR) - 语音识别
+17. hunyuan-mt (tencent/Hunyuan-MT-7B) - 翻译
 """
 from dataclasses import dataclass, field
 from enum import Enum
@@ -191,6 +198,97 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         cost_per_1m_input=0.5,
         cost_per_1m_output=0.0,
         tags=["嵌入", "向量"]
+    ),
+    "bge-m3": ModelInfo(
+        id="bge-m3",
+        name="BGE M3",
+        model_key="BAAI/bge-m3",
+        provider=ModelProvider.SILICONFLOW,
+        description="智源 BGE M3 多语言嵌入模型，支持多种检索任务",
+        max_tokens=512,
+        max_context=8192,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.5,
+        cost_per_1m_output=0.0,
+        tags=["嵌入", "检索", "多语言"]
+    ),
+    "bge-reranker-v2-m3": ModelInfo(
+        id="bge-reranker-v2-m3",
+        name="BGE Reranker V2 M3",
+        model_key="BAAI/bge-reranker-v2-m3",
+        provider=ModelProvider.SILICONFLOW,
+        description="智源 BGE 重排序模型，提升检索精度",
+        max_tokens=512,
+        max_context=8192,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.5,
+        cost_per_1m_output=0.0,
+        tags=["重排序", "检索"]
+    ),
+    "bce-reranker": ModelInfo(
+        id="bce-reranker",
+        name="BCE Reranker",
+        model_key="netease-youdao/bce-reranker-base_v1",
+        provider=ModelProvider.SILICONFLOW,
+        description="网易有道重排序模型，文档排序优化",
+        max_tokens=512,
+        max_context=512,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.5,
+        cost_per_1m_output=0.0,
+        tags=["重排序", "排序"]
+    ),
+    "bge-large-zh": ModelInfo(
+        id="bge-large-zh",
+        name="BGE Large ZH",
+        model_key="BAAI/bge-large-zh-v1.5",
+        provider=ModelProvider.SILICONFLOW,
+        description="智源中文向量模型，中文语义检索",
+        max_tokens=512,
+        max_context=512,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.5,
+        cost_per_1m_output=0.0,
+        tags=["嵌入", "中文", "检索"]
+    ),
+    "sense-voice": ModelInfo(
+        id="sense-voice",
+        name="SenseVoice Small",
+        model_key="FunAudioLLM/SenseVoiceSmall",
+        provider=ModelProvider.SILICONFLOW,
+        description="阿里通义语音识别模型，多语言语音转文字",
+        max_tokens=4096,
+        max_context=4096,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.5,
+        cost_per_1m_output=0.0,
+        tags=["语音", "ASR", "多语言"]
+    ),
+    "telespeech-asr": ModelInfo(
+        id="telespeech-asr",
+        name="TeleSpeech ASR",
+        model_key="TeleAI/TeleSpeechASR",
+        provider=ModelProvider.SILICONFLOW,
+        description="中国电信语音识别模型，中文语音转文字",
+        max_tokens=4096,
+        max_context=4096,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.5,
+        cost_per_1m_output=0.0,
+        tags=["语音", "ASR", "中文"]
+    ),
+    "hunyuan-mt": ModelInfo(
+        id="hunyuan-mt",
+        name="Hunyuan MT 7B",
+        model_key="tencent/Hunyuan-MT-7B",
+        provider=ModelProvider.SILICONFLOW,
+        description="腾讯混元翻译模型，多语言翻译",
+        max_tokens=4096,
+        max_context=32768,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.5,
+        cost_per_1m_output=1.0,
+        tags=["翻译", "多语言"]
     ),
 }
 
