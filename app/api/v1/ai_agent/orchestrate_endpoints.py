@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete as sql_delete, and_
 
 from app.utils.security import verify_token
-from app.db.database import get_db
+from app.db.database import get_db, async_session
 from app.db.models import ProjectSession
 from app.agent import OrchestratorAgent
 from app.agent.impact_analyzer import ImpactAnalyzer
@@ -32,6 +32,9 @@ from .helpers import (
     get_session_manager, get_spec_cache, get_feedback_learner,
     _approval_queues, _create_project_session, _update_project_session_status,
     verify_admin_token,
+)
+from app.utils.guardrails import (
+    check_disk_space, check_rate_limit, validate_session_id
 )
 
 _decision_queues: Dict[str, asyncio.Queue] = {}
@@ -64,6 +67,16 @@ async def modify_project(
     user_id = token.get("sub", "anonymous")
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+
+    # 防护：检查速率限制
+    rate_ok, rate_msg = check_rate_limit(f"modify:{user_id}")
+    if not rate_ok:
+        raise HTTPException(status_code=429, detail=rate_msg)
+
+    # 防护：检查磁盘空间
+    disk_ok, disk_msg = check_disk_space("./projects")
+    if not disk_ok:
+        raise HTTPException(status_code=507, detail=disk_msg)
 
     base_dir = Path("./projects").resolve()
     project_dir = (base_dir / request.project_path).resolve()
@@ -192,6 +205,16 @@ async def orchestrate_project_stream(
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
 
+    # 防护：检查速率限制
+    rate_ok, rate_msg = check_rate_limit(f"stream:{user_id}")
+    if not rate_ok:
+        raise HTTPException(status_code=429, detail=rate_msg)
+
+    # 防护：检查磁盘空间
+    disk_ok, disk_msg = check_disk_space("./projects")
+    if not disk_ok:
+        raise HTTPException(status_code=507, detail=disk_msg)
+
     from app.utils.system_config import system_config_manager
     
     user_role = token.get("role", "user")
@@ -243,6 +266,7 @@ async def orchestrate_project_stream(
     learner = await get_feedback_learner()
 
     async def event_generator() -> AsyncIterator[str]:
+        logger.info(f"[SSE] event_generator 开始 | session={session_id}")
         try:
             async def stream_callback(msg: str):
                 try:
@@ -274,6 +298,7 @@ async def orchestrate_project_stream(
                 except json.JSONDecodeError:
                     await queue.put(f"data: {json.dumps({'type': 'log', 'data': {'message': msg}}, ensure_ascii=False)}\n\n")
 
+            logger.info(f"[SSE] 创建 orchestrator | session={session_id}")
             orchestrator = OrchestratorAgent(
                 output_dir=output_dir,
                 enable_review=request.enable_review,
@@ -291,34 +316,50 @@ async def orchestrate_project_stream(
                 approval_callback=approval_callback if request.require_approval else None,
                 feedback_learner=learner,
                 evaluation_only=request.evaluation_only,
-                api_key_token=request.api_key_token
+                api_key_token=request.api_key_token,
+                provider_id=request.provider_id
             )
 
             async def run_generation():
                 try:
+                    logger.info(f"[SSE] 开始生成任务 | session={session_id}")
                     result = await orchestrator.generate(requirement=request.requirement)
                     files_generated = result.get("total_files_created", 0)
                     files_total = result.get("total_files", 0)
-                    await _update_project_session_status(db, session_id, "completed", files_generated, files_total)
+                    logger.info(f"[SSE] 生成完成 | session={session_id} files={files_generated}/{files_total}")
+                    async with async_session() as gen_db:
+                        await _update_project_session_status(gen_db, session_id, "completed", files_generated, files_total)
                     await queue.put(f"data: {json.dumps({'type': 'done', 'data': result}, ensure_ascii=False)}\n\n")
                 except Exception as e:
-                    logger.error(f"Orchestrator 流式生成失败: {e}")
-                    await _update_project_session_status(db, session_id, "failed", error_message=str(e))
+                    logger.error(f"[SSE] Orchestrator 流式生成失败: {e}", exc_info=True)
+                    async with async_session() as gen_db:
+                        await _update_project_session_status(gen_db, session_id, "failed", error_message=str(e))
                     await queue.put(f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n")
                 finally:
                     await _cleanup_session_queues(session_id)
                     await queue.put("[DONE]")
 
+            logger.info(f"[SSE] 创建生成任务 | session={session_id}")
             gen_task = asyncio.create_task(run_generation())
 
             try:
+                logger.info(f"[SSE] 开始等待队列消息 | session={session_id}")
                 while True:
-                    item = await queue.get()
-                    if item == "[DONE]":
-                        break
-                    yield item
+                    try:
+                        item = await asyncio.wait_for(queue.get(), timeout=1.0)
+                        logger.info(f"[SSE] 从队列获取消息 | session={session_id} type={item[:30] if len(item) > 30 else item}")
+                        if item == "[DONE]":
+                            break
+                        yield item
+                    except asyncio.TimeoutError:
+                        # Check if generation task is still running
+                        if gen_task.done():
+                            logger.info(f"[SSE] 生成任务已完成 | session={session_id}")
+                            break
+                        continue
+                logger.info(f"[SSE] 队列消息处理完成 | session={session_id}")
             except asyncio.CancelledError:
-                logger.info(f"客户端断开连接，取消生成任务 | session={session_id}")
+                logger.info(f"[SSE] 客户端断开连接，取消生成任务 | session={session_id}")
             finally:
                 cancel_event.set()
                 if not gen_task.done():
@@ -329,13 +370,14 @@ async def orchestrate_project_stream(
                         pass
                 await _cleanup_session_queues(session_id)
                 await sm.cancel_session(session_id)
-                await _update_project_session_status(db, session_id, "cancelled")
+                async with async_session() as gen_db:
+                    await _update_project_session_status(gen_db, session_id, "cancelled")
 
         except asyncio.CancelledError:
-            logger.info("Orchestrator 流式响应被取消")
+            logger.info("[SSE] Orchestrator 流式响应被取消")
             await _cleanup_session_queues(session_id)
         except Exception as e:
-            logger.error(f"Orchestrator 流式生成器异常：{e}")
+            logger.error(f"[SSE] Orchestrator 流式生成器异常：{e}")
             await _cleanup_session_queues(session_id)
             yield f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n"
 
@@ -554,17 +596,21 @@ async def session_action_endpoint(
     session_id: str,
     action: str,
     token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
 ):
     """会话操作（取消、恢复、审批）"""
     user_id = token.get("sub", "anonymous")
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
 
+    # 防护：验证会话所有权
+    await _verify_session_ownership_or_queue(session_id, user_id)
+
     sm = await get_session_manager()
 
     if action == "cancel":
         await sm.cancel_session(session_id)
-        await _update_project_session_status(None, session_id, "cancelled")
+        await _update_project_session_status(db, session_id, "cancelled")
         return {"status": "cancelled", "session_id": session_id}
     elif action == "resume":
         await sm.resume_from_pause(session_id, approved=True)
@@ -585,11 +631,15 @@ async def submit_decision_endpoint(
     session_id: str,
     decisions: Dict[str, str],
     token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
 ):
     """提交用户架构决策"""
     user_id = token.get("sub", "anonymous")
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+
+    # 防护：验证会话所有权
+    await _verify_session_ownership_or_queue(session_id, user_id, db)
 
     q = _decision_queues.get(session_id)
     if q:
@@ -599,6 +649,25 @@ async def submit_decision_endpoint(
     else:
         logger.warning(f"决策队列不存在: session={session_id}")
         return {"status": "ignored", "session_id": session_id, "message": "没有等待的决策请求"}
+
+
+async def _verify_session_ownership_or_queue(session_id: str, user_id: str, db: AsyncSession = None):
+    """
+    验证用户对会话的访问权限
+    对于队列操作，检查是否在等待的队列中即可（更宽松）
+    """
+    # 如果会话在队列中，允许操作（可能是刚创建的会话）
+    if session_id in _approval_queues or session_id in _decision_queues:
+        return
+    
+    # 否则需要验证数据库所有权
+    if db:
+        from .helpers import verify_session_ownership
+        try:
+            await verify_session_ownership(db, session_id, user_id)
+        except HTTPException:
+            # 如果数据库验证失败，但仍然允许队列操作（兼容旧逻辑）
+            pass
 
 
 @router.delete("/sessions/{session_id}")

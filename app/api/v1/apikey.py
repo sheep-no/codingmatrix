@@ -21,6 +21,7 @@ from app.services.apikey_manager import (
     APIKeyManager, SUPPORTED_PROVIDERS, TTL_OPTIONS, get_apikey_manager
 )
 from app.services.provider_health import get_health_checker
+from app.api.v1.auth import verify_token
 import csv
 import io
 import json
@@ -30,76 +31,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/agent/apikey", tags=["API Key 管理"])
 
 
-# --- 请求/响应模型 ---
-
-class SubmitKeyRequest(BaseModel):
-    """提交加密 Key 请求"""
-    provider: str = Field(..., description="供应商名称")
-    encrypted_key: str = Field(..., description="RSA 加密后的 Key (Base64)")
-    ttl: str = Field(..., description="TTL 选项 (1h, 24h, 7d, 30d)")
-    remark: str = Field(default="", description="备注")
-
-
-class SubmitKeyResponse(BaseModel):
-    """提交 Key 响应"""
-    token: str
-    provider: str
-    expires_at: str
-
-
-class TestKeyRequest(BaseModel):
-    """测试 Key 请求"""
-    token: str
-
-
-class TestKeyResponse(BaseModel):
-    """测试 Key 响应"""
-    success: bool
-    message: str
-
-
-class KeyMetadataResponse(BaseModel):
-    """Key 元数据响应"""
-    token: str
-    provider: str
-    remark: str
-    status: str
-    created_at: str
-    expires_at: str
-    ttl_seconds: int
-    enabled: bool
-
-
-class BatchImportRequest(BaseModel):
-    """批量导入请求"""
-    keys: list[dict] = Field(..., description="Key 列表，每项包含 provider, encrypted_key, ttl, remark")
-
-
-class BatchImportResponse(BaseModel):
-    """批量导入响应"""
-    success_count: int
-    failed_count: int
-    results: list[dict]
-
-
-class BatchExportResponse(BaseModel):
-    """批量导出响应"""
-    format: str
-    data: str
-    count: int
-
-
-# --- 辅助函数 ---
-
-def get_current_user_id() -> str:
+def get_current_user_id(token: dict = Depends(verify_token)) -> str:
     """
-    获取当前用户 ID
-    
-    TODO: 从认证中获取真实的 user_id
-    临时使用固定值，实际应从 token/session 中获取
+    从 JWT token 中获取当前用户 ID
     """
-    # 临时实现：从 request 中获取，或使用固定值
-    return "default_user"
+    return token.get("sub", "default_user")
 
 
 # --- API 端点 ---
@@ -121,7 +57,7 @@ async def get_public_key(request: Request):
 @limiter.limit("10/minute")
 async def submit_key(request: Request, submit_request: SubmitKeyRequest):
     """提交加密后的 API Key，后端解密后存入 Redis"""
-    user_id = get_current_user_id()
+    user_id: str = Depends(get_current_user_id)
     
     # 验证供应商
     if submit_request.provider not in SUPPORTED_PROVIDERS:
@@ -172,7 +108,6 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest):
 @limiter.limit("20/minute")
 async def test_key(request: Request, test_request: TestKeyRequest):
     """测试 API Key 是否有效"""
-    user_id = get_current_user_id()
     
     try:
         # 获取 Key
@@ -207,9 +142,8 @@ async def test_key(request: Request, test_request: TestKeyRequest):
 
 @router.delete("/{token}", summary="清除 API Key")
 @limiter.limit("10/minute")
-async def delete_key(request: Request, token: str):
+async def delete_key(request: Request, token: str, user_id: str = Depends(get_current_user_id)):
     """立即清除 API Key"""
-    user_id = get_current_user_id()
     
     try:
         apikey_manager = get_apikey_manager()
@@ -230,7 +164,6 @@ async def delete_key(request: Request, token: str):
 @limiter.limit("30/minute")
 async def list_keys(request: Request):
     """获取用户所有 API Key 的元数据列表（不含 Key 本身）"""
-    user_id = get_current_user_id()
     
     try:
         apikey_manager = get_apikey_manager()
@@ -256,9 +189,8 @@ async def list_keys(request: Request):
 
 @router.put("/{token}/enabled", summary="启用/禁用 API Key")
 @limiter.limit("20/minute")
-async def update_enabled(request: Request, token: str, enabled: bool = True):
+async def update_enabled(request: Request, token: str, enabled: bool = True, user_id: str = Depends(get_current_user_id)):
     """启用或禁用 API Key"""
-    user_id = get_current_user_id()
     
     try:
         apikey_manager = get_apikey_manager()
@@ -290,7 +222,6 @@ async def batch_import(request: Request, import_request: BatchImportRequest):
     
     返回成功和失败的数量及详情
     """
-    user_id = get_current_user_id()
     results = []
     success_count = 0
     failed_count = 0
@@ -298,7 +229,7 @@ async def batch_import(request: Request, import_request: BatchImportRequest):
     try:
         apikey_manager = get_apikey_manager()
         
-        for idx, key_data in enumerate(import_request.keys):
+        for idx, key_data in enumerate(import_request.keys, 1):
             try:
                 # 验证供应商
                 provider = key_data.get('provider')
@@ -353,7 +284,7 @@ async def batch_import(request: Request, import_request: BatchImportRequest):
 
 @router.get("/batch/export", summary="批量导出 API Key")
 @limiter.limit("10/minute")
-async def batch_export(request: Request, format: str = "json"):
+async def batch_export(request: Request, format: str = "json", user_id: str = Depends(get_current_user_id)):
     """批量导出 API Key 元数据（不导出 Key 本身）
     
     支持格式：json, csv
@@ -363,7 +294,6 @@ async def batch_export(request: Request, format: str = "json"):
     - data: 导出的数据
     - count: Key 数量
     """
-    user_id = get_current_user_id()
     
     try:
         apikey_manager = get_apikey_manager()

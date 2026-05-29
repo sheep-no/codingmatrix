@@ -329,3 +329,41 @@ def verify_admin_token(token: dict = Depends(verify_token)) -> dict:
     if token.get("role") not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return token
+
+
+async def verify_session_ownership(db: AsyncSession, session_id: str, user_id: str) -> ProjectSession:
+    """
+    验证会话所有权 - 防止越权操作
+    
+    Args:
+        db: 数据库会话
+        session_id: 会话 ID
+        user_id: 用户 ID
+        
+    Returns:
+        ProjectSession 对象
+        
+    Raises:
+        HTTPException: 如果会话不存在或不属于当前用户
+    """
+    try:
+        result = await db.execute(
+            select(ProjectSession).where(
+                and_(
+                    ProjectSession.session_id == session_id,
+                    ProjectSession.user_id == int(user_id)
+                )
+            )
+        )
+        session = result.scalar_one_or_none()
+        
+        if session is None:
+            # 不区分"不存在"和"无权限"，防止信息泄露
+            raise HTTPException(status_code=404, detail="会话不存在或无访问权限")
+        
+        return session
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"验证会话所有权失败 | session_id={session_id} | error={e}")
+        raise HTTPException(status_code=500, detail="验证会话失败")

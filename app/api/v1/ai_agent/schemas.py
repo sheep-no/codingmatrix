@@ -1,7 +1,55 @@
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pathlib import Path
+import re
+
+
+# ============================================================================
+# 输入验证常量
+# ============================================================================
+
+# 会话 ID 格式：只允许字母、数字、下划线、连字符
+SESSION_ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
+SESSION_ID_MAX_LENGTH = 128
+SESSION_ID_MIN_LENGTH = 5
+
+# 路径安全：不允许绝对路径、父目录遍历
+PATH_ABSOLUTE_PATTERN = re.compile(r'^/|^[a-zA-Z]:')
+PATH_TRAVERSAL_PATTERN = re.compile(r'\.\./|\.\.\\')
+
+# Prompt 安全最大长度（字符）
+MAX_PROMPT_LENGTH = 5000
+
+
+def validate_session_id(v: Optional[str], field_name: str = "session_id") -> Optional[str]:
+    """验证会话 ID 格式"""
+    if v is None:
+        return v
+    
+    if len(v) < SESSION_ID_MIN_LENGTH:
+        raise ValueError(f"{field_name} 长度不能少于 {SESSION_ID_MIN_LENGTH} 个字符")
+    if len(v) > SESSION_ID_MAX_LENGTH:
+        raise ValueError(f"{field_name} 长度不能超过 {SESSION_ID_MAX_LENGTH} 个字符")
+    if not SESSION_ID_PATTERN.match(v):
+        raise ValueError(f"{field_name} 只能包含字母、数字、下划线和连字符")
+    
+    return v
+
+
+def validate_path_safety(v: Optional[str], field_name: str = "path") -> Optional[str]:
+    """验证路径安全性"""
+    if v is None:
+        return v
+    
+    if PATH_ABSOLUTE_PATTERN.match(v):
+        raise ValueError(f"{field_name} 不能是绝对路径")
+    if PATH_TRAVERSAL_PATTERN.search(v):
+        raise ValueError(f"{field_name} 不能包含父目录遍历 (../)")
+    if ".." in v:
+        raise ValueError(f"{field_name} 不能包含 .. 路径组件")
+    
+    return v
 
 
 class AgentRequest(BaseModel):
@@ -174,7 +222,7 @@ class LoadProjectResponse(BaseModel):
 
 
 class OrchestratorRequest(BaseModel):
-    requirement: str = Field(..., description="项目需求描述", min_length=1, max_length=5000)
+    requirement: str = Field(..., description="项目需求描述", min_length=1, max_length=MAX_PROMPT_LENGTH)
     output_dir: Optional[str] = Field(None, description="输出目录")
     enable_review: bool = Field(True, description="是否启用代码审查")
     enable_validation: bool = Field(True, description="是否启用代码验证")
@@ -187,6 +235,27 @@ class OrchestratorRequest(BaseModel):
     require_approval: bool = Field(False, description="是否要求关键文件人工审批")
     evaluation_only: bool = Field(False, description="只评价不修改 - 输出分析报告和改进建议，不生成代码文件")
     api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
+    provider_id: Optional[str] = Field(None, description="动态供应商 ID（使用用户自定义 API 端点）")
+
+    @field_validator('session_id')
+    @classmethod
+    def validate_session_id(cls, v):
+        return validate_session_id(v, "session_id")
+
+    @field_validator('output_dir')
+    @classmethod
+    def validate_output_dir(cls, v):
+        return validate_path_safety(v, "output_dir")
+
+    @field_validator('requirement')
+    @classmethod
+    def validate_requirement(cls, v):
+        if not v.strip():
+            raise ValueError("需求描述不能为空")
+        # 检查是否包含过多的连续换行（可能是注入尝试）
+        if '\n\n\n\n' in v:
+            raise ValueError("需求描述格式异常")
+        return v.strip()
 
 
 class SessionActionRequest(BaseModel):
