@@ -378,12 +378,14 @@
   import { ElMessage } from 'element-plus'
   import { useGithubStore } from '@/stores/github'
   import { useApiKeyStore } from '@/stores/apikey'
+  import { useRouter } from 'vue-router'
   import GithubConfigPanel from './GithubConfigPanel.vue'
   import FilePreviewPanel from './FilePreviewPanel.vue'
   import { createProjectClient } from '@/utils/api/project'
   import { api } from '@/utils/api/index'
 
   // ========== 1. Props & Emit ==========
+  const router = useRouter()
   const props = defineProps({
     visible: {
       type: Boolean,
@@ -733,6 +735,14 @@
       alert('请输入项目需求描述')
       return
     }
+
+    // 检查 API Key 配置
+    if (!apiKeyStore.hasSiliconflowKey) {
+      alert('请先配置 API Key 后再使用')
+      router.push('/settings')
+      return
+    }
+
     isGenerating.value = true
     generationComplete.value = false
     hasStopped.value = false

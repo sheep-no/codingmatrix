@@ -628,6 +628,12 @@
       const handleGenerate = async () => {
         if (!canGenerate.value) return
 
+        // 检查 API Key 配置
+        if (!apiKeyStore.hasSiliconflowKey) {
+          error.value = '请先配置 API Key 后再使用'
+          return
+        }
+
         if (history.value.length >= MAX_IMAGES) {
           error.value = `最多只能保存 ${MAX_IMAGES} 张图片，请先清理部分历史记录`
           return

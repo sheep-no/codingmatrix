@@ -24,7 +24,7 @@ function getValidToken() {
   if (window.userStore && typeof window.userStore.getAccessToken === 'function') {
     try {
       const token = window.userStore.getAccessToken()
-      if (token) {
+      if (token && token.trim()) {
         console.debug('[Token] Found token in window.userStore')
         return token
       }
@@ -35,7 +35,7 @@ function getValidToken() {
   if (window.api && window.api._userStore && typeof window.api._userStore.getAccessToken === 'function') {
     try {
       const token = window.api._userStore.getAccessToken()
-      if (token) {
+      if (token && token.trim()) {
         console.debug('[Token] Found token in window.api._userStore')
         return token
       }
@@ -44,14 +44,14 @@ function getValidToken() {
   
   // 3. Fallback: sessionStorage (tokenManager 备份)
   const sessionToken = sessionStorage.getItem('_token')
-  if (sessionToken) {
+  if (sessionToken && sessionToken.trim()) {
     console.debug('[Token] Found token in sessionStorage')
     return sessionToken
   }
   
   // 4. Fallback: localStorage
   const localToken = localStorage.getItem('access_token')
-  if (localToken) {
+  if (localToken && localToken.trim()) {
     console.debug('[Token] Found token in localStorage')
     return localToken
   }

@@ -28,10 +28,13 @@
         :search-query="files.fileSearchQuery"
         :filter-type="files.fileFilterType"
         :selected-path="selectedFilePath"
+        :dynamic-models="dynamicModels"
+        :selected-provider-model="selectedProviderModel"
         @update:mode="session.generationMode = $event"
         @update:prompt="session.projectPrompt = $event"
         @update:search-query="files.fileSearchQuery = $event"
         @update:filter-type="files.fileFilterType = $event"
+        @update:selected-provider-model="selectedProviderModel = $event"
         @generate="generateProject"
         @incremental-generate="incrementalGenerate"
         @debug="startDebug"
@@ -77,7 +80,7 @@
 
     <!-- Modals -->
     <UploadModal v-model="backend.showUploadModal" @upload="(f) => handleFileSelect(f)" />
-    <SettingsModal v-model="backend.showSettingsModal" :settings="backend.settings" :concurrent-limits="backend.concurrentLimits" :cache-stats="backend.cacheStats" @save="saveSettings" @copy="copySettingsToClipboard" @export="exportPerformanceData" @clear-cache="clearBackendCache" />
+    <SettingsModal v-model="backend.showSettingsModal" :settings="backend.settings" :concurrent-limits="backend.concurrentLimits" :cache-stats="backend.cacheStats" @save="saveSettings" @copy="copySettingsToClipboard" @export="exportPerformanceData" @clear-cache="clearBackendCache" @open-api-key="goToApiKeySettings" />
     <LearningModal v-model="backend.showLearningModal" :learning-stats="backend.learningStats" />
     <PerformanceModal v-model="backend.showPerformanceModal" :performance-stats="backend.performanceStats" />
     <VersionHistoryModal v-model="backend.showVersionHistoryModal" :file="selectedFile" :file-versions="backend.fileVersions" :snapshots="backend.backendSnapshots" @restore="(i) => restoreVersion(i)" @view-diff="(i) => viewVersionDiff(i)" @rollback="rollback" />
@@ -88,8 +91,11 @@
 <script setup>
 /* AgentDashboard - Refactored from 5029 to ~150 lines using composables */
 import { ElMessage } from 'element-plus'
-import { onMounted, onBeforeUnmount, watch, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { useApiKeyStore } from '@/stores/apikey'
+import { useProviderStore } from '@/stores/providers'
 import { useAgentSession } from '@/composables/useAgentSession'
 import { useAgentGeneration } from '@/composables/useAgentGeneration'
 import { useAgentFiles } from '@/composables/useAgentFiles'
@@ -108,7 +114,13 @@ import VersionHistoryModal from '@/components/agent/modals/VersionHistoryModal.v
 import DiffModal from '@/components/agent/modals/DiffModal.vue'
 
 const userStore = useUserStore()
+const apiKeyStore = useApiKeyStore()
+const providerStore = useProviderStore()
+const router = useRouter()
 const projectApi = window.api || {}
+
+// 动态供应商模型
+const selectedProviderModel = ref('')
 
 // ========== Composables ==========
 const session = useAgentSession()
@@ -117,6 +129,11 @@ const files = useAgentFiles()
 const workspace = useAgentWorkspace({ session, files, generation })
 const streaming = useAgentStreaming(projectApi, workspace, files, generation, session)
 const backend = useAgentBackend(projectApi, workspace, files, generation)
+
+const goToApiKeySettings = () => {
+  backend.showSettingsModal = false
+  router.push('/settings?tab=apikey')
+}
 
 // ========== Unwrapped values for child components ==========
 const sessionId = computed(() => session.currentSessionId)
@@ -143,12 +160,15 @@ const getLanguage = computed(() => selectedFile.value ? files.getLanguage(select
 const hasFileDiff = computed(() => selectedFile.value ? files.hasFileDiff(selectedFile.value.path) : false)
 const selectedFilePath = computed(() => selectedFile.value?.path || null)
 
+// ========== Dynamic Models ==========
+const dynamicModels = computed(() => providerStore.getAllDynamicModels())
+
 // ========== Generation Actions ==========
-const generateProject = () => streaming.streamGenerate('create')
-const incrementalGenerate = () => streaming.streamGenerate('modify')
+const generateProject = () => streaming.streamGenerate('create', selectedProviderModel.value)
+const incrementalGenerate = () => streaming.streamGenerate('modify', selectedProviderModel.value)
 const startDebug = async () => {
   if (!session.projectPrompt.trim()) return ElMessage.warning('请输入问题描述')
-  streaming.streamGenerate('debug')
+  streaming.streamGenerate('debug', selectedProviderModel.value)
 }
 const regenerateProject = async () => {
   if (!session.projectPrompt.trim()) return ElMessage.warning('请输入项目描述')
@@ -288,6 +308,13 @@ watch([() => files.generatedFiles?.length, () => session.currentSessionId, () =>
 }, { deep: true })
 
 onMounted(() => {
+  // 加载 API Key 数据
+  apiKeyStore.loadFromStorage()
+  
+  // 加载动态供应商
+  providerStore.loadFromStorage()
+  providerStore.listProviders().catch(() => {})
+  
   session.loadSessionHistory()
   backend.loadSettings()
   session.startAutoSave(

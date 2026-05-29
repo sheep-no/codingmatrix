@@ -336,7 +336,7 @@
   const props = defineProps({
     historyItem: { type: Object, default: null },
     conversationHistory: { type: Array, default: () => [] },
-    conversationId: { type: Number, default: null },
+    conversationId: { type: [String, Number], default: null },
     hasMoreHistory: { type: Boolean, default: true },
     isLoading: { type: Boolean, default: false }
   })

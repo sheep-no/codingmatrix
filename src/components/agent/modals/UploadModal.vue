@@ -21,8 +21,8 @@
 </template>
 
 <script setup>
-defineProps({ modelValue: Boolean })
-defineEmits(['update:modelValue', 'upload'])
+const props = defineProps({ modelValue: Boolean })
+const emit = defineEmits(['update:modelValue', 'upload'])
 
 const onFileChange = (e) => { const f = e.target.files[0]; if (f) emit('upload', f) }
 const onDrop = (e) => { const f = e.dataTransfer.files[0]; if (f && f.name.endsWith('.zip')) emit('upload', f) }

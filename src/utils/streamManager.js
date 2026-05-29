@@ -13,6 +13,11 @@ const ABORT_CONTROLLERS_KEY = 'streamAbortControllers'
 const REQUEST_QUEUE_KEY = 'streamRequestQueue'
 const MAX_REQUESTS = 5 // 最大并发请求数
 
+// 调试开关（生产环境关闭）
+const DEBUG = import.meta?.env?.DEV ?? false
+const log = (...args) => { if (DEBUG) console.log(...args) }
+const logError = (...args) => console.error(...args)
+
 /**
  * 请求优先级枚举
  */
@@ -55,7 +60,7 @@ class StreamManager {
     }
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-    console.log('[SUCCESS] Stream request state saved:', state)
+    log('[SUCCESS] Stream request state saved:', state)
   }
 
   /**
@@ -77,7 +82,7 @@ class StreamManager {
 
       return state
     } catch (error) {
-      console.error('[ERR] Get stream request state failed:', error)
+      logError('[ERR] Get stream request state failed:', error)
       return null
     }
   }
@@ -88,7 +93,7 @@ class StreamManager {
   clearStreamRequestState() {
     localStorage.removeItem(STORAGE_KEY)
     this.currentRequestId = null
-    console.log('[SUCCESS] Stream request state cleared')
+    log('[SUCCESS] Stream request state cleared')
   }
 
   /**
@@ -108,7 +113,7 @@ class StreamManager {
     }))
     sessionStorage.setItem(ABORT_CONTROLLERS_KEY, JSON.stringify(controllersData))
 
-    console.log('[SUCCESS] Created AbortController:', requestId)
+    log('[SUCCESS] Created AbortController:', requestId)
     return controller
   }
 
@@ -131,7 +136,7 @@ class StreamManager {
       controller.abort()
       this.abortControllers.delete(requestId)
       this.clearStreamRequestState()
-      console.log('[SUCCESS] Request aborted:', requestId)
+      log('[SUCCESS] Request aborted:', requestId)
       return true
     }
     return false
@@ -148,7 +153,7 @@ class StreamManager {
     for (const [requestId, controller] of this.abortControllers.entries()) {
       controller.abort()
       this.abortControllers.delete(requestId)
-      console.log('[SUCCESS] Request aborted:', requestId)
+      log('[SUCCESS] Request aborted:', requestId)
       return true
     }
     return false
@@ -169,11 +174,11 @@ class StreamManager {
 
         if (validControllers.length === 0) {
           sessionStorage.removeItem(ABORT_CONTROLLERS_KEY)
-          console.log('[SUCCESS] Cleaned up expired AbortControllers')
+          log('[SUCCESS] Cleaned up expired AbortControllers')
         }
       }
     } catch (error) {
-      console.error('[ERR] Restore AbortControllers failed:', error)
+      logError('[ERR] Restore AbortControllers failed:', error)
     }
   }
 
@@ -234,7 +239,7 @@ class StreamManager {
     this.requestQueue.splice(insertIndex, 0, queueItem)
     this.saveRequestQueue()
 
-    console.log('[SUCCESS] Request added to queue:', requestId, 'priority:', queueItem.priority)
+    log('[SUCCESS] Request added to queue:', requestId, 'priority:', queueItem.priority)
     return requestId
   }
 
@@ -251,7 +256,7 @@ class StreamManager {
     request.status = 'processing'
     this.saveRequestQueue()
 
-    console.log('[SUCCESS] Dequeued request:', request.id)
+    log('[SUCCESS] Dequeued request:', request.id)
     return request
   }
 
@@ -265,7 +270,7 @@ class StreamManager {
     if (index !== -1) {
       this.requestQueue.splice(index, 1)
       this.saveRequestQueue()
-      console.log('[SUCCESS] Cancelled request in queue:', requestId)
+      log('[SUCCESS] Cancelled request in queue:', requestId)
       return true
     }
     return false
@@ -278,7 +283,7 @@ class StreamManager {
     try {
       sessionStorage.setItem(REQUEST_QUEUE_KEY, JSON.stringify(this.requestQueue))
     } catch (error) {
-      console.error('[ERR] Save request queue failed:', error)
+      logError('[ERR] Save request queue failed:', error)
     }
   }
 
@@ -290,10 +295,10 @@ class StreamManager {
       const savedQueue = sessionStorage.getItem(REQUEST_QUEUE_KEY)
       if (savedQueue) {
         this.requestQueue = JSON.parse(savedQueue)
-        console.log('[SUCCESS] Restored request queue:', this.requestQueue.length, 'requests')
+        log('[SUCCESS] Restored request queue:', this.requestQueue.length, 'requests')
       }
     } catch (error) {
-      console.error('[ERR] Restore request queue failed:', error)
+      logError('[ERR] Restore request queue failed:', error)
       this.requestQueue = []
     }
   }
@@ -311,7 +316,7 @@ class StreamManager {
    */
   incrementProcessingCount() {
     this.processingCount++
-    console.log('[STATS] 处理中请求数:', this.processingCount, '/', MAX_REQUESTS)
+    log('[STATS] 处理中请求数:', this.processingCount, '/', MAX_REQUESTS)
   }
 
   /**
@@ -319,7 +324,7 @@ class StreamManager {
    */
   decrementProcessingCount() {
     this.processingCount = Math.max(0, this.processingCount - 1)
-    console.log('[STATS] 处理中请求数:', this.processingCount, '/', MAX_REQUESTS)
+    log('[STATS] 处理中请求数:', this.processingCount, '/', MAX_REQUESTS)
   }
 
   /**
@@ -358,7 +363,7 @@ class StreamManager {
     this.currentRequestId = null
     this.processingCount = 0
 
-    console.log('[SUCCESS] Cancelled all requests:', cancelledCount)
+    log('[SUCCESS] Cancelled all requests:', cancelledCount)
     return cancelledCount
   }
 

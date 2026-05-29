@@ -274,6 +274,13 @@
 
   async function handleGenerate() {
     if (!canGenerate.value || isGenerating.value) return
+    
+    // 检查 API Key 配置
+    if (!apiKeyStore.hasSiliconflowKey) {
+      error.value = '请先配置 API Key 后再使用'
+      return
+    }
+    
     isGenerating.value = true
     error.value = ''
     generatedImages.value = []

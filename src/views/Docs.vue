@@ -51,7 +51,7 @@
       </aside>
 
       <main class="docs-main">
-        <section class="doc-section" id="features">
+        <section id="features" class="doc-section">
           <h2 class="section-title">项目功能介绍</h2>
           <div class="feature-hero">
             <div class="hero-text">
@@ -60,7 +60,7 @@
             </div>
           </div>
           <div class="doc-cards">
-            <div class="doc-card" v-for="feature in featureIntro" :key="feature.id" :id="`feature-${feature.id}`">
+            <div v-for="feature in featureIntro" :id="`feature-${feature.id}`" :key="feature.id" class="doc-card">
               <div class="card-icon">{{ feature.icon }}</div>
               <h3 class="card-title">{{ feature.title }}</h3>
               <p class="card-desc">{{ feature.description }}</p>
@@ -69,7 +69,7 @@
           </div>
         </section>
 
-        <section class="doc-section" id="faq">
+        <section id="faq" class="doc-section">
           <h2 class="section-title">常见问题</h2>
           <div class="notice-card">
             <div class="notice-icon">⚠</div>
@@ -80,7 +80,7 @@
             </div>
           </div>
           <div class="doc-cards">
-            <div class="doc-card" v-for="faq in faqs" :key="faq.id" :id="`faq-${faq.id}`">
+            <div v-for="faq in faqs" :id="`faq-${faq.id}`" :key="faq.id" class="doc-card">
               <h3 class="card-title">{{ faq.title }}</h3>
               <p class="card-desc">{{ faq.description }}</p>
               <router-link :to="faq.link" class="card-link">阅读更多 →</router-link>
@@ -88,10 +88,10 @@
           </div>
         </section>
 
-        <section class="doc-section" id="guides">
+        <section id="guides" class="doc-section">
           <h2 class="section-title">使用指南</h2>
           <div class="doc-cards">
-            <div class="doc-card" v-for="guide in guides" :key="guide.id" :id="`guide-${guide.id}`">
+            <div v-for="guide in guides" :id="`guide-${guide.id}`" :key="guide.id" class="doc-card">
               <h3 class="card-title">{{ guide.title }}</h3>
               <p class="card-desc">{{ guide.description }}</p>
               <router-link :to="guide.link" class="card-link">阅读更多 →</router-link>
@@ -99,10 +99,10 @@
           </div>
         </section>
 
-        <section class="doc-section" id="tech">
+        <section id="tech" class="doc-section">
           <h2 class="section-title">技术说明</h2>
           <div class="doc-cards">
-            <div class="doc-card" v-for="tech in techDocs" :key="tech.id" :id="`tech-${tech.id}`">
+            <div v-for="tech in techDocs" :id="`tech-${tech.id}`" :key="tech.id" class="doc-card">
               <h3 class="card-title">{{ tech.title }}</h3>
               <p class="card-desc">{{ tech.description }}</p>
               <router-link :to="tech.link" class="card-link">阅读更多 →</router-link>

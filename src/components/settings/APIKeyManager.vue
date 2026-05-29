@@ -5,7 +5,7 @@
     <!-- 硅基流动 Key (必填) -->
     <div class="key-card required-key">
       <div class="key-card-header">
-        <span class="provider-icon">🔑</span>
+        <svg class="provider-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
         <span class="provider-name">硅基流动 (SiliconFlow)</span>
         <span class="required-badge">必填</span>
         <span :class="['status-badge', siliconflowKey?.status || 'unverified']">
@@ -16,7 +16,7 @@
       <div v-if="!siliconflowKey" class="key-card-body">
         <p class="guide-text">
           配置硅基流动 API Key 以使用 Agent 功能。
-          <a href="https://cloud.siliconflow.cn/" target="_blank" class="guide-link">前往注册 →</a>
+          <a href="https://cloud.siliconflow.cn/" target="_blank" class="guide-link">前往注册</a>
         </p>
         <div class="add-key-form">
           <input v-model="siliconflowForm.key" type="password" placeholder="输入 API Key" class="key-input" />
@@ -74,7 +74,7 @@
       <div v-if="otherKeys.length > 0" class="key-list">
         <div v-for="key in otherKeys" :key="key.token" class="key-card">
           <div class="key-card-header">
-            <span class="provider-icon">{{ getProviderIcon(key.provider) }}</span>
+            <svg class="provider-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
             <span class="provider-name">{{ getProviderName(key.provider) }}</span>
             <span :class="['status-badge', key.status]">
               {{ getStatusText(key.status) }}
@@ -103,7 +103,10 @@
     
     <!-- 安全提示 -->
     <div class="security-notice">
-      <h4 class="notice-title">🔒 安全说明</h4>
+      <h4 class="notice-title">
+        <svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        安全说明
+      </h4>
       <ul class="notice-list">
         <li>Key 使用 RSA 加密传输</li>
         <li>仅存储在 Redis 内存中，不落库</li>
@@ -292,18 +295,6 @@ function getProviderName(provider) {
   return map[provider] || provider
 }
 
-function getProviderIcon(provider) {
-  const map = {
-    siliconflow: '🔑',
-    openai: '🟢',
-    anthropic: '🟣',
-    bailian: '🔵',
-    glm: '🟡',
-    deepseek: '🔵',
-  }
-  return map[provider] || '🔑'
-}
-
 function getRemainingTime(key) {
   if (!key || !key.expires_at) return '未知'
   const expiresAt = new Date(key.expires_at)
@@ -352,8 +343,16 @@ function getRemainingTime(key) {
   margin-bottom: 12px;
 }
 
-.provider-icon {
-  font-size: 20px;
+.provider-icon-svg {
+  width: 20px;
+  height: 20px;
+  color: #606266;
+}
+
+.notice-icon {
+  width: 16px;
+  height: 16;
+  margin-right: 4px;
 }
 
 .provider-name {

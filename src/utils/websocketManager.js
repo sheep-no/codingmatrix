@@ -3,7 +3,7 @@
  * 用于处理系统状态和日志的实时推送
  */
 
-import { API_CONFIG } from './api.js'
+import { API_CONFIG } from './api/config.js'
 
 export class WebSocketManager {
   constructor() {

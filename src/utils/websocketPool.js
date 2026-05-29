@@ -12,7 +12,7 @@
  * @version 2.0.0
  */
 
-import { API_CONFIG } from './api.js'
+import { API_CONFIG } from './api/config.js'
 
 // WebSocket 配置常量
 const WS_CONFIG = {

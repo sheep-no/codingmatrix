@@ -249,10 +249,13 @@
 
 <script setup>
   import { ref, computed, watch, nextTick, onMounted } from 'vue'
+  import { useRouter } from 'vue-router'
   import Modal from './ui/Modal.vue'
   import Button from './ui/Button.vue'
   import { useApiKeyStore } from '@/stores/apikey'
+  import { api } from '@/utils/api/index'
 
+  const router = useRouter()
   const props = defineProps({
     visible: { type: Boolean, default: false }
   })
@@ -512,6 +515,13 @@
 
   const sendMessage = async () => {
     if (!inputMessage.value.trim() || isSending.value) return
+
+    // 检查 API Key 配置
+    if (!apiKeyStore.hasSiliconflowKey) {
+      alert('请先配置 API Key 后再使用')
+      router.push('/settings')
+      return
+    }
 
     const userMessage = {
       role: 'user',

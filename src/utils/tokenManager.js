@@ -38,11 +38,17 @@ export const useTokenManager = () => {
 
     // 保存到 sessionStorage（HMR 恢复用）
     try {
-      sessionStorage.setItem('_token', token || '')
-      sessionStorage.setItem('_token_expiry', String(tokenExpiry || ''))
-      // 同时保存到 localStorage 作为备份，确保刷新页面后 token 仍然可用
-      localStorage.setItem('access_token', token || '')
-      localStorage.setItem('_token_expiry', String(tokenExpiry || ''))
+      if (token) {
+        sessionStorage.setItem('_token', token)
+        sessionStorage.setItem('_token_expiry', String(tokenExpiry || ''))
+        localStorage.setItem('access_token', token)
+        localStorage.setItem('_token_expiry', String(tokenExpiry || ''))
+      } else {
+        sessionStorage.removeItem('_token')
+        sessionStorage.removeItem('_token_expiry')
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('_token_expiry')
+      }
     } catch (e) {}
   }
 
@@ -50,7 +56,36 @@ export const useTokenManager = () => {
    * 获取 access token
    */
   function getToken() {
-    return accessToken
+    // 优先返回内存中的 token
+    if (accessToken) return accessToken
+
+    // HMR 热更新后内存可能丢失，尝试从 sessionStorage 恢复
+    const sessionToken = sessionStorage.getItem('_token')
+    if (sessionToken) {
+      const savedExpiry = sessionStorage.getItem('_token_expiry')
+      const expiry = savedExpiry ? parseInt(savedExpiry, 10) : 0
+      if (Date.now() <= expiry) {
+        accessToken = sessionToken
+        tokenExpiry = expiry
+        return accessToken
+      }
+      sessionStorage.removeItem('_token')
+      sessionStorage.removeItem('_token_expiry')
+    }
+
+    // 最后尝试 localStorage
+    const localToken = localStorage.getItem('access_token')
+    if (localToken) {
+      const savedExpiry = localStorage.getItem('_token_expiry')
+      const expiry = savedExpiry ? parseInt(savedExpiry, 10) : 0
+      if (Date.now() <= expiry) {
+        accessToken = localToken
+        tokenExpiry = expiry
+        return accessToken
+      }
+    }
+
+    return null
   }
 
   /**
@@ -72,7 +107,7 @@ export const useTokenManager = () => {
       sessionStorage.removeItem('_token')
       sessionStorage.removeItem('_token_expiry')
       localStorage.removeItem('access_token')
-      localStorage.removeItem('_token_expiry')
+      // 注意：不清理 localStorage._token_expiry，避免与其他模块冲突
     } catch (e) {}
   }
 

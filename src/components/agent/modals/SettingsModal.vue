@@ -4,6 +4,12 @@
       <div class="modal-content settings-modal">
         <div class="modal-header"><h3>设置</h3><button class="modal-close" @click="$emit('update:modelValue', false)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button></div>
         <div class="modal-body">
+          <div class="settings-section"><h4>API Key 配置</h4>
+            <div class="api-key-hint">
+              <p>项目生成需要 SiliconFlow API Key，请在下方配置。</p>
+              <button class="btn btn-sm btn-primary" @click="$emit('open-api-key')">前往 API Key 管理</button>
+            </div>
+          </div>
           <div class="settings-section"><h4>AI 模型配置</h4>
             <div class="settings-grid">
               <div class="setting-item"><label>架构设计模型</label><select v-model="localSettings.models.architecture" class="setting-select"><option>Qwen3-Plus</option><option>Qwen3-Coder</option><option>DeepSeek-V3</option><option>GPT-4o</option></select></div>
@@ -49,7 +55,7 @@
 import { ref, watch } from 'vue'
 
 const props = defineProps({ modelValue: Boolean, settings: { type: Object, required: true }, concurrentLimits: { type: Object, required: true }, cacheStats: { type: Object, required: true } })
-const emit = defineEmits(['update:modelValue', 'save', 'copy', 'export', 'clear-cache'])
+const emit = defineEmits(['update:modelValue', 'save', 'copy', 'export', 'clear-cache', 'open-api-key'])
 
 // Local editable copy
 const localSettings = ref(JSON.parse(JSON.stringify(props.settings)))
@@ -73,4 +79,6 @@ watch(() => props.modelValue, (open) => {
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .btn-danger { background: var(--danger); color: white; }
 .btn-primary { background: var(--primary); color: white; }
+.api-key-hint { background: var(--bg-tertiary); padding: 12px; border-radius: 8px; border-left: 3px solid var(--warning); }
+.api-key-hint p { margin: 0 0 8px 0; font-size: 12px; color: var(--text-secondary); }
 </style>

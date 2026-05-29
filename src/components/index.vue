@@ -143,6 +143,7 @@
   import ErrorBoundary from './ErrorBoundary.vue'
   import MessageEditor from './MessageEditor.vue'
   import KeyboardShortcutsHelp from './KeyboardShortcutsHelp.vue'
+  import { useRouter } from 'vue-router'
   import { api } from '@/utils/api/index'
   import { streamManager } from '@/utils/streamManager'
   import { useNavigationStore } from '@/stores/navigation'
@@ -165,6 +166,7 @@
   const ImageGenerator = defineAsyncComponent(() => import('./ImageGenerator.vue'))
   const Aicloud = defineAsyncComponent(() => import('./Aicloud.vue'))
 
+  const router = useRouter()
   const apiUrl = import.meta.env.VITE_API_BASE || '/api/v1'
 
   const navigationStore = useNavigationStore()
@@ -378,6 +380,14 @@
       return
     }
     if (isLoading.value) return
+
+    // 检查 API Key 配置
+    if (!apiKeyStore.hasSiliconflowKey) {
+      showError('请先配置 API Key 后再使用')
+      // 跳转到设置页面
+      router.push('/settings')
+      return
+    }
 
     isLoading.value = true
     isStreamActive.value = true
@@ -1121,6 +1131,9 @@
   }
 
   onMounted(async () => {
+    // 加载 API Key 数据
+    apiKeyStore.loadFromStorage()
+    
     navigationStore.restoreNavigationFromStorage()
     await restoreStateFromStorage()
     await restoreStream()
