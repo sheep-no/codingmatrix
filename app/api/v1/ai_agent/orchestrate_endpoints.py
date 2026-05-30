@@ -31,7 +31,8 @@ from .schemas import (
 from .helpers import (
     get_session_manager, get_spec_cache, get_feedback_learner,
     _approval_queues, _create_project_session, _update_project_session_status,
-    verify_admin_token,
+    verify_admin_token, get_user_recent_session,
+    detect_resume_intent, analyze_files_to_regenerate,
 )
 from app.utils.guardrails import (
     check_disk_space, check_rate_limit, validate_session_id
@@ -227,13 +228,66 @@ async def orchestrate_project_stream(
             detail=f"已达到并发会话限制 ({len(active_sessions)}/{limit})。请停止或删除现有项目后再创建新项目。"
         )
 
-    if request.session_id:
-        session_id = request.session_id
-    else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        session_id = f"project_{user_id}_{timestamp}"
+    # ========== 意图检测：处理"继续"语义 ==========
+    resume_intent = await detect_resume_intent(request.requirement)
+    is_resume = resume_intent.get("is_resume", False)
+    has_changes = resume_intent.get("has_changes", False)
+    additional_requirement = resume_intent.get("additional_requirement", "")
     
-    output_dir = request.output_dir or f"./projects/orchestrator/{session_id}"
+    if is_resume:
+        # 查找用户最近的会话
+        recent_session = await get_user_recent_session(db, user_id, status_filter="running")
+        if not recent_session:
+            recent_session = await get_user_recent_session(db, user_id, status_filter="cancelled")
+        
+        if recent_session:
+            # 恢复已有会话
+            session_id = recent_session.session_id
+            output_dir = recent_session.output_dir
+            original_requirement = recent_session.requirement
+            
+            # 如果有补充需求，合并需求
+            if has_changes and additional_requirement:
+                merged_requirement = f"{original_requirement}\n\n补充需求：{additional_requirement}"
+                request.requirement = merged_requirement
+                
+                # 分析需要重新生成的文件
+                sm = await get_session_manager()
+                session_state = await sm.resume_session(session_id)
+                
+                if session_state and session_state.file_statuses:
+                    generated_files = [f for f, s in session_state.file_statuses.items() if s.status == "completed"]
+                    
+                    if generated_files:
+                        files_to_regenerate = await analyze_files_to_regenerate(
+                            original_requirement, additional_requirement, generated_files
+                        )
+                        
+                        # 删除需要重新生成的文件
+                        for file_path in files_to_regenerate:
+                            full_path = Path(output_dir) / file_path
+                            if full_path.exists():
+                                full_path.unlink()
+                                logger.info(f"删除需要重新生成的文件: {file_path}")
+            else:
+                # 纯继续，使用原始需求
+                request.requirement = original_requirement
+            
+            logger.info(f"继续会话 | session={session_id} | has_changes={has_changes}")
+        else:
+            # 没有找到可恢复的会话，创建新会话
+            logger.info(f"没有找到可恢复的会话，创建新会话")
+            is_resume = False
+    
+    if not is_resume:
+        if request.session_id:
+            session_id = request.session_id
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            session_id = f"project_{user_id}_{timestamp}"
+        
+        output_dir = request.output_dir or f"./projects/orchestrator/{session_id}"
+    # ========== 意图检测结束 ==========
 
     logger.info(f"Orchestrator 流式生成请求 | user={user_id} session={session_id}")
 

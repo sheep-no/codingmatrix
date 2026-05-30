@@ -367,3 +367,156 @@ async def verify_session_ownership(db: AsyncSession, session_id: str, user_id: s
     except Exception as e:
         logger.error(f"验证会话所有权失败 | session_id={session_id} | error={e}")
         raise HTTPException(status_code=500, detail="验证会话失败")
+
+
+# ==================== 意图检测 ====================
+
+async def detect_resume_intent(requirement: str, model: str = "Qwen/Qwen3.5-4B") -> Dict[str, Any]:
+    """
+    检测用户输入是否包含"继续"意图
+    
+    Args:
+        requirement: 用户输入
+        model: 用于意图检测的轻量模型
+        
+    Returns:
+        {
+            "is_resume": bool,           # 是否是继续意图
+            "has_changes": bool,         # 是否包含需求变更
+            "additional_requirement": str,  # 补充的需求（如有）
+            "original_requirement": str    # 原始需求（从最近会话获取）
+        }
+    """
+    from app.utils import call_llm
+    
+    prompt = f"""分析以下用户输入，判断是否包含"继续"意图。
+
+用户输入："{requirement}"
+
+请返回 JSON：
+{{
+  "is_resume": true/false,  // 是否是继续意图（继续、resume、恢复、接着来等）
+  "has_changes": true/false,  // 是否包含需求变更或补充
+  "additional_requirement": "补充的需求内容"  // 如果有补充需求，提取出来；否则为空字符串
+}}
+
+只返回 JSON，不要其他文字："""
+
+    try:
+        result = await call_llm(
+            model=model,
+            prompt=prompt,
+            temperature=0.1,
+            max_tokens=200
+        )
+        
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        
+        # 提取 JSON
+        import json
+        json_match = __import__('re').search(r'\{[^{}]+\}', content)
+        if json_match:
+            data = json.loads(json_match.group())
+            return {
+                "is_resume": data.get("is_resume", False),
+                "has_changes": data.get("has_changes", False),
+                "additional_requirement": data.get("additional_requirement", "")
+            }
+    except Exception as e:
+        logger.warning(f"意图检测失败: {e}")
+    
+    # 兜底：简单关键词检测
+    resume_keywords = ["继续", "resume", "恢复", "接着", "续"]
+    is_resume = any(kw in requirement for kw in resume_keywords)
+    
+    return {
+        "is_resume": is_resume,
+        "has_changes": False,
+        "additional_requirement": ""
+    }
+
+
+async def analyze_files_to_regenerate(
+    original_requirement: str,
+    additional_requirement: str,
+    generated_files: List[str],
+    model: str = "Qwen/Qwen3.5-4B"
+) -> List[str]:
+    """
+    分析哪些文件需要重新生成
+    
+    Args:
+        original_requirement: 原始需求
+        additional_requirement: 补充/变更的需求
+        generated_files: 已生成的文件列表
+        model: 用于分析的模型
+        
+    Returns:
+        需要重新生成的文件路径列表
+    """
+    from app.utils import call_llm
+    
+    files_str = "\n".join(f"- {f}" for f in generated_files)
+    
+    prompt = f"""分析需求变更，判断哪些文件需要重新生成。
+
+原始需求：{original_requirement}
+
+需求变更：{additional_requirement}
+
+已生成的文件：
+{files_str}
+
+请分析需求变更会影响哪些文件，返回需要重新生成的文件列表。
+只返回 JSON 数组，不要其他文字：
+["file1.py", "file2.py"]"""
+
+    try:
+        result = await call_llm(
+            model=model,
+            prompt=prompt,
+            temperature=0.1,
+            max_tokens=500
+        )
+        
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        
+        # 提取 JSON 数组
+        import json
+        json_match = __import__('re').search(r'\[[^\[\]]*\]', content)
+        if json_match:
+            files_to_regenerate = json.loads(json_match.group())
+            # 验证文件路径
+            valid_files = [f for f in files_to_regenerate if f in generated_files]
+            return valid_files
+    except Exception as e:
+        logger.warning(f"文件分析失败: {e}")
+    
+    return []
+
+
+async def get_user_recent_session(db: AsyncSession, user_id: str, status_filter: Optional[str] = None) -> Optional[ProjectSession]:
+    """
+    获取用户最近的会话
+    
+    Args:
+        db: 数据库会话
+        user_id: 用户 ID
+        status_filter: 状态过滤（如 "running", "cancelled"）
+    
+    Returns:
+        最近的会话或 None
+    """
+    try:
+        query = select(ProjectSession).where(ProjectSession.user_id == user_id)
+        
+        if status_filter:
+            query = query.where(ProjectSession.status == status_filter)
+        
+        query = query.order_by(ProjectSession.created_at.desc()).limit(1)
+        
+        result = await db.execute(query)
+        return result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"查询用户最近会话失败: {e}")
+        return None
