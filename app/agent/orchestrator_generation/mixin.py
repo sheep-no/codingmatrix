@@ -96,6 +96,9 @@ class GenerationMixin(
         except AttributeError as e:
             logger.error(f"_generate_traditional AttributeError: {e}")
             raise
+        except Exception as e:
+            logger.error(f"项目生成失败: {e}")
+            raise RuntimeError(f"项目生成失败: {str(e)[:200]}") from e
 
     def _check_requirement_coverage(
         self, requirement: str,

@@ -301,13 +301,13 @@ class SpecFirstGenerateMixin:
                 for i, result in enumerate(results):
                     file_path = layer[i]
                     if isinstance(result, Exception):
-                        self.errors.append(f"文件生成异常: {file_path} - {str(result)}")
-                        ctx.add_error(f"文件生成异常: {file_path}")
+                        self.errors.append(f"文件生成失败: {file_path}（内部异常）")
+                        ctx.add_error(f"文件生成失败: {file_path}")
                         files_failed += 1
                         continue
 
                     if not result.get("success"):
-                        self.errors.append(f"文件生成失败: {file_path}")
+                        self.errors.append(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型）")
                         ctx.add_error(f"文件生成失败: {file_path}")
                         files_failed += 1
                         continue
@@ -549,7 +549,7 @@ class SpecFirstGenerateMixin:
 
             initial_content = await engineer.generate_file(file_path, description, combined_context)
             if not initial_content:
-                raise ValueError("生成返回空内容")
+                raise ValueError(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
 
             initial_content = self._clean_code_block(initial_content)
 

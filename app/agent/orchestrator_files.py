@@ -33,7 +33,7 @@ class FilesMixin:
 
         for result in results:
             if isinstance(result, Exception):
-                self.errors.append(f"文件生成异常: {str(result)}")
+                self.errors.append(f"文件生成失败: 内部异常 - {self._friendly_error(str(result))}")
             elif result:
                 self.generated_files.append(result)
 
@@ -73,7 +73,7 @@ class FilesMixin:
 
             for result in results:
                 if isinstance(result, Exception):
-                    self.errors.append(f"文件生成异常: {str(result)}")
+                    self.errors.append(f"文件生成失败: 内部异常 - {self._friendly_error(str(result))}")
                 elif result:
                     self.generated_files.append(result)
                     try:
@@ -131,7 +131,7 @@ class FilesMixin:
             )
             content = await self._react_generate_file(file_path, description, project_context)
             if not content:
-                self.errors.append(f"文件生成失败（含 ReAct Fallback）: {file_path}")
+                self.errors.append(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
                 return None
 
         content = self._clean_code_block(content)
@@ -170,6 +170,9 @@ class FilesMixin:
             )
             if not success:
                 self.warnings.append(f"文件验证未完全通过: {file_path}")
+
+        # 验证并修复路径格式
+        file_path = self._normalize_file_path(file_path)
 
         full_path = self.output_dir / file_path
         full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -211,6 +214,63 @@ class FilesMixin:
             "success": True,
             "size": len(content)
         }
+
+    def _friendly_error(self, error_msg: str) -> str:
+        """将技术错误信息转换为用户友好的描述"""
+        error_lower = error_msg.lower()
+        
+        if "timeout" in error_lower or "timed out" in error_lower:
+            return "请求超时，请稍后重试"
+        if "rate limit" in error_lower or "429" in error_lower:
+            return "请求频率过高，请稍后重试"
+        if "401" in error_lower or "unauthorized" in error_lower:
+            return "API 认证失败，请检查 API Key 配置"
+        if "403" in error_lower or "forbidden" in error_lower:
+            return "API 访问被拒绝，请检查权限"
+        if "404" in error_lower or "not found" in error_lower:
+            return "API 端点不存在"
+        if "500" in error_lower or "internal server" in error_lower:
+            return "API 服务异常，请稍后重试"
+        if "connection" in error_lower or "network" in error_lower:
+            return "网络连接失败，请检查网络"
+        if "out of memory" in error_lower or "oom" in error_lower:
+            return "内存不足，请减少项目复杂度"
+        if "json" in error_lower or "parse" in error_lower:
+            return "模型返回格式异常，请重试"
+        
+        # 截断过长的错误信息
+        if len(error_msg) > 100:
+            return error_msg[:100] + "..."
+        return error_msg
+
+    def _normalize_file_path(self, file_path: str) -> str:
+        """
+        规范化文件路径，修复常见的路径格式错误
+        
+        例如：
+        - events/rpy -> events.rpy
+        - init/rpy -> init.rpy
+        - screen/rpy -> screen.rpy
+        """
+        if not file_path:
+            return file_path
+        
+        # 检查是否是 "目录/扩展名" 的错误格式
+        parts = file_path.split('/')
+        if len(parts) >= 2:
+            last_part = parts[-1]
+            # 如果最后一部分是纯扩展名（如 rpy, py, js 等），则合并到上一级
+            if last_part and not '.' in last_part and len(last_part) <= 10:
+                # 这可能是错误的路径格式
+                # 检查上一级目录名是否像文件名
+                parent = parts[-2]
+                if '.' not in parent:
+                    # 合并为 文件名.扩展名
+                    fixed_path = '/'.join(parts[:-2]) + f"{parent}.{last_part}" if len(parts) > 2 else f"{parent}.{last_part}"
+                    logger.warning(f"路径格式修正: {file_path} -> {fixed_path}")
+                    return fixed_path
+        
+        return file_path
 
     def _is_frontend_file(self, file_path: str) -> bool:
         ext = Path(file_path).suffix.lower()
@@ -417,7 +477,7 @@ class FilesMixin:
                     "affected_files": patch_result.dependency_chain,
                 })
             else:
-                self.errors.append(f"跨文件 patch 失败：{patch_result.failed_patches}")
+                self.errors.append(f"跨文件修改失败: 影响了 {len(patch_result.failed_patches)} 个文件的关联修改")
 
         for file_info in incremental_plan:
             file_path = file_info.get("path", "")
@@ -467,7 +527,7 @@ class FilesMixin:
                     lines_changed=result.diff.count('\n+') + result.diff.count('\n-')
                 )
             else:
-                self.errors.append(f"Patch 应用失败：{file_path} - {', '.join(result.errors)}")
+                self.errors.append(f"文件修改失败: {file_path}（正在降级为全量生成）")
                 self.warnings.append(f"降级到全量生成：{file_path}")
                 result = await self._generate_single_file(file_info, project_context, total_files)
                 if result:
@@ -510,7 +570,7 @@ class FilesMixin:
                     lines_changed=result.diff.count('\n+') + result.diff.count('\n-')
                 )
             else:
-                self.errors.append(f"Patch 应用失败: {file_path} - {', '.join(result.errors)}")
+                self.errors.append(f"文件修改失败: {file_path}（正在降级为全量生成）")
                 self.warnings.append(f"降级到全量生成: {file_path}")
                 result = await self._generate_single_file(file_info, project_context, total_files)
                 if result:
