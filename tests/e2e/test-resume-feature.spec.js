@@ -79,6 +79,9 @@ test.describe('Agent 继续功能测试', () => {
       }, testCase.input);
 
       console.log(`输入: "${testCase.input}" -> 状态: ${result.status}, OK: ${result.ok}`);
+      
+      // 等待 1 秒避免会话 ID 冲突
+      await page.waitForTimeout(1000);
     }
   });
 
