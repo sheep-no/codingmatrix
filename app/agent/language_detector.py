@@ -203,8 +203,13 @@ class LanguageDetector:
         all_keywords.sort(key=lambda x: len(x[0]), reverse=True)
         # 遍历匹配
         for keyword, lang in all_keywords:
-            # 使用词边界匹配，避免误匹配
-            pattern = r'\b' + re.escape(keyword) + r'\b'
+            # 处理以点开头的关键词（如 .rpy）
+            if keyword.startswith('.'):
+                # 对于以点开头的关键词，使用特殊模式：前面是空格或字符串开头
+                pattern = r'(?:^|\s)' + re.escape(keyword) + r'(?:\s|$|，|。|,|\.)'
+            else:
+                # 使用词边界匹配，避免误匹配
+                pattern = r'\b' + re.escape(keyword) + r'\b'
             if re.search(pattern, requirement_lower):
                 evidence.append(f"关键词匹配: '{keyword}' → {lang}")
                 return LanguageDetectionResult(
