@@ -53,7 +53,7 @@ test.describe('Agent 继续功能测试', () => {
       // 通过 SSE 端点间接测试意图检测
       const result = await page.evaluate(async (input) => {
         const token = localStorage.getItem('access_token');
-        const resp = await fetch('/api/v1/ai_agent/orchestrate/stream', {
+        const resp = await fetch('/api/v1/agent/orchestrate/stream', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -104,7 +104,7 @@ test.describe('Agent 继续功能测试', () => {
     // 3. 监听 SSE 请求
     const sseResponses = [];
     page.on('response', async (response) => {
-      if (response.url().includes('/orchestrate/stream')) {
+      if (response.url().includes('/agent/orchestrate/stream')) {
         try {
           const text = await response.text();
           sseResponses.push(text);
