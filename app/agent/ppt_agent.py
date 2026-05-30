@@ -62,11 +62,29 @@ class PresentationOutline:
 class PPTAgent:
     """PPT Agent - 自然语言到 PPT 大纲"""
 
-    DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+    # PPT 专用模型配置 (按优先级排序)
+    MODELS = {
+        "high_quality": "Qwen/Qwen2.5-72B-Instruct",    # 高质量
+        "balanced": "Qwen/Qwen2.5-7B-Instruct",         # 平衡 (默认)
+        "fast": "Qwen/Qwen2.5-3B-Instruct",             # 快速
+        "creative": "THUDM/GLM-Z1-9B-0414",             # 创意
+    }
+    
+    DEFAULT_MODEL = MODELS["balanced"]
     MAX_RETRIES = 3
 
-    def __init__(self, model: Optional[str] = None):
-        self.model = model or self.DEFAULT_MODEL
+    def __init__(self, model: Optional[str] = None, quality: str = "balanced"):
+        """
+        初始化 PPT Agent
+        
+        Args:
+            model: 自定义模型名称
+            quality: 质量等级 (high_quality/balanced/fast/creative)
+        """
+        if model:
+            self.model = model
+        else:
+            self.model = self.MODELS.get(quality, self.DEFAULT_MODEL)
 
     async def generate_outline(
         self,

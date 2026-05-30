@@ -43,6 +43,14 @@ from app.models.file import File
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
+# PPT 工具模块
+from app.utils.pptx.text_processor import (
+    prevent_text_overflow as prevent_text_overflow_v2,
+    prevent_text_overflow_simple,
+    TextLayout,
+)
+from app.utils.pptx.image_search import ImageSearchManager
+
 from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
@@ -1311,12 +1319,17 @@ async def update_ppt_task(
 
 def prevent_text_overflow(
     text: str, 
-    max_chars_per_line: int = 80, 
-    max_lines: int = 10, 
+    max_chars_per_line: int = 70, 
+    max_lines: int = 6, 
     shrink_font: bool = True
 ) -> List[str]:
     """
     防止文本在 PPT 幻灯片中溢出。
+    
+    使用新的智能文本处理模块:
+    - 中文按字数换行
+    - 英文按单词边界换行
+    - 自动字号调整
     
     Args:
         text: 原始文本
@@ -1327,58 +1340,50 @@ def prevent_text_overflow(
     Returns:
         处理后的文本行列表
     """
-    if not text:
-        return ['暂无内容']
+    layout = prevent_text_overflow_v2(
+        text,
+        max_chars_per_line=max_chars_per_line,
+        max_lines=max_lines,
+    )
     
-    lines = text.strip().split('\n')
-    processed_lines = []
+    if layout.needs_overflow_warning:
+        logger.warning(layout.overflow_message)
     
-    for line in lines:
-        while len(line) > max_chars_per_line:
-            processed_lines.append(line[:max_chars_per_line])
-            line = line[max_chars_per_line:]
-        if line:
-            processed_lines.append(line)
-            
-    if len(processed_lines) > max_lines:
-        if shrink_font:
-            logger.debug(f"文本行数 ({len(processed_lines)}) 超出限制 ({max_lines})，建议缩小字号")
-        else:
-            processed_lines = processed_lines[:max_lines - 1]
-            processed_lines.append("... (已省略超出部分)")
-            
-    return processed_lines
+    return layout.lines
 
 
 # =============================================================================
 # 自动搜图
 # =============================================================================
 
-IMAGE_SEARCH_TIMEOUT = 10
+# 图片搜索管理器 (延迟初始化)
+_image_search_manager: Optional[ImageSearchManager] = None
+
+
+def get_image_search_manager() -> ImageSearchManager:
+    """获取图片搜索管理器单例"""
+    global _image_search_manager
+    if _image_search_manager is None:
+        _image_search_manager = ImageSearchManager(
+            bing_key=os.environ.get("BING_IMAGE_SEARCH_KEY"),
+            unsplash_key=os.environ.get("UNSPLASH_ACCESS_KEY"),
+            pexels_key=os.environ.get("PEXELS_API_KEY"),
+        )
+    return _image_search_manager
+
 
 async def search_image_url(keyword: str) -> Optional[str]:
-    """搜索图片 URL (使用 DuckDuckGo)"""
-    import aiohttp
-    from urllib.parse import quote
+    """
+    搜索图片 URL
     
-    url = f"https://html.duckduckgo.com/html/?q={quote(keyword)}+photo"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MonkeyCode-PPT/1.0"}
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, timeout=IMAGE_SEARCH_TIMEOUT) as resp:
-                if resp.status == 200:
-                    html = await resp.text()
-                    # DuckDuckGo 图片解析
-                    import re
-                    # 查找图片 URL
-                    match = re.search(r'src="(https?://[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"', html, re.IGNORECASE)
-                    if match:
-                        return match.group(1)
-    except Exception as e:
-        logger.warning(f"图片搜索失败 {keyword}: {e}")
-    
-    return None
+    使用多源聚合搜索:
+    1. Bing Image Search (需要 API Key)
+    2. Unsplash (需要 API Key)
+    3. Pexels (需要 API Key)
+    4. 占位图降级
+    """
+    manager = get_image_search_manager()
+    return await manager.search_image(keyword)
 
 
 async def download_image(url: str, save_path: Path) -> bool:
@@ -1387,7 +1392,7 @@ async def download_image(url: str, save_path: Path) -> bool:
     
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=IMAGE_SEARCH_TIMEOUT) as resp:
+            async with session.get(url, timeout=10) as resp:
                 if resp.status == 200:
                     data = await resp.read()
                     save_path.write_bytes(data)
@@ -1400,23 +1405,23 @@ async def download_image(url: str, save_path: Path) -> bool:
 
 IMAGE_CACHE_DIR = Path("./static/images/cache")
 
+
 async def get_image_for_slide(keywords: List[str], slide_index: int) -> Optional[str]:
     """获取幻灯片配图 (缓存优先)"""
-    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    manager = get_image_search_manager()
     
     for kw in keywords[:2]:
-        import hashlib
-        cache_key = hashlib.md5(kw.encode()).hexdigest()
-        cache_path = IMAGE_CACHE_DIR / f"{cache_key}.jpg"
+        # 检查缓存
+        cached = await manager.get_cached_image(kw)
+        if cached:
+            return str(cached)
         
-        if cache_path.exists():
-            return str(cache_path)
-        
-        url = await search_image_url(kw)
+        # 搜索并下载
+        url = await manager.search_image(kw)
         if url:
-            success = await download_image(url, cache_path)
-            if success:
-                return str(cache_path)
+            path = await manager.download_and_cache(kw, url)
+            if path:
+                return str(path)
     
     return None
 
