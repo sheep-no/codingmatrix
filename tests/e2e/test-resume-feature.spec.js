@@ -1,6 +1,8 @@
 const { test, expect } = require('@playwright/test');
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
+const TEST_EMAIL = process.env.TEST_EMAIL || 'admin@example.com';
+const TEST_PASSWORD = process.env.TEST_PASSWORD || 'admin123';
 
 test.describe('Agent 继续功能测试', () => {
   let authToken = null;
@@ -12,7 +14,7 @@ test.describe('Agent 继续功能测试', () => {
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(1000);
 
-    const loginResult = await page.evaluate(async () => {
+    const loginResult = await page.evaluate(async ({ email, password }) => {
       await fetch('/api/v1/csrf-token', { credentials: 'include' });
       const csrfMatch = document.cookie.match(/csrf_token=([^;]+)/);
       const csrfToken = csrfMatch ? csrfMatch[1] : '';
@@ -21,12 +23,12 @@ test.describe('Agent 继续功能测试', () => {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-        body: JSON.stringify({ email: 'test@test.com', password: 'Test123456!' }),
+        body: JSON.stringify({ email, password }),
       });
 
       if (!resp.ok) return { success: false, error: await resp.text() };
       return await resp.json();
-    });
+    }, { email: TEST_EMAIL, password: TEST_PASSWORD });
 
     authToken = loginResult.access_token;
     await page.close();
