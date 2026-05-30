@@ -185,8 +185,15 @@ class SpecFirstGenerateMixin:
                 description = file_node.description if file_node else f"生成 {file_path}"
                 file_type = file_node.file_type if file_node else "unknown"
 
-                # 断点续传：检查文件是否已存在
+                # 断点续传：检查文件是否已存在且完整
                 full_path = self.output_dir / file_path
+                tmp_path = full_path.with_suffix(full_path.suffix + '.tmp')
+                
+                # 如果存在 .tmp 文件，说明上次写入中断，删除它
+                if tmp_path.exists():
+                    logger.warning(f"发现未完成的文件，删除: {tmp_path}")
+                    tmp_path.unlink()
+                
                 if full_path.exists():
                     try:
                         existing_content = full_path.read_text(encoding='utf-8')
@@ -292,10 +299,13 @@ class SpecFirstGenerateMixin:
 
                 final_content = result.final_content
 
+                # 原子写入：先写临时文件，完成后重命名
                 full_path = self.output_dir / file_path
                 full_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(full_path, 'w', encoding='utf-8') as f:
+                tmp_path = full_path.with_suffix(full_path.suffix + '.tmp')
+                with open(tmp_path, 'w', encoding='utf-8') as f:
                     f.write(final_content)
+                tmp_path.rename(full_path)
 
                 return {
                     "path": file_path,
@@ -578,8 +588,15 @@ class SpecFirstGenerateMixin:
             description = file_node.description if file_node else f"生成 {file_path}"
             file_type = file_node.file_type if file_node else "unknown"
 
-            # 断点续传：检查文件是否已存在
+            # 断点续传：检查文件是否已存在且完整
             full_path = self.output_dir / file_path
+            tmp_path = full_path.with_suffix(full_path.suffix + '.tmp')
+            
+            # 如果存在 .tmp 文件，说明上次写入中断，删除它
+            if tmp_path.exists():
+                logger.warning(f"发现未完成的文件，删除: {tmp_path}")
+                tmp_path.unlink()
+            
             if full_path.exists():
                 try:
                     existing_content = full_path.read_text(encoding='utf-8')
@@ -667,10 +684,13 @@ class SpecFirstGenerateMixin:
 
             final_content = result.final_content
 
+            # 原子写入：先写临时文件，完成后重命名
             full_path = self.output_dir / file_path
             full_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(full_path, 'w', encoding='utf-8') as f:
+            tmp_path = full_path.with_suffix(full_path.suffix + '.tmp')
+            with open(tmp_path, 'w', encoding='utf-8') as f:
                 f.write(final_content)
+            tmp_path.rename(full_path)
 
             self._report_file_event(file_path, final_content, description, file_type)
 
