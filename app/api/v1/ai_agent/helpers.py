@@ -5,7 +5,7 @@ import json
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, AsyncGenerator
+from typing import Optional, Dict, Any, AsyncGenerator, List
 
 from fastapi import HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
