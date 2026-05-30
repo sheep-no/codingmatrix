@@ -157,12 +157,14 @@ class SpecFirstGenerateMixin:
             )
             files_generated = result.get("files_generated", 0)
             files_failed = result.get("files_failed", 0)
+            files_skipped = result.get("files_skipped", 0)
             self.generated_files = result.get("generated_files", [])
             self.errors.extend(result.get("errors", []))
             self.warnings.extend(result.get("warnings", []))
             total_files = result.get("total_files", 0)
         else:
             total_files = sum(len(layer) for layer in layers)
+            files_skipped = 0
 
             self._report_progress(
                 "dependency_graph_built", 4, 6,
@@ -182,6 +184,37 @@ class SpecFirstGenerateMixin:
                 file_node = dep_graph.nodes.get(file_path)
                 description = file_node.description if file_node else f"生成 {file_path}"
                 file_type = file_node.file_type if file_node else "unknown"
+
+                # 断点续传：检查文件是否已存在
+                full_path = self.output_dir / file_path
+                if full_path.exists():
+                    try:
+                        existing_content = full_path.read_text(encoding='utf-8')
+                        if existing_content.strip():
+                            logger.info(f"文件已存在，跳过生成: {file_path}")
+                            self._report_progress(
+                                "skipping_existing_file",
+                                4 + file_index,
+                                total_files + 5,
+                                file_path=file_path,
+                                callback=callback
+                            )
+                            return {
+                                "path": file_path,
+                                "description": description,
+                                "file_type": file_type,
+                                "success": True,
+                                "size": len(existing_content),
+                                "refinement_attempts": 0,
+                                "issues_fixed": 0,
+                                "content": existing_content,
+                                "model_name": "cached",
+                                "validation_passed": True,
+                                "validation_issues": [],
+                                "skipped": True
+                            }
+                    except Exception as e:
+                        logger.warning(f"读取已存在文件失败: {file_path}, {e}")
 
                 engineer = self._select_engineer(file_path)
                 model_name = self._select_model_for_file(file_path)
@@ -317,13 +350,17 @@ class SpecFirstGenerateMixin:
                         model_name = result.pop("model_name")
                         file_type = result.pop("file_type", "unknown")
                         validation_issues = result.pop("validation_issues", [])
+                        skipped = result.pop("skipped", False)
 
                         ctx.save_file_content(file_path, content, model_name)
                         ctx.update_file_validation(file_path, result["success"], validation_issues)
                         generated_contents[file_path] = content[:MAX_CONTENT_FOR_CONTEXT]
 
                         self.generated_files.append(result)
-                        files_generated += 1
+                        if skipped:
+                            files_skipped += 1
+                        else:
+                            files_generated += 1
 
                         if not result["success"]:
                             ctx.add_warning(f"文件 {file_path} 验证未完全通过")
@@ -467,11 +504,16 @@ class SpecFirstGenerateMixin:
         if not architecture_check.passed:
             self.warnings.append(f"架构检查发现问题: {len(architecture_check.violations)} 个违规")
 
+        # 记录跳过的文件数
+        if files_skipped > 0:
+            logger.info(f"断点续传: 跳过 {files_skipped} 个已存在文件")
+
         return {
             "success": files_failed == 0,
             "output_dir": self.output_dir.name,
             "total_files_created": files_generated,
             "total_files_failed": files_failed,
+            "total_files_skipped": files_skipped,
             "files": self.generated_files,
             "complexity": self.complexity.level.value if self.complexity else "unknown",
             "models_used": {
@@ -535,6 +577,34 @@ class SpecFirstGenerateMixin:
             file_node = dep_graph.nodes.get(file_path)
             description = file_node.description if file_node else f"生成 {file_path}"
             file_type = file_node.file_type if file_node else "unknown"
+
+            # 断点续传：检查文件是否已存在
+            full_path = self.output_dir / file_path
+            if full_path.exists():
+                try:
+                    existing_content = full_path.read_text(encoding='utf-8')
+                    if existing_content.strip():
+                        logger.info(f"文件已存在，跳过生成: {file_path}")
+                        progress_report("skipping_existing_file", file_path, files_generated, total_files)
+                        
+                        async with state_lock:
+                            ctx.save_file_content(file_path, existing_content, "cached")
+                            ctx.update_file_validation(file_path, True, [])
+                            generated_contents[file_path] = existing_content[:MAX_CONTENT_FOR_CONTEXT]
+                            
+                            generated_files_list.append({
+                                "path": file_path,
+                                "description": description,
+                                "success": True,
+                                "size": len(existing_content),
+                                "model_name": "cached",
+                                "skipped": True
+                            })
+                            files_generated += 1
+                        
+                        return existing_content
+                except Exception as e:
+                    logger.warning(f"读取已存在文件失败: {file_path}, {e}")
 
             engineer = self._select_engineer(file_path)
             model_name = self._select_model_for_file(file_path)
@@ -719,9 +789,13 @@ class SpecFirstGenerateMixin:
         self._report_progress("integrity_validated", total_files + 4, total_files + 5, callback=callback)
         # ============ 完整性验证结束 ============
 
+        # 统计跳过的文件数
+        files_skipped = sum(1 for f in generated_files_list if f.get("skipped"))
+
         return {
             "files_generated": files_generated,
             "files_failed": files_failed,
+            "files_skipped": files_skipped,
             "total_files": total_files,
             "generated_files": generated_files_list,
             "errors": errors_list,
