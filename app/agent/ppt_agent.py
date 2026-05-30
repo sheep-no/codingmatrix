@@ -64,14 +64,8 @@ class PPTAgent:
     """PPT Agent - 自然语言到 PPT 大纲"""
 
     # PPT 专用模型配置 (按优先级排序)
-    MODELS = {
-        "high_quality": "Qwen/Qwen2.5-72B-Instruct",    # 高质量
-        "balanced": "Qwen/Qwen2.5-7B-Instruct",         # 平衡 (默认)
-        "fast": "Qwen/Qwen2.5-3B-Instruct",             # 快速
-        "creative": "THUDM/GLM-Z1-9B-0414",             # 创意
-    }
-    
-    DEFAULT_MODEL = MODELS["balanced"]
+    # 使用 SiliconFlow 中可用的模型
+    DEFAULT_MODEL = "Qwen/Qwen3.5-4B"
     MAX_RETRIES = 3
 
     def __init__(self, model: Optional[str] = None, quality: str = "balanced"):
@@ -80,12 +74,9 @@ class PPTAgent:
         
         Args:
             model: 自定义模型名称
-            quality: 质量等级 (high_quality/balanced/fast/creative)
+            quality: 质量等级 (high_quality/balanced/fast/creative) - 保留用于未来扩展
         """
-        if model:
-            self.model = model
-        else:
-            self.model = self.MODELS.get(quality, self.DEFAULT_MODEL)
+        self.model = model or self.DEFAULT_MODEL
 
     async def generate_outline(
         self,
