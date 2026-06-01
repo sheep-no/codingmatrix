@@ -38,23 +38,23 @@
             <button 
               class="mode-btn" 
               :class="{ active: mode === 'agent' }" 
-              @click="mode = 'agent'"
               :disabled="generating"
+              @click="mode = 'agent'"
             >
               AI Agent 生成
             </button>
             <button 
               class="mode-btn" 
               :class="{ active: mode === 'manual' }" 
-              @click="mode = 'manual'"
               :disabled="generating"
+              @click="mode = 'manual'"
             >
               手动输入大纲
             </button>
           </div>
         </div>
 
-        <div class="form-group" v-if="mode === 'manual'">
+        <div v-if="mode === 'manual'" class="form-group">
           <label for="outline">手动大纲（可选）</label>
           <textarea
             id="outline"

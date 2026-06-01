@@ -31,7 +31,7 @@ from app.agent.dynamic_model_router import LayeredModelRouter, ModelAssignment
 from app.agent.tracing import tracer, traced, get_current_trace_id, set_trace_id
 
 from app.agent.orchestrator_progress import (
-    PROGRESS_LABELS, GenerationProgress, ProgressMixin,
+    PROGRESS_LABELS, GenerationProgress, ProgressMixin, CostTracker,
     MAX_CONCURRENT_LLM_CALLS, MAX_CONTENT_FOR_CONTEXT,
 )
 from app.agent.orchestrator_generation import GenerationMixin
@@ -130,3 +130,7 @@ class OrchestratorAgent(
         self._start_time: Optional[float] = None
         self._current_phase: str = "initializing"
         self._generated_contents: Dict[str, str] = {}
+        
+        # 成本追踪器
+        self.cost_tracker = CostTracker()
+        Specialist.set_cost_tracker(self.cost_tracker)

@@ -28,7 +28,7 @@ function getValidToken() {
         console.debug('[Token] Found token in window.userStore')
         return token
       }
-    } catch (e) {}
+    } catch (_e) { /* window.userStore not available */ }
   }
   
   // 2. 尝试从 window.api 关联的 userStore 获取
@@ -39,7 +39,7 @@ function getValidToken() {
         console.debug('[Token] Found token in window.api._userStore')
         return token
       }
-    } catch (e) {}
+    } catch (_e) { /* window.api._userStore not available */ }
   }
   
   // 3. Fallback: sessionStorage (tokenManager 备份)

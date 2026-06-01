@@ -87,10 +87,6 @@ export function createProjectClient(baseClient) {
       throw new Error('保存项目失败')
     },
 
-    downloadProject(projectPath) {
-      return `${apiUrl}/agent/generate/download/${encodeURIComponent(projectPath)}`
-    },
-
     async getProjectFiles(params) {
       const response = await client.get('/agent/generate/files', params)
       if (response.ok) {
@@ -108,7 +104,8 @@ export function createProjectClient(baseClient) {
     },
 
     async deleteProjectFile(params) {
-      const response = await client.delete('/agent/generate/file', params)
+      const queryString = new URLSearchParams(params).toString()
+      const response = await client.delete(`/agent/generate/file?${queryString}`)
       if (response.ok) {
         return await response.json()
       }

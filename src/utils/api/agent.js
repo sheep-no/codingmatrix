@@ -2,19 +2,38 @@
  * API Agent 专属模块 (快照/知识库/需求联想/性能/学习)
  */
 export function createAgentClient(client) {
+  // 统一错误处理
+  function handleError(error, context) {
+    console.error(`${context}:`, error)
+    throw new Error(error.message || `${context}失败`)
+  }
+
+  // 统一请求封装
+  async function request(method, url, data = null, params = null) {
+    try {
+      let response
+      if (method === 'get') {
+        response = await client.get(url, params)
+      } else if (method === 'post') {
+        response = await client.post(url, data)
+      } else if (method === 'put') {
+        response = await client.put(url, data)
+      }
+
+      if (response.ok) {
+        return await response.json()
+      }
+      return null
+    } catch (error) {
+      console.error(`Request ${method} ${url} failed:`, error)
+      return null
+    }
+  }
+
   return {
     // ========== 快照管理 ==========
     async getSnapshots(sessionId) {
-      try {
-        const response = await client.get(`/agent/snapshots/${sessionId}`)
-        if (response.ok) {
-          return await response.json()
-        }
-        return { snapshots: [] }
-      } catch (error) {
-        console.error('Failed to load snapshots:', error)
-        return { snapshots: [] }
-      }
+      return await request('get', `/agent/snapshots/${sessionId}`) || { snapshots: [] }
     },
 
     async rollbackToSnapshot(sessionId, tag) {
@@ -25,25 +44,16 @@ export function createAgentClient(client) {
         }
         throw new Error('回滚失败')
       } catch (error) {
-        throw new Error(error.message || '回滚失败')
+        handleError(error, '回滚')
       }
     },
 
     async getSnapshotDiff(sessionId, fromTag, toTag) {
-      try {
-        const response = await client.get('/agent/snapshot/diff', {
-          session_id: sessionId,
-          from_tag: fromTag,
-          to_tag: toTag
-        })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { diffs: [] }
-      } catch (error) {
-        console.error('Failed to get snapshot diff:', error)
-        return { diffs: [] }
-      }
+      return await request('get', '/agent/snapshot/diff', null, {
+        session_id: sessionId,
+        from_tag: fromTag,
+        to_tag: toTag
+      }) || { diffs: [] }
     },
 
     // ========== 知识库管理 ==========
@@ -59,167 +69,63 @@ export function createAgentClient(client) {
         }
         throw new Error('添加知识失败')
       } catch (error) {
-        throw new Error(error.message || '添加知识失败')
+        handleError(error, '添加知识')
       }
     },
 
     async listKnowledge(category = '') {
-      try {
-        const params = category ? { category } : {}
-        const response = await client.get('/agent/knowledge', params)
-        if (response.ok) {
-          return await response.json()
-        }
-        return { entries: [] }
-      } catch (error) {
-        console.error('Failed to load knowledge:', error)
-        return { entries: [] }
-      }
+      return await request('get', '/agent/knowledge', null, category ? { category } : {}) || { entries: [] }
     },
 
     async searchKnowledge(query) {
-      try {
-        const response = await client.get('/agent/knowledge/search', { query })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { results: [] }
-      } catch (error) {
-        console.error('Failed to search knowledge:', error)
-        return { results: [] }
-      }
+      return await request('get', '/agent/knowledge/search', null, { query }) || { results: [] }
     },
 
     // ========== 需求联想 ==========
     async getRequirementAssociations(requirement) {
-      try {
-        const response = await client.post('/agent/requirement-association', {
-          requirement
-        })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { associations: [] }
-      } catch (error) {
-        console.error('Failed to get associations:', error)
-        return { associations: [] }
-      }
+      return await request('post', '/agent/requirement-association', { requirement }) || { associations: [] }
     },
 
     async confirmAssociation(associationId) {
-      try {
-        const response = await client.post('/agent/requirement-association/confirm', {
-          association_id: associationId
-        })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
-      }
+      return await request('post', '/agent/requirement-association/confirm', { association_id: associationId }) || { success: false }
     },
 
     async submitAssociationHelpful(associationId, helpful) {
-      try {
-        const response = await client.post('/agent/requirement-association/helpfulness', {
-          association_id: associationId,
-          helpful
-        })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
-      }
+      return await request('post', '/agent/requirement-association/helpfulness', {
+        association_id: associationId,
+        helpful
+      }) || { success: false }
     },
 
     async getAssociationStats() {
-      try {
-        const response = await client.get('/agent/requirement-association/stats')
-        if (response.ok) {
-          return await response.json()
-        }
-        return {}
-      } catch (error) {
-        return {}
-      }
+      return await request('get', '/agent/requirement-association/stats') || {}
     },
 
     // ========== 性能监控 ==========
     async getPerformanceMetrics() {
-      try {
-        const response = await client.get('/agent/performance')
-        if (response.ok) {
-          return await response.json()
-        }
-        return {}
-      } catch (error) {
-        return {}
-      }
+      return await request('get', '/agent/performance') || {}
     },
 
     async getPerformanceTrends() {
-      try {
-        const response = await client.get('/agent/performance/trends')
-        if (response.ok) {
-          return await response.json()
-        }
-        return {}
-      } catch (error) {
-        return {}
-      }
+      return await request('get', '/agent/performance/trends') || {}
     },
 
     async exportPerformance() {
-      try {
-        const response = await client.post('/agent/performance/export')
-        if (response.ok) {
-          return await response.json()
-        }
-        return null
-      } catch (error) {
-        return null
-      }
+      return await request('post', '/agent/performance/export') || null
     },
 
     // ========== 学习反馈 ==========
     async getLearningStats() {
-      try {
-        const response = await client.get('/agent/learning/stats')
-        if (response.ok) {
-          return await response.json()
-        }
-        return {}
-      } catch (error) {
-        return {}
-      }
+      return await request('get', '/agent/learning/stats') || {}
     },
 
     async getCommonErrors(fileType) {
-      try {
-        const response = await client.get(`/agent/learning/common-errors/${fileType}`)
-        if (response.ok) {
-          return await response.json()
-        }
-        return { errors: [] }
-      } catch (error) {
-        return { errors: [] }
-      }
+      return await request('get', `/agent/learning/common-errors/${fileType}`) || { errors: [] }
     },
 
     // ========== 并发限制 ==========
     async getRecommendedConcurrentLimits() {
-      try {
-        const response = await client.get('/agent/concurrent-limits/recommended')
-        if (response.ok) {
-          return await response.json()
-        }
-        return {}
-      } catch (error) {
-        return {}
-      }
+      return await request('get', '/agent/concurrent-limits/recommended') || {}
     },
 
     async updateConcurrentLimits(limits) {
@@ -230,33 +136,17 @@ export function createAgentClient(client) {
         }
         throw new Error('更新并发限制失败')
       } catch (error) {
-        throw new Error(error.message || '更新并发限制失败')
+        handleError(error, '更新并发限制')
       }
     },
 
     async getConcurrentLimitsHistory() {
-      try {
-        const response = await client.get('/agent/concurrent-limits/history')
-        if (response.ok) {
-          return await response.json()
-        }
-        return { history: [] }
-      } catch (error) {
-        return { history: [] }
-      }
+      return await request('get', '/agent/concurrent-limits/history') || { history: [] }
     },
 
     // ========== 缓存管理 ==========
     async getCacheStats() {
-      try {
-        const response = await client.get('/agent/cache/stats')
-        if (response.ok) {
-          return await response.json()
-        }
-        return {}
-      } catch (error) {
-        return {}
-      }
+      return await request('get', '/agent/cache/stats') || {}
     },
 
     async clearCache() {
@@ -267,37 +157,20 @@ export function createAgentClient(client) {
         }
         throw new Error('清除缓存失败')
       } catch (error) {
-        throw new Error(error.message || '清除缓存失败')
+        handleError(error, '清除缓存')
       }
     },
 
     // ========== Token 使用统计 ==========
     async getTokenUsage() {
-      try {
-        const response = await client.get('/agent/token-usage')
-        if (response.ok) {
-          return await response.json()
-        }
-        return {
-          total_tokens: 0,
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          total_messages: 0,
-          today_tokens: 0,
-          this_month_tokens: 0,
-          by_model: {}
-        }
-      } catch (error) {
-        console.error('Failed to get token usage:', error)
-        return {
-          total_tokens: 0,
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          total_messages: 0,
-          today_tokens: 0,
-          this_month_tokens: 0,
-          by_model: {}
-        }
+      return await request('get', '/agent/token-usage') || {
+        total_tokens: 0,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_messages: 0,
+        today_tokens: 0,
+        this_month_tokens: 0,
+        by_model: {}
       }
     }
   }

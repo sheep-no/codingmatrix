@@ -27,8 +27,8 @@
               <select
                 v-if="isSuperUser"
                 :value="getSelectedModel(complexity, role)"
-                @change="updateModel(complexity, role, $event.target.value)"
                 class="model-select"
+                @change="updateModel(complexity, role, $event.target.value)"
               >
                 <option v-for="model in availableModels" :key="model.id" :value="model.id">
                   {{ model.name }}
@@ -52,7 +52,7 @@
         <div v-for="(models, chainName) in configData.fallback_chains" :key="chainName" class="chain-card">
           <div class="chain-header">
             <span class="chain-name">{{ chainName }}</span>
-            <button class="chain-save-btn" @click="saveChain(chainName, models)" :disabled="chainSaving">
+            <button class="chain-save-btn" :disabled="chainSaving" @click="saveChain(chainName, models)">
               保存
             </button>
           </div>
@@ -65,14 +65,14 @@
               <span class="chain-index">{{ idx + 1 }}</span>
               <select
                 :value="modelId"
-                @change="updateChainModel(chainName, idx, $event.target.value)"
                 class="model-select"
+                @change="updateChainModel(chainName, idx, $event.target.value)"
               >
                 <option v-for="model in availableModels" :key="model.id" :value="model.id">
                   {{ model.name }}
                 </option>
               </select>
-              <button class="chain-remove-btn" @click="removeChainModel(chainName, idx)" title="移除">
+              <button class="chain-remove-btn" title="移除" @click="removeChainModel(chainName, idx)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
@@ -95,8 +95,8 @@
           <span class="error-type-name">{{ errorType }}</span>
           <select
             :value="modelId"
-            @change="updateErrorTypeModel(errorType, $event.target.value)"
             class="model-select"
+            @change="updateErrorTypeModel(errorType, $event.target.value)"
           >
             <option v-for="model in availableModels" :key="model.id" :value="model.id">
               {{ model.name }}

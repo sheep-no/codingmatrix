@@ -60,13 +60,11 @@ export function useAgentGeneration() {
     return `${Math.ceil(remaining / 3600000)}小时`
   }
 
-  function getPlaceholder(mode) {
-    switch (mode) {
-      case 'create': return '描述你想要生成的项目，例如：\n\n一个带用户登录功能的 Vue 3 + FastAPI 项目...\n\n或者选择下面的快速模板：'
-      case 'modify': return '描述你需要修改或新增的内容，例如：\n\n添加用户权限验证功能...\n优化登录页面UI...\n新增数据导出功能...'
-      case 'debug': return '描述遇到的问题或需要修复的Bug，例如：\n\n用户登录时出现500错误...\n数据保存失败...\n页面加载缓慢...'
-      default: return '请输入您的需求...'
+  function getPlaceholder(hasFiles) {
+    if (hasFiles) {
+      return '描述你需要修改或新增的内容，例如：\n\n添加用户权限验证功能...\n优化登录页面UI...\n新增数据导出功能...\n\n或者描述遇到的问题：\n\n用户登录时出现500错误...\n数据保存失败...'
     }
+    return '描述你想要生成的项目，例如：\n\n一个带用户登录功能的 Vue 3 + FastAPI 项目...\n\n或者选择下面的快速模板：'
   }
 
   function resetStages() {

@@ -5,12 +5,13 @@ import time
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncIterator, Dict, Any
+from typing import AsyncIterator, Dict, Any, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete as sql_delete, and_
+from sqlalchemy import delete as sql_delete, and_, select
 
 from app.utils.security import verify_token
 from app.db.database import get_db, async_session
@@ -27,18 +28,20 @@ from .schemas import (
     ModifyRequest, ComplexityAnalysisRequest, ComplexityAnalysisResponse,
     EvaluateRequest, EvaluateResponse,
     TokenUsageStatsResponse,
+    SearchSessionsRequest, SearchSessionsResponse, SessionMatch,
 )
 from .helpers import (
     get_session_manager, get_spec_cache, get_feedback_learner,
     _approval_queues, _create_project_session, _update_project_session_status,
     verify_admin_token, get_user_recent_session,
-    detect_resume_intent, analyze_files_to_regenerate,
+    detect_resume_intent, resolve_resume_session, analyze_files_to_regenerate,
 )
 from app.utils.guardrails import (
     check_disk_space, check_rate_limit, validate_session_id
 )
 
 _decision_queues: Dict[str, asyncio.Queue] = {}
+_cancel_events: Dict[str, asyncio.Event] = {}
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -50,13 +53,16 @@ async def _cleanup_session_queues(session_id: str):
         del _approval_queues[session_id]
     if session_id in _decision_queues:
         del _decision_queues[session_id]
+    if session_id in _cancel_events:
+        del _cancel_events[session_id]
 
 
 async def _cleanup_all_queues():
     """清理所有队列（用于异常恢复）"""
-    global _approval_queues, _decision_queues
+    global _approval_queues, _decision_queues, _cancel_events
     _approval_queues.clear()
     _decision_queues.clear()
+    _cancel_events.clear()
 
 
 @router.post("/modify", response_model=OrchestratorResponse)
@@ -235,16 +241,19 @@ async def orchestrate_project_stream(
     additional_requirement = resume_intent.get("additional_requirement", "")
     
     if is_resume:
-        # 查找用户最近的会话
-        recent_session = await get_user_recent_session(db, user_id, status_filter="running")
-        if not recent_session:
-            recent_session = await get_user_recent_session(db, user_id, status_filter="cancelled")
+        # 方案 2：智能解析要恢复的 session
+        target_session = await resolve_resume_session(db, user_id, request.requirement)
         
-        if recent_session:
+        if target_session:
             # 恢复已有会话
-            session_id = recent_session.session_id
-            output_dir = recent_session.output_dir
-            original_requirement = recent_session.requirement
+            session_id = target_session.session_id
+            output_dir = target_session.output_dir
+            original_requirement = target_session.requirement
+            
+            # 智能匹配结果：检查是否匹配到最近 session
+            recent_session = await get_user_recent_session(db, user_id, status_filter="running")
+            used_recent = recent_session is not None and target_session.session_id == recent_session.session_id
+            logger.info(f"继续会话 | session={session_id} | has_changes={has_changes} | matched_recent={used_recent}")
             
             # 如果有补充需求，合并需求
             if has_changes and additional_requirement:
@@ -272,8 +281,6 @@ async def orchestrate_project_stream(
             else:
                 # 纯继续，使用原始需求
                 request.requirement = original_requirement
-            
-            logger.info(f"继续会话 | session={session_id} | has_changes={has_changes}")
         else:
             # 没有找到可恢复的会话，创建新会话
             logger.info(f"没有找到可恢复的会话，创建新会话")
@@ -291,7 +298,24 @@ async def orchestrate_project_stream(
 
     logger.info(f"Orchestrator 流式生成请求 | user={user_id} session={session_id}")
 
-    await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
+    if not is_resume:
+        await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
+    else:
+        # 继续时更新已有 session 状态为 running
+        try:
+            result = await db.execute(
+                select(ProjectSession).where(ProjectSession.session_id == session_id)
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                existing.status = "running"
+                existing.requirement = request.requirement
+                await db.commit()
+            else:
+                await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
+        except Exception:
+            await db.rollback()
+            await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
 
     queue: asyncio.Queue = asyncio.Queue()
     approval_queue: asyncio.Queue = asyncio.Queue()
@@ -300,19 +324,39 @@ async def orchestrate_project_stream(
 
     _approval_queues[session_id] = approval_queue
     _decision_queues[session_id] = decision_queue
+    _cancel_events[session_id] = cancel_event
 
     async def approval_callback(file_path: str) -> bool:
         await queue.put(f"data: {json.dumps({'type': 'pause_for_approval', 'data': {'file_path': file_path, 'session_id': session_id}}, ensure_ascii=False)}\n\n")
         try:
-            result = await asyncio.wait_for(
-                asyncio.gather(approval_queue.get(), cancel_event.wait(), return_when=asyncio.FIRST_COMPLETED),
-                timeout=300
+            # 使用两个独立任务明确判断哪个先完成
+            approval_task = asyncio.create_task(approval_queue.get())
+            cancel_task = asyncio.create_task(cancel_event.wait())
+            
+            done, pending = await asyncio.wait(
+                [approval_task, cancel_task],
+                timeout=300,
+                return_when=asyncio.FIRST_COMPLETED
             )
-            if cancel_event.is_set():
+            
+            # 取消未完成的任务
+            for task in pending:
+                task.cancel()
+            
+            # 检查是否因为取消而完成
+            if cancel_event.is_set() or cancel_task in done:
                 return False
-            return result[0].get("approved", True) if isinstance(result, tuple) else result.get("approved", True)
-        except asyncio.TimeoutError:
-            logger.warning(f"审批超时: {file_path}，自动批准")
+            
+            # 检查是否超时
+            if not done:
+                logger.warning(f"审批超时: {file_path}，自动批准")
+                return True
+            
+            # 获取审批结果
+            result = approval_task.result()
+            return result.get("approved", True) if isinstance(result, dict) else True
+        except Exception as e:
+            logger.error(f"审批回调异常: {file_path} - {e}")
             return True
 
     sm = await get_session_manager()
@@ -415,6 +459,7 @@ async def orchestrate_project_stream(
             except asyncio.CancelledError:
                 logger.info(f"[SSE] 客户端断开连接，取消生成任务 | session={session_id}")
             finally:
+                was_cancelled = cancel_event.is_set()
                 cancel_event.set()
                 if not gen_task.done():
                     gen_task.cancel()
@@ -423,9 +468,10 @@ async def orchestrate_project_stream(
                     except (asyncio.CancelledError, asyncio.TimeoutError):
                         pass
                 await _cleanup_session_queues(session_id)
-                await sm.cancel_session(session_id)
-                async with async_session() as gen_db:
-                    await _update_project_session_status(gen_db, session_id, "cancelled")
+                if was_cancelled:
+                    await sm.cancel_session(session_id)
+                    async with async_session() as gen_db:
+                        await _update_project_session_status(gen_db, session_id, "cancelled")
 
         except asyncio.CancelledError:
             logger.info("[SSE] Orchestrator 流式响应被取消")
@@ -444,6 +490,121 @@ async def orchestrate_project_stream(
             "X-Accel-Buffering": "no"
         }
     )
+
+
+# ==================== 方案 3：Agent 工具 - 搜索历史会话 ====================
+
+
+@router.post("/search_sessions", response_model=SearchSessionsResponse)
+async def search_sessions(
+    request: SearchSessionsRequest,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    方案 3：Agent 工具 - 按语义搜索历史会话
+    
+    支持 agent 在多轮对话中查找对应的历史 session，
+    适用于"修复上上轮的登录 bug"、"合并轮1的登录模块和轮3的支付模块"等场景。
+    """
+    user_id = token.get("sub", "anonymous")
+    if not user_id or user_id == "anonymous" or not user_id.isdigit():
+        raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+    
+    try:
+        query = select(ProjectSession).where(
+            ProjectSession.user_id == user_id
+        )
+        query = query.order_by(ProjectSession.created_at.desc()).limit(request.limit)
+        
+        result = await db.execute(query)
+        sessions = list(result.scalars().all())
+        
+        # 让 LLM 评估每个 session 的相关性
+        from app.utils import call_llm
+        
+        session_summaries = []
+        for s in sessions:
+            req_preview = s.requirement[:150] + ("..." if len(s.requirement) > 150 else "")
+            session_summaries.append(
+                f"- ID: {s.session_id}\n"
+                f"  需求: {req_preview}\n"
+                f"  状态: {s.status}"
+            )
+        
+        summaries_text = "\n".join(session_summaries)
+        
+        prompt = f"""你是会话匹配助手。根据用户的搜索查询，为历史会话列表中的每个会话打分。
+
+搜索查询："{request.query}"
+
+历史会话列表（按时间倒序）：
+{summaries_text}
+
+请为每个会话返回一个匹配分数（0-1 之间，表示与该查询的相关性）。
+严格使用以下 JSON 格式返回，不要其他文字：
+{{"scores": {{"session_id_1": 0.9, "session_id_2": 0.3, ...}}}}"""
+
+        scores = {}
+        try:
+            result_llm = await call_llm(
+                model="Qwen/Qwen3.5-4B",
+                prompt=prompt,
+                temperature=0.1,
+                max_tokens=1000
+            )
+
+            content = result_llm.get("choices", [{}])[0].get("message", {}).get("content", "")
+            logger.info(f"LLM 评分原始输出: {content[:200]}...")
+
+            # 尝试多种解析方式
+            import re
+            # 尝试 JSON 格式
+            json_match = re.search(r'\{[^{}]*"scores"[^{}]*\}', content, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                scores_dict = data.get("scores", {})
+                for sid, score in scores_dict.items():
+                    scores[sid] = max(0, min(1, float(score)))
+            else:
+                # 尝试简单键值对格式
+                for line in content.strip().split("\n"):
+                    if ":" in line:
+                        parts = line.split(":")
+                        if len(parts) >= 2:
+                            session_id = parts[0].strip()
+                            try:
+                                score = float(parts[-1].strip())
+                                scores[session_id] = max(0, min(1, score))
+                            except ValueError:
+                                pass
+        except Exception as e:
+            logger.warning(f"LLM 评分失败: {e}")
+        
+        # 构建结果
+        matches = []
+        for s in sessions:
+            matches.append(SessionMatch(
+                session_id=s.session_id,
+                requirement_preview=s.requirement[:100] + "..." if len(s.requirement) > 100 else s.requirement,
+                status=s.status,
+                created_at=s.created_at.isoformat() if s.created_at else "",
+                files_generated=s.files_generated,
+                files_total=s.files_total,
+                relevance_score=scores.get(s.session_id, 0.0)
+            ))
+        
+        # 按相关性排序
+        matches.sort(key=lambda m: m.relevance_score, reverse=True)
+        
+        return SearchSessionsResponse(
+            query=request.query,
+            matches=matches
+        )
+        
+    except Exception as e:
+        logger.error(f"搜索会话失败: {e}")
+        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
 
 
 @router.post("/analyze_complexity", response_model=ComplexityAnalysisResponse)
@@ -663,6 +824,10 @@ async def session_action_endpoint(
     sm = await get_session_manager()
 
     if action == "cancel":
+        # 设置 cancel_event 通知正在运行的生成任务停止
+        cancel_ev = _cancel_events.get(session_id)
+        if cancel_ev:
+            cancel_ev.set()
         await sm.cancel_session(session_id)
         await _update_project_session_status(db, session_id, "cancelled")
         return {"status": "cancelled", "session_id": session_id}

@@ -1,7 +1,7 @@
 <template>
   <div class="main-panel">
     <!-- Progress bar - only when generating -->
-    <div v-if="stages.length > 0" class="progress-bar-section">
+    <div v-if="stages && stages.length > 0" class="progress-bar-section">
       <div class="progress-meta">
         <span class="progress-label">生成进度</span>
         <span class="progress-value">{{ Math.round(overallProgress) }}%</span>
@@ -13,7 +13,7 @@
     </div>
 
     <!-- Timeline -->
-    <div v-if="stages.length > 0" class="timeline">
+    <div v-if="stages && stages.length > 0" class="timeline">
       <div
         v-for="(stage, index) in stages"
         :key="stage.id"
@@ -66,7 +66,7 @@
     </div>
 
     <!-- Decisions -->
-    <div v-if="decisions.length > 0" class="decisions-panel">
+    <div v-if="decisions && decisions.length > 0" class="decisions-panel">
       <div class="decisions-title">
         <span>需要确认的决策</span>
         <span class="decisions-count">{{ decisions.length }}</span>
@@ -76,7 +76,7 @@
         <div class="decision-context">{{ decision.context }}</div>
         <div class="decision-options">
           <button
-            v-for="option in decision.options"
+            v-for="option in (decision.options || [])"
             :key="option.label"
             class="decision-btn"
             :class="{ active: decisionAnswers[decision.id] === option.label, default: option.label === decision.default }"
@@ -94,9 +94,9 @@
     </div>
 
     <!-- Merged sections from right panel -->
-    <div v-if="thinkingMessages.length > 0 || executionSteps.length > 0 || logs.length > 0" class="merged-sections">
+    <div v-if="(thinkingMessages && thinkingMessages.length > 0) || (executionSteps && executionSteps.length > 0) || (logs && logs.length > 0)" class="merged-sections">
       <!-- Thinking -->
-      <div v-if="thinkingMessages.length > 0" class="merged-section">
+      <div v-if="thinkingMessages && thinkingMessages.length > 0" class="merged-section">
         <div class="merged-section-header" @click="toggleMerged('thinking')">
           <div class="merged-header-left">
             <span class="merged-dot thinking-dot-bg"></span>
@@ -129,7 +129,7 @@
       </div>
 
       <!-- Execution Steps -->
-      <div v-if="executionSteps.length > 0" class="merged-section">
+      <div v-if="executionSteps && executionSteps.length > 0" class="merged-section">
         <div class="merged-section-header" @click="toggleMerged('steps')">
           <div class="merged-header-left">
             <span class="merged-dot steps-dot-bg"></span>
@@ -158,7 +158,7 @@
       </div>
 
       <!-- Logs -->
-      <div v-if="logs.length > 0" class="merged-section">
+      <div v-if="logs && logs.length > 0" class="merged-section">
         <div class="merged-section-header" @click="toggleMerged('logs')">
           <div class="merged-header-left">
             <span class="merged-dot logs-dot-bg"></span>
@@ -206,11 +206,106 @@
         <span>{{ lineCount }} 行</span>
         <span>{{ fileSize }}</span>
         <span>{{ language }}</span>
+        <span v-if="fileComplexity" class="complexity-badge" :class="`complexity-${fileComplexity.level}`">
+          复杂度: {{ fileComplexity.level }}
+        </span>
+      </div>
+    </div>
+
+    <!-- Test Results Section -->
+    <div v-if="testResults" class="info-section test-results-section">
+      <div class="section-header">
+        <span class="section-icon">🧪</span>
+        <span class="section-title">测试结果</span>
+      </div>
+      <div class="section-body">
+        <div class="stats-grid">
+          <div class="stat-item stat-passed">
+            <span class="stat-value">{{ testResults.passed }}</span>
+            <span class="stat-label">通过</span>
+          </div>
+          <div class="stat-item stat-failed">
+            <span class="stat-value">{{ testResults.failed }}</span>
+            <span class="stat-label">失败</span>
+          </div>
+          <div class="stat-item stat-skipped">
+            <span class="stat-value">{{ testResults.skipped }}</span>
+            <span class="stat-label">跳过</span>
+          </div>
+          <div v-if="testResults.coverage" class="stat-item stat-coverage">
+            <span class="stat-value">{{ testResults.coverage }}%</span>
+            <span class="stat-label">覆盖率</span>
+          </div>
+        </div>
+        <div v-if="testResults.duration" class="duration-info">
+          耗时: {{ formatDuration(testResults.duration) }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Validation Results Section -->
+    <div v-if="validationResults" class="info-section validation-results-section">
+      <div class="section-header">
+        <span class="section-icon">✅</span>
+        <span class="section-title">验证结果</span>
+      </div>
+      <div class="section-body">
+        <div class="validation-status" :class="validationResults.passed ? 'passed' : 'failed'">
+          {{ validationResults.passed ? '全部通过' : '存在问题' }}
+        </div>
+        <div v-if="validationResults.checks && validationResults.checks.length > 0" class="checks-list">
+          <div v-for="(check, idx) in validationResults.checks" :key="idx" class="check-item" :class="check.passed ? 'check-passed' : 'check-failed'">
+            <span class="check-icon">{{ check.passed ? '✓' : '✗' }}</span>
+            <span class="check-name">{{ check.name }}</span>
+            <span v-if="check.message" class="check-message">{{ check.message }}</span>
+          </div>
+        </div>
+        <div v-if="validationResults.issues && validationResults.issues.length > 0" class="issues-summary">
+          {{ validationResults.issues.length }} 个问题需要修复
+        </div>
+      </div>
+    </div>
+
+    <!-- Cost & Performance Section -->
+    <div v-if="costData && costData.totalTokens > 0" class="info-section cost-section">
+      <div class="section-header">
+        <span class="section-icon">💰</span>
+        <span class="section-title">成本与性能</span>
+      </div>
+      <div class="section-body">
+        <div class="cost-grid">
+          <div class="cost-item">
+            <span class="cost-label">总 Token</span>
+            <span class="cost-value">{{ formatNumber(costData.totalTokens) }}</span>
+          </div>
+          <div class="cost-item">
+            <span class="cost-label">费用</span>
+            <span class="cost-value">${{ costData.totalCostUsd?.toFixed(4) || '0.0000' }}</span>
+          </div>
+          <div class="cost-item">
+            <span class="cost-label">速度</span>
+            <span class="cost-value">{{ costData.tokensPerSecond?.toFixed(0) || 0 }} tok/s</span>
+          </div>
+        </div>
+        <div v-if="performanceMetrics && performanceMetrics.llmCalls > 0" class="performance-grid">
+          <div class="perf-item">
+            <span class="perf-label">LLM 调用</span>
+            <span class="perf-value">{{ performanceMetrics.llmCalls }} 次</span>
+          </div>
+          <div class="perf-item">
+            <span class="perf-label">生成速度</span>
+            <span class="perf-value">{{ performanceMetrics.filesPerMinute?.toFixed(1) || 0 }} 文件/分</span>
+          </div>
+          <div v-if="performanceMetrics.retryCount > 0" class="perf-item">
+            <span class="perf-label">重试次数</span>
+            <span class="perf-value">{{ performanceMetrics.retryCount }}</span>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Empty state -->
-    <div v-if="stages.length === 0 && !selectedFile" class="empty-state">
+    <div v-if="(!stages || stages.length === 0) && !selectedFile" class="empty-state">
       <div class="empty-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
@@ -240,7 +335,13 @@ const props = defineProps({
   hasDiff: { type: Boolean, default: false },
   thinkingMessages: { type: Array, default: () => [] },
   executionSteps: { type: Array, default: () => [] },
-  logs: { type: Array, default: () => [] }
+  logs: { type: Array, default: () => [] },
+  // 新增 props
+  testResults: { type: Object, default: null },
+  validationResults: { type: Object, default: null },
+  costData: { type: Object, default: null },
+  performanceMetrics: { type: Object, default: null },
+  fileComplexity: { type: Object, default: null }
 })
 
 defineEmits(['select-decision', 'use-default', 'submit-decision', 'show-diff', 'save-version', 'version-history', 'copy', 'download', 'delete-file', 'download-project', 'clear-thinking', 'clear-steps', 'clear-logs'])
@@ -266,7 +367,22 @@ function formatTime(ts) {
   return new Date(ts).toLocaleTimeString()
 }
 
-watch(() => props.logs.length, () => {
+function formatDuration(seconds) {
+  if (!seconds) return '0 秒'
+  if (seconds < 60) return `${seconds.toFixed(1)} 秒`
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.round(seconds % 60)
+  return mins > 0 ? `${mins} 分 ${secs} 秒` : `${secs} 秒`
+}
+
+function formatNumber(num) {
+  if (!num) return '0'
+  if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`
+  if (num >= 1000) return `${(num / 1000).toFixed(1)}K`
+  return num.toString()
+}
+
+watch(() => props.logs?.length, () => {
   nextTick(() => {
     if (logsContainerRef.value) {
       logsContainerRef.value.scrollTop = logsContainerRef.value.scrollHeight

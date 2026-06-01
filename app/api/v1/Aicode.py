@@ -50,6 +50,24 @@ router = APIRouter()
 _partial_response_cache: Dict[str, dict] = {}
 _PARTIAL_TTL = 300  # 5 分钟过期
 
+
+def _cleanup_partial_cache():
+    """清理过期的部分响应缓存"""
+    now = datetime.utcnow()
+    expired_keys = []
+    for task_id, data in _partial_response_cache.items():
+        try:
+            cached_time = datetime.fromisoformat(data.get("timestamp", ""))
+            if (now - cached_time).total_seconds() > _PARTIAL_TTL:
+                expired_keys.append(task_id)
+        except Exception:
+            expired_keys.append(task_id)
+    
+    for task_id in expired_keys:
+        _partial_response_cache.pop(task_id, None)
+    
+    return len(expired_keys)
+
 # 通用提示词模板
 # -----------------------------
 GENERAL_PROMPT = """请回答以下问题：
@@ -568,6 +586,7 @@ async def stream_response(
                 partial_text = prefix_text + "".join(response_parts)
                 if len(partial_text) > 10:
                     task_id = str(uuid.uuid4())
+                    _cleanup_partial_cache()
                     _partial_response_cache[task_id] = {
                         "prompt": prompt,
                         "partial_response": partial_text,
@@ -611,6 +630,7 @@ async def stream_response(
         partial_text = prefix_text + "".join(response_parts)
         if len(partial_text) > 10:
             task_id = str(uuid.uuid4())
+            _cleanup_partial_cache()
             _partial_response_cache[task_id] = {
                 "prompt": prompt,
                 "partial_response": partial_text,

@@ -85,6 +85,8 @@ class ModelPerformanceTracker:
     def __init__(self):
         self._conn = sqlite3.connect(self.DB_PATH, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
+        self._write_lock = asyncio.Lock()
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS performance ("
             "model_name TEXT NOT NULL, "
@@ -123,7 +125,47 @@ class ModelPerformanceTracker:
         except Exception:
             pass
 
-    def record_call(self, model: str, task_type: str, success: bool, latency: float):
+    async def record_call(self, model: str, task_type: str, success: bool, latency: float):
+        now = time.time()
+        async with self._write_lock:
+            cursor = self._conn.execute(
+                "SELECT success_rate, avg_latency, total_calls, consecutive_failures "
+                "FROM performance WHERE model_name = ? AND task_type = ?",
+                (model, task_type),
+            )
+            row = cursor.fetchone()
+            if row:
+                old_rate, old_latency, old_calls, old_cf = row
+                new_calls = old_calls + 1
+                if success:
+                    new_successes = int(old_rate * old_calls) + 1
+                    new_rate = new_successes / new_calls
+                    new_latency = (old_latency * old_calls + latency) / new_calls
+                    new_cf = 0
+                else:
+                    new_rate = (old_rate * old_calls) / new_calls
+                    new_latency = (old_latency * old_calls + latency) / new_calls
+                    new_cf = old_cf + 1
+                self._conn.execute(
+                    "UPDATE performance SET success_rate=?, avg_latency=?, "
+                    "total_calls=?, consecutive_failures=?, last_updated=? "
+                    "WHERE model_name=? AND task_type=?",
+                    (new_rate, new_latency, new_calls, new_cf, now, model, task_type),
+                )
+            else:
+                rate = 1.0 if success else 0.0
+                cf = 0 if success else 1
+                self._conn.execute(
+                    "INSERT INTO performance "
+                    "(model_name, task_type, success_rate, avg_latency, "
+                    "total_calls, consecutive_failures, last_updated) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (model, task_type, rate, latency, 1, cf, now),
+                )
+            self._conn.commit()
+
+    def _record_call_sync(self, model: str, task_type: str, success: bool, latency: float):
+        """同步版本 record_call（用于非异步上下文）"""
         now = time.time()
         cursor = self._conn.execute(
             "SELECT success_rate, avg_latency, total_calls, consecutive_failures "
@@ -175,6 +217,36 @@ class ModelPerformanceTracker:
             if cf < 5:
                 result.append(name)
         return result
+
+    def get_unified_best_model(
+        self,
+        task_type: str,
+        realtime_metrics: Dict[str, "ModelMetrics"],
+        top_k: int = 3
+    ) -> List[str]:
+        """统一选择最佳模型：结合历史数据和实时指标"""
+        historical_best = self.get_best_model(task_type, top_k * 2)
+
+        if not historical_best:
+            return list(realtime_metrics.keys())[:top_k]
+
+        scored = []
+        for model_name in set(historical_best + list(realtime_metrics.keys())):
+            historical_score = 0.5
+            if model_name in historical_best:
+                idx = historical_best.index(model_name)
+                historical_score = 1.0 - (idx * 0.2)
+
+            realtime_score = 0.0
+            if model_name in realtime_metrics:
+                metrics = realtime_metrics[model_name]
+                realtime_score = metrics.health_score / 100.0
+
+            combined_score = historical_score * 0.4 + realtime_score * 0.6
+            scored.append((combined_score, model_name))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [name for _, name in scored[:top_k]]
 
     def get_total_records(self) -> int:
         cursor = self._conn.execute("SELECT COUNT(*) FROM performance")
@@ -233,7 +305,7 @@ class LearningRouter:
         return ranked[0]
 
     def record_call(self, model: str, task_type: str, success: bool, latency: float):
-        self._tracker.record_call(model, task_type, success, latency)
+        self._tracker._record_call_sync(model, task_type, success, latency)
         if not success:
             if task_type not in self._degraded_models:
                 self._degraded_models[task_type] = {}

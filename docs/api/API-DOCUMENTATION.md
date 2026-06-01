@@ -1,6 +1,6 @@
 # API 文档
 
-> 最后更新: 2026-05-29 | 版本：v1 (19 模块) + v2 (7 模块) | 项目版本：v5.10.0
+> 最后更新: 2026-05-30 | 版本：v1 (19 模块) + v2 (7 模块) | 项目版本：v5.11.0
 
 ## 认证
 
@@ -76,6 +76,7 @@
 | POST | `/api/v1/agent/process` | 处理任务 | normal |
 | POST | `/api/v1/agent/chat` | Agent 对话 | normal |
 | POST | `/api/v1/agent/chat/stream` | 流式对话 (SSE) | normal |
+| POST | `/api/v1/agent/search_sessions` | 语义搜索历史 session | normal |
 | GET | `/api/v1/agent/sessions` | 会话列表 | normal |
 | GET | `/api/v1/agent/sessions/{session_id}` | 会话详情 | normal |
 | DELETE | `/api/v1/agent/sessions/{session_id}` | 删除会话 | normal |
@@ -382,9 +383,9 @@
 - [x] GET /api/v1/agent/saved/{project_id} - 加载项目
 - [x] DELETE /api/v1/agent/saved/{project_id} - 删除项目
 
-### AI Agent (22/22)
+### AI Agent (23/23)
 - [x] POST /api/v1/agent/process - 处理任务
-- [x] POST /api/v1/agent/process/stream - 流式处理
+- [x] POST /api/v1/agent/process_stream - 流式处理
 - [x] POST /api/v1/agent/react/process - ReAct 处理
 - [x] POST /api/v1/agent/react/stream - ReAct 流式
 - [x] GET /api/v1/agent/models - 可用模型列表
@@ -404,6 +405,7 @@
 - [x] POST /api/v1/agent/cache/clear - 清空缓存
 - [x] GET /api/v1/agent/learning/stats - 学习统计
 - [x] GET /api/v1/agent/learning/common-errors/{file_type} - 常见错误
+- [x] POST /api/v1/agent/search_sessions - 语义搜索历史 session
 
 ### 虚拟 AI (GirlAi) (4/4)
 - [x] GET /api/v1/GirlAi/characters - 角色列表

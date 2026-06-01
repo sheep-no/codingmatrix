@@ -2,18 +2,37 @@
 Memory 模块 - Agent 记忆系统
 
 提供对话历史、知识和上下文管理能力
+支持语义搜索（基于 embedding 余弦相似度）
 """
 
 import json
 import time
 import asyncio
+import math
 from typing import Dict, List, Any, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from collections import defaultdict
 import logging
 
+from app.utils.AiCodeUtil import get_embedding
+
 logger = logging.getLogger(__name__)
+
+# 语义搜索相似度阈值
+SEMANTIC_SIMILARITY_THRESHOLD = 0.65
+
+
+def cosine_similarity(a: List[float], b: List[float]) -> float:
+    """计算两个向量的余弦相似度"""
+    if not a or not b:
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
 
 @dataclass
@@ -48,6 +67,10 @@ class BaseMemory:
         raise NotImplementedError
 
     def search(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+        raise NotImplementedError
+
+    async def search_async(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+        """基于语义的异步搜索（使用 embedding 余弦相似度）"""
         raise NotImplementedError
 
     def clear(self) -> None:
@@ -157,6 +180,24 @@ class ConversationMemory(BaseMemory):
         scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
         return [e for _, _, e in scored[:limit]]
 
+    async def search_async(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+        """基于语义的异步搜索（使用 embedding 余弦相似度）"""
+        try:
+            query_embedding = await get_embedding(query)
+        except Exception as e:
+            logger.warning(f"获取 query embedding 失败，回退到字符串搜索: {e}")
+            return self.search(query, limit)
+
+        scored = []
+        for entry in self._entries:
+            if entry.embedding:
+                similarity = cosine_similarity(query_embedding, entry.embedding)
+                if similarity >= SEMANTIC_SIMILARITY_THRESHOLD:
+                    scored.append((similarity, entry.importance, entry.timestamp, entry))
+
+        scored.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+        return [e for _, _, _, e in scored[:limit]]
+
     def clear(self) -> None:
         self._entries.clear()
         self._is_compressed = False
@@ -229,6 +270,24 @@ class KnowledgeMemory(BaseMemory):
         results.sort(key=lambda e: e.importance, reverse=True)
         return results[:limit]
 
+    async def search_async(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+        """基于语义的异步搜索"""
+        try:
+            query_embedding = await get_embedding(query)
+        except Exception as e:
+            logger.warning(f"获取 query embedding 失败: {e}")
+            return self.search(query, limit)
+
+        scored = []
+        for entry in self._entries.values():
+            if entry.embedding:
+                similarity = cosine_similarity(query_embedding, entry.embedding)
+                if similarity >= SEMANTIC_SIMILARITY_THRESHOLD:
+                    scored.append((similarity, entry.importance, entry))
+
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        return [e for _, _, e in scored[:limit]]
+
     def clear(self) -> None:
         self._entries.clear()
         self._access_times.clear()
@@ -282,6 +341,24 @@ class ReflectionMemory(BaseMemory):
             e for e in reversed(self._entries)
             if query_lower in e.content.lower()
         ][:limit]
+
+    async def search_async(self, query: str, limit: int = 5) -> List[MemoryEntry]:
+        """基于语义的异步搜索"""
+        try:
+            query_embedding = await get_embedding(query)
+        except Exception as e:
+            logger.warning(f"获取 query embedding 失败: {e}")
+            return self.search(query, limit)
+
+        scored = []
+        for entry in self._entries:
+            if entry.embedding:
+                similarity = cosine_similarity(query_embedding, entry.embedding)
+                if similarity >= SEMANTIC_SIMILARITY_THRESHOLD:
+                    scored.append((similarity, entry.importance, entry))
+
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        return [e for _, _, e in scored[:limit]]
 
     def clear(self) -> None:
         self._entries.clear()
@@ -385,6 +462,15 @@ class AgentMemory:
             "created_at": self._created_at,
             "last_updated": time.time()
         }
+
+    async def search_async(self, query: str, limit: int = 5) -> Dict[str, List]:
+        """统一的语义搜索入口，搜索所有记忆类型"""
+        results = {
+            "conversation": await self.conversation.search_async(query, limit),
+            "knowledge": await self.knowledge.search_async(query, limit),
+            "reflection": await self.reflection.search_async(query, limit)
+        }
+        return results
 
     def clear_session(self) -> None:
         """清除会话记忆（保留知识）"""

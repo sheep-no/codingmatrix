@@ -2,6 +2,25 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
+function configureSseProxy(proxy) {
+  proxy.on('proxyRes', (proxyRes, req, res) => {
+    const contentType = proxyRes.headers['content-type'] || ''
+    if (contentType.includes('text/event-stream')) {
+      proxyRes.headers['cache-control'] = 'no-cache'
+      proxyRes.headers['x-accel-buffering'] = 'no'
+      res.writeHead(proxyRes.statusCode, proxyRes.headers)
+      proxyRes.on('data', (chunk) => {
+        res.write(chunk)
+        if (res.flush) res.flush()
+      })
+      proxyRes.on('end', () => res.end())
+    } else {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers)
+      proxyRes.pipe(res)
+    }
+  })
+}
+
 export default defineConfig({
   plugins: [vue()],
   resolve: {
@@ -35,16 +54,20 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
         secure: false,
+        selfHandleResponse: true,
         cookieDomainRewrite: '127.0.0.1',
-        cookiePathRewrite: '/'
+        cookiePathRewrite: '/',
+        configure: configureSseProxy
       },
       '/api/v2': {
         target: 'http://localhost:8000',
         changeOrigin: true,
         ws: true,
         secure: false,
+        selfHandleResponse: true,
         cookieDomainRewrite: '127.0.0.1',
-        cookiePathRewrite: '/'
+        cookiePathRewrite: '/',
+        configure: configureSseProxy
       }
     }
   },

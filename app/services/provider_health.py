@@ -23,7 +23,7 @@ TEST_EXPECTED = "2"
 PROVIDER_CONFIGS = {
     "siliconflow": {
         "base_url": "https://api.siliconflow.cn/v1",
-        "model": "THUDM/glm-4-9b-chat",
+        "model": "Qwen/Qwen2.5-7B-Instruct",
     },
     "openai": {
         "base_url": "https://api.openai.com/v1",

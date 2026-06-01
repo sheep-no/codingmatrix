@@ -36,6 +36,10 @@ class GenerationMixin(
     async def _initialize_components(self, requirement: str):
         self._start_time = time.time()
         self._update_phase("analyzing")
+        
+        # 初始化成本追踪器
+        if hasattr(self, 'cost_tracker'):
+            self.cost_tracker.start_time = time.time()
 
         self.analyzer = ComplexityAnalyzer()
         self.complexity = await self.analyzer.analyze_with_llm(requirement)

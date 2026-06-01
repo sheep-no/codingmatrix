@@ -462,7 +462,7 @@ class CrossValidator:
         return usages
 
     def _is_builtin_symbol(self, name: str) -> bool:
-        """判断是否是内置符号"""
+        """判断是否是内置符号或常见第三方库符号"""
         builtins = {
             # Python 内置函数
             'print', 'len', 'range', 'int', 'str', 'float', 'list', 'dict', 'set',
@@ -494,6 +494,37 @@ class CrossValidator:
             'router', 'app', 'db', 'session', 'request', 'response',
             # 模块别名（通常在 import 时定义）
             'models', 'database', 'schemas', 'crud', 'routers',
+            # 前端常见符号（Vue/React/JS）
+            'ref', 'reactive', 'computed', 'watch', 'onMounted', 'onUnmounted',
+            'defineComponent', 'defineProps', 'defineEmits', 'toRef', 'toRefs',
+            'provide', 'inject', 'nextTick', 'useRoute', 'useRouter',
+            'useState', 'useEffect', 'useContext', 'useCallback', 'useMemo',
+            'createElement', 'createApp', 'createVNode', 'h', 'Fragment',
+            'PropTypes', 'Component', 'PureComponent', 'memo', 'forwardRef',
+            # CSS/HTML 常见属性
+            'className', 'style', 'id', 'innerHTML', 'textContent',
+            'addEventListener', 'removeEventListener', 'querySelector',
+            'querySelectorAll', 'getElementById', 'getElementsByClassName',
+            # 常见常量和配置
+            'DEBUG', 'SECRET_KEY', 'DATABASE_URL', 'ALLOWED_HOSTS',
+            'CORS_ORIGINS', 'API_PREFIX', 'PROJECT_NAME', 'VERSION',
+            # 常见装饰器和函数
+            'app', 'router', 'get', 'post', 'put', 'delete', 'patch',
+            'on', 'emit', 'watch', 'unwatch', 'set', 'delete',
+            # 测试相关
+            'pytest', 'unittest', 'mock', 'patch', 'fixture',
+            'assert', 'assertEqual', 'assertRaises', 'assertIn',
+            # 日志相关
+            'logger', 'logging', 'getLogger', 'info', 'debug', 'warning', 'error',
+            # 异步相关
+            'async', 'await', 'asyncio', 'aiohttp', 'async_session',
+            # 类型注解
+            'Optional', 'List', 'Dict', 'Tuple', 'Set', 'Union', 'Any',
+            'Literal', 'Type', 'ClassVar', 'Final', 'Annotated',
+            # 其他常见符号
+            'json', 'os', 'sys', 'path', 'datetime', 'timedelta',
+            'uuid', 'hashlib', 'base64', 'secrets', 'time',
+            'Path', 'PurePath', 'PosixPath', 'WindowsPath',
         }
         return name in builtins
 
@@ -1139,9 +1170,18 @@ class CrossValidator:
         self,
         files: Dict[str, str],
         issues: List[Dict[str, str]],
-        model: str
+        model: str,
+        batch_size: int = 5
     ) -> Dict[str, str]:
-        """使用 LLM 修复问题"""
+        """
+        使用 LLM 修复问题（批量修复）
+
+        Args:
+            files: {文件路径: 文件内容}
+            issues: 问题列表
+            model: 修复模型
+            batch_size: 每批修复的文件数量
+        """
         import json
 
         # 按文件分组问题
@@ -1154,14 +1194,68 @@ class CrossValidator:
 
         fixed_files = dict(files)
 
-        # 修复每个文件
-        for file_path, file_issues in issues_by_file.items():
-            if file_path not in fixed_files:
+        # 批量修复文件
+        file_paths = list(issues_by_file.keys())
+        for i in range(0, len(file_paths), batch_size):
+            batch_paths = file_paths[i:i+batch_size]
+            batch_files = {}
+
+            for file_path in batch_paths:
+                if file_path not in fixed_files:
+                    continue
+                batch_files[file_path] = {
+                    "content": fixed_files[file_path],
+                    "issues": issues_by_file[file_path]
+                }
+
+            if not batch_files:
                 continue
 
-            current_content = fixed_files[file_path]
+            # 构建批量修复提示
+            files_desc = []
+            for file_path, info in batch_files.items():
+                files_desc.append(f"""文件: {file_path}
+问题: {json.dumps(info['issues'], ensure_ascii=False)}
+代码:
+```
+{info['content']}
+```""")
 
-            prompt = f"""请修复以下代码中的问题：
+            prompt = f"""请修复以下文件中的问题。每个文件独立修复，输出格式为：
+===文件路径===
+修复后的完整代码
+===END===
+
+{chr(10).join(files_desc)}
+
+请按上述格式输出所有修复后的文件代码。"""
+
+            try:
+                response = await call_llm(
+                    model=model,
+                    prompt=prompt,
+                    stream=False,
+                    max_tokens=16384  # 增加 token 限制以支持批量修复
+                )
+
+                content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if content:
+                    # 解析批量修复结果
+                    fixed_batch = self._parse_batch_fix_result(content, batch_paths)
+                    for file_path, fixed_content in fixed_batch.items():
+                        if fixed_content:
+                            fixed_files[file_path] = fixed_content
+                            logger.info(f"已修复文件: {file_path}")
+            except Exception as e:
+                logger.error(f"批量修复失败: {e}")
+                # 回退到单文件修复
+                for file_path in batch_paths:
+                    if file_path not in fixed_files:
+                        continue
+                    try:
+                        current_content = fixed_files[file_path]
+                        file_issues = issues_by_file[file_path]
+                        prompt = f"""请修复以下代码中的问题：
 
 文件路径: {file_path}
 
@@ -1175,24 +1269,45 @@ class CrossValidator:
 
 请输出修复后的完整代码，只输出代码，不要解释。"""
 
-            try:
-                response = await call_llm(
-                    model=model,
-                    prompt=prompt,
-                    stream=False,
-                    max_tokens=8192
-                )
+                        response = await call_llm(
+                            model=model,
+                            prompt=prompt,
+                            stream=False,
+                            max_tokens=8192
+                        )
 
-                fixed_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-                if fixed_content:
-                    # 清理代码块标记
-                    fixed_content = self._clean_code_block(fixed_content)
-                    fixed_files[file_path] = fixed_content
-                    logger.info(f"已修复文件: {file_path}")
-            except Exception as e:
-                logger.error(f"修复文件 {file_path} 失败: {e}")
+                        fixed_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        if fixed_content:
+                            fixed_content = self._clean_code_block(fixed_content)
+                            fixed_files[file_path] = fixed_content
+                            logger.info(f"已修复文件（单文件回退）: {file_path}")
+                    except Exception as e2:
+                        logger.error(f"修复文件 {file_path} 失败: {e2}")
 
         return fixed_files
+
+    def _parse_batch_fix_result(self, content: str, expected_files: List[str]) -> Dict[str, str]:
+        """解析批量修复结果"""
+        import re
+
+        result = {}
+        # 匹配 ===文件路径=== ... ===END=== 格式
+        pattern = r'===([\w./]+)===\s*\n(.*?)(?====END===|$)'
+        matches = re.findall(pattern, content, re.DOTALL)
+
+        for file_path, code in matches:
+            file_path = file_path.strip()
+            if file_path in expected_files:
+                # 清理代码块标记
+                code = self._clean_code_block(code)
+                result[file_path] = code
+
+        # 如果没有匹配到格式，尝试解析整个内容作为单个文件
+        if not result and len(expected_files) == 1:
+            code = self._clean_code_block(content)
+            result[expected_files[0]] = code
+
+        return result
 
     def _clean_code_block(self, content: str) -> str:
         """清理代码块标记"""

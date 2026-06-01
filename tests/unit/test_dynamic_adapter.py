@@ -77,18 +77,21 @@ class TestDynamicAdapterCallLLM:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
         
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post.return_value = mock_response
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            
-            result = await adapter.call_llm(
-                model="gpt-3.5-turbo",
-                prompt="Hello",
-                system_prompt="You are helpful",
-            )
-            
-            assert result["choices"][0]["message"]["content"] == "Hello!"
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        
+        async def mock_call_with_retry(func, **kwargs):
+            return await func()
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
+                result = await adapter.call_llm(
+                    model="gpt-3.5-turbo",
+                    prompt="Hello",
+                    system_prompt="You are helpful",
+                )
+                
+                assert result["choices"][0]["message"]["content"] == "Hello!"
 
     @pytest.mark.asyncio
     async def test_call_llm_routes_to_anthropic(self):
@@ -107,18 +110,21 @@ class TestDynamicAdapterCallLLM:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
         
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post.return_value = mock_response
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            
-            result = await adapter.call_llm(
-                model="claude-3-haiku-20240307",
-                prompt="Hello",
-                system_prompt="You are helpful",
-            )
-            
-            assert result["choices"][0]["message"]["content"] == "Hello from Claude!"
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        
+        async def mock_call_with_retry(func, **kwargs):
+            return await func()
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
+                result = await adapter.call_llm(
+                    model="claude-3-haiku-20240307",
+                    prompt="Hello",
+                    system_prompt="You are helpful",
+                )
+                
+                assert result["choices"][0]["message"]["content"] == "Hello from Claude!"
 
     @pytest.mark.asyncio
     async def test_call_llm_raises_error_without_api_key(self):
@@ -143,15 +149,18 @@ class TestDynamicAdapterCallLLM:
         mock_response.status_code = 401
         mock_response.text = "Unauthorized"
         
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post.return_value = mock_response
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            
-            with pytest.raises(HTTPException) as exc_info:
-                await adapter.call_llm(model="gpt-3.5-turbo", prompt="Hello")
-            
-            assert exc_info.value.status_code == 401
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        
+        async def mock_call_with_retry(func, **kwargs):
+            return await func()
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
+                with pytest.raises(HTTPException) as exc_info:
+                    await adapter.call_llm(model="gpt-3.5-turbo", prompt="Hello")
+                
+                assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
     async def test_call_llm_anthropic_http_error(self):
@@ -165,15 +174,18 @@ class TestDynamicAdapterCallLLM:
         mock_response.status_code = 403
         mock_response.text = "Forbidden"
         
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post.return_value = mock_response
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            
-            with pytest.raises(HTTPException) as exc_info:
-                await adapter.call_llm(model="claude-3-haiku-20240307", prompt="Hello")
-            
-            assert exc_info.value.status_code == 403
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        
+        async def mock_call_with_retry(func, **kwargs):
+            return await func()
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
+                with pytest.raises(HTTPException) as exc_info:
+                    await adapter.call_llm(model="claude-3-haiku-20240307", prompt="Hello")
+                
+                assert exc_info.value.status_code == 403
 
 
 class TestDynamicAdapterOpenAI:
@@ -196,18 +208,21 @@ class TestDynamicAdapterOpenAI:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
         
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post.return_value = mock_response
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            
-            result = await adapter._call_openai(
-                model="gpt-3.5-turbo", prompt="Test", system_prompt="Test",
-                stream=False, temperature=0.7, max_tokens=100, thinking_budget=100,
-                cancel_event=None,
-            )
-            
-            assert result["choices"][0]["message"]["content"] == "Response"
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        
+        async def mock_call_with_retry(func, **kwargs):
+            return await func()
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
+                result = await adapter._call_openai(
+                    model="gpt-3.5-turbo", prompt="Test", system_prompt="Test",
+                    stream=False, temperature=0.7, max_tokens=100, thinking_budget=100,
+                    cancel_event=None,
+                )
+                
+                assert result["choices"][0]["message"]["content"] == "Response"
 
     @pytest.mark.skip(reason="流式响应 mock 复杂，需要真实环境测试")
     @pytest.mark.asyncio
@@ -292,18 +307,21 @@ class TestDynamicAdapterAnthropic:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
         
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post.return_value = mock_response
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            
-            result = await adapter._call_anthropic(
-                model="claude-3-haiku-20240307", prompt="Hi", system_prompt="",
-                stream=False, temperature=0.7, max_tokens=100, thinking_budget=100,
-                cancel_event=None,
-            )
-            
-            assert result["choices"][0]["message"]["content"] == "Claude response"
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        
+        async def mock_call_with_retry(func, **kwargs):
+            return await func()
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
+                result = await adapter._call_anthropic(
+                    model="claude-3-haiku-20240307", prompt="Hi", system_prompt="",
+                    stream=False, temperature=0.7, max_tokens=100, thinking_budget=100,
+                    cancel_event=None,
+                )
+                
+                assert result["choices"][0]["message"]["content"] == "Claude response"
 
     @pytest.mark.asyncio
     async def test_anthropic_with_system_prompt(self):
@@ -322,19 +340,22 @@ class TestDynamicAdapterAnthropic:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
         
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post.return_value = mock_response
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            
-            await adapter._call_anthropic(
-                model="claude-3-haiku-20240307", prompt="Test", system_prompt="You are helpful",
-                stream=False, temperature=0.7, max_tokens=100, thinking_budget=100,
-                cancel_event=None,
-            )
-            
-            call_args = mock_client_instance.post.call_args
-            assert call_args[1]["json"]["system"] == "You are helpful"
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        
+        async def mock_call_with_retry(func, **kwargs):
+            return await func()
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
+                await adapter._call_anthropic(
+                    model="claude-3-haiku-20240307", prompt="Test", system_prompt="You are helpful",
+                    stream=False, temperature=0.7, max_tokens=100, thinking_budget=100,
+                    cancel_event=None,
+                )
+                
+                call_args = mock_client.post.call_args
+                assert call_args[1]["json"]["system"] == "You are helpful"
 
     @pytest.mark.asyncio
     async def test_anthropic_cancel_event(self):

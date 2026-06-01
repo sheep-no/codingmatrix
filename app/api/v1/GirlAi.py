@@ -6,7 +6,6 @@
 
 import asyncio
 import logging
-import threading
 import time
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -20,6 +19,7 @@ from app.schema.girl_request import GirlRequest, GirlResponse, HistoryRecord, Hi
 from app.db.chat_history_service import ChatHistoryService
 from app.utils import call_llm
 from app.utils.security import verify_token
+from app.utils.aicloud.http_client import call_with_retry
 
 # import sys (adapter module moved to app.adapter)
 # sys.path removed - using app.adapter
@@ -28,6 +28,12 @@ from app.adapter import ModelAdapter
 # 初始化日志
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# 并发限制
+_max_concurrent_calls = asyncio.Semaphore(10)
+
+# 异步锁
+_model_adapters_lock = asyncio.Lock()
 
 # 角色配置
 
@@ -124,12 +130,11 @@ MAX_HISTORY_MESSAGES = 10
 
 # Model Adapter 缓存
 _model_adapters: Dict[str, ModelAdapter] = {}
-_model_adapters_lock = threading.Lock()
 
 
-def _get_model_adapter(model_name: str) -> ModelAdapter:
-    """获取或创建 Model Adapter（单例缓存，线程安全）"""
-    with _model_adapters_lock:
+async def _get_model_adapter(model_name: str) -> ModelAdapter:
+    """获取或创建 Model Adapter（单例缓存，异步安全）"""
+    async with _model_adapters_lock:
         if model_name not in _model_adapters:
             _model_adapters[model_name] = ModelAdapter(model_name)
             logger.debug(f"Model Adapter 已创建：{model_name}")
@@ -265,94 +270,101 @@ async def generate_message(
 
     start_time = time.time()
 
-    try:
-        # 快速加载上下文
-        history_service = ChatHistoryService(db)
+    async with _max_concurrent_calls:
+        try:
+            # 快速加载上下文
+            history_service = ChatHistoryService(db)
 
-        logger.debug(f"加载对话上下文 | user_id={user_id} | max_messages={MAX_HISTORY_MESSAGES}")
-        recent_messages, history_summary = await history_service.get_lightweight_context(
-            user_id,
-            max_messages=MAX_HISTORY_MESSAGES
-        )
+            logger.debug(f"加载对话上下文 | user_id={user_id} | max_messages={MAX_HISTORY_MESSAGES}")
+            recent_messages, history_summary = await history_service.get_lightweight_context(
+                user_id,
+                max_messages=MAX_HISTORY_MESSAGES
+            )
 
-        context_load_time = time.time() - start_time
-        logger.debug(
-            f"上下文加载完成 | user_id={user_id} | duration={context_load_time:.2f}s | messages_loaded={len(recent_messages)}"
-        )
+            context_load_time = time.time() - start_time
+            logger.debug(
+                f"上下文加载完成 | user_id={user_id} | duration={context_load_time:.2f}s | messages_loaded={len(recent_messages)}"
+            )
 
-        # 构建情感优化 Prompt
-        full_prompt = _build_emotion_prompt(
-            character=character,
-            user_prompt=body.prompt,
-            recent_messages=recent_messages,
-            user_name=None
-        )
+            # 构建情感优化 Prompt
+            full_prompt = _build_emotion_prompt(
+                character=character,
+                user_prompt=body.prompt,
+                recent_messages=recent_messages,
+                user_name=None
+            )
 
-        logger.debug(f"Prompt 构建完成 | user_id={user_id} | prompt_length={len(full_prompt)}")
-        logger.info(f"调用 AI 服务 | user_id={user_id} | model={character['model']}")
+            logger.debug(f"Prompt 构建完成 | user_id={user_id} | prompt_length={len(full_prompt)}")
+            logger.info(f"调用 AI 服务 | user_id={user_id} | model={character['model']}")
 
-        # 使用 Model Adapter 调用 AI 服务
-        adapter = _get_model_adapter(character['model'])
-        
-        ai_start_time = time.time()
-        response = await asyncio.wait_for(
-            call_llm(
+            # 使用 Model Adapter 调用 AI 服务
+            adapter = await _get_model_adapter(character['model'])
+            
+            ai_start_time = time.time()
+            
+            # 添加重试机制
+            async def llm_call():
+                return await asyncio.wait_for(
+                    call_llm(
+                        model=character['model'],
+                        prompt=full_prompt,
+                        system_prompt="",
+                        stream=False,
+                        max_tokens=getattr(body, 'max_tokens', None) or character['max_tokens'],
+                        thinking_budget=64,
+                        temperature=getattr(body, 'temperature', None) or character['temperature']
+                    ),
+                    timeout=REQUEST_TIMEOUT
+                )
+            
+            response = await call_with_retry(llm_call, max_retries=3)
+            
+            ai_duration = time.time() - ai_start_time
+
+            ai_content = response["choices"][0]["message"]["content"]
+            tokens_used = response["usage"]["total_tokens"]
+            
+            # 清理响应
+            ai_content = _clean_response(ai_content, character['name'])
+
+            logger.info(f"AI 响应成功 | user_id={user_id} | tokens_used={tokens_used} | duration={ai_duration:.2f}s")
+            logger.debug(f"AI 响应内容 | user_id={user_id} | content_length={len(ai_content)}")
+
+            # 保存对话记录
+            save_start_time = time.time()
+            await history_service.save_conversation_turn(
+                user_id=user_id,
+                user_content=body.prompt,
+                assistant_content=ai_content,
                 model=character['model'],
-                prompt=full_prompt,
-                system_prompt="",
-                stream=False,
-                max_tokens=getattr(body, 'max_tokens', None) or character['max_tokens'],
-                thinking_budget=64,
-                temperature=getattr(body, 'temperature', None) or character['temperature']
-            ),
-            timeout=REQUEST_TIMEOUT
-        )
-        ai_duration = time.time() - ai_start_time
+                tokens_used=tokens_used
+            )
+            save_duration = time.time() - save_start_time
 
-        ai_content = response["choices"][0]["message"]["content"]
-        tokens_used = response["usage"]["total_tokens"]
-        
-        # 清理响应
-        ai_content = _clean_response(ai_content, character['name'])
+            logger.debug(f"对话记录保存完成 | user_id={user_id} | duration={save_duration:.2f}s")
 
-        logger.info(f"AI 响应成功 | user_id={user_id} | tokens_used={tokens_used} | duration={ai_duration:.2f}s")
-        logger.debug(f"AI 响应内容 | user_id={user_id} | content_length={len(ai_content)}")
+            total_duration = time.time() - start_time
+            logger.info(f"虚拟姬请求完成 | user_id={user_id} | 角色={character['name']} | total_duration={total_duration:.2f}s")
 
-        # 保存对话记录
-        save_start_time = time.time()
-        await history_service.save_conversation_turn(
-            user_id=user_id,
-            user_content=body.prompt,
-            assistant_content=ai_content,
-            model=character['model'],
-            tokens_used=tokens_used
-        )
-        save_duration = time.time() - save_start_time
+            return GirlResponse(
+                message=ai_content,
+                model=character['model'],
+                tokens_used=tokens_used
+            )
 
-        logger.debug(f"对话记录保存完成 | user_id={user_id} | duration={save_duration:.2f}s")
+        except asyncio.TimeoutError:
+            logger.error(f"虚拟姬请求超时 | user_id={user_id} | timeout={REQUEST_TIMEOUT}s")
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="AI 响应超时，请稍后重试"
+            )
 
-        total_duration = time.time() - start_time
-        logger.info(f"虚拟姬请求完成 | user_id={user_id} | 角色={character['name']} | total_duration={total_duration:.2f}s")
-
-        return GirlResponse(
-            message=ai_content,
-            model=character['model'],
-            tokens_used=tokens_used
-        )
-
-    except asyncio.TimeoutError:
-        logger.error(f"虚拟姬请求超时 | user_id={user_id} | timeout={REQUEST_TIMEOUT}s")
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="AI 响应超时，请稍后重试"
-        )
-
-    except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-        logger.error(f"虚拟姬请求异常 | user_id={user_id} | error={str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"生成失败：{str(e)}"
-        )
+        except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
+            logger.error(f"虚拟姬请求异常 | user_id={user_id} | error={str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"生成失败：{str(e)}"
+            )
 
 
 @router.get("/GirlAi/history")

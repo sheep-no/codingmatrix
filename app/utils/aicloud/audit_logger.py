@@ -236,3 +236,31 @@ async def get_recent_operations(
         start_date=start_date,
         limit=100
     )
+
+
+async def cleanup_old_audit_logs(db: AsyncSession, days: int = 90) -> int:
+    """
+    清理过期的审计日志
+
+    Args:
+        db: 数据库会话
+        days: 保留天数（默认 90 天）
+
+    Returns:
+        删除的记录数
+    """
+    from sqlalchemy import delete, and_
+    
+    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    
+    stmt = delete(AicloudAuditLog).where(
+        and_(
+            AicloudAuditLog.created_at < cutoff_date,
+            AicloudAuditLog.status == "success"  # 只清理成功的操作日志
+        )
+    )
+    
+    result = await db.execute(stmt)
+    await db.commit()
+    
+    return result.rowcount

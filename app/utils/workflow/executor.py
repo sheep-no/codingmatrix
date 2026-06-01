@@ -118,6 +118,8 @@ class WorkflowExecutor:
         self._cancel_event: Optional[asyncio.Event] = None
         self._cleanup_callbacks: List[Callable] = []
 
+        self._node_map: Dict[str, TaskNode] = {node.id: node for node in task_graph.nodes}
+
         self._cleanup_callbacks.append(cleanup_all_temp_files)
 
     def validate(self) -> None:
@@ -210,11 +212,7 @@ class WorkflowExecutor:
             节点执行结果
         """
         try:
-            task_node = None
-            for node in self.task_graph.nodes:
-                if node.id == node_id:
-                    task_node = node
-                    break
+            task_node = self._node_map.get(node_id)
             if task_node is None:
                 return NodeResult.error_result(error=f"Node {node_id} not found")
 

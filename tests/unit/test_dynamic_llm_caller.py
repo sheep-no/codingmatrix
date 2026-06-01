@@ -53,21 +53,24 @@ class TestCallDynamicLLM:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
         
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post.return_value = mock_response
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            
-            result = await call_dynamic_llm(
-                provider_id=provider.id,
-                model="gpt-3.5-turbo",
-                prompt="Hello",
-                system_prompt="You are a helpful assistant",
-                temperature=0.7,
-                max_tokens=100,
-            )
-            
-            assert result["choices"][0]["message"]["content"] == "Hello from OpenAI!"
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        
+        async def mock_call_with_retry(func, **kwargs):
+            return await func()
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
+                result = await call_dynamic_llm(
+                    provider_id=provider.id,
+                    model="gpt-3.5-turbo",
+                    prompt="Hello",
+                    system_prompt="You are a helpful assistant",
+                    temperature=0.7,
+                    max_tokens=100,
+                )
+                
+                assert result["choices"][0]["message"]["content"] == "Hello from OpenAI!"
 
     @pytest.mark.asyncio
     async def test_call_dynamic_llm_anthropic_success(self):
@@ -85,19 +88,22 @@ class TestCallDynamicLLM:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
         
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post.return_value = mock_response
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            
-            result = await call_dynamic_llm(
-                provider_id=provider.id,
-                model="claude-3-haiku-20240307",
-                prompt="Hello",
-                system_prompt="You are helpful",
-            )
-            
-            assert result["choices"][0]["message"]["content"] == "Hello from Claude!"
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        
+        async def mock_call_with_retry(func, **kwargs):
+            return await func()
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
+                result = await call_dynamic_llm(
+                    provider_id=provider.id,
+                    model="claude-3-haiku-20240307",
+                    prompt="Hello",
+                    system_prompt="You are helpful",
+                )
+                
+                assert result["choices"][0]["message"]["content"] == "Hello from Claude!"
 
     @pytest.mark.skip(reason="流式响应 mock 复杂，需要真实环境测试")
     @pytest.mark.asyncio
@@ -150,17 +156,17 @@ class TestCallDynamicLLM:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
         
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post.return_value = mock_response
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            
-            await call_dynamic_llm(
-                provider_id=provider.id,
-                model="gpt-3.5-turbo",
-                prompt="Test",
-                timeout=600.0,
-            )
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=lambda func, **kwargs: func()):
+                await call_dynamic_llm(
+                    provider_id=provider.id,
+                    model="gpt-3.5-turbo",
+                    prompt="Test",
+                    timeout=600.0,
+                )
 
     @pytest.mark.asyncio
     async def test_call_dynamic_llm_with_cancel_event(self):
@@ -192,17 +198,95 @@ class TestCallDynamicLLM:
         mock_response.status_code = 500
         mock_response.text = "Internal Server Error"
         
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post.return_value = mock_response
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            
-            with pytest.raises(HTTPException):
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', return_value=mock_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=lambda func, **kwargs: func()):
+                with pytest.raises(HTTPException):
+                    await call_dynamic_llm(
+                        provider_id=provider.id,
+                        model="gpt-3.5-turbo",
+                        prompt="Test",
+                    )
+
+    @pytest.mark.asyncio
+    async def test_call_dynamic_llm_custom_timeout(self):
+        from app.utils.aicloud.llm_caller import call_dynamic_llm
+        
+        manager = get_dynamic_provider_manager()
+        provider = manager.add("Timeout Test", "http://api.test.com", "openai", "sk-timeout-12345")
+        
+        mock_response_data = {"choices": [{"message": {"content": "OK"}}], "usage": {}}
+        
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = mock_response_data
+        
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        
+        async def mock_call_with_retry(func, **kwargs):
+            return await func()
+        
+        # get_http_client is an async function, so we need AsyncMock
+        mock_get_client = AsyncMock(return_value=mock_client)
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', mock_get_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
                 await call_dynamic_llm(
                     provider_id=provider.id,
                     model="gpt-3.5-turbo",
                     prompt="Test",
+                    timeout=600.0,
                 )
+
+    @pytest.mark.asyncio
+    async def test_call_dynamic_llm_with_cancel_event(self):
+        from app.utils.aicloud.llm_caller import call_dynamic_llm
+        
+        manager = get_dynamic_provider_manager()
+        provider = manager.add("Cancel Test", "http://api.test.com", "openai", "sk-cancel-12345")
+        
+        cancel_event = asyncio.Event()
+        cancel_event.set()
+        
+        with pytest.raises(asyncio.CancelledError, match="LLM 调用被取消"):
+            await call_dynamic_llm(
+                provider_id=provider.id,
+                model="gpt-3.5-turbo",
+                prompt="Test",
+                cancel_event=cancel_event,
+            )
+
+    @pytest.mark.asyncio
+    async def test_call_dynamic_llm_http_error(self):
+        from app.utils.aicloud.llm_caller import call_dynamic_llm
+        from fastapi import HTTPException
+        
+        manager = get_dynamic_provider_manager()
+        provider = manager.add("Error Test", "http://api.test.com", "openai", "sk-error-12345")
+        
+        mock_response = Mock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal Server Error"
+        
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        
+        async def mock_call_with_retry(func, **kwargs):
+            return await func()
+        
+        mock_get_client = AsyncMock(return_value=mock_client)
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', mock_get_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
+                with pytest.raises(HTTPException):
+                    await call_dynamic_llm(
+                        provider_id=provider.id,
+                        model="gpt-3.5-turbo",
+                        prompt="Test",
+                    )
 
     @pytest.mark.asyncio
     async def test_call_dynamic_llm_thinking_budget(self):
@@ -217,19 +301,24 @@ class TestCallDynamicLLM:
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
         
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post.return_value = mock_response
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            
-            result = await call_dynamic_llm(
-                provider_id=provider.id,
-                model="gpt-3.5-turbo",
-                prompt="Test",
-                thinking_budget=8192,
-            )
-            
-            assert "Thinking response" in result["choices"][0]["message"]["content"]
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        
+        async def mock_call_with_retry(func, **kwargs):
+            return await func()
+        
+        mock_get_client = AsyncMock(return_value=mock_client)
+        
+        with patch('app.utils.aicloud.adapters.dynamic.get_http_client', mock_get_client):
+            with patch('app.utils.aicloud.adapters.dynamic.call_with_retry', side_effect=mock_call_with_retry):
+                result = await call_dynamic_llm(
+                    provider_id=provider.id,
+                    model="gpt-3.5-turbo",
+                    prompt="Test",
+                    thinking_budget=8192,
+                )
+                
+                assert "Thinking response" in result["choices"][0]["message"]["content"]
 
 
 class TestCallDynamicLLMIntegration:

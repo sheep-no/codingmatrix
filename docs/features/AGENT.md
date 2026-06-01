@@ -1,6 +1,14 @@
 # Agent 系统文档
 
-> 最后更新：2026-05-27 | 版本：v5.10.0
+> 最后更新：2026-05-30 | 版本：v5.11.0
+
+### v5.11.0 更新
+
+- **智能会话恢复系统**: 用户输入"继续"时，通过 LLM 语义匹配从最近 20 个历史 session 中自动恢复最相关会话
+- **Agent 工具 - Session 搜索**: 新增 `/api/v1/agent/search_sessions` API，支持按语义搜索历史 session，返回按相关性排序的列表
+- **SSE 响应解析修复**: 修复 `reactive()` 自动解包 ref 导致的 `.value` 访问 TypeError，改用对象路径访问
+- **检查点恢复优化**: 文件存在检查避免重复生成，原子写入（.tmp + rename），.tmp 清理
+- **取消事件传播优化**: `_cancel_events` dict 按 session 存储，取消端点正确设置 cancel_event
 
 ### v5.10.0 更新
 
@@ -218,6 +226,7 @@ data: {"content": "完整的回答内容..."}
 | `/modify` | POST | 增量修改已有项目 |
 | `/evaluate` | POST | 需求评价 |
 | `/analyze_complexity` | POST | 复杂度分析 |
+| `/search_sessions` | POST | 语义搜索历史 session |
 | `/sessions` | GET | 会话列表 |
 | `/sessions/{id}` | GET | 会话详情 |
 | `/sessions/{id}` | DELETE | 删除会话 |
@@ -617,6 +626,47 @@ class TaskType(Enum):
 ---
 
 ## 会话管理与增量修改
+
+### 智能会话恢复系统 (v5.11.0)
+
+**场景**: 用户输入"继续"或类似模糊指令时，系统自动从最近 20 个历史 session 中通过 LLM 语义匹配找到最相关的会话恢复。
+
+**实现方案**:
+- **方案 2（智能匹配）**: `resolve_resume_session` 函数分析用户当前输入与历史 session 内容的语义相似度
+- **方案 3（Agent 工具）**: 新增 `/api/v1/agent/search_sessions` API 端点，支持按语义搜索历史 session
+
+**相关文件**:
+- `app/api/v1/ai_agent/helpers.py` - `resolve_resume_session` 函数
+- `app/api/v1/ai_agent/orchestrate_endpoints.py` - `search_sessions` 端点
+- `app/api/v1/ai_agent/schemas.py` - `SearchSessionsRequest/Response`, `SessionMatch`
+- `tests/e2e/test-smart-resume.spec.js` - E2E 测试
+
+**API 端点**: `POST /api/v1/agent/search_sessions`
+
+请求体：
+```json
+{
+  "query": "用户输入的搜索词",
+  "limit": 10,
+  "user_id": "可选的用户ID过滤"
+}
+```
+
+响应：
+```json
+{
+  "sessions": [
+    {
+      "session_id": "uuid",
+      "title": "会话标题",
+      "relevance_score": 0.92,
+      "created_at": "ISO 8601",
+      "updated_at": "ISO 8601"
+    }
+  ],
+  "total_matches": 5
+}
+```
 
 ### 会话管理
 

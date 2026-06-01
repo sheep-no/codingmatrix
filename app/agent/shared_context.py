@@ -278,10 +278,6 @@ class SharedContext:
         self.warnings.append(warning)
         self._log_event("warning", {"message": warning})
 
-    def set_metric(self, key: str, value: Any):
-        """设置指标"""
-        self.metrics[key] = value
-
     def get_summary(self) -> Dict[str, Any]:
         """获取上下文摘要（用于序列化/日志）"""
         return {

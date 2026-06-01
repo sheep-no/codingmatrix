@@ -47,36 +47,35 @@ async def get_cached_image(
     user_id: int,
     prompt: str,
     seed: Optional[int],
-    conversation_id: Optional[int]
+    conversation_id: Optional[int],
+    max_age_hours: int = 24
 ) -> Optional[str]:
     """
     获取缓存的图片（如果存在）
     
     逻辑：
     1. 在 metadata_json 中查找匹配的 prompt+seed
-    2. 如果找到，返回图片路径
-    3. 如果没找到，返回 None
+    2. 检查缓存是否在有效期内（默认 24 小时）
+    3. 如果找到且有效，返回图片路径
+    4. 如果没找到或已过期，返回 None
     """
     try:
-        # 构建缓存键
+        from datetime import datetime, timedelta
         cache_key = f"image:{prompt}:{seed}"
+        cutoff_time = datetime.utcnow() - timedelta(hours=max_age_hours)
         
-        # 查询历史
+        query_conditions = [
+            History.user_id == user_id,
+            History.metadata_json.contains(cache_key),
+            History.created_at >= cutoff_time
+        ]
+        
         if conversation_id:
-            result = await db.execute(
-                select(History).where(
-                    History.user_id == user_id,
-                    History.conversation_id == conversation_id,
-                    History.metadata_json.contains(cache_key)
-                ).order_by(History.id.desc()).limit(1)
-            )
-        else:
-            result = await db.execute(
-                select(History).where(
-                    History.user_id == user_id,
-                    History.metadata_json.contains(cache_key)
-                ).order_by(History.id.desc()).limit(1)
-            )
+            query_conditions.append(History.conversation_id == conversation_id)
+        
+        result = await db.execute(
+            select(History).where(*query_conditions).order_by(History.id.desc()).limit(1)
+        )
         
         history = result.scalar_one_or_none()
         

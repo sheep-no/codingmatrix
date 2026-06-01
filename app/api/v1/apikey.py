@@ -108,17 +108,19 @@ async def get_public_key(request: Request):
 
 @router.post("", summary="提交加密 API Key", response_model=SubmitKeyResponse)
 @limiter.limit("10/minute")
-async def submit_key(request: Request, submit_request: SubmitKeyRequest):
+async def submit_key(request: Request, submit_request: SubmitKeyRequest, user_id: str = Depends(get_current_user_id)):
     """提交加密后的 API Key，后端解密后存入 Redis"""
-    user_id: str = Depends(get_current_user_id)
     
     # 验证供应商
     if submit_request.provider not in SUPPORTED_PROVIDERS:
         raise HTTPException(status_code=400, detail=f"不支持的供应商：{submit_request.provider}")
     
-    # 验证 TTL
-    if submit_request.ttl not in TTL_OPTIONS:
-        raise HTTPException(status_code=400, detail=f"无效的 TTL 选项：{submit_request.ttl}")
+    # 验证 TTL - 支持预设选项或自定义秒数
+    from app.services.apikey_manager import resolve_ttl, MAX_CUSTOM_TTL
+    try:
+        ttl_seconds = resolve_ttl(submit_request.ttl)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     
     try:
         # 解密 API Key
@@ -134,7 +136,7 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest):
             user_id=user_id,
             provider=submit_request.provider,
             api_key=api_key.strip(),
-            ttl=submit_request.ttl,
+            ttl=submit_request.ttl,  # 直接传递原始输入，由 resolve_ttl 解析
             remark=submit_request.remark,
         )
         
@@ -142,9 +144,9 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest):
         meta = apikey_manager.get_metadata(user_id, token)
         
         return SubmitKeyResponse(
+            success=True,
             token=token,
-            provider=submit_request.provider,
-            expires_at=meta.expires_at,
+            message="API Key 提交成功",
         )
     except HTTPException:
         raise
@@ -159,7 +161,7 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest):
 
 @router.post("/test", summary="测试 API Key", response_model=TestKeyResponse)
 @limiter.limit("20/minute")
-async def test_key(request: Request, test_request: TestKeyRequest):
+async def test_key(request: Request, test_request: TestKeyRequest, user_id: str = Depends(get_current_user_id)):
     """测试 API Key 是否有效"""
     
     try:
@@ -215,7 +217,7 @@ async def delete_key(request: Request, token: str, user_id: str = Depends(get_cu
 
 @router.get("s", summary="获取 API Key 列表", response_model=list[KeyMetadataResponse])
 @limiter.limit("30/minute")
-async def list_keys(request: Request):
+async def list_keys(request: Request, user_id: str = Depends(get_current_user_id)):
     """获取用户所有 API Key 的元数据列表（不含 Key 本身）"""
     
     try:
@@ -262,7 +264,7 @@ async def update_enabled(request: Request, token: str, enabled: bool = True, use
 
 @router.post("/batch/import", summary="批量导入 API Key")
 @limiter.limit("5/minute")
-async def batch_import(request: Request, import_request: BatchImportRequest):
+async def batch_import(request: Request, import_request: BatchImportRequest, user_id: str = Depends(get_current_user_id)):
     """批量导入多个 API Key
     
     请求格式：

@@ -18,7 +18,6 @@
 
     <div class="page-content">
       <AgentInputPanel
-        :mode="generationMode || 'create'"
         :prompt="projectPrompt || ''"
         :placeholder-text="getPlaceholder"
         :generating="isGenerating"
@@ -30,14 +29,11 @@
         :selected-path="selectedFilePath"
         :dynamic-models="dynamicModels"
         :selected-provider-model="selectedProviderModel"
-        @update:mode="session.generationMode = $event"
         @update:prompt="session.projectPrompt = $event"
         @update:search-query="files.fileSearchQuery = $event"
         @update:filter-type="files.fileFilterType = $event"
         @update:selected-provider-model="selectedProviderModel = $event"
         @generate="generateProject"
-        @incremental-generate="incrementalGenerate"
-        @debug="startDebug"
         @regenerate="regenerateProject"
         @clear="clearAllState"
         @stop="doStopSession"
@@ -62,6 +58,11 @@
         :thinking-messages="workspace.thinkingMessages"
         :execution-steps="workspace.executionDetails"
         :logs="workspace.logs"
+        :test-results="workspace.testResults"
+        :validation-results="workspace.validationResults"
+        :cost-data="workspace.costData"
+        :performance-metrics="workspace.performanceMetrics"
+        :file-complexity="selectedFile?.complexity || null"
         @select-decision="(id, label) => workspace.decisionAnswers[id] = label"
         @use-default="(id) => { const d = workspace.pendingDecisions.find(x => x.id === id); if (d?.default) workspace.decisionAnswers[id] = d.default }"
         @submit-decision="doSubmitDecision"
@@ -138,7 +139,6 @@ const goToApiKeySettings = () => {
 // ========== Unwrapped values for child components ==========
 const sessionId = computed(() => session.currentSessionId)
 const sessionHistory = computed(() => session.sessionHistory)
-const generationMode = computed(() => session.generationMode)
 const projectPrompt = computed(() => session.projectPrompt)
 const generatedFiles = computed(() => files.generatedFiles)
 const isGenerating = computed(() => generation.isGenerating)
@@ -150,10 +150,23 @@ const templates = computed(() => files.templates)
 
 // ========== Template Helpers ==========
 const getFileType = (path) => files.getFileType(path)
-const getPlaceholder = computed(() => generation.getPlaceholder(generationMode.value))
+const getPlaceholder = computed(() => generation.getPlaceholder(generatedFiles.value.length > 0))
 const getOverallProgress = computed(() => generation.getOverallProgress())
 const getETA = computed(() => generation.getETA())
-const getHighlightedCode = computed(() => files.getHighlightedCode(selectedFile.value))
+const highlightedCode = ref('')
+const getHighlightedCode = computed(() => {
+  // 返回缓存的高亮代码
+  return highlightedCode.value
+})
+
+// 当选中文件变化时，异步获取高亮代码
+watch(selectedFile, async (newFile) => {
+  if (newFile) {
+    highlightedCode.value = await files.getHighlightedCode()
+  } else {
+    highlightedCode.value = ''
+  }
+}, { immediate: true })
 const getLineCount = computed(() => files.getLineCount(selectedFile.value?.content))
 const formatFileSize = computed(() => selectedFile.value ? files.formatFileSize(selectedFile.value.content) : '')
 const getLanguage = computed(() => selectedFile.value ? files.getLanguage(selectedFile.value.path) : '')
@@ -164,12 +177,7 @@ const selectedFilePath = computed(() => selectedFile.value?.path || null)
 const dynamicModels = computed(() => providerStore.getAllDynamicModels())
 
 // ========== Generation Actions ==========
-const generateProject = () => streaming.streamGenerate('create', selectedProviderModel.value)
-const incrementalGenerate = () => streaming.streamGenerate('modify', selectedProviderModel.value)
-const startDebug = async () => {
-  if (!session.projectPrompt.trim()) return ElMessage.warning('请输入问题描述')
-  streaming.streamGenerate('debug', selectedProviderModel.value)
-}
+const generateProject = () => streaming.streamGenerate(selectedProviderModel.value)
 const regenerateProject = async () => {
   if (!session.projectPrompt.trim()) return ElMessage.warning('请输入项目描述')
   files.clearAll()

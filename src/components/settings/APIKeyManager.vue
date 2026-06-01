@@ -20,11 +20,14 @@
         </p>
         <div class="add-key-form">
           <input v-model="siliconflowForm.key" type="password" placeholder="输入 API Key" class="key-input" />
-          <select v-model="siliconflowForm.ttl" class="ttl-select">
+          <select v-model="siliconflowForm.ttl" class="ttl-select" @change="onTTLChange(siliconflowForm)">
             <option value="24h">24 小时</option>
             <option value="7d">7 天</option>
             <option value="30d">30 天</option>
+            <option value="never">永远</option>
+            <option value="custom">自定义</option>
           </select>
+          <input v-if="siliconflowForm.ttl === 'custom'" v-model.number="siliconflowForm.customHours" type="number" min="1" placeholder="小时数" class="custom-ttl-input" />
           <button :disabled="loading" class="submit-btn" @click="submitSiliconflowKey">
             {{ loading ? '保存中...' : '保存' }}
           </button>
@@ -59,12 +62,15 @@
         </select>
         <input v-model="newKeyForm.key" type="password" placeholder="输入 API Key" class="key-input" />
         <input v-model="newKeyForm.remark" type="text" placeholder="备注 (可选)" class="remark-input" />
-        <select v-model="newKeyForm.ttl" class="ttl-select">
+        <select v-model="newKeyForm.ttl" class="ttl-select" @change="onTTLChange(newKeyForm)">
           <option value="1h">1 小时</option>
           <option value="24h">24 小时</option>
           <option value="7d">7 天</option>
           <option value="30d">30 天</option>
+          <option value="never">永远</option>
+          <option value="custom">自定义</option>
         </select>
+        <input v-if="newKeyForm.ttl === 'custom'" v-model.number="newKeyForm.customHours" type="number" min="1" placeholder="小时数" class="custom-ttl-input" />
         <button :disabled="loading || !newKeyForm.provider || !newKeyForm.key" class="submit-btn" @click="submitNewKey">
           {{ loading ? '添加中...' : '添加' }}
         </button>
@@ -163,8 +169,30 @@ const loading = ref(false)
 const tokenUsage = ref(null)
 
 // Forms
-const siliconflowForm = reactive({ key: '', ttl: '24h' })
-const newKeyForm = reactive({ provider: '', key: '', remark: '', ttl: '24h' })
+const siliconflowForm = reactive({ key: '', ttl: '24h', customHours: null })
+const newKeyForm = reactive({ provider: '', key: '', remark: '', ttl: '24h', customHours: null })
+
+// TTL 选择变化处理
+function onTTLChange(form) {
+  if (form.ttl !== 'custom') {
+    form.customHours = null
+  }
+}
+
+// 获取实际 TTL 秒数
+function getTTLSeconds(form) {
+  if (form.ttl === 'custom' && form.customHours) {
+    return form.customHours * 3600
+  }
+  const ttlMap = {
+    '1h': 3600,
+    '24h': 86400,
+    '7d': 604800,
+    '30d': 2592000,
+    'never': 315360000,  // 10 年
+  }
+  return ttlMap[form.ttl] || 86400
+}
 
 onMounted(() => {
   store.loadFromStorage()
@@ -205,9 +233,12 @@ async function submitSiliconflowKey() {
   
   loading.value = true
   try {
-    await store.submitKey('siliconflow', siliconflowForm.key, siliconflowForm.ttl, '主 Key')
+    const ttlSeconds = getTTLSeconds(siliconflowForm)
+    await store.submitKey('siliconflow', siliconflowForm.key, ttlSeconds, '主 Key')
     ElMessage.success('硅基流动 Key 已保存')
     siliconflowForm.key = ''
+    siliconflowForm.ttl = '24h'
+    siliconflowForm.customHours = null
   } catch (e) {
     ElMessage.error('保存失败：' + (e.message || '未知错误'))
   } finally {
@@ -223,11 +254,14 @@ async function submitNewKey() {
   
   loading.value = true
   try {
-    await store.submitKey(newKeyForm.provider, newKeyForm.key, newKeyForm.ttl, newKeyForm.remark)
+    const ttlSeconds = getTTLSeconds(newKeyForm)
+    await store.submitKey(newKeyForm.provider, newKeyForm.key, ttlSeconds, newKeyForm.remark)
     ElMessage.success(`${getProviderName(newKeyForm.provider)} Key 已添加`)
     newKeyForm.provider = ''
     newKeyForm.key = ''
     newKeyForm.remark = ''
+    newKeyForm.ttl = '24h'
+    newKeyForm.customHours = null
   } catch (e) {
     ElMessage.error('添加失败：' + (e.message || '未知错误'))
   } finally {
@@ -463,11 +497,16 @@ function getRemainingTime(key) {
 .key-input,
 .remark-input,
 .provider-select,
-.ttl-select {
+.ttl-select,
+.custom-ttl-input {
   padding: 8px 12px;
   border: 1px solid #dcdfe6;
   border-radius: 4px;
   font-size: 14px;
+}
+
+.custom-ttl-input {
+  width: 100px;
 }
 
 .key-input {

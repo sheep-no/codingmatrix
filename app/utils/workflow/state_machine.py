@@ -92,6 +92,7 @@ class WorkflowStateMachine:
         self._started_at: Optional[datetime] = None
         self._completed_at: Optional[datetime] = None
         self._error: Optional[str] = None
+        self._lock = asyncio.Lock()
 
         self._callbacks: Dict[str, List[Callable]] = defaultdict(list)
 

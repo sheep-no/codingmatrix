@@ -829,7 +829,7 @@
         message.response += `[SUCCESS] 验证完成\n\n`
         break
 
-      case 'complete':
+      case 'complete': {
         message.isProjectGenerator = true
         if (data.result && data.result.output_dir) {
           message.outputDir = data.result.output_dir
@@ -843,6 +843,7 @@
         message.response += `- 输出目录: ${data.result?.output_dir ?? data.output_dir ?? '未知'}\n\n`
         message.isStreaming = false
         break
+      }
 
       case 'error':
         message.isProjectGenerator = true

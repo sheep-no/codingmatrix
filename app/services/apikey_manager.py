@@ -18,6 +18,28 @@ import redis
 
 logger = logging.getLogger(__name__)
 
+# Redis Lua 脚本：原子性检查 Key 数量限制并添加 Token
+# 避免并发请求绕过 max_keys 限制的竞态条件
+_CHECK_AND_ADD_SCRIPT = """
+local index_key = KEYS[1]
+local max_keys = tonumber(ARGV[1])
+local token = ARGV[2]
+local ttl_seconds = tonumber(ARGV[3])
+
+local token_count = redis.call('SCARD', index_key)
+if token_count >= max_keys then
+    return -1  -- 超过限制
+end
+
+local added = redis.call('SADD', index_key, token)
+if added == 1 then
+    -- 设置索引的过期时间（比最长 TTL 多一天）
+    redis.call('EXPIRE', index_key, ttl_seconds + 86400)
+    return 1  -- 添加成功
+end
+return 0  -- Token 已存在
+"""
+
 
 @dataclass
 class KeyMetadata:
@@ -43,12 +65,57 @@ SUPPORTED_PROVIDERS = [
 ]
 
 # TTL 选项（秒）
+# 支持预设选项和自定义秒数
+# "never" 表示永久（使用一个非常大的值，约 10 年）
 TTL_OPTIONS = {
     "1h": 3600,
     "24h": 86400,
     "7d": 604800,
     "30d": 2592000,
+    "never": 315360000,  # 10 年，近似永久
 }
+
+# 最大自定义 TTL（秒）- 限制用户不能设置超过 10 年
+MAX_CUSTOM_TTL = 315360000
+
+def resolve_ttl(ttl_input) -> int:
+    """
+    解析 TTL 输入，支持预设选项或自定义秒数
+    
+    Args:
+        ttl_input: 可以是预设选项字符串（如 "24h"）或自定义秒数（int）
+    
+    Returns:
+        TTL 秒数
+    
+    Raises:
+        ValueError: 输入无效
+    """
+    if isinstance(ttl_input, str):
+        # 预设选项
+        if ttl_input in TTL_OPTIONS:
+            return TTL_OPTIONS[ttl_input]
+        # 尝试解析为数字字符串（自定义秒数）
+        try:
+            custom_seconds = int(ttl_input)
+            if custom_seconds <= 0:
+                raise ValueError("TTL 必须大于 0")
+            if custom_seconds > MAX_CUSTOM_TTL:
+                raise ValueError(f"自定义 TTL 不能超过 {MAX_CUSTOM_TTL} 秒（约 10 年）")
+            return custom_seconds
+        except ValueError as e:
+            if "invalid literal" in str(e):
+                raise ValueError(f"无效的 TTL 选项：{ttl_input}，可选：{list(TTL_OPTIONS.keys())} 或自定义秒数")
+            raise
+    elif isinstance(ttl_input, (int, float)):
+        custom_seconds = int(ttl_input)
+        if custom_seconds <= 0:
+            raise ValueError("TTL 必须大于 0")
+        if custom_seconds > MAX_CUSTOM_TTL:
+            raise ValueError(f"自定义 TTL 不能超过 {MAX_CUSTOM_TTL} 秒（约 10 年）")
+        return custom_seconds
+    else:
+        raise ValueError(f"TTL 类型无效，必须是字符串或整数")
 
 MAX_KEYS_PER_USER = 20
 
@@ -101,17 +168,24 @@ class APIKeyManager:
         if provider not in SUPPORTED_PROVIDERS:
             raise ValueError(f"不支持的供应商：{provider}")
         
-        ttl_seconds = TTL_OPTIONS.get(ttl)
-        if ttl_seconds is None:
-            raise ValueError(f"无效的 TTL 选项：{ttl}，可选：{list(TTL_OPTIONS.keys())}")
+        ttl_seconds = resolve_ttl(ttl)
         
-        # 检查用户 Key 数量限制
-        token_count = self.redis.scard(self._key_index(user_id))
-        if token_count >= self.max_keys:
-            raise RuntimeError(f"已达到最大 Key 数量限制 ({self.max_keys})")
-        
-        # 生成 Token
+        # 生成 Token（提前生成，因为 Lua 脚本需要它）
         token = str(uuid.uuid4())
+        
+        # 原子性检查用户 Key 数量限制并添加 Token（使用 Lua 脚本避免竞态条件）
+        index_key = self._key_index(user_id)
+        result = self.redis.eval(
+            _CHECK_AND_ADD_SCRIPT,
+            1,  # 1 个 key 参数
+            index_key,
+            str(self.max_keys),
+            token,
+            str(ttl_seconds)
+        )
+        
+        if result == -1:
+            raise RuntimeError(f"已达到最大 Key 数量限制 ({self.max_keys})")
         
         # 计算过期时间
         now = datetime.now(timezone.utc)
@@ -136,11 +210,8 @@ class APIKeyManager:
         meta_name = self._key_meta(user_id, token)
         self.redis.setex(meta_name, ttl_seconds, json.dumps(asdict(meta)))
         
-        # 添加到用户索引
-        self.redis.sadd(self._key_index(user_id), token)
-        # 设置索引的过期时间（比最长 TTL 多一天）
-        self.redis.expire(self._key_index(user_id), ttl_seconds + 86400)
-        
+        # 注意：Token 已通过 Lua 脚本原子性地添加到用户索引，无需重复 sadd
+        # Lua 脚本已设置索引的过期时间（比最长 TTL 多一天）
         logger.info(f"用户 {user_id} 存储 {provider} Key，Token: {token[:8]}...")
         return token
     

@@ -1,7 +1,7 @@
 # 测试文档
 
-**最后更新**: 2026-05-23  
-**版本**: v5.4.0  
+**最后更新**: 2026-05-30  
+**版本**: v5.11.0  
 **E2E 测试状态**: ✅ 100% 通过 (5/5 冒烟测试)
 
 ---
@@ -87,7 +87,8 @@ tests/
 | 10 | `10-admin.spec.js` | 管理后台 | 资源控制/用户管理 |
 | 11 | `11-theme-shortcuts.spec.js` | 主题快捷 | 主题切换/快捷键 |
 | 12 | `smoke-test-simple.spec.js` | **冒烟测试** | **核心功能快速验证** ✅ |
-| 13-42 | `agent-*.spec.js` | Agent 专项 | 多模态/诊断/能力/准确性 |
+| 13 | `test-smart-resume.spec.js` | **智能会话恢复** | **LLM 语义匹配恢复历史 session** ✅ |
+| 14-43 | `agent-*.spec.js` | Agent 专项 | 多模态/诊断/能力/准确性 |
 | 43-48 | 其他功能 | 扩展功能 | SSE/文件上传/系统监控等 |
 
 ### ✅ 冒烟测试 (smoke-test-simple.spec.js)
@@ -120,6 +121,7 @@ npx playwright test --headed
 
 | 文件 | 测试焦点 | 覆盖场景 |
 |------|----------|----------|
+| `test-smart-resume.spec.js` | 智能会话恢复 | LLM语义匹配/历史session搜索/相关性排序 |
 | `agent-capability.spec.js` | 能力验证 | 代码生成/文件操作/多模态 |
 | `agent-multimodal-test.spec.js` | 多模态 | 图像理解/OCR/视觉分析 |
 | `agent-accurate-test.spec.js` | 准确性 | 代码准确率/需求理解 |

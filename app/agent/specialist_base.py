@@ -20,10 +20,15 @@ class Specialist:
     """专业角色基类"""
 
     _semaphore: Optional[asyncio.Semaphore] = None
+    _cost_tracker = None  # 成本追踪器，由 orchestrator 设置
 
     @classmethod
     def set_semaphore(cls, sem: asyncio.Semaphore):
         cls._semaphore = sem
+
+    @classmethod
+    def set_cost_tracker(cls, tracker):
+        cls._cost_tracker = tracker
 
     def __init__(self, role_name: str, model_name: str, task_type: str = "generate", api_key_token: Optional[str] = None, provider_id: Optional[str] = None):
         self.role_name = role_name
@@ -62,6 +67,18 @@ class Specialist:
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
             latency_ms = (time.time() - start_time) * 1000
             await (await get_dynamic_router()).record_call(self.model_name, success=True, latency_ms=latency_ms)
+            
+            # 追踪 token 使用量
+            usage = response.get("usage", {})
+            if usage and self._cost_tracker:
+                prompt_tokens = usage.get("prompt_tokens", 0)
+                completion_tokens = usage.get("completion_tokens", 0)
+                # 估算成本（美元）
+                cost_per_1m_input = self.model_config.get("cost_per_1m_input", 0.0)
+                cost_per_1m_output = self.model_config.get("cost_per_1m_output", 0.0)
+                cost_usd = (prompt_tokens * cost_per_1m_input + completion_tokens * cost_per_1m_output) / 1000000
+                self._cost_tracker.add_usage(self.model_name, prompt_tokens, completion_tokens, cost_usd)
+            
             return content
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000

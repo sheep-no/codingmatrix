@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from app.core.config import settings
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 from app.utils.aicloud.adapters.base import BaseProviderAdapter
+from app.utils.aicloud.http_client import get_http_client, call_with_retry, _max_concurrent_calls
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ class SiliconFlowAdapter(BaseProviderAdapter):
         thinking_budget: int = 4096,
         cancel_event: Optional[asyncio.Event] = None,
     ) -> Union[dict, AsyncIterator[str]]:
-        logger.info(f"[SiliconFlowAdapter] Calling model: {model}, enable_thinking will be set to False for non-reasoning models")
+        logger.info(f"[SiliconFlowAdapter] Calling model: {model}")
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -67,6 +68,7 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                     messages.insert(0, {"role": "system", "content": system_part})
                 cleaned_prompt = user_part
         
+        # 判断是否是 reasoning 模型
         is_reasoning = "deepseek-ai/DeepSeek-R1" in model
         
         if is_reasoning:
@@ -83,12 +85,15 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                 "model": model,
                 "messages": messages + [{"role": "user", "content": cleaned_prompt}],
                 "stream": stream,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
                 "enable_thinking": False  # 禁用深度思考，避免 Qwen3 等模型浪费大量 token
             }
         
         if stream:
             async def generate():
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with _max_concurrent_calls:
+                    client = await get_http_client()
                     async with client.stream(
                         "POST",
                         f"{self.base_url}/chat/completions",
@@ -107,16 +112,56 @@ class SiliconFlowAdapter(BaseProviderAdapter):
             
             return generate()
         else:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with _max_concurrent_calls:
+                client = await get_http_client()
                 if cancel_event and cancel_event.is_set():
                     raise asyncio.CancelledError("LLM 调用被取消")
-                resp = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=data
-                )
+                
+                async def request_func():
+                    return await client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=data
+                    )
+                
+                try:
+                    resp = await call_with_retry(request_func, max_retries=3)
+                except Exception as e:
+                    # 如果失败且包含 enable_thinking 参数，尝试去掉后重试
+                    error_msg = str(e)
+                    if "enable_thinking" in error_msg and "enable_thinking" in data:
+                        logger.warning(f"[SiliconFlowAdapter] 模型 {model} 不支持 enable_thinking 参数，重试中...")
+                        data_without_thinking = {k: v for k, v in data.items() if k != "enable_thinking"}
+                        
+                        async def request_func_retry():
+                            return await client.post(
+                                f"{self.base_url}/chat/completions",
+                                headers=headers,
+                                json=data_without_thinking
+                            )
+                        
+                        resp = await call_with_retry(request_func_retry, max_retries=3)
+                    else:
+                        raise
+                
                 if resp.status_code != 200:
-                    raise HTTPException(status_code=resp.status_code, detail=resp.text)
+                    # 检查是否是 enable_thinking 参数导致的错误
+                    if resp.status_code == 400 and "enable_thinking" in resp.text:
+                        logger.warning(f"[SiliconFlowAdapter] 模型 {model} 不支持 enable_thinking 参数，重试中...")
+                        data_without_thinking = {k: v for k, v in data.items() if k != "enable_thinking"}
+                        
+                        async def request_func_retry():
+                            return await client.post(
+                                f"{self.base_url}/chat/completions",
+                                headers=headers,
+                                json=data_without_thinking
+                            )
+                        
+                        resp = await call_with_retry(request_func_retry, max_retries=3)
+                        if resp.status_code != 200:
+                            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+                    else:
+                        raise HTTPException(status_code=resp.status_code, detail=resp.text)
                 return resp.json()
     
     async def call_embedding(
@@ -136,12 +181,18 @@ class SiliconFlowAdapter(BaseProviderAdapter):
             "input": input_text,
         }
         
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(
-                f"{self.base_url}/embeddings",
-                headers=headers,
-                json=data
-            )
+        async with _max_concurrent_calls:
+            client = await get_http_client()
+            
+            async def request_func():
+                return await client.post(
+                    f"{self.base_url}/embeddings",
+                    headers=headers,
+                    json=data
+                )
+            
+            resp = await call_with_retry(request_func, max_retries=3)
+            
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail=resp.text)
             return resp.json()

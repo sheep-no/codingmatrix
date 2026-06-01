@@ -56,10 +56,10 @@ class TestJsonParsingRobustness:
             architect._safe_parse_json('not json at all')
 
     def test_partial_json(self, architect):
-        """测试部分 JSON"""
-        import pytest
-        with pytest.raises(ValueError):
-            architect._safe_parse_json('{"project_type": "full-stack"')
+        """测试部分 JSON - 解析器现在能自动修复部分 JSON"""
+        result = architect._safe_parse_json('{"project_type": "full-stack"')
+        assert result is not None
+        assert result.get("project_type") == "full-stack"
 
     def test_json_with_trailing_comma(self, architect):
         """测试带尾随逗号的 JSON"""

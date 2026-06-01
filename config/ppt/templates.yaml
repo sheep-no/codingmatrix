@@ -1,0 +1,302 @@
+# PPT 模板配置文件
+# 统一管理前后端模板配置，消除名称不匹配问题
+
+templates:
+  # 现代简约
+  modern:
+    id: "modern"
+    name: "现代简约"
+    name_en: "Modern Minimal"
+    description: "简洁清晰的现代风格，适合大多数场景"
+    category: "general"
+    colors:
+      primary: "#2563eb"
+      secondary: "#64748b"
+      accent: "#3b82f6"
+      background: "#ffffff"
+      text: "#1e293b"
+      text_light: "#64748b"
+    fonts:
+      title: "Arial, sans-serif"
+      body: "Arial, sans-serif"
+      title_size: 32
+      body_size: 18
+    layouts:
+      - title_slide
+      - content_with_image
+      - two_column
+      - bullet_list
+    animations:
+      default: "fade"
+      supported:
+        - fade
+        - slide_left
+        - slide_right
+        - zoom
+    thumbnail: "/static/templates/modern.png"
+    is_default: true
+
+  # 商务专业
+  business:
+    id: "business"
+    name: "商务专业"
+    name_en: "Business Professional"
+    description: "稳重大气的商务风格，适合企业汇报"
+    category: "business"
+    colors:
+      primary: "#1e40af"
+      secondary: "#475569"
+      accent: "#3b82f6"
+      background: "#f8fafc"
+      text: "#0f172a"
+      text_light: "#475569"
+    fonts:
+      title: "Georgia, serif"
+      body: "Georgia, serif"
+      title_size: 34
+      body_size: 18
+    layouts:
+      - title_slide
+      - content_with_image
+      - data_chart
+      - quote_slide
+    animations:
+      default: "fade"
+      supported:
+        - fade
+        - slide_up
+    thumbnail: "/static/templates/business.png"
+
+  # 创意设计
+  creative:
+    id: "creative"
+    name: "创意设计"
+    name_en: "Creative Design"
+    description: "活泼鲜明的创意风格，适合产品发布"
+    category: "creative"
+    colors:
+      primary: "#dc2626"
+      secondary: "#ea580c"
+      accent: "#f59e0b"
+      background: "#fef2f2"
+      text: "#1c1917"
+      text_light: "#78716c"
+    fonts:
+      title: "Verdana, sans-serif"
+      body: "Verdana, sans-serif"
+      title_size: 36
+      body_size: 20
+    layouts:
+      - title_slide
+      - full_image
+      - content_with_image
+      - grid_layout
+    animations:
+      default: "zoom"
+      supported:
+        - zoom
+        - fade
+        - slide_left
+        - slide_right
+        - rotate
+    thumbnail: "/static/templates/creative.png"
+
+  # 极简主义
+  minimal:
+    id: "minimal"
+    name: "极简主义"
+    name_en: "Minimalist"
+    description: "极致简约的黑白风格，适合艺术类展示"
+    category: "general"
+    colors:
+      primary: "#000000"
+      secondary: "#6b7280"
+      accent: "#000000"
+      background: "#ffffff"
+      text: "#000000"
+      text_light: "#6b7280"
+    fonts:
+      title: "Helvetica, sans-serif"
+      body: "Helvetica, sans-serif"
+      title_size: 40
+      body_size: 16
+    layouts:
+      - title_slide
+      - content_only
+      - image_only
+      - quote_slide
+    animations:
+      default: "fade"
+      supported:
+        - fade
+    thumbnail: "/static/templates/minimal.png"
+
+  # 学术研究
+  academic:
+    id: "academic"
+    name: "学术研究"
+    name_en: "Academic Research"
+    description: "严谨规范的学术风格，适合论文答辩"
+    category: "academic"
+    colors:
+      primary: "#0369a1"
+      secondary: "#0c4a6e"
+      accent: "#0ea5e9"
+      background: "#f0f9ff"
+      text: "#0c4a6e"
+      text_light: "#0369a1"
+    fonts:
+      title: "Times New Roman, serif"
+      body: "Times New Roman, serif"
+      title_size: 32
+      body_size: 16
+    layouts:
+      - title_slide
+      - content_with_image
+      - data_chart
+      - bullet_list
+      - reference_slide
+    animations:
+      default: "fade"
+      supported:
+        - fade
+        - slide_up
+    thumbnail: "/static/templates/academic.png"
+
+  # 科技蓝调
+  tech:
+    id: "tech"
+    name: "科技蓝调"
+    name_en: "Tech Blue"
+    description: "科技感十足的深色风格，适合技术分享"
+    category: "tech"
+    colors:
+      primary: "#3b82f6"
+      secondary: "#1d4ed8"
+      accent: "#06b6d4"
+      background: "#0f172a"
+      text: "#f8fafc"
+      text_light: "#94a3b8"
+    fonts:
+      title: "Consolas, monospace"
+      body: "Consolas, monospace"
+      title_size: 32
+      body_size: 16
+    layouts:
+      - title_slide
+      - content_with_image
+      - code_block
+      - data_chart
+    animations:
+      default: "slide_left"
+      supported:
+        - slide_left
+        - slide_right
+        - fade
+        - zoom
+    thumbnail: "/static/templates/tech.png"
+
+  # 教育培训
+  education:
+    id: "education"
+    name: "教育培训"
+    name_en: "Education"
+    description: "活泼友好的教育风格，适合课件制作"
+    category: "education"
+    colors:
+      primary: "#16a34a"
+      secondary: "#15803d"
+      accent: "#22c55e"
+      background: "#f0fdf4"
+      text: "#14532d"
+      text_light: "#16a34a"
+    fonts:
+      title: "Comic Sans MS, cursive"
+      body: "Comic Sans MS, cursive"
+      title_size: 34
+      body_size: 18
+    layouts:
+      - title_slide
+      - content_with_image
+      - bullet_list
+      - quiz_slide
+    animations:
+      default: "zoom"
+      supported:
+        - zoom
+        - fade
+        - bounce
+    thumbnail: "/static/templates/education.png"
+
+  # 医疗健康
+  medical:
+    id: "medical"
+    name: "医疗健康"
+    name_en: "Medical & Health"
+    description: "清新自然的医疗风格，适合健康科普"
+    category: "medical"
+    colors:
+      primary: "#059669"
+      secondary: "#047857"
+      accent: "#10b981"
+      background: "#ecfdf5"
+      text: "#064e3b"
+      text_light: "#059669"
+    fonts:
+      title: "Arial, sans-serif"
+      body: "Arial, sans-serif"
+      title_size: 32
+      body_size: 18
+    layouts:
+      - title_slide
+      - content_with_image
+      - data_chart
+      - bullet_list
+    animations:
+      default: "fade"
+      supported:
+        - fade
+        - slide_up
+    thumbnail: "/static/templates/medical.png"
+
+# 全局设置
+settings:
+  # 默认模板 ID
+  default_template: "modern"
+  
+  # 动画配置
+  animations:
+    # 动画持续时间（秒）
+    duration: 0.5
+    # 动画延迟（秒）
+    delay: 0.1
+  
+  # 布局配置
+  layouts:
+    # 幻灯片尺寸
+    slide_width: 10
+    slide_height: 7.5
+    # 边距（英寸）
+    margin: 0.5
+  
+  # 文本配置
+  text:
+    # 最大标题字数
+    max_title_length: 50
+    # 最大内容行数
+    max_content_lines: 8
+    # 最小字号
+    min_font_size: 12
+    # 最大字号
+    max_font_size: 48
+  
+  # 图片配置
+  images:
+    # 默认图片宽度（像素）
+    default_width: 1920
+    # 默认图片高度（像素）
+    default_height: 1080
+    # 图片下载超时（秒）
+    download_timeout: 10
+    # 最大并发数
+    max_concurrent: 5

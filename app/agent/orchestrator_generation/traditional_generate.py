@@ -214,6 +214,10 @@ class TraditionalGenerateMixin:
 
         elapsed = time.time() - start_time
 
+        # 报告最终成本和性能指标
+        self._report_current_cost()
+        self._report_final_metrics()
+
         await self._git_save_snapshot(
             f"Agent 生成: {requirement[:80]}"
             if not self.incremental
@@ -248,6 +252,13 @@ class TraditionalGenerateMixin:
             ],
             "session_id": self.session_id,
             "requirement_coverage": coverage_check,
+            "cost": self.cost_tracker.get_summary() if hasattr(self, 'cost_tracker') else {},
+            "performance": {
+                "total_duration": round(elapsed, 1),
+                "files_generated": len(self.generated_files),
+                "files_per_minute": round(len(self.generated_files) / (elapsed / 60), 1) if elapsed > 0 else 0,
+                "avg_file_time": round(elapsed / len(self.generated_files), 1) if len(self.generated_files) > 0 else 0,
+            }
         }
 
         if coverage_check.get("checked") and coverage_check.get("uncovered"):

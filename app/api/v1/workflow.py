@@ -43,10 +43,20 @@ router = APIRouter(prefix="/api/v1/workflow", tags=["workflow"])
 
 
 _workflows = {}
-_workflows_lock = threading.Lock()
+_workflows_lock = asyncio.Lock()
 
 _session_workflows = {}
-_session_lock = threading.Lock()
+_session_lock = asyncio.Lock()
+
+
+async def _drain_event_queue(event_queue: asyncio.Queue, timeout: float = 0.05):
+    """从事件队列中耗尽所有事件"""
+    while True:
+        try:
+            event = await asyncio.wait_for(event_queue.get(), timeout=timeout)
+            yield event
+        except asyncio.TimeoutError:
+            break
 
 
 @router.post("/execute")
@@ -77,7 +87,7 @@ async def execute_workflow(
         try:
             previous_workflow = None
             if session_id:
-                with _session_lock:
+                async with _session_lock:
                     previous_workflow = _session_workflows.get(session_id)
 
             yield json.dumps({
@@ -132,7 +142,7 @@ async def execute_workflow(
                 }) + "\n"
                 return
 
-            with _workflows_lock:
+            async with _workflows_lock:
                 _workflows[task_graph.workflow_id] = {
                     "task_graph": task_graph,
                     "request": request,
@@ -203,28 +213,20 @@ async def execute_workflow(
                     event_data["error"] = result.error
                 event_queue.put_nowait(json.dumps(event_data) + "\n")
 
-            async def drain_events():
-                while True:
-                    try:
-                        event = await asyncio.wait_for(event_queue.get(), timeout=0.05)
-                        yield event
-                    except asyncio.TimeoutError:
-                        break
-
             executor_task = asyncio.create_task(executor.execute(
                 on_node_start=on_node_start,
                 on_node_complete=on_node_complete,
             ))
 
-            async for event in drain_events():
+            async for event in _drain_event_queue(event_queue):
                 yield event
 
             while not executor_task.done():
-                async for event in drain_events():
+                async for event in _drain_event_queue(event_queue):
                     yield event
                 await asyncio.sleep(0.05)
 
-            async for event in drain_events():
+            async for event in _drain_event_queue(event_queue):
                 yield event
 
             result = await executor_task
@@ -262,7 +264,7 @@ async def execute_workflow(
                 logger.error(f"保存工作流历史记录失败: {e}")
 
             if session_id:
-                with _session_lock:
+                async with _session_lock:
                     _session_workflows[session_id] = {
                         "workflow_id": task_graph.workflow_id,
                         "request": request.natural_language_request,
@@ -310,28 +312,28 @@ async def get_workflow_status(
     Args:
         workflow_id: 工作流 ID
     """
-    with _workflows_lock:
+    async with _workflows_lock:
         if workflow_id not in _workflows:
             raise HTTPException(status_code=404, detail="Workflow not found")
 
         workflow_data = _workflows[workflow_id]
         task_graph = workflow_data["task_graph"]
 
-        aggregator = None
-        executor = None
-
-        try:
-            from app.utils.workflow.executor import WorkflowExecutor
-            executor = WorkflowExecutor(task_graph=task_graph)
-            aggregator = executor.get_aggregator()
-        except:
-            pass
+        aggregator = workflow_data.get("aggregator")
+        
+        if aggregator is None:
+            try:
+                from app.utils.workflow.executor import WorkflowExecutor
+                executor = WorkflowExecutor(task_graph=task_graph)
+                aggregator = executor.get_aggregator()
+            except Exception as e:
+                logger.warning(f"创建执行器获取聚合器失败: {e}")
 
         if aggregator:
             summary = aggregator.get_workflow_summary()
             status = "running" if not aggregator.is_complete() else summary.get("status", "unknown")
         else:
-            status = "unknown"
+            status = workflow_data.get("status", "unknown")
 
         return {
             "workflow_id": workflow_id,
@@ -376,7 +378,7 @@ async def import_workflow(
         )
 
     workflow_id = task_graph.workflow_id
-    with _workflows_lock:
+    async with _workflows_lock:
         _workflows[workflow_id] = {
             "task_graph": task_graph,
             "request": None,
@@ -405,7 +407,7 @@ async def execute_imported_workflow(
     user_id = token.get("sub") or token.get("user_id")
     history_record = None
 
-    with _workflows_lock:
+    async with _workflows_lock:
         if workflow_id not in _workflows:
             raise HTTPException(status_code=404, detail="Workflow not found")
         workflow_data = _workflows[workflow_id]
@@ -451,28 +453,20 @@ async def execute_imported_workflow(
                     event_data["error"] = result.error
                 event_queue.put_nowait(json.dumps(event_data) + "\n")
 
-            async def drain_events():
-                while True:
-                    try:
-                        event = await asyncio.wait_for(event_queue.get(), timeout=0.05)
-                        yield event
-                    except asyncio.TimeoutError:
-                        break
-
             executor_task = asyncio.create_task(executor.execute(
                 on_node_start=on_node_start,
                 on_node_complete=on_node_complete,
             ))
 
-            async for event in drain_events():
+            async for event in _drain_event_queue(event_queue):
                 yield event
 
             while not executor_task.done():
-                async for event in drain_events():
+                async for event in _drain_event_queue(event_queue):
                     yield event
                 await asyncio.sleep(0.05)
 
-            async for event in drain_events():
+            async for event in _drain_event_queue(event_queue):
                 yield event
 
             result = await executor_task
@@ -541,7 +535,7 @@ async def export_workflow(
     Args:
         workflow_id: 工作流 ID
     """
-    with _workflows_lock:
+    async with _workflows_lock:
         if workflow_id not in _workflows:
             raise HTTPException(status_code=404, detail="Workflow not found")
 
@@ -579,12 +573,12 @@ async def delete_workflow(
     token: dict = Depends(verify_token),
 ):
     """
-    删除工作流
+    导出工作流
 
     Args:
         workflow_id: 工作流 ID
     """
-    with _workflows_lock:
+    async with _workflows_lock:
         if workflow_id not in _workflows:
             raise HTTPException(status_code=404, detail="Workflow not found")
 

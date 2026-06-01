@@ -1,9 +1,6 @@
-import { ref, computed, nextTick, reactive } from 'vue'
+import { ref, nextTick, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import JSZip from 'jszip'
-import { useAgentFiles } from './useAgentFiles'
-import { useAgentSession } from './useAgentSession'
-import { useAgentGeneration } from './useAgentGeneration'
 
 export function useAgentWorkspace({
   session, files, generation
@@ -18,6 +15,27 @@ export function useAgentWorkspace({
   const currentAgent = ref(null)
   const currentModel = ref(null)
   const currentProjectPath = ref(null)
+  
+  // 新增：测试结果、验证结果、成本数据、性能指标
+  const testResults = ref(null)
+  const validationResults = ref(null)
+  const costData = ref({
+    totalTokens: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    totalCostUsd: 0,
+    tokensPerSecond: 0,
+    modelCosts: {},
+    modelTokens: {}
+  })
+  const performanceMetrics = ref({
+    generationSpeed: 0,
+    filesPerMinute: 0,
+    avgFileTime: 0,
+    totalDuration: 0,
+    llmCalls: 0,
+    retryCount: 0
+  })
 
   const addLog = (level, message) => {
     logs.value.push({ level, message, timestamp: new Date().toISOString() })
@@ -180,6 +198,7 @@ export function useAgentWorkspace({
     logs, executionDetails, thinkingMessages, pendingDecisions,
     decisionAnswers, decisionHistory, logsContainer,
     currentAgent, currentModel, currentProjectPath,
+    testResults, validationResults, costData, performanceMetrics,
     addLog, addDetail, showFileDiff, hasFileDiff,
     handleFileSelect, importZipFile, downloadFile, copyFileContent,
     saveFileVersion, restoreVersion, viewVersionDiff,

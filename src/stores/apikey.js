@@ -110,11 +110,11 @@ export const useApiKeyStore = defineStore('apikey', () => {
       // 加密 Key
       const encryptedKey = await encryptWithRSAPublicKey(rawKey, pubKey)
       
-      // 提交到后端
+      // 提交到后端（ttl 现在是秒数整数）
       const response = await submitApiKey({
         provider,
         encrypted_key: encryptedKey,
-        ttl,
+        ttl: typeof ttl === 'number' ? ttl : getTTLSeconds(ttl),
         remark,
       })
       
@@ -126,7 +126,7 @@ export const useApiKeyStore = defineStore('apikey', () => {
         status: 'unverified',
         created_at: new Date().toISOString(),
         expires_at: response.expires_at,
-        ttl_seconds: getTTLSeconds(ttl),
+        ttl_seconds: typeof ttl === 'number' ? ttl : getTTLSeconds(ttl),
         enabled: true,
       }
       tokens.value.unshift(newToken)
@@ -247,6 +247,11 @@ export const useApiKeyStore = defineStore('apikey', () => {
       '24h': 86400,
       '7d': 604800,
       '30d': 2592000,
+      'never': 315360000,  // 10 年，近似永久
+    }
+    // 如果是数字直接返回（自定义秒数）
+    if (typeof ttl === 'number') {
+      return ttl
     }
     return ttlMap[ttl] || 86400
   }

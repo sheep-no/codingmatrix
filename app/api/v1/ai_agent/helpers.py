@@ -3,7 +3,7 @@ import os
 import shutil
 import json
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncGenerator, List
 
@@ -279,7 +279,7 @@ async def _cleanup_old_session(user_id: str, db: AsyncSession):
         )
 
         old_sess.status = "cancelled"
-        old_sess.completed_at = datetime.now()
+        old_sess.completed_at = datetime.now(timezone.utc)
 
     await db.commit()
 
@@ -300,7 +300,7 @@ async def _create_project_session(db: AsyncSession, user_id: int, session_id: st
     return session
 
 
-async def _update_project_session_status(db: Optional[AsyncSession], session_id: str, status: str, files_generated: int = 0, files_total: int = 0, error_message: str = None):
+async def _update_project_session_status(db: Optional[AsyncSession], session_id: str, status: str, files_generated: int = 0, files_total: int = 0, error_message: Optional[str] = None):
     if db is None:
         logger.warning(f"更新会话状态失败：db 为 None | session_id={session_id} | status={status}")
         return
@@ -317,7 +317,7 @@ async def _update_project_session_status(db: Optional[AsyncSession], session_id:
             if error_message:
                 session.error_message = error_message
             if status in ("completed", "failed", "cancelled"):
-                session.completed_at = datetime.now()
+                session.completed_at = datetime.now(timezone.utc)
             await db.commit()
         else:
             logger.warning(f"会话不存在：session_id={session_id}")
@@ -384,7 +384,9 @@ async def detect_resume_intent(requirement: str, model: str = "Qwen/Qwen3.5-4B")
             "is_resume": bool,           # 是否是继续意图
             "has_changes": bool,         # 是否包含需求变更
             "additional_requirement": str,  # 补充的需求（如有）
-            "original_requirement": str    # 原始需求（从最近会话获取）
+            "original_requirement": str,    # 原始需求（从最近会话获取）
+            "target_session_id": str,       # 目标会话 ID（空表示最近会话）
+            "resume_type": str              # 恢复类型: "recent" | "historical"
         }
     """
     from app.utils import call_llm
@@ -395,7 +397,7 @@ async def detect_resume_intent(requirement: str, model: str = "Qwen/Qwen3.5-4B")
 
 请返回 JSON：
 {{
-  "is_resume": true/false,  // 是否是继续意图（继续、resume、恢复、接着来等）
+  "is_resume": true/false,  // 是否是继续意图（继续、resume、恢复、接着来、修复上次的bug等）
   "has_changes": true/false,  // 是否包含需求变更或补充
   "additional_requirement": "补充的需求内容"  // 如果有补充需求，提取出来；否则为空字符串
 }}
@@ -420,7 +422,9 @@ async def detect_resume_intent(requirement: str, model: str = "Qwen/Qwen3.5-4B")
             return {
                 "is_resume": data.get("is_resume", False),
                 "has_changes": data.get("has_changes", False),
-                "additional_requirement": data.get("additional_requirement", "")
+                "additional_requirement": data.get("additional_requirement", ""),
+                "target_session_id": "",
+                "resume_type": "recent"
             }
     except Exception as e:
         logger.warning(f"意图检测失败: {e}")
@@ -432,8 +436,97 @@ async def detect_resume_intent(requirement: str, model: str = "Qwen/Qwen3.5-4B")
     return {
         "is_resume": is_resume,
         "has_changes": False,
-        "additional_requirement": ""
+        "additional_requirement": "",
+        "target_session_id": "",
+        "resume_type": "recent"
     }
+
+
+async def resolve_resume_session(
+    db: AsyncSession,
+    user_id: str,
+    requirement: str,
+    model: str = "Qwen/Qwen3.5-4B",
+    limit: int = 20
+) -> Optional[ProjectSession]:
+    """
+    方案 2：智能解析要恢复的 session
+    
+    根据用户输入，从最近 N 个 session 中找到最相关的那个。
+    适用于"修复上上轮的登录 bug"等需要语义匹配的场景。
+    
+    Args:
+        db: 数据库会话
+        user_id: 用户 ID
+        requirement: 用户输入
+        model: 用于匹配的模型
+        limit: 要检索的 session 数量
+        
+    Returns:
+        最相关的 session，或者 None（没有找到可恢复的）
+    """
+    from app.utils import call_llm
+    
+    # 1. 获取用户最近的 session（排除 running 状态，因为那是当前正在进行的）
+    query = select(ProjectSession).where(
+        ProjectSession.user_id == user_id,
+        ProjectSession.status.in_(["completed", "cancelled", "failed"])
+    )
+    query = query.order_by(ProjectSession.created_at.desc()).limit(limit)
+    
+    result = await db.execute(query)
+    sessions = list(result.scalars().all())
+    
+    if not sessions:
+        # 只检查 running 状态
+        return await get_user_recent_session(db, user_id, status_filter="running")
+    
+    # 2. 构建 session 摘要列表
+    session_summaries = []
+    for i, s in enumerate(sessions):
+        req_preview = s.requirement[:100] + ("..." if len(s.requirement) > 100 else "")
+        session_summaries.append(
+            f"[{i+1}] ID: {s.session_id}\n"
+            f"    时间: {s.created_at.strftime('%Y-%m-%d %H:%M') if s.created_at else '未知'}\n"
+            f"    需求: {req_preview}\n"
+            f"    状态: {s.status}\n"
+            f"    文件: {s.files_generated}/{s.files_total}"
+        )
+    
+    summaries_text = "\n\n".join(session_summaries)
+    
+    # 3. 让 LLM 找到最相关的那个
+    prompt = f"""你是会话匹配助手。根据用户的输入，从历史会话列表中找到最匹配的那个。
+
+用户输入："{requirement}"
+
+历史会话列表：
+{summaries_text}
+
+请返回最匹配的会话编号（数字 1-{len(sessions)}）。
+如果没有任何匹配的，返回 0。
+只返回数字，不要其他文字："""
+
+    try:
+        result = await call_llm(
+            model=model,
+            prompt=prompt,
+            temperature=0.1,
+            max_tokens=10
+        )
+        
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        import re
+        match = re.search(r'\d+', content)
+        if match:
+            idx = int(match.group())
+            if 1 <= idx <= len(sessions):
+                return sessions[idx - 1]
+    except Exception as e:
+        logger.warning(f"智能匹配 session 失败: {e}")
+    
+    # 兜底：返回最近的
+    return sessions[0] if sessions else None
 
 
 async def analyze_files_to_regenerate(

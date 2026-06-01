@@ -22,7 +22,7 @@ try {
       sessionStorage.removeItem('_token_expiry')
     }
   }
-} catch (e) {}
+} catch (_e) { /* sessionStorage not available */ }
 
 export const useTokenManager = () => {
   /**
@@ -49,7 +49,7 @@ export const useTokenManager = () => {
         localStorage.removeItem('access_token')
         localStorage.removeItem('_token_expiry')
       }
-    } catch (e) {}
+    } catch (_e) { /* storage not available */ }
   }
 
   /**
@@ -108,7 +108,7 @@ export const useTokenManager = () => {
       sessionStorage.removeItem('_token_expiry')
       localStorage.removeItem('access_token')
       // 注意：不清理 localStorage._token_expiry，避免与其他模块冲突
-    } catch (e) {}
+    } catch (_e) { /* storage not available */ }
   }
 
   /**

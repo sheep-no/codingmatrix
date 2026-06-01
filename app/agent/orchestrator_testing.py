@@ -63,6 +63,20 @@ class TestingMixin:
                 ]
                 self.warnings.append(f"测试失败聚类：{len(clusters)} 个根因 | {len(result.failed_tests)} 个失败")
 
+            # 推送测试结果事件
+            self._report_test_results({
+                "summary": {
+                    "passed": result.passed,
+                    "failed": result.failed,
+                    "skipped": result.errors,
+                    "total": result.total_tests,
+                    "coverage": None  # 可以后续扩展覆盖率
+                },
+                "duration": metrics_collector.get_last_duration('TestingMixin', 'run_tests'),
+                "failed_tests": result.failed_tests[:10] if result.failed_tests else [],
+                "success": result.success
+            })
+
             self._report_progress(
                 PROGRESS_LABELS.get("tests_finished", "测试完成"),
                 1, 1,

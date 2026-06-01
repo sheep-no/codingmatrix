@@ -130,7 +130,39 @@
                 <span>自动配图</span>
               </label>
             </div>
+            <div class="option-item">
+              <label class="option-label">
+                <input v-model="enableAnimation" type="checkbox" class="option-checkbox" />
+                <span>启用动画</span>
+              </label>
+            </div>
+            <div class="option-item">
+              <label class="option-label">
+                <span>输出格式</span>
+                <select v-model="outputFormat" class="option-select">
+                  <option value="pptx">PPTX</option>
+                  <option value="pdf">PDF</option>
+                  <option value="both">PPTX + PDF</option>
+                </select>
+              </label>
+            </div>
           </div>
+        </div>
+
+        <!-- WebSocket 进度显示 -->
+        <div v-if="isGenerating && progressState" class="progress-section">
+          <div class="progress-header">
+            <span class="progress-title">生成进度</span>
+            <span class="progress-percentage">{{ Math.round(progressState.progress * 100) }}%</span>
+          </div>
+          <div class="progress-bar">
+            <div 
+              class="progress-fill" 
+              :style="{ width: `${progressState.progress * 100}%` }"
+            ></div>
+          </div>
+          <div class="progress-step">{{ progressState.step }}</div>
+          <div class="progress-message">{{ progressState.message }}</div>
         </div>
       </div>
 
@@ -184,7 +216,7 @@
 </template>
 
 <script setup>
-  import { ref, computed } from 'vue'
+  import { ref, computed, onMounted, onUnmounted } from 'vue'
   import { api } from '@/utils/api/index'
   import { useNavigationStore } from '@/stores/navigation'
 
@@ -201,36 +233,33 @@
 
   // 表单状态
   const pptPrompt = ref('')
-  const selectedTemplate = ref('default')
+  const selectedTemplate = ref('modern')
   const slideCount = ref('10')
   const autoImages = ref(true)
+  const enableAnimation = ref(true)
+  const outputFormat = ref('pptx')
   const isGenerating = ref(false)
+  const progressState = ref(null)
 
-  // 模板数据
-  const templates = [
+  // 模板数据（从 API 加载）
+  const templates = ref([
     {
-      id: 'default',
-      name: '默认模板',
-      desc: '简洁通用',
-      color: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)'
+      id: 'modern',
+      name: '现代简约',
+      desc: '简洁清晰',
+      color: 'linear-gradient(135deg, #2563eb 0%, #3b82f6 100%)'
     },
     {
       id: 'business',
-      name: '商务风格',
-      desc: '专业正式',
-      color: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)'
+      name: '商务专业',
+      desc: '稳重大气',
+      color: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)'
     },
     {
       id: 'tech',
       name: '科技风格',
       desc: '现代创新',
       color: 'linear-gradient(135deg, #00c6ff 0%, #0072ff 100%)'
-    },
-    {
-      id: 'simple',
-      name: '极简风格',
-      desc: '清新淡雅',
-      color: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)'
     },
     {
       id: 'creative',
@@ -243,17 +272,96 @@
       name: '优雅经典',
       desc: '高贵典雅',
       color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
+    },
+    {
+      id: 'minimal',
+      name: '极简风格',
+      desc: '清新淡雅',
+      color: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)'
     }
-  ]
+  ])
+
+  // WebSocket 连接
+  let ws = null
 
   // 计算是否可以生成
   const canGenerate = computed(() => {
     return pptPrompt.value.trim().length > 0 && pptPrompt.value.length <= 2000
   })
 
+  // 加载模板列表
+  const loadTemplates = async () => {
+    try {
+      const result = await api.ppt.getTemplates()
+      if (result.templates && result.templates.length > 0) {
+        templates.value = result.templates.map(t => ({
+          id: t.id,
+          name: t.name,
+          desc: t.description || t.name_en || '',
+          color: `linear-gradient(135deg, ${t.colors?.primary || '#667eea'} 0%, ${t.colors?.secondary || '#764ba2'} 100%)`
+        }))
+      }
+    } catch (error) {
+      console.error('加载模板失败:', error)
+    }
+  }
+
+  // 连接 WebSocket
+  const connectWebSocket = (taskId) => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${protocol}//${window.location.host}/ws/ppt/${taskId}`
+    
+    ws = new WebSocket(wsUrl)
+    
+    ws.onopen = () => {
+      console.log('WebSocket 连接成功')
+    }
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        
+        if (data.type === 'progress') {
+          progressState.value = {
+            progress: data.progress,
+            step: data.step,
+            message: data.message
+          }
+        } else if (data.type === 'complete') {
+          progressState.value = {
+            progress: 1,
+            step: 'completed',
+            message: '任务完成'
+          }
+        } else if (data.type === 'error') {
+          progressState.value = {
+            progress: progressState.value?.progress || 0,
+            step: 'error',
+            message: data.error || data.message
+          }
+        }
+      } catch (error) {
+        console.error('WebSocket 消息解析失败:', error)
+      }
+    }
+    
+    ws.onerror = (error) => {
+      console.error('WebSocket 错误:', error)
+    }
+    
+    ws.onclose = () => {
+      console.log('WebSocket 连接关闭')
+      ws = null
+    }
+  }
+
   // 关闭
   const close = () => {
     if (!isGenerating.value) {
+      if (ws) {
+        ws.close()
+        ws = null
+      }
       emit('close')
     }
   }
@@ -263,29 +371,44 @@
     if (!canGenerate.value || isGenerating.value) return
 
     isGenerating.value = true
+    progressState.value = {
+      progress: 0,
+      step: 'starting',
+      message: '正在创建任务...'
+    }
 
     try {
       // 构建完整的提示词
       const fullPrompt = buildFullPrompt()
 
-      // 创建 PPT 生成任务
-      const result = await api.createPptTask(fullPrompt)
+      // 创建 PPT 生成任务（使用新 API）
+      const result = await api.ppt.createPptTask(fullPrompt, null, null, {
+        template_id: selectedTemplate.value,
+        slide_count: parseInt(slideCount.value),
+        auto_images: autoImages.value,
+        enable_animation: enableAnimation.value,
+        output_format: outputFormat.value,
+      })
 
       if (result && result.task_id) {
-        // 成功创建任务
+        // 连接 WebSocket 接收进度
+        connectWebSocket(result.task_id)
+
+        // 发送生成事件
         emit('generated', result)
 
-        // 提示用户并跳转到任务队列
+        // 提示用户并跳转
         setTimeout(() => {
           navigationStore.hideTool('pptGenerator')
           navigationStore.showTool('taskQueue')
-        }, 500)
+        }, 1500)
       } else {
         alert('创建 PPT 任务失败，请稍后重试')
       }
     } catch (error) {
       console.error('PPT 生成失败:', error)
       alert('生成失败：' + (error.message || '未知错误'))
+      progressState.value = null
     } finally {
       isGenerating.value = false
     }
@@ -293,16 +416,20 @@
 
   // 构建完整提示词
   const buildFullPrompt = () => {
-    const template = templates.find(t => t.id === selectedTemplate.value)
+    const template = templates.value.find(t => t.id === selectedTemplate.value)
     const features = []
 
     if (autoImages.value) {
       features.push('自动配图')
     }
+    if (enableAnimation.value) {
+      features.push('动画效果')
+    }
 
     let fullPrompt = `${pptPrompt.value.trim()}\n\n`
     fullPrompt += `模板风格：${template?.name || '默认'}\n`
     fullPrompt += `幻灯片数量：${slideCount.value}页\n`
+    fullPrompt += `输出格式：${outputFormat.value}\n`
 
     if (features.length > 0) {
       fullPrompt += `特殊要求：${features.join('、')}\n`
@@ -310,6 +437,18 @@
 
     return fullPrompt
   }
+
+  // 生命周期
+  onMounted(() => {
+    loadTemplates()
+  })
+
+  onUnmounted(() => {
+    if (ws) {
+      ws.close()
+      ws = null
+    }
+  })
 </script>
 
 <style scoped>
@@ -683,5 +822,60 @@
 
   .ppt-content::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(180deg, var(--gray-400) 0%, var(--gray-500) 100%);
+  }
+
+  /* 进度显示 */
+  .progress-section {
+    margin-top: 20px;
+    padding: 16px;
+    background: linear-gradient(90deg, var(--primary-100) 0%, var(--primary-200) 100%);
+    border-radius: 10px;
+    border: 1px solid var(--primary-200);
+  }
+
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .progress-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--primary-700);
+  }
+
+  .progress-percentage {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-primary);
+  }
+
+  .progress-bar {
+    height: 8px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--color-primary), var(--teal-400));
+    border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+
+  .progress-step {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--primary-600);
+    margin-bottom: 4px;
+  }
+
+  .progress-message {
+    font-size: 13px;
+    color: var(--primary-700);
   }
 </style>

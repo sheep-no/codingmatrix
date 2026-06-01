@@ -97,22 +97,26 @@ class SpecCache:
         self._cache: Dict[str, CacheEntry] = {}
 
         # 向量索引优化
-        self._tech_index: Dict[str, List[str]] = {}  # tech_stack → [req_hash]
-        self._vector_cache: Dict[str, List[float]] = {}  # req_hash → vector (内存)
+        self._tech_index: Dict[str, List[str]] = {}  # tech_stack -&gt; [req_hash]
+        self._vector_cache: Dict[str, List[float]] = {}  # req_hash -&gt; vector (内存)
 
         # 异步懒加载索引（不阻塞初始化）
         self._index_loaded = False
+        self._index_lock = asyncio.Lock()
         self._index_load_task: Optional[asyncio.Task] = None
 
         self._stats = {"hits": 0, "misses": 0, "total_requests": 0}
 
     async def _ensure_index_loaded(self):
-        """确保索引已加载（异步懒加载）"""
+        """确保索引已加载（异步懒加载，带锁保护）"""
         if self._index_loaded:
             return
-        if self._index_load_task is None:
-            self._index_load_task = asyncio.create_task(self._async_load_index())
-        await self._index_load_task
+        async with self._index_lock:
+            if self._index_loaded:
+                return
+            if self._index_load_task is None:
+                self._index_load_task = asyncio.create_task(self._async_load_index())
+            await self._index_load_task
 
     async def _async_load_index(self):
         """异步加载索引（不阻塞事件循环）"""
@@ -137,16 +141,6 @@ class SpecCache:
         self._load_index_sync()
         self._build_indices()
         self._index_loaded = True
-        """加载缓存索引"""
-        index_file = self.cache_dir / "index.json"
-        if index_file.exists():
-            try:
-                with open(index_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                for req_hash, entry_data in data.items():
-                    self._cache[req_hash] = CacheEntry(**entry_data)
-            except Exception as e:
-                logger.error(f"加载缓存索引失败: {e}")
 
     def _build_indices(self):
         """构建技术栈索引和向量缓存"""

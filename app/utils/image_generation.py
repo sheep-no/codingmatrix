@@ -7,6 +7,7 @@ Kolors 图像生成工具 - 支持文生图和图生图
 - 图生图 (Image-to-Image)
 - 图像编辑
 """
+import asyncio
 import base64
 import logging
 from pathlib import Path
@@ -40,6 +41,31 @@ DEFAULT_CONFIG = {
 
 OUTPUT_DIR = Path("./generated_images")
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+# 并发限制
+_max_concurrent_generations = asyncio.Semaphore(4)
+
+# 连接池（复用 HTTP 客户端）
+_http_client: Optional[httpx.AsyncClient] = None
+
+
+async def get_http_client() -> httpx.AsyncClient:
+    """获取或创建共享的 HTTP 客户端（连接池复用）"""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=Timeout(120.0, connect=10.0),
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+        )
+    return _http_client
+
+
+async def close_http_client():
+    """关闭 HTTP 客户端"""
+    global _http_client
+    if _http_client and not _http_client.is_closed:
+        await _http_client.aclose()
+        _http_client = None
 
 
 def _save_images_from_response(
@@ -314,39 +340,64 @@ async def inpaint_image(
     return {"success": True, "images": images, "paths": image_paths, "prompt": prompt}
 
 
-async def _call_kolors_api(data: dict, timeout: Timeout, api_key_token: str = None) -> dict:
-    """Kolors API 调用公共逻辑"""
-    try:
-        # 获取 API Key：优先使用用户自定义 Key，否则使用系统默认 Key
-        api_key = settings.SILICONFLOW_API_KEY
-        if api_key_token:
-            from app.services.apikey_manager import get_apikey_manager
-            try:
-                apikey_manager = get_apikey_manager()
-                user_key = apikey_manager.get_key("default_user", api_key_token)
-                if user_key:
-                    api_key = user_key
-            except Exception as e:
-                logger.warning(f"获取用户 API Key 失败，使用系统默认 Key: {e}")
+async def _call_kolors_api(data: dict, timeout: Timeout, api_key_token: str = None, max_retries: int = 3) -> dict:
+    """Kolors API 调用公共逻辑（带重试机制和并发限制）"""
+    async with _max_concurrent_generations:
+        last_error = None
         
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                f"{KOLORS_BASE_URL}/images/generations",
-                headers=headers, json=data
-            )
-            if response.status_code != 200:
-                logger.error(f"Kolors API 调用失败 | status={response.status_code} | {response.text}")
-                raise HTTPException(status_code=response.status_code, detail=f"图像生成失败：{response.text}")
-            return response.json()
-    except HTTPException:
-        raise
-    except (ValueError, TypeError, RuntimeError, OSError) as e:
-        logger.error(f"Kolors API 调用失败 | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"图像生成失败：{str(e)}")
+        for attempt in range(max_retries):
+            try:
+                api_key = settings.SILICONFLOW_API_KEY
+                if api_key_token:
+                    from app.services.apikey_manager import get_apikey_manager
+                    try:
+                        apikey_manager = get_apikey_manager()
+                        user_key = apikey_manager.get_key("default_user", api_key_token)
+                        if user_key:
+                            api_key = user_key
+                    except Exception as e:
+                        logger.warning(f"获取用户 API Key 失败，使用系统默认 Key: {e}")
+                
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                }
+                
+                client = await get_http_client()
+                response = await client.post(
+                    f"{KOLORS_BASE_URL}/images/generations",
+                    headers=headers, json=data
+                )
+                
+                if response.status_code == 200:
+                    return response.json()
+                
+                error_msg = f"status={response.status_code} | {response.text}"
+                logger.warning(f"Kolors API 调用失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
+                last_error = HTTPException(status_code=response.status_code, detail=f"图像生成失败：{response.text}")
+                
+                if response.status_code >= 500:
+                    wait_time = (2 ** attempt) * 1.0
+                    await asyncio.sleep(wait_time)
+                else:
+                    break
+                    
+            except httpx.TimeoutException as e:
+                last_error = HTTPException(status_code=504, detail=f"图像生成超时：{str(e)}")
+                logger.warning(f"Kolors API 超时 (尝试 {attempt + 1}/{max_retries}): {e}")
+                wait_time = (2 ** attempt) * 1.0
+                await asyncio.sleep(wait_time)
+            except httpx.HTTPError as e:
+                last_error = HTTPException(status_code=502, detail=f"图像生成网络错误：{str(e)}")
+                logger.warning(f"Kolors API 网络错误 (尝试 {attempt + 1}/{max_retries}): {e}")
+                wait_time = (2 ** attempt) * 1.0
+                await asyncio.sleep(wait_time)
+            except Exception as e:
+                last_error = HTTPException(status_code=500, detail=f"图像生成失败：{str(e)}")
+                logger.error(f"Kolors API 调用异常: {e}", exc_info=True)
+                break
+        
+        raise last_error or HTTPException(status_code=500, detail="图像生成失败")
 
 
 # 快捷函数 - 常用场景

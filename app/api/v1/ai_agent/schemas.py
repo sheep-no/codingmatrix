@@ -377,3 +377,28 @@ class TokenUsageStatsResponse(BaseModel):
     today_tokens: int = Field(0, description="今日 token 使用量")
     this_month_tokens: int = Field(0, description="本月 token 使用量")
     by_model: Dict[str, int] = Field(default_factory=dict, description="按模型统计")
+
+
+# ==================== 方案 3：Agent 工具 - 会话搜索 ====================
+
+class SearchSessionsRequest(BaseModel):
+    """搜索历史会话请求"""
+    query: str = Field(..., description="搜索查询，用于语义匹配历史会话")
+    limit: int = Field(10, ge=1, le=50, description="返回结果数量")
+
+
+class SessionMatch(BaseModel):
+    """匹配的会话"""
+    session_id: str = Field(..., description="会话 ID")
+    requirement_preview: str = Field(..., description="需求摘要")
+    status: str = Field(..., description="会话状态")
+    created_at: str = Field(..., description="创建时间")
+    files_generated: int = Field(0, description="已生成文件数")
+    files_total: int = Field(0, description="总文件数")
+    relevance_score: float = Field(0.0, ge=0, le=1, description="匹配度 0-1")
+
+
+class SearchSessionsResponse(BaseModel):
+    """搜索会话响应"""
+    query: str = Field(..., description="搜索查询")
+    matches: List[SessionMatch] = Field(default_factory=list, description="匹配结果列表")

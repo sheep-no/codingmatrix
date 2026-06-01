@@ -65,17 +65,29 @@ class ReActResult:
 class ReActAgent:
     """
     ReAct Agent - 支持自我反思的 Agent
+    支持阶段化模型路由：不同阶段使用不同模型
     """
+
+    DEFAULT_STAGE_MODELS = {
+        ReActStepType.THOUGHT: "deepseek-r1-qwen3-8b",     # 推理能力强
+        ReActStepType.ACTION: "qwen2.5-7b",                 # 代码生成好
+        ReActStepType.OBSERVATION: "qwen3.5-4b",           # 快速响应
+        ReActStepType.REFLECTION: "deepseek-r1-qwen3-8b",  # 综合分析
+        ReActStepType.FINAL: "qwen3.5-4b",                 # 快速总结
+    }
 
     def __init__(
         self,
         model_key: str = "deepseek-r1-qwen3-8b",
         max_iterations: int = 10,
-        enable_streaming: bool = False
+        enable_streaming: bool = False,
+        stage_models: Optional[Dict[ReActStepType, str]] = None
     ):
-        self.model = ModelRegistry.get(model_key)
+        self.default_model = ModelRegistry.get(model_key)
         self.max_iterations = max_iterations
         self.enable_streaming = enable_streaming
+
+        self.stage_models = stage_models or self.DEFAULT_STAGE_MODELS
 
         self.memory = AgentMemory()
         self.executor = EnhancedExecutor()
@@ -83,6 +95,16 @@ class ReActAgent:
         self._stream_callback: Optional[Callable[[str], None]] = None
         self._steps: List[ReActStep] = []
         self._current_state: Dict[str, Any] = {}
+
+    def _get_model_for_stage(self, stage: ReActStepType):
+        """根据阶段获取对应的模型"""
+        model_key = self.stage_models.get(stage, self.default_model.name)
+        return ModelRegistry.get(model_key)
+
+    @property
+    def model(self):
+        """兼容旧代码，返回默认模型"""
+        return self.default_model
 
     def set_stream_callback(self, callback: Callable[[str], None]) -> None:
         self._stream_callback = callback
@@ -105,6 +127,8 @@ class ReActAgent:
         """
         Thought 阶段 - 分析问题
         """
+        model = self._get_model_for_stage(ReActStepType.THOUGHT)
+        
         prompt = f"""分析以下任务，决定下一步行动：
 
 任务：{task}
@@ -122,7 +146,7 @@ class ReActAgent:
 
         try:
             response = await call_llm(
-                model=self.model.name,
+                model=model.name,
                 prompt=prompt,
                 stream=False,
                 max_tokens=self.model.max_tokens // 2,
@@ -143,6 +167,8 @@ class ReActAgent:
         """
         Action 阶段 - 执行动作
         """
+        model = self._get_model_for_stage(ReActStepType.ACTION)
+        
         prompt = f"""基于以下思考，决定执行什么动作：
 
 思考：{thought}
@@ -165,7 +191,7 @@ class ReActAgent:
 
         try:
             response = await call_llm(
-                model=self.model.name,
+                model=model.name,
                 prompt=prompt,
                 stream=False,
                 max_tokens=1024,
@@ -220,6 +246,8 @@ class ReActAgent:
         """
         Observation 阶段 - 观察结果
         """
+        model = self._get_model_for_stage(ReActStepType.OBSERVATION)
+        
         result_str = json.dumps(action_result.result, ensure_ascii=False) if action_result.result else action_result.error
 
         prompt = f"""分析以下执行结果：
@@ -236,7 +264,7 @@ class ReActAgent:
 
         try:
             response = await call_llm(
-                model=self.model.name,
+                model=model.name,
                 prompt=prompt,
                 stream=False,
                 max_tokens=512,
@@ -257,6 +285,8 @@ class ReActAgent:
         """
         Reflection 阶段 - 反思是否继续
         """
+        model = self._get_model_for_stage(ReActStepType.REFLECTION)
+        
         steps_summary = "\n".join([
             f"{i+1}. [{s.step_type.value}] {s.content[:100]}"
             for i, s in enumerate(steps[-5:])
@@ -285,7 +315,7 @@ class ReActAgent:
 
         try:
             response = await call_llm(
-                model=self.model.name,
+                model=model.name,
                 prompt=prompt,
                 stream=False,
                 max_tokens=1024,

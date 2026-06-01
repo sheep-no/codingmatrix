@@ -1,6 +1,6 @@
 # CodingMatrix 模块说明
 
-> 最后更新：2026-05-27 | 版本：v5.10.0
+> 最后更新：2026-05-30 | 版本：v5.11.0
 
 ## 项目结构概览
 
@@ -295,6 +295,7 @@ dependencies.get_affected_files(['models/user.py'])
 | 模块 | 路径 | 行数 | 描述 |
 |------|------|------|------|
 | **动态依赖图** | **`dependency_graph.py`** | **~500** | **解析 import/require、BFS 影响分析、跨文件 Patch** |
+| **智能会话恢复** | **`helpers.py`** | **~100** | **v5.11.0 新增：resolve_resume_session 语义匹配** |
 | Orchestrator | `orchestrator.py` | ~1900 | 总指挥：复杂度分析、模型分配、角色协作、验证审查 |
 | MultiModelAgent | `multi_model_agent.py` | ~850 | 多模型协调：任务路由、规划、执行、审查 |
 | ReActAgent | `react_agent.py` | ~500 | ReAct 自我反思：Thought→Action→Observation→Reflection |
@@ -306,4 +307,4 @@ dependencies.get_affected_files(['models/user.py'])
 
 ---
 
-最后更新：2026-05-23
+最后更新：2026-05-30

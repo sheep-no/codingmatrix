@@ -104,6 +104,8 @@ class TestAPIKeyManager:
 
     def test_store_key_success(self, mock_redis):
         """测试成功存储 Key - 验证 redis 调用"""
+        mock_redis.eval = Mock(return_value=1)  # Lua 脚本返回 1 表示成功
+        
         manager = APIKeyManager(redis_client=mock_redis)
         
         with patch('uuid.uuid4', return_value=Mock(hex='abc123')):
@@ -116,9 +118,7 @@ class TestAPIKeyManager:
             )
             
             # 验证 Redis 方法被调用
-            assert mock_redis.scard.called
-            assert mock_redis.setex.called
-            assert mock_redis.sadd.called
+            assert mock_redis.eval.called
             assert result is not None
 
     def test_get_key(self, mock_redis):

@@ -496,13 +496,15 @@ async def write_file(
 @router.get("/history", response_model=SessionResponse)
 async def get_history(
     days: int = 10,
+    limit: int = 50,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id)
 ):
     """
     aicloud 历史记录查询
 
-    获取用户最近的消息历史
+    获取用户最近的消息历史（支持分页）
     """
     await check_aicloud_permission(user_id, db)
 
@@ -516,6 +518,8 @@ async def get_history(
             AicloudSession.last_active_at >= cutoff_date
         )
         .order_by(AicloudSession.last_active_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
     sessions = result.scalars().all()
 

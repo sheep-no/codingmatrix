@@ -489,6 +489,14 @@ class SpecFirstGenerateMixin:
         final_validation = {}
         if self.enable_validation:
             final_validation = await self.validator.run_full_validation()
+            
+            # 推送验证结果事件
+            self._report_validation_results({
+                "passed": final_validation.get("is_valid", False),
+                "checks": final_validation.get("checks", []),
+                "issues": final_validation.get("issues", []),
+                "score": final_validation.get("score", 0)
+            })
 
         if self.memory_enabled:
             await self._save_to_memory(requirement, architecture)
@@ -518,6 +526,10 @@ class SpecFirstGenerateMixin:
         if files_skipped > 0:
             logger.info(f"断点续传: 跳过 {files_skipped} 个已存在文件")
 
+        # 报告最终成本和性能指标
+        self._report_current_cost()
+        self._report_final_metrics()
+
         return {
             "success": files_failed == 0,
             "output_dir": self.output_dir.name,
@@ -544,7 +556,14 @@ class SpecFirstGenerateMixin:
             ),
             "global_constraints": ctx.get_metric("global_constraints"),
             "critical_decisions": ctx.get_metric("critical_decisions"),
-            "architecture_check": ctx.get_metric("architecture_check")
+            "architecture_check": ctx.get_metric("architecture_check"),
+            "cost": self.cost_tracker.get_summary() if hasattr(self, 'cost_tracker') else {},
+            "performance": {
+                "total_duration": round(elapsed, 1),
+                "files_generated": files_generated,
+                "files_per_minute": round(files_generated / (elapsed / 60), 1) if elapsed > 0 else 0,
+                "avg_file_time": round(elapsed / files_generated, 1) if files_generated > 0 else 0,
+            }
         }
 
     async def _generate_with_dynamic_topology(

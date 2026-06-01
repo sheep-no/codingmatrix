@@ -38,6 +38,7 @@ class ResultAggregator:
         self._node_results: Dict[str, NodeResult] = {}
         self._node_contexts: Dict[str, Dict[str, Any]] = {}
         self._completed_order: List[str] = []
+        self._node_map: Dict[str, TaskNode] = {node.id: node for node in task_graph.nodes}
 
     def record_result(self, node_id: str, result: NodeResult) -> None:
         """
@@ -187,12 +188,11 @@ class ResultAggregator:
             "timestamp": datetime.now().isoformat(),
         }
 
-        for node in self.task_graph.nodes:
-            if node.id == node_id:
-                context["node_type"] = node.type.value
-                context["params"] = node.params
-                context["depends_on"] = node.depends_on
-                break
+        node = self._node_map.get(node_id)
+        if node:
+            context["node_type"] = node.type.value
+            context["params"] = node.params
+            context["depends_on"] = node.depends_on
 
         for dep_id, result in self._node_results.items():
             if result.success:

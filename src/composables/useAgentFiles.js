@@ -1,5 +1,13 @@
 import { ref, computed, reactive } from 'vue'
-import hljs from 'highlight.js'
+
+// 懒加载 highlight.js
+let hljsPromise = null
+function getHljs() {
+  if (!hljsPromise) {
+    hljsPromise = import('highlight.js')
+  }
+  return hljsPromise
+}
 
 const languageMap = {
   'js': 'JavaScript', 'jsx': 'React JSX', 'ts': 'TypeScript', 'tsx': 'React TSX',
@@ -172,8 +180,9 @@ export function useAgentFiles() {
     return fileDiffs.value.some(d => d.path === filePath)
   }
 
-  function getHighlightedCode() {
+  async function getHighlightedCode() {
     if (!selectedFile.value || !selectedFile.value.content) return '<pre><code></code></pre>'
+    const hljs = await getHljs()
     const lang = getLanguage(selectedFile.value.path).toLowerCase()
     const hljsLang = hljsLangMap[lang] || 'plaintext'
     const result = hljs.highlight(selectedFile.value.content, { language: hljsLang })

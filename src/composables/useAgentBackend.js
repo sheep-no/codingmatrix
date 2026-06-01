@@ -97,7 +97,7 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
       return
     }
     try {
-      await projectApi.deleteProjectFile({ project_path: currentProjectPath, path: filePath })
+      await projectApi.deleteProjectFile({ project_path: currentProjectPath, file_path: filePath })
       const idx = generatedFiles.value.findIndex(f => f.path === filePath)
       if (idx !== -1) generatedFiles.value.splice(idx, 1)
       if (selectedFile.value?.path === filePath) selectedFile.value = null
@@ -132,7 +132,7 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
     const metrics = data.metrics.metrics || {}
     const trends = data.trends.trends || {}
     performanceStats.value = {
-      startTime: generation.startTime?.value ? new Date(generation.startTime.value).toLocaleTimeString() : '未知',
+      startTime: generation.startTime ? new Date(generation.startTime).toLocaleTimeString() : '未知',
       endTime: new Date().toLocaleTimeString(),
       totalFiles: generatedFiles.value.length,
       totalTokens: generatedFiles.value.reduce((sum, f) => sum + f.content.length, 0),
@@ -140,10 +140,10 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
         ? Math.round(generatedFiles.value.reduce((sum, f) => sum + f.content.length, 0) / generatedFiles.value.length)
         : 0,
       stageTimings: (generation.workflowStages || []).map(s => ({ name: s.name, status: s.status, progress: s.progress })),
-      modelCalls: Object.values(generation.modelAssignments.value || {}).reduce((sum, m) => sum + m.calls, 0),
-      errorCount: workspace.logs.value.filter(l => l.level === 'error').length,
-      successRate: workspace.logs.value.length > 0
-        ? Math.round(((workspace.logs.value.length - workspace.logs.value.filter(l => l.level === 'error').length) / workspace.logs.value.length) * 100)
+      modelCalls: Object.values(generation.modelAssignments || {}).reduce((sum, m) => sum + m.calls, 0),
+      errorCount: (workspace.logs || []).filter(l => l.level === 'error').length,
+      successRate: (workspace.logs || []).length > 0
+        ? Math.round((((workspace.logs || []).length - (workspace.logs || []).filter(l => l.level === 'error').length) / (workspace.logs || []).length) * 100)
         : 100,
       moduleMetrics: Object.keys(trends).map(moduleName => ({ name: moduleName, ...trends[moduleName] }))
     }
@@ -299,15 +299,15 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
   }
 
   const submitDecision = async (sessionId) => {
-    if (!sessionId || workspace.pendingDecisions?.value.length === 0) return
+    if (!sessionId || !workspace.pendingDecisions || workspace.pendingDecisions.length === 0) return
     try {
       const decisions = {}
-      for (const d of workspace.pendingDecisions.value) {
-        decisions[d.id] = workspace.decisionAnswers?.value[d.id] || d.default
+      for (const d of workspace.pendingDecisions) {
+        decisions[d.id] = (workspace.decisionAnswers && workspace.decisionAnswers[d.id]) || d.default
       }
       await projectApi.submitDecision(sessionId, decisions)
-      workspace.pendingDecisions.value = []
-      workspace.decisionAnswers.value = {}
+      workspace.pendingDecisions = []
+      workspace.decisionAnswers = {}
       addLog('success', '决策已提交，继续生成')
     } catch (error) {
       addLog('error', '提交决策失败')

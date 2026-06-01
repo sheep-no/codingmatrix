@@ -1,4 +1,4 @@
-import { ref, reactive } from 'vue'
+import { ref, reactive, onUnmounted } from 'vue'
 
 const STATE_KEY = 'agent_project_state'
 const SESSION_KEY = 'agent_project_sessions'
@@ -8,7 +8,6 @@ const MAX_HISTORY_ENTRIES = 10
 
 export function useAgentSession() {
   const currentSessionId = ref(null)
-  const generationMode = ref('create')
   const projectPrompt = ref('')
   const sessionHistory = ref([])
 
@@ -19,7 +18,6 @@ export function useAgentSession() {
       const state = {
         ...data,
         sessionId: currentSessionId.value,
-        mode: generationMode.value,
         prompt: projectPrompt.value,
         timestamp: Date.now()
       }
@@ -66,7 +64,6 @@ export function useAgentSession() {
     const newId = Date.now().toString()
     const newSession = {
       id: newId,
-      mode: generationMode.value,
       prompt: projectPrompt.value,
       timestamp: Date.now(),
       filesCount: data?.generatedFiles?.length || 0
@@ -99,6 +96,7 @@ export function useAgentSession() {
   }
 
   function startAutoSave(shouldSave, saveFn) {
+    stopAutoSave() // 确保只有一个定时器
     autoSaveTimer = setInterval(() => {
       if (shouldSave?.()) {
         saveFn?.()
@@ -113,8 +111,17 @@ export function useAgentSession() {
     }
   }
 
+  // 组件卸载时自动清理定时器
+  try {
+    onUnmounted(() => {
+      stopAutoSave()
+    })
+  } catch (e) {
+    // onUnmounted 只能在 setup 期间调用，忽略非 setup 上下文的错误
+  }
+
   return reactive({
-    currentSessionId, generationMode, projectPrompt, sessionHistory,
+    currentSessionId, projectPrompt, sessionHistory,
     saveSessionState, restoreSessionState, clearSessionState,
     loadSessionHistory, createNewSession, switchSession, deleteSession,
     startAutoSave, stopAutoSave,

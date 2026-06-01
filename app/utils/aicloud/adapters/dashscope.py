@@ -14,6 +14,7 @@ from fastapi import HTTPException
 
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 from app.utils.aicloud.adapters.base import BaseProviderAdapter
+from app.utils.aicloud.http_client import get_http_client, call_with_retry, _max_concurrent_calls
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,8 @@ class DashScopeAdapter(BaseProviderAdapter):
         
         if stream:
             async def generate():
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with _max_concurrent_calls:
+                    client = await get_http_client()
                     async with client.stream(
                         "POST",
                         f"{base_url}/chat/completions",
@@ -78,14 +80,20 @@ class DashScopeAdapter(BaseProviderAdapter):
             
             return generate()
         else:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with _max_concurrent_calls:
+                client = await get_http_client()
                 if cancel_event and cancel_event.is_set():
                     raise asyncio.CancelledError("LLM 调用被取消")
-                resp = await client.post(
-                    f"{base_url}/chat/completions",
-                    headers=headers,
-                    json=data
-                )
+                
+                async def request_func():
+                    return await client.post(
+                        f"{base_url}/chat/completions",
+                        headers=headers,
+                        json=data
+                    )
+                
+                resp = await call_with_retry(request_func, max_retries=3)
+                
                 if resp.status_code != 200:
                     raise HTTPException(status_code=resp.status_code, detail=resp.text)
                 return resp.json()
@@ -110,12 +118,18 @@ class DashScopeAdapter(BaseProviderAdapter):
             "input": input_text,
         }
         
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(
-                f"{base_url}/embeddings",
-                headers=headers,
-                json=data
-            )
+        async with _max_concurrent_calls:
+            client = await get_http_client()
+            
+            async def request_func():
+                return await client.post(
+                    f"{base_url}/embeddings",
+                    headers=headers,
+                    json=data
+                )
+            
+            resp = await call_with_retry(request_func, max_retries=3)
+            
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail=resp.text)
             return resp.json()
