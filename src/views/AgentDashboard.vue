@@ -93,7 +93,7 @@
 
 <script setup>
 /* AgentDashboard - Refactored from 5029 to ~150 lines using composables */
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
@@ -198,6 +198,24 @@ const regenerateProject = async () => {
   await generateProject()
 }
 const doStopSession = async () => {
+  const hasFiles = generatedFiles.value.length > 0
+  try {
+    if (hasFiles) {
+      await ElMessageBox.confirm(
+        '会话结束后项目文件将被清理，是否先下载？',
+        '结束会话',
+        {
+          confirmButtonText: '下载并结束',
+          cancelButtonText: '直接结束',
+          type: 'warning',
+          distinguishCancelAndClose: true
+        }
+      )
+      await backend.downloadProject(workspace.currentProjectPath)
+    }
+  } catch (action) {
+    if (action === 'close') return
+  }
   await backend.stopSession(session.currentSessionId)
   generation.isGenerating = false
   session.currentSessionId = null
