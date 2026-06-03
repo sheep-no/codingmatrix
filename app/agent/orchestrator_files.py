@@ -13,7 +13,7 @@ from app.agent.complexity import ProjectComplexity
 from app.agent.code_validator import CodeValidator
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.specialist_base import get_global_llm_semaphore
-from app.agent.test_generator import get_test_generator
+
 
 logger = logging.getLogger(__name__)
 
@@ -487,10 +487,6 @@ class FilesMixin:
                         success=fix_attempt.fix_applied
                     )
 
-        # 自动生成测试用例（如果启用）
-        if getattr(self, 'enable_test_generation', False) and self._should_generate_test(file_path):
-            await self._generate_test_for_file(file_path, content, project_context)
-
         return {
             "path": file_path,
             "description": description,
@@ -585,103 +581,6 @@ class FilesMixin:
         if ext in frontend_ext or file_path.endswith(('.vue', '.html')):
             return self.frontend_engineer
         return self.backend_engineer
-
-    def _should_generate_test(self, file_path: str) -> bool:
-        """判断是否应该为该文件生成测试"""
-        ext = Path(file_path).suffix.lower()
-        # 只为代码文件生成测试，不为配置文件、资源文件生成
-        testable_extensions = {'.py', '.js', '.jsx', '.ts', '.tsx', '.go', '.java', '.rs'}
-        if ext not in testable_extensions:
-            return False
-
-        # 跳过测试文件本身
-        basename = Path(file_path).stem.lower()
-        test_patterns = ['test_', '_test', 'tests', 'spec', 'specs']
-        if any(pattern in basename for pattern in test_patterns):
-            return False
-
-        # 跳过 __init__.py
-        if basename == '__init__':
-            return False
-
-        return True
-
-    async def _generate_test_for_file(
-        self,
-        file_path: str,
-        code_content: str,
-        project_context: Dict
-    ) -> None:
-        """为指定文件生成测试用例"""
-        try:
-            from app.agent.framework_detector import FrameworkDetector
-
-            # 检测测试框架
-            detector = FrameworkDetector()
-            config = detector.detect(self.output_dir)
-            framework = config.framework
-
-            # 获取测试生成器
-            model_name = self._select_model_for_file(file_path)
-            test_gen = get_test_generator(model_name=model_name, api_key_token=self.api_key_token)
-
-            # 生成测试
-            test_code = await test_gen.generate_tests(
-                file_path=file_path,
-                code_content=code_content,
-                project_path=str(self.output_dir),
-                framework=framework,
-            )
-
-            if test_code:
-                # 确定测试文件路径
-                test_file_path = self._get_test_file_path(file_path, framework)
-                test_full_path = self.output_dir / test_file_path
-
-                # 创建测试目录
-                test_full_path.parent.mkdir(parents=True, exist_ok=True)
-
-                # 写入测试文件
-                with open(test_full_path, 'w', encoding='utf-8') as f:
-                    f.write(test_code)
-
-                logger.info(f"已生成测试文件: {test_file_path}")
-                self._report_progress(
-                    "test_generated",
-                    len(self.generated_files) + 1,
-                    len(self.generated_files) + 2,
-                    file_path=test_file_path,
-                    description=f"为 {file_path} 生成的测试",
-                )
-
-        except Exception as e:
-            logger.warning(f"测试生成失败 ({file_path}): {e}")
-            # 测试生成失败不影响主流程
-
-    def _get_test_file_path(self, source_file: str, framework: str) -> str:
-        """获取测试文件路径"""
-        source_path = Path(source_file)
-        ext = source_path.suffix
-        stem = source_path.stem
-
-        if framework in ('pytest', 'unittest'):
-            # Python: tests/test_xxx.py 或 test_xxx.py
-            if (self.output_dir / 'tests').exists():
-                return f"tests/test_{stem}{ext}"
-            else:
-                return f"test_{stem}{ext}"
-        elif framework in ('jest', 'vitest', 'mocha'):
-            # JavaScript: __tests__/xxx.test.js 或 xxx.test.js
-            if (self.output_dir / '__tests__').exists():
-                return f"__tests__/{stem}.test{ext}"
-            else:
-                return f"{stem}.test{ext}"
-        elif framework == 'go test':
-            # Go: xxx_test.go
-            return f"{stem}_test{ext}"
-        else:
-            # 默认
-            return f"test_{stem}{ext}"
 
     async def _direct_llm_generate_file(
         self,

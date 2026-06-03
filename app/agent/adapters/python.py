@@ -50,7 +50,7 @@ class PythonLanguageAdapter(LanguageAdapter):
         'sqlalchemy', 'pydantic', 'numpy', 'pandas', 'torch', 'tensorflow',
         'scipy', 'matplotlib', 'seaborn', 'plotly', 'sklearn', 'cv2',
         'PIL', 'Pillow', 'boto3', 'google', 'azure', 'redis', 'celery',
-        'pytest', 'unittest', 'mock', 'click', 'typer', 'rich', 'tqdm',
+        'pytest', 'mock', 'click', 'typer', 'rich', 'tqdm',
         'uvicorn', 'gunicorn', 'nginx', 'jinja2', 'mako', 'alembic',
         'pymongo', 'psycopg2', 'mysql', 'elasticsearch', 'kafka',
         'websockets', 'socketio', 'grpc', 'protobuf', 'msgpack',

@@ -35,36 +35,6 @@ def get_global_llm_semaphore() -> asyncio.Semaphore:
 
 # ==================== Specialist 内置工具实现 ====================
 
-def _tool_search_files(project_path: str, pattern: str, file_pattern: str = ".*",
-                       max_results: int = 50) -> Dict:
-    """正则搜索项目文件内容"""
-    try:
-        proj = Path(project_path)
-        regex = re.compile(pattern)
-        file_re = re.compile(file_pattern)
-        results = []
-        for f in proj.rglob("*"):
-            if not f.is_file() or '__pycache__' in str(f) or 'node_modules' in str(f):
-                continue
-            if not file_re.search(f.name):
-                continue
-            try:
-                content = f.read_text(encoding='utf-8', errors='ignore')
-                for i, line in enumerate(content.split('\n'), 1):
-                    if regex.search(line):
-                        results.append({
-                            "file": str(f.relative_to(proj)),
-                            "line": i,
-                            "content": line.strip()[:200]
-                        })
-                        if len(results) >= max_results:
-                            return {"results": results}
-            except Exception:
-                continue
-        return {"results": results}
-    except Exception as e:
-        return {"error": str(e)}
-
 
 def _tool_read_file(project_path: str, file_path: str, offset: int = 0,
                     limit: int = 100) -> Dict:
@@ -85,39 +55,6 @@ def _tool_read_file(project_path: str, file_path: str, offset: int = 0,
             "offset": start,
             "content": '\n'.join(lines[start:end])
         }
-    except Exception as e:
-        return {"error": str(e)}
-
-
-def _tool_grep_files(project_path: str, keyword: str, file_types: str = None,
-                     max_results: int = 50) -> Dict:
-    """快速全文关键词搜索"""
-    try:
-        proj = Path(project_path)
-        extensions = None
-        if file_types:
-            extensions = [f".{ext.strip().lstrip('.')}" for ext in file_types.split(',')]
-        results = []
-        for f in proj.rglob("*"):
-            if not f.is_file() or '__pycache__' in str(f) or 'node_modules' in str(f):
-                continue
-            if extensions and f.suffix not in extensions:
-                continue
-            try:
-                content = f.read_text(encoding='utf-8', errors='ignore')
-                if keyword in content:
-                    for i, line in enumerate(content.split('\n'), 1):
-                        if keyword in line:
-                            results.append({
-                                "file": str(f.relative_to(proj)),
-                                "line": i,
-                                "content": line.strip()[:200]
-                            })
-                            if len(results) >= max_results:
-                                return {"results": results}
-            except Exception:
-                continue
-        return {"results": results}
     except Exception as e:
         return {"error": str(e)}
 
@@ -285,55 +222,6 @@ def _tool_read_symbols(project_path: str, file_path: str) -> Dict:
         return {"error": str(e)}
 
 
-def _tool_find_definition(project_path: str, symbol: str, file_types: str = None) -> Dict:
-    """查找符号（函数/类/变量）在项目中的定义位置"""
-    try:
-        proj = Path(project_path)
-        extensions = None
-        if file_types:
-            extensions = [f".{ext.strip().lstrip('.')}" for ext in file_types.split(',')]
-        else:
-            # 根据项目中的文件自动推断
-            extensions = list(_SYMBOL_PATTERNS.keys())
-
-        results = []
-        # 定义模式：函数定义、类定义、变量赋值
-        def_patterns = [
-            re.compile(rf"(?:async\s+)?def\s+{re.escape(symbol)}\s*\("),
-            re.compile(rf"class\s+{re.escape(symbol)}\b"),
-            re.compile(rf"^(?:const|let|var|export)\s+{re.escape(symbol)}\s*="),
-            re.compile(rf"^func\s+(?:\(\w+\s+\*?\w+\)\s+)?{re.escape(symbol)}\s*\("),
-            re.compile(rf"(?:pub\s+)?(?:fn|struct|enum|trait)\s+{re.escape(symbol)}\b"),
-            re.compile(rf"^(?:public|private|protected|static|\s)*\s*(?:class|interface|enum)\s+{re.escape(symbol)}\b"),
-            re.compile(rf"type\s+{re.escape(symbol)}\s+struct\b"),
-            re.compile(rf"^\s*def\s+{re.escape(symbol)}\s*\("),  # Ruby
-            re.compile(rf"^\s*(?:class|module)\s+{re.escape(symbol)}\b"),
-        ]
-
-        for f in proj.rglob("*"):
-            if not f.is_file() or '__pycache__' in str(f) or 'node_modules' in str(f):
-                continue
-            if extensions and f.suffix not in extensions:
-                continue
-            try:
-                file_content = f.read_text(encoding='utf-8', errors='ignore')
-                for i, line in enumerate(file_content.split('\n'), 1):
-                    for pat in def_patterns:
-                        if pat.search(line):
-                            results.append({
-                                "file": str(f.relative_to(proj)),
-                                "line": i,
-                                "content": line.strip()[:200]
-                            })
-                            if len(results) >= 20:
-                                return {"symbol": symbol, "definitions": results}
-            except Exception:
-                continue
-
-        return {"symbol": symbol, "definitions": results}
-    except Exception as e:
-        return {"error": str(e)}
-
 
 def _tool_read_imports(project_path: str, file_path: str) -> Dict:
     """提取文件中的 import 语句，分析依赖关系"""
@@ -408,51 +296,6 @@ def _extract_module_name(statement: str, ext: str) -> str:
             return m.group(1)
     return s[:50]
 
-
-def _tool_find_references(project_path: str, symbol: str, file_types: str = None,
-                          max_results: int = 50) -> Dict:
-    """查找符号在项目中的引用位置（排除定义自身）"""
-    try:
-        proj = Path(project_path)
-        extensions = None
-        if file_types:
-            extensions = [f".{ext.strip().lstrip('.')}" for ext in file_types.split(',')]
-
-        # 先找到定义位置
-        def_results = _tool_find_definition(project_path, symbol, file_types)
-        def_locations = set()
-        for d in def_results.get("definitions", []):
-            def_locations.add((d["file"], d["line"]))
-
-        # 搜索所有引用
-        ref_pattern = re.compile(rf"\b{re.escape(symbol)}\b")
-        results = []
-
-        for f in proj.rglob("*"):
-            if not f.is_file() or '__pycache__' in str(f) or 'node_modules' in str(f):
-                continue
-            if extensions and f.suffix not in extensions:
-                continue
-            try:
-                file_content = f.read_text(encoding='utf-8', errors='ignore')
-                rel_path = str(f.relative_to(proj))
-                for i, line in enumerate(file_content.split('\n'), 1):
-                    if ref_pattern.search(line):
-                        # 排除定义行自身
-                        if (rel_path, i) not in def_locations:
-                            results.append({
-                                "file": rel_path,
-                                "line": i,
-                                "content": line.strip()[:200]
-                            })
-                            if len(results) >= max_results:
-                                return {"symbol": symbol, "references": results, "definitions_excluded": len(def_locations)}
-            except Exception:
-                continue
-
-        return {"symbol": symbol, "references": results, "definitions_excluded": len(def_locations)}
-    except Exception as e:
-        return {"error": str(e)}
 
 
 def _tool_summarize_file(project_path: str, file_path: str) -> Dict:
@@ -857,20 +700,10 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
 
 # 工具注册表（名称 -> 实现函数 + 描述）
 SPECIALIST_TOOLS = {
-    "search_files": {
-        "fn": _tool_search_files,
-        "description": "正则搜索项目文件内容。参数: pattern(正则), file_pattern(文件名过滤), max_results",
-        "params": {"pattern": "string", "file_pattern": "string(可选)", "max_results": "int(可选)"}
-    },
     "read_file": {
         "fn": _tool_read_file,
         "description": "读取文件内容，支持分页。参数: file_path, offset(起始行), limit(行数)",
         "params": {"file_path": "string", "offset": "int(可选)", "limit": "int(可选)"}
-    },
-    "grep_files": {
-        "fn": _tool_grep_files,
-        "description": "快速全文关键词搜索。参数: keyword, file_types(逗号分隔扩展名), max_results",
-        "params": {"keyword": "string", "file_types": "string(可选)", "max_results": "int(可选)"}
     },
     "list_files": {
         "fn": _tool_list_files,
@@ -882,20 +715,10 @@ SPECIALIST_TOOLS = {
         "description": "提取文件的函数和类签名（不读函数体）。参数: file_path",
         "params": {"file_path": "string"}
     },
-    "find_definition": {
-        "fn": _tool_find_definition,
-        "description": "查找符号（函数/类/变量）在项目中的定义位置。参数: symbol, file_types(可选)",
-        "params": {"symbol": "string", "file_types": "string(可选)"}
-    },
     "read_imports": {
         "fn": _tool_read_imports,
         "description": "提取文件的 import 语句，分析依赖关系。参数: file_path",
         "params": {"file_path": "string"}
-    },
-    "find_references": {
-        "fn": _tool_find_references,
-        "description": "查找符号在项目中的引用位置（排除定义自身）。参数: symbol, file_types(可选), max_results(可选)",
-        "params": {"symbol": "string", "file_types": "string(可选)", "max_results": "int(可选)"}
     },
     "summarize_file": {
         "fn": _tool_summarize_file,
@@ -924,7 +747,10 @@ SPECIALIST_TOOLS = {
     },
     "run_command": {
         "fn": _tool_run_command,
-        "description": "执行终端命令（构建、安装依赖、运行脚本等）。参数: command(命令), cwd(工作目录,可选), timeout(超时秒数,可选,默认60)。支持 pip/npm/python/node/go/cargo/make 等常用命令",
+        "description": "执行终端命令（构建、安装依赖、运行脚本、搜索代码等）。参数: command(命令), cwd(工作目录,可选), timeout(超时秒数,可选,默认60)。"
+                       "支持 pip/npm/python/node/go/cargo/make/grep/find 等。"
+                       "grep 示例: grep -rn --include='*.py' 'pattern' . | head -20  "
+                       "find 示例: find . -name '*.py' | xargs wc -l",
         "params": {"command": "string", "cwd": "string(可选)", "timeout": "int(可选,默认60)"}
     },
 }
@@ -1140,13 +966,20 @@ class Specialist:
             f"### 工具调用格式\n"
             f"如果需要使用工具，请且仅返回一个 JSON 对象：\n"
             f'{{"tool": "工具名", "params": {{"参数名": "值"}}}}\n\n'
+            f"示例：\n"
+            f'{{"tool": "list_files", "params": {{"directory": "."}}}}\n'
+            f'{{"tool": "read_file", "params": {{"file_path": "src/main.py"}}}}\n'
+            f'{{"tool": "run_command", "params": {{"command": "grep -rn --include=*.py def src/"}}}}\n\n'
             f"### 重要规则\n"
-            f"1. 每次只调用一个工具\n"
-            f"2. 收到工具结果后，继续思考或生成最终代码\n"
+            f"1. 每次只调用一个工具，格式为：{{\"tool\": \"工具名\", \"params\": {{...}}}}\n"
+            f"2. 收到工具结果后，继续调用工具或生成最终代码\n"
             f"3. 对于新文件：准备生成代码时，直接返回完整代码，不要包裹 JSON\n"
-            f"4. 对于已有文件：使用 partial_update/insert_content/regex_replace 进行精准编辑，编辑完成后返回 JSON: {{\"action\": \"edited\", \"files\": [\"路径\"], \"summary\": \"摘要\"}}\n"
+            f"4. 对于已有文件：使用 partial_update/insert_content/regex_replace 进行精准编辑\n"
             f"5. 可用工具: {', '.join(tool_names)}\n"
-            f"6. 当你已收集足够上下文时，直接生成代码，无需再调用工具\n"
+            f"6. 当你已收集足够上下文时，直接生成代码或文字答案，无需再调用工具\n"
+            f"7. 在生成或修改代码之前，你必须先使用工具了解项目现有代码结构。不要凭猜测生成代码\n"
+            f"8. 如果任务需要分析项目（如查找函数、统计代码、理解结构），请使用 run_command 工具执行 grep/find/wc 等命令\n"
+            f"9. 工具调用期间，只返回 {{\"tool\": \"...\", \"params\": {{...}}}} 格式，不要返回其他 JSON 格式\n"
         )
 
         # 工具调用历史（注入后续轮次的 prompt）

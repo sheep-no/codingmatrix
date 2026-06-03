@@ -761,7 +761,7 @@ class _LayeredModelRouterCompat:
         config = routing_config or RoutingConfig()
 
         # 如果未启用健康感知路由，使用传统方式
-        if not config.enable_health_awareness:
+        if not config.enable_health_aware_routing:
             router = await get_dynamic_router()
             return await router.get_best_model(candidate_models, task_type)
 

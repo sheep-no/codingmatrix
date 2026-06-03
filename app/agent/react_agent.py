@@ -103,7 +103,8 @@ class ReActAgent:
     def _get_model_for_stage(self, stage: ReActStepType):
         """根据阶段获取对应的模型"""
         model_key = self.stage_models.get(stage, self.default_model.name)
-        return ModelRegistry.get(model_key)
+        model = ModelRegistry.get(model_key)
+        return model if model else self.default_model
 
     @property
     def model(self):
@@ -153,7 +154,7 @@ class ReActAgent:
                 model=model.name,
                 prompt=prompt,
                 stream=False,
-                max_tokens=self.model.max_tokens // 2,
+                max_tokens=model.max_tokens // 2,
                 temperature=0.6
             )
 

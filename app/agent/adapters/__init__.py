@@ -13,7 +13,6 @@ from .language_adapter import (
     LanguageAdapterRegistry,
     ImportInfo,
     SymbolDefinition,
-    PackageStructure,
 )
 
 from .python import PythonLanguageAdapter
@@ -25,7 +24,6 @@ __all__ = [
     "LanguageAdapterRegistry",
     "ImportInfo",
     "SymbolDefinition",
-    "PackageStructure",
     "PythonLanguageAdapter",
     "JavaScriptLanguageAdapter",
     "GenericLanguageAdapter",

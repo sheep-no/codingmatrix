@@ -593,7 +593,7 @@ class ErrorRecoveryLoop:
             return {"success": True, "message": "没有失败的测试"}
 
         logger.info(f"开始测试失败自动修复 | 失败用例: {len(failed_tests)}")
-        recovery_results = {"total": len(failed_tests), "fixed": 0, "failures": []}
+        recovery_results = {"total": len(failed_tests), "fixed": 0, "failures": list(failed_tests)}
 
         # 按失败用例名推断可能对应的源文件
         # e.g., test_user_service.py -> app/services/user_service.py

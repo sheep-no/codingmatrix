@@ -185,10 +185,9 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
 
         # 验证路径格式
         paths = api_spec.get("paths", {})
-        for path, methods in paths.items():
-            if not path.startswith("/"):
-                paths[f"/{path}"] = methods
-                del paths[path]
+        fix_keys = [p for p in paths if not p.startswith("/")]
+        for path in fix_keys:
+            paths[f"/{path}"] = paths.pop(path)
 
         architecture["api_spec"] = api_spec
         return architecture

@@ -185,6 +185,8 @@ class IsolatedTestRunner:
         sem = _get_semaphore()
         async with sem:
             temp_dir_path: Optional[str] = None
+            language = "python"
+            framework = "unknown"
 
             try:
                 # 1. 安全扫描（记录警告但不中止）
@@ -799,7 +801,6 @@ class TestRunner(IsolatedTestRunner):
         self,
         project_path: Path,
         timeout: int = 120,
-        python_executable: str = None,
     ):
         super().__init__(
             project_path=project_path,

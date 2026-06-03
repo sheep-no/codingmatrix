@@ -39,3 +39,5 @@ PROJECT_MIME_TYPES = {
 SKIP_DIRS = {'__pycache__', 'node_modules', '.git', 'venv', '.venv', 'dist', 'build', '.next', 'coverage'}
 
 MAX_TEXT_FILE_SIZE = 1024 * 1024
+
+MAX_SAVED_PROJECTS_PER_USER = 50

@@ -426,8 +426,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
 
     def get_package_init_file(self, package_path: str) -> str:
         """获取 JS 包的入口文件"""
-        # 优先 index.ts，然后 index.js
-        return f"{package_path}/index.ts"
+        return f"{package_path}/{self.package_init_filename}"
 
     def is_project_module(self, module_name: str) -> bool:
         """判断是否是项目内模块"""

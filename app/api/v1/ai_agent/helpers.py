@@ -337,7 +337,7 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
         concurrent_mgr = ConcurrentLimitManager()
         
         # 7 天超时阈值（基于最后活动时间）
-        timeout_threshold = datetime.now() - timedelta(days=7)
+        timeout_threshold = datetime.now(timezone.utc) - timedelta(days=7)
         
         for session in running_sessions:
             is_zombie = False
@@ -402,7 +402,7 @@ async def _update_session_activity(db: AsyncSession, session_id: str):
         )
         session = result.scalar_one_or_none()
         if session:
-            session.last_activity_at = datetime.now()
+            session.last_activity_at = datetime.now(timezone.utc)
             await db.commit()
     except Exception as e:
         logger.warning(f"更新会话活动时间失败: {session_id} - {e}")
@@ -427,7 +427,7 @@ async def _update_project_session_status(db: Optional[AsyncSession], session_id:
             session.status = status
             session.files_generated = files_generated
             session.files_total = files_total
-            session.last_activity_at = datetime.now()  # 更新最后活动时间
+            session.last_activity_at = datetime.now(timezone.utc)  # 更新最后活动时间
             if error_message:
                 session.error_message = error_message
             if status in ("completed", "failed", "cancelled"):

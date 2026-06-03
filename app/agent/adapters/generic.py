@@ -344,7 +344,7 @@ class GenericLanguageAdapter(LanguageAdapter):
                 func_name = func_match.group(1)
                 # 排除关键字
                 keywords = {'if', 'else', 'for', 'while', 'switch', 'case', 'return', 'class', 'struct', 'enum'}
-                if func_name.lower() not in keywords and func_name[0].isupper() or func_name[0].islower():
+                if func_name.lower() not in keywords:
                     definitions[func_name] = SymbolDefinition(
                         name=func_name,
                         symbol_type="function",

@@ -75,7 +75,7 @@ class CodeValidator:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             content_hash = self._compute_content_hash(content)
-            cache_key = f"{file_path.name}:{content_hash}"
+            cache_key = f"{file_path}:{content_hash}"
             if cache_key in CodeValidator._lru_cache:
                 result, timestamp = CodeValidator._lru_cache[cache_key]
                 ttl = CodeValidator.SUCCESS_CACHE_TTL if result.get("is_valid", False) else CodeValidator.FAILURE_CACHE_TTL
@@ -97,7 +97,7 @@ class CodeValidator:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             content_hash = self._compute_content_hash(content)
-            cache_key = f"{file_path.name}:{content_hash}"
+            cache_key = f"{file_path}:{content_hash}"
             if cache_key in CodeValidator._lru_cache:
                 old_entry = CodeValidator._lru_cache.pop(cache_key)
                 CodeValidator._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(old_entry)
@@ -598,7 +598,7 @@ class CodeValidator:
                 pass
 
         if not found_file:
-            return True, ["缺少 requirements.txt / pyproject.toml / Pipfile"]
+            return False, ["缺少 requirements.txt / pyproject.toml / Pipfile"]
 
         # Python 包名到导入名的常见映射
         PACKAGE_TO_IMPORT = {

@@ -34,14 +34,6 @@ class SymbolDefinition:
     is_exported: bool = True     # 是否导出
 
 
-@dataclass
-class PackageStructure:
-    """包结构信息"""
-    package_init_file: str       # 包入口文件 (Python: __init__.py, JS: index.js)
-    required_files: List[str]    # 必需文件
-    convention: str              # 命名约定描述
-
-
 class LanguageAdapter(ABC):
     """语言适配器基类"""
 

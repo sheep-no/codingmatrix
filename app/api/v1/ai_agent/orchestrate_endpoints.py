@@ -303,6 +303,8 @@ async def orchestrate_project_stream(
     if not is_resume:
         if request.session_id:
             session_id = request.session_id
+            # 从 session_id 中提取 project_name（格式：{user_id}_{project_name}）
+            project_name = session_id.replace(f"{user_id}_", "", 1) if session_id.startswith(f"{user_id}_") else session_id
         else:
             # 生成项目名：用户指定或自动生成
             project_name = request.project_name or f"untitled_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -963,7 +965,7 @@ async def session_action_endpoint(
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
 
     # 防护：验证会话所有权
-    await _verify_session_ownership_or_queue(session_id, user_id)
+    await _verify_session_ownership_or_queue(session_id, user_id, db)
 
     sm = await get_session_manager()
 
@@ -1030,11 +1032,7 @@ async def _verify_session_ownership_or_queue(session_id: str, user_id: str, db: 
     # 否则需要验证数据库所有权
     if db:
         from .helpers import verify_session_ownership
-        try:
-            await verify_session_ownership(db, session_id, user_id)
-        except HTTPException:
-            # 如果数据库验证失败，但仍然允许队列操作（兼容旧逻辑）
-            pass
+        await verify_session_ownership(db, session_id, user_id)
 
 
 @router.delete("/sessions/{session_id}")
@@ -1051,7 +1049,7 @@ async def delete_session_endpoint(
     result = await db.execute(
         sql_delete(ProjectSession).where(
             and_(
-                ProjectSession.id == session_id,
+                ProjectSession.session_id == session_id,
                 ProjectSession.user_id == int(user_id)
             )
         )
