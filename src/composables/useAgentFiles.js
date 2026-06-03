@@ -4,7 +4,10 @@ import { ref, computed, reactive } from 'vue'
 let hljsPromise = null
 function getHljs() {
   if (!hljsPromise) {
-    hljsPromise = import('highlight.js')
+    hljsPromise = Promise.all([
+      import('highlight.js'),
+      import('highlight.js/styles/github-dark.css')
+    ]).then(([mod]) => mod.default || mod)
   }
   return hljsPromise
 }
