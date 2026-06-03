@@ -2,7 +2,6 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 
 const TOOL_KEYS = [
-  'showChartEditor',
   'showNginxConfig',
   'showDockerConfig',
   'showSystemInfo',
@@ -38,7 +37,6 @@ function getDefaultValue(key) {
 export const useNavigationStore = defineStore(
   'navigation',
   () => {
-    const showChartEditor = ref(getDefaultValue('showChartEditor'))
     const showNginxConfig = ref(getDefaultValue('showNginxConfig'))
     const showDockerConfig = ref(getDefaultValue('showDockerConfig'))
     const showSystemInfo = ref(getDefaultValue('showSystemInfo'))
@@ -60,7 +58,6 @@ export const useNavigationStore = defineStore(
     )
 
     const toolRefs = {
-      showChartEditor,
       showNginxConfig,
       showDockerConfig,
       showSystemInfo,
@@ -79,9 +76,6 @@ export const useNavigationStore = defineStore(
       switch (toolName) {
         case 'projectGenerator':
           showProjectGenerator.value = true
-          break
-        case 'chartEditor':
-          showChartEditor.value = true
           break
         case 'nginxConfig':
           showNginxConfig.value = true
@@ -124,9 +118,6 @@ export const useNavigationStore = defineStore(
       switch (toolName) {
         case 'projectGenerator':
           showProjectGenerator.value = false
-          break
-        case 'chartEditor':
-          showChartEditor.value = false
           break
         case 'nginxConfig':
           showNginxConfig.value = false
@@ -195,7 +186,6 @@ export const useNavigationStore = defineStore(
     function saveNavigationToStorage() {
       try {
         const state = {
-          showChartEditor: Boolean(showChartEditor.value),
           showNginxConfig: Boolean(showNginxConfig.value),
           showDockerConfig: Boolean(showDockerConfig.value),
           showSystemInfo: Boolean(showSystemInfo.value),
@@ -246,7 +236,6 @@ export const useNavigationStore = defineStore(
     }
 
     const activeTool = computed(() => {
-      if (showChartEditor.value) return 'chartEditor'
       if (showNginxConfig.value) return 'nginxConfig'
       if (showDockerConfig.value) return 'dockerConfig'
       if (showSystemInfo.value) return 'systemInfo'
@@ -262,7 +251,6 @@ export const useNavigationStore = defineStore(
     })
 
     return {
-      showChartEditor,
       showNginxConfig,
       showDockerConfig,
       showSystemInfo,

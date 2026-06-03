@@ -323,7 +323,7 @@ class IsolatedTestRunner:
     async def _start_service_containers(self):
         """
         启动项目依赖的服务
-        
+
         Docker 可用 -> 自动启动容器
         Docker 不可用 -> 检测本地服务，未运行则提示启动指南 + 设置 Mock 环境变量
         """
@@ -750,7 +750,7 @@ class IsolatedTestRunner:
             result.failed_tests = [e[:100] for e in parsed.errors[:20]]
 
         if result.total_tests == 0 and result.passed == 0 and result.failed == 0:
-            total = passed = failed = errors_count = 0
+            passed = failed = errors_count = 0
 
             m_pass = re.search(r'(\d+)\s+passed', result.logs)
             if m_pass:

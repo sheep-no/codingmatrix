@@ -358,7 +358,7 @@ function skipAssociation() {
 }
 
 .requirement-association-panel {
-  background: #fff;
+  background: var(--bg-primary);
   border-radius: 12px;
   max-width: 640px;
   width: 90%;
@@ -381,8 +381,8 @@ function skipAssociation() {
 }
 
 .domain-badge {
-  background: #e6f7ff;
-  color: #1890ff;
+  background: var(--color-primary-50);
+  color: var(--primary);
   padding: 4px 12px;
   border-radius: 4px;
   font-size: 13px;
@@ -391,7 +391,7 @@ function skipAssociation() {
 .close-btn {
   margin-left: auto;
   background: none;
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--border-color);
   padding: 4px 12px;
   border-radius: 4px;
   cursor: pointer;
@@ -403,15 +403,15 @@ function skipAssociation() {
   gap: 16px;
   margin-bottom: 16px;
   font-size: 13px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .devil-review-section {
   margin-bottom: 16px;
   padding: 12px;
-  background: #fff1f0;
+  background: var(--bg-primary)1f0;
   border-radius: 6px;
-  border: 1px solid #ffa39e;
+  border: 1px solid var(--danger);
 }
 
 .devil-review-item {
@@ -424,12 +424,12 @@ function skipAssociation() {
 }
 
 .devil-target {
-  color: #f5222d;
+  color: var(--danger);
   font-weight: 500;
 }
 
 .devil-challenge {
-  color: #333;
+  color: var(--text-primary);
   flex: 1;
 }
 
@@ -439,12 +439,12 @@ function skipAssociation() {
   border-radius: 3px;
 }
 
-.severity-high { background: #fff1f0; color: #f5222d; }
-.severity-medium { background: #fff7e6; color: #fa8c16; }
-.severity-low { background: #f6ffed; color: #52c41a; }
+.severity-high { background: #fff1f0; color: var(--danger); }
+.severity-medium { background: #fff7e6; color: var(--warning); }
+.severity-low { background: var(--color-success-50, #f6ffed); color: var(--success); }
 
 .devil-suggestion {
-  color: #1890ff;
+  color: var(--primary);
   font-size: 12px;
 }
 
@@ -456,17 +456,17 @@ function skipAssociation() {
   font-size: 15px;
   margin: 0 0 8px 0;
   padding: 4px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-color);
 }
 
-.category-functional { color: #1890ff; }
-.category-architectural { color: #fa8c16; }
-.category-risk { color: #f5222d; }
-.category-decision { color: #722ed1; }
+.category-functional { color: var(--primary); }
+.category-architectural { color: var(--warning); }
+.category-risk { color: var(--danger); }
+.category-decision { color: var(--color-primary-700); }
 
 .item-count {
   font-size: 12px;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .association-item {
@@ -476,14 +476,15 @@ function skipAssociation() {
   padding: 6px 8px;
   margin: 4px 0;
   border-radius: 4px;
+  cursor: pointer;
 }
 
 .association-item.shown {
-  background: #f6f8fa;
+  background: var(--bg-secondary);
 }
 
 .association-item.collapsed {
-  background: #fafafa;
+  background: var(--bg-secondary);
   opacity: 0.85;
 }
 
@@ -498,10 +499,10 @@ function skipAssociation() {
   border-radius: 3px;
 }
 
-.source-domain_template { background: #e6f7ff; color: #1890ff; }
-.source-history_project { background: #f6ffed; color: #52c41a; }
-.source-llm_association { background: #fff7e6; color: #fa8c16; }
-.source-unknown { background: #f5f5f5; color: #999; }
+.source-domain_template { background: var(--color-primary-50); color: var(--primary); }
+.source-history_project { background: var(--color-success-50, #f6ffed); color: var(--success); }
+.source-llm_association { background: #fff7e6; color: var(--warning); }
+.source-unknown { background: var(--bg-tertiary); color: var(--text-tertiary); }
 
 .dual-badge {
   font-size: 11px;
@@ -510,29 +511,29 @@ function skipAssociation() {
 }
 
 .dual-badge.both {
-  background: #f6ffed;
-  color: #52c41a;
+  background: var(--color-success-50, #f6ffed);
+  color: var(--success);
 }
 
 .dual-badge.single {
-  background: #fff7e6;
-  color: #faad14;
+  background: var(--bg-primary)7e6;
+  color: var(--warning);
 }
 
 .item-confidence {
   font-size: 11px;
-  color: #52c41a;
+  color: var(--success);
   font-weight: 500;
 }
 
 .item-confidence.low {
-  color: #faad14;
+  color: var(--warning);
 }
 
 .expand-btn {
   background: none;
   border: none;
-  color: #1890ff;
+  color: var(--primary);
   cursor: pointer;
   font-size: 13px;
   padding: 4px 0;
@@ -545,13 +546,13 @@ function skipAssociation() {
 .helpfulness-section {
   margin-top: 16px;
   padding: 12px;
-  background: #f6f8fa;
+  background: var(--bg-secondary);
   border-radius: 6px;
 }
 
 .helpfulness-question {
   font-size: 14px;
-  color: #333;
+  color: var(--text-primary);
   margin: 0 0 8px 0;
 }
 
@@ -561,8 +562,8 @@ function skipAssociation() {
 }
 
 .helpfulness-btn {
-  background: #fff;
-  border: 1px solid #d9d9d9;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
   padding: 6px 16px;
   border-radius: 4px;
   cursor: pointer;
@@ -571,9 +572,9 @@ function skipAssociation() {
 }
 
 .helpfulness-btn.active {
-  background: #1890ff;
+  background: var(--primary);
   color: #fff;
-  border-color: #1890ff;
+  border-color: var(--primary);
 }
 
 .action-bar {
@@ -581,11 +582,11 @@ function skipAssociation() {
   gap: 12px;
   margin-top: 24px;
   padding-top: 16px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--border-color);
 }
 
 .btn-confirm {
-  background: #1890ff;
+  background: var(--primary);
   color: #fff;
   border: none;
   padding: 8px 24px;
@@ -596,7 +597,7 @@ function skipAssociation() {
 
 .btn-skip {
   background: none;
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--border-color);
   padding: 8px 24px;
   border-radius: 4px;
   cursor: pointer;
@@ -609,7 +610,7 @@ function skipAssociation() {
 }
 
 .skip-info p {
-  color: #666;
+  color: var(--text-secondary);
   margin-bottom: 16px;
 }
 
@@ -624,7 +625,7 @@ function skipAssociation() {
 }
 
 .rejection-dialog {
-  background: #fff;
+  background: var(--bg-primary);
   border-radius: 8px;
   padding: 24px;
   max-width: 320px;
@@ -643,8 +644,8 @@ function skipAssociation() {
 }
 
 .rejection-options button {
-  background: #f6f8fa;
-  border: 1px solid #d9d9d9;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   padding: 8px 16px;
   border-radius: 4px;
   cursor: pointer;
@@ -652,15 +653,15 @@ function skipAssociation() {
 }
 
 .rejection-options button:hover {
-  background: #e6f7ff;
-  border-color: #1890ff;
+  background: var(--color-primary-50);
+  border-color: var(--primary);
 }
 
 .cancel-btn {
   margin-top: 12px;
   background: none;
   border: none;
-  color: #999;
+  color: var(--text-tertiary);
   cursor: pointer;
   font-size: 13px;
 }

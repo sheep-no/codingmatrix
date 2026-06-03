@@ -885,7 +885,7 @@
     line-height: 1.5;
     outline: none;
     transition: all 0.2s ease;
-    background: white;
+    background: var(--bg-primary);
     box-shadow: var(--shadow-sm);
     resize: none;
     overflow-y: auto;

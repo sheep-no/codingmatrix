@@ -1,6 +1,30 @@
 # Agent 系统文档
 
-> 最后更新：2026-05-30 | 版本：v5.11.0
+> 最后更新：2026-06-02 | 版本：v5.12.0+
+
+### v5.12.0+ 更新
+
+- **ReAct 工具调用深度集成**: Engineer 获得 13 个工具（9 个只读 + 4 个写/验证），ReAct 模式让 LLM 自主决定读哪些文件、用哪个工具
+- **工程师主动编辑模式 (Engineer Active Editing)**: 从"被动接收 LLM 输出"转为"主动 Agent"，可调用 `partial_update` / `insert_content` / `regex_replace` / `execute_code` 等工具主动编辑
+- **编辑追踪 (Edit Tracking)**: Specialist 类的 `_edited_files` 列表自动追踪所有写入工具调用，Orchestrator 通过此检测工程师主动编辑的结果
+- **Git Stash 原子回滚**: 替换原有 in-memory `dict[fp]=content` 备份为 `git stash push/pop/drop`，零内存开销。新文件失败时直接 `unlink()`
+- **动态批处理规划**: Architect `expand_file_plan()` 改为 `while True` 循环 + 3 个自然终止条件，移除 `max_batches` 硬限制
+- **代码沙箱 admin 可配**: `ENABLE_CODE_SANDBOX` 和 `SANDBOX_LANGUAGES` 通过 `/api/v2/admin/sandbox-config` 动态配置，支持 Python AST 沙箱 + JavaScript Node.js 子进程
+- **5 复杂度档 × 5 角色模型分配 v2.0**: DeepSeek-R1 用于 backend/reviewer，Qwen3-8B 用于 frontend，GLM-Z1-9B 用于 architect
+- **会话生命周期完整化**: 30 天 TTL + 500 上限 + 僵尸检测 + 并发限制 (2/用户) + 5 状态机（running/completed/failed/cancelled/expired）
+- **`__init__.py` 生成顺序修复**: 优先级从 1 改为 5 + 依赖图添加同包依赖边，确保 `__init__.py` 最后生成
+- **导入路径验证修复**: `validate_runtime_imports` 自动添加项目根和 `src/` 到 `sys.path`，提取完整模块路径
+- **ReAct 事件类型**: 3 个新 SSE 事件 `react_tool_call`、`react_tool_result`、`react_generating`
+- **Engineer 相对导入规则**: 显式 prompt 规则"包内文件之间必须使用相对导入"
+
+### v5.12.0 更新
+
+- **模型 context_length 管理**: 管理员可在后台配置每个模型的最大上下文长度，支持配置文件优先、代码映射、动态供应商、自定义供应商多级 fallback，默认 32k
+- **用户自定义 context_length**: 用户可在 API Key 管理页面为自己接入的模型设置 context_length，仅对自己的请求生效
+- **用户 API Key 模型同步**: 用户提交 OpenAI/Anthropic/DeepSeek 等 Key 时自动从 `/v1/models` 拉取模型列表并提取 context_length
+- **API Key 查找修复**: 修复 `_get_user_api_key_from_token()` 硬编码 user_id 问题，改为扫描所有用户查找 token
+- **前端消息处理完善**: 新增 `pause_for_approval`、`file_rejected`、`log` 消息类型处理
+- **前端 UI 优化**: APIKeyManager.vue 使用 computed，AgentModelConfig.vue 统一使用 ElMessage
 
 ### v5.11.0 更新
 
@@ -1322,6 +1346,200 @@ OrchestratorAgent 推送的进度事件：
 **实现文件**:
 - `app/agent/orchestrator.py` - 交叉辩论流程
 - `app/agent/specialists.py` - 专家角色挑战方法
+
+---
+
+## v5.12.0+ 新增子系统详解
+
+### Engineer Active Editing（工程师主动编辑）
+
+v5.12.0+ 之前，Engineer 是"被动生成器"——接收 prompt，输出代码，写入文件。v5.12.0+ 改为"主动 Agent"——可调用工具读取上下文、精确编辑、验证自己的输出。
+
+#### 13 个 Specialist 工具
+
+**只读工具（9 个）**:
+- `read_file` - 读取文件内容
+- `list_files` - 列出目录下文件
+- `search_in_files` - 跨文件文本搜索
+- `glob_files` - glob 模式匹配文件
+- `read_symbols` - 读取代码符号（def/class/function）
+- `find_definition` - 查找符号定义位置
+- `read_imports` - 读取文件所有 import
+- `find_references` - 查找符号引用
+- `summarize_file` - 文件摘要
+
+**写入/验证工具（4 个）**:
+- `partial_update` - 局部更新（基于行号或匹配文本）
+- `insert_content` - 在指定位置插入内容
+- `regex_replace` - 正则替换
+- `execute_code` - 执行代码（沙箱内）
+
+#### Edit Marker 协议
+
+当工程师调用写工具时，会发生以下流程：
+
+```
+1. 工程师调用 partial_update 等写工具
+2. 工具直接修改磁盘文件
+3. 工具调用被 _edited_files 列表自动追踪
+4. 工程师返回 JSON marker: {"action": "edited", "files": [...], "summary": "..."}
+5. Orchestrator 检测 marker，从磁盘读取已修改文件
+6. Orchestrator 验证文件正确性
+7. 跳过写入步骤（因为文件已被工程师修改）
+```
+
+#### 工程师现有 vs 新文件模式
+
+```python
+async def generate_file(self, file_path, requirements, is_existing_file=False, ...):
+    if is_existing_file:
+        # 现有文件模式：先读取上下文，调用工具，按需编辑
+        prompt = self._build_edit_prompt(file_path, requirements)
+    else:
+        # 新文件模式：直接生成
+        prompt = self._build_new_file_prompt(file_path, requirements)
+```
+
+#### `__init__.py` 特殊处理
+
+`__init__.py` 文件采用特殊 prompt：
+
+```
+生成 __init__.py 时必须：
+1. 先调用 list_files 列出同包内所有 .py 文件
+2. 调用 read_file 读取每个文件
+3. 提取所有 def/class/常量名称
+4. 基于实际导出编写 __init__.py
+5. 包内文件之间的导入必须使用相对导入（如 from .utils import greet）
+```
+
+依赖图中 `__init__.py` 的优先级从 1 改为 5，并添加同包内所有文件 → `__init__.py` 的依赖边，确保 `__init__.py` 最后生成。
+
+### Git Stash 原子回滚
+
+替换 v5.12.0+ 之前的 in-memory `dict[fp]=content` 备份方案：
+
+```python
+def _git_stash_push(work_dir, files):
+    """在编辑前 stash 已存在文件"""
+    for fp in files:
+        if (work_dir / fp).exists():
+            subprocess.run(["git", "stash", "push", "--", fp], cwd=work_dir)
+
+def _git_stash_pop(work_dir):
+    """失败时 pop 还原"""
+    subprocess.run(["git", "stash", "pop"], cwd=work_dir)
+
+def _git_stash_drop(work_dir):
+    """成功时 drop 清理"""
+    subprocess.run(["git", "stash", "drop"], cwd=work_dir)
+```
+
+**新文件处理**（不存在的文件）：失败时直接 `unlink()` 删除。
+
+**优势**：
+- 零内存开销（不需在内存中保存文件内容副本）
+- 原子性强（git 操作保证）
+- 不需要清理临时数据结构
+
+### 动态批处理规划
+
+v5.12.0+ 之前，Architect 的 `expand_file_plan()` 使用 `for batch in range(max_batches):` 硬限制。v5.12.0+ 改为：
+
+```python
+def expand_file_plan(self, initial_files):
+    all_files = list(initial_files)
+    while True:  # 改为 while True
+        new_files = self._ask_llm_for_more(all_files)
+        if not new_files:
+            break  # 终止条件 1: LLM 不再补充
+        if self._is_saturated(all_files + new_files):
+            break  # 终止条件 2: 达到总容量
+        if not self._can_generate_more():
+            break  # 终止条件 3: 资源/时间限制
+        all_files.extend(new_files)
+    return all_files
+```
+
+`max_batches` 参数被移除，无硬限制。
+
+### 代码沙箱
+
+详见 [SECURITY-OVERVIEW.md](../security/SECURITY-OVERVIEW.md#代码沙箱)
+
+**Python 沙箱**：
+- AST 检查拦截 `exec/eval/compile/__import__/open/getattr/setattr`
+- 限制性 builtins（仅保留 print/len/range/list/dict 等）
+- 30s 超时
+
+**JavaScript 沙箱**：
+- Node.js 子进程
+- 拦截 `child_process/fs/eval/Function/process.exit/process.env`
+- 30s 超时
+
+**配置**（admin 可见）：
+```python
+ENABLE_CODE_SANDBOX = True  # 总开关
+SANDBOX_LANGUAGES = "python,javascript"  # 支持的语言
+```
+
+**API**:
+- `GET /api/v2/admin/sandbox-config` - 查看配置
+- `PUT /api/v2/admin/sandbox-config` - 修改配置
+
+### ReAct 工具调用循环
+
+详见 [REACT-TOOL-CALLING.md](REACT-TOOL-CALLING.md)
+
+Engineer 通过 `call_llm_with_tools()` 触发 ReAct 循环：
+
+```
+[第 1 轮] 思考 + 行动
+  → 模型决定调用 read_file 等工具
+  → 返回工具调用请求
+
+[第 2 轮] 观察 + 反思
+  → 工具执行，返回结果
+  → 模型可决定再次调用工具（最多 2 轮工具调用）
+
+[第 3 轮] 最终生成
+  → 基于所有观察结果，生成最终代码
+```
+
+**SSE 事件类型**:
+- `react_tool_call` - 工具调用请求
+- `react_tool_result` - 工具执行结果
+- `react_generating` - 最终生成中
+
+**阶段化模型**:
+- 思考阶段可用 qwen3-8b（快速）
+- 行动阶段可用 deepseek-r1（精确）
+- 最终生成可用对应角色模型
+
+### 会话生命周期
+
+详见 [SESSION-LIFECYCLE.md](SESSION-LIFECYCLE.md)
+
+**5 状态机**:
+```
+running → completed (成功)
+running → failed (失败)
+running → cancelled (用户取消)
+running → expired (TTL 过期)
+```
+
+**核心配置**:
+- `MAX_PROJECT_SESSIONS_PER_USER = 2` - 并发限制
+- `SESSION_TTL_DAYS = 30` - TTL
+- `MAX_SESSIONS_PER_USER = 500` - 累计上限
+
+**僵尸会话检测**:
+```python
+# 检查 DB 状态与内存状态不一致
+if db.status == "running" and not in_memory_session_exists(db.session_id):
+    db.status = "expired"
+    db.cleanup()
+```
 
 ---
 

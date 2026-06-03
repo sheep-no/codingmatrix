@@ -10,7 +10,7 @@ v4.8.0 新增：
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 
 from app.agent.git_operations import GitOperations, SnapshotInfo
 from dataclasses import dataclass, field
@@ -100,7 +100,7 @@ class SnapshotManager:
             return None
 
         tag_name = f"agent-{session_id}-{datetime.now().strftime('%H%M%S')}"
-        tag_result = await self.git_ops.create_tag(
+        await self.git_ops.create_tag(
             project_path, tag_name, description
         )
 

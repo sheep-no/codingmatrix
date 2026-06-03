@@ -1,6 +1,6 @@
 # CodingMatrix 模块说明
 
-> 最后更新：2026-05-30 | 版本：v5.11.0
+> 最后更新：2026-06-02 | 版本：v5.12.0+
 
 ## 项目结构概览
 
@@ -28,6 +28,36 @@ codingmatrix/
 ├── Makefile                     # Make 命令集
 ├── pyproject.toml               # Python 项目配置
 ```
+
+## v5.12.0+ 核心变化
+
+### 1. 新增 v5.12.0+ 子系统
+
+| 子系统 | 文件 | 描述 |
+|--------|------|------|
+| **动态模型路由** | `app/agent/dynamic_model_router.py` | 健康度 0-100 评分、熔断、5 复杂度档 × 5 角色模型 |
+| **ReAct 工具调用** | `app/agent/react_agent.py` | 5 阶段循环，阶段化模型路由 |
+| **13 工具 Specialist** | `app/agent/specialist_base.py` | 9 只读 + 4 写/验证工具 |
+| **代码沙箱** | `specialist_base.py` (内嵌) | Python AST + JavaScript Node.js |
+| **Git Stash 编辑回滚** | `orchestrator_files.py` | 原子回滚机制 |
+| **编辑追踪** | `specialist_base.py` | `_edited_files` 列表 |
+| **Session 生命周期** | `app/agent/session_manager.py` | 5 状态机、僵尸检测、429 响应 |
+
+### 2. 修改的关键文件
+
+| 文件 | v5.12.0+ 修改 |
+|------|---------------|
+| `app/agent/orchestrator_files.py` | 添加 `_git_stash_push/pop/drop`、`_is_edit_marker()` |
+| `app/agent/orchestrator_generation/spec_first_generate.py` | 传递 `is_existing_file`、处理 edit marker |
+| `app/agent/orchestrator_generation/incremental_generate.py` | 重写，删除 `_apply_patches_incremental` |
+| `app/agent/orchestrator_generation/architect.py` | `expand_file_plan()` 改为 `while True` 循环 |
+| `app/agent/orchestrator_utils.py` | 删除 `_should_use_patch_mode` |
+| `app/agent/backend_engineer.py` | `generate_file()` 添加 `is_existing_file` 参数 |
+| `app/agent/frontend_engineer.py` | 同上 |
+| `app/agent/dependency_graph.py` | `__init__.py` 优先级 1→5，添加同包依赖边 |
+| `app/agent/code_validator.py` | `validate_runtime_imports` 修复 sys.path + 完整模块路径提取 |
+| `app/core/config.py` | 添加 `ENABLE_CODE_SANDBOX`、`SANDBOX_LANGUAGES` |
+| `app/api/v2/admin_config.py` | **新增** `sandbox-config` 端点 |
 
 ## 动态依赖图 (v5.8.1) - 全语言支持
 
@@ -294,17 +324,142 @@ dependencies.get_affected_files(['models/user.py'])
 
 | 模块 | 路径 | 行数 | 描述 |
 |------|------|------|------|
-| **动态依赖图** | **`dependency_graph.py`** | **~500** | **解析 import/require、BFS 影响分析、跨文件 Patch** |
-| **智能会话恢复** | **`helpers.py`** | **~100** | **v5.11.0 新增：resolve_resume_session 语义匹配** |
+| **动态依赖图** | **`dependency_graph.py`** | **~500** | **解析 14 种语言 import/require、BFS 影响分析、跨文件 Patch、`__init__.py` 最后生成** |
+| **智能会话恢复** | **`helpers.py`** | **~150** | **v5.11.0+ 新增：resolve_resume_session 语义匹配 + Qwen3-8B 默认** |
 | Orchestrator | `orchestrator.py` | ~1900 | 总指挥：复杂度分析、模型分配、角色协作、验证审查 |
+| OrchestratorFiles | `orchestrator_files.py` | **~600** | **v5.12.0+ 增强：Edit marker 检测、Git stash 原子回滚** |
+| OrchestratorGeneration | `orchestrator_generation/` | **~3000** | **v5.12.0+ 增强：动态批处理、is_existing_file 模式** |
 | MultiModelAgent | `multi_model_agent.py` | ~850 | 多模型协调：任务路由、规划、执行、审查 |
 | ReActAgent | `react_agent.py` | ~500 | ReAct 自我反思：Thought→Action→Observation→Reflection |
-| Executor | `executor.py` | ~750 | 执行器：6 种工具类型 (文件/代码/搜索/HTTP/Git)、SSE 状态推送 |
+| Executor | `executor.py` | ~750 | 执行器：12 种工具类型 (文件/代码/搜索/HTTP/Git)、ToolRegistry |
+| SpecialistBase | `specialist_base.py` | **~800** | **v5.12.0+ 增强：13 工具、编辑追踪、代码沙箱、call_llm_with_tools** |
 | Specialists | `specialists.py` | ~800 | 专家角色：架构师、前端/后端工程师、代码审查员 |
+| DynamicModelRouter | `dynamic_model_router.py` | **~900** | **v5.12.0+ 增强：健康度评分、熔断、5×5 模型分配 v2.0** |
+| SessionManager | `session_manager.py` | **~500** | **v5.12.0+ 增强：5 状态机、僵尸检测、429 响应** |
+| CodeValidator | `code_validator.py` | **~600** | **v5.12.0+ 修复：完整模块路径提取、sys.path 自动配置** |
 | **多角度审查** | **`multi_angle_review.py`** | **340** | **v5.8.1 新增：性能/安全/可维护性并行审查** |
 
 （其余模块保持不变...）
 
 ---
 
-最后更新：2026-05-30
+## v5.12.0+ 新增详细模块
+
+### DynamicModelRouter (动态模型路由)
+
+**文件**: `app/agent/dynamic_model_router.py` (~900 行)
+
+**职责**:
+- 模型健康度追踪（0-100 分）
+- 熔断器（CLOSED/OPEN/HALF_OPEN）
+- 5 复杂度档 × 5 角色模型分配
+- Fallback 链管理
+- LRU 缓存模型分配
+
+**关键方法**:
+- `get_assignment(complexity_level, role)` - 获取模型分配
+- `record_call_result(model, success, latency)` - 记录调用
+- `is_healthy(model)` - 检查健康
+- `get_fallback(primary, role)` - 获取备选
+- `reset_health(model)` - 重置分数
+
+详见 [DYNAMIC-MODEL-ROUTER.md](../features/DYNAMIC-MODEL-ROUTER.md)
+
+### ReActAgent (ReAct 自主循环)
+
+**文件**: `app/agent/react_agent.py` (~500 行)
+
+**职责**:
+- 5 阶段循环：思考/行动/观察/反思/最终
+- 阶段化模型路由
+- ToolRegistry 集成
+- 流式输出
+
+**关键方法**:
+- `process(task, context)` - 主入口
+- `_think(context)` - 思考阶段
+- `_act(thought)` - 行动阶段
+- `_observe(action, result)` - 观察阶段
+- `_reflect(observation)` - 反思阶段
+- `_final_answer(reflections)` - 最终生成
+
+详见 [REACT-TOOL-CALLING.md](../features/REACT-TOOL-CALLING.md)
+
+### SessionManager (会话生命周期)
+
+**文件**: `app/agent/session_manager.py` (~500 行)
+
+**职责**:
+- 5 状态机管理
+- 内存 ↔ DB 同步
+- 僵尸会话检测
+- TTL 清理
+- 429 并发限制
+
+**关键方法**:
+- `create_session()` - 创建
+- `pause_session(id)` - 暂停
+- `resume_session(id)` - 恢复
+- `cancel_session(id)` - 取消
+- `cleanup_expired()` - 清理
+- `detect_zombie_sessions()` - 僵尸检测
+- `sync_from_db()` - 从 DB 恢复
+- `persist_state(id)` - 持久化
+
+详见 [SESSION-LIFECYCLE.md](../features/SESSION-LIFECYCLE.md)
+
+### Specialist Tools (13 工具)
+
+**文件**: `app/agent/specialist_base.py`
+
+**9 个只读工具**:
+1. `read_file` - 读取文件
+2. `list_files` - 列目录
+3. `search_in_files` - 搜索
+4. `glob_files` - glob 匹配
+5. `read_symbols` - 读符号
+6. `find_definition` - 找定义
+7. `read_imports` - 读导入
+8. `find_references` - 找引用
+9. `summarize_file` - 文件摘要
+
+**4 个写入/验证工具**:
+1. `partial_update` - 局部更新
+2. `insert_content` - 插入内容
+3. `regex_replace` - 正则替换
+4. `execute_code` - 沙箱执行
+
+### Code Sandbox (代码沙箱)
+
+**位置**: `specialist_base.py` 内嵌
+
+**Python 沙箱**:
+```python
+# AST 安全检查
+ast.parse(code)
+# 禁止节点: exec/eval/compile/__import__/open/getattr/setattr
+# 限制性 builtins: print/len/range/list/dict/set/tuple/str/int/float/bool
+# 30s 超时
+```
+
+**JavaScript 沙箱**:
+```python
+# Node.js 子进程
+node --experimental-vm-modules
+# 禁止模式: child_process/fs/eval/Function/process.exit/process.env
+# 30s 超时
+```
+
+**API 端点**:
+- `GET /api/v2/admin/sandbox-config` - 查看
+- `PUT /api/v2/admin/sandbox-config` - 修改（superadmin）
+
+**配置**:
+```python
+ENABLE_CODE_SANDBOX = True
+SANDBOX_LANGUAGES = "python,javascript"
+```
+
+---
+
+最后更新：2026-06-02

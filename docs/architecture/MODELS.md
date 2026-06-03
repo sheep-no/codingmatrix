@@ -1,6 +1,61 @@
 # 数据模型与 LLM 适配器
 
-最后更新: 2026-05-27
+最后更新: 2026-06-02 | 版本：v5.12.0+
+
+---
+
+## v5.12.0+ 关键更新
+
+### 5 复杂度档 × 5 角色模型分配 v2.0
+
+v5.12.0+ 重新设计了模型分配矩阵，原则：
+1. **Reviewer ≥ Generator**（审查员能力不低于生成员）
+2. **Backend > Frontend**（后端业务更复杂，用更强模型）
+3. **Architect 使用思考模型**（复杂架构需深度推理）
+4. **跨验证用不同模型**（A/B 生成 + 互评）
+5. **SIMPLE 档用轻量模型**（节省成本）
+
+**当前分配**（`data/agent_model_config.json` v2.0）：
+
+| 复杂度 | Architect | Frontend | Backend | Reviewer | 复杂度分析 |
+|--------|-----------|----------|---------|----------|------------|
+| SIMPLE | qwen3-8b* | qwen3-8b | qwen3-8b | qwen3-8b | 关键词匹配 |
+| SMALL | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | 关键词匹配 |
+| MEDIUM | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | LLM 校准 |
+| LARGE | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | LLM 校准 |
+| XLARGE | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | LLM 校准 |
+
+> *注：SIMPLE 架构师原本配置为 qwen3.5-4b，因 SiliconFlow 端点暂时不可用，临时改为 qwen3-8b。*
+
+详见 [DYNAMIC-MODEL-ROUTER.md](../features/DYNAMIC-MODEL-ROUTER.md)
+
+### 模型健康度评分 (v5.12.0+ 新增)
+
+每个模型维护一个 0-100 的健康分：
+
+| 分数范围 | 状态 | 行为 |
+|---------|------|------|
+| 80-100 | 健康 | 正常路由 |
+| 50-79 | 降级 | 优先使用备选 |
+| 20-49 | 警告 | 大幅降权 |
+| 0-19 | 熔断 | 临时禁用 |
+
+**熔断器**: 连续 3 次失败 → OPEN（拒绝），1 分钟后 HALF_OPEN（探测），成功 → CLOSED（正常）。
+
+详见 [DYNAMIC-MODEL-ROUTER.md#健康度追踪](../features/DYNAMIC-MODEL-ROUTER.md#1-healthtracker健康度追踪)
+
+### ReAct 阶段化模型 (v5.12.0+ 新增)
+
+ReAct 工具调用循环的不同阶段可用不同模型：
+
+| 阶段 | 推荐模型 | 理由 |
+|------|---------|------|
+| 思考 | qwen3-8b | 快速理解 |
+| 行动 | qwen3-8b | 简单工具调用 |
+| 观察 | qwen3-8b | 简单分析 |
+| 最终生成 | deepseek-r1 或对应角色模型 | 高质量输出 |
+
+详见 [REACT-TOOL-CALLING.md#阶段化模型路由](../features/REACT-TOOL-CALLING.md#阶段化模型路由)
 
 ---
 
@@ -89,29 +144,32 @@ CodingMatrix 通过统一适配器接口调用多种 LLM 模型，实现三层�
 
 ### 支持的模型
 
-**最后更新**: 2026-05-29
+**最后更新**: 2026-06-01
 
-| 模型 ID | 提供商 | 用途 | 说明 |
-|---------|--------|------|------|
-| deepseek-r1 | DeepSeek | 攻坚层推理 | 深度推理与复杂分析 |
-| deepseek-ocr | DeepSeek | OCR | 图像文字识别 |
-| glm-4.1v-9b | THUDM | 视觉理解 | 图像分析、视觉推理 |
-| glm-4-9b | THUDM | 标准层对话 | 通用对话与协作 |
-| glm-z1-9b | THUDM | 攻坚层推理 | 深度推理与验证 |
-| qwen2.5-7b | Alibaba | 标准层代码 | 代码生成与补全 |
-| qwen3-8b | Alibaba | 标准层对话 | 通用代码与对话 |
-| qwen3.5-4b | Alibaba | 简单层对话 | 轻量快速响应 |
-| kolors | Kuaishou | 图像生成 | 文生图 |
-| bce-embedding | NetEase | 嵌入 | 文本向量化 |
-| bge-m3 | BAAI | 嵌入 | 多语言文本向量化 |
-| bge-large-zh | BAAI | 嵌入 | 中文文本向量化 |
-| bge-reranker-v2-m3 | BAAI | 重排序 | 搜索结果重排序 |
-| bce-reranker | NetEase | 重排序 | 搜索结果重排序 |
-| sense-voice | FunASR | 语音识别 | 语音转文字 |
-| telespeech-asr | Tencent | 语音识别 | 语音转文字 |
-| hunyuan-mt | Tencent | 翻译 | 机器翻译 |
+| 模型 ID | 提供商 | 用途 | 上下文长度 |
+|---------|--------|------|-----------|
+| deepseek-ai/DeepSeek-R1-0528-Qwen3-8B | DeepSeek | 攻坚层推理 | 128k |
+| THUDM/GLM-Z1-9B-0414 | THUDM | 攻坚层推理 | 128k |
+| Qwen/Qwen3.5-4B | Alibaba | 简单层对话 | 256k |
+| Qwen/Qwen3-8B | Alibaba | 标准层对话 | 128k |
+| Qwen/Qwen2.5-7B-Instruct | Alibaba | 标准层代码 | 32k |
+| THUDM/GLM-4-9B-0414 | THUDM | 标准层对话 | 32k |
+| deepseek-ai/DeepSeek-OCR | DeepSeek | OCR | 8k |
+| BAAI/bge-m3 | BAAI | 嵌入 | 8k |
+| BAAI/bge-reranker-v2-m3 | BAAI | 重排序 | 8k |
+| netease-youdao/bce-embedding-base_v1 | NetEase | 嵌入 | 0.5k |
+| netease-youdao/bce-reranker-base_v1 | NetEase | 重排序 | 0.5k |
 
-**共 17 个内置模型**
+### context_length 管理
+
+系统通过多级优先级获取模型的上下文长度：
+
+1. **用户自定义配置**：用户在 API Key 管理页面为自己的 Key 设置的 context_length
+2. **配置文件**：`data/agent_model_config.json` 中的 `model_context_lengths`
+3. **代码映射**：`dynamic_model_router.py` 中的 `MODEL_CONTEXT_LENGTHS`
+4. **动态供应商**：从 `/v1/models` API 响应中提取
+5. **自定义供应商**：用户提交 Key 时自动同步
+6. **默认值**：32768 tokens
 
 ### 三层路由策略
 

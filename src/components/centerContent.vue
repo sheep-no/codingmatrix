@@ -152,8 +152,7 @@
                 stroke-width="2"
               >
                 <rect x="3" y="3" width="18" height="18" rx="2" />
-                <path d="M9 9l6 6" />
-                <path d="M15 9l-6 6" />
+                <path d="M9 9l6 6M15 9l-6 6" />
               </svg>
               <div v-else class="ai-typing" role="status" aria-label="AI 正在输入">
                 <span class="typing-dot"></span>
@@ -218,14 +217,6 @@
               <!-- AI 响应内容 -->
               <div v-if="message.response || message.isStreaming" class="ai-response-content">
                 <div class="response-card">
-                  <div class="card-header">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                      <path
-                        d="M12 2a3 3 0 0 1 3 3v7h3a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3h3V5a3 3 0 0 1 3-3z"
-                      />
-                    </svg>
-                    <span>{{ message.isProjectGenerator ? '项目生成' : 'AI 回复' }}</span>
-                  </div>
                   <div
                     class="card-content markdown-body"
                     v-html="renderMarkdown(message.response)"
@@ -1094,7 +1085,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    min-height: 0;
     background: var(--bg-primary);
     overflow: hidden;
     position: relative;
@@ -1155,11 +1146,9 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px 24px;
-    background: var(--bg-secondary);
-    backdrop-filter: blur(16px);
-    border-bottom: 1px solid var(--border-color);
-    box-shadow: var(--shadow-sm);
+    padding: 12px 24px;
+    background: var(--bg-primary, #fff);
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
     flex-shrink: 0;
     z-index: 100;
   }
@@ -1171,20 +1160,15 @@
   }
 
   .conversation-icon {
-    width: 42px;
-    height: 42px;
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--gradient-primary);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-md);
-    color: white;
-    transition: transform var(--transition-base);
-  }
-
-  .conversation-icon:hover {
-    transform: scale(1.05);
+    background: var(--bg-secondary, #f1f5f9);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+    color: var(--primary, #14b8a6);
   }
 
   .conversation-icon svg {
@@ -1199,10 +1183,9 @@
   }
 
   .conversation-title {
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--slate-800);
-    letter-spacing: -0.02em;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary, #1e293b);
   }
 
   .message-count {
@@ -1218,42 +1201,23 @@
   }
 
   .action-btn {
-    width: 38px;
-    height: 38px;
+    width: 34px;
+    height: 34px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--slate-50);
-    border: 1px solid var(--slate-200);
-    border-radius: var(--radius-md);
-    color: var(--slate-600);
+    background: transparent;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+    color: var(--text-secondary, #64748b);
     cursor: pointer;
-    transition: all var(--transition-base);
-    position: relative;
-    overflow: hidden;
-  }
-
-  .action-btn::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: var(--gradient-primary);
-    opacity: 0;
-    transition: opacity var(--transition-base);
-  }
-
-  .action-btn:hover::before {
-    opacity: 1;
+    transition: all 0.15s;
   }
 
   .action-btn:hover {
-    border-color: transparent;
-    color: white;
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
+    background: var(--bg-secondary, #f1f5f9);
+    color: var(--text-primary, #1e293b);
+    border-color: var(--border-color, #e2e8f0);
   }
 
   .action-btn svg {
@@ -1264,7 +1228,9 @@
   }
 
   .action-btn-close:hover {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    background: #fef2f2;
+    color: #ef4444;
+    border-color: #fecaca;
   }
 
   /* ========================================
@@ -1344,8 +1310,7 @@
 
   .message {
     display: flex;
-    gap: 14px;
-    max-width: 90%;
+    gap: 10px;
     position: relative;
   }
 
@@ -1385,10 +1350,12 @@
   .message-user {
     align-self: flex-end;
     flex-direction: row-reverse;
+    max-width: 75%;
   }
 
   .message-ai {
     align-self: flex-start;
+    max-width: 92%;
   }
 
   .message.streaming {
@@ -1407,27 +1374,24 @@
 
   /* 头像 */
   .message-avatar {
-    width: 42px;
-    height: 42px;
-    border-radius: var(--radius-md);
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    box-shadow: var(--shadow-md);
-    transition: transform var(--transition-base);
-  }
-
-  .message:hover .message-avatar {
-    transform: scale(1.08);
   }
 
   .avatar-user {
-    background: var(--gradient-user);
+    background: var(--bg-secondary, #f1f5f9);
+    border: 1px solid var(--border-color, #e2e8f0);
+    color: var(--text-secondary, #64748b);
   }
 
   .avatar-ai {
-    background: var(--gradient-ai);
+    background: var(--primary, #14b8a6);
+    color: white;
   }
 
   .message-avatar svg {
@@ -1448,7 +1412,7 @@
   .typing-dot {
     width: 8px;
     height: 8px;
-    background: white;
+    background: var(--bg-primary);
     border-radius: 50%;
     animation: typingBounce 1.4s ease-in-out infinite;
   }
@@ -1480,9 +1444,9 @@
   .message-body {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     flex: 1;
-    max-width: calc(100% - 58px);
+    max-width: calc(100% - 44px);
   }
 
   .message-header {
@@ -1520,14 +1484,11 @@
     justify-content: center;
     border: none;
     background: transparent;
-    color: var(--slate-400);
+    color: var(--text-tertiary, #94a3b8);
     cursor: pointer;
     border-radius: 4px;
     opacity: 0;
-    transition:
-      opacity 0.2s,
-      background 0.2s,
-      color 0.2s;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
   }
 
   .message-user:hover .message-action-btn {
@@ -1554,10 +1515,10 @@
   }
 
   .user-text {
-    background: var(--gradient-user);
-    color: white;
-    box-shadow: var(--shadow-md);
-    border-bottom-right-radius: 6px;
+    background: var(--bg-secondary, #f1f5f9);
+    color: var(--text-primary, #1e293b);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-bottom-right-radius: 4px;
   }
 
   /* ========================================
@@ -1596,16 +1557,15 @@
   }
 
   .thinking-details {
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-    border: 1px solid rgba(245, 158, 11, 0.2);
-    border-radius: var(--radius-lg);
+    background: var(--bg-secondary, #f8fafc);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
     overflow: hidden;
     transition: all var(--transition-base);
   }
 
   .thinking-details:hover {
-    border-color: rgba(245, 158, 11, 0.35);
-    box-shadow: var(--shadow-md);
+    border-color: var(--primary-300, #5eead4);
   }
 
   .thinking-pulse {
@@ -1622,12 +1582,12 @@
   }
 
   .thinking-summary {
-    padding: 12px 16px;
+    padding: 10px 14px;
     cursor: pointer;
     font-weight: 600;
-    font-size: 13px;
-    color: #d97706;
-    background: rgba(254, 243, 199, 0.6);
+    font-size: 12px;
+    color: var(--text-secondary, #64748b);
+    background: transparent;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1667,12 +1627,12 @@
   }
 
   .thinking-content {
-    padding: 16px;
-    color: #78350f;
+    padding: 14px;
+    color: var(--text-secondary, #64748b);
     font-size: 13px;
     line-height: 1.7;
-    background: rgba(255, 255, 255, 0.4);
-    border-top: 1px solid rgba(245, 158, 11, 0.15);
+    background: var(--bg-primary, #fff);
+    border-top: 1px solid var(--border-color, #e2e8f0);
   }
 
   /* ========================================
@@ -1683,45 +1643,22 @@
   }
 
   .response-card {
-    background: white;
-    border: 1px solid var(--slate-200);
-    border-radius: var(--radius-lg);
+    background: var(--bg-primary, #fff);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 10px;
     overflow: hidden;
-    box-shadow: var(--shadow-md);
     transition: all var(--transition-base);
   }
 
   .response-card:hover {
-    box-shadow: var(--shadow-lg);
-    border-color: var(--primary-200);
-  }
-
-  .card-header {
-    padding: 12px 16px;
-    background: var(--gradient-primary);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .card-header svg {
-    width: 18px;
-    height: 18px;
-    color: white;
-  }
-
-  .card-header span {
-    font-size: 13px;
-    font-weight: 700;
-    color: white;
-    letter-spacing: -0.01em;
+    border-color: var(--primary-200, #99f6e4);
   }
 
   .card-content {
-    padding: 20px;
-    color: var(--slate-700);
+    padding: 16px 20px;
+    color: var(--text-primary, #1e293b);
     overflow-x: auto;
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1.7;
   }
 
@@ -1752,24 +1689,23 @@
   }
 
   .markdown-body :deep(code) {
-    background: var(--slate-100);
-    padding: 3px 7px;
-    border-radius: var(--radius-sm);
-    font-family: 'Courier New', monospace;
-    font-size: 14px;
-    color: var(--slate-700);
-    border: 1px solid var(--slate-200);
+    background: var(--bg-secondary, #f1f5f9);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    color: var(--primary, #14b8a6);
+    border: 1px solid var(--border-color, #e2e8f0);
   }
 
   .markdown-body :deep(pre) {
-    background: #1e293b !important;
+    background: var(--bg-primary, #1e293b) !important;
     padding: 0;
-    border-radius: var(--radius-md);
+    border-radius: 8px;
     overflow: hidden;
     position: relative;
-    margin: 14px 0;
-    border: 1px solid var(--slate-300);
-    box-shadow: var(--shadow-sm);
+    margin: 12px 0;
+    border: 1px solid var(--border-color, #e2e8f0);
   }
 
   .markdown-body :deep(pre code) {
@@ -1787,25 +1723,25 @@
     align-items: center;
     justify-content: space-between;
     padding: 8px 14px;
-    background: #0f172a;
-    border-bottom: 1px solid #334155;
+    background: var(--bg-secondary, #f8fafc);
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
   }
 
   .code-lang {
     font-size: 12px;
     font-weight: 600;
-    color: #94a3b8;
+    color: var(--text-tertiary, #94a3b8);
     text-transform: lowercase;
-    font-family: 'Courier New', monospace;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
   }
 
   /* 复制按钮 */
   .markdown-body :deep(pre .copy-button),
   .code-block-header .copy-button {
-    background: rgba(139, 92, 246, 0.95);
+    background: var(--primary, #14b8a6);
     color: white;
-    border: 1px solid rgba(139, 92, 246, 0.7);
-    border-radius: var(--radius-sm);
+    border: none;
+    border-radius: 6px;
     padding: 4px 10px;
     font-size: 12px;
     font-weight: 600;
@@ -1819,9 +1755,8 @@
 
   .markdown-body :deep(pre .copy-button:hover),
   .code-block-header .copy-button:hover {
-    background: var(--primary-600);
+    background: var(--primary-hover, #0d9488);
     transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
   }
 
   .markdown-body :deep(pre .copy-button.copied),
@@ -1945,8 +1880,8 @@
   }
 
   .bg-circle-1 {
-    width: 600px;
-    height: 600px;
+    width: min(600px, 80vw);
+    height: min(600px, 80vw);
     background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
     top: -200px;
     right: -100px;
@@ -1955,8 +1890,8 @@
   }
 
   .bg-circle-2 {
-    width: 500px;
-    height: 500px;
+    width: min(500px, 70vw);
+    height: min(500px, 70vw);
     background: linear-gradient(135deg, var(--color-blue-500) 0%, var(--color-blue-600) 100%);
     bottom: -150px;
     left: -100px;
@@ -1965,8 +1900,8 @@
   }
 
   .bg-circle-3 {
-    width: 400px;
-    height: 400px;
+    width: min(400px, 60vw);
+    height: min(400px, 60vw);
     background: linear-gradient(135deg, var(--color-success-500) 0%, var(--color-success-600) 100%);
     top: 50%;
     left: 50%;
@@ -2360,7 +2295,11 @@
    响应式设计
    ======================================== */
   @media (max-width: 1024px) {
-    .message {
+    .message-user {
+      max-width: 85%;
+    }
+
+    .message-ai {
       max-width: 95%;
     }
 
@@ -2380,7 +2319,11 @@
       gap: 18px;
     }
 
-    .message {
+    .message-user {
+      max-width: 90%;
+    }
+
+    .message-ai {
       max-width: 100%;
     }
 

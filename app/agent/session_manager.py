@@ -17,7 +17,7 @@ import asyncio
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from app.utils.math_utils import cosine_similarity
@@ -305,6 +305,27 @@ class SessionManager:
             session_file = self._session_file(sid)
             if session_file.exists():
                 session_file.unlink()
+
+            # 联动清理：同步更新 DB 中的会话状态
+            try:
+                from app.db.database import async_session
+                from app.db.models import ProjectSession
+                from sqlalchemy import select
+
+                async with async_session() as db:
+                    result = await db.execute(
+                        select(ProjectSession).where(ProjectSession.session_id == sid)
+                    )
+                    session = result.scalar_one_or_none()
+                    if session and session.status == "running":
+                        session.status = "expired"
+                        session.error_message = "会话已过期（TTL 清理）"
+                        session.completed_at = datetime.now(timezone.utc)
+                        await db.commit()
+                        logger.debug(f"已同步 DB 会话状态: session_id={sid} -> expired")
+            except Exception as e:
+                logger.warning(f"同步 DB 会话状态失败（不影响内存清理）: {e}")
+
         if expired:
             logger.info(f"清理 {len(expired)} 个过期会话")
         return len(expired)
@@ -369,11 +390,11 @@ class SessionManager:
     ) -> Dict[str, Any]:
         """
         检测增量变化，返回需要重新生成的文件列表
-        
+
         优化：
         - 使用 embedding 相似度检测语义变更
         - 小变更（相似度 > 0.95）直接跳过重新生成
-        
+
         Returns:
             {
                 "state": SessionState,

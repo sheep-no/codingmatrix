@@ -645,7 +645,7 @@
     align-items: center;
     gap: 10px;
     padding: 10px 18px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: white;
     border: none;
     border-radius: 10px;
@@ -677,7 +677,7 @@
     align-items: center;
     justify-content: center;
     transition: all 0.3s ease;
-    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+    background: linear-gradient(135deg, var(--success) 0%, var(--success) 100%);
     color: white;
     box-shadow: 0 4px 12px rgba(72, 187, 120, 0.35);
   }
@@ -697,7 +697,7 @@
     align-items: center;
     margin-bottom: 24px;
     padding: 20px 24px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     border-radius: 16px;
     box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
     transition: all 0.3s ease;
@@ -737,7 +737,7 @@
   /* 创建用户按钮 */
   .create-user-btn {
     padding: 12px 28px;
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    background: linear-gradient(135deg, var(--success) 0%, var(--success-hover) 100%);
     color: white;
     border: none;
     border-radius: 12px;
@@ -768,7 +768,7 @@
   .filter-toggle-btn {
     width: 100%;
     padding: 14px 20px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: white;
     border: none;
     border-radius: 12px;
@@ -842,7 +842,7 @@
   .users-filters .filter-group label {
     font-size: 13px;
     font-weight: 700;
-    color: #4a5568;
+    color: var(--text-secondary);
     white-space: nowrap;
     min-width: 70px;
     text-transform: uppercase;
@@ -856,8 +856,8 @@
     border: 1px solid rgba(203, 213, 225, 0.6);
     border-radius: 10px;
     font-size: 14px;
-    color: #2d3748;
-    background: linear-gradient(135deg, #f8fafc 0%, #edf2f7 100%);
+    color: var(--text-secondary);
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
     transition: all 0.3s ease;
     outline: none;
     font-weight: 500;
@@ -865,15 +865,15 @@
 
   .users-filters .filter-group input:hover,
   .users-filters .filter-group select:hover {
-    border-color: #a78bfa;
-    background: white;
+    border-color: var(--color-primary-500);
+    background: var(--bg-primary);
   }
 
   .users-filters .filter-group input:focus,
   .users-filters .filter-group select:focus {
-    border-color: #a78bfa;
+    border-color: var(--color-primary-500);
     box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.15);
-    background: white;
+    background: var(--bg-primary);
     transform: translateY(-1px);
   }
 
@@ -917,13 +917,13 @@
   }
 
   .users-list::-webkit-scrollbar-thumb {
-    background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+    background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-500) 100%);
     border-radius: 3px;
     transition: all 0.3s ease;
   }
 
   .users-list::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+    background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-700) 100%);
   }
 
   /* 用户卡片 */
@@ -961,7 +961,7 @@
     left: 0;
     right: 0;
     height: 4px;
-    background: linear-gradient(90deg, #0d9488 0%, #14b8a6 50%, #0d9488 100%);
+    background: linear-gradient(90deg, var(--primary) 0%, var(--primary-hover) 50%, var(--primary) 100%);
     background-size: 200% 100%;
     animation: cardShimmer 3s ease-in-out infinite;
     opacity: 0;
@@ -999,7 +999,7 @@
     width: 72px;
     height: 72px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1050,40 +1050,40 @@
 
   .action-btn.edit {
     border-color: rgba(59, 130, 246, 0.4);
-    color: #3b82f6;
+    color: var(--primary);
     background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(37, 99, 235, 0.12) 100%);
   }
 
   .action-btn.edit:hover:not(:disabled) {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: white;
-    border-color: #3b82f6;
+    border-color: var(--primary);
     box-shadow: 0 8px 24px rgba(59, 130, 246, 0.45);
   }
 
   .action-btn.reset {
     border-color: rgba(245, 158, 11, 0.4);
-    color: #f59e0b;
+    color: var(--warning);
     background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(217, 119, 6, 0.12) 100%);
   }
 
   .action-btn.reset:hover:not(:disabled) {
-    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    background: linear-gradient(135deg, var(--warning) 0%, var(--warning-hover) 100%);
     color: white;
-    border-color: #f59e0b;
+    border-color: var(--warning);
     box-shadow: 0 8px 24px rgba(245, 158, 11, 0.45);
   }
 
   .action-btn.delete {
     border-color: rgba(239, 68, 68, 0.4);
-    color: #ef4444;
+    color: var(--danger);
     background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(220, 38, 38, 0.12) 100%);
   }
 
   .action-btn.delete:hover:not(:disabled) {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    background: linear-gradient(135deg, var(--danger) 0%, var(--danger-hover) 100%);
     color: white;
-    border-color: #ef4444;
+    border-color: var(--danger);
     box-shadow: 0 8px 24px rgba(239, 68, 68, 0.45);
   }
 
@@ -1122,7 +1122,7 @@
   .user-name {
     font-size: 22px;
     font-weight: 700;
-    color: #1f2937;
+    color: var(--text-primary);
     letter-spacing: -0.5px;
     flex-shrink: 0;
   }
@@ -1138,35 +1138,35 @@
   }
 
   .user-permission.superadmin {
-    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
-    color: #78350f;
+    background: linear-gradient(135deg, var(--warning) 0%, var(--warning) 100%);
+    color: var(--text-primary);
     border: 2px solid rgba(251, 191, 36, 0.4);
     box-shadow: 0 2px 8px rgba(251, 191, 36, 0.3);
   }
 
   .user-permission.admin {
-    background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
-    color: #064e3b;
+    background: linear-gradient(135deg, var(--success) 0%, var(--success) 100%);
+    color: var(--text-primary);
     border: 2px solid rgba(16, 185, 129, 0.4);
     box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
   }
 
   .user-permission.normal {
-    background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
-    color: #1e3a8a;
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary) 100%);
+    color: var(--text-primary);
     border: 2px solid rgba(59, 130, 246, 0.4);
     box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
   }
 
   .user-email {
     font-size: 15px;
-    color: #6b7280;
+    color: var(--text-tertiary);
     font-weight: 500;
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
     border-radius: 8px;
     border: 1px solid rgba(229, 231, 235, 0.8);
     transition: all 0.3s ease;
@@ -1174,7 +1174,7 @@
   }
 
   .user-card:hover .user-email {
-    background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+    background: linear-gradient(135deg, var(--color-primary-100) 0%, var(--color-primary-200) 100%);
     border-color: rgba(59, 130, 246, 0.3);
   }
 
@@ -1187,7 +1187,7 @@
     display: flex;
     gap: 16px;
     font-size: 13px;
-    color: #9ca3af;
+    color: var(--text-tertiary);
     flex-wrap: wrap;
   }
 
@@ -1196,7 +1196,7 @@
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    background: linear-gradient(135deg, var(--color-warning-50, #fef3c7) 0%, var(--color-warning-100, #fde68a) 100%);
     border-radius: 6px;
     transition: all 0.3s ease;
   }
@@ -1228,7 +1228,7 @@
     align-items: center;
     justify-content: center;
     transition: all 0.3s ease;
-    background: white;
+    background: var(--bg-primary);
     border: 2px solid rgba(229, 231, 235, 0.8);
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
   }
@@ -1239,38 +1239,38 @@
   }
 
   .action-btn.edit {
-    color: #3b82f6;
+    color: var(--primary);
     border-color: rgba(59, 130, 246, 0.3);
   }
 
   .action-btn.edit:hover:not(:disabled) {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: white;
-    border-color: #3b82f6;
+    border-color: var(--primary);
     box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
   }
 
   .action-btn.reset {
-    color: #f59e0b;
+    color: var(--warning);
     border-color: rgba(251, 191, 36, 0.3);
   }
 
   .action-btn.reset:hover:not(:disabled) {
-    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    background: linear-gradient(135deg, var(--warning) 0%, var(--warning-hover) 100%);
     color: white;
-    border-color: #f59e0b;
+    border-color: var(--warning);
     box-shadow: 0 6px 20px rgba(251, 191, 36, 0.4);
   }
 
   .action-btn.delete {
-    color: #ef4444;
+    color: var(--danger);
     border-color: rgba(239, 68, 68, 0.3);
   }
 
   .action-btn.delete:hover:not(:disabled) {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    background: linear-gradient(135deg, var(--danger) 0%, var(--danger-hover) 100%);
     color: white;
-    border-color: #ef4444;
+    border-color: var(--danger);
     box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
   }
 
@@ -1292,7 +1292,7 @@
     justify-content: center;
     gap: 20px;
     padding: 20px 28px;
-    background: white;
+    background: var(--bg-primary);
     border-radius: 16px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
     border: 1px solid rgba(229, 231, 235, 0.8);
@@ -1300,7 +1300,7 @@
 
   .page-btn {
     padding: 12px 28px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: white;
     border: none;
     border-radius: 12px;
@@ -1325,7 +1325,7 @@
 
   .page-info {
     font-size: 15px;
-    color: #4b5563;
+    color: var(--text-secondary);
     font-weight: 600;
     padding: 0 8px;
   }
@@ -1339,7 +1339,7 @@
     align-items: center;
     gap: 24px;
     flex: 1;
-    background: white;
+    background: var(--bg-primary);
     border-radius: 20px;
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
     border: 2px dashed rgba(229, 231, 235, 0.8);
@@ -1354,7 +1354,7 @@
   .empty-users p {
     margin: 0;
     font-size: 18px;
-    color: #9ca3af;
+    color: var(--text-tertiary);
     font-weight: 600;
   }
 
@@ -1384,7 +1384,7 @@
   }
 
   .modal-content {
-    background: white;
+    background: var(--bg-primary);
     border-radius: 20px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     max-width: 500px;
@@ -1408,14 +1408,14 @@
     justify-content: space-between;
     align-items: center;
     padding: 24px 28px;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--border-color);
   }
 
   .modal-header h3 {
     margin: 0;
     font-size: 20px;
     font-weight: 700;
-    color: #1f2937;
+    color: var(--text-primary);
   }
 
   .modal-header .close-btn {
@@ -1423,11 +1423,11 @@
     height: 32px;
     border: none;
     border-radius: 50%;
-    background: #f3f4f6;
+    background: var(--bg-tertiary);
     cursor: pointer;
     font-size: 24px;
     line-height: 1;
-    color: #6b7280;
+    color: var(--text-tertiary);
     transition: all 0.3s ease;
     display: flex;
     align-items: center;
@@ -1435,8 +1435,8 @@
   }
 
   .modal-header .close-btn:hover {
-    background: #e5e7eb;
-    color: #1f2937;
+    background: var(--border-color);
+    color: var(--text-primary);
   }
 
   .modal-body {
@@ -1452,29 +1452,29 @@
     margin-bottom: 8px;
     font-size: 14px;
     font-weight: 600;
-    color: #4b5563;
+    color: var(--text-secondary);
   }
 
   .form-group input,
   .form-group select {
     width: 100%;
     padding: 12px 16px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--border-color);
     border-radius: 10px;
     font-size: 14px;
-    color: #1f2937;
+    color: var(--text-primary);
     transition: all 0.3s ease;
     outline: none;
   }
 
   .form-group input:hover,
   .form-group select:hover {
-    border-color: #a78bfa;
+    border-color: var(--color-primary-500);
   }
 
   .form-group input:focus,
   .form-group select:focus {
-    border-color: #7c3aed;
+    border-color: var(--color-primary-700);
     box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
   }
 
@@ -1491,8 +1491,8 @@
   .error-message {
     margin-top: 16px;
     padding: 12px 16px;
-    background: #fee2e2;
-    color: #991b1b;
+    background: var(--color-danger-100, #fee2e2);
+    color: var(--text-primary);
     border-radius: 8px;
     font-size: 14px;
     font-weight: 500;
@@ -1501,8 +1501,8 @@
   .reset-user-info {
     margin: 0 0 20px 0;
     padding: 16px;
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-    color: #92400e;
+    background: linear-gradient(135deg, var(--color-warning-50, #fef3c7) 0%, var(--color-warning-100, #fde68a) 100%);
+    color: var(--text-primary);
     border-radius: 10px;
     font-size: 14px;
     font-weight: 500;
@@ -1511,13 +1511,13 @@
   .delete-confirm-text {
     margin: 0 0 12px 0;
     font-size: 16px;
-    color: #4b5563;
+    color: var(--text-secondary);
   }
 
   .delete-warning {
     margin: 0;
     font-size: 14px;
-    color: #dc2626;
+    color: var(--danger-hover);
     font-weight: 600;
   }
 
@@ -1526,7 +1526,7 @@
     gap: 12px;
     justify-content: flex-end;
     padding: 24px 28px;
-    border-top: 1px solid #e5e7eb;
+    border-top: 1px solid var(--border-color);
   }
 
   .btn-cancel,
@@ -1542,17 +1542,17 @@
   }
 
   .btn-cancel {
-    background: #f3f4f6;
-    color: #4b5563;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
   }
 
   .btn-cancel:hover {
-    background: #e5e7eb;
+    background: var(--border-color);
     transform: translateY(-2px);
   }
 
   .btn-primary {
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: white;
   }
 
@@ -1567,7 +1567,7 @@
   }
 
   .btn-danger {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    background: linear-gradient(135deg, var(--danger) 0%, var(--danger-hover) 100%);
     color: white;
   }
 
@@ -1596,13 +1596,13 @@
   .error-state p {
     margin: 0;
     font-size: 16px;
-    color: #6b7280;
+    color: var(--text-tertiary);
     font-weight: 500;
   }
 
   .retry-btn {
     padding: 10px 24px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: white;
     border: none;
     border-radius: 10px;

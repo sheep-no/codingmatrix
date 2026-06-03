@@ -1484,7 +1484,7 @@
   }
 
   .docker-config-modal {
-    background: white;
+    background: var(--bg-primary);
     border-radius: 12px;
     width: 95%;
     max-width: 1400px;
@@ -1589,7 +1589,7 @@
   .type-buttons button {
     padding: 12px 24px;
     border: 2px solid #d1d5db;
-    background: white;
+    background: var(--bg-primary);
     border-radius: 8px;
     cursor: pointer;
     font-size: 14px;
@@ -1656,7 +1656,7 @@
 
   .apply-template-btn {
     padding: 10px 20px;
-    background: white;
+    background: var(--bg-primary);
     border: 2px solid #6b7280;
     color: #6b7280;
     border-radius: 6px;
@@ -1733,7 +1733,7 @@
   }
 
   .service-card {
-    background: white;
+    background: var(--bg-primary);
     border: 2px solid #e5e7eb;
     border-radius: 12px;
     cursor: pointer;
@@ -1799,7 +1799,7 @@
   .icon-btn {
     width: 32px;
     height: 32px;
-    background: white;
+    background: var(--bg-primary);
     border: 1px solid #d1d5db;
     border-radius: 6px;
     cursor: pointer;
@@ -1891,7 +1891,7 @@
 
   .toggle-accordion-btn {
     padding: 6px 12px;
-    background: white;
+    background: var(--bg-primary);
     border: 1px solid #e5e7eb;
     border-radius: 6px;
     cursor: pointer;
@@ -1935,7 +1935,7 @@
 
   /* 配置表单 */
   .config-form {
-    background: white;
+    background: var(--bg-primary);
   }
 
   .config-form .form-row {

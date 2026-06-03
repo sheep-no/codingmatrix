@@ -22,6 +22,8 @@ from app.agent.dynamic_model_router import (
     save_agent_model_config,
     _LayeredModelRouterCompat,
     MODEL_ID_TO_KEY,
+    MODEL_CONTEXT_LENGTHS,
+    get_context_length,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,11 @@ class UpdateFallbackChainRequest(BaseModel):
 class UpdateErrorTypeModelRequest(BaseModel):
     error_type: str = Field(..., description="错误类型: NameError, AttributeError, ImportError 等")
     model_id: str = Field(..., description="模型 ID")
+
+
+class UpdateContextLengthRequest(BaseModel):
+    model_key: str = Field(..., description="模型 Key (如 Qwen/Qwen3-8B)")
+    context_length: int = Field(..., ge=1, description="上下文窗口长度 (token)")
 
 
 # ==================== 默认模型管理 ====================
@@ -239,4 +246,87 @@ async def update_error_type_model(
         "success": True,
         "message": f"已更新错误类型 '{request.error_type}' 的模型为 {request.model_id}",
         "config": config
+    }
+
+
+# ==================== 上下文长度管理 ====================
+
+@router.get("/context-lengths", summary="获取所有模型上下文长度")
+async def get_context_lengths(
+    current_user: dict = Depends(require_superadmin)
+):
+    """获取所有模型的上下文窗口长度配置（仅超级管理员）"""
+    config = load_agent_model_config() or {}
+    file_lengths = config.get("model_context_lengths", {})
+
+    # 合并：配置文件 + 代码映射，配置文件优先
+    result = {}
+    all_keys = set(list(MODEL_CONTEXT_LENGTHS.keys()) + list(file_lengths.keys()))
+    for key in sorted(all_keys):
+        val = file_lengths.get(key) or MODEL_CONTEXT_LENGTHS.get(key)
+        if val and val > 0:
+            source = "config" if key in file_lengths else "builtin"
+            result[key] = {"context_length": val, "source": source}
+
+    return {"success": True, "models": result}
+
+
+@router.put("/context-length", summary="更新模型上下文长度")
+async def update_context_length(
+    request: UpdateContextLengthRequest,
+    current_user: dict = Depends(require_superadmin)
+):
+    """更新指定模型的上下文窗口长度（仅超级管理员）"""
+    config = load_agent_model_config()
+    if not config:
+        config = {
+            "version": "1.0",
+            "description": "Agent 模型配置",
+            "last_updated": "",
+            "model_context_lengths": {},
+        }
+
+    if "model_context_lengths" not in config:
+        config["model_context_lengths"] = {}
+
+    old_val = config["model_context_lengths"].get(request.model_key)
+    config["model_context_lengths"][request.model_key] = request.context_length
+    config["last_updated"] = datetime.now().isoformat()
+
+    if not save_agent_model_config(config):
+        raise HTTPException(status_code=500, detail="保存配置文件失败")
+
+    logger.info(
+        f"模型上下文长度已更新 | 操作用户={current_user.get('sub')} "
+        f"| {request.model_key}: {old_val} -> {request.context_length}"
+    )
+
+    return {
+        "success": True,
+        "message": f"已更新 {request.model_key} 上下文长度为 {request.context_length}",
+        "model_key": request.model_key,
+        "context_length": request.context_length,
+    }
+
+
+@router.delete("/context-length/{model_key:path}", summary="删除模型上下文长度配置")
+async def delete_context_length(
+    model_key: str,
+    current_user: dict = Depends(require_superadmin)
+):
+    """删除指定模型的上下文长度配置（恢复为代码内置默认值）"""
+    config = load_agent_model_config() or {}
+    lengths = config.get("model_context_lengths", {})
+
+    if model_key not in lengths:
+        raise HTTPException(status_code=404, detail=f"未找到 {model_key} 的上下文长度配置")
+
+    del lengths[model_key]
+    config["last_updated"] = datetime.now().isoformat()
+    save_agent_model_config(config)
+
+    fallback = MODEL_CONTEXT_LENGTHS.get(model_key, 32768)
+    return {
+        "success": True,
+        "message": f"已删除 {model_key} 的自定义上下文长度，恢复为默认值 {fallback}",
     }

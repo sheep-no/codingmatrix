@@ -569,9 +569,9 @@
     "file_types": [
       "backend"
     ],
-    "frequency": 103,
+    "frequency": 145,
     "success_rate": 1.0,
-    "last_seen": "2026-05-31T13:38:40.558433",
+    "last_seen": "2026-06-02T15:59:30.754990",
     "failed_count": 0,
     "last_failed_at": null,
     "failure_reason": null,
@@ -589,6 +589,176 @@
     "frequency": 2,
     "success_rate": 1.0,
     "last_seen": "2026-05-16T10:51:04.826083",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:缺少依赖: ; 缺少依赖: ; 运行时导入失败: no module named 'src.hello'; 运行时导入失败: no module named 'src.hello'; 运行时导入失败:": {
+    "error_type": "validation_error",
+    "error_message": "缺少依赖: ; 缺少依赖: ; 运行时导入失败: No module named 'src.hello'; 运行时导入失败: No module named 'src.hello'; 运行时导入失败: attempted relative import with no known parent package; 运行时导入失败: No module named 'src.hello'; 运行时导入失败: attempted relative import with no known parent package",
+    "error_pattern": "缺少依赖|缺少依赖|运行时导入失败|No|module",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# tests/__init__.py\n# This is the initialization file for the tests package.\n# It's used to organize",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 1.0,
+    "last_seen": "2026-06-02T11:43:00.748921",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 语法错误 LINE: invalid character '├' (u+LINEc); 运行时验证异常: invalid character '├' (u+LINEc) (.temp_": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 语法错误 第2行: invalid character '├' (U+251C); 运行时验证异常: invalid character '├' (U+251C) (.temp_fix_test_hello.py, line 2)",
+    "error_pattern": "多次修复失败|语法错误|第|行|invalid",
+    "fix_description": "修复语法错误（检查括号、缩进、关键字拼写）",
+    "fix_example": "# tests/test_hello.py\nimport pytest\nfrom src.hello import hello\n\ndef test_hello():",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-06-02T11:43:00.750302",
+    "failed_count": 2,
+    "last_failed_at": "2026-06-02T11:43:00.750311",
+    "failure_reason": "多次修复失败: 语法错误 第2行: invalid character '├' (U+251C); 运行时验证异常: invalid character '├' (U+251C) (.temp_fix_test_hello.py, line 2)",
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 运行时导入失败: no module named 'src.hello'": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 运行时导入失败: No module named 'src.hello'",
+    "error_pattern": "多次修复失败|运行时导入失败|No|module|named",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# src/__init__.py\n# 这是 src 包的初始化文件，用于导入包内的模块\n# 保持简洁，不包含额外功能\n\nfrom .hello import hello",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 0.0,
+    "last_seen": "2026-06-02T11:43:00.751506",
+    "failed_count": 2,
+    "last_failed_at": "2026-06-02T11:43:00.751513",
+    "failure_reason": "多次修复失败: 运行时导入失败: No module named 'src.hello'",
+    "error_embedding": null
+  },
+  "validation_error:缺少依赖: ; 运行时导入失败: no module named 'src.hello'; 运行时导入失败: no module named 'src.hello'; 运行时导入失败: attempt": {
+    "error_type": "validation_error",
+    "error_message": "缺少依赖: ; 运行时导入失败: No module named 'src.hello'; 运行时导入失败: No module named 'src.hello'; 运行时导入失败: attempted relative import with no known parent package",
+    "error_pattern": "缺少依赖|运行时导入失败|No|module|named",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# src/hello.py\nprint(\"hello world\")",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 1,
+    "success_rate": 1.0,
+    "last_seen": "2026-06-02T13:25:49.262798",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:缺少依赖: ; 缺少依赖: ; 缺少依赖: ; 缺少依赖: ; 运行时导入失败: no module named 'src.utils.greet'; 运行时导入失败: no module named": {
+    "error_type": "validation_error",
+    "error_message": "缺少依赖: ; 缺少依赖: ; 缺少依赖: ; 缺少依赖: ; 运行时导入失败: No module named 'src.utils.greet'; 运行时导入失败: No module named 'src.utils.greet'; 运行时导入失败: attempted relative import with no known parent package; 运行时导入失败: cannot import name 'greet' from 'src.utils' (unknown location); 运行时导入失败: cannot import name 'greet' from 'src.utils' (unknown location); 运行时导入失败: attempted relative import with no known parent package; 运行时导入失败: attempted relative import with no known parent package; 运行时导入失败: attempted relative import with no known parent package",
+    "error_pattern": "缺少依赖|缺少依赖|缺少依赖|缺少依赖|运行时导入失败",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# src/utils/greet.py\ndef greet(name: str) -> str:\n    \"\"\"\n    返回一个问候语，格式为 \"Hello, {name}!\"\n    ",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 1.0,
+    "last_seen": "2026-06-02T13:31:32.383850",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:多次修复失败: 运行时导入失败: no module named 'utils.greet'": {
+    "error_type": "validation_error",
+    "error_message": "多次修复失败: 运行时导入失败: No module named 'utils.greet'",
+    "error_pattern": "多次修复失败|运行时导入失败|No|module|named",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# src/utils/__init__.py\n# utils 包入口文件\n\nfrom .greet import greet",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 1,
+    "success_rate": 0.0,
+    "last_seen": "2026-06-02T13:47:24.782187",
+    "failed_count": 1,
+    "last_failed_at": "2026-06-02T13:47:24.782228",
+    "failure_reason": "多次修复失败: 运行时导入失败: No module named 'utils.greet'",
+    "error_embedding": null
+  },
+  "validation_error:缺少依赖: ; 缺少依赖: ; 运行时导入失败: no module named 'src.utils'; 运行时导入失败: attempted relative import with no kno": {
+    "error_type": "validation_error",
+    "error_message": "缺少依赖: ; 缺少依赖: ; 运行时导入失败: No module named 'src.utils'; 运行时导入失败: attempted relative import with no known parent package; 运行时导入失败: attempted relative import with no known parent package; 运行时导入失败: No module named 'src.utils'",
+    "error_pattern": "缺少依赖|缺少依赖|运行时导入失败|No|module",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# src/hello.py\nfrom src.utils import greet\n\ndef main():\n    \"\"\"主程序入口\"\"\"",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 2,
+    "success_rate": 1.0,
+    "last_seen": "2026-06-02T13:57:53.621798",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:运行时导入失败: cannot import name 'greet' from 'src.utils' (unknown location); 运行时导入失败: cannot import name": {
+    "error_type": "validation_error",
+    "error_message": "运行时导入失败: cannot import name 'greet' from 'src.utils' (unknown location); 运行时导入失败: cannot import name 'greet' from 'src.utils' (unknown location)",
+    "error_pattern": "运行时导入失败|cannot|import|name|greet",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# src/utils.py\ndef greet(name: str) -> str:\n    \"\"\"\n    Greet a user by name.\n    ",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 3,
+    "success_rate": 1.0,
+    "last_seen": "2026-06-02T14:15:28.343418",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:导入验证失败: no package specified for '.hello' (required for relative module names); 导入验证失败: no package s": {
+    "error_type": "validation_error",
+    "error_message": "导入验证失败: no package specified for '.hello' (required for relative module names); 导入验证失败: no package specified for '.hello' (required for relative module names); 运行时导入失败: attempted relative import with no known parent package",
+    "error_pattern": "导入验证失败|no|package|specified|for",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# src/__init__.py\nfrom src.hello import greet",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 4,
+    "success_rate": 1.0,
+    "last_seen": "2026-06-02T14:22:38.507071",
+    "failed_count": 0,
+    "last_failed_at": null,
+    "failure_reason": null,
+    "error_embedding": null
+  },
+  "validation_error:导入验证失败: no package specified for '.utils' (required for relative module names); 导入验证失败: no package s": {
+    "error_type": "validation_error",
+    "error_message": "导入验证失败: no package specified for '.utils' (required for relative module names); 导入验证失败: no package specified for '.utils' (required for relative module names); 运行时导入失败: attempted relative import with no known parent package; 运行时导入失败: attempted relative import with no known parent package",
+    "error_pattern": "导入验证失败|no|package|specified|for",
+    "fix_description": "修复导入错误（确保模块存在且路径正确）",
+    "fix_example": "# src/hello.py\nfrom src.utils import greet\n\nif __name__ == \"__main__\":\n    greet()",
+    "file_types": [
+      "backend"
+    ],
+    "frequency": 1,
+    "success_rate": 1.0,
+    "last_seen": "2026-06-02T14:25:24.197513",
     "failed_count": 0,
     "last_failed_at": null,
     "failure_reason": null,

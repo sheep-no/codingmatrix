@@ -3,7 +3,6 @@ import asyncio
 import logging
 from typing import Dict, Any, List
 
-from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.tracing import traced
 
 from app.agent.orchestrator_requirements.constants import (

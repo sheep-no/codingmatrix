@@ -30,6 +30,7 @@ class ModelInfo:
     name: str = ""
     description: str = ""
     max_tokens: int = 4096
+    context_length: int = 32768
     supports_vision: bool = False
 
 
@@ -150,11 +151,29 @@ class CustomProviderManager:
                 if not model_id:
                     continue
                 
+                # 尝试从多个字段提取 context_length（不同供应商字段名不同）
+                ctx_len = (
+                    item.get("context_length")
+                    or item.get("max_context_length")
+                    or item.get("max_model_len")  # vLLM
+                    or item.get("metadata", {}).get("context_length")
+                    or item.get("meta", {}).get("context_length")
+                    or 0
+                )
+                
+                max_tok = (
+                    item.get("max_tokens")
+                    or item.get("metadata", {}).get("max_tokens")
+                    or item.get("metadata", {}).get("max_context_tokens")
+                    or 4096
+                )
+                
                 models.append(ModelInfo(
                     id=model_id,
                     name=item.get("name", model_id),
                     description=item.get("description", ""),
-                    max_tokens=item.get("metadata", {}).get("max_context_tokens", 4096),
+                    max_tokens=max_tok,
+                    context_length=ctx_len if ctx_len > 0 else 32768,
                     supports_vision="vision" in item.get("id", "").lower(),
                 ))
             
@@ -164,13 +183,13 @@ class CustomProviderManager:
         """Anthropic 没有公开的模型列表 API，使用已知模型列表"""
         # Anthropic 已知模型
         known_models = [
-            ModelInfo(id="claude-sonnet-4-20250514", max_tokens=8192),
-            ModelInfo(id="claude-opus-4-20250514", max_tokens=8192),
-            ModelInfo(id="claude-3-5-sonnet-20241022", max_tokens=8192),
-            ModelInfo(id="claude-3-5-haiku-20241022", max_tokens=8192),
-            ModelInfo(id="claude-3-opus-20240229", max_tokens=4096),
-            ModelInfo(id="claude-3-sonnet-20240229", max_tokens=4096),
-            ModelInfo(id="claude-3-haiku-20240307", max_tokens=4096),
+            ModelInfo(id="claude-sonnet-4-20250514", max_tokens=8192, context_length=200*1024),
+            ModelInfo(id="claude-opus-4-20250514", max_tokens=8192, context_length=200*1024),
+            ModelInfo(id="claude-3-5-sonnet-20241022", max_tokens=8192, context_length=200*1024),
+            ModelInfo(id="claude-3-5-haiku-20241022", max_tokens=8192, context_length=200*1024),
+            ModelInfo(id="claude-3-opus-20240229", max_tokens=4096, context_length=200*1024),
+            ModelInfo(id="claude-3-sonnet-20240229", max_tokens=4096, context_length=200*1024),
+            ModelInfo(id="claude-3-haiku-20240307", max_tokens=4096, context_length=200*1024),
         ]
         return known_models
     

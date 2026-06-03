@@ -57,13 +57,6 @@
       />
 
       <!-- 工具组件们 -->
-      <component
-        :is="toolComponents.chartEditor"
-        v-if="showChartEditor"
-        :visible="showChartEditor"
-        @close="() => navigationStore.hideTool('chartEditor')"
-      />
-
       <NginxConfig
         v-if="showNginxConfig"
         ref="nginxConfigRef"
@@ -154,7 +147,6 @@
   import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 
   // 工具组件延迟加载 - 减少初始包大小
-  const ChartEditor = defineAsyncComponent(() => import('./ChartEditor.vue'))
   const NginxConfig = defineAsyncComponent(() => import('./NginxConfig.vue'))
   const Dockerfile = defineAsyncComponent(() => import('./Dockerfile.vue'))
   const VirtualGirl = defineAsyncComponent(() => import('./VirtualGirl.vue'))
@@ -197,7 +189,6 @@
   const isHistoryLoading = ref(false)
   const isStreamActive = ref(false)
 
-  const showChartEditor = computed(() => navigationStore.showChartEditor)
   const showNginxConfig = computed(() => navigationStore.showNginxConfig)
   const showDockerConfig = computed(() => navigationStore.showDockerConfig)
   const showVirtualGirl = computed(() => navigationStore.showVirtualGirl)
@@ -208,10 +199,6 @@
   const showPPTGenerator = computed(() => navigationStore.showPPTGenerator)
   const showImageGenerator = computed(() => navigationStore.showImageGenerator)
   const showAicloud = computed(() => navigationStore.showAicloud)
-
-  const toolComponents = {
-    chartEditor: ChartEditor
-  }
 
   const saveConversationToMap = (conversationId, customHistory = null) => {
     if (conversationId) {
@@ -276,8 +263,14 @@
 
       try {
         isHistoryLoading.value = true
+        const convId = parseInt(conversationId, 10)
+        if (isNaN(convId) || convId <= 0) {
+          conversationHistory.value = []
+          isHistoryLoading.value = false
+          return false
+        }
         const response = await api.post('/conversation/history', {
-          conversation_id: parseInt(conversationId, 10),
+          conversation_id: convId,
           last_history_id: null,
           limit: 50
         })
@@ -1002,8 +995,14 @@
       isHistoryLoading.value = true
 
       try {
+        const convId = parseInt(item.conversation_id, 10)
+        if (isNaN(convId) || convId <= 0) {
+          conversationHistory.value = []
+          isHistoryLoading.value = false
+          return
+        }
         const response = await api.post('/conversation/history', {
-          conversation_id: parseInt(item.conversation_id, 10),
+          conversation_id: convId,
           last_history_id: null,
           limit: 50
         })
@@ -1041,8 +1040,10 @@
 
   const handleLoadMoreHistory = async ({ conversation_id, last_history_id, limit }) => {
     try {
+      const convId = parseInt(conversation_id, 10)
+      if (isNaN(convId) || convId <= 0) return
       const response = await api.post('/conversation/history', {
-        conversation_id: parseInt(conversation_id, 10),
+        conversation_id: convId,
         last_history_id,
         limit
       })

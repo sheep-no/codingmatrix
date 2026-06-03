@@ -1,62 +1,78 @@
 {
-  "version": "1.0",
-  "description": "Agent 模型配置 - 管理各环节使用的模型",
-  "last_updated": "2026-05-29T05:45:00.000000",
+  "version": "2.0",
+  "description": "Agent 模型配置 - 按角色能力分配最优模型",
+  "last_updated": "2026-06-02T00:00:00.000000",
+  "model_context_lengths": {
+    "Qwen/Qwen3.5-4B": 262144,
+    "Qwen/Qwen3-8B": 131072,
+    "Qwen/Qwen2.5-7B-Instruct": 32768,
+    "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": 131072,
+    "deepseek-ai/DeepSeek-OCR": 8192,
+    "THUDM/GLM-Z1-9B-0414": 131072,
+    "THUDM/GLM-4-9B-0414": 32768,
+    "BAAI/bge-m3": 8192,
+    "BAAI/bge-reranker-v2-m3": 8192,
+    "BAAI/bge-large-zh-v1.5": 512,
+    "netease-youdao/bce-embedding-base_v1": 512,
+    "netease-youdao/bce-reranker-base_v1": 512,
+    "tencent/Hunyuan-MT-7B": 32768
+  },
   "assignments": {
     "SIMPLE": {
-      "architect_model": "glm-4-9b",
-      "frontend_model": "glm-4-9b",
-      "backend_model": "glm-4-9b",
-      "reviewer_model": "glm-4-9b",
-      "fallback_model": "glm-4-9b"
+      "architect_model": "qwen3.5-4b",
+      "frontend_model": "qwen3-8b",
+      "backend_model": "qwen3-8b",
+      "reviewer_model": "qwen3-8b",
+      "fallback_model": "qwen3.5-4b"
     },
     "SMALL": {
-      "architect_model": "glm-4-9b",
-      "frontend_model": "glm-4-9b",
-      "backend_model": "glm-4-9b",
-      "reviewer_model": "glm-4-9b",
-      "fallback_model": "glm-4-9b"
+      "architect_model": "glm-z1-9b",
+      "frontend_model": "qwen3-8b",
+      "backend_model": "deepseek-r1",
+      "reviewer_model": "deepseek-r1",
+      "fallback_model": "qwen3-8b"
     },
     "MEDIUM": {
       "architect_model": "glm-z1-9b",
-      "frontend_model": "glm-4-9b",
-      "backend_model": "glm-4-9b",
-      "reviewer_model": "glm-4-9b",
-      "fallback_model": "glm-4-9b"
+      "frontend_model": "qwen3-8b",
+      "backend_model": "deepseek-r1",
+      "reviewer_model": "deepseek-r1",
+      "fallback_model": "qwen3-8b"
     },
     "LARGE": {
       "architect_model": "glm-z1-9b",
-      "frontend_model": "glm-4-9b",
-      "backend_model": "glm-4-9b",
-      "reviewer_model": "glm-4-9b",
-      "fallback_model": "glm-4-9b"
+      "frontend_model": "qwen3-8b",
+      "backend_model": "deepseek-r1",
+      "reviewer_model": "deepseek-r1",
+      "fallback_model": "qwen3-8b"
     },
     "ENTERPRISE": {
       "architect_model": "glm-z1-9b",
-      "frontend_model": "glm-4-9b",
-      "backend_model": "glm-4-9b",
-      "reviewer_model": "glm-4-9b",
-      "fallback_model": "glm-4-9b"
+      "frontend_model": "qwen3-8b",
+      "backend_model": "deepseek-r1",
+      "reviewer_model": "deepseek-r1",
+      "fallback_model": "qwen3-8b"
     }
   },
   "fallback_chains": {
     "default": [
+      "qwen3-8b",
       "glm-4-9b",
       "qwen2.5-7b",
       "glm-z1-9b",
       "deepseek-r1"
     ],
     "error_recovery": [
-      "glm-4-9b",
-      "qwen2.5-7b",
+      "deepseek-r1",
       "glm-z1-9b",
-      "deepseek-r1"
+      "qwen3-8b",
+      "glm-4-9b"
     ],
     "code_generation": [
-      "glm-4-9b",
-      "qwen2.5-7b",
+      "deepseek-r1",
+      "qwen3-8b",
       "glm-z1-9b",
-      "deepseek-r1"
+      "glm-4-9b"
     ],
     "embedding": [
       "bge-m3",
@@ -69,14 +85,14 @@
     ]
   },
   "error_type_models": {
-    "NameError": "glm-4-9b",
-    "AttributeError": "glm-4-9b",
-    "ImportError": "glm-4-9b",
-    "SyntaxError": "glm-4-9b",
-    "TypeError": "glm-4-9b",
-    "KeyError": "glm-4-9b",
-    "IndexError": "glm-4-9b",
-    "LogicError": "glm-4-9b"
+    "NameError": "deepseek-r1",
+    "AttributeError": "deepseek-r1",
+    "ImportError": "deepseek-r1",
+    "SyntaxError": "qwen3-8b",
+    "TypeError": "deepseek-r1",
+    "KeyError": "deepseek-r1",
+    "IndexError": "deepseek-r1",
+    "LogicError": "deepseek-r1"
   },
   "settings": {
     "max_concurrent_requests": 100,

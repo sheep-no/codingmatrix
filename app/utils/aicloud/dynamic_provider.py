@@ -30,7 +30,7 @@ class ModelInfo:
     id: str
     name: str = ""
     max_tokens: int = 4096
-    context_length: int = 4096
+    context_length: int = 32768
 
 
 @dataclass
@@ -126,10 +126,28 @@ async def fetch_models_openai(provider: DynamicProvider) -> List[ModelInfo]:
         mid = item.get("id", "")
         if not mid:
             continue
+        
+        # 尝试从多个字段提取 context_length（不同供应商字段名不同）
+        ctx_len = (
+            item.get("context_length")
+            or item.get("max_context_length")
+            or item.get("max_model_len")  # vLLM
+            or item.get("metadata", {}).get("context_length")
+            or item.get("meta", {}).get("context_length")
+            or 0
+        )
+        
+        max_tok = (
+            item.get("max_tokens")
+            or item.get("metadata", {}).get("max_tokens")
+            or 4096
+        )
+        
         models.append(ModelInfo(
             id=mid,
             name=item.get("name", mid),
-            max_tokens=item.get("metadata", {}).get("max_tokens", 4096),
+            max_tokens=max_tok,
+            context_length=ctx_len if ctx_len > 0 else 32768,
         ))
     return models
 

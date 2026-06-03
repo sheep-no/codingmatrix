@@ -43,7 +43,7 @@ class TestModelInfo:
         assert model.id == "model-1"
         assert model.name == ""
         assert model.max_tokens == 4096
-        assert model.context_length == 4096
+        assert model.context_length == 32768
 
     def test_custom_values(self):
         model = ModelInfo(id="model-1", name="Test Model", max_tokens=8192, context_length=16384)

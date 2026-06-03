@@ -12,6 +12,7 @@ DependencyGraph - 依赖图驱动生成
 - 配置文件 -> 无依赖（最早生成）
 """
 
+import asyncio
 import logging
 import re
 from typing import Optional, Dict, Any, List, Set, Tuple
@@ -286,6 +287,11 @@ class DependencyGraph:
         """从架构设计结果构建依赖图（优先使用 LLM 声明的依赖）"""
         file_plan = architecture.get("file_plan", [])
 
+        # 0. 自动设置 GenericLanguageAdapter 的 file_plan_data
+        # 这样 _import_to_file_path 就可以正确解析任何语言的 import
+        if self.language_adapter and hasattr(self.language_adapter, 'set_file_plan_data'):
+            self.language_adapter.set_file_plan_data(file_plan)
+
         # 1. 先添加所有文件节点（确保所有文件都在图中）
         for file_info in file_plan:
             path = file_info.get("path", "")
@@ -310,7 +316,7 @@ class DependencyGraph:
                     if dep and dep != path:  # 避免自依赖
                         self.add_dependency(path, dep)
 
-            # 使用 imports 字段构建依赖关系（新增）
+            # 使用 imports 字段构建依赖关系
             imports = file_info.get("imports", [])
             if isinstance(imports, list):
                 for imp in imports:
@@ -427,7 +433,7 @@ class DependencyGraph:
                     if not path.endswith(init_file_name):
                         packages.add(pkg)
 
-        # 检查每个包
+         # 检查每个包
         for pkg in packages:
             if self.language_adapter:
                 missing = self.language_adapter.validate_package_structure(
@@ -435,16 +441,24 @@ class DependencyGraph:
                 )
                 for init_path in missing:
                     if init_path not in self.nodes:
-                        self.add_file(init_path, file_type="config", priority=1,
+                        self.add_file(init_path, file_type="config", priority=5,
                                      description=f"Package init file for {pkg}")
                         added_files.append(init_path)
+                        # Make __init__.py depend on all other files in the same package
+                        for other_path in self.nodes:
+                            if other_path != init_path and other_path.startswith(pkg + '/') and not other_path.endswith(init_file_name):
+                                self.add_dependency(init_path, other_path)
             else:
                 # Fallback: 通用规则
                 init_path = f"{pkg}/{init_file_name}"
                 if init_path not in self.nodes:
-                    self.add_file(init_path, file_type="config", priority=1,
+                    self.add_file(init_path, file_type="config", priority=5,
                                  description=f"Package init file for {pkg}")
                     added_files.append(init_path)
+                    # Make __init__.py depend on all other files in the same package
+                    for other_path in self.nodes:
+                        if other_path != init_path and other_path.startswith(pkg + '/') and not other_path.endswith(init_file_name):
+                            self.add_dependency(init_path, other_path)
 
         return added_files
 
@@ -597,7 +611,22 @@ class DependencyGraph:
 
         return layers
 
-    def get_context_for_file(self, file_path: str, generated_files: Dict[str, str], max_context_bytes: int = 3000) -> str:
+    @staticmethod
+    def get_context_budget(context_length: int) -> int:
+        """根据模型上下文窗口计算注入预算（字节）
+
+        小上下文 (<=32K)：取 5%，下限 3000，上限 6000
+        中上下文 (32K-64K)：取 4%，下限 5000，上限 10000
+        大上下文 (>64K)：取 3%，下限 8000，上限 15000
+        """
+        if context_length <= 32768:
+            return max(3000, min(6000, int(context_length * 0.05)))
+        elif context_length <= 65536:
+            return max(5000, min(10000, int(context_length * 0.04)))
+        else:
+            return max(8000, min(15000, int(context_length * 0.03)))
+
+    def get_context_for_file(self, file_path: str, generated_files: Dict[str, str], max_context_bytes: int = 0, model_context_length: int = 0) -> str:
         """
         获取某个文件生成时应该注入的上下文
 
@@ -605,7 +634,12 @@ class DependencyGraph:
         - 核心依赖（models, config）分配更多字节
         - 次要依赖分配较少字节
         - 总上下文不超过 max_context_bytes
+        - max_context_bytes=0 时根据 model_context_length 自动计算
         """
+        if max_context_bytes <= 0:
+            ctx_len = model_context_length if model_context_length > 0 else 32768
+            max_context_bytes = self.get_context_budget(ctx_len)
+
         dependencies = self.adjacency.get(file_path, set())
         if not dependencies:
             return ""
@@ -729,17 +763,18 @@ class DependencyGraph:
         s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
         return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
-    def build_from_existing_project(self, project_path: Path) -> Dict[str, Any]:
+    async def build_from_existing_project(self, project_path: Path) -> Dict[str, Any]:
         """
         从已有项目目录构建依赖图（解析源代码 import/require 语句）
 
         用于增量修改场景：用户上传项目后，构建真实依赖关系
 
         v4.7.0 增强：附带阴影依赖扫描结果（只记录不阻断）
+        v5.12.x 增强：阴影依赖扫描改为异步，避免阻塞事件循环
         """
         result = self._build_graph_from_project(project_path)
 
-        shadow_deps = self.scan_shadow_dependencies(project_path)
+        shadow_deps = await self.scan_shadow_dependencies(project_path)
         result["shadow_dependencies"] = shadow_deps
 
         return result
@@ -772,7 +807,7 @@ class DependencyGraph:
             elif suffix in ('.js', '.ts', '.jsx', '.tsx', '.vue'):
                 deps = self._parse_js_requires(file_path, project_path)
                 js_requires[rel_path] = deps
-            
+
             else:
                 # 增量场景反推：对于非 Python/JS 文件，尝试从内容中反推依赖
                 # 这是一个通用兜底，适用于增量上传的项目中包含其他语言
@@ -794,7 +829,7 @@ class DependencyGraph:
         for file_path, dep_paths in js_requires.items():
             for dep in dep_paths:
                 self.add_dependency(file_path, dep)
-                
+
         for file_path, dep_paths in generic_imports.items():
             for dep in dep_paths:
                 self.add_dependency(file_path, dep)
@@ -882,9 +917,12 @@ class DependencyGraph:
 
         return deps
 
-    def scan_shadow_dependencies(self, project_path: Path) -> Dict[str, List[str]]:
+    async def scan_shadow_dependencies(self, project_path: Path) -> Dict[str, List[str]]:
         """
         阴影依赖扫描：发现隐式依赖（只记录不阻断）
+
+        异步版本：使用 asyncio.to_thread 把 rglob + read_text 放到默认线程池
+        执行，避免大项目场景下阻塞事件循环。
 
         扫描以下模式：
         - eval/exec 动态代码执行
@@ -896,6 +934,10 @@ class DependencyGraph:
         Returns:
             {file_path: [发现的隐式依赖模式描述]}
         """
+        return await asyncio.to_thread(self._scan_shadow_dependencies_sync, project_path)
+
+    def _scan_shadow_dependencies_sync(self, project_path: Path) -> Dict[str, List[str]]:
+        """同步版阴影依赖扫描 — 在线程池中执行"""
         shadow_deps: Dict[str, List[str]] = {}
 
         patterns = {
@@ -941,19 +983,18 @@ class DependencyGraph:
     def extract_dependencies_from_content(self, file_path: str, content: str) -> List[str]:
         """
         从文件内容中提取项目内的依赖关系（增量场景反推）
-        
+
         Args:
             file_path: 当前文件路径
             content: 文件内容
-            
+
         Returns:
             提取到的项目内其他文件的路径列表
         """
-        from pathlib import Path as PathLib
         deps = []
-        
+
         suffix = Path(file_path).suffix.lower()
-        
+
         # 使用已有的解析逻辑进行提取
         patterns = []
         if suffix == '.py':
@@ -968,7 +1009,7 @@ class DependencyGraph:
                 r'require\s*\(\s*["\'](\./[^"\']+)["\']\s*\)',
                 r'require\s*\(\s*["\'](\.\./[^"\']+)["\']\s*\)',
             ]
-            
+
         # 通用匹配：易语言、C#、Go、Rust 等（通过关键字匹配文件路径）
         # 这里做一个泛化处理：查找所有存在于当前 nodes 中的路径关键字
         if not patterns and self.nodes:
@@ -977,7 +1018,7 @@ class DependencyGraph:
             for node_path in self.nodes.keys():
                 possible_names.add(Path(node_path).stem)
                 possible_names.add(Path(node_path).name)
-            
+
             for name in possible_names:
                 # 使用边界匹配避免子串误杀
                 if re.search(r'\b' + re.escape(name) + r'\b', content):
@@ -987,26 +1028,33 @@ class DependencyGraph:
         # 执行具体语言的解析
         if not patterns:
             return []
-            
+
+        def _path_segments_contain(path: str, part: str) -> bool:
+            """检查 path 的某一段（按 . 或 / 分割）是否等于 part
+
+            避免子串误杀：'api' 不会匹配 'api_config'，但会匹配 'api/users.py'。
+            """
+            segments = re.split(r'[./\\]', path)
+            return part in segments
+
         for pattern in patterns:
             for match in re.finditer(pattern, content):
                 module = match.group(1)
                 # 尝试将模块名映射到现有文件路径
                 parts = module.replace('/', '.').split('.')
-                
-                # 简单匹配：尝试匹配路径中包含该模块名的文件
-                # 这是一个简化版逻辑，真实映射需要结合 project_path
+
+                # 使用路径段匹配（避免子串误杀）
                 for node_path in self.nodes.keys():
-                    if any(p in node_path for p in parts):
+                    if any(_path_segments_contain(node_path, p) for p in parts):
                         if node_path != file_path:
                             deps.append(node_path)
-                            
+
         return list(set(deps))
 
     def update_node_dependencies(self, file_path: str, new_deps: List[str]):
         """
         更新某个文件的依赖关系（用于增量生成场景）
-        
+
         Args:
             file_path: 目标文件路径
             new_deps: 新发现的依赖文件列表
@@ -1015,15 +1063,19 @@ class DependencyGraph:
         self.adjacency[file_path].clear()
         if file_path in self.nodes:
             self.nodes[file_path].dependencies = []
-            
-        # 清理反向依赖中指向该文件的边
+
+        # 清理反向依赖中指向该文件的边（adjacency）
         for src in self.adjacency:
             self.adjacency[src].discard(file_path)
-        
-        # 从 reverse_adjacency 中清除
-        # 这里简化处理：重新构建反向依赖会更方便，但为了性能我们手动处理
-        # 实际上更好的做法是 rebuild，但对于增量场景，手动清理足够
-        
+
+        # 清理 reverse_adjacency 中所有指向 file_path 的边
+        # 修复：之前 v5.12.0 之前只清理了 adjacency 没清理 reverse_adjacency
+        # 导致反向图逐渐累积脏数据，get_affected_files() 返回错误结果
+        for src in list(self.reverse_adjacency.keys()):
+            self.reverse_adjacency[src].discard(file_path)
+            if not self.reverse_adjacency[src]:
+                del self.reverse_adjacency[src]
+
         # 添加新依赖
         for dep in new_deps:
             self.add_dependency(file_path, dep)
@@ -1151,16 +1203,24 @@ class DependencyGraph:
         elif 'core' in file_path.lower():
             return "核心模块"
         else:
-            return f"自动补充的模块文件"
+            return "自动补充的模块文件"
 
     def _infer_file_priority(self, file_path: str) -> int:
-        """推断文件优先级（1-5，越小越优先）"""
+        """推断文件优先级（1-5，越小越优先）
+
+        重要：__init__.py 必须为 priority=5（最后生成），
+        因为工程师生成 __init__.py 时需要先读取同包内其他文件。
+        这与 ensure_package_files() 中 priority=5 一致。
+        """
         # 检查是否是包入口文件
         if self.language_adapter and self.language_adapter.package_init_filename:
             init_file_name = self.language_adapter.package_init_filename
             if file_path.endswith(init_file_name):
-                return 1
-        elif 'database' in file_path.lower() or 'config' in file_path.lower():
+                return 5  # 最后生成，让工程师读到实际导出
+        elif '__init__' in Path(file_path).name:
+            return 5
+
+        if 'database' in file_path.lower() or 'config' in file_path.lower():
             return 1
         elif 'core' in file_path.lower():
             return 1

@@ -102,13 +102,22 @@ class SystemConfigManager:
         default_tiers = self._config.get("system_config", {}).get("user_concurrent_limits", {}).get("default_tiers", {})
         return default_tiers.get(user_role, default_tiers.get("free", 1))
     
-    def get_active_sessions_for_user(self, user_id: str) -> list:
-        """获取用户的活跃会话列表（需要与会话管理器集成）"""
+    async def get_active_sessions_for_user(self, user_id: str) -> list:
+        """获取用户的活跃会话列表（查询 DB 中 status=running 的会话）"""
         try:
-            from app.agent.session_manager import SessionManager
-            sm = SessionManager()
-            sessions = sm.get_user_sessions(user_id)
-            return [asdict(session) for session in sessions]
+            from app.db.database import async_session
+            from app.db.models import ProjectSession
+            from sqlalchemy import select
+
+            async with async_session() as db:
+                result = await db.execute(
+                    select(ProjectSession).where(
+                        ProjectSession.user_id == int(user_id),
+                        ProjectSession.status == "running"
+                    ).order_by(ProjectSession.created_at.desc())
+                )
+                sessions = result.scalars().all()
+                return [s.to_dict() for s in sessions]
         except Exception as e:
             logger.error(f"获取用户活跃会话失败: {e}")
             return []

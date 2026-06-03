@@ -20,6 +20,24 @@ export function createProjectClient(baseClient) {
       if (response.ok) {
         return response
       }
+      // 429 并发限制：解析结构化错误信息
+      if (response.status === 429) {
+        try {
+          const errorData = await response.json()
+          const detail = errorData.detail || errorData
+          const err = new Error(detail.message || '已达到并发会话限制')
+          err.code = 429
+          err.activeSessions = detail.active_sessions || []
+          err.currentCount = detail.current_count || 0
+          err.limit = detail.limit || 0
+          throw err
+        } catch (e) {
+          if (e.code === 429) throw e
+          const err = new Error('已达到并发会话限制，请停止或删除现有项目后再创建新项目')
+          err.code = 429
+          throw err
+        }
+      }
       throw new Error('流式生成项目失败')
     },
 

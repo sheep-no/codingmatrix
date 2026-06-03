@@ -18,7 +18,6 @@ import time
 from typing import Dict, Any, Callable, List, Optional, Set, Awaitable
 from dataclasses import dataclass, field
 from enum import Enum
-from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +57,12 @@ class ScheduleStats:
 class TopologyScheduler:
     """
     动态拓扑调度器
-    
+
     与静态分层调度的区别：
     - 静态分层：预先计算所有层，同层文件并行但看不到同层输出
     - 动态拓扑：实时触发，文件完成时下游立即就绪，保证上下文确定性
     """
-    
+
     def __init__(
         self,
         max_concurrent: int = 5,
@@ -73,25 +72,25 @@ class TopologyScheduler:
         self.max_concurrent = max_concurrent
         self.max_retries = max_retries
         self.timeout_per_file = timeout_per_file
-        
+
         self.nodes: Dict[str, ScheduleNode] = {}
         self.adjacency: Dict[str, Set[str]] = {}  # file -> files it depends on
         self.reverse_adjacency: Dict[str, Set[str]] = {}  # file -> files that depend on it
-        
+
         self.ready_queue: asyncio.Queue = asyncio.Queue()
         self.completed_files: Dict[str, str] = {}  # path -> content
         self.stats = ScheduleStats()
-        
+
         self._running_tasks: Set[asyncio.Task] = set()
         self._lock = asyncio.Lock()
         self._stop_event = asyncio.Event()
-        
+
     def build_from_dependency_graph(self, dep_graph: Any) -> None:
         """从 DependencyGraph 构建调度状态"""
         self.nodes.clear()
         self.adjacency.clear()
         self.reverse_adjacency.clear()
-        
+
         for path, node in dep_graph.nodes.items():
             dep_count = len(dep_graph.adjacency.get(path, set()))
             self.nodes[path] = ScheduleNode(
@@ -100,13 +99,13 @@ class TopologyScheduler:
                 status=FileStatus.PENDING
             )
             self.adjacency[path] = set(dep_graph.adjacency.get(path, set()))
-        
+
         for path, deps in dep_graph.reverse_adjacency.items():
             self.reverse_adjacency[path] = set(deps)
-        
+
         self.stats.total_files = len(self.nodes)
         logger.info(f"TopologyScheduler 构建完成: {self.stats.total_files} 个文件节点")
-    
+
     async def initialize_ready_queue(self) -> List[str]:
         """初始化就绪队列，返回初始就绪文件列表"""
         ready_files = []
@@ -115,11 +114,11 @@ class TopologyScheduler:
                 node.status = FileStatus.READY
                 await self.ready_queue.put(path)
                 ready_files.append(path)
-        
+
         self._log_schedule("initial_ready", ready_files)
         logger.info(f"初始就绪队列: {len(ready_files)} 个文件")
         return ready_files
-    
+
     async def run(
         self,
         generator: Callable[[str, Dict[str, str]], Awaitable[str]],
@@ -127,11 +126,11 @@ class TopologyScheduler:
     ) -> Dict[str, Any]:
         """
         执行动态拓扑调度
-        
+
         Args:
             generator: 文件生成函数，签名 async (file_path, upstream_context) -> content
             progress_callback: 进度回调，签名 (event, file_path, completed, total)
-        
+
         Returns:
             {
                 "success": bool,
@@ -141,11 +140,11 @@ class TopologyScheduler:
             }
         """
         await self.initialize_ready_queue()
-        
+
         self._stop_event.clear()
         active_count = 0
         parallelism_samples = []
-        
+
         while not self._should_stop():
             async with self._lock:
                 ready_count = self.ready_queue.qsize()
@@ -153,60 +152,60 @@ class TopologyScheduler:
                     1 for n in self.nodes.values()
                     if n.status in (FileStatus.PENDING, FileStatus.READY, FileStatus.GENERATING)
                 )
-                
+
                 if ready_count == 0 and pending_count == 0:
                     break
-                
+
                 if ready_count == 0 and pending_count > 0:
                     await asyncio.sleep(0.1)
                     continue
-                
+
             while active_count < self.max_concurrent and self.ready_queue.qsize() > 0:
                 try:
                     file_path = self.ready_queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-                
+
                 task = asyncio.create_task(
                     self._generate_file_with_retry(file_path, generator, progress_callback)
                 )
                 self._running_tasks.add(task)
                 task.add_done_callback(self._running_tasks.discard)
                 active_count += 1
-            
+
             parallelism_samples.append(active_count)
-            
+
             done, _ = await asyncio.wait(
                 self._running_tasks,
                 timeout=0.5,
                 return_when=asyncio.FIRST_COMPLETED
             )
-            
+
             for task in done:
                 active_count -= 1
                 try:
                     await task
                 except Exception as e:
                     logger.error(f"任务执行异常: {e}")
-        
+
         if self._running_tasks:
             await asyncio.gather(*self._running_tasks, return_exceptions=True)
-        
+
         self.stats.max_parallelism = max(parallelism_samples) if parallelism_samples else 0
         self.stats.avg_parallelism = sum(parallelism_samples) / len(parallelism_samples) if parallelism_samples else 0
-        
+
         failed_files = [
             path for path, node in self.nodes.items()
             if node.status == FileStatus.FAILED
         ]
-        
+
         return {
             "success": len(failed_files) == 0,
             "generated_files": self.completed_files,
             "failed_files": failed_files,
             "stats": self.stats
         }
-    
+
     async def _generate_file_with_retry(
         self,
         file_path: str,
@@ -216,124 +215,124 @@ class TopologyScheduler:
         """带重试的单文件生成"""
         node = self.nodes[file_path]
         node.status = FileStatus.GENERATING
-        
+
         upstream_context = self._build_upstream_context(file_path)
-        
+
         for attempt in range(self.max_retries + 1):
             try:
                 if progress_callback:
                     progress_callback("start", file_path, self.stats.completed_files, self.stats.total_files)
-                
+
                 content = await asyncio.wait_for(
                     generator(file_path, upstream_context),
                     timeout=self.timeout_per_file
                 )
-                
+
                 async with self._lock:
                     self.completed_files[file_path] = content
                     node.status = FileStatus.COMPLETED
                     node.generated_at = time.time()
                     self.stats.completed_files += 1
-                    
+
                     await self._trigger_downstream(file_path)
-                
+
                 self._log_schedule("completed", [file_path])
-                
+
                 if progress_callback:
                     progress_callback("completed", file_path, self.stats.completed_files, self.stats.total_files)
-                
+
                 return
-                
+
             except asyncio.TimeoutError:
                 node.retry_count += 1
                 logger.warning(f"文件生成超时: {file_path} (尝试 {attempt + 1}/{self.max_retries + 1})")
-                
+
             except Exception as e:
                 node.retry_count += 1
                 node.error = str(e)
                 logger.error(f"文件生成失败: {file_path} - {e} (尝试 {attempt + 1}/{self.max_retries + 1})")
-        
+
         async with self._lock:
             node.status = FileStatus.FAILED
             self.stats.failed_files += 1
             await self._block_downstream(file_path)
-        
+
         self._log_schedule("failed", [file_path], error=node.error)
-        
+
         if progress_callback:
             progress_callback("failed", file_path, self.stats.completed_files, self.stats.total_files)
-    
+
     async def _trigger_downstream(self, completed_file: str) -> None:
         """触发下游文件就绪检查"""
         downstream_files = self.reverse_adjacency.get(completed_file, set())
         newly_ready = []
-        
+
         for downstream in downstream_files:
             if downstream not in self.nodes:
                 continue
-            
+
             node = self.nodes[downstream]
             if node.status != FileStatus.PENDING:
                 continue
-            
+
             node.dependency_count -= 1
-            
+
             if node.dependency_count == 0:
                 node.status = FileStatus.READY
                 await self.ready_queue.put(downstream)
                 newly_ready.append(downstream)
-        
+
         if newly_ready:
             self._log_schedule("triggered", newly_ready, source=completed_file)
             logger.info(f"文件 {completed_file} 完成，触发下游就绪: {newly_ready}")
-    
+
     async def _block_downstream(self, failed_file: str) -> None:
         """阻塞下游文件"""
         downstream_files = self.reverse_adjacency.get(failed_file, set())
         blocked = []
-        
+
         for downstream in downstream_files:
             if downstream not in self.nodes:
                 continue
-            
+
             node = self.nodes[downstream]
             if node.status in (FileStatus.PENDING, FileStatus.READY):
                 node.status = FileStatus.BLOCKED
                 blocked.append(downstream)
-        
+
         if blocked:
             self._log_schedule("blocked", blocked, source=failed_file)
             logger.warning(f"文件 {failed_file} 失败，阻塞下游: {blocked}")
-    
+
     def _build_upstream_context(self, file_path: str) -> Dict[str, str]:
         """构建上游文件上下文"""
         upstream_deps = self.adjacency.get(file_path, set())
         context = {}
-        
+
         for dep_path in upstream_deps:
             if dep_path in self.completed_files:
                 context[dep_path] = self.completed_files[dep_path]
-        
+
         return context
-    
+
     def _should_stop(self) -> bool:
         """检查是否应该停止调度"""
         if self._stop_event.is_set():
             return True
-        
+
         completed_or_failed = sum(
             1 for n in self.nodes.values()
             if n.status in (FileStatus.COMPLETED, FileStatus.FAILED, FileStatus.BLOCKED)
         )
-        
+
         return completed_or_failed >= self.stats.total_files
-    
+
     def cancel(self) -> None:
         """取消调度"""
         self._stop_event.set()
         for task in self._running_tasks:
             task.cancel()
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """获取调度统计"""
         return {
@@ -345,16 +344,16 @@ class TopologyScheduler:
             "avg_parallelism": round(self.stats.avg_parallelism, 2),
             "interface_errors": self.stats.interface_errors,
         }
-    
+
     def get_file_status(self, file_path: str) -> Optional[FileStatus]:
         """获取单个文件状态"""
         node = self.nodes.get(file_path)
         return node.status if node else None
-    
+
     def is_file_ready(self, file_path: str) -> bool:
         """检查文件是否就绪"""
         return self.get_file_status(file_path) == FileStatus.READY
-    
+
     def _log_schedule(
         self,
         event: str,

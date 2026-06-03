@@ -17,9 +17,9 @@ import re
 import ast
 import asyncio
 import logging
-from typing import Optional, Dict, Any, List, Tuple, Callable
+from typing import Optional, Dict, List, Callable
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from app.utils import call_llm
 from app.agent.shared_context import SharedContext
@@ -75,7 +75,6 @@ class RefinementLoop:
         self.default_model = context.model_assignment.get("backend_model", "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B") if context.model_assignment else "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
         from app.agent.orchestrator import LayeredModelRouter
         self.model_config = LayeredModelRouter.get_model_config(self.default_model)
-        self._pending_tasks = set()
 
     async def refine(
         self,
@@ -130,8 +129,8 @@ class RefinementLoop:
 
             all_issues.extend(issues)
 
-            # Step 2: 分析错误
-            error_summary = self._build_error_summary(issues)
+            # Step 2: 分析错误（含错误行 ±10 行代码上下文）
+            error_summary = self._build_error_summary(issues, content)
 
             # Step 3: 如果是最后一次尝试，记录结果并返回
             if attempt == self.MAX_ATTEMPTS:
@@ -359,17 +358,28 @@ class RefinementLoop:
 
     # ==================== Prompt 构建 ====================
 
-    def _build_error_summary(self, issues: List[ValidationIssue]) -> str:
-        """构建错误摘要"""
+    def _build_error_summary(self, issues: List[ValidationIssue], current_code: str = "") -> str:
+        """构建错误摘要（含错误行 ±10 行代码上下文）"""
         if not issues:
             return "没有发现错误"
 
+        lines = current_code.split('\n') if current_code else []
         parts = []
         for i, issue in enumerate(issues, 1):
             line_info = f" (第 {issue.line} 行)" if issue.line else ""
             parts.append(f"{i}. [{issue.severity.upper()}]{line_info} {issue.type}: {issue.message}")
             if issue.suggestion:
                 parts.append(f"   建议: {issue.suggestion}")
+
+            # 注入错误行 ±10 行代码上下文
+            if issue.line and lines and 1 <= issue.line <= len(lines):
+                start = max(0, issue.line - 11)
+                end = min(len(lines), issue.line + 10)
+                context_lines = []
+                for idx in range(start, end):
+                    marker = " >>> " if idx == issue.line - 1 else "     "
+                    context_lines.append(f"{marker}{idx + 1:4d} | {lines[idx]}")
+                parts.append("   代码上下文:\n" + "\n".join(context_lines))
 
         return "\n".join(parts)
 
@@ -397,31 +407,31 @@ class RefinementLoop:
         related_files = self.context.get_generated_files_summary()
 
         prompt_parts = [
-            f"【SYSTEM】",
+            "【SYSTEM】",
             self.SYSTEM_PROMPT,
-            f"",
-            f"【USER】",
+            "",
+            "【USER】",
             f"## 第 {attempt} 次修复",
-            f"",
+            "",
             f"文件路径: {file_path}",
             f"文件类型: {file_type}",
             f"文件描述: {description}",
-            f"",
-            f"## 发现的错误",
+            "",
+            "## 发现的错误",
             error_summary,
-            f"",
-            f"## 当前代码",
-            f"```",
+            "",
+            "## 当前代码",
+            "```",
             current_code,
-            f"```",
-            f"",
-            f"## 相关规范",
+            "```",
+            "",
+            "## 相关规范",
             spec_context if spec_context else "（无相关规范）",
-            f"",
-            f"## 已生成的相关文件",
+            "",
+            "## 已生成的相关文件",
             related_files if related_files else "（无相关文件）",
-            f"",
-            f"请修复上述错误，返回修复后的完整代码。"
+            "",
+            "请修复上述错误，返回修复后的完整代码。"
         ]
 
         return "\n".join(prompt_parts)

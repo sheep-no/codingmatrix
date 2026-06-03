@@ -52,6 +52,11 @@ class KeyMetadata:
     expires_at: str
     ttl_seconds: int
     enabled: bool = True
+    context_lengths: dict = None  # 用户自定义的模型 context_length 配置 {model_id: context_length}
+    
+    def __post_init__(self):
+        if self.context_lengths is None:
+            self.context_lengths = {}
 
 
 # 供应商列表
@@ -274,21 +279,75 @@ class APIKeyManager:
         Returns:
             KeyMetadata 列表
         """
-        tokens = self.redis.smembers(self._key_index(user_id))
-        result = []
+        index_key = self._key_index(user_id)
         
+        tokens = self.redis.smembers(index_key)
+        
+        result = []
         for token in tokens:
             token_str = token.decode("utf-8") if isinstance(token, bytes) else token
             meta = self.get_metadata(user_id, token_str)
             if meta is not None:
                 result.append(meta)
-            else:
-                # 清理无效 token
-                self.redis.srem(self._key_index(user_id), token)
         
-        # 按创建时间排序（最新的在前）
         result.sort(key=lambda m: m.created_at, reverse=True)
         return result
+    
+    def get_context_lengths_by_token(self, token: str) -> dict:
+        """根据 token 获取 context_lengths 配置（扫描所有用户）
+        
+        注意：这是一个低效操作，仅用于 token -> context_lengths 的查找
+        
+        Args:
+            token: API Key Token
+            
+        Returns:
+            context_lengths dict 或 None
+        """
+        # 扫描所有用户索引
+        cursor = 0
+        while True:
+            cursor, keys = self.redis.scan(cursor, match="apikey_index:*", count=100)
+            for index_key in keys:
+                user_id = index_key.decode("utf-8").replace("apikey_index:") if isinstance(index_key, bytes) else index_key.replace("apikey_index:", "")
+                
+                # 检查这个 token 是否属于该用户
+                if self.redis.sismember(index_key, token):
+                    meta = self.get_metadata(user_id, token)
+                    if meta and meta.context_lengths:
+                        return meta.context_lengths
+                    return None
+            
+            if cursor == 0:
+                break
+        return None
+    
+    def get_key_by_token(self, token: str) -> Optional[str]:
+        """根据 token 获取 API Key（扫描所有用户）
+        
+        注意：这是一个低效操作，仅用于 token -> api_key 的查找
+        
+        Args:
+            token: API Key Token
+            
+        Returns:
+            API Key 或 None
+        """
+        if not token or len(token) < 30:
+            return None
+        
+        cursor = 0
+        while True:
+            cursor, keys = self.redis.scan(cursor, match="apikey_index:*", count=100)
+            for index_key in keys:
+                user_id = index_key.decode("utf-8").replace("apikey_index:") if isinstance(index_key, bytes) else index_key.replace("apikey_index:", "")
+                
+                if self.redis.sismember(index_key, token):
+                    return self.get_key(user_id, token)
+            
+            if cursor == 0:
+                break
+        return None
     
     def delete_key(self, user_id: str, token: str) -> bool:
         """
@@ -366,11 +425,66 @@ class APIKeyManager:
         
         return True
     
+    def update_context_lengths(self, user_id: str, token: str, context_lengths: dict) -> bool:
+        """更新 API Key 的 context_length 配置
+        
+        Args:
+            user_id: 用户 ID
+            token: Token
+            context_lengths: 模型 context_length 配置 {model_id: context_length}
+            
+        Returns:
+            是否成功更新
+        """
+        meta = self.get_metadata(user_id, token)
+        if meta is None:
+            return False
+        
+        meta.context_lengths = context_lengths or {}
+        
+        meta_name = self._key_meta(user_id, token)
+        ttl = self.redis.ttl(meta_name)
+        if ttl > 0:
+            self.redis.setex(meta_name, ttl, json.dumps(asdict(meta)))
+        
+        logger.info(f"用户 {user_id} 更新 Key {token[:8]}... context_lengths: {list(context_lengths.keys())}")
+        return True
+    
     def _cleanup_meta(self, user_id: str, token: str):
         """清理过期的元数据和索引"""
         meta_name = self._key_meta(user_id, token)
         self.redis.delete(meta_name)
         self.redis.srem(self._key_index(user_id), token)
+    
+    def get_all_enabled_keys(self) -> list:
+        """获取所有用户的已启用 Key 元数据（用于重启恢复）
+        
+        Returns:
+            list of (user_id, token, provider, api_key) tuples
+        """
+        result = []
+        # 扫描所有用户索引
+        cursor = 0
+        while True:
+            cursor, keys = self.redis.scan(cursor, match="apikey_index:*", count=100)
+            for index_key in keys:
+                # 提取 user_id
+                key_str = index_key.decode("utf-8") if isinstance(index_key, bytes) else index_key
+                user_id = key_str.replace("apikey_index:", "")
+                
+                # 获取该用户的所有 token
+                tokens = self.redis.smembers(index_key)
+                for token in tokens:
+                    token_str = token.decode("utf-8") if isinstance(token, bytes) else token
+                    meta = self.get_metadata(user_id, token_str)
+                    if meta and meta.enabled and meta.status in ("verified", "unverified"):
+                        api_key = self.get_key(user_id, token_str)
+                        if api_key:
+                            result.append((user_id, token_str, meta.provider, api_key))
+            
+            if cursor == 0:
+                break
+        return result
 
 
 # 全局单例

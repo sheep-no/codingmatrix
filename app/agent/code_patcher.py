@@ -21,7 +21,7 @@ CodePatcher - 代码补丁生成器
 import re
 import logging
 import difflib
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from pathlib import Path
 from dataclasses import dataclass, field
 

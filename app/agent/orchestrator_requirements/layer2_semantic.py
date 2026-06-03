@@ -5,6 +5,7 @@ from typing import List, Dict
 from app.agent.orchestrator_requirements.constants import (
     MIN_HISTORY_PROJECTS,
     MIN_VECTOR_RESULTS,
+    MIN_HISTORY_WITH_FEATURES,
 )
 from app.agent.orchestrator_requirements.data_models import AssociationItem
 

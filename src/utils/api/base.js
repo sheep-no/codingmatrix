@@ -239,8 +239,9 @@ export function createBaseClient(userStore = null) {
     },
 
     async get(url, params = {}) {
-      const queryString = Object.keys(params)
-        .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
+      const safeParams = params || {}
+      const queryString = Object.keys(safeParams)
+        .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(safeParams[key])}`)
         .join('&')
       const fullUrl = queryString ? `${url}?${queryString}` : url
       return this.request(fullUrl, { method: 'GET' })

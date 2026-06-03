@@ -10,11 +10,10 @@ FeedbackLearner - 模型反馈学习
 
 import json
 import logging
-import math
 import re
 import asyncio
-from typing import Optional, Dict, Any, List, Tuple
-from dataclasses import dataclass, field
+from typing import Optional, Dict, Any, List
+from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 
@@ -174,7 +173,7 @@ class FeedbackLearner:
     ) -> str:
         """
         生成预防性 prompt（基于历史修复经验）
-        
+
         优化：
         - 如果有 error_context，计算 embedding 后用向量匹配
         """
@@ -323,7 +322,7 @@ class FeedbackLearner:
     async def compute_error_embeddings(self, errors: List[str]) -> Dict[str, List[float]]:
         """
         批量计算错误信息的 embedding
-        
+
         Returns:
             {error_msg: embedding}
         """
@@ -346,13 +345,12 @@ class FeedbackLearner:
     ) -> List[FixPattern]:
         """
         查找相关的修复模式（向量化匹配优化）
-        
+
         优化：
         - 如果有 query_embedding，用余弦相似度匹配
         - 否则用传统的文件类型匹配
         """
         relevant = []
-        ext = Path(file_path).suffix.lower()
 
         if query_embedding is not None:
             # 向量化匹配

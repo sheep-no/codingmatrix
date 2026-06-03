@@ -3,12 +3,12 @@
     <div class="header-left">
       <h1 class="page-title">CodingMatrix</h1>
       <div class="header-actions">
-        <button class="btn-sm btn-outline" @click="$emit('open-settings')">设置</button>
-        <button class="btn-sm btn-outline" :disabled="!hasFiles" @click="$emit('open-performance')">性能</button>
-        <button class="btn-sm btn-outline" :disabled="!hasFiles" @click="$emit('save-project')">保存项目</button>
-        <button class="btn-sm btn-outline" @click="$emit('open-learning')">学习反馈</button>
-        <button class="btn-sm btn-outline" :disabled="!prompt.trim()" @click="$emit('analyze-complexity')">复杂度分析</button>
-        <button class="btn-sm btn-primary" @click="$emit('open-upload')">导入项目</button>
+        <button class="btn btn-sm btn-outline" @click="$emit('open-settings')">设置</button>
+        <button class="btn btn-sm btn-outline" :disabled="!hasFiles" @click="$emit('open-performance')">性能</button>
+        <button class="btn btn-sm btn-outline" :disabled="!hasFiles" @click="$emit('save-project')">保存项目</button>
+        <button class="btn btn-sm btn-outline" @click="$emit('open-learning')">学习反馈</button>
+        <button class="btn btn-sm btn-outline" :disabled="!prompt.trim()" @click="$emit('analyze-complexity')">复杂度分析</button>
+        <button class="btn btn-sm btn-primary" @click="$emit('open-upload')">导入项目</button>
       </div>
     </div>
     <div class="header-center">
@@ -19,8 +19,8 @@
             {{ getModeLabel(session.mode) }} - {{ session.filesCount }} 文件 - {{ formatTime(session.timestamp) }}
           </option>
         </select>
-        <button class="btn-sm btn-outline" title="新建会话" @click="$emit('new-session')">新建</button>
-        <button v-if="sessionId" class="btn-sm btn-danger" title="删除会话" @click="$emit('delete-session', sessionId)">删除</button>
+        <button class="btn btn-sm btn-outline" title="新建会话" @click="$emit('new-session')">新建</button>
+        <button v-if="sessionId" class="btn btn-sm btn-danger" title="删除会话" @click="$emit('delete-session', sessionId)">删除</button>
       </div>
     </div>
   </div>

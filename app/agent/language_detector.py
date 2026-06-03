@@ -9,7 +9,7 @@ LanguageDetector - 从需求文本自动推断目标编程语言
 """
 
 import re
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 from dataclasses import dataclass
 
 

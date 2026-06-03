@@ -4,7 +4,6 @@
 
 import re
 import json
-import asyncio
 import time
 import logging
 from typing import Optional, Dict, List, Callable, Tuple, Any
@@ -15,16 +14,11 @@ from app.utils import call_llm
 from app.agent.code_validator import CodeValidator
 from app.agent.specialists import CodeReviewer
 from app.agent.dynamic_model_router import LayeredModelRouter
-from app.agent.test_runner import TestRunner, TestResult
+from app.agent.test_runner import TestRunner
 from app.agent.error_classifier import error_classifier, ErrorClassification
-from app.agent.fix_pattern_cache import fix_pattern_cache, FixPattern
-from app.agent.api_contract_checker import APIContractChecker, check_api_consistency, generate_frontend_prompt_contract
-from app.agent.strategy_evaluator import strategy_evaluator
+from app.agent.strategy_evaluator import strategy_evaluator, StrategyEvaluationResult
+from app.agent.specialist_base import get_global_llm_semaphore
 
-# 从 orchestrator 获取的并发限制常量
-MAX_CONCURRENT_LLM_CALLS = 4
-
-from app.agent.tracing import traced
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +50,7 @@ class ErrorRecoveryLoop:
         self.validator = validator
         self.reviewer = reviewer
         self.fix_history: List[FixAttempt] = []
-        self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM_CALLS)
+        self._semaphore = get_global_llm_semaphore()
         self.MODEL_FALLBACK_CHAIN = self._load_fallback_chain("error_recovery")
 
     def _load_fallback_chain(self, chain_name: str = "error_recovery") -> List[str]:
@@ -123,13 +117,8 @@ class ErrorRecoveryLoop:
         callback: Optional[Callable] = None
     ) -> Dict:
         """智能修正循环：带模型降级策略、错误分类和 A/B 测试策略"""
-        # 确定修复模型链：主模型 -> Qwen3-8B -> DeepSeek-R1 -> Qwen3.5-4B
-        models_to_try = [
-            backend_model,
-            "Qwen/Qwen3-8B",
-            "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-            "Qwen/Qwen3.5-4B"
-        ]
+        # 确定修复模型链：主模型 + 配置文件中的降级链
+        models_to_try = [backend_model] + self.MODEL_FALLBACK_CHAIN
         # 去重并保持顺序
         seen = set()
         unique_models = []
@@ -146,7 +135,7 @@ class ErrorRecoveryLoop:
 
         # 通过策略评估器获取修复模板
         fix_template, strategy_id = strategy_evaluator.get_strategy_template(classification.error_type)
-        
+
         # 如果没有预定义策略，使用默认模板
         if fix_template is None:
             fix_template = self._build_default_fix_template()
@@ -164,7 +153,7 @@ class ErrorRecoveryLoop:
             system_prompt = f"""你是一位资深代码修复专家。你的任务是修复代码中的{classification.description}。
 请遵循以下原则：
 1. 仅修复指出的问题，不要修改其他代码
-2. 保持原有代码结构和风格  
+2. 保持原有代码结构和风格
 3. 确保修复后的代码语法正确、导入完整
 4. 返回完整代码，不要省略任何部分
 
@@ -194,7 +183,7 @@ class ErrorRecoveryLoop:
                     start_time = time.time()
                     response = await call_llm(
                         model=fix_model,
-                        prompt=f"【USER】\n{fix_prompt}",
+                        prompt=fix_prompt,
                         stream=False,
                         max_tokens=fix_model_config["max_tokens"],
                         thinking_budget=fix_model_config["thinking_budget"],
@@ -235,7 +224,7 @@ class ErrorRecoveryLoop:
                     if validation["is_valid"]:
                         # 评估代码质量（通过后续审查轮次的通过率）
                         code_quality_score = await self._evaluate_code_quality(fixed_content, file_path)
-                        
+
                         self.fix_history.append(FixAttempt(
                             file_path=str(file_path),
                             error_type=classification.error_type,
@@ -244,7 +233,7 @@ class ErrorRecoveryLoop:
                             attempts=attempt + 1,
                             model_used=fix_model
                         ))
-                        
+
                         # 记录成功评估结果
                         if strategy_id:
                             strategy_evaluator.record_evaluation_result(
@@ -256,7 +245,7 @@ class ErrorRecoveryLoop:
                                     timestamp=time.time()
                                 )
                             )
-                        
+
                         return {"success": True, "fixed_content": fixed_content}
                     else:
                         # 构建详细的错误信息
@@ -273,7 +262,7 @@ class ErrorRecoveryLoop:
                             error_details.extend([f"前端: {e}" for e in validation["frontend_errors"]])
                         error_msg = "; ".join(error_details) if error_details else "验证失败（无详细错误）"
                         logger.warning(f"修复尝试 {attempt + 1} 未通过验证 (模型: {fix_model}): {error_msg}")
-                        
+
                         # 记录失败评估结果
                         if strategy_id:
                             strategy_evaluator.record_evaluation_result(
@@ -285,7 +274,7 @@ class ErrorRecoveryLoop:
                                     timestamp=time.time()
                                 )
                             )
-                        
+
                         # 更新错误上下文用于下一次尝试
                         errors = validation
 
@@ -310,7 +299,7 @@ class ErrorRecoveryLoop:
             fix_applied=False,
             attempts=self.MAX_FIX_ATTEMPTS
         ))
-        
+
         # 记录最终失败评估结果
         if strategy_id:
             strategy_evaluator.record_evaluation_result(
@@ -322,7 +311,7 @@ class ErrorRecoveryLoop:
                     timestamp=time.time()
                 )
             )
-        
+
         return {"success": False, "fixed_content": content}
 
     async def _evaluate_code_quality(self, code: str, file_path: Path) -> float:
@@ -332,12 +321,12 @@ class ErrorRecoveryLoop:
             temp_file = file_path.parent / f".temp_quality_{file_path.name}"
             with open(temp_file, 'w', encoding='utf-8') as f:
                 f.write(code)
-            
+
             # 运行轻量级审查（只检查基本问题）
             validation = await self.validator.validate_single_file(temp_file)
             if temp_file.exists():
                 temp_file.unlink()
-            
+
             if validation["is_valid"]:
                 return 1.0
             else:
@@ -345,11 +334,11 @@ class ErrorRecoveryLoop:
                 error_count = 0
                 for key in ["syntax_errors", "import_errors", "runtime_errors", "api_errors", "frontend_errors"]:
                     error_count += len(validation.get(key, []))
-                
+
                 # 最多5个错误，超过5个按5算
                 error_count = min(error_count, 5)
                 return max(0.0, 1.0 - (error_count * 0.2))
-                
+
         except Exception as e:
             logger.warning(f"代码质量评估失败: {e}")
             return 0.5  # 默认中等质量
@@ -373,23 +362,29 @@ class ErrorRecoveryLoop:
 4. 返回完整修复后的代码，不要省略任何部分"""
 
     def _build_targeted_error_context_with_template(
-        self, 
-        errors: Dict, 
-        content: str, 
-        attempt: int, 
+        self,
+        errors: Dict,
+        content: str,
+        attempt: int,
         classification: ErrorClassification,
         template: str
     ) -> str:
         """使用策略模板构建针对性的错误上下文"""
-        # 这里可以进一步优化，根据模板动态生成上下文
-        return self._build_targeted_error_context(errors, content, attempt, classification)
+        # 先构建基础错误上下文
+        base_context = self._build_targeted_error_context(errors, content, attempt, classification)
+
+        # 如果有策略模板，将错误上下文注入模板中
+        if template and "{error_context}" in template:
+            return template.replace("{error_context}", base_context)
+
+        return base_context
 
     def _select_fix_model_by_error_type(self, error_type: str, models_to_try: List[str], attempt: int) -> str:
         """根据错误类型选择最佳修复模型"""
         # 从配置文件加载错误类型到模型的映射
         from app.agent.dynamic_model_router import load_agent_model_config, resolve_model_key
         config = load_agent_model_config()
-        
+
         # 默认映射（硬编码兜底）
         DEFAULT_ERROR_MODEL_MAPPING = {
             "NameError": "Qwen/Qwen3.5-4B",      # 简单变量错误，快速模型即可
@@ -398,52 +393,52 @@ class ErrorRecoveryLoop:
             "SyntaxError": "Qwen/Qwen3.5-4B",    # 语法错误，简单修复
             "TypeError": "Qwen/Qwen3-8B",       # 类型系统理解
             "KeyError": "Qwen/Qwen3.5-4B",       # 简单字典操作
-            "IndexError": "Qwen/Qwen3.5-4B",     # 简单索引操作  
+            "IndexError": "Qwen/Qwen3.5-4B",     # 简单索引操作
             "LogicError": "Qwen/Qwen3-8B"        # 复杂逻辑需要强推理
         }
-        
+
         # 尝试从配置文件加载
         ERROR_MODEL_MAPPING = DEFAULT_ERROR_MODEL_MAPPING.copy()
         if config and "error_type_models" in config:
             for error_type_key, model_id in config["error_type_models"].items():
                 ERROR_MODEL_MAPPING[error_type_key] = resolve_model_key(model_id)
-        
+
         # 获取推荐模型
         recommended_model = ERROR_MODEL_MAPPING.get(error_type, models_to_try[0])
-        
+
         # 如果推荐模型不在可用模型列表中，使用第一个模型
         if recommended_model in models_to_try:
             return recommended_model
-        
+
         # 否则按尝试次数选择模型
         return models_to_try[attempt % len(models_to_try)]
 
     def _build_targeted_error_context(self, errors: Dict, content: str, attempt: int, classification: ErrorClassification) -> str:
         """构建针对性的错误上下文（基于错误分类）"""
         context_parts = []
-        
+
         # 添加错误分类信息
         context_parts.append(f"## 错误类型\n{classification.error_type}: {classification.description}")
         context_parts.append(f"**针对性修复建议**: {classification.suggested_fix_strategy}")
-        
+
         # 根据错误类型添加特定上下文
         if errors.get("syntax_errors"):
-            context_parts.append(f"## 语法错误\n" + "\n".join(f"- {e}" for e in errors["syntax_errors"]))
+            context_parts.append("## 语法错误\n" + "\n".join(f"- {e}" for e in errors["syntax_errors"]))
             if classification.error_type == "SyntaxError":
                 context_parts.append("**重点检查**: 括号匹配、缩进、冒号、引号闭合等基本语法")
 
         if errors.get("import_errors"):
-            context_parts.append(f"## 导入错误\n" + "\n".join(f"- {e}" for e in errors["import_errors"]))
+            context_parts.append("## 导入错误\n" + "\n".join(f"- {e}" for e in errors["import_errors"]))
             if classification.error_type == "ImportError":
                 context_parts.append("**重点检查**: 模块已安装、导入路径正确、__init__.py 存在")
 
         if errors.get("dependency_errors"):
-            context_parts.append(f"## 依赖错误\n" + "\n".join(f"- {e}" for e in errors["dependency_errors"]))
+            context_parts.append("## 依赖错误\n" + "\n".join(f"- {e}" for e in errors["dependency_errors"]))
             context_parts.append("**修复建议**: 运行 `pip install <包名>` 或在 requirements.txt 中添加缺失的包")
 
         if errors.get("runtime_errors"):
             runtime_errs = errors["runtime_errors"]
-            context_parts.append(f"## 运行时错误\n" + "\n".join(f"- {e}" for e in runtime_errs))
+            context_parts.append("## 运行时错误\n" + "\n".join(f"- {e}" for e in runtime_errs))
             fix_suggestions = []
             for e in runtime_errs:
                 if "passlib" in e:
@@ -454,7 +449,7 @@ class ErrorRecoveryLoop:
                     fix_suggestions.append("检查库的 API 是否与已安装版本兼容，查阅官方文档确认正确的属性名")
                 elif "类型错误" in e or "API 参数" in e:
                     fix_suggestions.append("检查函数调用参数名和类型是否与 API 定义匹配")
-            
+
             # 根据错误类型添加特定建议
             if classification.error_type == "NameError":
                 fix_suggestions.append("仔细检查所有变量名拼写，确保在使用前已定义")
@@ -462,13 +457,13 @@ class ErrorRecoveryLoop:
                 fix_suggestions.append("确认对象类型，检查是否有该属性，注意大小写")
             elif classification.error_type == "TypeError":
                 fix_suggestions.append("检查函数参数数量和类型，确保传入正确的参数")
-            
+
             if fix_suggestions:
                 context_parts.append("**针对性修复建议**:\n" + "\n".join(f"- {s}" for s in fix_suggestions))
 
         if errors.get("api_errors"):
             api_errs = errors["api_errors"]
-            context_parts.append(f"## API 兼容性错误\n" + "\n".join(f"- {e}" for e in api_errs))
+            context_parts.append("## API 兼容性错误\n" + "\n".join(f"- {e}" for e in api_errs))
             fix_suggestions = []
             for e in api_errs:
                 if "tokenUrl" in e:
@@ -484,7 +479,7 @@ class ErrorRecoveryLoop:
 
         if errors.get("frontend_errors"):
             frontend_errs = errors["frontend_errors"]
-            context_parts.append(f"## 前端错误\n" + "\n".join(f"- {e}" for e in frontend_errs))
+            context_parts.append("## 前端错误\n" + "\n".join(f"- {e}" for e in frontend_errs))
             fix_suggestions = []
             for e in frontend_errs:
                 if "JS 语法错误" in e:
@@ -498,7 +493,7 @@ class ErrorRecoveryLoop:
 
         if errors.get("cross_file_errors"):
             cross_errs = errors["cross_file_errors"]
-            context_parts.append(f"## 跨文件一致性错误\n" + "\n".join(f"- {e}" for e in cross_errs))
+            context_parts.append("## 跨文件一致性错误\n" + "\n".join(f"- {e}" for e in cross_errs))
             context_parts.append("**修复建议**: 确保导入的模块存在且导出了所需的符号，检查文件路径是否正确")
 
         if attempt > 0:
@@ -511,20 +506,20 @@ class ErrorRecoveryLoop:
         context_parts = []
 
         if errors.get("syntax_errors"):
-            context_parts.append(f"## 语法错误\n" + "\n".join(f"- {e}" for e in errors["syntax_errors"]))
+            context_parts.append("## 语法错误\n" + "\n".join(f"- {e}" for e in errors["syntax_errors"]))
             context_parts.append("**修复建议**: 检查括号匹配、缩进、冒号、引号闭合等基本语法")
 
         if errors.get("import_errors"):
-            context_parts.append(f"## 导入错误\n" + "\n".join(f"- {e}" for e in errors["import_errors"]))
+            context_parts.append("## 导入错误\n" + "\n".join(f"- {e}" for e in errors["import_errors"]))
             context_parts.append("**修复建议**: 确认模块已安装，检查导入路径是否正确，确保 __init__.py 存在")
 
         if errors.get("dependency_errors"):
-            context_parts.append(f"## 依赖错误\n" + "\n".join(f"- {e}" for e in errors["dependency_errors"]))
+            context_parts.append("## 依赖错误\n" + "\n".join(f"- {e}" for e in errors["dependency_errors"]))
             context_parts.append("**修复建议**: 运行 `pip install <包名>` 或在 requirements.txt 中添加缺失的包")
 
         if errors.get("runtime_errors"):
             runtime_errs = errors["runtime_errors"]
-            context_parts.append(f"## 运行时错误\n" + "\n".join(f"- {e}" for e in runtime_errs))
+            context_parts.append("## 运行时错误\n" + "\n".join(f"- {e}" for e in runtime_errs))
             fix_suggestions = []
             for e in runtime_errs:
                 if "passlib" in e:
@@ -540,7 +535,7 @@ class ErrorRecoveryLoop:
 
         if errors.get("api_errors"):
             api_errs = errors["api_errors"]
-            context_parts.append(f"## API 兼容性错误\n" + "\n".join(f"- {e}" for e in api_errs))
+            context_parts.append("## API 兼容性错误\n" + "\n".join(f"- {e}" for e in api_errs))
             fix_suggestions = []
             for e in api_errs:
                 if "tokenUrl" in e:
@@ -556,7 +551,7 @@ class ErrorRecoveryLoop:
 
         if errors.get("frontend_errors"):
             frontend_errs = errors["frontend_errors"]
-            context_parts.append(f"## 前端错误\n" + "\n".join(f"- {e}" for e in frontend_errs))
+            context_parts.append("## 前端错误\n" + "\n".join(f"- {e}" for e in frontend_errs))
             fix_suggestions = []
             for e in frontend_errs:
                 if "JS 语法错误" in e:
@@ -570,7 +565,7 @@ class ErrorRecoveryLoop:
 
         if errors.get("cross_file_errors"):
             cross_errs = errors["cross_file_errors"]
-            context_parts.append(f"## 跨文件一致性错误\n" + "\n".join(f"- {e}" for e in cross_errs))
+            context_parts.append("## 跨文件一致性错误\n" + "\n".join(f"- {e}" for e in cross_errs))
             context_parts.append("**修复建议**: 确保导入的模块存在且导出了所需的符号，检查文件路径是否正确")
 
         if attempt > 0:
@@ -602,7 +597,6 @@ class ErrorRecoveryLoop:
 
         # 按失败用例名推断可能对应的源文件
         # e.g., test_user_service.py -> app/services/user_service.py
-        source_files = self._infer_source_files(failed_tests, project_path)
 
         for attempt in range(self.MAX_FIX_ATTEMPTS):
             if not recovery_results["failures"]:
@@ -653,7 +647,7 @@ class ErrorRecoveryLoop:
                     json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', raw)
                     if json_match:
                         raw = json_match.group(1)
-                    
+
                     fixes = json.loads(raw)
                     if not isinstance(fixes, list):
                         fixes = [fixes]
@@ -664,12 +658,12 @@ class ErrorRecoveryLoop:
                         content = fix.get("content")
                         if not fp or not content:
                             continue
-                        
+
                         # 清理代码块
                         code_match = re.search(r'```(?:\w+)?\s*(.*?)\s*```', content, re.DOTALL)
                         if code_match:
                             content = code_match.group(1).strip()
-                        
+
                         target = project_path / fp
                         if target.exists():
                             target.write_text(content, encoding='utf-8')

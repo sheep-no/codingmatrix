@@ -1,12 +1,12 @@
 import time
 import asyncio
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from app.utils.AiCodeUtil import get_embedding
 from app.agent.api_contract_checker import generate_frontend_prompt_contract
 from app.agent.dependency_graph import DependencyGraph
-from app.agent.orchestrator_progress import PROGRESS_LABELS, MAX_CONCURRENT_LLM_CALLS
+from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.tracing import traced
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ class TraditionalGenerateMixin:
                 if cached and cached.architecture and self.reviewer:
                     review_passed = await self._cache_review_gate(cached)
                     if not review_passed:
-                        logger.warning(f"缓存架构审查未通过，重新生成")
+                        logger.warning("缓存架构审查未通过，重新生成")
                         self.warnings.append("缓存命中但审查闸门拦截，重新生成")
                         cached = None
 
@@ -70,6 +70,16 @@ class TraditionalGenerateMixin:
             )
             architecture = await self.architect.design_architecture(requirement, self.complexity)
             file_plan = architecture.get("file_plan", [])
+
+            # 分批规划：如果 file_plan 文件数不足复杂度预期，自动扩展
+            estimated_files = self.complexity.estimated_files if self.complexity else len(file_plan)
+            if len(file_plan) < estimated_files and estimated_files > 10:
+                logger.info(f"分批规划触发：当前 {len(file_plan)} 个文件，预期 {estimated_files} 个")
+                architecture = await self.architect.expand_file_plan(
+                    architecture, self.complexity, target_file_count=estimated_files
+                )
+                file_plan = architecture.get("file_plan", [])
+                logger.info(f"分批规划完成：最终 {len(file_plan)} 个文件")
 
             project_type = architecture.get("project_type", "")
             tech_stack = architecture.get("tech_stack", [])
@@ -128,7 +138,9 @@ class TraditionalGenerateMixin:
                 )
 
         api_contract_prompt = ""
-        if self.api_contract_checker:
+        # 仅在增量模式（会话恢复）时检查已有后端文件的 API 契约
+        # 新项目此时 output_dir 为空，无需检查
+        if self.api_contract_checker and self.incremental:
             backend_files = {}
             for py_file in self.output_dir.rglob('*.py'):
                 if '__pycache__' not in str(py_file):
@@ -212,6 +224,23 @@ class TraditionalGenerateMixin:
             requirement, architecture, file_plan
         )
 
+        if coverage_check.get("checked") and coverage_check.get("uncovered"):
+            uncovered_desc = ", ".join(
+                u["item"] for u in coverage_check["uncovered"][:3]
+            )
+            self.warnings.append(
+                f"需求覆盖率 {coverage_check['coverage_rate']:.0%}, "
+                f"未覆盖项: {uncovered_desc}"
+            )
+
+        try:
+            domain = self._association_result.domain_matched if hasattr(self, '_association_result') and self._association_result else ""
+            await self._extract_and_save_feature_list(
+                requirement, self.generated_files, domain
+            )
+        except Exception as e:
+            logger.warning(f"功能清单提取失败(非阻塞): {e}")
+
         elapsed = time.time() - start_time
 
         # 报告最终成本和性能指标
@@ -260,22 +289,3 @@ class TraditionalGenerateMixin:
                 "avg_file_time": round(elapsed / len(self.generated_files), 1) if len(self.generated_files) > 0 else 0,
             }
         }
-
-        if coverage_check.get("checked") and coverage_check.get("uncovered"):
-            uncovered_desc = ", ".join(
-                u["item"] for u in coverage_check["uncovered"][:3]
-            )
-            self.warnings.append(
-                f"需求覆盖率 {coverage_check['coverage_rate']:.0%}, "
-                f"未覆盖项: {uncovered_desc}"
-            )
-
-        try:
-            domain = self._association_result.domain_matched if hasattr(self, '_association_result') and self._association_result else ""
-            await self._extract_and_save_feature_list(
-                requirement, self.generated_files, domain
-            )
-        except Exception as e:
-            logger.warning(f"功能清单提取失败(非阻塞): {e}")
-
-        return result

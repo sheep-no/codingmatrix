@@ -50,12 +50,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.settings-page { padding: 24px; max-width: 1200px; margin: 0 auto; }
+.settings-page { padding: 24px; max-width: 1200px; margin: 0 auto; height: 100vh; overflow-y: auto; box-sizing: border-box; }
 .page-title { font-size: 24px; margin-bottom: 24px; color: #303133; }
 .settings-tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 2px solid #e0e0e0; flex-wrap: wrap; }
 .tab { padding: 12px 24px; background: transparent; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-size: 16px; color: #606266; transition: all 0.3s; display: flex; align-items: center; gap: 8px; }
 .tab:hover { color: #409eff; }
 .tab.active { color: #409eff; border-bottom-color: #409eff; font-weight: 600; }
 .tab-icon { width: 18px; height: 18px; }
-.settings-content { background: #fff; border-radius: 8px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1); }
+.settings-content { background: var(--bg-primary); border-radius: 8px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1); }
 </style>

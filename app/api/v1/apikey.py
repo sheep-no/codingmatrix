@@ -10,6 +10,7 @@ API Key 管理接口
 - PUT /api/v1/agent/apikey/{token}/enabled - 启用/禁用 Key
 """
 import logging
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Request
@@ -29,6 +30,62 @@ import json
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/agent/apikey", tags=["API Key 管理"])
+
+
+# --- 供应商 Base URL 映射 ---
+
+_PROVIDER_BASE_URLS = {
+    "siliconflow": "https://api.siliconflow.cn/v1",
+    "openai": "https://api.openai.com/v1",
+    "anthropic": "https://api.anthropic.com",
+    "bailian": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "glm": "https://open.bigmodel.cn/api/paas/v4",
+    "deepseek": "https://api.deepseek.com/v1",
+}
+
+# OpenAI 兼容协议的供应商（支持 /v1/models 端点）
+_OPENAI_COMPAT_PROVIDERS = {"siliconflow", "openai", "bailian", "glm", "deepseek"}
+
+
+async def _sync_provider_models(provider: str, api_key: str):
+    """同步供应商模型列表到 CustomProviderManager（后台执行）"""
+    try:
+        from app.services.custom_provider_manager import get_custom_provider_manager
+        cp_manager = get_custom_provider_manager()
+        
+        base_url = _PROVIDER_BASE_URLS.get(provider)
+        if not base_url:
+            return
+        
+        protocol = "anthropic" if provider == "anthropic" else "openai"
+        
+        # 检查是否已有该供应商的条目（按 name 匹配）
+        existing = None
+        for p in cp_manager.providers.values():
+            if p.name == f"user_{provider}":
+                existing = p
+                break
+        
+        if existing:
+            # 更新 API Key
+            existing.api_key = api_key
+            existing.last_sync = 0  # 强制重新同步
+            provider_id = existing.id
+        else:
+            # 创建新条目
+            cp = cp_manager.add_provider(
+                name=f"user_{provider}",
+                base_url=base_url,
+                protocol=protocol,
+                api_key=api_key,
+            )
+            provider_id = cp.id
+        
+        # 同步模型列表
+        await cp_manager.sync_models(provider_id)
+        logger.info(f"用户供应商 {provider} 模型同步完成，provider_id={provider_id}")
+    except Exception as e:
+        logger.warning(f"用户供应商 {provider} 模型同步失败（不影响 Key 存储）：{e}")
 
 
 # --- Pydantic 模型 ---
@@ -142,6 +199,10 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest, user_id
         
         # 获取元数据
         meta = apikey_manager.get_metadata(user_id, token)
+        
+        # 后台同步供应商模型列表（提取 context_length 等信息）
+        if submit_request.provider in _OPENAI_COMPAT_PROVIDERS:
+            asyncio.create_task(_sync_provider_models(submit_request.provider, api_key.strip()))
         
         return SubmitKeyResponse(
             success=True,
@@ -260,6 +321,36 @@ async def update_enabled(request: Request, token: str, enabled: bool = True, use
     except Exception as e:
         logger.error(f"更新 Key 状态失败：{e}")
         raise HTTPException(status_code=500, detail="更新 Key 状态失败")
+
+
+class UpdateContextLengthsRequest(BaseModel):
+    """更新模型 context_length 配置请求"""
+    context_lengths: dict = Field(default_factory=dict, description="模型 context_length 配置 {model_id: context_length}")
+
+
+@router.put("/{token}/context-lengths", summary="更新模型 context_length 配置")
+@limiter.limit("20/minute")
+async def update_context_lengths(
+    request: Request,
+    token: str,
+    update_request: UpdateContextLengthsRequest,
+    user_id: str = Depends(get_current_user_id)
+):
+    """更新 API Key 的模型 context_length 配置"""
+    
+    try:
+        apikey_manager = get_apikey_manager()
+        success = apikey_manager.update_context_lengths(user_id, token, update_request.context_lengths)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Key 不存在")
+        
+        return {"message": "context_length 配置已更新", "context_lengths": update_request.context_lengths}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新 context_lengths 失败：{e}")
+        raise HTTPException(status_code=500, detail="更新 context_length 配置失败")
 
 
 @router.post("/batch/import", summary="批量导入 API Key")

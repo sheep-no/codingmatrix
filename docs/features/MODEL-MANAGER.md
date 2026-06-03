@@ -1,10 +1,24 @@
 # 免费模型管理接口
 
-> 最后更新：2026-05-27 | 版本：v5.10.0
+> 最后更新：2026-06-02 | 版本：v5.12.0+
 
 ## 概述
 
 免费模型管理接口 (`app/api/v1/model_manager.py`) 提供内置免费模型的查看、切换和管理能力，支持超级管理员动态配置默认模型。
+
+## v5.12.0+ 重要更新
+
+### 5×5 模型分配矩阵
+
+v5.12.0+ 引入了**复杂度档 × 角色**的二维模型分配矩阵，取代原有的简单默认模型。详细配置见 `data/agent_model_config.json`，详见 [DYNAMIC-MODEL-ROUTER.md](DYNAMIC-MODEL-ROUTER.md)。
+
+### 模型健康度监控
+
+每个内置模型都有健康度评分（0-100），用于动态路由决策。详见 [DYNAMIC-MODEL-ROUTER.md#1-healthtracker健康度追踪](DYNAMIC-MODEL-ROUTER.md#1-healthtracker健康度追踪)。
+
+### context_length 多级管理
+
+`/api/v2/models/context-length` 端点（superadmin）可管理模型 context_length。详细优先级见 [MODELS.md#context_length-管理](../architecture/MODELS.md#context_length-管理)。
 
 ## API 端点
 
@@ -94,5 +108,122 @@
 ## 相关文件
 
 - `app/api/v1/model_manager.py` - API 端点实现
+- `app/api/v2/model_admin.py` - **v5.12.0+ 新增**: 模型管理 (context_length, assignments, health)
 - `app/utils/aicloud/model_registry.py` - 模型注册表
+- `app/agent/dynamic_model_router.py` - **v5.12.0+ 增强**: 动态路由
+- `data/agent_model_config.json` - 5×5 模型分配配置
 - `tests/unit/test_model_manager_api.py` - 单元测试
+
+## v5.12.0+ 新增端点
+
+### `GET /api/v2/models/context-length`
+
+列出所有模型 context_length 配置。
+
+**权限**: superadmin
+
+**响应**:
+```json
+{
+  "models": {
+    "qwen3-8b": {
+      "context_length": 131072,
+      "source": "user_custom"
+    },
+    "glm-z1-9b": {
+      "context_length": 131072,
+      "source": "config_file"
+    }
+  }
+}
+```
+
+### `PUT /api/v2/models/context-length`
+
+设置或更新模型 context_length。
+
+**权限**: superadmin
+
+**请求体**:
+```json
+{
+  "model_id": "qwen3-8b",
+  "context_length": 131072
+}
+```
+
+### `GET /api/v2/models/assignments`
+
+查看 5×5 模型分配矩阵。
+
+**权限**: superadmin
+
+**响应**:
+```json
+{
+  "version": "2.0",
+  "assignments": {
+    "SIMPLE": {
+      "architect": "qwen3-8b",
+      "frontend": "qwen3-8b",
+      "backend": "qwen3-8b",
+      "reviewer": "qwen3-8b"
+    },
+    "MEDIUM": {
+      "architect": "glm-z1-9b",
+      "frontend": "qwen3-8b",
+      "backend": "deepseek-r1",
+      "reviewer": "deepseek-r1"
+    }
+  }
+}
+```
+
+### `PUT /api/v2/models/assignments`
+
+修改模型分配。
+
+**权限**: superadmin
+
+**请求体**:
+```json
+{
+  "complexity": "MEDIUM",
+  "role": "backend",
+  "model": "deepseek-r1"
+}
+```
+
+### `GET /api/v2/models/health`
+
+查看所有模型健康度。
+
+**权限**: superadmin
+
+**响应**:
+```json
+{
+  "models": {
+    "qwen3-8b": {
+      "score": 95,
+      "status": "healthy",
+      "circuit_state": "closed",
+      "avg_latency_ms": 8500,
+      "success_rate": 0.98
+    }
+  }
+}
+```
+
+### `POST /api/v2/models/reset-health`
+
+重置指定模型的健康分。
+
+**权限**: superadmin
+
+**请求体**:
+```json
+{
+  "model_id": "qwen3-8b"
+}
+```

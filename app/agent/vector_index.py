@@ -1,9 +1,13 @@
 import json
-import time
 import logging
 import numpy as np
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Tuple
+
+try:
+    import faiss
+except ImportError:
+    faiss = None
 
 logger = logging.getLogger(__name__)
 

@@ -10,7 +10,7 @@ v4.8.0 新增：
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 from app.agent.test_framework_config import (
     TestFrameworkConfig,

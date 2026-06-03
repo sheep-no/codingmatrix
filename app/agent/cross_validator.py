@@ -16,7 +16,7 @@ import re
 import logging
 from typing import Optional, Dict, Any, List, Tuple, Set
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from app.utils import call_llm
 from app.utils.json_parser import extract_json_from_llm
@@ -151,12 +151,12 @@ class CrossValidator:
 
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
             if not content:
-                logger.warning(f"交叉验证裁判返回空内容，默认使用版本 A")
+                logger.warning("交叉验证裁判返回空内容，默认使用版本 A")
                 return version_a, model_a
 
             result = self._extract_json(content)
             if not result:
-                logger.warning(f"交叉验证结果解析失败，默认使用版本 A")
+                logger.warning("交叉验证结果解析失败，默认使用版本 A")
                 return version_a, model_a
 
             winner = result.get("winner", "A")

@@ -899,8 +899,8 @@ onMounted(() => {
 <style scoped>
 .admin-dashboard {
   min-height: 100vh;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  color: #e2e8f0;
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+  color: var(--text-primary);
 }
 
 /* 顶部导航栏 */
@@ -931,21 +931,21 @@ onMounted(() => {
 .header-icon {
   width: 40px;
   height: 40px;
-  color: #60a5fa;
+  color: var(--primary);
 }
 
 .header-title {
   font-size: 1.5rem;
   font-weight: 700;
   margin: 0;
-  background: linear-gradient(135deg, #60a5fa, #8b5cf6);
+  background: linear-gradient(135deg, var(--primary), var(--color-primary-500));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .header-subtitle {
   font-size: 0.875rem;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   margin: 0.25rem 0 0 0;
 }
 
@@ -995,34 +995,34 @@ onMounted(() => {
 }
 
 .stat-icon-primary {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
   color: white;
 }
 
 .stat-icon-success {
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: linear-gradient(135deg, var(--success), var(--success-hover));
   color: white;
 }
 
 .stat-icon-warning {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
+  background: linear-gradient(135deg, var(--warning), var(--warning-hover));
   color: white;
 }
 
 .stat-icon-info {
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  background: linear-gradient(135deg, var(--color-primary-600), var(--color-primary-600));
   color: white;
 }
 
 .stat-value {
   font-size: 2rem;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--bg-primary);
 }
 
 .stat-label {
   font-size: 0.875rem;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   margin-top: 0.25rem;
 }
 
@@ -1042,7 +1042,7 @@ onMounted(() => {
   padding: 0.75rem 1.5rem;
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   font-size: 0.9375rem;
   font-weight: 500;
   cursor: pointer;
@@ -1052,13 +1052,13 @@ onMounted(() => {
 
 .tab-btn:hover {
   background: rgba(96, 165, 250, 0.1);
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .tab-btn.active {
   background: rgba(96, 165, 250, 0.15);
-  color: #60a5fa;
-  border-bottom: 2px solid #60a5fa;
+  color: var(--primary);
+  border-bottom: 2px solid var(--primary);
 }
 
 .tab-content {
@@ -1085,7 +1085,7 @@ onMounted(() => {
   font-size: 1.125rem;
   font-weight: 600;
   margin: 0;
-  color: #f8fafc;
+  color: var(--bg-primary);
 }
 
 .panel-actions {
@@ -1110,7 +1110,7 @@ onMounted(() => {
   transform: translateY(-50%);
   width: 18px;
   height: 18px;
-  color: #64748b;
+  color: var(--text-tertiary);
 }
 
 .search-input {
@@ -1119,17 +1119,17 @@ onMounted(() => {
   background: rgba(15, 23, 42, 0.5);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 8px;
-  color: #e2e8f0;
+  color: var(--text-primary);
   font-size: 0.875rem;
 }
 
 .search-input::placeholder {
-  color: #64748b;
+  color: var(--text-tertiary);
 }
 
 .search-input:focus {
   outline: none;
-  border-color: #60a5fa;
+  border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
 }
 
@@ -1146,7 +1146,7 @@ onMounted(() => {
   margin: 0 0 1rem 0;
   font-size: 0.9375rem;
   font-weight: 600;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .form-row {
@@ -1170,7 +1170,7 @@ onMounted(() => {
   display: block;
   font-size: 0.875rem;
   font-weight: 500;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   margin-bottom: 0.5rem;
 }
 
@@ -1181,14 +1181,14 @@ onMounted(() => {
   background: rgba(15, 23, 42, 0.5);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 8px;
-  color: #e2e8f0;
+  color: var(--text-primary);
   font-size: 0.875rem;
 }
 
 .form-input:focus,
 .form-select:focus {
   outline: none;
-  border-color: #60a5fa;
+  border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
 }
 
@@ -1219,7 +1219,7 @@ onMounted(() => {
 .data-table th {
   background: rgba(15, 23, 42, 0.5);
   font-weight: 600;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .data-table tr:hover {
@@ -1240,7 +1240,7 @@ onMounted(() => {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #60a5fa, #8b5cf6);
+  background: linear-gradient(135deg, var(--primary), var(--color-primary-500));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1251,19 +1251,19 @@ onMounted(() => {
 
 .user-name {
   font-weight: 500;
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .user-id {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-tertiary);
   margin-top: 0.25rem;
 }
 
 .empty-state {
   text-align: center;
   padding: 3rem;
-  color: #64748b;
+  color: var(--text-tertiary);
 }
 
 /* 限制徽章 */
@@ -1271,7 +1271,7 @@ onMounted(() => {
   display: inline-block;
   padding: 0.25rem 0.75rem;
   background: rgba(96, 165, 250, 0.2);
-  color: #60a5fa;
+  color: var(--primary);
   border-radius: 999px;
   font-weight: 600;
   font-size: 0.8125rem;
@@ -1288,22 +1288,22 @@ onMounted(() => {
 
 .tier-custom {
   background: rgba(139, 92, 246, 0.2);
-  color: #a78bfa;
+  color: var(--color-primary-500);
 }
 
 .tier-vip {
   background: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
+  color: var(--warning);
 }
 
 .tier-enterprise {
   background: rgba(16, 185, 129, 0.2);
-  color: #34d399;
+  color: var(--success);
 }
 
 .tier-default {
   background: rgba(148, 163, 184, 0.2);
-  color: #94a3b8;
+  color: var(--text-tertiary);
 }
 
 .status-badge {
@@ -1316,12 +1316,12 @@ onMounted(() => {
 
 .status-success {
   background: rgba(16, 185, 129, 0.2);
-  color: #34d399;
+  color: var(--success);
 }
 
 .status-warning {
   background: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
+  color: var(--warning);
 }
 
 .action-buttons {
@@ -1366,27 +1366,27 @@ onMounted(() => {
 
 .role-icon-free {
   background: rgba(148, 163, 184, 0.2);
-  color: #94a3b8;
+  color: var(--text-tertiary);
 }
 
 .role-icon-basic {
   background: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
+  color: var(--primary);
 }
 
 .role-icon-premium {
   background: rgba(139, 92, 246, 0.2);
-  color: #a78bfa;
+  color: var(--color-primary-500);
 }
 
 .role-icon-enterprise {
   background: rgba(16, 185, 129, 0.2);
-  color: #34d399;
+  color: var(--success);
 }
 
 .role-icon-superadmin {
   background: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
+  color: var(--warning);
 }
 
 .role-info {
@@ -1396,19 +1396,19 @@ onMounted(() => {
 .role-name {
   font-weight: 600;
   font-size: 1rem;
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .role-key {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-tertiary);
   margin-top: 0.25rem;
 }
 
 .role-limit-input label {
   display: block;
   font-size: 0.875rem;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   margin-bottom: 0.5rem;
 }
 
@@ -1419,14 +1419,14 @@ onMounted(() => {
 }
 
 .input-unit {
-  color: #64748b;
+  color: var(--text-tertiary);
   font-size: 0.875rem;
 }
 
 .role-description {
   margin-top: 1rem;
   font-size: 0.8125rem;
-  color: #64748b;
+  color: var(--text-tertiary);
   line-height: 1.5;
 }
 
@@ -1448,7 +1448,7 @@ onMounted(() => {
   margin: 0 0 1.5rem 0;
   font-size: 1rem;
   font-weight: 600;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   padding-bottom: 0.75rem;
   border-bottom: 1px solid rgba(148, 163, 184, 0.1);
 }
@@ -1472,7 +1472,7 @@ onMounted(() => {
 .config-item label {
   font-size: 0.875rem;
   font-weight: 500;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .toggle-wrapper {
@@ -1493,7 +1493,7 @@ onMounted(() => {
   gap: 0.5rem;
   padding: 0.375rem 0.75rem;
   background: rgba(96, 165, 250, 0.2);
-  color: #60a5fa;
+  color: var(--primary);
   border-radius: 6px;
   font-size: 0.8125rem;
 }
@@ -1506,7 +1506,7 @@ onMounted(() => {
   justify-content: center;
   background: transparent;
   border: none;
-  color: #60a5fa;
+  color: var(--primary);
   cursor: pointer;
   border-radius: 50%;
   font-size: 1rem;
@@ -1530,13 +1530,13 @@ onMounted(() => {
   background: rgba(15, 23, 42, 0.5);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 6px;
-  color: #e2e8f0;
+  color: var(--text-primary);
   font-size: 0.8125rem;
 }
 
 .tag-input:focus {
   outline: none;
-  border-color: #60a5fa;
+  border-color: var(--primary);
 }
 
 /* 限制选择器 */
@@ -1548,7 +1548,7 @@ onMounted(() => {
 
 .limit-selector label {
   font-size: 0.875rem;
-  color: #94a3b8;
+  color: var(--text-tertiary);
 }
 
 /* 变更历史时间轴 */
@@ -1567,7 +1567,7 @@ onMounted(() => {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #60a5fa;
+  background: var(--primary);
   flex-shrink: 0;
   margin-top: 0.25rem;
 }
@@ -1585,14 +1585,14 @@ onMounted(() => {
 
 .timeline-role {
   font-weight: 600;
-  color: #60a5fa;
+  color: var(--primary);
   text-transform: uppercase;
   font-size: 0.75rem;
 }
 
 .timeline-time {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-tertiary);
 }
 
 .timeline-body {
@@ -1605,28 +1605,28 @@ onMounted(() => {
 .timeline-body p {
   margin: 0;
   font-size: 0.875rem;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .change-operator {
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .change-old {
-  color: #f87171;
+  color: var(--danger);
   font-weight: 600;
 }
 
 .change-new {
-  color: #4ade80;
+  color: var(--success);
   font-weight: 600;
 }
 
 .timeline-reason {
   margin-top: 0.5rem;
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   font-style: italic;
 }
 
@@ -1650,12 +1650,12 @@ onMounted(() => {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
   color: white;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  background: linear-gradient(135deg, var(--primary-hover), var(--primary-hover));
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
 }
@@ -1668,7 +1668,7 @@ onMounted(() => {
 .btn-outline {
   background: transparent;
   border: 1px solid rgba(148, 163, 184, 0.3);
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .btn-outline:hover {
@@ -1678,7 +1678,7 @@ onMounted(() => {
 
 .btn-danger {
   background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
+  color: var(--danger);
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
@@ -1695,19 +1695,19 @@ onMounted(() => {
   background: rgba(148, 163, 184, 0.1);
   border: none;
   border-radius: 6px;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .btn-icon-sm:hover {
   background: rgba(148, 163, 184, 0.2);
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .btn-icon-sm.btn-danger {
   background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
+  color: var(--danger);
 }
 
 .btn-icon-sm.btn-danger:hover {
@@ -1777,13 +1777,13 @@ onMounted(() => {
 .notification.success {
   background: rgba(16, 185, 129, 0.2);
   border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #34d399;
+  color: var(--success);
 }
 
 .notification.error {
   background: rgba(239, 68, 68, 0.2);
   border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #f87171;
+  color: var(--danger);
 }
 
 .notification-icon {
@@ -1817,7 +1817,7 @@ onMounted(() => {
 }
 
 .modal {
-  background: #1e293b;
+  background: var(--bg-tertiary);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 12px;
   width: 100%;
@@ -1836,7 +1836,7 @@ onMounted(() => {
 .modal-header h3 {
   margin: 0;
   font-size: 1.125rem;
-  color: #f8fafc;
+  color: var(--bg-primary);
 }
 
 .modal-close {
@@ -1848,13 +1848,13 @@ onMounted(() => {
   background: transparent;
   border: none;
   border-radius: 6px;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   cursor: pointer;
 }
 
 .modal-close:hover {
   background: rgba(148, 163, 184, 0.1);
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .modal-close svg {

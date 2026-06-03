@@ -15,7 +15,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.utils.security import verify_token
 from app.db.database import get_db
 from app.db.models import ProjectSession
-from app.agent import MultiModelAgent
 from app.utils.guard_contracts import get_guard_contracts
 from app.utils.agent_skills import get_skills_manager
 from app.schema.codeRequest import GenerateRequest, AgentConfig
@@ -26,13 +25,9 @@ from .project_config import (
     PROJECT_MIME_TYPES,
     SKIP_DIRS,
     MAX_TEXT_FILE_SIZE,
-    MAX_SAVED_PROJECTS_PER_USER,
 )
 
 logger = logging.getLogger(__name__)
-
-_agent_instance: Optional[MultiModelAgent] = None
-_agent_lock = asyncio.Lock()
 
 _dependency_graph_cache: Optional[Dict] = None
 _guard_contracts_cache: Optional[Dict] = None
@@ -48,19 +43,6 @@ _feedback_learner = None
 _feedback_learner_lock = asyncio.Lock()
 
 
-async def get_agent() -> MultiModelAgent:
-    global _agent_instance
-    if _agent_instance is None:
-        async with _agent_lock:
-            if _agent_instance is None:
-                _agent_instance = MultiModelAgent(
-                    default_model="deepseek-r1-qwen3-8b",
-                    enable_review=True,
-                    enable_file_contract=True
-                )
-    return _agent_instance
-
-
 def _validate_project_path(project_path: str, user_id: str) -> Path:
     base_dir = Path(PROJECTS_BASE_DIR).resolve()
     project_dir = (base_dir / project_path).resolve()
@@ -74,6 +56,41 @@ def _validate_project_path(project_path: str, user_id: str) -> Path:
         logger.warning(f"不是文件夹 | 路径: {project_dir}")
         raise HTTPException(status_code=400, detail="不是有效的项目文件夹")
     return project_dir
+
+
+def resolve_output_dir(output_dir: str) -> Path:
+    """将 output_dir 转为绝对路径（兼容新旧格式）
+    
+    新格式: "{user_id}/{project_name}" (相对路径)
+    旧格式: "./projects/orchestrator/project_*" (绝对路径)
+    """
+    if output_dir.startswith("./projects/"):
+        # 旧格式：绝对路径
+        return Path(output_dir).resolve()
+    else:
+        # 新格式：相对路径
+        return (Path(PROJECTS_BASE_DIR) / output_dir).resolve()
+
+
+def cleanup_session_files(output_dir: str) -> bool:
+    """清理会话产生的文件
+    
+    Args:
+        output_dir: 会话的 output_dir（相对路径或绝对路径）
+    
+    Returns:
+        是否成功清理
+    """
+    try:
+        full_path = resolve_output_dir(output_dir)
+        if full_path.exists():
+            shutil.rmtree(full_path)
+            logger.info(f"已清理会话文件: {full_path}")
+            return True
+        return True  # 目录不存在也算成功
+    except Exception as e:
+        logger.error(f"清理会话文件失败: {output_dir} - {e}")
+        return False
 
 
 async def _collect_files(project_dir: Path) -> AsyncGenerator[dict, None]:
@@ -240,7 +257,7 @@ async def _cleanup_old_session(user_id: str, db: AsyncSession):
     result = await db.execute(
         select(ProjectSession).where(
             ProjectSession.user_id == user_id,
-            ProjectSession.status.in_(["running", "completed", "failed"])
+            ProjectSession.status.in_(["running", "completed", "failed", "expired", "cancelled"])
         ).order_by(ProjectSession.created_at.desc())
     )
     all_sessions = result.scalars().all()
@@ -287,6 +304,83 @@ async def _cleanup_old_session(user_id: str, db: AsyncSession):
         logger.info(f"已清理用户 {user_id} 的 {len(sessions_to_cleanup)} 个旧会话资源（保留最新 {max_sessions} 个）")
 
 
+async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> int:
+    """
+    检测并清理僵尸会话
+    
+    僵尸会话定义：
+    1. DB 中 status=running 但内存中无对应 SessionState 的会话
+    2. DB 中 status=running 且最后活动时间超过 7 天的会话
+    
+    Returns:
+        清理的僵尸会话数量
+    """
+    from app.utils.dynamic_concurrent import ConcurrentLimitManager
+    from datetime import timedelta
+    
+    try:
+        # 查询 DB 中 status=running 的会话
+        result = await db.execute(
+            select(ProjectSession).where(
+                ProjectSession.user_id == int(user_id),
+                ProjectSession.status == "running"
+            )
+        )
+        running_sessions = result.scalars().all()
+        
+        if not running_sessions:
+            return 0
+        
+        # 检查内存中是否有对应的 SessionState
+        sm = await get_session_manager()
+        zombie_count = 0
+        concurrent_mgr = ConcurrentLimitManager()
+        
+        # 7 天超时阈值（基于最后活动时间）
+        timeout_threshold = datetime.now() - timedelta(days=7)
+        
+        for session in running_sessions:
+            is_zombie = False
+            
+            # 检查 1：最后活动时间超过 7 天
+            if session.last_activity_at and session.last_activity_at < timeout_threshold:
+                is_zombie = True
+                logger.warning(f"检测到超时会话 (最后活动超过7天): session_id={session.session_id}, user_id={user_id}")
+            
+            # 检查 2：内存中无该会话
+            if not is_zombie:
+                memory_state = await sm._get_state(session.session_id)
+                if memory_state is None:
+                    is_zombie = True
+                    logger.warning(f"检测到僵尸会话 (内存无状态): session_id={session.session_id}, user_id={user_id}")
+            
+            if is_zombie:
+                # 清理文件
+                if session.output_dir:
+                    cleanup_session_files(session.output_dir)
+                
+                # 标记为 failed
+                session.status = "failed"
+                session.error_message = "僵尸会话自动清理（超时或进程崩溃）"
+                session.completed_at = datetime.now(timezone.utc)
+                
+                # 释放并发计数
+                user_role = "user"  # 默认角色
+                concurrent_mgr.unregister_session(user_role)
+                
+                zombie_count += 1
+        
+        if zombie_count > 0:
+            await db.commit()
+            logger.info(f"已清理 {zombie_count} 个僵尸会话 (user_id={user_id})")
+        
+        return zombie_count
+        
+    except Exception as e:
+        logger.error(f"僵尸会话检测失败: {e}", exc_info=True)
+        return 0
+
+
 async def _create_project_session(db: AsyncSession, user_id: int, session_id: str, requirement: str, output_dir: str):
     session = ProjectSession(
         session_id=session_id,
@@ -300,6 +394,20 @@ async def _create_project_session(db: AsyncSession, user_id: int, session_id: st
     return session
 
 
+async def _update_session_activity(db: AsyncSession, session_id: str):
+    """更新会话的最后活动时间"""
+    try:
+        result = await db.execute(
+            select(ProjectSession).where(ProjectSession.session_id == session_id)
+        )
+        session = result.scalar_one_or_none()
+        if session:
+            session.last_activity_at = datetime.now()
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"更新会话活动时间失败: {session_id} - {e}")
+
+
 async def _update_project_session_status(db: Optional[AsyncSession], session_id: str, status: str, files_generated: int = 0, files_total: int = 0, error_message: Optional[str] = None):
     if db is None:
         logger.warning(f"更新会话状态失败：db 为 None | session_id={session_id} | status={status}")
@@ -311,13 +419,33 @@ async def _update_project_session_status(db: Optional[AsyncSession], session_id:
         )
         session = result.scalar_one_or_none()
         if session:
+            # 会话结束时清理文件
+            if status in ("completed", "failed", "cancelled"):
+                if session.output_dir:
+                    cleanup_session_files(session.output_dir)
+            
             session.status = status
             session.files_generated = files_generated
             session.files_total = files_total
+            session.last_activity_at = datetime.now()  # 更新最后活动时间
             if error_message:
                 session.error_message = error_message
             if status in ("completed", "failed", "cancelled"):
                 session.completed_at = datetime.now(timezone.utc)
+                
+                # 联动清理：同步更新内存中的会话状态
+                try:
+                    sm = await get_session_manager()
+                    memory_state = await sm._get_state(session_id)
+                    if memory_state:
+                        memory_state.status = status
+                        memory_state.completed_at = datetime.now(timezone.utc).isoformat()
+                        memory_state.updated_at = datetime.now(timezone.utc).isoformat()
+                        await sm._save_session(memory_state)
+                        logger.debug(f"已同步内存会话状态: session_id={session_id} -> {status}")
+                except Exception as e:
+                    logger.warning(f"同步内存会话状态失败（不影响 DB 更新）: {e}")
+            
             await db.commit()
         else:
             logger.warning(f"会话不存在：session_id={session_id}")
@@ -444,10 +572,10 @@ async def detect_resume_intent(requirement: str, model: str = "Qwen/Qwen3.5-4B")
 
 async def resolve_resume_session(
     db: AsyncSession,
-    user_id: str,
-    requirement: str,
-    model: str = "Qwen/Qwen3.5-4B",
-    limit: int = 20
+     user_id: str,
+     requirement: str,
+     model: str = "Qwen/Qwen3.5-4B",
+     limit: int = 20
 ) -> Optional[ProjectSession]:
     """
     方案 2：智能解析要恢复的 session
@@ -530,10 +658,10 @@ async def resolve_resume_session(
 
 
 async def analyze_files_to_regenerate(
-    original_requirement: str,
-    additional_requirement: str,
-    generated_files: List[str],
-    model: str = "Qwen/Qwen3.5-4B"
+     original_requirement: str,
+     additional_requirement: str,
+     generated_files: List[str],
+     model: str = "Qwen/Qwen3.5-4B"
 ) -> List[str]:
     """
     分析哪些文件需要重新生成

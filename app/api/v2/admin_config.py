@@ -82,3 +82,49 @@ async def get_system_config(
 ):
     """获取系统配置（超级管理员权限）"""
     return system_config_manager._config
+
+
+class SandboxConfigUpdate(BaseModel):
+    enable_code_sandbox: Optional[bool] = None
+    sandbox_languages: Optional[str] = None
+
+
+@router.get("/sandbox-config")
+async def get_sandbox_config(token: dict = Depends(require_superadmin)):
+    """获取代码沙箱配置"""
+    from app.core.config import settings
+    return {
+        "enable_code_sandbox": settings.ENABLE_CODE_SANDBOX,
+        "sandbox_languages": [l.strip() for l in settings.SANDBOX_LANGUAGES.split(",")],
+    }
+
+
+@router.put("/sandbox-config")
+async def update_sandbox_config(
+    update: SandboxConfigUpdate,
+    token: dict = Depends(require_superadmin)
+):
+    """更新代码沙箱配置（超级管理员权限）"""
+    import os
+    changes = []
+    if update.enable_code_sandbox is not None:
+        os.environ["ENABLE_CODE_SANDBOX"] = str(update.enable_code_sandbox).lower()
+        changes.append(f"enable_code_sandbox={update.enable_code_sandbox}")
+    if update.sandbox_languages is not None:
+        os.environ["SANDBOX_LANGUAGES"] = update.sandbox_languages
+        changes.append(f"sandbox_languages={update.sandbox_languages}")
+
+    if not changes:
+        raise HTTPException(status_code=400, detail="未提供任何配置更新")
+
+    # 更新 system_config_manager
+    if update.enable_code_sandbox is not None:
+        system_config_manager.set_config_value("enable_code_sandbox", update.enable_code_sandbox)
+    if update.sandbox_languages is not None:
+        system_config_manager.set_config_value("sandbox_languages", update.sandbox_languages)
+
+    return {
+        "success": True,
+        "message": f"沙箱配置已更新: {', '.join(changes)}",
+        "restart_required": True,
+    }

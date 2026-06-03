@@ -17,7 +17,7 @@ import asyncio
 import re
 from pathlib import Path
 from enum import Enum
-from typing import List, Dict, Optional, Any
+from typing import List, Dict
 
 from app.agent.orchestrator_requirements.constants import DEVILS_ADVOCATE_MODEL
 from app.agent.orchestrator_requirements.data_models import AssociationItem
@@ -52,9 +52,9 @@ def _get_default_prompt(filename: str) -> str:
     """内置默认提示词"""
     defaults = {
         "performance_reviewer_prompt.md": """你是资深性能工程师，专注于系统性能瓶颈识别和优化。关注 N+1 查询、缓存策略、内存泄漏、I/O 瓶颈、并发问题。请输出审查结果，格式：{"reviews": [{"target": "...", "issue": "...", "severity": "critical/high/medium/low", "suggestion": "...", "category": "database/cache/memory/io/concurrency"}]}""",
-        
+
         "security_reviewer_prompt.md": """你是资深安全工程师，专注于应用安全漏洞识别和防护。关注 SQL 注入、XSS、越权、敏感数据泄露、认证缺陷、输入验证。请输出审查结果，格式：{"reviews": [{"target": "...", "vulnerability": "...", "severity": "critical/high/medium/low", "suggestion": "..."}]}""",
-        
+
         "maintainability_reviewer_prompt.md": """你是资深软件架构师，专注于代码可维护性评估。关注代码清晰度、模块耦合、代码重复、设计模式、测试友好性、交接难度、可扩展性。请输出审查结果，格式：{"reviews": [{"target": "...", "issue": "...", "severity": "critical/high/medium/low", "suggestion": "...", "category": "clarity/coupling/repetition/pattern/testing/handoff/extensibility"}]}"""
     }
     return defaults.get(filename, "")
@@ -94,36 +94,36 @@ async def multi_angle_review(
 ) -> List[Dict]:
     """
     多角度审查入口
-    
+
     Args:
         requirement: 用户需求
         items: 联想项列表
         severity: 审查严格度
         architect: 架构师对象
-    
+
     Returns:
         审查结果列表
     """
     if not architect or len(items) < 3:
         return []
-    
+
     high_conf_items = [i for i in items if i.confidence >= 0.5]
     if not high_conf_items:
         return []
-    
+
     if severity == ReviewSeverity.LIGHT:
         # 轻量模式：仅契约检查 + 交叉验证
         logger.info("轻量模式：跳过魔鬼代言人审查")
         return []
-    
+
     elif severity == ReviewSeverity.STANDARD:
         # 标准模式：单一魔鬼代言人
         return await devil_advocate_review(requirement, items, architect)
-    
+
     elif severity == ReviewSeverity.STRICT:
         # 严格模式：多视角审查
         return await parallel_multi_review(requirement, items)
-    
+
     return []
 
 
@@ -133,11 +133,11 @@ async def parallel_multi_review(
 ) -> List[Dict]:
     """
     并行执行 3 个角色的审查
-    
+
     Args:
         requirement: 用户需求
         items: 联想项列表
-    
+
     Returns:
         合并后的审查结果
     """
@@ -145,7 +145,7 @@ async def parallel_multi_review(
         f"  [{i.category}] {i.content} (置信度: {i.confidence:.1f})"
         for i in items[:15]
     )
-    
+
     # 准备 3 个角色的审查任务
     tasks = []
     for role_name, role_config in REVIEW_ROLES.items():
@@ -156,10 +156,10 @@ async def parallel_multi_review(
             items_summary=items_summary,
         )
         tasks.append(task)
-    
+
     # 并行执行（最多 3 个并发）
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    
+
     # 合并结果
     all_reviews = []
     for i, result in enumerate(results):
@@ -168,7 +168,7 @@ async def parallel_multi_review(
             logger.warning(f"{role_name} 审查失败: {result}")
         else:
             all_reviews.extend(result)
-    
+
     logger.info(f"多角度审查完成：共 {len(all_reviews)} 条意见")
     return all_reviews[:30]  # 最多返回 30 条
 
@@ -197,7 +197,7 @@ async def _review_with_role(
             model=DEVILS_ADVOCATE_MODEL,
             prompt=prompt,
         )
-        
+
         return parse_multi_review_response(response, role_name)
     except Exception as e:
         logger.warning(f"{role_name} 审查失败: {e}")
@@ -210,10 +210,10 @@ def parse_multi_review_response(response: str, role_name: str) -> List[Dict]:
         json_match = re.search(r'\{[\s\S]*\}', response)
         if not json_match:
             return []
-        
+
         parsed = json.loads(json_match.group())
         reviews = parsed.get("reviews", [])
-        
+
         valid = []
         for r in reviews:
             if "target" in r and ("issue" in r or "vulnerability" in r):
@@ -225,9 +225,9 @@ def parse_multi_review_response(response: str, role_name: str) -> List[Dict]:
                     "suggestion": r.get("suggestion", ""),
                     "category": r.get("category", "general"),
                 })
-        
+
         return valid[:10]  # 每个角色最多 10 条
-    
+
     except json.JSONDecodeError:
         logger.warning(f"{role_name} 返回格式无效")
         return []
@@ -242,17 +242,17 @@ async def devil_advocate_review(
 ) -> List[Dict]:
     """
     保持向后兼容的魔鬼代言人函数
-    
+
     现在调用标准模式（单一魔鬼代言人）
     """
     items_summary = "\n".join(
         f"  [{i.category}] {i.content} (置信度: {i.confidence:.1f})"
         for i in items if i.confidence >= 0.5
     )[:15]
-    
+
     if not items_summary:
         return []
-    
+
     prompt = f"""你是"魔鬼代言人"，职责是对已确认的需求联想项进行质疑和风险审视。
 
 用户需求：{requirement}
@@ -286,7 +286,7 @@ async def devil_advocate_review(
             model=DEVILS_ADVOCATE_MODEL,
             prompt=prompt,
         )
-        
+
         return parse_devil_response(response)
     except Exception as e:
         logger.warning(f"魔鬼代言人审视失败: {e}")
@@ -299,10 +299,10 @@ def parse_devil_response(response: str) -> List[Dict]:
         json_match = re.search(r'\{[\s\S]*\}', response)
         if not json_match:
             return []
-        
+
         parsed = json.loads(json_match.group())
         reviews = parsed.get("reviews", [])
-        
+
         valid = []
         for r in reviews:
             if r.get("issue") and r.get("target"):
@@ -314,7 +314,7 @@ def parse_devil_response(response: str) -> List[Dict]:
                     "suggestion": r.get("suggestion", ""),
                     "category": "risk",
                 })
-        
+
         return valid[:10]
     except json.JSONDecodeError:
         pass

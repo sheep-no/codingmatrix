@@ -68,8 +68,8 @@ class Settings(BaseSettings):
 
     WS_MAX_CONNECTIONS: int = 50
 
-    # 项目生成会话限制（默认 1 = 单会话模式，管理员可通过环境变量调整）
-    MAX_PROJECT_SESSIONS_PER_USER: int = 1
+    # 项目生成会话限制（默认 2 = 允许 2 个并发会话，管理员可通过环境变量调整）
+    MAX_PROJECT_SESSIONS_PER_USER: int = 2
 
     # ==================== Agent 行为配置（P1） ====================
 
@@ -87,6 +87,10 @@ class Settings(BaseSettings):
 
     # Agent 是否启用反面自查（修改后自动检查常见错误模式）
     ENABLE_ANTI_PATTERN_CHECK: bool = True
+
+    # 代码沙箱配置（工程师可在生成后验证代码）
+    ENABLE_CODE_SANDBOX: bool = True  # 是否启用代码沙箱
+    SANDBOX_LANGUAGES: str = "python,javascript"  # 支持沙箱的语言，逗号分隔
 
     # Agent 是否启用关键词触发追问
     ENABLE_KEYWORD_TRIGGERS: bool = True

@@ -71,6 +71,12 @@ class SiliconFlowAdapter(BaseProviderAdapter):
         # 判断是否是 reasoning 模型
         is_reasoning = "deepseek-ai/DeepSeek-R1" in model
         
+        # 已知不支持 enable_thinking 的模型（首次遇到 400 后动态添加到此集合）
+        if not hasattr(SiliconFlowAdapter, '_unsupported_thinking'):
+            SiliconFlowAdapter._unsupported_thinking: set = set()
+        
+        support_thinking = model not in SiliconFlowAdapter._unsupported_thinking
+        
         if is_reasoning:
             data = {
                 "model": model,
@@ -87,8 +93,9 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                 "stream": stream,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "enable_thinking": False  # 禁用深度思考，避免 Qwen3 等模型浪费大量 token
             }
+            if support_thinking:
+                data["enable_thinking"] = False  # 禁用深度思考，避免 Qwen3 等模型浪费大量 token
         
         if stream:
             async def generate():
@@ -127,10 +134,11 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                 try:
                     resp = await call_with_retry(request_func, max_retries=3)
                 except Exception as e:
-                    # 如果失败且包含 enable_thinking 参数，尝试去掉后重试
+                    # 如果失败且包含 enable_thinking 参数，记录并去掉后重试
                     error_msg = str(e)
                     if "enable_thinking" in error_msg and "enable_thinking" in data:
-                        logger.warning(f"[SiliconFlowAdapter] 模型 {model} 不支持 enable_thinking 参数，重试中...")
+                        logger.warning(f"[SiliconFlowAdapter] 模型 {model} 不支持 enable_thinking，记录并重试")
+                        SiliconFlowAdapter._unsupported_thinking.add(model)
                         data_without_thinking = {k: v for k, v in data.items() if k != "enable_thinking"}
                         
                         async def request_func_retry():
@@ -145,9 +153,10 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                         raise
                 
                 if resp.status_code != 200:
-                    # 检查是否是 enable_thinking 参数导致的错误
+                    # 检查是否是 enable_thinking 参数导致的 400 错误
                     if resp.status_code == 400 and "enable_thinking" in resp.text:
-                        logger.warning(f"[SiliconFlowAdapter] 模型 {model} 不支持 enable_thinking 参数，重试中...")
+                        logger.warning(f"[SiliconFlowAdapter] 模型 {model} 不支持 enable_thinking，记录并重试")
+                        SiliconFlowAdapter._unsupported_thinking.add(model)
                         data_without_thinking = {k: v for k, v in data.items() if k != "enable_thinking"}
                         
                         async def request_func_retry():

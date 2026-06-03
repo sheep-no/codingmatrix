@@ -2,7 +2,7 @@ import time
 import json
 import re
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
 from app.agent.complexity import ComplexityAnalyzer
 from app.agent.specialists import Architect, CodeReviewer

@@ -423,7 +423,7 @@ def generate_docker_compose(services: List[str], app_name: str = "myapp") -> str
                 lines.append(f"    {key}:")
                 for item in val:
                     if isinstance(item, dict):
-                        lines.append(f"      -")
+                        lines.append("      -")
                         for k3, v3 in item.items():
                             lines.append(f"        {k3}: {v3}")
                     else:

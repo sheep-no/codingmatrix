@@ -46,11 +46,11 @@ class CriticalDecision:
 class CriticalDecisionExtractor:
     """
     关键决策提取器
-    
+
     与架构师的协作：
     - 架构师输出初始架构设计后，提取关键不确定点
     - 用户做出决策后，将决策注入架构师的后续 prompt
-    
+
     决策点示例：
     - 认证策略：JWT vs Session vs OAuth
     - 数据库：PostgreSQL vs MySQL vs MongoDB
@@ -145,19 +145,18 @@ class CriticalDecisionExtractor:
     ) -> List[CriticalDecision]:
         """
         从架构设计中提取关键决策点
-        
+
         Args:
             architecture: 架构师输出的架构设计
             complexity_analysis: 复杂度分析结果
-        
+
         Returns:
             关键决策列表（最多 3 个）
         """
         self.decisions.clear()
-        
-        tech_stack = architecture.get("tech_stack", {})
+
         decisions_needed = self._analyze_uncertainty(architecture, complexity_analysis)
-        
+
         for decision_id in decisions_needed[:3]:
             template = self.DECISION_TEMPLATES.get(decision_id)
             if template:
@@ -172,7 +171,7 @@ class CriticalDecisionExtractor:
                     impact_files=impact_files
                 )
                 self.decisions.append(decision)
-        
+
         logger.info(f"提取关键决策点: {len(self.decisions)} 个")
         return self.decisions
 
@@ -183,9 +182,9 @@ class CriticalDecisionExtractor:
     ) -> List[str]:
         """分析架构设计中的不确定决策点"""
         decisions_needed = []
-        
+
         tech_stack = architecture.get("tech_stack", {})
-        
+
         # tech_stack 可能是 list（如 ["FastAPI", "Vue3"]）或 dict
         if isinstance(tech_stack, list):
             tech_stack_str = " ".join(str(t).lower() for t in tech_stack)
@@ -216,7 +215,7 @@ class CriticalDecisionExtractor:
             if complexity_analysis and complexity_analysis.get("has_backend"):
                 if not tech_stack.get("api_style"):
                     decisions_needed.append("api_style")
-        
+
         return decisions_needed
 
     def _identify_impact_files(
@@ -227,7 +226,7 @@ class CriticalDecisionExtractor:
         """识别决策影响的文件"""
         file_plan = architecture.get("file_plan", [])
         impact_files = []
-        
+
         patterns = {
             "auth_strategy": ["auth", "middleware", "security", "config"],
             "database_choice": ["database", "model", "config"],
@@ -237,7 +236,7 @@ class CriticalDecisionExtractor:
             "caching_strategy": ["cache", "redis", "config"],
             "architecture_pattern": []
         }
-        
+
         keywords = patterns.get(decision_id, [])
         for file_info in file_plan:
             path = file_info.get("path", "")
@@ -245,7 +244,7 @@ class CriticalDecisionExtractor:
                 if keyword.lower() in path.lower():
                     impact_files.append(path)
                     break
-        
+
         return impact_files
 
     def format_as_questions(self) -> List[Dict[str, Any]]:
@@ -270,23 +269,23 @@ class CriticalDecisionExtractor:
     ) -> Dict[str, Any]:
         """
         应用用户选择的决策
-        
+
         Args:
             decision_id: 决策 ID
             choice: 用户选择的选项
-        
+
         Returns:
             决策应用结果
         """
         self.user_choices[decision_id] = choice
-        
+
         for decision in self.decisions:
             if decision.id == decision_id:
                 decision.selected = choice
                 break
-        
+
         logger.info(f"用户决策: {decision_id} -> {choice}")
-        
+
         return {
             "decision_id": decision_id,
             "choice": choice,
@@ -305,7 +304,7 @@ class CriticalDecisionExtractor:
         """生成用于注入 prompt 的决策上下文"""
         if not self.user_choices:
             return ""
-        
+
         parts = []
         for decision_id, choice in self.user_choices.items():
             template = self.DECISION_TEMPLATES.get(decision_id)
@@ -315,7 +314,7 @@ class CriticalDecisionExtractor:
                     ""
                 )
                 parts.append(f"- {template['question']}: {choice} ({option_desc})")
-        
+
         if parts:
             return "用户架构决策:\n" + "\n".join(parts)
         return ""

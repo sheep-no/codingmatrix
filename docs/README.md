@@ -1,6 +1,6 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-05-30 | 版本：v5.11.0
+> 最后更新：2026-06-02 | 版本：v5.12.0+
 
 ## 快速导航
 
@@ -10,7 +10,7 @@
 - [API Key 指南](guides/API-KEY-GUIDE.md) - API Key 管理和使用
 
 ### 架构
-- [系统架构](architecture/ARCHITECTURE.md) - 完整架构设计
+- [系统架构](architecture/ARCHITECTURE.md) - 完整架构设计（含 9 大子系统）
 - [模块说明](architecture/MODULES.md) - 代码结构、职责划分
 - [模型系统](architecture/MODELS.md) - 多供应商 LLM 适配器
 - [API 职责矩阵](architecture/API-RESPONSIBILITY-MATRIX.md) - v1/v2 路由职责
@@ -19,8 +19,11 @@
 - [API 文档](api/API-DOCUMENTATION.md) - 180+ 个端点完整文档
 - [API 版本管理](api/API-VERSIONS.md) - 版本策略和迁移指南
 
-### 功能模块
-- [Agent 系统](features/AGENT.md) - 多角色协作、项目生成
+### 核心功能模块
+- [Agent 系统](features/AGENT.md) - 多角色协作、项目生成、ReAct 工具调用
+- [动态模型路由](features/DYNAMIC-MODEL-ROUTER.md) - 健康感知路由、熔断、模型分配
+- [ReAct 工具调用](features/REACT-TOOL-CALLING.md) - 自主循环、阶段化模型、ToolRegistry
+- [会话生命周期](features/SESSION-LIFECYCLE.md) - 会话创建/恢复/暂停/取消/清理
 - [AI 云管理](features/AICLOUD.md) - 模型切换、故障转移
 - [工作流引擎](features/WORKFLOW.md) - DAG 编排、9 种节点类型
 - [免费模型管理](features/MODEL-MANAGER.md) - 内置模型查看、切换
@@ -28,6 +31,7 @@
 - [Web 搜索增强](features/WEB-SEARCH-ENHANCEMENTS.md) - 查询优化、结果去重
 - [多语言依赖解析](features/MULTI-LANGUAGE-DEPENDENCY-PARSER.md) - 14 种语言依赖分析
 - [SSE 展示优化](features/SSE-DISPLAY-OPTIMIZATION.md) - 流式响应展示
+- [PPT Agent](features/PPT-AGENT.md) - PPT 智能生成
 - [项目介绍](features/PROJECT-INTRODUCTION.md) - 平台功能总览
 
 ### 部署运维
@@ -35,13 +39,13 @@
 - [服务管理](guides/SERVICES.md) - 服务启停、健康检查
 
 ### 安全
-- [安全架构](security/SECURITY-OVERVIEW.md) - 安全概览
+- [安全架构](security/SECURITY-OVERVIEW.md) - 安全概览（含 API Key 加密、并发限制）
 - [加密登录](security/ENCRYPTED-LOGIN.md) - RSA 加密登录
 - [CSRF 防护](security/CSRF-IMPLEMENTATION.md) - CSRF 实现
 - [权限规范](security/PERMISSION-SPEC.md) - RBAC 权限模型
 
 ### 其他
-- [分布式追踪](observability/TRACING.md) - OpenTelemetry
+- [分布式追踪](observability/TRACING.md) - OpenTelemetry 集成
 - [AI 提示词](prompts/PROMPTS.md) - 22 个提示词模板
 - [Skills](skills/HISTORY.md) - Skills 历史和列表
 - [技术债务](TECH-DEBT.md) - 技术债务跟踪
@@ -49,6 +53,8 @@
 ---
 
 ## 项目概览
+
+CodingMatrix 是 AI 驱动的全栈代码生成与开发平台，基于 FastAPI (Python 3.11) + Vue 3 + SQLite + Playwright 构建。核心能力是**多角色 AI Agent 系统**：从需求理解、架构设计到代码生成、验证、修复全自动完成。
 
 ### 技术栈
 
@@ -62,11 +68,25 @@
 | 测试 | Playwright + pytest | E2E + 单元测试 |
 | 部署 | Docker + Nginx | 容器化部署 |
 
-### 功能模块
+### 核心子系统
+
+| 子系统 | 模块路径 | 描述 |
+|--------|----------|------|
+| **AI Agent 引擎** | `app/agent/` | 6 个 mixin 协调、5 角色专家、ReAct 工具调用 |
+| **动态模型路由** | `app/agent/dynamic_model_router.py` | 健康度 0-100 评分、熔断、5 复杂度档 × 5 角色模型 |
+| **ReAct 自主循环** | `app/agent/react_agent.py` | 5 阶段循环（思考/行动/观察/反思/最终），阶段化模型路由 |
+| **工具注册中心** | `app/agent/executor.py` | 12 个工具（读写执行搜索等），供 ReActAgent 调用 |
+| **代码沙箱** | `app/agent/specialist_base.py` | Python AST 检查 + JavaScript Node.js 沙箱，admin 可配置 |
+| **会话管理** | `app/agent/session_manager.py` | 30 天 TTL + 500 上限 + 僵尸清理 + 智能"继续"语义 |
+| **依赖图** | `app/agent/dependency_graph.py` | 14 语言解析 + 拓扑分层 + BFS 跨文件影响分析 |
+| **错误恢复** | `app/agent/error_recovery.py` | 8 种错误类型分类、3 次重试、降级链 |
+| **多供应商 LLM** | `app/utils/aicloud/` | 7 供应商 + 动态供应商 + context_length 多级 fallback |
+
+### 端点模块
 
 | 模块 | 端点 | 功能 |
 |------|------|------|
-| Agent 系统 | `/api/v1/agent/*` | 项目生成、代码审查、快照管理 |
+| Agent 系统 | `/api/v1/agent/*` | 项目生成、代码审查、快照管理、ReAct 调用 |
 | AI 代码 | `/api/v1/code` | 代码生成、流式输出 |
 | PPT 生成 | `/api/v1/pptx/*` | 异步任务、多格式输出 |
 | 图像生成 | `/api/v1/kolors/*` | 文生图、图生图 |
@@ -74,7 +94,11 @@
 | 文件管理 | `/api/v1/files/*` | 分片上传、去重、解析缓存 |
 | 工作流 | `/api/v1/workflow/*` | DAG 编排、9 种节点、重试机制 |
 | 免费模型 | `/api/v1/models` | 内置模型查看、切换 |
+| 动态供应商 | `/api/v1/providers` | 自定义 API 接入、context_length |
 | 用户管理 | `/api/v2/Controller/*` | CRUD、权限管理 |
+| API Key | `/api/v1/apikey` | 用户 API Key 管理、Token 加密存储 |
+| 模型管理 | `/api/v2/models` | 管理员配置 context_length |
+| 沙箱管理 | `/api/v2/admin/sandbox-config` | 管理员配置代码沙箱 |
 | 健康检查 | `/api/v1/health` | Prometheus 指标 |
 
 ---
@@ -113,7 +137,7 @@ docs/
 ├── README.md                    # 本文件（主入口）
 ├── TECH-DEBT.md                 # 技术债务跟踪
 ├── architecture/                # 架构设计
-│   ├── ARCHITECTURE.md          # 系统架构
+│   ├── ARCHITECTURE.md          # 系统架构（9 大子系统）
 │   ├── MODULES.md               # 模块说明
 │   ├── MODELS.md                # 模型系统
 │   └── API-RESPONSIBILITY-MATRIX.md
@@ -121,12 +145,19 @@ docs/
 │   ├── API-DOCUMENTATION.md     # API 完整文档
 │   └── API-VERSIONS.md          # API 版本管理
 ├── features/                    # 功能模块
-│   ├── AGENT.md                 # Agent 系统
+│   ├── AGENT.md                 # Agent 系统（1337 行）
+│   ├── DYNAMIC-MODEL-ROUTER.md  # 动态模型路由
+│   ├── REACT-TOOL-CALLING.md    # ReAct 工具调用
+│   ├── SESSION-LIFECYCLE.md     # 会话生命周期
 │   ├── AICLOUD.md               # AI 云
 │   ├── WORKFLOW.md              # 工作流
 │   ├── MODEL-MANAGER.md         # 免费模型管理
 │   ├── DYNAMIC-PROVIDERS.md     # 动态供应商
-│   └── ...                      # 其他功能文档
+│   ├── MULTI-LANGUAGE-DEPENDENCY-PARSER.md
+│   ├── SSE-DISPLAY-OPTIMIZATION.md
+│   ├── WEB-SEARCH-ENHANCEMENTS.md
+│   ├── PPT-AGENT.md             # PPT 智能生成
+│   └── PROJECT-INTRODUCTION.md  # 项目介绍
 ├── guides/                      # 开发指南
 │   ├── GETTING-STARTED.md       # 快速开始
 │   ├── MULTI-PROVIDER-SETUP.md  # 多供应商配置
@@ -144,6 +175,10 @@ docs/
 │   └── PROMPTS.md               # 提示词模板
 ├── skills/                      # Skills 文档
 │   └── HISTORY.md               # Skills 历史
+├── testing/                     # 测试
+│   ├── README.md
+│   ├── TESTING.md
+│   └── test_agent_core_selfcheck.py
 └── specs/                       # 规格设计
 ```
 
@@ -153,13 +188,25 @@ docs/
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| **v5.12.0+** | **2026-06-02** | **ReAct 工具调用深度集成 + 动态批处理规划 + 模型 context_length 多级管理 + API Key 修复 + 前端消息处理完善 + 代码沙箱 admin 配置** |
+| v5.12.0 | 2026-06-01 | 模型 context_length 管理（4 级 fallback）+ 用户自定义 context_length + 用户 API Key 模型同步 + API Key 查找修复 + 前端消息处理完善 |
 | v5.11.0 | 2026-05-30 | 智能会话恢复系统 + SSE 响应解析修复 + API Key 管理增强 + 检查点恢复优化 |
 | v5.10.0 | 2026-05-27 | 工作流节点扩展（9种） + 重试机制 + 条件分支 |
-| v5.9.0 | 2026-05-26 | API Key 全局化 + Token 统计 |
+| v5.9.0 | 2026-05-26 | API Key 全局化 + Token 统计 + Orchestrator 端点 |
 | v5.8.1 | 2026-05-23 | KV Cache 优化 + 多角度审查系统 |
+
+### v5.12.0+ 最新更新要点
+
+- **ReAct 工具调用系统**：Specialist 工程师获得 13 个工具（9 个只读 + 4 个写/验证），Qwen3-8B 等弱模型跳过工具，DeepSeek-R1 等强模型主动调用工具
+- **动态批处理规划**：架构师 `expand_file_plan()` 改为 `while True` 循环 + 3 个自然终止条件
+- **5 复杂度档 × 5 角色模型分配**：v2.0 完整配置，跨模型交叉验证
+- **工程师主动编辑模式**：从"被动接收"转为"主动 agent"，支持 `partial_update` / `insert_content` / `regex_replace` / `execute_code` 等编辑工具
+- **Git stash 原子回滚**：替换 in-memory dict 备份为 git stash push/pop/drop
+- **代码沙箱 admin 可配**：`ENABLE_CODE_SANDBOX` 和 `SANDBOX_LANGUAGES` 可通过 `/api/v2/admin/sandbox-config` 动态配置
+- **会话生命周期完整化**：僵尸会话检测、并发限制 429、30 天 TTL、500 上限
 
 详细版本历史见 [versions/](../versions/) 目录
 
 ---
 
-最后更新：2026-05-30
+最后更新：2026-06-02

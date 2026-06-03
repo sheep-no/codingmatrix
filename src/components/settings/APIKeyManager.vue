@@ -96,7 +96,40 @@
               <button class="action-btn toggle-btn" @click="toggleEnabled(key)">
                 {{ key.enabled ? '禁用' : '启用' }}
               </button>
+              <button class="action-btn config-btn" @click="toggleContextConfig(key.token)">
+                {{ expandedContextConfig === key.token ? '收起' : '模型配置' }}
+              </button>
               <button class="action-btn delete-btn" @click="deleteKey(key.token)">清除</button>
+            </div>
+          </div>
+          <!-- 模型 context_length 配置 -->
+          <div v-if="expandedContextConfig === key.token" class="context-config-section">
+            <div class="context-config-header">
+              <span class="context-config-title">模型上下文长度配置</span>
+              <span class="context-config-hint">设置模型的最大上下文长度（token）</span>
+            </div>
+            <div class="context-config-list">
+              <div v-for="(ctx, model) in key.context_lengths || {}" :key="model" class="context-config-item">
+                <span class="model-name">{{ model }}</span>
+                <input
+                  v-model.number="key.context_lengths[model]"
+                  type="number"
+                  min="1"
+                  class="context-input"
+                  placeholder="context length"
+                />
+                <span class="context-unit">tokens</span>
+                <button class="action-btn delete-btn" @click="removeContextLength(key, model)">删除</button>
+              </div>
+              <div v-if="!key.context_lengths || Object.keys(key.context_lengths).length === 0" class="empty-context">
+                暂无自定义配置，将使用默认值 32k
+              </div>
+            </div>
+            <div class="context-config-add">
+              <input v-model="newContextLengths[key.token].model" type="text" placeholder="模型名称 (如 gpt-4o)" class="context-input model-input" />
+              <input v-model.number="newContextLengths[key.token].value" type="number" min="1" placeholder="context length" class="context-input" />
+              <button class="action-btn" @click="addContextLength(key)">添加</button>
+              <button class="action-btn save-btn" @click="saveContextLengths(key)">保存全部</button>
             </div>
           </div>
         </div>
@@ -159,7 +192,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useApiKeyStore } from '@/stores/apikey'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/utils/api/index'
@@ -171,6 +204,10 @@ const tokenUsage = ref(null)
 // Forms
 const siliconflowForm = reactive({ key: '', ttl: '24h', customHours: null })
 const newKeyForm = reactive({ provider: '', key: '', remark: '', ttl: '24h', customHours: null })
+
+// Context length config
+const expandedContextConfig = ref(null)
+const newContextLengths = reactive({})
 
 // TTL 选择变化处理
 function onTTLChange(form) {
@@ -221,8 +258,8 @@ function formatNumber(num) {
 }
 
 // Computed
-const siliconflowKey = () => store.siliconflowKey
-const otherKeys = () => store.otherKeys
+const siliconflowKey = computed(() => store.siliconflowKey)
+const otherKeys = computed(() => store.otherKeys)
 
 // Methods
 async function submitSiliconflowKey() {
@@ -306,6 +343,45 @@ async function toggleEnabled(key) {
   }
 }
 
+// Context length config functions
+function toggleContextConfig(token) {
+  if (expandedContextConfig.value === token) {
+    expandedContextConfig.value = null
+  } else {
+    expandedContextConfig.value = token
+    if (!newContextLengths[token]) {
+      newContextLengths[token] = { model: '', value: null }
+    }
+  }
+}
+
+function addContextLength(key) {
+  const token = key.token
+  const input = newContextLengths[token]
+  if (!input.model || !input.value) {
+    ElMessage.warning('请输入模型名称和 context length')
+    return
+  }
+  if (!key.context_lengths) {
+    key.context_lengths = {}
+  }
+  key.context_lengths[input.model] = input.value
+  newContextLengths[token] = { model: '', value: null }
+}
+
+function removeContextLength(key, model) {
+  delete key.context_lengths[model]
+}
+
+async function saveContextLengths(key) {
+  try {
+    await store.updateContextLengths(key.token, key.context_lengths || {})
+    ElMessage.success('模型上下文长度配置已保存')
+  } catch (e) {
+    ElMessage.error('保存失败：' + (e.message || '未知错误'))
+  }
+}
+
 // Helpers
 function getStatusText(status) {
   const map = {
@@ -358,16 +434,16 @@ function getRemainingTime(key) {
 }
 
 .key-card {
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 16px;
-  background: #fff;
+  background: var(--bg-primary);
 }
 
 .required-key {
-  border-color: #409eff;
-  background: #f0f9ff;
+  border-color: var(--primary);
+  background: var(--color-primary-50);
 }
 
 .key-card-header {
@@ -380,7 +456,7 @@ function getRemainingTime(key) {
 .provider-icon-svg {
   width: 20px;
   height: 20px;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
 .notice-icon {
@@ -395,7 +471,7 @@ function getRemainingTime(key) {
 }
 
 .required-badge {
-  background: #e6a23c;
+  background: var(--warning);
   color: white;
   padding: 2px 8px;
   border-radius: 4px;
@@ -409,22 +485,22 @@ function getRemainingTime(key) {
 }
 
 .status-badge.verified {
-  background: #67c23a;
+  background: var(--success);
   color: white;
 }
 
 .status-badge.unverified {
-  background: #909399;
+  background: var(--text-tertiary);
   color: white;
 }
 
 .status-badge.invalid {
-  background: #f56c6c;
+  background: var(--danger);
   color: white;
 }
 
 .status-badge.expired {
-  background: #909399;
+  background: var(--text-tertiary);
   color: white;
 }
 
@@ -441,11 +517,11 @@ function getRemainingTime(key) {
 }
 
 .key-remark {
-  color: #606266;
+  color: var(--text-secondary);
 }
 
 .key-expiry {
-  color: #909399;
+  color: var(--text-tertiary);
   font-size: 14px;
 }
 
@@ -460,30 +536,40 @@ function getRemainingTime(key) {
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
+  transition: all 0.2s;
 }
 
 .test-btn {
-  background: #e1f3d8;
-  color: #67c23a;
+  background: var(--color-success-50, #e1f3d8);
+  color: var(--success);
+}
+.test-btn:hover {
+  background: var(--color-success-100, #c6f0b3);
 }
 
 .toggle-btn {
-  background: #d9ecff;
-  color: #409eff;
+  background: var(--color-primary-100);
+  color: var(--primary);
+}
+.toggle-btn:hover {
+  background: var(--color-primary-100);
 }
 
 .delete-btn {
-  background: #fde2e2;
-  color: #f56c6c;
+  background: var(--color-danger-100, #fde2e2);
+  color: var(--danger);
+}
+.delete-btn:hover {
+  background: var(--color-danger-100, #fbc4c4);
 }
 
 .guide-text {
-  color: #606266;
+  color: var(--text-secondary);
   margin-bottom: 12px;
 }
 
 .guide-link {
-  color: #409eff;
+  color: var(--primary);
   text-decoration: none;
 }
 
@@ -500,7 +586,7 @@ function getRemainingTime(key) {
 .ttl-select,
 .custom-ttl-input {
   padding: 8px 12px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   font-size: 14px;
 }
@@ -525,7 +611,7 @@ function getRemainingTime(key) {
 
 .submit-btn {
   padding: 8px 20px;
-  background: #409eff;
+  background: var(--primary);
   color: white;
   border: none;
   border-radius: 4px;
@@ -534,7 +620,7 @@ function getRemainingTime(key) {
 }
 
 .submit-btn:disabled {
-  background: #a0cfff;
+  background: var(--primary-hover);
   cursor: not-allowed;
 }
 
@@ -545,7 +631,7 @@ function getRemainingTime(key) {
 .subsection-title {
   font-size: 16px;
   margin-bottom: 16px;
-  color: #606266;
+  color: var(--text-secondary);
 }
 
 .key-list {
@@ -557,23 +643,23 @@ function getRemainingTime(key) {
 .empty-state {
   text-align: center;
   padding: 40px;
-  color: #909399;
-  background: #f5f7fa;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
   border-radius: 8px;
 }
 
 .security-notice {
   margin-top: 32px;
   padding: 16px;
-  background: #f0f9ff;
-  border: 1px solid #d9ecff;
+  background: var(--color-primary-50);
+  border: 1px solid var(--color-primary-100);
   border-radius: 8px;
 }
 
 .notice-title {
   font-size: 14px;
   margin-bottom: 8px;
-  color: #409eff;
+  color: var(--primary);
 }
 
 .notice-list {
@@ -584,19 +670,19 @@ function getRemainingTime(key) {
 
 .notice-list li {
   font-size: 13px;
-  color: #606266;
+  color: var(--text-secondary);
   padding: 4px 0;
 }
 
 .notice-list li::before {
   content: '✓ ';
-  color: #67c23a;
+  color: var(--success);
 }
 
 .token-usage-section {
   margin-top: 32px;
   padding: 20px;
-  background: #f5f7fa;
+  background: var(--bg-secondary);
   border-radius: 8px;
 }
 
@@ -608,7 +694,7 @@ function getRemainingTime(key) {
 }
 
 .stat-card {
-  background: white;
+  background: var(--bg-primary);
   padding: 16px;
   border-radius: 8px;
   text-align: center;
@@ -617,19 +703,19 @@ function getRemainingTime(key) {
 
 .stat-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-tertiary);
   margin-bottom: 8px;
 }
 
 .stat-value {
   font-size: 24px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .stat-unit {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-tertiary);
   margin-top: 4px;
 }
 
@@ -639,7 +725,7 @@ function getRemainingTime(key) {
 
 .model-usage-title {
   font-size: 14px;
-  color: #606266;
+  color: var(--text-secondary);
   margin-bottom: 12px;
 }
 
@@ -648,25 +734,114 @@ function getRemainingTime(key) {
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  background: white;
+  background: var(--bg-primary);
   border-radius: 4px;
   margin-bottom: 8px;
 }
 
 .model-name {
   font-size: 13px;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .model-tokens {
   font-size: 13px;
-  color: #409eff;
+  color: var(--primary);
   font-weight: 500;
 }
 
 .loading-text {
   text-align: center;
-  color: #909399;
+  color: var(--text-tertiary);
   padding: 20px;
+}
+
+/* Context length config */
+.context-config-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.context-config-header {
+  margin-bottom: 12px;
+}
+
+.context-config-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.context-config-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.context-config-list {
+  margin-bottom: 12px;
+}
+
+.context-config-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.context-config-item .model-name {
+  flex: 1;
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.context-input {
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 13px;
+  width: 120px;
+}
+
+.context-input.model-input {
+  width: 200px;
+}
+
+.context-unit {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.empty-context {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  padding: 12px;
+  text-align: center;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+.context-config-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.action-btn.config-btn {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.action-btn.save-btn {
+  background: var(--success);
+  color: white;
+  border-color: var(--success);
 }
 </style>

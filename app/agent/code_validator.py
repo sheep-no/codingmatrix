@@ -6,7 +6,6 @@ import re
 import sys
 import ast
 import time
-import json
 import asyncio
 import importlib.util
 import logging
@@ -14,7 +13,6 @@ from collections import OrderedDict
 from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
 
-from app.agent.tracing import traced
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +21,7 @@ class CodeValidator:
     """代码验证器 - 语法、依赖、运行时、跨文件一致性验证（带缓存优化）"""
 
     _lru_cache: OrderedDict = OrderedDict()
-    _max_cache_bytes = 500 * 1024 * 1024
+    _max_cache_bytes = 50 * 1024 * 1024
     _cache_size_bytes = 0
     _cache_hits = 0
     _cache_misses = 0
@@ -156,20 +154,63 @@ class CodeValidator:
                     module = line.split()[1].split('.')[0]
                     imports.add(module)
                 elif line.startswith('from '):
-                    module = line.split()[1].split('.')[0]
-                    imports.add(module)
+                    # Extract the full module path (e.g., "src.utils" from "from src.utils import greet")
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        module_path = parts[1]
+                        # Add the full path and each component
+                        imports.add(module_path)
+                        for part in module_path.split('.'):
+                            if part:
+                                imports.add(part)
 
             # 检查是否可以导入
             errors = []
             standard_libs = {'os', 'sys', 'json', 're', 'datetime', 'pathlib', 'typing', 'asyncio', 'logging', 'collections', 'functools', 'itertools', 'math', 'string', 'io', 'copy', 'time', 'enum', 'dataclasses', 'abc', 'contextlib', 'urllib', 'http', 'email', 'hashlib', 'hmac', 'secrets', 'base64', 'struct', 'textwrap', 'difflib', 'unittest', 'doctest', 'pdb', 'traceback', 'warnings', 'weakref', 'types', 'importlib'}
 
+            # Add project source directories to sys.path for import resolution
+            added_paths = []
+            try:
+                current = file_path.parent
+                project_root = None
+                for _ in range(10):
+                    if (current / 'src').is_dir() or (current / 'tests').is_dir():
+                        project_root = current
+                        break
+                    parent = current.parent
+                    if parent == current:
+                        break
+                    current = parent
+
+                if project_root:
+                    root_str = str(project_root)
+                    if root_str not in sys.path:
+                        sys.path.insert(0, root_str)
+                        added_paths.append(root_str)
+
+                    src_dir = project_root / 'src'
+                    if src_dir.is_dir():
+                        src_str = str(src_dir)
+                        if src_str not in sys.path:
+                            sys.path.insert(0, src_str)
+                            added_paths.append(src_str)
+            except Exception:
+                pass
+
             for imp in imports:
                 if imp in standard_libs:
                     continue
                 try:
-                    importlib.import_module(imp)
-                except ImportError:
+                    spec = importlib.util.find_spec(imp)
+                    if spec is None:
+                        errors.append(f"缺少依赖: {imp}")
+                except (ModuleNotFoundError, ValueError):
                     errors.append(f"缺少依赖: {imp}")
+
+            # Cleanup added paths
+            for p in added_paths:
+                if p in sys.path:
+                    sys.path.remove(p)
 
             return len(errors) == 0, errors
         except Exception as e:
@@ -178,6 +219,10 @@ class CodeValidator:
     async def validate_runtime_imports(self, file_path: Path) -> Tuple[bool, List[str]]:
         """运行时导入验证：尝试实际执行导入，捕获 ImportError, AttributeError 等"""
         if file_path.suffix != '.py':
+            return True, []
+
+        # Skip runtime validation for __init__.py files (relative imports need package context)
+        if file_path.name == '__init__.py':
             return True, []
 
         errors = []
@@ -197,6 +242,38 @@ class CodeValidator:
             if spec is None or spec.loader is None:
                 return True, []  # 无法加载 spec，跳过
 
+            # Add project source directories to sys.path for import resolution
+            added_paths = []
+            try:
+                # Walk up from file to find project root (contains src/, tests/, etc.)
+                current = file_path.parent
+                project_root = None
+                for _ in range(10):  # limit traversal
+                    if (current / 'src').is_dir() or (current / 'tests').is_dir():
+                        project_root = current
+                        break
+                    parent = current.parent
+                    if parent == current:
+                        break
+                    current = parent
+
+                if project_root:
+                    # Add project root (for `from src.xxx import ...`)
+                    root_str = str(project_root)
+                    if root_str not in sys.path:
+                        sys.path.insert(0, root_str)
+                        added_paths.append(root_str)
+
+                    # Add src/ directory (for `from utils.xxx import ...` when file is in src/)
+                    src_dir = project_root / 'src'
+                    if src_dir.is_dir():
+                        src_str = str(src_dir)
+                        if src_str not in sys.path:
+                            sys.path.insert(0, src_str)
+                            added_paths.append(src_str)
+            except Exception:
+                pass  # best effort
+
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
             try:
@@ -208,9 +285,12 @@ class CodeValidator:
             except TypeError as e:
                 errors.append(f"类型错误 (可能是 API 参数不兼容): {str(e)}")
             finally:
-                # 清理临时模块
+                # 清理临时模块和路径
                 if module_name in sys.modules:
                     del sys.modules[module_name]
+                for p in added_paths:
+                    if p in sys.path:
+                        sys.path.remove(p)
 
         except Exception as e:
             errors.append(f"运行时验证异常: {str(e)}")

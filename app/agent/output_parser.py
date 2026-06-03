@@ -10,7 +10,7 @@ v4.8.0 新增：
 import json
 import re
 import logging
-from typing import Dict, List, Optional
+from typing import List
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)

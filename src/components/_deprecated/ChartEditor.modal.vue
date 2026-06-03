@@ -856,7 +856,7 @@ onBeforeUnmount(() => {
   height: 16px;
   left: 3px;
   bottom: 3px;
-  background: white;
+  background: var(--bg-primary);
   border-radius: 50%;
   transition: all 0.2s ease;
 }

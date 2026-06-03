@@ -159,7 +159,7 @@ async def _cleanup_http_client():
     except Exception as e:
         logger.warning(f"HTTP 客户端清理失败: {e}")
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, docs_url="/api/docs", redoc_url="/api/redoc", openapi_url="/api/openapi.json")
 
 # 注册统一异常处理器
 register_exception_handlers(app)
@@ -235,6 +235,36 @@ async def create_tables():
         await conn.run_sync(Base.metadata.create_all, checkfirst=True)
 
 
+async def _restore_user_providers():
+    """从 Redis 恢复用户 API Key 对应的供应商模型列表（重启后重建 CustomProvider）"""
+    from app.services.apikey_manager import get_apikey_manager
+    from app.services.custom_provider_manager import get_custom_provider_manager
+    from app.api.v1.apikey import _PROVIDER_BASE_URLS, _OPENAI_COMPAT_PROVIDERS, _sync_provider_models
+    
+    try:
+        apikey_manager = get_apikey_manager()
+        all_keys = apikey_manager.get_all_enabled_keys()
+        
+        if not all_keys:
+            return
+        
+        # 按供应商分组，只取每个供应商最新的一个 Key
+        provider_keys = {}
+        for user_id, token, provider, api_key in all_keys:
+            if provider in _OPENAI_COMPAT_PROVIDERS and provider not in provider_keys:
+                provider_keys[provider] = api_key
+        
+        if not provider_keys:
+            return
+        
+        logger.info(f"恢复 {len(provider_keys)} 个用户供应商模型列表...")
+        for provider, api_key in provider_keys.items():
+            await _sync_provider_models(provider, api_key)
+        
+    except Exception as e:
+        logger.warning(f"恢复用户供应商模型失败：{e}")
+
+
 
 # 启动事件
 @app.on_event("startup")
@@ -254,6 +284,12 @@ async def on_startup():
         logger.info("定时任务调度器启动成功")
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"定时任务调度器启动失败 | error={str(e)}")
+    
+    # 恢复用户 API Key 对应的供应商模型列表
+    try:
+        await _restore_user_providers()
+    except Exception as e:
+        logger.warning(f"恢复用户供应商模型失败（不影响正常启动）：{e}")
 
 
 # 业务路由

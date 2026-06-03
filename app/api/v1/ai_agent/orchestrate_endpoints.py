@@ -35,6 +35,7 @@ from .helpers import (
     _approval_queues, _create_project_session, _update_project_session_status,
     verify_admin_token, get_user_recent_session,
     detect_resume_intent, resolve_resume_session, analyze_files_to_regenerate,
+    _detect_and_clean_zombie_sessions, cleanup_session_files,
 )
 from app.utils.guardrails import (
     check_disk_space, check_rate_limit, validate_session_id
@@ -226,12 +227,25 @@ async def orchestrate_project_stream(
     
     user_role = token.get("role", "user")
     
-    if not system_config_manager.can_create_new_session(user_id, user_role):
-        active_sessions = system_config_manager.get_active_sessions_for_user(user_id)
-        limit = system_config_manager.get_user_concurrent_limit(user_id, user_role)
+    # 僵尸会话检测：清理 DB 中 status=running 但内存中无状态的会话
+    await _detect_and_clean_zombie_sessions(db, user_id)
+    
+    # DB 并发检查：每用户最多一个 running 会话
+    result = await db.execute(
+        select(ProjectSession).where(
+            ProjectSession.user_id == int(user_id),
+            ProjectSession.status == "running"
+        )
+    )
+    running_session = result.scalar_one_or_none()
+    if running_session:
         raise HTTPException(
-            status_code=429, 
-            detail=f"已达到并发会话限制 ({len(active_sessions)}/{limit})。请停止或删除现有项目后再创建新项目。"
+            status_code=429,
+            detail={
+                "message": f"已有运行中的项目 '{running_session.session_id}'。请先完成或停止现有项目后再创建新项目。",
+                "session_id": running_session.session_id,
+                "created_at": running_session.created_at.isoformat() if running_session.created_at else None
+            }
         )
 
     # ========== 意图检测：处理"继续"语义 ==========
@@ -290,16 +304,31 @@ async def orchestrate_project_stream(
         if request.session_id:
             session_id = request.session_id
         else:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            session_id = f"project_{user_id}_{timestamp}"
+            # 生成项目名：用户指定或自动生成
+            project_name = request.project_name or f"untitled_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            session_id = f"{user_id}_{project_name}"
         
-        output_dir = request.output_dir or f"./projects/orchestrator/{session_id}"
+        # 新格式：相对路径 {user_id}/{project_name}
+        output_dir = f"{user_id}/{project_name}"
     # ========== 意图检测结束 ==========
 
     logger.info(f"Orchestrator 流式生成请求 | user={user_id} session={session_id}")
 
     if not is_resume:
-        await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
+        # Check if session already exists (e.g., incremental mode on completed session)
+        result = await db.execute(
+            select(ProjectSession).where(ProjectSession.session_id == session_id)
+        )
+        existing_session = result.scalar_one_or_none()
+        if existing_session:
+            # Update existing session for incremental generation
+            existing_session.status = "running"
+            existing_session.requirement = request.requirement
+            existing_session.error_message = None
+            await db.commit()
+            logger.info(f"增量模式：更新已有会话 {session_id}")
+        else:
+            await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
     else:
         # 继续时更新已有 session 状态为 running
         try:
@@ -316,6 +345,11 @@ async def orchestrate_project_stream(
         except Exception:
             await db.rollback()
             await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
+
+    # 注册并发计数
+    from app.utils.dynamic_concurrent import ConcurrentLimitManager
+    concurrent_mgr = ConcurrentLimitManager()
+    concurrent_mgr.register_session(user_role)
 
     queue: asyncio.Queue = asyncio.Queue()
     approval_queue: asyncio.Queue = asyncio.Queue()
@@ -389,7 +423,7 @@ async def orchestrate_project_stream(
                             logger.warning("决策等待超时，使用默认值继续")
                     # 特殊类型直接传递，不包装成 progress
                     msg_type = progress_data.get("type", "")
-                    if msg_type in ("thinking", "model_info", "file", "file_diff"):
+                    if msg_type in ("thinking", "model_info", "file", "file_diff", "react_tool_call", "react_tool_result", "react_generating"):
                         await queue.put(f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n")
                     else:
                         await queue.put(f"data: {json.dumps({'type': 'progress', 'data': progress_data}, ensure_ascii=False)}\n\n")
@@ -435,6 +469,7 @@ async def orchestrate_project_stream(
                     await queue.put(f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n")
                 finally:
                     await _cleanup_session_queues(session_id)
+                    concurrent_mgr.unregister_session(user_role)
                     await queue.put("[DONE]")
 
             logger.info(f"[SSE] 创建生成任务 | session={session_id}")
@@ -468,6 +503,7 @@ async def orchestrate_project_stream(
                     except (asyncio.CancelledError, asyncio.TimeoutError):
                         pass
                 await _cleanup_session_queues(session_id)
+                concurrent_mgr.unregister_session(user_role)
                 if was_cancelled:
                     await sm.cancel_session(session_id)
                     async with async_session() as gen_db:
@@ -490,6 +526,114 @@ async def orchestrate_project_stream(
             "X-Accel-Buffering": "no"
         }
     )
+
+
+# ==================== 停止项目 ====================
+
+
+@router.post("/stop/{session_id}")
+async def stop_project(
+    session_id: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    用户停止项目：清理文件 + 更新状态为 cancelled
+    
+    Args:
+        session_id: 会话 ID
+        token: 用户 token
+        db: 数据库会话
+    """
+    user_id = token.get("sub", "anonymous")
+    if not user_id or user_id == "anonymous" or not user_id.isdigit():
+        raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+    
+    # 查找会话
+    result = await db.execute(
+        select(ProjectSession).where(
+            ProjectSession.session_id == session_id,
+            ProjectSession.user_id == int(user_id)
+        )
+    )
+    session = result.scalar_one_or_none()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    if session.status != "running":
+        raise HTTPException(status_code=400, detail=f"项目不在运行中，当前状态: {session.status}")
+    
+    # 清理文件
+    if session.output_dir:
+        cleanup_session_files(session.output_dir)
+    
+    # 更新状态
+    session.status = "cancelled"
+    session.completed_at = datetime.now()
+    await db.commit()
+    
+    logger.info(f"用户停止项目 | user={user_id} session={session_id}")
+    
+    return {
+        "message": "项目已停止",
+        "session_id": session_id,
+        "status": "cancelled"
+    }
+
+
+# ==================== 完成项目 ====================
+
+
+@router.post("/complete/{session_id}")
+async def complete_project(
+    session_id: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    用户表示项目完成：清理文件 + 更新状态为 completed
+    
+    Args:
+        session_id: 会话 ID
+        token: 用户 token
+        db: 数据库会话
+    """
+    user_id = token.get("sub", "anonymous")
+    if not user_id or user_id == "anonymous" or not user_id.isdigit():
+        raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+    
+    # 查找会话
+    result = await db.execute(
+        select(ProjectSession).where(
+            ProjectSession.session_id == session_id,
+            ProjectSession.user_id == int(user_id)
+        )
+    )
+    session = result.scalar_one_or_none()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    if session.status != "running":
+        raise HTTPException(status_code=400, detail=f"项目不在运行中，当前状态: {session.status}")
+    
+    # 清理文件
+    if session.output_dir:
+        cleanup_session_files(session.output_dir)
+    
+    # 更新状态
+    session.status = "completed"
+    session.completed_at = datetime.now()
+    await db.commit()
+    
+    logger.info(f"用户完成项目 | user={user_id} session={session_id}")
+    
+    return {
+        "message": "项目已完成",
+        "session_id": session_id,
+        "status": "completed"
+    }
 
 
 # ==================== 方案 3：Agent 工具 - 搜索历史会话 ====================
@@ -830,6 +974,10 @@ async def session_action_endpoint(
             cancel_ev.set()
         await sm.cancel_session(session_id)
         await _update_project_session_status(db, session_id, "cancelled")
+        # 释放并发计数
+        user_role = token.get("role", "user")
+        from app.utils.dynamic_concurrent import ConcurrentLimitManager
+        ConcurrentLimitManager().unregister_session(user_role)
         return {"status": "cancelled", "session_id": session_id}
     elif action == "resume":
         await sm.resume_from_pause(session_id, approved=True)

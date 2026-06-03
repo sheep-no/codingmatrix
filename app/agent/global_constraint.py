@@ -45,11 +45,11 @@ class GlobalConstraint:
 class GlobalConstraintParser:
     """
     全局约束解析器
-    
+
     与需求分析和架构师的协作：
     - 需求分析完成后，提取全局约束
     - 约束注入架构师和工程师的所有 prompt
-    
+
     约束示例：
     - 技术栈："必须用 FastAPI"
     - 兼容性："需兼容 IE11"
@@ -147,42 +147,42 @@ class GlobalConstraintParser:
     def parse_requirement(self, requirement: str) -> List[GlobalConstraint]:
         """
         解析需求文本，提取全局约束
-        
+
         Args:
             requirement: 用户需求文本
-        
+
         Returns:
             全局约束列表
         """
         self.constraints.clear()
         self.raw_text = requirement
-        
+
         global_statements = self._extract_global_statements(requirement)
-        
+
         for statement in global_statements:
             constraint = self._classify_constraint(statement)
             if constraint:
                 self.constraints.append(constraint)
-        
+
         logger.info(f"解析全局约束: {len(self.constraints)} 个")
         return self.constraints
 
     def _extract_global_statements(self, text: str) -> List[str]:
         """提取包含全局关键词的语句"""
         statements = []
-        
+
         sentences = re.split(r'[。\n;]', text)
-        
+
         for sentence in sentences:
             sentence = sentence.strip()
             if not sentence:
                 continue
-            
+
             for keyword in self.GLOBAL_KEYWORDS:
                 if keyword in sentence:
                     statements.append(sentence)
                     break
-        
+
         return statements
 
     def _classify_constraint(self, statement: str) -> Optional[GlobalConstraint]:
@@ -200,7 +200,7 @@ class GlobalConstraintParser:
                         applies_to=config["applies_to"],
                         priority="high"
                     )
-        
+
         return GlobalConstraint(
             id=f"general_{len(self.constraints)}",
             category=ConstraintCategory.ARCHITECTURE,
@@ -239,16 +239,16 @@ class GlobalConstraintParser:
     ) -> List[GlobalConstraint]:
         """
         获取适用于特定文件的约束
-        
+
         Args:
             file_path: 文件路径
             file_type: 文件类型
-        
+
         Returns:
             适用的约束列表
         """
         applicable = []
-        
+
         for constraint in self.constraints:
             if "all" in constraint.applies_to:
                 applicable.append(constraint)
@@ -256,7 +256,7 @@ class GlobalConstraintParser:
                 applicable.append(constraint)
             elif self._file_matches_category(file_path, constraint.category):
                 applicable.append(constraint)
-        
+
         return applicable
 
     def _file_matches_category(
@@ -266,7 +266,7 @@ class GlobalConstraintParser:
     ) -> bool:
         """判断文件是否匹配约束类别"""
         path_lower = file_path.lower()
-        
+
         category_paths = {
             ConstraintCategory.TECH_STACK: True,
             ConstraintCategory.COMPATIBILITY: "frontend" in path_lower or "view" in path_lower,
@@ -277,7 +277,7 @@ class GlobalConstraintParser:
             ConstraintCategory.NAMING: True,
             ConstraintCategory.TESTING: "test" in path_lower,
         }
-        
+
         return category_paths.get(category, True)
 
     def generate_prompt_fragment(
@@ -287,23 +287,23 @@ class GlobalConstraintParser:
     ) -> str:
         """
         生成用于注入 prompt 的约束片段
-        
+
         Args:
             file_path: 文件路径
             file_type: 文件类型
-        
+
         Returns:
             约束 prompt 片段
         """
         applicable = self.get_constraints_for_file(file_path, file_type)
-        
+
         if not applicable:
             return ""
-        
+
         lines = ["全局约束要求:"]
         for constraint in applicable:
             lines.append(f"- {constraint.description}")
-        
+
         return "\n".join(lines)
 
     def get_all_constraints(self) -> List[GlobalConstraint]:
@@ -318,18 +318,18 @@ class GlobalConstraintParser:
             "high_priority": [],
             "original_texts": []
         }
-        
+
         for constraint in self.constraints:
             cat = constraint.category.value
             if cat not in summary["by_category"]:
                 summary["by_category"][cat] = 0
             summary["by_category"][cat] += 1
-            
+
             if constraint.priority == "high":
                 summary["high_priority"].append(constraint.description)
-            
+
             summary["original_texts"].append(constraint.original_text)
-        
+
         return summary
 
     def merge_with_decisions(
@@ -338,22 +338,22 @@ class GlobalConstraintParser:
     ) -> str:
         """
         将用户决策合并到约束 prompt
-        
+
         Args:
             decisions: 用户决策字典
-        
+
         Returns:
             合后的约束 prompt
         """
         parts = []
-        
+
         if self.constraints:
             parts.append(self.generate_prompt_fragment("all", "all"))
-        
+
         if decisions:
             decision_lines = ["用户架构决策:"]
             for decision_id, choice in decisions.items():
                 decision_lines.append(f"- {decision_id}: {choice}")
             parts.append("\n".join(decision_lines))
-        
+
         return "\n\n".join(parts)

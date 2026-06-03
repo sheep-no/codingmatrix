@@ -223,7 +223,7 @@ class LoadProjectResponse(BaseModel):
 
 class OrchestratorRequest(BaseModel):
     requirement: str = Field(..., description="项目需求描述", min_length=1, max_length=MAX_PROMPT_LENGTH)
-    output_dir: Optional[str] = Field(None, description="输出目录")
+    project_name: Optional[str] = Field(None, description="项目名称（可选，自动生成）", max_length=50)
     enable_review: bool = Field(True, description="是否启用代码审查")
     enable_validation: bool = Field(True, description="是否启用代码验证")
     enable_error_recovery: bool = Field(True, description="是否启用错误恢复")
@@ -242,10 +242,17 @@ class OrchestratorRequest(BaseModel):
     def validate_session_id(cls, v):
         return validate_session_id(v, "session_id")
 
-    @field_validator('output_dir')
+    @field_validator('project_name')
     @classmethod
-    def validate_output_dir(cls, v):
-        return validate_path_safety(v, "output_dir")
+    def validate_project_name(cls, v):
+        if v is None:
+            return v
+        # 只允许字母、数字、下划线、连字符
+        if not re.match(r'^[a-zA-Z0-9_-]+$', v):
+            raise ValueError("项目名称只能包含字母、数字、下划线和连字符")
+        if len(v) > 50:
+            raise ValueError("项目名称长度不能超过50个字符")
+        return v
 
     @field_validator('requirement')
     @classmethod

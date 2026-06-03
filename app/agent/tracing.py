@@ -47,6 +47,20 @@ _current_trace_id: ContextVar[Optional[str]] = ContextVar("current_trace_id", de
 tracer: Any = None
 _tracer_provider: Any = None
 
+
+def _make_batch_processor(exporter):
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    max_queue = int(os.environ.get("OTEL_BATCH_MAX_QUEUE", "2048"))
+    schedule_delay = float(os.environ.get("OTEL_BATCH_SCHEDULE_DELAY", "5.0"))
+    max_export = int(os.environ.get("OTEL_BATCH_MAX_EXPORT", "512"))
+    return BatchSpanProcessor(
+        exporter,
+        max_queue_size=max_queue,
+        schedule_delay_millis=int(schedule_delay * 1000),
+        max_export_batch_size=max_export,
+    )
+
+
 if _otel_enabled:
     try:
         from opentelemetry import trace
@@ -97,19 +111,6 @@ if _otel_enabled:
         tracer = None
 else:
     logger.info("OpenTelemetry disabled (OTEL_ENABLED not set)")
-
-
-def _make_batch_processor(exporter):
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    max_queue = int(os.environ.get("OTEL_BATCH_MAX_QUEUE", "2048"))
-    schedule_delay = float(os.environ.get("OTEL_BATCH_SCHEDULE_DELAY", "5.0"))
-    max_export = int(os.environ.get("OTEL_BATCH_MAX_EXPORT", "512"))
-    return BatchSpanProcessor(
-        exporter,
-        max_queue_size=max_queue,
-        schedule_delay_millis=int(schedule_delay * 1000),
-        max_export_batch_size=max_export,
-    )
 
 
 class _NoopSpan:
@@ -237,7 +238,6 @@ def inject_trace_context(headers: dict) -> dict:
     if not _otel_enabled:
         return headers
     try:
-        from opentelemetry import propagate
         from opentelemetry.trace.propagation import TraceContextPropagator
         propagator = TraceContextPropagator()
         propagator.inject(headers)

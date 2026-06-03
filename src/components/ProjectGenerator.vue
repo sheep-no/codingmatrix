@@ -1233,7 +1233,7 @@
   }
 
   .project-generator-modal {
-    background: #fff;
+    background: var(--bg-primary);
     border-radius: 16px;
     width: 100%;
     max-width: 880px;
@@ -1249,7 +1249,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 20px 28px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: #fff;
   }
 
@@ -1318,10 +1318,10 @@
   }
 
   .progress-overview {
-    background: #f8fafc;
+    background: var(--bg-secondary);
     border-radius: 12px;
     padding: 18px 20px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
   }
 
   .progress-status {
@@ -1340,7 +1340,7 @@
   .pulse-dot {
     width: 10px;
     height: 10px;
-    background: #0d9488;
+    background: var(--primary);
     border-radius: 50%;
     animation: pulse 1.5s ease-in-out infinite;
   }
@@ -1353,7 +1353,7 @@
   .status-text {
     font-size: 16px;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--text-primary);
   }
 
   .progress-meta {
@@ -1366,7 +1366,7 @@
     align-items: center;
     gap: 6px;
     font-size: 13px;
-    color: #64748b;
+    color: var(--text-tertiary);
   }
 
   .meta-item svg {
@@ -1383,14 +1383,14 @@
   .progress-bar {
     flex: 1;
     height: 8px;
-    background: #e2e8f0;
+    background: var(--border-color);
     border-radius: 4px;
     overflow: hidden;
   }
 
   .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #0d9488 0%, #14b8a6 50%, #2dd4bf 100%);
+    background: linear-gradient(90deg, var(--primary) 0%, var(--primary-hover) 50%, var(--primary) 100%);
     border-radius: 4px;
     transition: width 0.4s ease;
     background-size: 200% 100%;
@@ -1405,7 +1405,7 @@
   .progress-percent {
     font-size: 14px;
     font-weight: 600;
-    color: #0d9488;
+    color: var(--primary);
     min-width: 40px;
     text-align: right;
   }
@@ -1425,18 +1425,18 @@
     font-size: 12px;
     font-weight: 500;
     transition: all 0.3s;
-    background: #f1f5f9;
-    color: #94a3b8;
+    background: var(--bg-tertiary);
+    color: var(--text-tertiary);
   }
 
   .phase-item.active {
-    background: #0d9488;
+    background: var(--primary);
     color: #fff;
   }
 
   .phase-item.completed {
-    background: #dcfce7;
-    color: #16a34a;
+    background: var(--color-success-50, #dcfce7);
+    color: var(--success);
   }
 
   .phase-icon {
@@ -1455,7 +1455,7 @@
   }
 
   .phase-item.completed .phase-icon {
-    background: #16a34a;
+    background: var(--success);
     color: #fff;
   }
 
@@ -1474,7 +1474,7 @@
 
   .generation-logs {
     flex: 1;
-    background: #0f172a;
+    background: var(--bg-primary);
     border-radius: 12px;
     padding: 16px;
     max-height: 380px;
@@ -1482,7 +1482,7 @@
     font-family: 'JetBrains Mono', 'Consolas', monospace;
     font-size: 12px;
     line-height: 1.8;
-    border: 1px solid #1e293b;
+    border: 1px solid var(--text-primary);
   }
 
   .thinking-log-block {
@@ -1503,7 +1503,7 @@
     padding: 8px 12px;
     cursor: pointer;
     list-style: none;
-    color: #a78bfa;
+    color: var(--color-primary-500);
     font-size: 12px;
     font-weight: 600;
   }
@@ -1530,7 +1530,7 @@
 
   .thinking-log-content {
     padding: 12px;
-    color: #c4b5fd;
+    color: var(--color-primary-400);
     font-size: 12px;
     line-height: 1.6;
     border-top: 1px solid rgba(139, 92, 246, 0.15);
@@ -1541,14 +1541,14 @@
 
   .thinking-log-content code {
     background: rgba(139, 92, 246, 0.2);
-    color: #e9d5ff;
+    color: var(--color-primary-300);
     padding: 1px 4px;
     border-radius: 3px;
     font-size: 11px;
   }
 
   .thinking-log-content strong {
-    color: #e9d5ff;
+    color: var(--color-primary-300);
   }
 
   .log-item {
@@ -1560,7 +1560,7 @@
   }
 
   .log-time {
-    color: #64748b;
+    color: var(--text-tertiary);
     min-width: 70px;
     font-size: 11px;
   }
@@ -1585,36 +1585,36 @@
   }
 
   .log-item.info .log-message {
-    color: #cbd5e1;
+    color: var(--text-tertiary);
   }
 
   .log-item.success .log-message {
-    color: #4ade80;
+    color: var(--success);
   }
 
   .log-item.warning .log-message {
-    color: #fbbf24;
+    color: var(--warning);
   }
 
   .log-item.error .log-message {
-    color: #f87171;
+    color: var(--danger);
   }
 
   .log-item.thinking .log-message {
-    color: #a78bfa;
+    color: var(--color-primary-500);
     font-style: italic;
   }
 
   .log-item.success .log-icon svg {
-    color: #4ade80;
+    color: var(--success);
   }
 
   .log-item.warning .log-icon svg {
-    color: #fbbf24;
+    color: var(--warning);
   }
 
   .log-item.error .log-icon svg {
-    color: #f87171;
+    color: var(--danger);
   }
 
   .generation-form {
@@ -1624,10 +1624,10 @@
   }
 
   .saved-projects-section {
-    background: #f8fafc;
+    background: var(--bg-secondary);
     border-radius: 12px;
     padding: 16px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
   }
 
   .section-header {
@@ -1640,12 +1640,12 @@
   .section-header h4 {
     margin: 0;
     font-size: 14px;
-    color: #334155;
+    color: var(--text-secondary);
   }
 
   .project-count {
-    background: #e2e8f0;
-    color: #64748b;
+    background: var(--border-color);
+    color: var(--text-tertiary);
     font-size: 11px;
     padding: 2px 8px;
     border-radius: 10px;
@@ -1655,16 +1655,16 @@
     margin-left: auto;
     padding: 4px 10px;
     font-size: 12px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    background: #fff;
-    color: #64748b;
+    background: var(--bg-primary);
+    color: var(--text-tertiary);
     cursor: pointer;
     transition: all 0.2s;
   }
 
   .btn-small:hover {
-    background: #f1f5f9;
+    background: var(--bg-tertiary);
   }
 
   .saved-projects-list {
@@ -1678,27 +1678,27 @@
     align-items: center;
     gap: 12px;
     padding: 10px 12px;
-    background: #fff;
+    background: var(--bg-primary);
     border-radius: 8px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
     cursor: pointer;
     transition: all 0.2s;
   }
 
   .saved-project-item:hover {
-    border-color: #0d9488;
+    border-color: var(--primary);
     box-shadow: 0 2px 8px rgba(13, 148, 136, 0.1);
   }
 
   .project-icon {
     width: 36px;
     height: 36px;
-    background: #f0fdfa;
+    background: var(--color-primary-50);
     border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #0d9488;
+    color: var(--primary);
   }
 
   .project-icon svg {
@@ -1716,12 +1716,12 @@
   .project-name {
     font-size: 14px;
     font-weight: 500;
-    color: #1e293b;
+    color: var(--text-primary);
   }
 
   .project-date {
     font-size: 12px;
-    color: #94a3b8;
+    color: var(--text-tertiary);
   }
 
   .btn-delete {
@@ -1729,7 +1729,7 @@
     height: 32px;
     border: none;
     background: transparent;
-    color: #94a3b8;
+    color: var(--text-tertiary);
     cursor: pointer;
     border-radius: 6px;
     display: flex;
@@ -1739,8 +1739,8 @@
   }
 
   .btn-delete:hover {
-    background: #fee2e2;
-    color: #ef4444;
+    background: var(--color-danger-100, #fee2e2);
+    color: var(--danger);
   }
 
   .btn-delete svg {
@@ -1759,32 +1759,32 @@
     align-items: center;
     gap: 8px;
     font-weight: 600;
-    color: #334155;
+    color: var(--text-secondary);
     font-size: 14px;
   }
 
   .form-group label svg {
     width: 16px;
     height: 16px;
-    color: #0d9488;
+    color: var(--primary);
   }
 
   .form-textarea,
   .form-input {
     padding: 12px 14px;
-    border: 2px solid #e2e8f0;
+    border: 2px solid var(--border-color);
     border-radius: 10px;
     font-size: 14px;
     font-family: inherit;
     transition: all 0.2s;
     resize: vertical;
-    background: #fff;
+    background: var(--bg-primary);
   }
 
   .form-textarea:focus,
   .form-input:focus {
     outline: none;
-    border-color: #0d9488;
+    border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
   }
 
@@ -1797,49 +1797,49 @@
     align-items: flex-start;
     gap: 10px;
     padding: 12px 14px;
-    background: #f0fdfa;
-    border-left: 3px solid #0d9488;
+    background: var(--color-primary-50);
+    border-left: 3px solid var(--primary);
     border-radius: 8px;
   }
 
   .form-info svg {
     width: 18px;
     height: 18px;
-    color: #0d9488;
+    color: var(--primary);
     flex-shrink: 0;
     margin-top: 1px;
   }
 
   .form-info p {
     margin: 0;
-    color: #475569;
+    color: var(--text-secondary);
     font-size: 13px;
     line-height: 1.5;
   }
 
   .info-warning {
     margin-top: 8px !important;
-    color: #b45309 !important;
+    color: var(--text-primary) !important;
     font-weight: 500;
   }
 
   .session-id-readonly {
-    background: #f8fafc;
-    color: #64748b;
+    background: var(--bg-secondary);
+    color: var(--text-tertiary);
     font-family: 'SF Mono', 'Fira Code', monospace;
     font-size: 12px;
     cursor: default;
   }
 
   .session-id-readonly:focus {
-    border-color: #cbd5e1;
+    border-color: var(--text-tertiary);
     box-shadow: none;
   }
 
   .field-hint {
     margin: 6px 0 0;
     font-size: 12px;
-    color: #94a3b8;
+    color: var(--text-tertiary);
     line-height: 1.4;
   }
 
@@ -1848,8 +1848,8 @@
     justify-content: flex-end;
     gap: 10px;
     padding: 16px 28px;
-    background: #f8fafc;
-    border-top: 1px solid #e2e8f0;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
   }
 
   .btn {
@@ -1871,7 +1871,7 @@
   }
 
   .btn-primary {
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: #fff;
   }
 
@@ -1887,22 +1887,22 @@
   }
 
   .btn-secondary {
-    background: #e2e8f0;
-    color: #475569;
+    background: var(--border-color);
+    color: var(--text-secondary);
   }
 
   .btn-secondary:hover {
-    background: #cbd5e1;
+    background: var(--text-tertiary);
   }
 
   .btn-save {
-    background: #f0fdfa;
-    color: #0d9488;
-    border: 1px solid #99f6e4;
+    background: var(--color-primary-50);
+    color: var(--primary);
+    border: 1px solid var(--color-primary-200);
   }
 
   .btn-save:hover:not(:disabled) {
-    background: #ccfbf1;
+    background: var(--color-primary-100);
   }
 
   .btn-save:disabled {
@@ -1911,48 +1911,48 @@
   }
 
   .btn-success {
-    background: #16a34a;
+    background: var(--success);
     color: #fff;
   }
 
   .btn-success:hover {
-    background: #15803d;
+    background: var(--success);
   }
 
   .btn-danger {
-    background: #ef4444;
+    background: var(--danger);
     color: #fff;
   }
 
   .btn-danger:hover {
-    background: #dc2626;
+    background: var(--danger-hover);
   }
 
   .btn-warning {
-    background: #f59e0b;
+    background: var(--warning);
     color: #fff;
   }
 
   .btn-warning:hover {
-    background: #d97706;
+    background: var(--warning-hover);
   }
 
   .btn-download {
-    background: #3b82f6;
+    background: var(--primary);
     color: #fff;
   }
 
   .btn-download:hover {
-    background: #2563eb;
+    background: var(--primary-hover);
   }
 
   .btn-info {
-    background: #0ea5e9;
+    background: var(--color-primary-500);
     color: #fff;
   }
 
   .btn-info:hover {
-    background: #0284c7;
+    background: var(--color-primary-600);
   }
 
   /* 面板通用样式 */
@@ -1960,9 +1960,9 @@
   .snapshot-panel,
   .knowledge-panel {
     margin: 16px 28px;
-    background: #f8fafc;
+    background: var(--bg-secondary);
     border-radius: 12px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
     overflow: hidden;
   }
 
@@ -1971,15 +1971,15 @@
     justify-content: space-between;
     align-items: center;
     padding: 12px 16px;
-    background: #fff;
-    border-bottom: 1px solid #e2e8f0;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
   }
 
   .panel-header h3 {
     margin: 0;
     font-size: 16px;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--text-primary);
   }
 
   .close-panel {
@@ -1987,7 +1987,7 @@
     border: none;
     font-size: 24px;
     cursor: pointer;
-    color: #64748b;
+    color: var(--text-tertiary);
     width: 32px;
     height: 32px;
     display: flex;
@@ -1997,7 +1997,7 @@
   }
 
   .close-panel:hover {
-    background: #f1f5f9;
+    background: var(--bg-tertiary);
   }
 
   /* 文件预览 */
@@ -2009,8 +2009,8 @@
   .file-list {
     width: 220px;
     overflow-y: auto;
-    border-right: 1px solid #e2e8f0;
-    background: #fff;
+    border-right: 1px solid var(--border-color);
+    background: var(--bg-primary);
   }
 
   .file-list-item {
@@ -2019,16 +2019,16 @@
     gap: 8px;
     padding: 8px 12px;
     cursor: pointer;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--bg-tertiary);
   }
 
   .file-list-item:hover {
-    background: #f0fdfa;
+    background: var(--color-primary-50);
   }
 
   .file-list-item.active {
-    background: #ccfbf1;
-    color: #0d9488;
+    background: var(--color-primary-100);
+    color: var(--primary);
   }
 
   .file-icon-small {
@@ -2055,14 +2055,14 @@
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    background: #fff;
-    border-bottom: 1px solid #e2e8f0;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
   }
 
   .file-name {
     font-size: 13px;
     font-weight: 600;
-    color: #334155;
+    color: var(--text-secondary);
   }
 
   .file-actions {
@@ -2075,8 +2075,8 @@
     overflow: auto;
     padding: 12px;
     margin: 0;
-    background: #0f172a;
-    color: #e2e8f0;
+    background: var(--bg-primary);
+    color: var(--border-color);
     font-size: 12px;
     line-height: 1.6;
     font-family: 'JetBrains Mono', 'Consolas', monospace;
@@ -2088,7 +2088,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #94a3b8;
+    color: var(--text-tertiary);
   }
 
   .file-content-empty svg {
@@ -2102,7 +2102,7 @@
   .snapshot-body {
     max-height: 400px;
     overflow-y: auto;
-    background: #fff;
+    background: var(--bg-primary);
   }
 
   .snapshot-list {
@@ -2115,7 +2115,7 @@
     align-items: center;
     padding: 10px 12px;
     border-radius: 8px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
     margin-bottom: 8px;
   }
 
@@ -2128,12 +2128,12 @@
   .snapshot-tag {
     font-size: 14px;
     font-weight: 500;
-    color: #1e293b;
+    color: var(--text-primary);
   }
 
   .snapshot-date {
     font-size: 12px;
-    color: #94a3b8;
+    color: var(--text-tertiary);
   }
 
   .snapshot-actions {
@@ -2144,24 +2144,24 @@
   .snapshot-empty {
     padding: 32px;
     text-align: center;
-    color: #94a3b8;
+    color: var(--text-tertiary);
   }
 
   .diff-view {
     margin: 8px;
     padding: 12px;
-    background: #0f172a;
+    background: var(--bg-primary);
     border-radius: 8px;
   }
 
   .diff-view h4 {
     margin: 0 0 8px;
-    color: #e2e8f0;
+    color: var(--border-color);
   }
 
   .diff-code {
     margin: 0;
-    color: #e2e8f0;
+    color: var(--border-color);
     font-size: 12px;
     line-height: 1.6;
     font-family: 'JetBrains Mono', 'Consolas', monospace;
@@ -2173,7 +2173,7 @@
   .knowledge-body {
     max-height: 400px;
     overflow-y: auto;
-    background: #fff;
+    background: var(--bg-primary);
     padding: 12px;
   }
 
@@ -2186,7 +2186,7 @@
 
   .knowledge-input {
     padding: 8px 12px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     font-size: 13px;
     font-family: inherit;
@@ -2195,7 +2195,7 @@
 
   .knowledge-category {
     padding: 8px 12px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     font-size: 13px;
   }
@@ -2209,7 +2209,7 @@
   .knowledge-search-input {
     flex: 1;
     padding: 8px 12px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     font-size: 13px;
   }
@@ -2222,7 +2222,7 @@
 
   .knowledge-result {
     padding: 8px 12px;
-    background: #f0fdfa;
+    background: var(--color-primary-50);
     border-radius: 8px;
   }
 
@@ -2233,7 +2233,7 @@
 
   .knowledge-score {
     font-size: 11px;
-    color: #0d9488;
+    color: var(--primary);
   }
 
   .knowledge-list {
@@ -2244,7 +2244,7 @@
 
   .knowledge-item {
     padding: 8px 12px;
-    background: #f8fafc;
+    background: var(--bg-secondary);
     border-radius: 8px;
   }
 
@@ -2255,8 +2255,8 @@
 
   .knowledge-category-tag {
     font-size: 11px;
-    background: #e2e8f0;
-    color: #64748b;
+    background: var(--border-color);
+    color: var(--text-tertiary);
     padding: 2px 8px;
     border-radius: 10px;
   }
@@ -2265,19 +2265,19 @@
   .btn-small {
     padding: 4px 10px;
     font-size: 12px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    background: #fff;
-    color: #64748b;
+    background: var(--bg-primary);
+    color: var(--text-tertiary);
     cursor: pointer;
   }
 
   .btn-small:hover {
-    background: #f1f5f9;
+    background: var(--bg-tertiary);
   }
 
   .btn-danger-small {
-    color: #ef4444;
+    color: var(--danger);
     border-color: #fecaca;
   }
 

@@ -20,16 +20,19 @@ _max_concurrent_calls = asyncio.Semaphore(20)
 
 # 共享 HTTP 客户端
 _http_client: Optional[httpx.AsyncClient] = None
+_http_client_lock = asyncio.Lock()
 
 
 async def get_http_client() -> httpx.AsyncClient:
-    """获取或创建共享的 HTTP 客户端（连接池复用）"""
+    """获取或创建共享的 HTTP 客户端（连接池复用，双重检查锁）"""
     global _http_client
     if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(
-            timeout=Timeout(60.0, connect=10.0),
-            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
-        )
+        async with _http_client_lock:
+            if _http_client is None or _http_client.is_closed:
+                _http_client = httpx.AsyncClient(
+                    timeout=Timeout(180.0, connect=10.0),
+                    limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
+                )
     return _http_client
 
 
@@ -44,7 +47,7 @@ async def close_http_client():
 async def call_with_retry(
     request_func,
     max_retries: int = 3,
-    retry_on_status: tuple = (500, 502, 503, 504)
+    retry_on_status: tuple = (429, 500, 502, 503, 504)
 ):
     """
     带重试机制的 API 调用
@@ -52,7 +55,7 @@ async def call_with_retry(
     Args:
         request_func: 异步请求函数
         max_retries: 最大重试次数
-        retry_on_status: 需要重试的 HTTP 状态码
+        retry_on_status: 需要重试的 HTTP 状态码（默认包含 429 限流）
     
     Returns:
         响应结果
@@ -66,7 +69,15 @@ async def call_with_retry(
                 if result.status_code == 200:
                     return result
                 if result.status_code in retry_on_status:
-                    wait_time = (2 ** attempt) * 1.0
+                    # 429 优先使用 Retry-After header
+                    if result.status_code == 429:
+                        retry_after = result.headers.get('Retry-After')
+                        if retry_after and retry_after.isdigit():
+                            wait_time = min(int(retry_after), 60)
+                        else:
+                            wait_time = (2 ** attempt) * 2.0  # 429 用更长退避
+                    else:
+                        wait_time = (2 ** attempt) * 1.0
                     logger.warning(f"API 失败 (状态码 {result.status_code}), 重试 {attempt + 1}/{max_retries}, 等待 {wait_time}s")
                     await asyncio.sleep(wait_time)
                     last_error = result
@@ -95,13 +106,16 @@ class RateLimitedClient:
     def __init__(self, max_concurrent: int = 20):
         self.semaphore = asyncio.Semaphore(max_concurrent)
         self._client: Optional[httpx.AsyncClient] = None
+        self._lock = asyncio.Lock()
     
     async def get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                timeout=Timeout(60.0, connect=10.0),
-                limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
-            )
+            async with self._lock:
+                if self._client is None or self._client.is_closed:
+                    self._client = httpx.AsyncClient(
+                        timeout=Timeout(60.0, connect=10.0),
+                        limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
+                    )
         return self._client
     
     async def request(self, method: str, url: str, **kwargs):

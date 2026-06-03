@@ -11,12 +11,9 @@
             </div>
           </div>
           <div class="settings-section"><h4>AI 模型配置</h4>
-            <div class="settings-grid">
-              <div class="setting-item"><label>架构设计模型</label><select v-model="localSettings.models.architecture" class="setting-select"><option>Qwen3-Plus</option><option>Qwen3-Coder</option><option>DeepSeek-V3</option><option>GPT-4o</option></select></div>
-              <div class="setting-item"><label>前端代码模型</label><select v-model="localSettings.models.frontend" class="setting-select"><option>Qwen3-Coder</option><option>Qwen3-Plus</option><option>DeepSeek-V3</option><option>Claude 3.5 Sonnet</option></select></div>
-              <div class="setting-item"><label>后端代码模型</label><select v-model="localSettings.models.backend" class="setting-select"><option>Qwen3-Coder</option><option>Qwen3-Plus</option><option>DeepSeek-V3</option><option>Claude 3.5 Sonnet</option></select></div>
-              <div class="setting-item"><label>测试代码模型</label><select v-model="localSettings.models.test" class="setting-select"><option>Qwen3-Coder</option><option>Qwen3-Plus</option><option>DeepSeek-V3</option></select></div>
-              <div class="setting-item"><label>代码审查模型</label><select v-model="localSettings.models.review" class="setting-select"><option>Qwen3-Plus</option><option>Qwen3-Coder</option><option>DeepSeek-V3</option><option>GPT-4o</option></select></div>
+            <div class="api-key-hint">
+              <p>Agent 各环节使用的模型、降级链和错误恢复策略，请前往设置页面配置。</p>
+              <button class="btn btn-sm btn-primary" @click="$emit('open-model-config')">前往模型配置</button>
             </div>
           </div>
           <div class="settings-section"><h4>生成配置</h4>
@@ -55,7 +52,7 @@
 import { ref, watch } from 'vue'
 
 const props = defineProps({ modelValue: Boolean, settings: { type: Object, required: true }, concurrentLimits: { type: Object, required: true }, cacheStats: { type: Object, required: true } })
-const emit = defineEmits(['update:modelValue', 'save', 'copy', 'export', 'clear-cache', 'open-api-key'])
+const emit = defineEmits(['update:modelValue', 'save', 'copy', 'export', 'clear-cache', 'open-api-key', 'open-model-config'])
 
 // Local editable copy
 const localSettings = ref(JSON.parse(JSON.stringify(props.settings)))

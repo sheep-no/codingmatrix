@@ -1,7 +1,9 @@
 import re
+import json
 import asyncio
 import logging
-from typing import Optional, Dict, Any, List, Tuple
+import subprocess
+from typing import Optional, Dict, List, Tuple
 from pathlib import Path
 
 from app.utils import call_llm
@@ -9,9 +11,142 @@ from app.agent.specialists import Specialist
 from app.agent.code_patcher import apply_incremental_change
 from app.agent.complexity import ProjectComplexity
 from app.agent.code_validator import CodeValidator
-from app.agent.orchestrator_progress import PROGRESS_LABELS, MAX_CONCURRENT_LLM_CALLS
+from app.agent.orchestrator_progress import PROGRESS_LABELS
+from app.agent.specialist_base import get_global_llm_semaphore
+from app.agent.test_generator import get_test_generator
 
 logger = logging.getLogger(__name__)
+
+# 写入类工具名称（用于编辑标记检测）
+_WRITE_TOOLS = {"partial_update", "insert_content", "regex_replace"}
+
+
+def _is_edit_marker(content: str) -> bool:
+    """检查工程师返回的内容是否是编辑标记（而非完整文件内容）"""
+    if not content:
+        return False
+    try:
+        data = json.loads(content.strip())
+        return isinstance(data, dict) and data.get("action") == "edited"
+    except (json.JSONDecodeError, ValueError):
+        return False
+
+
+def _git_stash_push(work_dir: str, files: List[str], message: str = "agent-backup") -> bool:
+    """用 git stash 备份已 track 的文件"""
+    if not files:
+        return True
+    try:
+        result = subprocess.run(
+            ['git', 'stash', 'push', '-m', message, '--'] + files,
+            cwd=work_dir, capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            logger.info(f"git stash push: {len(files)} 个文件")
+            return True
+        logger.warning(f"git stash push 失败: {result.stderr.strip()}")
+        return False
+    except Exception as e:
+        logger.warning(f"git stash push 异常: {e}")
+        return False
+
+
+def _git_stash_pop(work_dir: str) -> bool:
+    """恢复最近的 git stash"""
+    try:
+        result = subprocess.run(
+            ['git', 'stash', 'pop'],
+            cwd=work_dir, capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            logger.info("git stash pop: 恢复成功")
+            return True
+        logger.warning(f"git stash pop 失败: {result.stderr.strip()}")
+        return False
+    except Exception as e:
+        logger.warning(f"git stash pop 异常: {e}")
+        return False
+
+
+def _git_stash_drop(work_dir: str) -> bool:
+    """丢弃最近的 git stash"""
+    try:
+        result = subprocess.run(
+            ['git', 'stash', 'drop'],
+            cwd=work_dir, capture_output=True, text=True, timeout=10
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _fix_absolute_imports(
+    content: str, file_path: str, all_project_files: List[str]
+) -> str:
+    """修复 Python 文件中的绝对导入，转为相对导入。
+
+    当 LLM 生成 from src.utils import greet 时，自动转为 from .utils import greet。
+    仅处理 Python 文件，且仅当目标模块在同包内存在时才转换。
+    """
+    if not file_path.endswith('.py'):
+        return content
+
+    # 当前文件的包路径
+    parts = file_path.replace('\\', '/').split('/')
+    if len(parts) < 2:
+        return content  # 顶层文件，无需处理
+    current_pkg = '/'.join(parts[:-1])  # e.g. "src/utils"
+
+    # 构建同包文件集合（用于判断目标模块是否在同一包内）
+    same_pkg_modules = set()
+    for f in all_project_files:
+        if not f.endswith('.py'):
+            continue
+        f_norm = f.replace('\\', '/')
+        f_pkg = '/'.join(f_norm.split('/')[:-1])
+        if f_pkg == current_pkg:
+            stem = f_norm.split('/')[-1].replace('.py', '')
+            same_pkg_modules.add(stem)
+
+    # 匹配 from src.xxx import yyy 或 from src.xxx.yyy import zzz
+    # 需要找到 common prefix（如 src/ 或 app/）来识别绝对导入
+    lines = content.split('\n')
+    fixed_lines = []
+    changed = False
+
+    for line in lines:
+        stripped = line.strip()
+        # 匹配 from <prefix>.<module> import <names>
+        m = re.match(r'^(from\s+)([\w.]+)(\s+import\s+.+)$', stripped)
+        if m:
+            prefix = m.group(1)
+            module_path = m.group(2)  # e.g. "src.utils" or "app.models.user"
+            suffix = m.group(3)
+
+            # 将模块路径转为文件路径
+            module_parts = module_path.split('.')
+
+            # 尝试找到与 current_pkg 匹配的前缀，然后检查剩余部分是否在同包内
+            # 例如: current_pkg = "src/utils", module_path = "src.utils.helpers"
+            #   → prefix_match at "src.utils", remainder = "helpers"
+            for i in range(1, len(module_parts)):
+                candidate_pkg = '/'.join(module_parts[:i])
+                if candidate_pkg == current_pkg:
+                    target_module = module_parts[i]
+                    if target_module in same_pkg_modules:
+                        # 转为相对导入
+                        new_import = f"{prefix}.{target_module}{suffix}"
+                        fixed_lines.append(line.replace(stripped, new_import))
+                        changed = True
+                        break
+            else:
+                fixed_lines.append(line)
+        else:
+            fixed_lines.append(line)
+
+    if changed:
+        logger.info(f"自动修复绝对导入: {file_path}")
+    return '\n'.join(fixed_lines)
 
 
 class FilesMixin:
@@ -22,7 +157,21 @@ class FilesMixin:
         project_context: Dict,
         total_files: int
     ):
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM_CALLS)
+        semaphore = get_global_llm_semaphore()
+
+        # 分离已有文件和新文件
+        existing_files = []
+        new_files = []
+        for fi in file_plan:
+            fp = fi.get("path", "")
+            full_path = self.output_dir / fp
+            if full_path.exists():
+                existing_files.append(fp)
+            else:
+                new_files.append(fp)
+
+        # git stash 备份已有文件
+        stashed = _git_stash_push(str(self.output_dir), existing_files, "agent-backup-batch")
 
         async def generate_with_semaphore(file_info: Dict) -> Dict:
             async with semaphore:
@@ -31,11 +180,37 @@ class FilesMixin:
         tasks = [generate_with_semaphore(fi) for fi in file_plan]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for result in results:
+        # 检查是否全部成功
+        all_success = True
+        for i, result in enumerate(results):
             if isinstance(result, Exception):
                 self.errors.append(f"文件生成失败: 内部异常 - {self._friendly_error(str(result))}")
-            elif result:
-                self.generated_files.append(result)
+                all_success = False
+            elif result is None:
+                file_path = file_plan[i].get("path", "unknown") if i < len(file_plan) else "unknown"
+                self.errors.append(f"文件生成失败: {file_path}（返回空内容）")
+                all_success = False
+            elif result and not result.get("success", True):
+                all_success = False
+
+        if not all_success:
+            # 回滚：恢复 git stash + 删除新文件
+            if stashed:
+                _git_stash_pop(str(self.output_dir))
+                logger.info(f"git stash pop: 回滚 {len(existing_files)} 个文件")
+            for fp in new_files:
+                full_path = self.output_dir / fp
+                if full_path.exists():
+                    full_path.unlink()
+                    logger.info(f"删除失败的新文件: {fp}")
+            self.warnings.append("小项目生成失败，已回滚")
+        else:
+            # 成功：丢弃 stash
+            if stashed:
+                _git_stash_drop(str(self.output_dir))
+            for result in results:
+                if result and not isinstance(result, Exception):
+                    self.generated_files.append(result)
 
     async def _generate_files_by_dep_layers(
         self,
@@ -45,7 +220,7 @@ class FilesMixin:
         dep_graph
     ):
         layers = dep_graph.get_generation_layers()
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM_CALLS)
+        semaphore = get_global_llm_semaphore()
 
         file_info_map: Dict[str, Dict] = {fi.get("path", ""): fi for fi in file_plan}
 
@@ -63,6 +238,19 @@ class FilesMixin:
                 files_in_layer=len(layer_files)
             )
 
+            # 分离已有文件和新文件
+            existing_files = []
+            new_files = []
+            for fp in layer_files:
+                full_path = self.output_dir / fp
+                if full_path.exists():
+                    existing_files.append(fp)
+                else:
+                    new_files.append(fp)
+
+            # git stash 备份已有文件
+            stashed = _git_stash_push(str(self.output_dir), existing_files, f"agent-backup-layer-{layer_idx}")
+
             async def generate_with_semaphore(file_path: str) -> Dict:
                 async with semaphore:
                     fi = file_info_map.get(file_path, {"path": file_path, "description": f"生成 {file_path}"})
@@ -71,17 +259,43 @@ class FilesMixin:
             tasks = [generate_with_semaphore(fp) for fp in layer_files]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            for result in results:
+            # 检查本层是否全部成功
+            layer_success = True
+            for i, result in enumerate(results):
                 if isinstance(result, Exception):
                     self.errors.append(f"文件生成失败: 内部异常 - {self._friendly_error(str(result))}")
-                elif result:
-                    self.generated_files.append(result)
-                    try:
-                        full_path = self.output_dir / result["path"]
-                        if full_path.exists():
-                            self._generated_contents[result["path"]] = full_path.read_text(encoding="utf-8")
-                    except Exception as read_err:
-                        logger.debug(f"读取生成文件内容失败: {read_err}")
+                    layer_success = False
+                elif result is None:
+                    file_path = layer_files[i] if i < len(layer_files) else "unknown"
+                    self.errors.append(f"文件生成失败: {file_path}（返回空内容）")
+                    layer_success = False
+                elif result and not result.get("success", True):
+                    layer_success = False
+
+            if not layer_success:
+                # 回滚：恢复 git stash + 删除新文件
+                if stashed:
+                    _git_stash_pop(str(self.output_dir))
+                    logger.info(f"git stash pop: 回滚第 {layer_idx+1} 层 {len(existing_files)} 个文件")
+                for fp in new_files:
+                    full_path = self.output_dir / fp
+                    if full_path.exists():
+                        full_path.unlink()
+                        logger.info(f"删除失败的新文件: {fp}")
+                self.warnings.append(f"第 {layer_idx+1} 层生成失败，已回滚")
+            else:
+                # 成功：丢弃 stash
+                if stashed:
+                    _git_stash_drop(str(self.output_dir))
+                for result in results:
+                    if result and not isinstance(result, Exception):
+                        self.generated_files.append(result)
+                        try:
+                            full_path = self.output_dir / result["path"]
+                            if full_path.exists():
+                                self._generated_contents[result["path"]] = full_path.read_text(encoding="utf-8")
+                        except Exception as read_err:
+                            logger.debug(f"读取生成文件内容失败: {read_err}")
 
     async def _generate_single_file(
         self,
@@ -92,7 +306,6 @@ class FilesMixin:
     ) -> Optional[Dict]:
         file_path = file_info.get("path", "")
         description = file_info.get("description", "")
-        priority = file_info.get("priority", 3)
 
         self._report_progress(
             PROGRESS_LABELS["generating_file"],
@@ -119,22 +332,93 @@ class FilesMixin:
                 file_type=file_type,
                 project_context=project_context
             )
+            if prevention_prompt:
+                project_context = {**project_context, "prevention_hints": prevention_prompt}
 
-        content = await engineer.generate_file(file_path, description, project_context)
+        spec_context = ""
+        dep_context = ""
+        if self.dependency_graph_obj:
+            dep_context = self.dependency_graph_obj.get_context_for_file(
+                file_path, generated_contents or {}
+            )
 
-        if not content:
+        # 判断文件是否已存在
+        full_path = self.output_dir / self._normalize_file_path(file_path)
+        is_existing = full_path.exists()
+
+        # 清空编辑记录
+        engineer.clear_edits()
+
+        content = await engineer.generate_file(
+            file_path, description, project_context, spec_context, dep_context,
+            project_path=str(self.output_dir), callback=self.callback,
+            is_existing_file=is_existing,
+        )
+
+        # 获取工程师通过工具编辑过的文件
+        edited_files = engineer.get_edited_files()
+
+        if edited_files:
+            # 工程师已通过 partial_update/insert_content/regex_replace 直接修改了文件
+            # 读取修改后的文件内容用于验证
+            norm_path = self._normalize_file_path(file_path)
+            full_path = self.output_dir / norm_path
+            if full_path.exists():
+                content = full_path.read_text(encoding='utf-8')
+                all_files = list(self.dependency_graph_obj.nodes.keys()) if self.dependency_graph_obj else []
+                fixed = _fix_absolute_imports(content, file_path, all_files)
+                if fixed != content:
+                    full_path.write_text(fixed, encoding='utf-8')
+                    content = fixed
+                logger.info(f"工程师通过工具直接编辑了文件: {file_path}，跳过写入步骤")
+            else:
+                self.errors.append(f"工程师报告编辑了文件但文件不存在: {file_path}")
+                return None
+        elif content and _is_edit_marker(content):
+            # 工程师返回了编辑标记（JSON），文件已被工具修改
+            norm_path = self._normalize_file_path(file_path)
+            full_path = self.output_dir / norm_path
+            if full_path.exists():
+                content = full_path.read_text(encoding='utf-8')
+                all_files = list(self.dependency_graph_obj.nodes.keys()) if self.dependency_graph_obj else []
+                fixed = _fix_absolute_imports(content, file_path, all_files)
+                if fixed != content:
+                    full_path.write_text(fixed, encoding='utf-8')
+                    content = fixed
+                logger.info(f"工程师返回编辑标记: {file_path}，读取已修改文件")
+            else:
+                self.errors.append(f"工程师返回编辑标记但文件不存在: {file_path}")
+                return None
+        elif content:
+            # 工程师返回了完整文件内容
+            content = self._clean_code_block(content)
+            all_files = list(self.dependency_graph_obj.nodes.keys()) if self.dependency_graph_obj else []
+            content = _fix_absolute_imports(content, file_path, all_files)
+            norm_path = self._normalize_file_path(file_path)
+            full_path = self.output_dir / norm_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+        else:
+            # 空内容：fallback
             self._report_progress(
                 PROGRESS_LABELS["react_fallback"],
                 len(self.generated_files) + 1,
                 total_files + 4,
                 file_path=file_path
             )
-            content = await self._react_generate_file(file_path, description, project_context)
+            content = await self._direct_llm_generate_file(file_path, description, project_context)
             if not content:
                 self.errors.append(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
                 return None
-
-        content = self._clean_code_block(content)
+            content = self._clean_code_block(content)
+            all_files = list(self.dependency_graph_obj.nodes.keys()) if self.dependency_graph_obj else []
+            content = _fix_absolute_imports(content, file_path, all_files)
+            norm_path = self._normalize_file_path(file_path)
+            full_path = self.output_dir / norm_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(content)
 
         if self.require_approval and self._is_critical_file(file_path):
             self._report_progress(
@@ -174,11 +458,6 @@ class FilesMixin:
         # 验证并修复路径格式
         file_path = self._normalize_file_path(file_path)
 
-        full_path = self.output_dir / file_path
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(full_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-
         self._report_progress(
             PROGRESS_LABELS["file_generated"],
             len(self.generated_files) + 1,
@@ -208,6 +487,10 @@ class FilesMixin:
                         success=fix_attempt.fix_applied
                     )
 
+        # 自动生成测试用例（如果启用）
+        if getattr(self, 'enable_test_generation', False) and self._should_generate_test(file_path):
+            await self._generate_test_for_file(file_path, content, project_context)
+
         return {
             "path": file_path,
             "description": description,
@@ -218,7 +501,7 @@ class FilesMixin:
     def _friendly_error(self, error_msg: str) -> str:
         """将技术错误信息转换为用户友好的描述"""
         error_lower = error_msg.lower()
-        
+
         if "timeout" in error_lower or "timed out" in error_lower:
             return "请求超时，请稍后重试"
         if "rate limit" in error_lower or "429" in error_lower:
@@ -237,7 +520,7 @@ class FilesMixin:
             return "内存不足，请减少项目复杂度"
         if "json" in error_lower or "parse" in error_lower:
             return "模型返回格式异常，请重试"
-        
+
         # 截断过长的错误信息
         if len(error_msg) > 100:
             return error_msg[:100] + "..."
@@ -246,7 +529,7 @@ class FilesMixin:
     def _normalize_file_path(self, file_path: str) -> str:
         """
         规范化文件路径，修复常见的路径格式错误
-        
+
         例如：
         - events/rpy -> events.rpy
         - init/rpy -> init.rpy
@@ -254,13 +537,13 @@ class FilesMixin:
         """
         if not file_path:
             return file_path
-        
+
         # 检查是否是 "目录/扩展名" 的错误格式
         parts = file_path.split('/')
         if len(parts) >= 2:
             last_part = parts[-1]
             # 如果最后一部分是纯扩展名（如 rpy, py, js 等），则合并到上一级
-            if last_part and not '.' in last_part and len(last_part) <= 10:
+            if last_part and '.' not in last_part and len(last_part) <= 10:
                 # 这可能是错误的路径格式
                 # 检查上一级目录名是否像文件名
                 parent = parts[-2]
@@ -269,7 +552,7 @@ class FilesMixin:
                     fixed_path = '/'.join(parts[:-2]) + f"{parent}.{last_part}" if len(parts) > 2 else f"{parent}.{last_part}"
                     logger.warning(f"路径格式修正: {file_path} -> {fixed_path}")
                     return fixed_path
-        
+
         return file_path
 
     def _is_frontend_file(self, file_path: str) -> bool:
@@ -303,7 +586,104 @@ class FilesMixin:
             return self.frontend_engineer
         return self.backend_engineer
 
-    async def _react_generate_file(
+    def _should_generate_test(self, file_path: str) -> bool:
+        """判断是否应该为该文件生成测试"""
+        ext = Path(file_path).suffix.lower()
+        # 只为代码文件生成测试，不为配置文件、资源文件生成
+        testable_extensions = {'.py', '.js', '.jsx', '.ts', '.tsx', '.go', '.java', '.rs'}
+        if ext not in testable_extensions:
+            return False
+
+        # 跳过测试文件本身
+        basename = Path(file_path).stem.lower()
+        test_patterns = ['test_', '_test', 'tests', 'spec', 'specs']
+        if any(pattern in basename for pattern in test_patterns):
+            return False
+
+        # 跳过 __init__.py
+        if basename == '__init__':
+            return False
+
+        return True
+
+    async def _generate_test_for_file(
+        self,
+        file_path: str,
+        code_content: str,
+        project_context: Dict
+    ) -> None:
+        """为指定文件生成测试用例"""
+        try:
+            from app.agent.framework_detector import FrameworkDetector
+
+            # 检测测试框架
+            detector = FrameworkDetector()
+            config = detector.detect(self.output_dir)
+            framework = config.framework
+
+            # 获取测试生成器
+            model_name = self._select_model_for_file(file_path)
+            test_gen = get_test_generator(model_name=model_name, api_key_token=self.api_key_token)
+
+            # 生成测试
+            test_code = await test_gen.generate_tests(
+                file_path=file_path,
+                code_content=code_content,
+                project_path=str(self.output_dir),
+                framework=framework,
+            )
+
+            if test_code:
+                # 确定测试文件路径
+                test_file_path = self._get_test_file_path(file_path, framework)
+                test_full_path = self.output_dir / test_file_path
+
+                # 创建测试目录
+                test_full_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # 写入测试文件
+                with open(test_full_path, 'w', encoding='utf-8') as f:
+                    f.write(test_code)
+
+                logger.info(f"已生成测试文件: {test_file_path}")
+                self._report_progress(
+                    "test_generated",
+                    len(self.generated_files) + 1,
+                    len(self.generated_files) + 2,
+                    file_path=test_file_path,
+                    description=f"为 {file_path} 生成的测试",
+                )
+
+        except Exception as e:
+            logger.warning(f"测试生成失败 ({file_path}): {e}")
+            # 测试生成失败不影响主流程
+
+    def _get_test_file_path(self, source_file: str, framework: str) -> str:
+        """获取测试文件路径"""
+        source_path = Path(source_file)
+        ext = source_path.suffix
+        stem = source_path.stem
+
+        if framework in ('pytest', 'unittest'):
+            # Python: tests/test_xxx.py 或 test_xxx.py
+            if (self.output_dir / 'tests').exists():
+                return f"tests/test_{stem}{ext}"
+            else:
+                return f"test_{stem}{ext}"
+        elif framework in ('jest', 'vitest', 'mocha'):
+            # JavaScript: __tests__/xxx.test.js 或 xxx.test.js
+            if (self.output_dir / '__tests__').exists():
+                return f"__tests__/{stem}.test{ext}"
+            else:
+                return f"{stem}.test{ext}"
+        elif framework == 'go test':
+            # Go: xxx_test.go
+            return f"{stem}_test{ext}"
+        else:
+            # 默认
+            return f"test_{stem}{ext}"
+
+    async def _direct_llm_generate_file(
         self,
         file_path: str,
         description: str,
@@ -332,7 +712,7 @@ class FilesMixin:
             )
 
             response = await call_llm(
-                model="Qwen/Qwen3.5-4B",
+                model="Qwen/Qwen3-8B",
                 prompt=user_prompt,
                 max_tokens=4096,
                 temperature=0.4,
@@ -343,7 +723,7 @@ class FilesMixin:
             return self._clean_code_block(content) if content else None
 
         except Exception as e:
-            logger.error(f"ReAct fallback 生成失败 ({file_path}): {e}")
+            logger.error(f"直接 LLM 生成失败 ({file_path}): {e}")
             return None
 
     async def _validate_and_review_file(
@@ -533,45 +913,3 @@ class FilesMixin:
                 if result:
                     self.generated_files.append(result)
                 continue
-
-            original_content = full_path.read_text(encoding='utf-8')
-
-            self._report_progress(
-                "applying_patch",
-                len(self.generated_files) + 1,
-                total_files + 4,
-                file_path=file_path,
-                description=description,
-                mode="patch"
-            )
-
-            result = await apply_incremental_change(
-                file_path=full_path,
-                change_request=description,
-                llm_call_fn=self._call_llm_for_patch,
-                project_context=project_context
-            )
-
-            if result.success:
-                self.generated_files.append({
-                    "path": file_path,
-                    "description": description,
-                    "success": True,
-                    "size": len(result.patched_content),
-                    "mode": "patch",
-                    "diff_preview": result.diff[:200]
-                })
-
-                self._report_progress(
-                    "patch_applied",
-                    len(self.generated_files),
-                    total_files + 4,
-                    file_path=file_path,
-                    lines_changed=result.diff.count('\n+') + result.diff.count('\n-')
-                )
-            else:
-                self.errors.append(f"文件修改失败: {file_path}（正在降级为全量生成）")
-                self.warnings.append(f"降级到全量生成: {file_path}")
-                result = await self._generate_single_file(file_info, project_context, total_files)
-                if result:
-                    self.generated_files.append(result)

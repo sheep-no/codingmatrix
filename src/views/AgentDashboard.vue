@@ -29,10 +29,12 @@
         :selected-path="selectedFilePath"
         :dynamic-models="dynamicModels"
         :selected-provider-model="selectedProviderModel"
+        :project-name="projectName"
         @update:prompt="session.projectPrompt = $event"
         @update:search-query="files.fileSearchQuery = $event"
         @update:filter-type="files.fileFilterType = $event"
         @update:selected-provider-model="selectedProviderModel = $event"
+        @update:project-name="projectName = $event"
         @generate="generateProject"
         @regenerate="regenerateProject"
         @clear="clearAllState"
@@ -81,7 +83,7 @@
 
     <!-- Modals -->
     <UploadModal v-model="backend.showUploadModal" @upload="(f) => handleFileSelect(f)" />
-    <SettingsModal v-model="backend.showSettingsModal" :settings="backend.settings" :concurrent-limits="backend.concurrentLimits" :cache-stats="backend.cacheStats" @save="saveSettings" @copy="copySettingsToClipboard" @export="exportPerformanceData" @clear-cache="clearBackendCache" @open-api-key="goToApiKeySettings" />
+    <SettingsModal v-model="backend.showSettingsModal" :settings="backend.settings" :concurrent-limits="backend.concurrentLimits" :cache-stats="backend.cacheStats" @save="saveSettings" @copy="copySettingsToClipboard" @export="exportPerformanceData" @clear-cache="clearBackendCache" @open-api-key="goToApiKeySettings" @open-model-config="goToModelConfig" />
     <LearningModal v-model="backend.showLearningModal" :learning-stats="backend.learningStats" />
     <PerformanceModal v-model="backend.showPerformanceModal" :performance-stats="backend.performanceStats" />
     <VersionHistoryModal v-model="backend.showVersionHistoryModal" :file="selectedFile" :file-versions="backend.fileVersions" :snapshots="backend.backendSnapshots" @restore="(i) => restoreVersion(i)" @view-diff="(i) => viewVersionDiff(i)" @rollback="rollback" />
@@ -122,6 +124,7 @@ const projectApi = window.api || {}
 
 // 动态供应商模型
 const selectedProviderModel = ref('')
+const projectName = ref('')
 
 // ========== Composables ==========
 const session = useAgentSession()
@@ -134,6 +137,11 @@ const backend = useAgentBackend(projectApi, workspace, files, generation)
 const goToApiKeySettings = () => {
   backend.showSettingsModal = false
   router.push('/settings?tab=apikey')
+}
+
+const goToModelConfig = () => {
+  backend.showSettingsModal = false
+  router.push('/settings?tab=agent')
 }
 
 // ========== Unwrapped values for child components ==========
@@ -177,7 +185,7 @@ const selectedFilePath = computed(() => selectedFile.value?.path || null)
 const dynamicModels = computed(() => providerStore.getAllDynamicModels())
 
 // ========== Generation Actions ==========
-const generateProject = () => streaming.streamGenerate(selectedProviderModel.value)
+const generateProject = () => streaming.streamGenerate(selectedProviderModel.value, projectName.value)
 const regenerateProject = async () => {
   if (!session.projectPrompt.trim()) return ElMessage.warning('请输入项目描述')
   files.clearAll()
@@ -213,6 +221,9 @@ const clearAllState = () => {
 
 // ========== Session Actions ==========
 const doCreateNewSession = () => session.createNewSession({
+  _generation: generation,
+  _workspace: workspace,
+  _files: files,
   workflowStages: generation.workflowStages,
   pendingDecisions: workspace.pendingDecisions,
   decisionHistory: workspace.decisionHistory,
@@ -228,6 +239,9 @@ const doCreateNewSession = () => session.createNewSession({
   recoveryAttempts: generation.recoveryAttempts
 })
 const doSwitchSession = (id) => session.switchSession(id, {
+  _generation: generation,
+  _workspace: workspace,
+  _files: files,
   workflowStages: generation.workflowStages,
   pendingDecisions: workspace.pendingDecisions,
   decisionHistory: workspace.decisionHistory,

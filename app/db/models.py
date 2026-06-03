@@ -1,6 +1,6 @@
 """工作流历史记录数据库模型"""
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, BigInteger
+from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, BigInteger, Index, UniqueConstraint
 from app.models.base import Base
 
 
@@ -9,17 +9,23 @@ class ProjectSession(Base):
     __tablename__ = "project_sessions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    session_id = Column(String(100), unique=True, nullable=False, index=True)
-    user_id = Column(String(100), nullable=False, index=True)
+    session_id = Column(String(100), nullable=False)
+    user_id = Column(String(100), nullable=False)
     requirement = Column(Text, nullable=False)
-    output_dir = Column(String(500), nullable=True)
+    output_dir = Column(String(500), nullable=True)  # 相对路径: {user_id}/{project_name}
     status = Column(String(50), default="running")  # running, completed, failed, cancelled
     memory_usage_mb = Column(Integer, default=0)  # 预估内存占用（MB）
     files_generated = Column(Integer, default=0)
     files_total = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
+    last_activity_at = Column(DateTime, default=datetime.now, nullable=False)  # 最后一次活动时间
     completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index('ix_user_status', 'user_id', 'status'),  # 加速并发检查
+        UniqueConstraint('user_id', 'session_id', name='uq_user_session'),  # 防止同名项目
+    )
 
     def to_dict(self):
         return {
@@ -34,6 +40,7 @@ class ProjectSession(Base):
             "files_total": self.files_total,
             "error_message": self.error_message,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_activity_at": self.last_activity_at.isoformat() if self.last_activity_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }
 

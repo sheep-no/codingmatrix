@@ -14,19 +14,33 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         
-        # Content-Security-Policy (CSP)
-        # 限制资源加载来源，防止 XSS 攻击
-        csp_policy = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: https:; "
-            "font-src 'self' data:; "
-            "connect-src 'self' https:; "
-            "frame-ancestors 'none'; "
-            "base-uri 'self'; "
-            "form-action 'self'"
-        )
+        path = request.url.path
+        
+        # Swagger UI / ReDoc 需要加载 CDN 资源，使用宽松 CSP
+        if path.startswith("/api/docs") or path.startswith("/api/redoc") or path.startswith("/api/openapi"):
+            csp_policy = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https:; "
+                "font-src 'self' data: https://cdn.jsdelivr.net; "
+                "connect-src 'self' https: wss: ws:; "
+                "frame-ancestors 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self'"
+            )
+        else:
+            csp_policy = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: https:; "
+                "font-src 'self' data:; "
+                "connect-src 'self' https: wss: ws:; "
+                "frame-ancestors 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self'"
+            )
         response.headers["Content-Security-Policy"] = csp_policy
         
         # X-Content-Type-Options
@@ -74,8 +88,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
         
         # Cross-Origin-Embedder-Policy
-        # 要求资源明确允许跨域使用
-        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        # docs/redoc 页面需要加载外部资源，跳过 COEP
+        if not (path.startswith("/api/docs") or path.startswith("/api/redoc")):
+            response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
         
         return response
 

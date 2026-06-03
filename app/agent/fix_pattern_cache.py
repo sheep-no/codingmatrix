@@ -12,8 +12,8 @@ import hashlib
 import math
 import logging
 import threading
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass, asdict, field
+from typing import Dict, List, Optional
+from dataclasses import dataclass, asdict
 from pathlib import Path
 
 from app.agent.error_classifier import ErrorClassification
@@ -49,14 +49,14 @@ class FixPattern:
 
 class FixPatternCache:
     """修复模式缓存管理器（含 LRU 淘汰机制）"""
-    
+
     def __init__(self, cache_file: Path = None, max_size: int = 1000):
         self.cache_file = cache_file or Path("fix_patterns_cache.json")
         self.max_size = max_size  # 最大缓存条目数
         self.patterns: Dict[str, FixPattern] = {}
         self._load_cache()
         self._save_lock = threading.Lock()  # 异步保存锁
-    
+
     def _load_cache(self):
         """从文件加载缓存"""
         if self.cache_file.exists():
@@ -70,7 +70,7 @@ class FixPatternCache:
                         self.patterns[key] = FixPattern(**pattern_dict)
             except Exception as e:
                 logger.warning(f"加载修复模式缓存失败: {e}")
-    
+
     def _save_cache(self):
         """保存缓存到文件（线程安全）"""
         with self._save_lock:
@@ -80,7 +80,7 @@ class FixPatternCache:
                     json.dump({k: asdict(v) for k, v in active_patterns.items()}, f, indent=2)
             except Exception as e:
                 logger.warning(f"保存修复模式缓存失败：{e}")
-    
+
     def _save_cache_async(self):
         """异步保存缓存"""
         def save_thread():
@@ -88,9 +88,9 @@ class FixPatternCache:
                 self._save_cache()
             except Exception as e:
                 logger.warning(f"异步保存修复模式缓存失败：{e}")
-        
+
         threading.Thread(target=save_thread, daemon=True).start()
-    
+
     def _get_eviction_priority(self, signature: str, pattern: FixPattern) -> tuple:
         """获取淘汰优先级（返回值越小越优先淘汰）"""
         return (
@@ -99,12 +99,12 @@ class FixPatternCache:
             pattern.last_hit_time or 0, # 时间久远优先（时间戳小优先）
             -pattern.usage_count        # 使用次数少优先（负数使小的在前）
         )
-    
+
     def _generate_error_signature(self, classification: ErrorClassification, project_type: str, file_type: str) -> str:
         """生成错误特征签名"""
         signature_data = f"{classification.error_type}:{classification.error_subtype}:{project_type}:{file_type}"
         return hashlib.md5(signature_data.encode()).hexdigest()
-    
+
     def find_pattern(self, classification: ErrorClassification, project_type: str, file_type: str) -> Optional[FixPattern]:
         """查找匹配的修复模式（自动排除反模式）"""
         signature = self._generate_error_signature(classification, project_type, file_type)
@@ -117,12 +117,12 @@ class FixPatternCache:
             self._save_cache_async()
             return pattern
         return None
-    
-    def add_pattern(self, classification: ErrorClassification, project_type: str, file_type: str, 
+
+    def add_pattern(self, classification: ErrorClassification, project_type: str, file_type: str,
                    fix_strategy: str, model_used: str, fixed_code_snippet: str, strategy_version: int = 1):
         """添加新的修复模式"""
         signature = self._generate_error_signature(classification, project_type, file_type)
-        
+
         new_pattern = FixPattern(
             error_signature=signature,
             error_type=classification.error_type,
@@ -138,11 +138,11 @@ class FixPatternCache:
             last_hit_time=time.time(),
             hit_count=1
         )
-        
+
         self.patterns[signature] = new_pattern
         self._apply_decay_and_cleanup()
         self._save_cache_async()
-    
+
     def update_pattern_success(self, signature: str, success: bool, failure_reason: Optional[str] = None):
         """更新修复模式的成功率（含反模式追踪）"""
         if signature in self.patterns:
@@ -160,50 +160,50 @@ class FixPatternCache:
 
             self._save_cache_async()
             self._apply_decay_and_cleanup()
-    
+
     def _apply_decay_and_cleanup(self):
         """应用缓存衰减和清理策略（含 LRU 淘汰机制）"""
         current_time = time.time()
         patterns_to_remove = []
-        
+
         for signature, pattern in self.patterns.items():
             if pattern.last_hit_time is None:
                 continue
-                
+
             days_since_last_hit = (current_time - pattern.last_hit_time) / (24 * 3600)
-            
+
             # 超过 30 天未命中 → 权重减半
             if days_since_last_hit > 30 and pattern.success_rate > 0.1:
                 pattern.success_rate *= 0.5
                 pattern.last_hit_time = current_time  # 重置时间以避免重复衰减
-            
+
             # 超过 60 天未命中 → 自动归档（标记为不活跃）
             if days_since_last_hit > 60:
                 patterns_to_remove.append(signature)
-        
+
         # LRU 淘汰机制：当缓存超过容量上限时，按优先级淘汰
         if len(self.patterns) > self.max_size:
             # 计算需要删除的条目数
             excess_count = len(self.patterns) - self.max_size
-            
+
             # 按淘汰优先级排序
             sorted_items = sorted(
                 self.patterns.items(),
                 key=lambda item: self._get_eviction_priority(item[0], item[1])
             )
-            
+
             # 添加需要淘汰的条目到删除列表
             patterns_to_remove.extend([sig for sig, _ in sorted_items[:excess_count]])
             logger.info(f"缓存触发容量上限 ({len(self.patterns)} > {self.max_size})，计划淘汰 {excess_count} 个条目")
-        
+
         # 执行删除
         for signature in patterns_to_remove:
             del self.patterns[signature]
-        
+
         if patterns_to_remove:
             self._save_cache()
             logger.info(f"清理 {len(patterns_to_remove)} 个缓存条目，剩余 {len(self.patterns)} 个")
-    
+
     def _tokenize(self, text: str) -> List[str]:
         tokens = text.lower().split()
         normalized = []

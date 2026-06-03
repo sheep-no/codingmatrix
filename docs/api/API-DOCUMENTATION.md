@@ -1,6 +1,23 @@
 # API 文档
 
-> 最后更新: 2026-05-30 | 版本：v1 (19 模块) + v2 (7 模块) | 项目版本：v5.11.0
+> 最后更新: 2026-06-02 | 版本：v1 (19 模块) + v2 (7 模块) | 项目版本：v5.12.0+
+
+## v5.12.0+ 新增端点
+
+| 端点 | 方法 | 描述 | 权限 |
+|------|------|------|------|
+| `POST /api/v1/agent/apikey/{token}/context-lengths` | POST | 设置用户 API Key context_length | normal |
+| `GET /api/v2/admin/sandbox-config` | GET | 查看代码沙箱配置 | superadmin |
+| `PUT /api/v2/admin/sandbox-config` | PUT | 修改代码沙箱配置 | superadmin |
+| `GET /api/v2/models/assignments` | GET | 查看 5×5 模型分配 | superadmin |
+| `PUT /api/v2/models/assignments` | PUT | 修改 5×5 模型分配 | superadmin |
+| `GET /api/v2/models/health` | GET | 查看模型健康度 | superadmin |
+| `POST /api/v2/models/reset-health` | POST | 重置模型健康分 | superadmin |
+| `GET /api/v2/models/context-length` | GET | 查看模型 context_length | superadmin |
+| `PUT /api/v2/models/context-length` | PUT | 修改模型 context_length | superadmin |
+| `DELETE /api/v2/models/context-length/{model_id}` | DELETE | 删除模型 context_length | superadmin |
+| `POST /api/v1/agent/react` | POST | 直接调用 ReAct Agent | normal |
+| `GET /api/v1/agent/model-health` | GET | 模型健康状态查询 | normal |
 
 ## 认证
 
@@ -339,6 +356,49 @@
 | POST | `/api/v2/admin/config` | 更新系统配置 | super |
 | POST | `/api/v2/admin/user-limit` | 更新用户并发限制 | super |
 | DELETE | `/api/v2/admin/user-limit/{user_id}` | 移除用户并发限制 | super |
+
+### 代码沙箱管理 (v5.12.0+ 新增, superadmin)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| GET | `/api/v2/admin/sandbox-config` | 查看沙箱配置 | superadmin |
+| PUT | `/api/v2/admin/sandbox-config` | 修改沙箱配置 | superadmin |
+
+**请求体示例**:
+```json
+{
+  "enable_code_sandbox": true,
+  "sandbox_languages": "python,javascript"
+}
+```
+
+**响应示例**:
+```json
+{
+  "enable_code_sandbox": true,
+  "sandbox_languages": ["python", "javascript"],
+  "updated_at": "2026-06-02T10:00:00Z"
+}
+```
+
+### 模型 context_length 管理 (v5.12.0+ 新增, superadmin)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| GET | `/api/v2/models/context-length` | 列出所有模型 context_length | superadmin |
+| PUT | `/api/v2/models/context-length` | 设置/更新模型 context_length | superadmin |
+| DELETE | `/api/v2/models/context-length/{model_id}` | 删除模型 context_length | superadmin |
+| GET | `/api/v2/models/assignments` | 查看 5×5 模型分配 | superadmin |
+| PUT | `/api/v2/models/assignments` | 修改模型分配 | superadmin |
+| GET | `/api/v2/models/health` | 查看模型健康度 | superadmin |
+| POST | `/api/v2/models/reset-health` | 重置健康分 | superadmin |
+
+### API Key context_length 管理 (v5.12.0+ 新增, normal)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| POST | `/api/v1/agent/apikey/{token}/context-lengths` | 设置 API Key 模型 context_length | normal |
+| GET | `/api/v1/agent/apikey/{token}/context-lengths` | 获取 API Key context_length | normal |
 
 ## 健康检查 (`/api/v1/health`)
 

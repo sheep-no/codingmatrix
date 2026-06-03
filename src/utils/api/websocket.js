@@ -10,8 +10,22 @@ const WS_CONFIG = {
 }
 
 export class WebSocketManager {
-  constructor(url = null) {
-    this.url = url || `${API_CONFIG.WS_BASE_URL}/ws`
+  constructor(configOrUrl = null) {
+    if (typeof configOrUrl === 'object' && configOrUrl !== null) {
+      this.url = configOrUrl.wsUrl || `${API_CONFIG.WS_BASE_URL}/ws`
+      this._onOpen = configOrUrl.onOpen || null
+      this._onMessage = configOrUrl.onMessage || null
+      this._onError = configOrUrl.onError || null
+      this._onClose = configOrUrl.onClose || null
+      this._reconnectDelay = configOrUrl.reconnectDelay || WS_CONFIG.RECONNECT_INTERVAL
+    } else {
+      this.url = configOrUrl || `${API_CONFIG.WS_BASE_URL}/ws`
+      this._onOpen = null
+      this._onMessage = null
+      this._onError = null
+      this._onClose = null
+      this._reconnectDelay = WS_CONFIG.RECONNECT_INTERVAL
+    }
     this.ws = null
     this.reconnectAttempts = 0
     this.maxReconnectAttempts = WS_CONFIG.MAX_RECONNECT_ATTEMPTS
@@ -24,7 +38,13 @@ export class WebSocketManager {
   connect(token = null) {
     return new Promise((resolve, reject) => {
       try {
-        const fullUrl = token ? `${this.url}?token=${token}` : this.url
+        let fullUrl = this.url
+        if (token) {
+          const separator = fullUrl.includes('?') ? '&' : '?'
+          fullUrl = `${fullUrl}${separator}token=${token}`
+        } else {
+          fullUrl = fullUrl.replace('{token}', '')
+        }
         this.ws = new WebSocket(fullUrl)
 
         this.ws.onopen = () => {
@@ -32,6 +52,7 @@ export class WebSocketManager {
           this.reconnectAttempts = 0
           this.startHeartbeat()
           this.emit('open', {})
+          if (this._onOpen) this._onOpen()
           resolve()
         }
 
@@ -42,17 +63,20 @@ export class WebSocketManager {
           } catch (e) {
             this.emit('message', event.data)
           }
+          if (this._onMessage) this._onMessage(event)
         }
 
         this.ws.onerror = error => {
           this.emit('error', error)
+          if (this._onError) this._onError(error)
           reject(error)
         }
 
-        this.ws.onclose = () => {
+        this.ws.onclose = event => {
           this.isConnected = false
           this.stopHeartbeat()
-          this.emit('close', {})
+          this.emit('close', event)
+          if (this._onClose) this._onClose(event)
           this.attemptReconnect()
         }
       } catch (error) {
@@ -109,6 +133,14 @@ export class WebSocketManager {
     }
   }
 
+  isReady() {
+    return this.ws && this.ws.readyState === WebSocket.OPEN
+  }
+
+  scheduleReconnect() {
+    this.attemptReconnect()
+  }
+
   attemptReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       this.emit('reconnect_failed', { attempts: this.reconnectAttempts })
@@ -122,7 +154,7 @@ export class WebSocketManager {
       this.connect().catch(() => {
         // reconnect handled in onclose
       })
-    }, WS_CONFIG.RECONNECT_INTERVAL)
+    }, this._reconnectDelay)
   }
 
   startHeartbeat() {

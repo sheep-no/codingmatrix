@@ -1,6 +1,106 @@
 # OpenTelemetry 分布式追踪指南
 
-> 最后更新: 2026-05-27 | 版本：v5.10.0
+> 最后更新: 2026-06-02 | 版本：v5.12.0+
+
+## v5.12.0+ 追踪更新
+
+v5.12.0+ 新增对 ReAct 工具调用、动态模型路由、工程师主动编辑等新功能的追踪支持。
+
+### 新增 Span 类别
+
+| Span 名称 | 描述 | 触发条件 |
+|-----------|------|----------|
+| `react.thought` | ReAct 思考阶段 | ReActAgent 思考时 |
+| `react.action` | ReAct 行动阶段 | 工具调用请求时 |
+| `react.observation` | ReAct 观察阶段 | 工具执行结果返回时 |
+| `react.reflection` | ReAct 反思阶段 | 决定下一步时 |
+| `react.final` | ReAct 最终生成 | 最终答案生成时 |
+| `specialist.call_llm_with_tools` | LLM + 工具调用 | Engineer 调用 ReAct 时 |
+| `specialist.tool.partial_update` | 局部更新工具 | 工程师调用 partial_update |
+| `specialist.tool.insert_content` | 插入内容工具 | 工程师调用 insert_content |
+| `specialist.tool.regex_replace` | 正则替换工具 | 工程师调用 regex_replace |
+| `specialist.tool.execute_code` | 代码执行工具 | 工程师调用 execute_code |
+| `dynamic_model_router.get_assignment` | 获取模型分配 | 每次分配查询 |
+| `dynamic_model_router.record_call_result` | 记录调用结果 | 每次 LLM 调用后 |
+| `session_manager.detect_zombie` | 检测僵尸会话 | 启动 / 定期 |
+| `orchestrator.git_stash_push` | Git stash 备份 | 编辑前 |
+| `orchestrator.git_stash_pop` | Git stash 还原 | 失败时 |
+| `orchestrator.edit_marker_check` | Edit marker 检测 | 工程师返回内容时 |
+
+### Span 属性扩展
+
+新功能 Span 携带丰富的属性：
+
+```python
+# react.* 系列
+{
+    "react.round": 1,
+    "react.tool": "read_file",
+    "react.max_rounds": 2,
+    "model.name": "qwen3-8b",
+    "model.role": "thinking",
+    "file_path": "src/utils.py"
+}
+
+# specialist.tool.* 系列
+{
+    "tool.name": "partial_update",
+    "tool.file": "src/api/users.py",
+    "tool.lines_changed": 5,
+    "model.name": "deepseek-r1",
+    "is_existing_file": true
+}
+
+# dynamic_model_router.* 系列
+{
+    "complexity.level": "MEDIUM",
+    "role": "backend",
+    "model.assigned": "deepseek-r1",
+    "model.health_score": 95,
+    "model.circuit_state": "closed"
+}
+
+# session_manager.* 系列
+{
+    "session.id": "uuid",
+    "user.id": "user-1",
+    "session.status": "running",
+    "zombie.detected": false,
+    "cleanup.count": 3
+}
+```
+
+### Edit Marker 追踪
+
+v5.12.0+ 的工程师 Edit marker 协议有专门的 Span：
+
+```
+[orchestrator.generate_file]
+  └─[orchestrator.edit_marker_check]
+      ├─ marker.detected: true
+      ├─ marker.action: "edited"
+      ├─ marker.files: ["src/api/users.py"]
+      └─[specialist.tool.partial_update]
+         ├─ tool.file: "src/api/users.py"
+         └─ tool.lines_changed: 5
+```
+
+### Git Stash 追踪
+
+Git stash 原子回滚操作有专门 Span：
+
+```
+[orchestrator.generate_dependency_layer]
+  ├─[orchestrator.git_stash_push]
+  │  ├─ stash.files_count: 3
+  │  └─ stash.existing_files: ["src/main.py", "src/api/users.py"]
+  ├─[specialist.call_llm_with_tools]
+  └─[orchestrator.git_stash_drop]   (成功)
+   或
+   └─[orchestrator.git_stash_pop]   (失败)
+```
+
+---
 
 ## 概述
 
@@ -125,6 +225,33 @@ logger.info(f"trace_id={trace_id} 开始处理请求")
 | Span 名称 | 描述 |
 |-----------|------|
 | `test.run` | 执行沙箱测试 |
+
+### Code Sandbox (v5.12.0+ 新增, specialist_base.py)
+
+| Span 名称 | 描述 |
+|-----------|------|
+| `sandbox.execute_python` | Python 沙箱执行 |
+| `sandbox.execute_javascript` | JavaScript 沙箱执行 |
+| `sandbox.ast_check` | AST 静态分析 |
+| `sandbox.dangerous_pattern_block` | 危险模式拦截 |
+
+### Session Manager (v5.12.0+ 新增, session_manager.py)
+
+| Span 名称 | 描述 |
+|-----------|------|
+| `session.detect_zombie` | 僵尸会话检测 |
+| `session.cleanup_expired` | 过期会话清理 |
+| `session.sync_from_db` | 从 DB 恢复状态 |
+| `session.persist_state` | 内存状态持久化 |
+
+### Dynamic Model Router (v5.12.0+ 新增, dynamic_model_router.py)
+
+| Span 名称 | 描述 |
+|-----------|------|
+| `router.get_assignment` | 获取模型分配 |
+| `router.record_call_result` | 记录调用结果 |
+| `router.circuit_breaker_state_change` | 熔断器状态变更 |
+| `router.health_score_update` | 健康分更新 |
 
 ## Jaeger UI 使用
 

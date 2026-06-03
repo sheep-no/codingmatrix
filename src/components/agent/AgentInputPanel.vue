@@ -6,6 +6,19 @@
       <textarea :value="prompt" :placeholder="placeholderText" class="prompt-textarea" rows="8" @input="$emit('update:prompt', $event.target.value)" />
       <div class="prompt-hint">Ctrl+Enter 发送 | Esc 停止</div>
 
+      <!-- 项目名称 -->
+      <div class="project-name-input">
+        <label class="project-name-label">项目名称（可选）</label>
+        <input
+          :value="projectName"
+          type="text"
+          class="project-name-field"
+          placeholder="留空则自动生成"
+          maxlength="50"
+          @input="$emit('update:projectName', $event.target.value)"
+        />
+      </div>
+
       <!-- 模型选择器 -->
       <div v-if="dynamicModels && dynamicModels.length > 0" class="model-selector">
         <label class="model-selector-label">
@@ -117,9 +130,10 @@ const props = defineProps({
   filterType: { type: String, required: true },
   selectedPath: { type: String, default: '' },
   dynamicModels: { type: Array, default: () => [] },
-  selectedProviderModel: { type: String, default: '' }
+  selectedProviderModel: { type: String, default: '' },
+  projectName: { type: String, default: '' }
 })
-const emit = defineEmits(['update:prompt', 'update:searchQuery', 'update:filterType', 'update:selectedProviderModel', 'generate', 'regenerate', 'clear', 'stop', 'select-template', 'toggle-category', 'select-file'])
+const emit = defineEmits(['update:prompt', 'update:searchQuery', 'update:filterType', 'update:selectedProviderModel', 'update:projectName', 'generate', 'regenerate', 'clear', 'stop', 'select-template', 'toggle-category', 'select-file'])
 
 const groupedDynamicModels = computed(() => {
   const groups = {}
@@ -232,6 +246,27 @@ function getFileName(filePath) {
   text-align: right;
   margin-top: 2px;
 }
+.project-name-input {
+  margin: 8px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.project-name-label {
+  font-size: 12px;
+  color: #909399;
+}
+.project-name-field {
+  padding: 6px 8px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-size: 13px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.project-name-field::placeholder {
+  color: #c0c4cc;
+}
 .model-selector {
   margin: 8px 0 12px;
   display: flex;
@@ -250,7 +285,7 @@ function getFileName(filePath) {
   border: 1px solid #dcdfe6;
   border-radius: 4px;
   font-size: 13px;
-  background: #fff;
+  background: var(--bg-primary);
   cursor: pointer;
 }
 .model-select:hover { border-color: #409eff; }
@@ -268,6 +303,7 @@ function getFileName(filePath) {
 }
 .tree-item.is-category {
   font-weight: 500;
+  cursor: pointer;
 }
 .file-item {
   display: flex;

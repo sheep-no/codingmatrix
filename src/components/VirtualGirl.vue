@@ -671,7 +671,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
       width: 100%;
       height: 100vh;
       overflow: hidden;
@@ -690,7 +690,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     .window-title {
       font-size: 15px;
       font-weight: 700;
-      color: #1a1a1a;
+      color: var(--text-primary);
       display: flex;
       align-items: center;
       gap: 8px;
@@ -721,7 +721,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
       width: 36px;
       height: 36px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -742,12 +742,12 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
       line-height: 1.5;
     }
     .message.assistant .message-content {
-      background: #f3f4f6;
-      color: #1f2937;
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
       border-bottom-left-radius: 4px;
     }
     .message.user .message-content {
-      background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
       color: white;
       border-bottom-right-radius: 4px;
     }
@@ -759,7 +759,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     .typing-dot {
       width: 8px;
       height: 8px;
-      background: #0d9488;
+      background: var(--primary);
       border-radius: 50%;
       animation: bounce 1.4s infinite;
     }
@@ -782,7 +782,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     .chat-input {
       flex: 1;
       padding: 10px 14px;
-      border: 2px solid #e5e7eb;
+      border: 2px solid var(--border-color);
       border-radius: 20px;
       font-size: 13px;
       outline: none;
@@ -790,12 +790,12 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
       transition: all 0.2s;
     }
     .chat-input:focus {
-      border-color: #0d9488;
+      border-color: var(--primary);
       box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
     }
     .send-button {
       padding: 10px 20px;
-      background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
       color: white;
       border: none;
       border-radius: 20px;
@@ -1247,7 +1247,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
   /* 窗口主容器 */
   .virtual-girl-window {
     position: fixed;
-    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, #f1f5f9 100%);
     border-radius: 20px;
     box-shadow:
       0 20px 60px rgba(0, 0, 0, 0.3),
@@ -1272,8 +1272,8 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
   .user-avatar-icon-svg {
     width: 20px;
     height: 20px;
-    color: #0d9488;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    color: var(--primary);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     border-radius: 50%;
     padding: 6px;
   }
@@ -1301,7 +1301,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, #f1f5f9 100%);
     border-radius: 20px;
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
     border: 2px solid rgba(102, 126, 234, 0.3);
@@ -1338,14 +1338,14 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     height: 45px;
     border-radius: 50%;
     object-fit: cover;
-    border: 2px solid #0d9488;
+    border: 2px solid var(--primary);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
   }
 
   .sidebar-text {
     font-size: 12px;
     font-weight: 600;
-    color: #0d9488;
+    color: var(--primary);
   }
 
   /* 窗口头部 */
@@ -1354,7 +1354,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     justify-content: space-between;
     align-items: center;
     padding: 14px 18px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: white;
     cursor: move;
     user-select: none;
@@ -1488,7 +1488,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+    background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
   }
 
   /* 角色选择栏 */
@@ -1497,45 +1497,45 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     align-items: center;
     gap: 12px;
     padding: 12px 16px;
-    background: linear-gradient(90deg, #f8fafc 0%, #ffffff 100%);
-    border-bottom: 1px solid #e5e7eb;
+    background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+    border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
   }
 
   .character-label {
     font-size: 13px;
     font-weight: 600;
-    color: #6b7280;
+    color: var(--text-tertiary);
     white-space: nowrap;
   }
 
   .character-select {
     flex: 1;
     padding: 8px 12px;
-    border: 2px solid #e5e7eb;
+    border: 2px solid var(--border-color);
     border-radius: 8px;
     font-size: 13px;
     font-weight: 500;
-    color: #1f2937;
-    background: white;
+    color: var(--text-primary);
+    background: var(--bg-primary);
     cursor: pointer;
     transition: all 0.2s;
     outline: none;
   }
 
   .character-select:hover {
-    border-color: #0d9488;
+    border-color: var(--primary);
   }
 
   .character-select:focus {
-    border-color: #0d9488;
+    border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
   }
 
   .character-indicator {
     font-size: 20px;
     padding: 4px 8px;
-    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+    background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--border-color) 100%);
     border-radius: 8px;
     transition: all 0.2s;
   }
@@ -1563,7 +1563,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+    background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
   }
 
   .chat-messages::-webkit-scrollbar {
@@ -1606,7 +1606,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1643,15 +1643,15 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
 
   .message-sender {
     font-weight: 600;
-    color: #4b5563;
+    color: var(--text-secondary);
   }
 
   .message.user .message-sender {
-    color: #0d9488;
+    color: var(--primary);
   }
 
   .message-time {
-    color: #9ca3af;
+    color: var(--text-tertiary);
     font-size: 11px;
   }
 
@@ -1666,15 +1666,15 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
   }
 
   .message.assistant .message-content {
-    background: white;
-    color: #1f2937;
-    border: 1px solid #e5e7eb;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
     border-bottom-left-radius: 4px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   }
 
   .message.user .message-content {
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: white;
     border-bottom-right-radius: 4px;
     box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
@@ -1685,13 +1685,13 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     display: flex;
     gap: 4px;
     padding: 12px 16px;
-    background: white !important;
+    background: var(--bg-primary) !important;
   }
 
   .typing-dot {
     width: 8px;
     height: 8px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     border-radius: 50%;
     animation: typingBounce 1.4s ease-in-out infinite;
   }
@@ -1718,8 +1718,8 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
   /* 输入区域 */
   .input-section {
     padding: 16px;
-    background: white;
-    border-top: 1px solid #e5e7eb;
+    background: var(--bg-primary);
+    border-top: 1px solid var(--border-color);
     flex-shrink: 0;
   }
 
@@ -1732,19 +1732,19 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
   .chat-input {
     flex: 1;
     padding: 12px 18px;
-    border: 2px solid #e5e7eb;
+    border: 2px solid var(--border-color);
     border-radius: 24px;
     font-size: 14px;
     outline: none;
     transition: all 0.2s;
-    background: #f9fafb;
+    background: var(--bg-secondary);
     height: 46px;
     box-sizing: border-box;
   }
 
   .chat-input:focus {
-    border-color: #0d9488;
-    background: white;
+    border-color: var(--primary);
+    background: var(--bg-primary);
     box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
   }
 
@@ -1756,7 +1756,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
   .send-button {
     width: 46px;
     height: 46px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: white;
     border: none;
     border-radius: 50%;
@@ -1826,18 +1826,18 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     width: 100%;
     height: 100%;
     border: 3px solid transparent;
-    border-top-color: #0d9488;
+    border-top-color: var(--primary);
     border-radius: 50%;
     animation: spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
   }
 
   .spinner-ring:nth-child(2) {
-    border-top-color: #14b8a6;
+    border-top-color: var(--primary-hover);
     animation-delay: -0.4s;
   }
 
   .spinner-ring:nth-child(3) {
-    border-top-color: #0d9488;
+    border-top-color: var(--primary);
     animation-delay: -0.8s;
   }
 
@@ -1849,7 +1849,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
 
   .loading-text {
     font-size: 12px;
-    color: #0d9488;
+    color: var(--primary);
     font-weight: 600;
   }
 

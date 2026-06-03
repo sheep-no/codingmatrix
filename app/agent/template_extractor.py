@@ -1,13 +1,12 @@
 import json
 import logging
-from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 
 from app.agent.orchestrator_requirements import DOMAIN_TEMPLATES_DIR
 
 logger = logging.getLogger(__name__)
 
-TEMPLATE_REVIEW_MODEL = "THUDM/GLM-Z1-9B-0414"
+TEMPLATE_REVIEW_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
 TEMPLATE_EXTRACT_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
 
 

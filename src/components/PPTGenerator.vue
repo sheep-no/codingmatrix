@@ -479,7 +479,7 @@
 
   /* 容器 */
   .ppt-generator-container {
-    background: white;
+    background: var(--bg-primary);
     border-radius: 16px;
     width: 90%;
     max-width: 800px;

@@ -6,7 +6,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { getPublicKey, submitApiKey, testApiKey, deleteApiKey, listApiKeys, updateApiKeyEnabled } from '@/api/apikey'
+import { getPublicKey, submitApiKey, testApiKey, deleteApiKey, listApiKeys, updateApiKeyEnabled, updateApiKeyContextLengths } from '@/api/apikey'
 import { encryptWithRSAPublicKey } from '@/utils/crypto'
 
 const STORAGE_KEY = 'codingmatrix_apikeys'
@@ -205,6 +205,26 @@ export const useApiKeyStore = defineStore('apikey', () => {
       }
     } catch (e) {
       console.error('更新 Key 状态失败：', e)
+      throw e
+    }
+  }
+
+  /**
+   * 更新 API Key 的模型 context_length 配置
+   */
+  async function updateContextLengths(token, context_lengths) {
+    try {
+      const result = await updateApiKeyContextLengths(token, context_lengths)
+      
+      // 更新本地状态
+      const index = tokens.value.findIndex(t => t.token === token)
+      if (index !== -1) {
+        tokens.value[index].context_lengths = result.context_lengths || {}
+        saveTokens()
+      }
+      return result
+    } catch (e) {
+      console.error('更新 context_lengths 失败：', e)
       throw e
     }
   }

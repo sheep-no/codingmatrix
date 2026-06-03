@@ -49,6 +49,9 @@ PROGRESS_LABELS = {
     "architecture_review": "架构设计审查",
     "cost_tracking": "成本追踪",
     "token_usage": "Token 用量统计",
+    "react_tool_call": "搜索项目文件",
+    "react_tool_result": "获取搜索结果",
+    "react_generating": "基于上下文生成代码",
 }
 
 @dataclass
@@ -382,7 +385,7 @@ class ProgressMixin:
         if hasattr(self, '_start_time') and self._start_time:
             elapsed = time.time() - self._start_time
             files_count = len(getattr(self, 'generated_files', []))
-            
+
             metrics = {
                 "total_duration": round(elapsed, 1),
                 "files_generated": files_count,
@@ -391,11 +394,11 @@ class ProgressMixin:
                 "llm_calls": getattr(self, '_llm_call_count', 0),
                 "retry_count": getattr(self, '_retry_count', 0)
             }
-            
+
             # 包含成本数据
             if hasattr(self, 'cost_tracker') and self.cost_tracker:
                 metrics["cost"] = self.cost_tracker.get_summary()
-            
+
             self._report_performance_metrics(metrics)
             return metrics
         return None

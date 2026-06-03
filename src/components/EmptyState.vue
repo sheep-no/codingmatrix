@@ -85,9 +85,7 @@
           <div class="feature-card">
             <div class="feature-icon feature-icon-1">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path
-                  d="M12 2a3 3 0 0 1 3 3v7h3a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3h3V5a3 3 0 0 1 3-3z"
-                />
+                <circle cx="12" cy="12" r="10" />
                 <path d="M9 12l2 2 4-4" />
               </svg>
             </div>

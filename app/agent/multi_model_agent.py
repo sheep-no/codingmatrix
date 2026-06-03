@@ -23,17 +23,14 @@ AI Agent - 多模型 Agent 架构
 
 import re
 import json
-import asyncio
 import logging
-from typing import Optional, Dict, Any, List, Callable, Awaitable
+from typing import Optional, Dict, Any, List, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
 from app.utils import call_llm
-from app.utils.file_operator import FileOperator, PathSecurityError
-from app.utils.retry import retry_on_failure
-from app.utils.circuit_breaker import circuit_breaker, CircuitBreakerError
+from app.utils.file_operator import FileOperator
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +87,20 @@ class TaskType(Enum):
     FAST_RESPONSE = "fast_response"      # 快速响应
     EMBEDDING = "embedding"               # 嵌入/相似度
     OCR = "ocr"                           # OCR识别
+    PLANNING = "planning"                 # 任务规划
+    REACT = "react"                       # ReAct Agent
+
+
+class AgentRole(Enum):
+    """Agent 角色（对应 5×5 模型分配矩阵的列）"""
+    ARCHITECT = "architect"
+    FRONTEND = "frontend"
+    BACKEND = "backend"
+    REVIEWER = "reviewer"
+    FALLBACK = "fallback"
+
+
+COMPLEXITY_LEVELS = ("SIMPLE", "SMALL", "MEDIUM", "LARGE", "ENTERPRISE")
 
 
 class ModelCapability(Enum):
@@ -316,6 +327,55 @@ class ModelRouter:
         return ModelRegistry.get(best_key) or ModelRegistry.get("deepseek-r1-qwen3-8b")
 
     @classmethod
+    async def get_role_model(
+        cls,
+        role: AgentRole,
+        complexity: str = "MEDIUM"
+    ) -> ModelInfo:
+        """
+        基于 5×5 模型分配矩阵的角色路由（v5.12.x 新增）
+
+        优先使用 DynamicModelRouter.get_assignment_with_learning 获取角色模型，
+        在没有足够学习数据时回退到静态 5×5 矩阵。
+
+        Args:
+            role: Agent 角色（architect/frontend/backend/reviewer/fallback）
+            complexity: 项目复杂度（SIMPLE/SMALL/MEDIUM/LARGE/ENTERPRISE）
+
+        Returns:
+            角色对应的 ModelInfo
+        """
+        if complexity not in COMPLEXITY_LEVELS:
+            complexity = "MEDIUM"
+
+        try:
+            from app.agent.dynamic_model_router import get_dynamic_router
+            router = await get_dynamic_router()
+            assignment = await router.get_assignment_with_learning(complexity)
+            role_to_attr = {
+                AgentRole.ARCHITECT: "architect_model",
+                AgentRole.FRONTEND: "frontend_model",
+                AgentRole.BACKEND: "backend_model",
+                AgentRole.REVIEWER: "reviewer_model",
+                AgentRole.FALLBACK: "fallback_model",
+            }
+            model_key = getattr(assignment, role_to_attr[role], None)
+            if model_key:
+                return ModelRegistry.get(model_key) or ModelRegistry.get("deepseek-r1-qwen3-8b")
+        except Exception as e:
+            logger.warning(f"5×5 矩阵角色路由失败，回退到默认: {e}")
+
+        role_fallbacks = {
+            AgentRole.ARCHITECT: "glm-z1-9b",
+            AgentRole.FRONTEND: "qwen3-8b",
+            AgentRole.BACKEND: "deepseek-r1-qwen3-8b",
+            AgentRole.REVIEWER: "deepseek-r1-qwen3-8b",
+            AgentRole.FALLBACK: "qwen3-8b",
+        }
+        fallback_key = role_fallbacks.get(role, "deepseek-r1-qwen3-8b")
+        return ModelRegistry.get(fallback_key) or ModelRegistry.get("deepseek-r1-qwen3-8b")
+
+    @classmethod
     def route_by_content(cls, content: str, files: List[str] = None) -> TaskType:
         """
         根据内容特征自动识别任务类型
@@ -387,8 +447,6 @@ class FileContract:
     def validate_path(self) -> bool:
         """验证路径安全性"""
         try:
-            op = FileOperator(base_path=self.base_path)
-
             abs_path = Path(self.file_path).resolve()
             abs_path_str = str(abs_path).lower()
 
@@ -651,24 +709,44 @@ class TaskPlanner:
     def __init__(self, model_key: str = "deepseek-r1-qwen3-8b"):
         self.model = ModelRegistry.get(model_key)
 
-    async def decompose(self, task: str, context: Dict[str, Any] = None) -> List[Dict]:
+    async def decompose(
+        self,
+        task: str,
+        context: Dict[str, Any] = None,
+        dependency_hints: Optional[str] = None
+    ) -> List[Dict]:
         """
         分解任务
 
         Args:
             task: 任务描述
             context: 上下文信息
+            dependency_hints: 依赖图提示（来自 DependencyGraph 的结构化信息，
+                             例如受影响文件、传递依赖、生成顺序建议等）
 
         Returns:
             任务步骤列表，每个步骤包含 type, description, params
         """
+        hint_block = ""
+        if dependency_hints:
+            hint_block = f"""
+
+项目依赖图信息（来自 DependencyGraph）：
+{dependency_hints}
+
+要求：
+- 严格遵守文件生成顺序：先生成无依赖的底层文件（models/config），再生成依赖上层文件（services/apis）
+- 受影响的下游文件必须在源文件之后处理
+- 同一层级的文件可并行生成（在 params 中标记 `parallel: true`）
+"""
+
         prompt = f"""将以下任务分解为可执行的步骤：
 
 任务：{task}
 
 上下文：
 {json.dumps(context or {}, indent=2, ensure_ascii=False)}
-
+{hint_block}
 支持的步骤类型：
 - file_operation: 文件操作 (read, write, delete, create)
 - code_generation: 代码生成
@@ -747,13 +825,21 @@ class AgentExecutor:
 class MultiModelAgent:
     """
     多模型 Agent - 整合路由、规划、执行、审查
+
+    v5.12.x 增强：
+    - 接入 DynamicModelRouter 5×5 矩阵（按角色 + 复杂度路由）
+    - 所有 LLM 调用统一走全局信号量（get_global_llm_semaphore）
+    - 可选 complexity 参数：SIMPLE/SMALL/MEDIUM/LARGE/ENTERPRISE
+    - 代码生成任务可委托给 OrchestratorAgent（通过 orchestrator_factory）
     """
 
     def __init__(
         self,
         default_model: str = "deepseek-r1-qwen3-8b",
         enable_review: bool = True,
-        enable_file_contract: bool = True
+        enable_file_contract: bool = True,
+        complexity: str = "MEDIUM",
+        orchestrator_factory: Optional[Callable] = None
     ):
         self.router = ModelRouter()
         self.planner = TaskPlanner(default_model)
@@ -761,6 +847,20 @@ class MultiModelAgent:
         self.executor = AgentExecutor(FileOperator())
         self.enable_review = enable_review
         self.enable_file_contract = enable_file_contract
+        self.complexity = complexity
+        self._semaphore = None
+        self._orchestrator_factory = orchestrator_factory
+        self._orchestrator = None
+
+    def _get_semaphore(self):
+        """延迟获取全局 LLM 信号量"""
+        if self._semaphore is None:
+            try:
+                from app.agent.specialist_base import get_global_llm_semaphore
+                self._semaphore = get_global_llm_semaphore()
+            except Exception:
+                self._semaphore = None
+        return self._semaphore
 
     async def process(
         self,
@@ -769,48 +869,89 @@ class MultiModelAgent:
         task_type: TaskType = None,
         files: List[str] = None,
         stream_callback: Callable = None,
-        use_dynamic_routing: bool = True
+        use_dynamic_routing: bool = True,
+        complexity: Optional[str] = None,
+        dependency_hints: Optional[str] = None,
+        output_dir: Optional[str] = None
     ) -> Dict:
         """
         处理任务
 
-        Args:
-            task: 任务描述
-            context: 上下文
-            task_type: 指定任务类型（可选，自动识别）
-            files: 附加文件列表
-            stream_callback: 流式回调函数 (可选)，接收 (event_type, data) 参数
-
-        Returns:
-            处理结果
+        v5.12.x 增强：
+        - complexity: 显式指定项目复杂度（SIMPLE/SMALL/MEDIUM/LARGE/ENTERPRISE）
+                     传入后，planner/reviewer 走 5×5 矩阵按角色路由
+        - dependency_hints: 来自 DependencyGraph 的结构化提示，会注入到规划 prompt
+        - output_dir: 项目输出目录（代码生成任务委托给 OrchestratorAgent 时必需）
         """
         async def emit(event_type: str, data: Dict):
-            """发送流式事件"""
             if stream_callback:
                 try:
                     await stream_callback(event_type, data)
                 except Exception as e:
                     logger.warning(f"流式回调失败: {e}")
 
+        effective_complexity = complexity or self.complexity
+
         if task_type is None:
             task_type = self.router.route_by_content(task, files)
             await emit("task_routed", {"task_type": task_type.value})
 
-        # 动态路由或静态路由
+        # 代码生成任务委托给 OrchestratorAgent
+        if task_type in (TaskType.CODE_GENERATION, TaskType.REASONING) and self._orchestrator_factory and output_dir:
+            await emit("delegating", {"message": "代码生成任务委托给 OrchestratorAgent", "task_type": task_type.value})
+            try:
+                orchestrator = self._orchestrator_factory(
+                    output_dir=output_dir,
+                    enable_review=True,
+                    enable_validation=True,
+                    enable_error_recovery=True,
+                    dependency_graph=True,
+                    callback=lambda msg: logger.info(f"Orchestrator 进度: {msg[:200]}")
+                )
+                result = await orchestrator.generate(requirement=task)
+                await emit("delegation_complete", {"success": result.get("success", False)})
+                return result
+            except Exception as e:
+                logger.error(f"OrchestratorAgent 委托失败: {e}")
+                await emit("delegation_failed", {"error": str(e)})
+                # 降级到 MultiModelAgent 自己处理
+
+        async def call_with_semaphore(coro_factory, *args, **kwargs):
+            sem = self._get_semaphore()
+            if sem is None:
+                return await coro_factory(*args, **kwargs)
+            async with sem:
+                return await coro_factory(*args, **kwargs)
+
+        if task_type is None:
+            task_type = self.router.route_by_content(task, files)
+            await emit("task_routed", {"task_type": task_type.value})
+
         if use_dynamic_routing:
             model = await self.router.route_dynamic(task_type)
         else:
             model = self.router.route(task_type)
         await emit("model_selected", {"model": model.display_name, "model_key": model.key})
 
-        logger.info(f"任务类型: {task_type.value}, 使用模型: {model.display_name}")
+        logger.info(f"任务类型: {task_type.value}, 使用模型: {model.display_name}, 复杂度: {effective_complexity}")
 
-        steps = await self.planner.decompose(task, context)
+        steps = await call_with_semaphore(self.planner.decompose, task, context, dependency_hints)
         await emit("plan_created", {"steps_count": len(steps), "steps": steps})
 
         if self.reviewer:
             await emit("review_start", {"message": "正在审查执行计划..."})
-            review_result = await self.reviewer.review_plan(steps)
+            try:
+                from app.agent.dynamic_model_router import get_dynamic_router
+                router = await get_dynamic_router()
+                assignment = await router.get_assignment_with_learning(effective_complexity)
+                reviewer_model = ModelRegistry.get(assignment.reviewer_model)
+                if reviewer_model and reviewer_model != self.reviewer.model:
+                    self.reviewer.model = reviewer_model
+                    logger.info(f"按 5×5 矩阵切换 reviewer 模型为 {reviewer_model.display_name}")
+            except Exception as e:
+                logger.warning(f"reviewer 模型切换失败，使用默认: {e}")
+
+            review_result = await call_with_semaphore(self.reviewer.review_plan, steps)
             if not review_result.approved:
                 await emit("review_failed", {"issues": review_result.issues})
                 return {
@@ -846,6 +987,7 @@ class MultiModelAgent:
             "success": True,
             "task_type": task_type.value,
             "model_used": model.display_name,
+            "complexity": effective_complexity,
             "steps": len(steps),
             "results": results
         }

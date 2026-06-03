@@ -71,7 +71,7 @@ class PPTAgent:
     def __init__(self, model: Optional[str] = None, quality: str = "balanced"):
         """
         初始化 PPT Agent
-        
+
         Args:
             model: 自定义模型名称
             quality: 质量等级 (high_quality/balanced/fast/creative) - 保留用于未来扩展
@@ -87,7 +87,7 @@ class PPTAgent:
     ) -> PresentationOutline:
         """根据自然语言输入生成 PPT 大纲"""
         prompt = self._build_prompt(topic, description, num_slides)
-        
+
         for attempt in range(1, self.MAX_RETRIES + 1):
             try:
                 raw = await call_llm(
@@ -97,23 +97,23 @@ class PPTAgent:
                     temperature=0.7,
                     api_key_token=api_key_token,
                 )
-                
+
                 # 从响应中提取文本
                 if isinstance(raw, dict):
                     content = raw.get("choices", [{}])[0].get("message", {}).get("content", "")
                 else:
                     content = str(raw)
-                
+
                 # 尝试解析 JSON（含 LLM 兜底）
                 outline = await self._parse_with_llm_fallback(content, topic, num_slides, api_key_token)
                 if outline:
                     return outline
-                    
+
             except Exception as e:
                 logger.warning(f"LLM 调用失败 (尝试 {attempt}/{self.MAX_RETRIES}): {e}")
                 if attempt < self.MAX_RETRIES:
                     await asyncio.sleep(2 ** attempt)
-        
+
         return self._fallback_outline(topic, num_slides)
 
     def _build_prompt(self, topic: str, description: str, num_slides: int) -> str:
@@ -148,21 +148,21 @@ JSON Schema:
 请返回 JSON:"""
 
     async def _parse_with_llm_fallback(
-        self, 
-        raw: str, 
-        topic: str, 
+        self,
+        raw: str,
+        topic: str,
         num_slides: int,
         api_key_token: Optional[str] = None
     ) -> Optional[PresentationOutline]:
         """
         尝试解析 JSON，失败时使用 LLM 辅助提取
-        
+
         Args:
             raw: 原始文本
             topic: PPT 主题
             num_slides: 页数
             api_key_token: API key
-            
+
         Returns:
             PresentationOutline 或 None
         """
@@ -173,27 +173,27 @@ JSON Schema:
             return self._validate_outline(data, topic, num_slides)
         except ValueError:
             logger.warning("JSON 解析失败，尝试 LLM 辅助提取")
-            
+
             # 第二步：使用 LLM 辅助提取 JSON
             extracted = await self._extract_json_with_llm(raw, api_key_token)
             if extracted:
                 return self._validate_outline(extracted, topic, num_slides)
-            
+
             logger.warning("LLM 辅助提取失败")
             return None
 
     async def _extract_json_with_llm(
-        self, 
-        raw_text: str, 
+        self,
+        raw_text: str,
         api_key_token: Optional[str] = None
     ) -> Optional[Dict]:
         """
         使用 LLM 从非标准输出中提取 JSON
-        
+
         Args:
             raw_text: 原始文本
             api_key_token: API key
-            
+
         Returns:
             解析后的 JSON 字典或 None
         """
@@ -233,13 +233,13 @@ JSON Schema：
                 temperature=0.3,
                 api_key_token=api_key_token,
             )
-            
+
             # 从响应中提取文本
             if isinstance(response, dict):
                 content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
             else:
                 content = str(response)
-            
+
             # 使用 ArchitectJsonParser 解析
             parser = ArchitectJsonParser()
             return parser.safe_parse_json(content)
@@ -263,7 +263,7 @@ JSON Schema：
             slides_data = data.get("slides", [])
             slides = []
             valid_types = {e.value for e in SlideType}
-            
+
             for s in slides_data:
                 slide = SlideOutline(
                     type=s.get("type", "content"),
@@ -275,19 +275,19 @@ JSON Schema：
                 if slide.type not in valid_types:
                     slide.type = "content"
                 slides.append(slide)
-            
+
             if len(slides) < 2:
                 return None
-            
+
             if slides[0].type != "title":
                 slides.insert(0, SlideOutline(type="title", title=topic or "PPT", bullets=[]))
-            
+
             if slides[-1].type != "end":
                 slides.append(SlideOutline(type="end", title="谢谢", bullets=[]))
-            
+
             while len(slides) > num_slides:
                 slides.pop(-2)
-                
+
             return PresentationOutline(title=data.get("title", topic), slides=slides)
         except Exception as e:
             logger.warning(f"大纲验证失败: {e}")
@@ -298,14 +298,14 @@ JSON Schema：
             SlideOutline(type="title", title=topic, bullets=[]),
             SlideOutline(type="chapter", title="目录", bullets=["引言", "主体", "总结"])
         ]
-        
+
         for i in range(2, num_slides - 1):
             slides.append(SlideOutline(
                 type="content",
                 title=f"第 {i} 章",
                 bullets=[f"要点 {i}-1", f"要点 {i}-2"]
             ))
-            
+
         slides.append(SlideOutline(type="end", title="谢谢", bullets=[]))
         return PresentationOutline(title=topic, slides=slides)
 

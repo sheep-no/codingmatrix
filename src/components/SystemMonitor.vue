@@ -292,15 +292,16 @@
       onClose: event => {
         isConnected.value = false
 
-        // 其他错误码自动重连
-        if (wsManager.value) {
+        // 认证失败(code 1008)不重试
+        if (wsManager.value && event && event.code !== 1008) {
           wsManager.value.scheduleReconnect()
         }
       },
       reconnectDelay: 3000
     })
 
-    wsManager.value.connect()
+    const token = userStore.getAccessToken() || localStorage.getItem('access_token')
+    wsManager.value.connect(token)
   }
 
   // 断开 WebSocket
@@ -357,7 +358,7 @@
   }
 
   .system-monitor-container {
-    background: white;
+    background: var(--bg-primary);
     border-radius: 16px;
     width: 90%;
     max-width: 800px;
@@ -383,7 +384,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 24px;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--border-color);
     background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
     color: white;
   }
@@ -425,7 +426,7 @@
     align-items: center;
     gap: 10px;
     padding: 12px 16px;
-    background: #f9fafb;
+    background: var(--bg-secondary);
     border-radius: 8px;
     margin-bottom: 24px;
   }
@@ -434,16 +435,16 @@
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #dc2626;
+    background: var(--danger);
     animation: pulse 1.5s infinite;
   }
 
   .status-dot.connected {
-    background: #10b981;
+    background: var(--success);
   }
 
   .status-dot.disconnected {
-    background: #dc2626;
+    background: var(--danger);
   }
 
   @keyframes pulse {
@@ -458,19 +459,19 @@
 
   .status-text {
     font-weight: 600;
-    color: #374151;
+    color: var(--text-secondary);
     font-size: 14px;
   }
 
   .last-update {
     margin-left: auto;
-    color: #6b7280;
+    color: var(--text-tertiary);
     font-size: 12px;
   }
 
   .stat-card {
-    background: white;
-    border: 1px solid #e5e7eb;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 20px;
     margin-bottom: 20px;
@@ -499,7 +500,7 @@
   .card-header h3 {
     margin: 0;
     font-size: 18px;
-    color: #111827;
+    color: var(--text-primary);
     font-weight: 600;
   }
 
@@ -514,7 +515,7 @@
   .progress-bar {
     flex: 1;
     height: 32px;
-    background: #f3f4f6;
+    background: var(--bg-tertiary);
     border-radius: 8px;
     overflow: hidden;
     position: relative;
@@ -522,7 +523,7 @@
 
   .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #10b981 0%, #34d399 100%);
+    background: linear-gradient(90deg, var(--success) 0%, #34d399 100%);
     border-radius: 8px;
     transition: width 0.5s ease;
   }
@@ -538,7 +539,7 @@
   .cpu-percent {
     font-size: 28px;
     font-weight: 700;
-    color: #111827;
+    color: var(--text-primary);
     min-width: 80px;
     text-align: right;
   }
@@ -546,7 +547,7 @@
   .cpu-cores h4 {
     margin: 0 0 12px 0;
     font-size: 14px;
-    color: #6b7280;
+    color: var(--text-tertiary);
     font-weight: 500;
   }
 
@@ -559,7 +560,7 @@
 
   .core-bar {
     height: 80px;
-    background: #f3f4f6;
+    background: var(--bg-tertiary);
     border-radius: 4px;
     overflow: hidden;
     cursor: help;
@@ -568,7 +569,7 @@
   .core-fill {
     width: 100%;
     height: 100%;
-    background: linear-gradient(180deg, #10b981 0%, #34d399 100%);
+    background: linear-gradient(180deg, var(--success) 0%, #34d399 100%);
     border-radius: 4px;
     transition: height 0.3s ease;
   }
@@ -584,7 +585,7 @@
   .core-count {
     margin: 0;
     font-size: 12px;
-    color: #6b7280;
+    color: var(--text-tertiary);
   }
 
   /* 内存和磁盘 */
@@ -603,14 +604,14 @@
   .stat-item {
     text-align: center;
     padding: 12px;
-    background: #f9fafb;
+    background: var(--bg-secondary);
     border-radius: 8px;
   }
 
   .stat-item .label {
     display: block;
     font-size: 12px;
-    color: #6b7280;
+    color: var(--text-tertiary);
     margin-bottom: 4px;
   }
 
@@ -618,7 +619,7 @@
     display: block;
     font-size: 20px;
     font-weight: 700;
-    color: #111827;
+    color: var(--text-primary);
   }
 
   .stat-item .value.highlight {
@@ -641,7 +642,7 @@
     align-items: center;
     gap: 12px;
     padding: 16px;
-    background: #f9fafb;
+    background: var(--bg-secondary);
     border-radius: 8px;
   }
 
@@ -656,7 +657,7 @@
   .net-label {
     display: block;
     font-size: 12px;
-    color: #6b7280;
+    color: var(--text-tertiary);
     margin-bottom: 4px;
   }
 
@@ -664,16 +665,16 @@
     display: block;
     font-size: 18px;
     font-weight: 600;
-    color: #111827;
+    color: var(--text-primary);
   }
 
   /* 时间戳 */
   .timestamp-info {
     text-align: center;
     padding: 16px;
-    background: #f9fafb;
+    background: var(--bg-secondary);
     border-radius: 8px;
-    color: #6b7280;
+    color: var(--text-tertiary);
     font-size: 12px;
   }
 

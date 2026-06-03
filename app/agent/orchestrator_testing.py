@@ -4,8 +4,8 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 from app.agent.test_runner import IsolatedTestRunner
-from app.agent.impact_analyzer import ImpactAnalyzer, ChangeSummary
-from app.agent.project_profiler import ProjectProfiler, ProjectProfile
+from app.agent.impact_analyzer import ImpactAnalyzer
+from app.agent.project_profiler import ProjectProfile
 from app.agent.test_selector import TestSelector
 from app.agent.failure_clusterer import FailureClusterer, FailureCluster
 from app.utils.performance_metrics import metrics_collector
@@ -26,10 +26,10 @@ class TestingMixin:
         self._update_phase("running_tests")
 
         test_start = metrics_collector.start_timer('TestingMixin')
-        
+
         # 智能测试选择
         test_files = await self._select_tests(modified_files, project_profile)
-        
+
         test_cmd = self._detect_test_command(self.output_dir, test_files)
 
         docker_result = await self._run_tests_in_docker(test_cmd)
@@ -48,7 +48,7 @@ class TestingMixin:
                 "failed_tests": result.failed_tests,
                 "logs_preview": result.logs[:1000]
             }
-            
+
             # 测试失败聚类
             if not result.success and result.failed_tests:
                 clusters = await self._cluster_test_failures(result.failed_tests, result.logs)
@@ -104,16 +104,16 @@ class TestingMixin:
         if not modified_files or not project_profile:
             # 回退到全量测试
             return []
-        
+
         try:
             # 分析变更
             analyzer = ImpactAnalyzer()
             changes = analyzer.analyze(modified_files)
-            
+
             # 选择测试
             selector = TestSelector()
             test_files = selector.select_tests(changes, project_profile)
-            
+
             logger.info(f"智能测试选择：{len(test_files)}/{len(self._collect_all_tests())} 个测试")
             return test_files
         except Exception as e:
@@ -130,20 +130,20 @@ class TestingMixin:
             # 解析测试结果
             clusterer = FailureClusterer()
             test_results = []
-            
+
             for test_name in failed_tests:
                 # 从 logs 中提取 traceback
                 import re
                 pattern = rf"FAILED {test_name}.*?(?=FAILED|PASSED|ERROR|$)"
                 match = re.search(pattern, logs, re.DOTALL)
                 traceback = match.group(0) if match else ""
-                
+
                 test_results.append({
                     "name": test_name,
                     "traceback": traceback,
                     "error_message": traceback.split('\n')[-2] if traceback else ""
                 })
-            
+
             clusters = clusterer.cluster(test_results)
             logger.info(f"测试失败聚类：{len(clusters)} 个根因")
             return clusters
@@ -162,7 +162,7 @@ class TestingMixin:
                         # 指定测试文件
                         files_str = ' '.join(test_files)
                         return f"cd /app && npm run test -- {files_str}"
-                    return f"cd /app && npm run test"
+                    return "cd /app && npm run test"
             except Exception:
                 pass
 
@@ -174,19 +174,19 @@ class TestingMixin:
             if test_files:
                 files_str = ' '.join(test_files)
                 return f"cd /app && npx playwright test --reporter=list {files_str}"
-            return f"cd /app && npx playwright test --reporter=list"
+            return "cd /app && npx playwright test --reporter=list"
 
         pytest_dir = project_path / "tests" or project_path / "test"
         if pytest_dir.exists() or list(project_path.glob("test_*.py")):
             if test_files:
                 files_str = ' '.join(test_files)
                 return f"cd /app && python -m pytest -v --tb=short -q --color=no {files_str}"
-            return f"cd /app && python -m pytest -v --tb=short -q --color=no"
+            return "cd /app && python -m pytest -v --tb=short -q --color=no"
 
         if test_files:
             files_str = ' '.join(test_files)
             return f"cd /app && python -m pytest -v --tb=short -q --color=no {files_str}"
-        return f"cd /app && python -m pytest -v --tb=short -q --color=no"
+        return "cd /app && python -m pytest -v --tb=short -q --color=no"
 
     def _collect_all_tests(self) -> List[str]:
         """收集所有测试文件"""
@@ -254,7 +254,6 @@ class TestingMixin:
             }
 
             from app.agent.output_parser import OutputParser
-            from app.agent.test_framework_config import FRAMEWORK_PRESETS
 
             output_format = "pytest_xml"
             if detected_config:

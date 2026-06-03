@@ -3,7 +3,6 @@
 """
 import re
 import json
-from typing import Dict, List, Tuple
 from dataclasses import dataclass
 
 from app.utils import call_llm
@@ -21,7 +20,7 @@ class ErrorClassification:
 
 class ErrorClassifier:
     """错误分类器 - 使用轻量级模型进行错误类型识别"""
-    
+
     # 错误模式匹配规则
     ERROR_PATTERNS = {
         "NameError": {
@@ -103,14 +102,12 @@ class ErrorClassifier:
         rule_based_result = self._rule_based_classification(error_message)
         if rule_based_result:
             return rule_based_result
-        
+
         # 如果规则匹配失败，使用轻量级模型进行分类
         return await self._model_based_classification(error_message, code_context)
 
     def _rule_based_classification(self, error_message: str) -> ErrorClassification:
         """基于规则的错误分类"""
-        error_message_lower = error_message.lower()
-        
         for error_type, config in self.ERROR_PATTERNS.items():
             for pattern in config["patterns"]:
                 match = re.search(pattern, error_message, re.IGNORECASE)
@@ -122,7 +119,7 @@ class ErrorClassifier:
                         suggested_fix_strategy=config["fix_strategy"],
                         confidence=0.95
                     )
-        
+
         return None
 
     async def _model_based_classification(self, error_message: str, code_context: str) -> ErrorClassification:
@@ -140,7 +137,7 @@ class ErrorClassifier:
 
 【可用错误类型】
 1. NameError - 变量或函数未定义
-2. AttributeError - 对象属性访问错误  
+2. AttributeError - 对象属性访问错误
 3. ImportError - 导入错误
 4. SyntaxError - 语法错误
 5. TypeError - 类型错误
@@ -155,25 +152,25 @@ class ErrorClassifier:
 
         try:
             response = await call_llm(
-                model="Qwen/Qwen3.5-4B",
+                model="Qwen/Qwen3-8B",
                 prompt=f"【USER】\n{prompt}",
                 stream=False,
                 max_tokens=500,
                 temperature=0.1,
                 system_prompt=system_prompt
             )
-            
+
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-            
+
             # 提取 JSON
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
             if json_match:
                 result_dict = json.loads(json_match.group())
                 return ErrorClassification(**result_dict)
-            
+
         except Exception as e:
             print(f"模型分类失败: {e}")
-        
+
         # 默认返回 LogicError
         return ErrorClassification(
             error_type="LogicError",

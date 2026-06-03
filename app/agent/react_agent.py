@@ -17,16 +17,18 @@ ReAct Agent - 基于 ReAct (Reasoning + Acting) 模式的 Agent
 import asyncio
 import json
 import time
-from typing import Dict, List, Any, Optional, Callable, Awaitable
+from typing import Dict, List, Any, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime
 import logging
 
 from app.agent.memory import AgentMemory
-from app.agent.executor import EnhancedExecutor, ToolResult, ToolRegistry
+from app.agent.executor import EnhancedExecutor, ToolResult
 from app.utils import call_llm
-from app.agent.multi_model_agent import ModelRegistry, TaskType
+from app.agent.multi_model_agent import (
+    ModelRegistry,
+    extract_json_from_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,17 +70,19 @@ class ReActAgent:
     支持阶段化模型路由：不同阶段使用不同模型
     """
 
+    # 注: 模型 key 必须与 ModelRegistry.MODELS 中定义的 key 完全一致
+    # 避免使用 SiliconFlow 当前不可用的 qwen3.5-4b
     DEFAULT_STAGE_MODELS = {
-        ReActStepType.THOUGHT: "deepseek-r1-qwen3-8b",     # 推理能力强
-        ReActStepType.ACTION: "qwen2.5-7b",                 # 代码生成好
-        ReActStepType.OBSERVATION: "qwen3.5-4b",           # 快速响应
-        ReActStepType.REFLECTION: "deepseek-r1-qwen3-8b",  # 综合分析
-        ReActStepType.FINAL: "qwen3.5-4b",                 # 快速总结
+        ReActStepType.THOUGHT: "glm-z1-9b",             # 推理能力强
+        ReActStepType.ACTION: "qwen3-8b",               # 工具调用能力好
+        ReActStepType.OBSERVATION: "qwen3.5-4b",        # 快速响应
+        ReActStepType.REFLECTION: "glm-z1-9b",          # 综合分析
+        ReActStepType.FINAL: "qwen3.5-4b",              # 快速总结
     }
 
     def __init__(
         self,
-        model_key: str = "deepseek-r1-qwen3-8b",
+        model_key: str = "glm-z1-9b",
         max_iterations: int = 10,
         enable_streaming: bool = False,
         stage_models: Optional[Dict[ReActStepType, str]] = None
@@ -128,7 +132,7 @@ class ReActAgent:
         Thought 阶段 - 分析问题
         """
         model = self._get_model_for_stage(ReActStepType.THOUGHT)
-        
+
         prompt = f"""分析以下任务，决定下一步行动：
 
 任务：{task}
@@ -168,7 +172,7 @@ class ReActAgent:
         Action 阶段 - 执行动作
         """
         model = self._get_model_for_stage(ReActStepType.ACTION)
-        
+
         prompt = f"""基于以下思考，决定执行什么动作：
 
 思考：{thought}
@@ -200,14 +204,9 @@ class ReActAgent:
 
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "{}")
 
-            try:
-                action = json.loads(content)
-            except json.JSONDecodeError:
-                json_match = re.search(r'\{[\s\S]*\}', content)
-                if json_match:
-                    action = json.loads(json_match.group())
-                else:
-                    raise ValueError("无法解析动作")
+            action = extract_json_from_response(content)
+            if action is None or not isinstance(action, dict):
+                raise ValueError("无法解析动作 JSON")
 
             tool_name = action.get("tool")
             params = action.get("params", {})
@@ -234,12 +233,18 @@ class ReActAgent:
         except Exception as e:
             logger.error(f"动作执行失败: {e}")
             error_result = ToolResult(False, None, str(e), 0, "unknown")
-            self._add_step(ReActStep(
-                ReActStepType.ACTION,
-                f"动作执行失败: {e}",
-                tool_result=None,
-                success=False
-            ))
+            # 仅在尚未记录 ACT 步骤时记录（避免与成功路径的 _add_step 重复）
+            if not self._steps or self._steps[-1].step_type != ReActStepType.ACTION:
+                self._add_step(ReActStep(
+                    ReActStepType.ACTION,
+                    f"动作执行失败: {e}",
+                    tool_result=None,
+                    success=False
+                ))
+            else:
+                # 已存在的 ACTION 步骤标记为失败
+                self._steps[-1].success = False
+                self._steps[-1].tool_result = None
             return error_result
 
     async def _observe(self, action_result: ToolResult) -> str:
@@ -247,13 +252,28 @@ class ReActAgent:
         Observation 阶段 - 观察结果
         """
         model = self._get_model_for_stage(ReActStepType.OBSERVATION)
-        
-        result_str = json.dumps(action_result.result, ensure_ascii=False) if action_result.result else action_result.error
+
+        success = action_result.success
+        has_result = action_result.result is not None
+        has_error = bool(action_result.error)
+
+        if success and has_result:
+            status = "SUCCESS"
+            result_str = json.dumps(action_result.result, ensure_ascii=False)
+        elif success and not has_result:
+            status = "SUCCESS_NO_RETURN"
+            result_str = "（工具执行成功，但未返回结果）"
+        elif not success and has_error:
+            status = "FAILED"
+            result_str = f"错误: {action_result.error}"
+        else:
+            status = "FAILED_NO_ERROR_MSG"
+            result_str = "（工具执行失败，但未提供错误信息）"
 
         prompt = f"""分析以下执行结果：
 
+状态：{status}
 结果：{result_str}
-成功：{action_result.success}
 
 请分析：
 1. 这个结果说明了什么？
@@ -279,14 +299,14 @@ class ReActAgent:
 
         except Exception as e:
             logger.error(f"观察阶段失败: {e}")
-            return str(action_result.result or action_result.error)
+            return f"[{status}] {result_str}"
 
     async def _reflect(self, task: str, steps: List[ReActStep]) -> Dict[str, Any]:
         """
         Reflection 阶段 - 反思是否继续
         """
         model = self._get_model_for_stage(ReActStepType.REFLECTION)
-        
+
         steps_summary = "\n".join([
             f"{i+1}. [{s.step_type.value}] {s.content[:100]}"
             for i, s in enumerate(steps[-5:])
@@ -324,14 +344,9 @@ class ReActAgent:
 
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "{}")
 
-            try:
-                result = json.loads(content)
-            except json.JSONDecodeError:
-                json_match = re.search(r'\{[\s\S]*\}', content)
-                if json_match:
-                    result = json.loads(json_match.group())
-                else:
-                    result = {"continue": False, "task_complete": True, "reflection": content}
+            result = extract_json_from_response(content)
+            if result is None or not isinstance(result, dict):
+                result = {"continue": False, "task_complete": True, "reflection": content}
 
             reflection = result.get("reflection", "")
             self._add_step(ReActStep(ReActStepType.REFLECTION, reflection))
@@ -431,9 +446,16 @@ class ReActAgent:
 
             reflection = await self._reflect(task, self._steps)
 
-            if not reflection.get("continue", False) or reflection.get("task_complete", False):
+            # 任一终止条件：反思判断不继续 OR 任务已完成
+            should_stop = (
+                not reflection.get("continue", False)
+                or reflection.get("task_complete", False)
+            )
+            if should_stop:
                 if reflection.get("task_complete", False):
                     logger.info("任务已完成")
+                else:
+                    logger.info("反思判断不继续，终止循环")
                 break
 
             self._current_state["next_action"] = reflection.get("next_action")
@@ -489,7 +511,7 @@ class ReActWithFallback:
     """带降级策略的 ReAct Agent"""
 
     def __init__(self):
-        self.primary_agent = ReActAgent(model_key="deepseek-r1-qwen3-8b")
+        self.primary_agent = ReActAgent(model_key="glm-z1-9b")
         self.fallback_agent = ReActAgent(model_key="qwen3.5-4b")
         self.max_retries = 2
 
@@ -513,7 +535,8 @@ class ReActWithFallback:
                     logger.info("切换到备用模型")
                     try:
                         return await self.fallback_agent.process(task, context)
-                    except:
+                    except Exception as fb_e:
+                        logger.warning(f"备用模型也失败: {fb_e}")
                         continue
 
         return ReActResult(

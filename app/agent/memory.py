@@ -9,9 +9,8 @@ import json
 import time
 import asyncio
 import math
-from typing import Dict, List, Any, Optional, Callable
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
-from datetime import datetime
 from collections import defaultdict
 import logging
 
@@ -117,12 +116,11 @@ class ConversationMemory(BaseMemory):
 
         # 将旧条目压缩为一条摘要
         old_entries = self._entries[:-self.COMPRESSED_ENTRIES]
-        summary_parts = []
-        
+
         # 按类型分组统计
         type_counts = defaultdict(int)
         key_topics = set()
-        
+
         for entry in old_entries:
             type_counts[entry.type] += 1
             # 提取关键词（简单实现）

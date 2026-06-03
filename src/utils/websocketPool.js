@@ -38,7 +38,7 @@ const ConnectionState = {
  */
 export class WebSocketPool {
   constructor() {
-    this.baseUrl = import.meta.env.VITE_WS_BASE || 'ws://127.0.0.1:8080'
+    this.baseUrl = API_CONFIG.WS_BASE_URL
 
     // 连接池 Map: endpoint -> SharedConnection
     this.pool = new Map()

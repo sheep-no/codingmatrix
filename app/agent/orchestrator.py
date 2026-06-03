@@ -1,38 +1,26 @@
-import os
 import logging
 from typing import Optional, Callable, List, Dict
 from pathlib import Path
 
-from app.utils.file_operator import FileOperator, PathSecurityError
-from app.utils.retry import retry_on_failure
-from app.utils.circuit_breaker import circuit_breaker
 
-from app.agent.complexity import ProjectComplexity, ComplexityAnalysis, ComplexityAnalyzer
+from app.agent.complexity import ComplexityAnalysis, ComplexityAnalyzer
 from app.agent.code_validator import CodeValidator
-from app.agent.specialists import Specialist, Architect, FrontendEngineer, BackendEngineer, CodeReviewer
-from app.agent.error_recovery import ErrorRecoveryLoop, FixAttempt
+from app.agent.specialists import Architect, FrontendEngineer, BackendEngineer, CodeReviewer
+from app.agent.error_recovery import ErrorRecoveryLoop
 
-from app.agent.multi_model_agent import ModelRegistry, ModelInfo, ModelCapability, TaskType
-from app.agent.shared_context import SharedContext
-from app.agent.api_contract_checker import APIContractChecker, check_api_consistency, generate_frontend_prompt_contract
-from app.agent.code_patcher import CodePatcher, apply_incremental_change, CrossFilePatcher
-from app.agent.spec_first_generator import SpecFirstGenerator
-from app.agent.refinement_loop import RefinementLoop, RefinementResult
+from app.agent.api_contract_checker import APIContractChecker
+from app.agent.code_patcher import CodePatcher, CrossFilePatcher
 from app.agent.dependency_graph import DependencyGraph
-from app.agent.cross_validator import CrossValidator
 from app.agent.session_manager import SessionManager
 from app.agent.spec_cache import SpecCache
 from app.agent.feedback_learner import FeedbackLearner
 from app.agent.memory import ConversationMemory, KnowledgeMemory
-from app.agent.test_runner import TestRunner, IsolatedTestRunner
 
 from app.agent.dynamic_model_router import LayeredModelRouter, ModelAssignment
 
-from app.agent.tracing import tracer, traced, get_current_trace_id, set_trace_id
 
 from app.agent.orchestrator_progress import (
-    PROGRESS_LABELS, GenerationProgress, ProgressMixin, CostTracker,
-    MAX_CONCURRENT_LLM_CALLS, MAX_CONTENT_FOR_CONTEXT,
+    ProgressMixin, CostTracker,
 )
 from app.agent.orchestrator_generation import GenerationMixin
 from app.agent.orchestrator_files import FilesMixin
@@ -130,7 +118,6 @@ class OrchestratorAgent(
         self._start_time: Optional[float] = None
         self._current_phase: str = "initializing"
         self._generated_contents: Dict[str, str] = {}
-        
+
         # 成本追踪器
         self.cost_tracker = CostTracker()
-        Specialist.set_cost_tracker(self.cost_tracker)

@@ -35,17 +35,28 @@ ADAPTER_FACTORIES = {
     ModelProvider.ANTHROPIC: lambda cfg: AnthropicAdapter(cfg),
 }
 
+# 适配器实例缓存（按 provider 缓存，config 不变时复用）
+_adapter_cache: Dict[ModelProvider, BaseProviderAdapter] = {}
+_adapter_cache_lock = asyncio.Lock()
+
 
 def get_adapter(provider: ModelProvider, config: Optional[ProviderConfig] = None) -> BaseProviderAdapter:
-    """获取供应商适配器实例"""
+    """获取供应商适配器实例（带缓存）"""
     if provider not in ADAPTER_FACTORIES:
         raise ValueError(f"Unknown provider: {provider}")
     
     if config is None:
+        # 使用默认 config，可以缓存
+        if provider in _adapter_cache:
+            return _adapter_cache[provider]
         config = settings.get_provider_registry().get(provider)
         if config is None:
             raise RuntimeError(f"Provider {provider.value} is not configured")
+        adapter = ADAPTER_FACTORIES[provider](config)
+        _adapter_cache[provider] = adapter
+        return adapter
     
+    # 自定义 config（如用户 API Key），不缓存
     return ADAPTER_FACTORIES[provider](config)
 
 
@@ -135,9 +146,6 @@ async def call_llm(
         except Exception as e:
             logger.warning(f"Primary provider {primary_provider.value} failed: {e}")
             
-            if stream:
-                raise
-            
             fallback_providers = router.get_fallback_providers(primary_provider)
             last_error = e
             
@@ -155,16 +163,44 @@ async def call_llm(
             if adapter is None:
                 raise RuntimeError(f"All providers failed. Last error: {last_error}") from last_error
     
-    return await adapter.call_llm(
-        model=model,
-        prompt=prompt,
-        system_prompt=system_prompt,
-        stream=stream,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        thinking_budget=thinking_budget,
-        cancel_event=cancel_event,
-    )
+    try:
+        return await adapter.call_llm(
+            model=model,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            stream=stream,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            thinking_budget=thinking_budget,
+            cancel_event=cancel_event,
+        )
+    except Exception as e:
+        # 流式调用失败时尝试 fallback（仅在流式未开始前的失败）
+        if stream:
+            logger.warning(f"Stream call failed before streaming started, attempting fallback: {e}")
+            router = ProviderRouter.get_instance(settings.get_provider_registry())
+            primary_provider = router.route(model)
+            fallback_providers = router.get_fallback_providers(primary_provider)
+            
+            for fallback in fallback_providers:
+                try:
+                    fallback_adapter = get_adapter(fallback)
+                    fallback_adapter.timeout = timeout
+                    logger.info(f"Stream fallback to {fallback.value}")
+                    return await fallback_adapter.call_llm(
+                        model=model,
+                        prompt=prompt,
+                        system_prompt=system_prompt,
+                        stream=True,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        thinking_budget=thinking_budget,
+                        cancel_event=cancel_event,
+                    )
+                except Exception as fallback_error:
+                    logger.warning(f"Stream fallback {fallback.value} also failed: {fallback_error}")
+                    continue
+        raise
 
 
 def _get_user_api_key_from_token(token: str) -> Optional[str]:
@@ -177,16 +213,13 @@ def _get_user_api_key_from_token(token: str) -> Optional[str]:
     Returns:
         API Key 或 None
     """
-    # 如果 token 不是 UUID 格式，说明不是用户自定义 Key
     if not token or len(token) < 30:
         return None
     
     try:
         from app.services.apikey_manager import get_apikey_manager
-        # 临时使用默认用户 ID（实际应从 session 中获取）
-        user_id = "default_user"
         apikey_manager = get_apikey_manager()
-        return apikey_manager.get_key(user_id, token)
+        return apikey_manager.get_key_by_token(token)
     except Exception as e:
         logger.warning(f"从 Redis 获取用户 Key 失败：{e}")
         return None
@@ -196,17 +229,24 @@ def _detect_provider_from_model(model: str) -> Optional[ModelProvider]:
     """
     根据模型名称检测供应商
     
+    优先检查 SiliconFlow 格式（org/model），再做关键词匹配。
+    
     Args:
         model: 模型名称
         
     Returns:
         ModelProvider 或 None
     """
+    # SiliconFlow 模型名格式: "org/model"（如 Qwen/Qwen3-8B, THUDM/GLM-Z1-9B-0414）
+    if "/" in model:
+        return ModelProvider.SILICONFLOW
+    
     model_lower = model.lower()
     
-    if "qwen" in model_lower or "dashscope" in model_lower:
+    # 关键词匹配（仅用于无 / 的简写模型名）
+    if "dashscope" in model_lower:
         return ModelProvider.DASHSCOPE
-    elif "glm" in model_lower or "zhipu" in model_lower:
+    elif "zhipu" in model_lower:
         return ModelProvider.ZHIPU
     elif "deepseek" in model_lower:
         return ModelProvider.DEEPSEEK
@@ -214,8 +254,13 @@ def _detect_provider_from_model(model: str) -> Optional[ModelProvider]:
         return ModelProvider.ANTHROPIC
     elif "gpt" in model_lower or "openai" in model_lower:
         return ModelProvider.OPENAI
+    elif "qwen" in model_lower:
+        # 无 / 的 Qwen 简写走 DashScope
+        return ModelProvider.DASHSCOPE
+    elif "glm" in model_lower:
+        # 无 / 的 GLM 简写走 Zhipu
+        return ModelProvider.ZHIPU
     else:
-        # 默认使用 SiliconFlow
         return ModelProvider.SILICONFLOW
 
 

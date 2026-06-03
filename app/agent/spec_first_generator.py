@@ -15,7 +15,7 @@ import json
 import re
 import asyncio
 import logging
-from typing import Optional, Dict, Any, List, Tuple, Callable
+from typing import Optional, Dict, Any, Callable
 
 from app.utils import call_llm
 from app.agent.shared_context import SharedContext
@@ -424,35 +424,54 @@ OpenAPI 规范：
         except Exception as e:
             logger.error(f"Spec 进度回调失败: {e}")
 
-    def get_spec_context_for_file(self, file_path: str, file_type: str) -> str:
+    @staticmethod
+    def get_spec_budget(context_length: int) -> int:
+        """根据模型上下文窗口计算规范注入预算（字符/每规范）
+
+        小上下文 (<=32K)：2000 字符
+        中上下文 (32K-64K)：3500 字符
+        大上下文 (>64K)：5000 字符
+        """
+        if context_length <= 32768:
+            return 2000
+        elif context_length <= 65536:
+            return 3500
+        else:
+            return 5000
+
+    def get_spec_context_for_file(self, file_path: str, file_type: str, max_chars_per_spec: int = 0) -> str:
         """
         根据文件类型获取相关的规范上下文
 
         用于注入到代码生成的 prompt 中，让代码生成器知道相关规范
+        max_chars_per_spec=0 时使用默认值 2000
         """
+        if max_chars_per_spec <= 0:
+            max_chars_per_spec = 2000
+
         parts = []
 
         if file_type in ("api", "view", "controller", "router"):
             # API 相关文件需要 OpenAPI 规范
             openapi = self.context.get_spec("openapi")
             if openapi:
-                parts.append("## OpenAPI 接口规范\n```json\n" + json.dumps(openapi, ensure_ascii=False, indent=2)[:2000] + "\n```")
+                parts.append("## OpenAPI 接口规范\n```json\n" + json.dumps(openapi, ensure_ascii=False, indent=2)[:max_chars_per_spec] + "\n```")
 
         if file_type in ("model", "entity", "dto"):
             # 模型相关文件需要类型定义
             types = self.context.get_spec("types")
             if types:
-                parts.append("## 类型定义\n```python\n" + types.get("code", "")[:2000] + "\n```")
+                parts.append("## 类型定义\n```python\n" + types.get("code", "")[:max_chars_per_spec] + "\n```")
 
         if file_type in ("model", "repository", "dao"):
             # 数据访问相关文件需要数据库 Schema
             db_schema = self.context.get_spec("db_schema")
             if db_schema:
-                parts.append("## 数据库 Schema\n```python\n" + db_schema.get("code", "")[:2000] + "\n```")
+                parts.append("## 数据库 Schema\n```python\n" + db_schema.get("code", "")[:max_chars_per_spec] + "\n```")
 
         if file_type in ("config", "settings"):
             config = self.context.get_spec("config")
             if config:
-                parts.append("## 配置规范\n```python\n" + config.get("code", "")[:2000] + "\n```")
+                parts.append("## 配置规范\n```python\n" + config.get("code", "")[:max_chars_per_spec] + "\n```")
 
         return "\n\n".join(parts) if parts else ""

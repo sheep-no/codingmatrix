@@ -1,5 +1,3 @@
-import re
-import json
 import logging
 from typing import Optional, Dict
 
@@ -16,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class Architect(Specialist):
     """架构师 - 负责技术选型和整体架构设计"""
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.json_parser = ArchitectJsonParser()
@@ -112,7 +110,7 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
 
             architecture = self._safe_parse_json(response)
         except ValueError:
-            logger.warning(f"架构师输出解析失败，尝试 LLM 辅助提取")
+            logger.warning("架构师输出解析失败，尝试 LLM 辅助提取")
             architecture = await self._extract_json_with_llm(response, complexity)
             if not architecture:
                 logger.warning("LLM 辅助提取失败，返回默认架构")
@@ -138,7 +136,7 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
             return architecture
         else:
             return self._get_default_architecture(complexity, target_language)
-    
+
     async def _extract_json_with_llm(self, raw_text: str, complexity: ComplexityAnalysis) -> Optional[Dict]:
         """使用 LLM 从非标准输出中提取 JSON"""
         extract_prompt = f"""请将以下文本转换为标准 JSON 格式：
@@ -163,7 +161,7 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                 max_tokens=4096,
                 temperature=0.3
             )
-            
+
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
             return self._safe_parse_json(content)
         except Exception as e:
@@ -335,7 +333,17 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
         for f in file_plan:
             imports = f.get("imports", [])
             if isinstance(imports, list):
-                all_imports.update(imports)
+                for imp in imports:
+                    if isinstance(imp, str):
+                        all_imports.add(imp)
+                    elif isinstance(imp, dict):
+                        # Handle dict format: {"module": "...", "items": [...]}
+                        module = imp.get("module", "")
+                        if module:
+                            all_imports.add(module)
+                        for item in imp.get("items", []):
+                            if isinstance(item, str):
+                                all_imports.add(item)
 
         # 需要补充的文件
         missing_files = []
@@ -351,7 +359,7 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                 # 排除入口文件本身
                 init_file = adapter.get_package_init_file("")
                 init_ext = init_file.rsplit(".", 1)[-1] if "." in init_file else ""
-                
+
                 if ext == init_ext or not init_ext:
                     # 检查是否是包内的文件（不是入口文件）
                     pkg = path.rsplit("/", 1)[0]
@@ -385,7 +393,7 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                 file_path = candidates[0]
                 missing_files.append({
                     "path": file_path,
-                    "description": f"自动补充的模块文件",
+                    "description": "自动补充的模块文件",
                     "priority": 2,
                     "imports": []
                 })
@@ -398,3 +406,164 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
             logger.info(f"共补充 {len(missing_files)} 个缺失文件")
 
         return architecture
+
+    async def expand_file_plan(
+        self,
+        architecture: Dict,
+        complexity: ComplexityAnalysis,
+        target_file_count: int,
+    ) -> Dict:
+        """分批扩展 file_plan
+
+        当初始 file_plan 文件数不足时，动态分批生成补充文件，直到达到目标或无法再补充。
+
+        终止条件（任一满足即停）：
+        1. 文件数达到 target_file_count
+        2. 无更多可补充的模块领域
+        3. 某批次补充了 0 个新文件（所有文件已存在）
+
+        Args:
+            architecture: 已有的架构设计（含 file_plan）
+            complexity: 复杂度分析
+            target_file_count: 目标文件总数
+
+        Returns:
+            扩展后的架构设计
+        """
+        existing_plan = architecture.get("file_plan", [])
+        existing_paths = {f["path"] for f in existing_plan}
+
+        if len(existing_plan) >= target_file_count:
+            logger.info(f"file_plan 已有 {len(existing_plan)} 个文件，达到目标 {target_file_count}，跳过扩展")
+            return architecture
+
+        batch = 0
+        while True:
+            remaining = target_file_count - len(existing_plan)
+            if remaining <= 0:
+                break
+
+            batch += 1
+            logger.info(f"分批规划第 {batch} 轮：已有 {len(existing_plan)} 个文件，目标 {target_file_count}，需补充 {remaining} 个")
+
+            # 确定本轮要补充的模块领域
+            areas = self._identify_missing_areas(existing_plan, complexity)
+            if not areas:
+                logger.info("无更多需要补充的模块领域，终止扩展")
+                break
+
+            batch_files = await self._generate_batch_files(
+                architecture, complexity, areas, remaining
+            )
+
+            # 去重合并
+            added = 0
+            for f in batch_files:
+                if f["path"] not in existing_paths:
+                    existing_plan.append(f)
+                    existing_paths.add(f["path"])
+                    added += 1
+
+            logger.info(f"分批规划第 {batch} 轮：新增 {added} 个文件，当前共 {len(existing_plan)} 个")
+
+            # 本轮未新增任何文件，说明所有补充内容已存在，终止
+            if added == 0:
+                logger.info("本轮无新增文件，终止扩展")
+                break
+
+        architecture["file_plan"] = existing_plan
+        architecture = self._ensure_file_plan_completeness(architecture)
+        return architecture
+
+    def _identify_missing_areas(self, existing_plan: list, complexity: ComplexityAnalysis) -> list:
+        """识别 file_plan 中缺失的模块领域"""
+        areas = []
+
+        has_frontend = any(
+            f["path"].endswith((".vue", ".jsx", ".tsx", ".html", ".css"))
+            for f in existing_plan
+        )
+        has_backend = any(
+            f["path"].endswith((".py", ".go", ".java", ".rs"))
+            and "model" not in f["path"].lower()
+            for f in existing_plan
+        )
+        has_tests = any("test" in f["path"].lower() for f in existing_plan)
+        has_utils = any("util" in f["path"].lower() or "helper" in f["path"].lower() for f in existing_plan)
+        has_services = any("service" in f["path"].lower() for f in existing_plan)
+        has_middleware = any("middleware" in f["path"].lower() for f in existing_plan)
+
+        if complexity.has_frontend and has_frontend:
+            areas.append("frontend_components")
+        if complexity.has_backend and has_backend:
+            if not has_services:
+                areas.append("backend_services")
+            if not has_middleware:
+                areas.append("backend_middleware")
+        if not has_utils:
+            areas.append("utilities")
+        if not has_tests:
+            areas.append("tests")
+        if complexity.has_database:
+            areas.append("database_migrations")
+
+        return areas
+
+    async def _generate_batch_files(
+        self,
+        architecture: Dict,
+        complexity: ComplexityAnalysis,
+        areas: list,
+        max_files: int
+    ) -> list:
+        """为指定领域生成补充文件"""
+        existing_paths = {f["path"] for f in architecture.get("file_plan", [])}
+        existing_summary = "\n".join(f"- {f['path']}: {f['description']}" for f in architecture.get("file_plan", [])[:20])
+
+        areas_text = ", ".join(areas)
+        prompt = f"""请为以下项目补充文件规划。
+
+需求：{architecture.get('project_type', '未知项目')}
+技术栈：{', '.join(architecture.get('tech_stack', complexity.key_technologies))}
+语言：{architecture.get('language', 'python')}
+
+已有文件（不要重复）：
+{existing_summary}
+
+需要补充的模块领域：{areas_text}
+最多补充 {max_files} 个文件。
+
+输出格式要求：
+- 只输出 JSON 格式
+- 不要包含任何解释文字
+- 只输出 file_plan 数组，不要其他字段
+
+```json
+{{
+  "file_plan": [
+    {{"path": "<文件路径>", "description": "<文件描述>", "priority": <1-5>, "imports": ["<导入的项目内模块>"]}},
+    ...
+  ]
+}}
+```
+
+规则：
+1. 不要生成已存在的文件
+2. imports 只引用项目内模块（不包括第三方库）
+3. 确保文件路径使用正确的扩展名
+4. 每个文件描述要具体说明其职责"""
+
+        try:
+            response = await self.call_llm(prompt, self.SYSTEM_PROMPT)
+            if not response or not response.strip():
+                return []
+
+            parsed = self._safe_parse_json(response)
+            batch_plan = parsed.get("file_plan", [])
+
+            # 过滤掉已存在的文件
+            return [f for f in batch_plan if f.get("path") and f["path"] not in existing_paths]
+
+        except Exception as e:
+            logger.warning(f"分批规划生成失败: {e}")
+            return []

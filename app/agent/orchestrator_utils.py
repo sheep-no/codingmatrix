@@ -2,12 +2,10 @@ import re
 import json
 import asyncio
 import logging
-import time
 import subprocess as sp
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, List
 from pathlib import Path
 
-from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.project_profiler import ProjectProfiler, ProjectProfile
 
 logger = logging.getLogger(__name__)
@@ -37,7 +35,7 @@ class UtilsMixin:
             review = await self.reviewer.review_code(
                 architecture_summary,
                 "cached_architecture",
-                context=f"审查缓存架构是否与当前需求兼容"
+                context="审查缓存架构是否与当前需求兼容"
             )
             risk_level = review.get("risk_level", "low")
             if risk_level == "high":
@@ -199,24 +197,6 @@ class UtilsMixin:
             self.warnings.append(f"审批超时，自动跳过: {key}")
             return False
 
-    def _should_use_patch_mode(self, incremental_plan: List[Dict], requirement: str) -> bool:
-        if len(incremental_plan) > 3:
-            return False
-
-        patch_keywords = ['添加', '增加', '修改', '更新', '删除', '移除', '调整', '优化', '修复']
-        is_patch_request = any(kw in requirement for kw in patch_keywords)
-
-        if not is_patch_request:
-            return False
-
-        existing_count = 0
-        for file_info in incremental_plan:
-            file_path = self.output_dir / file_info.get("path", "")
-            if file_path.exists():
-                existing_count += 1
-
-        return existing_count == len(incremental_plan)
-
     def _should_check_api_consistency(self, file_path: str) -> bool:
         ext = Path(file_path).suffix.lower()
         if ext in {'.vue', '.js', '.jsx', '.ts', '.tsx'}:
@@ -349,7 +329,6 @@ class UtilsMixin:
 
     async def _git_save_snapshot(self, message: str):
         if hasattr(self, 'snapshot_mgr') and self.snapshot_mgr:
-            from datetime import datetime
             snapshot = await self.snapshot_mgr.save_snapshot(
                 self.output_dir,
                 session_id=self.session_id or "default",

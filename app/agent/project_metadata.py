@@ -3,9 +3,9 @@ import time
 import uuid
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 
-from app.agent.vector_index import VectorIndexManager, METADATA_PATH
+from app.agent.vector_index import METADATA_PATH
 
 logger = logging.getLogger(__name__)
 

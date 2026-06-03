@@ -82,9 +82,9 @@
         role="menuitem"
         tabindex="0"
         class="toolkit-item"
-        @click.stop="useTool('chartEditor')"
-        @keydown.enter="useTool('chartEditor')"
-        @keydown.space.prevent="useTool('chartEditor')"
+        @click.stop="openChartEditor"
+        @keydown.enter="openChartEditor"
+        @keydown.space.prevent="openChartEditor"
       >
         <svg
           class="tool-icon-svg"
@@ -506,6 +506,15 @@
     window.open('/ppt-generate', '_blank')
   }
 
+  const openChartEditor = () => {
+    showToolkitMenu.value = false
+    if (!userStore.isLoggedIn) {
+      showLoginDialog.value = true
+      return
+    }
+    window.open('/chart-editor', '_blank')
+  }
+
   const navigateToAgent = () => {
     showToolkitMenu.value = false
     window.location.href = '/agent'
@@ -524,6 +533,11 @@
   const navigateToAdmin = () => {
     showToolkitMenu.value = false
     window.open('/admin', '_blank')
+  }
+
+  const navigateToSettings = () => {
+    showToolkitMenu.value = false
+    window.location.href = '/settings'
   }
 
   const navigateToDocs = () => {
@@ -874,7 +888,7 @@
   [role="menuitem"]:focus-visible {
     outline: 2px solid var(--primary-500, #3b82f6);
     outline-offset: 2px;
-    box-shadow: 0 0 0 4px var(--primary-100, #dbeafe);
+    box-shadow: 0 0 0 4px var(--primary-100, var(--color-primary-200));
   }
 
   input:focus-visible,
@@ -882,7 +896,7 @@
   select:focus-visible {
     outline: 2px solid var(--primary-500, #3b82f6);
     outline-offset: 0;
-    box-shadow: 0 0 0 4px var(--primary-100, #dbeafe);
+    box-shadow: 0 0 0 4px var(--primary-100, var(--color-primary-200));
   }
 
   .collapsed .toolkit-menu,
@@ -914,7 +928,7 @@
    侧边栏容器
    ======================================== */
   #leftlist {
-    height: 100vh;
+    flex-shrink: 0;
     width: var(--sidebar-width);
     background: var(--bg-primary);
     border-right: 1px solid var(--border-color);
@@ -1106,7 +1120,7 @@
    主要操作按钮
    ======================================== */
   #newSpeak {
-    background: linear-gradient(135deg, var(--teal) 0%, #0d9488 100%) !important;
+    background: linear-gradient(135deg, var(--teal) 0%, var(--primary) 100%) !important;
     color: white !important;
     border: none !important;
     border-radius: 10px !important;
@@ -1353,7 +1367,7 @@
    搜索框
    ======================================== */
   .search-box {
-    background: white;
+    background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     padding: var(--spacing-md);
@@ -1392,7 +1406,7 @@
 
   .search-input:focus {
     border-color: var(--primary-500);
-    background: white;
+    background: var(--bg-primary);
     box-shadow: 0 0 0 3px var(--primary-100);
   }
 
@@ -1404,7 +1418,7 @@
   .search-btn {
     flex: 1;
     padding: 8px 12px;
-    background: linear-gradient(135deg, var(--warning) 0%, #d97706 100%);
+    background: linear-gradient(135deg, var(--warning) 0%, var(--warning-hover) 100%);
     color: white;
     border: none;
     border-radius: var(--radius-md);
@@ -1416,7 +1430,7 @@
   }
 
   .search-btn:hover {
-    background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+    background: linear-gradient(135deg, var(--warning-hover) 0%, var(--warning-hover) 100%);
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(245, 158, 11, 0.3);
   }
@@ -1454,7 +1468,7 @@
   }
 
   .close-btn:hover {
-    background: linear-gradient(135deg, var(--danger-hover) 0%, #b91c1c 100%);
+    background: linear-gradient(135deg, var(--danger-hover) 0%, var(--danger-hover) 100%);
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(239, 68, 68, 0.3);
   }
@@ -1556,7 +1570,7 @@
   }
 
   .history-item.active {
-    background: linear-gradient(135deg, var(--primary-100) 0%, #dbeafe 100%);
+    background: linear-gradient(135deg, var(--primary-100) 0%, var(--color-primary-200) 100%);
     color: var(--primary-700);
     box-shadow: var(--shadow-sm);
     font-weight: 600;
@@ -1596,8 +1610,8 @@
   }
 
   .highlight {
-    background: linear-gradient(180deg, #fef3c7 0%, #fde68a 100%);
-    color: #92400e;
+    background: linear-gradient(180deg, var(--color-warning-50, #fef3c7) 0%, var(--color-warning-100, #fde68a) 100%);
+    color: var(--text-primary);
     padding: 0 4px;
     border-radius: 3px;
     font-weight: 700;
@@ -1629,7 +1643,7 @@
   }
 
   .search-input:focus {
-    border-color: #f59e0b;
+    border-color: var(--warning);
     background: var(--bg-primary);
     box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
   }
@@ -1642,7 +1656,7 @@
   .search-btn {
     flex: 1;
     padding: 7px 12px;
-    background: linear-gradient(135deg, #f59e0b, #d97706);
+    background: linear-gradient(135deg, var(--warning), var(--warning-hover));
     color: white;
     border: none;
     border-radius: 6px;
@@ -1654,7 +1668,7 @@
   }
 
   .search-btn:hover {
-    background: linear-gradient(135deg, #d97706, #b45309);
+    background: linear-gradient(135deg, var(--warning-hover), var(--warning-hover));
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(245, 158, 11, 0.3);
   }
@@ -1680,7 +1694,7 @@
   .close-btn {
     flex: 1;
     padding: 7px 12px;
-    background: linear-gradient(135deg, #ef4444, #dc2626);
+    background: linear-gradient(135deg, var(--danger), var(--danger-hover));
     color: white;
     border: none;
     border-radius: 6px;
@@ -1692,7 +1706,7 @@
   }
 
   .close-btn:hover {
-    background: linear-gradient(135deg, #dc2626, #b91c1c);
+    background: linear-gradient(135deg, var(--danger-hover), var(--danger-hover));
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(239, 68, 68, 0.3);
   }
@@ -1770,7 +1784,7 @@
   }
 
   .history-item.active {
-    background: linear-gradient(90deg, #dbeafe, #eff6ff);
+    background: linear-gradient(90deg, var(--color-primary-200), var(--color-primary-50));
     color: var(--primary-color);
     box-shadow: var(--shadow-sm);
   }
@@ -1790,8 +1804,8 @@
 
   /* 搜索高亮样式 */
   .highlight {
-    background: #fef3c7;
-    color: #92400e;
+    background: var(--color-warning-50, #fef3c7);
+    color: var(--text-primary);
     padding: 0 3px;
     border-radius: 2px;
     font-weight: 700;
@@ -1868,7 +1882,7 @@
   }
 
   .history-item.active {
-    background-color: #e0f2fe;
+    background-color: var(--color-primary-100);
     color: var(--primary-color);
   }
 
@@ -1886,8 +1900,8 @@
 
   /* 搜索高亮样式 */
   .highlight {
-    background: #fef08a;
-    color: #854d0e;
+    background: var(--color-warning-200, #fef08a);
+    color: var(--text-primary);
     padding: 0 2px;
     border-radius: 2px;
     font-weight: 600;
@@ -1961,7 +1975,7 @@
   }
 
   .login-btn:hover {
-    background: linear-gradient(135deg, var(--success-hover) 0%, #047857 100%);
+    background: linear-gradient(135deg, var(--success-hover) 0%, var(--success-hover) 100%);
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(16, 185, 129, 0.32);
   }
@@ -1990,7 +2004,7 @@
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--teal) 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--teal) 0%, var(--primary-hover) 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2086,7 +2100,7 @@
 
   /* Login Header */
   .login-header {
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     padding: 32px 32px 40px;
     text-align: center;
     position: relative;
@@ -2259,8 +2273,8 @@
   }
 
   .remember-me input:checked + .checkmark {
-    background: #0d9488;
-    border-color: #0d9488;
+    background: var(--primary);
+    border-color: var(--primary);
   }
 
   .remember-me input:checked + .checkmark::after {
@@ -2274,13 +2288,13 @@
 
   .forgot-link {
     font-size: 14px;
-    color: #0d9488;
+    color: var(--primary);
     text-decoration: none;
     transition: color 0.2s ease;
   }
 
   .forgot-link:hover {
-    color: #14b8a6;
+    color: var(--primary-hover);
     text-decoration: underline;
   }
 
@@ -2289,13 +2303,13 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    color: #dc2626;
+    color: var(--danger-hover);
     font-size: 14px;
     margin: 0 0 20px 0;
     padding: 12px 16px;
-    background: linear-gradient(90deg, #fef2f2 0%, #fff5f5 100%);
+    background: linear-gradient(90deg, var(--color-danger-50, #fef2f2) 0%, var(--color-danger-50, #fff5f5) 100%);
     border-radius: 12px;
-    border-left: 4px solid #dc2626;
+    border-left: 4px solid var(--danger-hover);
     animation: errorShake 0.4s ease;
   }
 
@@ -2348,7 +2362,7 @@
   .btn-login {
     flex: 2;
     padding: 14px 20px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     color: white;
     border: none;
     border-radius: 12px;
@@ -2429,7 +2443,7 @@
     padding: 12px 16px;
     border: 2px solid var(--slate-200);
     border-radius: 12px;
-    background: white;
+    background: var(--bg-primary);
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
@@ -2467,7 +2481,7 @@
   }
 
   .login-btn {
-    background: linear-gradient(135deg, #10b981, #059669);
+    background: linear-gradient(135deg, var(--success), var(--success-hover));
     color: white;
     border: none;
     border-radius: var(--border-radius);
@@ -2485,7 +2499,7 @@
   }
 
   .login-btn:hover {
-    background: linear-gradient(135deg, #059669, #047857);
+    background: linear-gradient(135deg, var(--success-hover), var(--success-hover));
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
   }
@@ -2495,7 +2509,7 @@
     align-items: center;
     gap: 10px;
     padding: 10px;
-    background: linear-gradient(90deg, #f8fafc, #f1f5f9);
+    background: linear-gradient(90deg, var(--bg-secondary), var(--bg-tertiary));
     border-radius: var(--border-radius);
     border: 1px solid var(--border-color);
   }
@@ -2504,7 +2518,7 @@
     width: 38px;
     height: 38px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #8b5cf6, #14b8a6);
+    background: linear-gradient(135deg, var(--color-primary-500), var(--primary-hover));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2532,7 +2546,7 @@
   .logout-btn {
     background: none;
     border: none;
-    color: #ef4444;
+    color: var(--danger);
     cursor: pointer;
     font-size: 11px;
     margin-top: 3px;
@@ -2542,7 +2556,7 @@
   }
 
   .logout-btn:hover {
-    color: #dc2626;
+    color: var(--danger-hover);
   }
 
   .collapsed .user-section {

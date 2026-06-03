@@ -11,11 +11,9 @@ Agent Executor - 扩展执行器
 
 import asyncio
 import glob
-import json
 import re
-import subprocess
 import os
-from typing import Dict, Any, List, Optional, Callable, Awaitable
+from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass
 from enum import Enum
 import logging
@@ -416,7 +414,6 @@ class EnhancedExecutor:
                 }
 
             # 禁止危险语句
-            dangerous_nodes = (ast.Import, ast.ImportFrom, ast.Call, ast.Attribute)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Call):
                     func = node.func
@@ -602,7 +599,7 @@ class EnhancedExecutor:
 
             elapsed = time.time() - start
             return ToolResult(True, diagnosis, None, elapsed, "screenshot_diagnose")
-            
+
         except Exception as e:
             elapsed = time.time() - start
             return ToolResult(False, None, f"浏览器诊断失败: {str(e)}", elapsed, "screenshot_diagnose")

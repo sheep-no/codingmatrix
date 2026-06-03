@@ -2120,7 +2120,7 @@
     transform: translate(-50%, -50%);
     width: 8px;
     height: 8px;
-    background: white;
+    background: var(--bg-primary);
     border-radius: 50%;
   }
 
@@ -2234,7 +2234,7 @@
   }
 
   .accordion-item {
-    background: white;
+    background: var(--bg-primary);
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     margin-bottom: 10px;
@@ -2277,7 +2277,7 @@
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.3s ease-out;
-    background: white;
+    background: var(--bg-primary);
   }
 
   .accordion-content.expanded {
@@ -2287,7 +2287,7 @@
 
   .accordion-content .config-form {
     padding: 20px;
-    background: white;
+    background: var(--bg-primary);
     border-top: none;
     border-radius: 0;
   }
@@ -2345,7 +2345,7 @@
   }
 
   .nginx-config-modal {
-    background: white;
+    background: var(--bg-primary);
     border-radius: 12px;
     width: 90%;
     max-width: 1200px;
@@ -2445,7 +2445,7 @@
   .type-buttons button {
     padding: 10px 20px;
     border: 2px solid #d1d5db;
-    background: white;
+    background: var(--bg-primary);
     border-radius: 8px;
     cursor: pointer;
     font-size: 14px;
@@ -2640,7 +2640,7 @@
 
   .template-buttons button {
     padding: 8px 16px;
-    background: white;
+    background: var(--bg-primary);
     border: 2px solid #0d9488;
     color: #0d9488;
     border-radius: 6px;

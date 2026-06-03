@@ -5,13 +5,14 @@ import json
 import os
 import random
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from collections import deque
 import logging
 
-from app.utils.system_load import system_load_monitor, SystemLoadSnapshot
+from app.utils.system_load import system_load_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,11 @@ MODEL_ID_TO_KEY = {
     "deepseek-ocr": "deepseek-ai/DeepSeek-OCR",
     "kolors": "Kwai-Kolors/Kolors",
     "bce-embedding": "netease-youdao/bce-embedding-base_v1",
+    "bge-large-zh": "BAAI/bge-large-zh-v1.5",
+    "bge-m3": "BAAI/bge-m3",
+    "bge-reranker-v2-m3": "BAAI/bge-reranker-v2-m3",
+    "bce-reranker": "netease-youdao/bce-reranker-base_v1",
+    "hunyuan-mt": "tencent/Hunyuan-MT-7B",
 }
 
 # 模型 Key 到模型 ID 的反向映射
@@ -38,7 +44,7 @@ MODEL_KEY_TO_ID = {v: k for k, v in MODEL_ID_TO_KEY.items()}
 
 def resolve_model_key(model_id_or_key: str) -> str:
     """将模型 ID 或模型 Key 统一转换为模型 Key
-    
+
     支持两种格式：
     - 模型 ID: "qwen3-8b" (registry 中的 ID)
     - 模型 Key: "Qwen/Qwen3-8B" (API 调用时使用的名称)
@@ -76,17 +82,29 @@ def save_agent_model_config(config: Dict[str, Any]) -> bool:
         return False
 
 
+class _NoopLock:
+    """空操作锁 — 用于数据库自身已处理并发控制的场景"""
+    def acquire(self, blocking=True): return True
+    def release(self): pass
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+
+
 class ModelPerformanceTracker:
 
     DB_PATH = "/tmp/model_performance.db"
     MAX_DB_SIZE_BYTES = 1 * 1024 * 1024
     RETENTION_DAYS = 30
 
-    def __init__(self):
+    def __init__(self, db_path: Optional[str] = None, sync_lock_factory=None):
+        self.DB_PATH = db_path or self.__class__.DB_PATH
         self._conn = sqlite3.connect(self.DB_PATH, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._write_lock = asyncio.Lock()
+        # sync_lock_factory: 可替换的同步锁工厂，默认 threading.Lock
+        # 传入 _NoopLock 可跳过锁（适用于数据库自带并发控制的场景）
+        self._sync_lock = (sync_lock_factory or threading.Lock)()
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS performance ("
             "model_name TEXT NOT NULL, "
@@ -165,43 +183,44 @@ class ModelPerformanceTracker:
             self._conn.commit()
 
     def _record_call_sync(self, model: str, task_type: str, success: bool, latency: float):
-        """同步版本 record_call（用于非异步上下文）"""
+        """同步版本 record_call（用于非异步上下文，通过 sync_lock 保护）"""
         now = time.time()
-        cursor = self._conn.execute(
-            "SELECT success_rate, avg_latency, total_calls, consecutive_failures "
-            "FROM performance WHERE model_name = ? AND task_type = ?",
-            (model, task_type),
-        )
-        row = cursor.fetchone()
-        if row:
-            old_rate, old_latency, old_calls, old_cf = row
-            new_calls = old_calls + 1
-            if success:
-                new_successes = int(old_rate * old_calls) + 1
-                new_rate = new_successes / new_calls
-                new_latency = (old_latency * old_calls + latency) / new_calls
-                new_cf = 0
+        with self._sync_lock:
+            cursor = self._conn.execute(
+                "SELECT success_rate, avg_latency, total_calls, consecutive_failures "
+                "FROM performance WHERE model_name = ? AND task_type = ?",
+                (model, task_type),
+            )
+            row = cursor.fetchone()
+            if row:
+                old_rate, old_latency, old_calls, old_cf = row
+                new_calls = old_calls + 1
+                if success:
+                    new_successes = int(old_rate * old_calls) + 1
+                    new_rate = new_successes / new_calls
+                    new_latency = (old_latency * old_calls + latency) / new_calls
+                    new_cf = 0
+                else:
+                    new_rate = (old_rate * old_calls) / new_calls
+                    new_latency = (old_latency * old_calls + latency) / new_calls
+                    new_cf = old_cf + 1
+                self._conn.execute(
+                    "UPDATE performance SET success_rate=?, avg_latency=?, "
+                    "total_calls=?, consecutive_failures=?, last_updated=? "
+                    "WHERE model_name=? AND task_type=?",
+                    (new_rate, new_latency, new_calls, new_cf, now, model, task_type),
+                )
             else:
-                new_rate = (old_rate * old_calls) / new_calls
-                new_latency = (old_latency * old_calls + latency) / new_calls
-                new_cf = old_cf + 1
-            self._conn.execute(
-                "UPDATE performance SET success_rate=?, avg_latency=?, "
-                "total_calls=?, consecutive_failures=?, last_updated=? "
-                "WHERE model_name=? AND task_type=?",
-                (new_rate, new_latency, new_calls, new_cf, now, model, task_type),
-            )
-        else:
-            rate = 1.0 if success else 0.0
-            cf = 0 if success else 1
-            self._conn.execute(
-                "INSERT INTO performance "
-                "(model_name, task_type, success_rate, avg_latency, "
-                "total_calls, consecutive_failures, last_updated) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (model, task_type, rate, latency, 1, cf, now),
-            )
-        self._conn.commit()
+                rate = 1.0 if success else 0.0
+                cf = 0 if success else 1
+                self._conn.execute(
+                    "INSERT INTO performance "
+                    "(model_name, task_type, success_rate, avg_latency, "
+                    "total_calls, consecutive_failures, last_updated) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (model, task_type, rate, latency, 1, cf, now),
+                )
+            self._conn.commit()
 
     def get_best_model(self, task_type: str, top_k: int = 3) -> List[str]:
         cursor = self._conn.execute(
@@ -458,7 +477,7 @@ class DynamicModelRouter:
                 resolved = [resolve_model_key(m) for m in chain]
                 logger.info(f"已从配置加载降级链 '{chain_name}': {resolved}")
                 return resolved
-        
+
         logger.info(f"使用默认降级链 '{chain_name}': {self.DEFAULT_FALLBACK_ORDER}")
         return self.DEFAULT_FALLBACK_ORDER.copy()
 
@@ -725,8 +744,8 @@ class _LayeredModelRouterCompat:
 
     @classmethod
     async def get_best_model_with_health_awareness(
-        cls, 
-        candidate_models: List[str], 
+        cls,
+        candidate_models: List[str],
         task_type: str = "general",
         routing_config: Optional[RoutingConfig] = None
     ) -> str:
@@ -738,17 +757,17 @@ class _LayeredModelRouterCompat:
         """
         if not candidate_models:
             return "Qwen/Qwen3.5-4B"
-        
+
         config = routing_config or RoutingConfig()
-        
+
         # 如果未启用健康感知路由，使用传统方式
         if not config.enable_health_awareness:
             router = await get_dynamic_router()
             return await router.get_best_model(candidate_models, task_type)
-        
+
         # 获取系统负载快照
         snapshot = await system_load_monitor.get_load_snapshot()
-        
+
         # 检查系统是否过载
         if system_load_monitor.is_system_overloaded(config.system_overload_threshold):
             logger.warning(f"系统过载，启用降级策略: {snapshot}")
@@ -759,36 +778,36 @@ class _LayeredModelRouterCompat:
             )
             logger.info(f"健康感知路由: 选择降级模型 {best_model} (系统过载)")
             return best_model
-        
+
         # 正常情况：结合模型健康和系统负载评分
         router = await get_dynamic_router()
         healthy_models = []
-        
+
         for model_name in candidate_models:
             metrics = router.get_or_create_metrics(model_name)
             if metrics.consecutive_failures < 3:  # 未熔断
                 healthy_models.append(model_name)
-        
+
         if not healthy_models:
             return "Qwen/Qwen3.5-4B"
-        
+
         # 计算综合评分
         def calculate_comprehensive_score(model_name: str) -> float:
             # 模型健康评分 (0-100)
             metrics = router.get_or_create_metrics(model_name)
             model_health_score = metrics.health_score / 100.0
-            
+
             # 系统负载评分 (0-1, 越低越好)
             system_load_score = system_load_monitor.get_model_load_score(model_name)
-            
+
             # 综合评分 = 模型健康 * 权重 + (1 - 系统负载) * 权重
             comprehensive_score = (
-                model_health_score * config.model_load_weight + 
+                model_health_score * config.model_load_weight +
                 (1.0 - system_load_score) * config.system_load_weight
             )
-            
+
             return comprehensive_score
-        
+
         best_model = max(healthy_models, key=calculate_comprehensive_score)
         logger.info(f"健康感知路由 [{task_type}]: {best_model}")
         return best_model
@@ -796,19 +815,175 @@ class _LayeredModelRouterCompat:
 
 # ==================== get_model_config 工具函数 ====================
 
-def get_model_config(model_name: str, task_type: str = "generate") -> Dict[str, Any]:
-    """获取模型的最佳配置参数"""
+# SiliconFlow 模型上下文窗口映射（来源：模型广场页面手动维护）
+# 当 API 支持返回 context_length 后可自动同步，当前为静态映射
+# 特殊模型（语音/图像/视频）无传统上下文概念，不在此映射中
+MODEL_CONTEXT_LENGTHS: Dict[str, int] = {
+    # Qwen 系列
+    "Qwen/Qwen3.5-4B": 256 * 1024,       # 256k
+    "Qwen/Qwen3-8B": 128 * 1024,         # 128k
+    "Qwen/Qwen2.5-7B-Instruct": 32 * 1024,  # 32k
+    "Qwen/Qwen2.5-Coder-32B-Instruct": 32 * 1024,
+    "Qwen/Qwen2.5-72B-Instruct": 32 * 1024,
+    "Qwen/QVQ-72B-Preview": 32 * 1024,
+    # DeepSeek 系列
+    "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": 128 * 1024,  # 128k
+    "deepseek-ai/DeepSeek-OCR": 8 * 1024,                  # 8k
+    "deepseek-ai/DeepSeek-R1": 64 * 1024,
+    "deepseek-ai/DeepSeek-V3": 64 * 1024,
+    "deepseek-ai/DeepSeek-V2.5": 32 * 1024,
+    # GLM 系列
+    "THUDM/GLM-Z1-9B-0414": 128 * 1024,   # 128k
+    "THUDM/GLM-4-9B-0414": 32 * 1024,     # 32k
+    "THUDM/GLM-4.1V-9B-Thinking": 32 * 1024,
+    # Embedding / Reranker（无传统上下文，按最大输入估算）
+    "BAAI/bge-m3": 8 * 1024,                          # 8k
+    "BAAI/bge-reranker-v2-m3": 8 * 1024,              # 8k
+    "BAAI/bge-large-zh-v1.5": 512,                    # 0.5k
+    "netease-youdao/bce-embedding-base_v1": 512,      # 0.5k
+    "netease-youdao/bce-reranker-base_v1": 512,       # 0.5k
+    # 翻译模型
+    "tencent/Hunyuan-MT-7B": 32 * 1024,   # 32k
+    # 特殊模型（语音/图像/视频）不在此映射中，使用默认值
+    # Kwai-Kolors/Kolors          - 文生图，无上下文概念
+    # FunAudioLLM/SenseVoiceSmall  - 语音识别
+    # TeleAI/TeleSpeechASR         - 语音识别
+}
+
+# 安全默认值
+_DEFAULT_CONTEXT_LENGTH = 32768
+_DEFAULT_MAX_OUTPUT = 4096
+_RESERVE_INPUT_RATIO = 0.25  # 输入预留 25% 上下文
+
+
+def get_context_length(model_name: str, api_key_token: str = None) -> int:
+    """获取模型上下文窗口长度（token）
+
+    优先级：
+    1. 用户自定义配置（如果提供了 api_key_token）
+    2. 配置文件 model_context_lengths（管理员全局配置）
+    3. 代码内置 MODEL_CONTEXT_LENGTHS
+    4. 动态供应商
+    5. 自定义供应商（用户自接入 API Key）
+    6. 默认值 32768
+
+    Args:
+        model_name: 模型名称
+        api_key_token: API Key Token（可选），如果提供则优先查该 Token 的自定义配置
+    """
+    # 用户自定义配置（通过 api_key_token 查找）
+    if api_key_token:
+        try:
+            from app.services.apikey_manager import get_apikey_manager
+            apikey_manager = get_apikey_manager()
+            context_lengths = apikey_manager.get_context_lengths_by_token(api_key_token)
+            if context_lengths and model_name in context_lengths:
+                val = context_lengths[model_name]
+                if val and val > 0:
+                    return int(val)
+        except Exception:
+            pass
+
+    # 配置文件（管理员全局配置）
+    config = load_agent_model_config()
+    if config and "model_context_lengths" in config:
+        val = config["model_context_lengths"].get(model_name)
+        if val and val > 0:
+            return int(val)
+    # 代码内置映射
+    if model_name in MODEL_CONTEXT_LENGTHS:
+        return MODEL_CONTEXT_LENGTHS[model_name]
+    # 动态供应商
+    try:
+        from app.utils.aicloud.dynamic_provider import get_dynamic_provider_manager
+        manager = get_dynamic_provider_manager()
+        dp = manager.get_by_model(model_name)
+        if dp:
+            for m in dp.models:
+                if m.id == model_name and m.context_length > 0:
+                    return m.context_length
+    except Exception:
+        pass
+    # 自定义供应商（用户自接入 API Key）
+    try:
+        from app.services.custom_provider_manager import get_custom_provider_manager
+        cp_manager = get_custom_provider_manager()
+        for provider in cp_manager.providers.values():
+            if not provider.enabled:
+                continue
+            for m in provider.models:
+                if m.id == model_name and m.context_length > 0:
+                    return m.context_length
+    except Exception:
+        pass
+    return _DEFAULT_CONTEXT_LENGTH
+
+
+def get_max_output_tokens(model_name: str, reserve_for_input: int = 0, api_key_token: str = None) -> int:
+    """计算模型最大输出 token 数
+
+    Args:
+        model_name: 模型名称
+        reserve_for_input: 预留给输入的 token 数，0 则按比例自动计算
+        api_key_token: API Key Token（可选）
+
+    Returns:
+        建议的最大输出 token 数
+    """
+    ctx = get_context_length(model_name, api_key_token)
+    if reserve_for_input > 0:
+        max_out = ctx - reserve_for_input
+    else:
+        max_out = int(ctx * (1 - _RESERVE_INPUT_RATIO))
+    # 不超过模型能力，不低于最小值
+    return max(1024, min(max_out, ctx))
+
+
+def get_model_config(model_name: str, task_type: str = "generate", api_key_token: str = None) -> Dict[str, Any]:
+    """获取模型的最佳配置参数（自动适配上下文窗口）
+
+    Args:
+        model_name: 模型名称
+        task_type: 任务类型
+        api_key_token: API Key Token（可选）
+    """
+    ctx_len = get_context_length(model_name, api_key_token)
+    max_out = get_max_output_tokens(model_name, api_key_token=api_key_token)
+
+    # 动态计算 max_tokens：按上下文窗口大小分级
+    # - 小上下文 (<=32K)：取 max_out 的 25%，下限 4096，上限 8192
+    # - 中上下文 (32K-64K)：取 max_out 的 20%，下限 6144，上限 12288
+    # - 大上下文 (>64K)：取 max_out 的 15%，下限 8192，上限 16384
+    if ctx_len <= 32768:
+        dynamic_max_tokens = max(4096, min(8192, int(max_out * 0.25)))
+    elif ctx_len <= 65536:
+        dynamic_max_tokens = max(6144, min(12288, int(max_out * 0.20)))
+    else:
+        dynamic_max_tokens = max(8192, min(16384, int(max_out * 0.15)))
+
+    # 动态计算 thinking_budget：取 max_tokens 的 50%，下限 2048，上限 4096
+    dynamic_thinking_budget = max(2048, min(4096, dynamic_max_tokens // 2))
+
     configs = {
-        "THUDM/GLM-Z1-9B-0414": {"temperature": 0.6, "max_tokens": 8192, "thinking_budget": 4096},
-        "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": {"temperature": 0.6, "max_tokens": 8192, "thinking_budget": 4096},
-        "Qwen/Qwen3.5-4B": {"temperature": 0.7, "max_tokens": 4096, "thinking_budget": 2048},
-        "Qwen/Qwen3-8B": {"temperature": 0.7, "max_tokens": 4096, "thinking_budget": 2048},
-        "Qwen/Qwen2.5-7B-Instruct": {"temperature": 0.7, "max_tokens": 6144, "thinking_budget": 3072},
-        "THUDM/GLM-4-9B-0414": {"temperature": 0.7, "max_tokens": 6144, "thinking_budget": 3072},
+        "THUDM/GLM-Z1-9B-0414": {"temperature": 0.6, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len},
+        "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": {"temperature": 0.6, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len},
+        "Qwen/Qwen3.5-4B": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len},
+        "Qwen/Qwen3-8B": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len},
+        "Qwen/Qwen2.5-7B-Instruct": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len},
+        "THUDM/GLM-4-9B-0414": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len},
     }
-    return configs.get(model_name, {"temperature": 0.7, "max_tokens": 4096, "thinking_budget": 2048})
+    return configs.get(model_name, {
+        "temperature": 0.7,
+        "max_tokens": max_out,
+        "thinking_budget": min(2048, max_out // 2),
+        "context_length": ctx_len,
+    })
 
 
 # 为 DynamicModelRouter 添加 get_model_config 类方法（向后兼容）
 DynamicModelRouter.get_model_config = staticmethod(get_model_config)
+DynamicModelRouter.get_context_length = staticmethod(get_context_length)
+DynamicModelRouter.get_max_output_tokens = staticmethod(get_max_output_tokens)
 LayeredModelRouter.get_model_config = staticmethod(get_model_config)
+LayeredModelRouter.get_context_length = staticmethod(get_context_length)
+LayeredModelRouter.get_max_output_tokens = staticmethod(get_max_output_tokens)

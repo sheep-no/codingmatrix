@@ -1,7 +1,7 @@
 import time
 import asyncio
 import logging
-from typing import Optional, Dict, Any, Callable, List
+from typing import Optional, Dict, Any, Callable
 
 from app.agent.spec_first_generator import SpecFirstGenerator
 from app.agent.refinement_loop import RefinementLoop
@@ -14,6 +14,7 @@ from app.agent.global_constraint import GlobalConstraintParser
 from app.agent.architecture_inspector import ArchitectureInspector
 from app.agent.orchestrator_progress import MAX_CONTENT_FOR_CONTEXT
 from app.agent.adapters import LanguageAdapterRegistry
+from app.agent.dynamic_model_router import get_context_length
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,16 @@ class SpecFirstGenerateMixin:
             architecture = self.architect._get_default_architecture(self.complexity)
             file_plan = architecture.get("file_plan", [])
 
+        # 分批规划：如果 file_plan 文件数不足复杂度预期，自动扩展
+        estimated_files = ctx.complexity.get("estimated_files", len(file_plan)) if isinstance(ctx.complexity, dict) else (ctx.complexity.estimated_files if ctx.complexity else len(file_plan))
+        if len(file_plan) < estimated_files and estimated_files > 10:
+            logger.info(f"分批规划触发：当前 {len(file_plan)} 个文件，预期 {estimated_files} 个")
+            architecture = await self.architect.expand_file_plan(
+                architecture, self.complexity, target_file_count=estimated_files
+            )
+            file_plan = architecture.get("file_plan", [])
+            logger.info(f"分批规划完成：最终 {len(file_plan)} 个文件")
+
         self._report_progress(
             "architecture_design", 3, 6,
             file_count=len(file_plan),
@@ -103,7 +114,7 @@ class SpecFirstGenerateMixin:
         ctx.set_metric("global_constraints", constraint_parser.get_constraints_summary())
 
         decision_extractor = CriticalDecisionExtractor()
-        critical_decisions = decision_extractor.extract_from_architecture(
+        _ = decision_extractor.extract_from_architecture(
             architecture, ctx.complexity
         )
         decision_questions = decision_extractor.format_as_questions()
@@ -136,10 +147,6 @@ class SpecFirstGenerateMixin:
         detected_language = architecture.get("language", "python")
         language_adapter = LanguageAdapterRegistry.get_adapter(detected_language)
         logger.info(f"使用语言适配器: {language_adapter.language} (检测语言: {detected_language})")
-
-        # 设置 file_plan 数据（用于 GenericLanguageAdapter）
-        if hasattr(language_adapter, 'set_file_plan_data'):
-            language_adapter.set_file_plan_data(file_plan)
 
         dep_graph = DependencyGraph(language_adapter=language_adapter)
         dep_graph.build_from_architecture(architecture)
@@ -188,12 +195,12 @@ class SpecFirstGenerateMixin:
                 # 断点续传：检查文件是否已存在且完整
                 full_path = self.output_dir / file_path
                 tmp_path = full_path.with_suffix(full_path.suffix + '.tmp')
-                
+
                 # 如果存在 .tmp 文件，说明上次写入中断，删除它
                 if tmp_path.exists():
                     logger.warning(f"发现未完成的文件，删除: {tmp_path}")
                     tmp_path.unlink()
-                
+
                 if full_path.exists():
                     try:
                         existing_content = full_path.read_text(encoding='utf-8')
@@ -237,14 +244,29 @@ class SpecFirstGenerateMixin:
                     callback=callback
                 )
 
-                spec_context = spec_generator.get_spec_context_for_file(file_path, file_type)
-                dep_context = dep_graph.get_context_for_file(file_path, generated_contents)
+                spec_context = spec_generator.get_spec_context_for_file(
+                    file_path, file_type,
+                    max_chars_per_spec=SpecFirstGenerator.get_spec_budget(get_context_length(model_name))
+                )
+                dep_context = dep_graph.get_context_for_file(
+                    file_path, generated_contents, model_context_length=get_context_length(model_name)
+                )
 
-                initial_content = await engineer.generate_file(file_path, description, project_context)
+                initial_content = await engineer.generate_file(
+                    file_path, description, project_context, spec_context, dep_context,
+                    project_path=str(self.output_dir), callback=callback,
+                    is_existing_file=(self.output_dir / file_path).exists()
+                )
                 if not initial_content:
                     return {"path": file_path, "success": False, "error": "生成返回空内容"}
 
-                initial_content = self._clean_code_block(initial_content)
+                # 检查工程师是否已通过工具直接编辑了文件
+                if engineer.get_edited_files():
+                    full = self.output_dir / file_path
+                    if full.exists():
+                        initial_content = full.read_text(encoding='utf-8')
+                else:
+                    initial_content = self._clean_code_block(initial_content)
 
                 if cross_validator.is_critical_file(file_path, file_type):
                     self._report_progress(
@@ -257,9 +279,19 @@ class SpecFirstGenerateMixin:
 
                     alt_model = self._select_alternative_model(model_name)
                     alt_engineer = self._select_engineer_for_model(alt_model)
-                    alt_content = await alt_engineer.generate_file(file_path, description, project_context)
+                    alt_content = await alt_engineer.generate_file(
+                        file_path, description, project_context, spec_context, dep_context,
+                        project_path=str(self.output_dir), callback=callback,
+                        is_existing_file=(self.output_dir / file_path).exists()
+                    )
                     if alt_content:
-                        alt_content = self._clean_code_block(alt_content)
+                        # 检查替代工程师是否已通过工具直接编辑了文件
+                        if alt_engineer.get_edited_files():
+                            full = self.output_dir / file_path
+                            if full.exists():
+                                alt_content = full.read_text(encoding='utf-8')
+                        else:
+                            alt_content = self._clean_code_block(alt_content)
 
                         judge_model = self.model_assignment.reviewer_model if self.model_assignment else "THUDM/GLM-Z1-9B-0414"
 
@@ -385,16 +417,16 @@ class SpecFirstGenerateMixin:
 
         # ============ 完整性验证（新增） ============
         generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
-        
+
         # 1. IntegrityValidator - 完整性验证
         from app.agent.integrity_validator import IntegrityValidator
         integrity_validator = IntegrityValidator(language_adapter=language_adapter)
         integrity_result = integrity_validator.validate(generated_files_dict)
-        
+
         if not integrity_result.passed:
             logger.warning(f"完整性验证发现 {integrity_result.error_count} 个错误")
             self.warnings.extend([issue.message for issue in integrity_result.issues if issue.severity == "error"])
-            
+
             # 自动生成修复文件（如 __init__.py）
             fixes = integrity_validator.generate_fixes(integrity_result, generated_files_dict)
             if fixes:
@@ -406,7 +438,7 @@ class SpecFirstGenerateMixin:
                     ctx.save_file_content(fix_path, fix_content, "integrity_fix")
                     logger.info(f"自动修复文件: {fix_path}")
                     self._report_file_event(fix_path, fix_content, "自动补充的包初始化文件", "python")
-        
+
         # 2. DependencyGraph 完整性验证
         dep_graph_issues = dep_graph.validate_completeness()
         if dep_graph_issues:
@@ -423,7 +455,7 @@ class SpecFirstGenerateMixin:
                             default_content = '"""Package initialization"""\n'
                         else:
                             default_content = f'"""Module: {missing_file}"""\n'
-                        
+
                         full_path = self.output_dir / missing_file
                         full_path.parent.mkdir(parents=True, exist_ok=True)
                         with open(full_path, 'w', encoding='utf-8') as f:
@@ -433,46 +465,23 @@ class SpecFirstGenerateMixin:
                         logger.info(f"自动补充完整性文件: {missing_file}")
                         self._report_file_event(missing_file, default_content, "自动补充的模块文件", "python")
                         files_generated += 1
-        
-        # 2. DependencyGraph 完整性验证
-        dep_graph_issues = dep_graph.validate_completeness()
-        if dep_graph_issues:
-            logger.warning(f"依赖图完整性验证发现 {len(dep_graph_issues)} 个问题")
-            missing_files = dep_graph.get_missing_files()
-            if missing_files:
-                architecture = dep_graph.add_missing_files(architecture)
-                for missing_file in missing_files:
-                    if missing_file not in generated_files_dict:
-                        init_filename = language_adapter.package_init_filename if language_adapter else '__init__.py'
-                        if init_filename and missing_file.endswith(init_filename):
-                            default_content = '"""Package initialization"""\n'
-                        else:
-                            default_content = f'"""Module: {missing_file}"""\n'
-                        
-                        full_path = self.output_dir / missing_file
-                        full_path.parent.mkdir(parents=True, exist_ok=True)
-                        with open(full_path, 'w', encoding='utf-8') as f:
-                            f.write(default_content)
-                        ctx.save_file_content(missing_file, default_content, "auto_generated")
-                        logger.info(f"自动生成缺失文件: {missing_file}")
-                        self._report_file_event(missing_file, default_content, "自动补充的模块文件", "python")
-        
+
         # 3. CrossValidator 跨文件一致性验证
         if hasattr(self, 'model_assignment') and self.model_assignment:
             cross_validator = CrossValidator(ctx, language_adapter=language_adapter)
             fix_model = self.model_assignment.reviewer_model
-            
+
             # 更新生成文件字典
             generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
-            
+
             fixed_files, cross_issues = await cross_validator.validate_and_fix(
                 generated_files_dict, architecture, fix_model
             )
-            
+
             if cross_issues:
                 logger.warning(f"跨文件一致性验证发现 {len(cross_issues)} 个问题")
                 self.warnings.extend([issue.get("message", "") for issue in cross_issues])
-                
+
                 # 应用修复
                 for fix_path, fix_content in fixed_files.items():
                     if fix_content != generated_files_dict.get(fix_path):
@@ -482,14 +491,14 @@ class SpecFirstGenerateMixin:
                             f.write(fix_content)
                         ctx.save_file_content(fix_path, fix_content, "cross_validator_fix")
                         logger.info(f"跨文件一致性修复: {fix_path}")
-        
+
         self._report_progress("integrity_validated", total_files + 4, total_files + 5, callback=callback)
         # ============ 完整性验证结束 ============
 
         final_validation = {}
         if self.enable_validation:
             final_validation = await self.validator.run_full_validation()
-            
+
             # 推送验证结果事件
             self._report_validation_results({
                 "passed": final_validation.get("is_valid", False),
@@ -610,24 +619,24 @@ class SpecFirstGenerateMixin:
             # 断点续传：检查文件是否已存在且完整
             full_path = self.output_dir / file_path
             tmp_path = full_path.with_suffix(full_path.suffix + '.tmp')
-            
+
             # 如果存在 .tmp 文件，说明上次写入中断，删除它
             if tmp_path.exists():
                 logger.warning(f"发现未完成的文件，删除: {tmp_path}")
                 tmp_path.unlink()
-            
+
             if full_path.exists():
                 try:
                     existing_content = full_path.read_text(encoding='utf-8')
                     if existing_content.strip():
                         logger.info(f"文件已存在，跳过生成: {file_path}")
                         progress_report("skipping_existing_file", file_path, files_generated, total_files)
-                        
+
                         async with state_lock:
                             ctx.save_file_content(file_path, existing_content, "cached")
                             ctx.update_file_validation(file_path, True, [])
                             generated_contents[file_path] = existing_content[:MAX_CONTENT_FOR_CONTEXT]
-                            
+
                             generated_files_list.append({
                                 "path": file_path,
                                 "description": description,
@@ -637,7 +646,7 @@ class SpecFirstGenerateMixin:
                                 "skipped": True
                             })
                             files_generated += 1
-                        
+
                         return existing_content
                 except Exception as e:
                     logger.warning(f"读取已存在文件失败: {file_path}, {e}")
@@ -653,17 +662,48 @@ class SpecFirstGenerateMixin:
                     for path, content in upstream_context.items()
                 }
 
-            initial_content = await engineer.generate_file(file_path, description, combined_context)
+            spec_context = spec_generator.get_spec_context_for_file(
+                file_path, file_type,
+                max_chars_per_spec=SpecFirstGenerator.get_spec_budget(get_context_length(model_name))
+            )
+            dep_context = dep_graph.get_context_for_file(
+                file_path,
+                {k: v for k, v in upstream_context.items()} if upstream_context else generated_contents,
+                model_context_length=get_context_length(model_name),
+            )
+
+            initial_content = await engineer.generate_file(
+                file_path, description, combined_context, spec_context, dep_context,
+                project_path=str(self.output_dir), callback=callback,
+                is_existing_file=(self.output_dir / file_path).exists()
+            )
             if not initial_content:
                 raise ValueError(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
 
-            initial_content = self._clean_code_block(initial_content)
+            # 检查工程师是否已通过工具直接编辑了文件
+            if engineer.get_edited_files():
+                full = self.output_dir / file_path
+                if full.exists():
+                    initial_content = full.read_text(encoding='utf-8')
+            else:
+                initial_content = self._clean_code_block(initial_content)
 
             if cross_validator.is_critical_file(file_path, file_type):
                 alt_model = self._select_alternative_model(model_name)
                 alt_engineer = self._select_engineer_for_model(alt_model)
-                alt_content = await alt_engineer.generate_file(file_path, description, combined_context)
+                alt_content = await alt_engineer.generate_file(
+                    file_path, description, combined_context, spec_context, dep_context,
+                    project_path=str(self.output_dir), callback=callback,
+                    is_existing_file=(self.output_dir / file_path).exists()
+                )
                 if alt_content:
+                    # 检查替代工程师是否已通过工具直接编辑了文件
+                    if alt_engineer.get_edited_files():
+                        full = self.output_dir / file_path
+                        if full.exists():
+                            alt_content = full.read_text(encoding='utf-8')
+                    else:
+                        alt_content = self._clean_code_block(alt_content)
                     alt_content = self._clean_code_block(alt_content)
                     judge_model = self.model_assignment.reviewer_model if self.model_assignment else "THUDM/GLM-Z1-9B-0414"
 
@@ -755,16 +795,16 @@ class SpecFirstGenerateMixin:
 
         # ============ 完整性验证（新增） ============
         generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
-        
+
         # 1. IntegrityValidator - 完整性验证
         from app.agent.integrity_validator import IntegrityValidator
         integrity_validator = IntegrityValidator(language_adapter=language_adapter)
         integrity_result = integrity_validator.validate(generated_files_dict)
-        
+
         if not integrity_result.passed:
             logger.warning(f"完整性验证发现 {integrity_result.error_count} 个错误")
             warnings_list.extend([issue.message for issue in integrity_result.issues if issue.severity == "error"])
-            
+
             # 自动生成修复文件（如 __init__.py）
             fixes = integrity_validator.generate_fixes(integrity_result, generated_files_dict)
             if fixes:
@@ -777,7 +817,7 @@ class SpecFirstGenerateMixin:
                     logger.info(f"自动修复文件: {fix_path}")
                     self._report_file_event(fix_path, fix_content, "自动补充的包初始化文件", "python")
                     files_generated += 1
-        
+
         # 2. DependencyGraph 完整性验证
         dep_graph_issues = dep_graph.validate_completeness()
         if dep_graph_issues:
@@ -791,7 +831,7 @@ class SpecFirstGenerateMixin:
                             default_content = '"""Package initialization"""\n'
                         else:
                             default_content = f'"""Module: {missing_file}"""\n'
-                        
+
                         full_path = self.output_dir / missing_file
                         full_path.parent.mkdir(parents=True, exist_ok=True)
                         with open(full_path, 'w', encoding='utf-8') as f:
@@ -800,22 +840,22 @@ class SpecFirstGenerateMixin:
                         logger.info(f"自动生成缺失文件: {missing_file}")
                         self._report_file_event(missing_file, default_content, "自动补充的模块文件", "python")
                         files_generated += 1
-        
+
         # 3. CrossValidator 跨文件一致性验证
         if hasattr(self, 'model_assignment') and self.model_assignment:
             cross_validator = CrossValidator(ctx, language_adapter=language_adapter)
             fix_model = self.model_assignment.reviewer_model
-            
+
             generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
-            
+
             fixed_files, cross_issues = await cross_validator.validate_and_fix(
                 generated_files_dict, architecture, fix_model
             )
-            
+
             if cross_issues:
                 logger.warning(f"跨文件一致性验证发现 {len(cross_issues)} 个问题")
                 warnings_list.extend([issue.get("message", "") for issue in cross_issues])
-                
+
                 for fix_path, fix_content in fixed_files.items():
                     if fix_content != generated_files_dict.get(fix_path):
                         full_path = self.output_dir / fix_path
@@ -824,7 +864,7 @@ class SpecFirstGenerateMixin:
                             f.write(fix_content)
                         ctx.save_file_content(fix_path, fix_content, "cross_validator_fix")
                         logger.info(f"跨文件一致性修复: {fix_path}")
-        
+
         self._report_progress("integrity_validated", total_files + 4, total_files + 5, callback=callback)
         # ============ 完整性验证结束 ============
 

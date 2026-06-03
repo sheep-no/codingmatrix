@@ -25,13 +25,13 @@ class ArchitectJsonParser:
     def safe_parse_json(self, text: str) -> Dict:
         """
         安全解析 JSON，处理各种格式问题
-        
+
         Args:
             text: 原始文本
-            
+
         Returns:
             解析后的 JSON 字典
-            
+
         Raises:
             ValueError: 无法解析 JSON
         """
@@ -141,7 +141,7 @@ class ArchitectJsonParser:
             # 计算需要的闭合括号
             open_braces = text.count('{') - text.count('}')
             open_brackets = text.count('[') - text.count(']')
-            
+
             if open_braces > 0 or open_brackets > 0:
                 # 移除行尾注释
                 text = self._remove_line_comments(text)

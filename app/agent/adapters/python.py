@@ -9,7 +9,7 @@ PythonLanguageAdapter - Python 语言适配器
 """
 
 import re
-from typing import Dict, List, Optional, Set
+from typing import Dict, List
 from pathlib import Path
 
 from .language_adapter import (

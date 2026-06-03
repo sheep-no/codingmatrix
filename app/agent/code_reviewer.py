@@ -69,13 +69,14 @@ class CodeReviewer(Specialist):
                 result = json.loads(json_match.group(1))
             else:
                 result = json.loads(response)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
+            logger.warning(f"CodeReviewer LLM 输出非合法 JSON，标记为需要人工审查: {response[:200]}")
             result = {
-                "approved": True,
-                "risk_level": "low",
-                "issues": [],
+                "approved": False,
+                "risk_level": "medium",
+                "issues": ["LLM 审查结果解析失败，需人工审查"],
                 "suggestions": [],
-                "needs_fix": False
+                "needs_fix": True
             }
 
         # 合并版本兼容性问题

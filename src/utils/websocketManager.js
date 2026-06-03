@@ -7,7 +7,7 @@ import { API_CONFIG } from './api/config.js'
 
 export class WebSocketManager {
   constructor() {
-    this.baseUrl = import.meta.env.VITE_WS_BASE || 'ws://127.0.0.1:8080'
+    this.baseUrl = API_CONFIG.WS_BASE_URL
     this.connections = new Map()
     this.reconnectAttempts = new Map()
     this.maxReconnectAttempts = 5

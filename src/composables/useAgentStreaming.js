@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useApiKeyStore } from '@/stores/apikey'
 
 export function useAgentStreaming(projectApi, workspace, files, generation, session) {
@@ -184,6 +184,20 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
           addDetail('警告详情', `[${data.code}] ${data.message}`)
         }
         break
+      case 'pause_for_approval':
+        workspace.pendingApproval = {
+          filePath: data.data?.file_path,
+          sessionId: data.data?.session_id,
+          description: data.data?.description
+        }
+        addLog('warning', `等待审批: ${data.data?.file_path || '文件'}`)
+        break
+      case 'file_rejected':
+        addLog('warning', `文件被拒绝: ${data.data?.file_path}`)
+        break
+      case 'log':
+        addLog('info', data.data?.message || data.message || '')
+        break
       case 'done':
         console.log('[SSE] 收到 done 事件，设置 isGenerating=false')
         addLog('success', '项目生成完成')
@@ -233,7 +247,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     }
   }
 
-  const buildStreamParams = (requirement, sessionId, selectedProviderModel) => {
+  const buildStreamParams = (requirement, sessionId, selectedProviderModel, projectName) => {
     // 获取用户 SiliconFlow API Key token
     const siliconflowKey = apiKeyStore.siliconflowKey
     
@@ -260,13 +274,73 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       require_approval: false,
       api_key_token: siliconflowKey ? siliconflowKey.token : undefined,
       provider_id: providerId,
+      project_name: projectName || undefined,
       ...(isIncremental ? {
         project_path: workspace.currentProjectPath
       } : {})
     }
   }
 
-  const streamGenerate = async (selectedProviderModel) => {
+  // 429 并发限制弹窗：显示活跃会话列表和操作选项
+  const showConcurrentLimitDialog = async (error, projectApi, session) => {
+    const sessions = error.activeSessions || []
+    const limit = error.limit || 0
+    const count = error.currentCount || sessions.length
+
+    // 构建会话列表 HTML
+    let sessionsHtml = ''
+    if (sessions.length > 0) {
+      const items = sessions.map((s, i) => {
+        const req = s.requirement ? (s.requirement.length > 60 ? s.requirement.slice(0, 60) + '...' : s.requirement) : '未知需求'
+        const createdAt = s.created_at ? new Date(s.created_at).toLocaleString('zh-CN') : '未知时间'
+        const statusMap = { running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消' }
+        const statusText = statusMap[s.status] || s.status
+        return `<div style="padding:8px 12px;margin:4px 0;background:#f5f5f5;border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${req}</div>
+            <div style="font-size:11px;color:#999;margin-top:2px;">${createdAt} · ${statusText}</div>
+          </div>
+          <div style="margin-left:8px;font-size:11px;color:#e6a23c;font-weight:500;">#${i + 1}</div>
+        </div>`
+      }).join('')
+      sessionsHtml = `<div style="margin-top:12px;max-height:240px;overflow-y:auto;">${items}</div>`
+    }
+
+    try {
+      await ElMessageBox.confirm(
+        `<div style="line-height:1.6;">
+          <div style="font-weight:600;margin-bottom:8px;">并发会话已满 (${count}/${limit})</div>
+          <div style="color:#666;font-size:13px;">当前已有 ${count} 个活跃项目，达到上限 ${limit} 个。请先停止或删除一个现有项目后再创建新项目。</div>
+          ${sessionsHtml}
+        </div>`,
+        '无法创建新项目',
+        {
+          confirmButtonText: '停止最早的项目',
+          cancelButtonText: '知道了',
+          dangerouslyUseHTMLString: true,
+          type: 'warning',
+          distinguishCancelAndClose: true
+        }
+      )
+
+      // 用户点击"停止最早的项目"
+      if (sessions.length > 0) {
+        const oldest = sessions[sessions.length - 1]
+        try {
+          await projectApi.stopSession(oldest.session_id)
+          ElMessage.success('已停止项目，现在可以创建新项目了')
+          // 清除当前会话，让用户可以重新创建
+          session.currentSessionId = null
+        } catch (stopError) {
+          ElMessage.error('停止项目失败: ' + stopError.message)
+        }
+      }
+    } catch (action) {
+      // 用户点击"知道了"或关闭弹窗，不做任何操作
+    }
+  }
+
+  const streamGenerate = async (selectedProviderModel, projectName) => {
     // 检查是否有 SiliconFlow API Key 或动态供应商
     if (!apiKeyStore.hasSiliconflowKey && !selectedProviderModel) {
       ElMessage.warning('请先配置 SiliconFlow API Key 或选择自定义供应商模型')
@@ -288,7 +362,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
 
     try {
       const sessionId = session.currentSessionId || session.createNewSession({})
-      const params = buildStreamParams(session.projectPrompt, sessionId, selectedProviderModel)
+      const params = buildStreamParams(session.projectPrompt, sessionId, selectedProviderModel, projectName)
       const response = await projectApi.generateProjectStream(params)
       console.log('[SSE] generateProjectStream 返回, response.ok:', response.ok, 'status:', response.status)
       await processSseResponse(response)
@@ -297,6 +371,14 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       session.projectPrompt = ''
     } catch (error) {
       generation.isGenerating = false
+      
+      // 429 并发限制：显示详细提醒和操作选项
+      if (error.code === 429) {
+        addLog('error', `并发会话已满: ${error.message}`)
+        showConcurrentLimitDialog(error, projectApi, session)
+        return
+      }
+      
       addLog('error', `${mode}失败: ${error.message}`)
       ElMessage.error(`${mode}失败`)
     }

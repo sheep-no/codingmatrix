@@ -1,17 +1,17 @@
 import time
-import asyncio
 import logging
-from typing import Optional, Dict, Any, Callable, List
+from typing import Optional, Dict, Any, List
 
 from app.agent.complexity import ComplexityAnalyzer
-from app.agent.specialists import Specialist, Architect, FrontendEngineer, BackendEngineer, CodeReviewer
+from app.agent.specialists import Architect, FrontendEngineer, BackendEngineer, CodeReviewer
 from app.agent.error_recovery import ErrorRecoveryLoop
 from app.agent.code_validator import CodeValidator
 from app.agent.api_contract_checker import APIContractChecker
 from app.agent.code_patcher import CodePatcher, CrossFilePatcher
 from app.agent.dynamic_model_router import LayeredModelRouter
 from app.agent.tracing import traced
-from app.agent.orchestrator_progress import PROGRESS_LABELS, MAX_CONCURRENT_LLM_CALLS
+from app.agent.orchestrator_progress import PROGRESS_LABELS
+from app.agent.specialist_base import get_global_llm_semaphore
 
 from .coverage_checker import check_requirement_coverage
 from .feature_extractor import extract_and_save_feature_list
@@ -36,7 +36,7 @@ class GenerationMixin(
     async def _initialize_components(self, requirement: str):
         self._start_time = time.time()
         self._update_phase("analyzing")
-        
+
         # 初始化成本追踪器
         if hasattr(self, 'cost_tracker'):
             self.cost_tracker.start_time = time.time()
@@ -68,13 +68,13 @@ class GenerationMixin(
             reviewer=self.model_assignment.reviewer_model
         )
 
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM_CALLS)
-        Specialist.set_semaphore(semaphore)
+        semaphore = get_global_llm_semaphore()
+        cost_tracker = getattr(self, 'cost_tracker', None)
 
-        self.architect = Architect("架构师", self.model_assignment.architect_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id)
-        self.frontend_engineer = FrontendEngineer("前端工程师", self.model_assignment.frontend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id)
-        self.backend_engineer = BackendEngineer("后端工程师", self.model_assignment.backend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id)
-        self.reviewer = CodeReviewer("审查员", self.model_assignment.reviewer_model, task_type="review", api_key_token=self.api_key_token, provider_id=self.provider_id)
+        self.architect = Architect("架构师", self.model_assignment.architect_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker)
+        self.frontend_engineer = FrontendEngineer("前端工程师", self.model_assignment.frontend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker)
+        self.backend_engineer = BackendEngineer("后端工程师", self.model_assignment.backend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker)
+        self.reviewer = CodeReviewer("审查员", self.model_assignment.reviewer_model, task_type="review", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker)
         self.validator = CodeValidator(self.output_dir)
         self.error_recovery = ErrorRecoveryLoop(self.validator, self.reviewer)
         self.api_contract_checker = APIContractChecker()

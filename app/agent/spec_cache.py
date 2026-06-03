@@ -16,13 +16,11 @@ import logging
 import math
 import re
 import asyncio
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from app.utils.AiCodeUtil import get_embedding
-from app.utils.math_utils import cosine_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +282,7 @@ class SpecCache:
     ) -> Optional[CacheEntry]:
         """
         查找相似需求的缓存（带索引优化）
-        
+
         优化策略：
         1. tech_stack 预过滤 — 只搜索技术栈匹配的条目
         2. 批量余弦相似度计算 — 一次性计算所有候选项
@@ -437,7 +435,7 @@ class SpecCache:
         if len(self._cache) > MAX_CACHE_ENTRIES:
             oldest_hash = min(self._cache.keys(), key=lambda k: self._cache[k].last_accessed)
             if oldest_hash != req_hash:  # 不要刚添加的就移除
-                evicted = self._cache.pop(oldest_hash)
+                self._cache.pop(oldest_hash)
                 self._remove_cache_file(oldest_hash)
                 self._vector_cache.pop(oldest_hash, None)
                 for tech in list(self._tech_index.keys()):

@@ -4,11 +4,10 @@
 负责分析用户需求的复杂度，评估项目规模、技术栈和风险因素。
 """
 
-import re
 import json
 import logging
 from enum import Enum
-from typing import Optional, List, Dict
+from typing import Optional, List
 from dataclasses import dataclass
 
 from app.utils import call_llm
@@ -53,7 +52,7 @@ class ComplexityAnalyzer:
     FRONTEND_KEYWORDS = ['前端', '页面', 'ui', '界面', 'vue', 'react', 'angular', 'html', 'css', '样式', '组件', '组件库']
     BACKEND_KEYWORDS = ['后端', 'api', '接口', '服务器', 'server', 'fastapi', 'django', 'flask', 'spring', 'express']
     DATABASE_KEYWORDS = ['数据库', 'database', 'mysql', 'postgres', 'sqlite', 'mongo', 'redis', '存储', '数据表']
-    AUTH_KEYWORDS = ['登陆', '注册', '认证', 'auth', 'jwt', 'oauth', '权限', '角色', '用户管理']
+    AUTH_KEYWORDS = ['登录', '注册', '认证', 'auth', 'jwt', 'oauth', '权限', '角色', '用户管理']
     COMPLEX_KEYWORDS = ['微服务', '分布式', '缓存', '消息队列', 'kafka', 'rabbitmq', 'docker', 'k8s', '部署']
 
     @classmethod
@@ -192,7 +191,7 @@ class ComplexityAnalyzer:
             user_prompt = f"用户需求：\n{requirement}\n\n关键词初估：约 {keyword_result.estimated_files} 个文件，技术栈：{keyword_result.key_technologies}。请校准估算。"
 
             response = await call_llm(
-                model="Qwen/Qwen3.5-4B",
+                model="Qwen/Qwen3-8B",
                 prompt=user_prompt,
                 max_tokens=512,
                 temperature=0.3,

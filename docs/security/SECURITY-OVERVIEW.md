@@ -1,6 +1,85 @@
 # 安全架构概览
 
-> 最后更新: 2026-05-27 | 状态: 生产就绪 | 版本: v5.10.0
+> 最后更新: 2026-06-02 | 状态: 生产就绪 | 版本: v5.12.0+
+
+## v5.12.0+ 安全更新
+
+### 1. 代码沙箱 (Code Sandbox)
+
+v5.12.0+ 新增可配置的代码沙箱系统，用于在 ReAct 工具调用中安全执行任意代码。
+
+#### 支持的沙箱
+
+| 语言 | 实现方式 | 限制 |
+|------|----------|------|
+| Python | AST 静态分析 + 限制性 builtins | exec/eval/compile/__import__/open/getattr/setattr 全部禁止 |
+| JavaScript | Node.js 子进程 + 危险模式拦截 | child_process/fs/eval/Function/process.exit/process.env 全部禁止 |
+
+#### 安全特性
+
+- **AST 静态分析**（Python）：执行前解析语法树，拦截危险节点
+- **危险模式黑名单**（JavaScript）：正则匹配代码，禁止危险 API
+- **超时控制**：30 秒硬超时，防止死循环
+- **进程隔离**：JavaScript 使用独立子进程，崩溃不影响主进程
+- **管理员可控**：`ENABLE_CODE_SANDBOX` 和 `SANDBOX_LANGUAGES` 可通过 API 动态配置
+
+#### API 端点
+
+```http
+GET /api/v2/admin/sandbox-config
+PUT /api/v2/admin/sandbox-config
+```
+
+请求体：
+```json
+{
+  "enable_code_sandbox": true,
+  "sandbox_languages": "python,javascript"
+}
+```
+
+详见 [REACT-TOOL-CALLING.md#代码沙箱](../features/REACT-TOOL-CALLING.md#代码沙箱)
+
+### 2. Engineer 写入工具安全审计
+
+v5.12.0+ 工程师获得 4 个写入/验证工具（`partial_update` / `insert_content` / `regex_replace` / `execute_code`），需要额外的安全约束：
+
+#### 文件路径验证
+
+- 工程师只能修改工作目录内的文件
+- 路径遍历攻击防护（`../` 拦截）
+- 文件大小限制（默认 1MB）
+
+#### Git Stash 原子回滚
+
+- 每次编辑前自动 `git stash` 备份
+- 失败时自动 `git stash pop` 还原
+- 成功时 `git stash drop` 清理
+- 新文件失败时直接 `unlink()` 删除
+
+详见 [REACT-TOOL-CALLING.md#git-stash-原子回滚](../features/REACT-TOOL-CALLING.md#git-stash-原子回滚)
+
+### 3. 会话并发限制加固
+
+v5.12.0+ 实施严格的并发限制：
+
+- `MAX_PROJECT_SESSIONS_PER_USER = 2`：每个用户最多 2 个活跃项目会话
+- 超出时返回 409 响应，包含活跃会话列表
+- 僵尸会话自动检测并清理（防资源泄漏）
+
+详见 [SESSION-LIFECYCLE.md#并发限制429-响应](../features/SESSION-LIFECYCLE.md#并发限制429-响应)
+
+### 4. API Key context_length 多级保护
+
+v5.12.0+ 用户 API Key 支持自定义 context_length，需注意：
+
+- 用户自定义 context_length 仅对自己的请求生效
+- 管理员配置的 context_length 全局生效
+- 用户提交 OpenAI/Anthropic Key 时自动同步模型列表
+
+详见 [MODELS.md#context_length-管理](../architecture/MODELS.md#context_length-管理)
+
+---
 
 ## 认证与授权
 

@@ -80,8 +80,8 @@ defineExpose({ selectFile, setContent, reset })
 
 <style scoped>
 .file-preview-panel {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -91,21 +91,21 @@ defineExpose({ selectFile, setContent, reset })
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
 }
 
 .panel-header h3 {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .close-panel {
   background: transparent;
   border: none;
-  color: #64748b;
+  color: var(--text-tertiary);
   cursor: pointer;
   width: 24px;
   height: 24px;
@@ -117,20 +117,22 @@ defineExpose({ selectFile, setContent, reset })
 }
 
 .close-panel:hover {
-  background: #e2e8f0;
-  color: #1e293b;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .file-preview-body {
   display: flex;
+  min-height: 300px;
+  max-height: 70vh;
   height: 400px;
 }
 
 .file-list {
   width: 250px;
   overflow-y: auto;
-  border-right: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-secondary);
 }
 
 .file-list-item {
@@ -140,16 +142,17 @@ defineExpose({ selectFile, setContent, reset })
   padding: 8px 12px;
   cursor: pointer;
   transition: all 0.2s;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
 }
 
 .file-list-item:hover {
-  background: #e2e8f0;
+  background: var(--bg-tertiary);
 }
 
 .file-list-item.active {
-  background: #3b82f6;
-  color: #fff;
+  background: var(--primary);
+  color: white;
 }
 
 .file-icon-small {
@@ -177,14 +180,14 @@ defineExpose({ selectFile, setContent, reset })
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
 }
 
 .file-name {
   font-size: 13px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .file-actions {
@@ -195,27 +198,27 @@ defineExpose({ selectFile, setContent, reset })
 .btn-small {
   padding: 4px 12px;
   font-size: 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
-  background: #fff;
-  color: #64748b;
+  background: var(--bg-primary);
+  color: var(--text-tertiary);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .btn-small:hover {
-  border-color: #3b82f6;
-  color: #3b82f6;
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .btn-danger-small {
-  border-color: #ef4444;
-  color: #ef4444;
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .btn-danger-small:hover {
-  background: #ef4444;
-  color: #fff;
+  background: var(--danger);
+  color: white;
 }
 
 .file-code {
@@ -225,8 +228,8 @@ defineExpose({ selectFile, setContent, reset })
   overflow: auto;
   font-size: 13px;
   line-height: 1.6;
-  background: #f8fafc;
-  color: #1e293b;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .file-content-empty {
@@ -235,7 +238,7 @@ defineExpose({ selectFile, setContent, reset })
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #94a3b8;
+  color: var(--text-tertiary);
 }
 
 .file-content-empty svg {
