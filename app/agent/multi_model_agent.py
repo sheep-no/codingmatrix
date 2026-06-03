@@ -31,6 +31,104 @@ from pathlib import Path
 
 from app.utils import call_llm
 from app.utils.file_operator import FileOperator
+from app.agent.specialist_base import (
+    _tool_read_file, _tool_list_files, _tool_read_symbols,
+    _tool_read_imports, _tool_summarize_file, _tool_run_command,
+)
+
+# 分析任务可用的只读工具
+ANALYSIS_TOOLS = {
+    "read_file": {
+        "fn": _tool_read_file,
+        "description": "读取文件内容，支持分页。参数: file_path, offset(起始行), limit(行数)",
+        "params": {"file_path": "string", "offset": "int(可选)", "limit": "int(可选)"}
+    },
+    "list_files": {
+        "fn": _tool_list_files,
+        "description": "列出目录结构。参数: directory(目录路径), max_depth(深度)",
+        "params": {"directory": "string(可选)", "max_depth": "int(可选)"}
+    },
+    "read_symbols": {
+        "fn": _tool_read_symbols,
+        "description": "提取文件的函数和类签名（不读函数体）。参数: file_path",
+        "params": {"file_path": "string"}
+    },
+    "read_imports": {
+        "fn": _tool_read_imports,
+        "description": "提取文件的 import 语句，分析依赖关系。参数: file_path",
+        "params": {"file_path": "string"}
+    },
+    "summarize_file": {
+        "fn": _tool_summarize_file,
+        "description": "返回文件摘要：导出的符号、行数、语言、依赖数。参数: file_path",
+        "params": {"file_path": "string"}
+    },
+    "run_command": {
+        "fn": _tool_run_command,
+        "description": "执行终端命令（搜索代码、统计行数等）。参数: command, cwd(可选), timeout(可选,默认60)。"
+                       "grep 示例: grep -rn --include='*.py' 'pattern' . | head -20  "
+                       "find 示例: find . -name '*.py' | xargs wc -l",
+        "params": {"command": "string", "cwd": "string(可选)", "timeout": "int(可选,默认60)"}
+    },
+}
+
+
+def _parse_tool_call(content: str) -> Optional[Dict]:
+    """从 LLM 回复中解析工具调用 JSON
+
+    格式: {"tool": "tool_name", "params": {...}}
+    """
+    # 清理 <think> 标签
+    cleaned = re.sub(r'<think>.*?</think>\s*', '', content, flags=re.DOTALL).strip()
+
+    # 尝试1: JSON 代码块
+    json_match = re.search(r'```json\s*(\{.*?\})\s*```', cleaned, re.DOTALL)
+    if json_match:
+        try:
+            data = json.loads(json_match.group(1))
+            if "tool" in data:
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    # 尝试2: 直接匹配 JSON 对象
+    brace_match = re.search(r'\{\s*"tool"\s*:\s*"[^"]+"\s*,\s*"params"\s*:\s*\{[^}]*\}\s*\}', cleaned)
+    if brace_match:
+        try:
+            return json.loads(brace_match.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    # 尝试3: 更宽松的匹配（params 可能包含嵌套）
+    tool_match = re.search(r'\{\s*"tool"\s*:\s*"([^"]+)"', cleaned)
+    if tool_match:
+        start = tool_match.start()
+        brace_count = 0
+        in_string = False
+        escape_next = False
+        for i in range(start, len(cleaned)):
+            ch = cleaned[i]
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == '\\' and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                brace_count += 1
+            elif ch == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    try:
+                        return json.loads(cleaned[start:i + 1])
+                    except json.JSONDecodeError:
+                        break
+    return None
 
 logger = logging.getLogger(__name__)
 
@@ -406,11 +504,14 @@ class ModelRouter:
             if any(k in content_lower for k in ["分析", "理解", "描述", "识别"]):
                 return TaskType.VISUAL_UNDERSTANDING
 
-        if any(k in content_lower for k in ["文件", "读取", "写入", "file", "操作", "打开文件"]):
-            return TaskType.FILE_OPERATION
-
         if any(k in content_lower for k in ["审查", "review", "检查", "优化", "代码审查"]):
             return TaskType.CODE_REVIEW
+
+        if any(k in content_lower for k in ["推理", "reasoning", "思考", "分析", "解释", "说明", "describe", "explain", "analyze"]):
+            return TaskType.REASONING
+
+        if any(k in content_lower for k in ["文件", "读取", "写入", "file", "操作", "打开文件"]):
+            return TaskType.FILE_OPERATION
 
         if any(k in content_lower for k in ["代码", "编写", "写一个", "写段代码", "写个函数", "写个程序"]):
             return TaskType.CODE_GENERATION
@@ -821,6 +922,129 @@ class AgentExecutor:
         else:
             return {"error": f"未知步骤类型: {step_type}"}
 
+    async def execute_analysis(
+        self,
+        task: str,
+        project_path: str,
+        model_name: str = "Qwen/Qwen3-8B",
+        max_rounds: int = 10,
+        api_key_token: str = None,
+    ) -> Dict:
+        """执行分析任务（ReAct 工具调用循环）
+
+        只读操作，不修改文件。使用 ANALYSIS_TOOLS 搜索和读取项目文件。
+
+        Returns:
+            {"success": True, "analysis": "分析结果文本", "tool_calls": N}
+        """
+        tools_desc = "\n".join(
+            f"- {name}({', '.join(f'{k}: {v}' for k, v in info['params'].items())}): {info['description']}"
+            for name, info in ANALYSIS_TOOLS.items()
+        )
+        tool_names = list(ANALYSIS_TOOLS.keys())
+
+        system_prompt = (
+            "你是一个代码分析专家。使用工具搜索和读取项目文件，然后给出分析结果。\n\n"
+            "### 可用工具\n"
+            f"{tools_desc}\n\n"
+            "### 工具调用格式\n"
+            "如果需要使用工具，请且仅返回一个 JSON 对象：\n"
+            '{"tool": "工具名", "params": {"参数名": "值"}}\n\n'
+            "示例：\n"
+            '{"tool": "list_files", "params": {"directory": "."}}\n'
+            '{"tool": "read_symbols", "params": {"file_path": "src/main.py"}}\n'
+            '{"tool": "run_command", "params": {"command": "grep -rn --include=*.py def src/"}}\n\n'
+            "### 重要规则\n"
+            "1. 每次只调用一个工具，格式为：{\"tool\": \"...\", \"params\": {...}}\n"
+            "2. 收到工具结果后，继续调用工具或生成最终分析\n"
+            "3. 收集完信息后，直接输出文字分析结果，不要返回 JSON\n"
+            "4. 工具调用期间，只返回 {\"tool\": \"...\", \"params\": {...}} 格式\n"
+        )
+
+        tool_history = []
+        tool_call_count = 0
+
+        for round_num in range(1, max_rounds + 1):
+            current_prompt = task
+            if tool_history:
+                history_text = "\n\n".join(tool_history)
+                current_prompt = (
+                    f"{task}\n\n"
+                    f"### 工具调用记录\n"
+                    f"{history_text}\n\n"
+                    f"请根据以上工具返回的信息，继续调用工具或直接输出分析结果。"
+                )
+
+            try:
+                response = await call_llm(
+                    model=model_name,
+                    prompt=current_prompt,
+                    system_prompt=system_prompt,
+                    stream=False,
+                    max_tokens=8192,
+                    temperature=0.7,
+                    api_key_token=api_key_token,
+                )
+                content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            except Exception as e:
+                logger.error(f"分析任务 LLM 调用失败: {e}")
+                return {"success": False, "error": f"LLM 调用失败: {str(e)}", "tool_calls": tool_call_count}
+
+            if not content:
+                return {"success": False, "error": "LLM 返回空内容", "tool_calls": tool_call_count}
+
+            # 解析工具调用
+            tool_call = _parse_tool_call(content)
+            if not tool_call:
+                # 自然终止 — 模型输出了分析结果
+                logger.info(f"分析任务 ReAct 自然终止: 第 {round_num} 轮, 工具调用 {tool_call_count} 次")
+                return {"success": True, "analysis": content, "tool_calls": tool_call_count}
+
+            # 安全阀
+            if round_num >= max_rounds:
+                logger.warning(f"分析任务 ReAct 达到安全阀上限 ({max_rounds} 轮)")
+                # 最后一轮让 LLM 直接输出
+                try:
+                    final = await call_llm(
+                        model=model_name,
+                        prompt=f"{current_prompt}\n\n### 注意：已达到工具调用上限，请直接输出分析结果。",
+                        system_prompt=system_prompt,
+                        stream=False,
+                        max_tokens=8192,
+                        temperature=0.7,
+                        api_key_token=api_key_token,
+                    )
+                    final_content = final.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    return {"success": True, "analysis": final_content or content, "tool_calls": tool_call_count}
+                except Exception:
+                    return {"success": True, "analysis": content, "tool_calls": tool_call_count}
+
+            # 执行工具
+            tool_name = tool_call.get("tool", "")
+            tool_params = tool_call.get("params", {})
+
+            if tool_name not in ANALYSIS_TOOLS:
+                tool_history.append(
+                    f"第 {round_num} 轮: {tool_name}({json.dumps(tool_params, ensure_ascii=False)})\n"
+                    f"错误: 工具不存在，可用工具: {', '.join(tool_names)}"
+                )
+                continue
+
+            try:
+                tool_result = ANALYSIS_TOOLS[tool_name]["fn"](project_path=project_path, **tool_params)
+            except Exception as e:
+                tool_result = {"error": str(e)}
+
+            tool_call_count += 1
+            result_str = json.dumps(tool_result, ensure_ascii=False)[:3000]
+            tool_history.append(
+                f"第 {round_num} 轮: {tool_name}({json.dumps(tool_params, ensure_ascii=False)})\n"
+                f"返回: {result_str}"
+            )
+            logger.info(f"分析任务 ReAct 第 {round_num} 轮: 调用 {tool_name}, 结果 {len(result_str)} 字符")
+
+        return {"success": True, "analysis": "分析任务超时", "tool_calls": tool_call_count}
+
 
 class MultiModelAgent:
     """
@@ -839,7 +1063,8 @@ class MultiModelAgent:
         enable_review: bool = True,
         enable_file_contract: bool = True,
         complexity: str = "MEDIUM",
-        orchestrator_factory: Optional[Callable] = None
+        orchestrator_factory: Optional[Callable] = None,
+        api_key_token: str = None,
     ):
         self.router = ModelRouter()
         self.planner = TaskPlanner(default_model)
@@ -851,6 +1076,7 @@ class MultiModelAgent:
         self._semaphore = None
         self._orchestrator_factory = orchestrator_factory
         self._orchestrator = None
+        self._api_key_token = api_key_token
 
     def _get_semaphore(self):
         """延迟获取全局 LLM 信号量"""
@@ -897,7 +1123,7 @@ class MultiModelAgent:
             await emit("task_routed", {"task_type": task_type.value})
 
         # 代码生成任务委托给 OrchestratorAgent
-        if task_type in (TaskType.CODE_GENERATION, TaskType.REASONING) and self._orchestrator_factory and output_dir:
+        if task_type == TaskType.CODE_GENERATION and self._orchestrator_factory and output_dir:
             await emit("delegating", {"message": "代码生成任务委托给 OrchestratorAgent", "task_type": task_type.value})
             try:
                 orchestrator = self._orchestrator_factory(
@@ -915,6 +1141,25 @@ class MultiModelAgent:
                 logger.error(f"OrchestratorAgent 委托失败: {e}")
                 await emit("delegation_failed", {"error": str(e)})
                 # 降级到 MultiModelAgent 自己处理
+
+        # 分析类任务：使用 AgentExecutor 的 ReAct 工具调用
+        if task_type in (TaskType.GENERAL, TaskType.CODE_REVIEW, TaskType.REACT, TaskType.PLANNING, TaskType.REASONING) and output_dir:
+            await emit("analyzing", {"message": "正在分析项目...", "task_type": task_type.value})
+            try:
+                model_info = await self.router.route_dynamic(task_type) if use_dynamic_routing else self.router.route(task_type)
+                api_key_token = getattr(self, '_api_key_token', None)
+                result = await self.executor.execute_analysis(
+                    task=task,
+                    project_path=str(output_dir),
+                    model_name=model_info.name,
+                    api_key_token=api_key_token,
+                )
+                await emit("analysis_complete", {"success": result.get("success", False)})
+                return result
+            except Exception as e:
+                logger.error(f"分析任务失败: {e}")
+                await emit("analysis_failed", {"error": str(e)})
+                return {"success": False, "error": f"分析失败: {str(e)}"}
 
         async def call_with_semaphore(coro_factory, *args, **kwargs):
             sem = self._get_semaphore()

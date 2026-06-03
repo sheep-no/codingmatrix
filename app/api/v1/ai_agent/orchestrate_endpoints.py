@@ -17,6 +17,7 @@ from app.utils.security import verify_token
 from app.db.database import get_db, async_session
 from app.db.models import ProjectSession
 from app.agent import OrchestratorAgent
+from app.agent.multi_model_agent import MultiModelAgent
 from app.agent.impact_analyzer import ImpactAnalyzer
 from app.agent.project_profiler import ProjectProfiler
 from app.agent.test_selector import TestSelector
@@ -102,22 +103,43 @@ async def modify_project(
 
     start_time = time.time()
     try:
-        orchestrator = OrchestratorAgent(
-            output_dir=project_dir,
+        def _make_orchestrator(**kwargs):
+            return OrchestratorAgent(
+                session_manager=sm,
+                session_id=session_id,
+                incremental=True,
+                api_key_token=request.api_key_token,
+                **kwargs,
+            )
+
+        agent = MultiModelAgent(
             enable_review=request.enable_review,
-            enable_validation=request.enable_validation,
-            enable_error_recovery=request.enable_error_recovery,
-            memory_enabled=request.enable_memory,
-            spec_first=False,
-            dependency_graph=request.dependency_graph,
-            callback=lambda msg: logger.info(f"Modify 进度: {msg[:200]}"),
-            session_manager=sm,
-            session_id=session_id,
-            incremental=True,
-            api_key_token=request.api_key_token
+            orchestrator_factory=_make_orchestrator,
+            api_key_token=request.api_key_token,
         )
 
-        result = await orchestrator.generate(requirement=request.requirement)
+        result = await agent.process(
+            task=request.requirement,
+            output_dir=str(project_dir),
+        )
+
+        # 分析任务结果转换为 OrchestratorResponse 格式
+        if "analysis" in result or ("tool_calls" in result and "files" not in result):
+            result = {
+                "success": result.get("success", True),
+                "output_dir": str(project_dir),
+                "total_files_created": 0,
+                "total_files_failed": 0,
+                "complexity": "ANALYSIS",
+                "models_used": {},
+                "files": [],
+                "validation": {},
+                "errors": [result["error"]] if "error" in result and not result.get("success", True) else [],
+                "warnings": [],
+                "elapsed_time": 0,
+                "fix_attempts": [],
+                "context_summary": result.get("analysis", result.get("error", "")),
+            }
 
         execution_time = time.time() - start_time
         await log_tool_execution(
