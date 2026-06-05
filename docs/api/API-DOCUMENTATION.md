@@ -1,16 +1,29 @@
 # API 文档
 
-> 最后更新: 2026-06-02 | 版本：v1 (19 模块) + v2 (7 模块) | 项目版本：v5.12.0+
+> 最后更新: 2026-06-04 | 版本：v1 (19 模块) + v2 (8 模块) | 测试基线：1244 passed
 
 ## v5.12.0+ 新增端点
+
+### MCP Server 管理 (新增)
+
+| 端点 | 方法 | 描述 | 权限 |
+|------|------|------|------|
+| `GET /api/v2/mcp/servers` | GET | 获取所有 MCP Server 配置 | admin |
+| `POST /api/v2/mcp/servers` | POST | 添加 MCP Server | admin |
+| `PUT /api/v2/mcp/servers/{name}` | PUT | 更新 MCP Server | admin |
+| `DELETE /api/v2/mcp/servers/{name}` | DELETE | 删除 MCP Server | admin |
+| `POST /api/v2/mcp/servers/{name}/toggle` | POST | 切换启用/禁用 | admin |
+| `POST /api/v2/mcp/servers/{name}/test` | POST | 测试连接（返回工具列表） | admin |
+
+### 模型与沙箱管理
 
 | 端点 | 方法 | 描述 | 权限 |
 |------|------|------|------|
 | `POST /api/v1/agent/apikey/{token}/context-lengths` | POST | 设置用户 API Key context_length | normal |
 | `GET /api/v2/admin/sandbox-config` | GET | 查看代码沙箱配置 | superadmin |
 | `PUT /api/v2/admin/sandbox-config` | PUT | 修改代码沙箱配置 | superadmin |
-| `GET /api/v2/models/assignments` | GET | 查看 5×5 模型分配 | superadmin |
-| `PUT /api/v2/models/assignments` | PUT | 修改 5×5 模型分配 | superadmin |
+| `GET /api/v2/models/assignments` | GET | 查看 5x5 模型分配 | superadmin |
+| `PUT /api/v2/models/assignments` | PUT | 修改 5x5 模型分配 | superadmin |
 | `GET /api/v2/models/health` | GET | 查看模型健康度 | superadmin |
 | `POST /api/v2/models/reset-health` | POST | 重置模型健康分 | superadmin |
 | `GET /api/v2/models/context-length` | GET | 查看模型 context_length | superadmin |
@@ -277,15 +290,6 @@
 | DELETE | `/api/v1/aicloud/knowledge/docs/{doc_id}` | 删除文档 | admin |
 | POST | `/api/v1/aicloud/knowledge/search` | 搜索知识 | admin |
 
-## 文件预览 (`/api/v1/preview`)
-
-| 方法 | 路径 | 描述 | 权限 |
-|------|------|------|------|
-| GET | `/api/v1/preview/{file_id}` | 文件预览 | normal |
-| GET | `/api/v1/preview/{file_id}/raw` | 原始文件 | normal |
-| GET | `/api/v1/preview/{file_id}/thumbnail` | 缩略图 | normal |
-| POST | `/api/v1/preview/batch` | 批量预览 | normal |
-
 ## 系统管理 v2 (`/api/v2`)
 
 ### 用户管理
@@ -380,6 +384,45 @@
   "updated_at": "2026-06-02T10:00:00Z"
 }
 ```
+
+### MCP Server 管理 (新增, admin)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| GET | `/api/v2/mcp/servers` | 获取所有 MCP Server 配置 | admin |
+| POST | `/api/v2/mcp/servers` | 添加 MCP Server | admin |
+| PUT | `/api/v2/mcp/servers/{name}` | 更新 MCP Server | admin |
+| DELETE | `/api/v2/mcp/servers/{name}` | 删除 MCP Server | admin |
+| POST | `/api/v2/mcp/servers/{name}/toggle` | 切换启用/禁用 | admin |
+| POST | `/api/v2/mcp/servers/{name}/test` | 测试连接 | admin |
+
+**POST /api/v2/mcp/servers 请求体**:
+```json
+{
+  "name": "filesystem",
+  "transport": "stdio",
+  "description": "文件系统访问工具",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"],
+  "env": {},
+  "enabled": true
+}
+```
+
+**POST /api/v2/mcp/servers/{name}/test 响应**:
+```json
+{
+  "success": true,
+  "tools_count": 5,
+  "tools": ["read_file", "write_file", "list_directory", "create_directory", "search_files"]
+}
+```
+
+**支持的传输方式**:
+- `stdio`: 本地子进程，通过 stdin/stdout 通信 (JSON-RPC 2.0)
+- `http`: 远程服务，通过 HTTP POST 发送 JSON-RPC 请求
+
+**环境变量脱敏**: API Key/Secret/Token/Password 类环境变量自动脱敏显示为 `***`
 
 ### 模型 context_length 管理 (v5.12.0+ 新增, superadmin)
 
@@ -634,11 +677,3 @@
 | PUT | `/api/v1/providers/{provider_id}/toggle` | 启用/禁用提供商 | normal |
 | POST | `/api/v1/providers/{provider_id}/sync` | 同步模型列表 | normal |
 
-### 文件预览 (`/api/v1/preview`)
-
-| 方法 | 路径 | 描述 | 权限 |
-|------|------|------|------|
-| GET | `/api/v1/preview/{file_id}` | 文件预览 | normal |
-| GET | `/api/v1/preview/{file_id}/raw` | 原始文件 | normal |
-| GET | `/api/v1/preview/{file_id}/thumbnail` | 缩略图 | normal |
-| POST | `/api/v1/preview/batch` | 批量预览 | normal |

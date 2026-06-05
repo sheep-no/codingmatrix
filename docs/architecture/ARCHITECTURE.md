@@ -1,44 +1,47 @@
 # 系统架构
 
-> 最后更新: 2026-06-02 | 路由总数：180+ | 版本:v5.12.0+
+> 最后更新: 2026-06-04 | 路由总数：180+ | 测试基线：1244 passed
 
 ---
 
 ## 架构概览 (v5.12.0+)
 
-v5.12.0+ 新增 **ReAct 工具调用深度集成**、**动态批处理规划**、**代码沙箱 admin 可配**、**模型 context_length 多级管理**、**工程师主动编辑模式（git stash 原子回滚）**、**会话生命周期完整化**等多项核心能力。
+v5.12.0+ 新增 **ReAct 工具调用深度集成**、**MCP 协议扩展**、**统一 LLM/JSON 层**、**动态批处理规划**、**代码沙箱 admin 可配**、**模型 context_length 多级管理**等多项核心能力。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Frontend (Vue 3)                                            │
 │ Vite 5 + Element Plus + Pinia + ECharts                      │
-│ 64 个组件 · 8 个视图 · 7 个 Store                              │
+│ 60+ 组件 · 8 个视图 · 9 个 Store                              │
 └──────────────────────────┬──────────────────────────────────┘
                            │ HTTP / SSE / WebSocket
 ┌──────────────────────────┴──────────────────────────────────┐
 │ Backend (FastAPI / Python 3.11)                             │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────┐    │
-│ │ Agent 引擎 (v5.12.0+)                                │    │
+│ │ Agent 引擎 (80 个模块, ~20,000 行)                    │    │
 │ │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │    │
 │ │  │ Architect│ │ Frontend │ │ Backend  │ │ Reviewer │ │    │
 │ │  │ +ReAct  │ │ +ReAct   │ │ +ReAct   │ │ +ReAct   │ │    │
 │ │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ │    │
 │ │  ┌──────────────────────────────────────────────┐   │    │
-│ │  │ Specialist (13 tools, edit tracking, sandbox)│   │    │
-│ │  │ + Git Stash 原子回滚                          │   │    │
+│ │  │ tools.py (21 工具) + MCP Client 扩展         │   │    │
+│ │  │ react_engine.py (统一 ReAct 引擎)             │   │    │
+│ │  │ llm_client.py (统一 LLM 调用层)               │   │    │
+│ │  │ json_parser.py (统一 JSON 解析层)             │   │    │
 │ │  └──────────────────────────────────────────────┘   │    │
 │ │                                                     │    │
 │ │  核心子系统:                                         │    │
-│ │  • 动态模型路由 (健康度评分 + 熔断)                    │    │
-│ │  • ReAct 工具调用 (阶段化模型 + 自主循环)               │    │
+│ │  • 动态模型路由 (健康度评分 + 熔断 + 学习路由)        │    │
+│ │  • ReAct 引擎 (simple/full 双模式, 滑动窗口)         │    │
+│ │  • MCP Client (stdio/HTTP 双传输, 工具扩展)          │    │
+│ │  • 依赖图 (4 模块拆分, 外部化规则)                    │    │
 │ │  • 会话生命周期 (TTL + 清理 + 限制)                    │    │
-│ │  • 依赖图 (14 语言 + 拓扑分层)                        │    │
-│ │  • 错误恢复 (ReAct 自动修复)                          │    │
+│ │  • 错误恢复 (分类 + 降级链 + 反馈学习)                │    │
 │ └─────────────────────────────────────────────────────┘    │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────┐    │
-│ │ Multi-Provider Model Layer (v5.4.0, v5.12.0 增强)    │    │
+│ │ Multi-Provider Model Layer (v5.4.0, 11 个免费模型)    │    │
 │ │ 7 供应商 + 动态供应商 + context_length 4级 fallback   │    │
 │ │ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │    │
 │ │ │SiliconFlw│ │ DashScope│ │ Zhipu    │ │DeepSeek  │ │    │
@@ -46,6 +49,14 @@ v5.12.0+ 新增 **ReAct 工具调用深度集成**、**动态批处理规划**�
 │ │ ┌──────────┐ ┌──────────┐ ┌──────────┐            │    │
 │ │ │ OpenAI   │ │Anthropic │ │ Ollama   │            │    │
 │ │ └──────────┘ └──────────┘ └──────────┘            │    │
+│ └─────────────────────────────────────────────────────┘    │
+│                                                             │
+│ ┌─────────────────────────────────────────────────────┐    │
+│ │ MCP Client Layer (MCP 协议扩展)                       │    │
+│ │ • MCPServerConnection: stdio/HTTP 双传输              │    │
+│ │ • MCPClientManager: 多 Server 管理 (单例)             │    │
+│ │ • 工具前缀 mcp_{server}_{tool}, 对 ReAct 透明        │    │
+│ │ • 4 个集成点: executor/specialist/agent/orchestrator  │    │
 │ └─────────────────────────────────────────────────────┘    │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────┐    │
@@ -63,10 +74,9 @@ v5.12.0+ 新增 **ReAct 工具调用深度集成**、**动态批处理规划**�
 │ └─────────────────────────────────────────────────────┘    │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────┐    │
-│ │ Middleware Layer (9 层)                              │    │
+│ │ Middleware Layer (8 层)                              │    │
 │ │ CORS │ RequestLog │ InputValidator │ RateLimit       │    │
 │ │ FeatureSwitch │ SecurityHeaders │ GZip │ Drain       │    │
-│ │ SessionCleanup                                       │    │
 │ └─────────────────────────────────────────────────────┘    │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────┐    │
@@ -75,20 +85,6 @@ v5.12.0+ 新增 **ReAct 工具调用深度集成**、**动态批处理规划**�
 │ │ - DB 同步 + 并发限制 (429)                            │    │
 │ │ - 状态机: running/completed/failed/cancelled/expired │    │
 │ └─────────────────────────────────────────────────────┘    │
-│                                                             │
-│ ┌─────────────────────────────────────────────────────┐    │
-│ │ Prompt Optimizer (v5.8.1)                            │    │
-│ │ - 静态前缀缓存 (KV Cache 命中)                       │    │
-│ │ - 动态变量清理 (时间戳/UUID)                         │    │
-│ │ - JSON 键顺序固定                                     │    │
-│ │ - 动态 max_tokens + 动态 spec/context 注入预算 (v5.12.0+)│    │
-│ └─────────────────────────────────────────────────────┘    │
-│                                                             │
-│ ┌─────────────────────────────────────────────────────┐    │
-│ │ Multi-Angle Review (v5.8.1)                          │    │
-│ │ - 性能师 (并行) │ 安全师 (并行) │ 可维护性师 (并行) │    │
-│ │ - 三档严格度：轻量/标准/严格                         │    │
-│ └─────────────────────────────────────────────────────┘    │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────┴──────────────────────────────────┐
@@ -96,6 +92,7 @@ v5.12.0+ 新增 **ReAct 工具调用深度集成**、**动态批处理规划**�
 │                                                             │
 │ SQLite (Async SQLAlchemy + Alembic) │ Celery + APScheduler  │
 │ Redis (Cache/API Key)               │ 异步任务 + 定时任务   │
+│ SQLite 性能追踪 (模型调用统计)       │ 学习数据持久化       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -184,49 +181,61 @@ v5.12.0+ 新增 **ReAct 工具调用深度集成**、**动态批处理规划**�
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Agent Orchestrator (6 mixin 协调)                            │
+│ Agent Orchestrator (6 mixin 协调, 123 行)                    │
 │                                                             │
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐          │
 │  │ Architect   │ │ Frontend    │ │ Backend     │          │
-│  │ +ReAct      │ │ +ReAct      │ │ +ReAct      │          │
-│  │ +动态批处理  │ │ +edit track │ │ +edit track │          │
+│  │ (568行)     │ │ (107行)     │ │ (119行)     │          │
 │  └─────────────┘ └─────────────┘ └─────────────┘          │
-│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐          │
-│  │ Reviewer    │ │ Tester      │ │ Memory      │          │
-│  │ +ReAct      │ │ +ReAct      │ │ Manager     │          │
-│  └─────────────┘ └─────────────┘ └─────────────┘          │
+│  ┌─────────────┐ ┌─────────────┐                           │
+│  │ Reviewer    │ │ Specialist  │                           │
+│  │ (158行)     │ │ Base (177行)│                           │
+│  └─────────────┘ └─────────────┘                           │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │ Specialist 工具 (13 个, v5.12.0+)                     │  │
+│  │ tools.py (996 行, 21 个内置工具)                       │  │
 │  │ ┌─────────────────────────────────────────────────┐ │  │
-│  │ │ 只读工具 (9 个)                                  │ │  │
-│  │ │ read_file, list_files, search_in_files,         │ │  │
-│  │ │ read_symbols, find_definition, read_imports,     │ │  │
-│  │ │ find_references, summarize_file, glob_files     │ │  │
+│  │ │ 代码分析 (6): read_file, list_files,            │ │  │
+│  │ │   read_symbols, read_imports, summarize_file,   │ │  │
+│  │ │   git_status/diff/log                           │ │  │
+│  │ │ 写入工具 (4): partial_update, insert_content,   │ │  │
+│  │ │   regex_replace, write_file                     │ │  │
+│  │ │ 执行工具 (2): execute_code (Python AST+JS沙箱), │ │  │
+│  │ │   run_command (黑名单+白名单)                    │ │  │
+│  │ │ 网络工具 (2): web_search (DuckDuckGo),          │ │  │
+│  │ │   http_request (SSRF防护)                       │ │  │
+│  │ │ Git 工具 (4): git_status, git_diff,             │ │  │
+│  │ │   git_commit, git_log                           │ │  │
 │  │ └─────────────────────────────────────────────────┘ │  │
-│  │ ┌─────────────────────────────────────────────────┐ │  │
-│  │ │ 写入/验证工具 (4 个)                             │ │  │
-│  │ │ partial_update, insert_content,                 │ │  │
-│  │ │ regex_replace, execute_code (沙箱)               │ │  │
-│  │ └─────────────────────────────────────────────────┘ │  │
 │  └──────────────────────────────────────────────────────┘  │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │ ReAct 循环 (call_llm_with_tools)                      │  │
-│  │  Thought → Action → Observe, max 2 工具轮 + 1 最终   │  │
-│  │  阶段化模型 (think/action/final 不同模型)            │  │
+│  │ react_engine.py (578 行, 统一 ReAct 引擎)             │  │
+│  │ • simple 模式: Thought → Tool → Result (Specialist)   │  │
+│  │ • full 模式: Thought → Action → Observation →         │  │
+│  │   Reflection → Final (ReActAgent)                     │  │
+│  │ • 滑动窗口: 最近 3 条完整 + 更早摘要, 6000 字符上限    │  │
 │  └──────────────────────────────────────────────────────┘  │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │ 编辑原子回滚 (v5.12.0+)                              │  │
-│  │  Git stash push (修改前) → 写入 → 成功 drop / 失败 pop│  │
-│  │  新文件: unlink() 兜底                                │  │
+│  │ llm_client.py (164 行, 统一 LLM 调用层)               │  │
+│  │ • 全局并发信号量 MAX_CONCURRENT_LLM_CALLS=6          │  │
+│  │ • 超时保护 + 成本追踪 + 自动记录到 DynamicModelRouter  │  │
 │  └──────────────────────────────────────────────────────┘  │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │ ToolRegistry (12 个, ReActAgent 用)                   │  │
-│  │  delete_files_by_pattern, cross_file_patch_auto,     │  │
-│  │  web_search, http_request, screenshot_diagnose, ...  │  │
+│  │ json_parser.py (343 行, 5 层 JSON 解析链)             │  │
+│  │ • thinking 清理 + 代码块提取                          │  │
+│  │ • json.loads → 提取{} + 修复 → 状态机截断修复         │  │
+│  │ • json_repair 库兜底 → ValueError                    │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │ MCP Client (mcp_client.py, 462 行)                    │  │
+│  │ • MCPServerConnection: stdio/HTTP 双传输              │  │
+│  │ • MCPClientManager: 多 Server 管理 (单例)             │  │
+│  │ • 工具命名: mcp_{server}_{tool}                       │  │
+│  │ • 配置: data/mcp_servers.json                         │  │
 │  └──────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -362,12 +371,11 @@ v5.12.0+ 新增 **ReAct 工具调用深度集成**、**动态批处理规划**�
 | 健康 | /api/v1/health | 健康检查 |
 | API Key | /api/v1/apikey | API Key 管理 + context_length (v5.12.0+) |
 | GitHub | /api/v1/github | GitHub 集成 |
-| 预览 | /api/v1/preview | 项目预览 |
 | 模型管理 | /api/v1/models | 免费模型管理 |
 | 供应商 | /api/v1/providers | 动态供应商管理 |
 | 任务队列 | /api/v1/tasks | 任务管理 |
 
-### v2 API (管理功能, 7 个模块)
+### v2 API (管理功能, 8 个模块)
 
 | 模块 | 端点前缀 | 功能 |
 |------|----------|------|
@@ -376,6 +384,7 @@ v5.12.0+ 新增 **ReAct 工具调用深度集成**、**动态批处理规划**�
 | Nginx | /api/v2/nginx/* | Nginx 配置 |
 | 配置 | /api/v2/admin/* | 系统配置 + 沙箱 (v5.12.0+) |
 | 模型管理 | /api/v2/models | 模型管理 + context_length (v5.12.0+) |
+| MCP 管理 | /api/v2/mcp | MCP Server CRUD + 测试连接 |
 | 守护路由 | /api/v2/guardian | 安全守护 |
 
 ---
@@ -388,21 +397,51 @@ v5.12.0+ 新增 **ReAct 工具调用深度集成**、**动态批处理规划**�
 
 - 健康度评分 (0-100)，失败降低分数
 - 熔断器：连续失败自动跳过
-- 5 复杂度档 × 5 角色模型分配
-- 多模型交叉验证
-- 跨模型 `MODEL_ID_TO_KEY` 映射
+- 5 复杂度档 x 5 角色模型分配
+- LearningRouter: epsilon-greedy 探索 (20%)
+- ModelPerformanceTracker: SQLite 持久化统计
+- 上下文窗口自适应：32K/64K/128K 分级计算 max_tokens
 
-### 2. ReAct 工具调用 (ReAct Tool Calling)
+### 2. ReAct 引擎 (react_engine.py)
 
 详见 [REACT-TOOL-CALLING.md](../features/REACT-TOOL-CALLING.md)
 
-- 5 阶段循环：思考 / 行动 / 观察 / 反思 / 最终
-- 阶段化模型路由（不同阶段可用不同模型）
-- 13 个 Specialist 工具 + 12 个 ToolRegistry 工具
-- 编辑追踪（`_edited_files`）
-- 弱模型自动降级（不调用工具 → 零开销）
+- 统一引擎：simple 模式 (Specialist) + full 模式 (ReActAgent)
+- 滑动窗口工具历史管理：最近 3 条完整 + 更早摘要
+- 21 个内置工具 (tools.py) + MCP 扩展工具 (动态加载)
+- 弱模型自动降级（不调用工具 = 零开销）
 
-### 3. 会话生命周期 (Session Lifecycle)
+### 3. MCP Client (mcp_client.py)
+
+- MCPServerConnection: stdio (子进程 stdin/stdout) + HTTP (POST JSON-RPC)
+- MCPClientManager: 多 Server 管理 (单例模式)
+- 工具前缀 `mcp_{server}_{tool}` 避免与内置工具冲突
+- 4 个集成点：executor / specialist_base / agent_executor / orchestrator
+- 配置文件：`data/mcp_servers.json`
+- 前端管理：`/api/v2/mcp/servers` CRUD + test + toggle
+
+### 4. 统一 LLM 调用层 (llm_client.py)
+
+- LLMClient: 全局并发信号量 (MAX_CONCURRENT_LLM_CALLS=6)
+- 超时保护 + 成本追踪
+- 自动记录到 DynamicModelRouter (start_call/record_call)
+- 401/403 错误抛出 LLMClientError
+
+### 5. 统一 JSON 解析层 (json_parser.py)
+
+- 5 层解析链：thinking 清理 → json.loads → 提取+修复 → 状态机截断修复 → json_repair 兜底
+- parse_tool_call(): 3 种策略（代码块 → 正则 → 状态机匹配嵌套）
+- safe_parse_json(): 安全解析，失败抛 ValueError
+
+### 6. 依赖图 (4 模块拆分)
+
+- `dependency_rules.py` (183 行): 外部化规则 (DEPENDENCY_RULES + PATH_TYPE_RULES + EXTENSION_TYPE_MAP)
+- `signature_extractor.py` (144 行): 函数签名提取
+- `shadow_scanner.py` (83 行): 影子扫描
+- `dependency_graph.py` (983 行): 核心图构建 + 拓扑排序 + BFS 影响分析
+- 循环打破策略：移除入度最大目标的边
+
+### 7. 会话生命周期 (Session Lifecycle)
 
 详见 [SESSION-LIFECYCLE.md](../features/SESSION-LIFECYCLE.md)
 
@@ -410,40 +449,28 @@ v5.12.0+ 新增 **ReAct 工具调用深度集成**、**动态批处理规划**�
 - 5 状态机：running / completed / failed / cancelled / expired
 - 僵尸会话检测（DB 与内存同步）
 - 并发限制：2 个项目会话/用户
-- 409 响应返回活跃会话列表
 
-### 4. 代码沙箱 (Code Sandbox, v5.12.0+ 新增)
+### 8. 工具系统统一 (tools.py)
+
+- tools.py (996 行): 唯一工具实现源，21 个工具函数
+- executor.py (451 行): ToolRegistry 单例 + EnhancedExecutor，适配后注册 18 个工具
+- ANALYSIS_TOOLS: 6 个只读工具子集
+- SPECIALIST_TOOLS: 18 个工具注册表
+- MCP 工具通过 load_mcp_tools() 动态合并
+
+### 9. 代码沙箱 (Code Sandbox, v5.12.0+ 新增)
 
 - Python AST 沙箱 + 限制性 builtins + 30s 超时
 - JavaScript Node.js 子进程 + 危险模式拦截 + 30s 超时
 - admin API 动态启用/禁用
 - 仅 superadmin 可访问
 
-### 5. 错误恢复 (Error Recovery)
+### 10. 错误恢复 (Error Recovery)
 
 - 8 种错误类型分类
-- 3 次重试 + 降级链
+- 3 次重试 + 降级链 (默认 Qwen3-8B → DeepSeek-R1 → Qwen3.5-4B)
 - ReAct 自动修复失败测试
-
-### 6. 依赖图 (Dependency Graph)
-
-- 14 种语言解析
-- 拓扑分层 + BFS 跨文件影响分析
-- `__init__.py` 最后生成（priority=5）
-
-### 7. 工程师主动编辑 (Engineer Active Editing, v5.12.0+)
-
-- 工程师从"被动接收"转为"主动 Agent"
-- 编辑追踪（`_edited_files`）
-- Edit marker 协议：返回 JSON `{"action": "edited", "files": [...]}`
-- Orchestrator 检测 marker → 从磁盘读取已修改文件
-- Git stash 原子回滚
-
-### 8. 动态批处理规划 (Dynamic Batch Planning, v5.12.0+)
-
-- 架构师 `expand_file_plan()` 改为 `while True` 循环
-- 3 个自然终止条件（不再有新增、模型拒绝补充、达到总容量）
-- 无 `max_batches` 硬限制
+- FeedbackLearner: 向量匹配修复模式
 
 ---
 
@@ -461,4 +488,4 @@ v5.12.0+ 新增 **ReAct 工具调用深度集成**、**动态批处理规划**�
 
 ---
 
-最后更新：2026-06-02
+最后更新：2026-06-04

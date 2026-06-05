@@ -1,6 +1,6 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-06-02 | 版本：v5.12.0+
+> 最后更新：2026-06-04 | 测试基线：1244 passed
 
 ## 快速导航
 
@@ -72,15 +72,17 @@ CodingMatrix 是 AI 驱动的全栈代码生成与开发平台，基于 FastAPI 
 
 | 子系统 | 模块路径 | 描述 |
 |--------|----------|------|
-| **AI Agent 引擎** | `app/agent/` | 6 个 mixin 协调、5 角色专家、ReAct 工具调用 |
-| **动态模型路由** | `app/agent/dynamic_model_router.py` | 健康度 0-100 评分、熔断、5 复杂度档 × 5 角色模型 |
-| **ReAct 自主循环** | `app/agent/react_agent.py` | 5 阶段循环（思考/行动/观察/反思/最终），阶段化模型路由 |
-| **工具注册中心** | `app/agent/executor.py` | 12 个工具（读写执行搜索等），供 ReActAgent 调用 |
-| **代码沙箱** | `app/agent/specialist_base.py` | Python AST 检查 + JavaScript Node.js 沙箱，admin 可配置 |
-| **会话管理** | `app/agent/session_manager.py` | 30 天 TTL + 500 上限 + 僵尸清理 + 智能"继续"语义 |
-| **依赖图** | `app/agent/dependency_graph.py` | 14 语言解析 + 拓扑分层 + BFS 跨文件影响分析 |
-| **错误恢复** | `app/agent/error_recovery.py` | 8 种错误类型分类、3 次重试、降级链 |
-| **多供应商 LLM** | `app/utils/aicloud/` | 7 供应商 + 动态供应商 + context_length 多级 fallback |
+| **AI Agent 引擎** | `app/agent/` | 80 个模块, ~20,000 行, 6 mixin 协调, 4 角色专家, ReAct 引擎 |
+| **工具系统** | `app/agent/tools.py` | 21 个内置工具 + MCP 扩展, 唯一实现源 |
+| **ReAct 引擎** | `app/agent/react_engine.py` | simple + full 双模式, 滑动窗口历史 |
+| **MCP Client** | `app/agent/mcp_client.py` | stdio/HTTP 双传输, 单例管理器, 对 ReAct 透明 |
+| **动态模型路由** | `app/agent/dynamic_model_router.py` | 健康度 0-100 评分, 熔断, 5x5 矩阵, 学习路由 |
+| **统一 LLM 层** | `app/agent/llm_client.py` | 并发信号量, 超时保护, 成本追踪 |
+| **统一 JSON 层** | `app/agent/json_parser.py` | 5 层解析链, 工具调用 3 种策略 |
+| **依赖图** | `app/agent/dependency_graph.py` | 4 模块拆分, 14 语言解析, BFS 影响分析 |
+| **会话管理** | `app/agent/session_manager.py` | 30 天 TTL + 500 上限 + 僵尸清理 |
+| **错误恢复** | `app/agent/error_recovery.py` | 8 种错误分类, 3 次重试, 降级链 |
+| **多供应商 LLM** | `app/adapter/` | 7 供应商 + 动态供应商 + context_length 多级 fallback |
 
 ### 端点模块
 
@@ -197,13 +199,13 @@ docs/
 
 ### v5.12.0+ 最新更新要点
 
-- **ReAct 工具调用系统**：Specialist 工程师获得 13 个工具（9 个只读 + 4 个写/验证），Qwen3-8B 等弱模型跳过工具，DeepSeek-R1 等强模型主动调用工具
-- **动态批处理规划**：架构师 `expand_file_plan()` 改为 `while True` 循环 + 3 个自然终止条件
-- **5 复杂度档 × 5 角色模型分配**：v2.0 完整配置，跨模型交叉验证
-- **工程师主动编辑模式**：从"被动接收"转为"主动 agent"，支持 `partial_update` / `insert_content` / `regex_replace` / `execute_code` 等编辑工具
-- **Git stash 原子回滚**：替换 in-memory dict 备份为 git stash push/pop/drop
-- **代码沙箱 admin 可配**：`ENABLE_CODE_SANDBOX` 和 `SANDBOX_LANGUAGES` 可通过 `/api/v2/admin/sandbox-config` 动态配置
-- **会话生命周期完整化**：僵尸会话检测、并发限制 429、30 天 TTL、500 上限
+- **MCP 协议集成**: MCP Client 支持 stdio/HTTP 双传输，用户可接入任意外部工具（数据库、浏览器、搜索等）
+- **工具系统统一**: tools.py 作为唯一实现源 (21 工具)，executor.py 适配后注册
+- **ReAct 引擎统一**: react_engine.py 统一 simple + full 双模式，滑动窗口历史管理
+- **统一 LLM/JSON 层**: llm_client.py 并发信号量 + 超时保护; json_parser.py 5 层解析链
+- **依赖图拆分**: 4 模块 (rules/extractor/scanner/graph) + 外部化规则
+- **交叉验证优化**: priority <= 2 且命中关键模式才触发，节省 token
+- **26 个 bare except 修复** + **22 个重复 import 清除** + **39 处硬编码模型名统一**
 
 详细版本历史见 [versions/](../versions/) 目录
 

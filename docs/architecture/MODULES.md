@@ -1,6 +1,6 @@
 # CodingMatrix 模块说明
 
-> 最后更新：2026-06-02 | 版本：v5.12.0+
+> 最后更新：2026-06-04 | 测试基线：1244 passed
 
 ## 项目结构概览
 
@@ -320,30 +320,83 @@ dependencies.get_affected_files(['models/user.py'])
 | 数据库 | `app/db/database.py` | - | SQLAlchemy 异步引擎，会话管理 |
 | 调度器 | `app/db/scheduler.py` | - | APScheduler 定时任务配置 |
 
-### Agent 引擎 (app/agent/)
+### Agent 引擎 (app/agent/) - 80 个模块, ~20,000 行
 
 | 模块 | 路径 | 行数 | 描述 |
 |------|------|------|------|
-| **动态依赖图** | **`dependency_graph.py`** | **~500** | **解析 14 种语言 import/require、BFS 影响分析、跨文件 Patch、`__init__.py` 最后生成** |
-| **智能会话恢复** | **`helpers.py`** | **~150** | **v5.11.0+ 新增：resolve_resume_session 语义匹配 + Qwen3-8B 默认** |
-| Orchestrator | `orchestrator.py` | ~1900 | 总指挥：复杂度分析、模型分配、角色协作、验证审查 |
-| OrchestratorFiles | `orchestrator_files.py` | **~600** | **v5.12.0+ 增强：Edit marker 检测、Git stash 原子回滚** |
-| OrchestratorGeneration | `orchestrator_generation/` | **~3000** | **v5.12.0+ 增强：动态批处理、is_existing_file 模式** |
-| MultiModelAgent | `multi_model_agent.py` | ~850 | 多模型协调：任务路由、规划、执行、审查 |
-| ReActAgent | `react_agent.py` | ~500 | ReAct 自我反思：Thought→Action→Observation→Reflection |
-| Executor | `executor.py` | ~750 | 执行器：12 种工具类型 (文件/代码/搜索/HTTP/Git)、ToolRegistry |
-| SpecialistBase | `specialist_base.py` | **~800** | **v5.12.0+ 增强：13 工具、编辑追踪、代码沙箱、call_llm_with_tools** |
-| Specialists | `specialists.py` | ~800 | 专家角色：架构师、前端/后端工程师、代码审查员 |
-| DynamicModelRouter | `dynamic_model_router.py` | **~900** | **v5.12.0+ 增强：健康度评分、熔断、5×5 模型分配 v2.0** |
-| SessionManager | `session_manager.py` | **~500** | **v5.12.0+ 增强：5 状态机、僵尸检测、429 响应** |
-| CodeValidator | `code_validator.py` | **~600** | **v5.12.0+ 修复：完整模块路径提取、sys.path 自动配置** |
-| **多角度审查** | **`multi_angle_review.py`** | **340** | **v5.8.1 新增：性能/安全/可维护性并行审查** |
-
-（其余模块保持不变...）
+| **tools.py** | `tools.py` | **996** | **唯一工具实现源，21 个内置工具 + SPECIALIST_TOOLS 注册表** |
+| **react_engine.py** | `react_engine.py` | **578** | **统一 ReAct 引擎，simple + full 双模式，滑动窗口历史** |
+| **mcp_client.py** | `mcp_client.py` | **462** | **MCP Client，stdio/HTTP 双传输，MCPClientManager 单例** |
+| **llm_client.py** | `llm_client.py` | **164** | **统一 LLM 调用层，并发信号量 + 超时 + 成本追踪** |
+| **json_parser.py** | `json_parser.py` | **343** | **统一 JSON 解析，5 层链路 + 工具调用 3 种策略** |
+| Orchestrator | `orchestrator.py` | 123 | 总指挥：6 mixin 组合 |
+| MultiModelAgent | `multi_model_agent.py` | 243 | 多模型协调：任务路由、规划、执行、审查 |
+| SpecialistBase | `specialist_base.py` | 177 | Specialist 基类，委托 LLMClient + json_parser |
+| DynamicModelRouter | `dynamic_model_router.py` | 995 | 健康度评分、熔断、5x5 模型分配、学习路由 |
+| ComplexityAnalyzer | `complexity.py` | 245 | 5 级复杂度分析 (SIMPLE→ENTERPRISE) |
+| ModelRegistry | `models.py` | 373 | 12 种任务类型、7 种能力、10 个模型注册 |
+| CodeValidator | `code_validator.py` | 755 | 语法/导入/运行时/API 兼容性验证，LRU 缓存 |
+| DependencyGraph | `dependency_graph.py` | 983 | 依赖图核心，拓扑排序 + BFS 影响分析 |
+| DependencyRules | `dependency_rules.py` | 183 | 外部化依赖规则 |
+| SignatureExtractor | `signature_extractor.py` | 144 | 函数签名提取 |
+| ShadowScanner | `shadow_scanner.py` | 83 | 影子扫描 |
+| TopologyScheduler | `topology_scheduler.py` | 372 | 动态拓扑调度器 |
+| ErrorRecovery | `error_recovery.py` | 710 | 验证-修复-重试 + 模型降级 |
+| FeedbackLearner | `feedback_learner.py` | 434 | 修复模式学习 + 向量匹配 |
+| Memory | `memory.py` | 571 | 对话记忆 + 知识记忆，自动压缩 |
+| SharedContext | `shared_context.py` | 337 | 全局共享上下文 |
+| TaskPlanner | `task_planner.py` | 177 | 任务拆解，支持 ReAct 探索模式 |
+| CodeReviewer | `code_reviewer.py` | 158 | 代码审查员 |
+| CrossValidator | `cross_validator.py` | 1347 | 双模型生成 + 裁判选择 |
+| SpecFirstGenerator | `spec_first_generator.py` | 461 | 规范先行生成 (OpenAPI→类型→DB→配置) |
+| RefinementLoop | `refinement_loop.py` | 515 | 迭代修复循环 |
+| FileContract | `file_contract.py` | 141 | 文件操作安全契约 |
+| Tracing | `tracing.py` | 246 | OpenTelemetry 分布式追踪 |
+| SessionManager | `session_manager.py` | 512 | 5 状态机、僵尸检测、429 响应 |
+| **OrchestratorGeneration** | `orchestrator_generation/` | **~1400** | **spec_first/traditional/incremental/evaluate 4 个 mixin** |
+| **OrchestratorRequirements** | `orchestrator_requirements/` | **~900** | **3 层需求关联 + 双模型对抗 + 魔鬼代言人** |
+| **Adapters** | `adapters/` | **~1600** | **语言适配器：generic/python/javascript/language_adapter** |
 
 ---
 
 ## v5.12.0+ 新增详细模块
+
+### MCP Client (MCP 协议扩展)
+
+**文件**: `app/agent/mcp_client.py` (462 行)
+
+**职责**:
+- MCP Server 连接管理 (stdio/HTTP 双传输)
+- JSON-RPC 2.0 协议实现
+- 工具发现与调用
+- 自动转换为 SPECIALIST_TOOLS 格式
+
+**关键类**:
+- `MCPServerConnection`: 单 Server 连接，支持 stdio (子进程) + HTTP (POST)
+- `MCPClientManager`: 多 Server 管理 (单例)，load_servers/get_all_tools/disconnect_all
+- `MCPError`: MCP 调用错误异常
+
+**工具命名**: `mcp_{server_name}_{tool_name}` 前缀避免冲突
+
+**集成点**:
+- `executor.py`: `load_mcp_tools()` 注册到 ToolRegistry
+- `agent_executor.py`: `execute_analysis()` 合并到 ANALYSIS_TOOLS
+- `specialist_base.py`: `call_llm_with_tools()` 合并到 SPECIALIST_TOOLS
+- `orchestrator_generation/mixin.py`: `_init_mcp_tools()` 初始化
+
+**配置**: `data/mcp_servers.json`
+```json
+{
+  "mcp_servers": {
+    "filesystem": {"enabled": false, "transport": "stdio", "command": "npx", "args": [...]},
+    "brave-search": {"enabled": false, "transport": "stdio", "command": "npx", "args": [...]},
+    "sqlite": {"enabled": false, "transport": "stdio", "command": "uvx", "args": [...]},
+    "custom-http": {"enabled": false, "transport": "http", "url": "http://..."}
+  }
+}
+```
+
+**前端管理**: `/api/v2/mcp/servers` CRUD + test + toggle
 
 ### DynamicModelRouter (动态模型路由)
 
@@ -408,26 +461,36 @@ dependencies.get_affected_files(['models/user.py'])
 
 详见 [SESSION-LIFECYCLE.md](../features/SESSION-LIFECYCLE.md)
 
-### Specialist Tools (13 工具)
+### 工具系统 (tools.py, 996 行)
 
-**文件**: `app/agent/specialist_base.py`
+**文件**: `app/agent/tools.py` — 唯一工具实现源，21 个内置工具
 
-**9 个只读工具**:
-1. `read_file` - 读取文件
-2. `list_files` - 列目录
-3. `search_in_files` - 搜索
-4. `glob_files` - glob 匹配
-5. `read_symbols` - 读符号
-6. `find_definition` - 找定义
-7. `read_imports` - 读导入
-8. `find_references` - 找引用
-9. `summarize_file` - 文件摘要
+**代码分析工具 (6)**:
+1. `read_file` - 读取文件内容
+2. `list_files` - 列出目录下文件
+3. `read_symbols` - 读取代码符号 (def/class)
+4. `read_imports` - 读取文件所有 import
+5. `summarize_file` - 文件摘要
+6. `git_status` / `git_diff` / `git_log` - Git 操作
 
-**4 个写入/验证工具**:
-1. `partial_update` - 局部更新
-2. `insert_content` - 插入内容
-3. `regex_replace` - 正则替换
-4. `execute_code` - 沙箱执行
+**写入工具 (4)**:
+1. `partial_update` - 局部精准替换
+2. `insert_content` - 锚点插入内容
+3. `regex_replace` - 正则批量替换
+4. `write_file` - 完整写入文件
+
+**执行工具 (2)**:
+1. `execute_code` - Python AST 安全检查 + JS 子进程隔离，30s 超时
+2. `run_command` - 危险命令黑名单 + 命令前缀白名单，60s 超时
+
+**网络工具 (2)**:
+1. `web_search` - DuckDuckGo 搜索
+2. `http_request` - SSRF 防护的 HTTP 请求
+
+**注册表**:
+- `SPECIALIST_TOOLS`: 18 个工具 (供 Specialist 使用)
+- `ANALYSIS_TOOLS`: 6 个只读工具子集 (供 AgentExecutor 分析任务)
+- `ToolRegistry` (executor.py): 18 个工具 (供 ReActAgent 使用)
 
 ### Code Sandbox (代码沙箱)
 
@@ -462,4 +525,4 @@ SANDBOX_LANGUAGES = "python,javascript"
 
 ---
 
-最后更新：2026-06-02
+最后更新：2026-06-04

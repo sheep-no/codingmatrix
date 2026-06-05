@@ -1,6 +1,6 @@
 # ReAct 工具调用
 
-> 最后更新：2026-06-02 | 版本：v5.12.0+
+> 最后更新：2026-06-04 | 测试基线：1244 passed
 
 ReAct（Reasoning + Acting）工具调用是 v5.12.0+ 的核心子系统之一，让 LLM 自主决定调用哪些工具来获取所需信息，而不是预注入全部上下文。
 
@@ -57,21 +57,34 @@ prompt = """
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Engineer.generate_file(file_path, requirements)              │
-│                                                              │
+│ react_engine.py (578 行, 统一 ReAct 引擎)                    │
+│                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │ call_llm_with_tools()                                │   │
+│  │ ReActEngine.run()                                    │   │
 │  │                                                      │   │
-│  │  [Round 1] Thought + Action                          │   │
-│  │    LLM 返回: {"tool": "read_file", "params": {...}}  │   │
-│  │    执行工具，返回结果                                │   │
+│  │  mode="simple" (Specialist 使用):                     │   │
+│  │    Thought → Tool → Result 循环                       │   │
+│  │    自然终止（LLM 不返回工具调用即结束）                 │   │
+│  │    安全阀: max_rounds 轮后强制生成                     │   │
 │  │                                                      │   │
-│  │  [Round 2] Observation + Reflection                  │   │
-│  │    LLM 决定: 再次调用工具 / 进入最终生成              │   │
-│  │    最多 2 轮工具调用                                 │   │
-│  │                                                      │   │
-│  │  [Round 3] Final Generation                          │   │
-│  │    LLM 返回最终代码                                  │   │
+│  │  mode="full" (ReActAgent 使用):                       │   │
+│  │    Thought → Action → Observation → Reflection → Final│   │
+│  │    反射终止 (Reflection 判断 task_complete)            │   │
+│  │    max 3-10 轮 (按复杂度分级)                         │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ 工具历史管理 (滑动窗口)                               │   │
+│  │  • 最近 3 条工具调用保留完整结果                       │   │
+│  │  • 更早的条目压缩为一行摘要（只保留第一行）            │   │
+│  │  • 总字符上限 6000，超出截断早期摘要                   │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ 工具来源 (动态合并)                                   │   │
+│  │  • SPECIALIST_TOOLS: 18 个内置工具 (tools.py)         │   │
+│  │  • MCP 工具: mcp_{server}_{tool} (mcp_client.py)     │   │
+│  │  • 对 ReActEngine 完全透明，统一名为 tools dict       │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -82,57 +95,74 @@ prompt = """
 [Engineer 接收任务]
    ↓
 [判断 is_existing_file]
-   ├─ 新文件 → 简化 prompt
-   └─ 现有文件 → 完整 ReAct 流程
+   ├─ 新文件 → 简化 prompt (只读工具)
+   └─ 现有文件 → 完整 ReAct 流程 (读+写工具)
        ↓
-[Round 1: 思考]
+[ReActEngine.run(mode="simple")]
+   ↓
+[Round 1: Thought]
    LLM: "我需要查看 utils.py 的实现"
    ↓
-[Round 1: 行动]
+[Round 1: Tool Call]
    LLM: {"tool": "read_file", "params": {"path": "src/utils.py"}}
    ↓
-[工具执行] 返回 utils.py 内容
+[工具执行] 返回 utils.py 内容 (滑动窗口记录)
    ↓
-[Round 2: 观察]
+[Round 2: Thought]
    LLM: "我还需要知道数据模型"
    ↓
-[Round 2: 行动]
+[Round 2: Tool Call]
    LLM: {"tool": "read_symbols", "params": {"file": "src/models.py"}}
    ↓
 [工具执行] 返回 User 类定义
    ↓
-[Round 3: 最终生成]
-   LLM: 基于所有观察，生成最终代码
+[Round 3: Final]
+   LLM: 基于所有观察，生成最终代码 (自然终止)
    ↓
 [返回代码 / Edit marker]
 ```
 
 ---
 
-## 13 个 Specialist 工具
+## 21 个内置工具 (tools.py)
 
-### 只读工具（9 个）
+### 代码分析工具（6 个）
 
 | 工具 | 描述 | 参数 |
 |------|------|------|
 | `read_file` | 读取文件内容 | `path` |
 | `list_files` | 列出目录下文件 | `path`, `pattern` |
-| `search_in_files` | 跨文件文本搜索 | `query`, `path`, `glob` |
-| `glob_files` | glob 模式匹配文件 | `pattern`, `path` |
 | `read_symbols` | 读取代码符号 | `file`, `kind` (def/class/all) |
-| `find_definition` | 查找符号定义 | `symbol`, `path` |
 | `read_imports` | 读取文件所有 import | `file` |
-| `find_references` | 查找符号引用 | `symbol`, `path` |
 | `summarize_file` | 文件摘要 | `file` |
+| `git_status` / `git_diff` / `git_log` | Git 操作 | - |
 
-### 写入/验证工具（4 个）
+### 写入工具（4 个）
 
 | 工具 | 描述 | 参数 |
 |------|------|------|
-| `partial_update` | 局部更新 | `file`, `start_line`, `end_line`, `new_content` |
-| `insert_content` | 在指定位置插入 | `file`, `line`, `content` |
-| `regex_replace` | 正则替换 | `file`, `pattern`, `replacement` |
-| `execute_code` | 执行代码 | `code`, `language` (python/javascript) |
+| `partial_update` | 局部精准替换 | `file`, `target`, `replacement` |
+| `insert_content` | 锚点插入内容 | `file`, `anchor`, `content`, `position` |
+| `regex_replace` | 正则批量替换 | `file`, `pattern`, `replacement` |
+| `write_file` | 完整写入文件 | `path`, `content` |
+
+### 执行工具（2 个）
+
+| 工具 | 描述 | 参数 |
+|------|------|------|
+| `execute_code` | 沙箱执行代码 | `code`, `language` (python/javascript) |
+| `run_command` | 运行命令 | `command`, `timeout` |
+
+### 网络工具（2 个）
+
+| 工具 | 描述 | 参数 |
+|------|------|------|
+| `web_search` | DuckDuckGo 搜索 | `query`, `limit` |
+| `http_request` | HTTP 请求 (SSRF 防护) | `method`, `url`, `headers`, `body` |
+
+### MCP 扩展工具（动态加载）
+
+通过 MCP 协议接入的外部工具，命名格式 `mcp_{server}_{tool}`。配置见 `data/mcp_servers.json`。
 
 ---
 
@@ -349,10 +379,11 @@ ReAct 流程会推送 3 个新事件类型：
 
 ### 限制
 
-- **最大工具轮数**: 2 轮（避免无限循环）
-- **总 LLM 调用数**: 最多 3 次（2 轮工具 + 1 次最终生成）
+- **simple 模式最大轮数**: 3-10 轮 (按复杂度分级)
+- **full 模式最大轮数**: 3-10 轮
 - **单文件最大行数**: 600-1600 行（动态调整）
-- **工具执行超时**: 30s（沙箱）
+- **工具执行超时**: 30s（沙箱）/ 60s（命令）
+- **滑动窗口**: 最近 3 条完整 + 更早摘要，6000 字符上限
 
 ---
 

@@ -1,6 +1,6 @@
 # 技术债务跟踪
 
-> 最后更新：2026-05-29 | v5.10.0
+> 最后更新：2026-06-04 | 测试基线：1244 passed / 3 skipped
 
 ## 已修复的问题
 
@@ -44,17 +44,71 @@
 
 ## 测试验证
 
-| 测试类型 | 通过 | 失败 |
-|----------|------|------|
-| 单元测试 | 783 | 0 |
-| 集成测试 | 24 | 0 |
-| 性能测试 | 4 | 0 |
-| 前端测试 | 1 | 0 |
-| **总计** | **812** | **0** |
+| 测试类型 | 通过 | 失败 | 跳过 |
+|----------|------|------|------|
+| 单元测试 | 1244 | 0 | 3 |
+| E2E 测试 | 80+ spec 文件 | - | - |
 
 ---
 
 ## 已偿还的技术债务
+
+### Agent 引擎架构重构 ✅ 已完成
+
+**偿还日期**: 2026-06-04
+
+**问题**: Agent 引擎代码分散、工具系统不统一、ReAct 循环重复、JSON 解析不一致
+
+**解决方案**:
+- **工具系统统一**: tools.py 作为唯一实现源 (996 行, 21 工具)，executor.py 适配后注册
+- **ReAct 循环统一**: react_engine.py (578 行) 统一 simple + full 双模式
+- **统一 LLM 调用层**: llm_client.py (164 行) 并发信号量 + 超时保护
+- **统一 JSON 解析层**: json_parser.py (343 行) 5 层解析链
+- **multi_model_agent.py 拆分**: 1202→243 行，6 个子模块
+- **依赖图拆分**: 1351→983 行，新建 signature_extractor.py + shadow_scanner.py + dependency_rules.py
+- **26 个 bare except pass 修复**: 全部改为 `except Exception: logger.debug(...)`
+- **22 个函数内重复 import 清除**
+- **硬编码模型名称统一**: 39 处/12 文件 → 4 个常量
+- **45 处 alert→ElMessage** + **14 处 console 清理**
+
+**效果**:
+- 工具系统单一数据源，零重复
+- ReAct 引擎统一，所有路径走 react_engine.py
+- JSON 解析 5 层 fallback，小模型 JSON 输出稳定性大幅提升
+- 测试基线：1244 passed / 3 skipped
+
+### MCP Client 集成 ✅ 已完成
+
+**偿还日期**: 2026-06-04
+
+**问题**: 工具系统封闭，无法接入外部工具 (数据库、浏览器、搜索等)
+
+**解决方案**:
+- 新建 `mcp_client.py` (462 行): MCPServerConnection + MCPClientManager
+- 支持 stdio + HTTP 双传输
+- 4 个集成点: executor / specialist_base / agent_executor / orchestrator
+- 前端管理: `/api/v2/mcp/servers` CRUD + test + toggle
+- 配置文件: `data/mcp_servers.json`
+
+**效果**:
+- 用户可通过 MCP 协议接入任意外部工具
+- MCP 工具对 ReActEngine 完全透明
+- 资源增加 ~150MB 内存 + 1-3ms 延迟
+
+### 交叉验证触发优化 ✅ 已完成
+
+**偿还日期**: 2026-06-04
+
+**问题**: 所有文件都触发交叉验证 (双模型生成)，浪费 token
+
+**解决方案**:
+- `is_critical_file` 加 `priority <= 2` 限制
+- priority > 2 即使命中关键模式也不触发交叉验证
+- 测试同步更新
+
+**效果**:
+- 交叉验证触发率降低 ~60%
+- token 消耗减少
 
 ### 工具覆盖缺失 ✅ 已完成
 
@@ -173,4 +227,4 @@
 
 ---
 
-最后更新：2026-05-27
+最后更新：2026-06-04
