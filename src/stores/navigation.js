@@ -9,7 +9,6 @@ const TOOL_KEYS = [
   'showVirtualGirl',
   'showServiceManager',
   'showTaskQueue',
-  'showPPTGenerator',
   'showImageGenerator',
   'showEphemeralWorkflow',
   'showAicloud'
@@ -45,7 +44,6 @@ export const useNavigationStore = defineStore(
     const showServiceManager = ref(getDefaultValue('showServiceManager'))
     const showProjectGenerator = ref(false)
     const showTaskQueue = ref(getDefaultValue('showTaskQueue'))
-    const showPPTGenerator = ref(getDefaultValue('showPPTGenerator'))
     const showImageGenerator = ref(getDefaultValue('showImageGenerator'))
     const showEphemeralWorkflow = ref(getDefaultValue('showEphemeralWorkflow'))
     const showAicloud = ref(getDefaultValue('showAicloud'))
@@ -65,7 +63,6 @@ export const useNavigationStore = defineStore(
       showVirtualGirl,
       showServiceManager,
       showTaskQueue,
-      showPPTGenerator,
       showImageGenerator,
       showEphemeralWorkflow,
       showAicloud
@@ -97,9 +94,6 @@ export const useNavigationStore = defineStore(
           break
         case 'taskQueue':
           showTaskQueue.value = true
-          break
-        case 'pptGenerator':
-          showPPTGenerator.value = true
           break
         case 'imageGenerator':
           showImageGenerator.value = true
@@ -139,9 +133,6 @@ export const useNavigationStore = defineStore(
           break
         case 'taskQueue':
           showTaskQueue.value = false
-          break
-        case 'pptGenerator':
-          showPPTGenerator.value = false
           break
         case 'imageGenerator':
           showImageGenerator.value = false
@@ -193,7 +184,6 @@ export const useNavigationStore = defineStore(
           showVirtualGirl: Boolean(showVirtualGirl.value),
           showServiceManager: Boolean(showServiceManager.value),
           showTaskQueue: Boolean(showTaskQueue.value),
-          showPPTGenerator: Boolean(showPPTGenerator.value),
           showImageGenerator: Boolean(showImageGenerator.value),
           showEphemeralWorkflow: Boolean(showEphemeralWorkflow.value),
           showAicloud: Boolean(showAicloud.value),
@@ -243,7 +233,6 @@ export const useNavigationStore = defineStore(
       if (showVirtualGirl.value) return 'virtualGirl'
       if (showServiceManager.value) return 'serviceManager'
       if (showTaskQueue.value) return 'taskQueue'
-      if (showPPTGenerator.value) return 'pptGenerator'
       if (showImageGenerator.value) return 'imageGenerator'
       if (showEphemeralWorkflow.value) return 'ephemeralWorkflow'
       if (showAicloud.value) return 'aicloud'
@@ -259,7 +248,6 @@ export const useNavigationStore = defineStore(
       showServiceManager,
       showProjectGenerator,
       showTaskQueue,
-      showPPTGenerator,
       showImageGenerator,
       showEphemeralWorkflow,
       showAicloud,

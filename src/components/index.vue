@@ -83,13 +83,6 @@
         @close="() => navigationStore.hideTool('taskQueue')"
       />
 
-      <PPTGenerator
-        v-if="showPPTGenerator"
-        :visible="showPPTGenerator"
-        @close="() => navigationStore.hideTool('pptGenerator')"
-        @generated="handlePPTGenerated"
-      />
-
       <ImageGenerator
         v-if="showImageGenerator"
         :visible="showImageGenerator"
@@ -154,7 +147,6 @@
   const ProjectGenerator = defineAsyncComponent(() => import('./ProjectGenerator.vue'))
   const EphemeralWorkflow = defineAsyncComponent(() => import('./EphemeralWorkflow.vue'))
   const TaskQueue = defineAsyncComponent(() => import('./TaskQueue.vue'))
-  const PPTGenerator = defineAsyncComponent(() => import('./PPTGenerator.vue'))
   const ImageGenerator = defineAsyncComponent(() => import('./ImageGenerator.vue'))
   const Aicloud = defineAsyncComponent(() => import('./Aicloud.vue'))
 
@@ -196,7 +188,6 @@
   const showProjectGenerator = computed(() => navigationStore.showProjectGenerator)
   const showEphemeralWorkflow = computed(() => navigationStore.showEphemeralWorkflow)
   const showTaskQueue = computed(() => navigationStore.showTaskQueue)
-  const showPPTGenerator = computed(() => navigationStore.showPPTGenerator)
   const showImageGenerator = computed(() => navigationStore.showImageGenerator)
   const showAicloud = computed(() => navigationStore.showAicloud)
 
@@ -352,10 +343,6 @@
 
   const handleUseTool = toolName => {
     navigationStore.showTool(toolName)
-  }
-
-  const handlePPTGenerated = result => {
-
   }
 
   const handleQuickPrompt = prompt => {
