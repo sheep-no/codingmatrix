@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Optional, Dict, List, Any
 import asyncio
 
-import httpx
-from app.utils.aicloud import call_llm
+from app.utils import call_llm
 from app.agent.dynamic_model_router import get_dynamic_router, LayeredModelRouter
 from app.agent.tracing import traced
 from app.agent.react_engine import ReActEngine
@@ -127,6 +126,16 @@ class Specialist:
             max_rounds = _REACT_ROUNDS_BY_COMPLEXITY.get(self._complexity, 6)
         if tools is None:
             tools = SPECIALIST_TOOLS
+            # 合并 MCP 工具（如果 MCPClientManager 已初始化）
+            try:
+                from app.agent.mcp_client import MCPClientManager
+                mcp_manager = MCPClientManager.get_instance()
+                if mcp_manager:
+                    mcp_tools = mcp_manager.get_all_tools()
+                    if mcp_tools:
+                        tools = {**SPECIALIST_TOOLS, **mcp_tools}
+            except Exception:
+                pass  # MCP 未配置时静默跳过
 
         react_mode = _REACT_MODE_BY_COMPLEXITY.get(self._complexity, "simple")
 
@@ -142,8 +151,8 @@ class Specialist:
         )
 
         original_execute_tool = engine._execute_tool
-        def tracked_execute_tool(tool_name: str, tool_params: Dict):
-            success, result = original_execute_tool(tool_name, tool_params)
+        async def tracked_execute_tool(tool_name: str, tool_params: Dict):
+            success, result = await original_execute_tool(tool_name, tool_params)
             if tool_name in self._write_tools and success and isinstance(result, dict) and result.get("success"):
                 edited_path = tool_params.get("path", "")
                 if edited_path:
