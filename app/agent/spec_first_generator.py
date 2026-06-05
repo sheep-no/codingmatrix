@@ -113,7 +113,8 @@ class SpecFirstGenerator:
     def __init__(self, context: SharedContext, language: str = "python"):
         self.context = context
         self.language = language
-        self.architect_model = context.model_assignment.get("architect_model", "THUDM/GLM-Z1-9B-0414") if context.model_assignment else "THUDM/GLM-Z1-9B-0414"
+        from app.agent.models import DEFAULT_ARCHITECT_MODEL
+        self.architect_model = context.model_assignment.get("architect_model", DEFAULT_ARCHITECT_MODEL) if context.model_assignment else DEFAULT_ARCHITECT_MODEL
         from app.agent.orchestrator import LayeredModelRouter
         self.model_config = LayeredModelRouter.get_model_config(self.architect_model)
         self._pending_tasks = set()
@@ -374,37 +375,17 @@ OpenAPI 规范：
     # ==================== 辅助方法 ====================
 
     def _extract_json(self, text: str) -> Optional[Dict]:
-        """从文本中提取 JSON"""
-        # 尝试从代码块中提取
-        match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(1))
-            except json.JSONDecodeError:
-                pass
-
-        # 尝试直接解析
+        """从文本中提取 JSON（委托给 json_parser）"""
+        from app.agent.json_parser import safe_parse_json
         try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            # 尝试找到第一个 { 和最后一个 }
-            start = text.find('{')
-            end = text.rfind('}')
-            if start != -1 and end != -1:
-                try:
-                    return json.loads(text[start:end+1])
-                except json.JSONDecodeError:
-                    pass
-
-        return None
+            return safe_parse_json(text)
+        except ValueError:
+            return None
 
     def _clean_code_block(self, content: str) -> str:
         """清理代码块标记"""
-        pattern = r'```(?:\w+)?\s*(.*?)\s*```'
-        match = re.search(pattern, content, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        return content.strip()
+        from app.agent.utils import clean_code_block
+        return clean_code_block(content)
 
     def _report_progress(self, step: str, callback: Optional[Callable]):
         """报告进度"""

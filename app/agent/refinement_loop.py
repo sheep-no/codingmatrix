@@ -27,6 +27,16 @@ from app.agent.shared_context import SharedContext
 logger = logging.getLogger(__name__)
 
 
+# 按复杂度分级的修复轮次限制
+_REFINEMENT_ATTEMPTS_BY_COMPLEXITY = {
+    "simple": 2,
+    "small": 2,
+    "medium": 3,
+    "large": 4,
+    "enterprise": 5,
+}
+
+
 @dataclass
 class ValidationIssue:
     """单个验证问题"""
@@ -70,11 +80,14 @@ class RefinementLoop:
 - 保持原有代码结构，只修复错误部分
 - 不要添加新的功能或改变原有逻辑"""
 
-    def __init__(self, context: SharedContext):
+    def __init__(self, context: SharedContext, complexity: str = "medium"):
         self.context = context
-        self.default_model = context.model_assignment.get("backend_model", "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B") if context.model_assignment else "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+        from app.agent.models import DEFAULT_REASONING_MODEL
+        self.default_model = context.model_assignment.get("backend_model", DEFAULT_REASONING_MODEL) if context.model_assignment else DEFAULT_REASONING_MODEL
         from app.agent.orchestrator import LayeredModelRouter
         self.model_config = LayeredModelRouter.get_model_config(self.default_model)
+        self._complexity = complexity
+        self.MAX_ATTEMPTS = _REFINEMENT_ATTEMPTS_BY_COMPLEXITY.get(complexity, 3)
 
     async def refine(
         self,
@@ -324,21 +337,57 @@ class RefinementLoop:
     def _validate_js_basic(self, content: str) -> List[ValidationIssue]:
         """基础 JavaScript 验证"""
         issues = []
-        # 检查基本的括号匹配
-        if content.count('{') != content.count('}'):
-            issues.append(ValidationIssue(
-                type="syntax",
-                severity="error",
-                message="花括号不匹配",
-                suggestion="检查所有 { 和 } 的配对"
-            ))
-        if content.count('(') != content.count(')'):
-            issues.append(ValidationIssue(
-                type="syntax",
-                severity="error",
-                message="圆括号不匹配",
-                suggestion="检查所有 ( 和 ) 的配对"
-            ))
+        
+        # 尝试使用 node -c 进行语法检查
+        try:
+            import subprocess
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
+                f.write(content)
+                tmp_path = f.name
+            
+            result = subprocess.run(
+                ['node', '-c', tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode != 0:
+                # 解析错误信息
+                error_msg = result.stderr.strip()
+                if error_msg:
+                    # 尝试提取行号
+                    line_match = re.search(r':(\d+)', error_msg)
+                    line_num = int(line_match.group(1)) if line_match else None
+                    issues.append(ValidationIssue(
+                        type="syntax",
+                        severity="error",
+                        message=f"JavaScript 语法错误: {error_msg}",
+                        line=line_num,
+                        suggestion="检查语法错误"
+                    ))
+            
+            # 清理临时文件
+            Path(tmp_path).unlink(missing_ok=True)
+            
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            # node 不可用，回退到基本检查
+            if content.count('{') != content.count('}'):
+                issues.append(ValidationIssue(
+                    type="syntax",
+                    severity="error",
+                    message="花括号不匹配",
+                    suggestion="检查所有 { 和 } 的配对"
+                ))
+            if content.count('(') != content.count(')'):
+                issues.append(ValidationIssue(
+                    type="syntax",
+                    severity="error",
+                    message="圆括号不匹配",
+                    suggestion="检查所有 ( 和 ) 的配对"
+                ))
+        
         return issues
 
     def _validate_json_syntax(self, content: str) -> List[ValidationIssue]:
@@ -401,7 +450,7 @@ class RefinementLoop:
             gen = SpecFirstGenerator(self.context)
             spec_context = gen.get_spec_context_for_file(file_path, file_type)
         except Exception:
-            pass
+            logger.debug("精炼循环操作失败")
 
         # 获取已生成的相关文件
         related_files = self.context.get_generated_files_summary()
@@ -440,11 +489,8 @@ class RefinementLoop:
 
     def _clean_code_block(self, content: str) -> str:
         """清理代码块标记"""
-        pattern = r'```(?:\w+)?\s*(.*?)\s*```'
-        match = re.search(pattern, content, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        return content.strip()
+        from app.agent.utils import clean_code_block
+        return clean_code_block(content)
 
     def _report_progress(self, file_path: str, attempt: int, callback: Optional[Callable]):
         """报告进度"""

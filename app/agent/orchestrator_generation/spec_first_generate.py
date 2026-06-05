@@ -15,6 +15,7 @@ from app.agent.architecture_inspector import ArchitectureInspector
 from app.agent.orchestrator_progress import MAX_CONTENT_FOR_CONTEXT
 from app.agent.adapters import LanguageAdapterRegistry
 from app.agent.dynamic_model_router import get_context_length
+from app.agent.utils import extract_engineer_content, write_file_atomic, cleanup_temp_files
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ class SpecFirstGenerateMixin:
         }
 
         self._report_progress("context_initialized", 1, 6, callback=callback)
+        self._report_step_detail("项目上下文已加载（复杂度、模型分配、技术栈）", category="初始化")
 
         # 提前检测语言，用于规范生成
         from app.agent.language_detector import LanguageDetector
@@ -81,8 +83,10 @@ class SpecFirstGenerateMixin:
 
         if not specs_success:
             self._report_progress("specs_failed", 2, 6, callback=callback)
+            self._report_step_detail("规格书生成失败，将回退到默认架构", category="规格书")
         else:
             self._report_progress("specs_completed", 2, 6, callback=callback)
+            self._report_step_detail("规格书已生成（API 契约 + 数据模型）", category="规格书")
 
         architecture = await self.architect.design_architecture(requirement, self.complexity)
         file_plan = architecture.get("file_plan", [])
@@ -127,7 +131,7 @@ class SpecFirstGenerateMixin:
                 callback=callback
             )
 
-        refinement_loop_instance = RefinementLoop(ctx)
+        refinement_loop_instance = RefinementLoop(ctx, complexity=self.complexity.level.value if self.complexity else "medium")
         generated_contents: Dict[str, str] = {}
         files_generated = 0
         files_failed = 0
@@ -191,42 +195,47 @@ class SpecFirstGenerateMixin:
                 file_node = dep_graph.nodes.get(file_path)
                 description = file_node.description if file_node else f"生成 {file_path}"
                 file_type = file_node.file_type if file_node else "unknown"
+                file_priority = file_node.priority if file_node else 5
 
                 # 断点续传：检查文件是否已存在且完整
                 full_path = self.output_dir / file_path
-                tmp_path = full_path.with_suffix(full_path.suffix + '.tmp')
-
-                # 如果存在 .tmp 文件，说明上次写入中断，删除它
-                if tmp_path.exists():
-                    logger.warning(f"发现未完成的文件，删除: {tmp_path}")
-                    tmp_path.unlink()
+                cleanup_temp_files(self.output_dir, file_path)
 
                 if full_path.exists():
                     try:
                         existing_content = full_path.read_text(encoding='utf-8')
                         if existing_content.strip():
-                            logger.info(f"文件已存在，跳过生成: {file_path}")
-                            self._report_progress(
-                                "skipping_existing_file",
-                                4 + file_index,
-                                total_files + 5,
-                                file_path=file_path,
-                                callback=callback
-                            )
-                            return {
-                                "path": file_path,
-                                "description": description,
-                                "file_type": file_type,
-                                "success": True,
-                                "size": len(existing_content),
-                                "refinement_attempts": 0,
-                                "issues_fixed": 0,
-                                "content": existing_content,
-                                "model_name": "cached",
-                                "validation_passed": True,
-                                "validation_issues": [],
-                                "skipped": True
-                            }
+                            # 检查文件修改时间和大小
+                            stat = full_path.stat()
+                            file_size = stat.st_size
+                            file_mtime = stat.st_mtime
+                            
+                            # 文件大小检查：至少 10 字节
+                            if file_size < 10:
+                                logger.warning(f"文件太小，重新生成: {file_path} ({file_size} bytes)")
+                            else:
+                                logger.info(f"文件已存在，跳过生成: {file_path} (size={file_size}, mtime={file_mtime})")
+                                self._report_progress(
+                                    "skipping_existing_file",
+                                    4 + file_index,
+                                    total_files + 5,
+                                    file_path=file_path,
+                                    callback=callback
+                                )
+                                return {
+                                    "path": file_path,
+                                    "description": description,
+                                    "file_type": file_type,
+                                    "success": True,
+                                    "size": len(existing_content),
+                                    "refinement_attempts": 0,
+                                    "issues_fixed": 0,
+                                    "content": existing_content,
+                                    "model_name": "cached",
+                                    "validation_passed": True,
+                                    "validation_issues": [],
+                                    "skipped": True
+                                }
                     except Exception as e:
                         logger.warning(f"读取已存在文件失败: {file_path}, {e}")
 
@@ -260,15 +269,14 @@ class SpecFirstGenerateMixin:
                 if not initial_content:
                     return {"path": file_path, "success": False, "error": "生成返回空内容"}
 
-                # 检查工程师是否已通过工具直接编辑了文件
-                if engineer.get_edited_files():
-                    full = self.output_dir / file_path
-                    if full.exists():
-                        initial_content = full.read_text(encoding='utf-8')
-                else:
-                    initial_content = self._clean_code_block(initial_content)
+                # 统一提取工程师生成的内容
+                initial_content = extract_engineer_content(
+                    initial_content, engineer, self.output_dir, file_path
+                )
+                if initial_content is None:
+                    return {"path": file_path, "success": False, "error": "内容提取失败"}
 
-                if cross_validator.is_critical_file(file_path, file_type):
+                if cross_validator.is_critical_file(file_path, file_type, file_priority):
                     self._report_progress(
                         "cross_validation",
                         4 + file_index,
@@ -285,15 +293,12 @@ class SpecFirstGenerateMixin:
                         is_existing_file=(self.output_dir / file_path).exists()
                     )
                     if alt_content:
-                        # 检查替代工程师是否已通过工具直接编辑了文件
-                        if alt_engineer.get_edited_files():
-                            full = self.output_dir / file_path
-                            if full.exists():
-                                alt_content = full.read_text(encoding='utf-8')
-                        else:
-                            alt_content = self._clean_code_block(alt_content)
+                        alt_content = extract_engineer_content(
+                            alt_content, alt_engineer, self.output_dir, file_path
+                        )
 
-                        judge_model = self.model_assignment.reviewer_model if self.model_assignment else "THUDM/GLM-Z1-9B-0414"
+                        from app.agent.models import DEFAULT_ARCHITECT_MODEL
+                        judge_model = self.model_assignment.reviewer_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL
 
                         result = await cross_validator.cross_validate_with_refinement(
                             file_path=file_path,
@@ -331,13 +336,8 @@ class SpecFirstGenerateMixin:
 
                 final_content = result.final_content
 
-                # 原子写入：先写临时文件，完成后重命名
-                full_path = self.output_dir / file_path
-                full_path.parent.mkdir(parents=True, exist_ok=True)
-                tmp_path = full_path.with_suffix(full_path.suffix + '.tmp')
-                with open(tmp_path, 'w', encoding='utf-8') as f:
-                    f.write(final_content)
-                tmp_path.rename(full_path)
+                # 原子写入
+                write_file_atomic(self.output_dir, file_path, final_content)
 
                 return {
                     "path": file_path,
@@ -588,11 +588,11 @@ class SpecFirstGenerateMixin:
         language_adapter=None
     ) -> Dict[str, Any]:
         """使用动态拓扑调度生成文件"""
-        scheduler = TopologyScheduler(max_concurrent=5, max_retries=2)
+        scheduler = TopologyScheduler(max_concurrent=8, max_retries=2)
         scheduler.build_from_dependency_graph(dep_graph)
 
         cross_validator = CrossValidator(ctx, language_adapter=language_adapter)
-        refinement_loop = RefinementLoop(ctx)
+        refinement_loop = RefinementLoop(ctx, complexity=self.complexity.level.value if self.complexity else "medium")
 
         files_generated = 0
         files_failed = 0
@@ -615,6 +615,7 @@ class SpecFirstGenerateMixin:
             file_node = dep_graph.nodes.get(file_path)
             description = file_node.description if file_node else f"生成 {file_path}"
             file_type = file_node.file_type if file_node else "unknown"
+            file_priority = file_node.priority if file_node else 5
 
             # 断点续传：检查文件是否已存在且完整
             full_path = self.output_dir / file_path
@@ -629,25 +630,34 @@ class SpecFirstGenerateMixin:
                 try:
                     existing_content = full_path.read_text(encoding='utf-8')
                     if existing_content.strip():
-                        logger.info(f"文件已存在，跳过生成: {file_path}")
-                        progress_report("skipping_existing_file", file_path, files_generated, total_files)
+                        # 检查文件修改时间和大小
+                        stat = full_path.stat()
+                        file_size = stat.st_size
+                        file_mtime = stat.st_mtime
+                        
+                        # 文件大小检查：至少 10 字节
+                        if file_size < 10:
+                            logger.warning(f"文件太小，重新生成: {file_path} ({file_size} bytes)")
+                        else:
+                            logger.info(f"文件已存在，跳过生成: {file_path} (size={file_size}, mtime={file_mtime})")
+                            progress_report("skipping_existing_file", file_path, files_generated, total_files)
 
-                        async with state_lock:
-                            ctx.save_file_content(file_path, existing_content, "cached")
-                            ctx.update_file_validation(file_path, True, [])
-                            generated_contents[file_path] = existing_content[:MAX_CONTENT_FOR_CONTEXT]
+                            async with state_lock:
+                                ctx.save_file_content(file_path, existing_content, "cached")
+                                ctx.update_file_validation(file_path, True, [])
+                                generated_contents[file_path] = existing_content[:MAX_CONTENT_FOR_CONTEXT]
 
-                            generated_files_list.append({
-                                "path": file_path,
-                                "description": description,
-                                "success": True,
-                                "size": len(existing_content),
-                                "model_name": "cached",
-                                "skipped": True
-                            })
-                            files_generated += 1
+                                generated_files_list.append({
+                                    "path": file_path,
+                                    "description": description,
+                                    "success": True,
+                                    "size": len(existing_content),
+                                    "model_name": "cached",
+                                    "skipped": True
+                                })
+                                files_generated += 1
 
-                        return existing_content
+                            return existing_content
                 except Exception as e:
                     logger.warning(f"读取已存在文件失败: {file_path}, {e}")
 
@@ -688,7 +698,7 @@ class SpecFirstGenerateMixin:
             else:
                 initial_content = self._clean_code_block(initial_content)
 
-            if cross_validator.is_critical_file(file_path, file_type):
+            if cross_validator.is_critical_file(file_path, file_type, file_priority):
                 alt_model = self._select_alternative_model(model_name)
                 alt_engineer = self._select_engineer_for_model(alt_model)
                 alt_content = await alt_engineer.generate_file(
@@ -705,7 +715,8 @@ class SpecFirstGenerateMixin:
                     else:
                         alt_content = self._clean_code_block(alt_content)
                     alt_content = self._clean_code_block(alt_content)
-                    judge_model = self.model_assignment.reviewer_model if self.model_assignment else "THUDM/GLM-Z1-9B-0414"
+                    from app.agent.models import DEFAULT_ARCHITECT_MODEL
+                    judge_model = self.model_assignment.reviewer_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL
 
                     result = await cross_validator.cross_validate_with_refinement(
                         file_path=file_path,

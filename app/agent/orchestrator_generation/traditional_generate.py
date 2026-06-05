@@ -5,6 +5,7 @@ from typing import Dict, Any
 
 from app.utils.AiCodeUtil import get_embedding
 from app.agent.api_contract_checker import generate_frontend_prompt_contract
+from app.agent.complexity import ProjectComplexity
 from app.agent.dependency_graph import DependencyGraph
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.tracing import traced
@@ -147,7 +148,7 @@ class TraditionalGenerateMixin:
                     try:
                         backend_files[str(py_file.relative_to(self.output_dir))] = py_file.read_text()
                     except Exception:
-                        pass
+                        logger.debug("传统生成操作失败")
 
             if backend_files:
                 api_contract_prompt = generate_frontend_prompt_contract(backend_files)
@@ -197,10 +198,47 @@ class TraditionalGenerateMixin:
         if self.memory_enabled:
             save_memory_task = asyncio.create_task(self._save_to_memory(requirement, architecture))
 
+        # 完整性验证：补充缺失的 __init__.py 等包入口文件
+        if self.enable_validation:
+            from app.agent.integrity_validator import IntegrityValidator
+            integrity_validator = IntegrityValidator()
+            generated_files_dict = {}
+            for f in self.generated_files:
+                fpath = f.get("path", "")
+                full = self.output_dir / fpath
+                if fpath and full.exists():
+                    try:
+                        generated_files_dict[fpath] = full.read_text(encoding='utf-8')
+                    except Exception:
+                        pass
+            integrity_result = integrity_validator.validate(generated_files_dict)
+            if not integrity_result.passed:
+                fixes = integrity_validator.generate_fixes(integrity_result, generated_files_dict)
+                for fix_path, fix_content in fixes.items():
+                    full_path = self.output_dir / fix_path
+                    full_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(full_path, 'w', encoding='utf-8') as f:
+                        f.write(fix_content)
+                    self.generated_files.append({
+                        "path": fix_path,
+                        "description": "自动补充的包初始化文件",
+                        "success": True,
+                        "size": len(fix_content),
+                    })
+                    logger.info(f"完整性验证自动补充: {fix_path}")
+
+        # 静态验证：始终执行（成本低）
         if self.enable_validation:
             final_validation = await self.validator.run_full_validation()
 
-        if final_validation.get("is_valid", False):
+        # 动态测试：由复杂度决定（成本高，SIMPLE/SMALL 跳过）
+        should_test = (
+            self.enable_validation
+            and final_validation.get("is_valid", False)
+            and self.complexity
+            and self.complexity.level in (ProjectComplexity.MEDIUM, ProjectComplexity.LARGE)
+        )
+        if should_test:
             from app.agent.test_runner import IsolatedTestRunner
             test_runner = IsolatedTestRunner(self.output_dir)
             test_results = await self._run_dynamic_tests(test_runner)

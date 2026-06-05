@@ -13,6 +13,8 @@ from app.agent.complexity import ProjectComplexity
 from app.agent.code_validator import CodeValidator
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.specialist_base import get_global_llm_semaphore
+from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL, DEFAULT_ARCHITECT_MODEL
+from app.agent.utils import extract_engineer_content, write_file_atomic
 
 
 logger = logging.getLogger(__name__)
@@ -355,51 +357,15 @@ class FilesMixin:
             is_existing_file=is_existing,
         )
 
-        # 获取工程师通过工具编辑过的文件
-        edited_files = engineer.get_edited_files()
+        # 统一提取工程师生成的内容
+        all_files = list(self.dependency_graph_obj.nodes.keys()) if self.dependency_graph_obj else []
+        content = extract_engineer_content(
+            content, engineer, self.output_dir, file_path,
+            fix_imports_fn=_fix_absolute_imports,
+            all_files=all_files
+        )
 
-        if edited_files:
-            # 工程师已通过 partial_update/insert_content/regex_replace 直接修改了文件
-            # 读取修改后的文件内容用于验证
-            norm_path = self._normalize_file_path(file_path)
-            full_path = self.output_dir / norm_path
-            if full_path.exists():
-                content = full_path.read_text(encoding='utf-8')
-                all_files = list(self.dependency_graph_obj.nodes.keys()) if self.dependency_graph_obj else []
-                fixed = _fix_absolute_imports(content, file_path, all_files)
-                if fixed != content:
-                    full_path.write_text(fixed, encoding='utf-8')
-                    content = fixed
-                logger.info(f"工程师通过工具直接编辑了文件: {file_path}，跳过写入步骤")
-            else:
-                self.errors.append(f"工程师报告编辑了文件但文件不存在: {file_path}")
-                return None
-        elif content and _is_edit_marker(content):
-            # 工程师返回了编辑标记（JSON），文件已被工具修改
-            norm_path = self._normalize_file_path(file_path)
-            full_path = self.output_dir / norm_path
-            if full_path.exists():
-                content = full_path.read_text(encoding='utf-8')
-                all_files = list(self.dependency_graph_obj.nodes.keys()) if self.dependency_graph_obj else []
-                fixed = _fix_absolute_imports(content, file_path, all_files)
-                if fixed != content:
-                    full_path.write_text(fixed, encoding='utf-8')
-                    content = fixed
-                logger.info(f"工程师返回编辑标记: {file_path}，读取已修改文件")
-            else:
-                self.errors.append(f"工程师返回编辑标记但文件不存在: {file_path}")
-                return None
-        elif content:
-            # 工程师返回了完整文件内容
-            content = self._clean_code_block(content)
-            all_files = list(self.dependency_graph_obj.nodes.keys()) if self.dependency_graph_obj else []
-            content = _fix_absolute_imports(content, file_path, all_files)
-            norm_path = self._normalize_file_path(file_path)
-            full_path = self.output_dir / norm_path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(full_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-        else:
+        if content is None:
             # 空内容：fallback
             self._report_progress(
                 PROGRESS_LABELS["react_fallback"],
@@ -412,13 +378,8 @@ class FilesMixin:
                 self.errors.append(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
                 return None
             content = self._clean_code_block(content)
-            all_files = list(self.dependency_graph_obj.nodes.keys()) if self.dependency_graph_obj else []
             content = _fix_absolute_imports(content, file_path, all_files)
-            norm_path = self._normalize_file_path(file_path)
-            full_path = self.output_dir / norm_path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(full_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            write_file_atomic(self.output_dir, file_path, content)
 
         if self.require_approval and self._is_critical_file(file_path):
             self._report_progress(
@@ -436,6 +397,10 @@ class FilesMixin:
                     len(self.generated_files) + 1,
                     total_files + 4,
                     file_path=file_path
+                )
+                self._report_file_rejected(
+                    file_path=file_path,
+                    reason="用户在 HITL 审批中拒绝"
                 )
                 self.warnings.append(f"文件被用户拒绝: {file_path}")
                 return {
@@ -545,7 +510,8 @@ class FilesMixin:
                 parent = parts[-2]
                 if '.' not in parent:
                     # 合并为 文件名.扩展名
-                    fixed_path = '/'.join(parts[:-2]) + f"{parent}.{last_part}" if len(parts) > 2 else f"{parent}.{last_part}"
+                    prefix = '/'.join(parts[:-2])
+                    fixed_path = f"{prefix}/{parent}.{last_part}" if prefix else f"{parent}.{last_part}"
                     logger.warning(f"路径格式修正: {file_path} -> {fixed_path}")
                     return fixed_path
 
@@ -569,11 +535,11 @@ class FilesMixin:
     def _select_model_for_file(self, file_path: str) -> str:
         ext = Path(file_path).suffix.lower()
         if ext in {'.vue', '.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.scss', '.sass', '.less'}:
-            return self.model_assignment.frontend_model if self.model_assignment else "Qwen/Qwen3-8B"
+            return self.model_assignment.frontend_model if self.model_assignment else DEFAULT_CODE_MODEL
         elif ext in {'.py', '.go', '.java', '.rs', '.rb', '.php'}:
-            return self.model_assignment.backend_model if self.model_assignment else "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+            return self.model_assignment.backend_model if self.model_assignment else DEFAULT_REASONING_MODEL
         else:
-            return self.model_assignment.frontend_model if self.model_assignment else "Qwen/Qwen3-8B"
+            return self.model_assignment.frontend_model if self.model_assignment else DEFAULT_CODE_MODEL
 
     def _select_engineer(self, file_path: str) -> Specialist:
         ext = Path(file_path).suffix.lower()
@@ -611,7 +577,7 @@ class FilesMixin:
             )
 
             response = await call_llm(
-                model="Qwen/Qwen3-8B",
+                model=DEFAULT_CODE_MODEL,
                 prompt=user_prompt,
                 max_tokens=4096,
                 temperature=0.4,
@@ -653,7 +619,7 @@ class FilesMixin:
                 file_path=full_path,
                 content=content,
                 file_description=description,
-                backend_model=self.model_assignment.backend_model if self.model_assignment else "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+                backend_model=self.model_assignment.backend_model if self.model_assignment else DEFAULT_REASONING_MODEL,
                 callback=self.callback
             )
             if success:
@@ -669,8 +635,13 @@ class FilesMixin:
                 context=description
             )
             if review_result.get("needs_fix") and review_result.get("risk_level") in ["high", "medium"]:
-                self.warnings.append(
-                    f"审查建议 {file_path}: {'; '.join(review_result.get('issues', []))}"
+                review_warning = f"审查建议 {file_path}: {'; '.join(review_result.get('issues', []))}"
+                self.warnings.append(review_warning)
+                self._report_warning(
+                    message=review_warning,
+                    code="review_suggestion",
+                    file_path=file_path,
+                    risk_level=review_result.get("risk_level"),
                 )
 
         if self.validator and file_path.endswith('.py'):
@@ -684,28 +655,25 @@ class FilesMixin:
                 }
                 CodeValidator._clear_old_cache()
             except Exception:
-                pass
+                logger.debug("文件操作失败")
 
         return True, content
 
     def _clean_code_block(self, content: str) -> str:
-        pattern = r'```(?:\w+)?\s*(.*?)\s*```'
-        match = re.search(pattern, content, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        return content.strip()
+        from app.agent.utils import clean_code_block
+        return clean_code_block(content)
 
     def _select_alternative_model(self, primary_model: str) -> str:
         alt_map = {
-            "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": "Qwen/Qwen3-8B",
-            "Qwen/Qwen3-8B": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-            "Qwen/Qwen3.5-4B": "Qwen/Qwen3-8B",
-            "THUDM/GLM-Z1-9B-0414": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+            DEFAULT_REASONING_MODEL: DEFAULT_CODE_MODEL,
+            DEFAULT_CODE_MODEL: DEFAULT_REASONING_MODEL,
+            "Qwen/Qwen3.5-4B": DEFAULT_CODE_MODEL,
+            DEFAULT_ARCHITECT_MODEL: DEFAULT_REASONING_MODEL,
         }
-        return alt_map.get(primary_model, "Qwen/Qwen3-8B")
+        return alt_map.get(primary_model, DEFAULT_CODE_MODEL)
 
     def _select_engineer_for_model(self, model_name: str) -> Specialist:
-        frontend_models = {"Qwen/Qwen3.5-4B", "Qwen/Qwen3-8B"}
+        frontend_models = {"Qwen/Qwen3.5-4B", DEFAULT_CODE_MODEL}
         if model_name in frontend_models:
             return self.frontend_engineer
         return self.backend_engineer

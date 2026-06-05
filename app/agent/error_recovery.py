@@ -13,6 +13,7 @@ from pathlib import Path
 from app.utils import call_llm
 from app.agent.code_validator import CodeValidator
 from app.agent.specialists import CodeReviewer
+from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL, DEFAULT_FAST_MODEL
 from app.agent.dynamic_model_router import LayeredModelRouter
 from app.agent.test_runner import TestRunner
 from app.agent.error_classifier import error_classifier, ErrorClassification
@@ -41,9 +42,9 @@ class ErrorRecoveryLoop:
 
     # 默认模型降级链（硬编码兜底）
     DEFAULT_FALLBACK_CHAIN = [
-        "Qwen/Qwen3-8B",             # 代码修复首选
-        "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",  # 通用修复
-        "Qwen/Qwen3.5-4B",           # 快速降级
+        DEFAULT_CODE_MODEL,        # 代码修复首选
+        DEFAULT_REASONING_MODEL,   # 通用修复
+        DEFAULT_FAST_MODEL,        # 快速降级
     ]
 
     def __init__(self, validator: CodeValidator, reviewer: CodeReviewer):
@@ -81,12 +82,10 @@ class ErrorRecoveryLoop:
             with open(temp_file, 'w', encoding='utf-8') as f:
                 f.write(content)
 
-            # 运行完整验证
-            validation = await self.validator.run_full_validation()
+            # 只验证单个文件（而非整个项目）
+            validation = await self.validator.validate_single_file(temp_file)
 
             if validation["is_valid"]:
-                if temp_file.exists():
-                    temp_file.unlink()
                 return True, content
 
             # 验证失败，进入智能修正循环
@@ -98,15 +97,15 @@ class ErrorRecoveryLoop:
                 callback=callback
             )
 
-            if temp_file.exists():
-                temp_file.unlink()
             return fix_result["success"], fix_result["fixed_content"]
 
         except Exception as e:
             logger.error(f"验证修复异常: {e}")
+            return False, content
+
+        finally:
             if temp_file.exists():
                 temp_file.unlink()
-            return False, content
 
     async def _smart_fix_loop(
         self,
@@ -387,14 +386,14 @@ class ErrorRecoveryLoop:
 
         # 默认映射（硬编码兜底）
         DEFAULT_ERROR_MODEL_MAPPING = {
-            "NameError": "Qwen/Qwen3.5-4B",      # 简单变量错误，快速模型即可
-            "AttributeError": "Qwen/Qwen3-8B",  # 需要理解对象结构
-            "ImportError": "Qwen/Qwen3-8B",     # 需要理解模块系统
-            "SyntaxError": "Qwen/Qwen3.5-4B",    # 语法错误，简单修复
-            "TypeError": "Qwen/Qwen3-8B",       # 类型系统理解
-            "KeyError": "Qwen/Qwen3.5-4B",       # 简单字典操作
-            "IndexError": "Qwen/Qwen3.5-4B",     # 简单索引操作
-            "LogicError": "Qwen/Qwen3-8B"        # 复杂逻辑需要强推理
+            "NameError": DEFAULT_FAST_MODEL,       # 简单变量错误，快速模型即可
+            "AttributeError": DEFAULT_CODE_MODEL,  # 需要理解对象结构
+            "ImportError": DEFAULT_CODE_MODEL,     # 需要理解模块系统
+            "SyntaxError": DEFAULT_FAST_MODEL,     # 语法错误，简单修复
+            "TypeError": DEFAULT_CODE_MODEL,       # 类型系统理解
+            "KeyError": DEFAULT_FAST_MODEL,        # 简单字典操作
+            "IndexError": DEFAULT_FAST_MODEL,      # 简单索引操作
+            "LogicError": DEFAULT_CODE_MODEL       # 复杂逻辑需要强推理
         }
 
         # 尝试从配置文件加载
