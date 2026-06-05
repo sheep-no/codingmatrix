@@ -217,7 +217,6 @@ pytest --last-failed
 | `test_health_api.py` | `/api/v1/health` | 健康检查/模型列表 |
 | `test_girlai_api.py` | `/api/v1/girlai/*` | 虚拟 AI 对话 |
 | `test_aiprojectcode_api.py` | `/api/v1/aiproject/*` | 项目生成/管理 |
-| `test_preview_api.py` | `/api/v1/preview/*` | 项目预览 |
 | `test_kolors_history_api.py` | `/api/v1/kolors/history` | 图像历史 |
 | `test_github_api.py` | `/api/v1/github/*` | Git 操作 |
 | `test_task_queue_api.py` | `/api/v1/task-queue/*` | 任务队列管理 |
