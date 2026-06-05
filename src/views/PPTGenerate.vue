@@ -72,7 +72,7 @@
             v-model.number="slideCount"
             type="number"
             min="1"
-            max="30"
+            max="50"
             :disabled="generating"
           />
         </div>
@@ -138,6 +138,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useApiKeyStore } from '@/stores/apikey'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const apiKeyStore = useApiKeyStore()
@@ -159,7 +160,7 @@ function goBack() {
 async function handleAgentGenerate() {
   if (!canAgentGenerate.value || generating.value) return
   if (!apiKeyStore.hasSiliconflowKey) {
-    alert('请先配置 API Key 后再使用')
+    ElMessage.error('请先配置 API Key 后再使用')
     router.push('/settings')
     return
   }
@@ -170,7 +171,7 @@ async function handleAgentGenerate() {
 
   try {
     const token = localStorage.getItem('access_token')
-    const res = await fetch('/api/v1/ppt/generate-from-text', {
+    const res = await fetch('/api/v1/generate-from-text', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -188,13 +189,18 @@ async function handleAgentGenerate() {
     }
 
     const data = await res.json()
-    generatedSlides.value = data.slides || []
-    if (data.file_url) {
-      generatedFileUrl.value = data.file_url
+    if (data.task_id) {
+      ElMessage.success('任务已创建，请在任务队列中查看进度')
+      router.push('/')
+    } else {
+      generatedSlides.value = data.slides || []
+      if (data.file_url) {
+        generatedFileUrl.value = data.file_url
+      }
     }
   } catch (e) {
     console.error('PPT Agent 生成失败:', e)
-    alert('生成失败: ' + e.message)
+    ElMessage.error('生成失败: ' + e.message)
   } finally {
     generating.value = false
   }
@@ -203,7 +209,7 @@ async function handleAgentGenerate() {
 async function handleGenerate() {
   if (!canGenerate.value || generating.value) return
   if (!apiKeyStore.hasSiliconflowKey) {
-    alert('请先配置 API Key 后再使用')
+    ElMessage.error('请先配置 API Key 后再使用')
     router.push('/settings')
     return
   }
@@ -212,7 +218,7 @@ async function handleGenerate() {
 
   try {
     const token = localStorage.getItem('access_token')
-    const res = await fetch('/api/v1/ppt/generate', {
+    const res = await fetch('/api/v1/pptx/generate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -234,7 +240,7 @@ async function handleGenerate() {
     generatedSlides.value = data.slides || []
   } catch (e) {
     console.error('PPT 生成失败:', e)
-    alert('生成失败: ' + e.message)
+    ElMessage.error('生成失败: ' + e.message)
   } finally {
     generating.value = false
   }

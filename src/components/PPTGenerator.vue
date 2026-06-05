@@ -121,6 +121,8 @@
                   <option value="10">10 页 (标准)</option>
                   <option value="15">15 页 (详细)</option>
                   <option value="20">20 页 (完整)</option>
+                  <option value="30">30 页 (深度)</option>
+                  <option value="50">50 页 (全面)</option>
                 </select>
               </label>
             </div>
@@ -219,6 +221,7 @@
   import { ref, computed, onMounted, onUnmounted } from 'vue'
   import { api } from '@/utils/api/index'
   import { useNavigationStore } from '@/stores/navigation'
+  import { ElMessage, ElMessageBox } from 'element-plus'
 
   const props = defineProps({
     visible: {
@@ -314,7 +317,6 @@
     ws = new WebSocket(wsUrl)
     
     ws.onopen = () => {
-      console.log('WebSocket 连接成功')
     }
     
     ws.onmessage = (event) => {
@@ -350,7 +352,6 @@
     }
     
     ws.onclose = () => {
-      console.log('WebSocket 连接关闭')
       ws = null
     }
   }
@@ -403,11 +404,11 @@
           navigationStore.showTool('taskQueue')
         }, 1500)
       } else {
-        alert('创建 PPT 任务失败，请稍后重试')
+        ElMessage.error('创建 PPT 任务失败，请稍后重试')
       }
     } catch (error) {
       console.error('PPT 生成失败:', error)
-      alert('生成失败：' + (error.message || '未知错误'))
+      ElMessage.error('生成失败：' + (error.message || '未知错误'))
       progressState.value = null
     } finally {
       isGenerating.value = false

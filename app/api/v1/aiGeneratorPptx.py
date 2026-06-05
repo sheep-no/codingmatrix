@@ -62,6 +62,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["PPT 生成 (增强版)"])
 
 # =============================================================================
+# PPT 全局常量
+# =============================================================================
+
+PPT_DEFAULT_MODEL = "THUDM/GLM-Z1-9B-0414"
+PPT_MAX_SLIDES = 50
+PPT_OUTPUT_DIR = Path("./pptx_output")
+
+# 所有合法模板 ID（前端、后端、配置文件共用此列表）
+VALID_TEMPLATE_IDS = [
+    "modern", "business", "creative", "minimal",
+    "academic", "tech", "education", "medical", "elegant",
+]
+
+# =============================================================================
 # 模型定义
 # =============================================================================
 
@@ -76,7 +90,7 @@ class PPTGenerationRequest(BaseModel):
     """统一的 PPT 生成请求"""
     # 基础信息
     topic: str = Field(..., description="PPT 主题/提示词", max_length=5000, alias="prompt")
-    model: str = Field(default="THUDM/GLM-Z1-9B-0414", description="AI 模型")
+    model: str = Field(default=PPT_DEFAULT_MODEL, description="AI 模型")
     conversation_id: Optional[int] = Field(None, description="会话 ID (用于携带历史上下文)")
     session_id: Optional[str] = Field(None, description="会话 ID (用于素材隔离)")
     material_file_ids: Optional[List[int]] = Field(None, description="已上传素材的文件 ID 列表")
@@ -84,7 +98,7 @@ class PPTGenerationRequest(BaseModel):
     
     # 增强选项
     template: str = Field(default="modern", description="模板风格")
-    slide_count: int = Field(default=10, ge=5, le=50, description="页数")
+    slide_count: int = Field(default=10, ge=5, le=PPT_MAX_SLIDES, description="页数")
     output_format: OutputFormat = Field(default=OutputFormat.PPTX, description="输出格式")
     language: str = Field(default="zh-CN", description="语言")
     quality: str = Field(default="high", description="内容质量")
@@ -166,6 +180,13 @@ PPT_TEMPLATES = {
         "secondary_color": "#047857",
         "font_family": "Arial, sans-serif",
         "background": "#ecfdf5"
+    },
+    "elegant": {
+        "name": "优雅商务",
+        "primary_color": "#7c3aed",
+        "secondary_color": "#a78bfa",
+        "font_family": "Georgia, serif",
+        "background": "#faf5ff"
     }
 }
 
@@ -931,7 +952,7 @@ async def generate_ppt_task(
             outline = await generate_ppt_outline(req)
 
             # 立即保存大纲快照（用于恢复/增量生成）
-            output_dir = Path("./pptx_output")
+            output_dir = PPT_OUTPUT_DIR
             output_dir.mkdir(exist_ok=True)
             snapshot_path = output_dir / f"{task_id}_slides.json"
             with open(snapshot_path, 'w', encoding='utf-8') as f:
@@ -939,7 +960,7 @@ async def generate_ppt_task(
             logger.info(f"保存大纲快照 | task_id={task_id} | slides={len(outline.get('slides', []))}")
             
             # 3. 根据格式生成文件
-            output_dir = Path("./pptx_output")
+            output_dir = PPT_OUTPUT_DIR
             output_dir.mkdir(exist_ok=True)
             
             ext_map = {
@@ -1036,7 +1057,7 @@ async def generate_ppt(
     try:
         outline = await generate_ppt_outline(req)
         
-        output_dir = Path("./pptx_output")
+        output_dir = PPT_OUTPUT_DIR
         output_dir.mkdir(exist_ok=True)
         
         ext_map = {OutputFormat.PPTX: "pptx", OutputFormat.HTML: "html", OutputFormat.MARKDOWN: "md"}
@@ -1076,7 +1097,7 @@ async def download_ppt(
 ):
     """下载 PPT 文件，下载后自动清理"""
     user_id = token.get("sub", "anonymous")
-    output_dir = Path("./pptx_output")
+    output_dir = PPT_OUTPUT_DIR
     
     possible_extensions = ["pptx", "pdf", "html", "md"]
     if format in ["pptx", "pdf", "html", "md"]:
@@ -1137,7 +1158,7 @@ async def preview_ppt(
 ):
     """在线预览 PPT"""
     user_id = token.get("sub", "anonymous")
-    output_dir = Path("./pptx_output")
+    output_dir = PPT_OUTPUT_DIR
     pptx_path = output_dir / f"{ppt_id}.pptx"
     
     # 尝试查找任意格式文件
@@ -1161,7 +1182,7 @@ async def get_ppt_slides(
     token: dict = Depends(verify_token)
 ):
     """获取 PPT 幻灯片数据 (JSON)"""
-    output_dir = Path("./pptx_output")
+    output_dir = PPT_OUTPUT_DIR
     json_path = output_dir / f"{ppt_id}_slides.json"
     
     if json_path.exists():
@@ -1207,7 +1228,7 @@ async def update_ppt_task(
 ):
     """基于已有的大纲/中间状态增量生成 PPT"""
     user_id = token.get("sub")
-    output_dir = Path("./pptx_output")
+    output_dir = PPT_OUTPUT_DIR
 
     # 查找之前的幻灯片数据
     json_path = output_dir / f"{task_id}_slides.json"
@@ -1311,6 +1332,99 @@ async def update_ppt_task(
         progress_message="等待中...",
         created_at=datetime.now().isoformat()
     )
+
+
+# =============================================================================
+# 模板与历史管理
+# =============================================================================
+
+
+@router.get("/pptx/templates")
+async def list_ppt_templates(
+    category: Optional[str] = Query(None, description="按分类筛选"),
+    token: dict = Depends(verify_token)
+):
+    """获取可用 PPT 模板列表"""
+    templates = []
+    for tpl_id, tpl_config in PPT_TEMPLATES.items():
+        if category and not tpl_id.startswith(category):
+            continue
+        templates.append({
+            "id": tpl_id,
+            "name": tpl_config["name"],
+            "primary_color": tpl_config["primary_color"],
+            "background": tpl_config["background"],
+        })
+    return {"templates": templates}
+
+
+@router.get("/pptx/history")
+async def list_ppt_history(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    token: dict = Depends(verify_token)
+):
+    """获取用户的 PPT 生成历史"""
+    user_id = token.get("sub", "anonymous")
+    output_dir = PPT_OUTPUT_DIR
+
+    if not output_dir.exists():
+        return {"records": [], "total": 0}
+
+    records = []
+    for json_path in sorted(output_dir.glob("*_slides.json"), reverse=True):
+        ppt_id = json_path.name.replace("_slides.json", "")
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                slides_data = json.load(f)
+            pptx_path = output_dir / f"{ppt_id}.pptx"
+            records.append({
+                "task_id": ppt_id,
+                "title": slides_data[0].get("title", "未命名") if slides_data else "未命名",
+                "slide_count": len(slides_data),
+                "has_file": pptx_path.exists(),
+                "created_at": datetime.fromtimestamp(json_path.stat().st_mtime).isoformat(),
+            })
+        except Exception:
+            continue
+
+    total = len(records)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return {"records": records[start:end], "total": total}
+
+
+@router.delete("/pptx/history/{task_id}")
+async def delete_ppt_history(
+    task_id: str,
+    token: dict = Depends(verify_token)
+):
+    """删除指定 PPT 历史记录及其文件"""
+    output_dir = PPT_OUTPUT_DIR
+    json_path = output_dir / f"{task_id}_slides.json"
+
+    if not json_path.exists():
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    json_path.unlink(missing_ok=True)
+    for ext in ["pptx", "html", "md"]:
+        (output_dir / f"{task_id}.{ext}").unlink(missing_ok=True)
+
+    return {"success": True, "message": f"已删除 {task_id}"}
+
+
+@router.get("/pptx/history/stats")
+async def get_ppt_stats(
+    token: dict = Depends(verify_token)
+):
+    """获取 PPT 生成统计信息"""
+    output_dir = PPT_OUTPUT_DIR
+    if not output_dir.exists():
+        return {"total": 0, "completed": 0, "failed": 0}
+
+    total = len(list(output_dir.glob("*_slides.json")))
+    completed = len(list(output_dir.glob("*.pptx")))
+    return {"total": total, "completed": completed, "failed": 0}
 
 
 # =============================================================================
@@ -1444,8 +1558,8 @@ class OutlineGenerationRequest(BaseModel):
     """大纲生成请求"""
     topic: str = PydanticField(..., description="PPT 主题", max_length=500)
     description: str = PydanticField(default="", description="详细描述", max_length=2000)
-    num_slides: int = PydanticField(default=10, ge=1, le=30, description="幻灯片数量")
-    model: str = PydanticField(default="Qwen/Qwen2.5-7B-Instruct", description="AI 模型")
+    num_slides: int = PydanticField(default=10, ge=1, le=PPT_MAX_SLIDES, description="幻灯片数量")
+    model: str = PydanticField(default=PPT_DEFAULT_MODEL, description="AI 模型")
 
 class OutlineGenerationResponse(BaseModel):
     """大纲生成响应"""
@@ -1547,7 +1661,7 @@ async def generate_ppt_from_text_task(
                     slide_count=len(outline.slides),
                 )
 
-                output_dir = Path("./pptx_output")
+                output_dir = PPT_OUTPUT_DIR
                 output_dir.mkdir(exist_ok=True)
                 filepath = output_dir / f"{task_id}.pptx"
 

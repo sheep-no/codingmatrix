@@ -86,8 +86,8 @@ class SystemConfigManager:
                 "idle_timeout_minutes": 30
             },
             "ppt_generation": {
-                "max_slides": 20,
-                "supported_templates": ["simple", "business", "creative"]
+                "max_slides": 50,
+                "supported_templates": ["modern", "business", "creative", "minimal", "academic", "tech", "education", "medical", "elegant"]
             }
         }
     

@@ -86,7 +86,7 @@ export function createPptClient(client) {
 
     async previewPPTHtml(pptId) {
       try {
-        const response = await client.get(`/pptx/preview/html/${pptId}`)
+        const response = await client.get(`/pptx/preview/${pptId}`)
         if (response.ok) {
           return await response.text()
         }
@@ -193,15 +193,9 @@ export function createPptClient(client) {
 
     // 新增：下载 PDF
     async downloadPDF(pptId) {
-      try {
-        const response = await client.get(`/pptx/download/${pptId}?format=pdf`)
-        if (response.ok) {
-          return await response.blob()
-        }
-        throw new Error('PDF 下载失败')
-      } catch (error) {
-        throw new Error(error.message || 'PDF 下载失败', { cause: error })
-      }
+      // PDF 导出暂未实现，后端会回退到 PPTX 格式
+      console.warn('PDF 导出暂未实现，将下载 PPTX 格式')
+      return this.downloadPPT(pptId, 'pptx')
     }
   }
 }
