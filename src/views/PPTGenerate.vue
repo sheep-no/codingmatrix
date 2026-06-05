@@ -9,7 +9,11 @@
       </button>
       <div class="header-title">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+          <polyline points="10 9 9 9 8 9"/>
         </svg>
         <span>AI PPT 生成</span>
       </div>
@@ -21,81 +25,90 @@
     <div class="page-content">
       <aside class="config-panel">
         <div class="form-group">
-          <label for="topic">主题 / 描述</label>
+          <label>主题 / 描述 <span class="required">*</span></label>
           <textarea
-            id="topic"
             v-model="topic"
-            type="text"
-            placeholder="请输入您的 PPT 主题，例如：'帮我做一个关于 2026 年人工智能发展趋势的技术汇报'"
+            placeholder="请输入 PPT 主题，例如：'帮我做一个关于 2026 年人工智能发展趋势的技术汇报'"
             rows="4"
             :disabled="generating"
           ></textarea>
+          <div class="char-count">{{ topic.length }} / 2000</div>
         </div>
 
         <div class="form-group">
-          <label>生成模式</label>
-          <div class="mode-selector">
-            <button 
-              class="mode-btn" 
-              :class="{ active: mode === 'agent' }" 
-              :disabled="generating"
-              @click="mode = 'agent'"
+          <label>选择模板</label>
+          <div class="template-grid">
+            <div
+              v-for="tpl in templates"
+              :key="tpl.id"
+              class="template-card"
+              :class="{ selected: selectedTemplate === tpl.id }"
+              @click="selectedTemplate = tpl.id"
             >
-              AI Agent 生成
-            </button>
-            <button 
-              class="mode-btn" 
-              :class="{ active: mode === 'manual' }" 
-              :disabled="generating"
-              @click="mode = 'manual'"
-            >
-              手动输入大纲
-            </button>
+              <div class="template-preview" :style="{ background: tpl.color }">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <line x1="8" y1="8" x2="16" y2="8"/>
+                  <line x1="8" y1="12" x2="16" y2="12"/>
+                  <line x1="8" y1="16" x2="12" y2="16"/>
+                </svg>
+              </div>
+              <div class="template-name">{{ tpl.name }}</div>
+            </div>
           </div>
         </div>
 
-        <div v-if="mode === 'manual'" class="form-group">
-          <label for="outline">手动大纲（可选）</label>
-          <textarea
-            id="outline"
-            v-model="outline"
-            placeholder="每行一个标题..."
-            rows="6"
-            :disabled="generating"
-          ></textarea>
-        </div>
-
         <div class="form-group">
-          <label for="slideCount">期望页数</label>
-          <input
-            id="slideCount"
-            v-model.number="slideCount"
-            type="number"
-            min="1"
-            max="50"
-            :disabled="generating"
-          />
+          <label>高级选项</label>
+          <div class="advanced-options">
+            <div class="option-item">
+              <label class="option-label">
+                <span>幻灯片数量</span>
+                <select v-model="slideCount" class="option-select">
+                  <option value="5">5 页 (简洁)</option>
+                  <option value="10">10 页 (标准)</option>
+                  <option value="15">15 页 (详细)</option>
+                  <option value="20">20 页 (完整)</option>
+                  <option value="30">30 页 (深度)</option>
+                  <option value="50">50 页 (全面)</option>
+                </select>
+              </label>
+            </div>
+            <div class="option-item">
+              <label class="option-label">
+                <input v-model="autoImages" type="checkbox" class="option-checkbox" />
+                <span>自动配图</span>
+              </label>
+            </div>
+            <div class="option-item">
+              <label class="option-label">
+                <input v-model="enableAnimation" type="checkbox" class="option-checkbox" />
+                <span>启用动画</span>
+              </label>
+            </div>
+          </div>
         </div>
 
         <button
-          v-if="mode === 'agent'"
-          class="ai-generate-btn"
-          :disabled="!canAgentGenerate || generating"
-          @click="handleAgentGenerate"
-        >
-          <span v-if="generating" class="loading-spinner"></span>
-          {{ generating ? 'AI 正在生成...' : '一键生成 PPT' }}
-        </button>
-
-        <button
-          v-else
           class="generate-btn"
           :disabled="!canGenerate || generating"
           @click="handleGenerate"
         >
           <span v-if="generating" class="loading-spinner"></span>
-          {{ generating ? '生成中...' : '开始生成' }}
+          {{ generating ? 'AI 正在生成...' : '一键生成 PPT' }}
         </button>
+
+        <div v-if="generating && progressState" class="progress-section">
+          <div class="progress-header">
+            <span class="progress-title">生成进度</span>
+            <span class="progress-percentage">{{ Math.round(progressState.progress * 100) }}%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: `${progressState.progress * 100}%` }"></div>
+          </div>
+          <div class="progress-step">{{ progressState.step }}</div>
+          <div class="progress-message">{{ progressState.message }}</div>
+        </div>
       </aside>
 
       <main class="preview-panel">
@@ -106,7 +119,7 @@
           <p>描述您的想法，AI Agent 将自动完成大纲、排版和配图</p>
         </div>
 
-        <div v-if="generating" class="loading-container">
+        <div v-if="generating && !generatedSlides.length" class="loading-container">
           <div class="spinner-ring"></div>
           <p>正在生成幻灯片...</p>
         </div>
@@ -120,8 +133,10 @@
 
         <div v-else-if="generatedSlides.length" class="slides-preview">
           <div v-for="(slide, index) in generatedSlides" :key="index" class="slide-card">
-            <div class="slide-number">Slide {{ index + 1 }}</div>
-            <div class="slide-type">{{ slide.type || 'content' }}</div>
+            <div class="slide-header">
+              <span class="slide-number">Slide {{ index + 1 }}</span>
+              <span class="slide-type">{{ slide.type || 'content' }}</span>
+            </div>
             <h3>{{ slide.title }}</h3>
             <ul v-if="slide.bullets && slide.bullets.length">
               <li v-for="bullet in slide.bullets" :key="bullet">{{ bullet }}</li>
@@ -135,75 +150,83 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useApiKeyStore } from '@/stores/apikey'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { api } from '@/utils/api/index'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const apiKeyStore = useApiKeyStore()
-const mode = ref('agent') // 'agent' | 'manual'
+
 const topic = ref('')
-const outline = ref('')
-const slideCount = ref(10)
+const selectedTemplate = ref('modern')
+const slideCount = ref('10')
+const autoImages = ref(true)
+const enableAnimation = ref(true)
 const generating = ref(false)
 const generatedSlides = ref([])
 const generatedFileUrl = ref('')
+const progressState = ref(null)
 
-const canAgentGenerate = computed(() => topic.value.trim().length > 0)
-const canGenerate = computed(() => mode.value === 'manual' && topic.value.trim().length > 0)
+const templates = ref([
+  { id: 'modern', name: '现代简约', color: 'linear-gradient(135deg, #2563eb 0%, #3b82f6 100%)' },
+  { id: 'business', name: '商务专业', color: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)' },
+  { id: 'tech', name: '科技蓝调', color: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)' },
+  { id: 'creative', name: '创意设计', color: 'linear-gradient(135deg, #dc2626 0%, #ea580c 100%)' },
+  { id: 'elegant', name: '优雅商务', color: 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)' },
+  { id: 'minimal', name: '极简主义', color: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)' },
+  { id: 'academic', name: '学术研究', color: 'linear-gradient(135deg, #0369a1 0%, #0c4a6e 100%)' },
+  { id: 'education', name: '教育培训', color: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)' },
+  { id: 'medical', name: '医疗健康', color: 'linear-gradient(135deg, #059669 0%, #047857 100%)' }
+])
+
+let ws = null
+
+const canGenerate = computed(() => topic.value.trim().length > 0 && topic.value.length <= 2000)
 
 function goBack() {
   router.push('/')
 }
 
-async function handleAgentGenerate() {
-  if (!canAgentGenerate.value || generating.value) return
-  if (!apiKeyStore.hasSiliconflowKey) {
-    ElMessage.error('请先配置 API Key 后再使用')
-    router.push('/settings')
-    return
-  }
-
-  generating.value = true
-  generatedSlides.value = []
-  generatedFileUrl.value = ''
-
+async function loadTemplates() {
   try {
-    const token = localStorage.getItem('access_token')
-    const res = await fetch('/api/v1/generate-from-text', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token ? `Bearer ${token}` : ''
-      },
-      body: JSON.stringify({
-        topic: topic.value.trim(),
-        num_slides: slideCount.value,
-        api_key_token: apiKeyStore.siliconflowKey?.token
-      })
-    })
-
-    if (!res.ok) {
-      throw new Error(`生成失败 (${res.status})`)
+    const result = await api.ppt.getTemplates()
+    if (result.templates && result.templates.length > 0) {
+      templates.value = result.templates.map(t => ({
+        id: t.id,
+        name: t.name,
+        color: `linear-gradient(135deg, ${t.primary_color || '#667eea'} 0%, ${t.primary_color || '#764ba2'}80 100%)`
+      }))
     }
-
-    const data = await res.json()
-    if (data.task_id) {
-      ElMessage.success('任务已创建，请在任务队列中查看进度')
-      router.push('/')
-    } else {
-      generatedSlides.value = data.slides || []
-      if (data.file_url) {
-        generatedFileUrl.value = data.file_url
-      }
-    }
-  } catch (e) {
-    console.error('PPT Agent 生成失败:', e)
-    ElMessage.error('生成失败: ' + e.message)
-  } finally {
-    generating.value = false
+  } catch (error) {
+    console.error('加载模板失败:', error)
   }
+}
+
+function connectWebSocket(taskId) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = `${protocol}//${window.location.host}/ws/ppt/${taskId}`
+
+  ws = new WebSocket(wsUrl)
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      if (data.type === 'progress') {
+        progressState.value = { progress: data.progress, step: data.step, message: data.message }
+      } else if (data.type === 'complete') {
+        progressState.value = { progress: 1, step: 'completed', message: '任务完成' }
+      } else if (data.type === 'error') {
+        progressState.value = { progress: progressState.value?.progress || 0, step: 'error', message: data.error || data.message }
+      }
+    } catch (error) {
+      console.error('WebSocket 消息解析失败:', error)
+    }
+  }
+
+  ws.onerror = () => { ws = null }
+  ws.onclose = () => { ws = null }
 }
 
 async function handleGenerate() {
@@ -215,36 +238,53 @@ async function handleGenerate() {
   }
 
   generating.value = true
+  generatedSlides.value = []
+  generatedFileUrl.value = ''
+  progressState.value = { progress: 0, step: 'starting', message: '正在创建任务...' }
 
   try {
-    const token = localStorage.getItem('access_token')
-    const res = await fetch('/api/v1/pptx/generate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token ? `Bearer ${token}` : ''
-      },
-      body: JSON.stringify({
-        topic: topic.value.trim(),
-        outline: outline.value.trim() || undefined,
-        slide_count: slideCount.value,
-        api_key_token: apiKeyStore.siliconflowKey?.token
-      })
+    const fullPrompt = buildFullPrompt()
+    const result = await api.ppt.createPptTask(fullPrompt, null, apiKeyStore.siliconflowKey?.token, {
+      template_id: selectedTemplate.value,
+      slide_count: parseInt(slideCount.value),
+      auto_images: autoImages.value,
+      enable_animation: enableAnimation.value,
     })
 
-    if (!res.ok) {
-      throw new Error(`生成失败 (${res.status})`)
+    if (result && result.task_id) {
+      connectWebSocket(result.task_id)
+      ElMessage.success('任务已创建，请在任务队列中查看进度')
+      setTimeout(() => router.push('/'), 1500)
+    } else {
+      ElMessage.error('创建 PPT 任务失败，请稍后重试')
     }
-
-    const data = await res.json()
-    generatedSlides.value = data.slides || []
   } catch (e) {
     console.error('PPT 生成失败:', e)
     ElMessage.error('生成失败: ' + e.message)
+    progressState.value = null
   } finally {
     generating.value = false
   }
 }
+
+function buildFullPrompt() {
+  const tpl = templates.value.find(t => t.id === selectedTemplate.value)
+  const features = []
+  if (autoImages.value) features.push('自动配图')
+  if (enableAnimation.value) features.push('动画效果')
+
+  let prompt = `${topic.value.trim()}\n\n`
+  prompt += `模板风格：${tpl?.name || '默认'}\n`
+  prompt += `幻灯片数量：${slideCount.value}页\n`
+  if (features.length > 0) prompt += `特殊要求：${features.join('、')}\n`
+  return prompt
+}
+
+onMounted(() => { loadTemplates() })
+
+onUnmounted(() => {
+  if (ws) { ws.close(); ws = null }
+})
 </script>
 
 <style scoped>
@@ -284,19 +324,9 @@ async function handleGenerate() {
   font-weight: 600;
 }
 
-.header-title svg {
-  width: 20px;
-  height: 20px;
-}
-
-.header-actions {
-  margin-left: auto;
-}
-
-.header-hint {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
+.header-title svg { width: 20px; height: 20px; }
+.header-actions { margin-left: auto; }
+.header-hint { font-size: 13px; color: var(--text-secondary); }
 
 .page-content {
   flex: 1;
@@ -305,27 +335,20 @@ async function handleGenerate() {
 }
 
 .config-panel {
-  width: 400px;
+  width: 420px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  overflow-y: auto;
 }
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.form-group { display: flex; flex-direction: column; gap: 8px; }
+.form-group label { font-size: 14px; font-weight: 500; }
+.required { color: #ef4444; }
 
-.form-group label {
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.form-group input,
 .form-group textarea {
   padding: 10px 12px;
   border: 1px solid var(--border-color);
@@ -333,59 +356,100 @@ async function handleGenerate() {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   font-size: 14px;
+  resize: vertical;
+  font-family: inherit;
 }
 
-.mode-selector {
-  display: flex;
-  gap: 4px;
-  background: var(--bg-tertiary);
-  padding: 4px;
+.char-count { text-align: right; font-size: 12px; color: var(--text-tertiary); }
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.template-card {
+  border: 2px solid var(--border-color);
   border-radius: 8px;
-}
-
-.mode-btn {
-  flex: 1;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-primary);
+  overflow: hidden;
   cursor: pointer;
   transition: all 0.2s;
 }
 
-.mode-btn.active {
-  background: var(--bg-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  font-weight: 500;
+.template-card:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.template-card.selected { border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2); }
+
+.template-preview {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.generate-btn,
-.ai-generate-btn {
+.template-preview svg { width: 24px; height: 24px; color: rgba(255,255,255,0.9); }
+
+.template-name {
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  background: var(--bg-tertiary);
+}
+
+.advanced-options {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.option-item { margin-bottom: 10px; }
+.option-item:last-child { margin-bottom: 0; }
+
+.option-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.option-select {
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.option-checkbox {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
+.generate-btn {
   padding: 12px;
   border: none;
-  border-radius: 6px;
-  background: var(--accent-color);
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--color-primary) 0%, #3b82f6 100%);
   color: white;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  transition: all 0.2s;
 }
 
-.generate-btn:disabled,
-.ai-generate-btn:disabled {
-  background: var(--border-color);
-  cursor: not-allowed;
-}
-
-.ai-generate-btn {
-  background: linear-gradient(135deg, #6ee7b7, #3b82f6);
-}
+.generate-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+.generate-btn:disabled { background: var(--border-color); cursor: not-allowed; }
 
 .loading-spinner {
   width: 16px;
@@ -396,9 +460,23 @@ async function handleGenerate() {
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.progress-section {
+  padding: 14px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
 }
+
+.progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.progress-title { font-size: 13px; font-weight: 600; }
+.progress-percentage { font-size: 16px; font-weight: 700; color: var(--color-primary); }
+
+.progress-bar { height: 6px; background: var(--bg-primary); border-radius: 3px; overflow: hidden; margin-bottom: 8px; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, var(--color-primary), #3b82f6); border-radius: 3px; transition: width 0.3s ease; }
+.progress-step { font-size: 12px; font-weight: 600; color: var(--color-primary); margin-bottom: 2px; }
+.progress-message { font-size: 12px; color: var(--text-secondary); }
 
 .preview-panel {
   flex: 1;
@@ -417,11 +495,27 @@ async function handleGenerate() {
   gap: 16px;
 }
 
-.preview-placeholder svg {
-  width: 60px;
-  height: 60px;
-  opacity: 0.5;
+.preview-placeholder svg { width: 60px; height: 60px; opacity: 0.5; }
+
+.loading-container, .success-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
 }
+
+.spinner-ring {
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--border-color);
+  border-top: 4px solid var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.success-container a { color: var(--color-primary); text-decoration: underline; }
 
 .slides-preview {
   display: grid;
@@ -436,51 +530,9 @@ async function handleGenerate() {
   border: 1px solid var(--border-color);
 }
 
-.slide-number {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-
-.slide-type {
-  font-size: 12px;
-  color: var(--accent-color);
-  margin-bottom: 4px;
-  text-transform: capitalize;
-}
-
-.slide-card h3 {
-  font-size: 16px;
-  margin-bottom: 8px;
-}
-
-.slide-card ul {
-  list-style-position: inside;
-  font-size: 14px;
-  color: var(--text-secondary);
-}
-
-.loading-container,
-.success-container {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-}
-
-.spinner-ring {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid var(--accent-color);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-.success-container a {
-  color: var(--accent-color);
-  text-decoration: underline;
-}
+.slide-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.slide-number { font-size: 12px; color: var(--text-secondary); }
+.slide-type { font-size: 12px; color: var(--color-primary); text-transform: capitalize; }
+.slide-card h3 { font-size: 16px; margin-bottom: 8px; }
+.slide-card ul { list-style-position: inside; font-size: 14px; color: var(--text-secondary); }
 </style>
