@@ -244,7 +244,7 @@
   const isGenerating = ref(false)
   const progressState = ref(null)
 
-  // 模板数据（从 API 加载）
+  // 模板数据（从 API 加载，本地回退列表与后端 PPT_TEMPLATES 保持一致）
   const templates = ref([
     {
       id: 'modern',
@@ -260,27 +260,45 @@
     },
     {
       id: 'tech',
-      name: '科技风格',
+      name: '科技蓝调',
       desc: '现代创新',
-      color: 'linear-gradient(135deg, #00c6ff 0%, #0072ff 100%)'
+      color: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)'
     },
     {
       id: 'creative',
       name: '创意设计',
       desc: '活泼生动',
-      color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+      color: 'linear-gradient(135deg, #dc2626 0%, #ea580c 100%)'
     },
     {
       id: 'elegant',
-      name: '优雅经典',
+      name: '优雅商务',
       desc: '高贵典雅',
-      color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
+      color: 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)'
     },
     {
       id: 'minimal',
-      name: '极简风格',
+      name: '极简主义',
       desc: '清新淡雅',
       color: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)'
+    },
+    {
+      id: 'academic',
+      name: '学术研究',
+      desc: '严谨专业',
+      color: 'linear-gradient(135deg, #0369a1 0%, #0c4a6e 100%)'
+    },
+    {
+      id: 'education',
+      name: '教育培训',
+      desc: '生动有趣',
+      color: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)'
+    },
+    {
+      id: 'medical',
+      name: '医疗健康',
+      desc: '专业可信',
+      color: 'linear-gradient(135deg, #059669 0%, #047857 100%)'
     }
   ])
 

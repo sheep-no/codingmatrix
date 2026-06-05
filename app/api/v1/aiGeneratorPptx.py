@@ -1560,6 +1560,7 @@ class OutlineGenerationRequest(BaseModel):
     description: str = PydanticField(default="", description="详细描述", max_length=2000)
     num_slides: int = PydanticField(default=10, ge=1, le=PPT_MAX_SLIDES, description="幻灯片数量")
     model: str = PydanticField(default=PPT_DEFAULT_MODEL, description="AI 模型")
+    api_key_token: Optional[str] = PydanticField(None, description="用户 API Key Token")
 
 class OutlineGenerationResponse(BaseModel):
     """大纲生成响应"""
@@ -1587,6 +1588,7 @@ async def generate_ppt_from_text(
             topic=req.topic,
             description=req.description,
             num_slides=req.num_slides,
+            api_key_token=req.api_key_token,
         )
 
         return OutlineGenerationResponse(
@@ -1630,6 +1632,7 @@ async def generate_ppt_from_text_task(
             topic=req.topic,
             description=req.description,
             num_slides=req.num_slides,
+            api_key_token=req.api_key_token,
         )
 
         ppt_id = str(uuid.uuid4())

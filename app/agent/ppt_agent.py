@@ -19,6 +19,9 @@ from app.agent.architect_json_parser import ArchitectJsonParser
 
 logger = logging.getLogger(__name__)
 
+# 与 aiGeneratorPptx.py 保持一致
+PPT_DEFAULT_MODEL = "THUDM/GLM-Z1-9B-0414"
+
 
 class SlideType(str, Enum):
     """幻灯片类型枚举"""
@@ -63,9 +66,7 @@ class PresentationOutline:
 class PPTAgent:
     """PPT Agent - 自然语言到 PPT 大纲"""
 
-    # PPT 专用模型配置 (按优先级排序)
-    # 使用 SiliconFlow 中可用的模型
-    DEFAULT_MODEL = "Qwen/Qwen3.5-4B"
+    DEFAULT_MODEL = PPT_DEFAULT_MODEL
     MAX_RETRIES = 3
 
     def __init__(self, model: Optional[str] = None, quality: str = "balanced"):

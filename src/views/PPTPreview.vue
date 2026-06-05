@@ -96,6 +96,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/utils/api/index'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
@@ -153,21 +154,21 @@ async function loadSlides() {
   }
 }
 
-// 下载 PDF
+// 下载 PDF（当前回退为 PPTX）
 async function downloadPDF() {
   try {
     const blob = await api.ppt.downloadPDF(pptId)
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `ppt-${pptId}.pdf`
+    a.download = `ppt-${pptId}.pptx`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   } catch (error) {
-    console.error('PDF 下载失败:', error)
-    alert('PDF 下载失败：' + error.message)
+    console.error('下载失败:', error)
+    ElMessage.error('下载失败：' + error.message)
   }
 }
 
