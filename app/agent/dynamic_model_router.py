@@ -105,6 +105,9 @@ class ModelPerformanceTracker:
         # sync_lock_factory: 可替换的同步锁工厂，默认 threading.Lock
         # 传入 _NoopLock 可跳过锁（适用于数据库自带并发控制的场景）
         self._sync_lock = (sync_lock_factory or threading.Lock)()
+        # 跨上下文互斥锁：防止 async 和 sync 同时操作同一 sqlite 连接
+        # 任何路径操作数据库前必须获取此锁，确保 asyncio.Lock 和 threading.Lock 互斥
+        self._cross_context_lock = threading.Lock()
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS performance ("
             "model_name TEXT NOT NULL, "
@@ -146,81 +149,87 @@ class ModelPerformanceTracker:
     async def record_call(self, model: str, task_type: str, success: bool, latency: float):
         now = time.time()
         async with self._write_lock:
-            cursor = self._conn.execute(
-                "SELECT success_rate, avg_latency, total_calls, consecutive_failures "
-                "FROM performance WHERE model_name = ? AND task_type = ?",
-                (model, task_type),
-            )
-            row = cursor.fetchone()
-            if row:
-                old_rate, old_latency, old_calls, old_cf = row
-                new_calls = old_calls + 1
-                if success:
-                    new_successes = int(old_rate * old_calls) + 1
-                    new_rate = new_successes / new_calls
-                    new_latency = (old_latency * old_calls + latency) / new_calls
-                    new_cf = 0
+            with self._cross_context_lock:
+                cursor = self._conn.execute(
+                    "SELECT success_rate, avg_latency, total_calls, consecutive_failures "
+                    "FROM performance WHERE model_name = ? AND task_type = ?",
+                    (model, task_type),
+                )
+                row = cursor.fetchone()
+                if row:
+                    old_rate, old_latency, old_calls, old_cf = row
+                    new_calls = old_calls + 1
+                    if success:
+                        new_successes = int(old_rate * old_calls) + 1
+                        new_rate = new_successes / new_calls
+                        new_latency = (old_latency * old_calls + latency) / new_calls
+                        new_cf = 0
+                    else:
+                        new_rate = (old_rate * old_calls) / new_calls
+                        new_latency = (old_latency * old_calls + latency) / new_calls
+                        new_cf = old_cf + 1
+                    self._conn.execute(
+                        "UPDATE performance SET success_rate=?, avg_latency=?, "
+                        "total_calls=?, consecutive_failures=?, last_updated=? "
+                        "WHERE model_name=? AND task_type=?",
+                        (new_rate, new_latency, new_calls, new_cf, now, model, task_type),
+                    )
                 else:
-                    new_rate = (old_rate * old_calls) / new_calls
-                    new_latency = (old_latency * old_calls + latency) / new_calls
-                    new_cf = old_cf + 1
-                self._conn.execute(
-                    "UPDATE performance SET success_rate=?, avg_latency=?, "
-                    "total_calls=?, consecutive_failures=?, last_updated=? "
-                    "WHERE model_name=? AND task_type=?",
-                    (new_rate, new_latency, new_calls, new_cf, now, model, task_type),
-                )
-            else:
-                rate = 1.0 if success else 0.0
-                cf = 0 if success else 1
-                self._conn.execute(
-                    "INSERT INTO performance "
-                    "(model_name, task_type, success_rate, avg_latency, "
-                    "total_calls, consecutive_failures, last_updated) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (model, task_type, rate, latency, 1, cf, now),
-                )
-            self._conn.commit()
+                    rate = 1.0 if success else 0.0
+                    cf = 0 if success else 1
+                    self._conn.execute(
+                        "INSERT INTO performance "
+                        "(model_name, task_type, success_rate, avg_latency, "
+                        "total_calls, consecutive_failures, last_updated) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (model, task_type, rate, latency, 1, cf, now),
+                    )
+                self._conn.commit()
 
     def _record_call_sync(self, model: str, task_type: str, success: bool, latency: float):
-        """同步版本 record_call（用于非异步上下文，通过 sync_lock 保护）"""
+        """同步版本 record_call（用于非异步上下文，通过 sync_lock 保护）
+
+        跨上下文互斥：与 async record_call 通过 _cross_context_lock 互斥，
+        避免 async 和 sync 同时持有 sqlite 连接导致死锁或数据竞争。
+        """
         now = time.time()
-        with self._sync_lock:
-            cursor = self._conn.execute(
-                "SELECT success_rate, avg_latency, total_calls, consecutive_failures "
-                "FROM performance WHERE model_name = ? AND task_type = ?",
-                (model, task_type),
-            )
-            row = cursor.fetchone()
-            if row:
-                old_rate, old_latency, old_calls, old_cf = row
-                new_calls = old_calls + 1
-                if success:
-                    new_successes = int(old_rate * old_calls) + 1
-                    new_rate = new_successes / new_calls
-                    new_latency = (old_latency * old_calls + latency) / new_calls
-                    new_cf = 0
+        with self._cross_context_lock:
+            with self._sync_lock:
+                cursor = self._conn.execute(
+                    "SELECT success_rate, avg_latency, total_calls, consecutive_failures "
+                    "FROM performance WHERE model_name = ? AND task_type = ?",
+                    (model, task_type),
+                )
+                row = cursor.fetchone()
+                if row:
+                    old_rate, old_latency, old_calls, old_cf = row
+                    new_calls = old_calls + 1
+                    if success:
+                        new_successes = int(old_rate * old_calls) + 1
+                        new_rate = new_successes / new_calls
+                        new_latency = (old_latency * old_calls + latency) / new_calls
+                        new_cf = 0
+                    else:
+                        new_rate = (old_rate * old_calls) / new_calls
+                        new_latency = (old_latency * old_calls + latency) / new_calls
+                        new_cf = old_cf + 1
+                    self._conn.execute(
+                        "UPDATE performance SET success_rate=?, avg_latency=?, "
+                        "total_calls=?, consecutive_failures=?, last_updated=? "
+                        "WHERE model_name=? AND task_type=?",
+                        (new_rate, new_latency, new_calls, new_cf, now, model, task_type),
+                    )
                 else:
-                    new_rate = (old_rate * old_calls) / new_calls
-                    new_latency = (old_latency * old_calls + latency) / new_calls
-                    new_cf = old_cf + 1
-                self._conn.execute(
-                    "UPDATE performance SET success_rate=?, avg_latency=?, "
-                    "total_calls=?, consecutive_failures=?, last_updated=? "
-                    "WHERE model_name=? AND task_type=?",
-                    (new_rate, new_latency, new_calls, new_cf, now, model, task_type),
-                )
-            else:
-                rate = 1.0 if success else 0.0
-                cf = 0 if success else 1
-                self._conn.execute(
-                    "INSERT INTO performance "
-                    "(model_name, task_type, success_rate, avg_latency, "
-                    "total_calls, consecutive_failures, last_updated) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (model, task_type, rate, latency, 1, cf, now),
-                )
-            self._conn.commit()
+                    rate = 1.0 if success else 0.0
+                    cf = 0 if success else 1
+                    self._conn.execute(
+                        "INSERT INTO performance "
+                        "(model_name, task_type, success_rate, avg_latency, "
+                        "total_calls, consecutive_failures, last_updated) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (model, task_type, rate, latency, 1, cf, now),
+                    )
+                self._conn.commit()
 
     def get_best_model(self, task_type: str, top_k: int = 3) -> List[str]:
         cursor = self._conn.execute(
@@ -971,18 +980,19 @@ def get_model_config(model_name: str, task_type: str = "generate", api_key_token
     dynamic_thinking_budget = max(2048, min(4096, dynamic_max_tokens // 2))
 
     configs = {
-        "THUDM/GLM-Z1-9B-0414": {"temperature": 0.6, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len},
-        "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": {"temperature": 0.6, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len},
-        "Qwen/Qwen3.5-4B": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len},
-        "Qwen/Qwen3-8B": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len},
-        "Qwen/Qwen2.5-7B-Instruct": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len},
-        "THUDM/GLM-4-9B-0414": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len},
+        "THUDM/GLM-Z1-9B-0414": {"temperature": 0.6, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 180},
+        "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": {"temperature": 0.6, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 180},
+        "Qwen/Qwen3.5-4B": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 120},
+        "Qwen/Qwen3-8B": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 180},
+        "Qwen/Qwen2.5-7B-Instruct": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 180},
+        "THUDM/GLM-4-9B-0414": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 180},
     }
     return configs.get(model_name, {
         "temperature": 0.7,
         "max_tokens": max_out,
         "thinking_budget": min(2048, max_out // 2),
         "context_length": ctx_len,
+        "timeout": 300,
     })
 
 

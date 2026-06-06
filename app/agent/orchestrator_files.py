@@ -12,7 +12,6 @@ from app.agent.code_patcher import apply_incremental_change
 from app.agent.complexity import ProjectComplexity
 from app.agent.code_validator import CodeValidator
 from app.agent.orchestrator_progress import PROGRESS_LABELS
-from app.agent.specialist_base import get_global_llm_semaphore
 from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL, DEFAULT_ARCHITECT_MODEL
 from app.agent.utils import extract_engineer_content, write_file_atomic
 
@@ -160,8 +159,6 @@ class FilesMixin:
         project_context: Dict,
         total_files: int
     ):
-        semaphore = get_global_llm_semaphore()
-
         # 分离已有文件和新文件
         existing_files = []
         new_files = []
@@ -176,11 +173,8 @@ class FilesMixin:
         # git stash 备份已有文件
         stashed = _git_stash_push(str(self.output_dir), existing_files, "agent-backup-batch")
 
-        async def generate_with_semaphore(file_info: Dict) -> Dict:
-            async with semaphore:
-                return await self._generate_single_file(file_info, project_context, total_files)
-
-        tasks = [generate_with_semaphore(fi) for fi in file_plan]
+        # 直接并发生成，由 LLMClient 内部信号量控制并发度
+        tasks = [self._generate_single_file(fi, project_context, total_files) for fi in file_plan]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # 检查是否全部成功
@@ -223,7 +217,6 @@ class FilesMixin:
         dep_graph
     ):
         layers = dep_graph.get_generation_layers()
-        semaphore = get_global_llm_semaphore()
 
         file_info_map: Dict[str, Dict] = {fi.get("path", ""): fi for fi in file_plan}
 
@@ -254,12 +247,12 @@ class FilesMixin:
             # git stash 备份已有文件
             stashed = _git_stash_push(str(self.output_dir), existing_files, f"agent-backup-layer-{layer_idx}")
 
-            async def generate_with_semaphore(file_path: str) -> Dict:
-                async with semaphore:
-                    fi = file_info_map.get(file_path, {"path": file_path, "description": f"生成 {file_path}"})
-                    return await self._generate_single_file(fi, project_context, total_files, self._generated_contents)
+            # 直接并发生成，由 LLMClient 内部信号量控制并发度
+            async def generate_file(file_path: str) -> Dict:
+                fi = file_info_map.get(file_path, {"path": file_path, "description": f"生成 {file_path}"})
+                return await self._generate_single_file(fi, project_context, total_files, self._generated_contents)
 
-            tasks = [generate_with_semaphore(fp) for fp in layer_files]
+            tasks = [generate_file(fp) for fp in layer_files]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             # 检查本层是否全部成功

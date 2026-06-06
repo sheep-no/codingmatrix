@@ -547,7 +547,8 @@ async def orchestrate_project_stream(
                 feedback_learner=learner,
                 evaluation_only=request.evaluation_only,
                 api_key_token=request.api_key_token,
-                provider_id=request.provider_id
+                provider_id=request.provider_id,
+                cancel_event=cancel_event
             )
 
             async def run_generation():
@@ -592,7 +593,6 @@ async def orchestrate_project_stream(
             except asyncio.CancelledError:
                 logger.info(f"[SSE] 客户端断开连接，取消生成任务 | session={session_id}")
             finally:
-                was_cancelled = cancel_event.is_set()
                 cancel_event.set()
                 if not gen_task.done():
                     gen_task.cancel()
@@ -602,10 +602,9 @@ async def orchestrate_project_stream(
                         pass
                 await _cleanup_session_queues(session_id)
                 concurrent_mgr.unregister_session(user_role)
-                if was_cancelled:
-                    await sm.cancel_session(session_id)
-                    async with async_session() as gen_db:
-                        await _update_project_session_status(gen_db, session_id, "cancelled")
+                await sm.cancel_session(session_id)
+                async with async_session() as gen_db:
+                    await _update_project_session_status(gen_db, session_id, "cancelled")
 
         except asyncio.CancelledError:
             logger.info("[SSE] Orchestrator 流式响应被取消")

@@ -282,12 +282,14 @@ class ErrorRecoveryLoop:
 
                     # 验证修复后的代码（只验证单个文件）
                     temp_file = file_path.parent / f".temp_fix_{file_path.name}"
-                    with open(temp_file, 'w', encoding='utf-8') as f:
-                        f.write(fixed_content)
+                    try:
+                        with open(temp_file, 'w', encoding='utf-8') as f:
+                            f.write(fixed_content)
 
-                    validation = await self.validator.validate_single_file(temp_file)
-                    if temp_file.exists():
-                        temp_file.unlink()
+                        validation = await self.validator.validate_single_file(temp_file)
+                    finally:
+                        if temp_file.exists():
+                            temp_file.unlink()
 
                     if validation["is_valid"]:
                         # 评估代码质量（通过后续审查轮次的通过率）

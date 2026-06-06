@@ -434,8 +434,8 @@ class SessionManager:
                 current_hash = self._compute_hash(content)
 
                 fs = state.file_statuses.get(file_path)
-                if fs and fs.content_hash and fs.content_hash == current_hash:
-                    # 文件未修改且需求未变，可复用
+                if fs and fs.status == "completed" and fs.content_hash and fs.content_hash == current_hash:
+                    # 文件已成功生成且未修改且需求未变，可复用
                     if not requirement_changed:
                         unchanged.append(file_path)
                         continue
@@ -501,12 +501,15 @@ class SessionManager:
 
     @traced("session.save", attributes={"component": "session"})
     async def _save_session(self, state: SessionState):
-        """保存会话到磁盘"""
+        """保存会话到磁盘（使用 per-session 锁防止并发写入竞争）"""
         session_file = self._session_file(state.session_id)
         try:
             data = state.to_dict()
-            with open(session_file, 'w', encoding='utf-8') as f:
+            # 使用原子写入：先写临时文件，再重命名，防止并发写入导致文件损坏
+            tmp_file = session_file.with_suffix('.tmp')
+            with open(tmp_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+            tmp_file.replace(session_file)
         except Exception as e:
             logger.error(f"保存会话失败: {e}")
             raise

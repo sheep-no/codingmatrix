@@ -169,6 +169,29 @@ async def sqlalchemy_error_handler(
     )
 
 
+async def llm_call_error_handler(
+    request: Request, exc: "LLMCallError"
+) -> JSONResponse:
+    """LLMCallError 统一处理：工具层不再抛 HTTPException"""
+    from app.utils.aicloud.llm_caller import LLMCallError, UserAPIKeyNotFoundError, ProviderAPIKeyNotConfiguredError
+
+    code_map = {
+        UserAPIKeyNotFoundError: "USER_API_KEY_NOT_FOUND",
+        ProviderAPIKeyNotConfiguredError: "PROVIDER_API_KEY_NOT_CONFIGURED",
+        LLMCallError: "LLM_CALL_ERROR",
+    }
+    code = code_map.get(type(exc), "LLM_CALL_ERROR")
+    logger.warning(
+        f"LLM 调用异常 | path={request.url.path} | code={code} | message={exc.message}"
+    )
+    return _error_response(
+        code=code,
+        message=exc.message,
+        status_code=exc.status_code,
+        details={"path": request.url.path},
+    )
+
+
 async def generic_exception_handler(
     request: Request, exc: Exception
 ) -> JSONResponse:
@@ -193,4 +216,10 @@ def register_exception_handlers(app):
     app.add_exception_handler(IntegrityError, integrity_error_handler)
     app.add_exception_handler(OperationalError, operational_error_handler)
     app.add_exception_handler(SQLAlchemyError, sqlalchemy_error_handler)
+    # LLMCallError 必须在 Exception 之前注册，否则会被通用 handler 吞掉
+    try:
+        from app.utils.aicloud.llm_caller import LLMCallError
+        app.add_exception_handler(LLMCallError, llm_call_error_handler)
+    except ImportError:
+        pass
     app.add_exception_handler(Exception, generic_exception_handler)

@@ -76,6 +76,7 @@ class MultiModelAgent:
         self._semaphore = None
         self._orchestrator_factory = orchestrator_factory
         self._orchestrator = None
+        # 保留 _api_key_token 别名以兼容历史调用方
         self._api_key_token = api_key_token
 
     def _get_semaphore(self):
@@ -148,7 +149,7 @@ class MultiModelAgent:
             await emit("analyzing", {"message": "正在分析项目...", "task_type": task_type.value})
             try:
                 model_info = await self.router.route_dynamic(task_type) if use_dynamic_routing else self.router.route(task_type)
-                api_key_token = getattr(self, '_api_key_token', None)
+                api_key_token = self.api_key_token
                 result = await self.executor.execute_analysis(
                     task=task,
                     project_path=str(output_dir),

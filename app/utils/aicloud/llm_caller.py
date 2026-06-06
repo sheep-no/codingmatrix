@@ -44,6 +44,29 @@ _USER_ADAPTER_CACHE_MAX = 256
 _adapter_cache_lock = asyncio.Lock()
 
 
+class LLMCallError(Exception):
+    """LLM 调用基础异常"""
+    def __init__(self, message: str, status_code: int = 500):
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
+
+
+class UserAPIKeyNotFoundError(LLMCallError):
+    """用户 API Key 未找到或已过期"""
+    def __init__(self, message: str = "用户 API Key 未找到或已过期，请重新配置"):
+        super().__init__(message, status_code=401)
+
+
+class ProviderAPIKeyNotConfiguredError(LLMCallError):
+    """供应商 API Key 未配置"""
+    def __init__(self, provider: str):
+        super().__init__(
+            f"{provider} 供应商的 API Key 未配置，请在 Settings → API Key 管理中添加",
+            status_code=401,
+        )
+
+
 def _make_user_cache_key(provider: ModelProvider, api_key: str) -> tuple:
     """用户 Adapter 缓存键：避免存明文 Key，使用 SHA-256 前 16 字节"""
     import hashlib
@@ -51,37 +74,39 @@ def _make_user_cache_key(provider: ModelProvider, api_key: str) -> tuple:
     return (provider, api_key_hash)
 
 
-def get_adapter(provider: ModelProvider, config: Optional[ProviderConfig] = None) -> BaseProviderAdapter:
+async def get_adapter(provider: ModelProvider, config: Optional[ProviderConfig] = None) -> BaseProviderAdapter:
     """获取供应商适配器实例（带缓存）"""
     if provider not in ADAPTER_FACTORIES:
         raise ValueError(f"Unknown provider: {provider}")
 
     if config is None:
         # 使用默认 config（平台 Key），按 provider 缓存
-        if provider in _adapter_cache:
-            return _adapter_cache[provider]
-        config = settings.get_provider_registry().get(provider)
-        if config is None:
-            raise RuntimeError(f"Provider {provider.value} is not configured")
-        adapter = ADAPTER_FACTORIES[provider](config)
-        _adapter_cache[provider] = adapter
-        return adapter
+        async with _adapter_cache_lock:
+            if provider in _adapter_cache:
+                return _adapter_cache[provider]
+            cfg = settings.get_provider_registry().get(provider)
+            if cfg is None:
+                raise RuntimeError(f"Provider {provider.value} is not configured")
+            adapter = ADAPTER_FACTORIES[provider](cfg)
+            _adapter_cache[provider] = adapter
+            return adapter
 
     # 自定义 config（用户 API Key），按 (provider, api_key_hash) 缓存
     cache_key = _make_user_cache_key(provider, config.api_key)
-    if cache_key in _user_adapter_cache:
-        return _user_adapter_cache[cache_key]
+    async with _adapter_cache_lock:
+        if cache_key in _user_adapter_cache:
+            return _user_adapter_cache[cache_key]
 
-    adapter = ADAPTER_FACTORIES[provider](config)
+        adapter = ADAPTER_FACTORIES[provider](config)
 
-    # LRU 淘汰：超过上限时清掉一半
-    if len(_user_adapter_cache) >= _USER_ADAPTER_CACHE_MAX:
-        half = _USER_ADAPTER_CACHE_MAX // 2
-        for _ in range(half):
-            _user_adapter_cache.pop(next(iter(_user_adapter_cache)))
+        # LRU 淘汰：超过上限时清掉一半
+        if len(_user_adapter_cache) >= _USER_ADAPTER_CACHE_MAX:
+            half = _USER_ADAPTER_CACHE_MAX // 2
+            for _ in range(half):
+                _user_adapter_cache.pop(next(iter(_user_adapter_cache)))
 
-    _user_adapter_cache[cache_key] = adapter
-    return adapter
+        _user_adapter_cache[cache_key] = adapter
+        return adapter
 
 
 async def call_llm(
@@ -149,7 +174,7 @@ async def call_llm(
                         api_key=api_key,
                         base_url=_get_provider_base_url(provider),
                     )
-                    adapter = get_adapter(provider, config)
+                    adapter = await get_adapter(provider, config)
                     adapter.timeout = timeout
                     logger.debug(f"使用用户自定义 Key 调用模型: {model}（供应商：{provider.value}）")
                 except Exception as e:
@@ -157,11 +182,7 @@ async def call_llm(
         else:
             # 用户提供了 api_key_token，但 Redis 中找不到对应 Key
             # 明确报错，避免静默使用空 Key 走"系统默认"（Bearer 空字符串 → 401 死循环）
-            from fastapi import HTTPException
-            raise HTTPException(
-                status_code=401,
-                detail="用户 API Key 未找到或已过期，请重新配置"
-            )
+            raise UserAPIKeyNotFoundError()
     
     # 优先级 3: 检查动态供应商中是否有该模型
     if adapter is None:
@@ -179,21 +200,21 @@ async def call_llm(
         primary_provider = router.route(model)
         
         try:
-            adapter = get_adapter(primary_provider)
+            adapter = await get_adapter(primary_provider)
             adapter.timeout = timeout
         except Exception as e:
             if disable_fallback:
                 raise RuntimeError(f"Provider {primary_provider.value} failed and fallback is disabled: {e}") from e
 
             logger.warning(f"Primary provider {primary_provider.value} failed: {e}")
-            
+
             fallback_providers = router.get_fallback_providers(primary_provider)
             last_error = e
-            
+
             for fallback in fallback_providers:
                 try:
                     logger.info(f"Trying fallback provider: {fallback.value}")
-                    adapter = get_adapter(fallback)
+                    adapter = await get_adapter(fallback)
                     adapter.timeout = timeout
                     break
                 except Exception as fallback_error:
@@ -206,11 +227,7 @@ async def call_llm(
 
     # 校验 adapter 已绑定有效 api_key（避免空 Key 走到 HTTP 层变 Bearer 401）
     if not adapter.api_key:
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=401,
-            detail=f"{adapter.provider.value} 供应商的 API Key 未配置，请在 Settings → API Key 管理中添加"
-        )
+        raise ProviderAPIKeyNotConfiguredError(adapter.provider.value)
 
     try:
         return await adapter.call_llm(
@@ -234,7 +251,12 @@ async def call_llm(
             
             for fallback in fallback_providers:
                 try:
-                    fallback_adapter = get_adapter(fallback)
+                    # 检查模型是否可能在 fallback 供应商可用
+                    fallback_model = router.route(model)
+                    if fallback_model != fallback:
+                        logger.debug(f"模型 {model} 不在 fallback 供应商 {fallback.value}，跳过")
+                        continue
+                    fallback_adapter = await get_adapter(fallback)
                     fallback_adapter.timeout = timeout
                     logger.info(f"Stream fallback to {fallback.value}")
                     return await fallback_adapter.call_llm(

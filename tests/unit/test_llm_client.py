@@ -138,8 +138,8 @@ class TestLLMClientCall:
         mock_call_llm.side_effect = slow_call
 
         client = LLMClient(model_name="test-model")
-        result = await client.call("Hi")
-        assert result == ""
+        with pytest.raises(LLMClientError, match="LLM 调用超时"):
+            await client.call("Hi")
 
     @pytest.mark.asyncio
     @patch("app.agent.llm_client.LayeredModelRouter")
@@ -168,7 +168,7 @@ class TestLLMClientCall:
     @patch("app.agent.llm_client.LayeredModelRouter")
     @patch("app.agent.llm_client.get_dynamic_router")
     @patch("app.agent.llm_client.call_llm")
-    async def test_call_generic_error_returns_empty(self, mock_call_llm, mock_get_router, mock_router_cls):
+    async def test_call_generic_error_raises(self, mock_call_llm, mock_get_router, mock_router_cls):
         mock_router_cls.get_model_config.return_value = {
             "max_tokens": 4096, "thinking_budget": 0,
             "temperature": 0.7, "timeout": 300,
@@ -178,8 +178,8 @@ class TestLLMClientCall:
         mock_call_llm.side_effect = RuntimeError("connection failed")
 
         client = LLMClient(model_name="test-model")
-        result = await client.call("Hi")
-        assert result == ""
+        with pytest.raises(LLMClientError, match="LLM 调用失败"):
+            await client.call("Hi")
 
     @pytest.mark.asyncio
     @patch("app.agent.llm_client.LayeredModelRouter")

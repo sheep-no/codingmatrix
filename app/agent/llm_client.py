@@ -60,6 +60,7 @@ class LLMClient:
         cost_tracker=None,
         complexity: str = "medium",
         semaphore: Optional[asyncio.Semaphore] = None,
+        cancel_event: Optional[asyncio.Event] = None,
     ):
         self.model_name = model_name
         self.task_type = task_type
@@ -68,6 +69,7 @@ class LLMClient:
         self._cost_tracker = cost_tracker
         self._complexity = complexity
         self._semaphore = semaphore if semaphore is not None else get_global_semaphore()
+        self._cancel_event = cancel_event
         self._model_config = LayeredModelRouter.get_model_config(
             model_name, task_type=task_type, api_key_token=api_key_token
         )
@@ -117,6 +119,7 @@ class LLMClient:
                     api_key_token=self.api_key_token,
                     provider_id=self.provider_id,
                     disable_fallback=self._disable_fallback,
+                    cancel_event=self._cancel_event,
                 )
 
             call_timeout = self._model_config.get("timeout", 300)
@@ -127,7 +130,8 @@ class LLMClient:
             else:
                 response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
 
-            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            choices = response.get("choices", [])
+            content = choices[0].get("message", {}).get("content", "") if choices else ""
             latency_ms = (time.time() - start_time) * 1000
             await (await get_dynamic_router()).record_call(
                 self.model_name, success=True, latency_ms=latency_ms
@@ -151,7 +155,7 @@ class LLMClient:
                 self.model_name, success=False, latency_ms=latency_ms, error="timeout"
             )
             logger.error(f"LLM 调用超时 ({call_timeout}s): {self.model_name}")
-            return ""
+            raise LLMClientError(f"LLM 调用超时 ({call_timeout}s): {self.model_name}")
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
@@ -165,7 +169,7 @@ class LLMClient:
                     f"认证失败 (HTTP {e.response.status_code})，请检查 API Key 配置"
                 ) from e
 
-            return ""
+            raise LLMClientError(f"LLM 调用失败: {self.model_name} - {e}") from e
 
     @property
     def model_config(self) -> Dict:

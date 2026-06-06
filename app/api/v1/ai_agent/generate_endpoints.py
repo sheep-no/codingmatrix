@@ -2,12 +2,13 @@ import asyncio
 import logging
 import json
 import time
+import uuid
 import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,11 +41,14 @@ router = APIRouter()
 @router.post("/generate", response_model=GenerateResponse)
 async def generate_project(
         req: GenerateRequest,
-        token: dict = Depends(verify_token)
+        token: dict = Depends(verify_token),
+        request: Request = None
 ):
     user_id = token.get("sub", "anonymous")
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = f"./projects/{timestamp}_{user_id}"
+    # 使用毫秒级时间戳 + UUID 前 8 位避免并发同秒冲突
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+    unique_id = uuid.uuid4().hex[:8]
+    output_dir = f"./projects/{timestamp}_{unique_id}_{user_id}"
 
     agent_config = _build_agent_config(req)
 
@@ -53,12 +57,30 @@ async def generate_project(
     def empty_callback(msg: str):
         pass
 
+    # 创建取消事件：客户端断开连接时设置
+    cancel_event = asyncio.Event()
+
+    async def _watch_disconnect():
+        """监听客户端断开连接，设置取消事件"""
+        try:
+            while not cancel_event.is_set():
+                if await request.is_disconnected():
+                    cancel_event.set()
+                    logger.info(f"客户端断开连接，设置取消事件 | user_id={user_id}")
+                    break
+                await asyncio.sleep(1.0)
+        except Exception:
+            pass
+
+    disconnect_task = asyncio.create_task(_watch_disconnect())
+
     try:
         result = await agent.generate_project(
             requirement=req.requirement,
             output_dir=output_dir,
             session_id=req.session_id,
-            callback=empty_callback
+            callback=empty_callback,
+            cancel_event=cancel_event
         )
 
         project_name = Path(output_dir).name
@@ -92,6 +114,13 @@ async def generate_project(
                 "output_dir": Path(output_dir).name
             }
         )
+    finally:
+        cancel_event.set()
+        disconnect_task.cancel()
+        try:
+            await disconnect_task
+        except asyncio.CancelledError:
+            pass
 
 
 @router.get("/generate/download/{project_path:path}")

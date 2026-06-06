@@ -75,10 +75,10 @@ class GenerationMixin(
         cost_tracker = getattr(self, 'cost_tracker', None)
         complexity_level = self.complexity.level.value if self.complexity else "medium"
 
-        self.architect = Architect("架构师", self.model_assignment.architect_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level)
-        self.frontend_engineer = FrontendEngineer("前端工程师", self.model_assignment.frontend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level)
-        self.backend_engineer = BackendEngineer("后端工程师", self.model_assignment.backend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level)
-        self.reviewer = CodeReviewer("审查员", self.model_assignment.reviewer_model, task_type="review", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level)
+        self.architect = Architect("架构师", self.model_assignment.architect_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
+        self.frontend_engineer = FrontendEngineer("前端工程师", self.model_assignment.frontend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
+        self.backend_engineer = BackendEngineer("后端工程师", self.model_assignment.backend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
+        self.reviewer = CodeReviewer("审查员", self.model_assignment.reviewer_model, task_type="review", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
         self.validator = CodeValidator(self.output_dir)
         self.error_recovery = ErrorRecoveryLoop(self.validator, self.reviewer, api_key_token=self.api_key_token)
         self.api_contract_checker = APIContractChecker()

@@ -48,7 +48,7 @@ class Specialist:
     def __init__(self, role_name: str, model_name: str, task_type: str = "generate",
                  api_key_token: Optional[str] = None, provider_id: Optional[str] = None,
                  semaphore: Optional[asyncio.Semaphore] = None, cost_tracker=None,
-                 complexity: str = "medium"):
+                 complexity: str = "medium", cancel_event: Optional[asyncio.Event] = None):
         self.role_name = role_name
         self.model_name = model_name
         self.task_type = task_type
@@ -67,6 +67,7 @@ class Specialist:
             cost_tracker=cost_tracker,
             complexity=complexity,
             semaphore=semaphore,
+            cancel_event=cancel_event,
         )
 
     def get_edited_files(self) -> List[str]:

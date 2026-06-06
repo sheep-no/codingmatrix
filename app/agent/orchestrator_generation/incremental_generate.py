@@ -3,7 +3,6 @@ import logging
 from typing import Dict, List
 
 from app.agent.orchestrator_progress import PROGRESS_LABELS
-from app.agent.specialist_base import get_global_llm_semaphore
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +52,8 @@ class IncrementalGenerateMixin:
             return
 
         # 直接走 _generate_single_file，工程师自己决定用 partial_update 还是 write_file
-        semaphore = get_global_llm_semaphore()
-
-        async def generate_with_semaphore(file_info: Dict) -> Dict:
-            async with semaphore:
-                return await self._generate_single_file(file_info, project_context, total_files)
-
-        tasks = [generate_with_semaphore(fi) for fi in incremental_plan]
+        # 由 LLMClient 内部信号量控制并发度
+        tasks = [self._generate_single_file(fi, project_context, total_files) for fi in incremental_plan]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for i, result in enumerate(results):

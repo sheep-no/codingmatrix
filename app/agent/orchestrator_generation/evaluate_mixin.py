@@ -43,11 +43,13 @@ class EvaluationMixin:
         self.architect = Architect("评价架构师", self.model_assignment.architect_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL,
                                 task_type="review",
                                 api_key_token=self.api_key_token,
-                                provider_id=getattr(self, 'provider_id', None))
+                                provider_id=getattr(self, 'provider_id', None),
+                                cancel_event=self.cancel_event)
         self.reviewer = CodeReviewer("评价审查员", self.model_assignment.reviewer_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL,
                                      task_type="review",
                                      api_key_token=self.api_key_token,
-                                     provider_id=getattr(self, 'provider_id', None))
+                                     provider_id=getattr(self, 'provider_id', None),
+                                     cancel_event=self.cancel_event)
 
         self._report_progress("evaluation", 3, 5, phase="requirement_analysis",
                               message="正在分析需求...")

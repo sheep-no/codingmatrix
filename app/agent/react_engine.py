@@ -251,10 +251,12 @@ class ReActEngine:
             response = await self.call_llm_fn(prompt, "你是一个反思分析器。分析当前执行进度，判断是否需要继续。")
             result = self.json_parser.safe_parse_json(response)
             if not isinstance(result, dict):
-                result = {"continue": False, "task_complete": True, "reflection": response}
+                # JSON 解析失败或返回非 dict，继续执行而非终止
+                logger.warning(f"反思阶段 JSON 解析失败，继续执行")
+                result = {"continue": True, "task_complete": False, "reflection": response}
         except Exception as e:
             logger.error(f"反思阶段失败: {e}")
-            result = {"continue": False, "task_complete": True, "reflection": f"反思失败: {e}"}
+            result = {"continue": True, "task_complete": False, "reflection": f"反思失败: {e}"}
 
         return result
 
@@ -374,7 +376,11 @@ class ReActEngine:
                 self._add_step(ReActStep("final", final_response))
                 return final_response
 
-            response = await self.call_llm_fn(current_prompt, enhanced_system)
+            try:
+                response = await self.call_llm_fn(current_prompt, enhanced_system)
+            except Exception as e:
+                logger.error(f"{self.role_name} ReAct LLM 调用失败: {e}")
+                return ""
             if not response:
                 return ""
 
@@ -459,7 +465,11 @@ class ReActEngine:
 
 请用简洁的语言描述你的思考。"""
 
-            thought = await self.call_llm_fn(thought_prompt, enhanced_system)
+            try:
+                thought = await self.call_llm_fn(thought_prompt, enhanced_system)
+            except Exception as e:
+                logger.error(f"{self.role_name} ReAct 全模式 LLM 调用失败: {e}")
+                return ""
             self._add_step(ReActStep("thought", thought))
             await self._stream(f"[思考] {thought}\n\n")
 
@@ -474,7 +484,11 @@ class ReActEngine:
 请决定使用哪个工具，以 JSON 格式返回：
 {{"tool": "工具名", "params": {{"参数名": "值"}}}}"""
 
-            action_response = await self.call_llm_fn(action_prompt, enhanced_system)
+            try:
+                action_response = await self.call_llm_fn(action_prompt, enhanced_system)
+            except Exception as e:
+                logger.error(f"{self.role_name} ReAct 全模式 Action LLM 调用失败: {e}")
+                return ""
             tool_call = self._parse_tool_call(action_response)
 
             if not tool_call:
@@ -525,7 +539,11 @@ class ReActEngine:
 
 请用简洁的语言描述观察结果。"""
 
-            observation = await self.call_llm_fn(observe_prompt, enhanced_system)
+            try:
+                observation = await self.call_llm_fn(observe_prompt, enhanced_system)
+            except Exception as e:
+                logger.error(f"{self.role_name} ReAct 全模式 Observation LLM 调用失败: {e}")
+                observation = f"观察失败: {e}"
             self._add_step(ReActStep("observation", observation))
             await self._stream(f"[观察] {observation}\n\n")
 

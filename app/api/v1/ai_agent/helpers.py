@@ -55,6 +55,21 @@ def _validate_project_path(project_path: str, user_id: str) -> Path:
     if not project_dir.is_dir():
         logger.warning(f"不是文件夹 | 路径: {project_dir}")
         raise HTTPException(status_code=400, detail="不是有效的项目文件夹")
+
+    # 用户归属校验：项目目录名格式为 {timestamp}_{unique_id}_{user_id}
+    # 检查目录名最后一段是否等于 user_id，防止跨用户访问
+    dir_name = project_dir.name
+    if user_id and user_id != "anonymous":
+        # 新格式：{timestamp}_{unique_id}_{user_id} — 取最后一段精确匹配
+        parts = dir_name.rsplit("_", 1)
+        if len(parts) == 2 and parts[1] == user_id:
+            pass  # 校验通过
+        elif user_id == parts[-1]:
+            pass  # 兼容旧格式
+        else:
+            logger.warning(f"跨用户访问拒绝 | 请求用户: {user_id} | 项目目录: {dir_name}")
+            raise HTTPException(status_code=403, detail="无权访问其他用户的项目")
+
     return project_dir
 
 

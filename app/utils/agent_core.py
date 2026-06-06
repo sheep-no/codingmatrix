@@ -37,6 +37,11 @@ logger = logging.getLogger(__name__)
 class ConversationHistoryManager:
     """基于 session_id 的对话历史管理器"""
     
+    # 最大活跃会话数（防止内存泄漏）
+    MAX_ACTIVE_SESSIONS = 100
+    # 单个会话最大消息数
+    MAX_MESSAGES_PER_SESSION = 200
+    
     def __init__(self):
         # 存储格式: {session_id: {"messages": [...], "output_dir": "..."}}
         self._data: Dict[str, Dict] = {}
@@ -55,6 +60,11 @@ class ConversationHistoryManager:
             if session_id not in self._data:
                 self._data[session_id] = {"messages": [], "output_dir": None}
             self._data[session_id]["messages"].extend(messages)
+            # 限制单个会话的消息数
+            if len(self._data[session_id]["messages"]) > self.MAX_MESSAGES_PER_SESSION:
+                self._data[session_id]["messages"] = self._data[session_id]["messages"][-self.MAX_MESSAGES_PER_SESSION:]
+            # 如果会话数超限，清理最旧的
+            await self._cleanup_if_needed()
     
     async def set_history(self, session_id: str, messages: List[Dict]):
         """设置完整对话历史（用于恢复）"""
@@ -62,6 +72,9 @@ class ConversationHistoryManager:
             if session_id not in self._data:
                 self._data[session_id] = {"output_dir": None}
             self._data[session_id]["messages"] = messages
+            # 限制单个会话的消息数
+            if len(messages) > self.MAX_MESSAGES_PER_SESSION:
+                self._data[session_id]["messages"] = messages[-self.MAX_MESSAGES_PER_SESSION:]
     
     async def set_output_dir(self, session_id: str, output_dir: str):
         """设置输出目录"""
@@ -86,6 +99,22 @@ class ConversationHistoryManager:
         """检查是否有历史"""
         async with self._lock:
             return session_id in self._data and len(self._data[session_id].get("messages", [])) > 0
+    
+    async def _cleanup_if_needed(self):
+        """如果会话数超限，清理最旧的会话（调用时已持有锁）"""
+        if len(self._data) > self.MAX_ACTIVE_SESSIONS:
+            # 按最后更新时间排序，移除最旧的
+            sorted_sessions = sorted(
+                self._data.items(),
+                key=lambda x: x[1].get("messages", [{}])[-1].get("timestamp", "") if x[1].get("messages") else "",
+                reverse=True
+            )
+            # 保留最新的 MAX_ACTIVE_SESSIONS 个
+            to_remove = sorted_sessions[self.MAX_ACTIVE_SESSIONS:]
+            for sid, _ in to_remove:
+                del self._data[sid]
+            if to_remove:
+                logger.info(f"ConversationHistoryManager: 清理 {len(to_remove)} 个过期会话")
 
 
 # 全局单例
@@ -1406,27 +1435,41 @@ class ProjectGeneratorAgent(BaseModel):
         # 对中间消息进行摘要
         middle_messages = messages[1:-4] if len(messages) > 5 else []
         if middle_messages:
-            # 提取关键信息：文件创建结果、工具执行状态
+            # 提取关键信息：文件创建结果、工具执行状态、目录快照
             key_events = []
             file_created = []
+            directory_snapshots = []
+            error_info = []
             for msg in middle_messages:
+                content = msg.get("content", "")
                 if msg.get("role") == "tool":
                     try:
-                        result = json.loads(msg.get("content", "{}"))
-                        if result.get("status") == "success" and result.get("file_path"):
-                            file_created.append(result["file_path"])
+                        result = json.loads(content) if isinstance(content, str) else content
+                        if isinstance(result, dict):
+                            if result.get("status") == "success" and result.get("file_path"):
+                                file_created.append(result["file_path"])
+                            elif result.get("status") == "error":
+                                error_info.append(result.get("message", str(result))[:80])
                     except (json.JSONDecodeError, TypeError):
                         pass
-                elif msg.get("role") == "assistant" and msg.get("content"):
+                elif msg.get("role") == "system" and isinstance(content, str):
+                    # 保留目录快照信息
+                    if "目录状态" in content or "snapshot" in content.lower():
+                        directory_snapshots.append(content[:200])
+                elif msg.get("role") == "assistant" and content:
                     # 保留 AI 的关键决策说明
-                    content = msg["content"]
                     if len(content) > 50:
                         key_events.append(content[:100])
 
             # 构建压缩摘要消息
             summary_parts = ["【历史对话摘要】"]
             if file_created:
-                summary_parts.append(f"已创建文件: {', '.join(file_created[:10])}")
+                summary_parts.append(f"已创建文件 ({len(file_created)} 个): {', '.join(file_created[:15])}")
+            if directory_snapshots:
+                # 保留最新的目录快照
+                summary_parts.append(f"最新目录快照:\n{directory_snapshots[-1]}")
+            if error_info:
+                summary_parts.append(f"错误记录: {'; '.join(error_info[:3])}")
             if key_events:
                 summary_parts.append(f"关键决策: {'; '.join(key_events[:3])}")
             summary_parts.append(f"(已压缩 {len(middle_messages)} 条消息)")
@@ -1462,11 +1505,37 @@ class ProjectGeneratorAgent(BaseModel):
             requirement: str,
             output_dir: str = "./generated_project",
             session_id: Optional[str] = None,
-            callback: Optional[Callable[[str], None]] = None
+            callback: Optional[Callable[[str], None]] = None,
+            cancel_event: Optional[asyncio.Event] = None
     ) -> Dict[str, Any]:
-        """生成完整项目主入口（动态工具注入，支持多模型路由）"""
+        """生成完整项目主入口（动态工具注入，支持多模型路由）
+
+        Args:
+            cancel_event: 取消事件，前端断开连接时设置以终止生成循环
+        """
         logger.info(f"开始生成项目，需求: {requirement[:100]}...")
         logger.info(f"输出目录: {output_dir}, 会话ID: {session_id}")
+
+        # 校验需求非空
+        if not requirement or not requirement.strip():
+            error_msg = "需求不能为空"
+            logger.error(error_msg)
+            await self._progress_callback(ProgressType.ERROR, {
+                "message": error_msg,
+                "step": 0
+            }, callback)
+            return {"success": False, "error": error_msg, "total_files_created": 0, "steps": [], "validation": {"runnable": False}}
+
+        # 校验需求长度（防止 token 溢出）
+        MAX_REQUIREMENT_LEN = 100_000
+        if len(requirement) > MAX_REQUIREMENT_LEN:
+            error_msg = f"需求过长（{len(requirement)} 字符），最大支持 {MAX_REQUIREMENT_LEN} 字符"
+            logger.error(error_msg)
+            await self._progress_callback(ProgressType.ERROR, {
+                "message": error_msg,
+                "step": 0
+            }, callback)
+            return {"success": False, "error": error_msg, "total_files_created": 0, "steps": [], "validation": {"runnable": False}}
 
         # 根据需求选择初始模型
         initial_model = self._select_model_for_task(requirement)
@@ -1590,6 +1659,23 @@ class ProjectGeneratorAgent(BaseModel):
             current_step = len(steps) + 1
             max_steps = 40
 
+            # 检查取消事件：用户断开连接时立即终止
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info(f"用户取消请求，终止生成 | session_id: {session_id} | 已完成 {len(steps)} 步")
+                await self._progress_callback(ProgressType.STATUS, {
+                    "message": "用户取消请求，生成已终止",
+                    "cancelled": True,
+                    "completed_steps": len(steps)
+                }, callback)
+                return {
+                    "success": False,
+                    "cancelled": True,
+                    "error": "用户取消请求",
+                    "total_files_created": sum(1 for s in steps if s.get("status") == "completed"),
+                    "steps": steps,
+                    "validation": {"runnable": False}
+                }
+
             # 步骤开始回调
             await self._progress_callback(ProgressType.STEP_START, {
                 "message": f"第 {current_step} 步开始",
@@ -1623,7 +1709,7 @@ class ProjectGeneratorAgent(BaseModel):
                 "step": current_step
             }, callback)
 
-            response = await self._call_llm(messages, stream=self.config.stream, callback=callback)
+            response = await self._call_llm(messages, stream=self.config.stream, callback=callback, cancel_event=cancel_event)
 
             if not response.get("choices"):
                 logger.error("LLM返回无选择结果")
@@ -1634,8 +1720,17 @@ class ProjectGeneratorAgent(BaseModel):
                 break
 
             choice = response["choices"][0]
-            assistant_content = choice["message"]["content"]
+            assistant_content = choice.get("message", {}).get("content") or ""
             logger.info(f"LLM响应内容长度: {len(assistant_content)} 字符")
+
+            # 校验 LLM 响应内容非空
+            if not assistant_content.strip():
+                logger.warning("LLM返回空内容")
+                await self._progress_callback(ProgressType.STATUS, {
+                    "message": "LLM返回空内容，重试中...",
+                    "step": current_step
+                }, callback)
+                continue  # 跳过本轮，让 LLM 重新生成
 
             # 解析工具调用
             tool_calls, pure_text = self._parse_tool_calls(assistant_content)
@@ -1885,7 +1980,8 @@ class ProjectGeneratorAgent(BaseModel):
             messages: List[Dict],
             callback: Optional[Callable[[str], None]] = None,
             stream: bool = False,
-            target_model: str = None
+            target_model: str = None,
+            cancel_event: Optional[asyncio.Event] = None
     ) -> Dict[str, Any]:
         """调用LLM，支持流式和非流式，支持动态模型切换"""
         logger.debug("准备调用LLM API")
@@ -1919,7 +2015,8 @@ class ProjectGeneratorAgent(BaseModel):
                 timeout=float(self.config.timeout),
                 max_tokens=max_tokens,
                 thinking_budget=thinking_budget,
-                temperature=temperature
+                temperature=temperature,
+                cancel_event=cancel_event
             )
 
             if not stream:
@@ -2197,8 +2294,16 @@ class ProjectGeneratorAgent(BaseModel):
         tasks = []
 
         for call in tool_calls:
-            tool_name = call["function"]["name"]
-            tool_id = call["id"]
+            try:
+                tool_name = call["function"]["name"]
+                tool_id = call["id"]
+            except (KeyError, TypeError) as e:
+                logger.error(f"畸形 tool_call 结构: {call} | 错误: {e}")
+                tasks.append(self._create_error_message(
+                    str(call.get("id", "unknown")),
+                    f"工具调用结构畸形，缺少必要字段: {e}"
+                ))
+                continue
             
             # 如果是创建文件工具，根据文件类型切换模型
             if tool_name == "create_project_file":
