@@ -186,3 +186,8 @@ class WebSocketManager:
 
 # Global WebSocket manager instance
 ws_manager = WebSocketManager()
+
+
+def get_ws_manager() -> WebSocketManager:
+    """获取全局 WebSocket 管理器实例"""
+    return ws_manager

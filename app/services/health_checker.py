@@ -167,7 +167,8 @@ class HealthChecker:
         try:
             from app.services.websocket_manager import get_ws_manager
             ws_manager = get_ws_manager()
-            info = await ws_manager.get_connection_info()
+            current = ws_manager.get_connection_count()
+            max_conn = ws_manager._max_connections
 
             elapsed = (asyncio.get_running_loop().time() - start) * 1000
             return HealthCheckResult(
@@ -175,9 +176,9 @@ class HealthChecker:
                 response_time_ms=round(elapsed, 2),
                 message="WebSocket 服务正常",
                 details={
-                    "current": info.get("current", 0),
-                    "max": info.get("max", 0),
-                    "available": info.get("available", 0)
+                    "current": current,
+                    "max": max_conn,
+                    "available": max_conn - current
                 }
             )
         except Exception as e:

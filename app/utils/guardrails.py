@@ -376,8 +376,8 @@ class InMemoryRateLimiter:
 class GuardrailContext:
     """防护上下文"""
     prompt_injection_detector: PromptInjectionDetector = field(default_factory=PromptInjectionDetector)
-    session_id_validator: SessionIdValidator = field(default_factory=lambda: SessionIdValidator)
-    path_security_checker: PathSecurityChecker = field(default_factory=lambda: PathSecurityChecker)
+    session_id_validator: SessionIdValidator = field(default_factory=SessionIdValidator)
+    path_security_checker: PathSecurityChecker = field(default_factory=PathSecurityChecker)
     disk_space_monitor: DiskSpaceMonitor = field(default_factory=DiskSpaceMonitor)
     rate_limiter: InMemoryRateLimiter = field(default_factory=lambda: InMemoryRateLimiter(
         max_requests=10,
