@@ -75,7 +75,7 @@ export class WebSocketPool {
       this.pool.set(connectionId, connection)
       this.stats.totalConnections++
 
-      console.log(`[API] 创建 WebSocket 共享连接：${connectionId}`)
+      console.debug(`[API] 创建 WebSocket 共享连接：${connectionId}`)
     } else {
       this.stats.cacheHits++
     }
@@ -118,7 +118,7 @@ export class WebSocketPool {
 
       // 如果没有订阅者了，断开连接
       if (connection.subscriberCount === 0) {
-        console.log(`[API] 断开 WebSocket 连接（无订阅者）：${endpoint}`)
+        console.debug(`[API] 断开 WebSocket 连接（无订阅者）：${endpoint}`)
         connection.disconnect()
 
         // 可选：从池中移除（保持连接可快速重连）
@@ -202,7 +202,7 @@ export class WebSocketPool {
     this.pool.forEach(connection => {
       connection.disconnect()
     })
-    console.log('[SUCCESS] All WebSocket connections disconnected')
+    console.debug('[SUCCESS] All WebSocket connections disconnected')
   }
 
   /**
@@ -238,7 +238,7 @@ export class WebSocketPool {
   _flushBuffer(endpoint) {
     const buffer = this.buffers.get(endpoint)
     if (buffer && buffer.length > 0) {
-      console.log(`[BUFFER] Refresh buffer ${endpoint}: ${buffer.length} messages`)
+      console.debug(`[BUFFER] Refresh buffer ${endpoint}: ${buffer.length} messages`)
       buffer.splice(0, buffer.length)
     }
   }
@@ -279,7 +279,7 @@ class SharedConnection {
    */
   connect() {
     if (this.state === ConnectionState.CONNECTED || this.state === ConnectionState.CONNECTING) {
-      console.log(`[WARN] WebSocket already connecting: ${this.connectionId}`)
+      console.debug(`[WARN] WebSocket already connecting: ${this.connectionId}`)
       return
     }
 
@@ -305,7 +305,7 @@ class SharedConnection {
    */
   _setupEventHandlers() {
     this.ws.onopen = () => {
-      console.log(`[SUCCESS] WebSocket connected: ${this.connectionId}`)
+      console.debug(`[SUCCESS] WebSocket connected: ${this.connectionId}`)
       this.state = ConnectionState.CONNECTED
       this.reconnectAttempts = 0
       this.lastMessageAt = Date.now()
@@ -335,7 +335,7 @@ class SharedConnection {
     }
 
     this.ws.onclose = event => {
-      console.log(`[CLOSE] WebSocket closed: ${this.connectionId}`, event.code, event.reason)
+      console.debug(`[CLOSE] WebSocket closed: ${this.connectionId}`, event.code, event.reason)
       this.state = ConnectionState.DISCONNECTED
       this._clearHeartbeat()
       this._notifyStatusChange()
@@ -364,7 +364,7 @@ class SharedConnection {
     })
 
     this.subscriberCount++
-    console.log(
+    console.debug(
       `👥 添加订阅者 ${subscriberId} 到 ${this.connectionId} (当前：${this.subscriberCount})`
     )
 
@@ -379,7 +379,7 @@ class SharedConnection {
     const removed = this.subscribers.delete(subscriberId)
     if (removed) {
       this.subscriberCount--
-      console.log(
+      console.debug(
         `👋 移除订阅者 ${subscriberId} 从 ${this.connectionId} (当前：${this.subscriberCount})`
       )
     }
@@ -446,7 +446,7 @@ class SharedConnection {
       WS_CONFIG.MAX_RECONNECT_DELAY
     )
 
-    console.log(
+    console.debug(
       `[PROXY] WebSocket 将在 ${delay}ms 后重连 (${this.reconnectAttempts + 1}/${WS_CONFIG.MAX_RECONNECT_ATTEMPTS})`
     )
 

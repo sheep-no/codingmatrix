@@ -387,8 +387,7 @@
         file: file,
         category: 'image',
         uploading: true,
-        preview: URL.createObjectURL(file),
-        localUrl: URL.createObjectURL(file)
+        preview: URL.createObjectURL(file)
       }
       attachedFiles.value.push(fileObj)
 
@@ -458,19 +457,6 @@
     return codeExtensions.includes(ext)
   }
 
-  function getFileExtension(fileName) {
-    return fileName.split('.').pop().toLowerCase()
-  }
-
-  function readFileContent(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result)
-      reader.onerror = reject
-      reader.readAsText(file)
-    })
-  }
-
   function removeFile(index) {
     attachedFiles.value.splice(index, 1)
   }
@@ -514,8 +500,8 @@
     }
 
     for (const f of attachedFiles.value) {
-      if (f.category === 'image' && f.file) {
-        URL.revokeObjectURL(f.previewUrl)
+      if (f.preview) {
+        URL.revokeObjectURL(f.preview)
       }
     }
     inputMessage.value = ''
@@ -576,8 +562,8 @@
       dropZoneRef.value?.cleanupDropZone(inputWrapperRef.value)
     }
     for (const file of attachedFiles.value) {
-      if (file.category === 'image' && file.file) {
-        URL.revokeObjectURL(file.previewUrl)
+      if (file.preview) {
+        URL.revokeObjectURL(file.preview)
       }
     }
     if (associationFetchTimer) {
@@ -681,7 +667,7 @@
 
   /* 焦点可见样式 */
   :focus-visible {
-    outline: 2px solid #2563eb;
+    outline: 2px solid var(--color-primary-600);
     outline-offset: 2px;
   }
 
@@ -691,13 +677,13 @@
   .config-toggle:focus-visible,
   .collapse-btn:focus-visible,
   .cancel-edit-btn:focus-visible {
-    outline: 2px solid #2563eb;
+    outline: 2px solid var(--color-primary-600);
     outline-offset: 2px;
     box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
   }
 
   .config-checkbox:focus-visible {
-    outline: 2px solid #2563eb;
+    outline: 2px solid var(--color-primary-600);
     outline-offset: 2px;
   }
 
@@ -831,7 +817,7 @@
     width: 17px;
     height: 17px;
     cursor: pointer;
-    accent-color: #2563eb;
+    accent-color: var(--color-primary-600);
   }
 
   .config-checkbox:disabled {
@@ -878,7 +864,7 @@
     min-height: 46px;
     max-height: 180px;
     padding: 11px 140px 11px 14px;
-    border: 1px solid #cbd5e1;
+    border: 1px solid var(--slate-300);
     border-radius: 12px;
     font-size: 15px;
     font-family: inherit;
@@ -894,7 +880,7 @@
   }
 
   .chat-input:focus {
-    border-color: #2563eb;
+    border-color: var(--color-primary-600);
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
   }
 
@@ -929,7 +915,7 @@
   }
 
   .send-btn:disabled {
-    background: #cbd5e1;
+    background: var(--slate-300);
     cursor: not-allowed;
     box-shadow: none;
   }
@@ -1013,7 +999,7 @@
   }
 
   .config-toggle.active {
-    background: #2563eb;
+    background: var(--color-primary-600);
     color: white;
   }
 

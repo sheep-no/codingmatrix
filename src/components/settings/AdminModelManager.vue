@@ -7,18 +7,39 @@
     <div class="current-default">
       <div class="default-label">当前默认模型</div>
       <div class="default-value">
-        <span class="model-name">{{ currentDefault.name || currentDefault.id }}</span>
+        <span class="model-name">{{ currentDefault.name || currentDefault.id || '-' }}</span>
         <span class="model-desc">{{ currentDefault.description }}</span>
       </div>
     </div>
 
+    <!-- 模型搜索 -->
+    <div class="filter-bar">
+      <input
+        v-model="modelSearch"
+        type="text"
+        placeholder="搜索模型名称、ID 或描述..."
+        class="search-input"
+      />
+      <span class="filter-count">{{ filteredModels.length }} / {{ models.length }}</span>
+    </div>
+
+    <!-- 加载状态 -->
+    <div v-if="loading" class="loading-state">
+      <span class="loading-spinner"></span> 加载中...
+    </div>
+
+    <!-- 空状态 -->
+    <div v-else-if="!models.length" class="empty-state">
+      暂无可用模型
+    </div>
+
     <!-- 模型列表 -->
-    <div class="model-grid">
+    <div v-else class="model-grid">
       <div
-        v-for="model in models"
+        v-for="model in filteredModels"
         :key="model.id"
         :class="['model-card', { active: model.is_default }]"
-        @click="switchDefault(model.id)"
+        @click="confirmSwitchDefault(model)"
       >
         <div class="model-card-header">
           <span class="model-card-name">{{ model.name }}</span>
@@ -40,7 +61,28 @@
       <h3 class="section-title">模型上下文窗口配置</h3>
       <p class="section-desc">配置每个模型的最大上下文长度（token）。配置文件优先于内置默认值。</p>
 
-      <div class="context-table-wrap">
+      <!-- 搜索 -->
+      <div class="filter-bar">
+        <input
+          v-model="contextSearch"
+          type="text"
+          placeholder="搜索模型 Key..."
+          class="search-input"
+        />
+        <button class="sort-btn" @click="toggleSort">
+          {{ sortOrder === 'asc' ? '↑ A-Z' : '↓ Z-A' }}
+        </button>
+      </div>
+
+      <div v-if="loadingContext" class="loading-state">
+        <span class="loading-spinner"></span> 加载中...
+      </div>
+
+      <div v-else-if="!sortedFilteredContextKeys.length" class="empty-state">
+        暂无上下文长度配置
+      </div>
+
+      <div v-else class="context-table-wrap">
         <table class="context-table">
           <thead>
             <tr>
@@ -51,34 +93,34 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(item, key) in contextLengths" :key="key">
+            <tr v-for="key in sortedFilteredContextKeys" :key="key">
               <td class="ctx-key">{{ key }}</td>
               <td>
                 <input
-                  v-if="item._editing"
-                  v-model.number="item._editValue"
+                  v-if="contextLengths[key]._editing"
+                  v-model.number="contextLengths[key]._editValue"
                   type="number"
                   min="1"
                   class="ctx-input"
-                  @keyup.enter="saveContextLength(key, item)"
-                  @keyup.escape="cancelEdit(key, item)"
+                  @keyup.enter="saveContextLength(key)"
+                  @keyup.escape="cancelEdit(key)"
                 />
-                <span v-else class="ctx-value">{{ formatTokens(item.context_length) }}</span>
+                <span v-else class="ctx-value">{{ formatTokens(contextLengths[key].context_length) }}</span>
               </td>
               <td>
-                <span :class="['source-tag', item.source]">
-                  {{ item.source === 'config' ? '自定义' : '内置' }}
+                <span :class="['source-tag', contextLengths[key].source]">
+                  {{ contextLengths[key].source === 'config' ? '自定义' : '内置' }}
                 </span>
               </td>
               <td class="ctx-actions">
-                <template v-if="item._editing">
-                  <button class="action-btn save" @click="saveContextLength(key, item)">保存</button>
-                  <button class="action-btn cancel" @click="cancelEdit(key, item)">取消</button>
+                <template v-if="contextLengths[key]._editing">
+                  <button class="action-btn save" @click="saveContextLength(key)">保存</button>
+                  <button class="action-btn cancel" @click="cancelEdit(key)">取消</button>
                 </template>
                 <template v-else>
-                  <button class="action-btn edit" @click="startEdit(key, item)">编辑</button>
+                  <button class="action-btn edit" @click="startEdit(key)">编辑</button>
                   <button
-                    v-if="item.source === 'config'"
+                    v-if="contextLengths[key].source === 'config'"
                     class="action-btn delete"
                     @click="deleteContextLength(key)"
                   >恢复默认</button>
@@ -110,9 +152,9 @@
 
     <!-- 刷新按钮 -->
     <div class="actions">
-      <button class="reload-btn" @click="loadAll">
+      <button class="reload-btn" :disabled="loading || loadingContext" @click="loadAll">
         <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
-        刷新
+        {{ loading || loadingContext ? '加载中...' : '刷新' }}
       </button>
     </div>
   </div>
@@ -121,29 +163,63 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { api } from '@/utils/api/index'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const models = ref([])
 const contextLengths = ref({})
 const newModelKey = ref('')
 const newContextLength = ref(null)
+const modelSearch = ref('')
+const contextSearch = ref('')
+const sortOrder = ref('asc')
+const loading = ref(false)
+const loadingContext = ref(false)
 
 const currentDefault = computed(() => {
   return models.value.find(m => m.is_default) || {}
 })
 
+const filteredModels = computed(() => {
+  const q = modelSearch.value.toLowerCase().trim()
+  if (!q) return models.value
+  return models.value.filter(m =>
+    m.name?.toLowerCase().includes(q) ||
+    m.id?.toLowerCase().includes(q) ||
+    m.description?.toLowerCase().includes(q) ||
+    m.model_key?.toLowerCase().includes(q)
+  )
+})
+
+const sortedFilteredContextKeys = computed(() => {
+  const q = contextSearch.value.toLowerCase().trim()
+  let keys = Object.keys(contextLengths.value)
+  if (q) {
+    keys = keys.filter(k => k.toLowerCase().includes(q))
+  }
+  keys.sort((a, b) => sortOrder.value === 'asc' ? a.localeCompare(b) : b.localeCompare(a))
+  return keys
+})
+
+function toggleSort() {
+  sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+}
+
 async function loadModels() {
+  loading.value = true
   try {
     const resp = await api.get('/api/v1/models/')
     if (!resp.ok) return
     const data = await resp.json()
     models.value = data.models || []
-  } catch (e) {
-    console.error('加载模型列表失败:', e)
+  } catch {
+    ElMessage.error('加载模型列表失败')
+  } finally {
+    loading.value = false
   }
 }
 
 async function loadContextLengths() {
+  loadingContext.value = true
   try {
     const resp = await api.get('/api/v2/models/context-lengths')
     if (!resp.ok) return
@@ -155,8 +231,10 @@ async function loadContextLengths() {
       }
       contextLengths.value = result
     }
-  } catch (e) {
-    console.error('加载上下文长度失败:', e)
+  } catch {
+    ElMessage.error('加载上下文长度失败')
+  } finally {
+    loadingContext.value = false
   }
 }
 
@@ -165,10 +243,20 @@ function loadAll() {
   loadContextLengths()
 }
 
-async function switchDefault(modelId) {
-  if (modelId === currentDefault.value.id) return
+async function confirmSwitchDefault(model) {
+  if (model.is_default) return
   try {
-    const resp = await api.post('/api/v2/models/default', { model_id: modelId })
+    await ElMessageBox.confirm(
+      `确定将默认模型切换为「${model.name}」？此操作影响所有用户。`,
+      '切换默认模型',
+      { confirmButtonText: '确定切换', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  try {
+    const resp = await api.post('/api/v2/models/default', { model_id: model.id })
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}))
       ElMessage.error('切换失败: ' + (err.detail || resp.statusText))
@@ -176,7 +264,7 @@ async function switchDefault(modelId) {
     }
     const data = await resp.json()
     if (data.success) {
-      models.value.forEach(m => { m.is_default = m.id === modelId })
+      models.value.forEach(m => { m.is_default = m.id === model.id })
       ElMessage.success(`默认模型已切换为 ${data.new_default}`)
     }
   } catch (e) {
@@ -191,17 +279,20 @@ function formatTokens(val) {
   return String(val)
 }
 
-function startEdit(key, item) {
+function startEdit(key) {
+  const item = contextLengths.value[key]
   item._editValue = item.context_length
   item._editing = true
 }
 
-function cancelEdit(key, item) {
+function cancelEdit(key) {
+  const item = contextLengths.value[key]
   item._editValue = item.context_length
   item._editing = false
 }
 
-async function saveContextLength(key, item) {
+async function saveContextLength(key) {
+  const item = contextLengths.value[key]
   if (!item._editValue || item._editValue < 1) {
     ElMessage.warning('上下文长度必须大于 0')
     return
@@ -298,6 +389,37 @@ onMounted(loadAll)
 .model-name { font-size: 16px; font-weight: 600; color: var(--text-primary); }
 .model-desc { font-size: 13px; color: var(--text-tertiary); }
 
+.filter-bar {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+}
+.search-input {
+  flex: 1; padding: 8px 12px;
+  border: 1px solid var(--border-color); border-radius: 6px;
+  font-size: 13px; background: var(--bg-primary); color: var(--text-primary);
+}
+.search-input:focus { outline: none; border-color: var(--primary); }
+.filter-count { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
+.sort-btn {
+  padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 4px;
+  font-size: 12px; cursor: pointer; background: var(--bg-secondary); color: var(--text-secondary);
+  white-space: nowrap;
+}
+.sort-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+.loading-state {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 32px; color: var(--text-tertiary); font-size: 14px;
+}
+.loading-spinner {
+  width: 16px; height: 16px; border: 2px solid var(--border-color);
+  border-top-color: var(--primary); border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state {
+  text-align: center; padding: 32px; color: var(--text-tertiary); font-size: 14px;
+}
+
 .model-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px; margin-bottom: 32px;
@@ -306,8 +428,8 @@ onMounted(loadAll)
   border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;
   cursor: pointer; transition: all 0.2s; background: var(--bg-secondary);
 }
-.model-card:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-.model-card.active { border-color: var(--primary); background: var(--primary-50, rgba(13, 148, 136, 0.08)); }
+.model-card:hover { border-color: var(--primary); box-shadow: 0 2px 8px var(--shadow-color); }
+.model-card.active { border-color: var(--primary); background: var(--primary-50); }
 
 .model-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .model-card-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
@@ -327,7 +449,7 @@ onMounted(loadAll)
 .model-card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .tag-chip {
   padding: 2px 8px;
-  background: var(--bg-tertiary, rgba(0,0,0,0.04));
+  background: var(--bg-tertiary);
   color: var(--text-tertiary);
   border-radius: 4px; font-size: 11px;
 }
@@ -349,7 +471,7 @@ onMounted(loadAll)
   border-bottom: 1px solid var(--border-color);
   vertical-align: middle;
 }
-.context-table tr:hover { background: var(--bg-tertiary, rgba(0,0,0,0.02)); }
+.context-table tr:hover { background: var(--bg-tertiary); }
 .ctx-key { font-family: monospace; font-size: 12px; max-width: 280px; word-break: break-all; }
 .ctx-value { font-family: monospace; font-weight: 600; }
 
@@ -357,11 +479,11 @@ onMounted(loadAll)
   display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
 }
 .source-tag.config {
-  background: var(--warning-bg, rgba(245, 158, 11, 0.1));
-  color: var(--warning, #f59e0b);
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 .source-tag.builtin {
-  background: var(--bg-tertiary, rgba(0,0,0,0.04));
+  background: var(--bg-tertiary);
   color: var(--text-tertiary);
 }
 
@@ -381,10 +503,10 @@ onMounted(loadAll)
   transition: all 0.15s;
 }
 .action-btn:hover { border-color: var(--primary); color: var(--primary); }
-.action-btn.save { background: var(--primary); color: white; border-color: var(--primary); }
-.action-btn.save:hover { background: var(--primary-hover, #0f766e); }
-.action-btn.delete { color: var(--danger, #ef4444); border-color: var(--danger); }
-.action-btn.delete:hover { background: var(--danger); color: white; }
+.action-btn.save { background: var(--primary); color: var(--bg-primary); border-color: var(--primary); }
+.action-btn.save:hover { background: var(--primary-hover); }
+.action-btn.delete { color: var(--danger); border-color: var(--danger); }
+.action-btn.delete:hover { background: var(--danger); color: var(--bg-primary); }
 
 .add-context {
   display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
@@ -394,10 +516,11 @@ onMounted(loadAll)
 .actions { text-align: center; }
 .reload-btn {
   display: inline-flex; align-items: center; gap: 8px;
-  padding: 8px 20px; background: var(--primary); color: white;
+  padding: 8px 20px; background: var(--primary); color: var(--bg-primary);
   border: none; border-radius: 6px; cursor: pointer; font-size: 14px;
   font-weight: 500; transition: background 0.2s;
 }
-.reload-btn:hover { background: var(--primary-hover, #0f766e); }
+.reload-btn:hover:not(:disabled) { background: var(--primary-hover); }
+.reload-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .btn-icon { width: 16px; height: 16px; }
 </style>

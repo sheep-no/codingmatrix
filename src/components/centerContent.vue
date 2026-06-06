@@ -293,6 +293,7 @@
   import { api } from '@/utils/api/index'
   import EmptyState from './EmptyState.vue'
   import SkeletonLoader from './SkeletonLoader.vue'
+  import { ElMessage, ElMessageBox } from 'element-plus'
 
   hljs.registerLanguage('python', python)
   hljs.registerLanguage('javascript', javascript)
@@ -530,12 +531,6 @@
       const request = objectStore.put(data)
 
       request.onsuccess = () => {
-        console.log(
-          '[SAVE] Saved chat to IndexedDB:',
-          conversationId,
-          'message count:',
-          messages.length
-        )
       }
 
       request.onerror = () => {
@@ -560,12 +555,6 @@
       return new Promise((resolve, reject) => {
         request.onsuccess = () => {
           if (request.result) {
-            console.log(
-              '📂 从 IndexedDB 加载对话成功:',
-              conversationId,
-              '消息数:',
-              request.result.messages.length
-            )
             resolve(request.result.messages)
           } else {
             resolve(null)
@@ -594,7 +583,6 @@
       const request = objectStore.delete(String(conversationId))
 
       request.onsuccess = () => {
-        console.log('[DEL] Cleared chat from IndexedDB:', conversationId)
       }
     } catch (error) {
       console.error('[ERR] Clear IndexedDB chat exception:', error)
@@ -826,21 +814,24 @@
 
   // 清空对话
   const clearConversation = async () => {
-    if (confirm('确定要清空当前会话吗？')) {
-      const scrollState = saveScrollState()
-
-      await nextTick()
-      emit('prependHistory', [])
-
-      // 清除 IndexedDB 中的对话
-      if (props.conversationId) {
-        await clearConversationFromIndexedDB(props.conversationId)
-      }
-
-      setTimeout(async () => {
-        await restoreScrollPosition(scrollState)
-      }, 100)
+    try {
+      await ElMessageBox.confirm('确定要清空当前会话吗？', '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+    } catch {
+      return
     }
+    const scrollState = saveScrollState()
+
+    await nextTick()
+    emit('prependHistory', [])
+
+    // 清除 IndexedDB 中的对话
+    if (props.conversationId) {
+      await clearConversationFromIndexedDB(props.conversationId)
+    }
+
+    setTimeout(async () => {
+      await restoreScrollPosition(scrollState)
+    }, 100)
   }
 
   // 导出对话
@@ -851,22 +842,19 @@
       title: selectedHistory.value?.title || '未命名对话',
       createdAt: selectedHistory.value?.created_at || new Date().toISOString(),
       messages: props.conversationHistory
-        .map(
-          msg => (
-            {
-              role: 'user',
-              content: msg.prompt,
-              timestamp: msg.createdAt
-            },
-            {
-              role: 'assistant',
-              content: msg.response,
-              reasoning: msg.reasoning,
-              timestamp: msg.createdAt
-            }
-          )
-        )
-        .flat()
+        .flatMap(msg => [
+          {
+            role: 'user',
+            content: msg.prompt,
+            timestamp: msg.createdAt
+          },
+          {
+            role: 'assistant',
+            content: msg.response,
+            reasoning: msg.reasoning,
+            timestamp: msg.createdAt
+          }
+        ])
         .filter(Boolean)
     }
 
@@ -1007,7 +995,7 @@
       window.URL.revokeObjectURL(url)
     } catch (error) {
       console.error('下载失败:', error)
-      alert(`下载失败：${error.message}`)
+      ElMessage.error(`下载失败：${error.message}`)
     }
   }
 
@@ -1228,8 +1216,8 @@
   }
 
   .action-btn-close:hover {
-    background: #fef2f2;
-    color: #ef4444;
+    background: var(--danger-bg);
+    color: var(--danger);
     border-color: #fecaca;
   }
 
@@ -1761,8 +1749,8 @@
 
   .markdown-body :deep(pre .copy-button.copied),
   .code-block-header .copy-button.copied {
-    background: #10b981;
-    border-color: #10b981;
+    background: var(--success);
+    border-color: var(--success);
   }
 
   /* 下载按钮 */

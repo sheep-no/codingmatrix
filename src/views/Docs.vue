@@ -1084,7 +1084,7 @@ const faqs = [
   align-items: flex-start;
   gap: 10px;
   padding: 14px 18px;
-  background: #fffbeb;
+  background: var(--warning-bg);
   border: 1px solid #fde68a;
   border-radius: 10px;
   margin-bottom: 16px;
@@ -1111,7 +1111,7 @@ const faqs = [
 }
 .chip-ok {
   border-color: #86efac;
-  background: #f0fdf4;
+  background: var(--success-bg);
   color: #166534;
   font-weight: 500;
 }

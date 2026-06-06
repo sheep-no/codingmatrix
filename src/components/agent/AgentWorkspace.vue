@@ -1,6 +1,6 @@
 <template>
-  <div class="main-panel">
-    <!-- Progress bar - only when generating -->
+  <div class="agent-workspace">
+    <!-- Progress bar -->
     <div v-if="stages && stages.length > 0" class="progress-bar-section">
       <div class="progress-meta">
         <span class="progress-label">生成进度</span>
@@ -93,7 +93,7 @@
       </div>
     </div>
 
-    <!-- Merged sections from right panel -->
+    <!-- Merged sections -->
     <div v-if="(thinkingMessages && thinkingMessages.length > 0) || (executionSteps && executionSteps.length > 0) || (logs && logs.length > 0)" class="merged-sections">
       <!-- Thinking -->
       <div v-if="thinkingMessages && thinkingMessages.length > 0" class="merged-section">
@@ -184,35 +184,7 @@
       </div>
     </div>
 
-    <!-- File editor -->
-    <div v-if="selectedFile" class="editor-section">
-      <div class="editor-header">
-        <div class="editor-info">
-          <span class="editor-filename">{{ selectedFile.name }}</span>
-          <span class="editor-path">{{ selectedFile.path }}</span>
-          <span class="editor-lang">{{ language }}</span>
-        </div>
-        <div class="editor-actions">
-          <button v-if="hasDiff" class="editor-btn" @click="$emit('show-diff')">变更</button>
-          <button class="editor-btn" @click="$emit('save-version')">保存</button>
-          <button class="editor-btn" @click="$emit('version-history')">历史</button>
-          <button class="editor-btn" @click="$emit('copy')">复制</button>
-          <button class="editor-btn" @click="$emit('download')">下载</button>
-          <button class="editor-btn btn-delete" @click="$emit('delete-file')">删除</button>
-        </div>
-      </div>
-      <div class="code-block" v-html="highlightedCode"></div>
-      <div class="editor-footer">
-        <span>{{ lineCount }} 行</span>
-        <span>{{ fileSize }}</span>
-        <span>{{ language }}</span>
-        <span v-if="fileComplexity" class="complexity-badge" :class="`complexity-${fileComplexity.level}`">
-          复杂度: {{ fileComplexity.level }}
-        </span>
-      </div>
-    </div>
-
-    <!-- Test Results Section -->
+    <!-- Test Results -->
     <div v-if="testResults" class="info-section test-results-section">
       <div class="section-header">
         <span class="section-icon">🧪</span>
@@ -243,7 +215,7 @@
       </div>
     </div>
 
-    <!-- Validation Results Section -->
+    <!-- Validation Results -->
     <div v-if="validationResults" class="info-section validation-results-section">
       <div class="section-header">
         <span class="section-icon">✅</span>
@@ -266,48 +238,10 @@
       </div>
     </div>
 
-    <!-- Cost & Performance Section -->
-    <div v-if="costData && costData.totalTokens > 0" class="info-section cost-section">
-      <div class="section-header">
-        <span class="section-icon">💰</span>
-        <span class="section-title">成本与性能</span>
-      </div>
-      <div class="section-body">
-        <div class="cost-grid">
-          <div class="cost-item">
-            <span class="cost-label">总 Token</span>
-            <span class="cost-value">{{ formatNumber(costData.totalTokens) }}</span>
-          </div>
-          <div class="cost-item">
-            <span class="cost-label">费用</span>
-            <span class="cost-value">${{ costData.totalCostUsd?.toFixed(4) || '0.0000' }}</span>
-          </div>
-          <div class="cost-item">
-            <span class="cost-label">速度</span>
-            <span class="cost-value">{{ costData.tokensPerSecond?.toFixed(0) || 0 }} tok/s</span>
-          </div>
-        </div>
-        <div v-if="performanceMetrics && performanceMetrics.llmCalls > 0" class="performance-grid">
-          <div class="perf-item">
-            <span class="perf-label">LLM 调用</span>
-            <span class="perf-value">{{ performanceMetrics.llmCalls }} 次</span>
-          </div>
-          <div class="perf-item">
-            <span class="perf-label">生成速度</span>
-            <span class="perf-value">{{ performanceMetrics.filesPerMinute?.toFixed(1) || 0 }} 文件/分</span>
-          </div>
-          <div v-if="performanceMetrics.retryCount > 0" class="perf-item">
-            <span class="perf-label">重试次数</span>
-            <span class="perf-value">{{ performanceMetrics.retryCount }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Empty state -->
-    <div v-if="(!stages || stages.length === 0) && !selectedFile" class="empty-state">
+    <div v-if="(!stages || stages.length === 0)" class="empty-state">
       <div class="empty-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="48" height="48">
           <path d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
           <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
@@ -326,28 +260,17 @@ const props = defineProps({
   eta: { type: String, default: '' },
   decisions: { type: Array, required: true },
   decisionAnswers: { type: Object, required: true },
-  selectedFile: { type: Object, default: null },
-  fileType: { type: String, default: '' },
-  highlightedCode: { type: String, default: '' },
-  lineCount: { type: Number, default: 0 },
-  fileSize: { type: String, default: '0 B' },
-  language: { type: String, default: 'Unknown' },
-  hasDiff: { type: Boolean, default: false },
   thinkingMessages: { type: Array, default: () => [] },
   executionSteps: { type: Array, default: () => [] },
   logs: { type: Array, default: () => [] },
-  // 新增 props
   testResults: { type: Object, default: null },
-  validationResults: { type: Object, default: null },
-  costData: { type: Object, default: null },
-  performanceMetrics: { type: Object, default: null },
-  fileComplexity: { type: Object, default: null }
+  validationResults: { type: Object, default: null }
 })
 
-defineEmits(['select-decision', 'use-default', 'submit-decision', 'show-diff', 'save-version', 'version-history', 'copy', 'download', 'delete-file', 'download-project', 'clear-thinking', 'clear-steps', 'clear-logs'])
+defineEmits(['select-decision', 'use-default', 'submit-decision', 'clear-thinking', 'clear-steps', 'clear-logs'])
 
 const expandedStages = reactive({})
-const mergedExpanded = reactive({ thinking: false, steps: false, logs: false })
+const mergedExpanded = reactive({ thinking: true, steps: false, logs: false })
 const logsContainerRef = ref(null)
 
 function toggleStage(id) {
@@ -375,13 +298,6 @@ function formatDuration(seconds) {
   return mins > 0 ? `${mins} 分 ${secs} 秒` : `${secs} 秒`
 }
 
-function formatNumber(num) {
-  if (!num) return '0'
-  if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`
-  if (num >= 1000) return `${(num / 1000).toFixed(1)}K`
-  return num.toString()
-}
-
 watch(() => props.logs?.length, () => {
   nextTick(() => {
     if (logsContainerRef.value) {
@@ -390,3 +306,465 @@ watch(() => props.logs?.length, () => {
   })
 })
 </script>
+
+<style scoped>
+.agent-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding: 16px;
+}
+.progress-bar-section {
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.progress-label { color: var(--text-secondary); font-weight: 500; }
+.progress-value { color: var(--primary); font-weight: 600; }
+.progress-eta { color: var(--text-tertiary); }
+.progress-track {
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* Timeline */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.timeline-item {
+  display: flex;
+  gap: 12px;
+}
+.timeline-connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20px;
+  flex-shrink: 0;
+}
+.timeline-dot {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dot-icon { width: 14px; height: 14px; }
+.dot-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.6; }
+}
+.dot-empty {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+}
+.timeline-line {
+  flex: 1;
+  width: 2px;
+  background: var(--border-color);
+  min-height: 16px;
+}
+.timeline-body {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.timeline-body:hover { border-color: var(--primary); }
+.stage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.stage-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.stage-right { display: flex; align-items: center; gap: 8px; }
+.stage-progress { font-size: 11px; color: var(--primary); font-weight: 600; }
+.stage-status-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.tag-completed { background: color-mix(in srgb, var(--success), transparent 90%); color: var(--success); }
+.tag-running { background: color-mix(in srgb, var(--primary), transparent 90%); color: var(--primary); }
+.tag-pending { background: var(--bg-tertiary); color: var(--text-tertiary); }
+.tag-failed { background: color-mix(in srgb, var(--danger), transparent 90%); color: var(--danger); }
+.expand-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-tertiary);
+  transition: transform 0.2s;
+}
+.expand-icon.rotated { transform: rotate(180deg); }
+.stage-progress-bar {
+  margin-top: 6px;
+  height: 3px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.stage-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Thinking panel */
+.thinking-panel {
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+.thinking-entry { padding: 6px 0; }
+.thinking-entry + .thinking-entry { border-top: 1px solid var(--border-color); }
+.thinking-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.thinking-agent { font-size: 11px; font-weight: 600; color: var(--primary); }
+.thinking-model { font-size: 10px; color: var(--text-tertiary); background: var(--bg-secondary); padding: 1px 4px; border-radius: 3px; }
+.thinking-time { font-size: 10px; color: var(--text-tertiary); margin-left: auto; }
+.thinking-body { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+
+/* Decisions */
+.decisions-panel {
+  padding: 16px;
+  background: color-mix(in srgb, var(--warning), transparent 95%);
+  border: 1px solid color-mix(in srgb, var(--warning), transparent 80%);
+  border-radius: 10px;
+}
+.decisions-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.decisions-count {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: var(--warning);
+  color: white;
+  border-radius: 10px;
+}
+.decision-card {
+  padding: 12px;
+  background: var(--bg-primary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+.decision-card + .decision-card { margin-top: 8px; }
+.decision-question { font-size: 13px; font-weight: 500; color: var(--text-primary); margin-bottom: 4px; }
+.decision-context { font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
+.decision-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.decision-btn {
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+.decision-btn:hover { border-color: var(--primary); }
+.decision-btn.active { border-color: var(--primary); background: color-mix(in srgb, var(--primary), transparent 90%); }
+.option-label { display: block; font-size: 12px; font-weight: 500; color: var(--text-primary); }
+.option-desc { font-size: 11px; color: var(--text-tertiary); }
+.decision-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.btn-decision {
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-decision-secondary { background: transparent; color: var(--text-secondary); }
+.btn-decision-secondary:hover { background: var(--bg-secondary); }
+.btn-decision-primary { background: var(--primary); color: white; border-color: var(--primary); }
+.btn-decision-primary:hover { background: var(--primary-hover); }
+
+/* Merged sections */
+.merged-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.merged-section {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.merged-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+.merged-header-left { display: flex; align-items: center; gap: 8px; }
+.merged-dot { width: 8px; height: 8px; border-radius: 50%; }
+.thinking-dot-bg { background: var(--primary); }
+.steps-dot-bg { background: var(--success); }
+.logs-dot-bg { background: var(--warning); }
+.merged-title { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.merged-count {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+  border-radius: 4px;
+}
+.merged-header-right { display: flex; align-items: center; gap: 6px; }
+.merged-clear-btn {
+  padding: 2px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.merged-clear-btn:hover { background: var(--bg-secondary); color: var(--text-primary); }
+.merged-expand-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-tertiary);
+  transition: transform 0.2s;
+}
+.merged-expand-icon.rotated { transform: rotate(180deg); }
+.merged-section-body {
+  padding: 12px 14px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Thinking timeline */
+.thinking-timeline-merged {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.thinking-item-merged {
+  display: flex;
+  gap: 10px;
+}
+.thinking-item-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.thinking-item-content { flex: 1; min-width: 0; }
+.thinking-item-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 2px;
+  flex-wrap: wrap;
+}
+.thinking-agent-name { font-size: 11px; font-weight: 600; color: var(--primary); }
+.thinking-model-badge { font-size: 10px; padding: 1px 4px; background: var(--bg-tertiary); border-radius: 3px; color: var(--text-tertiary); }
+.thinking-phase-tag { font-size: 10px; padding: 1px 4px; background: color-mix(in srgb, var(--success), transparent 90%); border-radius: 3px; color: var(--success); }
+.thinking-item-time { font-size: 10px; color: var(--text-tertiary); margin-left: auto; }
+.thinking-item-message { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+
+/* Steps list */
+.steps-list-merged {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.step-item-merged {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.step-num {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--success), transparent 90%);
+  color: var(--success);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.step-item-content { flex: 1; min-width: 0; }
+.step-cat { font-size: 10px; color: var(--text-tertiary); margin-bottom: 1px; }
+.step-desc { font-size: 12px; color: var(--text-secondary); }
+.step-item-time { font-size: 10px; color: var(--text-tertiary); white-space: nowrap; }
+
+/* Logs */
+.logs-container-merged {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.log-item-merged {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.log-info { background: color-mix(in srgb, var(--primary), transparent 95%); }
+.log-success { background: color-mix(in srgb, var(--success), transparent 95%); }
+.log-warning { background: color-mix(in srgb, var(--warning), transparent 95%); }
+.log-error { background: color-mix(in srgb, var(--danger), transparent 95%); }
+.log-level-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 3px;
+  min-width: 32px;
+  text-align: center;
+}
+.log-info .log-level-badge { background: color-mix(in srgb, var(--primary), transparent 80%); color: var(--primary); }
+.log-success .log-level-badge { background: color-mix(in srgb, var(--success), transparent 80%); color: var(--success); }
+.log-warning .log-level-badge { background: color-mix(in srgb, var(--warning), transparent 80%); color: var(--warning); }
+.log-error .log-level-badge { background: color-mix(in srgb, var(--danger), transparent 80%); color: var(--danger); }
+.log-time { font-size: 10px; color: var(--text-tertiary); white-space: nowrap; }
+.log-msg { color: var(--text-secondary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Info sections */
+.info-section {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+.section-icon { font-size: 14px; }
+.section-title { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.section-body { padding: 12px 14px; }
+
+/* Stats grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 8px;
+}
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+.stat-value { font-size: 18px; font-weight: 700; }
+.stat-label { font-size: 10px; color: var(--text-tertiary); margin-top: 2px; }
+.stat-passed .stat-value { color: var(--success); }
+.stat-failed .stat-value { color: var(--danger); }
+.stat-skipped .stat-value { color: var(--warning); }
+.stat-coverage .stat-value { color: var(--primary); }
+.duration-info { margin-top: 8px; font-size: 12px; color: var(--text-secondary); text-align: center; }
+
+/* Validation */
+.validation-status {
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  padding: 8px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.validation-status.passed { background: color-mix(in srgb, var(--success), transparent 90%); color: var(--success); }
+.validation-status.failed { background: color-mix(in srgb, var(--danger), transparent 90%); color: var(--danger); }
+.checks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.check-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.check-passed { background: color-mix(in srgb, var(--success), transparent 95%); }
+.check-failed { background: color-mix(in srgb, var(--danger), transparent 95%); }
+.check-icon { font-size: 12px; font-weight: 600; }
+.check-passed .check-icon { color: var(--success); }
+.check-failed .check-icon { color: var(--danger); }
+.check-name { color: var(--text-primary); }
+.check-message { color: var(--text-tertiary); font-size: 11px; }
+.issues-summary { margin-top: 8px; font-size: 12px; color: var(--danger); text-align: center; }
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  color: var(--text-tertiary);
+}
+.empty-icon { margin-bottom: 12px; opacity: 0.5; }
+.empty-text { font-size: 14px; }
+</style>

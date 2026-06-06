@@ -69,14 +69,14 @@
     align-items: center;
     gap: 10px;
     padding: 8px 12px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     transition: all 0.2s ease;
   }
 
   .file-preview-item:hover {
-    background: #f1f5f9;
+    background: var(--bg-tertiary);
   }
 
   .file-preview-item.uploading {
@@ -85,7 +85,7 @@
   }
 
   .file-preview-item.upload-error {
-    border-color: #ef4444;
+    border-color: var(--danger);
     background: rgba(239, 68, 68, 0.05);
   }
 
@@ -116,7 +116,7 @@
 
   .error-status {
     font-size: 11px;
-    color: #ef4444;
+    color: var(--danger);
   }
 
   .file-thumbnail {
@@ -139,7 +139,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #e2e8f0;
+    background: var(--border-color);
     border-radius: 6px;
     flex-shrink: 0;
   }
@@ -187,12 +187,12 @@
   }
 
   .remove-btn:hover {
-    background: #fee2e2;
+    background: var(--danger-100);
   }
 
   .remove-btn svg {
     width: 16px;
     height: 16px;
-    color: #ef4444;
+    color: var(--danger);
   }
 </style>

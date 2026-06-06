@@ -3,38 +3,42 @@
  */
 export function createChatClient(client) {
   return {
-    async getChatHistory(limit = 100, offset = 0) {
+    async getChatHistory(limit = 20, offset = 0, promptKeyword = null) {
       try {
-        const response = await client.get('/code/history', { limit, offset })
+        const body = { limit, offset }
+        if (promptKeyword) body.prompt_keyword = promptKeyword
+        const response = await client.post('/history', body)
         if (response.ok) {
           return await response.json()
         }
-        return { history: [] }
+        return { items: [], total: 0 }
       } catch (error) {
         console.error('Failed to load chat history:', error)
-        return { history: [] }
+        return { items: [], total: 0 }
       }
     },
 
-    async getConversationHistory(conversationId) {
+    async getConversationHistory(conversationId, lastHistoryId = null, limit = 50) {
       try {
-        const response = await client.get(`/code/conversation/${conversationId}`)
+        const response = await client.post('/conversation/history', {
+          conversation_id: conversationId,
+          last_history_id: lastHistoryId,
+          limit
+        })
         if (response.ok) {
           return await response.json()
         }
-        return { messages: [] }
+        return { items: [] }
       } catch (error) {
         console.error('Failed to load conversation history:', error)
-        return { messages: [] }
+        return { items: [] }
       }
     },
 
-    async deleteChatHistory(conversationIds) {
+    async deleteChatHistory(conversationIds, all = false) {
       const ids = Array.isArray(conversationIds) ? conversationIds : [conversationIds]
-      const params = ids.map(id => `conversation_ids=${id}`).join('&')
-      const url = `/code/history?${params}`
-      
-      // 返回原始 Response 对象，与 api.post 等行为保持一致
+      const params = ids.map(id => `conversation_ids=${encodeURIComponent(id)}`).join('&')
+      const url = `/code/history?${params}&all=${all}`
       return await client.request(url, {
         method: 'DELETE'
       })

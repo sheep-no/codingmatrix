@@ -1,6 +1,7 @@
 import { reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useApiKeyStore } from '@/stores/apikey'
+import { getPhaseLabel } from '@/constants/agentPhases'
 
 export function useAgentStreaming(projectApi, workspace, files, generation, session) {
   // 注意：workspace 和 files 是 reactive() 对象，ref 属性会被自动解包
@@ -11,20 +12,25 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
   // 获取 API Key Store
   const apiKeyStore = useApiKeyStore()
 
-  const phaseNames = {
-    'context_init': '上下文初始化', 'specs': '规格书生成',
-    'architecture': '架构设计', 'dependency_graph': '依赖图构建',
-    'code_generation': '代码生成', 'validation': '验证审查',
-    'testing': '测试执行', 'cross_file': '跨文件检查',
-    'cost_tracking': '成本追踪'
+  // model_info 事件中 data.agent 的可能命名 → 标准化为 modelAssignments 的 key
+  // 解决：前端先用了 5 角色硬编码、后端又用 str(engineer) 传对象 repr 的双重历史遗留
+  const AGENT_ROLE_ALIAS = {
+    'architecture': 'architect',
+    'arch': 'architect',
+    'frontend engineer': 'frontend',
+    'frontend_engineer': 'frontend',
+    'backend engineer': 'backend',
+    'backend_engineer': 'backend',
+    'review': 'reviewer',
+    'code review': 'reviewer',
+    'reviewer_model': 'reviewer',
   }
 
   const handleSseMessage = (data) => {
-    console.log('[SSE] 收到消息:', data.type, data.data?.phase || '')
     const innerData = data.data || data
     if (innerData.phase) {
       const stageId = innerData.phase
-      const stageName = phaseNames[innerData.phase] || innerData.phase
+      const stageName = getPhaseLabel(innerData.phase)
       const progress = innerData.percentage || 0
       ensureStage(stageId, stageName)
       if (data.type === 'progress' && progress > 0 && progress < 100) {
@@ -86,7 +92,10 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         workspace.currentModel = data.model
         addLog('info', `使用模型: ${data.model} (${data.agent})`)
         addDetail('模型分配', `${data.agent} → ${data.model}`)
-        const assignmentKey = data.agent?.toLowerCase()
+        // 兼容后端可能的命名变体（_report_model_info 当前传 str(engineer)，
+        // 真实意图应当是 frontend/backend/architect/reviewer/fallback）
+        const rawAgent = (data.agent || '').toString().toLowerCase()
+        const assignmentKey = AGENT_ROLE_ALIAS[rawAgent] || rawAgent
         if (generation.modelAssignments[assignmentKey]) {
           generation.modelAssignments[assignmentKey].model = data.model
           generation.modelAssignments[assignmentKey].calls++
@@ -199,7 +208,6 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         addLog('info', data.data?.message || data.message || '')
         break
       case 'done':
-        console.log('[SSE] 收到 done 事件，设置 isGenerating=false')
         addLog('success', '项目生成完成')
         generation.isGenerating = false
         generation.workflowStages.forEach(stage => {
@@ -218,18 +226,16 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         }
         break
       default:
-        console.log('未知SSE消息类型:', data.type, data)
+        console.warn('未知SSE消息类型:', data.type, data)
     }
   }
 
   const processSseResponse = async (response) => {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
-    console.log('[SSE] processSseResponse 开始读取流')
     while (true) {
       const { done, value } = await reader.read()
       if (done) {
-        console.log('[SSE] 流已结束，reader.done=true')
         break
       }
       const text = decoder.decode(value)
@@ -364,7 +370,6 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       const sessionId = session.currentSessionId || session.createNewSession({})
       const params = buildStreamParams(session.projectPrompt, sessionId, selectedProviderModel, projectName)
       const response = await projectApi.generateProjectStream(params)
-      console.log('[SSE] generateProjectStream 返回, response.ok:', response.ok, 'status:', response.status)
       await processSseResponse(response)
       generation.isGenerating = false
       addLog('success', `${mode}完成`)

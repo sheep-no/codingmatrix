@@ -428,6 +428,7 @@
   import ThemeSwitcher from './ui/ThemeSwitcher.vue'
   import LoginDialog from './LoginDialog.vue'
   import VirtualHistoryList from './VirtualHistoryList.vue'
+  import { ElMessage, ElMessageBox } from 'element-plus'
 
   const emit = defineEmits(['newConversation', 'selectHistory', 'login', 'logout', 'useTool'])
 
@@ -436,8 +437,6 @@
   const isCollapsed = ref(localStorage.getItem('sidebar-collapsed') === 'true')
   const activeId = ref(null)
   const showLoginDialog = ref(false)
-  const isLoggingIn = ref(false)
-  const loginError = ref('')
   const isLoading = ref(false)
   const loadError = ref('')
   const showToolkitMenu = ref(false)
@@ -446,15 +445,6 @@
 
   let searchDebounceTimer = null
   let handleClickOutside = null
-
-  const loginForm = ref({
-    email: '',
-    password: ''
-  })
-
-  const emailFocused = ref(false)
-  const passwordFocused = ref(false)
-  const rememberMe = ref(false)
 
   const historyList = ref([])
   const virtualListRef = ref(null)
@@ -465,13 +455,6 @@
   watch(isCollapsed, newVal => {
     localStorage.setItem('sidebar-collapsed', String(newVal))
   })
-
-  const closeLoginModal = () => {
-    showLoginDialog.value = false
-    loginError.value = ''
-    loginForm.value.email = ''
-    loginForm.value.password = ''
-  }
 
   const toggleCollapse = () => {
     isCollapsed.value = !isCollapsed.value
@@ -517,7 +500,7 @@
 
   const navigateToAgent = () => {
     showToolkitMenu.value = false
-    window.location.href = '/agent'
+    window.open('/agent', '_blank')
   }
 
   const openImageGenerator = () => {
@@ -537,7 +520,7 @@
 
   const navigateToSettings = () => {
     showToolkitMenu.value = false
-    window.location.href = '/settings'
+    window.open('/settings', '_blank')
   }
 
   const navigateToDocs = () => {
@@ -606,25 +589,6 @@
     emit('selectHistory', item)
   }
 
-  // 高亮文本中的搜索关键词
-  const highlightText = (text, keyword) => {
-    if (!keyword || !text) return text
-
-    try {
-      // 转义正则特殊字符
-      const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-      // 创建不区分大小写的正则表达式
-      const regex = new RegExp(`(${escapedKeyword})`, 'gi')
-
-      // 将匹配的文本包裹在 mark 标签中
-      return text.replace(regex, '<mark class="highlight">$1</mark>')
-    } catch (error) {
-      console.error('高亮处理失败:', error)
-      return text
-    }
-  }
-
   // 立即添加新的历史记录项到列表顶部
   const addNewHistoryItem = newItem => {
     // 检查是否已存在相同 ID 的项，避免重复
@@ -652,7 +616,6 @@
         ...newItem,
         conversation_id: parseInt(newItem.conversation_id, 10)
       }
-      console.log('[SUCCESS] Updated temp history item:', oldId, '->', newItem.conversation_id)
     } else {
       // 如果找不到旧ID，直接添加新项
       addNewHistoryItem(newItem)
@@ -663,8 +626,11 @@
   const handleDeleteHistory = async (item) => {
     if (!item || !item.conversation_id) return
 
-    const confirmed = window.confirm('确定要删除这个会话吗？此操作不可恢复。')
-    if (!confirmed) return
+    try {
+      await ElMessageBox.confirm('确定要删除这个会话吗？此操作不可恢复。', '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+    } catch {
+      return
+    }
 
     try {
       // 调用后端 API 删除
@@ -694,8 +660,6 @@
         } catch (dbError) {
           console.error('删除本地缓存失败:', dbError)
         }
-        
-        console.log('[SUCCESS] 删除会话:', item.conversation_id)
       } else {
         const errorData = await response.json().catch(() => null)
         console.error('[ERR] 删除失败详情:', response.status, errorData)
@@ -703,7 +667,7 @@
       }
     } catch (error) {
       console.error('删除会话失败:', error)
-      alert('删除失败：' + error.message)
+      ElMessage.error('删除失败：' + error.message)
     }
   }
 
@@ -757,47 +721,6 @@
       }
     } finally {
       isLoading.value = false
-    }
-  }
-
-  // 登录
-  const handleLogin = async () => {
-    if (!loginForm.value.email || !loginForm.value.password) {
-      loginError.value = '请填写邮箱和密码'
-      return
-    }
-
-    isLoggingIn.value = true
-    loginError.value = ''
-
-    try {
-      const data = await api.login({
-        email: loginForm.value.email,
-        password: loginForm.value.password
-      })
-
-      if (data) {
-        // 使用 store 保存用户信息（包含 token）
-        userStore.setUser({
-          username: data.username || loginForm.value.email.split('@')[0],
-          permission_level: data.permission_level,
-          access_token: data.access_token,
-          expires_in: 3600
-        })
-
-        // 关闭弹窗并重置表单
-        closeLoginModal()
-
-        // 加载历史记录
-        await fetchHistory()
-      } else {
-        loginError.value = '登录失败'
-      }
-    } catch (error) {
-      console.error('登录错误:', error)
-      loginError.value = '网络请求失败，请检查连接'
-    } finally {
-      isLoggingIn.value = false
     }
   }
 

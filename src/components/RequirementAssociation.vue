@@ -439,8 +439,8 @@ function skipAssociation() {
   border-radius: 3px;
 }
 
-.severity-high { background: #fff1f0; color: var(--danger); }
-.severity-medium { background: #fff7e6; color: var(--warning); }
+.severity-high { background: var(--danger-bg); color: var(--danger); }
+.severity-medium { background: var(--warning-bg); color: var(--warning); }
 .severity-low { background: var(--color-success-50, #f6ffed); color: var(--success); }
 
 .devil-suggestion {
@@ -501,7 +501,7 @@ function skipAssociation() {
 
 .source-domain_template { background: var(--color-primary-50); color: var(--primary); }
 .source-history_project { background: var(--color-success-50, #f6ffed); color: var(--success); }
-.source-llm_association { background: #fff7e6; color: var(--warning); }
+.source-llm_association { background: var(--warning-bg); color: var(--warning); }
 .source-unknown { background: var(--bg-tertiary); color: var(--text-tertiary); }
 
 .dual-badge {

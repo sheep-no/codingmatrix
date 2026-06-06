@@ -16,25 +16,10 @@
       <!-- 跨网页模式切换按钮 -->
       <div
         class="mode-toggle-btn"
-        :title="usePiPMode ? '切换到普通模式' : '切换到跨网页模式'"
+        title="切换到跨网页模式"
         @click="togglePiPMode"
       >
         <svg
-          v-if="usePiPMode"
-          class="mode-icon-svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="2" y1="12" x2="22" y2="12"></line>
-          <path
-            d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
-          ></path>
-        </svg>
-        <svg
-          v-else
           class="mode-icon-svg"
           viewBox="0 0 24 24"
           fill="none"
@@ -237,6 +222,7 @@
 <script setup>
   import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
   import { api } from '@/utils/api/index'
+  import { ElMessage, ElMessageBox } from 'element-plus'
 
   const props = defineProps({
     visible: { type: Boolean, default: false }
@@ -271,6 +257,7 @@
   const isDragging = ref(false)
   const isResizing = ref(false)
   const isAutoHide = ref(false)
+  let pipWindowRef = null
   const windowPosition = ref({ x: 100, y: 100 })
   const windowSize = ref({ width: 400, height: 500 })
   const dragOffset = ref({ x: 0, y: 0 })
@@ -311,7 +298,7 @@
 
   // 检测浏览器是否支持 Document Picture-in-Picture API
   const hasPiPSupport = ref(
-    'documentPictureInPicture' in window && documentPictureInPicture.requestWindow !== undefined
+    typeof window !== 'undefined' && window.documentPictureInPicture?.requestWindow !== undefined
   )
 
   // 窗口样式
@@ -515,11 +502,7 @@
       const [newHistory, loaded] = newValues
       if (loaded && newHistory && newHistory.length > 0) {
         await nextTick()
-
-        for (let i = 0; i < 5; i++) {
-          await new Promise(resolve => setTimeout(resolve, 100))
-          scrollToBottom()
-        }
+        scrollToBottom()
       }
     },
     { deep: true }
@@ -536,7 +519,7 @@
   // 切换到 PiP 模式
   const launchPiP = async () => {
     if (!hasPiPSupport.value) {
-      alert('您的浏览器不支持 Document Picture-in-Picture API，请使用 Chrome 116+ 或 Safari 17+')
+      ElMessage.warning('您的浏览器不支持 Document Picture-in-Picture API，请使用 Chrome 116+ 或 Safari 17+')
       return
     }
 
@@ -547,121 +530,27 @@
     createPiPWindow()
   }
 
-  // 创建 PiP 窗口（简化版本）
+  // 创建 PiP 窗口（通过 postMessage 与主窗口通信）
   const createPiPWindow = async () => {
     if (!hasPiPSupport.value) return
 
     try {
-      const savedHistory = JSON.parse(JSON.stringify(chatHistory.value))
-
       const pipWindow = await documentPictureInPicture.requestWindow({
         width: 420,
         height: 520
       })
+      pipWindowRef = pipWindow
 
-      const pipJSCode = `
-let chatHistory = ${JSON.stringify(savedHistory)};
-let isLoading = false;
-
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-function renderMessages() {
-  const chatMessages = document.getElementById('chatMessages');
-  chatMessages.innerHTML = chatHistory.map((msg, index) => {
-    if (msg.role === 'assistant') {
-      return \`<div class="message assistant"><div class="message-avatar"><img src="/src/img/AiChat.jpeg" alt="AI" /></div><div class="message-content">\${escapeHtml(msg.content)}</div></div>\`;
-    } else {
-      return \`<div class="message user"><div class="message-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;color:white"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></div><div class="message-content">\${escapeHtml(msg.content)}</div></div>\`;
-    }
-  }).join('');
-  
-  if (isLoading) {
-    chatMessages.innerHTML += \`<div class="message assistant"><div class="message-avatar"><img src="/src/img/AiChat.jpeg" alt="AI" /></div><div class="message-content typing"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div>\`;
-  }
-  
-  scrollToBottom();
-}
-
-function scrollToBottom() {
-  const chatMessages = document.getElementById('chatMessages');
-  if (chatMessages) {
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-  }
-}
-
-function addMessage(role, content) {
-  chatHistory.push({ role, content });
-  renderMessages();
-}
-
-async function sendMessage(message) {
-  if (!message.trim() || isLoading) return;
-  
-  addMessage('user', message);
-  isLoading = true;
-  renderMessages();
-  
-  try {
-    const token = localStorage.getItem('access_token');
-    const response = await fetch('/api/v1/GirlAi', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + token
-      },
-      body: JSON.stringify({
-        prompt: message,
-        temperature: 0.8
-      })
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      addMessage('assistant', data.message || data.response || '抱歉，我无法理解您的意思。');
-    } else {
-      addMessage('assistant', '抱歉，我遇到了一些问题，请稍后再试。');
-    }
-  } catch (error) {
-    addMessage('assistant', '网络错误，请检查连接后重试。');
-  } finally {
-    isLoading = false;
-    renderMessages();
-  }
-}
-
-renderMessages();
-
-document.getElementById('sendButton').addEventListener('click', () => {
-  const input = document.getElementById('chatInput');
-  const message = input.value.trim();
-  if (message) {
-    sendMessage(message);
-    input.value = '';
-  }
-});
-
-document.getElementById('chatInput').addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') {
-    const input = e.target;
-    const message = input.value.trim();
-    if (message) {
-      sendMessage(message);
-      input.value = '';
-    }
-  }
-});
-`
-
-      const blob = new Blob([pipJSCode], { type: 'application/javascript' })
-      const jsUrl = URL.createObjectURL(blob)
+      // 内联 CSS 变量值
+      const cs = getComputedStyle(document.documentElement)
+      const primary = cs.getPropertyValue('--primary').trim() || '#667eea'
+      const primaryHover = cs.getPropertyValue('--primary-hover').trim() || '#5a6fd6'
+      const textPrimary = cs.getPropertyValue('--text-primary').trim() || '#1a1a2e'
+      const bgTertiary = cs.getPropertyValue('--bg-tertiary').trim() || '#f0f2f5'
+      const borderColor = cs.getPropertyValue('--border-color').trim() || '#e2e8f0'
 
       pipWindow.document.open()
-      pipWindow.document.write(`
-<!DOCTYPE html>
+      pipWindow.document.write(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
@@ -671,163 +560,48 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
-      width: 100%;
-      height: 100vh;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
+      background: linear-gradient(135deg, ${primary} 0%, ${primaryHover} 100%);
+      width: 100%; height: 100vh; overflow: hidden;
+      display: flex; flex-direction: column;
     }
     .window-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 16px;
-      background: rgba(255, 255, 255, 0.95);
-      backdrop-filter: blur(10px);
-      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(10px); flex-shrink: 0;
     }
-    .window-title {
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--text-primary);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .window-content {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      padding: 16px;
-      overflow: hidden;
-      background: rgba(255, 255, 255, 0.98);
-    }
-    .chat-messages {
-      flex: 1;
-      overflow-y: auto;
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .message {
-      display: flex;
-      gap: 10px;
-      animation: fadeIn 0.3s ease-out;
-    }
+    .window-title { font-size: 15px; font-weight: 700; color: ${textPrimary}; display: flex; align-items: center; gap: 8px; }
+    .window-content { flex: 1; display: flex; flex-direction: column; padding: 16px; overflow: hidden; background: rgba(255,255,255,0.98); }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+    .message { display: flex; gap: 10px; animation: fadeIn 0.3s ease-out; }
     .message.user { flex-direction: row-reverse; }
-    .message-avatar {
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-      flex-shrink: 0;
-      overflow: hidden;
-    }
-    .message-avatar img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-    .message-content {
-      max-width: 75%;
-      padding: 10px 14px;
-      border-radius: 12px;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-    .message.assistant .message-content {
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      border-bottom-left-radius: 4px;
-    }
-    .message.user .message-content {
-      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
-      color: white;
-      border-bottom-right-radius: 4px;
-    }
-    .typing {
-      display: flex;
-      gap: 4px;
-      padding: 10px 14px;
-    }
-    .typing-dot {
-      width: 8px;
-      height: 8px;
-      background: var(--primary);
-      border-radius: 50%;
-      animation: bounce 1.4s infinite;
-    }
+    .message-avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, ${primary} 0%, ${primaryHover} 100%); display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
+    .message-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .message-content { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; }
+    .message.assistant .message-content { background: ${bgTertiary}; color: ${textPrimary}; border-bottom-left-radius: 4px; }
+    .message.user .message-content { background: linear-gradient(135deg, ${primary} 0%, ${primaryHover} 100%); color: white; border-bottom-right-radius: 4px; }
+    .typing { display: flex; gap: 4px; padding: 10px 14px; }
+    .typing-dot { width: 8px; height: 8px; background: ${primary}; border-radius: 50%; animation: bounce 1.4s infinite; }
     .typing-dot:nth-child(2) { animation-delay: 0.2s; }
     .typing-dot:nth-child(3) { animation-delay: 0.4s; }
-    @keyframes bounce {
-      0%, 60%, 100% { transform: translateY(0); }
-      30% { transform: translateY(-8px); }
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .input-section {
-      display: flex;
-      gap: 8px;
-      padding-top: 12px;
-      flex-shrink: 0;
-    }
-    .chat-input {
-      flex: 1;
-      padding: 10px 14px;
-      border: 2px solid var(--border-color);
-      border-radius: 20px;
-      font-size: 13px;
-      outline: none;
-      height: 40px;
-      transition: all 0.2s;
-    }
-    .chat-input:focus {
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
-    }
-    .send-button {
-      padding: 10px 20px;
-      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
-      color: white;
-      border: none;
-      border-radius: 20px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      height: 40px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s;
-    }
-    .send-button:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-    }
-    .send-button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+    @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-8px)} }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+    .input-section { display: flex; gap: 8px; padding-top: 12px; flex-shrink: 0; }
+    .chat-input { flex:1; padding:10px 14px; border:2px solid ${borderColor}; border-radius:20px; font-size:13px; outline:none; height:40px; transition:all 0.2s; }
+    .chat-input:focus { border-color:${primary}; box-shadow:0 0 0 3px rgba(102,126,234,0.2); }
+    .send-button { padding:10px 20px; background:linear-gradient(135deg,${primary} 0%,${primaryHover} 100%); color:white; border:none; border-radius:20px; font-size:13px; font-weight:600; cursor:pointer; height:40px; transition:all 0.2s; }
+    .send-button:hover:not(:disabled) { transform:translateY(-2px); box-shadow:0 4px 12px rgba(102,126,234,0.4); }
+    .send-button:disabled { opacity:0.5; cursor:not-allowed; }
   </style>
 </head>
 <body>
   <div class="window-header">
-          <div class="window-title">
-            <svg class="pip-window-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="2" y1="12" x2="22" y2="12"></line>
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-            </svg>
-            虚拟姬 (跨网页模式)
-          </div>
+    <div class="window-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+        <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
+        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+      </svg>
+      虚拟姬 (跨网页模式)
+    </div>
   </div>
   <div class="window-content">
     <div class="chat-messages" id="chatMessages"></div>
@@ -836,20 +610,107 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
       <button class="send-button" id="sendButton">发送</button>
     </div>
   </div>
-  <script src="${jsUrl}"><${'/'}}script>
+<script>
+let isLoading = false;
+const avatarSrc = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>');
+
+function escapeHtml(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML}
+
+function renderMessages(msgs){
+  const el=document.getElementById('chatMessages');
+  el.innerHTML=msgs.map(m=>{
+    if(m.role==='assistant')return '<div class="message assistant"><div class="message-avatar"><img src="'+avatarSrc+'" /></div><div class="message-content">'+escapeHtml(m.content)+'</div></div>';
+    return '<div class="message user"><div class="message-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="20" height="20"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><div class="message-content">'+escapeHtml(m.content)+'</div></div>';
+  }).join('');
+  if(isLoading)el.innerHTML+='<div class="message assistant"><div class="message-avatar"><img src="'+avatarSrc+'" /></div><div class="message-content typing"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div>';
+  el.scrollTop=el.scrollHeight;
+}
+
+function sendMessage(text){
+  if(!text.trim()||isLoading)return;
+  isLoading=true;
+  window.opener.postMessage({type:'girlai-send',prompt:text},'*');
+}
+
+document.getElementById('sendButton').onclick=function(){
+  const inp=document.getElementById('chatInput');
+  sendMessage(inp.value);inp.value='';
+};
+document.getElementById('chatInput').onkeydown=function(e){
+  if(e.key==='Enter'){const inp=e.target;sendMessage(inp.value);inp.value='';}
+};
+
+window.addEventListener('message',function(e){
+  if(e.data&&e.data.type==='girlai-history'){renderMessages(e.data.messages);}
+  if(e.data&&e.data.type==='girlai-response'){isLoading=false;}
+});
+
+window.opener.postMessage({type:'girlai-ready'},'*');
+</script>
 </body>
-</html>
-    `)
+</html>`)
       pipWindow.document.close()
 
+      // 监听 PiP 窗口的消息
+      const handlePiPMessage = async event => {
+        if (!event.data || !event.data.type) return
+
+        if (event.data.type === 'girlai-ready') {
+          // PiP 窗口就绪，发送当前聊天历史
+          pipWindow.postMessage({
+            type: 'girlai-history',
+            messages: chatHistory.value.map(m => ({ role: m.role, content: m.content }))
+          }, '*')
+        }
+
+        if (event.data.type === 'girlai-send') {
+          // PiP 窗口发送消息，主窗口调用 API
+          const userMsg = event.data.prompt
+          chatHistory.value.push({ role: 'user', content: userMsg, timestamp: Date.now() })
+          messageTimestamps.value.push(Date.now())
+          saveChatHistory()
+          await nextTick()
+          scrollToBottom()
+
+          try {
+            const response = await api.post('/GirlAi', {
+              prompt: userMsg,
+              temperature: 0.8,
+              character: selectedCharacter.value
+            })
+            if (response.ok) {
+              const data = await response.json()
+              chatHistory.value.push({ role: 'assistant', content: data.message, timestamp: Date.now() })
+              messageTimestamps.value.push(Date.now())
+            } else {
+              chatHistory.value.push({ role: 'assistant', content: '抱歉，我遇到了一些问题，请稍后再试。', timestamp: Date.now() })
+            }
+          } catch {
+            chatHistory.value.push({ role: 'assistant', content: '网络错误，请检查连接后重试。', timestamp: Date.now() })
+          } finally {
+            saveChatHistory()
+            await nextTick()
+            scrollToBottom()
+            pipWindow.postMessage({
+              type: 'girlai-history',
+              messages: chatHistory.value.map(m => ({ role: m.role, content: m.content }))
+            }, '*')
+            pipWindow.postMessage({ type: 'girlai-response' }, '*')
+          }
+        }
+      }
+      pipWindow.addEventListener('message', handlePiPMessage)
+
       pipWindow.addEventListener('pagehide', () => {
+        pipWindow.removeEventListener('message', handlePiPMessage)
+        pipWindowRef = null
         usePiPMode.value = false
         showWindow.value = true
         emit('update:visible', true)
       })
     } catch (error) {
       console.error('创建 PiP 窗口失败:', error)
-      alert('创建 PiP 窗口失败：' + error.message)
+      ElMessage.error('创建 PiP 窗口失败：' + error.message)
       usePiPMode.value = false
       showWindow.value = true
       emit('update:visible', true)
@@ -859,7 +720,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
   // 切换 PiP 模式
   const togglePiPMode = () => {
     if (!hasPiPSupport.value) {
-      alert('您的浏览器不支持 Document Picture-in-Picture API，请使用 Chrome 116+ 或 Safari 17+')
+      ElMessage.warning('您的浏览器不支持 Document Picture-in-Picture API，请使用 Chrome 116+ 或 Safari 17+')
       return
     }
 
@@ -974,7 +835,9 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
 
   // 确认清除历史记录
   const confirmClearHistory = async () => {
-    if (!confirm('确定要清除所有虚拟姬聊天历史吗？此操作不可恢复。')) {
+    try {
+      await ElMessageBox.confirm('确定要清除所有虚拟姬聊天历史吗？此操作不可恢复。', '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+    } catch {
       return
     }
 
@@ -983,18 +846,21 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
       if (result && result.status === 'deleted') {
         chatHistory.value = []
         localStorage.removeItem(STORAGE_KEY)
-        alert(`已清除 ${result.count} 条历史记录`)
+        ElMessage.success(`已清除 ${result.count} 条历史记录`)
+        if (pipWindowRef) {
+          pipWindowRef.postMessage({ type: 'girlai-history', messages: [] }, '*')
+        }
       } else {
-        alert('清除历史记录失败')
+        ElMessage.error('清除历史记录失败')
       }
     } catch (error) {
       console.error('清除历史记录出错:', error)
-      alert('清除历史记录失败')
+      ElMessage.error('清除历史记录失败')
     }
   }
 
   // 检测是否需要自动隐藏
-  const checkAutoHide = e => {
+  const checkAutoHide = () => {
     if (isMinimized.value) return
 
     const shouldHide = windowPosition.value.x < 100
@@ -1064,8 +930,6 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     isLoading.value = true
     isConnected.value = false
 
-    saveChatHistory()
-
     await nextTick()
     scrollToBottom()
 
@@ -1112,11 +976,6 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
 
       await nextTick()
       scrollToBottom()
-
-      if (hasMoreHistory.value) {
-        currentOffset.value = 0
-        hasMoreHistory.value = true
-      }
     }
   }
 
@@ -1141,25 +1000,16 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     }
   }
 
-  // 监听聊天历史变化
+  // 监听聊天历史变化（保存滚动位置 + 持久化）
   watch(
     chatHistory,
     async () => {
       await nextTick()
       saveScrollPosition()
+      saveChatHistory()
     },
     { deep: true }
   )
-
-  // 监听来自 PiP 窗口的历史更新
-  const handleMessage = event => {
-    if (event.data && event.data.type === 'history-update') {
-      chatHistory.value = event.data.data
-      currentOffset.value = event.data.data.length
-      hasMoreHistory.value = true
-      saveChatHistory()
-    }
-  }
 
   // 监听页面可见性变化
   const handleVisibilityChange = () => {
@@ -1208,15 +1058,6 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('storage', handleStorage)
-    window.addEventListener('message', handleMessage)
-
-    watch(
-      [chatHistory],
-      () => {
-        saveChatHistory()
-      },
-      { deep: true }
-    )
   })
 
   // 组件卸载时清理
@@ -1229,11 +1070,10 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
 
     document.removeEventListener('visibilitychange', handleVisibilityChange)
     window.removeEventListener('storage', handleStorage)
-    window.removeEventListener('message', handleMessage)
 
-    if (historyLoadTimer) {
-      clearTimeout(historyLoadTimer)
-      historyLoadTimer = null
+    if (pipWindowRef) {
+      pipWindowRef.close()
+      pipWindowRef = null
     }
   })
 
@@ -1547,10 +1387,10 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
     background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
   }
   .character-indicator.tsundere {
-    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+    background: linear-gradient(135deg, var(--danger-100) 0%, #fecaca 100%);
   }
   .character-indicator.intellectual {
-    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+    background: linear-gradient(135deg, var(--primary-100) 0%, #bfdbfe 100%);
   }
   .character-indicator.companion {
     background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);

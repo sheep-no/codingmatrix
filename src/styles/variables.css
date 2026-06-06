@@ -46,6 +46,12 @@
   --color-danger-500: #ef4444;
   --color-danger-600: #dc2626;
 
+  /* 功能色背景 */
+  --success-bg: #ecfdf5;
+  --warning-bg: #fffbeb;
+  --danger-bg: #fef2f2;
+  --danger-100: #fee2e2;
+
   /* 背景色 - 纯白亮色 */
   --bg-primary: #ffffff;
   --bg-secondary: #f8fafc;
@@ -134,6 +140,12 @@
   --color-danger-500: #ef4444;
   --color-danger-600: #dc2626;
 
+  /* 功能色背景 */
+  --success-bg: #ecfdf5;
+  --warning-bg: #fffbeb;
+  --danger-bg: #fef2f2;
+  --danger-100: #fee2e2;
+
   /* 背景色 - 微青色调，与 Light 有明显区分 */
   --bg-primary: #fcfdfd;
   --bg-secondary: #f0f7f6;
@@ -221,6 +233,12 @@
   --color-warning-600: #f59e0b;
   --color-danger-500: #f87171;
   --color-danger-600: #ef4444;
+
+  /* 功能色背景 */
+  --success-bg: #064e3b;
+  --warning-bg: #78350f;
+  --danger-bg: #7f1d1d;
+  --danger-100: #991b1b;
 
   /* 背景色 */
   --bg-primary: #0f172a;
@@ -321,6 +339,12 @@ html:not(.theme-light):not(.theme-default):not(.theme-dark):not(.theme-auto) {
   --color-danger-500: #ef4444;
   --color-danger-600: #dc2626;
   --color-danger-700: #b91c1c;
+
+  /* 功能色背景 */
+  --success-bg: #ecfdf5;
+  --warning-bg: #fffbeb;
+  --danger-bg: #fef2f2;
+  --danger-100: #fee2e2;
 
   /* 中性色别名 (不带 color- 前缀) */
   --slate-50: #f8fafc;

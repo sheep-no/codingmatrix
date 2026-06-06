@@ -612,34 +612,12 @@
 
 <script setup>
   import { ref, computed, onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
-  import { ElMessage } from 'element-plus'
+  import { ElMessage, ElMessageBox } from 'element-plus'
   import { useRouter } from 'vue-router'
   import { useUserStore } from '@/stores/user'
   import * as echarts from 'echarts'
-  import { LineChart, BarChart, PieChart } from 'echarts/charts'
-  import {
-    GridComponent,
-    TitleComponent,
-    TooltipComponent,
-    LegendComponent,
-    GraphicComponent
-  } from 'echarts/components'
-  import { CanvasRenderer } from 'echarts/renderers'
-
-  // 注册必需的组件
-  echarts.use([
-    GridComponent,
-    TitleComponent,
-    TooltipComponent,
-    LegendComponent,
-    GraphicComponent,
-    LineChart,
-    BarChart,
-    PieChart,
-    CanvasRenderer
-  ])
   import { defineAsyncComponent } from 'vue'
-  import { WebSocketManager, API_CONFIG } from '../utils/api/index'
+  import { WebSocketManager, API_CONFIG, api } from '../utils/api/index'
 
   const UserManagement = defineAsyncComponent(() => import('./UserManagement.vue'))
   const SystemLogs = defineAsyncComponent(() => import('./SystemLogs.vue'))
@@ -647,6 +625,14 @@
   const ServiceManager = defineAsyncComponent(() => import('./ServiceManager.vue'))
   const ResourceControl = defineAsyncComponent(() => import('./ResourceControl.vue'))
   const AdminModelManager = defineAsyncComponent(() => import('./settings/AdminModelManager.vue'))
+
+  // echarts 图表颜色常量
+  const CHART_COLORS = {
+    cpu: { safe: '#67e0e3', warn: '#37a2da', danger: '#fd666d', label: '#464646' },
+    memory: { used: '#5470c6', available: '#91cc75' },
+    disk: { start: '#83bff6', end: '#188df0' },
+    network: { sent: '#5470c6', recv: '#91cc75', tooltipBg: '#6a7985' }
+  }
 
   // 代码沙箱配置
   const sandboxConfig = ref({
@@ -656,31 +642,20 @@
 
   const fetchSandboxConfig = async () => {
     try {
-      const token = userStore.token
-      const resp = await fetch('/api/v2/admin/sandbox-config', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
+      const resp = await api.get('/api/v2/admin/sandbox-config')
       if (resp.ok) {
         sandboxConfig.value = await resp.json()
       }
-    } catch (e) {
-      console.warn('获取沙箱配置失败:', e)
+    } catch {
+      // 沙箱配置获取失败时使用默认值
     }
   }
 
   const updateSandboxConfig = async () => {
     try {
-      const token = userStore.token
-      const resp = await fetch('/api/v2/admin/sandbox-config', {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          enable_code_sandbox: sandboxConfig.value.enable_code_sandbox,
-          sandbox_languages: sandboxConfig.value.sandbox_languages.join(',')
-        })
+      const resp = await api.put('/api/v2/admin/sandbox-config', {
+        enable_code_sandbox: sandboxConfig.value.enable_code_sandbox,
+        sandbox_languages: sandboxConfig.value.sandbox_languages.join(',')
       })
       if (resp.ok) {
         const data = await resp.json()
@@ -1001,11 +976,18 @@
   }
 
   // 处理退出登录
-  const handleLogout = () => {
-    if (confirm('确定要退出登录吗？')) {
+  const handleLogout = async () => {
+    try {
+      await ElMessageBox.confirm('确定要退出登录吗？', '退出确认', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
       localStorage.removeItem('access_token')
       localStorage.removeItem('permission_level')
       router.push('/')
+    } catch {
+      // 用户取消
     }
   }
 
@@ -1042,8 +1024,8 @@
         timestamp: Date.now()
       }
       localStorage.setItem('adminMenuState', JSON.stringify(state))
-    } catch (err) {
-      console.warn('无法保存管理员菜单状态:', err)
+    } catch {
+      // localStorage 不可用时静默失败
     }
   }
 
@@ -1075,9 +1057,9 @@
             lineStyle: {
               width: 8,
               color: [
-                [0.3, '#67e0e3'],
-                [0.7, '#37a2da'],
-                [1, '#fd666d']
+                [0.3, CHART_COLORS.cpu.safe],
+                [0.7, CHART_COLORS.cpu.warn],
+                [1, CHART_COLORS.cpu.danger]
               ]
             }
           },
@@ -1104,7 +1086,7 @@
             }
           },
           axisLabel: {
-            color: '#464646',
+            color: CHART_COLORS.cpu.label,
             fontSize: 16,
             distance: -60
           },
@@ -1189,13 +1171,13 @@
             {
               value: systemData.value.memory?.used_gb || 0,
               name: '已使用',
-              itemStyle: { color: '#5470c6' }
+              itemStyle: { color: CHART_COLORS.memory.used }
             },
             {
               value:
                 (systemData.value.memory?.total_gb || 0) - (systemData.value.memory?.used_gb || 0),
               name: '可用',
-              itemStyle: { color: '#91cc75' }
+              itemStyle: { color: CHART_COLORS.memory.available }
             }
           ]
         }
@@ -1252,9 +1234,9 @@
           barWidth: '60%',
           itemStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-              { offset: 0, color: '#83bff6' },
-              { offset: 0.5, color: '#188df0' },
-              { offset: 1, color: '#188df0' }
+              { offset: 0, color: CHART_COLORS.disk.start },
+              { offset: 0.5, color: CHART_COLORS.disk.end },
+              { offset: 1, color: CHART_COLORS.disk.end }
             ]),
             borderRadius: [0, 20, 20, 0]
           },
@@ -1297,7 +1279,7 @@
         axisPointer: {
           type: 'cross',
           label: {
-            backgroundColor: '#6a7985'
+            backgroundColor: CHART_COLORS.network.tooltipBg
           }
         },
         formatter: function (params) {
@@ -1341,7 +1323,7 @@
           smooth: true,
           data: networkHistory.value.sent,
           itemStyle: {
-            color: '#5470c6'
+            color: CHART_COLORS.network.sent
           },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -1356,7 +1338,7 @@
           smooth: true,
           data: networkHistory.value.recv,
           itemStyle: {
-            color: '#91cc75'
+            color: CHART_COLORS.network.recv
           },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -1418,14 +1400,14 @@
               {
                 value: systemData.value.memory?.used_gb || 0,
                 name: '已使用',
-                itemStyle: { color: '#5470c6' }
+                itemStyle: { color: CHART_COLORS.memory.used }
               },
               {
                 value:
                   (systemData.value.memory?.total_gb || 0) -
                   (systemData.value.memory?.used_gb || 0),
                 name: '可用',
-                itemStyle: { color: '#91cc75' }
+                itemStyle: { color: CHART_COLORS.memory.available }
               }
             ]
           }
@@ -1502,47 +1484,24 @@
     const permissionLevel = localStorage.getItem('permission_level')
 
     if (!token) {
-      console.error('未登录，缺少访问令牌')
-      console.debug('[AdminPanel] Token check failed. sessionStorage:_token:', sessionStorage.getItem('_token'))
-      console.debug('[AdminPanel] localStorage:access_token:', localStorage.getItem('access_token'))
       accessDenied.value = true
       showAccessDenied()
       return false
     }
 
-    // 存储用户权限级别用于界面显示控制（从 userStore 获取）
-    // 普通用户（normal）无法访问管理员面板
-    // admin 可以访问大部分功能
-    // superadmin 可以访问所有功能
-
     // 普通用户只能看到 Nginx 配置，admin 和 superadmin 可以看到所有功能
     if (!isAdmin.value) {
-      console.log('普通用户访问，仅显示 Nginx 配置')
-      // 自动跳转到 Nginx 配置页面
       activeMenu.value = 'nginx'
-    } else if (isSuperUser.value) {
-      console.log('超级管理员访问，显示所有功能')
-    } else {
-      console.log('管理员访问，显示大部分功能')
     }
 
     showContent.value = true
-    console.log('权限验证通过')
     return true
   }
 
   // 显示拒绝访问页面
   const showAccessDenied = () => {
     setTimeout(() => {
-      try {
-        window.close()
-        setTimeout(() => {
-          window.location.href = '/'
-        }, 1000)
-      } catch (error) {
-        console.error('关闭窗口失败:', error)
-        window.location.href = '/'
-      }
+      router.push('/')
     }, 2000)
   }
 
@@ -1654,13 +1613,13 @@
   .denied-content {
     text-align: center;
     padding: 60px 80px;
-    background: rgba(26, 26, 46, 0.8);
+    background: var(--admin-bg-card);
     backdrop-filter: blur(30px);
     border-radius: 32px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--admin-border-light);
     box-shadow:
-      0 25px 50px rgba(0, 0, 0, 0.5),
-      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      0 25px 50px var(--admin-shadow-lg),
+      inset 0 1px 0 var(--admin-border-faint);
     z-index: 1;
     animation: slideUp 0.6s ease-out;
   }
@@ -1685,7 +1644,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px solid rgba(255, 71, 87, 0.3);
+    border: 2px solid var(--admin-danger-30);
   }
 
   .denied-icon svg {
@@ -1720,17 +1679,67 @@
   .access-denied p {
     margin: 8px 0;
     font-size: 16px;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--admin-text-muted);
   }
 
   .access-denied .hint {
     font-size: 14px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--admin-text-dim);
     margin-top: 20px;
   }
 
   /* 管理员面板主容器 */
   .admin-panel {
+    /* AdminPanel 专用深色主题变量 */
+    --admin-bg-deep: #0a0a0f;
+    --admin-bg-main: #1a1a2e;
+    --admin-bg-card: rgba(26, 26, 46, 0.8);
+    --admin-bg-card-solid: #1a1a2e;
+    --admin-bg-sidebar: rgba(26, 26, 46, 0.8);
+    --admin-bg-nav: rgba(26, 26, 46, 0.9);
+    --admin-bg-hover: rgba(255, 255, 255, 0.03);
+    --admin-bg-active: rgba(255, 255, 255, 0.06);
+    --admin-bg-input: rgba(255, 255, 255, 0.05);
+    
+    --admin-text-primary: rgba(255, 255, 255, 0.9);
+    --admin-text-secondary: rgba(255, 255, 255, 0.7);
+    --admin-text-muted: rgba(255, 255, 255, 0.5);
+    --admin-text-dim: rgba(255, 255, 255, 0.4);
+    --admin-text-faint: rgba(255, 255, 255, 0.35);
+    --admin-text-ghost: rgba(255, 255, 255, 0.3);
+    --admin-text-hidden: rgba(255, 255, 255, 0.2);
+    
+    --admin-border-light: rgba(255, 255, 255, 0.08);
+    --admin-border-subtle: rgba(255, 255, 255, 0.06);
+    --admin-border-faint: rgba(255, 255, 255, 0.05);
+    --admin-border-ghost: rgba(255, 255, 255, 0.04);
+    --admin-border-minimal: rgba(255, 255, 255, 0.03);
+    --admin-border-invisible: rgba(255, 255, 255, 0.02);
+    --admin-border-none: rgba(255, 255, 255, 0.01);
+    
+    --admin-accent: rgba(13, 148, 136, 1);
+    --admin-accent-strong: rgba(20, 184, 166, 1);
+    --admin-accent-50: rgba(13, 148, 136, 0.5);
+    --admin-accent-40: rgba(13, 148, 136, 0.4);
+    --admin-accent-30: rgba(13, 148, 136, 0.3);
+    --admin-accent-20: rgba(13, 148, 136, 0.2);
+    --admin-accent-15: rgba(13, 148, 136, 0.15);
+    --admin-accent-10: rgba(13, 148, 136, 0.1);
+    
+    --admin-danger: rgba(255, 71, 87, 1);
+    --admin-danger-30: rgba(255, 71, 87, 0.3);
+    --admin-danger-20: rgba(255, 71, 87, 0.2);
+    --admin-danger-15: rgba(255, 71, 87, 0.15);
+    --admin-danger-08: rgba(255, 71, 87, 0.08);
+    --admin-danger-05: rgba(255, 71, 87, 0.05);
+    
+    --admin-success: rgba(72, 187, 120, 1);
+    --admin-success-20: rgba(72, 187, 120, 0.2);
+    
+    --admin-shadow-sm: rgba(0, 0, 0, 0.15);
+    --admin-shadow-md: rgba(0, 0, 0, 0.2);
+    --admin-shadow-lg: rgba(0, 0, 0, 0.5);
+
     width: 100%;
     height: 100vh;
     display: flex;
@@ -1760,11 +1769,11 @@
     align-items: center;
     padding: 0 20px;
     height: 60px;
-    background: rgba(26, 26, 46, 0.9);
+    background: var(--admin-bg-nav);
     backdrop-filter: blur(20px);
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 2px 12px var(--admin-shadow-md);
     z-index: 100;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--admin-border-faint);
     position: relative;
   }
 
@@ -1801,7 +1810,7 @@
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     padding: 8px;
     border-radius: 10px;
-    box-shadow: 0 4px 12px rgba(13, 148, 136, 0.3);
+    box-shadow: 0 4px 12px var(--admin-accent-30);
     position: relative;
     overflow: hidden;
   }
@@ -1840,7 +1849,7 @@
 
   .logo-subtitle {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--admin-text-dim);
     text-transform: uppercase;
     letter-spacing: 1.5px;
     font-weight: 600;
@@ -1862,18 +1871,18 @@
     align-items: center;
     gap: 8px;
     padding: 6px 14px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--admin-border-minimal);
+    border: 1px solid var(--admin-border-subtle);
     border-radius: 8px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--admin-text-secondary);
     font-weight: 500;
     transition: all 0.2s ease;
   }
 
   .info-item:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(13, 148, 136, 0.3);
+    background: var(--admin-border-subtle);
+    border-color: var(--admin-accent-30);
   }
 
   .info-item svg {
@@ -1889,7 +1898,7 @@
     padding: 6px 16px;
     background: linear-gradient(135deg, rgba(255, 71, 87, 0.15) 0%, rgba(255, 71, 87, 0.08) 100%);
     color: var(--danger);
-    border: 1px solid rgba(255, 71, 87, 0.3);
+    border: 1px solid var(--admin-danger-30);
     border-radius: 8px;
     font-size: 13px;
     font-weight: 600;
@@ -1915,14 +1924,14 @@
   /* 侧边栏 */
   .admin-sidebar {
     width: 240px;
-    background: rgba(26, 26, 46, 0.8);
+    background: var(--admin-bg-card);
     backdrop-filter: blur(20px);
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    border-right: 1px solid var(--admin-border-faint);
     display: flex;
     flex-direction: column;
     padding: 16px 0;
     overflow-y: auto;
-    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
+    box-shadow: 2px 0 12px var(--admin-shadow-md);
   }
 
   .admin-sidebar::-webkit-scrollbar {
@@ -1930,7 +1939,7 @@
   }
 
   .admin-sidebar::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--admin-border-invisible);
   }
 
   .admin-sidebar::-webkit-scrollbar-thumb {
@@ -1943,14 +1952,14 @@
     justify-content: space-between;
     align-items: center;
     padding: 0 16px 14px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--admin-border-faint);
   }
 
   .sidebar-header h3 {
     margin: 0;
     font-size: 11px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--admin-text-muted);
     text-transform: uppercase;
     letter-spacing: 1.5px;
   }
@@ -1977,7 +1986,7 @@
     transform: translateY(-50%);
     width: 16px;
     height: 16px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--admin-text-ghost);
     transition: color 0.2s ease;
   }
 
@@ -1988,11 +1997,11 @@
   .search-input {
     width: 100%;
     padding: 10px 36px 10px 36px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--admin-border-minimal);
+    border: 1px solid var(--admin-border-subtle);
     border-radius: 8px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--admin-text-primary);
     outline: none;
     transition: all 0.2s ease;
     font-weight: 500;
@@ -2000,13 +2009,13 @@
   }
 
   .search-input::placeholder {
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--admin-text-ghost);
   }
 
   .search-input:focus {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(13, 148, 136, 0.5);
-    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+    background: var(--admin-border-faint);
+    border-color: var(--admin-accent-50);
+    box-shadow: 0 0 0 3px var(--admin-accent-15);
   }
 
   .clear-btn {
@@ -2016,8 +2025,8 @@
     transform: translateY(-50%);
     width: 26px;
     height: 26px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--admin-border-faint);
+    border: 1px solid var(--admin-border-light);
     border-radius: 8px;
     display: flex;
     align-items: center;
@@ -2030,12 +2039,12 @@
   .clear-btn svg {
     width: 14px;
     height: 14px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--admin-text-muted);
   }
 
   .clear-btn:hover {
-    background: rgba(255, 71, 87, 0.2);
-    border-color: rgba(255, 71, 87, 0.3);
+    background: var(--admin-danger-20);
+    border-color: var(--admin-danger-30);
     transform: translateY(-50%) scale(1.1);
   }
 
@@ -2046,13 +2055,13 @@
   /* 快速访问 */
   .quick-access {
     padding: 0 16px 14px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--admin-border-minimal);
   }
 
   .section-title {
     font-size: 10px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--admin-text-faint);
     text-transform: uppercase;
     letter-spacing: 1.5px;
     margin-bottom: 10px;
@@ -2069,8 +2078,8 @@
     align-items: center;
     gap: 10px;
     padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.04);
+    background: var(--admin-border-invisible);
+    border: 1px solid var(--admin-border-ghost);
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -2091,10 +2100,10 @@
   }
 
   .quick-link:hover {
-    background: rgba(13, 148, 136, 0.1);
-    border-color: rgba(13, 148, 136, 0.2);
+    background: var(--admin-accent-10);
+    border-color: var(--admin-accent-20);
     transform: translateX(8px);
-    box-shadow: 0 4px 20px rgba(13, 148, 136, 0.15);
+    box-shadow: 0 4px 20px var(--admin-accent-15);
   }
 
   .quick-link:hover::before {
@@ -2104,13 +2113,13 @@
   .quick-link.active {
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     border-color: transparent;
-    box-shadow: 0 8px 30px rgba(13, 148, 136, 0.4);
+    box-shadow: 0 8px 30px var(--admin-accent-40);
   }
 
   .quick-link.active::before {
     opacity: 1;
     width: 100%;
-    background: rgba(255, 255, 255, 0.3);
+    background: var(--admin-text-ghost);
   }
 
   .quick-link.active svg,
@@ -2135,14 +2144,14 @@
     flex: 1;
     font-size: 14px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--admin-text-secondary);
     transition: all 0.3s ease;
   }
 
   .link-count {
     padding: 5px 12px;
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.4);
+    background: var(--admin-border-faint);
+    color: var(--admin-text-dim);
     border-radius: 20px;
     font-size: 11px;
     font-weight: 700;
@@ -2150,7 +2159,7 @@
   }
 
   .quick-link.active .link-count {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--admin-text-hidden);
     color: white;
   }
 
@@ -2166,7 +2175,7 @@
   }
 
   .sidebar-nav::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.01);
+    background: var(--admin-border-none);
   }
 
   .sidebar-nav::-webkit-scrollbar-thumb {
@@ -2185,7 +2194,7 @@
     padding: 6px 0;
     font-size: 10px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--admin-text-faint);
     text-transform: uppercase;
     letter-spacing: 1.5px;
   }
@@ -2201,8 +2210,8 @@
     align-items: flex-start;
     gap: 10px;
     padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.04);
+    background: var(--admin-border-invisible);
+    border: 1px solid var(--admin-border-ghost);
     border-radius: 8px;
     margin-bottom: 6px;
     cursor: pointer;
@@ -2225,9 +2234,9 @@
 
   .nav-item:hover {
     background: rgba(13, 148, 136, 0.08);
-    border-color: rgba(13, 148, 136, 0.2);
+    border-color: var(--admin-accent-20);
     transform: translateX(8px);
-    box-shadow: 0 4px 20px rgba(13, 148, 136, 0.15);
+    box-shadow: 0 4px 20px var(--admin-accent-15);
   }
 
   .nav-item:hover::before {
@@ -2237,13 +2246,13 @@
   .nav-item.active {
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
     border-color: transparent;
-    box-shadow: 0 8px 30px rgba(13, 148, 136, 0.4);
+    box-shadow: 0 8px 30px var(--admin-accent-40);
   }
 
   .nav-item.active::before {
     opacity: 1;
     width: 100%;
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--admin-text-hidden);
   }
 
   .nav-icon {
@@ -2269,7 +2278,7 @@
   .nav-title {
     font-size: 13px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--admin-text-secondary);
     transition: all 0.2s ease;
   }
 
@@ -2279,18 +2288,18 @@
 
   .nav-desc {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--admin-text-faint);
     transition: all 0.2s ease;
   }
 
   .nav-item.active .nav-desc {
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--admin-text-secondary);
   }
 
   .no-results {
     text-align: center;
     padding: 60px 20px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--admin-text-ghost);
   }
 
   .no-results svg {
@@ -2304,7 +2313,7 @@
   .no-results p {
     margin: 0 0 16px 0;
     font-size: 14px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--admin-text-dim);
   }
 
   .clear-search-link {
@@ -2337,10 +2346,10 @@
     justify-content: space-between;
     align-items: center;
     padding: 12px 20px;
-    background: rgba(26, 26, 46, 0.8);
+    background: var(--admin-bg-card);
     backdrop-filter: blur(20px);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    border-bottom: 1px solid var(--admin-border-faint);
+    box-shadow: 0 2px 8px var(--admin-shadow-sm);
   }
 
   .status-item {
@@ -2348,7 +2357,7 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--admin-text-secondary);
     font-weight: 500;
   }
 
@@ -2382,7 +2391,7 @@
   }
 
   .status-time {
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--admin-text-dim);
     font-size: 13px;
   }
 
@@ -2396,20 +2405,20 @@
     flex-direction: column;
     gap: 4px;
     padding: 8px 14px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--admin-border-minimal);
+    border: 1px solid var(--admin-border-subtle);
     border-radius: 8px;
     transition: all 0.2s ease;
   }
 
   .mini-stat:hover {
-    background: rgba(13, 148, 136, 0.1);
-    border-color: rgba(13, 148, 136, 0.3);
+    background: var(--admin-accent-10);
+    border-color: var(--admin-accent-30);
   }
 
   .mini-stat-label {
     font-size: 9px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--admin-text-dim);
     text-transform: uppercase;
     font-weight: 700;
     letter-spacing: 0.5px;
@@ -2437,7 +2446,7 @@
   }
 
   .content-wrapper::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.01);
+    background: var(--admin-border-none);
     border-radius: 4px;
   }
 
@@ -2469,11 +2478,11 @@
     justify-content: space-between;
     align-items: center;
     padding: 18px 20px;
-    background: rgba(26, 26, 46, 0.8);
+    background: var(--admin-bg-card);
     backdrop-filter: blur(20px);
     border-radius: 14px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 4px 16px var(--admin-shadow-sm);
+    border: 1px solid var(--admin-border-faint);
   }
 
   .section-header .header-left {
@@ -2495,13 +2504,13 @@
     margin: 0;
     font-size: 18px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--admin-text-primary);
   }
 
   .section-header .header-desc {
     margin: 4px 0 0 0;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--admin-text-dim);
   }
 
   .section-header .header-actions {
@@ -2514,9 +2523,9 @@
     align-items: center;
     gap: 8px;
     padding: 8px 16px;
-    background: rgba(255, 255, 255, 0.03);
-    color: rgba(255, 255, 255, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--admin-border-minimal);
+    color: var(--admin-text-secondary);
+    border: 1px solid var(--admin-border-light);
     border-radius: 8px;
     font-size: 13px;
     font-weight: 600;
@@ -2525,8 +2534,8 @@
   }
 
   .section-header .action-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(13, 148, 136, 0.3);
+    background: var(--admin-border-light);
+    border-color: var(--admin-accent-30);
   }
 
   .section-header .action-btn.primary {
@@ -2552,14 +2561,14 @@
   }
 
   .overview-card {
-    background: rgba(26, 26, 46, 0.8);
+    background: var(--admin-bg-card);
     backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--admin-border-faint);
     border-radius: 14px;
     padding: 18px;
     display: flex;
     gap: 14px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 16px var(--admin-shadow-md);
     transition: all 0.3s ease;
     position: relative;
     overflow: hidden;
@@ -2610,7 +2619,7 @@
   .overview-card:hover {
     transform: translateY(-8px);
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
-    border-color: rgba(13, 148, 136, 0.2);
+    border-color: var(--admin-accent-20);
   }
 
   .overview-card:hover::before {
@@ -2688,7 +2697,7 @@
     margin: 0 0 8px 0;
     font-size: 11px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--admin-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -2717,7 +2726,7 @@
 
   .metric-label {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--admin-text-dim);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     font-weight: 700;
@@ -2726,7 +2735,7 @@
   .metric-value {
     font-size: 18px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--admin-text-primary);
   }
 
   .card-detail {
@@ -2738,7 +2747,7 @@
 
   .card-detail span {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--admin-text-dim);
   }
 
   .status-badge {
@@ -2788,21 +2797,21 @@
   }
 
   .chart-panel {
-    background: rgba(26, 26, 46, 0.8);
+    background: var(--admin-bg-card);
     backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--admin-border-faint);
     border-radius: 14px;
     padding: 18px;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 16px var(--admin-shadow-md);
     transition: all 0.3s ease;
   }
 
   .chart-panel:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-    border-color: rgba(13, 148, 136, 0.15);
+    border-color: var(--admin-accent-15);
   }
 
   .panel-header {
@@ -2811,7 +2820,7 @@
     align-items: center;
     margin-bottom: 16px;
     padding-bottom: 14px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--admin-border-faint);
   }
 
   .panel-title {
@@ -2820,7 +2829,7 @@
     gap: 10px;
     font-size: 14px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--admin-text-primary);
   }
 
   .panel-title svg {
@@ -2852,11 +2861,11 @@
     justify-content: space-between;
     align-items: center;
     padding: 12px 20px;
-    background: rgba(26, 26, 46, 0.9);
+    background: var(--admin-bg-nav);
     backdrop-filter: blur(20px);
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 1px solid var(--admin-border-faint);
     font-size: 12px;
-    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 -2px 8px var(--admin-shadow-sm);
   }
 
   .footer-left {
@@ -2878,7 +2887,7 @@
     background: linear-gradient(135deg, rgba(72, 187, 120, 0.2) 0%, rgba(56, 161, 105, 0.15) 100%);
     color: var(--success);
     border: 1px solid rgba(72, 187, 120, 0.3);
-    box-shadow: 0 4px 15px rgba(72, 187, 120, 0.2);
+    box-shadow: 0 4px 15px var(--admin-success-20);
   }
 
   .system-status.offline {

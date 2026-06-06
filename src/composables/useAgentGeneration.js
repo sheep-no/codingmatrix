@@ -1,5 +1,16 @@
 import { ref, reactive } from 'vue'
 
+// 默认角色列表（API 失败时的兜底）
+const DEFAULT_ROLES = ['architect', 'frontend', 'backend', 'reviewer', 'fallback']
+
+function _buildAssignments(roles) {
+  const assignments = {}
+  for (const role of roles) {
+    assignments[role] = { model: '', calls: 0, successRate: 100 }
+  }
+  return assignments
+}
+
 export function useAgentGeneration() {
   const isGenerating = ref(false)
   const workflowStages = ref([])
@@ -8,13 +19,9 @@ export function useAgentGeneration() {
   const totalSteps = ref(0)
   const startTime = ref(null)
 
-  const modelAssignments = ref({
-    architecture: { model: '', calls: 0, successRate: 100 },
-    frontend: { model: '', calls: 0, successRate: 100 },
-    backend: { model: '', calls: 0, successRate: 100 },
-    test: { model: '', calls: 0, successRate: 100 },
-    review: { model: '', calls: 0, successRate: 100 }
-  })
+  // 角色列表从后端 API 动态获取，不再硬编码
+  const roles = ref([...DEFAULT_ROLES])
+  const modelAssignments = ref(_buildAssignments(DEFAULT_ROLES))
   const recoveryAttempts = ref([])
 
   function ensureStage(stageId, name) {
@@ -78,19 +85,34 @@ export function useAgentGeneration() {
   function resetState() {
     isGenerating.value = false
     recoveryAttempts.value = []
-    modelAssignments.value = {
-      architecture: { model: '', calls: 0, successRate: 100 },
-      frontend: { model: '', calls: 0, successRate: 100 },
-      backend: { model: '', calls: 0, successRate: 100 },
-      test: { model: '', calls: 0, successRate: 100 },
-      review: { model: '', calls: 0, successRate: 100 }
+    modelAssignments.value = _buildAssignments(roles.value)
+  }
+
+  async function fetchRoles() {
+    try {
+      const { api } = await import('@/utils/api')
+      const response = await api.get('/api/v1/models/agent-config')
+      const data = response.data || response
+      if (data.roles && Array.isArray(data.roles) && data.roles.length > 0) {
+        roles.value = data.roles
+        // 保留已有 model 信息，新增角色用默认值
+        const existing = modelAssignments.value || {}
+        const updated = {}
+        for (const role of data.roles) {
+          updated[role] = existing[role] || { model: '', calls: 0, successRate: 100 }
+        }
+        modelAssignments.value = updated
+      }
+    } catch (e) {
+      // API 失败时使用默认角色列表
+      console.warn('Failed to fetch agent roles, using defaults:', e.message)
     }
   }
 
   return reactive({
     isGenerating, workflowStages, currentPhase, currentStep, totalSteps, startTime,
-    modelAssignments, recoveryAttempts,
+    roles, modelAssignments, recoveryAttempts,
     ensureStage, updateStageStatus, addThinkingToStage,
-    getOverallProgress, getETA, getPlaceholder, resetStages, resetState
+    getOverallProgress, getETA, getPlaceholder, resetStages, resetState, fetchRoles
   })
 }

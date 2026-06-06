@@ -22,7 +22,7 @@ export async function getRSAPublicKey() {
     rsaPublicKey = data.public_key
     publicKeyExpiry = Date.now() + 3600 * 1000
 
-    console.log('RSA 公钥已获取')
+    console.debug('RSA 公钥已获取')
     return rsaPublicKey
   } catch (error) {
     console.error('获取 RSA 公钥失败:', error)
@@ -112,13 +112,13 @@ export async function encryptLoginData(loginData) {
 
     const aesKey = generateAESKey()
     const iv = generateIV()
-    console.log('AES key generated, iv generated')
+    console.debug('AES key generated, iv generated')
 
     const encryptedData = await aesEncrypt(loginData, aesKey, iv)
-    console.log('AES encryption done, encryptedData length:', encryptedData.length)
+    console.debug('AES encryption done, encryptedData length:', encryptedData.length)
 
     const encryptedKey = await rsaEncryptKey(aesKey, publicKey)
-    console.log('RSA encryption done, encryptedKey length:', encryptedKey.length)
+    console.debug('RSA encryption done, encryptedKey length:', encryptedKey.length)
 
     return {
       encrypted_data: encryptedData,

@@ -254,6 +254,7 @@
   import Button from './ui/Button.vue'
   import { useApiKeyStore } from '@/stores/apikey'
   import { api } from '@/utils/api/index'
+  import { ElMessage, ElMessageBox } from 'element-plus'
 
   const router = useRouter()
   const props = defineProps({
@@ -341,17 +342,17 @@
         uploadingFile.value = false
         if (xhr.status === 200) {
           const result = JSON.parse(xhr.responseText)
-          alert(`上传成功：${result.message}`)
+          ElMessage.success(`上传成功：${result.message}`)
           loadKnowledgeDocs()
           showUploadModal.value = false
         } else {
-          alert('上传失败')
+          ElMessage.error('上传失败')
         }
       }
 
       xhr.onerror = () => {
         uploadingFile.value = false
-        alert('上传请求失败')
+        ElMessage.error('上传请求失败')
       }
 
       xhr.send(formData)
@@ -362,7 +363,11 @@
   }
 
   const deleteDoc = async docId => {
-    if (!confirm('确定要删除此文档吗？')) return
+    try {
+      await ElMessageBox.confirm('确定要删除此文档吗？', '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+    } catch {
+      return
+    }
 
     try {
       const token = localStorage.getItem('access_token')
@@ -518,7 +523,7 @@
 
     // 检查 API Key 配置
     if (!apiKeyStore.hasSiliconflowKey) {
-      alert('请先配置 API Key 后再使用')
+      ElMessage.warning('请先配置 API Key 后再使用')
       router.push('/settings')
       return
     }

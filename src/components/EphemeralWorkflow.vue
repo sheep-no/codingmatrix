@@ -144,6 +144,7 @@
   import Modal from './ui/Modal.vue'
   import Button from './ui/Button.vue'
   import { api } from '@/utils/api/index'
+  import { ElMessage, ElMessageBox } from 'element-plus'
 
   const props = defineProps({
     visible: { type: Boolean, default: false }
@@ -205,7 +206,7 @@
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.error('工作流执行失败:', error)
-        alert('工作流执行失败: ' + error.message)
+        ElMessage.error('工作流执行失败: ' + error.message)
       }
     } finally {
       isExecuting.value = false
@@ -287,7 +288,7 @@
       showRawJson.value = true
     } catch (error) {
       console.error('获取工作流计划失败:', error)
-      alert('获取工作流计划失败: ' + error.message)
+      ElMessage.error('获取工作流计划失败: ' + error.message)
     } finally {
       isExplaining.value = false
     }
@@ -308,7 +309,7 @@
       showRawJson.value = true
       showImportDialog.value = false
     } catch (error) {
-      alert('JSON 格式错误: ' + error.message)
+      ElMessage.error('JSON 格式错误: ' + error.message)
     }
   }
 
@@ -331,10 +332,8 @@
         sessionId.value = data.session_id
       }
       if (data.is_continuation) {
-        console.log('继续之前的workflow:', data.previous_workflow_id)
       }
     } else if (data.event === 'continuation_context') {
-      console.log('继续上下文:', data.previous_request)
     } else if (data.event === 'task_graph_generated') {
       workflowGraph.value = {
         workflow_id: data.workflow_id,
@@ -347,10 +346,8 @@
         }))
       }
       if (sessionId.value) {
-        console.log('工作流已保存，session_id:', sessionId.value)
       }
     } else if (data.event === 'workflow_exported') {
-      console.log('Workflow exported:', data.export_data)
     } else if (data.event === 'node_completed') {
       const node = workflowGraph.value?.nodes.find(n => n.id === data.node_id)
       if (node) {
@@ -366,7 +363,7 @@
       addToHistory(workflowGraph.value)
     } else if (data.event === 'workflow_error') {
       console.error('Workflow error:', data.message || data.error)
-      alert('工作流执行失败: ' + (data.message || data.error))
+      ElMessage.error('工作流执行失败: ' + (data.message || data.error))
       workflowStatus.value = 'error'
     }
   }

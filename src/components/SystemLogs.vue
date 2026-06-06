@@ -153,6 +153,7 @@
   import { useLogsStore } from '@/stores/logs'
   import { useUserStore } from '@/stores/user'
   import { WebSocketManager, API_CONFIG } from '../utils/api/index'
+  import { ElMessage, ElMessageBox } from 'element-plus'
 
   // 使用日志 store
   const logsStore = useLogsStore()
@@ -297,16 +298,19 @@
   }
 
   // 清空日志
-  const clearLogs = () => {
-    if (confirm('确定要清空所有日志吗？')) {
-      logsStore.clearLogs()
+  const clearLogs = async () => {
+    try {
+      await ElMessageBox.confirm('确定要清空所有日志吗？', '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+    } catch {
+      return
+    }
+    logsStore.clearLogs()
 
-      // 发送清除过滤器的消息到后端
-      if (logWsManager.value && logWsManager.value.isReady()) {
-        logWsManager.value.send({
-          action: 'clear'
-        })
-      }
+    // 发送清除过滤器的消息到后端
+    if (logWsManager.value && logWsManager.value.isReady()) {
+      logWsManager.value.send({
+        action: 'clear'
+      })
     }
   }
 
@@ -863,7 +867,7 @@
 
   .log-item.level-critical {
     border-left: 4px solid var(--danger-hover);
-    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    background: linear-gradient(135deg, var(--danger-bg) 0%, var(--danger-100) 100%);
   }
 
   .log-item.level-debug {
@@ -910,19 +914,19 @@
   }
 
   .log-item.level-info .log-level {
-    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+    background: linear-gradient(135deg, var(--primary-100) 0%, #bfdbfe 100%);
     color: #1e40af;
     border: 1px solid rgba(59, 130, 246, 0.2);
   }
 
   .log-item.level-warning .log-level {
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    background: linear-gradient(135deg, var(--warning-bg) 0%, #fde68a 100%);
     color: #92400e;
     border: 1px solid rgba(245, 158, 11, 0.2);
   }
 
   .log-item.level-error .log-level {
-    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+    background: linear-gradient(135deg, var(--danger-100) 0%, #fecaca 100%);
     color: #991b1b;
     border: 1px solid rgba(239, 68, 68, 0.2);
   }

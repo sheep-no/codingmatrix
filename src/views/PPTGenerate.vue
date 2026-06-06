@@ -126,9 +126,14 @@
 
         <div v-else-if="generatedFileUrl" class="success-container">
           <h3>生成成功!</h3>
-          <a :href="generatedFileUrl" target="_blank" class="download-link">
-            点击此处下载 PPTX 文件
-          </a>
+          <div class="success-actions">
+            <a :href="generatedFileUrl" target="_blank" class="download-link">
+              下载 PPTX 文件
+            </a>
+            <button class="preview-btn" @click="goToPreview">
+              在线预览
+            </button>
+          </div>
         </div>
 
         <div v-else-if="generatedSlides.length" class="slides-preview">
@@ -189,6 +194,16 @@ function goBack() {
   router.push('/')
 }
 
+function goToPreview() {
+  if (generatedFileUrl.value) {
+    // 从 URL 中提取 ppt_id
+    const match = generatedFileUrl.value.match(/\/pptx\/download\/(.+)$/)
+    if (match) {
+      router.push(`/ppt-preview/${match[1]}`)
+    }
+  }
+}
+
 async function loadTemplates() {
   try {
     const result = await api.ppt.getTemplates()
@@ -199,8 +214,8 @@ async function loadTemplates() {
         color: `linear-gradient(135deg, ${t.primary_color || '#667eea'} 0%, ${t.primary_color || '#764ba2'}80 100%)`
       }))
     }
-  } catch (error) {
-    console.error('加载模板失败:', error)
+  } catch {
+    // 静默使用硬编码模板列表，不打扰用户
   }
 }
 
@@ -217,16 +232,48 @@ function connectWebSocket(taskId) {
         progressState.value = { progress: data.progress, step: data.step, message: data.message }
       } else if (data.type === 'complete') {
         progressState.value = { progress: 1, step: 'completed', message: '任务完成' }
+        generating.value = false
+        // 获取结果
+        if (data.result) {
+          try {
+            const resultData = typeof data.result === 'string' ? JSON.parse(data.result) : data.result
+            if (resultData.slides) {
+              generatedSlides.value = resultData.slides
+            }
+            if (resultData.ppt_id || resultData.filename) {
+              const pid = resultData.ppt_id || resultData.filename.replace('.pptx', '')
+              generatedFileUrl.value = `/api/v1/pptx/download/${pid}`
+            }
+          } catch (e) {
+            console.warn('解析结果数据失败:', e)
+          }
+        }
+        ElMessage.success('PPT 生成完成!')
       } else if (data.type === 'error') {
         progressState.value = { progress: progressState.value?.progress || 0, step: 'error', message: data.error || data.message }
+        generating.value = false
+        ElMessage.error('生成失败: ' + (data.error || data.message || '未知错误'))
       }
     } catch (error) {
       console.error('WebSocket 消息解析失败:', error)
     }
   }
 
-  ws.onerror = () => { ws = null }
-  ws.onclose = () => { ws = null }
+  ws.onerror = () => {
+    ws = null
+    if (generating.value) {
+      ElMessage.warning('连接中断，请刷新页面查看结果')
+      generating.value = false
+    }
+  }
+  ws.onclose = (event) => {
+    ws = null
+    // 非正常关闭且仍在生成中
+    if (event.code !== 1000 && generating.value) {
+      ElMessage.warning('连接已断开，请刷新页面查看结果')
+      generating.value = false
+    }
+  }
 }
 
 async function handleGenerate() {
@@ -253,18 +300,19 @@ async function handleGenerate() {
 
     if (result && result.task_id) {
       connectWebSocket(result.task_id)
-      ElMessage.success('任务已创建，请在任务队列中查看进度')
-      setTimeout(() => router.push('/'), 1500)
+      ElMessage.success('任务已创建，正在生成中...')
+      // 不跳转，留在当前页面等待 WebSocket 进度
     } else {
       ElMessage.error('创建 PPT 任务失败，请稍后重试')
+      generating.value = false
     }
   } catch (e) {
     console.error('PPT 生成失败:', e)
     ElMessage.error('生成失败: ' + e.message)
     progressState.value = null
-  } finally {
     generating.value = false
   }
+  // 注意：不在 finally 中设置 generating = false，由 WebSocket complete/error 事件控制
 }
 
 function buildFullPrompt() {

@@ -375,7 +375,7 @@
 
 <script setup>
   import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
-  import { ElMessage } from 'element-plus'
+  import { ElMessage, ElMessageBox } from 'element-plus'
   import { useGithubStore } from '@/stores/github'
   import { useApiKeyStore } from '@/stores/apikey'
   import { useRouter } from 'vue-router'
@@ -448,7 +448,11 @@
 
   const onDeleteFile = async (filePath) => {
     if (!filePath) return
-    if (!confirm(`确定要删除文件 "${filePath}" 吗？`)) return
+    try {
+      await ElMessageBox.confirm(`确定要删除文件 "${filePath}" 吗？`, '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+    } catch {
+      return
+    }
     try {
       await api.deleteProjectFile(filePath)
       ElMessage.success('文件已删除')
@@ -610,9 +614,11 @@
   }
 
   // ========== 7. Action Functions ==========
-  const close = () => {
+  const close = async () => {
     if (isGenerating.value) {
-      if (!confirm('生成正在进行中，确定要关闭吗？')) {
+      try {
+        await ElMessageBox.confirm('生成正在进行中，确定要关闭吗？', '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+      } catch {
         return
       }
     }
@@ -659,11 +665,11 @@
 
   const saveCurrentProject = async () => {
     if (!form.value.requirement.trim()) {
-      alert('请先输入项目需求描述')
+      ElMessage.error('请先输入项目需求描述')
       return
     }
     if (savedProjects.value.length >= MAX_SAVED_PROJECTS) {
-      alert(`最多只能保存 ${MAX_SAVED_PROJECTS} 个项目，请先删除不需要的项目`)
+      ElMessage.error(`最多只能保存 ${MAX_SAVED_PROJECTS} 个项目，请先删除不需要的项目`)
       return
     }
     const name = prompt('请输入项目名称:', `项目_${Date.now()}`)
@@ -675,10 +681,10 @@
         sessionId: form.value.sessionId
       })
       await api.saveProject(name, description || '', projectData)
-      alert('项目保存成功')
+      ElMessage.success('项目保存成功')
       await loadSavedProjects()
     } catch (error) {
-      alert(error.message || '保存项目失败')
+      ElMessage.error(error.message || '保存项目失败')
     }
   }
 
@@ -689,16 +695,18 @@
         const projectData = JSON.parse(result.project_data)
         form.value.requirement = projectData.requirement || ''
         form.value.sessionId = projectData.sessionId || ''
-        alert(`已加载项目: ${result.name}`)
+        ElMessage.success(`已加载项目: ${result.name}`)
       }
     } catch (error) {
       // 忽略加载失败
-      alert('加载项目失败')
+      ElMessage.error('加载项目失败')
     }
   }
 
-  const confirmDeleteProject = project => {
-    if (!confirm(`确定要删除项目 "${project.name}" 吗？`)) {
+  const confirmDeleteProject = async project => {
+    try {
+      await ElMessageBox.confirm(`确定要删除项目 "${project.name}" 吗？`, '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+    } catch {
       return
     }
     deleteProject(project.id)
@@ -709,13 +717,13 @@
       const result = await api.deleteProject(projectId)
       if (result && result.status === 'deleted') {
         await loadSavedProjects()
-        alert('项目已删除')
+        ElMessage.success('项目已删除')
       } else {
-        alert('删除项目失败')
+        ElMessage.error('删除项目失败')
       }
     } catch (error) {
       // 忽略删除失败
-      alert('删除项目失败')
+      ElMessage.error('删除项目失败')
     }
   }
 
@@ -732,13 +740,13 @@
 
   const startGeneration = async () => {
     if (!form.value.requirement.trim()) {
-      alert('请输入项目需求描述')
+      ElMessage.error('请输入项目需求描述')
       return
     }
 
     // 检查 API Key 配置
     if (!apiKeyStore.hasSiliconflowKey) {
-      alert('请先配置 API Key 后再使用')
+      ElMessage.error('请先配置 API Key 后再使用')
       router.push('/settings')
       return
     }
@@ -1073,7 +1081,7 @@
 
   const handleDownload = () => {
     if (!outputDir.value) {
-      alert('没有可下载的项目')
+      ElMessage.error('没有可下载的项目')
       return
     }
     const downloadUrl = api.downloadProject(outputDir.value)
@@ -1104,7 +1112,11 @@
 
   const rollbackToSnapshot = async (tag) => {
     if (!form.value.sessionId || !tag) return
-    if (!confirm(`确定要回滚到快照 "${tag}" 吗？当前修改将会丢失。`)) return
+    try {
+      await ElMessageBox.confirm(`确定要回滚到快照 "${tag}" 吗？当前修改将会丢失。`, '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+    } catch {
+      return
+    }
     try {
       await api.rollbackToSnapshot(form.value.sessionId, tag)
       ElMessage.success(`已回滚到快照 ${tag}`)
@@ -2282,6 +2294,6 @@
   }
 
   .btn-danger-small:hover {
-    background: #fef2f2;
+    background: var(--danger-bg);
   }
 </style>

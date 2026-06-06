@@ -242,7 +242,7 @@ function getFileName(filePath) {
 <style scoped>
 .prompt-hint {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-secondary);
   text-align: right;
   margin-top: 2px;
 }
@@ -254,18 +254,18 @@ function getFileName(filePath) {
 }
 .project-name-label {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-secondary);
 }
 .project-name-field {
   padding: 6px 8px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   font-size: 13px;
   background: var(--bg-primary);
   color: var(--text-primary);
 }
 .project-name-field::placeholder {
-  color: #c0c4cc;
+  color: var(--text-tertiary);
 }
 .model-selector {
   margin: 8px 0 12px;
@@ -278,22 +278,21 @@ function getFileName(filePath) {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-secondary);
 }
 .model-select {
   padding: 6px 8px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   font-size: 13px;
   background: var(--bg-primary);
   cursor: pointer;
 }
-.model-select:hover { border-color: #409eff; }
-.model-select:focus { border-color: #409eff; outline: none; }
+.model-select:hover { border-color: var(--primary); }
+.model-select:focus { border-color: var(--primary); outline: none; }
 
 /* 虚拟滚动文件树 */
 .file-tree {
-  max-height: 400px;
   overflow-y: auto;
 }
 .tree-item {
@@ -314,10 +313,10 @@ function getFileName(filePath) {
   width: 100%;
 }
 .file-item:hover {
-  background: #f5f7fa;
+  background: var(--bg-secondary);
 }
 .file-item.selected {
-  background: #ecf5ff;
-  color: #409eff;
+  background: var(--color-primary-50);
+  color: var(--primary);
 }
 </style>

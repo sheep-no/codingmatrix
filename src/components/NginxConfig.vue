@@ -967,6 +967,7 @@
 <script setup>
   import { ref, computed, watch } from 'vue'
   import { api } from '@/utils/api/index'
+  import { ElMessage, ElMessageBox } from 'element-plus'
 
   const API_BASE_URL = import.meta.env.VITE_API_BASE || '/api/v1'
 
@@ -1697,7 +1698,7 @@
   const validateWithApi = async () => {
     const token = localStorage.getItem('access_token')
     if (!token) {
-      alert('请先登录后再使用 API 验证功能')
+      ElMessage.warning('请先登录后再使用 API 验证功能')
       return
     }
 
@@ -1960,7 +1961,7 @@
 <style scoped>
   .api-validation-result {
     background: var(--bg-secondary);
-    border: 2px solid #cbd5e1;
+    border: 2px solid var(--slate-300);
     border-radius: 8px;
     margin-bottom: 20px;
     overflow: hidden;
@@ -1976,21 +1977,21 @@
   }
 
   .validation-header.success {
-    background: #dcfce7;
+    background: var(--success-bg);
     color: #166534;
     border-color: #22c55e;
   }
 
   .validation-header.error {
-    background: #fee2e2;
+    background: var(--danger-100);
     color: #991b1b;
-    border-color: #ef4444;
+    border-color: var(--danger);
   }
 
   .validation-header.loading {
-    background: #dbeafe;
+    background: var(--primary-100);
     color: #1e40af;
-    border-color: #3b82f6;
+    border-color: var(--color-primary-500);
   }
 
   .status-icon {
@@ -2022,7 +2023,7 @@
 
   .validation-output {
     background: var(--bg-primary);
-    color: #e2e8f0;
+    color: var(--text-primary);
     padding: 15px;
     border-radius: 6px;
     margin-bottom: 15px;
@@ -2038,7 +2039,7 @@
   }
 
   .validation-suggestions {
-    background: #fef9c3;
+    background: var(--warning-bg);
     border-left: 4px solid #eab308;
     padding: 15px;
     border-radius: 4px;
@@ -2155,7 +2156,7 @@
   .path-input {
     flex: 1;
     padding: 12px 16px;
-    border: 2px solid #d1d5db;
+    border: 2px solid var(--border-color);
     border-radius: 6px;
     font-size: 14px;
     font-family: 'Courier New', monospace;
@@ -2216,7 +2217,7 @@
   }
 
   .path-description code {
-    background: #f3f4f6;
+    background: var(--slate-100);
     color: #e11d48;
     padding: 2px 8px;
     border-radius: 4px;
@@ -2235,7 +2236,7 @@
 
   .accordion-item {
     background: var(--bg-primary);
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     margin-bottom: 10px;
     overflow: hidden;
@@ -2247,26 +2248,26 @@
     align-items: center;
     padding: 15px 20px;
     cursor: pointer;
-    background: #f9fafb;
+    background: var(--bg-secondary);
     transition: all 0.3s;
     user-select: none;
   }
 
   .accordion-header:hover {
-    background: #f3f4f6;
+    background: var(--slate-100);
   }
 
   .accordion-header h3 {
     margin: 0;
     font-size: 16px;
-    color: #374151;
+    color: var(--text-primary);
     font-weight: 600;
   }
 
   .accordion-icon {
     transition: transform 0.3s;
     font-size: 12px;
-    color: #6b7280;
+    color: var(--text-secondary);
   }
 
   .accordion-icon.expanded {
@@ -2297,7 +2298,7 @@
     align-items: center;
     gap: 10px;
     padding: 15px;
-    background: #fef3c7;
+    background: var(--warning-bg);
     border: 1px solid #fcd34d;
     border-radius: 6px;
     color: #92400e;
@@ -2311,7 +2312,7 @@
   .wide-input {
     width: 100%;
     padding: 10px;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     font-size: 14px;
     transition: border-color 0.3s;
@@ -2320,7 +2321,7 @@
 
   .wide-input:focus {
     outline: none;
-    border-color: #0d9488;
+    border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
   }
 
@@ -2328,7 +2329,7 @@
     display: block;
     margin-top: 5px;
     font-size: 12px;
-    color: #6b7280;
+    color: var(--text-secondary);
   }
 
   .nginx-config-overlay {
@@ -2359,8 +2360,8 @@
     justify-content: space-between;
     align-items: center;
     padding: 20px 30px;
-    border-bottom: 1px solid #e5e7eb;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    border-bottom: 1px solid var(--border-color);
+    background: var(--gradient-primary);
     color: white;
   }
 
@@ -2431,7 +2432,7 @@
 
   .config-type-selector h3 {
     margin-top: 0;
-    color: #374151;
+    color: var(--text-primary);
     font-size: 18px;
   }
 
@@ -2444,7 +2445,7 @@
 
   .type-buttons button {
     padding: 10px 20px;
-    border: 2px solid #d1d5db;
+    border: 2px solid var(--border-color);
     background: var(--bg-primary);
     border-radius: 8px;
     cursor: pointer;
@@ -2453,13 +2454,13 @@
   }
 
   .type-buttons button:hover {
-    border-color: #0d9488;
-    color: #0d9488;
+    border-color: var(--primary);
+    color: var(--primary);
   }
 
   .type-buttons button.active {
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
-    border-color: #0d9488;
+    background: var(--gradient-primary);
+    border-color: var(--primary);
     color: white;
   }
 
@@ -2475,7 +2476,7 @@
   .form-group label {
     display: block;
     margin-bottom: 5px;
-    color: #374151;
+    color: var(--text-primary);
     font-weight: 500;
   }
 
@@ -2483,7 +2484,7 @@
   .form-group select {
     width: 100%;
     padding: 10px;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     font-size: 14px;
     transition: border-color 0.3s;
@@ -2492,7 +2493,7 @@
   .form-group input:focus,
   .form-group select:focus {
     outline: none;
-    border-color: #0d9488;
+    border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
   }
 
@@ -2503,7 +2504,7 @@
 
   .advanced-options h4 {
     margin: 0 0 15px 0;
-    color: #374151;
+    color: var(--text-primary);
     font-size: 16px;
   }
 
@@ -2541,7 +2542,7 @@
 
   .preview-header h3 {
     margin: 0;
-    color: #374151;
+    color: var(--text-primary);
     font-size: 18px;
     flex-shrink: 0;
   }
@@ -2555,7 +2556,7 @@
 
   .action-btn {
     padding: 8px 16px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: var(--gradient-primary);
     color: white;
     border: none;
     border-radius: 6px;
@@ -2577,7 +2578,7 @@
 
   .config-content {
     background: var(--bg-primary);
-    color: #e2e8f0;
+    color: var(--text-primary);
     padding: 20px;
     border-radius: 8px;
     font-family: 'Courier New', monospace;
@@ -2596,24 +2597,24 @@
   }
 
   .validation-message.success {
-    background: #d1fae5;
+    background: var(--success-bg);
     color: #065f46;
   }
 
   .validation-message.error {
-    background: #fee2e2;
+    background: var(--danger-100);
     color: #991b1b;
   }
 
   .templates-section {
     padding: 20px 30px;
-    border-top: 1px solid #e5e7eb;
-    background: #f9fafb;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-secondary);
   }
 
   .templates-section h3 {
     margin: 0 0 15px 0;
-    color: #374151;
+    color: var(--text-primary);
     font-size: 18px;
   }
 
@@ -2627,7 +2628,7 @@
 
   .template-category h4 {
     margin: 0 0 10px 0;
-    color: #6b7280;
+    color: var(--text-secondary);
     font-size: 14px;
     font-weight: 600;
   }
@@ -2641,8 +2642,8 @@
   .template-buttons button {
     padding: 8px 16px;
     background: var(--bg-primary);
-    border: 2px solid #0d9488;
-    color: #0d9488;
+    border: 2px solid var(--primary);
+    color: var(--primary);
     border-radius: 6px;
     cursor: pointer;
     font-size: 13px;
@@ -2650,7 +2651,7 @@
   }
 
   .template-buttons button:hover {
-    background: #0d9488;
+    background: var(--primary);
     color: white;
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
@@ -2664,7 +2665,7 @@
 
   .modal-body::-webkit-scrollbar-track,
   .config-content::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: var(--bg-tertiary);
     border-radius: 4px;
   }
 

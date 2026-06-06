@@ -19,7 +19,7 @@ export function createKolorsClient(client) {
     async imageToImage(prompt, imageUrl, params = {}, api_key_token = null) {
       const response = await client.post('/kolors/image-to-image', {
         prompt,
-        image_url: imageUrl,
+        image_path: imageUrl,
         api_key_token,
         ...params
       })
@@ -32,8 +32,8 @@ export function createKolorsClient(client) {
     async inpaint(prompt, imageUrl, maskUrl, params = {}) {
       const response = await client.post('/kolors/inpaint', {
         prompt,
-        image_url: imageUrl,
-        mask_url: maskUrl,
+        image_path: imageUrl,
+        mask_path: maskUrl,
         ...params
       })
       if (response.ok) {

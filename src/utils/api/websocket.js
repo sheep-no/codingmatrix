@@ -9,17 +9,26 @@ const WS_CONFIG = {
   HEARTBEAT_INTERVAL: 30000
 }
 
+// 后端真实 WS 端点（v1 + v2）：
+//   v1: /api/v1/tasks/ws/{user_id}                       - 任务状态推送（普通用户）
+//   v2: /api/v2/Controller/sys-status?token=xxx          - 系统状态推送（管理员）
+//   v2: /api/v2/Controller/logs?token=xxx                - 系统日志推送（管理员）
+//   v2: /api/v2/Controller/admin/ws-stats                - 管理员统计
+// 修复 P0-6：原默认 `${WS_BASE_URL}/ws` 是死路径，ws 路由不存在，后端拒绝（403）。
+// 改用最常见的 v2 sys-status 端点作为默认；调用方仍可传 wsUrl 覆盖。
+const DEFAULT_WS_URL = `${API_CONFIG.WS_BASE_URL}/api/v2/Controller/sys-status?token={token}`
+
 export class WebSocketManager {
   constructor(configOrUrl = null) {
     if (typeof configOrUrl === 'object' && configOrUrl !== null) {
-      this.url = configOrUrl.wsUrl || `${API_CONFIG.WS_BASE_URL}/ws`
+      this.url = configOrUrl.wsUrl || DEFAULT_WS_URL
       this._onOpen = configOrUrl.onOpen || null
       this._onMessage = configOrUrl.onMessage || null
       this._onError = configOrUrl.onError || null
       this._onClose = configOrUrl.onClose || null
       this._reconnectDelay = configOrUrl.reconnectDelay || WS_CONFIG.RECONNECT_INTERVAL
     } else {
-      this.url = configOrUrl || `${API_CONFIG.WS_BASE_URL}/ws`
+      this.url = configOrUrl || DEFAULT_WS_URL
       this._onOpen = null
       this._onMessage = null
       this._onError = null
@@ -40,10 +49,12 @@ export class WebSocketManager {
       try {
         let fullUrl = this.url
         if (token) {
-          const separator = fullUrl.includes('?') ? '&' : '?'
-          fullUrl = `${fullUrl}${separator}token=${token}`
+          // 修复：{token} 占位符要替换成真实 token，而不是置空
+          fullUrl = fullUrl.replace(/\{token\}/g, encodeURIComponent(token))
         } else {
-          fullUrl = fullUrl.replace('{token}', '')
+          // 没传 token 时清掉占位符；如果剥掉了 ? 形式则把紧跟的 & 升为 ?
+          fullUrl = fullUrl.replace(/\?token=\{token\}(&|$)/, (m, tail) => tail === '&' ? '?' : '')
+          fullUrl = fullUrl.replace(/&token=\{token\}(?=&|$)/, '')
         }
         this.ws = new WebSocket(fullUrl)
 

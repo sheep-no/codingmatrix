@@ -122,7 +122,7 @@
   </template>
 
 <script setup>
-  import { ref, onMounted, watch, nextTick, computed, defineAsyncComponent } from 'vue'
+  import { ref, onMounted, onUnmounted, watch, nextTick, computed, defineAsyncComponent } from 'vue'
   import Bottominput from './bottominput.vue'
   import CenterContent from './centerContent.vue'
   import Leftlist from './leftlist.vue'
@@ -174,7 +174,6 @@
   const selectedHistoryItem = ref(null)
   const conversationHistory = ref([])
   const currentConversationId = ref(null)
-  const activeConversationId = ref(null)
   const tempConversationId = ref(null)
   const conversationHistoryMap = ref(new Map())
   const isLoading = ref(false)
@@ -191,12 +190,22 @@
   const showImageGenerator = computed(() => navigationStore.showImageGenerator)
   const showAicloud = computed(() => navigationStore.showAicloud)
 
+  const MAX_CONVERSATION_CACHE = 50
+
   const saveConversationToMap = (conversationId, customHistory = null) => {
     if (conversationId) {
       const key = String(conversationId)
       const historyToSave = customHistory !== null ? customHistory : conversationHistory.value
       conversationHistoryMap.value.set(key, JSON.parse(JSON.stringify(historyToSave)))
 
+      // LRU 清理：超出上限时淘汰最早的条目
+      if (conversationHistoryMap.value.size > MAX_CONVERSATION_CACHE) {
+        const evictCount = conversationHistoryMap.value.size - MAX_CONVERSATION_CACHE
+        const keys = conversationHistoryMap.value.keys()
+        for (let i = 0; i < evictCount; i++) {
+          conversationHistoryMap.value.delete(keys.next().value)
+        }
+      }
     }
   }
 
@@ -301,10 +310,16 @@
     }
   }
 
+  let _saveStateTimer = null
+  const debouncedSaveState = () => {
+    clearTimeout(_saveStateTimer)
+    _saveStateTimer = setTimeout(() => saveStateToStorage(), 1000)
+  }
+
   watch(
     [selectedHistoryItem, conversationHistory, currentConversationId],
     () => {
-      saveStateToStorage()
+      debouncedSaveState()
     },
     { deep: true }
   )
@@ -324,8 +339,7 @@
     const newMessage = typeof data === 'string' ? data : data.newMessage
     const messageData = {
       prompt: newMessage,
-      use_reasoning: typeof data === 'object' ? data.use_reasoning : false,
-      use_hybrid: typeof data === 'object' ? data.use_hybrid : false
+      use_reasoning: typeof data === 'object' ? data.use_reasoning : false
     }
 
     editMessage.value = ''
@@ -348,9 +362,8 @@
   const handleQuickPrompt = prompt => {
     handleSendMessage({
       prompt,
-      model: 'Qwen/Qwen2.5-7B-Instruct',
-      use_reasoning: false,
-      use_hybrid: false
+      model: 'Qwen/Qwen3-8B',
+      use_reasoning: false
     })
   }
 
@@ -381,7 +394,6 @@
       const tempId = `temp_${Date.now()}`
       tempConversationId.value = tempId
       currentConversationId.value = tempId
-      activeConversationId.value = tempId
 
       conversationHistory.value = []
       saveConversationToMap(tempId)
@@ -458,7 +470,7 @@
         streamManager.saveStreamRequestState(
           {
             prompt: messageData.prompt,
-            model: messageData.model || 'Qwen/Qwen2.5-7B-Instruct',
+            model: messageData.model || 'Qwen/Qwen3-8B',
             stream: true,
             use_reasoning: messageData.use_reasoning || false,
             conversation_id: sendConversationId
@@ -469,7 +481,7 @@
 
         const requestData = {
           prompt: messageData.prompt,
-          model: messageData.model || 'Qwen/Qwen2.5-7B-Instruct',
+          model: messageData.model || 'Qwen/Qwen3-8B',
           stream: true,
           use_reasoning: messageData.use_reasoning || false,
           conversation_id: sendConversationId,
@@ -506,11 +518,6 @@
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
-      const aiResponse = ''
-      const reasoningResponse = ''
-
-      const streamRequestId = requestId
-      const streamConversationId = currentConversationId.value
 
       const readWithAbort = (reader, signal) => {
         if (signal.aborted) {
@@ -583,7 +590,6 @@
               const newConversationId = String(conversationIdMatch[1])
               const oldConversationId = currentConversationId.value
               currentConversationId.value = newConversationId
-              activeConversationId.value = newConversationId
 
               if (oldConversationId && String(oldConversationId).startsWith('temp_')) {
                 const cachedHistory = conversationHistoryMap.value.get(oldConversationId)
@@ -853,6 +859,8 @@
     }
   }
 
+  let _streamChunkCount = 0
+
   const handleChatStream = (data, streamConversationId, lastIndex, messageData) => {
     const streamHistory = conversationHistoryMap.value.get(streamConversationId)
     if (!streamHistory) {
@@ -862,11 +870,22 @@
 
     const history = streamHistory
 
+    // 后端错误
+    if (data.error) {
+      if (history[lastIndex]) {
+        history[lastIndex].response = (history[lastIndex].response || '') + `\n\n[ERROR] ${data.error}`
+        Object.assign(history[lastIndex], { response: history[lastIndex].response })
+        if (String(currentConversationId.value) === String(streamConversationId) && conversationHistory.value[lastIndex]) {
+          Object.assign(conversationHistory.value[lastIndex], { response: history[lastIndex].response })
+        }
+      }
+      return
+    }
+
     if (data.conversation_id !== undefined) {
       const receivedConversationIdRef = data.conversation_id
       const oldConversationId = currentConversationId.value
       currentConversationId.value = String(receivedConversationIdRef)
-      activeConversationId.value = String(receivedConversationIdRef)
 
       if (oldConversationId && oldConversationId.startsWith('temp_')) {
         const cachedHistory = conversationHistoryMap.value.get(oldConversationId)
@@ -912,7 +931,6 @@
 
     if (data.choices && data.choices[0] && history[lastIndex]) {
       const delta = data.choices[0].delta
-      const model = data.model || ''
 
       const currentResponse = history[lastIndex].response || ''
       const currentReasoning = history[lastIndex].reasoning || ''
@@ -920,13 +938,7 @@
       if (delta.reasoning_content) {
         history[lastIndex].reasoning = currentReasoning + delta.reasoning_content
       } else if (delta.content) {
-        if (model.includes('DeepSeek') || model.includes('deepseek')) {
-          history[lastIndex].reasoning = currentReasoning + delta.content
-        } else if (model.includes('Qwen') || model.includes('qwen')) {
-          history[lastIndex].response = currentResponse + delta.content
-        } else {
-          history[lastIndex].response = currentResponse + delta.content
-        }
+        history[lastIndex].response = currentResponse + delta.content
       }
 
       Object.assign(history[lastIndex], {
@@ -934,7 +946,12 @@
         response: history[lastIndex].response
       })
 
-      saveConversationToMap(streamConversationId, history)
+      // 节流：每 20 个 chunk 才 deep clone 一次，避免长对话卡顿
+      _streamChunkCount++
+      if (_streamChunkCount % 20 === 0) {
+        saveConversationToMap(streamConversationId, history)
+        _streamChunkCount = 0
+      }
 
       if (String(currentConversationId.value) === String(streamConversationId)) {
         if (conversationHistory.value[lastIndex]) {
@@ -960,7 +977,6 @@
 
     selectedHistoryItem.value = item
     currentConversationId.value = item.conversation_id
-    activeConversationId.value = item.conversation_id
 
     const cachedHistory = getConversationFromMap(item.conversation_id)
 
@@ -1040,11 +1056,6 @@
         return
       }
 
-      const contentLength = response.headers.get('content-length')
-      if (!contentLength || contentLength === '0') {
-        return
-      }
-
       const data = await response.json()
 
       if (data.items && data.items.length > 0) {
@@ -1066,7 +1077,6 @@
 
     selectedHistoryItem.value = null
     currentConversationId.value = null
-    activeConversationId.value = null
     tempConversationId.value = null
     conversationHistory.value = []
     localStorage.removeItem('chatState')
@@ -1119,6 +1129,8 @@
     streamManager.clearStreamRequestState()
   }
 
+  const _cleanupFns = []
+
   onMounted(async () => {
     // 加载 API Key 数据
     apiKeyStore.loadFromStorage()
@@ -1127,46 +1139,48 @@
     await restoreStateFromStorage()
     await restoreStream()
 
-    window.addEventListener('beforeunload', () => {
+    const onBeforeUnload = () => {
       streamManager.cleanup()
       navigationStore.saveNavigationToStorage()
-    })
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    _cleanupFns.push(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
-    register('mod+k', () => {
+    _cleanupFns.push(register('mod+k', () => {
       nextTick(() => {
         const textarea = bottominputRef.value?.textareaRef
         if (textarea) {
           textarea.focus()
         }
       })
-    })
+    }))
 
-    register('mod+enter', () => {
+    _cleanupFns.push(register('mod+enter', () => {
       if (bottominputRef.value) {
         bottominputRef.value.sendMessage?.()
       }
-    })
+    }))
 
-    register('escape', () => {
+    _cleanupFns.push(register('escape', () => {
       if (showShortcutsHelp.value) {
         showShortcutsHelp.value = false
         return
       }
       navigationStore.hideAllTools()
       showMessageEditor.value = false
-    })
+    }))
 
-    register('mod+n', () => {
+    _cleanupFns.push(register('mod+n', () => {
       handleNewConversation()
-    })
+    }))
 
-    register('mod+shift+l', () => {
+    _cleanupFns.push(register('mod+shift+l', () => {
       if (leftlistRef.value) {
         leftlistRef.value.toggleCollapse?.()
       }
-    })
+    }))
 
-    register('/', () => {
+    _cleanupFns.push(register('/', () => {
       if (leftlistRef.value) {
         leftlistRef.value.showSearchBox = true
         nextTick(() => {
@@ -1174,19 +1188,25 @@
           if (searchInput) searchInput.focus()
         })
       }
-    }, { allowInInput: false })
+    }, { allowInInput: false }))
 
-    register('mod+b', () => {
+    _cleanupFns.push(register('mod+b', () => {
       navigationStore.toggleCollapse()
-    })
+    }))
 
-    register('shift+/', () => {
+    _cleanupFns.push(register('shift+/', () => {
       showShortcutsHelp.value = true
-    })
+    }))
 
-    register('?', () => {
+    _cleanupFns.push(register('?', () => {
       showShortcutsHelp.value = true
-    })
+    }))
+  })
+
+  onUnmounted(() => {
+    _cleanupFns.forEach(fn => fn())
+    _cleanupFns.length = 0
+    streamManager.cleanup()
   })
 </script>
 

@@ -1,83 +1,89 @@
 <template>
   <div class="agent-page">
-    <AgentHeader
-      :session-id="sessionId"
-      :sessions="sessionHistory"
+    <!-- 顶部栏 -->
+    <AgentTopBar
+      :status="agentStatus"
+      :cost-data="workspace.costData"
       :has-files="generatedFiles.length > 0"
       :prompt="projectPrompt || ''"
+      @open-upload="backend.showUploadModal = true"
       @open-settings="openSettingsWithBackend"
-      @open-performance="openPerformancePanel"
       @save-project="saveProjectToBackend"
+      @open-performance="openPerformancePanel"
       @open-learning="openLearningPanel"
       @analyze-complexity="analyzeRequirementComplexity(projectPrompt)"
-      @open-upload="backend.showUploadModal = true"
-      @switch-session="doSwitchSession"
-      @new-session="doCreateNewSession"
-      @delete-session="doDeleteSession"
     />
 
-    <div class="page-content">
-      <AgentInputPanel
-        :prompt="projectPrompt || ''"
-        :placeholder-text="getPlaceholder"
-        :generating="isGenerating"
+    <div class="agent-main">
+      <!-- 左侧栏 -->
+      <AgentSidebar
+        :session-id="sessionId"
+        :sessions="sessionHistory"
         :has-files="generatedFiles.length > 0"
         :file-count="generatedFiles.length"
         :categories="files.fileCategories"
         :search-query="files.fileSearchQuery"
-        :filter-type="files.fileFilterType"
         :selected-path="selectedFilePath"
-        :dynamic-models="dynamicModels"
-        :selected-provider-model="selectedProviderModel"
-        :project-name="projectName"
-        @update:prompt="session.projectPrompt = $event"
+        @new-session="doCreateNewSession"
+        @switch-session="doSwitchSession"
+        @delete-session="doDeleteSession"
         @update:search-query="files.fileSearchQuery = $event"
-        @update:filter-type="files.fileFilterType = $event"
-        @update:selected-provider-model="selectedProviderModel = $event"
-        @update:project-name="projectName = $event"
-        @generate="generateProject"
-        @regenerate="regenerateProject"
-        @clear="clearAllState"
-        @stop="doStopSession"
-        @select-template="useTemplate"
         @toggle-category="toggleCategory"
         @select-file="selectFile"
       />
 
-      <AgentWorkspace
-        :stages="workflowStages"
-        :overall-progress="getOverallProgress"
-        :eta="getETA"
-        :decisions="workspace.pendingDecisions"
-        :decision-answers="workspace.decisionAnswers"
+      <!-- 中间工作区 -->
+      <div class="agent-center">
+        <AgentWorkspace
+          :stages="workflowStages"
+          :overall-progress="getOverallProgress"
+          :eta="getETA"
+          :decisions="workspace.pendingDecisions"
+          :decision-answers="workspace.decisionAnswers"
+          :thinking-messages="workspace.thinkingMessages"
+          :execution-steps="workspace.executionDetails"
+          :logs="workspace.logs"
+          :test-results="workspace.testResults"
+          :validation-results="workspace.validationResults"
+          @select-decision="(id, label) => workspace.decisionAnswers[id] = label"
+          @use-default="(id) => { const d = workspace.pendingDecisions.find(x => x.id === id); if (d?.default) workspace.decisionAnswers[id] = d.default }"
+          @submit-decision="doSubmitDecision"
+          @clear-thinking="workspace.thinkingMessages = []"
+          @clear-steps="workspace.executionDetails = []"
+          @clear-logs="workspace.logs = []"
+        />
+        <!-- 底部输入框 -->
+        <AgentInputBar
+          :prompt="projectPrompt || ''"
+          :placeholder-text="getPlaceholder"
+          :generating="isGenerating"
+          :has-files="generatedFiles.length > 0"
+          :dynamic-models="dynamicModels"
+          :selected-provider-model="selectedProviderModel"
+          @update:prompt="session.projectPrompt = $event"
+          @update:selected-provider-model="selectedProviderModel = $event"
+          @generate="generateProject"
+          @regenerate="regenerateProject"
+          @clear="clearAllState"
+          @stop="doStopSession"
+        />
+      </div>
+
+      <!-- 右侧文件预览 -->
+      <AgentFilePanel
         :selected-file="selectedFile"
-        :file-type="getFileType(selectedFilePath)"
         :highlighted-code="getHighlightedCode"
         :line-count="getLineCount || 0"
         :file-size="formatFileSize"
         :language="getLanguage"
         :has-diff="hasFileDiff"
-        :thinking-messages="workspace.thinkingMessages"
-        :execution-steps="workspace.executionDetails"
-        :logs="workspace.logs"
-        :test-results="workspace.testResults"
-        :validation-results="workspace.validationResults"
-        :cost-data="workspace.costData"
-        :performance-metrics="workspace.performanceMetrics"
         :file-complexity="selectedFile?.complexity || null"
-        @select-decision="(id, label) => workspace.decisionAnswers[id] = label"
-        @use-default="(id) => { const d = workspace.pendingDecisions.find(x => x.id === id); if (d?.default) workspace.decisionAnswers[id] = d.default }"
-        @submit-decision="doSubmitDecision"
         @show-diff="showFileDiff(selectedFilePath)"
         @save-version="saveFileVersion(selectedFilePath)"
         @version-history="doOpenVersionHistory(selectedFilePath)"
         @copy="copyFileContent"
         @download="downloadFile(selectedFile)"
         @delete-file="deleteFileFromBackend(selectedFilePath, workspace.currentProjectPath)"
-        @download-project="downloadProject(workspace.currentProjectPath)"
-        @clear-thinking="workspace.thinkingMessages = []"
-        @clear-steps="workspace.executionDetails = []"
-        @clear-logs="workspace.logs = []"
       />
     </div>
 
@@ -92,7 +98,6 @@
 </template>
 
 <script setup>
-/* AgentDashboard - Refactored from 5029 to ~150 lines using composables */
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
@@ -106,9 +111,11 @@ import { useAgentWorkspace } from '@/composables/useAgentWorkspace'
 import { useAgentStreaming } from '@/composables/useAgentStreaming'
 import { useAgentBackend } from '@/composables/useAgentBackend'
 
-import AgentHeader from '@/components/agent/AgentHeader.vue'
-import AgentInputPanel from '@/components/agent/AgentInputPanel.vue'
+import AgentTopBar from '@/components/agent/AgentTopBar.vue'
+import AgentSidebar from '@/components/agent/AgentSidebar.vue'
 import AgentWorkspace from '@/components/agent/AgentWorkspace.vue'
+import AgentInputBar from '@/components/agent/AgentInputBar.vue'
+import AgentFilePanel from '@/components/agent/AgentFilePanel.vue'
 import UploadModal from '@/components/agent/modals/UploadModal.vue'
 import SettingsModal from '@/components/agent/modals/SettingsModal.vue'
 import LearningModal from '@/components/agent/modals/LearningModal.vue'
@@ -122,7 +129,6 @@ const providerStore = useProviderStore()
 const router = useRouter()
 const projectApi = window.api || {}
 
-// 动态供应商模型
 const selectedProviderModel = ref('')
 const projectName = ref('')
 
@@ -144,30 +150,31 @@ const goToModelConfig = () => {
   router.push('/settings?tab=agent')
 }
 
-// ========== Unwrapped values for child components ==========
+// ========== Unwrapped values ==========
 const sessionId = computed(() => session.currentSessionId)
 const sessionHistory = computed(() => session.sessionHistory)
 const projectPrompt = computed(() => session.projectPrompt)
 const generatedFiles = computed(() => files.generatedFiles)
 const isGenerating = computed(() => generation.isGenerating)
 const workflowStages = computed(() => generation.workflowStages)
-const currentPhase = computed(() => generation.currentPhase)
-const currentStep = computed(() => generation.currentStep)
 const selectedFile = computed(() => files.selectedFile || null)
 const templates = computed(() => files.templates)
 
-// ========== Template Helpers ==========
+const agentStatus = computed(() => {
+  if (generation.isGenerating) return 'running'
+  if (workflowStages.value?.some(s => s.status === 'failed')) return 'failed'
+  if (generatedFiles.value.length > 0) return 'completed'
+  return 'idle'
+})
+
+// ========== Helpers ==========
 const getFileType = (path) => files.getFileType(path)
 const getPlaceholder = computed(() => generation.getPlaceholder(generatedFiles.value.length > 0))
 const getOverallProgress = computed(() => generation.getOverallProgress())
 const getETA = computed(() => generation.getETA())
 const highlightedCode = ref('')
-const getHighlightedCode = computed(() => {
-  // 返回缓存的高亮代码
-  return highlightedCode.value
-})
+const getHighlightedCode = computed(() => highlightedCode.value)
 
-// 当选中文件变化时，异步获取高亮代码
 watch(selectedFile, async (newFile) => {
   if (newFile) {
     highlightedCode.value = await files.getHighlightedCode()
@@ -175,16 +182,15 @@ watch(selectedFile, async (newFile) => {
     highlightedCode.value = ''
   }
 }, { immediate: true })
+
 const getLineCount = computed(() => files.getLineCount(selectedFile.value?.content))
 const formatFileSize = computed(() => selectedFile.value ? files.formatFileSize(selectedFile.value.content) : '')
 const getLanguage = computed(() => selectedFile.value ? files.getLanguage(selectedFile.value.path) : '')
 const hasFileDiff = computed(() => selectedFile.value ? files.hasFileDiff(selectedFile.value.path) : false)
 const selectedFilePath = computed(() => selectedFile.value?.path || null)
-
-// ========== Dynamic Models ==========
 const dynamicModels = computed(() => providerStore.getAllDynamicModels())
 
-// ========== Generation Actions ==========
+// ========== Actions ==========
 const generateProject = () => streaming.streamGenerate(selectedProviderModel.value, projectName.value)
 const regenerateProject = async () => {
   if (!session.projectPrompt.trim()) return ElMessage.warning('请输入项目描述')
@@ -229,7 +235,7 @@ const clearAllState = () => {
   workspace.executionDetails = []
   workspace.logs = []
   session.currentSessionId = null
-  workspace.currentProjectPath = []
+  workspace.currentProjectPath = null
   session.projectPrompt = ''
   session.clearSessionState()
   generation.resetStages()
@@ -237,7 +243,7 @@ const clearAllState = () => {
   ElMessage.success('已清空所有状态')
 }
 
-// ========== Session Actions ==========
+// ========== Session ==========
 const doCreateNewSession = () => session.createNewSession({
   _generation: generation,
   _workspace: workspace,
@@ -295,10 +301,8 @@ const viewVersionDiff = (i) => workspace.viewVersionDiff(
 )
 const copyFileContent = () => workspace.copyFileContent()
 const downloadFile = (f) => workspace.downloadFile(f)
-const deleteFileFromBackend = (p) => backend.deleteFileFromBackend(p, workspace.currentProjectPath)
+const deleteFileFromBackend = (filePath) => backend.deleteFileFromBackend(filePath, workspace.currentProjectPath)
 const downloadProject = () => backend.downloadProject(workspace.currentProjectPath)
-
-// ========== File Actions (delegated to files composable) ==========
 const useTemplate = (template) => session.projectPrompt = templates.value[template]?.prompt || ''
 const toggleCategory = (category) => files.toggleCategory(category)
 const selectFile = (file) => files.selectFile(file)
@@ -348,13 +352,9 @@ watch([() => files.generatedFiles?.length, () => session.currentSessionId, () =>
 }, { deep: true })
 
 onMounted(() => {
-  // 加载 API Key 数据
   apiKeyStore.loadFromStorage()
-  
-  // 加载动态供应商
   providerStore.loadFromStorage()
   providerStore.listProviders().catch(() => {})
-  
   session.loadSessionHistory()
   backend.loadSettings()
   session.startAutoSave(
@@ -382,8 +382,3 @@ onBeforeUnmount(() => {
   if (session.currentSessionId) session.clearSessionState()
 })
 </script>
-
-<style scoped>
-/* 组件特定样式已移至全局 agent-layout.css */
-/* 保留此空 style 标签以防构建问题 */
-</style>

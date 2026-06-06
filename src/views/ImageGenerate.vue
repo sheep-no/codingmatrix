@@ -310,10 +310,10 @@
           throw new Error(err.detail || err.message || '生成失败')
         }
         const data = await res.json()
-        if (data.result?.images) {
-          generatedImages.value = data.result.images.map(url => ({ url }))
-        } else if (data.result?.image_url) {
-          generatedImages.value = [{ url: data.result.image_url }]
+        if (data.images && data.images.length > 0) {
+          generatedImages.value = data.images.map(url => ({ url }))
+        } else if (data.paths && data.paths.length > 0) {
+          generatedImages.value = data.paths.map(url => ({ url }))
         } else {
           throw new Error('返回数据格式异常')
         }
@@ -340,10 +340,10 @@
           throw new Error(err.detail || err.message || '生成失败')
         }
         const data = await res.json()
-        if (data.result?.images) {
-          generatedImages.value = data.result.images.map(url => ({ url }))
-        } else if (data.result?.image_url) {
-          generatedImages.value = [{ url: data.result.image_url }]
+        if (data.images && data.images.length > 0) {
+          generatedImages.value = data.images.map(url => ({ url }))
+        } else if (data.paths && data.paths.length > 0) {
+          generatedImages.value = data.paths.map(url => ({ url }))
         } else {
           throw new Error('返回数据格式异常')
         }
@@ -379,10 +379,10 @@
       })
       if (res.ok) {
         const data = await res.json()
-        history.value = data.result?.images?.map(img => ({
-          id: img.id,
-          url: img.url || img.image_url
-        })) || []
+        history.value = (data.items || []).map(item => ({
+          id: item.image_id || item.id,
+          url: (item.image_urls && item.image_urls[0]) || ''
+        }))
       }
     } catch { /* ignore */ }
   }

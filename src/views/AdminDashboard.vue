@@ -355,7 +355,7 @@
                       v-model.number="systemConfig.ppt_generation.max_slides" 
                       type="number" 
                       min="1"
-                      max="100"
+                      max="50"
                       class="form-input"
                       @change="configDirty = true"
                     />
@@ -541,26 +541,12 @@ v-for="template in systemConfig.ppt_generation.supported_templates"
       </div>
     </div>
 
-    <!-- 通知 -->
-    <div v-if="notification.show" :class="['notification', notification.type]">
-      <div class="notification-content">
-        <svg v-if="notification.type === 'success'" class="notification-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-          <polyline points="22 4 12 14.01 9 11.01"/>
-        </svg>
-        <svg v-else-if="notification.type === 'error'" class="notification-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="15" y1="9" x2="9" y2="15"/>
-          <line x1="9" y1="9" x2="15" y2="15"/>
-        </svg>
-        <span>{{ notification.message }}</span>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { createAdminClient } from '@/utils/api/admin'
 import { createClient } from '@/utils/api/client'
 
@@ -625,12 +611,6 @@ const editingUser = reactive({
   tier: 'custom'
 })
 
-const notification = reactive({
-  show: false,
-  type: 'success',
-  message: ''
-})
-
 // 选项卡
 const tabs = [
   { id: 'user-limits', label: '用户限制' },
@@ -655,74 +635,88 @@ const isValidNewLimit = computed(() => {
 
 // 方法
 function showNotification(message, type = 'success') {
-  notification.message = message
-  notification.type = type
-  notification.show = true
-  setTimeout(() => {
-    notification.show = false
-  }, 3000)
+  if (type === 'error') {
+    ElMessage.error(message)
+  } else {
+    ElMessage.success(message)
+  }
 }
 
 async function refreshAllData() {
-  await Promise.all([
-    loadUsers(),
-    loadRoleLimits(),
-    loadSystemConfig(),
-    loadChangeHistory()
-  ])
-  showNotification('数据已刷新')
+  try {
+    const [usersRes, config] = await Promise.all([
+      adminApi.getUsers(),
+      adminApi.getSystemConfig()
+    ])
+    applyUsers(usersRes, config)
+    applyRoleLimits(config)
+    applySystemConfig(config)
+    await loadChangeHistory()
+    showNotification('数据已刷新')
+  } catch (error) {
+    showNotification('刷新数据失败', 'error')
+  }
 }
 
 async function loadUsers() {
   try {
-    const usersRes = await adminApi.getUsers()
-    const configRes = await adminApi.getSystemConfig()
-    
-    const overrides = configRes?.system_config?.user_concurrent_limits?.user_overrides || {}
-    
-    users.value = (usersRes.users || []).map(user => {
-      const userOverride = overrides[user.id]
-      return {
-        ...user,
-        concurrentLimit: userOverride?.limit || getDefaultLimit(user.role),
-        tier: userOverride?.tier || 'default',
-        activeSessions: 0
-      }
-    })
-    
-    stats.totalUsers = users.value.length
-    stats.customLimits = users.value.filter(u => u.tier !== 'default').length
+    const [usersRes, config] = await Promise.all([
+      adminApi.getUsers(),
+      adminApi.getSystemConfig()
+    ])
+    applyUsers(usersRes, config)
   } catch (error) {
     showNotification('加载用户失败', 'error')
   }
 }
 
+function applyUsers(usersRes, config) {
+  const overrides = config?.system_config?.user_concurrent_limits?.user_overrides || {}
+  users.value = (usersRes.users || []).map(user => {
+    const userOverride = overrides[user.id]
+    return {
+      ...user,
+      concurrentLimit: userOverride?.limit || getDefaultLimit(user.role),
+      tier: userOverride?.tier || 'default',
+      activeSessions: 0
+    }
+  })
+  stats.totalUsers = users.value.length
+  stats.customLimits = users.value.filter(u => u.tier !== 'default').length
+}
+
 async function loadRoleLimits() {
   try {
     const config = await adminApi.getSystemConfig()
-    const defaults = config?.system_config?.user_concurrent_limits?.default_tiers || {}
-    
-    Object.keys(roleLimits).forEach(key => {
-      roleLimits[key] = defaults[key] || roleLimits[key]
-    })
-    
-    roleLimitsOriginal.value = JSON.parse(JSON.stringify(roleLimits))
-    roleLimitsDirty.value = false
+    applyRoleLimits(config)
   } catch (error) {
     showNotification('加载角色配置失败', 'error')
   }
 }
 
+function applyRoleLimits(config) {
+  const defaults = config?.system_config?.user_concurrent_limits?.default_tiers || {}
+  Object.keys(roleLimits).forEach(key => {
+    roleLimits[key] = defaults[key] || roleLimits[key]
+  })
+  roleLimitsOriginal.value = JSON.parse(JSON.stringify(roleLimits))
+  roleLimitsDirty.value = false
+}
+
 async function loadSystemConfig() {
   try {
     const config = await adminApi.getSystemConfig()
-    if (config?.system_config) {
-      Object.assign(systemConfig, config.system_config)
-    }
-    configDirty.value = false
+    applySystemConfig(config)
   } catch (error) {
     showNotification('加载系统配置失败', 'error')
   }
+}
+
+function applySystemConfig(config) {
+  if (config?.system_config) {
+    Object.assign(systemConfig, config.system_config)
+  }
+  configDirty.value = false
 }
 
 async function loadChangeHistory() {
@@ -839,7 +833,15 @@ async function confirmEditUser() {
 }
 
 async function removeUserLimit(userId) {
-  if (!confirm('确定要移除该用户的限制吗？移除后将恢复为角色默认限制。')) return
+  try {
+    await ElMessageBox.confirm('确定要移除该用户的限制吗？移除后将恢复为角色默认限制。', '移除确认', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch {
+    return
+  }
   
   try {
     await adminApi.removeUserConcurrentLimit(userId)
@@ -905,9 +907,9 @@ onMounted(() => {
 
 /* 顶部导航栏 */
 .admin-header {
-  background: rgba(30, 41, 59, 0.8);
+  background: var(--bg-tertiary);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  border-bottom: 1px solid var(--border-color);
   padding: 1.5rem 2rem;
   position: sticky;
   top: 0;
@@ -964,8 +966,8 @@ onMounted(() => {
 }
 
 .stat-card {
-  background: rgba(30, 41, 59, 0.6);
-  border: 1px solid rgba(148, 163, 184, 0.1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1.5rem;
   display: flex;
@@ -977,7 +979,7 @@ onMounted(() => {
 .stat-card:hover {
   transform: translateY(-2px);
   border-color: rgba(96, 165, 250, 0.3);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 10px 40px var(--shadow-color);
 }
 
 .stat-icon {
@@ -1034,7 +1036,7 @@ onMounted(() => {
 .tabs {
   display: flex;
   gap: 0.5rem;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  border-bottom: 1px solid var(--border-color);
   padding-bottom: 0;
 }
 
@@ -1067,15 +1069,15 @@ onMounted(() => {
 
 /* 面板 */
 .panel {
-  background: rgba(30, 41, 59, 0.6);
-  border: 1px solid rgba(148, 163, 184, 0.1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   overflow: hidden;
 }
 
 .panel-header {
   padding: 1.5rem 2rem;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1116,8 +1118,8 @@ onMounted(() => {
 .search-input {
   width: 300px;
   padding: 0.625rem 1rem 0.625rem 2.5rem;
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 0.875rem;
@@ -1135,10 +1137,10 @@ onMounted(() => {
 
 /* 添加限制表单 */
 .add-limit-form {
-  background: rgba(15, 23, 42, 0.5);
+  background: var(--bg-secondary);
   padding: 1.5rem;
   border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.1);
+  border: 1px solid var(--border-color);
   margin-bottom: 1.5rem;
 }
 
@@ -1178,8 +1180,8 @@ onMounted(() => {
 .form-select {
   width: 100%;
   padding: 0.625rem 1rem;
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 0.875rem;
@@ -1200,7 +1202,7 @@ onMounted(() => {
 .data-table-wrapper {
   overflow-x: auto;
   border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.1);
+  border: 1px solid var(--border-color);
 }
 
 .data-table {
@@ -1213,11 +1215,11 @@ onMounted(() => {
 .data-table td {
   padding: 1rem 1.5rem;
   text-align: left;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .data-table th {
-  background: rgba(15, 23, 42, 0.5);
+  background: var(--bg-secondary);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -1302,7 +1304,7 @@ onMounted(() => {
 }
 
 .tier-default {
-  background: rgba(148, 163, 184, 0.2);
+  background: var(--border-color);
   color: var(--text-tertiary);
 }
 
@@ -1337,8 +1339,8 @@ onMounted(() => {
 }
 
 .role-limit-card {
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(148, 163, 184, 0.1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1.5rem;
 }
@@ -1365,7 +1367,7 @@ onMounted(() => {
 }
 
 .role-icon-free {
-  background: rgba(148, 163, 184, 0.2);
+  background: var(--border-color);
   color: var(--text-tertiary);
 }
 
@@ -1438,10 +1440,10 @@ onMounted(() => {
 }
 
 .config-section {
-  background: rgba(15, 23, 42, 0.5);
+  background: var(--bg-secondary);
   padding: 1.5rem;
   border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.1);
+  border: 1px solid var(--border-color);
 }
 
 .config-section-title {
@@ -1450,7 +1452,7 @@ onMounted(() => {
   font-weight: 600;
   color: var(--text-secondary);
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .config-grid {
@@ -1527,8 +1529,8 @@ onMounted(() => {
 .tag-input {
   width: 150px;
   padding: 0.375rem 0.75rem;
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   color: var(--text-primary);
   font-size: 0.8125rem;
@@ -1596,10 +1598,10 @@ onMounted(() => {
 }
 
 .timeline-body {
-  background: rgba(15, 23, 42, 0.5);
+  background: var(--bg-secondary);
   padding: 1rem;
   border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.1);
+  border: 1px solid var(--border-color);
 }
 
 .timeline-body p {
@@ -1667,13 +1669,13 @@ onMounted(() => {
 
 .btn-outline {
   background: transparent;
-  border: 1px solid rgba(148, 163, 184, 0.3);
+  border: 1px solid var(--border-color);
   color: var(--text-primary);
 }
 
 .btn-outline:hover {
-  background: rgba(148, 163, 184, 0.1);
-  border-color: rgba(148, 163, 184, 0.5);
+  background: var(--border-color);
+  border-color: var(--text-tertiary);
 }
 
 .btn-danger {
@@ -1692,7 +1694,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(148, 163, 184, 0.1);
+  background: var(--border-color);
   border: none;
   border-radius: 6px;
   color: var(--text-tertiary);
@@ -1701,7 +1703,7 @@ onMounted(() => {
 }
 
 .btn-icon-sm:hover {
-  background: rgba(148, 163, 184, 0.2);
+  background: var(--border-color);
   color: var(--text-primary);
 }
 
@@ -1735,7 +1737,7 @@ onMounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(148, 163, 184, 0.2);
+  background: var(--border-color);
   transition: 0.3s;
   border-radius: 24px;
 }
@@ -1760,48 +1762,6 @@ onMounted(() => {
   transform: translateX(24px);
 }
 
-/* 通知 */
-.notification {
-  position: fixed;
-  bottom: 2rem;
-  right: 2rem;
-  padding: 1rem 1.5rem;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  animation: slideIn 0.3s ease;
-  z-index: 1000;
-}
-
-.notification.success {
-  background: rgba(16, 185, 129, 0.2);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: var(--success);
-}
-
-.notification.error {
-  background: rgba(239, 68, 68, 0.2);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: var(--danger);
-}
-
-.notification-icon {
-  width: 20px;
-  height: 20px;
-}
-
-@keyframes slideIn {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
 /* 弹窗 */
 .modal-overlay {
   position: fixed;
@@ -1809,7 +1769,7 @@ onMounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--shadow-color);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1818,16 +1778,16 @@ onMounted(() => {
 
 .modal {
   background: var(--bg-tertiary);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   width: 100%;
   max-width: 500px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 60px var(--shadow-color);
 }
 
 .modal-header {
   padding: 1.5rem 2rem;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1853,7 +1813,7 @@ onMounted(() => {
 }
 
 .modal-close:hover {
-  background: rgba(148, 163, 184, 0.1);
+  background: var(--border-color);
   color: var(--text-primary);
 }
 
@@ -1868,7 +1828,7 @@ onMounted(() => {
 
 .modal-footer {
   padding: 1.5rem 2rem;
-  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;

@@ -982,7 +982,6 @@
   }
 
   const handleLogToFileChange = async () => {
-    console.log('日志文件写入:', logConfig.log_to_file ? '启用' : '禁用')
   }
 
   const loadRateLimitConfig = async () => {
@@ -1228,7 +1227,6 @@
   }
 
   const handleFeatureToggle = (feature, enabled) => {
-    console.log(`功能开关: ${feature} -> ${enabled ? '启用' : '禁用'}`)
   }
 
   const getStatusClass = value => {
@@ -1538,7 +1536,7 @@
   }
 
   .feature-item.disabled {
-    background: #fee2e2;
+    background: var(--danger-100);
   }
 
   .feature-info {
@@ -1676,7 +1674,7 @@
     gap: 8px;
     margin-top: 16px;
     padding: 12px 16px;
-    background: #fef3c7;
+    background: var(--warning-bg);
     border-radius: 8px;
     font-size: 13px;
     color: #92400e;
@@ -1700,7 +1698,7 @@
     align-items: center;
     gap: 8px;
     padding: 12px 32px;
-    background: linear-gradient(135deg, var(--primary) 0%, #14b8a6 100%);
+    background: var(--gradient-primary);
     color: white;
     border: none;
     border-radius: 8px;
@@ -1884,7 +1882,7 @@
   }
 
   .backup-btn.primary {
-    background: linear-gradient(135deg, var(--primary) 0%, #14b8a6 100%);
+    background: var(--gradient-primary);
     color: white;
     border: none;
   }
@@ -1901,12 +1899,12 @@
   }
 
   .backup-message.success {
-    background: #d1fae5;
+    background: var(--success-bg);
     color: #065f46;
   }
 
   .backup-message.error {
-    background: #fee2e2;
+    background: var(--danger-100);
     color: #991b1b;
   }
 
@@ -1988,7 +1986,7 @@
   }
 
   .action-btn-small.danger:hover {
-    background: #fee2e2;
+    background: var(--danger-100);
     border-color: var(--danger);
     color: var(--danger);
   }
@@ -2182,17 +2180,17 @@
   }
 
   .fuse-badge.normal {
-    background: #d1fae5;
+    background: var(--success-bg);
     color: #065f46;
   }
 
   .fuse-badge.warning {
-    background: #fef3c7;
+    background: var(--warning-bg);
     color: #92400e;
   }
 
   .fuse-badge.critical {
-    background: #fee2e2;
+    background: var(--danger-100);
     color: #991b1b;
   }
 

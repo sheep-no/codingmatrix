@@ -161,6 +161,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/utils/api/index'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 
@@ -226,13 +227,15 @@ async function downloadPPT(item) {
     URL.revokeObjectURL(url)
   } catch (error) {
     console.error('下载失败:', error)
-    alert('下载失败：' + error.message)
+    ElMessage.error('下载失败：' + error.message)
   }
 }
 
 // 删除历史记录
 async function deleteHistory(item) {
-  if (!confirm(`确定要删除 "${item.topic}" 的历史记录吗？`)) {
+  try {
+    await ElMessageBox.confirm(`确定要删除 "${item.topic}" 的历史记录吗？`, '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+  } catch {
     return
   }
 
@@ -243,11 +246,11 @@ async function deleteHistory(item) {
       loadHistory()
       loadStats()
     } else {
-      alert('删除失败')
+      ElMessage.error('删除失败')
     }
   } catch (error) {
     console.error('删除失败:', error)
-    alert('删除失败：' + error.message)
+    ElMessage.error('删除失败：' + error.message)
   }
 }
 

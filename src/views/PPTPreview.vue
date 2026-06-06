@@ -25,16 +25,16 @@
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
           </svg>
-          下载 PDF
+          下载 PPTX
         </button>
-        <a v-if="downloadUrl" :href="downloadUrl" class="btn btn-primary">
+        <button v-if="pptId" class="btn btn-primary" @click="downloadPPTX">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
           下载 PPT
-        </a>
+        </button>
       </div>
     </header>
 
@@ -96,7 +96,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/utils/api/index'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
@@ -104,7 +104,6 @@ const router = useRouter()
 const pptId = route.params.id
 const slides = ref([])
 const htmlPreview = ref('')
-const downloadUrl = ref('')
 const showPDFDownload = ref(false)
 const isLoading = ref(true)
 
@@ -139,18 +138,32 @@ async function loadSlides() {
   if (slides.value.length > 0) return
   
   try {
-    const response = await fetch(`/api/v1/pptx/${pptId}/slides`)
-    if (response.ok) {
-      const data = await response.json()
-      if (data.slides) {
-        slides.value = data.slides
-        downloadUrl.value = `/api/v1/pptx/download/${pptId}?format=pptx`
-      }
+    const data = await api.ppt.getPPTSlides(pptId)
+    if (data && data.slides) {
+      slides.value = data.slides
     }
   } catch (error) {
     console.error('加载幻灯片失败:', error)
   } finally {
     isLoading.value = false
+  }
+}
+
+// 下载 PPTX
+async function downloadPPTX() {
+  try {
+    const blob = await api.ppt.downloadPPT(pptId, 'pptx')
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `ppt-${pptId}.pptx`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('下载失败:', error)
+    ElMessage.error('下载失败：' + error.message)
   }
 }
 
@@ -183,11 +196,6 @@ onMounted(async () => {
   // 如果 HTML 预览加载失败，回退到传统方式
   if (!hasHtmlPreview) {
     await loadSlides()
-  }
-  
-  // 设置下载 URL
-  if (pptId && !downloadUrl.value) {
-    downloadUrl.value = `/api/v1/pptx/download/${pptId}?format=pptx`
   }
 })
 </script>

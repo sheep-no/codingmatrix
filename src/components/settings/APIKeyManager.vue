@@ -99,6 +99,9 @@
               <button class="action-btn config-btn" @click="toggleContextConfig(key.token)">
                 {{ expandedContextConfig === key.token ? '收起' : '模型配置' }}
               </button>
+              <button class="action-btn config-btn" @click="toggleFallbackConfig(key.token)">
+                {{ expandedFallbackConfig === key.token ? '收起' : '降级链' }}
+              </button>
               <button class="action-btn delete-btn" @click="deleteKey(key.token)">清除</button>
             </div>
           </div>
@@ -130,6 +133,54 @@
               <input v-model.number="newContextLengths[key.token].value" type="number" min="1" placeholder="context length" class="context-input" />
               <button class="action-btn" @click="addContextLength(key)">添加</button>
               <button class="action-btn save-btn" @click="saveContextLengths(key)">保存全部</button>
+            </div>
+          </div>
+          <!-- 降级链配置 -->
+          <div v-if="expandedFallbackConfig === key.token" class="context-config-section">
+            <div class="context-config-header">
+              <span class="context-config-title">降级链配置</span>
+              <span class="context-config-hint">当首选模型不可用时的降级策略</span>
+            </div>
+            <div class="fallback-preference-select">
+              <select
+                :value="key.fallback_preference || 'use_admin_default'"
+                class="model-select"
+                @change="updateFallbackPreference(key, $event.target.value)"
+              >
+                <option value="use_admin_default">使用管理员默认降级链</option>
+                <option value="custom">自定义降级链</option>
+                <option value="disabled">禁用降级（只用自己的模型）</option>
+              </select>
+            </div>
+            <div v-if="key.fallback_preference === 'custom'" class="fallback-chain-editor">
+              <div class="chain-models">
+                <div
+                  v-for="(modelId, idx) in (key.custom_fallback_chain || [])"
+                  :key="idx"
+                  class="chain-model-item"
+                >
+                  <span class="chain-index">{{ idx + 1 }}</span>
+                  <input
+                    :value="modelId"
+                    class="context-input"
+                    placeholder="模型名称 (如 Qwen/Qwen3-8B)"
+                    @change="updateCustomChainModel(key, idx, $event.target.value)"
+                  />
+                  <button class="action-btn delete-btn" @click="removeCustomChainModel(key, idx)">删除</button>
+                </div>
+                <button class="action-btn" style="margin-top: 4px;" @click="addCustomChainModel(key)">
+                  + 添加模型
+                </button>
+              </div>
+              <div class="context-config-add" style="margin-top: 8px;">
+                <button class="action-btn save-btn" @click="saveFallbackPreference(key)">保存降级链</button>
+              </div>
+            </div>
+            <div v-else-if="key.fallback_preference === 'disabled'" class="fallback-disabled-hint">
+              降级已禁用。当模型调用失败时将直接报错，不会尝试其他模型。
+            </div>
+            <div v-else class="fallback-default-hint">
+              使用管理员配置的默认降级链。
             </div>
           </div>
         </div>
@@ -208,6 +259,9 @@ const newKeyForm = reactive({ provider: '', key: '', remark: '', ttl: '24h', cus
 // Context length config
 const expandedContextConfig = ref(null)
 const newContextLengths = reactive({})
+
+// Fallback chain config
+const expandedFallbackConfig = ref(null)
 
 // TTL 选择变化处理
 function onTTLChange(form) {
@@ -377,6 +431,75 @@ async function saveContextLengths(key) {
   try {
     await store.updateContextLengths(key.token, key.context_lengths || {})
     ElMessage.success('模型上下文长度配置已保存')
+  } catch (e) {
+    ElMessage.error('保存失败：' + (e.message || '未知错误'))
+  }
+}
+
+// Fallback chain config functions
+function toggleFallbackConfig(token) {
+  if (expandedFallbackConfig.value === token) {
+    expandedFallbackConfig.value = null
+  } else {
+    expandedFallbackConfig.value = token
+    // 如果还没有加载过偏好，从后端获取
+    const key = [...(store.tokens || [])].find(t => t.token === token)
+    if (key && key.fallback_preference === undefined) {
+      loadFallbackPreference(key)
+    }
+  }
+}
+
+async function loadFallbackPreference(key) {
+  try {
+    const result = await api.get(`/api/v1/agent/apikey/${key.token}/fallback-preference`)
+    if (result.data) {
+      key.fallback_preference = result.data.fallback_preference || 'use_admin_default'
+      key.custom_fallback_chain = result.data.custom_fallback_chain || []
+    }
+  } catch (e) {
+    console.error('加载降级链偏好失败:', e)
+    key.fallback_preference = 'use_admin_default'
+    key.custom_fallback_chain = []
+  }
+}
+
+async function updateFallbackPreference(key, preference) {
+  key.fallback_preference = preference
+  if (preference !== 'custom') {
+    key.custom_fallback_chain = []
+  }
+  // 立即保存非 custom 模式
+  if (preference !== 'custom') {
+    await saveFallbackPreference(key)
+  }
+}
+
+function updateCustomChainModel(key, idx, value) {
+  if (!key.custom_fallback_chain) {
+    key.custom_fallback_chain = []
+  }
+  key.custom_fallback_chain[idx] = value
+}
+
+function addCustomChainModel(key) {
+  if (!key.custom_fallback_chain) {
+    key.custom_fallback_chain = []
+  }
+  key.custom_fallback_chain.push('')
+}
+
+function removeCustomChainModel(key, idx) {
+  key.custom_fallback_chain.splice(idx, 1)
+}
+
+async function saveFallbackPreference(key) {
+  try {
+    await api.put(`/api/v1/agent/apikey/${key.token}/fallback-preference`, {
+      fallback_preference: key.fallback_preference || 'use_admin_default',
+      custom_fallback_chain: key.fallback_preference === 'custom' ? (key.custom_fallback_chain || []) : [],
+    })
+    ElMessage.success('降级链配置已保存')
   } catch (e) {
     ElMessage.error('保存失败：' + (e.message || '未知错误'))
   }
@@ -843,5 +966,69 @@ function getRemainingTime(key) {
   background: var(--success);
   color: white;
   border-color: var(--success);
+}
+
+.fallback-preference-select {
+  margin-bottom: 12px;
+}
+
+.fallback-preference-select .model-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 13px;
+  background: var(--bg-primary);
+  cursor: pointer;
+}
+
+.fallback-chain-editor {
+  margin-top: 8px;
+}
+
+.fallback-chain-editor .chain-models {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fallback-chain-editor .chain-model-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fallback-chain-editor .chain-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.fallback-chain-editor .context-input {
+  flex: 1;
+  width: auto;
+}
+
+.fallback-disabled-hint,
+.fallback-default-hint {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  margin-top: 8px;
+}
+
+.fallback-disabled-hint {
+  color: var(--warning);
+  background: #fff7e6;
 }
 </style>

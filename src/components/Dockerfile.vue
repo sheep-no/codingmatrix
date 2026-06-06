@@ -1498,8 +1498,8 @@
     justify-content: space-between;
     align-items: center;
     padding: 20px 30px;
-    border-bottom: 1px solid #e5e7eb;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    border-bottom: 1px solid var(--border-color);
+    background: var(--gradient-primary);
     color: white;
   }
 
@@ -1571,13 +1571,13 @@
   /* 配置类型选择 */
   .config-type-selector {
     padding: 20px;
-    border-bottom: 2px solid #e5e7eb;
+    border-bottom: 2px solid var(--border-color);
     margin-bottom: 20px;
   }
 
   .config-type-selector h3 {
     margin: 0 0 15px 0;
-    color: #374151;
+    color: var(--text-primary);
     font-size: 18px;
   }
 
@@ -1588,7 +1588,7 @@
 
   .type-buttons button {
     padding: 12px 24px;
-    border: 2px solid #d1d5db;
+    border: 2px solid var(--border-color);
     background: var(--bg-primary);
     border-radius: 8px;
     cursor: pointer;
@@ -1598,14 +1598,14 @@
   }
 
   .type-buttons button:hover:not(.active) {
-    border-color: #0d9488;
-    color: #0d9488;
+    border-color: var(--primary);
+    color: var(--primary);
     background: var(--bg-secondary);
   }
 
   .type-buttons button.active {
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
-    border-color: #0d9488;
+    background: var(--gradient-primary);
+    border-color: var(--primary);
     color: white;
   }
 
@@ -1623,7 +1623,7 @@
 
   .section-header h3 {
     margin: 0;
-    color: #374151;
+    color: var(--text-primary);
     font-size: 20px;
     font-weight: 600;
   }
@@ -1635,7 +1635,7 @@
 
   .add-service-btn {
     padding: 10px 20px;
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    background: var(--gradient-success);
     color: white;
     border: none;
     border-radius: 6px;
@@ -1657,8 +1657,8 @@
   .apply-template-btn {
     padding: 10px 20px;
     background: var(--bg-primary);
-    border: 2px solid #6b7280;
-    color: #6b7280;
+    border: 2px solid var(--text-secondary);
+    color: var(--text-secondary);
     border-radius: 6px;
     cursor: pointer;
     font-size: 14px;
@@ -1670,13 +1670,13 @@
   }
 
   .apply-template-btn:hover {
-    background: #f3f4f6;
-    border-color: #6b7280;
+    background: var(--slate-100);
+    border-color: var(--text-secondary);
   }
 
   /* 模板选择器 */
   .templates-selector {
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: var(--gradient-primary);
     border-radius: 12px;
     padding: 20px;
     margin-bottom: 20px;
@@ -1734,7 +1734,7 @@
 
   .service-card {
     background: var(--bg-primary);
-    border: 2px solid #e5e7eb;
+    border: 2px solid var(--border-color);
     border-radius: 12px;
     cursor: pointer;
     transition: all 0.3s;
@@ -1742,7 +1742,7 @@
   }
 
   .service-card:hover {
-    border-color: #0d9488;
+    border-color: var(--primary);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
     transform: translateY(-2px);
   }
@@ -1753,7 +1753,7 @@
   }
 
   .service-card.active {
-    border-color: #0d9488;
+    border-color: var(--primary);
     box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
   }
 
@@ -1763,7 +1763,7 @@
     align-items: center;
     padding: 15px;
     background: var(--bg-secondary);
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--border-color);
   }
 
   .service-info {
@@ -1779,12 +1779,12 @@
   .service-name {
     font-size: 16px;
     font-weight: 600;
-    color: #1f2937;
+    color: var(--text-primary);
   }
 
   .service-type-badge {
     padding: 4px 10px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: var(--gradient-primary);
     color: white;
     border-radius: 12px;
     font-size: 12px;
@@ -1800,7 +1800,7 @@
     width: 32px;
     height: 32px;
     background: var(--bg-primary);
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     cursor: pointer;
     font-size: 16px;
@@ -1811,8 +1811,8 @@
   }
 
   .icon-btn:hover {
-    background: #f3f4f6;
-    border-color: #0d9488;
+    background: var(--slate-100);
+    border-color: var(--primary);
   }
 
   .icon-btn:active {
@@ -1820,8 +1820,8 @@
   }
 
   .delete-btn:hover {
-    background: #fee2e2;
-    border-color: #ef4444;
+    background: var(--danger-100);
+    border-color: var(--danger);
   }
 
   .service-preview {
@@ -1838,7 +1838,7 @@
   }
 
   .preview-item .label {
-    color: #6b7280;
+    color: var(--text-secondary);
     font-weight: 500;
     min-width: 60px;
   }
@@ -1846,7 +1846,7 @@
   .preview-item code,
   .preview-item .value {
     background: var(--bg-primary);
-    color: #374151;
+    color: var(--text-primary);
     padding: 4px 10px;
     border-radius: 4px;
     font-family: 'Courier New', monospace;
@@ -1855,15 +1855,15 @@
 
   .service-preview-hint {
     text-align: center;
-    color: #9ca3af;
+    color: var(--text-tertiary);
     font-size: 12px;
     padding-top: 10px;
   }
 
   /* 详细配置面板 */
   .service-detail-panel {
-    background: #f9fafb;
-    border: 2px solid #e5e7eb;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
     border-radius: 12px;
     margin-bottom: 20px;
   }
@@ -1873,13 +1873,13 @@
     justify-content: space-between;
     align-items: center;
     padding: 15px 20px;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--border-color);
     background: var(--bg-secondary);
   }
 
   .detail-header h3 {
     margin: 0;
-    color: #1f2937;
+    color: var(--text-primary);
     font-size: 18px;
     font-weight: 600;
   }
@@ -1892,7 +1892,7 @@
   .toggle-accordion-btn {
     padding: 6px 12px;
     background: var(--bg-primary);
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     cursor: pointer;
     font-size: 13px;
@@ -1900,8 +1900,8 @@
   }
 
   .toggle-accordion-btn:hover {
-    background: #f3f4f6;
-    border-color: #6b7280;
+    background: var(--slate-100);
+    border-color: var(--text-secondary);
   }
 
   .detail-content {
@@ -1926,10 +1926,10 @@
 
   .detail-section h4 {
     margin: 0 0 15px 0;
-    color: #374151;
+    color: var(--text-primary);
     font-size: 16px;
     font-weight: 600;
-    border-bottom: 2px solid #e5e7eb;
+    border-bottom: 2px solid var(--border-color);
     padding-bottom: 10px;
   }
 
@@ -1951,7 +1951,7 @@
   .form-group label {
     display: block;
     margin-bottom: 6px;
-    color: #374151;
+    color: var(--text-primary);
     font-weight: 500;
     font-size: 14px;
   }
@@ -1960,7 +1960,7 @@
   .form-group select {
     width: 100%;
     padding: 10px 12px;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     font-size: 14px;
     transition: all 0.3s;
@@ -1969,7 +1969,7 @@
   .form-group input:focus,
   .form-group select:focus {
     outline: none;
-    border-color: #0d9488;
+    border-color: var(--primary);
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
   }
 
@@ -1984,13 +1984,13 @@
   .code-input {
     font-family: 'Courier New', monospace;
     background: var(--bg-primary);
-    color: #e2e8f0;
+    color: var(--text-primary);
   }
 
   .form-group small.help-text {
     display: block;
     margin-top: 5px;
-    color: #6b7280;
+    color: var(--text-secondary);
     font-size: 12px;
   }
 
@@ -2021,26 +2021,26 @@
     display: block;
     margin-bottom: 4px;
     font-size: 12px;
-    color: #6b7280;
+    color: var(--text-secondary);
   }
 
   .port-field input {
     width: 100%;
     padding: 8px;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     font-size: 13px;
   }
 
   .port-arrow {
-    color: #9ca3af;
+    color: var(--text-tertiary);
     font-size: 18px;
   }
 
   .add-port-btn,
   .remove-port-btn {
     padding: 6px 12px;
-    background: #0d9488;
+    background: var(--primary);
     color: white;
     border: none;
     border-radius: 4px;
@@ -2051,11 +2051,11 @@
   }
 
   .add-port-btn:hover {
-    background: #5a67d8;
+    background: var(--color-primary-700);
   }
 
   .remove-port-btn {
-    background: #ef4444;
+    background: var(--danger);
   }
 
   /* 环境变量 */
@@ -2087,13 +2087,13 @@
   }
 
   .equals-sign {
-    color: #9ca3af;
+    color: var(--text-tertiary);
     font-size: 18px;
     font-weight: 600;
   }
 
   .remove-env-btn {
-    background: #ef4444;
+    background: var(--danger);
     color: white;
     border: none;
     border-radius: 4px;
@@ -2104,7 +2104,7 @@
 
   .add-env-btn {
     padding: 6px 12px;
-    background: #10b981;
+    background: var(--success);
     color: white;
     border: none;
     border-radius: 4px;
@@ -2113,7 +2113,7 @@
   }
 
   .add-env-btn:hover {
-    background: #059669;
+    background: var(--success-hover);
   }
 
   /* 卷配置 */
@@ -2142,12 +2142,12 @@
   }
 
   .volume-arrow {
-    color: #9ca3af;
+    color: var(--text-tertiary);
     font-size: 18px;
   }
 
   .remove-volume-btn {
-    background: #ef4444;
+    background: var(--danger);
     color: white;
     border: none;
     border-radius: 4px;
@@ -2158,7 +2158,7 @@
 
   .add-volume-btn {
     padding: 6px 12px;
-    background: #10b981;
+    background: var(--success);
     color: white;
     border: none;
     border-radius: 4px;
@@ -2167,7 +2167,7 @@
   }
 
   .add-volume-btn:hover {
-    background: #059669;
+    background: var(--success-hover);
   }
 
   /* 依赖配置 */
@@ -2189,7 +2189,7 @@
     align-items: center;
     gap: 6px;
     padding: 6px 12px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: var(--gradient-primary);
     color: white;
     border-radius: 16px;
     font-size: 13px;
@@ -2219,13 +2219,13 @@
   .dependency-select {
     flex: 1;
     padding: 8px;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
   }
 
   .add-dep-btn {
     padding: 8px 12px;
-    background: #10b981;
+    background: var(--success);
     color: white;
     border: none;
     border-radius: 6px;
@@ -2235,8 +2235,8 @@
 
   /* 项目配置 */
   .project-config-section {
-    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-    border: 2px solid #e5e7eb;
+    background: var(--gradient-bg);
+    border: 2px solid var(--border-color);
     border-radius: 12px;
     padding: 20px;
     margin-bottom: 20px;
@@ -2244,7 +2244,7 @@
 
   .project-config-section h3 {
     margin: 0 0 15px 0;
-    color: #1f2937;
+    color: var(--text-primary);
     font-size: 18px;
   }
 
@@ -2283,12 +2283,12 @@
   .network-driver select {
     width: 100%;
     padding: 8px;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border-color);
     border-radius: 6px;
   }
 
   .remove-network-btn {
-    background: #ef4444;
+    background: var(--danger);
     color: white;
     border: none;
     border-radius: 4px;
@@ -2299,7 +2299,7 @@
 
   .add-network-btn {
     padding: 6px 12px;
-    background: #10b981;
+    background: var(--success);
     color: white;
     border: none;
     border-radius: 6px;
@@ -2343,7 +2343,7 @@
 
   .preview-header h3 {
     margin: 0;
-    color: #374151;
+    color: var(--text-primary);
     font-size: 18px;
   }
 
@@ -2354,7 +2354,7 @@
 
   .action-btn {
     padding: 8px 16px;
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+    background: var(--gradient-primary);
     color: white;
     border: none;
     border-radius: 6px;
@@ -2375,7 +2375,7 @@
 
   .config-content {
     background: var(--bg-primary);
-    color: #e2e8f0;
+    color: var(--text-primary);
     padding: 20px;
     border-radius: 8px;
     font-family: 'Courier New', monospace;
@@ -2394,7 +2394,7 @@
 
   .modal-body::-webkit-scrollbar-track,
   .config-content::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: var(--bg-tertiary);
     border-radius: 5px;
   }
 

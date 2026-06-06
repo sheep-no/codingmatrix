@@ -43,7 +43,10 @@ export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',
-    allowedHosts: true,
+    // P2 清理：allowedHosts 改为显式列表，部署到 *.monkeycode-ai.online 时不会被 Vite 拒
+    // 之前 allowedHosts: true 等价于允许所有 Host 头（不安全）
+    // 现在明确列出：本地开发 + 线上预览域名
+    allowedHosts: ['localhost', '127.0.0.1', '.monkeycode-ai.online'],
     cors: true,
     hmr: {
       protocol: 'wss',
@@ -77,6 +80,16 @@ export default defineConfig({
     sourcemap: true,
     chunkSizeWarningLimit: 500,
     cssCodeSplit: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-vue': ['vue', 'vue-router', 'pinia'],
+          'vendor-element': ['element-plus'],
+          'vendor-echarts': ['echarts'],
+          'vendor-utils': ['axios']
+        }
+      }
+    }
   },
   publicDir: 'public'
 })

@@ -464,6 +464,7 @@
   import { useNavigationStore } from '@/stores/navigation'
   import { useApiKeyStore } from '@/stores/apikey'
   import { api } from '@/utils/api/index'
+  import { ElMessage, ElMessageBox } from 'element-plus'
 
   const apiUrl = import.meta.env.VITE_API_BASE || '/api/v1'
 
@@ -708,21 +709,18 @@
             result = await response.json()
           }
 
-          if (result && result.images) {
-            generatedImages.value = result.images.map(img => ({
-              ...img,
+          if (result && result.images && result.images.length > 0) {
+            generatedImages.value = result.images.map(url => ({
+              url,
               loaded: false,
               img2img_available: true
             }))
-          } else if (result && result.image_url) {
-            generatedImages.value = [
-              {
-                url: result.image_url,
-                image_url: result.image_url,
-                loaded: false,
-                img2img_available: true
-              }
-            ]
+          } else if (result && result.paths && result.paths.length > 0) {
+            generatedImages.value = result.paths.map(url => ({
+              url,
+              loaded: false,
+              img2img_available: true
+            }))
           } else {
             throw new Error('生成失败，未返回图片数据')
           }
@@ -812,7 +810,11 @@
       }
 
       const clearAllHistory = async () => {
-        if (!confirm('确定要清空所有生图历史吗？此操作不可恢复。')) return
+        try {
+          await ElMessageBox.confirm('确定要清空所有生图历史吗？此操作不可恢复。', '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+        } catch {
+          return
+        }
 
         try {
           const token = localStorage.getItem('access_token')
@@ -827,16 +829,20 @@
             history.value = []
             generatedImages.value = []
           } else {
-            alert('清空失败，请稍后重试')
+            ElMessage.error('清空失败，请稍后重试')
           }
         } catch (e) {
           console.error('清空历史失败:', e)
-          alert('清空失败，请稍后重试')
+          ElMessage.error('清空失败，请稍后重试')
         }
       }
 
       const deleteHistory = async (imageId) => {
-        if (!confirm('确定要删除这条历史记录吗？')) return
+        try {
+          await ElMessageBox.confirm('确定要删除这条历史记录吗？', '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+        } catch {
+          return
+        }
 
         try {
           const token = localStorage.getItem('access_token')
@@ -1273,7 +1279,7 @@
   }
 
   .remove-btn:hover {
-    background: #ef4444;
+    background: var(--danger);
     transform: scale(1.1);
   }
 
@@ -1470,7 +1476,7 @@
   .error-icon {
     width: 1.5rem;
     height: 1.5rem;
-    color: #ef4444;
+    color: var(--danger);
     flex-shrink: 0;
   }
 
@@ -1488,7 +1494,7 @@
     background: transparent;
     border: none;
     border-radius: 0.5rem;
-    color: #ef4444;
+    color: var(--danger);
     cursor: pointer;
     transition: all 0.3s ease;
   }
@@ -1542,8 +1548,8 @@
   }
 
   .btn-clear-all:hover:not(:disabled) {
-    border-color: #ef4444;
-    color: #ef4444;
+    border-color: var(--danger);
+    color: var(--danger);
     background: rgba(239, 68, 68, 0.1);
   }
 
@@ -1665,7 +1671,7 @@
   }
 
   .history-delete:hover {
-    background: #ef4444;
+    background: var(--danger);
     color: white;
   }
 

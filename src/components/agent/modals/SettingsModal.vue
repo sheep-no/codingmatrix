@@ -16,6 +16,9 @@
               <button class="btn btn-sm btn-primary" @click="$emit('open-model-config')">前往模型配置</button>
             </div>
           </div>
+          <div class="settings-section"><h4>MCP 工具扩展</h4>
+            <MCPSettings />
+          </div>
           <div class="settings-section"><h4>生成配置</h4>
             <div class="settings-grid">
               <div class="setting-item"><label>最大并行数</label><input v-model.number="localSettings.maxConcurrent" type="number" min="1" max="10" class="setting-input" /></div>
@@ -50,6 +53,7 @@
 
 <script setup>
 import { ref, watch } from 'vue'
+import MCPSettings from '@/components/settings/MCPSettings.vue'
 
 const props = defineProps({ modelValue: Boolean, settings: { type: Object, required: true }, concurrentLimits: { type: Object, required: true }, cacheStats: { type: Object, required: true } })
 const emit = defineEmits(['update:modelValue', 'save', 'copy', 'export', 'clear-cache', 'open-api-key', 'open-model-config'])

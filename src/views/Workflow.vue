@@ -93,6 +93,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const prompt = ref('')
@@ -135,7 +136,7 @@ async function handleExecute() {
     if (data.session_id) sessionId.value = data.session_id
   } catch (e) {
     console.error('工作流执行失败:', e)
-    alert('执行失败: ' + e.message)
+    ElMessage.error('执行失败: ' + e.message)
   } finally {
     executing.value = false
   }

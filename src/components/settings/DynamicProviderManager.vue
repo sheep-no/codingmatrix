@@ -1,7 +1,7 @@
 <template>
   <div class="dynamic-provider-manager">
     <h2 class="section-title">自定义供应商管理</h2>
-    <p class="section-desc">通过 Base URL 和协议类型添加任意支持的供应商供应商，系统自动拉取模型列表</p>
+    <p class="section-desc">通过 Base URL 和协议类型添加任意支持的供应商，系统自动拉取模型列表</p>
     
     <!-- 添加供应商表单 -->
     <div class="add-provider-form">
@@ -28,11 +28,11 @@
         </div>
       </div>
       <button
-        :disabled="loading || !form.name || !form.base_url || !form.api_key"
+        :disabled="submitting || !form.name || !form.base_url || !form.api_key"
         class="submit-btn"
         @click="submitForm"
       >
-        {{ loading ? '添加中...' : '添加供应商' }}
+        {{ submitting ? '添加中...' : '添加供应商' }}
       </button>
     </div>
 
@@ -59,11 +59,11 @@
           <div class="models-header">
             <span class="models-title">模型列表 ({{ (p.models || []).length }})</span>
             <div class="models-actions">
-              <button class="btn-sm sync-btn" :disabled="loading" @click="syncModelsAction(p.id)">
-                {{ loading ? '同步中...' : '同步模型' }}
+              <button class="btn-sm sync-btn" :disabled="isBusy(p.id, 'sync')" @click="syncModelsAction(p.id)">
+                {{ isBusy(p.id, 'sync') ? '同步中...' : '同步模型' }}
               </button>
-              <button class="btn-sm test-btn" :disabled="loading" @click="testProviderAction(p.id)">
-                {{ loading ? '测试中...' : '测试连接' }}
+              <button class="btn-sm test-btn" :disabled="isBusy(p.id, 'test')" @click="testProviderAction(p.id)">
+                {{ isBusy(p.id, 'test') ? '测试中...' : '测试连接' }}
               </button>
             </div>
           </div>
@@ -85,17 +85,25 @@
             </span>
           </div>
           <div v-else class="empty-models">
-            点击“同步模型”拉取模型列表
+            点击"同步模型"拉取模型列表
           </div>
         </div>
 
         <!-- 操作按钮 -->
         <div class="provider-actions">
-          <button class="action-btn toggle-btn" @click="toggleProviderAction(p.id)">
-            {{ p.enabled ? '禁用' : '启用' }}
+          <button
+            class="action-btn toggle-btn"
+            :disabled="isBusy(p.id, 'toggle')"
+            @click="toggleProviderAction(p.id)"
+          >
+            {{ isBusy(p.id, 'toggle') ? '处理中...' : (p.enabled ? '禁用' : '启用') }}
           </button>
-          <button class="action-btn delete-btn" @click="deleteProviderAction(p.id)">
-            删除
+          <button
+            class="action-btn delete-btn"
+            :disabled="isBusy(p.id, 'delete')"
+            @click="deleteProviderAction(p.id)"
+          >
+            {{ isBusy(p.id, 'delete') ? '删除中...' : '删除' }}
           </button>
         </div>
       </div>
@@ -113,8 +121,24 @@ import { useProviderStore } from '@/stores/providers'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const store = useProviderStore()
-const loading = ref(false)
+const submitting = ref(false)
 const providers = computed(() => store.providers)
+
+// Per-provider loading tracking: Set of "providerId:action" strings
+const busyActions = ref(new Set())
+
+function isBusy(providerId, action) {
+  return busyActions.value.has(`${providerId}:${action}`)
+}
+
+function setBusy(providerId, action, busy) {
+  const key = `${providerId}:${action}`
+  if (busy) {
+    busyActions.value.add(key)
+  } else {
+    busyActions.value.delete(key)
+  }
+}
 
 const form = reactive({
   name: '',
@@ -133,7 +157,7 @@ async function submitForm() {
     ElMessage.warning('请填写所有必填字段')
     return
   }
-  loading.value = true
+  submitting.value = true
   try {
     await store.addProvider({
       name: form.name,
@@ -149,7 +173,7 @@ async function submitForm() {
   } catch (e) {
     ElMessage.error('添加失败：' + (e.message || '未知错误'))
   } finally {
-    loading.value = false
+    submitting.value = false
   }
 }
 
@@ -157,25 +181,35 @@ async function deleteProviderAction(id) {
   const p = store.providers.find(x => x.id === id)
   try {
     await ElMessageBox.confirm(`确定要删除供应商 "${p?.name}" 吗？`, '确认删除', { type: 'warning' })
+  } catch {
+    return
+  }
+  setBusy(id, 'delete', true)
+  try {
     await store.deleteProvider(id)
     ElMessage.success('供应商已删除')
   } catch (e) {
-    if (e !== 'cancel') ElMessage.error('删除失败：' + (e.message || '未知错误'))
+    ElMessage.error('删除失败：' + (e.message || '未知错误'))
+  } finally {
+    setBusy(id, 'delete', false)
   }
 }
 
 async function toggleProviderAction(id) {
+  setBusy(id, 'toggle', true)
   try {
     await store.toggleProvider(id)
     const p = store.providers.find(x => x.id === id)
     ElMessage.success(`供应商已${p?.enabled ? '启用' : '禁用'}`)
   } catch (e) {
     ElMessage.error('操作失败：' + (e.message || '未知错误'))
+  } finally {
+    setBusy(id, 'toggle', false)
   }
 }
 
 async function syncModelsAction(id) {
-  loading.value = true
+  setBusy(id, 'sync', true)
   try {
     const result = await store.syncModels(id, true)
     if (result.error) {
@@ -186,12 +220,12 @@ async function syncModelsAction(id) {
   } catch (e) {
     ElMessage.error('同步失败：' + (e.message || '未知错误'))
   } finally {
-    loading.value = false
+    setBusy(id, 'sync', false)
   }
 }
 
 async function testProviderAction(id) {
-  loading.value = true
+  setBusy(id, 'test', true)
   try {
     const result = await store.testProvider(id)
     if (result.success) {
@@ -202,7 +236,7 @@ async function testProviderAction(id) {
   } catch (e) {
     ElMessage.error('测试失败：' + (e.message || '未知错误'))
   } finally {
-    loading.value = false
+    setBusy(id, 'test', false)
   }
 }
 
@@ -229,6 +263,7 @@ function formatTime(ts) {
   font-size: 20px;
   font-weight: 600;
   margin-bottom: 8px;
+  color: var(--text-primary);
 }
 
 .section-desc {
@@ -249,6 +284,7 @@ function formatTime(ts) {
   font-size: 16px;
   font-weight: 600;
   margin-bottom: 16px;
+  color: var(--text-primary);
 }
 
 .form-grid {
@@ -285,7 +321,7 @@ function formatTime(ts) {
 .submit-btn {
   padding: 10px 24px;
   background: var(--primary);
-  color: #fff;
+  color: var(--bg-primary);
   border: none;
   border-radius: 4px;
   font-size: 14px;
@@ -293,8 +329,12 @@ function formatTime(ts) {
   cursor: pointer;
 }
 
-.submit-btn:disabled {
+.submit-btn:hover:not(:disabled) {
   background: var(--primary-hover);
+}
+
+.submit-btn:disabled {
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
@@ -302,6 +342,7 @@ function formatTime(ts) {
   font-size: 16px;
   font-weight: 600;
   margin-bottom: 16px;
+  color: var(--text-primary);
 }
 
 .provider-list {
@@ -328,6 +369,7 @@ function formatTime(ts) {
   font-size: 16px;
   font-weight: 600;
   display: block;
+  color: var(--text-primary);
 }
 
 .provider-url {
@@ -351,12 +393,12 @@ function formatTime(ts) {
 }
 
 .protocol-badge.openai {
-  background: var(--color-success-50, #e1f3d8);
+  background: var(--success-bg);
   color: var(--success);
 }
 
 .protocol-badge.anthropic {
-  background: var(--color-primary-50);
+  background: var(--primary-50);
   color: var(--color-primary-700);
 }
 
@@ -367,7 +409,7 @@ function formatTime(ts) {
 }
 
 .status-badge.enabled {
-  background: var(--color-success-50, #e1f3d8);
+  background: var(--success-bg);
   color: var(--success);
 }
 
@@ -393,6 +435,7 @@ function formatTime(ts) {
 .models-title {
   font-size: 14px;
   font-weight: 500;
+  color: var(--text-primary);
 }
 
 .models-actions {
@@ -417,26 +460,39 @@ function formatTime(ts) {
 
 .sync-btn {
   color: var(--primary);
-  border-color: var(--color-primary-100);
+  border-color: var(--primary-200);
 }
 
-.sync-btn:hover {
-  background: var(--color-primary-100);
+.sync-btn:hover:not(:disabled) {
+  background: var(--primary-50);
 }
 
 .test-btn {
   color: var(--success);
-  border-color: var(--color-success-50, #e1f3d8);
+  border-color: var(--success-bg);
 }
 
-.test-btn:hover {
-  background: var(--color-success-50, #e1f3d8);
+.test-btn:hover:not(:disabled) {
+  background: var(--success-bg);
+}
+
+.sync-btn:hover:not(:disabled) {
+  background: var(--primary-50);
+}
+
+.test-btn {
+  color: var(--success);
+  border-color: var(--success-bg);
+}
+
+.test-btn:hover:not(:disabled) {
+  background: var(--success-bg);
 }
 
 .sync-error {
   padding: 8px 12px;
-  background: var(--color-danger-50, #fef0f0);
-  border: 1px solid var(--color-danger-100, #fbc4c4);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-100);
   border-radius: 4px;
   color: var(--danger);
   font-size: 13px;
@@ -466,7 +522,7 @@ function formatTime(ts) {
 
 .more-tag {
   padding: 4px 10px;
-  background: var(--color-primary-50);
+  background: var(--primary-50);
   border-radius: 4px;
   font-size: 12px;
   color: var(--primary);
@@ -492,14 +548,40 @@ function formatTime(ts) {
   font-size: 14px;
 }
 
+.action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .toggle-btn {
-  background: var(--color-primary-100);
+  background: var(--primary-50);
   color: var(--primary);
 }
 
+.toggle-btn:hover:not(:disabled) {
+  background: var(--primary-100);
+}
+
 .delete-btn {
-  background: var(--color-danger-100, #fde2e2);
+  background: var(--danger-bg);
   color: var(--danger);
+}
+
+.delete-btn:hover:not(:disabled) {
+  background: var(--danger-100);
+}
+
+.toggle-btn:hover:not(:disabled) {
+  background: var(--primary-100);
+}
+
+.delete-btn {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.delete-btn:hover:not(:disabled) {
+  background: var(--danger-100);
 }
 
 .empty-state {

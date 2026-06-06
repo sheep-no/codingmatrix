@@ -140,6 +140,7 @@
 <script setup>
   import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
   import { api } from '@/utils/api/index'
+  import { ElMessage, ElMessageBox } from 'element-plus'
 
   const props = defineProps({
     visible: { type: Boolean, default: false }
@@ -181,7 +182,11 @@
 
   // 取消任务
   const cancelTask = async taskId => {
-    if (!confirm('确定要取消此任务吗？')) return
+    try {
+      await ElMessageBox.confirm('确定要取消此任务吗？', '确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+    } catch {
+      return
+    }
 
     try {
       const success = await api.cancelTask(taskId)
@@ -190,7 +195,7 @@
       }
     } catch (error) {
       console.error('取消任务失败:', error)
-      alert('取消任务失败：' + error.message)
+      ElMessage.error('取消任务失败：' + error.message)
     }
   }
 
@@ -198,7 +203,6 @@
   const retryTask = async taskId => {
     try {
       // 需要实现重试 API 调用
-      console.log('重试任务:', taskId)
       await loadTasks()
     } catch (error) {
       console.error('重试任务失败:', error)
@@ -499,15 +503,15 @@
   }
 
   .task-type-badge.type-project {
-    background: #e6f7ff;
+    background: var(--primary-50);
     color: var(--primary);
   }
   .task-type-badge.type-code {
-    background: #f6ffed;
+    background: var(--success-bg);
     color: var(--success);
   }
   .task-type-badge.type-ppt {
-    background: #fff7e6;
+    background: var(--warning-bg);
     color: var(--warning);
   }
   .task-type-badge.type-file {
@@ -529,19 +533,19 @@
   }
 
   .task-status.pending {
-    background: #fffbe6;
+    background: var(--warning-bg);
     color: var(--warning);
   }
   .task-status.running {
-    background: #e6f7ff;
+    background: var(--primary-50);
     color: var(--primary);
   }
   .task-status.completed {
-    background: #f6ffed;
+    background: var(--success-bg);
     color: var(--success);
   }
   .task-status.failed {
-    background: #fff1f0;
+    background: var(--danger-bg);
     color: var(--danger);
   }
 
@@ -555,7 +559,7 @@
   .progress-bar {
     flex: 1;
     height: 8px;
-    background: #f0f0f0;
+    background: var(--bg-tertiary);
     border-radius: 4px;
     overflow: hidden;
   }
