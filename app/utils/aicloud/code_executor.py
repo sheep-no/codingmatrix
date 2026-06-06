@@ -161,6 +161,7 @@ class CodeExecutor:
 
     def _check_python_ast(self, tree: ast.AST):
         """检查 Python AST 以禁止危险操作"""
+        banned_calls = {"exec", "eval", "compile", "open", "__import__", "getattr", "setattr", "delattr", "globals", "locals", "vars"}
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -170,8 +171,13 @@ class CodeExecutor:
                 if node.module and node.module.split(".")[0] in BANNED_PYTHON_MODULES:
                     raise ValueError(f"禁止导入模块: {node.module}")
             elif isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name) and node.func.id in ("exec", "eval", "compile", "open"):
+                if isinstance(node.func, ast.Name) and node.func.id in banned_calls:
                     raise ValueError(f"禁止调用函数: {node.func.id}")
+                if isinstance(node.func, ast.Attribute):
+                    if isinstance(node.func.value, ast.Name) and node.func.value.id == "__builtins__":
+                        raise ValueError("禁止访问 __builtins__")
+                    if node.func.attr in ("__import__", "system", "popen"):
+                        raise ValueError(f"禁止调用方法: {node.func.attr}")
 
     async def _execute_javascript(self, code: str, timeout: int) -> CodeExecutionResult:
         """执行 JavaScript/Node.js 代码"""

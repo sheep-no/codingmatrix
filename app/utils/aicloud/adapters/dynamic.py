@@ -181,10 +181,15 @@ class DynamicAdapter(BaseProviderAdapter):
                     raise HTTPException(status_code=resp.status_code, detail=resp.text)
                 
                 anthropic_response = resp.json()
+                content_blocks = anthropic_response.get("content", [])
+                text_content = ""
+                for block in content_blocks:
+                    if block.get("type") == "text":
+                        text_content += block.get("text", "")
                 return {
                     "choices": [{
                         "message": {
-                            "content": anthropic_response["content"][0]["text"]
+                            "content": text_content
                         }
                     }],
                     "usage": anthropic_response.get("usage", {}),
