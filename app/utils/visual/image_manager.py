@@ -25,7 +25,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # 图片保存目录
-IMAGE_CACHE_DIR = Path("./pptx_images")
+IMAGE_CACHE_DIR = Path("./pptx_output/image_cache")
 IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 

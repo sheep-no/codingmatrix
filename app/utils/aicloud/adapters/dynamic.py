@@ -44,6 +44,7 @@ class DynamicAdapter(BaseProviderAdapter):
         max_tokens: int = 4096,
         thinking_budget: int = 4096,
         cancel_event: Optional[asyncio.Event] = None,
+        messages: Optional[list] = None,
     ) -> Union[dict, AsyncIterator[str]]:
         if not self.api_key:
             raise RuntimeError("API Key 未配置")
@@ -51,17 +52,17 @@ class DynamicAdapter(BaseProviderAdapter):
         if self._protocol == Protocol.ANTHROPIC:
             return await self._call_anthropic(
                 model, prompt, system_prompt, stream,
-                temperature, max_tokens, thinking_budget, cancel_event,
+                temperature, max_tokens, thinking_budget, cancel_event, messages,
             )
         else:
             return await self._call_openai(
                 model, prompt, system_prompt, stream,
-                temperature, max_tokens, thinking_budget, cancel_event,
+                temperature, max_tokens, thinking_budget, cancel_event, messages,
             )
     
     async def _call_openai(
         self, model, prompt, system_prompt, stream,
-        temperature, max_tokens, thinking_budget, cancel_event,
+        temperature, max_tokens, thinking_budget, cancel_event, messages=None,
     ):
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -69,7 +70,8 @@ class DynamicAdapter(BaseProviderAdapter):
         }
         timeout = Timeout(self.timeout, connect=10.0)
         
-        messages = self._build_messages(prompt, system_prompt)
+        if messages is None:
+            messages = self._build_messages(prompt, system_prompt)
         data = {
             "model": model,
             "messages": messages,
@@ -118,7 +120,7 @@ class DynamicAdapter(BaseProviderAdapter):
     
     async def _call_anthropic(
         self, model, prompt, system_prompt, stream,
-        temperature, max_tokens, thinking_budget, cancel_event,
+        temperature, max_tokens, thinking_budget, cancel_event, messages=None,
     ):
         headers = {
             "x-api-key": self.api_key,
@@ -127,9 +129,12 @@ class DynamicAdapter(BaseProviderAdapter):
         }
         timeout = Timeout(self.timeout, connect=10.0)
         
+        if messages is None:
+            messages = [{"role": "user", "content": prompt}]
+        
         data = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": stream,

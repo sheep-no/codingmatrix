@@ -459,9 +459,8 @@ class LayoutDecider:
             image_asset: 图片资源（如果有）
             style: 样式对象
         """
-        from app.api.v1.aiGeneratorPptx import PPTStyle
-        
         if style is None:
+            from app.utils.pptx.ppt_style import PPTStyle
             style = PPTStyle()
         
         blank_layout = prs.slide_layouts[6]
@@ -721,6 +720,10 @@ class LayoutDecider:
         )
         line.fill.solid()
         color = element.properties.get("color", (74, 144, 217))
+        # 支持 hex 字符串和 tuple 两种格式
+        if isinstance(color, str):
+            color = color.lstrip('#')
+            color = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
         line.fill.fore_color.rgb = RGBColor(*color)
         line.line.fill.background()
     

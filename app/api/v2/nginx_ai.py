@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.responses import StreamingResponse
 from app.utils.security import *
 from app.utils.AiCodeUtil import *
+from app.utils import call_llm
 from app.schema.nginxConf import *
 from app.core.config import settings
 import shutil
@@ -62,9 +63,9 @@ async def check_nginx(body: NginxConf):
 
         logger.info(f"调用 AI 服务分析错误 | model={DEFAULT_AI_MODEL}")
 
-        stream_gen = await call_siliconflow(
-            prompt=prompt,
+        stream_gen = await call_llm(
             model=DEFAULT_AI_MODEL,
+            prompt=prompt,
             stream=True,
         )
 

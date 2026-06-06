@@ -5,7 +5,7 @@ import time
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncIterator, Dict, Any, List
+from typing import AsyncIterator, Dict, Any, List, FrozenSet
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -18,6 +18,80 @@ from app.db.database import get_db, async_session
 from app.db.models import ProjectSession
 from app.agent import OrchestratorAgent
 from app.agent.multi_model_agent import MultiModelAgent
+
+
+# SSE 透传事件类型集合：直接发送给前端（不被包装成 progress）
+# 修复 v5.x → v6.x：test/validation/cost/perf/warning/file_rejected/step_detail
+# 之前被错误包装成 progress 导致前端对应 UI 永远收不到数据
+PASSTHROUGH_SSE_EVENTS: FrozenSet[str] = frozenset({
+    # 进度类
+    "thinking", "model_info", "file", "file_diff",
+    # 实时统计/结果
+    "test_results", "validation_results",
+    "cost_update", "performance_metrics",
+    # 警告/拒绝/步骤
+    "warning", "file_rejected", "step_detail",
+    # ReAct 反思事件
+    "react_tool_call", "react_tool_result", "react_generating",
+})
+
+
+def resolve_sync_output_dir(
+    project_path: str | None,
+    output_dir: str | None,
+    user_id: str,
+    timestamp: str,
+) -> str:
+    """同步 /orchestrate 端点的 output_dir 解析
+
+    优先级：project_path > request.output_dir > 时间戳目录
+    """
+    return (
+        project_path
+        or output_dir
+        or f"./projects/orchestrator/{timestamp}_{user_id}"
+    )
+
+
+def resolve_stream_output_dir(
+    project_path: str | None,
+    session_id: str | None,
+    project_name: str | None,
+    user_id: str,
+    timestamp: str,
+) -> tuple[str, str, str]:
+    """流式 /orchestrate/stream 端点的 (output_dir, project_name, session_id) 解析
+
+    优先级：
+      1. project_path（增量模式：前端明确指定） → 取 Path 最后一段当 project_name
+      2. session_id（续传） → 从 session_id 推导 project_name
+      3. 全 new → 用 project_name 或时间戳
+
+    Returns:
+        (output_dir, project_name, session_id)
+    """
+    if project_path:
+        resolved_name = Path(project_path).name
+        resolved_session = (
+            session_id
+            if session_id
+            else f"{user_id}_{resolved_name}"
+        )
+        return project_path, resolved_name, resolved_session
+
+    if session_id:
+        resolved_name = (
+            session_id.replace(f"{user_id}_", "", 1)
+            if session_id.startswith(f"{user_id}_")
+            else session_id
+        )
+        output_dir = f"{user_id}/{resolved_name}"
+        return output_dir, resolved_name, session_id
+
+    resolved_name = project_name or f"untitled_{timestamp}"
+    resolved_session = f"{user_id}_{resolved_name}"
+    output_dir = f"{user_id}/{resolved_name}"
+    return output_dir, resolved_name, resolved_session
 from app.agent.impact_analyzer import ImpactAnalyzer
 from app.agent.project_profiler import ProjectProfiler
 from app.agent.test_selector import TestSelector
@@ -167,7 +241,10 @@ async def orchestrate_project(
 ):
     user_id = token.get("sub", "anonymous")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = request.output_dir or f"./projects/orchestrator/{timestamp}_{user_id}"
+    # 优先级：前端传来的 project_path > request.output_dir > 时间戳目录
+    output_dir = resolve_sync_output_dir(
+        request.project_path, request.output_dir, user_id, timestamp
+    )
 
     logger.info(f"Orchestrator 生成请求 | user={user_id} | requirement={request.requirement[:50]}...")
 
@@ -323,17 +400,14 @@ async def orchestrate_project_stream(
             is_resume = False
     
     if not is_resume:
-        if request.session_id:
-            session_id = request.session_id
-            # 从 session_id 中提取 project_name（格式：{user_id}_{project_name}）
-            project_name = session_id.replace(f"{user_id}_", "", 1) if session_id.startswith(f"{user_id}_") else session_id
-        else:
-            # 生成项目名：用户指定或自动生成
-            project_name = request.project_name or f"untitled_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            session_id = f"{user_id}_{project_name}"
-        
-        # 新格式：相对路径 {user_id}/{project_name}
-        output_dir = f"{user_id}/{project_name}"
+        # 优先级：前端传来的 project_path > session_id 推导 > 全新生成
+        output_dir, project_name, session_id = resolve_stream_output_dir(
+            request.project_path,
+            request.session_id,
+            request.project_name,
+            user_id,
+            datetime.now().strftime("%Y%m%d_%H%M%S"),
+        )
     # ========== 意图检测结束 ==========
 
     logger.info(f"Orchestrator 流式生成请求 | user={user_id} session={session_id}")
@@ -447,7 +521,7 @@ async def orchestrate_project_stream(
                             logger.warning("决策等待超时，使用默认值继续")
                     # 特殊类型直接传递，不包装成 progress
                     msg_type = progress_data.get("type", "")
-                    if msg_type in ("thinking", "model_info", "file", "file_diff", "react_tool_call", "react_tool_result", "react_generating"):
+                    if msg_type in PASSTHROUGH_SSE_EVENTS:
                         await queue.put(f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n")
                     else:
                         await queue.put(f"data: {json.dumps({'type': 'progress', 'data': progress_data}, ensure_ascii=False)}\n\n")

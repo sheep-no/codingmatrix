@@ -90,7 +90,6 @@ class ProviderRouter:
             dp = manager.get_by_model(model_name)
             if dp:
                 # 动态供应商找到，但返回特殊标记
-                # 实际调用会通过 call_dynamic_llm 进行
                 pass
         except Exception:
             pass

@@ -15,20 +15,16 @@
 import asyncio
 import json
 import logging
-import re
-import sys
 import uuid
 from typing import Any, AsyncGenerator, Dict, Tuple, Optional, List
 from pathlib import Path
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.schema.codeRequest import CodeRequest
 from app.utils import call_llm
-from app.utils.AiCodeUtil import call_siliconflow
-from app.utils.cache import cached
 from app.utils.web_search import FreeWebSearch
 from fastapi.responses import StreamingResponse
 from app.utils.security import verify_token
@@ -39,12 +35,12 @@ from app.models.history import History
 from sqlalchemy import select, delete, and_
 from sqlalchemy.exc import SQLAlchemyError
 
-# 导入 RobustJSONParser
 from app.utils.json_parser import RobustJSONParser
 
 # 初始化日志
 logger = logging.getLogger(__name__)
 router = APIRouter()
+_parser = RobustJSONParser(strict_mode=False)
 
 # 部分响应缓存 {task_id: {"prompt": ..., "partial_response": ..., "model": ..., "timestamp": ...}}
 _partial_response_cache: Dict[str, dict] = {}
@@ -177,19 +173,10 @@ def ai_decide_search(prompt: str) -> bool:
     return False
 
 
-def clean_code_output(code: str) -> str:
-    """清理代码输出：移除 Markdown 标记"""
-    code = re.sub(r'^```python\s*', '', code)
-    code = re.sub(r'^```\s*', '', code)
-    code = re.sub(r'```$', '', code)
-    return code.strip()
-
-
 def extract_stream_content(chunk: str) -> Tuple[bool, str]:
     """
     从 SSE chunk 中提取内容（增强容错）
     """
-    parser = RobustJSONParser(strict_mode=False)
     try:
         # 尝试直接解析
         data = json.loads(chunk)
@@ -202,14 +189,14 @@ def extract_stream_content(chunk: str) -> Tuple[bool, str]:
     except (json.JSONDecodeError, KeyError, IndexError):
         # 尝试容错解析
         try:
-            data = parser.parse(chunk)
+            data = _parser.parse(chunk)
             content = (
                 data.get("choices", [{}])[0]
                 .get("delta", {})
                 .get("content", "")
             )
             return True, content if content else ""
-        except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
+        except (ValueError, TypeError, RuntimeError, OSError) as e:
             logger.debug(f"SSE chunk 解析失败：{str(e)[:50]} | chunk: {chunk[:100]}")
             return False, ""
 
@@ -217,40 +204,18 @@ def extract_stream_content(chunk: str) -> Tuple[bool, str]:
 def select_model_for_prompt(prompt: str, use_reasoning: bool, has_files: bool) -> str:
     """
     根据提示内容智能选择模型
-    
-    Args:
-        prompt: 用户提示
-        use_reasoning: 是否启用深度思考
-        has_files: 是否有文件/图片上传
-    
-    Returns:
-        选定的模型名称
     """
     if has_files:
         return "THUDM/GLM-4.1V-9B-Thinking"
     if use_reasoning:
         return "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
-    
-    code_keywords = ['代码', '函数', '编程', 'python', 'javascript', 'api', 'sql',
-                     'html', 'css', 'java', 'c++', 'rust', 'go语言', 'vue', 'react',
-                     '算法', '数据结构', 'bug', '错误', '调试', '部署', 'docker',
-                     'server', 'nginx', 'linux', '脚本', '自动化', 'git']
-    creative_keywords = ['写诗', '故事', '创意', '文案', '营销', '翻译',
-                         '邮件', '简历', '总结', '改写', '润色', '缩写',
-                         '写一段', '生成一段', '帮我写']
+
     analysis_keywords = ['分析', '解释', '原理', '为什么', '比较', '区别',
-                         '是什么', '优缺点', '优缺点', '如何理解', '详细说明']
-    
-    prompt_lower = prompt.lower()
-    
-    if any(kw in prompt_lower for kw in code_keywords):
-        return "Qwen/Qwen3-8B"
-    elif any(kw in prompt_lower for kw in analysis_keywords):
+                         '是什么', '优缺点', '如何理解', '详细说明']
+    if any(kw in prompt.lower() for kw in analysis_keywords):
         return "THUDM/GLM-Z1-9B-0414"
-    elif any(kw in prompt_lower for kw in creative_keywords):
-        return "Qwen/Qwen3-8B"
-    else:
-        return "Qwen/Qwen3-8B"
+
+    return "Qwen/Qwen3-8B"
 
 
 def format_tokens_usage(resp: Dict) -> Dict:
@@ -348,7 +313,7 @@ async def get_or_parse_file(
         
         # 查询数据库中的文件记录
         result = await db.execute(
-            select(File).where(File.file_path.contains(verified_path))
+            select(File).where(File.file_path == verified_path)
         )
         file_record = result.scalar_one_or_none()
         
@@ -433,14 +398,22 @@ async def verify_file_access(
                 detail="只能访问 uploads 目录内的文件"
             )
     
-    # 查询数据库
-    filters = [File.user_id == user_id, File.file_path.contains(file_path)]
-    
+    # 查询数据库：先精确匹配 file_path，再按 filename 兜底
+    base_filters = [File.user_id == user_id]
     if conversation_id:
-        filters.append(File.conversation_id == conversation_id)
-    
-    result = await db.execute(select(File).where(*filters))
+        base_filters.append(File.conversation_id == conversation_id)
+
+    result = await db.execute(
+        select(File).where(*base_filters, File.file_path == file_path)
+    )
     file_record = result.scalar_one_or_none()
+
+    if not file_record:
+        # 兜底：按文件名匹配（用户可能只传了文件名）
+        result = await db.execute(
+            select(File).where(*base_filters, File.filename == Path(file_path).name)
+        )
+        file_record = result.scalar_one_or_none()
     
     if not file_record:
         raise HTTPException(
@@ -481,6 +454,8 @@ async def _build_context(
                     file_path, user_id, conversation_id, db
                 )
                 context_parts.append(f"\n[参考文件：{metadata['filename']}]\n{parsed_content}\n")
+            except HTTPException as e:
+                logger.warning(f"文件访问被拒绝，跳过 | file={file_path} | status={e.status_code} | detail={e.detail}")
             except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
                 logger.warning(f"文件解析失败，跳过 | file={file_path} | error={str(e)}")
     
@@ -534,7 +509,6 @@ async def stream_response(
     use_reasoning: bool = False,
     enable_search: Optional[bool] = None,
     search_count: int = 5,
-    search_timelimit: Optional[str] = None,
     files_to_parse: List[str] = None,
     include_history: bool = True,
     resume_from: Optional[str] = None,
@@ -575,7 +549,7 @@ async def stream_response(
     response_parts = []
 
     try:
-        result_gen = await call_siliconflow(final_prompt, model, stream=True, cancel_event=cancel_event, api_key_token=api_key_token)
+        result_gen = await call_llm(model=model, prompt=final_prompt, stream=True, cancel_event=cancel_event, api_key_token=api_key_token)
 
         async for chunk in result_gen:
             # 检测 SSE 断开
@@ -641,8 +615,7 @@ async def stream_response(
             yield f'{{"interrupted": true, "resume_id": "{task_id}", "partial_length": {len(partial_text)}}}\n'
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"流式生成失败 | error={str(e)}")
-        yield f'{{"error": "{str(e)}"}}\n'
-        raise
+        yield '{"error": "服务内部错误，请稍后重试"}\n'
 
 
 # 非流式生成 ==============
@@ -679,7 +652,7 @@ async def generate_response(
     
     logger.info(f"执行非流式请求 | user_id={user_id} | model={model}")
     
-    result = await call_siliconflow(final_prompt, model, stream=False, api_key_token=api_key_token)
+    result = await call_llm(model=model, prompt=final_prompt, stream=False, api_key_token=api_key_token)
     response = result["choices"][0]["message"]["content"]
     tokens_used = format_tokens_usage(result)
     
@@ -744,10 +717,14 @@ async def generate_code(
     user_id = token.get("sub")
     conversation_id = body.conversation_id
     
-    # 兼容旧字段：enable_vision -> files_to_parse
+    # 构建文件列表：兼容旧字段 image_path + 新字段 files
     files_to_parse = []
     if body.image_path:
         files_to_parse.append(body.image_path)
+    if body.files:
+        for f in body.files:
+            if f.server_path and f.server_path not in files_to_parse:
+                files_to_parse.append(f.server_path)
     
     logger.info(f"通用问答请求 | user_id={user_id} | model={body.model} | stream={body.stream} | reasoning={body.use_reasoning}")
     
@@ -774,7 +751,6 @@ async def generate_code(
                     use_reasoning=body.use_reasoning,
                     enable_search=body.enable_search,
                     search_count=body.search_count or 5,
-                    search_timelimit=getattr(body, 'search_timelimit', None),
                     files_to_parse=files_to_parse if files_to_parse else None,
                     include_history=True,
                     resume_from=getattr(body, 'resume_id', None),
@@ -806,7 +782,7 @@ async def generate_code(
 
 @router.delete("/code/history")
 async def delete_code_history(
-    conversation_ids: List[int] = Query(..., description="要删除的会话ID列表"),
+    conversation_ids: List[int] = Query(default=[], description="要删除的会话ID列表"),
     all: bool = Query(False, description="是否清除所有历史记录"),
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db)
@@ -821,6 +797,9 @@ async def delete_code_history(
 
     if not user_id:
         raise HTTPException(status_code=401, detail="无效的用户令牌")
+
+    if not all and not conversation_ids:
+        raise HTTPException(status_code=400, detail="请提供要删除的会话ID或设置 all=true")
 
     logger.info(f"删除代码助手历史记录 | user_id={user_id} | all={all} | count={len(conversation_ids) if not all else 'all'}")
 

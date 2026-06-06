@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # 配置
 IMAGE_SEARCH_TIMEOUT = 10
-IMAGE_CACHE_DIR = Path("./static/images/cache")
+IMAGE_CACHE_DIR = Path("./pptx_output/image_cache")
 IMAGE_CACHE_MAX_AGE_DAYS = 7  # 缓存过期天数
 IMAGE_CACHE_MAX_SIZE_MB = 500  # 缓存最大容量 MB
 

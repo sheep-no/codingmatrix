@@ -25,6 +25,18 @@ class BaseProviderAdapter(abc.ABC):
         self.base_url = config.base_url
         self.timeout = config.timeout
         self.max_retries = config.max_retries
+
+    def _validate_api_key(self) -> None:
+        """校验 api_key 非空：空 Key 会在 HTTP 请求时发 "Bearer " → 401
+        子类在 call_llm 入口处调用。DynamicAdapter 内部已自带校验（抛 RuntimeError），
+        因此本方法不在基类 call_llm 包装里强制调用。
+        """
+        if not self.api_key:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=401,
+                detail=f"{self.provider.value} 供应商的 API Key 未配置，请在 Settings → API Key 管理中添加"
+            )
     
     @abc.abstractmethod
     async def call_llm(
@@ -37,20 +49,24 @@ class BaseProviderAdapter(abc.ABC):
         max_tokens: int = 4096,
         thinking_budget: int = 4096,
         cancel_event: Optional[asyncio.Event] = None,
+        messages: Optional[list] = None,
     ) -> Union[dict, AsyncIterator[str]]:
         """
         统一模型调用接口
-        
+
+        子类必须实现此方法。基类在子类的 call_llm 入口处会校验 api_key，
+        子类实现应在方法首行调用 self._validate_api_key()。
+
         Args:
             model: 模型名称
             prompt: 用户提示
             system_prompt: 系统提示
             stream: 是否流式输出
-            temperature: 温度参数 (0.0-2.0)
+            temperature: 温度 (0.0-2.0)
             max_tokens: 最大输出 token 数
             thinking_budget: 思考 token 预算（仅 reasoning 模型）
             cancel_event: 取消事件
-        
+
         Returns:
             非流式: {"choices": [{"message": {"content": "..."}}], "usage": {...}}
             流式: AsyncIterator[str]

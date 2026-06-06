@@ -47,16 +47,21 @@ _max_concurrent_generations = asyncio.Semaphore(4)
 
 # 连接池（复用 HTTP 客户端）
 _http_client: Optional[httpx.AsyncClient] = None
+_http_client_lock = asyncio.Lock()
 
 
 async def get_http_client() -> httpx.AsyncClient:
-    """获取或创建共享的 HTTP 客户端（连接池复用）"""
+    """获取或创建共享的 HTTP 客户端（连接池复用，线程安全）"""
     global _http_client
     if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(
-            timeout=Timeout(120.0, connect=10.0),
-            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
-        )
+        async with _http_client_lock:
+            # 双重检查锁定
+            if _http_client is not None and not _http_client.is_closed:
+                return _http_client
+            _http_client = httpx.AsyncClient(
+                timeout=Timeout(120.0, connect=10.0),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+            )
     return _http_client
 
 
@@ -75,18 +80,20 @@ def _save_images_from_response(
 ) -> tuple[list[str], list[str]]:
     """
     从 API 响应中保存图片到本地
-    返回 (images_base64_list, image_paths_list)
+    返回 (images_data_url_list, image_paths_list)
+    images_data_url_list 包含 data:image/xxx;base64,... 格式，可直接用于 <img src>
     """
     import time
     import uuid
 
     images = []
     image_paths = []
+    mime = "jpeg" if output_format in ("jpg", "jpeg") else output_format
 
     for image_data in result.get("data", []):
         b64_data = image_data.get("b64_json")
         if b64_data:
-            images.append(b64_data)
+            images.append(f"data:image/{mime};base64,{b64_data}")
 
             timestamp = int(time.time())
             img_id = uuid.uuid4().hex[:8]
@@ -294,7 +301,8 @@ async def inpaint_image(
     guidance_scale: float = 7.5,
     output_format: str = "png",
     seed: Optional[int] = None,
-    timeout: Timeout = Timeout(120.0, connect=10.0)
+    timeout: Timeout = Timeout(120.0, connect=10.0),
+    api_key_token: str = None
 ) -> Dict[str, Any]:
     """
     图像修复/局部重绘 - 修改图像的指定区域
@@ -334,7 +342,7 @@ async def inpaint_image(
         data["seed"] = seed
 
     logger.info(f"图像修复请求 | image={image_path} | mask={mask_path}")
-    result = await _call_kolors_api(data, timeout)
+    result = await _call_kolors_api(data, timeout, api_key_token=api_key_token)
     images, image_paths = _save_images_from_response(result, "kolors_inpaint", output_format)
 
     return {"success": True, "images": images, "paths": image_paths, "prompt": prompt}
@@ -352,7 +360,7 @@ async def _call_kolors_api(data: dict, timeout: Timeout, api_key_token: str = No
                     from app.services.apikey_manager import get_apikey_manager
                     try:
                         apikey_manager = get_apikey_manager()
-                        user_key = apikey_manager.get_key("default_user", api_key_token)
+                        user_key = apikey_manager.get_key_by_token(api_key_token)
                         if user_key:
                             api_key = user_key
                     except Exception as e:

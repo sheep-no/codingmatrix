@@ -53,10 +53,14 @@ class KeyMetadata:
     ttl_seconds: int
     enabled: bool = True
     context_lengths: dict = None  # 用户自定义的模型 context_length 配置 {model_id: context_length}
+    fallback_preference: str = "use_admin_default"  # use_admin_default | custom | disabled
+    custom_fallback_chain: list = None  # 用户自定义降级链（仅 fallback_preference="custom" 时生效）
     
     def __post_init__(self):
         if self.context_lengths is None:
             self.context_lengths = {}
+        if self.custom_fallback_chain is None:
+            self.custom_fallback_chain = []
 
 
 # 供应商列表
@@ -143,6 +147,10 @@ class APIKeyManager:
     def _key_index(self, user_id: str) -> str:
         """Redis 键：用户索引"""
         return f"apikey_index:{user_id}"
+
+    def _key_token_reverse(self, token: str) -> str:
+        """Redis 键：token → user_id 反向索引（O(1) 查找）"""
+        return f"apikey:token:{token}"
     
     def store_key(
         self,
@@ -214,7 +222,12 @@ class APIKeyManager:
         )
         meta_name = self._key_meta(user_id, token)
         self.redis.setex(meta_name, ttl_seconds, json.dumps(asdict(meta)))
-        
+
+        # 写反向索引：token → user_id（O(1) 查找，避免 SCAN 全表扫）
+        # TTL 比最长 TTL 多 1 天，保证 Key 过期后仍能找到 user_id 用于清理
+        reverse_ttl = ttl_seconds + 86400
+        self.redis.setex(self._key_token_reverse(token), reverse_ttl, user_id)
+
         # 注意：Token 已通过 Lua 脚本原子性地添加到用户索引，无需重复 sadd
         # Lua 脚本已设置索引的过期时间（比最长 TTL 多一天）
         logger.info(f"用户 {user_id} 存储 {provider} Key，Token: {token[:8]}...")
@@ -323,28 +336,47 @@ class APIKeyManager:
         return None
     
     def get_key_by_token(self, token: str) -> Optional[str]:
-        """根据 token 获取 API Key（扫描所有用户）
-        
-        注意：这是一个低效操作，仅用于 token -> api_key 的查找
-        
+        """根据 token 获取 API Key（O(1) 反向索引查找）
+
+        优化：使用 apikey:token:{token} → user_id 反向索引，避免 SCAN apikey_index:*
+        仅在反向索引缺失（老数据/异常清理）时回退到 SCAN。
+
         Args:
             token: API Key Token
-            
+
         Returns:
             API Key 或 None
         """
         if not token or len(token) < 30:
             return None
-        
+
+        try:
+            # 1. 快速路径：反向索引
+            reverse_key = self._key_token_reverse(token)
+            user_id_bytes = self.redis.get(reverse_key)
+            if user_id_bytes is not None:
+                user_id = user_id_bytes.decode("utf-8") if isinstance(user_id_bytes, bytes) else user_id_bytes
+                return self.get_key(user_id, token)
+        except Exception as e:
+            logger.warning(f"反向索引查询失败，回退到 SCAN: {e}")
+
+        # 2. 慢速路径：SCAN 全表扫（兼容老数据）
         cursor = 0
         while True:
             cursor, keys = self.redis.scan(cursor, match="apikey_index:*", count=100)
             for index_key in keys:
                 user_id = index_key.decode("utf-8").replace("apikey_index:") if isinstance(index_key, bytes) else index_key.replace("apikey_index:", "")
-                
+
                 if self.redis.sismember(index_key, token):
+                    # 回填反向索引，加速下次查询
+                    try:
+                        key_ttl = self.redis.ttl(self._key_token(user_id, token))
+                        if key_ttl > 0:
+                            self.redis.setex(self._key_token_reverse(token), key_ttl + 86400, user_id)
+                    except Exception:
+                        pass
                     return self.get_key(user_id, token)
-            
+
             if cursor == 0:
                 break
         return None
@@ -370,7 +402,10 @@ class APIKeyManager:
         
         # 从索引中移除
         self.redis.srem(self._key_index(user_id), token)
-        
+
+        # 清理反向索引
+        self.redis.delete(self._key_token_reverse(token))
+
         logger.info(f"用户 {user_id} 删除 Key，Token: {token[:8]}...")
         return True
     
@@ -449,7 +484,69 @@ class APIKeyManager:
         
         logger.info(f"用户 {user_id} 更新 Key {token[:8]}... context_lengths: {list(context_lengths.keys())}")
         return True
-    
+
+    def update_fallback_preference(
+        self, user_id: str, token: str,
+        preference: str, custom_chain: list = None
+    ) -> bool:
+        """更新 API Key 的降级链偏好
+
+        Args:
+            user_id: 用户 ID
+            token: Token
+            preference: 偏好模式 (use_admin_default | custom | disabled)
+            custom_chain: 自定义降级链模型列表（仅 preference="custom" 时生效）
+
+        Returns:
+            是否成功更新
+        """
+        valid_preferences = ("use_admin_default", "custom", "disabled")
+        if preference not in valid_preferences:
+            raise ValueError(f"无效的偏好: {preference}，可选: {valid_preferences}")
+
+        meta = self.get_metadata(user_id, token)
+        if meta is None:
+            return False
+
+        meta.fallback_preference = preference
+        if preference == "custom" and custom_chain is not None:
+            meta.custom_fallback_chain = custom_chain
+        elif preference != "custom":
+            meta.custom_fallback_chain = []
+
+        meta_name = self._key_meta(user_id, token)
+        ttl = self.redis.ttl(meta_name)
+        if ttl > 0:
+            self.redis.setex(meta_name, ttl, json.dumps(asdict(meta)))
+
+        logger.info(f"用户 {user_id} 更新 Key {token[:8]}... fallback_preference: {preference}")
+        return True
+
+    def get_fallback_preference_by_token(self, token: str) -> Optional[Dict]:
+        """根据 token 获取降级链偏好（O(1) 反向索引查找）
+
+        Returns:
+            {"fallback_preference": str, "custom_fallback_chain": list} 或 None
+        """
+        if not token or len(token) < 30:
+            return None
+
+        try:
+            reverse_key = self._key_token_reverse(token)
+            user_id_bytes = self.redis.get(reverse_key)
+            if user_id_bytes is not None:
+                user_id = user_id_bytes.decode("utf-8") if isinstance(user_id_bytes, bytes) else user_id_bytes
+                meta = self.get_metadata(user_id, token)
+                if meta:
+                    return {
+                        "fallback_preference": meta.fallback_preference,
+                        "custom_fallback_chain": meta.custom_fallback_chain,
+                    }
+        except Exception as e:
+            logger.warning(f"获取降级链偏好失败: {e}")
+
+        return None
+
     def _cleanup_meta(self, user_id: str, token: str):
         """清理过期的元数据和索引"""
         meta_name = self._key_meta(user_id, token)
@@ -507,3 +604,27 @@ def init_apikey_manager(redis_client: redis.Redis) -> APIKeyManager:
     global _apikey_manager
     _apikey_manager = APIKeyManager(redis_client)
     return _apikey_manager
+
+
+def get_key_by_token(token: str) -> Optional[str]:
+    """模块级便捷函数：根据 token 获取 API Key"""
+    return get_apikey_manager().get_key_by_token(token)
+
+
+def get_metadata_by_token(token: str) -> Optional[Dict]:
+    """模块级便捷函数：根据 token 获取完整元数据（含 provider、fallback_preference 等）
+
+    Returns:
+        KeyMetadata 字典 或 None
+    """
+    manager = get_apikey_manager()
+    # 反向索引找 user_id
+    reverse_key = manager._key_token_reverse(token)
+    user_id_bytes = manager.redis.get(reverse_key)
+    if user_id_bytes is None:
+        return None
+    user_id = user_id_bytes.decode("utf-8") if isinstance(user_id_bytes, bytes) else user_id_bytes
+    meta = manager.get_metadata(user_id, token)
+    if meta is None:
+        return None
+    return asdict(meta)

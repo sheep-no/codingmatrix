@@ -9,7 +9,7 @@ PPT 生成 API - 统一增强版
 5. 支持模板系统、在线预览、代码审查集成。
 6. 提供同步/异步生成、下载、预览、幻灯片详情接口。
 """
-import io
+import asyncio
 import json
 import logging
 import os
@@ -20,8 +20,8 @@ from enum import Enum
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse, HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
@@ -36,27 +36,21 @@ from app.utils.visual import (
     image_manager,
     layout_decider,
     ImageType,
-    ImagePosition
 )
 
 from app.models.file import File
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
 
 # PPT 工具模块
 from app.utils.pptx.text_processor import (
     prevent_text_overflow as prevent_text_overflow_v2,
-    prevent_text_overflow_simple,
-    TextLayout,
 )
 from app.utils.pptx.image_search import ImageSearchManager
+from app.utils.pptx.ppt_style import PPTStyle, PPT_TEMPLATES
 
 from pptx import Presentation
-from pptx.util import Inches, Pt, Emu
-from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
-from pptx.oxml.ns import qn
-from pptx.oxml import parse_xml
+from pptx.util import Inches, Pt
+from pptx.enum.text import PP_ALIGN
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["PPT 生成 (增强版)"])
@@ -108,6 +102,16 @@ class PPTGenerationRequest(BaseModel):
     class Config:
         populate_by_name = True
 
+class PPTModifyRequest(BaseModel):
+    """PPT 修改请求"""
+    user_input: str = Field(..., description="用户修改需求（自然语言）", max_length=2000)
+    api_key_token: Optional[str] = Field(None, description="用户 API Key Token")
+    analyze_before_modify: bool = Field(default=True, description="修改前是否分析当前状态")
+
+    class Config:
+        populate_by_name = True
+
+
 class PPTGenerationResponse(BaseModel):
     """PPT 生成响应"""
     id: str
@@ -121,105 +125,10 @@ class PPTGenerationResponse(BaseModel):
     slides: Optional[List[Dict[str, Any]]] = None
 
 # =============================================================================
-# 模板与样式配置
+# 模板与样式配置（已提取到 app/utils/pptx/ppt_style.py）
 # =============================================================================
 
-PPT_TEMPLATES = {
-    "modern": {
-        "name": "现代简约",
-        "primary_color": "#2563eb",
-        "secondary_color": "#64748b",
-        "font_family": "Arial, sans-serif",
-        "background": "#ffffff"
-    },
-    "business": {
-        "name": "商务专业",
-        "primary_color": "#1e40af",
-        "secondary_color": "#475569",
-        "font_family": "Georgia, serif",
-        "background": "#f8fafc"
-    },
-    "creative": {
-        "name": "创意设计",
-        "primary_color": "#dc2626",
-        "secondary_color": "#ea580c",
-        "font_family": "Verdana, sans-serif",
-        "background": "#fef2f2"
-    },
-    "minimal": {
-        "name": "极简主义",
-        "primary_color": "#000000",
-        "secondary_color": "#6b7280",
-        "font_family": "Helvetica, sans-serif",
-        "background": "#ffffff"
-    },
-    "academic": {
-        "name": "学术研究",
-        "primary_color": "#0369a1",
-        "secondary_color": "#0c4a6e",
-        "font_family": "Times New Roman, serif",
-        "background": "#f0f9ff"
-    },
-    "tech": {
-        "name": "科技蓝调",
-        "primary_color": "#3b82f6",
-        "secondary_color": "#1d4ed8",
-        "font_family": "Consolas, monospace",
-        "background": "#0f172a"
-    },
-    "education": {
-        "name": "教育培训",
-        "primary_color": "#16a34a",
-        "secondary_color": "#15803d",
-        "font_family": "Comic Sans MS, cursive",
-        "background": "#f0fdf4"
-    },
-    "medical": {
-        "name": "医疗健康",
-        "primary_color": "#059669",
-        "secondary_color": "#047857",
-        "font_family": "Arial, sans-serif",
-        "background": "#ecfdf5"
-    },
-    "elegant": {
-        "name": "优雅商务",
-        "primary_color": "#7c3aed",
-        "secondary_color": "#a78bfa",
-        "font_family": "Georgia, serif",
-        "background": "#faf5ff"
-    }
-}
-
-class PPTStyle:
-    """PPT 样式配置 (兼容旧版视觉决策)"""
-    def __init__(self, template_name="modern"):
-        tpl = PPT_TEMPLATES.get(template_name, PPT_TEMPLATES["modern"])
-        
-        def hex_to_rgb(hex_color):
-            hex_color = hex_color.lstrip('#')
-            return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-
-        pc = hex_to_rgb(tpl['primary_color'])
-        sc = hex_to_rgb(tpl['secondary_color'])
-        bg = hex_to_rgb(tpl['background'])
-
-        self.PRIMARY_COLOR = RGBColor(*pc)
-        self.PRIMARY_LIGHT = RGBColor(min(pc[0]+50, 255), min(pc[1]+50, 255), min(pc[2]+50, 255))
-        self.PRIMARY_DARK = RGBColor(max(pc[0]-50, 0), max(pc[1]-50, 0), max(pc[2]-50, 0))
-        
-        self.ACCENT_COLOR = RGBColor(0xFF, 0x66, 0x00)
-        self.ACCENT_LIGHT = RGBColor(0xFF, 0x99, 0x66)
-        
-        self.BG_WHITE = RGBColor(*bg)
-        self.BG_LIGHT_BLUE = RGBColor(0xE8, 0xF4, 0xFC)
-        self.BG_LIGHT_GRAY = RGBColor(0xF5, 0xF5, 0xF5)
-        
-        self.TEXT_WHITE = RGBColor(0xFF, 0xFF, 0xFF)
-        self.TEXT_DARK = RGBColor(0x33, 0x33, 0x33)
-        self.TEXT_GRAY = RGBColor(0x66, 0x66, 0x66)
-        
-        self.FONT_MAIN = tpl['font_family'].split(',')[0].strip()
-        self.FONT_TITLE = 'Arial'
+# PPT_TEMPLATES 和 PPTStyle 从 app.utils.pptx.ppt_style 导入（见文件顶部）
 
 
 def add_decorative_header(slide, prs, title_text, style: PPTStyle):
@@ -473,16 +382,15 @@ def _render_slide_default(prs, blank_layout, style, slide_data, idx, total_slide
     bottom_bar.line.fill.background()
 
 
-# 导入 Aicode 的会话压缩和文件验证函数
-# call_siliconflow 从 AiCodeUtil.py 导入为独立函数
-from app.api.v1.Aicode import compress_conversation_history, verify_file_access
-from app.utils.AiCodeUtil import call_siliconflow
+# 导入 Aicode 的会话压缩函数
+from app.api.v1.Aicode import compress_conversation_history
+from app.utils import call_llm
 
 # =============================================================================
 # 辅助函数：大纲生成、多格式导出、预览
 # =============================================================================
 
-async def generate_ppt_outline(req: PPTGenerationRequest) -> Dict[str, Any]:
+async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -> Dict[str, Any]:
     """使用 AI 生成 PPT 大纲 (支持 Skills 和多参数)"""
     # 构建 prompt
     skill_prompts = []
@@ -524,9 +432,9 @@ async def generate_ppt_outline(req: PPTGenerationRequest) -> Dict[str, Any]:
 """
     
     try:
-        response = await call_siliconflow(
-            prompt=prompt,
+        response = await call_llm(
             model=req.model,
+            prompt=prompt,
             api_key_token=req.api_key_token
         )
 
@@ -909,7 +817,7 @@ async def generate_ppt_task(
     ppt_id = str(uuid.uuid4())
     
     async def run_ppt_generation(task_id: str, **kwargs):
-        async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None):
+        async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
             await task_manager.update_progress(task_id, progress, message)
 
         try:
@@ -949,7 +857,7 @@ async def generate_ppt_task(
 
             # 2. 生成大纲
             await update_progress(progress=20, message="正在生成 PPT 大纲...")
-            outline = await generate_ppt_outline(req)
+            outline = await generate_ppt_outline(req, user_id=user_id)
 
             # 立即保存大纲快照（用于恢复/增量生成）
             output_dir = PPT_OUTPUT_DIR
@@ -1055,7 +963,7 @@ async def generate_ppt(
     logger.info(f"PPT 同步生成请求 | user: {user_id} | topic: {req.topic[:50]}...")
     
     try:
-        outline = await generate_ppt_outline(req)
+        outline = await generate_ppt_outline(req, user_id=user_id)
         
         output_dir = PPT_OUTPUT_DIR
         output_dir.mkdir(exist_ok=True)
@@ -1241,7 +1149,7 @@ async def update_ppt_task(
     new_ppt_id = str(uuid.uuid4())
 
     async def run_incremental_ppt(task_id: str, **kwargs):
-        async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None):
+        async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
             await task_manager.update_progress(task_id, progress, message)
 
         try:
@@ -1268,7 +1176,7 @@ async def update_ppt_task(
             new_req.topic = incremental_prompt
 
             await update_progress(progress=20, message="正在生成增量内容...")
-            new_outline = await generate_ppt_outline(new_req)
+            new_outline = await generate_ppt_outline(new_req, user_id=user_id)
 
             new_slides = new_outline.get('slides', existing_slides)
             new_title = new_outline.get('title', existing_slides[0].get('title', 'PPT') if existing_slides else 'PPT')
@@ -1332,6 +1240,113 @@ async def update_ppt_task(
         progress_message="等待中...",
         created_at=datetime.now().isoformat()
     )
+
+
+# =============================================================================
+# 视觉增强 PPT 修改
+# =============================================================================
+
+
+@router.post("/pptx/{task_id}/modify")
+async def modify_ppt_visual_endpoint(
+    task_id: str,
+    body: PPTModifyRequest,
+    token: dict = Depends(verify_token),
+):
+    """
+    视觉增强 PPT 修改
+
+    基于已有 PPTX 文件，通过自然语言修改需求进行精确修改。
+    支持修改字体、颜色、布局等属性。
+
+    流程：
+    1. 解析用户修改需求
+    2. 视觉分析目标幻灯片
+    3. 应用修改
+    4. 返回修改结果和预览图
+    """
+    user_id = token.get("sub", "anonymous")
+    output_dir = PPT_OUTPUT_DIR
+
+    # 查找已有的 PPTX 文件
+    pptx_path = output_dir / f"{task_id}.pptx"
+    if not pptx_path.exists():
+        raise HTTPException(status_code=404, detail=f"找不到 PPT 文件：{task_id}")
+
+    try:
+        from app.utils.pptx.visual_modifier import modify_ppt_visual
+
+        # 生成新的 task_id 用于存储修改后的文件
+        new_task_id = str(uuid.uuid4())
+        new_pptx_path = output_dir / f"{new_task_id}.pptx"
+
+        logger.info("PPT 视觉修改请求 | user: %s | base_task: %s | input: %s",
+                    user_id, task_id, body.user_input[:100])
+
+        # 执行视觉增强修改
+        result = await modify_ppt_visual(
+            pptx_path=str(pptx_path),
+            user_input=body.user_input,
+            output_path=str(new_pptx_path),
+            api_key_token=body.api_key_token,
+            user_id=user_id,
+            analyze_before_modify=body.analyze_before_modify
+        )
+
+        if result["success"]:
+            return {
+                "success": True,
+                "message": result["message"],
+                "task_id": new_task_id,
+                "download_url": f"/api/v1/pptx/download/{new_task_id}",
+                "preview_url": f"/api/v1/pptx/preview/{new_task_id}",
+                "intent": result.get("intent"),
+                "analysis": result.get("analysis"),
+                "preview_count": result.get("preview_count", 0)
+            }
+        else:
+            return {
+                "success": False,
+                "message": result["message"],
+                "intent": result.get("intent"),
+                "analysis": result.get("analysis")
+            }
+
+    except Exception as exc:
+        logger.error("PPT 视觉修改失败 | task_id: %s | error: %s", task_id, exc)
+        raise HTTPException(status_code=500, detail=f"修改失败: {exc}")
+
+
+@router.get("/pptx/{task_id}/analyze")
+async def analyze_ppt_endpoint(
+    task_id: str,
+    slide_number: Optional[int] = Query(None, description="指定幻灯片编号"),
+    token: dict = Depends(verify_token),
+):
+    """
+    分析 PPT 视觉状态（不执行修改）
+
+    返回 PPT 的布局、字体、颜色等信息，用于了解当前状态。
+    """
+    output_dir = PPT_OUTPUT_DIR
+    pptx_path = output_dir / f"{task_id}.pptx"
+
+    if not pptx_path.exists():
+        raise HTTPException(status_code=404, detail=f"找不到 PPT 文件：{task_id}")
+
+    try:
+        from app.utils.pptx.visual_modifier import analyze_ppt_for_modification
+
+        result = await analyze_ppt_for_modification(
+            pptx_path=str(pptx_path),
+            slide_number=slide_number
+        )
+
+        return result
+
+    except Exception as exc:
+        logger.error("PPT 分析失败 | task_id: %s | error: %s", task_id, exc)
+        raise HTTPException(status_code=500, detail=f"分析失败: {exc}")
 
 
 # =============================================================================
@@ -1544,23 +1559,21 @@ async def get_image_for_slide(keywords: List[str], slide_index: int) -> Optional
 # PPT Agent API 端点
 # =============================================================================
 
-from pydantic import BaseModel, Field as PydanticField
-
 class OutlineSlide(BaseModel):
     """大纲中的单页幻灯片"""
-    type: str = PydanticField(..., description="幻灯片类型")
-    title: str = PydanticField(..., description="幻灯片标题")
-    bullets: List[str] = PydanticField(default_factory=list, description="要点列表")
-    image_keywords: List[str] = PydanticField(default_factory=list, description="配图关键词")
-    notes: str = PydanticField(default="", description="备注")
+    type: str = Field(..., description="幻灯片类型")
+    title: str = Field(..., description="幻灯片标题")
+    bullets: List[str] = Field(default_factory=list, description="要点列表")
+    image_keywords: List[str] = Field(default_factory=list, description="配图关键词")
+    notes: str = Field(default="", description="备注")
 
 class OutlineGenerationRequest(BaseModel):
     """大纲生成请求"""
-    topic: str = PydanticField(..., description="PPT 主题", max_length=500)
-    description: str = PydanticField(default="", description="详细描述", max_length=2000)
-    num_slides: int = PydanticField(default=10, ge=1, le=PPT_MAX_SLIDES, description="幻灯片数量")
-    model: str = PydanticField(default=PPT_DEFAULT_MODEL, description="AI 模型")
-    api_key_token: Optional[str] = PydanticField(None, description="用户 API Key Token")
+    topic: str = Field(..., description="PPT 主题", max_length=500)
+    description: str = Field(default="", description="详细描述", max_length=2000)
+    num_slides: int = Field(default=10, ge=1, le=PPT_MAX_SLIDES, description="幻灯片数量")
+    model: str = Field(default=PPT_DEFAULT_MODEL, description="AI 模型")
+    api_key_token: Optional[str] = Field(None, description="用户 API Key Token")
 
 class OutlineGenerationResponse(BaseModel):
     """大纲生成响应"""
@@ -1639,7 +1652,7 @@ async def generate_ppt_from_text_task(
         outline_dict = PPTAgent.adapt_for_pptx_engine(outline)
 
         async def run_ppt_gen(task_id: str, **kwargs):
-            async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None):
+            async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
                 await task_manager.update_progress(task_id, progress, message)
 
             try:

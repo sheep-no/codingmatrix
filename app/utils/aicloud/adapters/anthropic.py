@@ -37,6 +37,7 @@ class AnthropicAdapter(BaseProviderAdapter):
         max_tokens: int = 4096,
         thinking_budget: int = 4096,
         cancel_event: Optional[asyncio.Event] = None,
+        messages: Optional[list] = None,
     ) -> Union[dict, AsyncIterator[str]]:
         if not self.api_key:
             raise RuntimeError("Anthropic API Key 未配置")
@@ -47,9 +48,12 @@ class AnthropicAdapter(BaseProviderAdapter):
         timeout = Timeout(self.timeout, connect=10.0)
         
         # Anthropic 使用 messages API，格式与 OpenAI 不同
+        if messages is None:
+            messages = [{"role": "user", "content": prompt}]
+        
         data = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": stream,

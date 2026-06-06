@@ -16,9 +16,17 @@ ALLOWED_MODELS_LIST = [
 ]
 
 
+class FileAttachment(BaseModel):
+    """文件附件"""
+    server_path: str = Field(..., description="服务器端文件路径")
+    name: Optional[str] = Field(None, description="文件名")
+    type: Optional[str] = Field(None, description="MIME 类型")
+    category: Optional[str] = Field("document", description="文件类别")
+
+
 class CodeRequest(BaseModel):
     """代码生成请求"""
-    prompt: str = Field(..., min_length=1, description="代码生成需求描述")
+    prompt: str = Field("", description="代码生成需求描述")
     model: Optional[str] = Field(None, description="指定模型（不指定则自动选择）")
     stream: Optional[bool] = Field(False, description="是否流式输出")
     use_reasoning: Optional[bool] = Field(False, description="是否启用深度推理")
@@ -27,10 +35,12 @@ class CodeRequest(BaseModel):
 
     # 联网搜索的配置
     enable_search: Optional[bool] = Field(None, description="是否允许联网搜索（True=允许，False=禁止，None=AI 自主决定）")
-    search_count: Optional[int] = Field(5, description="搜索结果数量")
-    search_timelimit: Optional[str] = Field(None, description="搜索时间范围（如'week', 'month'）")
+    search_count: Optional[int] = Field(5, ge=1, le=20, description="搜索结果数量")
 
-    # 图片理解配置（UI 截图转代码等）
+    # 文件附件（前端上传后传入 server_path 列表）
+    files: Optional[List[FileAttachment]] = Field(None, description="文件附件列表")
+
+    # 图片理解配置（UI 截图转代码等，兼容旧字段）
     enable_vision: Optional[bool] = Field(False, description="是否启用图片理解")
     image_path: Optional[str] = Field(None, description="已上传图片的路径（相对路径或文件 ID）")
     image_analysis_prompt: Optional[str] = Field("请分析这张 UI 设计图，说明界面类型，主要组件、布局结构和技术实现建议", description="图片分析提示词")

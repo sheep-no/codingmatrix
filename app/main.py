@@ -78,6 +78,7 @@ from app.api.v1.apikey import router as apikeyRouter
 from app.api.v1.providers import router as providersRouter
 from app.api.v1.model_manager import router as modelManagerRouter
 from app.api.v2.model_admin import router as modelAdminRouter
+from app.api.v2.mcp_admin import router as mcpAdminRouter
 from app.db.database import engine, async_session
 from app.db.scheduler import start_scheduler
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -316,6 +317,7 @@ app.include_router(userManageRouter, prefix="/api/v2", tags=["manage"])
 app.include_router(adminConfigRouter, prefix="/api/v2", tags=["admin-config"])
 app.include_router(guardian_router, prefix="/api/v2", tags=["guard"])
 app.include_router(modelAdminRouter, prefix="/api/v2", tags=["model-admin"])
+app.include_router(mcpAdminRouter, prefix="/api/v2", tags=["mcp-admin"])
 app.include_router(githubRouter, prefix="/api/v1", tags=["github"])
 app.include_router(apikeyRouter)
 app.include_router(providersRouter, tags=["providers"])

@@ -66,7 +66,7 @@ async def execute_with_llm_loop(
     system_prompt: str,
     model_key: str,
     max_tokens: int,
-    call_siliconflow_func,
+    call_llm_func,
     user_id: int = None,
     workspace_path: str = None,
     api_key_token: str = None
@@ -80,7 +80,7 @@ async def execute_with_llm_loop(
         system_prompt: 系统提示词
         model_key: 模型标识
         max_tokens: 最大 token 数
-        call_siliconflow_func: 调用 SiliconFlow 的函数
+        call_llm_func: 统一 LLM 调用函数（call_llm）
         user_id: 用户 ID（用于沙箱路径）
         workspace_path: 沙箱工作目录
         api_key_token: 用户 API Key Token
@@ -96,7 +96,7 @@ async def execute_with_llm_loop(
         
         # 调用 LLM
         try:
-            response = await call_siliconflow_func(
+            response = await call_llm_func(
                 prompt=current_prompt,
                 model=model_key,
                 stream=False,

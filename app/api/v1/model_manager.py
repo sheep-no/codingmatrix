@@ -48,6 +48,7 @@ class AgentModelConfigResponse(BaseModel):
     description: str
     last_updated: str
     assignments: Dict[str, Dict[str, str]]
+    roles: List[str] = []
     fallback_chains: Optional[Dict[str, List[str]]] = None
     error_type_models: Optional[Dict[str, str]] = None
     settings: Optional[Dict[str, Any]] = None
@@ -146,6 +147,13 @@ async def get_agent_model_config():
     )
     from app.agent.complexity import ProjectComplexity
 
+    def _extract_roles(assignments: Dict[str, Dict[str, str]]) -> List[str]:
+        """从 assignments 中提取角色列表（去掉 _model 后缀）"""
+        for entry in assignments.values():
+            if isinstance(entry, dict):
+                return [k.removesuffix("_model") for k in entry.keys() if k.endswith("_model")]
+        return ["architect", "frontend", "backend", "reviewer", "fallback"]
+
     config = load_agent_model_config()
     if not config:
         assignments = {}
@@ -164,15 +172,18 @@ async def get_agent_model_config():
             description="Agent 模型配置 - 管理各环节使用的模型",
             last_updated="未配置",
             assignments=assignments,
+            roles=_extract_roles(assignments),
             fallback_chains={},
             error_type_models={},
             settings={}
         )
+    assignments = config.get("assignments", {})
     return AgentModelConfigResponse(
         version=config.get("version", "1.0"),
         description=config.get("description", ""),
         last_updated=config.get("last_updated", ""),
-        assignments=config.get("assignments", {}),
+        assignments=assignments,
+        roles=_extract_roles(assignments),
         fallback_chains=config.get("fallback_chains"),
         error_type_models=config.get("error_type_models"),
         settings=config.get("settings")

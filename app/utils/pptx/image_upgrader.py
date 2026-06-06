@@ -26,7 +26,7 @@ class ImageCacheManager:
     缓存大小限制和自动清理。
     """
 
-    _DEFAULT_CACHE_DIR = Path("/tmp/pptx_image_cache")
+    _DEFAULT_CACHE_DIR = Path("./pptx_output/image_cache")
     _DEFAULT_MAX_SIZE_MB = 500
     _DEFAULT_TTL_HOURS = 24
 
@@ -1109,14 +1109,29 @@ class AdvancedImageGenerator:
 
                     return await asyncio.gather(*[_limited(p) for p in prompts])
 
-            batch_results = asyncio.run(_run_batch())
-            for i, res in enumerate(batch_results):
-                if res:
-                    results.append({
-                        "image_url": res.get("image_url"),
-                        "prompt": prompts[i],
-                        "index": i,
-                    })
+            # 安全获取事件循环：复用已有循环或创建新的
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                # 已有运行中的事件循环，用 nest_asyncio 或同步回退
+                logger.warning("检测到已有事件循环，降级为串行生成")
+                for i, prompt in enumerate(prompts):
+                    res = self.generate_with_style(prompt)
+                    if res:
+                        results.append({"image_url": res.get("image_url"), "prompt": prompt, "index": i})
+                return results
+            else:
+                batch_results = asyncio.run(_run_batch())
+                for i, res in enumerate(batch_results):
+                    if res:
+                        results.append({
+                            "image_url": res.get("image_url"),
+                            "prompt": prompts[i],
+                            "index": i,
+                        })
 
             logger.info("批量生成完成: %d/%d 成功", len(results), len(prompts))
             return results
@@ -1325,18 +1340,49 @@ class ImageStrategy:
             return await asyncio.gather(*tasks, return_exceptions=True)
 
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            # 安全获取事件循环
             try:
-                source_results_list = loop.run_until_complete(_run_all())
-            finally:
-                loop.close()
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                # 已有运行中的事件循环，降级为串行搜索
+                logger.warning("检测到已有事件循环，降级为串行搜索")
+                source_results_list = []
+                for source in order:
+                    try:
+                        if source == "unsplash":
+                            results = self._unsplash.search_images(query, max_results=5, min_quality_score=0.3)
+                        elif source == "pexels":
+                            results = self._pexels.search_images(query, max_results=5, min_quality_score=0.3)
+                        elif source == "pixabay":
+                            results = self._pixabay.search_images(query, max_results=5, min_quality_score=0.3)
+                        else:
+                            results = []
+                        source_results_list.append([{"source": source, **r} for r in results])
+                    except Exception as e:
+                        logger.warning("串行搜索 %s 失败: %s", source, e)
+                        source_results_list.append([])
+            else:
+                source_results_list = asyncio.run(_run_all())
         except Exception as e:
-            logger.warning("并发搜索失败，降级为串行搜索: %s", e)
+            logger.warning("搜索失败，降级为串行搜索: %s", e)
             source_results_list = []
             for source in order:
-                results = _search_source.__wrapped__(source) if hasattr(_search_source, '__wrapped__') else []
-                source_results_list.append(results)
+                try:
+                    if source == "unsplash":
+                        results = self._unsplash.search_images(query, max_results=5, min_quality_score=0.3)
+                    elif source == "pexels":
+                        results = self._pexels.search_images(query, max_results=5, min_quality_score=0.3)
+                    elif source == "pixabay":
+                        results = self._pixabay.search_images(query, max_results=5, min_quality_score=0.3)
+                    else:
+                        results = []
+                    source_results_list.append([{"source": source, **r} for r in results])
+                except Exception as se:
+                    logger.warning("串行搜索 %s 失败: %s", source, se)
+                    source_results_list.append([])
 
         for source_results in source_results_list:
             if isinstance(source_results, Exception):

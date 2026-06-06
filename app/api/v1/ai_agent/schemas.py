@@ -236,6 +236,11 @@ class OrchestratorRequest(BaseModel):
     evaluation_only: bool = Field(False, description="只评价不修改 - 输出分析报告和改进建议，不生成代码文件")
     api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
     provider_id: Optional[str] = Field(None, description="动态供应商 ID（使用用户自定义 API 端点）")
+    project_path: Optional[str] = Field(
+        None,
+        description="前端传来的项目路径（增量模式用，兼容旧时间戳目录）",
+        max_length=500
+    )
 
     @field_validator('session_id')
     @classmethod
@@ -263,6 +268,12 @@ class OrchestratorRequest(BaseModel):
         if '\n\n\n\n' in v:
             raise ValueError("需求描述格式异常")
         return v.strip()
+
+    @field_validator('project_path')
+    @classmethod
+    def validate_project_path(cls, v):
+        """项目路径安全校验（增量模式）"""
+        return validate_path_safety(v, "project_path")
 
 
 class SessionActionRequest(BaseModel):

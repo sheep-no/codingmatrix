@@ -33,6 +33,7 @@ class OpenAIAdapter(BaseProviderAdapter):
         max_tokens: int = 4096,
         thinking_budget: int = 4096,
         cancel_event: Optional[asyncio.Event] = None,
+        messages: Optional[list] = None,
     ) -> Union[dict, AsyncIterator[str]]:
         if not self.api_key:
             raise RuntimeError("OpenAI API Key 未配置")
@@ -44,7 +45,8 @@ class OpenAIAdapter(BaseProviderAdapter):
         }
         
         timeout = Timeout(self.timeout, connect=10.0)
-        messages = self._build_messages(prompt, system_prompt)
+        if messages is None:
+            messages = self._build_messages(prompt, system_prompt)
         
         data = self._build_request_body(
             model=model,

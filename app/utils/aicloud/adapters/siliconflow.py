@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 class SiliconFlowAdapter(BaseProviderAdapter):
     """SiliconFlow 供应商适配器"""
-    
+
     provider = ModelProvider.SILICONFLOW
-    
+
     def __init__(self, config: Optional[ProviderConfig] = None):
         if config is None:
             config = ProviderConfig(
@@ -33,6 +33,9 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                 base_url=settings.SILICONFLOW_BASE_URL,
             )
         super().__init__(config)
+        # 已知不支持 enable_thinking 的模型（首次遇到 400 后动态添加到此集合）
+        # 实例级字段，每个 Adapter 独立持有，避免跨请求污染和单测不隔离
+        self._unsupported_thinking: set = set()
     
     async def call_llm(
         self,
@@ -44,6 +47,7 @@ class SiliconFlowAdapter(BaseProviderAdapter):
         max_tokens: int = 4096,
         thinking_budget: int = 4096,
         cancel_event: Optional[asyncio.Event] = None,
+        messages: Optional[list] = None,
     ) -> Union[dict, AsyncIterator[str]]:
         logger.info(f"[SiliconFlowAdapter] Calling model: {model}")
         headers = {
@@ -53,34 +57,32 @@ class SiliconFlowAdapter(BaseProviderAdapter):
         
         timeout = Timeout(self.timeout, connect=10.0)
         
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        
-        cleaned_prompt = prompt
-        if "【SYSTEM】" in cleaned_prompt:
-            import re
-            match = re.search(r'【SYSTEM】\s*(.*?)\s*【USER】\s*(.*)', cleaned_prompt, re.DOTALL)
-            if match:
-                system_part = match.group(1).strip()
-                user_part = match.group(2).strip()
-                if not system_prompt:
-                    messages.insert(0, {"role": "system", "content": system_part})
-                cleaned_prompt = user_part
+        if messages is None:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            
+            cleaned_prompt = prompt
+            if "【SYSTEM】" in cleaned_prompt:
+                import re
+                match = re.search(r'【SYSTEM】\s*(.*?)\s*【USER】\s*(.*)', cleaned_prompt, re.DOTALL)
+                if match:
+                    system_part = match.group(1).strip()
+                    user_part = match.group(2).strip()
+                    if not system_prompt:
+                        messages.insert(0, {"role": "system", "content": system_part})
+                    cleaned_prompt = user_part
+            messages.append({"role": "user", "content": cleaned_prompt})
         
         # 判断是否是 reasoning 模型
         is_reasoning = "deepseek-ai/DeepSeek-R1" in model
-        
-        # 已知不支持 enable_thinking 的模型（首次遇到 400 后动态添加到此集合）
-        if not hasattr(SiliconFlowAdapter, '_unsupported_thinking'):
-            SiliconFlowAdapter._unsupported_thinking: set = set()
-        
-        support_thinking = model not in SiliconFlowAdapter._unsupported_thinking
+
+        support_thinking = model not in self._unsupported_thinking
         
         if is_reasoning:
             data = {
                 "model": model,
-                "messages": messages + [{"role": "user", "content": cleaned_prompt}],
+                "messages": messages,
                 "stream": stream,
                 "max_tokens": max_tokens,
                 "thinking_budget": thinking_budget,
@@ -89,7 +91,7 @@ class SiliconFlowAdapter(BaseProviderAdapter):
         else:
             data = {
                 "model": model,
-                "messages": messages + [{"role": "user", "content": cleaned_prompt}],
+                "messages": messages,
                 "stream": stream,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
@@ -138,7 +140,7 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                     error_msg = str(e)
                     if "enable_thinking" in error_msg and "enable_thinking" in data:
                         logger.warning(f"[SiliconFlowAdapter] 模型 {model} 不支持 enable_thinking，记录并重试")
-                        SiliconFlowAdapter._unsupported_thinking.add(model)
+                        self._unsupported_thinking.add(model)
                         data_without_thinking = {k: v for k, v in data.items() if k != "enable_thinking"}
                         
                         async def request_func_retry():
@@ -156,7 +158,7 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                     # 检查是否是 enable_thinking 参数导致的 400 错误
                     if resp.status_code == 400 and "enable_thinking" in resp.text:
                         logger.warning(f"[SiliconFlowAdapter] 模型 {model} 不支持 enable_thinking，记录并重试")
-                        SiliconFlowAdapter._unsupported_thinking.add(model)
+                        self._unsupported_thinking.add(model)
                         data_without_thinking = {k: v for k, v in data.items() if k != "enable_thinking"}
                         
                         async def request_func_retry():

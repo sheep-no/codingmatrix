@@ -353,6 +353,88 @@ async def update_context_lengths(
         raise HTTPException(status_code=500, detail="更新 context_length 配置失败")
 
 
+class UpdateFallbackPreferenceRequest(BaseModel):
+    """更新降级链偏好请求"""
+    fallback_preference: str = Field(
+        default="use_admin_default",
+        description="降级链偏好: use_admin_default | custom | disabled"
+    )
+    custom_fallback_chain: list = Field(
+        default_factory=list,
+        description="自定义降级链模型列表（仅 fallback_preference='custom' 时生效）"
+    )
+
+
+@router.put("/{token}/fallback-preference", summary="更新降级链偏好")
+@limiter.limit("20/minute")
+async def update_fallback_preference(
+    request: Request,
+    token: str,
+    update_request: UpdateFallbackPreferenceRequest,
+    user_id: str = Depends(get_current_user_id)
+):
+    """更新 API Key 的降级链偏好
+
+    - use_admin_default: 使用管理员配置的降级链（默认）
+    - custom: 使用用户自定义的降级链
+    - disabled: 禁用降级，只用自己的模型
+    """
+    valid = ("use_admin_default", "custom", "disabled")
+    if update_request.fallback_preference not in valid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的偏好: {update_request.fallback_preference}，可选: {', '.join(valid)}"
+        )
+
+    try:
+        apikey_manager = get_apikey_manager()
+        success = apikey_manager.update_fallback_preference(
+            user_id, token,
+            update_request.fallback_preference,
+            update_request.custom_fallback_chain if update_request.fallback_preference == "custom" else None,
+        )
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Key 不存在")
+
+        return {
+            "message": "降级链偏好已更新",
+            "fallback_preference": update_request.fallback_preference,
+            "custom_fallback_chain": update_request.custom_fallback_chain if update_request.fallback_preference == "custom" else [],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新降级链偏好失败：{e}")
+        raise HTTPException(status_code=500, detail="更新降级链偏好失败")
+
+
+@router.get("/{token}/fallback-preference", summary="获取降级链偏好")
+@limiter.limit("60/minute")
+async def get_fallback_preference(
+    request: Request,
+    token: str,
+    user_id: str = Depends(get_current_user_id)
+):
+    """获取 API Key 的降级链偏好配置"""
+    try:
+        apikey_manager = get_apikey_manager()
+        meta = apikey_manager.get_metadata(user_id, token)
+
+        if not meta:
+            raise HTTPException(status_code=404, detail="Key 不存在")
+
+        return {
+            "fallback_preference": meta.fallback_preference,
+            "custom_fallback_chain": meta.custom_fallback_chain,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取降级链偏好失败：{e}")
+        raise HTTPException(status_code=500, detail="获取降级链偏好失败")
+
+
 @router.post("/batch/import", summary="批量导入 API Key")
 @limiter.limit("5/minute")
 async def batch_import(request: Request, import_request: BatchImportRequest, user_id: str = Depends(get_current_user_id)):

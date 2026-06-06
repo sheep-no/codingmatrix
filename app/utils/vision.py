@@ -15,8 +15,6 @@ import httpx
 from httpx import Timeout
 from fastapi import HTTPException
 
-from app.core.config import settings
-
 logger = logging.getLogger(__name__)
 
 # 视觉模型配置
@@ -81,9 +79,13 @@ async def _call_vision_model(
     image_base64: str,
     prompt: str,
     model: str,
-    timeout: Timeout
+    timeout: Timeout,
+    api_key_token: Optional[str] = None,
+    user_id: Optional[str] = None
 ) -> Dict[str, Any]:
-    """调用视觉模型"""
+    """调用视觉模型（通过统一 call_llm 路径）"""
+    from app.utils import call_llm
+
     messages = [{
         "role": "user",
         "content": [
@@ -92,32 +94,16 @@ async def _call_vision_model(
         ]
     }]
 
-    headers = {
-        "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    result = await call_llm(
+        model=model,
+        prompt="",
+        messages=messages,
+        max_tokens=2048,
+        timeout=timeout.total if hasattr(timeout, 'total') else 60.0,
+        api_key_token=api_key_token,
+    )
 
-    data = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": 2048
-    }
-
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(
-            f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
-            headers=headers,
-            json=data
-        )
-
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"视觉模型调用失败：{response.text}"
-            )
-
-        result = response.json()
-        return result["choices"][0]["message"]["content"]
+    return result["choices"][0]["message"]["content"]
 
 
 async def analyze_image(

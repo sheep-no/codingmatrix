@@ -1,10 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, and_
-from sqlalchemy.orm import aliased
 from app.models.history import History
-from typing import Optional, List, Tuple
+from typing import Optional, List
 from datetime import datetime
-import asyncio
 
 
 def escape_like_pattern(pattern: str) -> str:
@@ -57,16 +55,7 @@ async def search_history_to_db(
     
     if prompt_keyword:
         escaped_keyword = escape_like_pattern(prompt_keyword)
-        stmt = stmt.where(History.response.like(f"%{escaped_keyword}%", escape="\\"))
-    
-    if start_date or end_date:
-        conditions = []
-        if start_date:
-            conditions.append(History.created_at >= start_date)
-        if end_date:
-            conditions.append(History.created_at <= end_date)
-        if conditions:
-            stmt = stmt.where(and_(*conditions))
+        stmt = stmt.where(History.prompt.like(f"%{escaped_keyword}%", escape="\\"))
     
     stmt = stmt.order_by(desc(History.id)).limit(limit).offset(offset)
     
@@ -105,7 +94,7 @@ async def get_conversation_history(
 
     # 如果提供了last_history_id，加载比它更早的记录
     if last_history_id:
-        stmt = stmt.where(History.id < last_history_id-1)
+        stmt = stmt.where(History.id < last_history_id)
 
     # 按id升序排列（从早到晚，前端反转后显示）
     stmt = stmt.order_by(History.id).limit(limit)
@@ -140,7 +129,8 @@ async def get_distinct_conversation_count(
         subquery = subquery.where(History.created_at <= end_date)
     
     if prompt_keyword:
-        subquery = subquery.where(History.response.like(f"%{prompt_keyword}%"))
+        escaped_keyword = escape_like_pattern(prompt_keyword)
+        subquery = subquery.where(History.prompt.like(f"%{escaped_keyword}%", escape="\\"))
     
     subquery = subquery.group_by(History.conversation_id).subquery()
     

@@ -23,6 +23,7 @@ class History(Base):
     __table_args__ = (
         Index('idx_user_conversation', 'user_id', 'conversation_id'),
         Index('idx_user_latest', 'user_id', id.desc()),
+        {'extend_existing': True}
     )
 
     user = relationship("User", back_populates="histories")
