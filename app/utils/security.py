@@ -127,7 +127,11 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
         elif error_code == WS_TOKEN_REFRESH_EXPIRED:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=error_msg)
         else:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=error_msg)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=error_msg)
+
+    # 验证 token 类型必须为 access
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无效的 token 类型")
 
     return payload
 

@@ -342,6 +342,7 @@ class SessionManager:
                     expired.append(sid)
             for sid in expired:
                 del self._active_sessions[sid]
+                self._session_locks.pop(sid, None)  # 清理对应的锁
         for sid in expired:
             session_file = self._session_file(sid)
             if session_file.exists():

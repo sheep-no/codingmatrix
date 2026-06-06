@@ -322,8 +322,6 @@ class KnowledgeMemory(BaseMemory):
         with self._lock:
             if key in self._entries:
                 self._entries[key].importance = max(0.0, min(1.0, importance))
-        if key in self._entries:
-            self._entries[key].importance = max(0.0, min(1.0, importance))
 
 
 class ReflectionMemory(BaseMemory):
@@ -351,13 +349,11 @@ class ReflectionMemory(BaseMemory):
 
     def add_reflection(self, content: str, metadata: Dict = None) -> None:
         entry = MemoryEntry(
-            id=f"refl_{self._counter}",
             type="reflection",
             content=content,
             metadata=metadata or {},
             importance=0.8
         )
-        self._counter += 1
         self.add(entry)
 
     def get_recent(self, limit: int = 10) -> List[MemoryEntry]:
