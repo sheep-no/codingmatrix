@@ -123,12 +123,12 @@ class FileOperator:
             FileNotFoundError: 路径不存在（当 must_exist=True）
         """
         if self.base_path:
-            target = self.base_path / path
+            target = (self.base_path / path).resolve()
+            resolved_base = self.base_path.resolve()
+            if not str(target).startswith(str(resolved_base) + os.sep) and target != resolved_base:
+                raise PathSecurityError(f"路径超出允许范围: {path}")
         else:
             target = Path(path).resolve()
-
-        if self.base_path and not str(target).startswith(str(self.base_path)):
-            raise PathSecurityError(f"路径超出允许范围: {path}")
 
         abs_path_str = str(target).lower()
 
@@ -559,7 +559,7 @@ class FileOperator:
                         "total_matches": search_content.count(search_keyword),
                         "preview": matches
                     })
-            except:
+            except (IOError, OSError, UnicodeDecodeError):
                 continue
 
             if len(results) >= 50:
@@ -650,7 +650,7 @@ class FileOperator:
                     line_count = len(f.readlines())
                     stats["total_lines"] += line_count
                     stats["by_extension"][ext]["lines"] += line_count
-            except:
+            except (IOError, OSError):
                 pass
 
         stats["by_extension"] = dict(stats["by_extension"])

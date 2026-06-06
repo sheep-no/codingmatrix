@@ -476,58 +476,49 @@ def _tool_execute_code(project_path: str, code: str, language: str = "python",
 
 
 def _execute_python_sandbox(code: str, timeout: int) -> Dict:
-    """Python 沙箱执行"""
-    import io
-    import sys
-    import ast
+    """Python 沙箱执行（通过子进程隔离）"""
+    import subprocess
+    import tempfile
 
-    old_stdout = sys.stdout
-    old_stderr = sys.stderr
-    stdout_capture = io.StringIO()
-    stderr_capture = io.StringIO()
-    sys.stdout = stdout_capture
-    sys.stderr = stderr_capture
+    dangerous_patterns = [
+        r'\bimport\s+os\b', r'\bimport\s+sys\b', r'\bimport\s+subprocess\b',
+        r'\bfrom\s+os\b', r'\bfrom\s+sys\b', r'\bfrom\s+subprocess\b',
+        r'\b__import__\b', r'\bexec\s*\(', r'\beval\s*\(',
+        r'\bopen\s*\(', r'\bglobals\s*\(', r'\blocals\s*\(',
+        r'\bgetattr\s*\(', r'\bsetattr\s*\(', r'\bdelattr\s*\(',
+        r'\bos\.', r'\bsys\.', r'\bshutil\b', r'\bpathlib\b',
+    ]
+    for pattern in dangerous_patterns:
+        if re.search(pattern, code):
+            return {"success": False, "error": f"安全限制: 检测到危险操作 {pattern}"}
 
+    tmp_path = None
     try:
-        try:
-            tree = ast.parse(code)
-        except SyntaxError as e:
-            return {"success": False, "error": f"语法错误 第{e.lineno}行: {e.msg}"}
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
+            f.write(code)
+            tmp_path = f.name
 
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                func = node.func
-                func_name = ""
-                if isinstance(func, ast.Name):
-                    func_name = func.id
-                elif isinstance(func, ast.Attribute):
-                    func_name = func.attr
-                if func_name in ("exec", "eval", "compile", "__import__", "open",
-                                 "getattr", "setattr", "delattr", "globals", "locals"):
-                    return {"success": False, "error": f"安全限制: 不允许调用 {func_name}() 函数"}
-
-        safe_globals = {
-            "__builtins__": {
-                "print": print, "len": len, "range": range, "list": list,
-                "dict": dict, "set": set, "tuple": tuple, "str": str,
-                "int": int, "float": float, "bool": bool, "abs": abs,
-                "min": min, "max": max, "sum": sum, "sorted": sorted,
-                "reversed": reversed, "enumerate": enumerate, "zip": zip,
-                "map": map, "filter": filter, "isinstance": isinstance,
-                "issubclass": issubclass, "type": type, "id": id,
-                "hash": hash, "repr": repr, "format": format,
-                "input": None, "open": None, "exec": None, "eval": None,
-                "compile": None, "__import__": None,
-            }
+        result = subprocess.run(
+            ['python3', tmp_path],
+            capture_output=True, text=True, timeout=timeout,
+            cwd='/tmp',
+            env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/tmp'}
+        )
+        return {
+            "success": result.returncode == 0,
+            "output": result.stdout or None,
+            "error": result.stderr or None if result.returncode != 0 else result.stderr or None
         }
-
-        exec(code, safe_globals)
-        return {"success": True, "output": stdout_capture.getvalue(), "error": stderr_capture.getvalue() or None}
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": f"执行超时（{timeout}秒）"}
     except Exception as e:
-        return {"success": False, "output": stdout_capture.getvalue(), "error": str(e)}
+        return {"success": False, "error": str(e)}
     finally:
-        sys.stdout = old_stdout
-        sys.stderr = old_stderr
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def _execute_js_sandbox(code: str, timeout: int) -> Dict:

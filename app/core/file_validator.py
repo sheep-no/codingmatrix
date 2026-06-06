@@ -202,8 +202,6 @@ def validate_svg_content(content: bytes) -> bool:
             '<!doctype',
             'system',
             'public',
-            'xlink:href',
-            '<use',
             '<iframe',
             '<object',
             '<embed'
@@ -235,10 +233,15 @@ def validate_archive_content(content: bytes, archive_type: str) -> bool:
         if archive_type == '.zip':
             with zipfile.ZipFile(io.BytesIO(content)) as zf:
                 for name in zf.namelist():
-                    # 检查文件名是否安全
-                    if not is_safe_filename(name):
-                        print(f"[WARNING] 检测到不安全的文件名：{name}")
-                        return False
+                    # 解析为 Path 后检查每个组件
+                    parts = Path(name).parts
+                    for part in parts:
+                        if part == '..':
+                            print(f"[WARNING] 检测到路径穿越：{name}")
+                            return False
+                        if not is_safe_filename(part):
+                            print(f"[WARNING] 检测到不安全的文件名组件：{part}（来自 {name}）")
+                            return False
                     
                     # 检查文件扩展名
                     ext = Path(name).suffix.lower()

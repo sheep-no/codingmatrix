@@ -740,6 +740,13 @@ class ErrorRecoveryLoop:
                             content = code_match.group(1).strip()
 
                         target = project_path / fp
+                        # 路径穿越校验
+                        try:
+                            resolved = target.resolve()
+                            resolved.relative_to(project_path.resolve())
+                        except ValueError:
+                            logger.warning(f"路径穿越检测: {fp} 超出项目范围，跳过")
+                            continue
                         if target.exists():
                             target.write_text(content, encoding='utf-8')
                             logger.info(f"已应用测试修复: {fp}")
