@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from pythonjsonlogger import jsonlogger
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
+from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import settings
 
 LOG_DIR = Path("logs")

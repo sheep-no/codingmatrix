@@ -13,6 +13,7 @@
 import logging
 import time
 import asyncio
+from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timedelta
 from typing import List, Optional
 

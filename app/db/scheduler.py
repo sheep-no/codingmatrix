@@ -4,6 +4,7 @@ import os
 import shutil
 from datetime import datetime, timedelta
 from sqlalchemy import delete, select
+from sqlalchemy.exc import SQLAlchemyError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from app.db.database import async_session

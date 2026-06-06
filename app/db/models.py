@@ -1,5 +1,5 @@
 """工作流历史记录数据库模型"""
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, BigInteger, Index, UniqueConstraint
 from app.models.base import Base
 
@@ -18,8 +18,8 @@ class ProjectSession(Base):
     files_generated = Column(Integer, default=0)
     files_total = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    last_activity_at = Column(DateTime, default=datetime.now, nullable=False)  # 最后一次活动时间
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_activity_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)  # 最后一次活动时间
     completed_at = Column(DateTime, nullable=True)
 
     __table_args__ = (

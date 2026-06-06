@@ -5,6 +5,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy.exc import SQLAlchemyError
 from app.utils.security import *
 from app.utils.AiCodeUtil import *
 from app.utils import call_llm

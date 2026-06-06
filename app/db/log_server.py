@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, AsyncGenerator
 from pathlib import Path
 import aiofiles
+from sqlalchemy.exc import SQLAlchemyError
 
 
 class LogService:

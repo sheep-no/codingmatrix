@@ -49,6 +49,7 @@ from migrations.runner import run_async_migrations
 from app.core.config import settings
 from app.core.logging_config import setup_logging
 from app.core.graceful_shutdown import shutdown_manager, GracefulShutdownManager
+from sqlalchemy.exc import SQLAlchemyError
 from app.utils.rate_limiter import init_rate_limit
 from app.utils.cache import get_cache, get_cache_manager
 from app.utils.performance_monitor import setup_performance_monitoring

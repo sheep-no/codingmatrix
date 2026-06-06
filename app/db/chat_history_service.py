@@ -176,12 +176,12 @@ class ChatHistoryService:
 
         return list(records), int(total)
 
-    async def delete_record(self, record_id: str, user_id: str) -> bool:
+    async def delete_record(self, record_id: int, user_id: str) -> bool:
         """
         删除单条历史记录
 
         Args:
-            record_id: 记录 ID
+            record_id: 记录 ID（整数）
             user_id: 用户 ID（用于权限验证）
 
         Returns:
