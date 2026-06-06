@@ -569,13 +569,11 @@ async def orchestrate_project_stream(
                     files_generated = result.get("total_files_created", 0)
                     files_total = result.get("total_files", 0)
                     logger.info(f"[SSE] 生成完成 | session={session_id} files={files_generated}/{files_total}")
-                    async with async_session() as gen_db:
-                        await _update_project_session_status(gen_db, session_id, "completed", files_generated, files_total)
+                    await sm.complete_session(session_id, files_generated=files_generated, files_total=files_total)
                     await queue.put(f"data: {json.dumps({'type': 'done', 'data': result}, ensure_ascii=False)}\n\n")
                 except Exception as e:
                     logger.error(f"[SSE] Orchestrator 流式生成失败: {e}", exc_info=True)
-                    async with async_session() as gen_db:
-                        await _update_project_session_status(gen_db, session_id, "failed", error_message=str(e))
+                    await sm.complete_session(session_id, errors=[str(e)])
                     await queue.put(f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n")
                 finally:
                     await _cleanup_session_queues(session_id)
@@ -620,9 +618,7 @@ async def orchestrate_project_stream(
                     logger.info(f"[SSE] 生成未完成，执行取消清理 | session={session_id}")
                     await _cleanup_session_queues(session_id)
                     concurrent_mgr.unregister_session(user_role)
-                    await sm.cancel_session(session_id)
-                    async with async_session() as gen_db:
-                        await _update_project_session_status(gen_db, session_id, "cancelled")
+                    await sm.cancel_session(session_id)  # 写透到 DB
 
         except asyncio.CancelledError:
             logger.info("[SSE] Orchestrator 流式响应被取消")
@@ -1092,8 +1088,7 @@ async def session_action_endpoint(
         cancel_ev = _cancel_events.get(session_id)
         if cancel_ev:
             cancel_ev.set()
-        await sm.cancel_session(session_id)
-        await _update_project_session_status(db, session_id, "cancelled")
+        await sm.cancel_session(session_id)  # 写透到 DB
         # 释放并发计数
         user_role = token.get("role", "user")
         from app.utils.dynamic_concurrent import ConcurrentLimitManager

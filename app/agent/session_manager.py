@@ -121,14 +121,45 @@ class SessionState:
 
 
 class SessionManager:
-    """会话管理器"""
+    """会话管理器（统一状态管理：DB 为唯一真相源，SM 为写透缓存）"""
 
-    def __init__(self, session_dir: Optional[Path] = None):
+    def __init__(self, session_dir: Optional[Path] = None, db_session_factory=None):
         self.session_dir = session_dir or SESSION_DIR
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self._active_sessions: Dict[str, SessionState] = {}
         self._lock = asyncio.Lock()
         self._session_locks: Dict[str, asyncio.Lock] = {}
+        self._db_session_factory = db_session_factory
+
+    async def _sync_to_db(self, session_id: str, status: str, files_generated: int = 0, files_total: int = 0, error_message: Optional[str] = None):
+        """将状态变更写透到 DB（统一状态管理的核心方法）"""
+        if not self._db_session_factory:
+            return
+        try:
+            from app.db.models import ProjectSession
+            from sqlalchemy import select
+            async with self._db_session_factory() as db:
+                result = await db.execute(
+                    select(ProjectSession).where(ProjectSession.session_id == session_id)
+                )
+                session = result.scalar_one_or_none()
+                if session:
+                    session.status = status
+                    session.last_activity_at = datetime.now(timezone.utc)
+                    if files_generated > 0:
+                        session.files_generated = files_generated
+                    if files_total > 0:
+                        session.files_total = files_total
+                    if error_message:
+                        session.error_message = error_message
+                    if status in ("completed", "failed", "cancelled"):
+                        session.completed_at = datetime.now(timezone.utc)
+                    await db.commit()
+                    logger.debug(f"[SessionManager] DB 同步完成: session={session_id} status={status}")
+                else:
+                    logger.warning(f"[SessionManager] DB 中找不到会话: session_id={session_id}")
+        except Exception as e:
+            logger.warning(f"[SessionManager] DB 同步失败（不影响 SM 状态）: {e}")
 
     @traced("session.create", attributes={"component": "session"})
     async def create_session(
@@ -255,29 +286,38 @@ class SessionManager:
         state.updated_at = datetime.now().isoformat()
         await self._save_session(state)
 
-    async def complete_session(self, session_id: str, errors: Optional[List[str]] = None):
-        """完成会话"""
+    async def complete_session(self, session_id: str, errors: Optional[List[str]] = None, files_generated: int = 0, files_total: int = 0):
+        """完成会话（写透到 DB）"""
         state = await self._get_state(session_id)
         if not state:
             return
 
-        state.status = SessionStatus.FAILED.value if errors else SessionStatus.COMPLETED.value
+        status = SessionStatus.FAILED.value if errors else SessionStatus.COMPLETED.value
+        state.status = status
         state.completed_at = datetime.now().isoformat()
         state.updated_at = datetime.now().isoformat()
         if errors:
             state.errors.extend(errors)
+        if files_generated > 0:
+            state.files_generated = files_generated
+        if files_total > 0:
+            state.files_total = files_total
         await self._save_session(state)
+        await self._sync_to_db(session_id, status, files_generated, files_total)
 
     async def cancel_session(self, session_id: str):
-        """取消会话"""
+        """取消会话（写透到 DB）"""
         state = await self._get_state(session_id)
         if not state:
+            # 即使内存中无状态，也要更新 DB
+            await self._sync_to_db(session_id, SessionStatus.CANCELLED.value)
             return
 
         state.status = SessionStatus.CANCELLED.value
         state.completed_at = datetime.now().isoformat()
         state.updated_at = datetime.now().isoformat()
         await self._save_session(state)
+        await self._sync_to_db(session_id, SessionStatus.CANCELLED.value)
 
     async def _get_state(self, session_id: str) -> Optional[SessionState]:
         """获取会话状态，优先从内存加载，失败则从磁盘恢复"""

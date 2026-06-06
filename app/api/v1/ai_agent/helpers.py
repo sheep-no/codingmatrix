@@ -240,7 +240,8 @@ async def get_session_manager():
         async with _session_manager_lock:
             if _session_manager is None:
                 from app.agent.session_manager import SessionManager
-                _session_manager = SessionManager()
+                from app.db.database import async_session
+                _session_manager = SessionManager(db_session_factory=async_session)
     return _session_manager
 
 
@@ -351,8 +352,8 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
         zombie_count = 0
         concurrent_mgr = ConcurrentLimitManager()
         
-        # 更短的超时阈值（1 小时无活动视为僵尸）
-        timeout_threshold = datetime.now(timezone.utc) - timedelta(hours=1)
+        # 7 天超时阈值（基于最后活动时间）
+        timeout_threshold = datetime.now(timezone.utc) - timedelta(days=7)
         
         for session in running_sessions:
             is_zombie = False
@@ -420,6 +421,7 @@ async def _update_session_activity(db: AsyncSession, session_id: str):
 
 
 async def _update_project_session_status(db: Optional[AsyncSession], session_id: str, status: str, files_generated: int = 0, files_total: int = 0, error_message: Optional[str] = None):
+    """更新会话状态（DB + 内存同步）"""
     if db is None:
         logger.warning(f"更新会话状态失败：db 为 None | session_id={session_id} | status={status}")
         return
@@ -438,7 +440,7 @@ async def _update_project_session_status(db: Optional[AsyncSession], session_id:
             session.status = status
             session.files_generated = files_generated
             session.files_total = files_total
-            session.last_activity_at = datetime.now(timezone.utc)  # 更新最后活动时间
+            session.last_activity_at = datetime.now(timezone.utc)
             if error_message:
                 session.error_message = error_message
             if status in ("completed", "failed", "cancelled"):
