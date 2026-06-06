@@ -127,11 +127,12 @@ class JestJSONParser:
             for test_result in test_results:
                 assertion_results = test_result.get("assertionResults", [])
                 for assertion in assertion_results:
+                    failure_msgs = assertion.get("failureMessages", [])
                     result.test_cases.append(TestCaseResult(
                         name=assertion.get("fullName", ""),
                         passed=assertion.get("status") == "passed",
                         duration=assertion.get("duration", 0) / 1000,
-                        error_message=assertion.get("failureMessages", [""])[0] if assertion.get("status") == "failed" else "",
+                        error_message=failure_msgs[0] if failure_msgs else "",
                     ))
 
             for test_result in test_results:

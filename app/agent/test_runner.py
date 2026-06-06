@@ -399,14 +399,14 @@ class IsolatedTestRunner:
     @staticmethod
     async def _port_is_open(a: int, b: int, c: int, d: int, port: int) -> bool:
         """检测指定 IP:端口 是否有服务监听"""
-        import socket
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(2)
-            result = sock.connect_ex((f'{a}.{b}.{c}.{d}', port))
-            sock.close()
-            return result == 0
-        except Exception as e:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(f'{a}.{b}.{c}.{d}', port), timeout=2
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except (asyncio.TimeoutError, OSError) as e:
             logger.debug(f"端口检测异常 {a}.{b}.{c}.{d}:{port}：{e}")
             return False
 

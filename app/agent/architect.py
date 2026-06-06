@@ -154,14 +154,7 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
    - 文件路径中的空格应为斜杠：src store/ 应为 src/store/"""
 
         try:
-            response = await call_llm(
-                model=self.model_name,
-                prompt=f"【USER】\n{extract_prompt}",
-                stream=False,
-                max_tokens=4096,
-                temperature=0.3,
-                api_key_token=self.api_key_token
-            )
+            response = await self.call_llm(extract_prompt, "")
 
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
             return self._safe_parse_json(content)

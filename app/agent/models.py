@@ -70,7 +70,7 @@ DEFAULT_ARCHITECT_MODEL = "THUDM/GLM-Z1-9B-0414"        # 架构设计/评审
 DEFAULT_FAST_MODEL = "Qwen/Qwen3.5-4B"                  # 简单/快速任务
 
 # COMPLEXITY_LEVELS 供 ModelRouter.get_role_model 校验复杂度参数
-COMPLEXITY_LEVELS = ("SIMPLE", "SMALL", "MEDIUM", "LARGE")
+COMPLEXITY_LEVELS = ("SIMPLE", "SMALL", "MEDIUM", "LARGE", "ENTERPRISE")
 
 
 class ModelRegistry:

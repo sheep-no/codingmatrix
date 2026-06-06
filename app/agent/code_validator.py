@@ -431,7 +431,7 @@ class CodeValidator:
                             if isinstance(target, ast.Name):
                                 defined_symbols[module_name]['variables'].add(target.id)
             except Exception as e:
-                logger.debug(f"AST 解析失败 {py_file}（语法错误跳过）：{e}")
+                logger.debug(f"AST 解析失败 {f}（语法错误跳过）：{e}")
                 pass  # 语法错误的文件跳过
 
         # 2. 检查 main.py 中的导入是否匹配实际模块和符号
@@ -660,10 +660,17 @@ class CodeValidator:
         all_files = py_files + js_files + html_files + css_files
         results["validated_files"] = len(all_files)
 
-        # 检查是否有缓存结果
-        if py_files:
-            first_file = py_files[0]
-            cached = self.get_cached_validation(first_file)
+        # 检查是否有缓存结果（使用所有文件的哈希作为缓存 key）
+        if all_files:
+            all_contents = ""
+            for f in all_files:
+                try:
+                    all_contents += f.read_text(encoding='utf-8', errors='ignore')
+                except Exception:
+                    all_contents += str(f)
+            content_hash = self._compute_content_hash(all_contents)
+            cache_key = f"full_validation:{content_hash}"
+            cached = self.get_cached_validation(cache_key)
             if cached:
                 results.update(cached)
                 results["cache_hit"] = True
@@ -742,8 +749,8 @@ class CodeValidator:
             results["is_valid"] = False
 
         # 缓存验证结果（成功和失败都缓存，但过期时间不同）
-        if py_files:
-            self.cache_validation(py_files[0], {
+        if all_files:
+            self.cache_validation(cache_key, {
                 "syntax_errors": results["syntax_errors"],
                 "import_errors": results["import_errors"],
                 "dependency_errors": results["dependency_errors"],
