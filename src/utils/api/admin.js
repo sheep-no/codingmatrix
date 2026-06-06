@@ -151,8 +151,8 @@ export function createAdminClient(client) {
                 const health = await response.json()
                 return { ...service, ...health }
               }
-            } catch {
-              // Health check failed, return unknown status
+            } catch (e) {
+              console.debug('[admin] 健康检查失败（服务不可达）:', e.message)
             }
             return { ...service, status: 'unknown' }
           })

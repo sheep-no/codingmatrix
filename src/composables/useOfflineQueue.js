@@ -48,7 +48,8 @@ export function useOfflineQueue() {
     for (const message of messagesToSend) {
       try {
         await sendCallback(message)
-      } catch {
+      } catch (e) {
+        console.warn('[useOfflineQueue] 发送失败，加入重试队列:', e.message)
         pendingMessages.value.push(message)
         break
       }
@@ -60,8 +61,8 @@ export function useOfflineQueue() {
   function saveQueue() {
     try {
       localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(pendingMessages.value))
-    } catch {
-      // 忽略存储错误
+    } catch (e) {
+      console.debug('[useOfflineQueue] 存储队列失败（容量已满？）:', e.message)
     }
   }
 
@@ -72,7 +73,8 @@ export function useOfflineQueue() {
         pendingMessages.value = JSON.parse(saved)
         localStorage.removeItem(OFFLINE_QUEUE_KEY)
       }
-    } catch {
+    } catch (e) {
+      console.debug('[useOfflineQueue] 恢复队列失败（已损坏，重置）:', e.message)
       pendingMessages.value = []
     }
   }

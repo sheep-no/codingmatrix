@@ -20,8 +20,8 @@ function getStoredToolState() {
     if (saved) {
       return JSON.parse(saved)
     }
-  } catch {
-    // ignore
+  } catch (e) {
+    console.debug('[navigation] 加载导航状态失败:', e.message)
   }
   return null
 }
@@ -215,7 +215,8 @@ export const useNavigationStore = defineStore(
           })
           return true
         }
-      } catch {
+      } catch (e) {
+        console.debug('[navigation] 状态已损坏，重置:', e.message)
         localStorage.removeItem('navigationState')
       }
       return false

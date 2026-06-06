@@ -22,7 +22,8 @@ function getStoredToken() {
   if (!stored) return ''
   try {
     return simpleHexDecode(stored)
-  } catch {
+  } catch (e) {
+    console.debug('[github] 解码失败（已损坏）:', e.message)
     return ''
   }
 }

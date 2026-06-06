@@ -1,28 +1,39 @@
 /**
- * API PPT 生成模块 (v6.0 - 全面改进版)
+ * API PPT 生成模块
+ *
  * 后端端点:
- * - POST /pptx/generate_task - 异步任务生成
- * - POST /pptx/generate - 同步生成
- * - GET /pptx/download/{ppt_id} - 下载
- * - GET /pptx/preview/{ppt_id} - 预览
- * - GET /pptx/{ppt_id}/slides - 幻灯片数据
- * - DELETE /pptx/{task_id}/cancel - 取消任务
- * - POST /pptx/{task_id}/update - 增量更新
- * - GET /pptx/templates - 获取模板列表
- * - GET /pptx/history - 获取历史记录
+ * - POST /pptx/generate_task       - 异步任务生成
+ * - GET  /pptx/download/{ppt_id}   - 下载
+ * - GET  /pptx/preview/{ppt_id}    - HTML 预览
+ * - GET  /pptx/{ppt_id}/slides     - 幻灯片数据
+ * - DELETE /pptx/{task_id}/cancel  - 取消任务
+ * - POST /pptx/{task_id}/update    - 增量更新
+ * - POST /pptx/{task_id}/modify    - 视觉增强修改
+ * - GET  /pptx/{task_id}/analyze   - 分析 PPT 状态
+ * - GET  /pptx/templates           - 获取模板列表
+ * - GET  /pptx/history             - 获取历史记录
  * - DELETE /pptx/history/{task_id} - 删除历史记录
- * - GET /pptx/preview/html/{ppt_id} - HTML 预览
- * - WS /ws/ppt/{task_id} - WebSocket 进度推送
+ * - GET  /pptx/history/stats       - 获取统计信息
+ * - WS   /ws/ppt/{task_id}         - WebSocket 进度推送
  */
 export function createPptClient(client) {
   return {
-    async generatePPT(pptData) {
-      const response = await client.post('/pptx/generate', pptData)
+    async createPptTask(prompt, conversationId = null, api_key_token = null, options = {}) {
+      const response = await client.post('/pptx/generate_task', {
+        prompt,
+        conversation_id: conversationId,
+        api_key_token,
+        template_id: options.template_id || 'modern',
+        slide_count: options.slide_count || 10,
+        auto_images: options.auto_images !== false,
+        enable_animation: options.enable_animation !== false,
+        output_format: options.output_format || 'pptx',
+      })
       if (response.ok) {
         return await response.json()
       } else {
         const error = await response.json()
-        throw new Error(error.detail || 'Generate failed')
+        throw new Error(error.detail || 'Create task failed')
       }
     },
 
@@ -33,53 +44,8 @@ export function createPptClient(client) {
           return await response.json()
         }
         return null
-      } catch {
-        return null
-      }
-    },
-
-    async createPptTask(prompt, conversationId = null, api_key_token = null, options = {}) {
-      const response = await client.post('/pptx/generate_task', {
-        prompt,
-        conversation_id: conversationId,
-        api_key_token,
-        template_id: options.template_id || 'modern',
-        slide_count: options.slide_count || 10,
-        auto_images: options.auto_images !== false,
-        enable_animation: options.enable_animation !== false,
-        output_format: options.output_format || 'pptx', // pptx, pdf, both
-      })
-      if (response.ok) {
-        return await response.json()
-      } else {
-        const error = await response.json()
-        throw new Error(error.detail || 'Create task failed')
-      }
-    },
-
-    async generatePptx(prompt, conversationId = null, params = {}, api_key_token = null) {
-      const response = await client.post('/pptx/generate', {
-        topic: prompt,
-        conversation_id: conversationId,
-        api_key_token,
-        ...params
-      })
-      if (response.ok) {
-        return await response.json()
-      } else {
-        const error = await response.json()
-        throw new Error(error.detail || 'Generate failed')
-      }
-    },
-
-    async previewPPT(pptId) {
-      try {
-        const response = await client.get(`/pptx/preview/${pptId}`)
-        if (response.ok) {
-          return await response.text()
-        }
-        return null
-      } catch (error) {
+      } catch (e) {
+        console.debug('[ppt] 获取幻灯片失败:', e.message)
         return null
       }
     },
@@ -91,7 +57,7 @@ export function createPptClient(client) {
           return await response.text()
         }
         return null
-      } catch (error) {
+      } catch {
         return null
       }
     },
@@ -115,7 +81,7 @@ export function createPptClient(client) {
           return await response.json()
         }
         return { success: false }
-      } catch (error) {
+      } catch {
         return { success: false }
       }
     },
@@ -132,7 +98,38 @@ export function createPptClient(client) {
       }
     },
 
-    // 新增：获取模板列表
+    async modifyPpt(taskId, userInput, apiKeyToken = null, analyzeBeforeModify = true) {
+      try {
+        const response = await client.post(`/pptx/${taskId}/modify`, {
+          user_input: userInput,
+          api_key_token: apiKeyToken,
+          analyze_before_modify: analyzeBeforeModify,
+        })
+        if (response.ok) {
+          return await response.json()
+        }
+        const error = await response.json()
+        throw new Error(error.detail || 'Modify failed')
+      } catch (error) {
+        throw new Error(error.message || 'Modify failed', { cause: error })
+      }
+    },
+
+    async analyzePpt(taskId, slideNumber = null) {
+      try {
+        const url = slideNumber
+          ? `/pptx/${taskId}/analyze?slide_number=${slideNumber}`
+          : `/pptx/${taskId}/analyze`
+        const response = await client.get(url)
+        if (response.ok) {
+          return await response.json()
+        }
+        return null
+      } catch {
+        return null
+      }
+    },
+
     async getTemplates(category = null) {
       try {
         const url = category
@@ -143,13 +140,11 @@ export function createPptClient(client) {
           return await response.json()
         }
         return { templates: [] }
-      } catch (error) {
-        console.error('获取模板列表失败:', error)
+      } catch {
         return { templates: [] }
       }
     },
 
-    // 新增：获取历史记录
     async getHistory(page = 1, pageSize = 20) {
       try {
         const response = await client.get(
@@ -159,13 +154,11 @@ export function createPptClient(client) {
           return await response.json()
         }
         return { records: [], total: 0 }
-      } catch (error) {
-        console.error('获取历史记录失败:', error)
+      } catch {
         return { records: [], total: 0 }
       }
     },
 
-    // 新增：删除历史记录
     async deleteHistory(taskId) {
       try {
         const response = await client.delete(`/pptx/history/${taskId}`)
@@ -173,12 +166,11 @@ export function createPptClient(client) {
           return await response.json()
         }
         return { success: false }
-      } catch (error) {
+      } catch {
         return { success: false }
       }
     },
 
-    // 新增：获取统计信息
     async getStats() {
       try {
         const response = await client.get('/pptx/history/stats')
@@ -186,14 +178,12 @@ export function createPptClient(client) {
           return await response.json()
         }
         return { total: 0, completed: 0, failed: 0 }
-      } catch (error) {
+      } catch {
         return { total: 0, completed: 0, failed: 0 }
       }
     },
 
-    // 新增：下载 PDF
     async downloadPDF(pptId) {
-      // PDF 导出暂未实现，后端会回退到 PPTX 格式
       console.warn('PDF 导出暂未实现，将下载 PPTX 格式')
       return this.downloadPPT(pptId, 'pptx')
     }

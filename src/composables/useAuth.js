@@ -53,7 +53,8 @@ export function useAuth() {
     try {
       const success = await userStore.refreshAccessToken()
       return success
-    } catch {
+    } catch (e) {
+      console.warn('[useAuth] Token 刷新失败:', e.message)
       return false
     } finally {
       isRefreshing.value = false

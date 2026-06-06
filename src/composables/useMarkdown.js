@@ -14,8 +14,8 @@ const md = new MarkdownIt({
         return `<pre class="hljs"><code>${
           hljs.highlight(str, { language: lang, ignoreIllegals: true }).value
         }</code></pre>`
-      } catch {
-        // Fallback if highlight fails
+      } catch (e) {
+        console.debug('[useMarkdown] 高亮失败，使用 escapeHtml 兜底:', e.message)
       }
     }
     return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`
