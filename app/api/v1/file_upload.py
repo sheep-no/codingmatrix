@@ -358,8 +358,8 @@ async def upload_chunk(
     logger.info(f"分片上传成功 | file_id={file_id} | chunk={chunk_index}/{total_chunks} | size={len(content)}")
 
     # 更新元数据（需要锁保护并发访问）
-    lock = _get_chunk_lock(file_id)
-    with lock:
+    lock = await _get_chunk_lock(file_id)
+    async with lock:
         meta = ChunkMetadata.load(file_id, total_chunks)
         meta.add_chunk(chunk_index)
 
@@ -395,8 +395,8 @@ async def merge_chunks(
     chunk_dir = CHUNKS_DIR / file_id
 
     # 使用锁保护合并操作
-    lock = _get_chunk_lock(file_id)
-    with lock:
+    lock = await _get_chunk_lock(file_id)
+    async with lock:
         meta = ChunkMetadata.load(file_id, 0)
 
         # 检查所有分片是否已上传

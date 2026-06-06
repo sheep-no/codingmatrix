@@ -18,11 +18,15 @@ from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.utils.security import require_superadmin
 
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    # Mock authentication for all tests
+    app.dependency_overrides[require_superadmin] = lambda: {"sub": "1", "permission_level": "superadmin"}
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture

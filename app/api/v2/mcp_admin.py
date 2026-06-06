@@ -8,11 +8,12 @@ MCP Server 管理接口
 """
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Dict, Optional, List
 
 from app.agent.mcp_client import MCPClientManager, MCP_CONFIG_PATH
+from app.utils.security import require_superadmin
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def _save_config(config: Dict) -> bool:
 # ==================== 接口 ====================
 
 @router.get("/servers")
-async def list_mcp_servers():
+async def list_mcp_servers(token: dict = Depends(require_superadmin)):
     """获取所有 MCP Server 配置"""
     config = _load_config()
     servers = config.get("mcp_servers", {})
@@ -93,7 +94,7 @@ async def list_mcp_servers():
 
 
 @router.post("/servers")
-async def add_mcp_server(req: MCPServerCreate):
+async def add_mcp_server(req: MCPServerCreate, token: dict = Depends(require_superadmin)):
     """添加 MCP Server"""
     config = _load_config()
     servers = config.get("mcp_servers", {})
@@ -129,7 +130,7 @@ async def add_mcp_server(req: MCPServerCreate):
 
 
 @router.put("/servers/{name}")
-async def update_mcp_server(name: str, req: MCPServerUpdate):
+async def update_mcp_server(name: str, req: MCPServerUpdate, token: dict = Depends(require_superadmin)):
     """更新 MCP Server 配置"""
     config = _load_config()
     servers = config.get("mcp_servers", {})
@@ -164,7 +165,7 @@ async def update_mcp_server(name: str, req: MCPServerUpdate):
 
 
 @router.delete("/servers/{name}")
-async def delete_mcp_server(name: str):
+async def delete_mcp_server(name: str, token: dict = Depends(require_superadmin)):
     """删除 MCP Server"""
     config = _load_config()
     servers = config.get("mcp_servers", {})
@@ -182,7 +183,7 @@ async def delete_mcp_server(name: str):
 
 
 @router.post("/servers/{name}/toggle")
-async def toggle_mcp_server(name: str):
+async def toggle_mcp_server(name: str, token: dict = Depends(require_superadmin)):
     """切换 MCP Server 启用/禁用状态"""
     config = _load_config()
     servers = config.get("mcp_servers", {})
@@ -201,7 +202,7 @@ async def toggle_mcp_server(name: str):
 
 
 @router.post("/servers/{name}/test")
-async def test_mcp_server(name: str):
+async def test_mcp_server(name: str, token: dict = Depends(require_superadmin)):
     """测试 MCP Server 连接"""
     config = _load_config()
     servers = config.get("mcp_servers", {})

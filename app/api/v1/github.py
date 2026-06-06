@@ -113,6 +113,10 @@ async def _save_to_github(request: GithubSaveRequest, user_id: str) -> GithubSav
             project_files = json.loads(request.project_data)
             for file_path, content in project_files.items():
                 full_path = project_path / file_path
+                # 路径穿越校验
+                full_path = full_path.resolve()
+                if not str(full_path).startswith(str(project_path.resolve())):
+                    raise HTTPException(status_code=400, detail=f"非法路径: {file_path}")
                 full_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(full_path, 'w', encoding='utf-8') as f:
                     f.write(content)
@@ -201,6 +205,10 @@ async def _save_to_local_git(request: GithubSaveRequest, user_id: str) -> Github
         project_files = json.loads(request.project_data)
         for file_path, content in project_files.items():
             full_path = project_path / file_path
+            # 路径穿越校验
+            full_path = full_path.resolve()
+            if not str(full_path).startswith(str(project_path.resolve())):
+                raise HTTPException(status_code=400, detail=f"非法路径: {file_path}")
             full_path.parent.mkdir(parents=True, exist_ok=True)
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(content)

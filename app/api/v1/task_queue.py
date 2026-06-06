@@ -350,5 +350,5 @@ async def task_websocket(websocket: WebSocket, user_id: int):
             if data == "ping":
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
-        ws_manager.disconnect(user_id)
+        await ws_manager.disconnect(user_id)
         logger.info(f"WebSocket disconnected: user_id={user_id}")
