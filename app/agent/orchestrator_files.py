@@ -499,14 +499,18 @@ class FilesMixin:
         if not file_path:
             return file_path
 
+        # 已知文件扩展名（不含点）
+        KNOWN_EXTENSIONS = {'py', 'js', 'ts', 'jsx', 'tsx', 'vue', 'html', 'css', 'scss', 'sass',
+                           'less', 'json', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf',
+                           'md', 'txt', 'rst', 'sql', 'sh', 'bash', 'zsh', 'fish',
+                           'rpy', 'rpyc', 'renpy'}
+
         # 检查是否是 "目录/扩展名" 的错误格式
         parts = file_path.split('/')
         if len(parts) >= 2:
             last_part = parts[-1]
-            # 如果最后一部分是纯扩展名（如 rpy, py, js 等），则合并到上一级
-            if last_part and '.' not in last_part and len(last_part) <= 10:
-                # 这可能是错误的路径格式
-                # 检查上一级目录名是否像文件名
+            # 如果最后一部分是已知的纯扩展名，则合并到上一级
+            if last_part and last_part.lower() in KNOWN_EXTENSIONS:
                 parent = parts[-2]
                 if '.' not in parent:
                     # 合并为 文件名.扩展名
@@ -611,6 +615,8 @@ class FilesMixin:
             )
             return True, content
 
+        validation_success = True
+
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(content)
 
@@ -627,6 +633,8 @@ class FilesMixin:
                     f.write(content)
                 content_hash = CodeValidator._compute_content_hash(content)
                 cache_key = f"{file_path}:{content_hash}"
+            else:
+                validation_success = False
 
         if self.enable_review and self.complexity.level not in (ProjectComplexity.SIMPLE,):
             review_result = await self.reviewer.review_code(
@@ -643,6 +651,8 @@ class FilesMixin:
                     file_path=file_path,
                     risk_level=review_result.get("risk_level"),
                 )
+                if review_result.get("risk_level") == "high":
+                    validation_success = False
 
         if self.validator and file_path.endswith('.py'):
             try:
@@ -654,10 +664,13 @@ class FilesMixin:
                     "import_errors": []
                 }
                 CodeValidator._clear_old_cache()
+            except SyntaxError as e:
+                validation_success = False
+                logger.warning(f"文件语法错误: {file_path}: {e}")
             except Exception as e:
                 logger.debug(f"文件操作失败：{e}")
 
-        return True, content
+        return validation_success, content
 
     def _clean_code_block(self, content: str) -> str:
         from app.agent.utils import clean_code_block

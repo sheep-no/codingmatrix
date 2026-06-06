@@ -47,7 +47,7 @@ class MemoryEntry:
     importance: float = 1.0  # 0.0-1.0，越高越重要
 
     def to_dict(self) -> Dict:
-        return {
+        result = {
             "id": self.id,
             "type": self.type,
             "content": self.content,
@@ -55,6 +55,9 @@ class MemoryEntry:
             "timestamp": self.timestamp,
             "importance": self.importance
         }
+        if self.embedding is not None:
+            result["embedding"] = self.embedding
+        return result
 
 
 class BaseMemory:
@@ -101,7 +104,7 @@ class ConversationMemory(BaseMemory):
             self._entries.append(entry)
 
             # 超过阈值时自动压缩
-            if len(self._entries) > self.COMPRESSION_THRESHOLD and not self._is_compressed:
+            if len(self._entries) > self.COMPRESSION_THRESHOLD:
                 self._compress_old_entries()
 
             if len(self._entries) > self.max_entries:

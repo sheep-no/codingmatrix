@@ -148,43 +148,8 @@ class ModelPerformanceTracker:
 
     async def record_call(self, model: str, task_type: str, success: bool, latency: float):
         now = time.time()
-        async with self._write_lock:
-            with self._cross_context_lock:
-                cursor = self._conn.execute(
-                    "SELECT success_rate, avg_latency, total_calls, consecutive_failures "
-                    "FROM performance WHERE model_name = ? AND task_type = ?",
-                    (model, task_type),
-                )
-                row = cursor.fetchone()
-                if row:
-                    old_rate, old_latency, old_calls, old_cf = row
-                    new_calls = old_calls + 1
-                    if success:
-                        new_successes = int(old_rate * old_calls) + 1
-                        new_rate = new_successes / new_calls
-                        new_latency = (old_latency * old_calls + latency) / new_calls
-                        new_cf = 0
-                    else:
-                        new_rate = (old_rate * old_calls) / new_calls
-                        new_latency = (old_latency * old_calls + latency) / new_calls
-                        new_cf = old_cf + 1
-                    self._conn.execute(
-                        "UPDATE performance SET success_rate=?, avg_latency=?, "
-                        "total_calls=?, consecutive_failures=?, last_updated=? "
-                        "WHERE model_name=? AND task_type=?",
-                        (new_rate, new_latency, new_calls, new_cf, now, model, task_type),
-                    )
-                else:
-                    rate = 1.0 if success else 0.0
-                    cf = 0 if success else 1
-                    self._conn.execute(
-                        "INSERT INTO performance "
-                        "(model_name, task_type, success_rate, avg_latency, "
-                        "total_calls, consecutive_failures, last_updated) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (model, task_type, rate, latency, 1, cf, now),
-                    )
-                self._conn.commit()
+        # 在线程池中执行，避免 threading.Lock 阻塞事件循环
+        await asyncio.to_thread(self._record_call_sync, model, task_type, success, latency)
 
     def _record_call_sync(self, model: str, task_type: str, success: bool, latency: float):
         """同步版本 record_call（用于非异步上下文，通过 sync_lock 保护）

@@ -426,9 +426,3 @@ class FeedbackLearner:
     async def async_save_patterns(self):
         """异步保存修复模式"""
         return await asyncio.to_thread(self._save_patterns)
-
-    async def async_learn_patterns(self, file_path, file_type, error_msg, error_type, fix_content, success=True):
-        """异步学习修复模式"""
-        return await asyncio.to_thread(
-            self.learn_fix_patterns, file_path, file_type, error_msg, error_type, fix_content, success
-        )

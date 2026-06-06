@@ -62,23 +62,27 @@ class GenerationMixin(
             self.model_router = None
             self.model_assignment = None
 
+        # 安全获取模型名称（model_assignment 可能为 None）
+        def _get_model(attr: str, default: str) -> str:
+            return getattr(self.model_assignment, attr, default) if self.model_assignment else default
+
         self._report_progress(
             PROGRESS_LABELS["assigning_models"],
             2, 5,
-            architect=self.model_assignment.architect_model,
-            frontend=self.model_assignment.frontend_model,
-            backend=self.model_assignment.backend_model,
-            reviewer=self.model_assignment.reviewer_model
+            architect=_get_model("architect_model", DEFAULT_ARCHITECT_MODEL),
+            frontend=_get_model("frontend_model", DEFAULT_CODE_MODEL),
+            backend=_get_model("backend_model", DEFAULT_REASONING_MODEL),
+            reviewer=_get_model("reviewer_model", DEFAULT_ARCHITECT_MODEL)
         )
 
         semaphore = get_global_llm_semaphore()
         cost_tracker = getattr(self, 'cost_tracker', None)
         complexity_level = self.complexity.level.value if self.complexity else "medium"
 
-        self.architect = Architect("架构师", self.model_assignment.architect_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
-        self.frontend_engineer = FrontendEngineer("前端工程师", self.model_assignment.frontend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
-        self.backend_engineer = BackendEngineer("后端工程师", self.model_assignment.backend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
-        self.reviewer = CodeReviewer("审查员", self.model_assignment.reviewer_model, task_type="review", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
+        self.architect = Architect("架构师", _get_model("architect_model", DEFAULT_ARCHITECT_MODEL), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
+        self.frontend_engineer = FrontendEngineer("前端工程师", _get_model("frontend_model", DEFAULT_CODE_MODEL), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
+        self.backend_engineer = BackendEngineer("后端工程师", _get_model("backend_model", DEFAULT_REASONING_MODEL), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
+        self.reviewer = CodeReviewer("审查员", _get_model("reviewer_model", DEFAULT_ARCHITECT_MODEL), task_type="review", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
         self.validator = CodeValidator(self.output_dir)
         self.error_recovery = ErrorRecoveryLoop(self.validator, self.reviewer, api_key_token=self.api_key_token)
         self.api_contract_checker = APIContractChecker()

@@ -252,11 +252,6 @@ async def call_llm(
             
             for fallback in fallback_providers:
                 try:
-                    # 检查模型是否可能在 fallback 供应商可用
-                    fallback_model = router.route(model)
-                    if fallback_model != fallback:
-                        logger.debug(f"模型 {model} 不在 fallback 供应商 {fallback.value}，跳过")
-                        continue
                     # 优先使用用户 Key（如果用户配置了），否则使用平台默认
                     fallback_adapter = await get_adapter(fallback, user_config)
                     fallback_adapter.timeout = timeout
