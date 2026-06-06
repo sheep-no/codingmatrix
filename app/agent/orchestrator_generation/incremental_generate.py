@@ -51,6 +51,11 @@ class IncrementalGenerateMixin:
             self._report_progress(PROGRESS_LABELS.get("incremental_no_changes", "无变更"), 1, 1)
             return
 
+        # 取消检查
+        if self.cancel_event and self.cancel_event.is_set():
+            logger.info("[增量生成] 检测到取消信号，跳过生成")
+            return
+
         # 直接走 _generate_single_file，工程师自己决定用 partial_update 还是 write_file
         # 由 LLMClient 内部信号量控制并发度
         tasks = [self._generate_single_file(fi, project_context, total_files) for fi in incremental_plan]

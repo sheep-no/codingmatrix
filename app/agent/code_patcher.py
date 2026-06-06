@@ -381,18 +381,12 @@ class CodePatcher:
 
         for hunk in hunks:
             old_start = hunk['old_start'] - 1  # 转换为 0-based
+            old_count = hunk.get('old_count', 0)
 
-            if old_start < 0 or old_start > len(result):
+            if old_start < 0 or old_start + old_count > len(result):
                 return None
 
-            # 验证上下文
-            expected_context = [line[1:] for line in hunk['lines'] if line.startswith(' ')]
-            actual_context = result[old_start:old_start + len(expected_context)]
-
-            if expected_context != actual_context:
-                return None
-
-            # 应用变更
+            # 应用变更：old_count 是原始文件中此 hunk 覆盖的行数（上下文 + 删除）
             new_lines = []
             for line in hunk['lines']:
                 if line.startswith('-'):
@@ -402,8 +396,8 @@ class CodePatcher:
                 else:
                     new_lines.append(line[1:])  # 上下文行
 
-            # 替换
-            result[old_start:old_start + len(expected_context)] = new_lines
+            # 替换：使用 old_count 作为替换范围（而非仅上下文行数）
+            result[old_start:old_start + old_count] = new_lines
 
         return result
 
@@ -413,15 +407,17 @@ class CodePatcher:
 
         for hunk in hunks:
             old_start = hunk['old_start'] - 1
+            old_count = hunk.get('old_count', 0)
             expected_context = [line[1:] for line in hunk['lines'] if line.startswith(' ')]
 
-            # 尝试在偏移范围内匹配
+            # 尝试在偏移范围内匹配上下文
             best_match = None
             for offset in range(-max_offset, max_offset + 1):
                 test_start = old_start + offset
-                if test_start < 0 or test_start + len(expected_context) > len(result):
+                if test_start < 0 or test_start + old_count > len(result):
                     continue
 
+                # 在 old_count 范围内提取上下文行位置进行匹配
                 actual_context = result[test_start:test_start + len(expected_context)]
                 if expected_context == actual_context:
                     best_match = test_start
@@ -440,7 +436,8 @@ class CodePatcher:
                 else:
                     new_lines.append(line[1:])
 
-            result[best_match:best_match + len(expected_context)] = new_lines
+            # 替换：使用 old_count 作为替换范围
+            result[best_match:best_match + old_count] = new_lines
 
         return result
 

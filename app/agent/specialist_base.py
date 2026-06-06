@@ -59,6 +59,7 @@ class Specialist:
         self._edited_files: List[str] = []
         self._write_tools = {"partial_update", "insert_content", "regex_replace"}
         self._complexity = complexity
+        self.cancel_event = cancel_event
         self._llm_client = LLMClient(
             model_name=model_name,
             task_type=task_type,
@@ -149,6 +150,7 @@ class Specialist:
             callback=callback,
             emit_event_fn=self._emit_event,
             role_name=self.role_name,
+            cancel_event=self.cancel_event,
         )
 
         original_execute_tool = engine._execute_tool

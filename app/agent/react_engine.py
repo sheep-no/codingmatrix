@@ -71,6 +71,7 @@ class ReActEngine:
         role_name: str = "ReAct",
         memory: Optional[Any] = None,  # AgentMemory 实例（full 模式用）
         stream_callback: Optional[Callable] = None,  # 流式输出回调（full 模式用）
+        cancel_event: Optional[asyncio.Event] = None,  # 取消信号
     ):
         """
         初始化 ReAct 引擎
@@ -97,6 +98,7 @@ class ReActEngine:
         self.role_name = role_name
         self.memory = memory
         self.stream_callback = stream_callback
+        self.cancel_event = cancel_event
 
         self.tool_names = list(tools.keys())
         self.json_parser = ArchitectJsonParser()
@@ -353,6 +355,11 @@ class ReActEngine:
     async def _run_simple(self, prompt: str, enhanced_system: str) -> str:
         """简单模式：Thought→Tool→Result 循环，自然终止"""
         for round_num in range(1, self.max_rounds + 1):
+            # 取消检查
+            if self.cancel_event and self.cancel_event.is_set():
+                logger.info(f"{self.role_name} ReAct 检测到取消信号，终止循环")
+                return ""
+
             current_prompt = prompt
             if self.tool_history:
                 history_text = self._build_history_text()
@@ -449,6 +456,11 @@ class ReActEngine:
         await self._stream(f"[ReAct Agent] 开始处理任务: {task[:50]}...\n\n")
 
         for iteration in range(self.max_rounds):
+            # 取消检查
+            if self.cancel_event and self.cancel_event.is_set():
+                logger.info(f"{self.role_name} ReAct 全模式检测到取消信号，终止循环")
+                return ""
+
             logger.info(f"{self.role_name} ReAct 全模式 迭代 {iteration + 1}/{self.max_rounds}")
 
             # Thought

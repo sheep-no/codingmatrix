@@ -125,8 +125,15 @@ class LLMClient:
             call_timeout = self._model_config.get("timeout", 300)
 
             if self._semaphore:
-                async with self._semaphore:
+                # 信号量前检查取消，避免无意义等待
+                if self._cancel_event and self._cancel_event.is_set():
+                    raise asyncio.CancelledError("请求已取消")
+                # 信号量等待不计入超时
+                await self._semaphore.acquire()
+                try:
                     response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
+                finally:
+                    self._semaphore.release()
             else:
                 response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
 

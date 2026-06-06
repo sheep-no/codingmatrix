@@ -67,11 +67,13 @@ class TopologyScheduler:
         self,
         max_concurrent: int = 5,
         max_retries: int = 2,
-        timeout_per_file: float = 300.0
+        timeout_per_file: float = 300.0,
+        cancel_event: Optional[asyncio.Event] = None
     ):
         self.max_concurrent = max_concurrent
         self.max_retries = max_retries
         self.timeout_per_file = timeout_per_file
+        self._external_cancel_event = cancel_event
 
         self.nodes: Dict[str, ScheduleNode] = {}
         self.adjacency: Dict[str, Set[str]] = {}  # file -> files it depends on
@@ -145,51 +147,68 @@ class TopologyScheduler:
         active_count = 0
         parallelism_samples = []
 
-        while not self._should_stop():
-            async with self._lock:
-                ready_count = self.ready_queue.qsize()
-                pending_count = sum(
-                    1 for n in self.nodes.values()
-                    if n.status in (FileStatus.PENDING, FileStatus.READY, FileStatus.GENERATING)
+        # 联动外部 cancel_event：当用户取消时同步设置 _stop_event
+        cancel_watcher = None
+        if self._external_cancel_event:
+            async def _watch_cancel():
+                await self._external_cancel_event.wait()
+                self._stop_event.set()
+                logger.info("[Scheduler] 外部取消信号已同步到调度器")
+            cancel_watcher = asyncio.create_task(_watch_cancel())
+
+        try:
+            while not self._should_stop():
+                async with self._lock:
+                    ready_count = self.ready_queue.qsize()
+                    pending_count = sum(
+                        1 for n in self.nodes.values()
+                        if n.status in (FileStatus.PENDING, FileStatus.READY, FileStatus.GENERATING)
+                    )
+
+                    if ready_count == 0 and pending_count == 0:
+                        break
+
+                    if ready_count == 0 and pending_count > 0:
+                        await asyncio.sleep(0.1)
+                        continue
+
+                while active_count < self.max_concurrent and self.ready_queue.qsize() > 0:
+                    try:
+                        file_path = self.ready_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+
+                    task = asyncio.create_task(
+                        self._generate_file_with_retry(file_path, generator, progress_callback)
+                    )
+                    self._running_tasks.add(task)
+                    task.add_done_callback(self._running_tasks.discard)
+                    active_count += 1
+
+                parallelism_samples.append(active_count)
+
+                done, _ = await asyncio.wait(
+                    self._running_tasks,
+                    timeout=0.5,
+                    return_when=asyncio.FIRST_COMPLETED
                 )
 
-                if ready_count == 0 and pending_count == 0:
-                    break
+                for task in done:
+                    active_count -= 1
+                    try:
+                        await task
+                    except Exception as e:
+                        logger.error(f"任务执行异常: {e}")
 
-                if ready_count == 0 and pending_count > 0:
-                    await asyncio.sleep(0.1)
-                    continue
-
-            while active_count < self.max_concurrent and self.ready_queue.qsize() > 0:
+            if self._running_tasks:
+                await asyncio.gather(*self._running_tasks, return_exceptions=True)
+        finally:
+            if cancel_watcher and not cancel_watcher.done():
+                cancel_watcher.cancel()
                 try:
-                    file_path = self.ready_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-
-                task = asyncio.create_task(
-                    self._generate_file_with_retry(file_path, generator, progress_callback)
-                )
-                self._running_tasks.add(task)
-                task.add_done_callback(self._running_tasks.discard)
-                active_count += 1
-
-            parallelism_samples.append(active_count)
-
-            done, _ = await asyncio.wait(
-                self._running_tasks,
-                timeout=0.5,
-                return_when=asyncio.FIRST_COMPLETED
-            )
-
-            for task in done:
-                active_count -= 1
-                try:
-                    await task
-                except Exception as e:
-                    logger.error(f"任务执行异常: {e}")
-
-        if self._running_tasks:
-            await asyncio.gather(*self._running_tasks, return_exceptions=True)
+                    await cancel_watcher
+                except asyncio.CancelledError:
+                    pass
 
         self.stats.max_parallelism = max(parallelism_samples) if parallelism_samples else 0
         self.stats.avg_parallelism = sum(parallelism_samples) / len(parallelism_samples) if parallelism_samples else 0
