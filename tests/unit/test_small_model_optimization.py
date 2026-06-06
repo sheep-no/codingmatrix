@@ -214,14 +214,17 @@ class TestCrossValidator:
     def test_is_critical_file_auth(self, tmp_path):
         ctx = SharedContext("test", tmp_path)
         cv = CrossValidator(ctx)
-        assert cv.is_critical_file("app/auth/login.py", "api") is True
-        assert cv.is_critical_file("app/middleware/auth_middleware.py", "service") is True
+        # priority<=2 且命中模式
+        assert cv.is_critical_file("app/auth/login.py", "api", priority=1) is True
+        assert cv.is_critical_file("app/middleware/auth_middleware.py", "service", priority=2) is True
+        # priority>2 即使命中模式也不触发
+        assert cv.is_critical_file("app/auth/login.py", "api", priority=3) is False
 
     def test_is_critical_file_payment(self, tmp_path):
         ctx = SharedContext("test", tmp_path)
         cv = CrossValidator(ctx)
-        assert cv.is_critical_file("app/services/payment.py", "service") is True
-        assert cv.is_critical_file("app/models/order.py", "model") is True
+        assert cv.is_critical_file("app/services/payment.py", "service", priority=1) is True
+        assert cv.is_critical_file("app/models/order.py", "model", priority=2) is True
 
     def test_is_not_critical_file(self, tmp_path):
         ctx = SharedContext("test", tmp_path)

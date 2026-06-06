@@ -53,7 +53,6 @@ check_content() {
 echo "1. 检查核心组件文件"
 echo "----------------------------------------"
 check_file "src/components/tools/FilePreviewCenter.vue" "FilePreviewCenter 组件存在"
-check_file "app/api/v1/preview.py" "预览 API 存在"
 check_file "src/components/tools/PPTGenerator.vue" "PPTGenerator 组件存在"
 check_file "src/components/tools/ProjectGenerator.vue" "ProjectGenerator 组件存在"
 check_file "app/api/v1/AiProjectCode.py" "AIProjectCode API 存在"

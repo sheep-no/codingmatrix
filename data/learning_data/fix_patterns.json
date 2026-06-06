@@ -569,9 +569,9 @@
     "file_types": [
       "backend"
     ],
-    "frequency": 145,
+    "frequency": 325,
     "success_rate": 1.0,
-    "last_seen": "2026-06-02T15:59:30.754990",
+    "last_seen": "2026-06-06T07:37:33.071626",
     "failed_count": 0,
     "last_failed_at": null,
     "failure_reason": null,

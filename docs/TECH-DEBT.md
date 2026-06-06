@@ -1,6 +1,6 @@
 # 技术债务跟踪
 
-> 最后更新：2026-06-04 | 测试基线：1244 passed / 3 skipped
+> 最后更新：2026-06-05 | 测试基线：1622 passed / 2 skipped
 
 ## 已修复的问题
 
@@ -40,13 +40,30 @@
 | 20 | ai_agent.py.orig 文件 | `app/api/v1/ai_agent.py.orig` | 删除文件 |
 | 21 | FeatureSwitchMiddleware 路径 | `app/middleware/feature_switch.py` | `/api/v1/project` → `/api/v1/agent` |
 
+### P4: Agent 架构级 Bug (4 项)
+
+| # | 问题 | 文件 | 修复内容 |
+|---|------|------|----------|
+| 22 | evaluate_mixin Architect/CodeReviewer 不传 api_key_token | `app/agent/orchestrator_generation/evaluate_mixin.py:43-46` | 添加 `api_key_token=self.api_key_token` + `provider_id=getattr(self, 'provider_id', None)` |
+| 23 | evaluate_mixin call_llm 不传 api_key_token | `app/agent/orchestrator_generation/evaluate_mixin.py:150,219` | 添加 `api_key_token=self.api_key_token` |
+| 24 | error_recovery ReAct auto-fix 硬编码 model_key | `app/agent/orchestrator_generation/error_recovery.py:18-22` | 改用 `model_assignment.fallback_model` + `api_key_token` |
+| 25 | react_agent._call_llm 不传 api_key_token | `app/agent/react_agent.py:193` | 添加 `api_key_token=self.api_key_token` |
+
+### P5: 技术债修复 (3 项)
+
+| # | 问题 | 文件 | 修复内容 |
+|---|------|------|----------|
+| 26 | DEFAULT_FALLBACK_CHAIN 硬编码 SiliconFlow 模型名 | `app/agent/error_recovery.py` | 新增 `_PROVIDER_FALLBACK_CHAINS`（6 个供应商各自降级链）+ `_detect_user_provider()` 方法，改为供应商感知 |
+| 27 | ReActWithFallback 死代码（硬编码模型名） | `app/agent/react_agent.py` + `__init__.py` | 删除 42 行死代码类 + 移除 import/export |
+| 28 | call_siliconflow 未使用 | `app/utils/AiCodeUtil.py` | 删除 126 行死代码，统一走 `call_llm()` |
+
 ---
 
 ## 测试验证
 
 | 测试类型 | 通过 | 失败 | 跳过 |
 |----------|------|------|------|
-| 单元测试 | 1244 | 0 | 3 |
+| 单元测试 | 1622 | 0 | 2 |
 | E2E 测试 | 80+ spec 文件 | - | - |
 
 ---

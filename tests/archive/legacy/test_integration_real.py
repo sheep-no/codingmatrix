@@ -185,10 +185,9 @@ class TestAPIIntegration:
  openapi = response.json()
  paths = openapi.get('paths', {})
  
- endpoints_to_check = [
- '/api/v1/agent/generate',
- '/api/v1/preview'
- ]
+  endpoints_to_check = [
+  '/api/v1/agent/generate',
+  ]
  
  found = 0
  for endpoint in endpoints_to_check:

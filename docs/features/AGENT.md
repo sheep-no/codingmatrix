@@ -1,6 +1,17 @@
 # Agent 系统文档
 
-> 最后更新：2026-06-02 | 版本：v5.12.0+
+> 最后更新：2026-06-05 | 版本：v5.13.0+ | 测试基线：1622 passed / 2 skipped
+
+### v5.13.0+ 更新
+
+- **LLM 调用路径统一**: `call_siliconflow`（126 行）删除，所有文本 LLM 调用统一走 `call_llm()`，vision（多模态）也走 `call_llm(messages=...)`
+- **多模态兼容**: `call_llm` + 所有 Adapter 新增 `messages: Optional[list] = None` 参数，传入时跳过 prompt→messages 构建直接使用
+- **4 个架构级 Bug 修复**: evaluate_mixin 不传 api_key_token（2 处）、error_recovery 硬编码 model_key、react_agent._call_llm 不传 api_key_token
+- **供应商感知降级链**: `ErrorRecoveryLoop` 根据用户 Key 所属供应商自动选择同供应商的降级链（6 个供应商各自降级链）
+- **ReActWithFallback 死代码清理**: 删除 42 行硬编码模型名的死代码类
+- **Redis 反向索引 O(1) 查找**: `apikey:token:{token} → user_id`，替代原有 O(N) SCAN
+- **LLM HTTP 401 明确报错**: 用户 Key 在 Redis 查不到时直接抛 401，不再静默降级
+- **Adapter 缓存双轨**: 平台 Key 按 `provider` 缓存；用户 Key 按 `(provider, api_key_hash)` 缓存（LRU 256 上限）
 
 ### v5.12.0+ 更新
 

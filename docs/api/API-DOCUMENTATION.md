@@ -1,6 +1,25 @@
 # API 文档
 
-> 最后更新: 2026-06-04 | 版本：v1 (19 模块) + v2 (8 模块) | 测试基线：1244 passed
+> 最后更新: 2026-06-05 | 版本：v1 (19 模块) + v2 (8 模块) | 测试基线：1622 passed / 2 skipped
+
+## v5.13.0+ 更新
+
+### LLM 调用路径统一
+
+所有文本 LLM 调用统一走 `call_llm()`，vision（多模态）也走 `call_llm(messages=...)`。
+
+**关键变更**：
+- `call_siliconflow` 函数已删除（126 行死代码）
+- `call_llm` 新增 `messages: Optional[list] = None` 参数（多模态支持）
+- `vision.py._call_vision_model` 重写为 `call_llm(messages=...)`
+
+### 供应商感知降级链
+
+`ErrorRecoveryLoop` 根据用户 Key 所属供应商自动选择同供应商的降级链。
+
+### Redis 反向索引 O(1) 查找
+
+`apikey:token:{token} → user_id`，替代原有 O(N) SCAN。
 
 ## v5.12.0+ 新增端点
 

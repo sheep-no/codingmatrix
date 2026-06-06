@@ -1,31 +1,71 @@
 # 数据模型与 LLM 适配器
 
-最后更新: 2026-06-02 | 版本：v5.12.0+
+最后更新: 2026-06-05 | 版本：v5.13.0+ | 测试基线：1622 passed / 2 skipped
+
+---
+
+## v5.13.0+ 关键更新
+
+### LLM 调用路径统一
+
+所有文本 LLM 调用统一走 `call_llm()`，vision（多模态）也走 `call_llm(messages=...)`。
+
+**调用链路**：
+```
+call_llm() → 4 级优先级路由 → ProviderRouter.route() → Adapter 缓存 → Fallback 链
+```
+
+**4 级优先级**：
+1. 直接指定动态供应商（`provider_id` 参数）
+2. 用户 API Key Token（Redis 取 Key → `ProviderRouter.route()` → 创建 Adapter）
+3. 动态供应商中查找该模型（`get_by_model`）
+4. 系统默认路由（`ProviderRouter.route()` → fallback 链）
+
+### 供应商感知降级链
+
+`ErrorRecoveryLoop` 根据用户 Key 所属供应商自动选择同供应商的降级链：
+
+| 用户供应商 | 降级链 |
+|-----------|--------|
+| siliconflow（默认） | Qwen3-8B → DeepSeek-R1-8B → Qwen3.5-4B |
+| dashscope | qwen-plus → qwen-turbo |
+| zhipu | glm-4 → glm-4 |
+| deepseek | deepseek-chat → deepseek-reasoner |
+| openai | gpt-4o → gpt-4o-mini |
+| anthropic | claude-sonnet-4-20250514 → claude-3-5-haiku-20241022 |
+
+### 多模态 call_llm 兼容
+
+`call_llm` + 所有 Adapter 新增 `messages: Optional[list] = None` 参数：
+- 传入时跳过 `prompt`→`messages` 构建，直接使用原始消息列表
+- 对现有 text-only 调用方完全透明
+- `vision.py._call_vision_model` 重写为 `call_llm(messages=...)`，删除 30 行手动 HTTP/Key 逻辑
 
 ---
 
 ## v5.12.0+ 关键更新
 
-### 5 复杂度档 × 5 角色模型分配 v2.0
+### 5 复杂度档 × 5 角色模型分配 v3.0
 
-v5.12.0+ 重新设计了模型分配矩阵，原则：
-1. **Reviewer ≥ Generator**（审查员能力不低于生成员）
+v5.13.0+ 更新了模型分配矩阵，原则：
+1. **Reviewer >= Generator**（审查员能力不低于生成员）
 2. **Backend > Frontend**（后端业务更复杂，用更强模型）
 3. **Architect 使用思考模型**（复杂架构需深度推理）
 4. **跨验证用不同模型**（A/B 生成 + 互评）
 5. **SIMPLE 档用轻量模型**（节省成本）
+6. **ENTERPRISE 与 LARGE 共享分配**（模型能力无差异）
 
-**当前分配**（`data/agent_model_config.json` v2.0）：
+**当前分配**（`_LayeredModelRouterCompat.DEFAULT_ASSIGNMENTS`）：
 
-| 复杂度 | Architect | Frontend | Backend | Reviewer | 复杂度分析 |
-|--------|-----------|----------|---------|----------|------------|
-| SIMPLE | qwen3-8b* | qwen3-8b | qwen3-8b | qwen3-8b | 关键词匹配 |
-| SMALL | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | 关键词匹配 |
-| MEDIUM | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | LLM 校准 |
-| LARGE | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | LLM 校准 |
-| XLARGE | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | LLM 校准 |
+| 复杂度 | Architect | Frontend | Backend | Reviewer | Fallback |
+|--------|-----------|----------|---------|----------|----------|
+| SIMPLE | Qwen3.5-4B | Qwen3-8B | Qwen3-8B | Qwen3-8B | Qwen3.5-4B |
+| SMALL | GLM-Z1-9B | Qwen3-8B | DeepSeek-R1-8B | GLM-Z1-9B | Qwen3-8B |
+| MEDIUM | GLM-Z1-9B | Qwen3-8B | DeepSeek-R1-8B | DeepSeek-R1-8B | Qwen3-8B |
+| LARGE | GLM-Z1-9B | Qwen3-8B | DeepSeek-R1-8B | DeepSeek-R1-8B | Qwen3-8B |
+| ENTERPRISE | 同 LARGE | 同 LARGE | 同 LARGE | 同 LARGE | 同 LARGE |
 
-> *注：SIMPLE 架构师原本配置为 qwen3.5-4b，因 SiliconFlow 端点暂时不可用，临时改为 qwen3-8b。*
+> 注：所有模型均为免费模型，通过 SiliconFlow 供应商调用。用户可通过 API Key 替换为自定义模型。
 
 详见 [DYNAMIC-MODEL-ROUTER.md](../features/DYNAMIC-MODEL-ROUTER.md)
 

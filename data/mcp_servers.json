@@ -1,0 +1,32 @@
+{
+  "mcp_servers": {
+    "filesystem": {
+      "enabled": false,
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"],
+      "description": "文件系统操作（需要 Node.js）"
+    },
+    "brave-search": {
+      "enabled": false,
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {"BRAVE_API_KEY": "your-api-key-here"},
+      "description": "Brave 搜索（需要 API Key）"
+    },
+    "sqlite": {
+      "enabled": false,
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "/path/to/database.db"],
+      "description": "SQLite 数据库操作（需要 Python uvx）"
+    },
+    "custom-http": {
+      "enabled": false,
+      "transport": "http",
+      "url": "http://localhost:8080/mcp",
+      "description": "自定义 HTTP MCP Server"
+    }
+  }
+}

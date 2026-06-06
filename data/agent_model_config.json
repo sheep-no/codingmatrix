@@ -45,13 +45,6 @@
       "backend_model": "deepseek-r1",
       "reviewer_model": "deepseek-r1",
       "fallback_model": "qwen3-8b"
-    },
-    "ENTERPRISE": {
-      "architect_model": "glm-z1-9b",
-      "frontend_model": "qwen3-8b",
-      "backend_model": "deepseek-r1",
-      "reviewer_model": "deepseek-r1",
-      "fallback_model": "qwen3-8b"
     }
   },
   "fallback_chains": {
@@ -98,5 +91,18 @@
     "max_concurrent_requests": 100,
     "circuit_breaker_threshold": 3,
     "circuit_breaker_cooldown_seconds": 300
+  },
+  "cross_validation": {
+    "enabled": true,
+    "auto_priority_1": true,
+    "critical_patterns": [
+      "auth", "permission", "middleware", "guard",
+      "payment", "order", "billing", "subscription",
+      "crypto", "encrypt", "token", "jwt", "oauth",
+      "security", "validation", "sanitizer",
+      "admin", "role", "access",
+      "controller", "handler", "router", "endpoint",
+      "database", "connection"
+    ]
   }
 }

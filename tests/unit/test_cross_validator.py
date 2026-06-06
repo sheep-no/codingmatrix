@@ -14,9 +14,14 @@ class TestCrossValidator:
             yield CrossValidator(ctx)
     
     def test_is_critical_file(self, validator):
-        assert validator.is_critical_file("auth.py", "backend") is True
-        assert validator.is_critical_file("permission.py", "backend") is True
-        assert validator.is_critical_file("payment.py", "backend") is True
+        # priority=1 自动触发
+        assert validator.is_critical_file("auth.py", "backend", priority=1) is True
+        # priority<=2 且命中模式
+        assert validator.is_critical_file("permission.py", "backend", priority=2) is True
+        assert validator.is_critical_file("payment.py", "backend", priority=2) is True
+        # priority>2 即使命中模式也不触发
+        assert validator.is_critical_file("auth.py", "backend", priority=3) is False
+        # 不命中模式
         assert validator.is_critical_file("utils.py", "backend") is False
         assert validator.is_critical_file("README.md", "docs") is False
     

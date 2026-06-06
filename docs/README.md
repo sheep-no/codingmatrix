@@ -1,6 +1,6 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-06-04 | 测试基线：1244 passed
+> 最后更新：2026-06-05 | 测试基线：1622 passed / 2 skipped
 
 ## 快速导航
 
@@ -72,12 +72,14 @@ CodingMatrix 是 AI 驱动的全栈代码生成与开发平台，基于 FastAPI 
 
 | 子系统 | 模块路径 | 描述 |
 |--------|----------|------|
-| **AI Agent 引擎** | `app/agent/` | 80 个模块, ~20,000 行, 6 mixin 协调, 4 角色专家, ReAct 引擎 |
+| **AI Agent 引擎** | `app/agent/` | 38 模块, ~16,000 行, 6 mixin 协调, 4 角色专家, ReAct 引擎 |
 | **工具系统** | `app/agent/tools.py` | 21 个内置工具 + MCP 扩展, 唯一实现源 |
 | **ReAct 引擎** | `app/agent/react_engine.py` | simple + full 双模式, 滑动窗口历史 |
 | **MCP Client** | `app/agent/mcp_client.py` | stdio/HTTP 双传输, 单例管理器, 对 ReAct 透明 |
 | **动态模型路由** | `app/agent/dynamic_model_router.py` | 健康度 0-100 评分, 熔断, 5x5 矩阵, 学习路由 |
 | **统一 LLM 层** | `app/agent/llm_client.py` | 并发信号量, 超时保护, 成本追踪 |
+| **统一 LLM 调用** | `app/utils/aicloud/llm_caller.py` | 4 级优先级路由, 供应商感知, 多模态支持 |
+| **错误恢复** | `app/agent/error_recovery.py` | 分类 + 供应商感知降级链 + 反馈学习 |
 | **统一 JSON 层** | `app/agent/json_parser.py` | 5 层解析链, 工具调用 3 种策略 |
 | **依赖图** | `app/agent/dependency_graph.py` | 4 模块拆分, 14 语言解析, BFS 影响分析 |
 | **会话管理** | `app/agent/session_manager.py` | 30 天 TTL + 500 上限 + 僵尸清理 |
@@ -93,7 +95,7 @@ CodingMatrix 是 AI 驱动的全栈代码生成与开发平台，基于 FastAPI 
 | PPT 生成 | `/api/v1/pptx/*` | 异步任务、多格式输出 |
 | 图像生成 | `/api/v1/kolors/*` | 文生图、图生图 |
 | AI Cloud | `/api/v1/aicloud/*` | 沙箱执行、审查队列 |
-| 文件管理 | `/api/v1/files/*` | 分片上传、去重、解析缓存 |
+| 文件上传 | `/api/v1/files/*` | 单文件/分片上传、下载、hash 去重（供对话/Agent 附件使用） |
 | 工作流 | `/api/v1/workflow/*` | DAG 编排、9 种节点、重试机制 |
 | 免费模型 | `/api/v1/models` | 内置模型查看、切换 |
 | 动态供应商 | `/api/v1/providers` | 自定义 API 接入、context_length |
