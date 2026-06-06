@@ -365,7 +365,7 @@ class FilesMixin:
             all_files=all_files
         )
 
-        if content is None:
+        if not content:
             # 空内容：fallback
             self._report_progress(
                 PROGRESS_LABELS["react_fallback"],

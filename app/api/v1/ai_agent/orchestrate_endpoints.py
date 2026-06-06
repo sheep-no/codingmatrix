@@ -328,10 +328,9 @@ async def orchestrate_project_stream(
     user_role = token.get("role", "user")
     
     # 每用户锁：防止并发请求的 TOCTOU 竞争
-    if user_id not in _user_creation_locks:
-        _user_creation_locks[user_id] = asyncio.Lock()
+    lock = _user_creation_locks.setdefault(user_id, asyncio.Lock())
     
-    async with _user_creation_locks[user_id]:
+    async with lock:
         # 僵尸会话检测：清理 DB 中 status=running 但内存中无状态的会话
         await _detect_and_clean_zombie_sessions(db, user_id)
         
@@ -566,6 +565,11 @@ async def orchestrate_project_stream(
                 try:
                     logger.info(f"[SSE] 开始生成任务 | session={session_id}")
                     result = await orchestrator.generate(requirement=request.requirement)
+                    # 检查是否在生成完成后被取消（stop_project 竞态保护）
+                    if cancel_event.is_set():
+                        logger.info(f"[SSE] 生成完成后检测到取消信号，跳过 complete_session | session={session_id}")
+                        await queue.put(f"data: {json.dumps({'type': 'cancelled', 'data': {'message': '项目已停止'}}, ensure_ascii=False)}\n\n")
+                        return
                     files_generated = result.get("total_files_created", 0)
                     files_total = result.get("total_files", 0)
                     logger.info(f"[SSE] 生成完成 | session={session_id} files={files_generated}/{files_total}")

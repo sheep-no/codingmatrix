@@ -668,6 +668,10 @@ class ErrorRecoveryLoop:
         # 按失败用例名推断可能对应的源文件
         # e.g., test_user_service.py -> app/services/user_service.py
 
+        if not self.MODEL_FALLBACK_CHAIN:
+            logger.warning("降级链为空（用户禁用或未配置），跳过测试日志修复")
+            return recovery_results
+
         for attempt in range(self.MAX_FIX_ATTEMPTS):
             if not recovery_results["failures"]:
                 break

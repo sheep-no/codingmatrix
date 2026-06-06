@@ -237,6 +237,7 @@ class ComplexityAnalyzer:
                     has_frontend=keyword_result.has_frontend,
                     has_backend=keyword_result.has_backend,
                     has_database=keyword_result.has_database,
+                    has_auth=keyword_result.has_auth,
                     key_technologies=llm_techs if llm_techs else keyword_result.key_technologies,
                     risk_factors=llm_risks if llm_risks else keyword_result.risk_factors,
                     estimated_tokens=estimated_tokens,
