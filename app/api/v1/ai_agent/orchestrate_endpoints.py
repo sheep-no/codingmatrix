@@ -118,6 +118,7 @@ from app.utils.guardrails import (
 
 _decision_queues: Dict[str, asyncio.Queue] = {}
 _cancel_events: Dict[str, asyncio.Event] = {}
+_user_creation_locks: Dict[str, asyncio.Lock] = {}
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -326,123 +327,128 @@ async def orchestrate_project_stream(
     
     user_role = token.get("role", "user")
     
-    # 僵尸会话检测：清理 DB 中 status=running 但内存中无状态的会话
-    await _detect_and_clean_zombie_sessions(db, user_id)
+    # 每用户锁：防止并发请求的 TOCTOU 竞争
+    if user_id not in _user_creation_locks:
+        _user_creation_locks[user_id] = asyncio.Lock()
     
-    # DB 并发检查：每用户最多一个 running 会话
-    result = await db.execute(
-        select(ProjectSession).where(
-            ProjectSession.user_id == int(user_id),
-            ProjectSession.status == "running"
-        )
-    )
-    running_session = result.scalar_one_or_none()
-    if running_session:
-        raise HTTPException(
-            status_code=429,
-            detail={
-                "message": f"已有运行中的项目 '{running_session.session_id}'。请先完成或停止现有项目后再创建新项目。",
-                "session_id": running_session.session_id,
-                "created_at": running_session.created_at.isoformat() if running_session.created_at else None
-            }
-        )
-
-    # ========== 意图检测：处理"继续"语义 ==========
-    resume_intent = await detect_resume_intent(request.requirement)
-    is_resume = resume_intent.get("is_resume", False)
-    has_changes = resume_intent.get("has_changes", False)
-    additional_requirement = resume_intent.get("additional_requirement", "")
-    
-    if is_resume:
-        # 方案 2：智能解析要恢复的 session
-        target_session = await resolve_resume_session(db, user_id, request.requirement)
+    async with _user_creation_locks[user_id]:
+        # 僵尸会话检测：清理 DB 中 status=running 但内存中无状态的会话
+        await _detect_and_clean_zombie_sessions(db, user_id)
         
-        if target_session:
-            # 恢复已有会话
-            session_id = target_session.session_id
-            output_dir = target_session.output_dir
-            original_requirement = target_session.requirement
-            
-            # 智能匹配结果：检查是否匹配到最近 session
-            recent_session = await get_user_recent_session(db, user_id, status_filter="running")
-            used_recent = recent_session is not None and target_session.session_id == recent_session.session_id
-            logger.info(f"继续会话 | session={session_id} | has_changes={has_changes} | matched_recent={used_recent}")
-            
-            # 如果有补充需求，合并需求
-            if has_changes and additional_requirement:
-                merged_requirement = f"{original_requirement}\n\n补充需求：{additional_requirement}"
-                request.requirement = merged_requirement
-                
-                # 分析需要重新生成的文件
-                sm = await get_session_manager()
-                session_state = await sm.resume_session(session_id)
-                
-                if session_state and session_state.file_statuses:
-                    generated_files = [f for f, s in session_state.file_statuses.items() if s.status == "completed"]
-                    
-                    if generated_files:
-                        files_to_regenerate = await analyze_files_to_regenerate(
-                            original_requirement, additional_requirement, generated_files
-                        )
-                        
-                        # 删除需要重新生成的文件
-                        for file_path in files_to_regenerate:
-                            full_path = Path(output_dir) / file_path
-                            if full_path.exists():
-                                full_path.unlink()
-                                logger.info(f"删除需要重新生成的文件: {file_path}")
-            else:
-                # 纯继续，使用原始需求
-                request.requirement = original_requirement
-        else:
-            # 没有找到可恢复的会话，创建新会话
-            logger.info(f"没有找到可恢复的会话，创建新会话")
-            is_resume = False
-    
-    if not is_resume:
-        # 优先级：前端传来的 project_path > session_id 推导 > 全新生成
-        output_dir, project_name, session_id = resolve_stream_output_dir(
-            request.project_path,
-            request.session_id,
-            request.project_name,
-            user_id,
-            datetime.now().strftime("%Y%m%d_%H%M%S"),
-        )
-    # ========== 意图检测结束 ==========
-
-    logger.info(f"Orchestrator 流式生成请求 | user={user_id} session={session_id}")
-
-    if not is_resume:
-        # Check if session already exists (e.g., incremental mode on completed session)
+        # DB 并发检查：每用户最多一个 running 会话
         result = await db.execute(
-            select(ProjectSession).where(ProjectSession.session_id == session_id)
+            select(ProjectSession).where(
+                ProjectSession.user_id == int(user_id),
+                ProjectSession.status == "running"
+            )
         )
-        existing_session = result.scalar_one_or_none()
-        if existing_session:
-            # Update existing session for incremental generation
-            existing_session.status = "running"
-            existing_session.requirement = request.requirement
-            existing_session.error_message = None
-            await db.commit()
-            logger.info(f"增量模式：更新已有会话 {session_id}")
-        else:
-            await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
-    else:
-        # 继续时更新已有 session 状态为 running
-        try:
+        running_session = result.scalar_one_or_none()
+        if running_session:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "message": f"已有运行中的项目 '{running_session.session_id}'。请先完成或停止现有项目后再创建新项目。",
+                    "session_id": running_session.session_id,
+                    "created_at": running_session.created_at.isoformat() if running_session.created_at else None
+                }
+            )
+
+        # ========== 意图检测：处理"继续"语义 ==========
+        resume_intent = await detect_resume_intent(request.requirement)
+        is_resume = resume_intent.get("is_resume", False)
+        has_changes = resume_intent.get("has_changes", False)
+        additional_requirement = resume_intent.get("additional_requirement", "")
+        
+        if is_resume:
+            # 方案 2：智能解析要恢复的 session
+            target_session = await resolve_resume_session(db, user_id, request.requirement)
+            
+            if target_session:
+                # 恢复已有会话
+                session_id = target_session.session_id
+                output_dir = target_session.output_dir
+                original_requirement = target_session.requirement
+                
+                # 智能匹配结果：检查是否匹配到最近 session
+                recent_session = await get_user_recent_session(db, user_id, status_filter="running")
+                used_recent = recent_session is not None and target_session.session_id == recent_session.session_id
+                logger.info(f"继续会话 | session={session_id} | has_changes={has_changes} | matched_recent={used_recent}")
+                
+                # 如果有补充需求，合并需求
+                if has_changes and additional_requirement:
+                    merged_requirement = f"{original_requirement}\n\n补充需求：{additional_requirement}"
+                    request.requirement = merged_requirement
+                    
+                    # 分析需要重新生成的文件
+                    sm = await get_session_manager()
+                    session_state = await sm.resume_session(session_id)
+                    
+                    if session_state and session_state.file_statuses:
+                        generated_files = [f for f, s in session_state.file_statuses.items() if s.status == "completed"]
+                        
+                        if generated_files:
+                            files_to_regenerate = await analyze_files_to_regenerate(
+                                original_requirement, additional_requirement, generated_files
+                            )
+                            
+                            # 删除需要重新生成的文件
+                            for file_path in files_to_regenerate:
+                                full_path = Path(output_dir) / file_path
+                                if full_path.exists():
+                                    full_path.unlink()
+                                    logger.info(f"删除需要重新生成的文件: {file_path}")
+                else:
+                    # 纯继续，使用原始需求
+                    request.requirement = original_requirement
+            else:
+                # 没有找到可恢复的会话，创建新会话
+                logger.info(f"没有找到可恢复的会话，创建新会话")
+                is_resume = False
+        
+        if not is_resume:
+            # 优先级：前端传来的 project_path > session_id 推导 > 全新生成
+            output_dir, project_name, session_id = resolve_stream_output_dir(
+                request.project_path,
+                request.session_id,
+                request.project_name,
+                user_id,
+                datetime.now().strftime("%Y%m%d_%H%M%S"),
+            )
+        # ========== 意图检测结束 ==========
+
+        logger.info(f"Orchestrator 流式生成请求 | user={user_id} session={session_id}")
+
+        if not is_resume:
+            # Check if session already exists (e.g., incremental mode on completed session)
             result = await db.execute(
                 select(ProjectSession).where(ProjectSession.session_id == session_id)
             )
-            existing = result.scalar_one_or_none()
-            if existing:
-                existing.status = "running"
-                existing.requirement = request.requirement
+            existing_session = result.scalar_one_or_none()
+            if existing_session:
+                # Update existing session for incremental generation
+                existing_session.status = "running"
+                existing_session.requirement = request.requirement
+                existing_session.error_message = None
                 await db.commit()
+                logger.info(f"增量模式：更新已有会话 {session_id}")
             else:
                 await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
-        except Exception:
-            await db.rollback()
-            await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
+        else:
+            # 继续时更新已有 session 状态为 running
+            try:
+                result = await db.execute(
+                    select(ProjectSession).where(ProjectSession.session_id == session_id)
+                )
+                existing = result.scalar_one_or_none()
+                if existing:
+                    existing.status = "running"
+                    existing.requirement = request.requirement
+                    await db.commit()
+                else:
+                    await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
+            except Exception:
+                await db.rollback()
+                await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
 
     # 注册并发计数
     from app.utils.dynamic_concurrent import ConcurrentLimitManager
@@ -479,17 +485,17 @@ async def orchestrate_project_stream(
             if cancel_event.is_set() or cancel_task in done:
                 return False
             
-            # 检查是否超时
+            # 检查是否超时 - 超时视为拒绝，避免意外的 token 消耗
             if not done:
-                logger.warning(f"审批超时: {file_path}，自动批准")
-                return True
+                logger.warning(f"审批超时: {file_path}，自动拒绝")
+                return False
             
             # 获取审批结果
             result = approval_task.result()
-            return result.get("approved", True) if isinstance(result, dict) else True
+            return result.get("approved", False) if isinstance(result, dict) else False
         except Exception as e:
             logger.error(f"审批回调异常: {file_path} - {e}")
-            return True
+            return False
 
     sm = await get_session_manager()
     cache = await get_spec_cache()
@@ -498,28 +504,32 @@ async def orchestrate_project_stream(
     async def event_generator() -> AsyncIterator[str]:
         logger.info(f"[SSE] event_generator 开始 | session={session_id}")
         try:
+            async def decision_callback(questions):
+                """等待用户决策的回调"""
+                await queue.put(f"data: {json.dumps({'type': 'critical_decisions', 'data': {'session_id': session_id, 'decisions': questions}}, ensure_ascii=False)}\n\n")
+                decision_task = asyncio.create_task(decision_queue.get())
+                cancel_task = asyncio.create_task(cancel_event.wait())
+                try:
+                    done, pending = await asyncio.wait(
+                        [decision_task, cancel_task],
+                        timeout=120,
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+                    if cancel_event.is_set():
+                        return None
+                    for task in done:
+                        result = task.result()
+                        if result is not None:
+                            return result
+                    return None
+                finally:
+                    for task in pending:
+                        task.cancel()
+
             async def stream_callback(msg: str):
                 try:
                     progress_data = json.loads(msg)
-                    if progress_data.get("critical_decisions"):
-                        await queue.put(f"data: {json.dumps({'type': 'critical_decisions', 'data': {'session_id': session_id, 'decisions': progress_data['critical_decisions']}}, ensure_ascii=False)}\n\n")
-                        try:
-                            done, _ = await asyncio.wait(
-                                [asyncio.create_task(decision_queue.get()), asyncio.create_task(cancel_event.wait())],
-                                timeout=120,
-                                return_when=asyncio.FIRST_COMPLETED
-                            )
-                            if cancel_event.is_set():
-                                return
-                            for task in done:
-                                result = task.result()
-                                if result is not None:
-                                    decisions = result
-                                    logger.info(f"用户决策: {decisions}")
-                                    break
-                        except asyncio.TimeoutError:
-                            logger.warning("决策等待超时，使用默认值继续")
-                    # 特殊类型直接传递，不包装成 progress
+                    # 决策已通过 decision_callback 处理，不再重复等待
                     msg_type = progress_data.get("type", "")
                     if msg_type in PASSTHROUGH_SSE_EVENTS:
                         await queue.put(f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n")
@@ -548,7 +558,8 @@ async def orchestrate_project_stream(
                 evaluation_only=request.evaluation_only,
                 api_key_token=request.api_key_token,
                 provider_id=request.provider_id,
-                cancel_event=cancel_event
+                cancel_event=cancel_event,
+                decision_callback=decision_callback
             )
 
             async def run_generation():
@@ -576,17 +587,20 @@ async def orchestrate_project_stream(
 
             try:
                 logger.info(f"[SSE] 开始等待队列消息 | session={session_id}")
+                generation_completed = False
                 while True:
                     try:
                         item = await asyncio.wait_for(queue.get(), timeout=1.0)
                         logger.info(f"[SSE] 从队列获取消息 | session={session_id} type={item[:30] if len(item) > 30 else item}")
                         if item == "[DONE]":
+                            generation_completed = True
                             break
                         yield item
                     except asyncio.TimeoutError:
                         # Check if generation task is still running
                         if gen_task.done():
                             logger.info(f"[SSE] 生成任务已完成 | session={session_id}")
+                            generation_completed = True
                             break
                         continue
                 logger.info(f"[SSE] 队列消息处理完成 | session={session_id}")
@@ -600,11 +614,15 @@ async def orchestrate_project_stream(
                         await asyncio.wait_for(gen_task, timeout=5.0)
                     except (asyncio.CancelledError, asyncio.TimeoutError):
                         pass
-                await _cleanup_session_queues(session_id)
-                concurrent_mgr.unregister_session(user_role)
-                await sm.cancel_session(session_id)
-                async with async_session() as gen_db:
-                    await _update_project_session_status(gen_db, session_id, "cancelled")
+                if generation_completed:
+                    logger.info(f"[SSE] 生成成功完成，跳过取消清理 | session={session_id}")
+                else:
+                    logger.info(f"[SSE] 生成未完成，执行取消清理 | session={session_id}")
+                    await _cleanup_session_queues(session_id)
+                    concurrent_mgr.unregister_session(user_role)
+                    await sm.cancel_session(session_id)
+                    async with async_session() as gen_db:
+                        await _update_project_session_status(gen_db, session_id, "cancelled")
 
         except asyncio.CancelledError:
             logger.info("[SSE] Orchestrator 流式响应被取消")
@@ -635,7 +653,7 @@ async def stop_project(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    用户停止项目：清理文件 + 更新状态为 cancelled
+    用户停止项目：取消运行中的生成任务 + 更新状态为 cancelled
     
     Args:
         session_id: 会话 ID
@@ -661,9 +679,14 @@ async def stop_project(
     if session.status != "running":
         raise HTTPException(status_code=400, detail=f"项目不在运行中，当前状态: {session.status}")
     
-    # 清理文件
-    if session.output_dir:
-        cleanup_session_files(session.output_dir)
+    # 设置 cancel_event 通知生成任务停止
+    cancel_ev = _cancel_events.get(session_id)
+    if cancel_ev:
+        cancel_ev.set()
+    
+    # 更新 SessionManager 状态
+    sm = await get_session_manager()
+    await sm.cancel_session(session_id)
     
     # 更新状态
     session.status = "cancelled"

@@ -62,7 +62,8 @@ class OrchestratorAgent(
         evaluation_only: bool = False,
         api_key_token: Optional[str] = None,
         provider_id: Optional[str] = None,
-        cancel_event: Optional[asyncio.Event] = None
+        cancel_event: Optional[asyncio.Event] = None,
+        decision_callback: Optional[Callable] = None
     ):
         self.output_dir = Path(output_dir)
         self.enable_review = enable_review
@@ -83,6 +84,7 @@ class OrchestratorAgent(
 
         self.require_approval = require_approval
         self.approval_callback = approval_callback
+        self.decision_callback = decision_callback
 
         self.feedback_learner = feedback_learner
 

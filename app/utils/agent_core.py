@@ -1175,6 +1175,10 @@ async def create_project_file(
         except Exception as e:
             logger.error(f"创建文件失败: {file_path}, 错误: {str(e)}", exc_info=True)
             return {"status": "error", "message": str(e)}
+        finally:
+            # 清理不再使用的锁，防止内存泄漏
+            if lock_key in _file_locks and not _file_locks[lock_key].locked():
+                del _file_locks[lock_key]
 
 
 @ToolRegistry.register("list_directory", "列出目录结构")

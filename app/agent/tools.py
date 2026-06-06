@@ -618,6 +618,7 @@ _ALLOWED_COMMAND_PREFIXES = [
 def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout: int = 60) -> Dict:
     """执行终端命令（构建、安装依赖、运行脚本等）"""
     import subprocess
+    import os
 
     try:
         for pattern in _DANGEROUS_COMMANDS:
@@ -638,31 +639,44 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
         if not work_dir.exists():
             return {"success": False, "error": f"工作目录不存在: {work_dir}"}
 
-        result = subprocess.run(
+        # 使用进程组管理，确保超时时杀死所有子进程
+        # 限制输出缓冲区大小，防止 OOM
+        MAX_OUTPUT_BYTES = 1024 * 1024  # 1MB
+        proc = subprocess.Popen(
             command,
             shell=True,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
             cwd=str(work_dir),
             env={
-                **subprocess.os.environ,
+                **os.environ,
                 'PYTHONDONTWRITEBYTECODE': '1',
                 'PYTHONUNBUFFERED': '1',
-            }
+            },
+            start_new_session=True,  # 独立进程组，超时时可整体杀死
         )
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # 杀死整个进程组
+            os.killpg(os.getpgid(proc.pid), subprocess.signal.SIGKILL)
+            stdout, stderr = proc.communicate()
+            return {"success": False, "error": f"命令执行超时（{timeout}秒）", "command": command}
+        except Exception:
+            proc.kill()
+            stdout, stderr = proc.communicate()
+            raise
 
         return {
-            "success": result.returncode == 0,
-            "output": result.stdout[-5000:] if result.stdout else "",
-            "error": result.stderr[-2000:] if result.stderr else None,
-            "return_code": result.returncode,
+            "success": proc.returncode == 0,
+            "output": stdout[-5000:] if stdout else "",
+            "error": stderr[-2000:] if stderr else None,
+            "return_code": proc.returncode,
             "command": command,
             "cwd": str(work_dir),
         }
 
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": f"命令执行超时（{timeout}秒）", "command": command}
     except Exception as e:
         return {"success": False, "error": str(e), "command": command}
 

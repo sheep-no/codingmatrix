@@ -128,6 +128,7 @@ class SessionManager:
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self._active_sessions: Dict[str, SessionState] = {}
         self._lock = asyncio.Lock()
+        self._session_locks: Dict[str, asyncio.Lock] = {}
 
     @traced("session.create", attributes={"component": "session"})
     async def create_session(
@@ -331,23 +332,26 @@ class SessionManager:
         return len(expired)
 
     async def cleanup_if_needed(self):
-        """如果活跃会话数超过上限，自动清理过期和最旧的会话"""
+        """如果活跃会话数超过上限，自动清理过期和最旧的非运行中会话"""
         async with self._lock:
             count = len(self._active_sessions)
         if count > MAX_ACTIVE_SESSIONS:
             await self.cleanup_expired()
-            # 如果仍然超限，移除最旧的会话
+            # 如果仍然超限，移除最旧的非运行中会话
             async with self._lock:
                 count = len(self._active_sessions)
                 if count > MAX_ACTIVE_SESSIONS:
-                    sorted_sessions = sorted(
-                        self._active_sessions.items(),
-                        key=lambda x: x[1].updated_at
-                    )
-                    to_remove = count - MAX_ACTIVE_SESSIONS
+                    # 只驱逐非 RUNNING 状态的会话
+                    evictable = [
+                        (sid, state) for sid, state in self._active_sessions.items()
+                        if state.status != SessionStatus.RUNNING.value
+                    ]
+                    sorted_sessions = sorted(evictable, key=lambda x: x[1].updated_at)
+                    to_remove = min(count - MAX_ACTIVE_SESSIONS, len(sorted_sessions))
                     for sid, _ in sorted_sessions[:to_remove]:
                         del self._active_sessions[sid]
-                    logger.warning(f"会话数超限，强制移除 {to_remove} 个最旧会话")
+                    if to_remove > 0:
+                        logger.warning(f"会话数超限，强制移除 {to_remove} 个最旧非运行会话")
 
     async def get_session_status(self, session_id: str) -> Optional[Dict[str, Any]]:
         """获取会话状态"""
@@ -502,14 +506,18 @@ class SessionManager:
     @traced("session.save", attributes={"component": "session"})
     async def _save_session(self, state: SessionState):
         """保存会话到磁盘（使用 per-session 锁防止并发写入竞争）"""
-        session_file = self._session_file(state.session_id)
-        try:
-            data = state.to_dict()
-            # 使用原子写入：先写临时文件，再重命名，防止并发写入导致文件损坏
-            tmp_file = session_file.with_suffix('.tmp')
-            with open(tmp_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            tmp_file.replace(session_file)
-        except Exception as e:
-            logger.error(f"保存会话失败: {e}")
-            raise
+        session_id = state.session_id
+        if session_id not in self._session_locks:
+            self._session_locks[session_id] = asyncio.Lock()
+        async with self._session_locks[session_id]:
+            session_file = self._session_file(session_id)
+            try:
+                data = state.to_dict()
+                # 使用原子写入：先写临时文件，再重命名，防止并发写入导致文件损坏
+                tmp_file = session_file.with_suffix('.tmp')
+                with open(tmp_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                tmp_file.replace(session_file)
+            except Exception as e:
+                logger.error(f"保存会话失败: {e}")
+                raise

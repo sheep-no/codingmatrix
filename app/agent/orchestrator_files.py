@@ -174,6 +174,9 @@ class FilesMixin:
         stashed = _git_stash_push(str(self.output_dir), existing_files, "agent-backup-batch")
 
         # 直接并发生成，由 LLMClient 内部信号量控制并发度
+        if self.cancel_event and self.cancel_event.is_set():
+            logger.info("[生成] 检测到取消信号，跳过小项目生成")
+            return
         tasks = [self._generate_single_file(fi, project_context, total_files) for fi in file_plan]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -221,6 +224,9 @@ class FilesMixin:
         file_info_map: Dict[str, Dict] = {fi.get("path", ""): fi for fi in file_plan}
 
         for layer_idx, layer in enumerate(layers):
+            if self.cancel_event and self.cancel_event.is_set():
+                logger.info(f"[生成] 检测到取消信号，终止层循环 | layer={layer_idx + 1}/{len(layers)}")
+                break
             layer_files = [f for f in layer if f in file_info_map]
             if not layer_files:
                 continue

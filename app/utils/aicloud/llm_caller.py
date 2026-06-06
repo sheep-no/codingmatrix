@@ -161,6 +161,7 @@ async def call_llm(
             logger.warning(f"动态供应商 {provider_id} 不存在或已禁用，降级到其他路由")
     
     # 优先级 2: 用户 API Key Token（内置供应商）
+    user_config = None
     if adapter is None and api_key_token:
         api_key = _get_user_api_key_from_token(api_key_token)
         if api_key:
@@ -169,12 +170,12 @@ async def call_llm(
             provider = router.route(model)
             if provider:
                 try:
-                    config = ProviderConfig(
+                    user_config = ProviderConfig(
                         provider=provider,
                         api_key=api_key,
                         base_url=_get_provider_base_url(provider),
                     )
-                    adapter = await get_adapter(provider, config)
+                    adapter = await get_adapter(provider, user_config)
                     adapter.timeout = timeout
                     logger.debug(f"使用用户自定义 Key 调用模型: {model}（供应商：{provider.value}）")
                 except Exception as e:
@@ -256,7 +257,8 @@ async def call_llm(
                     if fallback_model != fallback:
                         logger.debug(f"模型 {model} 不在 fallback 供应商 {fallback.value}，跳过")
                         continue
-                    fallback_adapter = await get_adapter(fallback)
+                    # 优先使用用户 Key（如果用户配置了），否则使用平台默认
+                    fallback_adapter = await get_adapter(fallback, user_config)
                     fallback_adapter.timeout = timeout
                     logger.info(f"Stream fallback to {fallback.value}")
                     return await fallback_adapter.call_llm(

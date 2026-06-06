@@ -50,7 +50,7 @@ class ErrorRecoveryLoop:
     # 供应商级降级链（当用户使用非 SiliconFlow Key 时，用同供应商模型）
     _PROVIDER_FALLBACK_CHAINS = {
         "dashscope": ["qwen-plus", "qwen-turbo"],
-        "zhipu": ["glm-4", "glm-4"],
+        "zhipu": ["glm-4", "glm-4-flash"],
         "deepseek": ["deepseek-chat", "deepseek-reasoner"],
         "openai": ["gpt-4o", "gpt-4o-mini"],
         "anthropic": ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"],

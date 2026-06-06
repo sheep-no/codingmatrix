@@ -130,6 +130,22 @@ class SpecFirstGenerateMixin:
                 critical_decisions=decision_questions,
                 callback=callback
             )
+            # 等待用户决策并应用
+            if self.decision_callback:
+                try:
+                    user_decisions = await asyncio.wait_for(
+                        self.decision_callback(decision_questions),
+                        timeout=120
+                    )
+                    if user_decisions and isinstance(user_decisions, dict):
+                        decision_extractor.apply_user_choice(user_decisions)
+                        logger.info(f"用户决策已应用: {user_decisions}")
+                    else:
+                        logger.warning("用户决策为空或格式错误，使用默认值")
+                except asyncio.TimeoutError:
+                    logger.warning("决策等待超时（120s），使用默认值继续")
+                except Exception as e:
+                    logger.error(f"获取用户决策失败: {e}，使用默认值")
 
         refinement_loop_instance = RefinementLoop(ctx, complexity=self.complexity.level.value if self.complexity else "medium", api_key_token=self.api_key_token)
         generated_contents: Dict[str, str] = {}
@@ -273,8 +289,8 @@ class SpecFirstGenerateMixin:
                 initial_content = extract_engineer_content(
                     initial_content, engineer, self.output_dir, file_path
                 )
-                if initial_content is None:
-                    return {"path": file_path, "success": False, "error": "内容提取失败"}
+                if initial_content is None or not initial_content.strip():
+                    return {"path": file_path, "success": False, "error": "内容提取失败或仅含空白字符"}
 
                 if cross_validator.is_critical_file(file_path, file_type, file_priority):
                     self._report_progress(
@@ -355,6 +371,9 @@ class SpecFirstGenerateMixin:
 
             current_index = 0
             for layer_idx, layer in enumerate(layers):
+                if self.cancel_event and self.cancel_event.is_set():
+                    logger.info(f"[生成] 检测到取消信号，终止层循环 | layer={layer_idx + 1}/{len(layers)}")
+                    break
                 layer_size = len(layer)
 
                 self._report_progress(

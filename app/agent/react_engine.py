@@ -191,6 +191,8 @@ class ReActEngine:
                 result = await result
 
             return True, result
+        except asyncio.CancelledError:
+            raise  # 取消信号必须向上透传，不能被吞掉
         except Exception as e:
             return False, {"error": str(e)}
 

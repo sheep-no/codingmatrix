@@ -351,8 +351,8 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
         zombie_count = 0
         concurrent_mgr = ConcurrentLimitManager()
         
-        # 7 天超时阈值（基于最后活动时间）
-        timeout_threshold = datetime.now(timezone.utc) - timedelta(days=7)
+        # 更短的超时阈值（1 小时无活动视为僵尸）
+        timeout_threshold = datetime.now(timezone.utc) - timedelta(hours=1)
         
         for session in running_sessions:
             is_zombie = False
@@ -378,10 +378,6 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
                 session.status = "failed"
                 session.error_message = "僵尸会话自动清理（超时或进程崩溃）"
                 session.completed_at = datetime.now(timezone.utc)
-                
-                # 释放并发计数
-                user_role = "user"  # 默认角色
-                concurrent_mgr.unregister_session(user_role)
                 
                 zombie_count += 1
         
@@ -434,8 +430,8 @@ async def _update_project_session_status(db: Optional[AsyncSession], session_id:
         )
         session = result.scalar_one_or_none()
         if session:
-            # 会话结束时清理文件
-            if status in ("completed", "failed", "cancelled"):
+            # 会话结束时清理文件（仅失败/取消时清理，成功完成时保留文件以支持 resume）
+            if status in ("failed", "cancelled"):
                 if session.output_dir:
                     cleanup_session_files(session.output_dir)
             
@@ -573,7 +569,7 @@ async def detect_resume_intent(requirement: str, model: str = "Qwen/Qwen3.5-4B")
         logger.warning(f"意图检测失败: {e}")
     
     # 兜底：简单关键词检测
-    resume_keywords = ["继续", "resume", "恢复", "接着", "续"]
+    resume_keywords = ["继续生成", "继续项目", "继续开发", "resume", "恢复项目", "接着生成", "接着写"]
     is_resume = any(kw in requirement for kw in resume_keywords)
     
     return {
