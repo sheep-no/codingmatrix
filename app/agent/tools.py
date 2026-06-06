@@ -552,14 +552,18 @@ def _execute_js_sandbox(code: str, timeout: int) -> Dict:
             f.write(code)
             tmp_path = f.name
 
-        result = subprocess.run(
-            ['node', tmp_path],
-            capture_output=True, text=True, timeout=timeout,
-            cwd='/tmp'
-        )
-
-        import os
-        os.unlink(tmp_path)
+        try:
+            result = subprocess.run(
+                ['node', tmp_path],
+                capture_output=True, text=True, timeout=timeout,
+                cwd='/tmp'
+            )
+        finally:
+            import os
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
         if result.returncode == 0:
             return {"success": True, "output": result.stdout, "error": result.stderr or None}

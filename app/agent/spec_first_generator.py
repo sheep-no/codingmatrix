@@ -110,9 +110,10 @@ class SpecFirstGenerator:
 - 返回配置类代码
 - 同时返回 .env.example 内容（用分隔符分开）"""
 
-    def __init__(self, context: SharedContext, language: str = "python"):
+    def __init__(self, context: SharedContext, language: str = "python", api_key_token: Optional[str] = None):
         self.context = context
         self.language = language
+        self.api_key_token = api_key_token
         from app.agent.models import DEFAULT_ARCHITECT_MODEL
         self.architect_model = context.model_assignment.get("architect_model", DEFAULT_ARCHITECT_MODEL) if context.model_assignment else DEFAULT_ARCHITECT_MODEL
         from app.agent.orchestrator import LayeredModelRouter
@@ -188,7 +189,8 @@ class SpecFirstGenerator:
                 stream=False,
                 max_tokens=8192,
                 thinking_budget=4096,
-                temperature=0.5  # 规范生成需要更确定性的输出
+                temperature=0.5,  # 规范生成需要更确定性的输出
+                api_key_token=self.api_key_token
             )
 
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -247,7 +249,8 @@ OpenAPI 规范：
                 stream=False,
                 max_tokens=self.model_config["max_tokens"],
                 thinking_budget=self.model_config["thinking_budget"],
-                temperature=0.6
+                temperature=0.6,
+                api_key_token=self.api_key_token
             )
 
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -305,7 +308,8 @@ OpenAPI 规范：
                 stream=False,
                 max_tokens=self.model_config["max_tokens"],
                 thinking_budget=self.model_config["thinking_budget"],
-                temperature=0.6
+                temperature=0.6,
+                api_key_token=self.api_key_token
             )
 
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -354,7 +358,8 @@ OpenAPI 规范：
                 stream=False,
                 max_tokens=self.model_config["max_tokens"],
                 thinking_budget=self.model_config["thinking_budget"],
-                temperature=0.6
+                temperature=0.6,
+                api_key_token=self.api_key_token
             )
 
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")

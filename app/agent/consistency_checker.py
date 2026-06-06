@@ -188,7 +188,8 @@ class ConsistencyChecker:
                 # 简化处理：只提取 paths
                 import yaml
                 return yaml.safe_load(content)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"一致性检查失败：{e}")
             return None
 
     def get_drift_report(self) -> str:

@@ -140,8 +140,8 @@ class ModelPerformanceTracker:
                 )
                 self._conn.commit()
                 self._conn.execute("VACUUM")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"模型路由操作失败：{e}")
 
     async def record_call(self, model: str, task_type: str, success: bool, latency: float):
         now = time.time()
@@ -679,13 +679,9 @@ class _LayeredModelRouterCompat:
             reviewer_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
             fallback_model="Qwen/Qwen3-8B"
         ),
-        ProjectComplexity.ENTERPRISE: ModelAssignment(
-            architect_model="THUDM/GLM-Z1-9B-0414",
-            frontend_model="Qwen/Qwen3-8B",
-            backend_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-            reviewer_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-            fallback_model="Qwen/Qwen3-8B"
-        ),
+        # ENTERPRISE 与 LARGE 共享相同分配（模型能力无差异）
+        ProjectComplexity.ENTERPRISE: None,
+
     }
 
     # 运行时缓存的分配（从配置文件加载）
@@ -721,6 +717,9 @@ class _LayeredModelRouterCompat:
                 continue
 
         if assignments:
+            # ENTERPRISE 与 LARGE 共享分配（模型能力无差异）
+            if ProjectComplexity.ENTERPRISE not in assignments and ProjectComplexity.LARGE in assignments:
+                assignments[ProjectComplexity.ENTERPRISE] = assignments[ProjectComplexity.LARGE]
             cls._cached_assignments = assignments
             cls._config_loaded = True
             logger.info(f"已从配置文件加载 {len(assignments)} 个模型分配")
@@ -740,7 +739,14 @@ class _LayeredModelRouterCompat:
     @classmethod
     def get_assignment(cls, complexity: ProjectComplexity) -> ModelAssignment:
         assignments = cls._load_config_assignments()
-        return assignments.get(complexity, cls.DEFAULT_ASSIGNMENTS[ProjectComplexity.MEDIUM])
+        result = assignments.get(complexity)
+        if result is None:
+            # ENTERPRISE 降级到 LARGE（模型分配无差异）
+            if complexity == ProjectComplexity.ENTERPRISE:
+                result = assignments.get(ProjectComplexity.LARGE)
+        if result is None:
+            result = assignments.get(complexity, cls.DEFAULT_ASSIGNMENTS[ProjectComplexity.MEDIUM])
+        return result
 
     @classmethod
     async def get_best_model_with_health_awareness(
@@ -881,8 +887,8 @@ def get_context_length(model_name: str, api_key_token: str = None) -> int:
                 val = context_lengths[model_name]
                 if val and val > 0:
                     return int(val)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"模型路由操作失败：{e}")
 
     # 配置文件（管理员全局配置）
     config = load_agent_model_config()
@@ -902,8 +908,8 @@ def get_context_length(model_name: str, api_key_token: str = None) -> int:
             for m in dp.models:
                 if m.id == model_name and m.context_length > 0:
                     return m.context_length
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"模型路由操作失败：{e}")
     # 自定义供应商（用户自接入 API Key）
     try:
         from app.services.custom_provider_manager import get_custom_provider_manager
@@ -914,8 +920,8 @@ def get_context_length(model_name: str, api_key_token: str = None) -> int:
             for m in provider.models:
                 if m.id == model_name and m.context_length > 0:
                     return m.context_length
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"模型路由操作失败：{e}")
     return _DEFAULT_CONTEXT_LENGTH
 
 

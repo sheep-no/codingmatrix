@@ -9,6 +9,7 @@ import json
 import time
 import asyncio
 import math
+import threading
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
 from collections import defaultdict
@@ -89,20 +90,22 @@ class ConversationMemory(BaseMemory):
         self._entries: List[MemoryEntry] = []
         self._counter = 0
         self._is_compressed = False  # 是否已压缩过
+        self._lock = threading.Lock()
 
     def add(self, entry: MemoryEntry) -> None:
         if entry.id is None:
             entry.id = f"conv_{self._counter}"
             self._counter += 1
 
-        self._entries.append(entry)
+        with self._lock:
+            self._entries.append(entry)
 
-        # 超过阈值时自动压缩
-        if len(self._entries) > self.COMPRESSION_THRESHOLD and not self._is_compressed:
-            self._compress_old_entries()
+            # 超过阈值时自动压缩
+            if len(self._entries) > self.COMPRESSION_THRESHOLD and not self._is_compressed:
+                self._compress_old_entries()
 
-        if len(self._entries) > self.max_entries:
-            self._entries = self._entries[-self.max_entries:]
+            if len(self._entries) > self.max_entries:
+                self._entries = self._entries[-self.max_entries:]
 
         logger.debug(f"对话记忆添加: {entry.type} - {len(self._entries)} 条")
 
@@ -148,14 +151,18 @@ class ConversationMemory(BaseMemory):
         logger.info(f"对话记忆已压缩: {len(old_entries)} 条 -> 1 条摘要")
 
     def get_recent(self, limit: int = 10) -> List[MemoryEntry]:
-        return self._entries[-limit:] if self._entries else []
+        with self._lock:
+            return self._entries[-limit:] if self._entries else []
 
     def get_with_context(self, max_tokens: int = 4000) -> str:
         """获取适合上下文的对话历史（自动包含摘要）"""
         result = []
         total_chars = 0
 
-        for entry in reversed(self._entries):
+        with self._lock:
+            entries_snapshot = list(self._entries)
+
+        for entry in reversed(entries_snapshot):
             entry_text = f"[{entry.type.upper()}] {entry.content}"
             entry_len = len(entry_text)
 
@@ -171,7 +178,10 @@ class ConversationMemory(BaseMemory):
         query_lower = query.lower()
         scored = []
 
-        for entry in self._entries:
+        with self._lock:
+            entries_snapshot = list(self._entries)
+
+        for entry in entries_snapshot:
             if query_lower in entry.content.lower():
                 scored.append((entry.importance, entry.timestamp, entry))
 
@@ -186,8 +196,11 @@ class ConversationMemory(BaseMemory):
             logger.warning(f"获取 query embedding 失败，回退到字符串搜索: {e}")
             return self.search(query, limit)
 
+        with self._lock:
+            entries_snapshot = list(self._entries)
+
         scored = []
-        for entry in self._entries:
+        for entry in entries_snapshot:
             if entry.embedding:
                 similarity = cosine_similarity(query_embedding, entry.embedding)
                 if similarity >= SEMANTIC_SIMILARITY_THRESHOLD:
@@ -197,8 +210,9 @@ class ConversationMemory(BaseMemory):
         return [e for _, _, _, e in scored[:limit]]
 
     def clear(self) -> None:
-        self._entries.clear()
-        self._is_compressed = False
+        with self._lock:
+            self._entries.clear()
+            self._is_compressed = False
 
     def get_summary(self) -> Dict[str, Any]:
         """获取记忆摘要"""
@@ -223,15 +237,17 @@ class KnowledgeMemory(BaseMemory):
         self._entries: Dict[str, MemoryEntry] = {}
         self._access_times: Dict[str, float] = {}
         self._counter = 0
+        self._lock = threading.Lock()
 
     def add(self, entry: MemoryEntry) -> None:
         key = entry.metadata.get("key") or entry.content[:100]
         entry.id = key
-        self._entries[key] = entry
-        self._access_times[key] = time.time()
+        with self._lock:
+            self._entries[key] = entry
+            self._access_times[key] = time.time()
 
-        if len(self._entries) > self.max_entries:
-            self._evict_lru()
+            if len(self._entries) > self.max_entries:
+                self._evict_lru()
 
         logger.debug(f"知识记忆添加: {key}")
 
@@ -244,24 +260,29 @@ class KnowledgeMemory(BaseMemory):
         del self._access_times[lru_key]
 
     def get(self, key: str) -> Optional[MemoryEntry]:
-        if key in self._entries:
-            self._access_times[key] = time.time()
-            return self._entries[key]
+        with self._lock:
+            if key in self._entries:
+                self._access_times[key] = time.time()
+                return self._entries[key]
         return None
 
     def get_recent(self, limit: int = 10) -> List[MemoryEntry]:
-        entries = sorted(
-            self._entries.values(),
-            key=lambda e: self._access_times.get(e.id, 0),
-            reverse=True
-        )
+        with self._lock:
+            entries = sorted(
+                self._entries.values(),
+                key=lambda e: self._access_times.get(e.id, 0),
+                reverse=True
+            )
         return entries[:limit]
 
     def search(self, query: str, limit: int = 5) -> List[MemoryEntry]:
         query_lower = query.lower()
         results = []
 
-        for entry in self._entries.values():
+        with self._lock:
+            entries_snapshot = list(self._entries.values())
+
+        for entry in entries_snapshot:
             if query_lower in entry.content.lower():
                 results.append(entry)
 
@@ -276,8 +297,11 @@ class KnowledgeMemory(BaseMemory):
             logger.warning(f"获取 query embedding 失败: {e}")
             return self.search(query, limit)
 
+        with self._lock:
+            entries_snapshot = list(self._entries.values())
+
         scored = []
-        for entry in self._entries.values():
+        for entry in entries_snapshot:
             if entry.embedding:
                 similarity = cosine_similarity(query_embedding, entry.embedding)
                 if similarity >= SEMANTIC_SIMILARITY_THRESHOLD:
@@ -287,10 +311,14 @@ class KnowledgeMemory(BaseMemory):
         return [e for _, _, e in scored[:limit]]
 
     def clear(self) -> None:
-        self._entries.clear()
-        self._access_times.clear()
+        with self._lock:
+            self._entries.clear()
+            self._access_times.clear()
 
     def update_importance(self, key: str, importance: float) -> None:
+        with self._lock:
+            if key in self._entries:
+                self._entries[key].importance = max(0.0, min(1.0, importance))
         if key in self._entries:
             self._entries[key].importance = max(0.0, min(1.0, importance))
 
@@ -302,6 +330,7 @@ class ReflectionMemory(BaseMemory):
         self.max_entries = max_entries
         self._entries: List[MemoryEntry] = []
         self._counter = 0
+        self._lock = threading.Lock()
 
     def add(self, entry: MemoryEntry) -> None:
         entry.id = f"refl_{self._counter}"
@@ -309,10 +338,11 @@ class ReflectionMemory(BaseMemory):
         entry.type = "reflection"
         entry.importance = 0.8
 
-        self._entries.append(entry)
+        with self._lock:
+            self._entries.append(entry)
 
-        if len(self._entries) > self.max_entries:
-            self._entries = self._entries[-self.max_entries:]
+            if len(self._entries) > self.max_entries:
+                self._entries = self._entries[-self.max_entries:]
 
         logger.debug(f"反思记忆添加: {entry.content[:50]}...")
 
@@ -328,15 +358,19 @@ class ReflectionMemory(BaseMemory):
         self.add(entry)
 
     def get_recent(self, limit: int = 10) -> List[MemoryEntry]:
-        return self._entries[-limit:] if self._entries else []
+        with self._lock:
+            return self._entries[-limit:] if self._entries else []
 
     def get_insights(self) -> List[str]:
-        return [e.content for e in self._entries[-5:] if e.type == "reflection"]
+        with self._lock:
+            return [e.content for e in self._entries[-5:] if e.type == "reflection"]
 
     def search(self, query: str, limit: int = 5) -> List[MemoryEntry]:
         query_lower = query.lower()
+        with self._lock:
+            entries_snapshot = list(self._entries)
         return [
-            e for e in reversed(self._entries)
+            e for e in reversed(entries_snapshot)
             if query_lower in e.content.lower()
         ][:limit]
 
@@ -348,8 +382,11 @@ class ReflectionMemory(BaseMemory):
             logger.warning(f"获取 query embedding 失败: {e}")
             return self.search(query, limit)
 
+        with self._lock:
+            entries_snapshot = list(self._entries)
+
         scored = []
-        for entry in self._entries:
+        for entry in entries_snapshot:
             if entry.embedding:
                 similarity = cosine_similarity(query_embedding, entry.embedding)
                 if similarity >= SEMANTIC_SIMILARITY_THRESHOLD:
@@ -359,7 +396,8 @@ class ReflectionMemory(BaseMemory):
         return [e for _, _, e in scored[:limit]]
 
     def clear(self) -> None:
-        self._entries.clear()
+        with self._lock:
+            self._entries.clear()
 
 
 class AgentMemory:

@@ -27,8 +27,9 @@ class TaskPlanner:
     - ReAct 探索：有 project_path + tools 时，先用工具了解项目再拆解
     """
 
-    def __init__(self, model_key: str = "deepseek-r1-qwen3-8b"):
+    def __init__(self, model_key: str = "deepseek-r1-qwen3-8b", api_key_token: Optional[str] = None):
         self.model = ModelRegistry.get(model_key)
+        self.api_key_token = api_key_token
 
     async def decompose(
         self,
@@ -99,7 +100,8 @@ class TaskPlanner:
                 prompt=prompt,
                 stream=False,
                 max_tokens=self.model.max_tokens,
-                temperature=0.6
+                temperature=0.6,
+                api_key_token=self.api_key_token
             )
 
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "[]")
@@ -142,6 +144,7 @@ class TaskPlanner:
                 stream=False,
                 max_tokens=2048,
                 temperature=0.3,
+                api_key_token=self.api_key_token
             )
             return response.get("choices", [{}])[0].get("message", {}).get("content", "")
 

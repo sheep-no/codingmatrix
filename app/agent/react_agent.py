@@ -71,12 +71,28 @@ class ReActAgent:
         model_key: str = "glm-z1-9b",
         max_iterations: int = 10,
         enable_streaming: bool = False,
-        stage_models: Optional[Dict[str, str]] = None
+        stage_models: Optional[Dict[str, str]] = None,
+        model_name: Optional[str] = None,
+        api_key_token: Optional[str] = None,
     ):
-        self.default_model = ModelRegistry.get(model_key)
+        if model_name:
+            from app.agent.models import ModelInfo, ModelCapability
+            self.default_model = ModelInfo(
+                key="custom",
+                name=model_name,
+                display_name=model_name,
+                capabilities=[ModelCapability.CODE],
+                max_tokens=4096,
+                thinking_budget=4096,
+                temperature=0.7,
+                speed=1.0,
+            )
+        else:
+            self.default_model = ModelRegistry.get(model_key)
         self.max_iterations = max_iterations
         self.enable_streaming = enable_streaming
         self.stage_models = stage_models or self.DEFAULT_STAGE_MODELS
+        self.api_key_token = api_key_token
 
         self.memory = AgentMemory()
         self.executor = EnhancedExecutor()
@@ -173,7 +189,8 @@ class ReActAgent:
                 prompt=prompt,
                 stream=False,
                 max_tokens=self.default_model.max_tokens,
-                temperature=0.7
+                temperature=0.7,
+                api_key_token=self.api_key_token,
             )
             return response.get("choices", [{}])[0].get("message", {}).get("content", "")
         except Exception as e:
@@ -181,45 +198,3 @@ class ReActAgent:
             return ""
 
 
-class ReActWithFallback:
-    """带降级策略的 ReAct Agent"""
-
-    def __init__(self):
-        self.primary_agent = ReActAgent(model_key="glm-z1-9b")
-        self.fallback_agent = ReActAgent(model_key="qwen3.5-4b")
-        self.max_retries = 2
-
-    async def process(self, task: str, context: Dict = None) -> ReActResult:
-        """处理任务，失败时降级"""
-        import asyncio
-
-        for attempt in range(self.max_retries):
-            try:
-                result = await self.primary_agent.process(task, context)
-
-                if result.success:
-                    return result
-
-                if attempt < self.max_retries - 1:
-                    logger.warning(f"主模型失败，尝试降级 (尝试 {attempt + 1}/{self.max_retries})")
-                    await asyncio.sleep(1)
-
-            except Exception as e:
-                logger.error(f"ReAct 执行异常: {e}")
-
-                if attempt < self.max_retries - 1:
-                    logger.info("切换到备用模型")
-                    try:
-                        return await self.fallback_agent.process(task, context)
-                    except Exception as fb_e:
-                        logger.warning(f"备用模型也失败: {fb_e}")
-                        continue
-
-        return ReActResult(
-            success=False,
-            final_answer="任务执行失败，请稍后重试",
-            steps=[],
-            total_steps=0,
-            execution_time=0,
-            reflection_summary=""
-        )

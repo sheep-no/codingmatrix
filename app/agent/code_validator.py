@@ -88,7 +88,8 @@ class CodeValidator:
                     CodeValidator._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(entry)
             CodeValidator._cache_misses += 1
             return None
-        except Exception:
+        except Exception as e:
+            logger.debug(f"缓存读取失败 {cache_key}：{e}")
             CodeValidator._cache_misses += 1
             return None
 
@@ -106,8 +107,8 @@ class CodeValidator:
             CodeValidator._lru_cache.move_to_end(cache_key)
             CodeValidator._cache_size_bytes += sys.getsizeof(cache_key) + sys.getsizeof(entry)
             CodeValidator._clear_old_cache()
-        except Exception:
-            logger.debug("缓存写入失败")
+        except Exception as e:
+            logger.debug(f"缓存写入失败 {cache_key}：{e}")
 
     @classmethod
     def get_cache_stats(cls) -> Dict[str, Any]:
@@ -194,8 +195,8 @@ class CodeValidator:
                         if src_str not in sys.path:
                             sys.path.insert(0, src_str)
                             added_paths.append(src_str)
-            except Exception:
-                logger.debug("sys.path 操作失败")
+            except Exception as e:
+                logger.debug(f"sys.path 操作失败：{e}")
 
             for imp in imports:
                 if imp in standard_libs:
@@ -271,7 +272,8 @@ class CodeValidator:
                         if src_str not in sys.path:
                             sys.path.insert(0, src_str)
                             added_paths.append(src_str)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"模块路径设置失败：{e}")
                 pass  # best effort
 
             module = importlib.util.module_from_spec(spec)
@@ -428,7 +430,8 @@ class CodeValidator:
                         for target in node.targets:
                             if isinstance(target, ast.Name):
                                 defined_symbols[module_name]['variables'].add(target.id)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"AST 解析失败 {py_file}（语法错误跳过）：{e}")
                 pass  # 语法错误的文件跳过
 
         # 2. 检查 main.py 中的导入是否匹配实际模块和符号
@@ -459,8 +462,8 @@ class CodeValidator:
                                     sub_module_path = module.replace('.', '/') + '/' + name + '.py'
                                     if not (self.project_path / sub_module_path).exists():
                                         errors.append(f"跨文件引用: '{module}' 模块未导出 '{name}' (实际导出: {', '.join(sorted(all_symbols)) if all_symbols else '无'})")
-            except Exception:
-                logger.debug("跨文件引用检查失败")
+            except Exception as e:
+                logger.debug(f"跨文件引用检查失败：{e}")
 
         # 3. 检查前端 API 调用与后端路由是否匹配
         js_files = [f for f in self.project_path.rglob('*.js') if 'node_modules' not in str(f)]
@@ -474,8 +477,8 @@ class CodeValidator:
                 # 提取 @router.get("/xxx") 或 @app.post("/xxx") 等路由定义
                 routes = re.findall(r'@(?:router|app)\.(?:get|post|put|delete|patch)\(["\'](/[^"\']+)["\']', content)
                 api_routes_defined.update(routes)
-            except Exception:
-                logger.debug("API 路由提取失败")
+            except Exception as e:
+                logger.debug(f"API 路由提取失败：{e}")
 
         # 检查前端是否调用了不存在的 API
         for js_file in js_files:
@@ -490,8 +493,8 @@ class CodeValidator:
                     if api_routes_defined and not any(call.startswith(r) or r.startswith(call.split('?')[0]) for r in api_routes_defined):
                         # 只警告，不报错，因为可能是动态路由
                         pass
-            except Exception:
-                logger.debug("API 一致性检查失败")
+            except Exception as e:
+                logger.debug(f"API 一致性检查失败：{e}")
 
         return len(errors) == 0, errors
 
@@ -584,8 +587,8 @@ class CodeValidator:
                     pkg = pkg.split('==')[0].split('>=')[0].split('~=')[0].strip()
                     if pkg:
                         required.append(pkg.lower().replace('-', '_').split('[')[0])
-            except Exception:
-                logger.debug("requirements.txt 解析失败")
+            except Exception as e:
+                logger.debug(f"requirements.txt 解析失败：{e}")
         elif pipfile.exists():
             found_file = pipfile
             try:
@@ -594,8 +597,8 @@ class CodeValidator:
                     pipdata = toml.load(f)
                 deps = list(pipdata.get('packages', {}).keys()) + list(pipdata.get('dev-packages', {}).keys())
                 required = [d.lower().replace('-', '_').split('[')[0] for d in deps if not d.startswith(('.', '/'))]
-            except Exception:
-                logger.debug("Pipfile 解析失败")
+            except Exception as e:
+                logger.debug(f"Pipfile 解析失败：{e}")
 
         if not found_file:
             return False, ["缺少 requirements.txt / pyproject.toml / Pipfile"]

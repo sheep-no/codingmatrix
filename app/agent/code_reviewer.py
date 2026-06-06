@@ -120,7 +120,6 @@ class CodeReviewer(Specialist):
                 return issues
 
         # 检查代码中的导入语句
-        import re
         import_matches = re.findall(r'(?:from\s+(\w+)|import\s+(\w+))', code)
 
         for match in import_matches:

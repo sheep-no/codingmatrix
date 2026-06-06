@@ -78,7 +78,8 @@ def _git_stash_drop(work_dir: str) -> bool:
             cwd=work_dir, capture_output=True, text=True, timeout=10
         )
         return result.returncode == 0
-    except Exception:
+    except Exception as e:
+        logger.debug(f"文件操作失败：{e}")
         return False
 
 
@@ -654,8 +655,8 @@ class FilesMixin:
                     "import_errors": []
                 }
                 CodeValidator._clear_old_cache()
-            except Exception:
-                logger.debug("文件操作失败")
+            except Exception as e:
+                logger.debug(f"文件操作失败：{e}")
 
         return True, content
 

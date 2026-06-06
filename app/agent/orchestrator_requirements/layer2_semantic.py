@@ -35,8 +35,8 @@ async def layer2_semantic_match(requirement: str) -> List[AssociationItem]:
                             ]
                             if matching:
                                 feature_list = matching[0].get("feature_list", [])
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"语义搜索失败：{e}")
 
                     for feature in feature_list[:8]:
                         items.append(AssociationItem(
@@ -98,8 +98,8 @@ def check_history_data_available() -> bool:
         if total >= MIN_HISTORY_PROJECTS and with_features >= MIN_HISTORY_WITH_FEATURES:
             logger.info(f"历史项目数据充足: {total} 项目, {with_features} 有功能清单")
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"检查历史项目数据失败：{e}")
 
     return False
 

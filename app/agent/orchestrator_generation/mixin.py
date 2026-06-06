@@ -41,8 +41,11 @@ class GenerationMixin(
         if hasattr(self, 'cost_tracker'):
             self.cost_tracker.start_time = time.time()
 
+        # 初始化 MCP 工具（如果配置了 MCP Server）
+        await self._init_mcp_tools()
+
         self.analyzer = ComplexityAnalyzer()
-        self.complexity = await self.analyzer.analyze_with_llm(requirement)
+        self.complexity = await self.analyzer.analyze_with_llm(requirement, api_key_token=self.api_key_token)
 
         self._report_progress(
             PROGRESS_LABELS["analyzing_complexity"],
@@ -70,13 +73,14 @@ class GenerationMixin(
 
         semaphore = get_global_llm_semaphore()
         cost_tracker = getattr(self, 'cost_tracker', None)
+        complexity_level = self.complexity.level.value if self.complexity else "medium"
 
-        self.architect = Architect("架构师", self.model_assignment.architect_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker)
-        self.frontend_engineer = FrontendEngineer("前端工程师", self.model_assignment.frontend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker)
-        self.backend_engineer = BackendEngineer("后端工程师", self.model_assignment.backend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker)
-        self.reviewer = CodeReviewer("审查员", self.model_assignment.reviewer_model, task_type="review", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker)
+        self.architect = Architect("架构师", self.model_assignment.architect_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level)
+        self.frontend_engineer = FrontendEngineer("前端工程师", self.model_assignment.frontend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level)
+        self.backend_engineer = BackendEngineer("后端工程师", self.model_assignment.backend_model, task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level)
+        self.reviewer = CodeReviewer("审查员", self.model_assignment.reviewer_model, task_type="review", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level)
         self.validator = CodeValidator(self.output_dir)
-        self.error_recovery = ErrorRecoveryLoop(self.validator, self.reviewer)
+        self.error_recovery = ErrorRecoveryLoop(self.validator, self.reviewer, api_key_token=self.api_key_token)
         self.api_contract_checker = APIContractChecker()
         self.code_patcher = CodePatcher(llm_call_fn=self._call_llm_for_patch)
         self.cross_file_patcher = CrossFilePatcher(self.code_patcher)
@@ -86,6 +90,19 @@ class GenerationMixin(
             3, 5,
             roles=["架构师", "前端工程师", "后端工程师", "审查员"]
         )
+
+    async def _init_mcp_tools(self):
+        """初始化 MCP 工具（如果配置了 MCP Server）"""
+        try:
+            from app.agent.mcp_client import MCPClientManager
+            manager = MCPClientManager()
+            connected = await manager.load_servers()
+            if connected > 0:
+                tool_names = manager.get_tool_names()
+                logger.info(f"MCP 工具已加载: {tool_names}")
+                self._report_progress("mcp_tools_loaded", 1, 5, mcp_tools=tool_names)
+        except Exception as e:
+            logger.debug(f"MCP 初始化跳过（未配置或加载失败）: {e}")
 
     @traced("orchestrator.generate", attributes={"component": "orchestrator"})
     async def generate(self, requirement: str) -> Dict[str, Any]:

@@ -97,5 +97,5 @@ class AssociationFeedbackTracker:
                     (db_size // 4,)
                 )
                 self._conn.commit()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"反馈追踪操作失败：{e}")

@@ -8,10 +8,11 @@ from app.agent.complexity import ComplexityAnalyzer
 from app.agent.specialists import Architect, CodeReviewer
 from app.agent.dynamic_model_router import LayeredModelRouter
 from app.agent.tracing import traced
+from app.agent.models import DEFAULT_ARCHITECT_MODEL
 
 logger = logging.getLogger(__name__)
 
-EVALUATION_MODEL = "THUDM/GLM-Z1-9B-0414"
+EVALUATION_MODEL = DEFAULT_ARCHITECT_MODEL
 
 
 class EvaluationMixin:
@@ -25,7 +26,7 @@ class EvaluationMixin:
                               message="正在分析需求复杂度...")
 
         self.analyzer = ComplexityAnalyzer()
-        self.complexity = await self.analyzer.analyze_with_llm(requirement)
+        self.complexity = await self.analyzer.analyze_with_llm(requirement, api_key_token=self.api_key_token)
 
         self._report_progress("evaluation", 2, 5, phase="designing_analysis",
                               complexity=self.complexity.level.value,
@@ -39,10 +40,14 @@ class EvaluationMixin:
             self.model_router = None
             self.model_assignment = None
 
-        self.architect = Architect("评价架构师", self.model_assignment.architect_model if self.model_assignment else "Qwen/Qwen2.5-7B",
-                                task_type="review")
-        self.reviewer = CodeReviewer("评价审查员", self.model_assignment.reviewer_model if self.model_assignment else "Qwen/Qwen2.5-7B",
-                                     task_type="review")
+        self.architect = Architect("评价架构师", self.model_assignment.architect_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL,
+                                task_type="review",
+                                api_key_token=self.api_key_token,
+                                provider_id=getattr(self, 'provider_id', None))
+        self.reviewer = CodeReviewer("评价审查员", self.model_assignment.reviewer_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL,
+                                     task_type="review",
+                                     api_key_token=self.api_key_token,
+                                     provider_id=getattr(self, 'provider_id', None))
 
         self._report_progress("evaluation", 3, 5, phase="requirement_analysis",
                               message="正在分析需求...")
@@ -149,6 +154,7 @@ class EvaluationMixin:
             response = await call_llm(
                 model=EVALUATION_MODEL,
                 prompt=prompt,
+                api_key_token=self.api_key_token,
             )
             return self._parse_evaluation_json(response, "requirement")
         except Exception as e:
@@ -218,6 +224,7 @@ class EvaluationMixin:
             response = await call_llm(
                 model=EVALUATION_MODEL,
                 prompt=prompt,
+                api_key_token=self.api_key_token,
             )
             return self._parse_evaluation_json(response, "architecture")
         except Exception as e:

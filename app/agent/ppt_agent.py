@@ -125,7 +125,7 @@ class PPTAgent:
 2. 第一页必须是 "title" 类型 (封面页)
 3. 最后一页必须是 "end" 类型 (结束页)
 4. 总页数必须等于 {num_slides}
-5. 每頁 bullets 数量不超过 6 条，每条不超过 40 字
+5. 每页 bullets 数量不超过 6 条，每条不超过 40 字
 
 JSON Schema:
 {{
@@ -248,16 +248,6 @@ JSON Schema：
             logger.error(f"LLM 辅助提取 JSON 失败: {e}")
             return None
 
-    def _parse_and_validate(self, raw: str, topic: str, num_slides: int) -> Optional[PresentationOutline]:
-        try:
-            # 使用强健的 JSON 解析器
-            parser = ArchitectJsonParser()
-            data = parser.safe_parse_json(raw)
-            return self._validate_outline(data, topic, num_slides)
-        except ValueError as e:
-            logger.warning(f"JSON 解析失败: {e}")
-            return None
-
     def _validate_outline(self, data: Dict, topic: str, num_slides: int) -> Optional[PresentationOutline]:
         """验证并转换 JSON 数据为 PresentationOutline"""
         try:
@@ -325,3 +315,96 @@ JSON Schema：
                 "notes": slide.notes,
             })
         return {"title": outline.title, "slides": slides}
+
+    async def modify_outline(
+        self,
+        existing_outline: Dict[str, Any],
+        modification_request: str,
+        api_key_token: Optional[str] = None,
+    ) -> PresentationOutline:
+        """
+        根据修改请求修改已有大纲
+
+        Args:
+            existing_outline: 已有的大纲 JSON（pptx 引擎格式）
+            modification_request: 用户的修改请求（自然语言）
+            api_key_token: API key
+
+        Returns:
+            修改后的大纲
+        """
+        prompt = f"""你是一个专业的 PPT 制作助手。请根据用户的修改请求，修改已有的 PPT 大纲。
+
+已有大纲：
+{json.dumps(existing_outline, ensure_ascii=False, indent=2)}
+
+修改请求：
+{modification_request}
+
+要求：
+1. 返回纯 JSON，不要任何额外文字
+2. 保留未被修改的内容
+3. 第一页必须是 "title" 类型 (封面页)
+4. 最后一页必须是 "end" 类型 (结束页)
+5. 格式与已有大纲一致
+
+JSON Schema:
+{{
+  "title": "PPT 标题",
+  "slides": [
+    {{
+      "type": "title|chapter|content|bullet|image|chart|end",
+      "title": "页面标题",
+      "bullets": ["要点1", "要点2"],
+      "image_keywords": ["关键词1"],
+      "notes": "备注"
+    }}
+  ]
+}}
+
+请返回修改后的 JSON:"""
+
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                raw = await call_llm(
+                    model=self.model,
+                    prompt=prompt,
+                    system_prompt="你是一个专业的 PPT 制作助手。请根据修改请求修改大纲，只返回纯 JSON。",
+                    temperature=0.5,
+                    api_key_token=api_key_token,
+                )
+
+                if isinstance(raw, dict):
+                    content = raw.get("choices", [{}])[0].get("message", {}).get("content", "")
+                else:
+                    content = str(raw)
+
+                outline = await self._parse_with_llm_fallback(
+                    content,
+                    existing_outline.get("title", "PPT"),
+                    len(existing_outline.get("slides", [])),
+                    api_key_token
+                )
+                if outline:
+                    return outline
+
+            except Exception as e:
+                logger.warning(f"大纲修改失败 (尝试 {attempt}/{self.MAX_RETRIES}): {e}")
+                if attempt < self.MAX_RETRIES:
+                    await asyncio.sleep(2 ** attempt)
+
+        # 降级：返回原大纲
+        return self._dict_to_outline(existing_outline)
+
+    def _dict_to_outline(self, data: Dict[str, Any]) -> PresentationOutline:
+        """将字典转换为 PresentationOutline"""
+        slides = []
+        for s in data.get("slides", []):
+            slides.append(SlideOutline(
+                type=s.get("type", "content"),
+                title=s.get("title", ""),
+                bullets=s.get("bullets", []),
+                image_keywords=s.get("image_keywords", []),
+                notes=s.get("notes", ""),
+            ))
+        return PresentationOutline(title=data.get("title", "PPT"), slides=slides)

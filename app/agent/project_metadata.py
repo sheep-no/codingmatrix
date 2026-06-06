@@ -6,11 +6,12 @@ from pathlib import Path
 from typing import List, Dict, Optional
 
 from app.agent.vector_index import METADATA_PATH
+from app.agent.models import DEFAULT_REASONING_MODEL, DEFAULT_CODE_MODEL
 
 logger = logging.getLogger(__name__)
 
-FEATURE_EXTRACTION_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
-FEATURE_EXTRACTION_FALLBACK = "Qwen/Qwen3-8B"
+FEATURE_EXTRACTION_MODEL = DEFAULT_REASONING_MODEL
+FEATURE_EXTRACTION_FALLBACK = DEFAULT_CODE_MODEL
 
 
 class ProjectMetadataManager:

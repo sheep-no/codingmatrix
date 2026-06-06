@@ -66,8 +66,9 @@ class MultiModelAgent:
         api_key_token: str = None,
     ):
         self.router = ModelRouter()
-        self.planner = TaskPlanner(default_model)
-        self.reviewer = AIReviewer(default_model) if enable_review else None
+        self.api_key_token = api_key_token
+        self.planner = TaskPlanner(default_model, api_key_token=api_key_token)
+        self.reviewer = AIReviewer(default_model, api_key_token=api_key_token) if enable_review else None
         self.executor = AgentExecutor(FileOperator())
         self.enable_review = enable_review
         self.enable_file_contract = enable_file_contract
@@ -83,7 +84,8 @@ class MultiModelAgent:
             try:
                 from app.agent.specialist_base import get_global_llm_semaphore
                 self._semaphore = get_global_llm_semaphore()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"获取全局 LLM 信号量失败：{e}")
                 self._semaphore = None
         return self._semaphore
 
@@ -215,17 +217,17 @@ class MultiModelAgent:
 
             # FileContract 前置验证：执行前检查路径安全性
             if step.get("type") == "file_operation" and self.enable_file_contract:
+                file_path = step["params"].get("path", "")
+                if not file_path:
+                    await emit("contract_failed", {"message": "文件操作缺少 path 参数"})
+                    return {"success": False, "error": "文件操作缺少 path 参数", "failed_step": i}
                 contract = FileContract(
                     operation=step["params"].get("operation"),
-                    file_path=step["params"].get("path", "")
+                    file_path=file_path,
                 )
                 if not contract.validate_path():
-                    await emit("contract_failed", {"message": f"文件契约验证失败: {step['params'].get('path')}"})
-                    return {
-                        "success": False,
-                        "error": f"文件契约验证失败: {step['params'].get('path')}",
-                        "failed_step": i,
-                    }
+                    await emit("contract_failed", {"message": f"文件契约验证失败: {file_path}"})
+                    return {"success": False, "error": f"文件契约验证失败: {file_path}", "failed_step": i}
 
             result = await self.executor.execute(step)
             results.append(result)

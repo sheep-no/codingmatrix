@@ -147,8 +147,8 @@ class TraditionalGenerateMixin:
                 if '__pycache__' not in str(py_file):
                     try:
                         backend_files[str(py_file.relative_to(self.output_dir))] = py_file.read_text()
-                    except Exception:
-                        logger.debug("传统生成操作失败")
+                    except Exception as e:
+                        logger.debug(f"传统生成读取文件失败：{e}")
 
             if backend_files:
                 api_contract_prompt = generate_frontend_prompt_contract(backend_files)
@@ -209,7 +209,8 @@ class TraditionalGenerateMixin:
                 if fpath and full.exists():
                     try:
                         generated_files_dict[fpath] = full.read_text(encoding='utf-8')
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"读取生成文件失败 {fpath}：{e}")
                         pass
             integrity_result = integrity_validator.validate(generated_files_dict)
             if not integrity_result.passed:

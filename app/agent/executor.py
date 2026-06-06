@@ -151,6 +151,50 @@ class EnhancedExecutor:
         self.tool_registry = ToolRegistry.get_instance()
         if not self.tool_registry._tools:
             self._register_default_tools()
+        self._mcp_loaded = False
+
+    async def load_mcp_tools(self) -> int:
+        """加载 MCP 工具并注册到 ToolRegistry
+
+        Returns:
+            注册的 MCP 工具数量
+        """
+        if self._mcp_loaded:
+            return 0
+        try:
+            from app.agent.mcp_client import MCPClientManager
+            manager = MCPClientManager()
+            connected = await manager.load_servers()
+            if connected > 0:
+                mcp_tools = manager.get_all_tools()
+                for name, tool_info in mcp_tools.items():
+                    self.tool_registry.register(
+                        name=name,
+                        func=tool_info["fn"],
+                        description=tool_info["description"],
+                        parameters_schema=self._params_to_schema(tool_info.get("params", {}))
+                    )
+                self._mcp_loaded = True
+                return len(mcp_tools)
+        except Exception as e:
+            logger.debug(f"MCP 工具加载失败（可忽略）: {e}")
+        self._mcp_loaded = True
+        return 0
+
+    @staticmethod
+    def _params_to_schema(params: Dict[str, str]) -> Dict:
+        """将 SPECIALIST_TOOLS 的 params 格式转为 JSON Schema"""
+        if not params:
+            return {"type": "object", "properties": {}, "required": []}
+        properties = {}
+        required = []
+        for name, type_desc in params.items():
+            type_str = type_desc.split(" ")[0] if " " in type_desc else type_desc
+            json_type = {"string": "string", "int": "integer", "bool": "boolean", "float": "number", "object": "object", "list": "array"}.get(type_str, "string")
+            properties[name] = {"type": json_type, "description": type_desc}
+            if "(可选)" not in type_desc and "optional" not in type_desc.lower():
+                required.append(name)
+        return {"type": "object", "properties": properties, "required": required}
 
     def _register_default_tools(self) -> None:
         """注册默认工具（从 tools.py 导入实现）"""

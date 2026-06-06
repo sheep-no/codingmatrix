@@ -62,6 +62,12 @@ class TestingMixin:
                     for c in clusters[:3]  # 只显示前 3 个集群
                 ]
                 self.warnings.append(f"测试失败聚类：{len(clusters)} 个根因 | {len(result.failed_tests)} 个失败")
+                self._report_warning(
+                    message=f"测试失败聚类：{len(clusters)} 个根因 | {len(result.failed_tests)} 个失败",
+                    code="test_failure_cluster",
+                    cluster_count=len(clusters),
+                    failed_count=len(result.failed_tests),
+                )
 
             # 推送测试结果事件
             self._report_test_results({
@@ -163,8 +169,8 @@ class TestingMixin:
                         files_str = ' '.join(test_files)
                         return f"cd /app && npm run test -- {files_str}"
                     return "cd /app && npm run test"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"测试执行失败：{e}")
 
         playwright_config = (
             project_path / "playwright.config.js"
@@ -239,8 +245,8 @@ class TestingMixin:
             finally:
                 try:
                     await docker_runner.cleanup()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Docker 清理失败：{e}")
 
             summary = {
                 "success": result.success,

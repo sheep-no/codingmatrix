@@ -15,7 +15,12 @@ class ErrorRecoveryMixin:
         try:
             from app.agent.test_runner import IsolatedTestRunner
             from app.agent.react_agent import ReActAgent, ReActResult
-            react_agent = ReActAgent(model_key="glm-z1-9b", max_iterations=5)
+            fallback_model = getattr(self.model_assignment, 'fallback_model', None) if hasattr(self, 'model_assignment') else None
+            react_agent = ReActAgent(
+                model_name=fallback_model or "Qwen/Qwen3.5-4B",
+                max_iterations=5,
+                api_key_token=getattr(self, 'api_key_token', None),
+            )
             test_logs = failed_test_results.get("logs_preview", "")
             task_description = f"自动修复以下失败的测试: {', '.join(failed_tests[:5])}. 错误日志: {test_logs[:500]}"
             result: ReActResult = await react_agent.process(task_description, {"project_path": str(self.output_dir)})

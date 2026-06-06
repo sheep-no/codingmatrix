@@ -54,14 +54,14 @@ ALLOWED_PIP_PACKAGES: Set[str] = {
 
     'sqlalchemy', 'alembic', 'aiosqlite', 'aiomysql', 'pymysql',
     'psycopg2', 'psycopg2-binary', 'pymongo', 'redis', 'asyncpg',
-    'aiosqlite', 'aiofiles',
+    'aiofiles',
 
     'python-jose', 'cryptography', 'passlib', 'bcrypt',
     'python-multipart', 'email-validator', 'itsdangerous',
 
     'httpx', 'aiohttp', 'requests', 'urllib3', 'websockets',
 
-    'pydantic', 'pydantic-settings', 'python-dotenv', 'anyio', 'trio',
+    'python-dotenv', 'anyio', 'trio',
     'tenacity', 'cachetools', 'backoff',
 
     'pandas', 'numpy', 'scipy', 'matplotlib', 'seaborn', 'plotly',
@@ -87,7 +87,7 @@ ALLOWED_PIP_PACKAGES: Set[str] = {
     'opencv-python', 'opencv-python-headless', 'scikit-image', 'imageio',
     'pygame', 'pyglet', 'arcade', 'pymunk',
 
-    'hiredis', 'slowapi',
+    'hiredis',
 }
 
 ENV_WHITELIST: Set[str] = {
@@ -265,8 +265,8 @@ class IsolatedTestRunner:
                     if temp_dir_path and Path(temp_dir_path).exists():
                         try:
                             shutil.rmtree(temp_dir_path, ignore_errors=True)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"清理临时目录失败 {temp_dir_path}：{e}")
 
         return result
 
@@ -336,8 +336,8 @@ class IsolatedTestRunner:
             import docker
             client = docker.from_env()
             client.ping()
-        except Exception:
-            logger.info("Docker 不可用，检测本地服务")
+        except Exception as e:
+            logger.info(f"Docker 不可用，检测本地服务: {e}")
             await self._check_local_services(self.required_services)
             return
 
@@ -406,7 +406,8 @@ class IsolatedTestRunner:
             result = sock.connect_ex((f'{a}.{b}.{c}.{d}', port))
             sock.close()
             return result == 0
-        except Exception:
+        except Exception as e:
+            logger.debug(f"端口检测异常 {a}.{b}.{c}.{d}:{port}：{e}")
             return False
 
     async def _cleanup_service_containers(self):
@@ -724,7 +725,8 @@ class IsolatedTestRunner:
                             warnings.append(
                                 f"{rel}:{line_num} - {line.strip()[:120]}"
                             )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"扫描文件失败 {py_file}：{e}")
                 continue
 
         if warnings:
@@ -792,8 +794,8 @@ class IsolatedTestRunner:
             for pycache in self.project_path.rglob("__pycache__"):
                 try:
                     shutil.rmtree(str(pycache), ignore_errors=True)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"清理 pycache 失败 {pycache}：{e}")
 
 
 class TestRunner(IsolatedTestRunner):

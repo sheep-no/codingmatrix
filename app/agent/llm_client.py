@@ -71,6 +71,21 @@ class LLMClient:
         self._model_config = LayeredModelRouter.get_model_config(
             model_name, task_type=task_type, api_key_token=api_key_token
         )
+        self._disable_fallback = self._check_disable_fallback()
+
+    def _check_disable_fallback(self) -> bool:
+        """检查用户降级链偏好是否为 disabled"""
+        if not self.api_key_token:
+            return False
+        try:
+            from app.services.apikey_manager import get_apikey_manager
+            manager = get_apikey_manager()
+            pref = manager.get_fallback_preference_by_token(self.api_key_token)
+            if pref and pref.get("fallback_preference") == "disabled":
+                return True
+        except Exception as e:
+            logger.debug(f"检查降级链偏好失败（非致命）: {e}")
+        return False
 
     async def call(self, prompt: str, system_prompt: str = "", stream: bool = False) -> str:
         """调用 LLM
@@ -101,6 +116,7 @@ class LLMClient:
                     temperature=self._model_config["temperature"],
                     api_key_token=self.api_key_token,
                     provider_id=self.provider_id,
+                    disable_fallback=self._disable_fallback,
                 )
 
             call_timeout = self._model_config.get("timeout", 300)

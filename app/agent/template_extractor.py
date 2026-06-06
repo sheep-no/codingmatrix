@@ -3,11 +3,12 @@ import logging
 from typing import List, Dict, Optional
 
 from app.agent.orchestrator_requirements import DOMAIN_TEMPLATES_DIR
+from app.agent.models import DEFAULT_REASONING_MODEL
 
 logger = logging.getLogger(__name__)
 
-TEMPLATE_REVIEW_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
-TEMPLATE_EXTRACT_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+TEMPLATE_REVIEW_MODEL = DEFAULT_REASONING_MODEL
+TEMPLATE_EXTRACT_MODEL = DEFAULT_REASONING_MODEL
 
 
 class TemplateExtractor:

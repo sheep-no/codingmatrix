@@ -217,8 +217,8 @@ class UtilsMixin:
                 if '__pycache__' not in str(py_file):
                     try:
                         backend_files[str(py_file.relative_to(self.output_dir))] = py_file.read_text()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"读取文件失败：{e}")
 
             issues = self.api_contract_checker.check_single_file_consistency(
                 file_path=file_path,
@@ -232,8 +232,8 @@ class UtilsMixin:
                 for f in self.output_dir.rglob(ext):
                     try:
                         frontend_files[str(f.relative_to(self.output_dir))] = f.read_text()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"读取文件失败：{e}")
 
             issues = self.api_contract_checker.check_single_file_consistency(
                 file_path=file_path,

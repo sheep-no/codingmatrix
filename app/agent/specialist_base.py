@@ -134,8 +134,8 @@ class Specialist:
                     mcp_tools = mcp_manager.get_all_tools()
                     if mcp_tools:
                         tools = {**SPECIALIST_TOOLS, **mcp_tools}
-            except Exception:
-                pass  # MCP 未配置时静默跳过
+            except Exception as e:
+                logger.debug(f"MCP 工具合并失败（非致命，使用默认工具集）: {e}")
 
         react_mode = _REACT_MODE_BY_COMPLEXITY.get(self._complexity, "simple")
 

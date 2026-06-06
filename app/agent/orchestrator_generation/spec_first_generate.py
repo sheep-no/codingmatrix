@@ -76,7 +76,7 @@ class SpecFirstGenerateMixin:
         detected_language = lang_result.language
         logger.info(f"语言检测: {detected_language} (置信度: {lang_result.confidence:.2f})")
 
-        spec_generator = SpecFirstGenerator(ctx, language=detected_language)
+        spec_generator = SpecFirstGenerator(ctx, language=detected_language, api_key_token=self.api_key_token)
         specs_success = await spec_generator.generate_all_specs(
             requirement, ctx.complexity, callback
         )
@@ -131,7 +131,7 @@ class SpecFirstGenerateMixin:
                 callback=callback
             )
 
-        refinement_loop_instance = RefinementLoop(ctx, complexity=self.complexity.level.value if self.complexity else "medium")
+        refinement_loop_instance = RefinementLoop(ctx, complexity=self.complexity.level.value if self.complexity else "medium", api_key_token=self.api_key_token)
         generated_contents: Dict[str, str] = {}
         files_generated = 0
         files_failed = 0
@@ -186,7 +186,7 @@ class SpecFirstGenerateMixin:
 
             state_lock = asyncio.Lock()
 
-            cross_validator = CrossValidator(ctx, language_adapter=language_adapter)
+            cross_validator = CrossValidator(ctx, language_adapter=language_adapter, api_key_token=self.api_key_token)
 
             async def generate_single_file(
                 file_path: str,
@@ -468,7 +468,7 @@ class SpecFirstGenerateMixin:
 
         # 3. CrossValidator 跨文件一致性验证
         if hasattr(self, 'model_assignment') and self.model_assignment:
-            cross_validator = CrossValidator(ctx, language_adapter=language_adapter)
+            cross_validator = CrossValidator(ctx, language_adapter=language_adapter, api_key_token=self.api_key_token)
             fix_model = self.model_assignment.reviewer_model
 
             # 更新生成文件字典
@@ -592,7 +592,7 @@ class SpecFirstGenerateMixin:
         scheduler.build_from_dependency_graph(dep_graph)
 
         cross_validator = CrossValidator(ctx, language_adapter=language_adapter)
-        refinement_loop = RefinementLoop(ctx, complexity=self.complexity.level.value if self.complexity else "medium")
+        refinement_loop = RefinementLoop(ctx, complexity=self.complexity.level.value if self.complexity else "medium", api_key_token=self.api_key_token)
 
         files_generated = 0
         files_failed = 0
@@ -854,7 +854,7 @@ class SpecFirstGenerateMixin:
 
         # 3. CrossValidator 跨文件一致性验证
         if hasattr(self, 'model_assignment') and self.model_assignment:
-            cross_validator = CrossValidator(ctx, language_adapter=language_adapter)
+            cross_validator = CrossValidator(ctx, language_adapter=language_adapter, api_key_token=self.api_key_token)
             fix_model = self.model_assignment.reviewer_model
 
             generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}

@@ -159,7 +159,8 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                 prompt=f"【USER】\n{extract_prompt}",
                 stream=False,
                 max_tokens=4096,
-                temperature=0.3
+                temperature=0.3,
+                api_key_token=self.api_key_token
             )
 
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")

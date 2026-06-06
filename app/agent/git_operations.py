@@ -324,7 +324,8 @@ class GitOperations:
 
         try:
             return await asyncio.to_thread(_branch)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取 Git 分支失败：{e}")
             return "main"
 
     async def get_head_commit(self, project_path: Path) -> str:
@@ -340,5 +341,6 @@ class GitOperations:
 
         try:
             return await asyncio.to_thread(_head)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"获取 Git HEAD 失败：{e}")
             return ""

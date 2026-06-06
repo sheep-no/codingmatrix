@@ -556,7 +556,8 @@ class CrossFilePatcher:
             if not content:
                 try:
                     content = (project_path / changed_file).read_text(encoding="utf-8", errors="ignore")
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"读取变更文件失败 {changed_file}：{e}")
                     result.failed_patches.append(changed_file)
                     continue
 
@@ -590,7 +591,8 @@ class CrossFilePatcher:
                 if not dep_content:
                     try:
                         dep_content = (project_path / dep_file).read_text(encoding="utf-8", errors="ignore")
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"读取依赖文件失败 {dep_file}：{e}")
                         result.failed_patches.append(dep_file)
                         continue
 

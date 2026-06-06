@@ -4,6 +4,7 @@
 自动分析项目的架构模式、分层结构、高风险区域和测试约定，生成项目指纹。
 """
 import ast
+import json
 import os
 import time
 import hashlib
@@ -199,7 +200,8 @@ class ProjectProfiler:
                             rel_path = os.path.relpath(py_file, root)
                             mixins.append(f"{rel_path}:{node.name}")
 
-            except Exception:
+            except Exception as e:
+                logger.debug(f"项目分析失败：{e}")
                 continue
 
         return mixins[:20]  # 限制数量，避免过多
@@ -233,7 +235,8 @@ class ProjectProfiler:
                     rel_path = os.path.relpath(init_file, root)
                     export_modules.append(rel_path)
 
-            except Exception:
+            except Exception as e:
+                logger.debug(f"项目分析失败：{e}")
                 continue
 
         return export_modules
@@ -263,7 +266,8 @@ class ProjectProfiler:
                             module = parts[1].split('.')[0]
                             import_counts[module] += 1
 
-            except Exception:
+            except Exception as e:
+                logger.debug(f"项目分析失败：{e}")
                 continue
 
         # 被 5 个以上文件依赖的模块标记为高风险
@@ -293,7 +297,8 @@ class ProjectProfiler:
                     rel_path = os.path.relpath(py_file, root)
                     data_files.add(rel_path)
 
-            except Exception:
+            except Exception as e:
+                logger.debug(f"项目分析失败：{e}")
                 continue
 
         risks.security_critical = list(security_files)[:20]
@@ -334,7 +339,8 @@ class ProjectProfiler:
                         if '@pytest.fixture' in f.read():
                             patterns.fixture_usage = True
                             break
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"项目分析失败：{e}")
                     continue
 
         return patterns
@@ -349,7 +355,8 @@ class ProjectProfiler:
             try:
                 stat = py_file.stat()
                 hasher.update(f"{py_file}:{stat.st_mtime}".encode())
-            except Exception:
+            except Exception as e:
+                logger.debug(f"项目分析失败：{e}")
                 continue
 
         return hasher.hexdigest()
@@ -360,7 +367,6 @@ class ProjectProfiler:
 
         if cache_file.exists():
             try:
-                import json
                 with open(cache_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
 
@@ -382,7 +388,6 @@ class ProjectProfiler:
         cache_file = self.cache_dir / f"{profile.cache_key}.json"
 
         try:
-            import json
             data = {
                 'architecture': {
                     'pattern': profile.architecture.pattern,

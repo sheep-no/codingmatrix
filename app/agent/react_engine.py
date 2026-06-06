@@ -177,13 +177,19 @@ class ReActEngine:
 
         return None
 
-    def _execute_tool(self, tool_name: str, tool_params: Dict) -> Tuple[bool, Any]:
-        """执行工具"""
+    async def _execute_tool(self, tool_name: str, tool_params: Dict) -> Tuple[bool, Any]:
+        """执行工具（同步和异步函数统一处理）"""
         if tool_name not in self.tools:
             return False, {"error": f"工具不存在: {tool_name}"}
 
         try:
-            result = self.tools[tool_name]["fn"](project_path=self.project_path, **tool_params)
+            fn = self.tools[tool_name]["fn"]
+            result = fn(project_path=self.project_path, **tool_params)
+
+            # 异步函数返回 coroutine，需要 await
+            if asyncio.iscoroutine(result):
+                result = await result
+
             return True, result
         except Exception as e:
             return False, {"error": str(e)}
@@ -198,16 +204,16 @@ class ReActEngine:
         if self.callback and self.emit_event_fn:
             try:
                 self.emit_event_fn(self.callback, event_type, data)
-            except Exception:
-                logger.debug("工具执行失败")
+            except Exception as e:
+                logger.debug(f"事件推送失败（非致命）: {e}")
 
     async def _stream(self, text: str):
         """流式输出（full 模式用）"""
         if self.stream_callback:
             try:
                 self.stream_callback(text)
-            except Exception:
-                logger.debug("工具执行失败")
+            except Exception as e:
+                logger.debug(f"流式输出回调失败（非致命）: {e}")
 
     async def _reflect(self, task: str, steps: List[ReActStep]) -> Dict[str, Any]:
         """Reflection 阶段 - 反思是否继续（full 模式用）
@@ -309,11 +315,15 @@ class ReActEngine:
         """构建工具历史文本（滑动窗口：最近 N 条完整，更早的摘要）
 
         避免工具历史无限增长占用上下文窗口。
-        免费模型上下文窗口有限（32K-128K），每轮 2000 字符的工具结果
-        5 轮后就占 10K+ token，挤压生成空间。
+        免费模型上下文窗口有限（32K-128K），每轮 1500 字符的工具结果
+        5 轮后就占 7500+ token，挤压生成空间。
         """
         if len(self.tool_history) <= self.MAX_RECENT_ENTRIES:
-            return "\n\n".join(self.tool_history)
+            text = "\n\n".join(self.tool_history)
+            # 即使条目少，也可能单条很大（如读取大文件）
+            if len(text) > self.MAX_HISTORY_CHARS:
+                return text[:self.MAX_HISTORY_CHARS] + "\n[...结果已截断]"
+            return text
 
         # 更早的条目：每条压缩为一行摘要
         early = self.tool_history[:-self.MAX_RECENT_ENTRIES]
@@ -327,7 +337,14 @@ class ReActEngine:
         summary = "[更早的工具调用]\n" + "\n".join(summary_lines)
         recent_text = "\n\n".join(recent)
 
-        return f"{summary}\n\n{recent_text}"
+        full_text = f"{summary}\n\n{recent_text}"
+        # 最终兜底：总字符数超限时截断早期摘要
+        if len(full_text) > self.MAX_HISTORY_CHARS:
+            overflow = len(full_text) - self.MAX_HISTORY_CHARS
+            summary = summary[:max(0, len(summary) - overflow)]
+            full_text = f"{summary}\n\n{recent_text}"
+
+        return full_text
 
     async def _run_simple(self, prompt: str, enhanced_system: str) -> str:
         """简单模式：Thought→Tool→Result 循环，自然终止"""
@@ -342,16 +359,7 @@ class ReActEngine:
                     f"请根据以上工具返回的信息，继续调用工具或直接生成最终代码。"
                 )
 
-            response = await self.call_llm_fn(current_prompt, enhanced_system)
-            if not response:
-                return ""
-
-            tool_call = self._parse_tool_call(response)
-            if not tool_call:
-                logger.info(f"{self.role_name} ReAct 自然终止: 第 {round_num} 轮, 工具调用 {len(self.tool_history)} 次")
-                self._add_step(ReActStep("final", response))
-                return response
-
+            # 安全阀：最后一轮强制生成，不执行工具
             if round_num >= self.max_rounds:
                 logger.warning(f"{self.role_name} ReAct 达到安全阀上限 ({self.max_rounds} 轮), 强制生成")
                 await self._emit_event("react_generating", {
@@ -365,6 +373,16 @@ class ReActEngine:
                 )
                 self._add_step(ReActStep("final", final_response))
                 return final_response
+
+            response = await self.call_llm_fn(current_prompt, enhanced_system)
+            if not response:
+                return ""
+
+            tool_call = self._parse_tool_call(response)
+            if not tool_call:
+                logger.info(f"{self.role_name} ReAct 自然终止: 第 {round_num} 轮, 工具调用 {len(self.tool_history)} 次")
+                self._add_step(ReActStep("final", response))
+                return response
 
             tool_name = tool_call.get("tool", "")
             tool_params = tool_call.get("params", {})
@@ -384,7 +402,7 @@ class ReActEngine:
                 "max_rounds": self.max_rounds
             })
 
-            success, tool_result = self._execute_tool(tool_name, tool_params)
+            success, tool_result = await self._execute_tool(tool_name, tool_params)
 
             self.steps[-1].tool_result = tool_result
             self.steps[-1].success = success
@@ -483,7 +501,7 @@ class ReActEngine:
                 "max_rounds": self.max_rounds
             })
 
-            success, tool_result = self._execute_tool(tool_name, tool_params)
+            success, tool_result = await self._execute_tool(tool_name, tool_params)
             self.steps[-1].tool_result = tool_result
             self.steps[-1].success = success
 

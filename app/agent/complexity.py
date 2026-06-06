@@ -11,6 +11,7 @@ from typing import Optional, List
 from dataclasses import dataclass
 
 from app.utils import call_llm
+from app.agent.models import DEFAULT_CODE_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,8 @@ class ComplexityAnalysis:
     has_backend: bool
     has_database: bool
     has_auth: bool = False
-    key_technologies: List[str] = None
-    risk_factors: List[str] = None
+    key_technologies: Optional[List[str]] = None
+    risk_factors: Optional[List[str]] = None
     estimated_tokens: int = 0  # 预估 Token 消耗
     estimated_cost_usd: float = 0.0  # 预估成本（美元）
 
@@ -167,7 +168,7 @@ class ComplexityAnalyzer:
         return int(total * level_multiplier.get(level, 1.0))
 
     @classmethod
-    async def analyze_with_llm(cls, requirement: str) -> Optional[ComplexityAnalysis]:
+    async def analyze_with_llm(cls, requirement: str, api_key_token: Optional[str] = None) -> Optional[ComplexityAnalysis]:
         """
         使用 LLM 辅助分析复杂度（适用于中大型需求）
 
@@ -191,11 +192,12 @@ class ComplexityAnalyzer:
             user_prompt = f"用户需求：\n{requirement}\n\n关键词初估：约 {keyword_result.estimated_files} 个文件，技术栈：{keyword_result.key_technologies}。请校准估算。"
 
             response = await call_llm(
-                model="Qwen/Qwen3-8B",
+                model=DEFAULT_CODE_MODEL,
                 prompt=user_prompt,
                 max_tokens=512,
                 temperature=0.3,
-                system_prompt=system_prompt
+                system_prompt=system_prompt,
+                api_key_token=api_key_token
             )
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
 

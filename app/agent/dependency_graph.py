@@ -12,22 +12,18 @@ DependencyGraph - 依赖图驱动生成
 - 配置文件 -> 无依赖（最早生成）
 """
 
-import asyncio
 import logging
 import re
-from typing import Optional, Dict, Any, List, Set, Tuple
+from typing import Optional, Dict, Any, List, Set
 from pathlib import Path
 from dataclasses import dataclass, field
 from collections import defaultdict
 
-logger = logging.getLogger(__name__)
+from app.agent.signature_extractor import extract_signatures, get_context_budget
+from app.agent.shadow_scanner import scan_shadow_dependencies, SKIP_DIRS
+from app.agent.dependency_rules import DEPENDENCY_RULES, PATH_TYPE_RULES, EXTENSION_TYPE_MAP
 
-# 扫描已有项目时跳过的目录
-SKIP_DIRS = {
-    '__pycache__', 'node_modules', '.git', 'venv', '.venv',
-    'dist', 'build', '.next', 'coverage', '.pytest_cache',
-    'playwright-report', 'test-results', '.turbo'
-}
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -51,160 +47,9 @@ class DependencyGraph:
     4. 在生成每个文件时，注入其依赖文件的内容到上下文
     """
 
-    # ==================== 预定义的依赖规则 ====================
-
-    # 文件类型到依赖类型的映射
-    DEPENDENCY_RULES: Dict[str, List[str]] = {
-        # 基础设施层 - 最先生成
-        "config": [],
-        "env": [],
-        "dockerfile": [],
-        "service_config": ["env"],  # v4.8.0: 服务连接配置依赖 env
-        "docker_compose": ["env", "config"],  # v4.8.0: docker-compose 依赖 env 和 config
-
-        # 数据库相关
-        "database": ["config"],
-        "model": ["database", "config"],
-        "repository": ["model"],
-        "migration": ["model", "database"],
-
-        # 类型和工具
-        "types": ["config"],
-        "utils": ["config", "env"],  # v4.8.0: utils 可能读取 env 配置
-        "constants": ["config"],
-
-        # 业务层 - v4.8.0: service 依赖 service_config 和 env
-        "service": ["model", "repository", "types", "utils", "service_config", "env"],
-        "schema": ["model", "types"],
-
-        # API 层
-        "api": ["service", "schema", "types"],
-        "view": ["service", "schema", "types"],
-        "controller": ["service", "schema", "types"],
-        "router": ["service", "schema", "types"],
-
-        # 前端
-        "frontend_types": ["api"],
-        "frontend_api": ["frontend_types"],
-        "frontend_component": ["frontend_api", "frontend_types"],
-        "frontend_page": ["frontend_component"],
-        "frontend_style": [],
-
-        # 测试
-        "test": ["model", "service", "api"],
-
-        # 文档
-        "readme": [],
-        "docs": [],
-    }
-
-    # 文件路径到类型的映射规则
-    PATH_TYPE_RULES: List[Tuple[str, str]] = [
-        # 配置
-        ("requirements.txt", "config"),
-        ("package.json", "config"),
-        (".env", "env"),
-        (".env.example", "env"),
-        (".env.local", "env"),
-        ("Dockerfile", "dockerfile"),
-        ("docker-compose.yml", "docker_compose"),  # v4.8.0: 独立类型
-        ("docker-compose.yaml", "docker_compose"),
-        ("pyproject.toml", "config"),
-        ("setup.py", "config"),
-        ("Makefile", "config"),
-
-        # v4.8.0: 服务连接配置
-        ("redis_config.py", "service_config"),
-        ("redis_connection.py", "service_config"),
-        ("database_config.py", "service_config"),
-        ("db_connection.py", "service_config"),
-        ("mongodb_config.py", "service_config"),
-        ("rabbitmq_config.py", "service_config"),
-        ("elasticsearch_config.py", "service_config"),
-        ("connections.py", "service_config"),
-        ("connections/", "service_config"),
-        ("connectors/", "service_config"),
-
-        # Python 配置
-        ("config.py", "config"),
-        ("settings.py", "config"),
-        ("config/", "config"),
-        ("settings/", "config"),
-
-        # 数据库
-        ("database.py", "database"),
-        ("database/", "database"),
-        ("db.py", "database"),
-
-        # 模型
-        ("models.py", "model"),
-        ("models/", "model"),
-        ("model/", "model"),
-        ("entities/", "model"),
-        ("entity/", "model"),
-
-        # Repository
-        ("repositories/", "repository"),
-        ("repository/", "repository"),
-        ("repos/", "repository"),
-        ("dao/", "repository"),
-
-        # 类型
-        ("types.py", "types"),
-        ("types/", "types"),
-        ("schemas.py", "types"),
-        ("schemas/", "schema"),
-        ("dto/", "schema"),
-
-        # 工具
-        ("utils/", "utils"),
-        ("utils.py", "utils"),
-        ("helpers/", "utils"),
-        ("helpers.py", "utils"),
-        ("constants.py", "constants"),
-        ("constants/", "constants"),
-
-        # 服务
-        ("services/", "service"),
-        ("service/", "service"),
-        ("business/", "service"),
-
-        # API/View/Controller
-        ("api/", "api"),
-        ("apis/", "api"),
-        ("views/", "view"),
-        ("view/", "view"),
-        ("controllers/", "controller"),
-        ("controller/", "controller"),
-        ("routers/", "router"),
-        ("router/", "router"),
-        ("routes/", "router"),
-
-        # 前端
-        ("src/types/", "frontend_types"),
-        ("src/api/", "frontend_api"),
-        ("src/apis/", "frontend_api"),
-        ("src/components/", "frontend_component"),
-        ("src/component/", "frontend_component"),
-        ("src/pages/", "frontend_page"),
-        ("src/page/", "frontend_page"),
-        ("src/views/", "frontend_page"),
-        ("src/styles/", "frontend_style"),
-        ("src/assets/", "frontend_style"),
-
-        # 迁移
-        ("migrations/", "migration"),
-        ("alembic/", "migration"),
-
-        # 测试
-        ("tests/", "test"),
-        ("test/", "test"),
-        ("__tests__/", "test"),
-
-        # 文档
-        ("README.md", "readme"),
-        ("docs/", "docs"),
-    ]
+    # 从 dependency_rules.py 导入，保持向后兼容访问
+    DEPENDENCY_RULES = DEPENDENCY_RULES
+    PATH_TYPE_RULES = PATH_TYPE_RULES
 
     def __init__(self, language_adapter=None):
         self.nodes: Dict[str, FileNode] = {}
@@ -546,17 +391,18 @@ class DependencyGraph:
 
         # 打破检测到的循环
         for cycle in cycles:
-            # 找到优先级最低的边并移除
-            min_priority = float('inf')
+            # 策略：移除指向入度最大的节点的边
+            # 入度大的节点更可能从其他路径获得依赖，移除该边影响最小
+            max_in_degree = -1
             edge_to_remove = None
 
             for i in range(len(cycle) - 1):
                 from_node = cycle[i]
                 to_node = cycle[i + 1]
-                priority = self.nodes[from_node].priority if from_node in self.nodes else 99
+                in_degree = len(self.reverse_adjacency.get(to_node, set()))
 
-                if priority < min_priority:
-                    min_priority = priority
+                if in_degree > max_in_degree:
+                    max_in_degree = in_degree
                     edge_to_remove = (from_node, to_node)
 
             if edge_to_remove:
@@ -566,7 +412,7 @@ class DependencyGraph:
                 if from_node in self.nodes:
                     if to_node in self.nodes[from_node].dependencies:
                         self.nodes[from_node].dependencies.remove(to_node)
-                logger.info(f"打破循环依赖: {from_node} -> {to_node}")
+                logger.info(f"打破循环依赖: {from_node} -> {to_node} (目标入度={max_in_degree})")
 
     def get_generation_layers(self) -> List[List[str]]:
         """
@@ -611,20 +457,8 @@ class DependencyGraph:
 
         return layers
 
-    @staticmethod
-    def get_context_budget(context_length: int) -> int:
-        """根据模型上下文窗口计算注入预算（字节）
-
-        小上下文 (<=32K)：取 5%，下限 3000，上限 6000
-        中上下文 (32K-64K)：取 4%，下限 5000，上限 10000
-        大上下文 (>64K)：取 3%，下限 8000，上限 15000
-        """
-        if context_length <= 32768:
-            return max(3000, min(6000, int(context_length * 0.05)))
-        elif context_length <= 65536:
-            return max(5000, min(10000, int(context_length * 0.04)))
-        else:
-            return max(8000, min(15000, int(context_length * 0.03)))
+    # 向后兼容：保留类方法引用
+    get_context_budget = staticmethod(get_context_budget)
 
     def get_context_for_file(self, file_path: str, generated_files: Dict[str, str], max_context_bytes: int = 0, model_context_length: int = 0) -> str:
         """
@@ -638,7 +472,7 @@ class DependencyGraph:
         """
         if max_context_bytes <= 0:
             ctx_len = model_context_length if model_context_length > 0 else 32768
-            max_context_bytes = self.get_context_budget(ctx_len)
+            max_context_bytes = get_context_budget(ctx_len)
 
         dependencies = self.adjacency.get(file_path, set())
         if not dependencies:
@@ -668,7 +502,7 @@ class DependencyGraph:
             else:
                 budget = max(200, remaining_budget // max(1, total_deps - i))
 
-            signatures = self._extract_signatures(dep_path, content)
+            signatures = extract_signatures(dep_path, content)
             preview = signatures if signatures else content[:budget]
             truncated = not signatures and len(content) > budget
             parts.append(
@@ -687,125 +521,6 @@ class DependencyGraph:
             if deps:
                 summary[path] = list(deps)
         return summary
-
-    # 签名提取正则（与 specialist_base._SYMBOL_PATTERNS 一致）
-    _SIGNATURE_PATTERNS = {
-        ".py": {
-            "function": re.compile(r"^(?:async\s+)?def\s+(\w+)\s*\("),
-            "class": re.compile(r"^class\s+(\w+)(?:\s*\([^)]*\))?\s*:"),
-        },
-        ".js": {
-            "function": re.compile(r"(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\("),
-            "class": re.compile(r"(?:export\s+)?class\s+(\w+)"),
-        },
-        ".ts": {
-            "function": re.compile(r"(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*[<(]|(?:const|let|var)\s+(\w+)\s*(?::\s*[^=]+)?\s*=\s*(?:async\s+)?\("),
-            "class": re.compile(r"(?:export\s+)?(?:abstract\s+)?class\s+(\w+)"),
-        },
-        ".vue": {
-            "function": re.compile(r"(?:async\s+)?function\s+(\w+)\s*\(|(?:const|let)\s+(\w+)\s*=\s*(?:async\s+)?\("),
-            "class": re.compile(r"class\s+(\w+)"),
-        },
-        ".go": {
-            "function": re.compile(r"^func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)\s*\("),
-            "class": re.compile(r"^type\s+(\w+)\s+struct\s*\{"),
-        },
-        ".java": {
-            "function": re.compile(r"(?:public|private|protected|static|\s)+\s+\w+\s+(\w+)\s*\("),
-            "class": re.compile(r"(?:public|private|protected|\s)*\s*(?:class|interface|enum)\s+(\w+)"),
-        },
-        ".rs": {
-            "function": re.compile(r"(?:pub\s+)?(?:async\s+)?fn\s+(\w+)"),
-            "class": re.compile(r"(?:pub\s+)?struct\s+(\w+)|(?:pub\s+)?enum\s+(\w+)|(?:pub\s+)?trait\s+(\w+)"),
-        },
-        ".rb": {
-            "function": re.compile(r"^\s*def\s+(\w+)"),
-            "class": re.compile(r"^\s*class\s+(\w+)|^\s*module\s+(\w+)"),
-        },
-    }
-
-    # 冷门语言兜底：匹配常见的 import 和定义模式
-    _GENERIC_IMPORT = re.compile(r"^\s*(?:import |from |#include |using |use |require |package\s+\w+)", re.IGNORECASE)
-    _GENERIC_DEF = re.compile(r"^\s*(?:(?:pub\s+)?(?:async\s+)?(?:fn|func|function|def|class|struct|enum|trait|interface|type|module)\s+\w+)", re.IGNORECASE)
-
-    def _extract_signatures(self, file_path: str, content: str) -> Optional[str]:
-        """从文件内容中提取函数/类签名，不包含函数体。
-
-        返回格式化的签名文本，失败时返回 None（调用方退化为截断原文）。
-        """
-        try:
-            ext = Path(file_path).suffix.lower()
-            patterns = self._SIGNATURE_PATTERNS.get(ext)
-            if patterns is None:
-                fallback = {".jsx": ".js", ".tsx": ".ts"}.get(ext, ext)
-                patterns = self._SIGNATURE_PATTERNS.get(fallback)
-
-            lines = content.split('\n')
-
-            # 有精确正则时：提取类和函数签名
-            if patterns:
-                result_parts = []
-                current_class = None
-
-                for line in lines:
-                    stripped = line.strip()
-                    if not stripped or stripped.startswith('#') or stripped.startswith('//'):
-                        continue
-
-                    cls_match = patterns["class"].search(line)
-                    if cls_match:
-                        name = next(g for g in cls_match.groups() if g is not None)
-                        current_class = name
-                        result_parts.append(stripped[:200])
-                        continue
-
-                    fn_match = patterns["function"].search(line)
-                    if fn_match:
-                        paren_idx = line.find('(')
-                        if paren_idx >= 0:
-                            depth, end = 0, paren_idx
-                            for j in range(paren_idx, min(paren_idx + 500, len(line))):
-                                if line[j] == '(':
-                                    depth += 1
-                                elif line[j] == ')':
-                                    depth -= 1
-                                    if depth == 0:
-                                        end = j + 1
-                                        break
-                            sig = stripped[:end - len(line) + len(stripped) + 1]
-                        else:
-                            sig = stripped
-                        result_parts.append(f"  {sig[:200]}" if current_class else sig[:200])
-
-                if result_parts:
-                    return '\n'.join(result_parts)
-
-            # 冷门语言兜底：import 行 + 看起来像定义的行
-            imports = []
-            defs = []
-            for line in lines:
-                stripped = line.strip()
-                if not stripped or stripped.startswith('#') or stripped.startswith('//'):
-                    continue
-                if self._GENERIC_IMPORT.search(line):
-                    imports.append(stripped[:200])
-                elif self._GENERIC_DEF.search(line):
-                    # 截断到 { 或 : 之前，只保留签名部分
-                    sig = stripped
-                    for sep in ['{', ':']:
-                        idx = sig.find(sep)
-                        if idx > 0:
-                            sig = sig[:idx].rstrip()
-                            break
-                    defs.append(sig[:200])
-
-            if imports or defs:
-                parts = imports[:30] + defs[:50]
-                return '\n'.join(parts)
-
-            return None
-        except Exception:
-            return None
 
     def to_dict(self) -> Dict[str, Any]:
         """导出依赖图信息"""
@@ -836,27 +551,7 @@ class DependencyGraph:
 
         # 根据扩展名推断
         ext = Path(path).suffix.lower()
-        ext_map = {
-            '.js': 'frontend_component',
-            '.ts': 'frontend_types',
-            '.vue': 'frontend_component',
-            '.jsx': 'frontend_component',
-            '.tsx': 'frontend_component',
-            '.html': 'frontend_page',
-            '.css': 'frontend_style',
-            '.scss': 'frontend_style',
-            '.md': 'docs',
-            '.json': 'config',
-            '.yaml': 'config',
-            '.yml': 'config',
-            '.toml': 'config',
-            '.sql': 'migration',
-            '.env': 'env',
-            '.sh': 'config',
-            '.dockerfile': 'dockerfile',
-            '.txt': 'config',
-        }
-        return ext_map.get(ext, 'utils')
+        return EXTENSION_TYPE_MAP.get(ext, 'utils')
 
     def _path_to_api_file(self, api_path: str) -> str:
         """将 API 路径转换为文件路径"""
@@ -879,7 +574,6 @@ class DependencyGraph:
 
     def _camel_to_snake(self, name: str) -> str:
         """驼峰转蛇形"""
-        import re
         s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
         return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
@@ -894,7 +588,7 @@ class DependencyGraph:
         """
         result = self._build_graph_from_project(project_path)
 
-        shadow_deps = await self.scan_shadow_dependencies(project_path)
+        shadow_deps = await scan_shadow_dependencies(project_path)
         result["shadow_dependencies"] = shadow_deps
 
         return result
@@ -973,7 +667,8 @@ class DependencyGraph:
         deps = []
         try:
             content = file_path.read_text(encoding='utf-8', errors='ignore')
-        except Exception:
+        except Exception as e:
+            logger.debug(f"读取文件失败 {file_path}：{e}")
             return deps
 
         patterns = [
@@ -1007,7 +702,8 @@ class DependencyGraph:
         deps = []
         try:
             content = file_path.read_text(encoding='utf-8', errors='ignore')
-        except Exception:
+        except Exception as e:
+            logger.debug(f"读取文件失败 {file_path}：{e}")
             return deps
 
         patterns = [
@@ -1036,69 +732,6 @@ class DependencyGraph:
                         break
 
         return deps
-
-    async def scan_shadow_dependencies(self, project_path: Path) -> Dict[str, List[str]]:
-        """
-        阴影依赖扫描：发现隐式依赖（只记录不阻断）
-
-        异步版本：使用 asyncio.to_thread 把 rglob + read_text 放到默认线程池
-        执行，避免大项目场景下阻塞事件循环。
-
-        扫描以下模式：
-        - eval/exec 动态代码执行
-        - 动态 import (importlib.import_module)
-        - 环境变量依赖 (os.environ/os.getenv)
-        - 动态加载 (require.context, webpack dynamic import)
-        - 反射调用 (__import__, getattr 动态模块)
-
-        Returns:
-            {file_path: [发现的隐式依赖模式描述]}
-        """
-        return await asyncio.to_thread(self._scan_shadow_dependencies_sync, project_path)
-
-    def _scan_shadow_dependencies_sync(self, project_path: Path) -> Dict[str, List[str]]:
-        """同步版阴影依赖扫描 — 在线程池中执行"""
-        shadow_deps: Dict[str, List[str]] = {}
-
-        patterns = {
-            'eval_exec': r'\beval\s*\(|\bexec\s*\(',
-            'dynamic_import': r'importlib\.import_module|__import__\s*\(',
-            'env_dependency': r'os\.environ\b|os\.getenv\s*\(',
-            'dynamic_require': r'require\.context|import\s*\(',
-            'getattr_dynamic': r'getattr\s*\([^,]+,\s*["\']',
-        }
-
-        for file_path in project_path.rglob("*"):
-            if any(part in SKIP_DIRS for part in file_path.parts):
-                continue
-            if not file_path.is_file():
-                continue
-
-            suffix = file_path.suffix.lower()
-            if suffix not in ('.py', '.js', '.ts', '.jsx', '.tsx', '.vue'):
-                continue
-
-            try:
-                content = file_path.read_text(encoding='utf-8', errors='ignore')
-            except Exception:
-                continue
-
-            rel_path = str(file_path.relative_to(project_path))
-            found = []
-
-            for pattern_name, regex in patterns.items():
-                if re.search(regex, content):
-                    found.append(pattern_name)
-
-            if found:
-                shadow_deps[rel_path] = found
-
-        if shadow_deps:
-            logger.info(f"阴影依赖扫描发现 {len(shadow_deps)} 个文件含有隐式依赖（仅记录）")
-            for path, patterns_found in shadow_deps.items():
-                logger.info(f"  {path}: {', '.join(patterns_found)}")
-
-        return shadow_deps
 
     def extract_dependencies_from_content(self, file_path: str, content: str) -> List[str]:
         """

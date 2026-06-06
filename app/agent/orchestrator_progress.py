@@ -6,12 +6,23 @@ import logging
 from typing import Optional, Callable, Dict, List, Any
 from dataclasses import dataclass, field
 
-MAX_CONCURRENT_LLM_CALLS = int(os.environ.get("CM_MAX_CONCURRENT_LLM_CALLS", "4"))
+# P2 清理：删除死常量 MAX_CONCURRENT_LLM_CALLS
+# 之前这里有一行：MAX_CONCURRENT_LLM_CALLS = int(os.environ.get("CM_MAX_CONCURRENT_LLM_CALLS", "4"))
+# 但全 app/ 没人 import 它。真正的信号量用的是 specialist_base.py:17 的硬编码 6。
+# （specialists.py:1 也从 specialist_base 导入同名常量，不是这里）
+
 MAX_CONTENT_FOR_CONTEXT = int(os.environ.get("CM_MAX_CONTENT_FOR_CONTEXT", "3000"))
 
 logger = logging.getLogger(__name__)
 
 PROGRESS_LABELS = {
+    # 粗粒度阶段（_update_phase 设定，经 _current_phase 输出）
+    "initializing": "初始化",
+    "analyzing": "分析需求",
+    "evaluation": "评估项目",
+    "running_tests": "运行测试",
+
+    # 细粒度阶段（_report_progress(phase=...) 直接输出）
     "analyzing_complexity": "分析项目复杂度",
     "assigning_models": "分配 AI 模型",
     "initializing_roles": "初始化专家角色",
@@ -38,7 +49,6 @@ PROGRESS_LABELS = {
     "generation_complete": "项目生成完成",
     "incremental_analysis": "分析变更内容",
     "incremental_no_changes": "无变更，跳过生成",
-    "running_tests": "运行自动化测试",
     "tests_passed": "测试全部通过",
     "tests_failed_recovering": "测试失败，正在自动修复",
     "recovery_success": "自动修复成功",
@@ -52,6 +62,21 @@ PROGRESS_LABELS = {
     "react_tool_call": "搜索项目文件",
     "react_tool_result": "获取搜索结果",
     "react_generating": "基于上下文生成代码",
+
+    # 评估阶段子步骤（evaluate_mixin.py）
+    "designing_analysis": "设计评估维度",
+    "requirement_analysis": "需求深度分析",
+    "deep_evaluation": "深度评估中",
+
+    # 需求联想阶段子步骤（orchestrator_requirements/mixin.py）
+    "detecting_domain": "识别需求领域",
+    "searching_history": "搜索历史项目",
+    "deep_association": "深度关联分析",
+    "devil_review": "对立面审查",
+    "building_result": "构建联想结果",
+
+    # 终态
+    "complete": "完成",
 }
 
 @dataclass
@@ -188,8 +213,7 @@ class ProgressMixin:
         }
         if self.callback:
             try:
-                import json as _json
-                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
                     task = asyncio.create_task(result)
                     self._pending_tasks.add(task)
@@ -213,8 +237,7 @@ class ProgressMixin:
         }
         if self.callback:
             try:
-                import json as _json
-                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
                     task = asyncio.create_task(result)
                     self._pending_tasks.add(task)
@@ -233,8 +256,7 @@ class ProgressMixin:
         }
         if self.callback:
             try:
-                import json as _json
-                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
                     task = asyncio.create_task(result)
                     self._pending_tasks.add(task)
@@ -249,8 +271,7 @@ class ProgressMixin:
         }
         if self.callback:
             try:
-                import json as _json
-                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
                     task = asyncio.create_task(result)
                     self._pending_tasks.add(task)
@@ -269,8 +290,7 @@ class ProgressMixin:
         }
         if self.callback:
             try:
-                import json as _json
-                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
                     task = asyncio.create_task(result)
                     self._pending_tasks.add(task)
@@ -287,8 +307,7 @@ class ProgressMixin:
         }
         if self.callback:
             try:
-                import json as _json
-                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
                     task = asyncio.create_task(result)
                     self._pending_tasks.add(task)
@@ -305,8 +324,7 @@ class ProgressMixin:
         }
         if self.callback:
             try:
-                import json as _json
-                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
                     task = asyncio.create_task(result)
                     self._pending_tasks.add(task)
@@ -323,8 +341,7 @@ class ProgressMixin:
         }
         if self.callback:
             try:
-                import json as _json
-                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
                     task = asyncio.create_task(result)
                     self._pending_tasks.add(task)
@@ -341,8 +358,7 @@ class ProgressMixin:
         }
         if self.callback:
             try:
-                import json as _json
-                result = self.callback(_json.dumps(event, ensure_ascii=False))
+                result = self.callback(json.dumps(event, ensure_ascii=False))
                 if asyncio.iscoroutine(result):
                     task = asyncio.create_task(result)
                     self._pending_tasks.add(task)
@@ -350,24 +366,73 @@ class ProgressMixin:
             except Exception as e:
                 logger.error(f"性能指标事件推送失败: {e}")
 
-    def _report_warning(self, message: str, **kwargs):
-        """警告事件"""
+    def _report_warning(self, message: str, code: str = "", **kwargs):
+        """警告事件
+
+        P2 充实：之前此方法存在但无人调用，现在补到 orchestrator_files.py
+        和 orchestrator_testing.py 的 warnings.append() 位置。
+        前端 useAgentStreaming.js case 'warning' 期望 data.message + data.code。
+        """
         event = {
             "type": "warning",
             "message": message,
+            "code": code,
             "timestamp": time.time(),
             **kwargs
         }
-        if self.callback:
-            try:
-                import json as _json
-                result = self.callback(_json.dumps(event, ensure_ascii=False))
-                if asyncio.iscoroutine(result):
-                    task = asyncio.create_task(result)
-                    self._pending_tasks.add(task)
-                    task.add_done_callback(self._pending_tasks.discard)
-            except Exception as e:
-                logger.error(f"警告事件推送失败: {e}")
+        self._emit_event(event, label="警告事件")
+
+    def _report_file_rejected(self, file_path: str, reason: str = "", **kwargs):
+        """文件被拒绝事件（用户在 HITL 审批中拒绝）
+
+        P2 充实：之前前端 case 'file_rejected' 永不触发，因为后端没发这个事件。
+        现在补到 orchestrator_files.py 433（_wait_for_approval 返回 False 时）。
+        前端 useAgentStreaming.js case 'file_rejected' 期望 data.data?.file_path。
+        """
+        event = {
+            "type": "file_rejected",
+            "data": {
+                "file_path": file_path,
+                "reason": reason,
+            },
+            "timestamp": time.time(),
+            **kwargs
+        }
+        self._emit_event(event, label="文件拒绝事件")
+
+    def _report_step_detail(self, description: str, category: str = "执行步骤", **kwargs):
+        """细粒度执行步骤事件
+
+        P2 充实：前端 case 'step_detail' 之前永不触发，因为后端没发这个事件。
+        现在补到 spec_first_generate.py 的关键 sub-step 位置（spec 生成、
+        跨文件验证、最终验证等），让前端 addDetail 面板能看到步骤。
+        前端 useAgentStreaming.js case 'step_detail' 期望 data.description + data.category。
+        """
+        event = {
+            "type": "step_detail",
+            "description": description,
+            "category": category,
+            "timestamp": time.time(),
+            **kwargs
+        }
+        self._emit_event(event, label="步骤详情事件")
+
+    def _emit_event(self, event: Dict[str, Any], label: str = "事件"):
+        """统一事件推送入口（P2 充实新增）
+
+        把 _report_warning / _report_file_rejected / _report_step_detail
+        共用的 callback 调用 + asyncio 任务管理逻辑抽出来。
+        """
+        if not self.callback:
+            return
+        try:
+            result = self.callback(json.dumps(event, ensure_ascii=False))
+            if asyncio.iscoroutine(result):
+                task = asyncio.create_task(result)
+                self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks.discard)
+        except Exception as e:
+            logger.error(f"{label}推送失败: {e}")
 
     def _update_phase(self, phase: str):
         self._current_phase = phase

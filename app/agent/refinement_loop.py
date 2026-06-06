@@ -80,8 +80,9 @@ class RefinementLoop:
 - 保持原有代码结构，只修复错误部分
 - 不要添加新的功能或改变原有逻辑"""
 
-    def __init__(self, context: SharedContext, complexity: str = "medium"):
+    def __init__(self, context: SharedContext, complexity: str = "medium", api_key_token: Optional[str] = None):
         self.context = context
+        self.api_key_token = api_key_token
         from app.agent.models import DEFAULT_REASONING_MODEL
         self.default_model = context.model_assignment.get("backend_model", DEFAULT_REASONING_MODEL) if context.model_assignment else DEFAULT_REASONING_MODEL
         from app.agent.orchestrator import LayeredModelRouter
@@ -176,7 +177,8 @@ class RefinementLoop:
                     stream=False,
                     max_tokens=model_config["max_tokens"],
                     thinking_budget=model_config["thinking_budget"],
-                    temperature=0.5  # 修复时使用更低的温度
+                    temperature=0.5,  # 修复时使用更低的温度
+                    api_key_token=self.api_key_token
                 )
 
                 new_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -449,8 +451,8 @@ class RefinementLoop:
             from app.agent.spec_first_generator import SpecFirstGenerator
             gen = SpecFirstGenerator(self.context)
             spec_context = gen.get_spec_context_for_file(file_path, file_type)
-        except Exception:
-            logger.debug("精炼循环操作失败")
+        except Exception as e:
+            logger.debug(f"精炼循环操作失败：{e}")
 
         # 获取已生成的相关文件
         related_files = self.context.get_generated_files_summary()

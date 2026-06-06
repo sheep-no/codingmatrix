@@ -133,8 +133,19 @@ class AgentExecutor:
             )
             return response.get("choices", [{}])[0].get("message", {}).get("content", "")
 
+        # 合并 MCP 工具（只读工具也包含 MCP 工具，因为用户可能提供分析类 MCP）
+        tools = dict(ANALYSIS_TOOLS)
+        try:
+            from app.agent.mcp_client import MCPClientManager
+            mcp_manager = MCPClientManager.get_instance()
+            if mcp_manager:
+                tools.update(mcp_manager.get_all_tools())
+        except Exception as e:
+            logger.debug(f"加载 MCP 工具失败：{e}")
+            pass
+
         engine = ReActEngine(
-            tools=ANALYSIS_TOOLS,
+            tools=tools,
             call_llm_fn=call_llm_fn,
             project_path=project_path,
             max_rounds=max_rounds,

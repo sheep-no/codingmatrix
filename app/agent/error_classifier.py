@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 
 from app.utils import call_llm
+from app.agent.models import DEFAULT_CODE_MODEL
 
 
 @dataclass
@@ -152,7 +153,7 @@ class ErrorClassifier:
 
         try:
             response = await call_llm(
-                model="Qwen/Qwen3-8B",
+                model=DEFAULT_CODE_MODEL,
                 prompt=f"【USER】\n{prompt}",
                 stream=False,
                 max_tokens=500,

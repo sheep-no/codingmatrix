@@ -19,11 +19,24 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from app.utils import call_llm
-from app.utils.json_parser import extract_json_from_llm
+from app.agent.json_parser import safe_parse_json
 from app.agent.shared_context import SharedContext
 from app.agent.refinement_loop import RefinementLoop, RefinementResult
 
 logger = logging.getLogger(__name__)
+
+
+def _load_cross_validation_config() -> Dict[str, Any]:
+    """加载交叉验证配置"""
+    try:
+        config_path = Path(__file__).parent.parent.parent / "data" / "agent_model_config.json"
+        if config_path.exists():
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                return config.get("cross_validation", {})
+    except Exception as e:
+        logger.warning(f"加载交叉验证配置失败: {e}")
+    return {}
 
 
 @dataclass
@@ -57,8 +70,8 @@ class CrossValidator:
     - 安全相关代码（crypto, encryption, token）
     """
 
-    # 需要交叉验证的文件类型关键词
-    CRITICAL_FILE_PATTERNS = [
+    # 默认关键文件模式（硬编码兜底）
+    DEFAULT_CRITICAL_PATTERNS = [
         "auth", "permission", "middleware", "guard",
         "payment", "order", "billing", "subscription",
         "crypto", "encrypt", "token", "jwt", "oauth",
@@ -87,18 +100,41 @@ class CrossValidator:
   "final_code": "最终选用的代码（仅当winner为merged时提供）"
 }"""
 
-    def __init__(self, context: SharedContext, language_adapter=None):
+    def __init__(self, context: SharedContext, language_adapter=None, api_key_token: Optional[str] = None):
         self.context = context
         self.language_adapter = language_adapter
+        self.api_key_token = api_key_token
 
-    def is_critical_file(self, file_path: str, file_type: str) -> bool:
-        """判断文件是否需要交叉验证"""
-        path_lower = file_path.lower()
-        type_lower = file_type.lower()
+        # 从配置加载关键文件模式
+        config = _load_cross_validation_config()
+        self.enabled = config.get("enabled", True)
+        self.auto_priority_1 = config.get("auto_priority_1", True)
+        self.critical_patterns = config.get("critical_patterns", self.DEFAULT_CRITICAL_PATTERNS)
 
-        for pattern in self.CRITICAL_FILE_PATTERNS:
-            if pattern in path_lower or pattern in type_lower:
-                return True
+    def is_critical_file(self, file_path: str, file_type: str, priority: int = 5) -> bool:
+        """判断文件是否需要交叉验证
+        
+        Args:
+            file_path: 文件路径
+            file_type: 文件类型
+            priority: 文件优先级（1-5，1为最高）
+        """
+        if not self.enabled:
+            return False
+        
+        # priority=1 自动加入交叉验证
+        if self.auto_priority_1 and priority == 1:
+            return True
+        
+        # priority<=2 且命中关键模式才触发交叉验证
+        # priority>2 的文件走单模型 + refinement，不做双模型对抗
+        if priority <= 2:
+            path_lower = file_path.lower()
+            type_lower = file_type.lower()
+
+            for pattern in self.critical_patterns:
+                if pattern in path_lower or pattern in type_lower:
+                    return True
 
         return False
 
@@ -146,7 +182,8 @@ class CrossValidator:
                 stream=False,
                 max_tokens=8192,
                 thinking_budget=4096,
-                temperature=0.3  # 裁判需要确定性输出
+                temperature=0.3,  # 裁判需要确定性输出
+                api_key_token=self.api_key_token
             )
 
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -228,7 +265,10 @@ class CrossValidator:
 
     def _extract_json(self, text: str) -> Optional[Dict]:
         """从文本中提取 JSON"""
-        return extract_json_from_llm(text)
+        try:
+            return safe_parse_json(text)
+        except ValueError:
+            return None
 
     async def validate_cross_file_consistency(
         self,
@@ -747,7 +787,6 @@ class CrossValidator:
     def _extract_python_imports(self, content: str) -> List[str]:
         """提取 Python 文件中的导入"""
         imports = []
-        import re
 
         # 匹配 import xxx 和 from xxx import yyy
         patterns = [
@@ -849,7 +888,6 @@ class CrossValidator:
 
     def _extract_backend_api_specs(self, files: Dict[str, str]) -> List[Dict]:
         """提取后端 API 规范"""
-        import re
         apis = []
         backend_extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
 
@@ -885,7 +923,6 @@ class CrossValidator:
 
     def _extract_frontend_api_calls(self, files: Dict[str, str]) -> List[Dict]:
         """提取前端 API 调用"""
-        import re
         calls = []
 
         for file_path, content in files.items():
@@ -926,7 +963,6 @@ class CrossValidator:
 
     def _find_matching_api(self, endpoint: str, apis: List[Dict]) -> Optional[Dict]:
         """查找匹配的后端 API"""
-        import re
 
         for api in apis:
             api_path = api['path']
@@ -957,7 +993,6 @@ class CrossValidator:
                 if model_name in content:
                     defined_fields = model_info['fields']
                     # 查找模型实例化
-                    import re
                     init_pattern = rf'{model_name}\s*\(([\s\S]*?)\)'
                     for match in re.finditer(init_pattern, content):
                         init_body = match.group(1)
@@ -976,7 +1011,6 @@ class CrossValidator:
 
     def _extract_model_definitions(self, files: Dict[str, str]) -> Dict[str, Dict]:
         """提取模型定义"""
-        import re
         models = {}
         supported_extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
 
@@ -1141,7 +1175,8 @@ class CrossValidator:
                     model=model,
                     prompt=prompt,
                     stream=False,
-                    max_tokens=4096
+                    max_tokens=4096,
+                    api_key_token=self.api_key_token
                 )
 
                 content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -1182,7 +1217,6 @@ class CrossValidator:
             model: 修复模型
             batch_size: 每批修复的文件数量
         """
-        import json
 
         # 按文件分组问题
         issues_by_file = {}
@@ -1235,7 +1269,8 @@ class CrossValidator:
                     model=model,
                     prompt=prompt,
                     stream=False,
-                    max_tokens=16384  # 增加 token 限制以支持批量修复
+                    max_tokens=16384,  # 增加 token 限制以支持批量修复
+                    api_key_token=self.api_key_token
                 )
 
                 content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -1273,7 +1308,8 @@ class CrossValidator:
                             model=model,
                             prompt=prompt,
                             stream=False,
-                            max_tokens=8192
+                            max_tokens=8192,
+                            api_key_token=self.api_key_token
                         )
 
                         fixed_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -1288,7 +1324,6 @@ class CrossValidator:
 
     def _parse_batch_fix_result(self, content: str, expected_files: List[str]) -> Dict[str, str]:
         """解析批量修复结果"""
-        import re
 
         result = {}
         # 匹配 ===文件路径=== ... ===END=== 格式
@@ -1311,7 +1346,6 @@ class CrossValidator:
 
     def _clean_code_block(self, content: str) -> str:
         """清理代码块标记"""
-        import re
         # 移除 ```python ... ``` 包裹
         content = re.sub(r'^```\w*\n?', '', content, flags=re.MULTILINE)
         content = re.sub(r'\n?```$', '', content, flags=re.MULTILINE)

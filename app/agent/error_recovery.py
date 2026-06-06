@@ -40,30 +40,98 @@ class ErrorRecoveryLoop:
 
     MAX_FIX_ATTEMPTS = 3  # 智能修正循环最多尝试 3 次（捕获深层问题）
 
-    # 默认模型降级链（硬编码兜底）
+    # 默认模型降级链（硬编码兜底，SiliconFlow 模型）
     DEFAULT_FALLBACK_CHAIN = [
         DEFAULT_CODE_MODEL,        # 代码修复首选
         DEFAULT_REASONING_MODEL,   # 通用修复
         DEFAULT_FAST_MODEL,        # 快速降级
     ]
 
-    def __init__(self, validator: CodeValidator, reviewer: CodeReviewer):
+    # 供应商级降级链（当用户使用非 SiliconFlow Key 时，用同供应商模型）
+    _PROVIDER_FALLBACK_CHAINS = {
+        "dashscope": ["qwen-plus", "qwen-turbo"],
+        "zhipu": ["glm-4", "glm-4"],
+        "deepseek": ["deepseek-chat", "deepseek-reasoner"],
+        "openai": ["gpt-4o", "gpt-4o-mini"],
+        "anthropic": ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"],
+    }
+
+    def __init__(self, validator: CodeValidator, reviewer: CodeReviewer, api_key_token: Optional[str] = None):
         self.validator = validator
         self.reviewer = reviewer
+        self.api_key_token = api_key_token
         self.fix_history: List[FixAttempt] = []
         self._semaphore = get_global_llm_semaphore()
         self.MODEL_FALLBACK_CHAIN = self._load_fallback_chain("error_recovery")
 
     def _load_fallback_chain(self, chain_name: str = "error_recovery") -> List[str]:
-        """从配置文件加载降级链"""
+        """从配置文件加载降级链（供应商感知 + 用户偏好）
+
+        优先级：
+        1. 用户偏好（disabled → 空链；custom → 用户自定义链）
+        2. 配置文件中的降级链
+        3. 供应商级降级链
+        4. 硬编码默认链
+        """
         from app.agent.dynamic_model_router import load_agent_model_config, resolve_model_key
+
+        # 1. 检查用户降级链偏好
+        user_preference = self._get_user_fallback_preference()
+        if user_preference:
+            pref = user_preference.get("fallback_preference", "use_admin_default")
+            if pref == "disabled":
+                logger.debug("用户降级链偏好: disabled，跳过降级")
+                return []
+            if pref == "custom":
+                custom_chain = user_preference.get("custom_fallback_chain", [])
+                if custom_chain:
+                    resolved = [resolve_model_key(m) for m in custom_chain]
+                    logger.debug(f"用户自定义降级链: {resolved}")
+                    return resolved
+
+        # 2. 优先从配置文件加载
         config = load_agent_model_config()
         if config and "fallback_chains" in config:
             chain = config["fallback_chains"].get(chain_name, [])
             if chain:
                 resolved = [resolve_model_key(m) for m in chain]
                 return resolved
+
+        # 3. 检测用户供应商，使用同供应商的降级链
+        user_provider = self._detect_user_provider()
+        if user_provider and user_provider != "siliconflow":
+            provider_chain = self._PROVIDER_FALLBACK_CHAINS.get(user_provider, [])
+            if provider_chain:
+                logger.debug(f"使用 {user_provider} 供应商降级链: {provider_chain}")
+                return provider_chain
+
+        # 4. 硬编码默认链
         return self.DEFAULT_FALLBACK_CHAIN.copy()
+
+    def _detect_user_provider(self) -> Optional[str]:
+        """从 api_key_token 检测用户 Key 所属供应商"""
+        if not self.api_key_token:
+            return None
+        try:
+            from app.services.apikey_manager import get_metadata_by_token
+            meta = get_metadata_by_token(self.api_key_token)
+            if meta:
+                return meta.get("provider", "").lower()
+        except Exception as e:
+            logger.debug(f"获取供应商元数据失败（非致命，使用默认）: {e}")
+        return None
+
+    def _get_user_fallback_preference(self) -> Optional[Dict]:
+        """获取用户的降级链偏好配置"""
+        if not self.api_key_token:
+            return None
+        try:
+            from app.services.apikey_manager import get_apikey_manager
+            manager = get_apikey_manager()
+            return manager.get_fallback_preference_by_token(self.api_key_token)
+        except Exception as e:
+            logger.debug(f"获取用户降级链偏好失败（非致命）: {e}")
+        return None
 
     async def validate_and_fix(
         self,
@@ -187,7 +255,8 @@ class ErrorRecoveryLoop:
                         max_tokens=fix_model_config["max_tokens"],
                         thinking_budget=fix_model_config["thinking_budget"],
                         temperature=fix_model_config["temperature"],
-                        system_prompt=system_prompt
+                        system_prompt=system_prompt,
+                        api_key_token=self.api_key_token
                     )
                     fix_time = time.time() - start_time
 
@@ -639,7 +708,8 @@ class ErrorRecoveryLoop:
                         max_tokens=fix_model_config["max_tokens"],
                         thinking_budget=fix_model_config["thinking_budget"],
                         temperature=fix_model_config["temperature"],
-                        system_prompt=system_prompt
+                        system_prompt=system_prompt,
+                        api_key_token=self.api_key_token
                     )
 
                     raw = response.get("choices", [{}])[0].get("message", {}).get("content", "")
