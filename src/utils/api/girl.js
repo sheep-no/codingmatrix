@@ -33,10 +33,16 @@ export function createGirlClient(client) {
 
     async deleteGirlAiHistory(recordIds = [], deleteAll = false) {
       try {
-        const response = await client.delete('/GirlAi/history', {
-          record_ids: recordIds,
-          delete_all: deleteAll
-        })
+        const params = new URLSearchParams()
+        if (deleteAll) {
+          params.append('delete_all', 'true')
+        }
+        if (recordIds && recordIds.length > 0) {
+          recordIds.forEach(id => params.append('record_ids', id))
+        }
+        const queryString = params.toString()
+        const url = queryString ? `/GirlAi/history?${queryString}` : '/GirlAi/history'
+        const response = await client.delete(url)
         if (response.ok) {
           return await response.json()
         }

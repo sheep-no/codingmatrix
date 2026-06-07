@@ -133,9 +133,14 @@ _model_adapters: Dict[str, ModelAdapter] = {}
 
 
 async def _get_model_adapter(model_name: str) -> ModelAdapter:
-    """获取或创建 Model Adapter（单例缓存，异步安全）"""
+    """获取或创建 Model Adapter（单例缓存，异步安全，最多缓存 20 个）"""
     async with _model_adapters_lock:
         if model_name not in _model_adapters:
+            # 缓存淘汰：超过上限时移除最早的条目
+            if len(_model_adapters) >= 20:
+                oldest_key = next(iter(_model_adapters))
+                del _model_adapters[oldest_key]
+                logger.debug(f"Model Adapter 缓存淘汰: {oldest_key}")
             _model_adapters[model_name] = ModelAdapter(model_name)
             logger.debug(f"Model Adapter 已创建：{model_name}")
         return _model_adapters[model_name]
@@ -195,17 +200,17 @@ def _build_emotion_prompt(
 def _clean_response(content: str, character_name: str) -> str:
     """清理 AI 响应（移除角色名前缀等）"""
     import re
-    
+
+    # 只移除以角色名开头的前缀，保留表情符号
     patterns = [
-        rf"^{character_name}:\s*",
+        rf"^{re.escape(character_name)}:\s*",
         rf"^【[^】]*】\s*",
-        rf"^\([^)]*\)\s*",
         r'^":\s*'
     ]
-    
+
     for pattern in patterns:
         content = re.sub(pattern, "", content, flags=re.IGNORECASE)
-    
+
     return content.strip()
 
 
@@ -262,7 +267,13 @@ async def generate_message(
         raise HTTPException(status_code=401, detail="无效的用户令牌")
 
     # 获取角色配置
-    character = _get_character(getattr(body, 'character_id', 'gentle') or 'gentle')
+    character_id = getattr(body, 'character_id', 'gentle') or 'gentle'
+    if character_id not in CHARACTER_PROFILES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"无效的角色ID: {character_id}，可用角色: {', '.join(CHARACTER_PROFILES.keys())}"
+        )
+    character = _get_character(character_id)
     logger.info(
         f"虚拟姬对话请求 | user_id={user_id} | 角色={character['name']} | "
         f"模型={character['model']} | prompt_preview={body.prompt[:50] if body.prompt else ''}..."
@@ -276,7 +287,7 @@ async def generate_message(
             history_service = ChatHistoryService(db)
 
             logger.debug(f"加载对话上下文 | user_id={user_id} | max_messages={MAX_HISTORY_MESSAGES}")
-            recent_messages, history_summary = await history_service.get_lightweight_context(
+            recent_messages, _ = await history_service.get_lightweight_context(
                 user_id,
                 max_messages=MAX_HISTORY_MESSAGES
             )
@@ -321,8 +332,16 @@ async def generate_message(
             
             ai_duration = time.time() - ai_start_time
 
-            ai_content = response["choices"][0]["message"]["content"]
-            tokens_used = response["usage"]["total_tokens"]
+            choices = response.get("choices", [])
+            if not choices:
+                logger.error(f"LLM 返回空 choices | user_id={user_id} | response_keys={list(response.keys())}")
+                raise HTTPException(status_code=502, detail="AI 服务返回空响应，请稍后重试")
+
+            ai_content = choices[0].get("message", {}).get("content", "")
+            usage = response.get("usage", {})
+            tokens_used = usage.get("total_tokens", 0)
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
             
             # 清理响应
             ai_content = _clean_response(ai_content, character['name'])
@@ -337,7 +356,9 @@ async def generate_message(
                 user_content=body.prompt,
                 assistant_content=ai_content,
                 model=character['model'],
-                tokens_used=tokens_used
+                tokens_used=tokens_used,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens
             )
             save_duration = time.time() - save_start_time
 
@@ -363,7 +384,7 @@ async def generate_message(
             logger.error(f"虚拟姬请求异常 | user_id={user_id} | error={str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"生成失败：{str(e)}"
+                detail="生成失败，请稍后重试"
             )
 
 
@@ -371,8 +392,8 @@ async def generate_message(
 async def get_history(
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
-    limit: Optional[int] = 20,
-    offset: Optional[int] = 0
+    limit: Optional[int] = Query(default=20, ge=1, le=100, description="返回的最大记录数"),
+    offset: Optional[int] = Query(default=0, ge=0, description="分页偏移量")
 ):
     """获取对话历史记录"""
     user_id = token.get("sub")
@@ -429,8 +450,8 @@ async def get_history(
 
 @router.delete("/GirlAi/history")
 async def delete_history(
-    record_ids: List[str] = Query(..., description="要删除的记录ID列表"),
-    all: bool = Query(False, description="是否清除所有历史记录"),
+    record_ids: Optional[List[str]] = Query(default=None, description="要删除的记录ID列表"),
+    all: bool = Query(False, alias="delete_all", description="是否清除所有历史记录"),
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db)
 ):
@@ -438,14 +459,14 @@ async def delete_history(
     删除虚拟姬对话历史记录
 
     - **record_ids**: 要删除的记录ID列表
-    - **all**: 是否清除所有历史记录（会忽略 record_ids）
+    - **delete_all**: 是否清除所有历史记录（会忽略 record_ids）
     """
     user_id = token.get("sub")
 
     if not user_id:
         raise HTTPException(status_code=401, detail="无效的用户令牌")
 
-    logger.info(f"删除虚拟姬历史记录 | user_id={user_id} | all={all} | count={len(record_ids) if not all else 'all'}")
+    logger.info(f"删除虚拟姬历史记录 | user_id={user_id} | all={all} | count={len(record_ids) if record_ids else 0}")
 
     try:
         history_service = ChatHistoryService(db)
@@ -454,11 +475,15 @@ async def delete_history(
             deleted_count = await history_service.clear_user_history(user_id)
             logger.info(f"清除全部历史记录 | user_id={user_id} | deleted={deleted_count}")
             return {"status": "deleted", "count": deleted_count}
-        else:
+        elif record_ids:
             deleted_count = await history_service.delete_records(record_ids, user_id)
             logger.info(f"删除历史记录 | user_id={user_id} | deleted={deleted_count}")
             return {"status": "deleted", "count": deleted_count, "ids": record_ids}
+        else:
+            raise HTTPException(status_code=400, detail="请提供 record_ids 或 delete_all=true")
 
+    except HTTPException:
+        raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"删除历史记录异常 | user_id={user_id} | error={str(e)}", exc_info=True)
         raise HTTPException(
