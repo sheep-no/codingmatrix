@@ -365,10 +365,18 @@
   function useAsReference(img) {
     mode.value = 'img2img'
     previewUrl.value = img.url
-    // 从 URL 获取 blob 作为文件
-    fetch(img.url).then(r => r.blob()).then(blob => {
-      uploadedFile.value = new File([blob], 'reference.png', { type: 'image/png' })
-    })
+    fetch(img.url)
+      .then(r => {
+        if (!r.ok) throw new Error('获取图片失败')
+        return r.blob()
+      })
+      .then(blob => {
+        uploadedFile.value = new File([blob], 'reference.png', { type: 'image/png' })
+      })
+      .catch(e => {
+        console.error('获取参考图失败:', e)
+        error.value = '获取参考图失败，请重新上传'
+      })
   }
 
   async function loadHistory() {

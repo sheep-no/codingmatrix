@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete as sql_delete
+from sqlalchemy import select, delete as sql_delete, func
 
 from app.db.database import get_db
 from app.db.models import ImageGenerationHistory
@@ -54,9 +54,9 @@ async def get_image_history(
     )
 
     total_result = await db.execute(
-        select(ImageGenerationHistory).where(ImageGenerationHistory.user_id == user_id)
+        select(func.count()).where(ImageGenerationHistory.user_id == user_id)
     )
-    total = len(total_result.all())
+    total = total_result.scalar() or 0
 
     offset = (page - 1) * page_size
     result = await db.execute(query.offset(offset).limit(page_size))
@@ -137,13 +137,15 @@ async def delete_all_image_history(
     )
     records = result.scalars().all()
 
-    deleted_count = 0
     for record in records:
         _delete_image_files(record.image_urls)
-        await db.delete(record)
-        deleted_count += 1
 
-    await db.commit()
+    deleted_count = len(records)
+    if records:
+        await db.execute(
+            sql_delete(ImageGenerationHistory).where(ImageGenerationHistory.user_id == user_id)
+        )
+        await db.commit()
 
     return {
         "status": "deleted_all",
