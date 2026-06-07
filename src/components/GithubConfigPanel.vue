@@ -99,12 +99,11 @@ watch(isConfigured, async (newVal) => {
 
 // 生命周期钩子
 onMounted(() => {
-  // 从 store 恢复配置
-  githubStore.restoreGithubConfig()
+  // 从 store 恢复配置（store 在创建时已自动从 localStorage 读取）
   useGithub.value = githubStore.useGithub
   githubUsername.value = githubStore.githubUsername
   githubToken.value = githubStore.githubToken
-  
+
   // 如果已配置，自动测试连接
   if (isConfigured.value) {
     autoTestConnection()
