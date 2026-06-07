@@ -208,9 +208,13 @@ class ChatHistoryService:
         stmt = delete(ChatHistory).where(
             and_(ChatHistory.id.in_(record_ids), ChatHistory.user_id == user_id)
         )
-        result = await self.db.execute(stmt)
-        await self.db.commit()
-        return result.rowcount
+        try:
+            result = await self.db.execute(stmt)
+            await self.db.commit()
+            return result.rowcount
+        except Exception:
+            await self.db.rollback()
+            raise
 
     async def clear_user_history(self, user_id: str) -> int:
         """
@@ -223,6 +227,11 @@ class ChatHistoryService:
             删除的记录数
         """
         stmt = delete(ChatHistory).where(ChatHistory.user_id == user_id)
-        result = await self.db.execute(stmt)
-        await self.db.commit()
+        try:
+            result = await self.db.execute(stmt)
+            await self.db.commit()
+            return result.rowcount
+        except Exception:
+            await self.db.rollback()
+            raise
         return result.rowcount

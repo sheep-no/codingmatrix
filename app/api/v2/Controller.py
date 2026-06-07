@@ -150,7 +150,7 @@ async def controller(websocket: WebSocket, token: str):
         try:
             await websocket.close(code=1000)
             logger.info(f"连接已关闭 | user_id={user_id}")
-        except RuntimeError:
+        except Exception:
             logger.debug(f"连接已在别处关闭 | user_id={user_id}")
 
 

@@ -190,9 +190,11 @@ class DynamicAdapter(BaseProviderAdapter):
                     "choices": [{
                         "message": {
                             "content": text_content
-                        }
+                        },
+                        "finish_reason": anthropic_response.get("stop_reason", "stop"),
                     }],
                     "usage": anthropic_response.get("usage", {}),
+                    "model": anthropic_response.get("model", model),
                 }
     
     async def call_embedding(self, model, input_text, cancel_event=None):
