@@ -262,7 +262,7 @@
   const windowSize = ref({ width: 400, height: 500 })
   const dragOffset = ref({ x: 0, y: 0 })
   const resizeOffset = ref({ x: 0, y: 0 })
-  const isConnected = ref(true)
+  const isConnected = ref(false)
 
   // 保存窗口模式的滚动位置
   const windowScrollPosition = ref(0)
@@ -412,6 +412,10 @@
     isLoadingMore.value = true
 
     const chatMessagesEl = chatMessages.value
+    if (!chatMessagesEl) {
+      isLoadingMore.value = false
+      return
+    }
     const oldScrollHeight = chatMessagesEl.scrollHeight
     const oldScrollTop = chatMessagesEl.scrollTop
 

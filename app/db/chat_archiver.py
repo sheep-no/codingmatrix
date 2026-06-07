@@ -188,7 +188,8 @@ class ChatArchiver:
             delete_stmt = delete(ChatHistory).where(ChatHistory.id.in_(message_ids))
             deleted_count = await self.db.execute(delete_stmt)
             
-            await self.db.commit()
+            # 不在此处 commit，由外层 archive_all_users 统一提交
+            # 避免内部 commit 后若后续代码抛异常，外层 rollback 对已提交事务无效
             
             # 性能日志
             duration = time.time() - start_time
@@ -235,7 +236,11 @@ class ChatArchiver:
                         thinking_budget=256
                     )
                     
-                    summary = response["choices"][0]["message"]["content"].strip()
+                    choices = response.get("choices") or []
+                    if not choices:
+                        raise ValueError("LLM 返回空 choices")
+                    message = choices[0].get("message") or {}
+                    summary = (message.get("content") or "").strip()
                     
                     # 验证并限制摘要长度
                     if len(summary) > 800:
