@@ -514,7 +514,7 @@ class ReActEngine:
                     "message": f"第 {iteration + 1} 轮执行超时",
                     "round": iteration + 1
                 })
-                return self._build_final_result()
+                return self._build_final_result(task)
 
         return self._build_final_result(task)
 

@@ -12,6 +12,7 @@ from app.agent.dynamic_model_router import LayeredModelRouter
 from app.agent.tracing import traced
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.specialist_base import get_global_llm_semaphore
+from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL
 
 from .coverage_checker import check_requirement_coverage
 from .feature_extractor import extract_and_save_feature_list
