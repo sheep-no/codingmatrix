@@ -212,9 +212,11 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest, user_id
     except HTTPException:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning(f"提交 Key 参数错误：{e}")
+        raise HTTPException(status_code=400, detail="API Key 参数无效")
     except RuntimeError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        logger.warning(f"提交 Key 运行错误：{e}")
+        raise HTTPException(status_code=403, detail="Key 存储失败")
     except Exception as e:
         logger.error(f"提交 Key 失败：{e}")
         raise HTTPException(status_code=500, detail="提交 Key 失败")
@@ -456,6 +458,7 @@ async def batch_import(request: Request, import_request: BatchImportRequest, use
     
     try:
         apikey_manager = get_apikey_manager()
+        key_manager = get_rsa_key_manager()
         
         for idx, key_data in enumerate(import_request.keys, 1):
             try:
@@ -468,15 +471,18 @@ async def batch_import(request: Request, import_request: BatchImportRequest, use
                 if not key_data.get('encrypted_key'):
                     raise ValueError("缺少加密的 Key")
                 
-                ttl = key_data.get('ttl', '24h')
-                if ttl not in [t[0] for t in TTL_OPTIONS]:
-                    raise ValueError(f"不支持的 TTL: {ttl}")
+                # 解密 API Key
+                api_key = key_manager.decrypt(key_data['encrypted_key'])
+                if not api_key or len(api_key.strip()) < 10:
+                    raise ValueError("API Key 格式无效")
                 
-                # 存储 Key
+                ttl = key_data.get('ttl', '24h')
+                
+                # 存储 Key（store_key 内部会验证 TTL）
                 token = apikey_manager.store_key(
                     user_id=user_id,
                     provider=provider,
-                    encrypted_key=key_data['encrypted_key'],
+                    api_key=api_key.strip(),
                     ttl=ttl,
                     remark=key_data.get('remark', '')
                 )
@@ -491,11 +497,12 @@ async def batch_import(request: Request, import_request: BatchImportRequest, use
                 success_count += 1
                 
             except Exception as e:
+                logger.warning(f"批量导入第 {idx} 个 Key 失败：{e}")
                 results.append({
                     "index": idx,
                     "success": False,
                     "provider": key_data.get('provider', 'unknown'),
-                    "error": str(e)
+                    "error": "导入失败，请检查 Key 格式和供应商"
                 })
                 failed_count += 1
         

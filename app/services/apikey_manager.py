@@ -307,30 +307,41 @@ class APIKeyManager:
         return result
     
     def get_context_lengths_by_token(self, token: str) -> dict:
-        """根据 token 获取 context_lengths 配置（扫描所有用户）
-        
-        注意：这是一个低效操作，仅用于 token -> context_lengths 的查找
-        
+        """根据 token 获取 context_lengths 配置（O(1) 反向索引查找）
+
         Args:
             token: API Key Token
-            
+
         Returns:
             context_lengths dict 或 None
         """
-        # 扫描所有用户索引
+        if not token or len(token) < 30:
+            return None
+
+        try:
+            # 快速路径：反向索引
+            reverse_key = self._key_token_reverse(token)
+            user_id_bytes = self.redis.get(reverse_key)
+            if user_id_bytes is not None:
+                user_id = user_id_bytes.decode("utf-8") if isinstance(user_id_bytes, bytes) else user_id_bytes
+                meta = self.get_metadata(user_id, token)
+                if meta and meta.context_lengths:
+                    return meta.context_lengths
+                return None
+        except Exception as e:
+            logger.warning(f"反向索引查询 context_lengths 失败: {e}")
+
+        # 慢速路径：SCAN（兼容老数据）
         cursor = 0
         while True:
             cursor, keys = self.redis.scan(cursor, match="apikey_index:*", count=100)
             for index_key in keys:
                 user_id = index_key.decode("utf-8").replace("apikey_index:") if isinstance(index_key, bytes) else index_key.replace("apikey_index:", "")
-                
-                # 检查这个 token 是否属于该用户
                 if self.redis.sismember(index_key, token):
                     meta = self.get_metadata(user_id, token)
                     if meta and meta.context_lengths:
                         return meta.context_lengths
                     return None
-            
             if cursor == 0:
                 break
         return None
