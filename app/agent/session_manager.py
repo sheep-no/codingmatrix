@@ -209,9 +209,26 @@ class SessionManager:
             with open(session_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             state = SessionState.from_dict(data)
-            async with self._lock:
-                self._active_sessions[session_id] = state
-            return state
+
+            # 检查会话是否已过期
+            try:
+                updated_ts = datetime.fromisoformat(state.updated_at).timestamp()
+                if time.time() - updated_ts > SESSION_TTL_SECONDS:
+                    logger.warning(f"会话已过期，不恢复: {session_id}")
+                    return None
+            except (ValueError, OSError):
+                logger.warning(f"会话时间戳无效，不恢复: {session_id}")
+                return None
+
+            # 使用 per-session 锁防止并发 resume 创建重复实例
+            session_lock = self._get_session_lock(session_id)
+            async with session_lock:
+                async with self._lock:
+                    # 双重检查：另一个协程可能已经恢复了
+                    if session_id in self._active_sessions:
+                        return self._active_sessions[session_id]
+                    self._active_sessions[session_id] = state
+                return state
         except Exception as e:
             logger.error(f"恢复会话失败: {e}")
             return None

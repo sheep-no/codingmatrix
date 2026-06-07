@@ -108,6 +108,8 @@ class MCPServerConnection:
 
         # 启动读取任务
         self._read_task = asyncio.create_task(self._read_loop())
+        # 启动 stderr 消费任务（防止管道满导致子进程阻塞）
+        self._stderr_task = asyncio.create_task(self._consume_stderr())
 
         # 发送 initialize
         result = await self._send_request("initialize", {
@@ -291,12 +293,32 @@ class MCPServerConnection:
         texts = [c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text"]
         return "\n".join(texts) if len(texts) > 1 else (texts[0] if texts else str(content))
 
+    async def _consume_stderr(self):
+        """消费 stderr 输出，防止管道缓冲区满导致子进程阻塞"""
+        try:
+            if self._process and self._process.stderr:
+                async for line in self._process.stderr:
+                    msg = line.decode("utf-8", errors="replace").rstrip()
+                    if msg:
+                        logger.debug(f"[MCP:{self.name}][stderr] {msg}")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.debug(f"[MCP:{self.name}] stderr 消费异常: {e}")
+
     async def disconnect(self):
         """断开连接"""
         if self._read_task:
             self._read_task.cancel()
             try:
                 await self._read_task
+            except asyncio.CancelledError:
+                pass
+
+        if hasattr(self, '_stderr_task') and self._stderr_task:
+            self._stderr_task.cancel()
+            try:
+                await self._stderr_task
             except asyncio.CancelledError:
                 pass
 
@@ -379,7 +401,20 @@ class MCPClientManager:
     def __init__(self):
         self._servers: Dict[str, MCPServerConnection] = {}
         self._all_tools: Dict[str, Dict] = {}
+        # 如果已有实例，记录旧实例以便后续断开
+        old_instance = MCPClientManager._instance
         MCPClientManager._instance = self
+        if old_instance and old_instance._servers:
+            logger.warning("MCPClientManager 被重新创建，旧实例的连接将在后台断开")
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(old_instance.disconnect_all())
+                else:
+                    loop.run_until_complete(old_instance.disconnect_all())
+            except Exception as e:
+                logger.debug(f"断开旧 MCP 实例失败: {e}")
 
     @classmethod
     def get_instance(cls) -> Optional["MCPClientManager"]:

@@ -77,10 +77,33 @@ class DependencyGraph:
 
         # 只有当依赖目标也在图中时，才添加边（避免引入外部库作为节点）
         if depends_on in self.nodes and depends_on != file_path:
+            # 预防性环检测：检查 depends_on 是否已依赖 file_path
+            if self._would_create_cycle(file_path, depends_on):
+                logger.warning(f"忽略循环依赖: {file_path} -> {depends_on}")
+                return
             if depends_on not in self.adjacency[file_path]:
                 self.nodes[file_path].dependencies.append(depends_on)
                 self.adjacency[file_path].add(depends_on)
                 self.reverse_adjacency[depends_on].add(file_path)
+
+    def _would_create_cycle(self, file_path: str, depends_on: str) -> bool:
+        """检查添加 file_path -> depends_on 是否会创建环
+
+        从 depends_on 出发做 BFS，如果能到达 file_path 则会形成环。
+        """
+        visited = set()
+        queue = [depends_on]
+        while queue:
+            current = queue.pop(0)
+            if current == file_path:
+                return True
+            if current in visited:
+                continue
+            visited.add(current)
+            for neighbor in self.adjacency.get(current, set()):
+                if neighbor in self.nodes and neighbor not in visited:
+                    queue.append(neighbor)
+        return False
 
     def get_affected_files(self, changed_files: List[str]) -> Dict[str, List[str]]:
         """

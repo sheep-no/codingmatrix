@@ -8,6 +8,7 @@
 
 import asyncio
 import logging
+import random
 from typing import AsyncIterator, Optional, Union, Dict
 
 from app.core.config import settings
@@ -42,6 +43,41 @@ _adapter_cache: Dict[ModelProvider, BaseProviderAdapter] = {}
 _user_adapter_cache: Dict[tuple, BaseProviderAdapter] = {}
 _USER_ADAPTER_CACHE_MAX = 256
 _adapter_cache_lock = asyncio.Lock()
+
+# 429 重试配置
+_RETRY_MAX_ATTEMPTS = 3
+_RETRY_BASE_DELAY = 2.0  # 秒
+_RETRY_MAX_DELAY = 30.0  # 秒
+
+
+async def _retry_on_rate_limit(coro_factory, max_attempts: int = _RETRY_MAX_ATTEMPTS):
+    """对 429 Rate Limit 错误做指数退避重试
+
+    Args:
+        coro_factory: 返回 coroutine 的工厂函数（每次重试需创建新 coroutine）
+        max_attempts: 最大尝试次数
+
+    Returns:
+        调用结果
+
+    Raises:
+        最后一次尝试的异常
+    """
+    last_error = None
+    for attempt in range(max_attempts):
+        try:
+            return await coro_factory()
+        except Exception as e:
+            error_str = str(e).lower()
+            is_429 = "429" in error_str or "rate limit" in error_str or "too many requests" in error_str
+            if is_429 and attempt < max_attempts - 1:
+                delay = min(_RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1), _RETRY_MAX_DELAY)
+                logger.warning(f"遇到 429 Rate Limit，{delay:.1f}s 后重试 ({attempt + 1}/{max_attempts}): {e}")
+                await asyncio.sleep(delay)
+                last_error = e
+                continue
+            raise
+    raise last_error
 
 
 class LLMCallError(Exception):
@@ -231,7 +267,7 @@ async def call_llm(
         raise ProviderAPIKeyNotConfiguredError(adapter.provider.value)
 
     try:
-        return await adapter.call_llm(
+        return await _retry_on_rate_limit(lambda: adapter.call_llm(
             model=model,
             prompt=prompt,
             system_prompt=system_prompt,
@@ -241,7 +277,7 @@ async def call_llm(
             thinking_budget=thinking_budget,
             cancel_event=cancel_event,
             messages=messages,
-        )
+        ))
     except Exception as e:
         # 流式调用失败时尝试 fallback（仅在流式未开始前的失败）
         if stream and not disable_fallback:

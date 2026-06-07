@@ -291,15 +291,28 @@ class TopologyScheduler:
                 continue
 
             node = self.nodes[downstream]
-            if node.status != FileStatus.PENDING:
+            # PENDING 和 BLOCKED 状态都需要检查（BLOCKED 可能因上游重试成功而解除）
+            if node.status not in (FileStatus.PENDING, FileStatus.BLOCKED):
                 continue
 
-            node.dependency_count -= 1
-
-            if node.dependency_count == 0:
-                node.status = FileStatus.READY
-                await self.ready_queue.put(downstream)
-                newly_ready.append(downstream)
+            if node.status == FileStatus.BLOCKED:
+                # 重新检查所有上游依赖是否都已完成
+                all_deps = self.adjacency.get(downstream, set())
+                all_completed = all(
+                    dep not in self.nodes or self.nodes[dep].status == FileStatus.COMPLETED
+                    for dep in all_deps
+                )
+                if not all_deps or all_completed:
+                    node.status = FileStatus.READY
+                    node.dependency_count = 0
+                    await self.ready_queue.put(downstream)
+                    newly_ready.append(downstream)
+            else:
+                node.dependency_count -= 1
+                if node.dependency_count == 0:
+                    node.status = FileStatus.READY
+                    await self.ready_queue.put(downstream)
+                    newly_ready.append(downstream)
 
         if newly_ready:
             self._log_schedule("triggered", newly_ready, source=completed_file)

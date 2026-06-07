@@ -503,8 +503,14 @@ class DynamicModelRouter:
                     healthy_models.append(model_name)
 
             if not healthy_models:
-                # 所有模型都熔断，使用降级模型
-                logger.error(f"所有候选模型都已熔断，使用降级模型: {self._fallback_order[0]}")
+                # 所有模型都熔断，尝试降级链中第一个健康的模型
+                for fallback in self._fallback_order:
+                    fb_metrics = self.get_or_create_metrics(fallback)
+                    if fb_metrics.consecutive_failures < 3:
+                        logger.warning(f"所有候选模型熔断，使用降级模型: {fallback}")
+                        return fallback
+                # 降级链也全部熔断，返回第一个降级模型（强制重试）
+                logger.error(f"所有候选和降级模型都已熔断，强制使用: {self._fallback_order[0]}")
                 return self._fallback_order[0]
 
             # 选择健康分数最高的模型
@@ -678,13 +684,18 @@ class _LayeredModelRouterCompat:
         for complexity_name, model_ids in config["assignments"].items():
             try:
                 complexity = ProjectComplexity[complexity_name]
-                # 将模型 ID 转换为模型 Key
+                # 将模型 ID 转换为模型 Key，空值使用默认值
+                default = cls.DEFAULT_ASSIGNMENTS.get(complexity)
+                def _resolve(key, fallback):
+                    val = resolve_model_key(model_ids.get(key, ""))
+                    return val if val else fallback
+
                 assignments[complexity] = ModelAssignment(
-                    architect_model=resolve_model_key(model_ids.get("architect_model", "")),
-                    frontend_model=resolve_model_key(model_ids.get("frontend_model", "")),
-                    backend_model=resolve_model_key(model_ids.get("backend_model", "")),
-                    reviewer_model=resolve_model_key(model_ids.get("reviewer_model", "")),
-                    fallback_model=resolve_model_key(model_ids.get("fallback_model", "")),
+                    architect_model=_resolve("architect_model", default.architect_model if default else "Qwen/Qwen3-8B"),
+                    frontend_model=_resolve("frontend_model", default.frontend_model if default else "Qwen/Qwen3-8B"),
+                    backend_model=_resolve("backend_model", default.backend_model if default else "Qwen/Qwen3-8B"),
+                    reviewer_model=_resolve("reviewer_model", default.reviewer_model if default else "THUDM/GLM-4-9B-0414"),
+                    fallback_model=_resolve("fallback_model", default.fallback_model if default else "Qwen/Qwen3.5-4B"),
                 )
             except (KeyError, ValueError) as e:
                 logger.warning(f"解析配置文件中的复杂度 '{complexity_name}' 失败: {e}")

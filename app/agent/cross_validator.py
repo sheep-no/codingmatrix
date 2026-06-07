@@ -175,22 +175,31 @@ class CrossValidator:
 请从安全性、正确性、可读性、完整性、最佳实践五个维度评估，
 并选择更好的版本或生成改进后的最终版本。"""
 
+        content = ""
+        for attempt in range(2):
+            try:
+                response = await call_llm(
+                    model=judge_model,
+                    prompt=f"【SYSTEM】\n{self.JUDGE_SYSTEM_PROMPT}\n\n【USER】\n{prompt}",
+                    stream=False,
+                    max_tokens=8192,
+                    thinking_budget=4096,
+                    temperature=0.3,  # 裁判需要确定性输出
+                    api_key_token=self.api_key_token
+                )
+
+                content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if content:
+                    break
+                logger.warning(f"交叉验证裁判返回空内容 (尝试 {attempt + 1}/2)")
+            except Exception as e:
+                logger.warning(f"交叉验证裁判调用失败 (尝试 {attempt + 1}/2): {e}")
+
+        if not content:
+            logger.warning("交叉验证裁判最终返回空内容，默认使用版本 A")
+            return version_a, model_a
+
         try:
-            response = await call_llm(
-                model=judge_model,
-                prompt=f"【SYSTEM】\n{self.JUDGE_SYSTEM_PROMPT}\n\n【USER】\n{prompt}",
-                stream=False,
-                max_tokens=8192,
-                thinking_budget=4096,
-                temperature=0.3,  # 裁判需要确定性输出
-                api_key_token=self.api_key_token
-            )
-
-            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-            if not content:
-                logger.warning("交叉验证裁判返回空内容，默认使用版本 A")
-                return version_a, model_a
-
             result = self._extract_json(content)
             if not result:
                 logger.warning("交叉验证结果解析失败，默认使用版本 A")

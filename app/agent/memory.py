@@ -557,14 +557,21 @@ class AgentMemory:
             self._session_id = data.get("session_id")
             self._created_at = data.get("created_at", time.time())
 
+            # 获取 MemoryEntry 的有效字段名（防止 schema 升级后旧数据有额外字段）
+            import dataclasses
+            valid_fields = {f.name for f in dataclasses.fields(MemoryEntry)}
+
             for e in data.get("conversation", []):
-                self.conversation.add(MemoryEntry(**e))
+                filtered = {k: v for k, v in e.items() if k in valid_fields}
+                self.conversation.add(MemoryEntry(**filtered))
 
             for e in data.get("knowledge", []):
-                self.knowledge.add(MemoryEntry(**e))
+                filtered = {k: v for k, v in e.items() if k in valid_fields}
+                self.knowledge.add(MemoryEntry(**filtered))
 
             for e in data.get("reflections", []):
-                self.reflection.add(MemoryEntry(**e))
+                filtered = {k: v for k, v in e.items() if k in valid_fields}
+                self.reflection.add(MemoryEntry(**filtered))
 
             logger.info(f"记忆已从 {storage_path} 加载")
             return True

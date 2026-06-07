@@ -58,6 +58,16 @@ class ReActEngine:
     # 上下文窗口管理常量
     MAX_RECENT_ENTRIES = 3       # 保留最近 N 条工具调用的完整结果
     MAX_HISTORY_CHARS = 6000     # 工具历史总字符上限
+    MAX_HISTORY_TOKENS = 4000    # 工具历史 token 估算上限
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """估算 token 数（中文约 2 token/字符，英文约 0.25 token/字符）"""
+        if not text:
+            return 0
+        cn_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+        other_chars = len(text) - cn_chars
+        return cn_chars * 2 + other_chars // 4
 
     def __init__(
         self,
@@ -179,8 +189,8 @@ class ReActEngine:
 
         return None
 
-    async def _execute_tool(self, tool_name: str, tool_params: Dict) -> Tuple[bool, Any]:
-        """执行工具（同步和异步函数统一处理）"""
+    async def _execute_tool(self, tool_name: str, tool_params: Dict, timeout: float = 120.0) -> Tuple[bool, Any]:
+        """执行工具（同步和异步函数统一处理），带超时保护"""
         if tool_name not in self.tools:
             return False, {"error": f"工具不存在: {tool_name}"}
 
@@ -190,12 +200,18 @@ class ReActEngine:
 
             # 异步函数返回 coroutine，需要 await
             if asyncio.iscoroutine(result):
-                result = await result
+                result = await asyncio.wait_for(result, timeout=timeout)
 
             return True, result
         except asyncio.CancelledError:
             raise  # 取消信号必须向上透传，不能被吞掉
+        except asyncio.TimeoutError:
+            return False, {"error": f"工具 {tool_name} 执行超时 ({timeout}s)"}
         except Exception as e:
+            # MCP 连接断开是致命错误，必须终止 ReAct 循环
+            from app.agent.mcp_client import MCPError
+            if isinstance(e, MCPError):
+                raise
             return False, {"error": str(e)}
 
     def _add_step(self, step: ReActStep):
@@ -321,14 +337,15 @@ class ReActEngine:
         """构建工具历史文本（滑动窗口：最近 N 条完整，更早的摘要）
 
         避免工具历史无限增长占用上下文窗口。
-        免费模型上下文窗口有限（32K-128K），每轮 1500 字符的工具结果
-        5 轮后就占 7500+ token，挤压生成空间。
+        使用 token 估算而非纯字符数，中文约 2 token/字符。
         """
         if len(self.tool_history) <= self.MAX_RECENT_ENTRIES:
             text = "\n\n".join(self.tool_history)
             # 即使条目少，也可能单条很大（如读取大文件）
             if len(text) > self.MAX_HISTORY_CHARS:
                 return text[:self.MAX_HISTORY_CHARS] + "\n[...结果已截断]"
+            if self._estimate_tokens(text) > self.MAX_HISTORY_TOKENS:
+                return self._truncate_to_tokens(text, self.MAX_HISTORY_TOKENS)
             return text
 
         # 更早的条目：每条压缩为一行摘要
@@ -344,13 +361,26 @@ class ReActEngine:
         recent_text = "\n\n".join(recent)
 
         full_text = f"{summary}\n\n{recent_text}"
-        # 最终兜底：总字符数超限时截断早期摘要
-        if len(full_text) > self.MAX_HISTORY_CHARS:
-            overflow = len(full_text) - self.MAX_HISTORY_CHARS
-            summary = summary[:max(0, len(summary) - overflow)]
+        # 最终兜底：总 token 超限时截断早期摘要
+        if self._estimate_tokens(full_text) > self.MAX_HISTORY_TOKENS:
+            overflow_tokens = self._estimate_tokens(full_text) - self.MAX_HISTORY_TOKENS
+            # 粗略按比例截断 summary
+            summary_tokens = self._estimate_tokens(summary)
+            cut_chars = int(len(summary) * overflow_tokens / max(summary_tokens, 1))
+            summary = summary[:max(0, len(summary) - cut_chars)]
             full_text = f"{summary}\n\n{recent_text}"
 
         return full_text
+
+    @staticmethod
+    def _truncate_to_tokens(text: str, max_tokens: int) -> str:
+        """按 token 估算截断文本"""
+        tokens = 0
+        for i, c in enumerate(text):
+            tokens += 2 if '\u4e00' <= c <= '\u9fff' else 0.25
+            if tokens > max_tokens:
+                return text[:i] + "\n[...结果已截断]"
+        return text
 
     async def _run_simple(self, prompt: str, enhanced_system: str) -> str:
         """简单模式：Thought→Tool→Result 循环，自然终止"""
@@ -417,7 +447,15 @@ class ReActEngine:
                 "max_rounds": self.max_rounds
             })
 
-            success, tool_result = await self._execute_tool(tool_name, tool_params)
+            try:
+                success, tool_result = await self._execute_tool(tool_name, tool_params)
+            except Exception as e:
+                from app.agent.mcp_client import MCPError
+                if isinstance(e, MCPError):
+                    logger.error(f"{self.role_name} MCP 连接断开，终止 ReAct 循环: {e}")
+                    await self._emit_event("react_error", {"error": f"MCP 连接断开: {e}"})
+                    return ""
+                raise
 
             self.steps[-1].tool_result = tool_result
             self.steps[-1].success = success
@@ -450,6 +488,7 @@ class ReActEngine:
         与 ReActAgent.process() 等价，使用 ReActEngine 的工具和 LLM 调用能力。
         """
         task = prompt
+        self._enhanced_system = enhanced_system
         if self.memory:
             self.memory.add_user_message(task)
 
@@ -461,10 +500,34 @@ class ReActEngine:
                 logger.info(f"{self.role_name} ReAct 全模式检测到取消信号，终止循环")
                 return ""
 
-            logger.info(f"{self.role_name} ReAct 全模式 迭代 {iteration + 1}/{self.max_rounds}")
+            # 单轮累积超时保护（防止 4 次 LLM 调用无限挂起）
+            try:
+                result = await asyncio.wait_for(
+                    self._run_full_iteration(task, iteration),
+                    timeout=300.0  # 单轮最大 5 分钟
+                )
+                if result is not None:
+                    return result
+            except asyncio.TimeoutError:
+                logger.warning(f"{self.role_name} ReAct 全模式 第 {iteration + 1} 轮超时，强制终止")
+                await self._emit_event("react_timeout", {
+                    "message": f"第 {iteration + 1} 轮执行超时",
+                    "round": iteration + 1
+                })
+                return self._build_final_result()
 
-            # Thought
-            thought_prompt = f"""分析以下任务，决定下一步行动：
+        return self._build_final_result(task)
+
+    async def _run_full_iteration(self, task: str, iteration: int) -> Optional[str]:
+        """执行全模式的单轮迭代
+
+        Returns:
+            None 继续下一轮，str 表示提前终止并返回该结果
+        """
+        logger.info(f"{self.role_name} ReAct 全模式 迭代 {iteration + 1}/{self.max_rounds}")
+
+        # Thought
+        thought_prompt = f"""分析以下任务，决定下一步行动：
 
 任务：{task}
 
@@ -479,16 +542,16 @@ class ReActEngine:
 
 请用简洁的语言描述你的思考。"""
 
-            try:
-                thought = await self.call_llm_fn(thought_prompt, enhanced_system)
-            except Exception as e:
-                logger.error(f"{self.role_name} ReAct 全模式 LLM 调用失败: {e}")
-                return ""
-            self._add_step(ReActStep("thought", thought))
-            await self._stream(f"[思考] {thought}\n\n")
+        try:
+            thought = await self.call_llm_fn(thought_prompt, self._enhanced_system)
+        except Exception as e:
+            logger.error(f"{self.role_name} ReAct 全模式 LLM 调用失败: {e}")
+            return ""
+        self._add_step(ReActStep("thought", thought))
+        await self._stream(f"[思考] {thought}\n\n")
 
-            # Action - 决定并执行工具
-            action_prompt = f"""基于以下思考，决定执行什么动作：
+        # Action - 决定并执行工具
+        action_prompt = f"""基于以下思考，决定执行什么动作：
 
 思考：{thought}
 
@@ -498,50 +561,58 @@ class ReActEngine:
 请决定使用哪个工具，以 JSON 格式返回：
 {{"tool": "工具名", "params": {{"参数名": "值"}}}}"""
 
-            try:
-                action_response = await self.call_llm_fn(action_prompt, enhanced_system)
-            except Exception as e:
-                logger.error(f"{self.role_name} ReAct 全模式 Action LLM 调用失败: {e}")
-                return ""
-            tool_call = self._parse_tool_call(action_response)
+        try:
+            action_response = await self.call_llm_fn(action_prompt, self._enhanced_system)
+        except Exception as e:
+            logger.error(f"{self.role_name} ReAct 全模式 Action LLM 调用失败: {e}")
+            return ""
+        tool_call = self._parse_tool_call(action_response)
 
-            if not tool_call:
-                # LLM 没有调用工具 → 直接作为最终答案
-                self._add_step(ReActStep("final", action_response))
-                if self.memory:
-                    self.memory.add_assistant_message(action_response)
-                return action_response
+        if not tool_call:
+            # LLM 没有调用工具 → 直接作为最终答案
+            self._add_step(ReActStep("final", action_response))
+            if self.memory:
+                self.memory.add_assistant_message(action_response)
+            return action_response
 
-            tool_name = tool_call.get("tool", "")
-            tool_params = tool_call.get("params", {})
+        tool_name = tool_call.get("tool", "")
+        tool_params = tool_call.get("params", {})
 
-            self._add_step(ReActStep(
-                "action", f"执行工具: {tool_name}",
-                tool_name=tool_name, tool_params=tool_params
-            ))
-            await self._stream(f"[动作] {tool_name}({tool_params})\n")
+        self._add_step(ReActStep(
+            "action", f"执行工具: {tool_name}",
+            tool_name=tool_name, tool_params=tool_params
+        ))
+        await self._stream(f"[动作] {tool_name}({tool_params})\n")
 
-            await self._emit_event("react_tool_call", {
-                "message": f"正在搜索: {tool_name}",
-                "tool": tool_name,
-                "params": {k: str(v)[:100] for k, v in tool_params.items()},
-                "round": iteration + 1,
-                "max_rounds": self.max_rounds
-            })
+        await self._emit_event("react_tool_call", {
+            "message": f"正在搜索: {tool_name}",
+            "tool": tool_name,
+            "params": {k: str(v)[:100] for k, v in tool_params.items()},
+            "round": iteration + 1,
+            "max_rounds": self.max_rounds
+        })
 
+        try:
             success, tool_result = await self._execute_tool(tool_name, tool_params)
-            self.steps[-1].tool_result = tool_result
-            self.steps[-1].success = success
+        except Exception as e:
+            from app.agent.mcp_client import MCPError
+            if isinstance(e, MCPError):
+                logger.error(f"{self.role_name} MCP 连接断开，终止 ReAct 循环: {e}")
+                await self._emit_event("react_error", {"error": f"MCP 连接断开: {e}"})
+                return ""
+            raise
+        self.steps[-1].tool_result = tool_result
+        self.steps[-1].success = success
 
-            result_str = json.dumps(tool_result, ensure_ascii=False)[:1500]
-            self.tool_history.append(
-                f"工具调用: {tool_name}({json.dumps(tool_params, ensure_ascii=False)})\n"
-                f"返回结果: {result_str}"
-            )
+        result_str = json.dumps(tool_result, ensure_ascii=False)[:1500]
+        self.tool_history.append(
+            f"工具调用: {tool_name}({json.dumps(tool_params, ensure_ascii=False)})\n"
+            f"返回结果: {result_str}"
+        )
 
-            # Observation
-            status = "SUCCESS" if success else "FAILED"
-            observe_prompt = f"""分析以下执行结果：
+        # Observation
+        status = "SUCCESS" if success else "FAILED"
+        observe_prompt = f"""分析以下执行结果：
 
 状态：{status}
 结果：{result_str}
@@ -553,37 +624,40 @@ class ReActEngine:
 
 请用简洁的语言描述观察结果。"""
 
-            try:
-                observation = await self.call_llm_fn(observe_prompt, enhanced_system)
-            except Exception as e:
-                logger.error(f"{self.role_name} ReAct 全模式 Observation LLM 调用失败: {e}")
-                observation = f"观察失败: {e}"
-            self._add_step(ReActStep("observation", observation))
-            await self._stream(f"[观察] {observation}\n\n")
+        try:
+            observation = await self.call_llm_fn(observe_prompt, self._enhanced_system)
+        except Exception as e:
+            logger.error(f"{self.role_name} ReAct 全模式 Observation LLM 调用失败: {e}")
+            observation = f"观察失败: {e}"
+        self._add_step(ReActStep("observation", observation))
+        await self._stream(f"[观察] {observation}\n\n")
 
-            if self.memory:
-                self.memory.add_tool_result(tool_name, result_str, success)
+        if self.memory:
+            self.memory.add_tool_result(tool_name, result_str, success)
 
-            # Reflection
-            reflection = await self._reflect(task, self.steps)
-            ref_text = reflection.get("reflection", "")
-            self._add_step(ReActStep("reflection", ref_text))
-            await self._stream(f"[反思] {ref_text}\n\n")
+        # Reflection
+        reflection = await self._reflect(task, self.steps)
+        ref_text = reflection.get("reflection", "")
+        self._add_step(ReActStep("reflection", ref_text))
+        await self._stream(f"[反思] {ref_text}\n\n")
 
-            if self.memory:
-                self.memory.add_reflection(
-                    f"任务: {task[:50]}... | 反思: {ref_text}",
-                    {"task": task, "steps": len(self.steps)}
-                )
-
-            should_stop = (
-                not reflection.get("continue", False)
-                or reflection.get("task_complete", False)
+        if self.memory:
+            self.memory.add_reflection(
+                f"任务: {task[:50]}... | 反思: {ref_text}",
+                {"task": task, "steps": len(self.steps)}
             )
-            if should_stop:
-                break
 
-        # 生成最终答案
+        should_stop = (
+            not reflection.get("continue", False)
+            or reflection.get("task_complete", False)
+        )
+        if should_stop:
+            return self._build_final_result(task)
+
+        return None  # 继续下一轮
+
+    async def _build_final_result(self, task: str = "") -> str:
+        """生成最终答案"""
         final_answer = await self._generate_final_answer(task, self.steps)
         self._add_step(ReActStep("final", final_answer))
         await self._stream(f"[最终答案]\n{final_answer}\n")
