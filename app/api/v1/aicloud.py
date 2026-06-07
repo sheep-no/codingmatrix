@@ -93,6 +93,8 @@ async def chat(
         session = AicloudSession(id=session_id, user_id=user_id)
         db.add(session)
         await db.commit()
+    elif session.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问此会话")
 
     messages_result = await db.execute(
         select(AicloudMessage)
@@ -213,7 +215,6 @@ async def chat(
 
     except Exception as e:
         logger.error(f"AI 调用失败: {e}")
-        ai_response_content = f"抱歉，AI 服务暂时不可用: {str(e)[:100]}"
         await log_operation(
             db=db,
             user_id=user_id,
@@ -221,7 +222,7 @@ async def chat(
             status="error",
             details={"session_id": session_id, "error": str(e)}
         )
-        raise HTTPException(status_code=503, detail="AI service unavailable")
+        raise HTTPException(status_code=503, detail="AI 服务暂时不可用，请稍后重试")
 
     ai_message = AicloudMessage(
         session_id=session_id,
@@ -276,6 +277,8 @@ async def chat_stream(
         session = AicloudSession(id=session_id, user_id=user_id)
         db.add(session)
         await db.commit()
+    elif session.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问此会话")
 
     messages_result = await db.execute(
         select(AicloudMessage)
@@ -295,7 +298,7 @@ async def chat_stream(
     system_prompt = """你是一个智能助手，名为 aicloud。你具有以下特点：
 1. 专业、友好、有耐心
 2. 可以帮助用户处理各种问题，包括技术问题和生活问题
-3. 可以进行文件操作（在沙箱环境中）
+3. 你可以进行文件操作（在沙箱环境中）
 4. 注重安全，所有操作都有审计日志
 5. 支持 10 天记忆持久化
 
@@ -360,7 +363,7 @@ async def chat_stream(
 
         except Exception as e:
             logger.error(f"流式 AI 调用失败: {e}")
-            yield f"data: {json.dumps({'error': str(e), 'session_id': session_id})}\n\n"
+            yield f"data: {json.dumps({'error': 'AI 服务暂时不可用', 'session_id': session_id})}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -394,10 +397,11 @@ async def read_file(
     except FileNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="file not found")
     except PathSecurityError as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+        logger.warning(f"文件读取安全拒绝 | user_id={user_id} | path={request.file_path} | error={e}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="访问被拒绝")
     except Exception as e:
         await log_file_read(db, user_id, request.file_path, False, str(e))
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="文件读取失败")
 
     if request.require_review and not result.get("ai_passed", True):
         review = await create_review(
@@ -450,10 +454,11 @@ async def write_file(
             content=request.content,
         )
     except PathSecurityError as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+        logger.warning(f"文件写入安全拒绝 | user_id={user_id} | path={request.file_path} | error={e}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="访问被拒绝")
     except Exception as e:
         await log_file_write(db, user_id, request.file_path, False, error=str(e))
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="文件写入失败")
 
     if result.get("review_status") == "approved":
         await log_file_write(
@@ -523,15 +528,24 @@ async def get_history(
     )
     sessions = result.scalars().all()
 
-    sessions_data = []
-    for session in sessions:
+    # 批量获取所有相关消息（避免 N+1 查询）
+    session_ids = [s.id for s in sessions]
+    if session_ids:
         messages_result = await db.execute(
             select(AicloudMessage)
-            .where(AicloudMessage.session_id == session.id)
+            .where(AicloudMessage.session_id.in_(session_ids))
             .order_by(AicloudMessage.created_at.asc())
         )
-        messages = messages_result.scalars().all()
+        all_messages = messages_result.scalars().all()
+        messages_by_session = {}
+        for msg in all_messages:
+            messages_by_session.setdefault(msg.session_id, []).append(msg)
+    else:
+        messages_by_session = {}
 
+    sessions_data = []
+    for session in sessions:
+        messages = messages_by_session.get(session.id, [])
         sessions_data.append(SessionResponse(
             id=session.id,
             user_id=session.user_id,
@@ -672,7 +686,7 @@ async def approve_review_endpoint(
             await log_file_write(db, user_id, sandbox_path, True, len(review.content))
         except Exception as e:
             await log_file_write(db, user_id, sandbox_path, False, error=str(e))
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="文件写入失败")
 
     return {"status": "approved", "review_id": review.id}
 
@@ -725,14 +739,24 @@ async def search_history(
     )
     sessions = result.scalars().all()
 
-    matching_sessions = []
-    for session in sessions:
+    # 批量获取所有相关消息（避免 N+1 查询）
+    session_ids = [s.id for s in sessions]
+    if session_ids:
         messages_result = await db.execute(
             select(AicloudMessage)
-            .where(AicloudMessage.session_id == session.id)
+            .where(AicloudMessage.session_id.in_(session_ids))
             .order_by(AicloudMessage.created_at.asc())
         )
-        messages = messages_result.scalars().all()
+        all_messages = messages_result.scalars().all()
+        messages_by_session = {}
+        for msg in all_messages:
+            messages_by_session.setdefault(msg.session_id, []).append(msg)
+    else:
+        messages_by_session = {}
+
+    matching_sessions = []
+    for session in sessions:
+        messages = messages_by_session.get(session.id, [])
 
         matching_messages = [
             MessageResponse(
