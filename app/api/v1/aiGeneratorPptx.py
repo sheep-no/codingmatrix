@@ -863,8 +863,13 @@ async def generate_ppt_task(
             output_dir = PPT_OUTPUT_DIR
             output_dir.mkdir(exist_ok=True)
             snapshot_path = output_dir / f"{task_id}_slides.json"
+            snapshot_data = {
+                "user_id": user_id,
+                "title": outline.get("title", ""),
+                "slides": outline.get('slides', []),
+            }
             with open(snapshot_path, 'w', encoding='utf-8') as f:
-                json.dump(outline.get('slides', []), f, ensure_ascii=False, indent=2)
+                json.dump(snapshot_data, f, ensure_ascii=False, indent=2)
             logger.info(f"保存大纲快照 | task_id={task_id} | slides={len(outline.get('slides', []))}")
             
             # 3. 根据格式生成文件
@@ -1391,11 +1396,22 @@ async def list_ppt_history(
         ppt_id = json_path.name.replace("_slides.json", "")
         try:
             with open(json_path, "r", encoding="utf-8") as f:
-                slides_data = json.load(f)
+                raw_data = json.load(f)
+
+            # 兼容新旧格式：新格式为 dict {user_id, title, slides}，旧格式为 list
+            if isinstance(raw_data, dict):
+                if raw_data.get("user_id") != user_id:
+                    continue
+                slides_data = raw_data.get("slides", [])
+                title = raw_data.get("title", "")
+            else:
+                # 旧格式（纯数组）无法确定归属，跳过
+                continue
+
             pptx_path = output_dir / f"{ppt_id}.pptx"
             records.append({
                 "task_id": ppt_id,
-                "title": slides_data[0].get("title", "未命名") if slides_data else "未命名",
+                "title": title or (slides_data[0].get("title", "未命名") if slides_data else "未命名"),
                 "slide_count": len(slides_data),
                 "has_file": pptx_path.exists(),
                 "created_at": datetime.fromtimestamp(json_path.stat().st_mtime).isoformat(),
@@ -1415,11 +1431,27 @@ async def delete_ppt_history(
     token: dict = Depends(verify_token)
 ):
     """删除指定 PPT 历史记录及其文件"""
+    user_id = token.get("sub", "anonymous")
     output_dir = PPT_OUTPUT_DIR
     json_path = output_dir / f"{task_id}_slides.json"
 
     if not json_path.exists():
         raise HTTPException(status_code=404, detail="记录不存在")
+
+    # 校验归属
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            raw_data = json.load(f)
+        if isinstance(raw_data, dict):
+            if raw_data.get("user_id") != user_id:
+                raise HTTPException(status_code=403, detail="无权删除此记录")
+        else:
+            # 旧格式无法确定归属，拒绝删除
+            raise HTTPException(status_code=403, detail="无权删除此记录")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="读取记录失败")
 
     json_path.unlink(missing_ok=True)
     for ext in ["pptx", "html", "md"]:
