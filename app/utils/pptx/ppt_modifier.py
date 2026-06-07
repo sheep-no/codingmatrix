@@ -174,9 +174,11 @@ class PPTModifier:
 
     def _apply_color(self, para, color_str: str):
         """应用颜色"""
+        if not color_str:
+            return
         try:
-            # 从颜色映射中查找
-            color = COLOR_MAP.get(color_str.lower())
+            # 从颜色映射中查找（中文颜色名 .lower() 无实际效果，直接查原值）
+            color = COLOR_MAP.get(color_str) or COLOR_MAP.get(color_str.lower())
             if color:
                 para.font.color.rgb = color
                 logger.debug(f"颜色修改为：{color_str}")

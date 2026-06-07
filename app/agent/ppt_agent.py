@@ -267,17 +267,26 @@ JSON Schema：
                     slide.type = "content"
                 slides.append(slide)
 
-            if len(slides) < 2:
-                return None
-
-            if slides[0].type != "title":
-                slides.insert(0, SlideOutline(type="title", title=topic or "PPT", bullets=[]))
-
-            if slides[-1].type != "end":
-                slides.append(SlideOutline(type="end", title="谢谢", bullets=[]))
+            if len(slides) == 0:
+                # 无幻灯片时补充封面+结束页
+                slides = [
+                    SlideOutline(type="title", title=topic or "PPT", bullets=[]),
+                    SlideOutline(type="end", title="谢谢", bullets=[]),
+                ]
+            else:
+                # 确保第一页是封面
+                if slides[0].type != "title":
+                    slides.insert(0, SlideOutline(type="title", title=topic or "PPT", bullets=[]))
+                # 确保最后一页是结束页
+                if slides[-1].type != "end":
+                    slides.append(SlideOutline(type="end", title="谢谢", bullets=[]))
 
             while len(slides) > num_slides:
-                slides.pop(-2)
+                # 从内容页开始删除（跳过首尾）
+                if len(slides) > 2:
+                    slides.pop(-2)
+                else:
+                    break
 
             return PresentationOutline(title=data.get("title", topic), slides=slides)
         except Exception as e:

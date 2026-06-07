@@ -12,11 +12,13 @@ PPT 搜图模块
 
 import asyncio
 import hashlib
+import ipaddress
 import logging
 import re
+import socket
 from pathlib import Path
 from typing import List, Optional, Dict
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import aiohttp
 
@@ -27,6 +29,27 @@ IMAGE_SEARCH_TIMEOUT = 10
 IMAGE_CACHE_DIR = Path("./pptx_output/image_cache")
 IMAGE_CACHE_MAX_AGE_DAYS = 7  # 缓存过期天数
 IMAGE_CACHE_MAX_SIZE_MB = 500  # 缓存最大容量 MB
+IMAGE_DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024  # 单张图片最大 20MB
+
+
+def _is_safe_url(url: str) -> bool:
+    """检查 URL 是否安全（非内网地址）"""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
+        for family, _, _, _, sockaddr in addr_info:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                logger.warning("SSRF 阻止：内网地址 %s (%s)", hostname, ip)
+                return False
+    except (socket.gaierror, ValueError):
+        pass
+    return True
 
 # 占位图 URL (免费使用)
 PLACEHOLDER_URLS = {
@@ -194,13 +217,22 @@ class ImageSearchManager:
         return None
 
     async def search_images(self, keywords: List[str]) -> Dict[str, str]:
-        """批量搜索图片"""
+        """批量搜索图片（限制并发数）"""
         results = {}
-        tasks = [self.search_image(kw) for kw in keywords]
-        urls = await asyncio.gather(*tasks, return_exceptions=True)
+        semaphore = asyncio.Semaphore(3)
 
-        for kw, url in zip(keywords, urls):
-            if isinstance(url, str) and url:
+        async def _search_one(kw: str):
+            async with semaphore:
+                return kw, await self.search_image(kw)
+
+        tasks = [_search_one(kw) for kw in keywords]
+        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for outcome in outcomes:
+            if isinstance(outcome, Exception):
+                continue
+            kw, url = outcome
+            if url:
                 results[kw] = url
 
         return results
@@ -216,18 +248,30 @@ class ImageSearchManager:
         return None
 
     async def download_and_cache(self, keyword: str, url: str) -> Optional[Path]:
-        """下载图片并缓存"""
+        """下载图片并缓存（SSRF 防护 + 大小限制）"""
         cache_key = hashlib.md5(keyword.encode()).hexdigest()
         cache_path = self.cache_dir / f"{cache_key}.jpg"
 
         if cache_path.exists():
             return cache_path
 
+        if not _is_safe_url(url):
+            return None
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=IMAGE_SEARCH_TIMEOUT) as resp:
                     if resp.status == 200:
-                        data = await resp.read()
+                        content_length = resp.headers.get("Content-Length")
+                        if content_length and int(content_length) > IMAGE_DOWNLOAD_MAX_BYTES:
+                            logger.warning("图片过大，跳过：%s (%s bytes)", url, content_length)
+                            return None
+                        data = b""
+                        async for chunk in resp.content.iter_chunked(8192):
+                            data += chunk
+                            if len(data) > IMAGE_DOWNLOAD_MAX_BYTES:
+                                logger.warning("图片下载超过大小限制：%s", url)
+                                return None
                         cache_path.write_bytes(data)
                         logger.info(f"图片已缓存 [{keyword}]: {cache_path}")
                         return cache_path

@@ -168,7 +168,7 @@ class SlideRenderer:
             if slide.background.fill.type is not None:
                 color = slide.background.fill.fore_color.rgb
                 preview.background_color = (color[0], color[1], color[2])
-        except:
+        except Exception:
             pass
 
         # 解析元素

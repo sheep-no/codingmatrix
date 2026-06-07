@@ -10,15 +10,19 @@ PPT 生成 API - 统一增强版
 6. 提供同步/异步生成、下载、预览、幻灯片详情接口。
 """
 import asyncio
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import uuid
 from datetime import datetime
 from enum import Enum
+from html import escape as html_escape
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse, HTMLResponse
@@ -68,6 +72,78 @@ VALID_TEMPLATE_IDS = [
     "modern", "business", "creative", "minimal",
     "academic", "tech", "education", "medical", "elegant",
 ]
+
+
+# =============================================================================
+# 安全校验函数
+# =============================================================================
+
+# 合法的 task_id/ppt_id 格式：UUID 或 UUID 前缀
+_ID_PATTERN = re.compile(r'^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$', re.IGNORECASE)
+
+
+def _validate_ppt_id(ppt_id: str) -> str:
+    """校验 ppt_id/task_id，防止路径穿越。
+
+    只允许 UUID 格式的 ID，拒绝包含 /、.. 等特殊字符的输入。
+    """
+    if not ppt_id or not _ID_PATTERN.match(ppt_id):
+        raise HTTPException(status_code=400, detail="无效的 PPT ID 格式")
+    return ppt_id
+
+
+# 最大下载大小：20MB
+_MAX_IMAGE_DOWNLOAD_BYTES = 20 * 1024 * 1024
+
+
+async def _safe_download_image(url: str, save_path: Path, max_bytes: int = _MAX_IMAGE_DOWNLOAD_BYTES) -> bool:
+    """安全下载图片：SSRF 防护 + 大小限制。
+
+    检查 URL 解析后的主机是否为内网地址，拒绝访问私有/回环/链路本地地址。
+    """
+    import aiohttp
+
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        # DNS 解析检查内网地址
+        try:
+            addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
+            for family, _, _, _, sockaddr in addr_info:
+                ip = ipaddress.ip_address(sockaddr[0])
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    logger.warning("SSRF 阻止：内网地址 %s (%s)", hostname, ip)
+                    return False
+        except (socket.gaierror, ValueError):
+            pass
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    return False
+                # 检查 Content-Length
+                content_length = resp.headers.get("Content-Length")
+                if content_length and int(content_length) > max_bytes:
+                    logger.warning("图片过大，跳过下载：%s (%s bytes)", url, content_length)
+                    return False
+                # 流式读取，限制大小
+                data = b""
+                async for chunk in resp.content.iter_chunked(8192):
+                    data += chunk
+                    if len(data) > max_bytes:
+                        logger.warning("图片下载超过大小限制：%s", url)
+                        return False
+                save_path.write_bytes(data)
+                return True
+    except Exception as e:
+        logger.warning("图片下载失败 %s: %s", url, e)
+        return False
 
 # =============================================================================
 # 模型定义
@@ -263,116 +339,268 @@ def add_decorative_corner(slide, prs, style: PPTStyle):
 
 
 def _render_slide_default(prs, blank_layout, style, slide_data, idx, total_slides):
-    """默认幻灯片渲染（不使用视觉决策）"""
+    """默认幻灯片渲染（不使用视觉决策），根据 slide_type 区分渲染样式"""
     content_slide = prs.slides.add_slide(blank_layout)
+    slide_type = slide_data.get('slide_type', 'content')
 
     # 浅蓝背景
     add_slide_background(content_slide, prs, style, light=True)
 
-    # 顶部装饰
-    add_decorative_header(content_slide, prs, slide_data.get('title', ''), style)
+    if slide_type == 'cover':
+        # === 封面页：居中布局 ===
+        # 中央装饰框
+        center_box = content_slide.shapes.add_shape(
+            1, Inches(1.5), Inches(2),
+            Inches(10.333), Inches(3)
+        )
+        center_box.fill.solid()
+        center_box.fill.fore_color.rgb = style.PRIMARY_COLOR
+        center_box.line.fill.background()
 
-    # 左侧装饰
-    left_dec = content_slide.shapes.add_shape(
-        1, Inches(0), Inches(0),
-        Inches(0.1), Inches(7.5)
-    )
-    left_dec.fill.solid()
-    left_dec.fill.fore_color.rgb = style.PRIMARY_COLOR
-    left_dec.line.fill.background()
+        # 主标题
+        title_box = content_slide.shapes.add_textbox(
+            Inches(1.5), Inches(2.3),
+            Inches(10.333), Inches(1.5)
+        )
+        tf = title_box.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.text = slide_data.get('title', 'PPT 标题')
+        p.font.name = style.FONT_MAIN
+        p.font.size = Pt(48)
+        p.font.bold = True
+        p.font.color.rgb = style.TEXT_WHITE
+        p.alignment = PP_ALIGN.CENTER
 
-    # 标题
-    title_shape = content_slide.shapes.add_textbox(
-        Inches(0.5), Inches(0.4),
-        Inches(12), Inches(1)
-    )
-    tf = title_shape.text_frame
-    p = tf.paragraphs[0]
-    p.text = slide_data.get('title', f'第 {idx} 页')
-    p.font.name = style.FONT_MAIN
-    p.font.size = Pt(36)
-    p.font.bold = True
-    p.font.color.rgb = style.PRIMARY_COLOR
-
-    # 分隔线
-    line = content_slide.shapes.add_shape(
-        1,
-        Inches(0.5), Inches(1.3),
-        Inches(12.333), Inches(0.03)
-    )
-    line.fill.solid()
-    line.fill.fore_color.rgb = style.PRIMARY_LIGHT
-    line.line.fill.background()
-
-    # 内容区域 (使用防溢出处理)
-    content_items = slide_data.get('content', [])
-    if isinstance(content_items, str):
-        content_items = [content_items]
-    elif isinstance(content_items, dict):
-        content_items = [str(content_items)]
-    elif not content_items:
-        content_items = ['暂无内容']
-    
-    # 防溢出处理
-    processed_items = []
-    for item in content_items:
-        if isinstance(item, str):
-            processed_items.extend(prevent_text_overflow(item, max_chars_per_line=70, max_lines=6))
-        else:
-            processed_items.append(str(item))
-    content_items = processed_items
-
-    # 自动配图 (如果有搜索到的图片)
-    local_images = slide_data.get('local_images', [])
-    if local_images:
-        try:
-            img_path = local_images[0]
-            if Path(img_path).exists():
-                content_slide.shapes.add_picture(
-                    img_path, 
-                    Inches(9), Inches(2), 
-                    Inches(3.5), Inches(2.5)
-                )
-        except Exception as e:
-            logger.warning(f"图片添加失败: {e}")
-
-    # 逐行添加内容
-    y_pos = 1.6
-    for item in content_items:
-        item_text = str(item).strip()
-        if item_text:
-            # 添加 bullet
-            bullet = content_slide.shapes.add_shape(
-                9,  # 椭圆
-                Inches(0.5), Inches(y_pos + 0.1),
-                Inches(0.15), Inches(0.15)
+        # 副标题 / 内容
+        content_text = slide_data.get('content', '')
+        if content_text:
+            subtitle_box = content_slide.shapes.add_textbox(
+                Inches(1.5), Inches(4),
+                Inches(10.333), Inches(0.8)
             )
-            bullet.fill.solid()
-            bullet.fill.fore_color.rgb = style.ACCENT_COLOR
-            bullet.line.fill.background()
+            tf = subtitle_box.text_frame
+            p = tf.paragraphs[0]
+            p.text = str(content_text)[:100] if isinstance(content_text, str) else str(content_text[0])[:100] if isinstance(content_text, list) and content_text else ''
+            p.font.name = style.FONT_MAIN
+            p.font.size = Pt(18)
+            p.font.color.rgb = style.TEXT_WHITE
+            p.alignment = PP_ALIGN.CENTER
 
-            # 文本
+        add_decorative_corner(content_slide, prs, style)
+
+    elif slide_type == 'toc':
+        # === 目录页：列表布局 ===
+        add_decorative_header(content_slide, prs, slide_data.get('title', '目录'), style)
+
+        title_shape = content_slide.shapes.add_textbox(
+            Inches(0.5), Inches(0.4), Inches(12), Inches(1)
+        )
+        tf = title_shape.text_frame
+        p = tf.paragraphs[0]
+        p.text = slide_data.get('title', '目录')
+        p.font.name = style.FONT_MAIN
+        p.font.size = Pt(36)
+        p.font.bold = True
+        p.font.color.rgb = style.PRIMARY_COLOR
+
+        content_items = slide_data.get('content', [])
+        if isinstance(content_items, str):
+            content_items = content_items.split('\n')
+        elif not isinstance(content_items, list):
+            content_items = [str(content_items)]
+
+        y_pos = 1.8
+        for i, item in enumerate(content_items[:10]):
+            item_text = str(item).strip()
+            if not item_text:
+                continue
+            # 编号圆圈
+            num_circle = content_slide.shapes.add_shape(
+                9, Inches(0.8), Inches(y_pos), Inches(0.4), Inches(0.4)
+            )
+            num_circle.fill.solid()
+            num_circle.fill.fore_color.rgb = style.PRIMARY_COLOR
+            num_circle.line.fill.background()
+            ntf = num_circle.text_frame
+            np = ntf.paragraphs[0]
+            np.text = str(i + 1)
+            np.font.size = Pt(14)
+            np.font.color.rgb = style.TEXT_WHITE
+            np.alignment = PP_ALIGN.CENTER
+
+            # 目录文本
             text_box = content_slide.shapes.add_textbox(
-                Inches(0.8), Inches(y_pos),
-                Inches(11.5), Inches(0.8)
+                Inches(1.4), Inches(y_pos), Inches(10), Inches(0.5)
             )
             tf = text_box.text_frame
-            tf.word_wrap = True
             p = tf.paragraphs[0]
-            p.text = item_text
+            p.text = item_text.lstrip('0123456789.、·- ')
             p.font.name = style.FONT_MAIN
             p.font.size = Pt(20)
             p.font.color.rgb = style.TEXT_DARK
-            p.space_after = Pt(12)
-            y_pos += 0.7
+            y_pos += 0.6
 
-    # 右下角装饰
-    add_decorative_corner(content_slide, prs, style)
+        add_page_number(content_slide, prs, idx + 1, total_slides, style)
 
-    # 页码
-    add_page_number(content_slide, prs, idx + 1, total_slides, style)
+    elif slide_type == 'summary':
+        # === 总结页：强调布局 ===
+        # 顶部装饰
+        add_decorative_header(content_slide, prs, slide_data.get('title', '总结'), style)
 
-    # 底部装饰条
+        title_shape = content_slide.shapes.add_textbox(
+            Inches(0.5), Inches(0.4), Inches(12), Inches(1)
+        )
+        tf = title_shape.text_frame
+        p = tf.paragraphs[0]
+        p.text = slide_data.get('title', '总结')
+        p.font.name = style.FONT_MAIN
+        p.font.size = Pt(36)
+        p.font.bold = True
+        p.font.color.rgb = style.PRIMARY_COLOR
+
+        # 分隔线
+        line = content_slide.shapes.add_shape(
+            1, Inches(0.5), Inches(1.3), Inches(12.333), Inches(0.03)
+        )
+        line.fill.solid()
+        line.fill.fore_color.rgb = style.ACCENT_COLOR
+        line.line.fill.background()
+
+        # 内容（使用强调色 bullet）
+        content_items = slide_data.get('content', [])
+        if isinstance(content_items, str):
+            content_items = [content_items]
+        elif not isinstance(content_items, list):
+            content_items = [str(content_items)]
+
+        processed_items = []
+        for item in content_items:
+            if isinstance(item, str):
+                processed_items.extend(prevent_text_overflow(item, max_chars_per_line=70, max_lines=4))
+            else:
+                processed_items.append(str(item))
+
+        y_pos = 1.6
+        for item in processed_items[:8]:
+            item_text = str(item).strip()
+            if item_text:
+                bullet = content_slide.shapes.add_shape(
+                    9, Inches(0.5), Inches(y_pos + 0.1), Inches(0.15), Inches(0.15)
+                )
+                bullet.fill.solid()
+                bullet.fill.fore_color.rgb = style.ACCENT_COLOR
+                bullet.line.fill.background()
+
+                text_box = content_slide.shapes.add_textbox(
+                    Inches(0.8), Inches(y_pos), Inches(11.5), Inches(0.8)
+                )
+                tf = text_box.text_frame
+                tf.word_wrap = True
+                p = tf.paragraphs[0]
+                p.text = item_text
+                p.font.name = style.FONT_MAIN
+                p.font.size = Pt(20)
+                p.font.bold = True
+                p.font.color.rgb = style.PRIMARY_COLOR
+                p.space_after = Pt(12)
+                y_pos += 0.7
+
+        add_page_number(content_slide, prs, idx + 1, total_slides, style)
+
+    else:
+        # === 内容页（默认） ===
+        add_decorative_header(content_slide, prs, slide_data.get('title', ''), style)
+
+        # 左侧装饰
+        left_dec = content_slide.shapes.add_shape(
+            1, Inches(0), Inches(0),
+            Inches(0.1), Inches(7.5)
+        )
+        left_dec.fill.solid()
+        left_dec.fill.fore_color.rgb = style.PRIMARY_COLOR
+        left_dec.line.fill.background()
+
+        # 标题
+        title_shape = content_slide.shapes.add_textbox(
+            Inches(0.5), Inches(0.4), Inches(12), Inches(1)
+        )
+        tf = title_shape.text_frame
+        p = tf.paragraphs[0]
+        p.text = slide_data.get('title', f'第 {idx} 页')
+        p.font.name = style.FONT_MAIN
+        p.font.size = Pt(36)
+        p.font.bold = True
+        p.font.color.rgb = style.PRIMARY_COLOR
+
+        # 分隔线
+        line = content_slide.shapes.add_shape(
+            1, Inches(0.5), Inches(1.3), Inches(12.333), Inches(0.03)
+        )
+        line.fill.solid()
+        line.fill.fore_color.rgb = style.PRIMARY_LIGHT
+        line.line.fill.background()
+
+        # 内容区域 (使用防溢出处理)
+        content_items = slide_data.get('content', [])
+        if isinstance(content_items, str):
+            content_items = [content_items]
+        elif isinstance(content_items, dict):
+            content_items = [str(content_items)]
+        elif not content_items:
+            content_items = ['暂无内容']
+
+        # 防溢出处理
+        processed_items = []
+        for item in content_items:
+            if isinstance(item, str):
+                processed_items.extend(prevent_text_overflow(item, max_chars_per_line=70, max_lines=6))
+            else:
+                processed_items.append(str(item))
+        content_items = processed_items
+
+        # 自动配图 (如果有搜索到的图片)
+        local_images = slide_data.get('local_images', [])
+        if local_images:
+            try:
+                img_path = local_images[0]
+                if Path(img_path).exists():
+                    content_slide.shapes.add_picture(
+                        img_path,
+                        Inches(9), Inches(2),
+                        Inches(3.5), Inches(2.5)
+                    )
+            except Exception as e:
+                logger.warning(f"图片添加失败: {e}")
+
+        # 逐行添加内容
+        y_pos = 1.6
+        for item in content_items:
+            item_text = str(item).strip()
+            if item_text:
+                bullet = content_slide.shapes.add_shape(
+                    9, Inches(0.5), Inches(y_pos + 0.1), Inches(0.15), Inches(0.15)
+                )
+                bullet.fill.solid()
+                bullet.fill.fore_color.rgb = style.ACCENT_COLOR
+                bullet.line.fill.background()
+
+                text_box = content_slide.shapes.add_textbox(
+                    Inches(0.8), Inches(y_pos), Inches(11.5), Inches(0.8)
+                )
+                tf = text_box.text_frame
+                tf.word_wrap = True
+                p = tf.paragraphs[0]
+                p.text = item_text
+                p.font.name = style.FONT_MAIN
+                p.font.size = Pt(20)
+                p.font.color.rgb = style.TEXT_DARK
+                p.space_after = Pt(12)
+                y_pos += 0.7
+
+        add_page_number(content_slide, prs, idx + 1, total_slides, style)
+
+    # 底部装饰条（所有类型共用）
     bottom_bar = content_slide.shapes.add_shape(
         1, Inches(0), Inches(7.35),
         prs.slide_width, Inches(0.15)
@@ -603,7 +831,8 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
                         slide_index=idx,
                         style=f"{req.template} 风格"
                     )
-                except Exception: pass
+                except Exception as e:
+                    logger.warning(f"幻灯片 {idx} 配图获取失败: {e}")
 
             try:
                 layout_plan = await layout_decider.plan_slide_layout(
@@ -615,18 +844,14 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
                     prs=prs, layout_plan=layout_plan, image_asset=image_asset, style=style
                 )
                 used_visual = True
-            except Exception: pass
+            except Exception as e:
+                logger.warning(f"幻灯片 {idx} 视觉渲染失败，使用默认布局: {e}")
 
         if not used_visual:
             _render_slide_default(prs, blank_layout, style, slide_data, idx, total_slides)
     
     prs.save(str(filepath))
     logger.info(f"PPTX 文件保存成功 | file: {filepath}")
-    
-    # 保存 JSON 数据（用于预览）
-    json_path = filepath.parent / f"{filepath.stem}_slides.json"
-    with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(outline.get('slides', []), f, ensure_ascii=False, indent=2)
 
 async def generate_html_ppt(filepath: Path, outline: Dict[str, Any], req: PPTGenerationRequest):
     """生成 HTML 格式 PPT"""
@@ -712,12 +937,13 @@ async def generate_markdown_ppt(filepath: Path, outline: Dict[str, Any], req: PP
 
 def generate_preview_html(ppt_id: str, pptx_path: Path) -> str:
     """生成预览 HTML 页面"""
+    safe_id = html_escape(ppt_id, quote=True)
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PPT 预览 - {ppt_id}</title>
+    <title>PPT 预览 - {safe_id}</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f1f5f9; padding: 20px; }}
@@ -741,12 +967,12 @@ def generate_preview_html(ppt_id: str, pptx_path: Path) -> str:
     <div class="container">
         <div class="header">
             <h1>PPT 预览</h1>
-            <p style="color: #64748b; margin-top: 8px;">PPT ID: {ppt_id}</p>
+            <p style="color: #64748b; margin-top: 8px;">PPT ID: {safe_id}</p>
         </div>
         
         <div class="download-section">
             <h2 style="margin-bottom: 16px;">下载 PPT</h2>
-            <a href="/api/v1/pptx/download/{ppt_id}?format=pptx" class="download-btn">下载 PowerPoint</a>
+            <a href="/api/v1/pptx/download/{safe_id}?format=pptx" class="download-btn">下载 PowerPoint</a>
         </div>
         
         <div id="slides-container" class="slides-container">
@@ -755,7 +981,7 @@ def generate_preview_html(ppt_id: str, pptx_path: Path) -> str:
     </div>
     
     <script>
-        fetch('/api/v1/pptx/{ppt_id}/slides')
+        fetch('/api/v1/pptx/{safe_id}/slides')
             .then(r => r.json())
             .then(data => {{
                 const container = document.getElementById('slides-container');
@@ -859,12 +1085,17 @@ async def generate_ppt_task(
             await update_progress(progress=20, message="正在生成 PPT 大纲...")
             outline = await generate_ppt_outline(req, user_id=user_id)
 
-            # 立即保存大纲快照（用于恢复/增量生成）
+            # 立即保存大纲快照（用于恢复/增量生成/历史查询）
             output_dir = PPT_OUTPUT_DIR
             output_dir.mkdir(exist_ok=True)
             snapshot_path = output_dir / f"{task_id}_slides.json"
+            snapshot_data = {
+                "user_id": str(user_id),
+                "title": outline.get("title", ""),
+                "slides": outline.get("slides", []),
+            }
             with open(snapshot_path, 'w', encoding='utf-8') as f:
-                json.dump(outline.get('slides', []), f, ensure_ascii=False, indent=2)
+                json.dump(snapshot_data, f, ensure_ascii=False, indent=2)
             logger.info(f"保存大纲快照 | task_id={task_id} | slides={len(outline.get('slides', []))}")
             
             # 3. 根据格式生成文件
@@ -1003,58 +1234,47 @@ async def download_ppt(
     format: str = Query(default="pptx", description="下载格式"),
     token: dict = Depends(verify_token)
 ):
-    """下载 PPT 文件，下载后自动清理"""
+    """下载 PPT 文件"""
+    _validate_ppt_id(ppt_id)
     user_id = token.get("sub", "anonymous")
     output_dir = PPT_OUTPUT_DIR
-    
+
     possible_extensions = ["pptx", "pdf", "html", "md"]
     if format in ["pptx", "pdf", "html", "md"]:
         possible_extensions = [format] + [e for e in possible_extensions if e != format]
-        
+
     filepath = None
     for ext in possible_extensions:
         test_path = output_dir / f"{ppt_id}.{ext}"
         if test_path.exists():
             filepath = test_path
             break
-    
+
     if not filepath:
         raise HTTPException(status_code=404, detail="PPT 文件不存在")
-    
+
     logger.info(f"下载 PPT | user: {user_id} | file: {filepath.name}")
-    
-    def cleanup_related_files():
-        try:
-            if filepath and filepath.exists():
-                filepath.unlink()
-                logger.info(f"已删除 PPT 文件: {filepath.name}")
-            # 清理关联 JSON
-            json_path = output_dir / f"{ppt_id}_slides.json"
-            if json_path.exists():
-                json_path.unlink()
-        except Exception as e:
-            logger.warning(f"清理文件失败: {e}")
-    
+
     async def file_stream():
-        try:
-            with open(filepath, "rb") as f:
-                while chunk := f.read(65536):
-                    yield chunk
-        finally:
-            cleanup_related_files()
-    
+        with open(filepath, "rb") as f:
+            while chunk := f.read(65536):
+                yield chunk
+
     mime_types = {
         "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "html": "text/html",
         "md": "text/markdown",
         "pdf": "application/pdf"
     }
-    
+
+    # 转义文件名，防止 Content-Disposition 头注入
+    safe_name = filepath.name.replace('"', '\\"').replace('\r', '').replace('\n', '')
+
     return StreamingResponse(
         file_stream(),
         media_type=mime_types.get(format, "application/octet-stream"),
         headers={
-            "Content-Disposition": f'attachment; filename="{filepath.name}"'
+            "Content-Disposition": f'attachment; filename="{safe_name}"'
         }
     )
 
@@ -1065,10 +1285,11 @@ async def preview_ppt(
     token: dict = Depends(verify_token)
 ):
     """在线预览 PPT"""
+    _validate_ppt_id(ppt_id)
     user_id = token.get("sub", "anonymous")
     output_dir = PPT_OUTPUT_DIR
     pptx_path = output_dir / f"{ppt_id}.pptx"
-    
+
     # 尝试查找任意格式文件
     if not pptx_path.exists():
         found = False
@@ -1090,6 +1311,7 @@ async def get_ppt_slides(
     token: dict = Depends(verify_token)
 ):
     """获取 PPT 幻灯片数据 (JSON)"""
+    _validate_ppt_id(ppt_id)
     output_dir = PPT_OUTPUT_DIR
     json_path = output_dir / f"{ppt_id}_slides.json"
     
@@ -1107,6 +1329,7 @@ async def cancel_ppt_task(
     token: dict = Depends(verify_token)
 ):
     """取消正在进行的 PPT 生成任务，并保存中间状态"""
+    _validate_ppt_id(task_id)
     user_id = token.get("sub")
 
     task_info = await task_manager.get_task_info_async(task_id)
@@ -1135,6 +1358,7 @@ async def update_ppt_task(
     db: AsyncSession = Depends(get_db)
 ):
     """基于已有的大纲/中间状态增量生成 PPT"""
+    _validate_ppt_id(task_id)
     user_id = token.get("sub")
     output_dir = PPT_OUTPUT_DIR
 
@@ -1146,6 +1370,7 @@ async def update_ppt_task(
     with open(json_path, 'r', encoding='utf-8') as f:
         existing_slides = json.load(f)
 
+    # 使用新的 ppt_id，避免覆盖原文件
     new_ppt_id = str(uuid.uuid4())
 
     async def run_incremental_ppt(task_id: str, **kwargs):
@@ -1181,7 +1406,7 @@ async def update_ppt_task(
             new_slides = new_outline.get('slides', existing_slides)
             new_title = new_outline.get('title', existing_slides[0].get('title', 'PPT') if existing_slides else 'PPT')
 
-            filepath = output_dir / f"{task_id}.{new_req.output_format.value}"
+            filepath = output_dir / f"{new_ppt_id}.{new_req.output_format.value}"
             slides_data = new_slides
 
             if new_req.output_format == OutputFormat.PPTX:
@@ -1210,9 +1435,9 @@ async def update_ppt_task(
                 status="completed",
                 result_data=json.dumps({
                     "filename": filepath.name,
-                    "ppt_id": task_id,
-                    "download_url": f"/api/v1/pptx/download/{task_id}?format={ext}",
-                    "preview_url": f"/api/v1/pptx/preview/{task_id}" if new_req.output_format == OutputFormat.PPTX else None
+                    "ppt_id": new_ppt_id,
+                    "download_url": f"/api/v1/pptx/download/{new_ppt_id}?format={ext}",
+                    "preview_url": f"/api/v1/pptx/preview/{new_ppt_id}" if new_req.output_format == OutputFormat.PPTX else None
                 })
             )
 
@@ -1265,6 +1490,7 @@ async def modify_ppt_visual_endpoint(
     3. 应用修改
     4. 返回修改结果和预览图
     """
+    _validate_ppt_id(task_id)
     user_id = token.get("sub", "anonymous")
     output_dir = PPT_OUTPUT_DIR
 
@@ -1294,6 +1520,13 @@ async def modify_ppt_visual_endpoint(
         )
 
         if result["success"]:
+            # 复制原 slides JSON 到新 task_id，供预览使用
+            original_json = output_dir / f"{task_id}_slides.json"
+            new_json = output_dir / f"{new_task_id}_slides.json"
+            if original_json.exists():
+                import shutil
+                shutil.copy2(str(original_json), str(new_json))
+
             return {
                 "success": True,
                 "message": result["message"],
@@ -1328,6 +1561,7 @@ async def analyze_ppt_endpoint(
 
     返回 PPT 的布局、字体、颜色等信息，用于了解当前状态。
     """
+    _validate_ppt_id(task_id)
     output_dir = PPT_OUTPUT_DIR
     pptx_path = output_dir / f"{task_id}.pptx"
 
@@ -1379,7 +1613,7 @@ async def list_ppt_history(
     page_size: int = Query(20, ge=1, le=100),
     token: dict = Depends(verify_token)
 ):
-    """获取用户的 PPT 生成历史"""
+    """获取当前用户的 PPT 生成历史"""
     user_id = token.get("sub", "anonymous")
     output_dir = PPT_OUTPUT_DIR
 
@@ -1392,11 +1626,28 @@ async def list_ppt_history(
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 slides_data = json.load(f)
+
+            # 用户隔离：只返回属于当前用户的记录
+            record_user = ""
+            if isinstance(slides_data, dict):
+                record_user = str(slides_data.get("user_id", ""))
+                slides_list = slides_data.get("slides", [])
+            else:
+                # 兼容旧格式（纯列表）
+                slides_list = slides_data
+
+            if record_user and record_user != str(user_id):
+                continue
+
             pptx_path = output_dir / f"{ppt_id}.pptx"
+            first_title = "未命名"
+            if slides_list and isinstance(slides_list, list) and len(slides_list) > 0:
+                first_title = slides_list[0].get("title", "未命名") if isinstance(slides_list[0], dict) else "未命名"
+
             records.append({
                 "task_id": ppt_id,
-                "title": slides_data[0].get("title", "未命名") if slides_data else "未命名",
-                "slide_count": len(slides_data),
+                "title": first_title,
+                "slide_count": len(slides_list) if isinstance(slides_list, list) else 0,
                 "has_file": pptx_path.exists(),
                 "created_at": datetime.fromtimestamp(json_path.stat().st_mtime).isoformat(),
             })
@@ -1414,12 +1665,29 @@ async def delete_ppt_history(
     task_id: str,
     token: dict = Depends(verify_token)
 ):
-    """删除指定 PPT 历史记录及其文件"""
+    """删除指定 PPT 历史记录及其文件（仅限本人）"""
+    _validate_ppt_id(task_id)
+    user_id = token.get("sub", "anonymous")
     output_dir = PPT_OUTPUT_DIR
     json_path = output_dir / f"{task_id}_slides.json"
 
     if not json_path.exists():
         raise HTTPException(status_code=404, detail="记录不存在")
+
+    # 用户归属校验
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            slides_data = json.load(f)
+        if isinstance(slides_data, dict):
+            record_user = str(slides_data.get("user_id", ""))
+        else:
+            record_user = ""
+        if record_user and record_user != str(user_id):
+            raise HTTPException(status_code=403, detail="无权删除他人的 PPT 记录")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
 
     json_path.unlink(missing_ok=True)
     for ext in ["pptx", "html", "md"]:
@@ -1487,17 +1755,20 @@ def prevent_text_overflow(
 
 # 图片搜索管理器 (延迟初始化)
 _image_search_manager: Optional[ImageSearchManager] = None
+_image_manager_lock: asyncio.Lock = asyncio.Lock()
 
 
-def get_image_search_manager() -> ImageSearchManager:
-    """获取图片搜索管理器单例"""
+async def get_image_search_manager() -> ImageSearchManager:
+    """获取图片搜索管理器单例（异步安全）"""
     global _image_search_manager
     if _image_search_manager is None:
-        _image_search_manager = ImageSearchManager(
-            bing_key=os.environ.get("BING_IMAGE_SEARCH_KEY"),
-            unsplash_key=os.environ.get("UNSPLASH_ACCESS_KEY"),
-            pexels_key=os.environ.get("PEXELS_API_KEY"),
-        )
+        async with _image_manager_lock:
+            if _image_search_manager is None:
+                _image_search_manager = ImageSearchManager(
+                    bing_key=os.environ.get("BING_IMAGE_SEARCH_KEY"),
+                    unsplash_key=os.environ.get("UNSPLASH_ACCESS_KEY"),
+                    pexels_key=os.environ.get("PEXELS_API_KEY"),
+                )
     return _image_search_manager
 
 
@@ -1511,25 +1782,13 @@ async def search_image_url(keyword: str) -> Optional[str]:
     3. Pexels (需要 API Key)
     4. 占位图降级
     """
-    manager = get_image_search_manager()
+    manager = await get_image_search_manager()
     return await manager.search_image(keyword)
 
 
 async def download_image(url: str, save_path: Path) -> bool:
-    """下载图片到本地"""
-    import aiohttp
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=10) as resp:
-                if resp.status == 200:
-                    data = await resp.read()
-                    save_path.write_bytes(data)
-                    return True
-    except Exception as e:
-        logger.warning(f"图片下载失败 {url}: {e}")
-    
-    return False
+    """下载图片到本地（SSRF 防护 + 大小限制）"""
+    return await _safe_download_image(url, save_path)
 
 
 IMAGE_CACHE_DIR = Path("./static/images/cache")
@@ -1537,7 +1796,7 @@ IMAGE_CACHE_DIR = Path("./static/images/cache")
 
 async def get_image_for_slide(keywords: List[str], slide_index: int) -> Optional[str]:
     """获取幻灯片配图 (缓存优先)"""
-    manager = get_image_search_manager()
+    manager = await get_image_search_manager()
     
     for kw in keywords[:2]:
         # 检查缓存
