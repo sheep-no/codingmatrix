@@ -138,7 +138,8 @@ class LLMClient:
                 response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
 
             choices = response.get("choices", [])
-            content = choices[0].get("message", {}).get("content", "") if choices else ""
+            message = choices[0].get("message") if choices else None
+            content = (message or {}).get("content", "") if choices else ""
             latency_ms = (time.time() - start_time) * 1000
             await (await get_dynamic_router()).record_call(
                 self.model_name, success=True, latency_ms=latency_ms

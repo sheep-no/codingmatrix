@@ -149,7 +149,7 @@ class EnhancedExecutor:
         self.file_operator = file_operator
         self.project_path = project_path
         self.tool_registry = ToolRegistry.get_instance()
-        if not self.tool_registry._tools:
+        if not self.tool_registry._tools or getattr(self.tool_registry, '_registered_project_path', None) != project_path:
             self._register_default_tools()
         self._mcp_loaded = False
 
@@ -368,6 +368,7 @@ class EnhancedExecutor:
 
         for name, func, desc, schema in tool_defs:
             self.tool_registry.register(name=name, func=func, description=desc, parameters_schema=schema)
+        self.tool_registry._registered_project_path = self.project_path
 
     async def execute_tool(self, tool_name: str, params: Dict) -> ToolResult:
         """执行单个工具"""

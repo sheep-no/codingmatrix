@@ -678,7 +678,16 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
 def _tool_write_file(project_path: str, path: str, content: str) -> Dict:
     """写入文件内容（创建或覆盖）"""
     try:
-        full_path = Path(project_path) / path if not Path(path).is_absolute() else Path(path)
+        project_resolved = Path(project_path).resolve()
+        
+        if Path(path).is_absolute():
+            full_path = Path(path).resolve()
+        else:
+            full_path = (project_resolved / path).resolve()
+        
+        if not str(full_path).startswith(str(project_resolved)):
+            return {"success": False, "error": f"路径越界: 禁止写入项目目录之外"}
+        
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content, encoding='utf-8')
         return {"success": True, "path": str(full_path), "size": len(content)}

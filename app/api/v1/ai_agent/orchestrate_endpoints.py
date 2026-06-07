@@ -329,6 +329,12 @@ async def orchestrate_project_stream(
     if not disk_ok:
         raise HTTPException(status_code=507, detail=disk_msg)
 
+    # 防护：检查 Prompt 注入
+    from app.utils.guardrails import check_prompt_safety
+    prompt_safe, prompt_msg = check_prompt_safety(request.requirement)
+    if not prompt_safe:
+        raise HTTPException(status_code=400, detail=prompt_msg)
+
     from app.utils.system_config import system_config_manager
     
     user_role = token.get("role", "user")
@@ -459,6 +465,9 @@ async def orchestrate_project_stream(
     from app.utils.dynamic_concurrent import ConcurrentLimitManager
     concurrent_mgr = ConcurrentLimitManager()
     concurrent_mgr.register_session(user_role)
+
+    # 释放注入的 DB session，避免 SSE 长连接期间占用连接池
+    await db.close()
 
     queue: asyncio.Queue = asyncio.Queue()
     approval_queue: asyncio.Queue = asyncio.Queue()

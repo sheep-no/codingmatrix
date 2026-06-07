@@ -379,7 +379,9 @@ class FilesMixin:
                 return None
             content = self._clean_code_block(content)
             content = _fix_absolute_imports(content, file_path, all_files)
-            write_file_atomic(self.output_dir, file_path, content)
+            if not write_file_atomic(self.output_dir, file_path, content):
+                self.errors.append(f"文件写入失败: {file_path}（磁盘满或权限不足）")
+                return None
 
         if self.require_approval and self._is_critical_file(file_path):
             self._report_progress(
@@ -617,8 +619,12 @@ class FilesMixin:
 
         validation_success = True
 
-        with open(full_path, 'w', encoding='utf-8') as f:
-            f.write(content)
+        try:
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except OSError as e:
+            logger.error(f"文件写入失败: {file_path} - {e}")
+            return False, content
 
         if self.enable_error_recovery:
             success, content = await self.error_recovery.validate_and_fix(
@@ -629,8 +635,12 @@ class FilesMixin:
                 callback=self.callback
             )
             if success:
-                with open(full_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
+                try:
+                    with open(full_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                except OSError as e:
+                    logger.error(f"文件写入失败（错误恢复后）: {file_path} - {e}")
+                    validation_success = False
                 content_hash = CodeValidator._compute_content_hash(content)
                 cache_key = f"{file_path}:{content_hash}"
             else:
