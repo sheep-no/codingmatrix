@@ -77,8 +77,14 @@ class PPTModifier:
             是否成功
         """
         try:
+            any_applied = False
             for target in intent.targets:
-                self._apply_target(target)
+                if self._apply_target(target):
+                    any_applied = True
+
+            if not any_applied:
+                logger.warning("所有修改目标均未生效（幻灯片不存在或无匹配元素）")
+                return False
 
             # 保存
             self.prs.save(output_path)
@@ -89,20 +95,21 @@ class PPTModifier:
             logger.error(f"应用修改失败：{e}")
             return False
 
-    def _apply_target(self, target: ModifyTarget):
-        """应用单个修改目标"""
+    def _apply_target(self, target: ModifyTarget) -> bool:
+        """应用单个修改目标，返回是否有实际修改"""
         if target.slide_number:
-            # 修改指定幻灯片
             slide_idx = target.slide_number - 1
             if 0 <= slide_idx < len(self.prs.slides):
                 slide = self.prs.slides[slide_idx]
                 self._modify_slide(slide, target)
+                return True
             else:
-                logger.warning(f"幻灯片 {target.slide_number} 不存在")
+                logger.warning(f"幻灯片 {target.slide_number} 不存在（共 {len(self.prs.slides)} 页）")
+                return False
         else:
-            # 修改所有幻灯片
             for slide in self.prs.slides:
                 self._modify_slide(slide, target)
+            return True
 
     def _modify_slide(self, slide, target: ModifyTarget):
         """修改单个幻灯片"""
@@ -138,15 +145,26 @@ class PPTModifier:
 
         # 判断元素类型
         if target.element_type == "title":
-            # 标题通常是第一个非空段落，或字号较大
-            if para.font.size and para.font.size >= Pt(24):
+            # 标题判断：字号>=24pt，或加粗且字号>=18pt，或段落索引为0（首段通常是标题）
+            font_size = para.font.size
+            is_bold = para.font.bold
+            if font_size and font_size >= Pt(24):
+                return True
+            if is_bold and font_size and font_size >= Pt(18):
+                return True
+            # 无字号信息时，加粗文本也视为标题候选
+            if font_size is None and is_bold:
                 return True
             return False
 
         elif target.element_type == "text":
-            # 正文
-            if para.font.size and para.font.size < Pt(24):
-                return True
+            # 正文：非标题元素
+            font_size = para.font.size
+            is_bold = para.font.bold
+            if font_size and font_size >= Pt(24):
+                return False
+            if is_bold and font_size is None:
+                return False  # 无法确定，保守不匹配
             return True
 
         return True
@@ -175,21 +193,25 @@ class PPTModifier:
     def _apply_color(self, para, color_str: str):
         """应用颜色"""
         try:
-            # 从颜色映射中查找
             color = COLOR_MAP.get(color_str.lower())
             if color:
                 para.font.color.rgb = color
                 logger.debug(f"颜色修改为：{color_str}")
-            else:
-                # 尝试解析十六进制颜色
-                if color_str.startswith('#'):
-                    hex_color = color_str.lstrip('#')
-                    if len(hex_color) == 6:
+            elif color_str.startswith('#'):
+                hex_color = color_str.lstrip('#')
+                if len(hex_color) == 6:
+                    try:
                         r = int(hex_color[0:2], 16)
                         g = int(hex_color[2:4], 16)
                         b = int(hex_color[4:6], 16)
                         para.font.color.rgb = RGBColor(r, g, b)
                         logger.debug(f"颜色修改为：{color_str}")
+                    except ValueError:
+                        logger.warning(f"无效的十六进制颜色值：{color_str}")
+                else:
+                    logger.warning(f"十六进制颜色格式错误（需6位）：{color_str}")
+            else:
+                logger.warning(f"未识别的颜色值：{color_str}，支持的颜色：{list(COLOR_MAP.keys())[:10]}...")
         except Exception as e:
             logger.warning(f"修改颜色失败：{e}")
 

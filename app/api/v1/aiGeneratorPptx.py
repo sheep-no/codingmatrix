@@ -630,7 +630,10 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
 
 async def generate_html_ppt(filepath: Path, outline: Dict[str, Any], req: PPTGenerationRequest):
     """生成 HTML 格式 PPT"""
-    template = PPT_TEMPLATES.get(req.template, PPT_TEMPLATES["modern"])
+    template = PPT_TEMPLATES.get(req.template)
+    if not template:
+        logger.warning(f"模板 '{req.template}' 不存在，回退到 'modern'。可用模板：{list(PPT_TEMPLATES.keys())}")
+        template = PPT_TEMPLATES["modern"]
     
     html_content = f"""<!DOCTYPE html>
 <html lang="{req.language}">
@@ -777,7 +780,11 @@ def generate_preview_html(ppt_id: str, pptx_path: Path) -> str:
                     }});
                 }}
             }})
-            .catch(err => console.error('加载幻灯片失败:', err));
+            .catch(err => {{
+                console.error('加载幻灯片失败:', err);
+                const container = document.getElementById('slides-container');
+                container.innerHTML = '<div style="text-align:center;padding:40px;color:#ef4444;">加载幻灯片数据失败，请刷新页面重试。</div>';
+            }});
     </script>
 </body>
 </html>"""
@@ -912,7 +919,14 @@ async def generate_ppt_task(
             )
             
         except asyncio.CancelledError:
-            # 取消时保存已有的中间状态
+            # 取消时清理部分写入的 PPTX 文件，保留 JSON 中间状态用于恢复
+            try:
+                partial_pptx = filepath if 'filepath' in dir() else None
+                if partial_pptx and isinstance(partial_pptx, Path) and partial_pptx.exists():
+                    partial_pptx.unlink(missing_ok=True)
+                    logger.info(f"已清理取消任务的部分文件：{partial_pptx}")
+            except Exception:
+                pass
             await update_progress(
                 status="cancelled",
                 message="任务已取消，中间状态已保存",
@@ -1386,17 +1400,33 @@ async def list_ppt_history(
     if not output_dir.exists():
         return {"records": [], "total": 0}
 
+    if not output_dir.exists():
+        return {"records": [], "total": 0}
+
     records = []
     for json_path in sorted(output_dir.glob("*_slides.json"), reverse=True):
         ppt_id = json_path.name.replace("_slides.json", "")
         try:
             with open(json_path, "r", encoding="utf-8") as f:
-                slides_data = json.load(f)
+                raw_data = json.load(f)
+            if isinstance(raw_data, dict):
+                slides_list = raw_data.get("slides", [])
+                record_user_id = raw_data.get("user_id")
+                record_title = raw_data.get("title") or (slides_list[0].get("title", "未命名") if slides_list else "未命名")
+            else:
+                slides_list = raw_data
+                record_user_id = None
+                record_title = slides_list[0].get("title", "未命名") if slides_list else "未命名"
+
+            # 用户过滤
+            if record_user_id and str(record_user_id) != str(user_id):
+                continue
+
             pptx_path = output_dir / f"{ppt_id}.pptx"
             records.append({
                 "task_id": ppt_id,
-                "title": slides_data[0].get("title", "未命名") if slides_data else "未命名",
-                "slide_count": len(slides_data),
+                "title": record_title,
+                "slide_count": len(slides_list),
                 "has_file": pptx_path.exists(),
                 "created_at": datetime.fromtimestamp(json_path.stat().st_mtime).isoformat(),
             })

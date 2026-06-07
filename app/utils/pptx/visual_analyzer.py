@@ -185,7 +185,7 @@ class PPTVisualAnalyzer:
 
         except Exception as e:
             logger.warning(f"视觉模型分析失败：{e}")
-            return "视觉分析不可用"
+            return None
 
     def _detect_layout_type(self, metadata: Dict[str, Any]) -> str:
         """检测布局类型"""
