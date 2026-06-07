@@ -727,6 +727,7 @@ class UnsplashImageSearch:
                 params["orientation"] = orientation
 
             try:
+                photo = None
                 for attempt in range(self._MAX_RETRIES):
                     try:
                         with httpx.Client(timeout=10.0) as client:
@@ -750,7 +751,8 @@ class UnsplashImageSearch:
                             time.sleep(self._RETRY_DELAY)
                             continue
                         break
-                else:
+
+                if photo is None:
                     continue
 
                 results.append({

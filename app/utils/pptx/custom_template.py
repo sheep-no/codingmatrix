@@ -73,6 +73,11 @@ class CustomTemplateParser:
             raise
         except Exception as e:
             raise RuntimeError(f"解析模板文件时发生错误：{template_path}, 错误：{e}")
+        finally:
+            try:
+                prs.close()
+            except Exception:
+                pass
 
     def extract_colors(self, slide) -> Dict[str, str]:
         """从母版或幻灯片中提取配色方案
@@ -749,50 +754,61 @@ class TemplateValidator:
         except Exception:
             return 0.0
 
-        score += 0.2
-
-        if prs.slide_masters:
+        try:
             score += 0.2
-            master = prs.slide_masters[0]
 
-            has_title = False
-            has_body = False
-            for layout in master.slide_layouts:
-                for shape in layout.shapes:
-                    if shape.is_placeholder:
-                        ph = shape.placeholder_format
-                        if hasattr(ph, "type") and ph.type is not None:
-                            t = str(ph.type).lower()
-                            if "title" in t:
-                                has_title = True
-                            if t in ("body", "content", "obj"):
-                                has_body = True
+            if prs.slide_masters:
+                score += 0.2
+                master = prs.slide_masters[0]
 
-            if has_title:
-                score += 0.15
-            if has_body:
-                score += 0.15
+                has_title = False
+                has_body = False
+                for layout in master.slide_layouts:
+                    for shape in layout.shapes:
+                        if shape.is_placeholder:
+                            ph = shape.placeholder_format
+                            if hasattr(ph, "type") and ph.type is not None:
+                                t = str(ph.type).lower()
+                                if "title" in t:
+                                    has_title = True
+                                if t in ("body", "content", "obj"):
+                                    has_body = True
 
-            w = Emu(prs.slide_width).pt / 72.0
-            h = Emu(prs.slide_height).pt / 72.0
-            if w <= self.RECOMMENDED_MAX_WIDTH and h <= self.RECOMMENDED_MAX_HEIGHT:
-                score += 0.15
-            elif w <= self.RECOMMENDED_MAX_WIDTH * 1.5 and h <= self.RECOMMENDED_MAX_HEIGHT * 1.5:
-                score += 0.08
+                if has_title:
+                    score += 0.15
+                if has_body:
+                    score += 0.15
 
-            has_valid_font = False
-            for layout in master.slide_layouts:
-                for shape in layout.shapes:
-                    if shape.has_text_frame:
-                        for para in layout.shapes[0].text_frame.paragraphs:
-                            for run in para.runs:
-                                if run.font and run.font.name:
-                                    has_valid_font = True
-                                    break
-            if has_valid_font:
-                score += 0.15
+                w = Emu(prs.slide_width).pt / 72.0
+                h = Emu(prs.slide_height).pt / 72.0
+                if w <= self.RECOMMENDED_MAX_WIDTH and h <= self.RECOMMENDED_MAX_HEIGHT:
+                    score += 0.15
+                elif w <= self.RECOMMENDED_MAX_WIDTH * 1.5 and h <= self.RECOMMENDED_MAX_HEIGHT * 1.5:
+                    score += 0.08
 
-        return min(score, max_score)
+                has_valid_font = False
+                for layout in master.slide_layouts:
+                    for shape in layout.shapes:
+                        if shape.has_text_frame:
+                            for para in shape.text_frame.paragraphs:
+                                for run in para.runs:
+                                    if run.font and run.font.name:
+                                        has_valid_font = True
+                                        break
+                            if has_valid_font:
+                                break
+                    if has_valid_font:
+                        break
+
+                if has_valid_font:
+                    score += 0.15
+
+            return min(score, max_score)
+        finally:
+            try:
+                prs.close()
+            except Exception:
+                pass
 
 
 class TemplateConverter:

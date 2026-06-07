@@ -495,7 +495,7 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
             ]
         }
 
-async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], req: PPTGenerationRequest, update_progress=None):
+async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], req: PPTGenerationRequest, update_progress=None, user_id: str = None):
     """生成 PPTX 文件 (增强版：包含视觉决策和模板支持)"""
     prs = Presentation()
     prs.slide_width = Inches(13.333)
@@ -581,7 +581,8 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
         logger.warning(f"视觉分析失败，使用默认布局: {e}")
 
     # === 3. 内容幻灯片 ===
-    for idx, slide_data in enumerate(outline.get('slides', []), 1):
+    content_slides = [s for s in outline.get('slides', []) if s.get('slide_type') != 'cover']
+    for idx, slide_data in enumerate(content_slides, 1):
         if update_progress: 
             await update_progress(progress=int(50 + 50 * idx / total_slides), message=f"正在生成第 {idx} 页...")
         
@@ -623,10 +624,15 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
     prs.save(str(filepath))
     logger.info(f"PPTX 文件保存成功 | file: {filepath}")
     
-    # 保存 JSON 数据（用于预览）
+    # 保存 JSON 数据（用于预览和历史记录）
     json_path = filepath.parent / f"{filepath.stem}_slides.json"
+    json_data = {
+        "user_id": user_id,
+        "slides": outline.get('slides', []),
+        "title": outline.get('title', ''),
+    }
     with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(outline.get('slides', []), f, ensure_ascii=False, indent=2)
+        json.dump(json_data, f, ensure_ascii=False, indent=2)
 
 async def generate_html_ppt(filepath: Path, outline: Dict[str, Any], req: PPTGenerationRequest):
     """生成 HTML 格式 PPT"""
@@ -818,7 +824,7 @@ async def generate_ppt_task(
     
     async def run_ppt_generation(task_id: str, **kwargs):
         async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
-            await task_manager.update_progress(task_id, progress, message)
+            await task_manager.update_progress(task_id, progress, message, status=status, result_data=result_data)
 
         try:
             await update_progress(progress=5, message="正在准备上下文...")
@@ -888,8 +894,8 @@ async def generate_ppt_task(
 
             if req.output_format == OutputFormat.PPTX:
                 # 使用高级视觉决策逻辑生成 PPTX
-                await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress)
-            elif req.output_format == OutputFormat.HTML:
+                await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress, user_id=user_id)
+
                 await update_progress(progress=60, message="正在生成 HTML 格式...")
                 await generate_html_ppt(filepath, outline, req)
             elif req.output_format == OutputFormat.MARKDOWN:
@@ -897,7 +903,7 @@ async def generate_ppt_task(
                 await generate_markdown_ppt(filepath, outline, req)
             else:
                 # 默认回退到 PPTX
-                await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress)
+                await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress, user_id=user_id)
 
             await update_progress(
                 progress=100,
@@ -973,13 +979,13 @@ async def generate_ppt(
         filepath = output_dir / f"{ppt_id}.{ext}"
         
         if req.output_format == OutputFormat.PPTX:
-            await generate_pptx_file_enhanced(filepath, outline, req)
+            await generate_pptx_file_enhanced(filepath, outline, req, user_id=user_id)
         elif req.output_format == OutputFormat.HTML:
             await generate_html_ppt(filepath, outline, req)
         elif req.output_format == OutputFormat.MARKDOWN:
             await generate_markdown_ppt(filepath, outline, req)
         else:
-            await generate_pptx_file_enhanced(filepath, outline, req)
+            await generate_pptx_file_enhanced(filepath, outline, req, user_id=user_id)
 
         return PPTGenerationResponse(
             id=ppt_id,
@@ -1095,7 +1101,9 @@ async def get_ppt_slides(
     
     if json_path.exists():
         with open(json_path, 'r', encoding='utf-8') as f:
-            slides_data = json.load(f)
+            raw_data = json.load(f)
+        # 兼容新格式（dict with "slides" key）和旧格式（list）
+        slides_data = raw_data.get("slides", raw_data) if isinstance(raw_data, dict) else raw_data
         return {"slides": slides_data}
     
     raise HTTPException(status_code=404, detail="幻灯片数据不存在")
@@ -1144,13 +1152,19 @@ async def update_ppt_task(
         raise HTTPException(status_code=404, detail="找不到中间状态数据，无法增量生成")
 
     with open(json_path, 'r', encoding='utf-8') as f:
-        existing_slides = json.load(f)
+        raw_data = json.load(f)
+    # 兼容新格式（dict with "slides" key）和旧格式（list）
+    existing_slides = raw_data.get("slides", raw_data) if isinstance(raw_data, dict) else raw_data
+
+    # 用户隔离：检查 PPT 归属
+    if isinstance(raw_data, dict) and raw_data.get("user_id") and str(raw_data["user_id"]) != str(user_id):
+        raise HTTPException(status_code=403, detail="无权更新此任务")
 
     new_ppt_id = str(uuid.uuid4())
 
     async def run_incremental_ppt(task_id: str, **kwargs):
         async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
-            await task_manager.update_progress(task_id, progress, message)
+            await task_manager.update_progress(task_id, progress, message, status=status, result_data=result_data)
 
         try:
             await update_progress(progress=5, message="正在加载已有内容...")
@@ -1178,8 +1192,11 @@ async def update_ppt_task(
             await update_progress(progress=20, message="正在生成增量内容...")
             new_outline = await generate_ppt_outline(new_req, user_id=user_id)
 
-            new_slides = new_outline.get('slides', existing_slides)
-            new_title = new_outline.get('title', existing_slides[0].get('title', 'PPT') if existing_slides else 'PPT')
+            new_slides = new_outline.get('slides', []) or existing_slides
+            if not new_slides:
+                await update_progress(progress=100, message="增量生成失败：无法生成有效大纲", status="failed")
+                return
+            new_title = new_outline.get('title') or (existing_slides[0].get('title', 'PPT') if existing_slides else 'PPT')
 
             filepath = output_dir / f"{task_id}.{new_req.output_format.value}"
             slides_data = new_slides
@@ -1187,7 +1204,7 @@ async def update_ppt_task(
             if new_req.output_format == OutputFormat.PPTX:
                 await update_progress(progress=50, message="正在渲染 PPTX...")
                 merged_outline = {"title": new_title, "slides": new_slides}
-                await generate_pptx_file_enhanced(filepath, merged_outline, new_req, update_progress=update_progress)
+                await generate_pptx_file_enhanced(filepath, merged_outline, new_req, update_progress=update_progress, user_id=user_id)
             elif new_req.output_format == OutputFormat.HTML:
                 await update_progress(progress=60, message="正在生成 HTML...")
                 merged_outline = {"title": new_title, "slides": new_slides}
@@ -1199,7 +1216,7 @@ async def update_ppt_task(
             else:
                 await update_progress(progress=50, message="正在渲染 PPTX...")
                 merged_outline = {"title": new_title, "slides": new_slides}
-                await generate_pptx_file_enhanced(filepath, merged_outline, new_req, update_progress=update_progress)
+                await generate_pptx_file_enhanced(filepath, merged_outline, new_req, update_progress=update_progress, user_id=user_id)
 
             ext_map = {OutputFormat.PPTX: "pptx", OutputFormat.HTML: "html", OutputFormat.MARKDOWN: "md"}
             ext = ext_map.get(new_req.output_format, "pptx")
@@ -1328,6 +1345,8 @@ async def analyze_ppt_endpoint(
 
     返回 PPT 的布局、字体、颜色等信息，用于了解当前状态。
     """
+    user_id = token.get("sub", "anonymous")
+    api_key_token = token.get("api_key_token")
     output_dir = PPT_OUTPUT_DIR
     pptx_path = output_dir / f"{task_id}.pptx"
 
@@ -1339,7 +1358,9 @@ async def analyze_ppt_endpoint(
 
         result = await analyze_ppt_for_modification(
             pptx_path=str(pptx_path),
-            slide_number=slide_number
+            slide_number=slide_number,
+            api_key_token=api_key_token,
+            user_id=user_id
         )
 
         return result
@@ -1391,12 +1412,26 @@ async def list_ppt_history(
         ppt_id = json_path.name.replace("_slides.json", "")
         try:
             with open(json_path, "r", encoding="utf-8") as f:
-                slides_data = json.load(f)
+                raw_data = json.load(f)
+            # 兼容新格式（dict）和旧格式（list）
+            if isinstance(raw_data, dict):
+                slides_list = raw_data.get("slides", [])
+                record_user_id = raw_data.get("user_id")
+                record_title = raw_data.get("title") or (slides_list[0].get("title", "未命名") if slides_list else "未命名")
+            else:
+                slides_list = raw_data
+                record_user_id = None
+                record_title = slides_list[0].get("title", "未命名") if slides_list else "未命名"
+
+            # 用户过滤：跳过明确属于其他用户的记录
+            if record_user_id and str(record_user_id) != str(user_id):
+                continue
+
             pptx_path = output_dir / f"{ppt_id}.pptx"
             records.append({
                 "task_id": ppt_id,
-                "title": slides_data[0].get("title", "未命名") if slides_data else "未命名",
-                "slide_count": len(slides_data),
+                "title": record_title,
+                "slide_count": len(slides_list),
                 "has_file": pptx_path.exists(),
                 "created_at": datetime.fromtimestamp(json_path.stat().st_mtime).isoformat(),
             })
@@ -1415,11 +1450,23 @@ async def delete_ppt_history(
     token: dict = Depends(verify_token)
 ):
     """删除指定 PPT 历史记录及其文件"""
+    user_id = token.get("sub", "anonymous")
     output_dir = PPT_OUTPUT_DIR
     json_path = output_dir / f"{task_id}_slides.json"
 
     if not json_path.exists():
         raise HTTPException(status_code=404, detail="记录不存在")
+
+    # 用户隔离：检查 PPT 归属
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            raw_data = json.load(f)
+        if isinstance(raw_data, dict) and raw_data.get("user_id") and str(raw_data["user_id"]) != str(user_id):
+            raise HTTPException(status_code=403, detail="无权删除此记录")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # 旧格式或读取失败，允许删除
 
     json_path.unlink(missing_ok=True)
     for ext in ["pptx", "html", "md"]:
@@ -1653,7 +1700,7 @@ async def generate_ppt_from_text_task(
 
         async def run_ppt_gen(task_id: str, **kwargs):
             async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
-                await task_manager.update_progress(task_id, progress, message)
+                await task_manager.update_progress(task_id, progress, message, status=status, result_data=result_data)
 
             try:
                 await update_progress(progress=5, message="正在准备上下文...")
@@ -1682,7 +1729,7 @@ async def generate_ppt_from_text_task(
                 filepath = output_dir / f"{task_id}.pptx"
 
                 await update_progress(progress=20, message="正在生成 PPTX 文件...")
-                await generate_pptx_file_enhanced(filepath, outline_dict, compat_req, update_progress=update_progress)
+                await generate_pptx_file_enhanced(filepath, outline_dict, compat_req, update_progress=update_progress, user_id=user_id)
 
                 await update_progress(
                     progress=100,

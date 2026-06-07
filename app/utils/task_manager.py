@@ -228,7 +228,7 @@ class TaskManager:
                         pass
         return task_info
 
-    async def update_progress(self, task_id: str, progress: int, message: str = ""):
+    async def update_progress(self, task_id: str, progress: int, message: str = "", status: str = None, result_data=None):
         """
         更新任务进度
 
@@ -236,13 +236,21 @@ class TaskManager:
             task_id: 任务 ID
             progress: 进度百分比 (0-100)
             message: 进度描述
+            status: 可选，更新任务状态 (cancelled/failed/success/running)
+            result_data: 可选，附加结果数据
         """
         task_info = await self._get_task_from_redis(task_id)
-        if task_info and task_info["status"] == TaskStatus.RUNNING.value:
+        if task_info and task_info["status"] in (TaskStatus.RUNNING.value, TaskStatus.PENDING.value):
             task_info["progress"] = min(max(0, progress), 100)
             task_info["progress_message"] = message
+            if status:
+                task_info["status"] = status
+            if result_data is not None:
+                task_info["result_data"] = result_data
+            if status in (TaskStatus.CANCELLED.value, TaskStatus.FAILED.value):
+                task_info["completed_at"] = datetime.utcnow().isoformat()
             await self._save_task_to_redis(task_id, task_info)
-            logger.debug(f"更新进度 | task_id={task_id} | progress={progress}% | message={message}")
+            logger.debug(f"更新进度 | task_id={task_id} | progress={progress}% | message={message} | status={status}")
 
     async def cancel_task(self, task_id: str) -> bool:
         """

@@ -307,11 +307,11 @@ class AnimationEngine:
             return False
 
         try:
-            for slide in prs.slides:
-                self.set_default_transition(
-                    prs, preset["transition"], preset["duration"]
-                )
+            self.set_default_transition(
+                prs, preset["transition"], preset["duration"]
+            )
 
+            for slide in prs.slides:
                 shapes_to_animate = [
                     shape for shape in slide.shapes
                     if shape.has_text_frame and shape.text_frame.text.strip()
