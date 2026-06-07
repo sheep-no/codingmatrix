@@ -64,6 +64,8 @@ class RateLimiter:
             ts for ts in self._history[key]
             if ts > window_start
         ]
+        if not self._history[key]:
+            del self._history[key]
 
     def _get_key_count(self, key: str, window_seconds: int) -> int:
         """获取键在窗口内的请求数"""

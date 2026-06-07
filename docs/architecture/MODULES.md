@@ -1,9 +1,47 @@
 # CodingMatrix 模块说明
 
-> 最后更新：2026-06-05 | 测试基线：1622 passed / 2 skipped
+> 最后更新：2026-06-06 | 测试基线：1622 passed / 0 failed | Agent 模块：76 | Vue 组件：69
 
 ## 项目结构概览
 
+```
+codingmatrix/
+├── app/                         # 后端 (FastAPI, Python 3.11)
+│   ├── agent/                   # Agent 核心 (76 模块)
+│   ├── api/                     # API 路由 (26 个)
+│   ├── db/                      # 数据库模型
+│   ├── middleware/              # 中间件
+│   ├── models/                  # 数据模型
+│   ├── schema/                  # Pydantic Schema
+│   ├── services/                # 服务层
+│   └── utils/                   # 工具函数
+├── src/                         # 前端 (Vue 3)
+│   ├── components/              # Vue 组件 (69)
+│   ├── composables/             # 组合式 API
+│   ├── stores/                  # Pinia 状态管理
+│   ├── utils/                   # 工具函数
+│   └── views/                   # 页面视图
+├── tests/                       # 测试
+│   ├── e2e/                     # E2E 测试 (76 spec)
+│   └── unit/                     # 单元测试 (1622)
+├── docs/                        # 文档
+├── configs/                     # 配置文件
+├── scripts/                     # 运维脚本
+├── cache/                       # 缓存目录
+├── data/                        # 数据目录
+├── keys/                        # 密钥目录
+├── logs/                        # 日志目录
+├── migrations/                  # 数据库迁移
+├── projects/                    # 用户项目
+├── sessions/                    # Agent 会话
+│
+├── .claude/                     # AI Agent 配置
+├── .monkeycode/                 # 项目文档
+├── .github/                     # CI/CD 配置
+│
+├── main.py                      # 启动入口
+├── Makefile                     # 命令集
+└── pyproject.toml              # 项目配置
 ```
 codingmatrix/
 ├── app/                         # 后端 (FastAPI, Python 3.11)
@@ -28,6 +66,45 @@ codingmatrix/
 ├── Makefile                     # Make 命令集
 ├── pyproject.toml               # Python 项目配置
 ```
+
+## v5.14.0 项目规模扩展 (2026-06-06)
+
+### 1. Agent 模块扩展
+
+| 模块类型 | 数量 | 说明 |
+|----------|------|------|
+| **Agent 核心** | 76 | 多角色协作系统 |
+| **Orchestrator Mixins** | 25 | 生成流程协调 |
+| ** Specialists** | 5 | 角色专家 (Architect/Frontend/Backend/Reviewer/Fallback) |
+| **工具函数** | 21+ | 文件读写/代码分析/命令执行 |
+
+### 2. 前端组件扩展
+
+| 组件类型 | 数量 | 说明 |
+|----------|------|------|
+| **Vue 组件** | 69 | UI 组件库 |
+| **Pinia Stores** | 8 | 状态管理 |
+| **Composables** | 15 | 组合式 API |
+| **API 客户端** | 14 | 后端接口封装 |
+
+### 3. API 路由扩展
+
+| 路由模块 | 端点数 | 说明 |
+|----------|--------|------|
+| **Agent** | 20+ | 项目生成/会话管理/快照 |
+| **Code** | 5 | 代码生成/流式输出 |
+| **Aicloud** | 15+ | 沙箱执行/审查队列 |
+| **Workflow** | 8 | DAG 编排 |
+| **Kolors** | 6 | 图像生成 |
+| **PPTX** | 4 | PPT 生成 |
+| **其他** | 20+ | 认证/文件/用户等 |
+
+### 4. 测试覆盖
+
+| 测试类型 | 数量 | 状态 |
+|----------|------|------|
+| **E2E Spec** | 76 | 全部通过 |
+| **单元测试** | 1622 | 0 failed |
 
 ## v5.12.0+ 核心变化
 

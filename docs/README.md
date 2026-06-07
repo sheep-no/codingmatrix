@@ -1,6 +1,6 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-06-05 | 测试基线：1622 passed / 2 skipped
+> 最后更新：2026-06-06 | 测试基线：1622 passed / 0 failed | 代码文件：500+
 
 ## 快速导航
 
@@ -56,6 +56,21 @@
 
 CodingMatrix 是 AI 驱动的全栈代码生成与开发平台，基于 FastAPI (Python 3.11) + Vue 3 + SQLite + Playwright 构建。核心能力是**多角色 AI Agent 系统**：从需求理解、架构设计到代码生成、验证、修复全自动完成。
 
+### 项目规模
+
+| 维度 | 数量 | 说明 |
+|------|------|------|
+| **Python 文件** | 356 | 后端核心逻辑 |
+| **Vue 组件** | 69 | 前端 UI 组件 |
+| **JS 文件** | 58 | 前端逻辑和工具 |
+| **TS 文件** | 1 | 类型定义 |
+| **代码文件总计** | ~500 | |
+| **Agent 模块** | 76 | 多角色协作系统 |
+| **Orchestrator Mixins** | 25 | 生成流程协调 |
+| **API 路由** | 26 | 前后端接口 |
+| **E2E 测试** | 76 spec | 端到端测试 |
+| **单元测试** | 1622 | 测试覆盖 |
+
 ### 技术栈
 
 | 层级 | 技术 | 说明 |
@@ -72,7 +87,7 @@ CodingMatrix 是 AI 驱动的全栈代码生成与开发平台，基于 FastAPI 
 
 | 子系统 | 模块路径 | 描述 |
 |--------|----------|------|
-| **AI Agent 引擎** | `app/agent/` | 38 模块, ~16,000 行, 6 mixin 协调, 4 角色专家, ReAct 引擎 |
+| **AI Agent 引擎** | `app/agent/` | **76 模块**, ~25,000 行, 25 mixin 协调, 5 角色专家, ReAct 引擎 |
 | **工具系统** | `app/agent/tools.py` | 21 个内置工具 + MCP 扩展, 唯一实现源 |
 | **ReAct 引擎** | `app/agent/react_engine.py` | simple + full 双模式, 滑动窗口历史 |
 | **MCP Client** | `app/agent/mcp_client.py` | stdio/HTTP 双传输, 单例管理器, 对 ReAct 透明 |
@@ -142,26 +157,26 @@ docs/
 ├── TECH-DEBT.md                 # 技术债务跟踪
 ├── architecture/                # 架构设计
 │   ├── ARCHITECTURE.md          # 系统架构（9 大子系统）
-│   ├── MODULES.md               # 模块说明
-│   ├── MODELS.md                # 模型系统
+│   ├── MODULES.md               # 模块说明（76 Agent 模块）
+│   ├── MODELS.md               # 模型系统
 │   └── API-RESPONSIBILITY-MATRIX.md
 ├── api/                         # API 文档
-│   ├── API-DOCUMENTATION.md     # API 完整文档
-│   └── API-VERSIONS.md          # API 版本管理
-├── features/                    # 功能模块
-│   ├── AGENT.md                 # Agent 系统（1337 行）
-│   ├── DYNAMIC-MODEL-ROUTER.md  # 动态模型路由
-│   ├── REACT-TOOL-CALLING.md    # ReAct 工具调用
-│   ├── SESSION-LIFECYCLE.md     # 会话生命周期
-│   ├── AICLOUD.md               # AI 云
-│   ├── WORKFLOW.md              # 工作流
-│   ├── MODEL-MANAGER.md         # 免费模型管理
-│   ├── DYNAMIC-PROVIDERS.md     # 动态供应商
+│   ├── API-DOCUMENTATION.md    # API 完整文档
+│   └── API-VERSIONS.md         # API 版本管理
+├── features/                   # 功能模块
+│   ├── AGENT.md                # Agent 系统（1557 行）
+│   ├── DYNAMIC-MODEL-ROUTER.md # 动态模型路由
+│   ├── REACT-TOOL-CALLING.md  # ReAct 工具调用
+│   ├── SESSION-LIFECYCLE.md   # 会话生命周期
+│   ├── AICLOUD.md             # AI 云
+│   ├── WORKFLOW.md            # 工作流
+│   ├── MODEL-MANAGER.md       # 免费模型管理
+│   ├── DYNAMIC-PROVIDERS.md   # 动态供应商
 │   ├── MULTI-LANGUAGE-DEPENDENCY-PARSER.md
 │   ├── SSE-DISPLAY-OPTIMIZATION.md
 │   ├── WEB-SEARCH-ENHANCEMENTS.md
-│   ├── PPT-AGENT.md             # PPT 智能生成
-│   └── PROJECT-INTRODUCTION.md  # 项目介绍
+│   ├── PPT-AGENT.md           # PPT 智能生成
+│   └── PROJECT-INTRODUCTION.md # 项目介绍
 ├── guides/                      # 开发指南
 │   ├── GETTING-STARTED.md       # 快速开始
 │   ├── MULTI-PROVIDER-SETUP.md  # 多供应商配置
@@ -192,12 +207,22 @@ docs/
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
-| **v5.12.0+** | **2026-06-02** | **ReAct 工具调用深度集成 + 动态批处理规划 + 模型 context_length 多级管理 + API Key 修复 + 前端消息处理完善 + 代码沙箱 admin 配置** |
+| **v5.14.0** | **2026-06-06** | **项目规模扩展：76 Agent 模块 + 25 Orchestrator Mixins + 69 Vue 组件 + 26 API 路由** |
+| **v5.13.0** | **2026-06-05** | **LLM 调用路径统一 + 多模态兼容 + 供应商感知降级链** |
+| v5.12.0+ | 2026-06-02 | ReAct 工具调用深度集成 + 动态批处理规划 + 模型 context_length 多级管理 + API Key 修复 + 前端消息处理完善 + 代码沙箱 admin 配置 |
 | v5.12.0 | 2026-06-01 | 模型 context_length 管理（4 级 fallback）+ 用户自定义 context_length + 用户 API Key 模型同步 + API Key 查找修复 + 前端消息处理完善 |
 | v5.11.0 | 2026-05-30 | 智能会话恢复系统 + SSE 响应解析修复 + API Key 管理增强 + 检查点恢复优化 |
 | v5.10.0 | 2026-05-27 | 工作流节点扩展（9种） + 重试机制 + 条件分支 |
 | v5.9.0 | 2026-05-26 | API Key 全局化 + Token 统计 + Orchestrator 端点 |
 | v5.8.1 | 2026-05-23 | KV Cache 优化 + 多角度审查系统 |
+
+### v5.14.0 项目规模扩展
+
+- **Agent 模块扩展**：从 38 个扩展到 76 个模块
+- **Orchestrator Mixins**：新增 25 个 Mixin 协调生成流程
+- **前端组件**：69 个 Vue 组件，完整功能覆盖
+- **API 路由**：26 个路由模块
+- **测试覆盖**：76 个 E2E spec + 1622 单元测试
 
 ### v5.12.0+ 最新更新要点
 
@@ -213,4 +238,4 @@ docs/
 
 ---
 
-最后更新：2026-06-02
+最后更新：2026-06-06

@@ -3,6 +3,7 @@
 
 提供服务器配置和资源监控的统一接口
 """
+import asyncio
 import logging
 from typing import Optional, Dict, Any
 from sqlalchemy import select
@@ -36,30 +37,35 @@ class ResourceConfigService:
         self._initialized = True
         self._config_cache: Dict[str, str] = {}
         self._cache_loaded = False
+        self._cache_lock = asyncio.Lock()
 
     async def _ensure_cache_loaded(self, db: AsyncSession):
         """确保配置缓存已加载"""
         if self._cache_loaded:
             return
 
-        result = await db.execute(select(ServerConfig))
-        configs = result.scalars().all()
+        async with self._cache_lock:
+            if self._cache_loaded:
+                return
 
-        self._config_cache = {c.key: c.value for c in configs}
+            result = await db.execute(select(ServerConfig))
+            configs = result.scalars().all()
 
-        for key, default_info in ServerConfig.DEFAULT_CONFIGS.items():
-            if key not in self._config_cache:
-                self._config_cache[key] = default_info["value"]
+            self._config_cache = {c.key: c.value for c in configs}
 
-                new_config = ServerConfig(
-                    key=key,
-                    value=default_info["value"],
-                    description=default_info["description"]
-                )
-                db.add(new_config)
+            for key, default_info in ServerConfig.DEFAULT_CONFIGS.items():
+                if key not in self._config_cache:
+                    self._config_cache[key] = default_info["value"]
 
-        await db.commit()
-        self._cache_loaded = True
+                    new_config = ServerConfig(
+                        key=key,
+                        value=default_info["value"],
+                        description=default_info["description"]
+                    )
+                    db.add(new_config)
+
+            await db.commit()
+            self._cache_loaded = True
 
     async def get_config(self, key: str, default: Optional[str] = None) -> Optional[str]:
         """

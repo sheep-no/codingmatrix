@@ -1,8 +1,14 @@
 # Agent 系统文档
 
-> 最后更新：2026-06-05 | 版本：v5.13.0+ | 测试基线：1622 passed / 2 skipped
+> 最后更新：2026-06-06 | 版本：v5.14.0 | 测试基线：1622 passed / 0 failed | Agent 模块：76
 
-### v5.13.0+ 更新
+### v5.14.0 项目规模扩展
+
+- **Agent 模块**: 从 38 个扩展到 76 个模块
+- **Orchestrator Mixins**: 新增 25 个 Mixin 协调生成流程
+- **前端组件**: 69 个 Vue 组件
+- **API 路由**: 26 个路由模块
+- **E2E 测试**: 76 个 spec 覆盖
 
 - **LLM 调用路径统一**: `call_siliconflow`（126 行）删除，所有文本 LLM 调用统一走 `call_llm()`，vision（多模态）也走 `call_llm(messages=...)`
 - **多模态兼容**: `call_llm` + 所有 Adapter 新增 `messages: Optional[list] = None` 参数，传入时跳过 prompt→messages 构建直接使用

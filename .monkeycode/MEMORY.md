@@ -127,6 +127,22 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - Vue 3 模板中 ref 自动解包，不需要 `.value`；但 `<script setup>` 中操作 refs 需要 `.value`
   - 样式保留在主组件中（276 行），不提取到 composables
 
+### 推送快捷方式
+- Date: 2026-05-29
+- Context: 用户在审查 git log 时发现推送到远程的命令过长
+- Instructions:
+  - 用户明确了 `--set-upstream` 的快捷方式：`git push -u origin <branch> -o merge_request.create -o merge_request.title="..." -o merge_request.description="..."`
+  - 用户演示了正确用法：`git push -u origin HEAD`（使用 HEAD 而不是完整分支名）
+  - 这条是行为指令：以后推送到远程时使用 `-u origin HEAD` 的简洁写法
+
+### 每个 commit 单独分支推送
+- Date: 2026-05-29
+- Context: 用户在第七批 Bug 修复完成后要求继续扫描
+- Instructions:
+  - 每个 commit 必须单独分支提交并推送到远程仓库
+  - 推完后删除分支
+  - 例如：创建分支 `260529-fix-batch-7`，提交，push -u，然后删除本地和远程分支
+
 ### PPT Agent 功能实现
 - Date: 2026-05-29
 - Context: Agent 在执行 PPT 增强功能开发时发现

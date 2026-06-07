@@ -12,7 +12,7 @@
 """
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field
 
 from app.utils.aicloud.dynamic_provider import (
@@ -23,6 +23,7 @@ from app.utils.aicloud.dynamic_provider import (
 )
 from app.utils.aicloud.adapters.dynamic import DynamicAdapter
 from app.utils.rate_limiter import limiter
+from app.utils.security import verify_token
 import time
 import httpx
 
@@ -68,7 +69,7 @@ class TestResponse(BaseModel):
 
 @router.post("", summary="添加动态供应商")
 @limiter.limit("10/minute")
-async def add_provider(request: Request, body: AddProviderRequest):
+async def add_provider(request: Request, body: AddProviderRequest, token: dict = Depends(verify_token)):
     manager = get_dynamic_provider_manager()
     
     if body.protocol not in ("openai", "anthropic"):
@@ -93,7 +94,7 @@ async def add_provider(request: Request, body: AddProviderRequest):
 
 @router.get("", summary="获取供应商列表")
 @limiter.limit("30/minute")
-async def list_providers(request: Request):
+async def list_providers(request: Request, token: dict = Depends(verify_token)):
     manager = get_dynamic_provider_manager()
     providers = manager.list()
     
@@ -114,7 +115,7 @@ async def list_providers(request: Request):
 
 @router.get("/{pid}", summary="获取供应商详情")
 @limiter.limit("30/minute")
-async def get_provider(request: Request, pid: str):
+async def get_provider(request: Request, pid: str, token: dict = Depends(verify_token)):
     manager = get_dynamic_provider_manager()
     p = manager.get(pid)
     if not p:
@@ -130,7 +131,7 @@ async def get_provider(request: Request, pid: str):
 
 @router.delete("/{pid}", summary="删除供应商")
 @limiter.limit("10/minute")
-async def delete_provider(request: Request, pid: str):
+async def delete_provider(request: Request, pid: str, token: dict = Depends(verify_token)):
     manager = get_dynamic_provider_manager()
     if not manager.delete(pid):
         raise HTTPException(status_code=404, detail="供应商不存在")
@@ -139,7 +140,7 @@ async def delete_provider(request: Request, pid: str):
 
 @router.put("/{pid}/toggle", summary="启用/禁用供应商")
 @limiter.limit("20/minute")
-async def toggle_provider(request: Request, pid: str):
+async def toggle_provider(request: Request, pid: str, token: dict = Depends(verify_token)):
     manager = get_dynamic_provider_manager()
     if not manager.toggle(pid):
         raise HTTPException(status_code=404, detail="供应商不存在")
@@ -149,7 +150,7 @@ async def toggle_provider(request: Request, pid: str):
 
 @router.post("/{pid}/sync", summary="同步模型列表")
 @limiter.limit("10/minute")
-async def sync_models(request: Request, pid: str, force: bool = False):
+async def sync_models(request: Request, pid: str, token: dict = Depends(verify_token), force: bool = False):
     manager = get_dynamic_provider_manager()
     provider = manager.get(pid)
     if not provider:
@@ -187,7 +188,7 @@ async def sync_models(request: Request, pid: str, force: bool = False):
 
 @router.post("/{pid}/test", summary="测试连接")
 @limiter.limit("20/minute")
-async def test_connection(request: Request, pid: str):
+async def test_connection(request: Request, pid: str, token: dict = Depends(verify_token)):
     manager = get_dynamic_provider_manager()
     provider = manager.get(pid)
     if not provider:
