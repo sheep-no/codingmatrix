@@ -394,19 +394,30 @@ async def get_nginx_config(
     
     需要指定完整的配置文件路径
     """
+    from pathlib import Path
+    
+    ALLOWED_NGINX_PATHS = {"/etc/nginx", "/usr/local/nginx/conf"}
+    
     logger.info(f"获取 Nginx 配置 | admin={token.get('sub')} | path={config_path}")
     
-    if not os.path.exists(config_path):
+    # 路径安全校验
+    resolved = str(Path(config_path).resolve())
+    if not any(resolved.startswith(p) for p in ALLOWED_NGINX_PATHS):
+        raise HTTPException(status_code=403, detail="不允许访问该路径")
+    if not resolved.endswith(".conf"):
+        raise HTTPException(status_code=403, detail="仅允许读取 .conf 文件")
+    
+    if not os.path.exists(resolved):
         raise HTTPException(status_code=404, detail="配置文件不存在")
     
     try:
-        with open(config_path, 'r') as f:
+        with open(resolved, 'r') as f:
             config_text = f.read()
         
         return {
             "config": config_text,
-            "path": config_path,
-            "size": os.path.getsize(config_path)
+            "path": resolved,
+            "size": os.path.getsize(resolved)
         }
         
     except Exception as e:
@@ -425,7 +436,18 @@ async def delete_backup(
     
     权限要求：super 管理员
     """
-    backup_path = f"{nginx_path}/conf.d/{backup_name}"
+    from pathlib import Path
+    
+    # 防止路径穿越
+    if ".." in backup_name or "/" in backup_name or "\\" in backup_name:
+        raise HTTPException(status_code=400, detail="无效的备份文件名")
+    
+    # 路径安全校验
+    resolved_nginx = str(Path(nginx_path).resolve())
+    if not resolved_nginx.startswith("/etc/nginx"):
+        raise HTTPException(status_code=403, detail="不允许访问该路径")
+    
+    backup_path = f"{resolved_nginx}/conf.d/{backup_name}"
     
     if not os.path.exists(backup_path):
         raise HTTPException(status_code=404, detail="备份文件不存在")
@@ -447,7 +469,14 @@ async def list_backups(
     """
     列出所有 Nginx 配置备份文件
     """
-    backup_dir = f"{nginx_path}/conf.d"
+    from pathlib import Path
+    
+    # 路径安全校验
+    resolved_nginx = str(Path(nginx_path).resolve())
+    if not resolved_nginx.startswith("/etc/nginx"):
+        raise HTTPException(status_code=403, detail="不允许访问该路径")
+    
+    backup_dir = f"{resolved_nginx}/conf.d"
     
     if not os.path.exists(backup_dir):
         return {"backups": []}

@@ -1,5 +1,6 @@
 # router/guardian_router.py
 import asyncio
+import logging
 import time
 from datetime import datetime
 from functools import lru_cache
@@ -18,6 +19,8 @@ from app.services.feature_switch import feature_switch_service
 from app.services.log_config import log_config_service
 from app.models.server_config import ServerConfig
 from app.db.database import async_session
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/Controller")
 
@@ -375,14 +378,14 @@ async def list_docker_containers(token: dict = Depends(require_admin)):
 
         container_list = []
         for c in containers:
-            info = c.reload()
+            c.reload()  # 就地更新，返回 None
             container_list.append({
                 "id": c.short_id,
                 "name": c.name,
                 "image": c.image.tags[0] if c.image.tags else c.image.short_id,
-                "status": info.status,
-                "created": info.created,
-                "memory_limit": info.host_config.get("Memory", 0),
+                "status": c.status,
+                "created": c.attrs.get("Created"),
+                "memory_limit": c.attrs.get("HostConfig", {}).get("Memory", 0),
             })
 
         max_containers = await resource_config_service.get_config("docker_max_containers", "5")
