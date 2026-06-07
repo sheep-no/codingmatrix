@@ -113,7 +113,7 @@ def calculate_font_size(
     Returns:
         推荐字号
     """
-    if num_lines <= max_lines:
+    if num_lines <= 0 or num_lines <= max_lines:
         return base_font_size
 
     # 行数超出时，按比例缩小字号
@@ -146,6 +146,9 @@ def prevent_text_overflow(
     """
     if not text:
         return TextLayout(lines=["暂无内容"], font_size=base_font_size)
+
+    if max_lines <= 0:
+        max_lines = 1  # 至少保留 1 行
 
     # 按原始换行分割
     paragraphs = text.strip().split('\n')

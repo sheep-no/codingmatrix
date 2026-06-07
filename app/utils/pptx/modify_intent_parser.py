@@ -91,6 +91,9 @@ class ModifyIntentParser:
         Returns:
             修改意图
         """
+        if not text or not text.strip():
+            return ModifyIntent(raw_text=text or "")
+
         intent = ModifyIntent(raw_text=text)
 
         # 提取幻灯片编号
