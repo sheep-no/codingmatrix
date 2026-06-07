@@ -385,7 +385,7 @@
     isLoading.value = true
     isStreamActive.value = true
 
-    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
     streamManager.currentRequestId = requestId
 
     const abortController = streamManager.createAbortController(requestId)
