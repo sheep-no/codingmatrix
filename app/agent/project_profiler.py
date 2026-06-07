@@ -98,8 +98,6 @@ class ProjectProfiler:
         metrics_collector.record_cache_miss('ProjectProfiler')
 
         start_time = metrics_collector.start_timer('ProjectProfiler')
-
-        start_time = time.time()
         logger.info(f"开始项目模式识别 | 项目：{root}")
 
         profile = ProjectProfile()

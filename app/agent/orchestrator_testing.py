@@ -172,17 +172,24 @@ class TestingMixin:
             except Exception as e:
                 logger.debug(f"测试执行失败：{e}")
 
-        playwright_config = (
-            project_path / "playwright.config.js"
-            or project_path / "playwright.config.ts"
-        )
-        if playwright_config.exists():
+        playwright_config = None
+        for name in ("playwright.config.js", "playwright.config.ts"):
+            candidate = project_path / name
+            if candidate.exists():
+                playwright_config = candidate
+                break
+        if playwright_config:
             if test_files:
                 files_str = ' '.join(test_files)
                 return f"cd /app && npx playwright test --reporter=list {files_str}"
             return "cd /app && npx playwright test --reporter=list"
 
-        pytest_dir = project_path / "tests" or project_path / "test"
+        pytest_dir = None
+        for name in ("tests", "test"):
+            candidate = project_path / name
+            if candidate.exists():
+                pytest_dir = candidate
+                break
         if pytest_dir.exists() or list(project_path.glob("test_*.py")):
             if test_files:
                 files_str = ' '.join(test_files)
