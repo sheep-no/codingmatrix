@@ -88,7 +88,7 @@ async def upload_document(
     if file_ext not in allowed_extensions:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"不支持的文件类型: {file_ext}，支持的类型: {allowed_extensions}"
+            detail=f"不支持的文件类型: {file_ext}"
         )
     
     # 生成文档 ID
@@ -174,7 +174,7 @@ async def upload_document(
         doc.status = "failed"
         doc.error_message = str(e)[:500]
         await db.commit()
-        raise HTTPException(status_code=500, detail=f"文档处理失败: {str(e)[:100]}")
+        raise HTTPException(status_code=500, detail="文档处理失败，请稍后重试")
 
 
 @router.get("/docs")

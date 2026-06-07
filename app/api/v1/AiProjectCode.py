@@ -550,7 +550,12 @@ async def upload_project_zip(
     base_name = Path(file.filename).stem if file.filename else 'project'
     final_name = _sanitize_project_name(project_name or base_name)
 
-    target_dir = Path(USER_UPLOADS_DIR).resolve() / final_name
+    target_dir = (Path(USER_UPLOADS_DIR).resolve() / str(user_id) / final_name).resolve()
+
+    # 验证路径安全
+    user_uploads_base = (Path(USER_UPLOADS_DIR).resolve() / str(user_id)).resolve()
+    if not str(target_dir).startswith(str(user_uploads_base)):
+        raise HTTPException(status_code=403, detail="路径不安全")
 
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
@@ -591,7 +596,7 @@ async def upload_project_zip(
         logger.error(f"压缩包解压失败 | user_id={user_id} | error={e}")
         if target_dir.exists():
             shutil.rmtree(target_dir, ignore_errors=True)
-        raise HTTPException(status_code=500, detail=f"解压失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="解压失败，请检查文件后重试")
 
 
 class UploadedProjectInfo(BaseModel):
@@ -607,7 +612,7 @@ class UploadedProjectInfo(BaseModel):
 async def list_user_uploads(token: dict = Depends(verify_token)):
     """获取用户上传的所有项目列表"""
     user_id = int(token.get("sub"))
-    uploads_dir = Path(USER_UPLOADS_DIR).resolve()
+    uploads_dir = Path(USER_UPLOADS_DIR).resolve() / str(user_id)
     uploads_dir.mkdir(parents=True, exist_ok=True)
 
     projects = []
@@ -618,7 +623,7 @@ async def list_user_uploads(token: dict = Depends(verify_token)):
             stat = entry.stat()
             projects.append(UploadedProjectInfo(
                 project_name=entry.name,
-                project_path=f"user_uploads/{entry.name}",
+                project_path=f"user_uploads/{user_id}/{entry.name}",
                 file_count=file_count,
                 size_bytes=total_size,
                 created_at=datetime.fromtimestamp(stat.st_ctime).isoformat(),
@@ -633,12 +638,13 @@ async def delete_user_upload(project_name: str, token: dict = Depends(verify_tok
     """删除用户上传的项目"""
     user_id = int(token.get("sub"))
     safe_name = _sanitize_project_name(project_name)
-    target_dir = Path(USER_UPLOADS_DIR).resolve() / safe_name
+    target_dir = Path(USER_UPLOADS_DIR).resolve() / str(user_id) / safe_name
 
     if not target_dir.exists():
         raise HTTPException(status_code=404, detail="项目不存在")
 
-    if not str(target_dir).startswith(str(Path(USER_UPLOADS_DIR).resolve())):
+    user_uploads_base = (Path(USER_UPLOADS_DIR).resolve() / str(user_id)).resolve()
+    if not str(target_dir).startswith(str(user_uploads_base)):
         raise HTTPException(status_code=403, detail="无权操作该路径")
 
     try:
@@ -647,5 +653,5 @@ async def delete_user_upload(project_name: str, token: dict = Depends(verify_tok
         return {"success": True, "message": f"已删除项目 {safe_name}"}
     except Exception as e:
         logger.error(f"删除项目失败 | user_id={user_id} | error={e}")
-        raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="删除失败，请稍后重试")
 
