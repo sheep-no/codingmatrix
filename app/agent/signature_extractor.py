@@ -6,8 +6,11 @@
 """
 
 import re
+import logging
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 def get_context_budget(context_length: int) -> int:

@@ -94,10 +94,10 @@ class FixPatternCache:
     def _get_eviction_priority(self, signature: str, pattern: FixPattern) -> tuple:
         """获取淘汰优先级（返回值越小越优先淘汰）"""
         return (
-            pattern.is_anti_pattern(),  # 反模式优先删除 (True=1 < False=0)
-            pattern.success_rate,       # 成功率低优先
-            pattern.last_hit_time or 0, # 时间久远优先（时间戳小优先）
-            -pattern.usage_count        # 使用次数少优先（负数使小的在前）
+            not pattern.is_anti_pattern(),  # 反模式优先删除 (False=0 for anti-pattern)
+            pattern.success_rate,           # 成功率低优先
+            pattern.last_hit_time or 0,     # 时间久远优先（时间戳小优先）
+            -pattern.usage_count            # 使用次数少优先（负数使小的在前）
         )
 
     def _generate_error_signature(self, classification: ErrorClassification, project_type: str, file_type: str) -> str:

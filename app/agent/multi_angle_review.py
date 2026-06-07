@@ -245,10 +245,11 @@ async def devil_advocate_review(
 
     现在调用标准模式（单一魔鬼代言人）
     """
+    high_conf_items = [i for i in items if i.confidence >= 0.5][:15]
     items_summary = "\n".join(
         f"  [{i.category}] {i.content} (置信度: {i.confidence:.1f})"
-        for i in items if i.confidence >= 0.5
-    )[:15]
+        for i in high_conf_items
+    )
 
     if not items_summary:
         return []

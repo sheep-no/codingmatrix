@@ -83,6 +83,7 @@ class RefinementLoop:
     def __init__(self, context: SharedContext, complexity: str = "medium", api_key_token: Optional[str] = None):
         self.context = context
         self.api_key_token = api_key_token
+        self._pending_tasks: set = set()
         from app.agent.models import DEFAULT_REASONING_MODEL
         self.default_model = context.model_assignment.get("backend_model", DEFAULT_REASONING_MODEL) if context.model_assignment else DEFAULT_REASONING_MODEL
         from app.agent.orchestrator import LayeredModelRouter
