@@ -27,6 +27,9 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
     """计算两个向量的余弦相似度"""
     if not a or not b:
         return 0.0
+    if len(a) != len(b):
+        logger.warning(f"嵌入向量维度不一致: {len(a)} vs {len(b)}，返回 0.0")
+        return 0.0
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(y * y for y in b))

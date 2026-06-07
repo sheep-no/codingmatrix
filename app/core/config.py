@@ -1,7 +1,8 @@
 from pathlib import Path
 import os
+import secrets
 
-from pydantic import Field, ConfigDict
+from pydantic import Field, ConfigDict, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
@@ -35,6 +36,34 @@ class Settings(BaseSettings):
     SECRET_KEY: str = ""
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     ALGORITHM: str = "HS256"
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v):
+        if not v:
+            # 开发环境自动生成临时密钥，生产环境必须设置
+            if os.getenv("ENV", "development") == "production":
+                raise ValueError("生产环境必须设置 SECRET_KEY")
+            return secrets.token_hex(32)
+        if len(v) < 16:
+            raise ValueError("SECRET_KEY 长度不能小于 16 字符")
+        return v
+
+    @field_validator("DB_POOL_SIZE")
+    @classmethod
+    def validate_db_pool_size(cls, v):
+        if v < 1:
+            raise ValueError("DB_POOL_SIZE 必须 >= 1")
+        if v > 100:
+            raise ValueError("DB_POOL_SIZE 不能超过 100")
+        return v
+
+    @field_validator("DB_MAX_OVERFLOW")
+    @classmethod
+    def validate_db_max_overflow(cls, v):
+        if v < 0:
+            raise ValueError("DB_MAX_OVERFLOW 必须 >= 0")
+        return v
 
     SILICONFLOW_API_KEY: str = ""
     SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"

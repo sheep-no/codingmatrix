@@ -13,6 +13,7 @@
 import logging
 import os
 import re
+import threading
 import shutil
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, Set
@@ -309,6 +310,7 @@ class InMemoryRateLimiter:
         self.cleanup_interval = cleanup_interval_seconds
         self._entries: Dict[str, RateLimitEntry] = {}
         self._last_cleanup: datetime = datetime.now()
+        self._lock = threading.Lock()
     
     def check(self, key: str) -> tuple[bool, str]:
         """
@@ -319,41 +321,42 @@ class InMemoryRateLimiter:
         """
         now = datetime.now()
         
-        # 定期清理过期条目
-        if (now - self._last_cleanup).total_seconds() > self.cleanup_interval:
-            self._cleanup_expired()
-            self._last_cleanup = now
-        
-        entry = self._entries.get(key)
-        
-        if entry is None:
-            self._entries[key] = RateLimitEntry(
-                count=1,
-                window_start=now,
-                last_request=now
-            )
+        with self._lock:
+            # 定期清理过期条目
+            if (now - self._last_cleanup).total_seconds() > self.cleanup_interval:
+                self._cleanup_expired()
+                self._last_cleanup = now
+            
+            entry = self._entries.get(key)
+            
+            if entry is None:
+                self._entries[key] = RateLimitEntry(
+                    count=1,
+                    window_start=now,
+                    last_request=now
+                )
+                return True, ""
+            
+            # 检查时间窗口
+            window_elapsed = (now - entry.window_start).total_seconds()
+            if window_elapsed >= self.window_seconds:
+                # 重置窗口
+                self._entries[key] = RateLimitEntry(
+                    count=1,
+                    window_start=now,
+                    last_request=now
+                )
+                return True, ""
+            
+            # 检查请求次数
+            if entry.count >= self.max_requests:
+                remaining_seconds = self.window_seconds - window_elapsed
+                return False, f"请求过于频繁，请在 {int(remaining_seconds)} 秒后重试"
+            
+            # 更新计数
+            entry.count += 1
+            entry.last_request = now
             return True, ""
-        
-        # 检查时间窗口
-        window_elapsed = (now - entry.window_start).total_seconds()
-        if window_elapsed >= self.window_seconds:
-            # 重置窗口
-            self._entries[key] = RateLimitEntry(
-                count=1,
-                window_start=now,
-                last_request=now
-            )
-            return True, ""
-        
-        # 检查请求次数
-        if entry.count >= self.max_requests:
-            remaining_seconds = self.window_seconds - window_elapsed
-            return False, f"请求过于频繁，请在 {int(remaining_seconds)} 秒后重试"
-        
-        # 更新计数
-        entry.count += 1
-        entry.last_request = now
-        return True, ""
     
     def _cleanup_expired(self):
         """清理过期的速率限制条目"""

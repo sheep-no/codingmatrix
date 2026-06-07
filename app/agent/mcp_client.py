@@ -52,6 +52,7 @@ class MCPServerConnection:
         self._tools: List[Dict] = []
         self._request_id = 0
         self._pending: Dict[int, asyncio.Future] = {}
+        self._write_lock = asyncio.Lock()
         self._read_task: Optional[asyncio.Task] = None
 
     async def connect(self) -> bool:
@@ -159,6 +160,12 @@ class MCPServerConnection:
             pass
         except Exception as e:
             logger.debug(f"[MCP:{self.name}] 读取循环异常: {e}")
+        finally:
+            # 清理所有未完成的 pending futures
+            for req_id, future in list(self._pending.items()):
+                if not future.done():
+                    future.set_exception(MCPError(f"MCP Server {self.name} 连接已断开"))
+            self._pending.clear()
 
     def _handle_message(self, msg: Dict):
         """处理收到的 JSON-RPC 消息"""
@@ -198,8 +205,13 @@ class MCPServerConnection:
         self._pending[req_id] = future
 
         data = json.dumps(message) + "\n"
-        self._process.stdin.write(data.encode("utf-8"))
-        await self._process.stdin.drain()
+        try:
+            async with self._write_lock:
+                self._process.stdin.write(data.encode("utf-8"))
+                await self._process.stdin.drain()
+        except (BrokenPipeError, OSError) as e:
+            self._pending.pop(req_id, None)
+            raise MCPError(f"MCP Server {self.name} 连接已断开: {e}")
 
         try:
             return await asyncio.wait_for(future, timeout=timeout)
@@ -274,7 +286,9 @@ class MCPServerConnection:
 
         # 提取文本内容
         content = result.get("content", [])
-        texts = [c.get("text", "") for c in content if c.get("type") == "text"]
+        if not isinstance(content, list):
+            return str(content)
+        texts = [c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text"]
         return "\n".join(texts) if len(texts) > 1 else (texts[0] if texts else str(content))
 
     async def disconnect(self):

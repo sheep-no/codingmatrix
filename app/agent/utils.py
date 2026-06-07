@@ -114,9 +114,11 @@ def write_file_atomic(output_dir: Path, file_path: str, content: str) -> bool:
     Returns:
         是否成功
     """
+    import uuid
     full_path = output_dir / file_path
     full_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = full_path.with_suffix(full_path.suffix + '.tmp')
+    # 使用唯一后缀避免并发写入同一 tmp 文件
+    tmp_path = full_path.with_suffix(full_path.suffix + f'.tmp.{uuid.uuid4().hex[:8]}')
 
     try:
         with open(tmp_path, 'w', encoding='utf-8') as f:
@@ -132,8 +134,12 @@ def write_file_atomic(output_dir: Path, file_path: str, content: str) -> bool:
 
 def cleanup_temp_files(output_dir: Path, file_path: str):
     """清理未完成的临时文件"""
+    import glob
     full_path = output_dir / file_path
-    tmp_path = full_path.with_suffix(full_path.suffix + '.tmp')
-    if tmp_path.exists():
-        logger.warning(f"发现未完成的文件，删除: {tmp_path}")
-        tmp_path.unlink()
+    # 匹配所有 .tmp.* 后缀的临时文件
+    pattern = str(full_path) + ".tmp.*"
+    for tmp in glob.glob(pattern):
+        tmp_path = Path(tmp)
+        if tmp_path.exists():
+            logger.warning(f"发现未完成的文件，删除: {tmp_path}")
+            tmp_path.unlink()

@@ -191,6 +191,9 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     """计算余弦相似度"""
     import math
     
+    if len(vec1) != len(vec2):
+        return 0.0
+    
     dot_product = sum(a * b for a, b in zip(vec1, vec2))
     norm1 = math.sqrt(sum(a * a for a in vec1))
     norm2 = math.sqrt(sum(b * b for b in vec2))
