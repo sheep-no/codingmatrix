@@ -123,7 +123,7 @@ async def login(
         # 明文模式（应该被弃用）
         email = plain_body["email"]
         password = plain_body["password"]
-        logger.warning(f"用户使用明文登录（建议升级加密）| email={email}")
+        logger.warning(f"用户使用明文登录（建议升级加密）| email={email[:3]}***@***")
     else:
         logger.warning("登录请求格式错误：缺少 email/password 或 encrypted_data/encrypted_key")
         raise HTTPException(
@@ -322,7 +322,7 @@ async def get_history(
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"查询历史记录异常 | user_id={user_id} | error={str(e)}", exc_info=True)
         await db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="查询历史记录失败")
 
 
 @router.post("/conversation/history")
@@ -354,7 +354,7 @@ async def get_conversation_detail(
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"查询对话详情异常 | user_id={user_id} | error={str(e)}", exc_info=True)
         await db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="查询对话详情失败")
 
 
 @router.post("/refresh", summary="刷新 access_token")
@@ -411,7 +411,7 @@ async def refresh_token(
         response = JSONResponse(content={
             "access_token": new_access_token,
             "token_type": "bearer",
-            "username": permission.user.username if permission else "unknown",
+            "username": permission.user.username if permission and permission.user else "unknown",
             "permission_level": permission_level,
             "csrf_token": csrf_token  # 返回新的 CSRF token
         })
@@ -437,7 +437,7 @@ async def refresh_token(
         logger.error(f"Token 刷新系统异常 | error={str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Refresh Token 无效：{str(e)}"
+            detail="Refresh Token 无效，请重新登录"
         )
 
 
@@ -472,7 +472,7 @@ async def get_user_profile(
         raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"查询用户信息异常 | user_id={user_id} | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="查询用户信息失败")
 
 
 @router.get("/conversations")
@@ -503,41 +503,24 @@ async def get_conversations(
         total = total_result.scalar() or 0
 
         conversations_stmt = (
-            select(History)
-            .where(
-                and_(
-                    History.user_id == user_id,
-                    History.id.in_(select(subquery.c.max_id))
-                )
-            )
+            select(History, subquery.c.msg_count)
+            .join(subquery, History.id == subquery.c.max_id)
+            .where(History.user_id == user_id)
             .order_by(desc(History.id))
             .limit(limit)
             .offset(offset)
         )
         result = await db.execute(conversations_stmt)
-        conversations = result.scalars().all()
-
-        msg_counts = {}
-        for conv in conversations:
-            if conv.conversation_id not in msg_counts:
-                count_result = await db.execute(
-                    select(func.count()).where(
-                        and_(
-                            History.user_id == user_id,
-                            History.conversation_id == conv.conversation_id
-                        )
-                    )
-                )
-                msg_counts[conv.conversation_id] = count_result.scalar() or 0
+        rows = result.all()
 
         items = []
-        for conv in conversations:
+        for conv, msg_count in rows:
             items.append({
                 "conversation_id": conv.conversation_id,
                 "title": conv.title,
                 "prompt": conv.prompt[:100] if conv.prompt else "",
                 "created_at": str(conv.created_at),
-                "message_count": msg_counts.get(conv.conversation_id, 0),
+                "message_count": msg_count,
             })
 
         return {
@@ -548,4 +531,4 @@ async def get_conversations(
         }
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"查询会话列表异常 | user_id={user_id} | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="查询会话列表失败")
