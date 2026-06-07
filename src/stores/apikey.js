@@ -30,7 +30,8 @@ export const useApiKeyStore = defineStore('apikey', () => {
   })
 
   const hasSiliconflowKey = computed(() => {
-    return !!siliconflowKey.value && siliconflowKey.value.enabled
+    if (!siliconflowKey.value || !siliconflowKey.value.enabled) return false
+    return !isTokenExpired(siliconflowKey.value)
   })
 
   // Actions
