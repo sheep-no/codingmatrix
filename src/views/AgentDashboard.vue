@@ -154,7 +154,7 @@ const goToModelConfig = () => {
 const sessionId = computed(() => session.currentSessionId)
 const sessionHistory = computed(() => session.sessionHistory)
 const projectPrompt = computed(() => session.projectPrompt)
-const generatedFiles = computed(() => files.generatedFiles)
+const generatedFiles = computed(() => files.generatedFiles.value)
 const isGenerating = computed(() => generation.isGenerating)
 const workflowStages = computed(() => generation.workflowStages)
 const selectedFile = computed(() => files.selectedFile || null)
@@ -281,7 +281,7 @@ const doSwitchSession = (id) => session.switchSession(id, {
   recoveryAttempts: generation.recoveryAttempts
 })
 const doDeleteSession = (id) => session.deleteSession(id, () => {
-  files.generatedFiles = []
+  files.generatedFiles.value = []
   workspace.logs = []
   workspace.thinkingMessages = []
 })
@@ -331,7 +331,7 @@ const clearBackendCache = () => backend.clearBackendCache()
 const rollback = (tag) => backend.rollbackToSnapshot(tag, session.currentSessionId)
 
 // ========== Auto-save ==========
-watch([() => files.generatedFiles?.length, () => session.currentSessionId, () => generation.workflowStages?.length], () => {
+watch([() => files.generatedFiles.value?.length, () => session.currentSessionId, () => generation.workflowStages?.length], () => {
   if (session.currentSessionId) {
     session.saveSessionState({
       workflowStages: generation.workflowStages,
@@ -358,7 +358,7 @@ onMounted(() => {
   session.loadSessionHistory()
   backend.loadSettings()
   session.startAutoSave(
-    () => files.generatedFiles.length > 0 || workspace.logs.length > 0,
+    () => files.generatedFiles.value.length > 0 || workspace.logs.length > 0,
     () => session.saveSessionState({
       workflowStages: generation.workflowStages,
       pendingDecisions: workspace.pendingDecisions,

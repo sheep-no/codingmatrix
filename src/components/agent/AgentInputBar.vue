@@ -22,6 +22,7 @@
           :value="prompt"
           :placeholder="placeholderText"
           class="prompt-textarea"
+          data-testid="agent-prompt-input"
           rows="1"
           @input="onInput"
           @keydown="onKeydown"

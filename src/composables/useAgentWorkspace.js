@@ -53,7 +53,7 @@ export function useAgentWorkspace({
   }
 
   const showFileDiff = (fileDiffs, filePath, showDiffModal, selectedDiffFile) => {
-    const diff = fileDiffs.find(d => d.path === filePath)
+    const diff = fileDiffs.value.find(d => d.path === filePath)
     if (diff) {
       selectedDiffFile.value = diff
       showDiffModal.value = true
@@ -63,7 +63,7 @@ export function useAgentWorkspace({
   }
 
   const hasFileDiff = (fileDiffs, filePath) => {
-    return fileDiffs.some(d => d.path === filePath)
+    return fileDiffs.value.some(d => d.path === filePath)
   }
 
   const handleFileSelect = async (file, importing) => {

@@ -44,7 +44,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
 
     switch (data.type) {
       case 'file':
-        files.generatedFiles.push({
+        files.generatedFiles.value.push({
           path: data.path,
           content: data.content,
           fileSize: data.file_size,
@@ -56,7 +56,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         if (data.file_type) addDetail('文件生成', `${data.path} (${data.file_type}, 复杂度: ${data.complexity?.level || '未知'})`)
         break
       case 'file_diff': {
-        files.fileDiffs.push({
+        files.fileDiffs.value.push({
           path: data.path,
           oldContent: data.old_content || '',
           newContent: data.new_content || data.content || '',
@@ -207,6 +207,22 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       case 'log':
         addLog('info', data.data?.message || data.message || '')
         break
+      case 'react_tool_call': {
+        const toolMsg = data.message || `调用工具: ${data.tool || '未知'}`
+        addLog('info', toolMsg)
+        addDetail('工具调用', `Round ${data.round || '?'}: ${data.tool || '未知'}`)
+        break
+      }
+      case 'react_tool_result': {
+        const resultMsg = data.message || `工具返回: ${data.tool || '未知'}`
+        addLog('info', resultMsg)
+        break
+      }
+      case 'react_generating': {
+        workspace.currentAgent = data.agent || workspace.currentAgent
+        if (data.model) workspace.currentModel = data.model
+        break
+      }
       case 'done':
         addLog('success', '项目生成完成')
         generation.isGenerating = false
@@ -226,7 +242,8 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         }
         break
       default:
-        console.warn('未知SSE消息类型:', data.type, data)
+        // 静默忽略未知消息类型，避免控制台噪音
+        break
     }
   }
 
@@ -264,7 +281,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     }
     
     // 自动判断模式：有已生成文件则为增量更新，否则为新建
-    const hasExistingFiles = files.generatedFiles.length > 0
+    const hasExistingFiles = files.generatedFiles.value.length > 0
     const isIncremental = hasExistingFiles && workspace.currentProjectPath
     
     return {
@@ -354,13 +371,13 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     }
 
     // 自动判断模式
-    const hasExistingFiles = files.generatedFiles.length > 0
+    const hasExistingFiles = files.generatedFiles.value.length > 0
     const isIncremental = hasExistingFiles && workspace.currentProjectPath
     const mode = isIncremental ? '增量更新' : '新建项目'
     
     if (!isIncremental) {
-      files.generatedFiles = []
-      files.fileDiffs = []
+      files.generatedFiles.value = []
+      files.fileDiffs.value = []
     }
     workspace.logs = []
     generation.isGenerating = true

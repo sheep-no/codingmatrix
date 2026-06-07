@@ -204,6 +204,8 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
     console.log('API Key 检查:', JSON.stringify(keyCheck));
 
     // 通过 Vue 组件设置 session.projectPrompt 并触发 generateProject
+    // 注意：Playwright fill() 不触发 Vue 的 @input 事件（:value 单向绑定问题）
+    // 因此直接通过组件实例设置 session.projectPrompt
     const genResult = await page.evaluate(async (requirement) => {
       try {
         const agentPage = document.querySelector('.agent-page');
