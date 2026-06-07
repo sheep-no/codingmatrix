@@ -273,7 +273,16 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
         # 非相对导入（包或绝对路径）
         # 检查是否是项目内路径（如 @/xxx, src/xxx）
         if module.startswith('@/') or module.startswith('src/'):
-            clean_module = module.lstrip('@/')
+            clean_module = module
+            if clean_module.startswith('@/'):
+                clean_module = clean_module[2:]
+            elif clean_module.startswith('src/'):
+                clean_module = clean_module[4:]
+            # 去除已有的扩展名，避免 .js.js 双重后缀
+            for ext in ['.js', '.jsx', '.ts', '.tsx']:
+                if clean_module.endswith(ext):
+                    clean_module = clean_module[:-len(ext)]
+                    break
             for ext in ['.js', '.jsx', '.ts', '.tsx']:
                 candidates.append(f"src/{clean_module}{ext}")
                 candidates.append(f"src/{clean_module}/index{ext}")
