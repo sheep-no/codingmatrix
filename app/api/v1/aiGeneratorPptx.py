@@ -818,7 +818,7 @@ async def generate_ppt_task(
     
     async def run_ppt_generation(task_id: str, **kwargs):
         async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
-            await task_manager.update_progress(task_id, progress, message)
+            await task_manager.update_progress(task_id, progress, message, status=status, result_data=result_data)
 
         try:
             await update_progress(progress=5, message="正在准备上下文...")
@@ -1150,7 +1150,7 @@ async def update_ppt_task(
 
     async def run_incremental_ppt(task_id: str, **kwargs):
         async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
-            await task_manager.update_progress(task_id, progress, message)
+            await task_manager.update_progress(task_id, progress, message, status=status, result_data=result_data)
 
         try:
             await update_progress(progress=5, message="正在加载已有内容...")
@@ -1653,7 +1653,7 @@ async def generate_ppt_from_text_task(
 
         async def run_ppt_gen(task_id: str, **kwargs):
             async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
-                await task_manager.update_progress(task_id, progress, message)
+                await task_manager.update_progress(task_id, progress, message, status=status, result_data=result_data)
 
             try:
                 await update_progress(progress=5, message="正在准备上下文...")

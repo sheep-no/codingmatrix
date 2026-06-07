@@ -175,6 +175,7 @@ class LayoutOptimizer:
                 'font_size': title_font,
             }
             available_height -= Pt(title_font).inches * 1.5
+            available_height = max(available_height, 0.5)  # 保证至少 0.5 英寸可用高度
 
         # 优化正文
         if 'body' in slide_data and slide_data['body']:
@@ -415,7 +416,7 @@ class LayoutOptimizer:
             text=text,
             font_size=font_size,
             line_spacing=line_spacing,
-            max_width=9.0,  # 默认宽度
+            max_width=max_width,
         )
 
         if estimated_height <= max_height:
@@ -431,7 +432,7 @@ class LayoutOptimizer:
             text=text,
             font_size=recommended_font,
             line_spacing=line_spacing,
-            max_width=9.0,
+            max_width=max_width,
         )
 
         # 如果即使缩小字号仍然溢出，建议截断
