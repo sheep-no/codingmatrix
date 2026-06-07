@@ -45,6 +45,7 @@ _parser = RobustJSONParser(strict_mode=False)
 # 部分响应缓存 {task_id: {"prompt": ..., "partial_response": ..., "model": ..., "timestamp": ...}}
 _partial_response_cache: Dict[str, dict] = {}
 _PARTIAL_TTL = 300  # 5 分钟过期
+_PARTIAL_CACHE_MAX_SIZE = 100  # 最大缓存条目数
 
 
 def _cleanup_partial_cache():
@@ -56,11 +57,20 @@ def _cleanup_partial_cache():
             cached_time = datetime.fromisoformat(data.get("timestamp", ""))
             if (now - cached_time).total_seconds() > _PARTIAL_TTL:
                 expired_keys.append(task_id)
-        except Exception:
+        except (ValueError, TypeError):
             expired_keys.append(task_id)
     
     for task_id in expired_keys:
         _partial_response_cache.pop(task_id, None)
+    
+    # 如果缓存仍然过大，删除最旧的条目
+    if len(_partial_response_cache) > _PARTIAL_CACHE_MAX_SIZE:
+        sorted_keys = sorted(
+            _partial_response_cache.keys(),
+            key=lambda k: _partial_response_cache[k].get("timestamp", "")
+        )
+        for k in sorted_keys[:len(_partial_response_cache) - _PARTIAL_CACHE_MAX_SIZE]:
+            _partial_response_cache.pop(k, None)
     
     return len(expired_keys)
 
@@ -178,23 +188,21 @@ def extract_stream_content(chunk: str) -> Tuple[bool, str]:
     从 SSE chunk 中提取内容（增强容错）
     """
     try:
-        # 尝试直接解析
         data = json.loads(chunk)
-        content = (
-            data.get("choices", [{}])[0]
-            .get("delta", {})
-            .get("content", "")
-        )
+        choices = data.get("choices") or []
+        if not choices:
+            return False, ""
+        delta = choices[0].get("delta") or {}
+        content = delta.get("content", "")
         return True, content if content else ""
     except (json.JSONDecodeError, KeyError, IndexError):
-        # 尝试容错解析
         try:
             data = _parser.parse(chunk)
-            content = (
-                data.get("choices", [{}])[0]
-                .get("delta", {})
-                .get("content", "")
-            )
+            choices = data.get("choices") or []
+            if not choices:
+                return False, ""
+            delta = choices[0].get("delta") or {}
+            content = delta.get("content", "")
             return True, content if content else ""
         except (ValueError, TypeError, RuntimeError, OSError) as e:
             logger.debug(f"SSE chunk 解析失败：{str(e)[:50]} | chunk: {chunk[:100]}")
@@ -267,10 +275,18 @@ async def compress_conversation_history(
         
         # 压缩格式：只保留 prompt 和 response 的关键部分
         compressed = []
+        total_length = 0
+        max_total_length = 6000  # 限制历史上下文总长度
         for h in histories:
             prompt_short = h.prompt[:100] + "..." if len(h.prompt) > 100 else h.prompt
-            response_short = h.response[:150] + "..." if len(h.response) > 150 else h.response
-            compressed.append(f"用户：{prompt_short}\n助手：{response_short}")
+            response_text = h.response or ""
+            response_short = response_text[:150] + "..." if len(response_text) > 150 else response_text
+            entry = f"用户：{prompt_short}\n助手：{response_short}"
+            total_length += len(entry)
+            if total_length > max_total_length:
+                compressed.append("...（历史记录过长，已截断）")
+                break
+            compressed.append(entry)
         
         context = "\n\n--- 对话历史 ---\n" + "\n\n".join(compressed) + "\n---\n\n"
         
@@ -373,7 +389,7 @@ async def get_or_parse_file(
         raise HTTPException(status_code=404, detail=f"文件未找到：{file_path}")
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"文件解析失败 | file={file_path} | error={str(e)}")
-        raise HTTPException(status_code=500, detail=f"文件解析失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="文件解析失败，请稍后重试")
 
 
 async def verify_file_access(
@@ -653,7 +669,18 @@ async def generate_response(
     logger.info(f"执行非流式请求 | user_id={user_id} | model={model}")
     
     result = await call_llm(model=model, prompt=final_prompt, stream=False, api_key_token=api_key_token)
-    response = result["choices"][0]["message"]["content"]
+    choices = result.get("choices") or []
+    if not choices:
+        logger.warning(f"LLM 返回空 choices | user_id={user_id}")
+        return {
+            "response": "",
+            "tokens_used": format_tokens_usage(result),
+            "conversation_id": None,
+            "context_length": len(full_context),
+            "error": "AI 生成响应为空，请稍后重试"
+        }
+    message = choices[0].get("message") or {}
+    response = message.get("content") or ""
     tokens_used = format_tokens_usage(result)
     
     # 检查响应是否为空，避免保存空记录
@@ -777,7 +804,7 @@ async def generate_code(
         raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"请求失败 | user_id={user_id} | error={str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="服务内部错误，请稍后重试")
 
 
 @router.delete("/code/history")
