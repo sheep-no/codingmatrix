@@ -418,8 +418,10 @@ class SharedConnection {
       this.reconnectTimer = null
     }
 
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED && this.ws.readyState !== WebSocket.CLOSING) {
       this.ws.close(1000, 'Manual disconnect')
+    } else if (this.ws) {
+      try { this.ws.onclose = null; this.ws.onerror = null; this.ws.onmessage = null; this.ws.onopen = null } catch (_) {}
     }
 
     this.state = ConnectionState.DISCONNECTED
@@ -515,10 +517,16 @@ class SharedConnection {
       try {
         if (type === 'message') {
           subscriber.onMessage?.(data)
-        } else if (type === 'error') {
-          subscriber.onError?.(data)
-        } else if (type === 'close') {
-          subscriber.onClose?.(data)
+        } else if (type === 'error' || type === 'close') {
+          // 当前 subscriber 协议只暴露 onMessage / onStatusChange，
+          // 通过 onStatusChange 透传 error/close 上下文
+          subscriber.onStatusChange?.({
+            state: this.state,
+            connectionId: this.connectionId,
+            timestamp: Date.now(),
+            event: type,
+            data
+          })
         }
       } catch (error) {
         console.error(`[ERR] Subscriber callback error ${id}:`, error)

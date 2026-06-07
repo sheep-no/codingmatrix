@@ -170,7 +170,7 @@ export class WebSocketManager {
 
   startHeartbeat() {
     this.heartbeatTimer = setInterval(() => {
-      this.send({ type: 'ping' })
+      this.send({ action: 'ping' })
     }, WS_CONFIG.HEARTBEAT_INTERVAL)
   }
 
