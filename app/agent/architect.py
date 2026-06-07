@@ -131,7 +131,7 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                 architecture = self._get_default_architecture(complexity, target_language)
 
             # 补充完整性：确保所有被引用的模块都在 file_plan 中
-            architecture = self._ensure_file_plan_completeness(architecture)
+            architecture = self._ensure_file_plan_completeness(architecture, target_language)
 
             return architecture
         else:
@@ -305,16 +305,19 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
             "risks": complexity.risk_factors
         }
 
-    def _ensure_file_plan_completeness(self, architecture: Dict) -> Dict:
+    def _ensure_file_plan_completeness(self, architecture: Dict, target_language: Optional[str] = None) -> Dict:
         """确保 file_plan 完整性：补充缺失的基础文件和被引用的模块"""
         file_plan = architecture.get("file_plan", [])
         if not file_plan:
             return architecture
 
-        # 检测语言（从 file_plan 中推断）
+        # 检测语言（优先使用传入的语言，避免重复检测导致翻转）
         from app.agent.adapters import LanguageAdapterRegistry
-        files_for_detection = {f["path"]: "" for f in file_plan}
-        detected_lang = LanguageAdapterRegistry.detect_language(files_for_detection)
+        if target_language:
+            detected_lang = target_language
+        else:
+            files_for_detection = {f["path"]: "" for f in file_plan}
+            detected_lang = LanguageAdapterRegistry.detect_language(files_for_detection)
         adapter = LanguageAdapterRegistry.get_adapter(detected_lang)
 
         logger.info(f"_ensure_file_plan_completeness: 检测到语言={detected_lang}, 适配器={adapter.language}")

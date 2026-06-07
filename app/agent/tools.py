@@ -963,6 +963,11 @@ SPECIALIST_TOOLS = {
         "description": "写入文件内容（创建或覆盖）。参数: path(文件路径), content(文件内容)",
         "params": {"path": "string", "content": "string"}
     },
+    "create_file": {
+        "fn": _tool_write_file,
+        "description": "创建新文件（等同于 write_file）。参数: path(文件路径), content(文件内容)",
+        "params": {"path": "string", "content": "string"}
+    },
     "git_status": {
         "fn": _tool_git_status,
         "description": "查看 Git 工作区状态（修改/新增/删除的文件列表）。无参数",
