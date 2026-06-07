@@ -620,8 +620,10 @@ async def orchestrate_project_stream(
                     gen_task.cancel()
                     try:
                         await asyncio.wait_for(gen_task, timeout=5.0)
-                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                    except asyncio.CancelledError:
                         pass
+                    except asyncio.TimeoutError:
+                        logger.warning(f"[SSE] gen_task 取消超时，任务仍在后台运行 | session={session_id}")
                 if generation_completed:
                     logger.info(f"[SSE] 生成成功完成，跳过取消清理 | session={session_id}")
                 else:

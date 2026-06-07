@@ -70,6 +70,9 @@ class TestResponse(BaseModel):
 @router.post("", summary="添加动态供应商")
 @limiter.limit("10/minute")
 async def add_provider(request: Request, body: AddProviderRequest, token: dict = Depends(verify_token)):
+    # 权限检查：需要管理员权限
+    if token.get("permission_level") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
     manager = get_dynamic_provider_manager()
     
     if body.protocol not in ("openai", "anthropic"):
@@ -132,6 +135,8 @@ async def get_provider(request: Request, pid: str, token: dict = Depends(verify_
 @router.delete("/{pid}", summary="删除供应商")
 @limiter.limit("10/minute")
 async def delete_provider(request: Request, pid: str, token: dict = Depends(verify_token)):
+    if token.get("permission_level") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
     manager = get_dynamic_provider_manager()
     if not manager.delete(pid):
         raise HTTPException(status_code=404, detail="供应商不存在")
@@ -141,6 +146,8 @@ async def delete_provider(request: Request, pid: str, token: dict = Depends(veri
 @router.put("/{pid}/toggle", summary="启用/禁用供应商")
 @limiter.limit("20/minute")
 async def toggle_provider(request: Request, pid: str, token: dict = Depends(verify_token)):
+    if token.get("permission_level") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
     manager = get_dynamic_provider_manager()
     if not manager.toggle(pid):
         raise HTTPException(status_code=404, detail="供应商不存在")
@@ -151,6 +158,8 @@ async def toggle_provider(request: Request, pid: str, token: dict = Depends(veri
 @router.post("/{pid}/sync", summary="同步模型列表")
 @limiter.limit("10/minute")
 async def sync_models(request: Request, pid: str, token: dict = Depends(verify_token), force: bool = False):
+    if token.get("permission_level") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
     manager = get_dynamic_provider_manager()
     provider = manager.get(pid)
     if not provider:

@@ -391,7 +391,19 @@ class ReActEngine:
                 logger.error(f"{self.role_name} ReAct LLM 调用失败: {e}")
                 return ""
             if not response:
-                return ""
+                # 空响应重试
+                for retry in range(2):
+                    logger.warning(f"{self.role_name} ReAct LLM 返回空响应，重试 {retry + 1}/2")
+                    await asyncio.sleep(1.0)
+                    try:
+                        response = await self.call_llm_fn(current_prompt, enhanced_system)
+                    except Exception:
+                        pass
+                    if response:
+                        break
+                if not response:
+                    logger.error(f"{self.role_name} ReAct LLM 连续 3 次返回空响应")
+                    return ""
 
             tool_call = self._parse_tool_call(response)
             if not tool_call:

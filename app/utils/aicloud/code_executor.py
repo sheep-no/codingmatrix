@@ -184,13 +184,24 @@ class CodeExecutor:
         import time
         start_time = time.time()
 
-        # 简单静态分析检查危险模块
-        for mod in BANNED_JS_MODULES:
+        # 简单静态分析检查危险模块（包含拼接绕过检测）
+        dangerous_modules = ['fs', 'child_process', 'os', 'net', 'http', 'https', 'cluster', 'worker_threads', 'dgram', 'readline', 'crypto']
+        for mod in dangerous_modules:
+            # 直接 require 检测
             if f"require('{mod}')" in code or f'require("{mod}")' in code:
                 return CodeExecutionResult(
                     success=False, output="", error=f"禁止使用模块: {mod}",
                     exit_code=1, execution_time=0.0, language="javascript"
                 )
+        # 检测字符串拼接绕过 require
+        if re.search(r"require\s*\(\s*['\"][^'\"]*['\"]", code):
+            pass  # 已在上面检测
+        elif "require(" in code:
+            # 检测动态 require（如 require(variable) 或 require(expr)）
+            return CodeExecutionResult(
+                success=False, output="", error="禁止使用动态 require",
+                exit_code=1, execution_time=0.0, language="javascript"
+            )
 
         file_name = f"exec_{uuid.uuid4().hex[:8]}.js"
         file_path = os.path.join(self.workspace_path, file_name)

@@ -14,6 +14,7 @@ Nginx 配置管理 API - 增强版（性能优化）
 """
 import logging
 import os
+import re
 import json
 import hashlib
 import shutil
@@ -57,6 +58,16 @@ def generate_nginx_config(req: NginxGenerateRequest) -> str:
     Returns:
         str: Nginx 配置文本
     """
+    # 输入验证，防止配置注入
+    if not re.match(r'^[a-zA-Z0-9._\-\*]+$', req.server_name):
+        raise ValueError(f"无效的 server_name: {req.server_name}")
+    if req.ssl_cert and not re.match(r'^[a-zA-Z0-9/._\-]+$', req.ssl_cert):
+        raise ValueError(f"无效的 ssl_cert 路径: {req.ssl_cert}")
+    if req.ssl_key and not re.match(r'^[a-zA-Z0-9/._\-]+$', req.ssl_key):
+        raise ValueError(f"无效的 ssl_key 路径: {req.ssl_key}")
+    if req.upstream and not re.match(r'^https?://[a-zA-Z0-9._\-:]+$', req.upstream):
+        raise ValueError(f"无效的 upstream 地址: {req.upstream}")
+
     config_lines = []
     
     # Worker 配置
@@ -440,6 +451,9 @@ async def delete_backup(
     
     # 防止路径穿越
     if ".." in backup_name or "/" in backup_name or "\\" in backup_name:
+        raise HTTPException(status_code=400, detail="无效的备份文件名")
+    # 防止 null byte 注入和特殊字符
+    if "\x00" in backup_name or not re.match(r'^[a-zA-Z0-9._\-]+$', backup_name):
         raise HTTPException(status_code=400, detail="无效的备份文件名")
     
     # 路径安全校验

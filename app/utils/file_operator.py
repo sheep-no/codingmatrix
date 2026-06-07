@@ -479,6 +479,9 @@ class FileOperator:
             file_path = target / rel_path
 
             try:
+                # 跳过超大文件（>10MB），防止搜索卡住
+                if file_path.stat().st_size > 10 * 1024 * 1024:
+                    continue
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     for line_num, line in enumerate(f, 1):
                         if search_pattern.search(line):

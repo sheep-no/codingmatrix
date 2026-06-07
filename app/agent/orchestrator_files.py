@@ -173,12 +173,22 @@ class FilesMixin:
         # git stash 备份已有文件
         stashed = _git_stash_push(str(self.output_dir), existing_files, "agent-backup-batch")
 
-        # 直接并发生成，由 LLMClient 内部信号量控制并发度
+        # 分批并发生成，避免大量协程同时存在
         if self.cancel_event and self.cancel_event.is_set():
             logger.info("[生成] 检测到取消信号，跳过小项目生成")
             return
-        tasks = [self._generate_single_file(fi, project_context, total_files) for fi in file_plan]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        BATCH_SIZE = 20
+        results = []
+        for i in range(0, len(file_plan), BATCH_SIZE):
+            if self.cancel_event and self.cancel_event.is_set():
+                logger.info("[生成] 检测到取消信号，中断批次生成")
+                return
+            batch = file_plan[i:i + BATCH_SIZE]
+            batch_results = await asyncio.gather(
+                *[self._generate_single_file(fi, project_context, total_files) for fi in batch],
+                return_exceptions=True
+            )
+            results.extend(batch_results)
 
         # 检查是否全部成功
         all_success = True

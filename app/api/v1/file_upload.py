@@ -258,7 +258,7 @@ async def download_file(
         open(file_path, 'rb'),
         media_type=db_file.content_type or "application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{db_file.filename}"'
+            "Content-Disposition": f'attachment; filename="{Path(db_file.filename).name}"'
         }
     )
 
@@ -420,11 +420,14 @@ async def merge_chunks(
                     raise HTTPException(status_code=500, detail=f"分片 {i} 丢失")
                 f.write(chunk_path.read_bytes())
 
-        # 验证合并后的文件哈希
-        merged_content = file_path.read_bytes()
-        actual_hash = hashlib.sha256(merged_content).hexdigest()
+        # 验证合并后的文件哈希（分块计算，避免大文件 OOM）
+        actual_hash = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            while chunk := f.read(8192):
+                actual_hash.update(chunk)
+        actual_hash_hex = actual_hash.hexdigest()
 
-        if actual_hash != file_hash:
+        if actual_hash_hex != file_hash:
             logger.error(f"哈希不匹配 | expected={file_hash}, actual={actual_hash}")
             file_path.unlink()
             raise HTTPException(
@@ -436,9 +439,9 @@ async def merge_chunks(
         db_file = File(
             filename=filename,
             file_path=str(file_path),
-            file_size=len(merged_content),
+            file_size=file_path.stat().st_size,
             content_type=content_type,
-            file_hash=actual_hash,
+            file_hash=actual_hash_hex,
             user_id=user_id,
             conversation_id=conversation_id
         )
