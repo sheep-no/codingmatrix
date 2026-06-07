@@ -60,9 +60,10 @@ def image_to_base64(image_path: str) -> str:
         base64_data = base64.b64encode(image_data).decode('utf-8')
     
     # 返回 Data URI 格式
-    mime_type = f"image/{ext.strip('.')}"
-    if ext == '.jpg':
-        mime_type = "image/jpeg"
+    mime_ext = ext.lstrip('.')
+    if mime_ext == 'jpg':
+        mime_ext = 'jpeg'
+    mime_type = f"image/{mime_ext}"
     
     return f"data:{mime_type};base64,{base64_data}"
 
@@ -150,7 +151,7 @@ async def analyze_image(
             return {
                 "description": description,
                 "objects": [],
-                "text": "",
+                "text": description,
                 "raw_response": None,
                 "model_used": fallback_model
             }

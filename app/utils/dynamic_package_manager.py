@@ -148,9 +148,10 @@ class DynamicPackageManager:
 
     def _save_dynamic_whitelist(self):
         """持久化动态白名单"""
+        from datetime import datetime
         data = {
             "packages": sorted(self._dynamic_whitelist),
-            "last_updated": str(Path),
+            "last_updated": datetime.now().isoformat(),
         }
         try:
             self.WHITELIST_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -421,7 +422,6 @@ class DynamicPackageManager:
         normalized = name.lower().strip()
         normalized = re.sub(r'[-_]+', '-', normalized)
         normalized = re.sub(r'\[.*\]', '', normalized)
-        normalized = re.sub(r'\d+$', '', normalized)  # 去掉尾部数字（如 urllib3→urllib）
         return normalized
 
     def filter_packages(self, packages: List[str]) -> Tuple[List[str], List[str]]:
