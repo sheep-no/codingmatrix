@@ -32,7 +32,7 @@
 </template>
 
 <script setup>
-  import { computed } from 'vue'
+  import { ref, computed, watch, onUnmounted } from 'vue'
 
   const props = defineProps({
     file: { type: Object, required: true }
@@ -44,14 +44,28 @@
 
   const isImage = computed(() => imageTypes.includes(props.file.type))
 
-  const thumbnailUrl = computed(() => {
-    if (isImage.value) {
-      const actualFile = props.file.file || props.file
-      if (actualFile instanceof Blob) {
-        return URL.createObjectURL(actualFile)
+  const thumbnailUrl = ref('')
+
+  watch(
+    () => props.file,
+    newFile => {
+      if (thumbnailUrl.value) {
+        URL.revokeObjectURL(thumbnailUrl.value)
+        thumbnailUrl.value = ''
       }
+      const actualFile = newFile?.file || newFile
+      if (isImage.value && actualFile instanceof Blob) {
+        thumbnailUrl.value = URL.createObjectURL(actualFile)
+      }
+    },
+    { immediate: true }
+  )
+
+  onUnmounted(() => {
+    if (thumbnailUrl.value) {
+      URL.revokeObjectURL(thumbnailUrl.value)
+      thumbnailUrl.value = ''
     }
-    return ''
   })
 
   function formatFileSize(bytes) {

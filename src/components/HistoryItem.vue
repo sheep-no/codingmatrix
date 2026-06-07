@@ -15,10 +15,21 @@
     return highlightText(text, props.searchKeyword)
   })
 
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+  }
+
   function highlightText(text, keyword) {
     if (!keyword) return text
-    const regex = new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
-    return text.replace(regex, '<mark>$1</mark>')
+    const safeText = escapeHtml(text)
+    const safeKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regex = new RegExp(`(${safeKeyword})`, 'gi')
+    return safeText.replace(regex, '<mark>$1</mark>')
   }
 
   function handleClick() {

@@ -195,7 +195,7 @@
       }
     } catch (error) {
       console.error('取消任务失败:', error)
-      ElMessage.error('取消任务失败：' + error.message)
+      ElMessage.error(`取消任务失败：${error?.message || '未知错误'}`)
     }
   }
 
