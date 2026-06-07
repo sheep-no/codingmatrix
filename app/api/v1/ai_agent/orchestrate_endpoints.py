@@ -460,9 +460,9 @@ async def orchestrate_project_stream(
     concurrent_mgr = ConcurrentLimitManager()
     concurrent_mgr.register_session(user_role)
 
-    queue: asyncio.Queue = asyncio.Queue()
-    approval_queue: asyncio.Queue = asyncio.Queue()
-    decision_queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+    approval_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    decision_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
     cancel_event = asyncio.Event()
 
     _approval_queues[session_id] = approval_queue

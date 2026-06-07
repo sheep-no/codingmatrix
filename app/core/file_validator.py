@@ -229,10 +229,19 @@ def validate_archive_content(content: bytes, archive_type: str) -> bool:
     Returns:
         bool: 是否安全
     """
+    MAX_UNCOMPRESSED_SIZE = 500 * 1024 * 1024  # 500MB 解压大小上限
+    MAX_COMPRESSION_RATIO = 100  # 最大压缩比
+    
     try:
         if archive_type == '.zip':
             with zipfile.ZipFile(io.BytesIO(content)) as zf:
-                for name in zf.namelist():
+                total_uncompressed = 0
+                for info in zf.infolist():
+                    name = info.filename
+                    # 检查绝对路径
+                    if Path(name).is_absolute():
+                        print(f"[WARNING] 检测到绝对路径：{name}")
+                        return False
                     # 解析为 Path 后检查每个组件
                     parts = Path(name).parts
                     for part in parts:
@@ -243,10 +252,14 @@ def validate_archive_content(content: bytes, archive_type: str) -> bool:
                             print(f"[WARNING] 检测到不安全的文件名组件：{part}（来自 {name}）")
                             return False
                     
-                    # 检查文件扩展名
-                    ext = Path(name).suffix.lower()
-                    # 这里可以根据需要限制压缩包内的文件类型
-                    # 暂时允许所有类型
+                    # Zip Bomb 检测
+                    total_uncompressed += info.file_size
+                    if total_uncompressed > MAX_UNCOMPRESSED_SIZE:
+                        print(f"[WARNING] 解压大小超过限制：{total_uncompressed} > {MAX_UNCOMPRESSED_SIZE}")
+                        return False
+                    if info.compress_size > 0 and info.file_size / info.compress_size > MAX_COMPRESSION_RATIO:
+                        print(f"[WARNING] 压缩比异常：{info.file_size}/{info.compress_size} = {info.file_size / info.compress_size:.0f}")
+                        return False
         return True
     except Exception as e:
         print(f"压缩包验证错误：{e}")

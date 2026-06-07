@@ -411,7 +411,9 @@ async def merge_chunks(
         output_dir = UPLOAD_DIR / datetime.now().strftime("%Y%m%d")
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        file_path = output_dir / f"{uuid.uuid4()}_{filename}"
+        # 清理文件名，防止路径穿越
+        safe_filename = Path(filename).name
+        file_path = output_dir / f"{uuid.uuid4()}_{safe_filename}"
 
         with open(file_path, 'wb') as f:
             for i in range(meta.total_chunks):

@@ -125,9 +125,11 @@ class CodeExecutor:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env={
-                    **os.environ,
+                    "PATH": "/usr/local/bin:/usr/bin:/bin",
+                    "HOME": "/tmp",
                     "PYTHONUNBUFFERED": "1",
-                    "PYTHONDONTWRITEBYTECODE": "1"
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                    "LANG": os.environ.get("LANG", "en_US.UTF-8"),
                 },
                 cwd=self.workspace_path
             )

@@ -127,11 +127,20 @@ def _tool_read_file(project_path: str, file_path: str, offset: int = 0,
                     limit: int = 100) -> Dict:
     """读取文件内容（支持分页）"""
     try:
-        full_path = Path(project_path) / file_path
+        project_resolved = Path(project_path).resolve()
+        full_path = (project_resolved / file_path).resolve()
+        if not str(full_path).startswith(str(project_resolved)):
+            return {"error": "安全限制: 路径越界"}
+        if full_path.is_symlink():
+            return {"error": "安全限制: 不允许读取符号链接"}
         if not full_path.exists():
             return {"error": f"文件不存在: {file_path}"}
         if not full_path.is_file():
             return {"error": f"不是文件: {file_path}"}
+        # 检查文件大小，防止 OOM
+        file_size = full_path.stat().st_size
+        if file_size > 10 * 1024 * 1024:  # 10MB
+            return {"error": f"文件过大 ({file_size} bytes)，超过 10MB 限制"}
         lines = full_path.read_text(encoding='utf-8', errors='ignore').split('\n')
         total = len(lines)
         start = min(offset, total)
@@ -150,11 +159,14 @@ def _tool_list_files(project_path: str, directory: str = ".",
                      max_depth: int = 2) -> Dict:
     """列出目录结构"""
     try:
-        target = Path(project_path) / directory
+        project_resolved = Path(project_path).resolve()
+        target = (project_resolved / directory).resolve()
+        if not str(target).startswith(str(project_resolved)):
+            return {"error": "安全限制: 路径越界"}
         if not target.exists():
             return {"error": f"目录不存在: {directory}"}
         entries = []
-        _scan_dir(target, entries, depth=0, max_depth=max_depth, base=Path(project_path))
+        _scan_dir(target, entries, depth=0, max_depth=max_depth, base=project_resolved)
         return {"directory": directory, "entries": entries[:200]}
     except Exception as e:
         return {"error": str(e)}
@@ -168,6 +180,8 @@ def _scan_dir(path: Path, entries: list, depth: int, max_depth: int, base: Path)
         for item in sorted(path.iterdir()):
             if item.name.startswith('.') or item.name in ('__pycache__', 'node_modules', '.git'):
                 continue
+            if item.is_symlink():
+                continue  # 跳过符号链接，防止穿越
             rel = str(item.relative_to(base))
             if item.is_dir():
                 entries.append({"type": "dir", "path": rel + "/"})
@@ -329,7 +343,10 @@ def _tool_partial_update(project_path: str, path: str, target: str = None,
                          replacement: str = None, function_name: str = None) -> Dict:
     """精准替换文件中的函数或代码块"""
     try:
-        full_path = Path(project_path) / path if not Path(path).is_absolute() else Path(path)
+        project_resolved = Path(project_path).resolve()
+        full_path = (project_resolved / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
+        if not str(full_path).startswith(str(project_resolved)):
+            return {"success": False, "error": "安全限制: 路径越界"}
         if not full_path.exists():
             return {"success": False, "error": f"文件不存在: {path}"}
 
@@ -392,7 +409,10 @@ def _tool_insert_content(project_path: str, path: str, content: str,
                          line: int = None, anchor: str = None) -> Dict:
     """在文件指定位置插入内容（按行号或锚点文本）"""
     try:
-        full_path = Path(project_path) / path if not Path(path).is_absolute() else Path(path)
+        project_resolved = Path(project_path).resolve()
+        full_path = (project_resolved / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
+        if not str(full_path).startswith(str(project_resolved)):
+            return {"success": False, "error": "安全限制: 路径越界"}
         if not full_path.exists():
             return {"success": False, "error": f"文件不存在: {path}"}
 
@@ -424,7 +444,10 @@ def _tool_regex_replace(project_path: str, path: str, pattern: str,
                         replacement: str, recursive: bool = False) -> Dict:
     """基于正则表达式的批量替换"""
     try:
-        full_path = Path(project_path) / path if not Path(path).is_absolute() else Path(path)
+        project_resolved = Path(project_path).resolve()
+        full_path = (project_resolved / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
+        if not str(full_path).startswith(str(project_resolved)):
+            return {"success": False, "error": "安全限制: 路径越界"}
         if '*' in str(full_path) or '?' in str(full_path):
             files = [Path(f) for f in glob.glob(str(full_path), recursive=recursive) if Path(f).is_file()]
         else:
@@ -479,6 +502,7 @@ def _execute_python_sandbox(code: str, timeout: int) -> Dict:
     """Python 沙箱执行（通过子进程隔离）"""
     import subprocess
     import tempfile
+    import os
 
     dangerous_patterns = [
         r'\bimport\s+os\b', r'\bimport\s+sys\b', r'\bimport\s+subprocess\b',
@@ -610,11 +634,18 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
     """执行终端命令（构建、安装依赖、运行脚本等）"""
     import subprocess
     import os
+    import shlex
 
     try:
         for pattern in _DANGEROUS_COMMANDS:
             if re.search(pattern, command, re.IGNORECASE):
                 return {"success": False, "error": "安全限制: 检测到危险命令操作"}
+
+        # 检测 shell 元字符，防止命令注入
+        shell_metacharacters = [';', '&&', '||', '|', '`', '$(', '${', '>', '>>', '<', '\n']
+        for char in shell_metacharacters:
+            if char in command:
+                return {"success": False, "error": f"安全限制: 命令中不允许包含 '{char}' 字符"}
 
         cmd_lower = command.strip().lower()
         allowed = any(cmd_lower.startswith(prefix.lower()) for prefix in _ALLOWED_COMMAND_PREFIXES)
@@ -633,9 +664,13 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
         # 使用进程组管理，确保超时时杀死所有子进程
         # 限制输出缓冲区大小，防止 OOM
         MAX_OUTPUT_BYTES = 1024 * 1024  # 1MB
+        try:
+            cmd_parts = shlex.split(command)
+        except ValueError:
+            return {"success": False, "error": "命令格式解析失败，请检查引号和转义字符"}
         proc = subprocess.Popen(
-            command,
-            shell=True,
+            cmd_parts,
+            shell=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -877,7 +912,10 @@ def _tool_delete_files_by_pattern(project_path: str, path: str, pattern: str,
     """按 glob 模式批量删除文件"""
     import os
     try:
-        target_dir = Path(project_path) / path if not Path(path).is_absolute() else Path(path)
+        project_resolved = Path(project_path).resolve()
+        target_dir = (project_resolved / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
+        if not str(target_dir).startswith(str(project_resolved)):
+            return {"success": False, "error": "安全限制: 路径越界"}
         if not target_dir.exists():
             return {"success": False, "error": f"目录不存在: {path}"}
 
