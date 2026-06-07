@@ -94,8 +94,10 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
+const userStore = useUserStore()
 const prompt = ref('')
 const executing = ref(false)
 const workflowNodes = ref([])
@@ -113,7 +115,7 @@ async function handleExecute() {
   workflowNodes.value = []
 
   try {
-    const token = localStorage.getItem('access_token')
+    const token = userStore.getAccessToken() || localStorage.getItem('access_token')
     const res = await fetch('/api/v1/workflow/execute', {
       method: 'POST',
       headers: {

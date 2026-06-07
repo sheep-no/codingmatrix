@@ -107,7 +107,7 @@ export const useTokenManager = () => {
       sessionStorage.removeItem('_token')
       sessionStorage.removeItem('_token_expiry')
       localStorage.removeItem('access_token')
-      // 注意：不清理 localStorage._token_expiry，避免与其他模块冲突
+      localStorage.removeItem('_token_expiry')
     } catch (_e) { /* storage not available */ }
   }
 

@@ -71,7 +71,20 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
   function deleteSession(id) {
     sessionHistory.value = sessionHistory.value.filter(s => s.id !== id)
     _saveSessionHistory()
-    if (currentSessionId.value === id) currentSessionId.value = null
+    if (currentSessionId.value === id) {
+      currentSessionId.value = null
+      // 清理被删除会话的状态
+      projectPrompt.value = ''
+      workflowStages.value = []
+      pendingDecisions.value = []
+      decisionHistory.value = []
+      currentPhase.value = ''
+      currentStep.value = ''
+      totalSteps.value = 0
+      startTime.value = null
+      modelAssignments.value = {}
+      recoveryAttempts.value = 0
+    }
   }
 
   function switchSession(id) {

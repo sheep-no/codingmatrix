@@ -213,9 +213,11 @@
   import { ref, computed, onMounted, onUnmounted } from 'vue'
   import { useRouter } from 'vue-router'
   import { useApiKeyStore } from '@/stores/apikey'
+  import { useUserStore } from '@/stores/user'
 
   const router = useRouter()
   const apiKeyStore = useApiKeyStore()
+  const userStore = useUserStore()
   const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
 
   const mode = ref('text2img')
@@ -285,7 +287,7 @@
     error.value = ''
     generatedImages.value = []
 
-    const token = localStorage.getItem('access_token') || ''
+    const token = userStore.getAccessToken() || localStorage.getItem('access_token') || ''
     const headers = { Authorization: token ? `Bearer ${token}` : '' }
 
     try {
@@ -371,12 +373,20 @@
     // 从 URL 获取 blob 作为文件
     fetch(img.url).then(r => r.blob()).then(blob => {
       uploadedFile.value = new File([blob], 'reference.png', { type: 'image/png' })
+    }).catch(() => {
+      // fetch 失败时回退到纯文本模式
+      error.value = '无法加载参考图片，请重新上传'
+      mode.value = 'text2img'
+      if (previewUrl.value) {
+        URL.revokeObjectURL(previewUrl.value)
+        previewUrl.value = ''
+      }
     })
   }
 
   async function loadHistory() {
     try {
-      const token = localStorage.getItem('access_token') || ''
+      const token = userStore.getAccessToken() || localStorage.getItem('access_token') || ''
       const res = await fetch(`${API_BASE}/kolors/history?page=1&page_size=20`, {
         headers: { Authorization: token ? `Bearer ${token}` : '' }
       })
@@ -392,7 +402,7 @@
 
   async function deleteHistory(id) {
     try {
-      const token = localStorage.getItem('access_token') || ''
+      const token = userStore.getAccessToken() || localStorage.getItem('access_token') || ''
       await fetch(`${API_BASE}/kolors/history/${id}`, {
         method: 'DELETE',
         headers: { Authorization: token ? `Bearer ${token}` : '' }
@@ -403,7 +413,7 @@
 
   async function clearHistory() {
     try {
-      const token = localStorage.getItem('access_token') || ''
+      const token = userStore.getAccessToken() || localStorage.getItem('access_token') || ''
       await fetch(`${API_BASE}/kolors/history`, {
         method: 'DELETE',
         headers: { Authorization: token ? `Bearer ${token}` : '' }
