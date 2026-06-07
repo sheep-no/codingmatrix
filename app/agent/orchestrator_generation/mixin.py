@@ -84,7 +84,7 @@ class GenerationMixin(
         self.backend_engineer = BackendEngineer("后端工程师", _get_model("backend_model", DEFAULT_REASONING_MODEL), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
         self.reviewer = CodeReviewer("审查员", _get_model("reviewer_model", DEFAULT_ARCHITECT_MODEL), task_type="review", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
         self.validator = CodeValidator(self.output_dir)
-        self.error_recovery = ErrorRecoveryLoop(self.validator, self.reviewer, api_key_token=self.api_key_token)
+        self.error_recovery = ErrorRecoveryLoop(self.validator, self.reviewer, api_key_token=self.api_key_token, cancel_event=self.cancel_event)
         self.api_contract_checker = APIContractChecker()
         self.code_patcher = CodePatcher(llm_call_fn=self._call_llm_for_patch)
         self.cross_file_patcher = CrossFilePatcher(self.code_patcher)

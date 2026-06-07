@@ -124,14 +124,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _cleanup_session_queues(session_id: str):
-    """清理会话相关的队列，防止内存泄漏"""
+async def _cleanup_session_queues(session_id: str, expected_cancel_event: asyncio.Event = None):
+    """清理会话相关的队列，防止内存泄漏。
+    
+    Args:
+        session_id: 会话 ID
+        expected_cancel_event: 如果提供，只在 cancel_event 仍是同一个对象时才删除（防止旧任务清理新任务的资源）
+    """
     if session_id in _approval_queues:
         del _approval_queues[session_id]
     if session_id in _decision_queues:
         del _decision_queues[session_id]
     if session_id in _cancel_events:
-        del _cancel_events[session_id]
+        if expected_cancel_event is None or _cancel_events.get(session_id) is expected_cancel_event:
+            del _cancel_events[session_id]
 
 
 async def _cleanup_all_queues():
@@ -580,7 +586,7 @@ async def orchestrate_project_stream(
                     await sm.complete_session(session_id, errors=[str(e)])
                     await queue.put(f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n")
                 finally:
-                    await _cleanup_session_queues(session_id)
+                    await _cleanup_session_queues(session_id, cancel_event)
                     concurrent_mgr.unregister_session(user_role)
                     await queue.put("[DONE]")
 
@@ -620,16 +626,16 @@ async def orchestrate_project_stream(
                     logger.info(f"[SSE] 生成成功完成，跳过取消清理 | session={session_id}")
                 else:
                     logger.info(f"[SSE] 生成未完成，执行取消清理 | session={session_id}")
-                    await _cleanup_session_queues(session_id)
+                    await _cleanup_session_queues(session_id, cancel_event)
                     concurrent_mgr.unregister_session(user_role)
                     await sm.cancel_session(session_id)  # 写透到 DB
 
         except asyncio.CancelledError:
             logger.info("[SSE] Orchestrator 流式响应被取消")
-            await _cleanup_session_queues(session_id)
+            await _cleanup_session_queues(session_id, cancel_event)
         except Exception as e:
             logger.error(f"[SSE] Orchestrator 流式生成器异常：{e}")
-            await _cleanup_session_queues(session_id)
+            await _cleanup_session_queues(session_id, cancel_event)
             yield f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
@@ -684,14 +690,9 @@ async def stop_project(
     if cancel_ev:
         cancel_ev.set()
     
-    # 更新 SessionManager 状态
+    # 更新 SessionManager 状态（DB 更新由 run_generation 的 finally 统一处理，避免竞态）
     sm = await get_session_manager()
     await sm.cancel_session(session_id)
-    
-    # 更新状态
-    session.status = "cancelled"
-    session.completed_at = datetime.now()
-    await db.commit()
     
     logger.info(f"用户停止项目 | user={user_id} session={session_id}")
     

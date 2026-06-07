@@ -56,10 +56,11 @@ class ErrorRecoveryLoop:
         "anthropic": ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"],
     }
 
-    def __init__(self, validator: CodeValidator, reviewer: CodeReviewer, api_key_token: Optional[str] = None):
+    def __init__(self, validator: CodeValidator, reviewer: CodeReviewer, api_key_token: Optional[str] = None, cancel_event=None):
         self.validator = validator
         self.reviewer = reviewer
         self.api_key_token = api_key_token
+        self.cancel_event = cancel_event
         self.fix_history: List[FixAttempt] = []
         self._semaphore = get_global_llm_semaphore()
         self.MODEL_FALLBACK_CHAIN = self._load_fallback_chain("error_recovery")
@@ -208,6 +209,11 @@ class ErrorRecoveryLoop:
             fix_template = self._build_default_fix_template()
 
         for attempt in range(self.MAX_FIX_ATTEMPTS):
+            # 检查取消信号
+            if self.cancel_event and self.cancel_event.is_set():
+                logger.info(f"[错误恢复] 检测到取消信号，终止修复循环 | attempt={attempt}")
+                break
+
             # 根据错误类型选择合适的修复模型
             fix_model = self._select_fix_model_by_error_type(classification.error_type, models_to_try, attempt)
             fix_model_config = LayeredModelRouter.get_model_config(fix_model, task_type="fix")

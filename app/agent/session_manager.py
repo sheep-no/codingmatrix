@@ -391,6 +391,7 @@ class SessionManager:
                     to_remove = min(count - MAX_ACTIVE_SESSIONS, len(sorted_sessions))
                     for sid, _ in sorted_sessions[:to_remove]:
                         del self._active_sessions[sid]
+                        self._session_locks.pop(sid, None)
                     if to_remove > 0:
                         logger.warning(f"会话数超限，强制移除 {to_remove} 个最旧非运行会话")
 

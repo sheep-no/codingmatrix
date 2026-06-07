@@ -3,6 +3,7 @@ import logging
 from typing import Dict, List
 
 from app.agent.orchestrator_progress import PROGRESS_LABELS
+from app.agent.orchestrator_files import _git_stash_push, _git_stash_pop, _git_stash_drop
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +59,27 @@ class IncrementalGenerateMixin:
 
         # 直接走 _generate_single_file，工程师自己决定用 partial_update 还是 write_file
         # 由 LLMClient 内部信号量控制并发度
+        affected_files = [fi.get("path", "") for fi in incremental_plan if fi.get("path")]
+        stashed = _git_stash_push(str(self.output_dir), affected_files, "agent-backup-incremental")
+
         tasks = [self._generate_single_file(fi, project_context, total_files) for fi in incremental_plan]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
+        has_failure = False
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 self.errors.append(f"文件生成异常：{str(result)}")
+                has_failure = True
             elif result is None:
                 file_path = incremental_plan[i].get("path", "unknown") if i < len(incremental_plan) else "unknown"
                 self.errors.append(f"文件生成失败: {file_path}（返回空内容）")
+                has_failure = True
             elif result:
                 self.generated_files.append(result)
+
+        # 增量生成失败时回滚
+        if has_failure and stashed:
+            logger.warning("[增量生成] 存在失败文件，回滚到备份版本")
+            _git_stash_pop(str(self.output_dir))
+        elif stashed:
+            _git_stash_drop(str(self.output_dir))
