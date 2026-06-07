@@ -115,7 +115,17 @@ async def api_analyze_image(
             if image_url.startswith("data:"):
                 # base64 data URI
                 header, encoded = image_url.split(",", 1)
+                if len(encoded) > MAX_IMAGE_SIZE * 2:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="base64 图片数据过大"
+                    )
                 image_data = base64.b64decode(encoded)
+                if len(image_data) > MAX_IMAGE_SIZE:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"图片文件过大：{len(image_data) / 1024 / 1024:.2f}MB > 10MB"
+                    )
                 mime = header.split(":")[1].split(";")[0]
                 ext_map = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp"}
                 ext = ext_map.get(mime, ".png")

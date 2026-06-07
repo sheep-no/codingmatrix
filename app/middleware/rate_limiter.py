@@ -301,8 +301,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         endpoint_limit, endpoint_window = rate_limit_config.get_endpoint_rule(endpoint)
+        endpoint_key = f"ep:{endpoint}:{int(time.time() / endpoint_window)}"
+        with rate_limiter._lock:
+            count = len(rate_limiter._history.get(endpoint_key, []))
+        remaining = max(0, endpoint_limit - count)
         response.headers["X-RateLimit-Limit"] = str(endpoint_limit)
-        response.headers["X-RateLimit-Remaining"] = str(endpoint_limit - 1)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
 
         return response
 

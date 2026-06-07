@@ -60,10 +60,10 @@ class Task(Base):
 
     # 任务参数
     input_file_id = Column(Integer, ForeignKey("files.id", ondelete="SET NULL"), nullable=True)
-    params = Column(JSON, default={})
+    params = Column(JSON, default=dict)
 
     # 任务结果
-    result = Column(JSON, default={})
+    result = Column(JSON, default=dict)
     error_message = Column(Text)
 
     # 进度信息

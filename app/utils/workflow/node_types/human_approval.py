@@ -138,13 +138,13 @@ class HumanApprovalNode(TaskNodeBase):
                     metadata={"approved": default_option == "approve", "timeout": True}
                 )
         else:
-            # 无回调时自动批准（用于测试或无人值守模式）
-            logger.warning(f"[{self.node_id}] 无审批回调，自动批准")
+            # 无回调时默认拒绝（安全策略）
+            logger.warning(f"[{self.node_id}] 无审批回调，默认拒绝（安全策略）")
             return NodeResult.success_result(
                 data={
-                    "approved": True,
-                    "option": "auto_approve",
+                    "approved": False,
+                    "option": "auto_reject",
                     "output_variable": output_variable,
                 },
-                metadata={"approved": True, "auto": True}
+                metadata={"approved": False, "auto": True}
             )

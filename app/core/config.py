@@ -115,7 +115,7 @@ class Settings(BaseSettings):
 
     @property
     def max_upload_size_mb(self) -> int:
-        return int(os.getenv("MAX_UPLOAD_SIZE_MB", 100))
+        return self.MAX_UPLOAD_SIZE_MB
     
     def get_provider_registry(self) -> "ProviderRegistry":
         """从配置构建供应商注册表"""

@@ -204,10 +204,11 @@ class AgentMemoryService:
         limit: int = 10
     ) -> List[KnowledgeEntry]:
         """搜索知识"""
+        escaped_query = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         q = select(KnowledgeEntry).where(
             and_(
                 KnowledgeEntry.user_id == user_id,
-                KnowledgeEntry.content.ilike(f"%{query}%")
+                KnowledgeEntry.content.ilike(f"%{escaped_query}%", escape="\\")
             )
         )
 

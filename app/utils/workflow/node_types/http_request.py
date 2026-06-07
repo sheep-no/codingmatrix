@@ -4,9 +4,12 @@ HTTP Request Node - HTTP 请求节点
 发送 HTTP 请求调用外部 API
 """
 
+import ipaddress
 import logging
 import json
+import socket
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -59,6 +62,10 @@ class HTTPRequestNode(TaskNodeBase):
             errors.append("Parameter 'url' must be a string")
         elif not self.params["url"].startswith(("http://", "https://")):
             errors.append("Parameter 'url' must start with http:// or https://")
+        else:
+            ssrf_error = self._check_ssrf(self.params["url"])
+            if ssrf_error:
+                errors.append(ssrf_error)
 
         if "method" in self.params:
             method = self.params["method"].upper()
@@ -73,6 +80,28 @@ class HTTPRequestNode(TaskNodeBase):
                 errors.append("Parameter 'timeout' must be between 1 and 120")
 
         return errors
+
+    def _check_ssrf(self, url: str) -> Optional[str]:
+        """检查 URL 是否存在 SSRF 风险"""
+        try:
+            parsed = urlparse(url)
+            hostname = parsed.hostname
+            if not hostname:
+                return "URL 缺少主机名"
+
+            # 解析 DNS
+            try:
+                resolved = socket.gethostbyname(hostname)
+            except socket.gaierror:
+                return None  # DNS 解析失败会在执行时报错
+
+            ip = ipaddress.ip_address(resolved)
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                return f"不允许访问内网地址: {hostname} ({resolved})"
+
+            return None
+        except Exception:
+            return None
 
     async def execute(self, context: Dict[str, Any]) -> NodeResult:
         """

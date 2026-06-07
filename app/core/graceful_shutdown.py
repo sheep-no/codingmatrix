@@ -46,7 +46,7 @@ class GracefulShutdownManager:
         self._websocket_drain_timeout = websocket_drain_timeout
         self._celery_sigterm_timeout = celery_sigterm_timeout
 
-        self._shutdown_event = asyncio.Event()
+        self._shutdown_event: Optional[asyncio.Event] = None
         self._drain_start_time: Optional[datetime] = None
 
         self._pre_shutdown_hooks: List[Callable] = []
@@ -220,19 +220,38 @@ class GracefulShutdownManager:
 
     def setup_signal_handlers(self):
         """设置信号处理器"""
-        def sigterm_handler(signum, frame):
-            logger.info("收到 SIGTERM 信号")
-            self.initiate_shutdown()
-            asyncio.create_task(self._do_shutdown())
+        try:
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(signal.SIGTERM, self._handle_sigterm)
+            loop.add_signal_handler(signal.SIGINT, self._handle_sigint)
+            logger.info("信号处理器已设置（asyncio 模式）")
+        except (NotImplementedError, RuntimeError):
+            # Windows 不支持 add_signal_handler，回退到 signal.signal
+            def sigterm_handler(signum, frame):
+                logger.info("收到 SIGTERM 信号")
+                self.initiate_shutdown()
 
-        def sigint_handler(signum, frame):
-            logger.info("收到 SIGINT (Ctrl+C) 信号")
-            self.initiate_shutdown()
-            asyncio.create_task(self._do_shutdown())
+            def sigint_handler(signum, frame):
+                logger.info("收到 SIGINT (Ctrl+C) 信号")
+                self.initiate_shutdown()
 
-        self._original_sigterm_handler = signal.signal(signal.SIGTERM, sigterm_handler)
-        self._original_sigint_handler = signal.signal(signal.SIGINT, sigint_handler)
-        logger.info("信号处理器已设置")
+            self._original_sigterm_handler = signal.signal(signal.SIGTERM, sigterm_handler)
+            self._original_sigint_handler = signal.signal(signal.SIGINT, sigint_handler)
+            logger.info("信号处理器已设置（signal 模式）")
+
+    def _handle_sigterm(self):
+        logger.info("收到 SIGTERM 信号")
+        self.initiate_shutdown()
+        if self._shutdown_event is None:
+            self._shutdown_event = asyncio.Event()
+        asyncio.ensure_future(self._do_shutdown())
+
+    def _handle_sigint(self):
+        logger.info("收到 SIGINT (Ctrl+C) 信号")
+        self.initiate_shutdown()
+        if self._shutdown_event is None:
+            self._shutdown_event = asyncio.Event()
+        asyncio.ensure_future(self._do_shutdown())
 
     def restore_signal_handlers(self):
         """恢复原始信号处理器"""

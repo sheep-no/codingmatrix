@@ -309,62 +309,7 @@ async def text_to_image_api(
     logger.info(f"文生图请求 | user_id={user_id} | prompt={request.prompt[:50]}...")
     
     try:
-        if not image_path:
-            raise HTTPException(status_code=422, detail="请提供参考图片（image 文件或 image_path）")
-
-        # Step 1: 验证原图权限（跳过上传文件的权限检查）
-        if not uploaded_temp_paths:
-            if image_path:
-                result = await db.execute(
-                    select(File).where(
-                        File.file_path.contains(image_path),
-                        File.user_id == user_id,
-                        File.is_deleted == 0
-                    )
-                )
-                file_record = result.scalar_one_or_none()
-                
-                if not file_record:
-                    raise HTTPException(
-                        status_code=403,
-                        detail="无权访问该参考图片"
-                    )
-                
-                # 验证会话隔离
-                if request.conversation_id and file_record.conversation_id:
-                    if str(file_record.conversation_id) != str(request.conversation_id):
-                        raise HTTPException(
-                            status_code=403,
-                            detail="无权访问该参考图片（可能属于其他会话）"
-                        )
-            
-            # Step 2: 验证 mask 图片权限（如果有）
-            if mask_path:
-                result = await db.execute(
-                    select(File).where(
-                        File.file_path.contains(mask_path),
-                        File.user_id == user_id,
-                        File.is_deleted == 0
-                    )
-                )
-                mask_record = result.scalar_one_or_none()
-                
-                if not mask_record:
-                    raise HTTPException(
-                        status_code=403,
-                        detail="无权访问 mask 图片"
-                    )
-        
-        if cached_path:
-            # 缓存命中，直接返回
-            return {
-                "success": True,
-                "cached": True,
-                "paths": [cached_path],
-                "message": "使用缓存的图片"
-            }
-        
-        # Step 2: 拼接风格描述
+        # Step 1: 拼接风格描述
         full_prompt = request.prompt
         if request.style and request.style in STYLE_PROMPTS:
             full_prompt = f"{STYLE_PROMPTS[request.style]}，{full_prompt}"
