@@ -41,7 +41,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount } from 'vue'
 
 const props = defineProps({
   visible: {
@@ -80,6 +80,21 @@ function close() {
 function handleOverlayClick() {
   close()
 }
+
+function handleKeydown(e) {
+  if (e.key === 'Escape' && props.visible) {
+    e.stopPropagation()
+    close()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <style scoped>

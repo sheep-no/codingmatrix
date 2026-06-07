@@ -70,7 +70,7 @@
     helperText: { type: String, default: '' },
     id: {
       type: String,
-      default: () => `input-${Math.random().toString(36).substr(2, 9)}`
+      default: () => `input-${Math.random().toString(36).slice(2, 11)}`
     }
   })
 

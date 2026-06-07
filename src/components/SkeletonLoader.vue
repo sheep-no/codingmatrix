@@ -89,7 +89,7 @@ const textStyle = computed(() => ({
 
 const circleStyle = computed(() => ({
   width: props.width !== '100%' ? props.width : '40px',
-  height: props.height || props.width !== '100%' ? props.height || props.width : '40px'
+  height: props.height || (props.width !== '100%' ? props.width : '40px')
 }))
 
 const getParagraphStyle = index => {

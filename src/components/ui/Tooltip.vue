@@ -29,7 +29,7 @@
 </template>
 
 <script setup>
-  import { ref, computed, nextTick } from 'vue'
+  import { ref, computed, nextTick, onUnmounted } from 'vue'
 
   const props = defineProps({
     content: { type: String, required: true },
@@ -97,6 +97,13 @@
 
     tooltipStyle.value = { top: `${top}px`, left: `${left}px` }
   }
+
+  onUnmounted(() => {
+    if (showTimer) clearTimeout(showTimer)
+    if (hideTimer) clearTimeout(hideTimer)
+    showTimer = null
+    hideTimer = null
+  })
 </script>
 
 <style scoped>

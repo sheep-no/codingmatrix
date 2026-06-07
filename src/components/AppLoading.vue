@@ -31,7 +31,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 
 const props = defineProps({
   visible: {
@@ -58,6 +58,13 @@ onMounted(() => {
   if (props.visible) {
     startProgress()
   }
+})
+
+onBeforeUnmount(() => {
+  if (progressTimer) clearInterval(progressTimer)
+  if (tipTimer) clearInterval(tipTimer)
+  progressTimer = null
+  tipTimer = null
 })
 
 const startProgress = () => {
