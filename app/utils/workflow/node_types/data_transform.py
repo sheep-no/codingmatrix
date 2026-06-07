@@ -4,6 +4,7 @@ Data Transform Node - 数据转换节点
 对上下文数据进行映射、过滤、聚合等转换操作
 """
 
+import ast
 import logging
 import json
 from typing import Any, Dict, List, Optional
@@ -142,7 +143,7 @@ class DataTransformNode(TaskNodeBase):
                 raise ValueError("reduce requires list input")
             acc = initial
             for item in data:
-                acc = eval(expression, {"__builtins__": {}}, {"acc": acc, "item": item})
+                acc = self._safe_eval_reduce(expression, {"acc": acc, "item": item})
             return acc
 
         elif operation == "pick":
@@ -245,9 +246,39 @@ class DataTransformNode(TaskNodeBase):
                 raise ValueError(f"Forbidden keyword: {word}")
 
         try:
-            return eval(expression, {"__builtins__": {}}, {"item": item, "index": index, "i": index})
+            return self._safe_eval(expression, {"item": item, "index": index, "i": index})
         except Exception as e:
             raise ValueError(f"Expression error: {str(e)}")
+
+    def _safe_eval_reduce(self, expression: str, context: dict) -> Any:
+        """安全的 reduce 表达式求值"""
+        ALLOWED_NODES = (
+            ast.Expression, ast.BinOp, ast.UnaryOp, ast.Name, ast.Constant,
+            ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow,
+            ast.FloorDiv, ast.USub, ast.UAdd,
+        )
+        tree = ast.parse(expression, mode='eval')
+        for node in ast.walk(tree):
+            if not isinstance(node, ALLOWED_NODES):
+                raise ValueError(f"不允许的表达式元素: {type(node).__name__}")
+        return eval(compile(tree, '<expr>', 'eval'), {"__builtins__": {}}, context)
+
+    def _safe_eval(self, expression: str, context: dict) -> Any:
+        """安全的表达式求值"""
+        ALLOWED_NODES = (
+            ast.Expression, ast.Compare, ast.BoolOp, ast.UnaryOp,
+            ast.Name, ast.Constant, ast.Attribute,
+            ast.And, ast.Or, ast.Not,
+            ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
+            ast.In, ast.NotIn, ast.Is, ast.IsNot,
+            ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow,
+            ast.FloorDiv, ast.USub, ast.UAdd,
+        )
+        tree = ast.parse(expression, mode='eval')
+        for node in ast.walk(tree):
+            if not isinstance(node, ALLOWED_NODES):
+                raise ValueError(f"不允许的表达式元素: {type(node).__name__}")
+        return eval(compile(tree, '<expr>', 'eval'), {"__builtins__": {}}, context)
 
     def _extract_path(self, data: Any, path: str) -> Any:
         """简化版 JSONPath 提取"""

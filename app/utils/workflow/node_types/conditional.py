@@ -4,6 +4,7 @@ Conditional Node - 条件分支节点
 根据上下文数据执行条件判断，决定后续执行路径
 """
 
+import ast
 import logging
 import operator
 from typing import Any, Dict, List, Optional
@@ -168,10 +169,27 @@ class ConditionalNode(TaskNodeBase):
                 raise ValueError(f"Forbidden keyword in expression: {word}")
 
         try:
-            result = eval(expr, {"__builtins__": {}}, {})
+            # 使用安全的 AST 求值替代 eval()
+            result = self._safe_eval(expr)
             return bool(result)
         except Exception as e:
             raise ValueError(f"Expression evaluation failed: {str(e)}")
+
+    def _safe_eval(self, expr: str) -> Any:
+        """安全的表达式求值，仅允许比较和布尔操作"""
+        ALLOWED_NODES = (
+            ast.Expression, ast.Compare, ast.BoolOp, ast.UnaryOp,
+            ast.Name, ast.Constant, ast.Attribute,
+            ast.And, ast.Or, ast.Not,
+            ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
+            ast.In, ast.NotIn, ast.Is, ast.IsNot,
+            ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow,
+        )
+        tree = ast.parse(expr, mode='eval')
+        for node in ast.walk(tree):
+            if not isinstance(node, ALLOWED_NODES):
+                raise ValueError(f"不允许的表达式元素: {type(node).__name__}")
+        return eval(compile(tree, '<expr>', 'eval'), {"__builtins__": {}}, {})
 
     def _coerce_value(self, var_value: Any, compare_value: Any) -> Any:
         """将比较值转换为与变量值相同的类型"""

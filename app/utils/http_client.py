@@ -3,6 +3,7 @@ HTTP 客户端连接池
 
 复用 httpx AsyncClient，减少连接建立开销
 """
+import asyncio
 import httpx
 from typing import Optional
 from contextlib import asynccontextmanager
@@ -22,6 +23,7 @@ class HTTPClientPool:
         timeout: float = 30.0
     ):
         self._client: Optional[httpx.AsyncClient] = None
+        self._init_lock = asyncio.Lock()
         self._max_connections = max_connections
         self._max_keepalive = max_keepalive_connections
         self._timeout = timeout
@@ -33,11 +35,13 @@ class HTTPClientPool:
     async def get_client(self) -> httpx.AsyncClient:
         """获取或创建客户端"""
         if self._client is None:
-            self._client = httpx.AsyncClient(
-                limits=self._limits,
-                timeout=httpx.Timeout(self._timeout),
-                follow_redirects=True
-            )
+            async with self._init_lock:
+                if self._client is None:
+                    self._client = httpx.AsyncClient(
+                        limits=self._limits,
+                        timeout=httpx.Timeout(self._timeout),
+                        follow_redirects=True
+                    )
         return self._client
 
     async def close(self):

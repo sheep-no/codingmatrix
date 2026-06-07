@@ -138,7 +138,11 @@ def handle_task_result(result: Any, max_size: int = 1024 * 1024) -> dict:
     result_str = json.dumps(result, ensure_ascii=False, default=str)
 
     if len(result_str.encode('utf-8')) > max_size:
-        file_path = f"/tmp/task_results/{result.get('task_id', 'unknown')}.json"
+        import re
+        safe_task_id = re.sub(r'[^a-zA-Z0-9_-]', '', result.get('task_id', 'unknown'))
+        if not safe_task_id:
+            safe_task_id = 'unknown'
+        file_path = f"/tmp/task_results/{safe_task_id}.json"
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(result, f, ensure_ascii=False, default=str)
