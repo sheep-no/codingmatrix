@@ -1499,9 +1499,12 @@
   }
 
   // 显示拒绝访问页面
+  let accessDeniedTimer = null
   const showAccessDenied = () => {
-    setTimeout(() => {
+    if (accessDeniedTimer) clearTimeout(accessDeniedTimer)
+    accessDeniedTimer = setTimeout(() => {
       router.push('/')
+      accessDeniedTimer = null
     }, 2000)
   }
 
@@ -1567,6 +1570,7 @@
     networkChart?.dispose()
     saveMenuState()
     if (currentTimeInterval) clearInterval(currentTimeInterval)
+    if (accessDeniedTimer) clearTimeout(accessDeniedTimer)
     window.removeEventListener('resize', resizeHandler)
   })
 </script>

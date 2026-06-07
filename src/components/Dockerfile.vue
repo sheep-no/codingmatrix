@@ -552,7 +552,7 @@
 </template>
 
 <script setup>
-  import { ref, computed, watch } from 'vue'
+  import { ref, computed, watch, onUnmounted } from 'vue'
 
   const props = defineProps({
     visible: {
@@ -570,6 +570,19 @@
   const selectedDependencyToAdd = ref('')
   const validationMessage = ref('')
   const fileInput = ref(null)
+
+  let messageClearTimer = null
+  const scheduleMessageClear = (delay = 3000) => {
+    if (messageClearTimer) clearTimeout(messageClearTimer)
+    messageClearTimer = setTimeout(() => {
+      validationMessage.value = ''
+      messageClearTimer = null
+    }, delay)
+  }
+
+  onUnmounted(() => {
+    if (messageClearTimer) clearTimeout(messageClearTimer)
+  })
 
   // 服务列表
   const services = ref([
@@ -1133,9 +1146,7 @@
     }
     showTemplates.value = false
     validationMessage.value = `✓ 已应用"${template.name}"模板`
-    setTimeout(() => {
-      validationMessage.value = ''
-    }, 3000)
+    scheduleMessageClear(3000)
   }
 
   // 生成配置
@@ -1374,9 +1385,7 @@
     try {
       await navigator.clipboard.writeText(generatedConfig.value)
       validationMessage.value = '✓ 配置已复制到剪贴板'
-      setTimeout(() => {
-        validationMessage.value = ''
-      }, 3000)
+      scheduleMessageClear(3000)
     } catch (err) {
       validationMessage.value = '✗ 复制失败: ' + err.message
     }
@@ -1396,9 +1405,7 @@
     URL.revokeObjectURL(url)
 
     validationMessage.value = `✓ ${filename} 已下载`
-    setTimeout(() => {
-      validationMessage.value = ''
-    }, 3000)
+    scheduleMessageClear(3000)
   }
 
   // 导入配置
@@ -1432,9 +1439,7 @@
         validationMessage.value = '✗ 导入失败: ' + error.message
       }
 
-      setTimeout(() => {
-        validationMessage.value = ''
-      }, 3000)
+      scheduleMessageClear(3000)
 
       fileInput.value.value = ''
     }
@@ -1463,9 +1468,7 @@
     URL.revokeObjectURL(url)
 
     validationMessage.value = '✓ 多服务配置已导出'
-    setTimeout(() => {
-      validationMessage.value = ''
-    }, 3000)
+    scheduleMessageClear(3000)
   }
 </script>
 

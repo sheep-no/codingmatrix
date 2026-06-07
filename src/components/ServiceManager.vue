@@ -407,7 +407,7 @@
 </template>
 
 <script setup>
-  import { ref, onMounted } from 'vue'
+  import { ref, onMounted, onUnmounted } from 'vue'
   import { createApiClient } from '@/utils/api/index'
   import { useUserStore } from '@/stores/user'
 
@@ -718,18 +718,25 @@
   }
 
   // 显示消息
+  let messageHideTimer = null
   function showMessage(text, type = 'success') {
     message.value.text = text
     message.value.type = type
     message.value.show = true
-    setTimeout(() => {
+    if (messageHideTimer) clearTimeout(messageHideTimer)
+    messageHideTimer = setTimeout(() => {
       message.value.show = false
+      messageHideTimer = null
     }, 3000)
   }
 
   // 初始化
   onMounted(() => {
     refreshServices()
+  })
+
+  onUnmounted(() => {
+    if (messageHideTimer) clearTimeout(messageHideTimer)
   })
 </script>
 

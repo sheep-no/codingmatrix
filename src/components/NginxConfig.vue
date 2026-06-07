@@ -965,7 +965,7 @@
 </template>
 
 <script setup>
-  import { ref, computed, watch } from 'vue'
+  import { ref, computed, watch, onUnmounted } from 'vue'
   import { api } from '@/utils/api/index'
   import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -979,6 +979,19 @@
   })
 
   const emit = defineEmits(['close'])
+
+  let messageClearTimer = null
+  const scheduleMessageClear = (delay = 3000) => {
+    if (messageClearTimer) clearTimeout(messageClearTimer)
+    messageClearTimer = setTimeout(() => {
+      validationMessage.value = ''
+      messageClearTimer = null
+    }, delay)
+  }
+
+  onUnmounted(() => {
+    if (messageClearTimer) clearTimeout(messageClearTimer)
+  })
 
   const currentType = ref('basic')
   const validationMessage = ref('')
@@ -1627,9 +1640,7 @@
       await navigator.clipboard.writeText(generatedConfig.value)
       validationMessage.value = '✓ 配置已复制到剪贴板'
       validationStatus.value = 'success'
-      setTimeout(() => {
-        validationMessage.value = ''
-      }, 3000)
+      scheduleMessageClear(3000)
     } catch (err) {
       validationMessage.value = '✗ 复制失败: ' + err.message
       validationStatus.value = 'error'
@@ -1649,9 +1660,7 @@
 
     validationMessage.value = '✓ 配置文件已下载'
     validationStatus.value = 'success'
-    setTimeout(() => {
-      validationMessage.value = ''
-    }, 3000)
+    scheduleMessageClear(3000)
   }
 
   const validateConfig = () => {
@@ -1689,9 +1698,7 @@
       validationStatus.value = 'success'
     }
 
-    setTimeout(() => {
-      validationMessage.value = ''
-    }, 5000)
+    scheduleMessageClear(5000)
   }
 
   // API 验证配置
@@ -1841,7 +1848,7 @@
         '确认后端服务是否运行',
         '检查 API 基础 URL 配置是否正确',
         '确认 token 是否有效',
-        `详细错误: ${error.stack || error.message}`
+        `详细错误: ${error?.message || '未知错误'}`
       ]
     } finally {
       isApiValidating.value = false
@@ -1873,9 +1880,7 @@
 
     validationMessage.value = `✓ 已应用"${template.name}"模板（${currentPlatform.value === 'windows' ? 'Windows' : 'Linux'}）`
     validationStatus.value = 'success'
-    setTimeout(() => {
-      validationMessage.value = ''
-    }, 3000)
+    scheduleMessageClear(3000)
   }
 
   // 导入配置
@@ -1912,9 +1917,7 @@
         validationStatus.value = 'error'
       }
 
-      setTimeout(() => {
-        validationMessage.value = ''
-      }, 3000)
+      scheduleMessageClear(3000)
 
       // 清空文件输入
       fileInput.value.value = ''
@@ -1947,9 +1950,7 @@
 
     validationMessage.value = '✓ 配置已导出为 JSON 文件'
     validationStatus.value = 'success'
-    setTimeout(() => {
-      validationMessage.value = ''
-    }, 3000)
+    scheduleMessageClear(3000)
   }
 
   // 监听平台变化

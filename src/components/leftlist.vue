@@ -473,9 +473,11 @@
 
     if (toolName === 'searchHistory') {
       showSearchBox.value = true
-      setTimeout(() => {
+      if (searchFocusTimer) clearTimeout(searchFocusTimer)
+      searchFocusTimer = setTimeout(() => {
         const searchInput = document.querySelector('.search-input')
         if (searchInput) searchInput.focus()
+        searchFocusTimer = null
       }, 100)
     } else if (!userStore.isLoggedIn) {
       showLoginDialog.value = true
@@ -738,12 +740,17 @@
   }
 
   // 组件挂载时检查登录状态并加载历史记录
+  let searchFocusTimer = null
+  let historyFetchTimer = null
+
   onMounted(() => {
     // 恢复用户信息并等待 token 刷新完成后再加载历史记录
     if (userStore.restoreUser()) {
       // 等待 token 刷新完成后再加载历史记录，避免 401 错误
-      setTimeout(() => {
+      if (historyFetchTimer) clearTimeout(historyFetchTimer)
+      historyFetchTimer = setTimeout(() => {
         fetchHistory().catch(() => {})
+        historyFetchTimer = null
       }, 500)
     }
 
@@ -766,6 +773,8 @@
     if (searchDebounceTimer) {
       clearTimeout(searchDebounceTimer)
     }
+    if (searchFocusTimer) clearTimeout(searchFocusTimer)
+    if (historyFetchTimer) clearTimeout(historyFetchTimer)
   })
 
   // 暴露方法给父组件

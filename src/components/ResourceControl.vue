@@ -859,7 +859,7 @@
 </template>
 
 <script setup>
-  import { ref, reactive, computed, onMounted } from 'vue'
+  import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
   import { api } from '../utils/api/index'
 
   const loading = ref(false)
@@ -1243,19 +1243,26 @@
     return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i]
   }
 
+  let saveMessageTimer = null
+  let backupMessageTimer = null
+
   const showMessage = (msg, type) => {
     saveMessage.value = msg
     saveMessageType.value = type
-    setTimeout(() => {
+    if (saveMessageTimer) clearTimeout(saveMessageTimer)
+    saveMessageTimer = setTimeout(() => {
       saveMessage.value = ''
+      saveMessageTimer = null
     }, 3000)
   }
 
   const showBackupMessage = (msg, type) => {
     backupMessage.value = msg
     backupMessageType.value = type
-    setTimeout(() => {
+    if (backupMessageTimer) clearTimeout(backupMessageTimer)
+    backupMessageTimer = setTimeout(() => {
       backupMessage.value = ''
+      backupMessageTimer = null
     }, 5000)
   }
 
@@ -1360,6 +1367,11 @@
 
   onMounted(() => {
     loadConfig()
+  })
+
+  onUnmounted(() => {
+    if (saveMessageTimer) clearTimeout(saveMessageTimer)
+    if (backupMessageTimer) clearTimeout(backupMessageTimer)
   })
 </script>
 

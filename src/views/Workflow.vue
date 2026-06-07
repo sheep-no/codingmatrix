@@ -152,7 +152,7 @@ function exportWorkflow() {
   a.href = url
   a.download = 'workflow.json'
   a.click()
-  URL.revokeObjectURL(url)
+  setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 </script>
 

@@ -458,6 +458,10 @@
   }
 
   function removeFile(index) {
+    const f = attachedFiles.value[index]
+    if (f?.preview) {
+      URL.revokeObjectURL(f.preview)
+    }
     attachedFiles.value.splice(index, 1)
   }
 

@@ -81,7 +81,7 @@
 </template>
 
 <script setup>
-  import { ref, computed, onMounted } from 'vue'
+  import { ref, computed, onMounted, onUnmounted } from 'vue'
   import Modal from './ui/Modal.vue'
   import Button from './ui/Button.vue'
 
@@ -104,6 +104,8 @@
   const selectPlatform = id => {
     selectedPlatform.value = id
   }
+
+  let javaDetectTimer = null
 
   const detectSystem = async () => {
     // 操作系统
@@ -133,7 +135,7 @@
     systemInfo.value.screen = `${screen.width} × ${screen.height}`
 
     // Java 检测（模拟）
-    setTimeout(() => {
+    javaDetectTimer = setTimeout(() => {
       javaStatus.value = {
         status: 'success',
         text: '已安装',
@@ -144,6 +146,10 @@
 
   onMounted(() => {
     detectSystem()
+  })
+
+  onUnmounted(() => {
+    if (javaDetectTimer) clearTimeout(javaDetectTimer)
   })
 </script>
 

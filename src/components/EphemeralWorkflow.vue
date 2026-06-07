@@ -305,6 +305,16 @@
       if (!parsed.nodes || !Array.isArray(parsed.nodes)) {
         throw new Error('Invalid workflow format')
       }
+      // 验证每个节点都是有效对象
+      for (const node of parsed.nodes) {
+        if (!node || typeof node !== 'object') {
+          throw new Error('Invalid node format: each node must be an object')
+        }
+      }
+      // 限制导入大小，防止大文件阻塞 UI
+      if (importJson.value.length > 1024 * 1024) {
+        throw new Error('导入文件过大，请使用小于 1MB 的文件')
+      }
       workflowGraph.value = parsed
       showRawJson.value = true
       showImportDialog.value = false

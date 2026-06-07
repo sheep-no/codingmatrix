@@ -341,10 +341,16 @@
       xhr.onload = () => {
         uploadingFile.value = false
         if (xhr.status === 200) {
-          const result = JSON.parse(xhr.responseText)
-          ElMessage.success(`上传成功：${result.message}`)
-          loadKnowledgeDocs()
-          showUploadModal.value = false
+          try {
+            const result = JSON.parse(xhr.responseText)
+            ElMessage.success(`上传成功：${result.message}`)
+            loadKnowledgeDocs()
+            showUploadModal.value = false
+          } catch (parseErr) {
+            console.error('解析响应失败:', parseErr)
+            ElMessage.error('服务器返回格式异常，请稍后重试')
+            showUploadModal.value = false
+          }
         } else {
           ElMessage.error('上传失败')
         }

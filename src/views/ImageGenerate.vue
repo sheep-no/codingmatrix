@@ -210,7 +210,7 @@
 </template>
 
 <script setup>
-  import { ref, computed, onMounted } from 'vue'
+  import { ref, computed, onMounted, onUnmounted } from 'vue'
   import { useRouter } from 'vue-router'
   import { useApiKeyStore } from '@/stores/apikey'
 
@@ -363,6 +363,9 @@
   }
 
   function useAsReference(img) {
+    if (previewUrl.value) {
+      URL.revokeObjectURL(previewUrl.value)
+    }
     mode.value = 'img2img'
     previewUrl.value = img.url
     // 从 URL 获取 blob 作为文件
@@ -412,15 +415,24 @@
   onMounted(() => {
     loadHistory()
   })
-</script>
 
-<style scoped>
-  .image-generate-page {
-    min-height: 100vh;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    display: flex;
-    flex-direction: column;
+  onUnmounted(() => {
+    if (previewUrl.value) {
+      URL.revokeObjectURL(previewUrl.value)
+    }
+  })
+
+  function setFile(file) {
+    if (file.size > 10 * 1024 * 1024) {
+      error.value = '图片大小不能超过 10MB'
+      return
+    }
+    if (previewUrl.value) {
+      URL.revokeObjectURL(previewUrl.value)
+    }
+    uploadedFile.value = file
+    previewUrl.value = URL.createObjectURL(file)
+    error.value = ''
   }
 
   .page-header {
