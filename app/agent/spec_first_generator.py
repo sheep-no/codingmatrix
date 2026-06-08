@@ -209,7 +209,7 @@ class SpecFirstGenerator:
                     openapi_spec = openapi_spec[0]
                     logger.info(f"OpenAPI 规范从 list 中提取第一个元素")
                 else:
-                    logger.warning(f"OpenAPI 规范解析失败或类型不正确: list")
+                    logger.warning(f"OpenAPI 规范解析失败: list 长度={len(openapi_spec)}, 首元素类型={type(openapi_spec[0]).__name__ if openapi_spec else 'empty'}")
                     return False
             
             if not isinstance(openapi_spec, dict):
