@@ -232,7 +232,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         if (session.currentSessionId) {
           const doneData = data.data || data
           const dirName = doneData.output_dir || session.currentSessionId
-          workspace.currentProjectPath = `orchestrator/${dirName}`
+          workspace.currentProjectPath = dirName
         }
         if (data.data?.performance) {
           workspace.performanceMetrics = data.data.performance

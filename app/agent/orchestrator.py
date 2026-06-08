@@ -66,6 +66,13 @@ class OrchestratorAgent(
         decision_callback: Optional[Callable] = None
     ):
         self.output_dir = Path(output_dir)
+        # 相对路径（如 "1/xxx"）解析到 PROJECTS_BASE_DIR 下
+        if not self.output_dir.is_absolute() and not str(self.output_dir).startswith("./projects"):
+            try:
+                from app.api.v1.ai_agent.project_config import PROJECTS_BASE_DIR
+                self.output_dir = Path(PROJECTS_BASE_DIR) / self.output_dir
+            except ImportError:
+                pass
         self.enable_review = enable_review
         self.enable_validation = enable_validation
         self.enable_error_recovery = enable_error_recovery
