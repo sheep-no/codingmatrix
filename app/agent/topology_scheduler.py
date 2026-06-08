@@ -67,7 +67,7 @@ class TopologyScheduler:
         self,
         max_concurrent: int = 5,
         max_retries: int = 2,
-        timeout_per_file: float = 300.0,
+        timeout_per_file: float = 600.0,
         cancel_event: Optional[asyncio.Event] = None
     ):
         self.max_concurrent = max_concurrent

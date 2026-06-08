@@ -956,12 +956,12 @@ def get_model_config(model_name: str, task_type: str = "generate", api_key_token
     dynamic_thinking_budget = max(2048, min(4096, dynamic_max_tokens // 2))
 
     configs = {
-        "THUDM/GLM-Z1-9B-0414": {"temperature": 0.6, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 180},
-        "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": {"temperature": 0.6, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 180},
-        "Qwen/Qwen3.5-4B": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 120},
-        "Qwen/Qwen3-8B": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 180},
-        "Qwen/Qwen2.5-7B-Instruct": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 180},
-        "THUDM/GLM-4-9B-0414": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 180},
+        "THUDM/GLM-Z1-9B-0414": {"temperature": 0.6, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 300},
+        "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": {"temperature": 0.6, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 300},
+        "Qwen/Qwen3.5-4B": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 300},
+        "Qwen/Qwen3-8B": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 300},
+        "Qwen/Qwen2.5-7B-Instruct": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 300},
+        "THUDM/GLM-4-9B-0414": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 300},
     }
     return configs.get(model_name, {
         "temperature": 0.7,
