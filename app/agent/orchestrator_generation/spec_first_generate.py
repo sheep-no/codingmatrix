@@ -157,7 +157,7 @@ class SpecFirstGenerateMixin:
             "requirement": requirement,
             "architecture": architecture,
             "complexity": ctx.complexity,
-            "output_dir": str(self.output_dir)
+            "output_dir": getattr(self, '_relative_output_dir', None) or str(self.output_dir)
         }
 
         constraint_prompt = constraint_parser.generate_prompt_fragment("all", "all")
@@ -215,8 +215,9 @@ class SpecFirstGenerateMixin:
                 file_priority = file_node.priority if file_node else 5
 
                 # 断点续传：检查文件是否已存在且完整
-                full_path = self.output_dir / file_path
-                cleanup_temp_files(self.output_dir, file_path)
+                normalized = self._strip_output_dir_prefix(file_path)
+                full_path = self.output_dir / normalized
+                cleanup_temp_files(self.output_dir, normalized)
 
                 if full_path.exists():
                     try:
@@ -281,7 +282,7 @@ class SpecFirstGenerateMixin:
                 initial_content = await engineer.generate_file(
                     file_path, description, project_context, spec_context, dep_context,
                     project_path=str(self.output_dir), callback=callback,
-                    is_existing_file=(self.output_dir / file_path).exists()
+                    is_existing_file=(self.output_dir / normalized).exists()
                 )
                 if asyncio.iscoroutine(initial_content):
                     logger.warning(f"generate_file 返回协程，自动 await: {file_path}")
@@ -310,7 +311,7 @@ class SpecFirstGenerateMixin:
                     alt_content = await alt_engineer.generate_file(
                         file_path, description, project_context, spec_context, dep_context,
                         project_path=str(self.output_dir), callback=callback,
-                        is_existing_file=(self.output_dir / file_path).exists()
+                        is_existing_file=(self.output_dir / normalized).exists()
                     )
                     if asyncio.iscoroutine(alt_content):
                         logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
@@ -645,7 +646,8 @@ class SpecFirstGenerateMixin:
             file_priority = file_node.priority if file_node else 5
 
             # 断点续传：检查文件是否已存在且完整
-            full_path = self.output_dir / file_path
+            normalized = self._strip_output_dir_prefix(file_path)
+            full_path = self.output_dir / normalized
             tmp_path = full_path.with_suffix(full_path.suffix + '.tmp')
 
             # 如果存在 .tmp 文件，说明上次写入中断，删除它
@@ -712,7 +714,7 @@ class SpecFirstGenerateMixin:
             initial_content = await engineer.generate_file(
                 file_path, description, combined_context, spec_context, dep_context,
                 project_path=str(self.output_dir), callback=callback,
-                is_existing_file=(self.output_dir / file_path).exists()
+                is_existing_file=(self.output_dir / normalized).exists()
             )
             if asyncio.iscoroutine(initial_content):
                 logger.warning(f"generate_file 返回协程，自动 await: {file_path}")
@@ -722,7 +724,7 @@ class SpecFirstGenerateMixin:
 
             # 检查工程师是否已通过工具直接编辑了文件
             if engineer.get_edited_files():
-                full = self.output_dir / file_path
+                full = self.output_dir / normalized
                 if full.exists():
                     initial_content = full.read_text(encoding='utf-8')
             else:
@@ -734,7 +736,7 @@ class SpecFirstGenerateMixin:
                 alt_content = await alt_engineer.generate_file(
                     file_path, description, combined_context, spec_context, dep_context,
                     project_path=str(self.output_dir), callback=callback,
-                    is_existing_file=(self.output_dir / file_path).exists()
+                    is_existing_file=(self.output_dir / normalized).exists()
                 )
                 if asyncio.iscoroutine(alt_content):
                     logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
@@ -742,7 +744,7 @@ class SpecFirstGenerateMixin:
                 if alt_content:
                     # 检查替代工程师是否已通过工具直接编辑了文件
                     if alt_engineer.get_edited_files():
-                        full = self.output_dir / file_path
+                        full = self.output_dir / normalized
                         if full.exists():
                             alt_content = full.read_text(encoding='utf-8')
                     else:
@@ -792,7 +794,7 @@ class SpecFirstGenerateMixin:
                 logger.warning(f"文件语法验证失败: {file_path}，尝试 error_recovery 修复")
                 # 尝试用 error_recovery 修复
                 if hasattr(self, 'error_recovery') and self.error_recovery:
-                    full_path = self.output_dir / file_path
+                    full_path = self.output_dir / normalized
                     full_path.parent.mkdir(parents=True, exist_ok=True)
                     with open(full_path, 'w', encoding='utf-8') as f:
                         f.write(final_content)
@@ -817,7 +819,7 @@ class SpecFirstGenerateMixin:
                     result.success = False
 
             # 原子写入：先写临时文件，完成后重命名
-            full_path = self.output_dir / file_path
+            full_path = self.output_dir / normalized
             full_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = full_path.with_suffix(full_path.suffix + '.tmp')
             with open(tmp_path, 'w', encoding='utf-8') as f:
@@ -1003,12 +1005,27 @@ class SpecFirstGenerateMixin:
 
         return True
 
+    def _strip_output_dir_prefix(self, file_path: str) -> str:
+        """去除 file_path 中可能的 output_dir 前缀，避免路径重复"""
+        from pathlib import Path
+        rel = getattr(self, '_relative_output_dir', None)
+        if rel and file_path.startswith(rel + "/"):
+            return file_path[len(rel) + 1:]
+        if rel:
+            rel_path = Path(rel)
+            try:
+                rel_str = str(rel_path)
+                if file_path.startswith(rel_str + "/"):
+                    return file_path[len(rel_str) + 1:]
+            except Exception:
+                pass
+        return file_path
+
     def _generate_placeholder(self, file_path: str, description: str, file_type: str) -> str:
         """生成占位文件内容"""
         from pathlib import Path
         ext = Path(file_path).suffix.lower()
         name = Path(file_path).stem
-
         if ext == '.py':
             return f'"""Placeholder for {name}"""\n# TODO: {description}\n'
         elif ext in ('.js', '.ts'):

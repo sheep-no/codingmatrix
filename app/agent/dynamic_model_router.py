@@ -558,7 +558,21 @@ class DynamicModelRouter:
 
     def get_assignment(self, complexity) -> ModelAssignment:
         static_assignment = _LayeredModelRouterCompat.get_assignment(complexity)
-        return static_assignment
+        return self._apply_circuit_breaker(static_assignment)
+
+    def _apply_circuit_breaker(self, assignment: "ModelAssignment") -> "ModelAssignment":
+        """熔断降级：连续失败 ≥ 2 次的模型自动用 fallback_model 替代"""
+        fallback = assignment.fallback_model
+        circuit_broken = []
+        for field in ("architect_model", "frontend_model", "backend_model", "reviewer_model"):
+            model = getattr(assignment, field)
+            metrics = self.get_or_create_metrics(model)
+            if metrics.consecutive_failures >= 2 and model != fallback:
+                setattr(assignment, field, fallback)
+                circuit_broken.append(f"{field}: {model} -> {fallback}")
+        if circuit_broken:
+            logger.warning(f"熔断降级触发: {circuit_broken}")
+        return assignment
 
     async def get_assignment_with_learning(
         self, complexity, learning_router: Optional[LearningRouter] = None
@@ -567,7 +581,7 @@ class DynamicModelRouter:
         if learning_router is None:
             learning_router = await get_learning_router()
         if not learning_router.has_sufficient_data():
-            return static_assignment
+            return self._apply_circuit_breaker(static_assignment)
         task_types = [
             ("architect", static_assignment.architect_model),
             ("frontend", static_assignment.frontend_model),
@@ -580,13 +594,14 @@ class DynamicModelRouter:
         for task_type, static_model in task_types:
             chosen = learning_router.select_model(task_type, all_models)
             selected[task_type] = chosen
-        return ModelAssignment(
+        result = ModelAssignment(
             architect_model=selected["architect"],
             frontend_model=selected["frontend"],
             backend_model=selected["backend"],
             reviewer_model=selected["reviewer"],
             fallback_model=selected["fallback"],
         )
+        return self._apply_circuit_breaker(result)
 
 
 # 全局单例

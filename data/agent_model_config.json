@@ -23,7 +23,7 @@
       "frontend_model": "qwen3-8b",
       "backend_model": "qwen3-8b",
       "reviewer_model": "qwen3-8b",
-      "fallback_model": "qwen3.5-4b"
+      "fallback_model": "qwen3-8b"
     },
     "SMALL": {
       "architect_model": "glm-z1-9b",

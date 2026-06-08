@@ -65,8 +65,10 @@ class OrchestratorAgent(
         cancel_event: Optional[asyncio.Event] = None,
         decision_callback: Optional[Callable] = None
     ):
+        # 保存原始相对路径（给 LLM 看的，存到 progress 事件中）
+        self._relative_output_dir = str(output_dir)
         self.output_dir = Path(output_dir)
-        # 相对路径（如 "1/xxx"）解析到 PROJECTS_BASE_DIR 下
+        # 相对路径（如 "1/xxx"）解析到 PROJECTS_BASE_DIR 下，作为实际写入目录
         if not self.output_dir.is_absolute() and not str(self.output_dir).startswith("./projects"):
             try:
                 from app.api.v1.ai_agent.project_config import PROJECTS_BASE_DIR
