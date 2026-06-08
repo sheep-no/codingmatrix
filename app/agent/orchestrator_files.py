@@ -357,6 +357,11 @@ class FilesMixin:
             is_existing_file=is_existing,
         )
 
+        # 防御性检查：确保返回值是字符串而非协程
+        if asyncio.iscoroutine(content):
+            logger.warning(f"generate_file 返回协程而非字符串，自动 await: {file_path}")
+            content = await content
+
         # 统一提取工程师生成的内容
         all_files = list(self.dependency_graph_obj.nodes.keys()) if self.dependency_graph_obj else []
         content = extract_engineer_content(

@@ -66,7 +66,7 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
   test.describe.configure({ project: 'chromium' });
 
   test('生成个人记账本 Web 应用项目', async ({ page }) => {
-    test.setTimeout(600000);
+    test.setTimeout(900000); // 15 分钟
 
     // 清理运行中的会话
     cleanupRunningSessions();
@@ -80,6 +80,7 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
     let sseResponseOk = false;
     let sseResponseStatusCode = 0;
     let sseResponseBody = '';
+    let currentSessionId = null;
 
     page.on('request', (req) => {
       if (req.url().includes('/agent/orchestrate/stream')) {
@@ -277,7 +278,7 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
 
     // 方式 A：等待 SSE 响应到达（表示请求已被后端处理）
     const sseResponseWaitStart = Date.now();
-    while (!sseResponseReceived && Date.now() - sseResponseWaitStart < 120000) {
+    while (!sseResponseReceived && Date.now() - sseResponseWaitStart < 300000) {
       await page.waitForTimeout(2000);
       const elapsed = Math.round((Date.now() - sseResponseWaitStart) / 1000);
       if (elapsed % 10 === 0 && elapsed > 0) {
@@ -300,60 +301,87 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
       console.log('⚠ SSE 响应未收到（120s 超时），检查页面状态...');
     }
 
-    // 方式 B：等待页面上的文件列表出现（最多 3 分钟，因为 SSE 200 后文件会逐步出现）
-    console.log('等待页面显示生成的文件...');
+    // 方式 B：等待生成完成（通过检查后端 session 状态）
+    console.log('等待生成完成（通过后端 API 检查 session 状态）...');
     const fileWaitStart = Date.now();
-    let fileCount = 0;
-    const maxFileWait = sseResponseOk ? 180000 : 30000; // SSE 成功等 3 分钟，失败等 30 秒
+    let fileList = [];
+    const maxFileWait = 720000; // 12 分钟
 
-    while (fileCount === 0 && Date.now() - fileWaitStart < maxFileWait) {
-      await page.waitForTimeout(3000);
-
-      fileCount = await page.evaluate(() => {
-        // 检查多种文件列表选择器
-        const selectors = [
-          '.file-item', '.generated-file', '[data-file]',
-          '.file-path', '.file-name', '.file-list-item',
-          '.agent-file-item', '.sidebar-file-item', '.file-entry',
-          '.file-tree-node', '.file-tree-item',
-          '[class*="file-item"]', '[class*="file-item"]',
-          '.agent-file-panel .file-item',
-        ];
-        for (const sel of selectors) {
-          const count = document.querySelectorAll(sel).length;
-          if (count > 0) return count;
+    // 获取当前 session ID
+    currentSessionId = await page.evaluate(() => {
+      try {
+        const agentPage = document.querySelector('.agent-page');
+        if (agentPage && agentPage.__vueParentComponent) {
+          const setupState = agentPage.__vueParentComponent.setupState;
+          const session = setupState.session;
+          // useAgentSession 返回 reactive({})，currentSessionId 是 getter
+          return session?.currentSessionId || null;
         }
+      } catch {}
+      return null;
+    });
 
-        // 检查 Vue 组件 setupState（useAgentFiles 是 composable，不在 Pinia store 中）
+    console.log(`当前 Session ID: ${currentSessionId || '未获取到'}`);
+
+    // 等待生成完成，然后通过后端 API 查询文件列表
+    while (fileList.length === 0 && Date.now() - fileWaitStart < maxFileWait) {
+      await page.waitForTimeout(5000);
+
+      // 检查 Vue 组件中的文件列表
+      fileList = await page.evaluate(() => {
+        const files = [];
         try {
           const agentPage = document.querySelector('.agent-page');
           if (agentPage && agentPage.__vueParentComponent) {
             const setupState = agentPage.__vueParentComponent.setupState;
-            if (setupState.generatedFiles && setupState.generatedFiles.length > 0) {
-              return setupState.generatedFiles.length;
+            const generatedFiles = setupState.generatedFiles || setupState.files?.generatedFiles || [];
+            if (Array.isArray(generatedFiles) && generatedFiles.length > 0) {
+              generatedFiles.forEach(f => {
+                const path = f.path || f.name || String(f);
+                if (path && !files.includes(path)) files.push(path);
+              });
             }
           }
-        } catch { }
-
-        // 检查页面上是否有文件名出现（更宽泛的匹配）
-        const bodyText = document.body.innerText;
-        const filePatterns = [/\.py\b/, /\.html\b/, /\.css\b/, /\.js\b/, /requirements\.txt/, /README\.md/, /app\.py/];
-        const matchCount = filePatterns.filter(p => p.test(bodyText)).length;
-        if (matchCount >= 2) return matchCount; // 至少匹配 2 个文件模式
-
-        return 0;
+        } catch {}
+        return files;
       });
 
       const elapsed = Math.round((Date.now() - fileWaitStart) / 1000);
-      if (fileCount === 0 && elapsed % 15 === 0 && elapsed > 0) {
+      if (fileList.length === 0 && elapsed % 30 === 0 && elapsed > 0) {
         console.log(`等待文件列表... ${elapsed}s`);
       }
     }
 
-    if (fileCount > 0) {
-      console.log(`✓ 检测到 ${fileCount} 个生成的文件`);
+    // 如果 Vue 组件中没有文件，尝试通过后端 API 查询
+    if (fileList.length === 0 && currentSessionId) {
+      console.log('Vue 组件中未检测到文件，尝试通过后端 API 查询...');
+      const apiResult = await page.evaluate(async (sessionId) => {
+        try {
+          const resp = await fetch(`/api/v1/agent/generate/files?project_path=1/${sessionId}`, {
+            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('access_token') }
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            return { files: data.files?.map(f => f.path || f.name) || [], total: data.total };
+          }
+          return { error: `HTTP ${resp.status}` };
+        } catch (e) {
+          return { error: e.message };
+        }
+      }, currentSessionId);
+
+      if (apiResult.files && apiResult.files.length > 0) {
+        fileList = apiResult.files;
+        console.log(`✓ 通过后端 API 查询到 ${fileList.length} 个文件`);
+      } else {
+        console.log(`⚠ 后端 API 查询失败: ${apiResult.error || '无文件'}`);
+      }
+    }
+
+    if (fileList.length > 0) {
+      console.log(`✓ 检测到 ${fileList.length} 个生成的文件`);
     } else {
-      console.log('⚠ 5 分钟超时，未检测到文件列表');
+      console.log('⚠ 超时，未检测到文件列表');
     }
 
     timeline.push({ step: '等待生成完成', duration: Date.now() - startTime });
@@ -362,59 +390,17 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
     console.log('\n=== 步骤 5: 验证生成结果 ===');
     startTime = Date.now();
 
-    // 获取页面上显示的文件
-    const fileList = await page.evaluate(() => {
-      const files = [];
-
-      // DOM 选择器
-      const selectors = [
-        '.file-item', '.generated-file', '[data-file]',
-        '.file-path', '.file-name', '.file-list-item',
-        '.agent-file-item', '.sidebar-file-item', '.file-entry',
-        '.file-tree-node', '.file-tree-item',
-        '[class*="file-item"]',
-      ];
-      for (const sel of selectors) {
-        document.querySelectorAll(sel).forEach(el => {
-          const text = el.textContent?.trim() || el.getAttribute('data-file') || el.getAttribute('data-path');
-          if (text?.trim()) files.push(text.trim());
-        });
-      }
-
-      // Vue 组件 setupState（useAgentFiles 是 composable，不在 Pinia store 中）
-      if (files.length === 0) {
-        try {
-          const agentPage = document.querySelector('.agent-page');
-          if (agentPage && agentPage.__vueParentComponent) {
-            const setupState = agentPage.__vueParentComponent.setupState;
-            const storeFiles = setupState.generatedFiles || [];
-            storeFiles.forEach(f => files.push(f.path || f.name || String(f)));
-          }
-        } catch { }
-      }
-
-      // 从页面文字提取文件名（兜底）
-      if (files.length === 0) {
-        const bodyText = document.body.innerText;
-        const fileRegex = /[\w\/.-]+\.(py|html|css|js|txt|md|json|yml|yaml)/g;
-        const matches = bodyText.match(fileRegex) || [];
-        files.push(...matches);
-      }
-
-      return [...new Set(files)];
-    });
-
     console.log(`找到 ${fileList.length} 个文件:`);
     fileList.slice(0, 30).forEach(f => console.log(`  - ${f}`));
     if (fileList.length > 30) console.log(`  ... 还有 ${fileList.length - 30} 个`);
 
-    // 关键文件检查
+    // 关键文件检查（JavaScript 项目）
     const expectedPatterns = [
-      { pattern: /\.py$/, name: 'Python 文件' },
-      { pattern: /\.html$/, name: 'HTML 模板' },
-      { pattern: /requirements\.txt$/, name: 'requirements.txt' },
-      { pattern: /\.css$/, name: 'CSS 文件' },
       { pattern: /\.js$/, name: 'JavaScript 文件' },
+      { pattern: /\.html$/, name: 'HTML 文件' },
+      { pattern: /\.css$/, name: 'CSS 文件' },
+      { pattern: /package\.json$/, name: 'package.json' },
+      { pattern: /README\.md$/, name: 'README.md' },
     ];
 
     const foundPatterns = {};

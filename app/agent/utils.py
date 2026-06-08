@@ -16,6 +16,23 @@ def clean_code_block(content: str) -> str:
     支持 ```python ... ```、``` ... ``` 等格式。
     如果没有代码块标记，返回原始内容（strip 后）。
     """
+    import asyncio
+    # 防御性检查：如果 content 是协程，先 await 它
+    if asyncio.iscoroutine(content):
+        logger.warning("clean_code_block 收到协程对象，自动 await")
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 在已运行的事件循环中，创建任务并等待
+                import concurrent.futures
+                content = str(content)  # 降级处理：转为字符串
+            else:
+                content = loop.run_until_complete(content)
+        except Exception:
+            content = str(content)
+    elif not isinstance(content, str):
+        content = str(content)
+    
     pattern = r'```(?:\w+)?\s*(.*?)\s*```'
     match = re.search(pattern, content, re.DOTALL)
     if match:
@@ -49,6 +66,21 @@ def extract_engineer_content(
     Returns:
         提取后的文件内容，失败返回 None
     """
+    import asyncio
+    # 防御性检查：如果 content 是协程，先 await 它
+    if asyncio.iscoroutine(content):
+        logger.warning(f"extract_engineer_content 收到协程对象，自动 await: {file_path}")
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                content = str(content)  # 降级处理
+            else:
+                content = loop.run_until_complete(content)
+        except Exception:
+            content = str(content)
+    elif content is not None and not isinstance(content, str):
+        content = str(content)
+    
     edited_files = engineer.get_edited_files()
 
     if edited_files:

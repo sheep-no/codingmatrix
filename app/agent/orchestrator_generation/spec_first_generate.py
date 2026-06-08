@@ -283,6 +283,10 @@ class SpecFirstGenerateMixin:
                     project_path=str(self.output_dir), callback=callback,
                     is_existing_file=(self.output_dir / file_path).exists()
                 )
+                # 防御性检查：确保返回值是字符串而非协程
+                if asyncio.iscoroutine(initial_content):
+                    logger.warning(f"generate_file 返回协程而非字符串，自动 await: {file_path}")
+                    initial_content = await initial_content
                 if not initial_content:
                     return {"path": file_path, "success": False, "error": "生成返回空内容"}
 
@@ -309,6 +313,10 @@ class SpecFirstGenerateMixin:
                         project_path=str(self.output_dir), callback=callback,
                         is_existing_file=(self.output_dir / file_path).exists()
                     )
+                    # 防御性检查：确保返回值是字符串而非协程
+                    if asyncio.iscoroutine(alt_content):
+                        logger.warning(f"alt generate_file 返回协程而非字符串，自动 await: {file_path}")
+                        alt_content = await alt_content
                     if alt_content:
                         alt_content = extract_engineer_content(
                             alt_content, alt_engineer, self.output_dir, file_path
@@ -707,6 +715,10 @@ class SpecFirstGenerateMixin:
                 project_path=str(self.output_dir), callback=callback,
                 is_existing_file=(self.output_dir / file_path).exists()
             )
+            # 防御性检查：确保返回值是字符串而非协程
+            if asyncio.iscoroutine(initial_content):
+                logger.warning(f"generate_file 返回协程而非字符串，自动 await: {file_path}")
+                initial_content = await initial_content
             if not initial_content:
                 raise ValueError(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
 
@@ -726,6 +738,10 @@ class SpecFirstGenerateMixin:
                     project_path=str(self.output_dir), callback=callback,
                     is_existing_file=(self.output_dir / file_path).exists()
                 )
+                # 防御性检查：确保返回值是字符串而非协程
+                if asyncio.iscoroutine(alt_content):
+                    logger.warning(f"alt generate_file 返回协程而非字符串，自动 await: {file_path}")
+                    alt_content = await alt_content
                 if alt_content:
                     # 检查替代工程师是否已通过工具直接编辑了文件
                     if alt_engineer.get_edited_files():
@@ -734,7 +750,6 @@ class SpecFirstGenerateMixin:
                             alt_content = full.read_text(encoding='utf-8')
                     else:
                         alt_content = self._clean_code_block(alt_content)
-                    alt_content = self._clean_code_block(alt_content)
                     from app.agent.models import DEFAULT_ARCHITECT_MODEL
                     judge_model = self.model_assignment.reviewer_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL
 
