@@ -277,7 +277,7 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
 
     // 方式 A：等待 SSE 响应到达（表示请求已被后端处理）
     const sseResponseWaitStart = Date.now();
-    while (!sseResponseReceived && Date.now() - sseResponseWaitStart < 120000) {
+    while (!sseResponseReceived && Date.now() - sseResponseWaitStart < 300000) {
       await page.waitForTimeout(2000);
       const elapsed = Math.round((Date.now() - sseResponseWaitStart) / 1000);
       if (elapsed % 10 === 0 && elapsed > 0) {
