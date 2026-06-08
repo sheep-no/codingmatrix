@@ -594,12 +594,23 @@ async def orchestrate_project_stream(
             logger.info(f"[SSE] 创建生成任务 | session={session_id}")
             gen_task = asyncio.create_task(run_generation())
 
+            # 心跳 task：每 5 秒发送一次心跳，防止浏览器/proxy 断连
+            async def heartbeat_sender():
+                while not cancel_event.is_set():
+                    await asyncio.sleep(5)
+                    try:
+                        await queue.put("data: {\"type\": \"heartbeat\"}\n\n")
+                    except Exception:
+                        break
+
+            heartbeat_task = asyncio.create_task(heartbeat_sender())
+
             try:
                 logger.info(f"[SSE] 开始等待队列消息 | session={session_id}")
                 generation_completed = False
                 while True:
                     try:
-                        item = await asyncio.wait_for(queue.get(), timeout=1.0)
+                        item = await asyncio.wait_for(queue.get(), timeout=30.0)
                         logger.info(f"[SSE] 从队列获取消息 | session={session_id} type={item[:30] if len(item) > 30 else item}")
                         if item == "[DONE]":
                             generation_completed = True
@@ -611,13 +622,12 @@ async def orchestrate_project_stream(
                             logger.info(f"[SSE] 生成任务已完成 | session={session_id}")
                             generation_completed = True
                             break
-                        # 发送心跳消息保持连接活跃
-                        yield "data: {\"type\": \"heartbeat\"}\n\n"
                         continue
                 logger.info(f"[SSE] 队列消息处理完成 | session={session_id}")
             except asyncio.CancelledError:
                 logger.info(f"[SSE] 客户端断开连接，取消生成任务 | session={session_id}")
             finally:
+                heartbeat_task.cancel()
                 cancel_event.set()
                 if not gen_task.done():
                     gen_task.cancel()
