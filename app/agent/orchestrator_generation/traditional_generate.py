@@ -77,7 +77,8 @@ class TraditionalGenerateMixin:
             if len(file_plan) < estimated_files and estimated_files > 10:
                 logger.info(f"分批规划触发：当前 {len(file_plan)} 个文件，预期 {estimated_files} 个")
                 architecture = await self.architect.expand_file_plan(
-                    architecture, self.complexity, target_file_count=estimated_files
+                    architecture, self.complexity, target_file_count=estimated_files,
+                    target_language=architecture.get("language")
                 )
                 file_plan = architecture.get("file_plan", [])
                 logger.info(f"分批规划完成：最终 {len(file_plan)} 个文件")

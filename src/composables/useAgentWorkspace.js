@@ -86,14 +86,14 @@ export function useAgentWorkspace({
         const content = await zip.files[entry].async('string')
         importedFiles.push({ path: entry, content, name: entry.split('/').pop() })
       }
-      files.generatedFiles.value = importedFiles
-      files.fileDiffs.value = importedFiles.map(f => ({
+      files.generatedFiles = importedFiles
+      files.fileDiffs = importedFiles.map(f => ({
         path: f.path, oldContent: '', newContent: f.content, operation: 'create'
       }))
       importing.show.value = false
       ElMessage.success(`成功导入 ${projectFiles.length} 个文件`)
       addLog('success', `导入项目: ${file.name} (${projectFiles.length} 个文件)`)
-      if (!session.currentSessionId.value) {
+      if (!session.currentSessionId) {
         session.createNewSession({})
       }
     } catch (error) {
@@ -124,15 +124,15 @@ export function useAgentWorkspace({
   }
 
   const copyFileContent = async () => {
-    if (files.selectedFile.value) {
-      await navigator.clipboard.writeText(files.selectedFile.value.content)
+    if (files.selectedFile) {
+      await navigator.clipboard.writeText(files.selectedFile.content)
       ElMessage.success('已复制到剪贴板')
     }
   }
 
   const saveFileVersion = (filePath, fileVersions, currentSessionId) => {
     if (!filePath) return
-    const file = files.generatedFiles.value.find(f => f.path === filePath)
+    const file = files.generatedFiles.find(f => f.path === filePath)
     if (!file) return
     if (!fileVersions.value[filePath]) fileVersions.value[filePath] = []
     fileVersions.value[filePath].push({

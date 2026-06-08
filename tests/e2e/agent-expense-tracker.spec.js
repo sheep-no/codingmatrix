@@ -191,8 +191,13 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
 
     // 刷新页面让 store 重新加载
     await page.goto(`${BASE_URL}/agent`);
-    await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(3000);
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(5000);
+
+    // 等待 Agent 页面加载完成
+    await page.waitForSelector('.agent-page, .agent-input-bar, textarea.prompt-textarea', { timeout: 15000 }).catch(() => {
+      console.log('⚠ Agent 页面元素未找到，继续执行');
+    });
 
     // 验证 hasSiliconflowKey 现在为 true
     const keyCheck = await page.evaluate(() => {
@@ -319,19 +324,13 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
           if (count > 0) return count;
         }
 
-        // 检查 Vue store
+        // 检查 Vue 组件 setupState（useAgentFiles 是 composable，不在 Pinia store 中）
         try {
-          const app = document.querySelector('#app');
-          if (app && app.__vue_app__) {
-            const pinia = app.__vue_app__.config.globalProperties.$pinia;
-            if (pinia) {
-              const state = pinia.state.value;
-              if (state.agentFiles && state.agentFiles.generatedFiles && state.agentFiles.generatedFiles.length > 0) {
-                return state.agentFiles.generatedFiles.length;
-              }
-              if (state.agentWorkspace && state.agentWorkspace.generatedFiles && state.agentWorkspace.generatedFiles.length > 0) {
-                return state.agentWorkspace.generatedFiles.length;
-              }
+          const agentPage = document.querySelector('.agent-page');
+          if (agentPage && agentPage.__vueParentComponent) {
+            const setupState = agentPage.__vueParentComponent.setupState;
+            if (setupState.generatedFiles && setupState.generatedFiles.length > 0) {
+              return setupState.generatedFiles.length;
             }
           }
         } catch { }
@@ -382,17 +381,14 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
         });
       }
 
-      // Vue store
+      // Vue 组件 setupState（useAgentFiles 是 composable，不在 Pinia store 中）
       if (files.length === 0) {
         try {
-          const app = document.querySelector('#app');
-          if (app && app.__vue_app__) {
-            const pinia = app.__vue_app__.config.globalProperties.$pinia;
-            if (pinia) {
-              const state = pinia.state.value;
-              const storeFiles = (state.agentFiles?.generatedFiles || []).concat(state.agentWorkspace?.generatedFiles || []);
-              storeFiles.forEach(f => files.push(f.path || f.name || String(f)));
-            }
+          const agentPage = document.querySelector('.agent-page');
+          if (agentPage && agentPage.__vueParentComponent) {
+            const setupState = agentPage.__vueParentComponent.setupState;
+            const storeFiles = setupState.generatedFiles || [];
+            storeFiles.forEach(f => files.push(f.path || f.name || String(f)));
           }
         } catch { }
       }

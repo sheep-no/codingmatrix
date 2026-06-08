@@ -44,7 +44,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
 
     switch (data.type) {
       case 'file':
-        files.generatedFiles.value.push({
+        files.generatedFiles.push({
           path: data.path,
           content: data.content,
           fileSize: data.file_size,
@@ -56,7 +56,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         if (data.file_type) addDetail('文件生成', `${data.path} (${data.file_type}, 复杂度: ${data.complexity?.level || '未知'})`)
         break
       case 'file_diff': {
-        files.fileDiffs.value.push({
+        files.fileDiffs.push({
           path: data.path,
           oldContent: data.old_content || '',
           newContent: data.new_content || data.content || '',
@@ -281,7 +281,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     }
     
     // 自动判断模式：有已生成文件则为增量更新，否则为新建
-    const hasExistingFiles = files.generatedFiles.value.length > 0
+    const hasExistingFiles = files.generatedFiles.length > 0
     const isIncremental = hasExistingFiles && workspace.currentProjectPath
     
     return {
@@ -371,13 +371,13 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     }
 
     // 自动判断模式
-    const hasExistingFiles = files.generatedFiles.value.length > 0
+    const hasExistingFiles = files.generatedFiles.length > 0
     const isIncremental = hasExistingFiles && workspace.currentProjectPath
     const mode = isIncremental ? '增量更新' : '新建项目'
     
     if (!isIncremental) {
-      files.generatedFiles.value = []
-      files.fileDiffs.value = []
+      files.generatedFiles = []
+      files.fileDiffs = []
     }
     workspace.logs = []
     generation.isGenerating = true

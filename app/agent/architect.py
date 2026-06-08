@@ -408,6 +408,7 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
         architecture: Dict,
         complexity: ComplexityAnalysis,
         target_file_count: int,
+        target_language: Optional[str] = None,
     ) -> Dict:
         """分批扩展 file_plan
 
@@ -468,7 +469,7 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                 break
 
         architecture["file_plan"] = existing_plan
-        architecture = self._ensure_file_plan_completeness(architecture)
+        architecture = self._ensure_file_plan_completeness(architecture, target_language)
         return architecture
 
     def _identify_missing_areas(self, existing_plan: list, complexity: ComplexityAnalysis) -> list:

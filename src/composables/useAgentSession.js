@@ -1,3 +1,4 @@
+import { reactive } from 'vue'
 import { useAgentSessionStore } from '@/stores/agentSession'
 
 /**
@@ -7,10 +8,12 @@ import { useAgentSessionStore } from '@/stores/agentSession'
 export function useAgentSession() {
   const store = useAgentSessionStore()
 
-  return {
-    currentSessionId: store.currentSessionId,
-    projectPrompt: store.projectPrompt,
-    sessionHistory: store.sessionHistory,
+  return reactive({
+    get currentSessionId() { return store.currentSessionId },
+    set currentSessionId(v) { store.currentSessionId = v },
+    get projectPrompt() { return store.projectPrompt },
+    set projectPrompt(v) { store.projectPrompt = v },
+    get sessionHistory() { return store.sessionHistory },
     saveSessionState() { /* no-op, state is in store */ },
     restoreSessionState() { return null },
     clearSessionState() { /* no-op */ },
@@ -23,5 +26,5 @@ export function useAgentSession() {
     MAX_LOG_ENTRIES: 100,
     MAX_THINKING_ENTRIES: 50,
     MAX_HISTORY_ENTRIES: 10
-  }
+  })
 }
