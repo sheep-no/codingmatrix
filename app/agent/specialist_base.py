@@ -34,11 +34,11 @@ _REACT_MODE_BY_COMPLEXITY = {
 }
 
 _REACT_ROUNDS_BY_COMPLEXITY = {
-    "simple": 3,
-    "small": 4,
-    "medium": 6,
-    "large": 8,
-    "enterprise": 10,
+    "simple": 2,
+    "small": 2,
+    "medium": 3,
+    "large": 3,
+    "enterprise": 3,
 }
 
 
