@@ -66,7 +66,7 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
   test.describe.configure({ project: 'chromium' });
 
   test('生成个人记账本 Web 应用项目', async ({ page }) => {
-    test.setTimeout(600000);
+    test.setTimeout(1500000);
 
     // 清理运行中的会话
     cleanupRunningSessions();
@@ -277,7 +277,7 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
 
     // 方式 A：等待 SSE 响应到达（表示请求已被后端处理）
     const sseResponseWaitStart = Date.now();
-    while (!sseResponseReceived && Date.now() - sseResponseWaitStart < 300000) {
+    while (!sseResponseReceived && Date.now() - sseResponseWaitStart < 900000) {
       await page.waitForTimeout(2000);
       const elapsed = Math.round((Date.now() - sseResponseWaitStart) / 1000);
       if (elapsed % 10 === 0 && elapsed > 0) {
@@ -300,11 +300,11 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
       console.log('⚠ SSE 响应未收到（120s 超时），检查页面状态...');
     }
 
-    // 方式 B：等待页面上的文件列表出现（最多 3 分钟，因为 SSE 200 后文件会逐步出现）
+    // 方式 B：等待页面上的文件列表出现（SSE 成功等 10 分钟，因为免费模型慢）
     console.log('等待页面显示生成的文件...');
     const fileWaitStart = Date.now();
     let fileCount = 0;
-    const maxFileWait = sseResponseOk ? 180000 : 30000; // SSE 成功等 3 分钟，失败等 30 秒
+    const maxFileWait = sseResponseOk ? 600000 : 30000; // SSE 成功等 10 分钟，失败等 30 秒
 
     while (fileCount === 0 && Date.now() - fileWaitStart < maxFileWait) {
       await page.waitForTimeout(3000);
@@ -353,7 +353,7 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
     if (fileCount > 0) {
       console.log(`✓ 检测到 ${fileCount} 个生成的文件`);
     } else {
-      console.log('⚠ 5 分钟超时，未检测到文件列表');
+      console.log('⚠ 文件等待超时，未检测到文件列表');
     }
 
     timeline.push({ step: '等待生成完成', duration: Date.now() - startTime });
