@@ -309,7 +309,11 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
         }
 
     def _ensure_file_plan_completeness(self, architecture: Dict, target_language: Optional[str] = None) -> Dict:
-        """确保 file_plan 完整性：补充缺失的基础文件和被引用的模块"""
+        """确保 file_plan 完整性：只补充 imports 中明确引用但 file_plan 中缺失的文件
+
+        注意：不再补充 index.js barrel export，不再遍历目录。
+        依赖图的完整性验证和补充由 DependencyGraph 负责。
+        """
         file_plan = architecture.get("file_plan", [])
         if not file_plan:
             return architecture
@@ -336,7 +340,6 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                     if isinstance(imp, str):
                         all_imports.add(imp)
                     elif isinstance(imp, dict):
-                        # Handle dict format: {"module": "...", "items": [...]}
                         module = imp.get("module", "")
                         if module:
                             all_imports.add(module)
@@ -344,68 +347,16 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                             if isinstance(item, str):
                                 all_imports.add(item)
 
-        # 需要补充的文件
+        # 只补充 imports 中明确引用但 file_plan 中缺失的文件
         missing_files = []
-
-        # 1. 检查包入口文件（使用 LanguageAdapter）
-        # 只有被其他文件 import 引用的目录才需要 index.js
-        # 收集所有被引用的目录前缀
-        imported_dirs = set()
+        from app.agent.adapters import ImportInfo
         for imp in all_imports:
-            # 解析 import 路径，提取目录部分
-            # 例如: "./models" -> "src/models", "../utils" -> "src/utils"
-            if imp.startswith("./") or imp.startswith("../"):
-                # 相对导入，去掉 ./ 和 ../ 前缀
-                clean = imp.lstrip("./").lstrip("../")
-                # 去掉文件名部分，保留目录
-                if "/" in clean:
-                    imported_dirs.add(clean.rsplit("/", 1)[0])
-                else:
-                    imported_dirs.add(clean)
-
-        packages = set()
-        for f in file_plan:
-            path = f["path"]
-            # 检测是否是包内的文件
-            if "/" in path:
-                # 获取文件扩展名
-                ext = path.rsplit(".", 1)[-1] if "." in path else ""
-                # 排除入口文件本身
-                init_file = adapter.get_package_init_file("")
-                init_ext = init_file.rsplit(".", 1)[-1] if "." in init_file else ""
-
-                if ext == init_ext or not init_ext:
-                    # 检查是否是包内的文件（不是入口文件）
-                    pkg = path.rsplit("/", 1)[0]
-                    if pkg and not path.endswith(init_file.split("/")[-1]):
-                        # 只有被其他文件 import 引用的目录才补充 index.js
-                        if pkg in imported_dirs:
-                            packages.add(pkg)
-
-        for pkg in packages:
-            # 使用 LanguageAdapter 获取包入口文件
-            init_path = adapter.get_package_init_file(pkg)
-            if init_path and init_path not in planned_paths:
-                missing_files.append({
-                    "path": init_path,
-                    "description": f"{pkg} 包初始化文件",
-                    "priority": 1,
-                    "imports": []
-                })
-                logger.info(f"自动补充缺失文件: {init_path}")
-
-        # 2. 检查被引用的模块是否存在
-        for imp in all_imports:
-            # 使用 LanguageAdapter 解析导入路径
-            from app.agent.adapters import ImportInfo
             import_info = ImportInfo(module=imp, symbols=[], is_relative=False)
             candidates = adapter.resolve_import_to_file(import_info, "")
 
-            # 检查是否有任何候选路径已规划
             exists = any(c in planned_paths for c in candidates)
 
             if not exists and candidates:
-                # 补充第一个候选路径
                 file_path = candidates[0]
                 missing_files.append({
                     "path": file_path,
@@ -415,7 +366,6 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                 })
                 logger.info(f"自动补充缺失模块: {file_path}")
 
-        # 3. 补充缺失文件到 file_plan
         if missing_files:
             file_plan.extend(missing_files)
             architecture["file_plan"] = file_plan
@@ -430,14 +380,10 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
         target_file_count: int,
         target_language: Optional[str] = None,
     ) -> Dict:
-        """分批扩展 file_plan
+        """依赖驱动扩展 file_plan
 
-        当初始 file_plan 文件数不足时，动态分批生成补充文件，直到达到目标或无法再补充。
-
-        终止条件（任一满足即停）：
-        1. 文件数达到 target_file_count
-        2. 无更多可补充的模块领域
-        3. 某批次补充了 0 个新文件（所有文件已存在）
+        基于 DependencyGraph 分析缺失模块，让 LLM 补充。
+        不再使用关键词猜测。
 
         Args:
             architecture: 已有的架构设计（含 file_plan）
@@ -454,6 +400,22 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
             logger.info(f"file_plan 已有 {len(existing_plan)} 个文件，达到目标 {target_file_count}，跳过扩展")
             return architecture
 
+        # 构建依赖图，分析缺失模块
+        from app.agent.dependency_graph import DependencyGraph
+        from app.agent.adapters import LanguageAdapterRegistry
+        detected_language = target_language or architecture.get("language", "python")
+        adapter = LanguageAdapterRegistry.get_adapter(detected_language)
+        dep_graph = DependencyGraph(language_adapter=adapter)
+        dep_graph.build_from_architecture(architecture)
+
+        # 用依赖图验证完整性，找出缺失文件
+        missing_from_graph = dep_graph.get_missing_files()
+        if missing_from_graph:
+            logger.info(f"依赖图发现 {len(missing_from_graph)} 个缺失文件: {missing_from_graph}")
+            architecture = dep_graph.add_missing_files(architecture)
+            existing_plan = architecture.get("file_plan", [])
+            existing_paths = {f["path"] for f in existing_plan}
+
         batch = 0
         while True:
             remaining = target_file_count - len(existing_plan)
@@ -463,14 +425,9 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
             batch += 1
             logger.info(f"分批规划第 {batch} 轮：已有 {len(existing_plan)} 个文件，目标 {target_file_count}，需补充 {remaining} 个")
 
-            # 确定本轮要补充的模块领域
-            areas = self._identify_missing_areas(existing_plan, complexity)
-            if not areas:
-                logger.info("无更多需要补充的模块领域，终止扩展")
-                break
-
+            # 依赖驱动：让 LLM 基于现有 file_plan 和依赖关系补充文件
             batch_files = await self._generate_batch_files(
-                architecture, complexity, areas, remaining
+                architecture, complexity, remaining
             )
 
             # 去重合并
@@ -483,7 +440,7 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
 
             logger.info(f"分批规划第 {batch} 轮：新增 {added} 个文件，当前共 {len(existing_plan)} 个")
 
-            # 本轮未新增任何文件，说明所有补充内容已存在，终止
+            # 本轮未新增任何文件，终止
             if added == 0:
                 logger.info("本轮无新增文件，终止扩展")
                 break
@@ -492,52 +449,16 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
         architecture = self._ensure_file_plan_completeness(architecture, target_language)
         return architecture
 
-    def _identify_missing_areas(self, existing_plan: list, complexity: ComplexityAnalysis) -> list:
-        """识别 file_plan 中缺失的模块领域"""
-        areas = []
-
-        has_frontend = any(
-            f["path"].endswith((".vue", ".jsx", ".tsx", ".html", ".css"))
-            for f in existing_plan
-        )
-        has_backend = any(
-            f["path"].endswith((".py", ".go", ".java", ".rs"))
-            and "model" not in f["path"].lower()
-            for f in existing_plan
-        )
-        has_tests = any("test" in f["path"].lower() for f in existing_plan)
-        has_utils = any("util" in f["path"].lower() or "helper" in f["path"].lower() for f in existing_plan)
-        has_services = any("service" in f["path"].lower() for f in existing_plan)
-        has_middleware = any("middleware" in f["path"].lower() for f in existing_plan)
-
-        if complexity.has_frontend and has_frontend:
-            areas.append("frontend_components")
-        if complexity.has_backend and has_backend:
-            if not has_services:
-                areas.append("backend_services")
-            if not has_middleware:
-                areas.append("backend_middleware")
-        if not has_utils:
-            areas.append("utilities")
-        if not has_tests:
-            areas.append("tests")
-        if complexity.has_database:
-            areas.append("database_migrations")
-
-        return areas
-
     async def _generate_batch_files(
         self,
         architecture: Dict,
         complexity: ComplexityAnalysis,
-        areas: list,
         max_files: int
     ) -> list:
-        """为指定领域生成补充文件"""
+        """依赖驱动：让 LLM 基于现有 file_plan 和依赖关系补充文件"""
         existing_paths = {f["path"] for f in architecture.get("file_plan", [])}
         existing_summary = "\n".join(f"- {f['path']}: {f['description']}" for f in architecture.get("file_plan", [])[:20])
 
-        areas_text = ", ".join(areas)
         prompt = f"""请为以下项目补充文件规划。
 
 需求：{architecture.get('project_type', '未知项目')}
@@ -547,7 +468,6 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
 已有文件（不要重复）：
 {existing_summary}
 
-需要补充的模块领域：{areas_text}
 最多补充 {max_files} 个文件。
 
 输出格式要求：
@@ -556,19 +476,21 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
 - 只输出 file_plan 数组，不要其他字段
 
 ```json
-{{
+{{{{
   "file_plan": [
-    {{"path": "<文件路径>", "description": "<文件描述>", "priority": <1-5>, "imports": ["<导入的项目内模块>"]}},
+    {{{{"path": "<文件路径>", "description": "<文件描述>", "priority": <1-5>, "imports": ["<导入的项目内模块>"]}}}},
     ...
   ]
-}}
+}}}}
 ```
 
 规则：
 1. 不要生成已存在的文件
 2. imports 只引用项目内模块（不包括第三方库）
 3. 确保文件路径使用正确的扩展名
-4. 每个文件描述要具体说明其职责"""
+4. 每个文件描述要具体说明其职责
+5. 仔细分析已有文件的依赖关系，补充被引用但缺失的模块
+6. 如果已有文件足够完整，返回空的 file_plan 数组"""
 
         try:
             response = await self.call_llm(prompt, self.SYSTEM_PROMPT)
