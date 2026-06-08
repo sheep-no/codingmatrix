@@ -348,6 +348,21 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
         missing_files = []
 
         # 1. 检查包入口文件（使用 LanguageAdapter）
+        # 只有被其他文件 import 引用的目录才需要 index.js
+        # 收集所有被引用的目录前缀
+        imported_dirs = set()
+        for imp in all_imports:
+            # 解析 import 路径，提取目录部分
+            # 例如: "./models" -> "src/models", "../utils" -> "src/utils"
+            if imp.startswith("./") or imp.startswith("../"):
+                # 相对导入，去掉 ./ 和 ../ 前缀
+                clean = imp.lstrip("./").lstrip("../")
+                # 去掉文件名部分，保留目录
+                if "/" in clean:
+                    imported_dirs.add(clean.rsplit("/", 1)[0])
+                else:
+                    imported_dirs.add(clean)
+
         packages = set()
         for f in file_plan:
             path = f["path"]
@@ -363,7 +378,9 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                     # 检查是否是包内的文件（不是入口文件）
                     pkg = path.rsplit("/", 1)[0]
                     if pkg and not path.endswith(init_file.split("/")[-1]):
-                        packages.add(pkg)
+                        # 只有被其他文件 import 引用的目录才补充 index.js
+                        if pkg in imported_dirs:
+                            packages.add(pkg)
 
         for pkg in packages:
             # 使用 LanguageAdapter 获取包入口文件
