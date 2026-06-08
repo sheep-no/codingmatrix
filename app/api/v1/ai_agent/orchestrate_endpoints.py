@@ -612,7 +612,7 @@ async def orchestrate_project_stream(
                             generation_completed = True
                             break
                         # 发送心跳消息保持连接活跃
-                        yield f": heartbeat\n\n"
+                        yield "data: {\"type\": \"heartbeat\"}\n\n"
                         continue
                 logger.info(f"[SSE] 队列消息处理完成 | session={session_id}")
             except asyncio.CancelledError:
