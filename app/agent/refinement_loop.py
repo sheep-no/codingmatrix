@@ -233,6 +233,14 @@ class RefinementLoop:
         elif ext == '.json':
             issues.extend(self._validate_json_syntax(content))
 
+        # HTML 文件验证
+        elif ext == '.html':
+            issues.extend(self._validate_html_basic(content))
+
+        # CSS 文件验证
+        elif ext == '.css':
+            issues.extend(self._validate_css_basic(content))
+
         return issues
 
     def _validate_python_syntax(self, content: str, file_path: str) -> List[ValidationIssue]:
@@ -405,6 +413,67 @@ class RefinementLoop:
                 message=f"JSON 语法错误: {e.msg}",
                 line=e.lineno,
                 suggestion="检查 JSON 格式，确保键用双引号包裹"
+            ))
+        return issues
+
+    def _validate_html_basic(self, content: str) -> List[ValidationIssue]:
+        """HTML 基础验证"""
+        issues = []
+        # 检查基本标签闭合
+        for tag in ['html', 'head', 'body']:
+            open_count = len(re.findall(rf'<{tag}[\s>]', content, re.IGNORECASE))
+            close_count = len(re.findall(rf'</{tag}>', content, re.IGNORECASE))
+            if open_count > close_count:
+                issues.append(ValidationIssue(
+                    type="syntax",
+                    severity="error",
+                    message=f"<{tag}> 标签未闭合: 开始 {open_count} 个，结束 {close_count} 个",
+                    suggestion=f"添加 </{tag}> 闭合标签"
+                ))
+        # 检查 script 标签
+        script_opens = len(re.findall(r'<script[\s>]', content, re.IGNORECASE))
+        script_closes = len(re.findall(r'</script>', content, re.IGNORECASE))
+        if script_opens > script_closes:
+            issues.append(ValidationIssue(
+                type="syntax",
+                severity="error",
+                message=f"<script> 标签未闭合: 开始 {script_opens} 个，结束 {script_closes} 个",
+                suggestion="添加 </script> 闭合标签"
+            ))
+        # 检查 style 标签
+        style_opens = len(re.findall(r'<style[\s>]', content, re.IGNORECASE))
+        style_closes = len(re.findall(r'</style>', content, re.IGNORECASE))
+        if style_opens > style_closes:
+            issues.append(ValidationIssue(
+                type="syntax",
+                severity="error",
+                message=f"<style> 标签未闭合: 开始 {style_opens} 个，结束 {style_closes} 个",
+                suggestion="添加 </style> 闭合标签"
+            ))
+        return issues
+
+    def _validate_css_basic(self, content: str) -> List[ValidationIssue]:
+        """CSS 基础验证"""
+        issues = []
+        # 检查大括号匹配
+        brace_open = content.count('{')
+        brace_close = content.count('}')
+        if brace_open != brace_close:
+            issues.append(ValidationIssue(
+                type="syntax",
+                severity="error",
+                message=f"CSS 大括号不匹配: {{ 有 {brace_open} 个，}} 有 {brace_close} 个",
+                suggestion="检查所有 { 和 } 的配对"
+            ))
+        # 检查小括号匹配
+        paren_open = content.count('(')
+        paren_close = content.count(')')
+        if paren_open != paren_close:
+            issues.append(ValidationIssue(
+                type="syntax",
+                severity="error",
+                message=f"CSS 小括号不匹配: ( 有 {paren_open} 个，) 有 {paren_close} 个",
+                suggestion="检查所有 ( 和 ) 的配对"
             ))
         return issues
 

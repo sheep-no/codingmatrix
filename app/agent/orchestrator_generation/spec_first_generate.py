@@ -786,6 +786,36 @@ class SpecFirstGenerateMixin:
 
             final_content = result.final_content
 
+            # 写入前语法验证：精炼循环可能未能修复语法错误
+            syntax_ok = await self._validate_content_syntax(file_path, final_content)
+            if not syntax_ok and final_content:
+                logger.warning(f"文件语法验证失败: {file_path}，尝试 error_recovery 修复")
+                # 尝试用 error_recovery 修复
+                if hasattr(self, 'error_recovery') and self.error_recovery:
+                    full_path = self.output_dir / file_path
+                    full_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(full_path, 'w', encoding='utf-8') as f:
+                        f.write(final_content)
+                    try:
+                        backend_model = getattr(self, 'model_assignment', None)
+                        backend_model = backend_model.backend_model if backend_model else "Qwen/Qwen3-8B"
+                        er_success, er_content = await self.error_recovery.validate_and_fix(
+                            file_path=full_path,
+                            content=final_content,
+                            file_description=description,
+                            backend_model=backend_model,
+                            callback=callback
+                        )
+                        if er_success and er_content:
+                            final_content = er_content
+                            syntax_ok = True
+                    except Exception as e:
+                        logger.warning(f"error_recovery 修复失败: {e}")
+                if not syntax_ok:
+                    logger.warning(f"语法验证未通过，使用占位文件: {file_path}")
+                    final_content = self._generate_placeholder(file_path, description, file_type)
+                    result.success = False
+
             # 原子写入：先写临时文件，完成后重命名
             full_path = self.output_dir / file_path
             full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -924,3 +954,70 @@ class SpecFirstGenerateMixin:
             "warnings": warnings_list,
             "scheduler_stats": scheduler.get_stats()
         }
+
+    async def _validate_content_syntax(self, file_path: str, content: str) -> bool:
+        """验证文件内容语法，返回 True 表示通过"""
+        import ast
+        import re
+        from pathlib import Path
+
+        ext = Path(file_path).suffix.lower()
+
+        if ext == '.py':
+            try:
+                ast.parse(content)
+                return True
+            except SyntaxError:
+                return False
+
+        elif ext in ('.js', '.ts', '.vue'):
+            import tempfile
+            import subprocess
+            try:
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
+                    f.write(content)
+                    tmp_path = f.name
+                result = subprocess.run(
+                    ['node', '-c', tmp_path],
+                    capture_output=True, text=True, timeout=5
+                )
+                Path(tmp_path).unlink(missing_ok=True)
+                return result.returncode == 0
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
+
+        elif ext == '.html':
+            for tag in ['html', 'head', 'body']:
+                open_count = len(re.findall(rf'<{tag}[\s>]', content, re.IGNORECASE))
+                close_count = len(re.findall(rf'</{tag}>', content, re.IGNORECASE))
+                if open_count > close_count:
+                    return False
+            script_opens = len(re.findall(r'<script[\s>]', content, re.IGNORECASE))
+            script_closes = len(re.findall(r'</script>', content, re.IGNORECASE))
+            return script_opens == script_closes
+
+        elif ext == '.css':
+            if content.count('{') != content.count('}'):
+                return False
+            return True
+
+        return True
+
+    def _generate_placeholder(self, file_path: str, description: str, file_type: str) -> str:
+        """生成占位文件内容"""
+        from pathlib import Path
+        ext = Path(file_path).suffix.lower()
+        name = Path(file_path).stem
+
+        if ext == '.py':
+            return f'"""Placeholder for {name}"""\n# TODO: {description}\n'
+        elif ext in ('.js', '.ts'):
+            return f'// Placeholder for {name}\n// TODO: {description}\n'
+        elif ext == '.html':
+            return f'<!DOCTYPE html>\n<html><head><title>{name}</title></head>\n<body><!-- TODO: {description} --></body>\n</html>\n'
+        elif ext == '.css':
+            return f'/* Placeholder for {name} */\n/* TODO: {description} */\n'
+        elif ext == '.json':
+            return '{}\n'
+        else:
+            return f'// Placeholder: {description}\n'

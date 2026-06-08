@@ -680,10 +680,73 @@ def _tool_write_file(project_path: str, path: str, content: str) -> Dict:
     try:
         full_path = Path(project_path) / path if not Path(path).is_absolute() else Path(path)
         full_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # 写入前语法验证
+        validation_warning = _validate_file_syntax(path, content)
+
         full_path.write_text(content, encoding='utf-8')
-        return {"success": True, "path": str(full_path), "size": len(content)}
+        result = {"success": True, "path": str(full_path), "size": len(content)}
+        if validation_warning:
+            result["warning"] = validation_warning
+        return result
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def _validate_file_syntax(file_path: str, content: str) -> str:
+    """验证文件语法，返回警告信息（空字符串表示通过）"""
+    import ast
+    import re
+    import subprocess
+    import tempfile
+
+    ext = Path(file_path).suffix.lower()
+
+    if ext == '.py':
+        try:
+            ast.parse(content)
+            return ""
+        except SyntaxError as e:
+            return f"Python 语法错误: {e}"
+
+    elif ext in ('.js', '.ts', '.vue'):
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
+                f.write(content)
+                tmp_path = f.name
+            result = subprocess.run(
+                ['node', '-c', tmp_path],
+                capture_output=True, text=True, timeout=5
+            )
+            Path(tmp_path).unlink(missing_ok=True)
+            if result.returncode != 0:
+                return f"JavaScript 语法错误: {result.stderr.strip()[:200]}"
+            return ""
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            if content.count('{') != content.count('}'):
+                return "花括号不匹配"
+            if content.count('(') != content.count(')'):
+                return "圆括号不匹配"
+            return ""
+
+    elif ext == '.html':
+        for tag in ['html', 'head', 'body']:
+            open_count = len(re.findall(rf'<{tag}[\s>]', content, re.IGNORECASE))
+            close_count = len(re.findall(rf'</{tag}>', content, re.IGNORECASE))
+            if open_count > close_count:
+                return f"<{tag}> 标签未闭合"
+        script_opens = len(re.findall(r'<script[\s>]', content, re.IGNORECASE))
+        script_closes = len(re.findall(r'</script>', content, re.IGNORECASE))
+        if script_opens > script_closes:
+            return "<script> 标签未闭合"
+        return ""
+
+    elif ext == '.css':
+        if content.count('{') != content.count('}'):
+            return "CSS 大括号不匹配"
+        return ""
+
+    return ""
 
 
 # ==================== Git 工具 ====================
