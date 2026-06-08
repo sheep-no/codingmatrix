@@ -109,6 +109,9 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                 return self._get_default_architecture(complexity, target_language)
 
             architecture = self._safe_parse_json(response)
+            if not isinstance(architecture, dict):
+                logger.warning(f"架构师输出类型不正确: {type(architecture).__name__}，返回默认架构")
+                return self._get_default_architecture(complexity, target_language)
         except ValueError:
             logger.warning("架构师输出解析失败，尝试 LLM 辅助提取")
             architecture = await self._extract_json_with_llm(response, complexity)
@@ -556,6 +559,9 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                 return []
 
             parsed = self._safe_parse_json(response)
+            if not isinstance(parsed, dict):
+                logger.warning(f"分批规划输出类型不正确: {type(parsed).__name__}")
+                return []
             batch_plan = parsed.get("file_plan", [])
 
             # 过滤掉已存在的文件
