@@ -154,7 +154,7 @@ const goToModelConfig = () => {
 const sessionId = computed(() => session.currentSessionId)
 const sessionHistory = computed(() => session.sessionHistory)
 const projectPrompt = computed(() => session.projectPrompt)
-const generatedFiles = computed(() => files.generatedFiles.value)
+const generatedFiles = computed(() => files.generatedFiles?.value || [])
 const isGenerating = computed(() => generation.isGenerating)
 const workflowStages = computed(() => generation.workflowStages)
 const selectedFile = computed(() => files.selectedFile || null)
@@ -358,7 +358,7 @@ onMounted(() => {
   session.loadSessionHistory()
   backend.loadSettings()
   session.startAutoSave(
-    () => files.generatedFiles.value.length > 0 || workspace.logs.length > 0,
+    () => (files.generatedFiles?.value?.length || 0) > 0 || workspace.logs.length > 0,
     () => session.saveSessionState({
       workflowStages: generation.workflowStages,
       pendingDecisions: workspace.pendingDecisions,

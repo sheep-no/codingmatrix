@@ -33,6 +33,9 @@ export const useApiKeyStore = defineStore('apikey', () => {
     return !!siliconflowKey.value && siliconflowKey.value.enabled
   })
 
+  // 初始化时从 localStorage 加载数据
+  loadFromStorage()
+
   // Actions
   /**
    * 从 localStorage 加载数据
