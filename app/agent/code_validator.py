@@ -71,6 +71,7 @@ class CodeValidator:
             cls._cache_size_bytes -= sys.getsizeof(oldest_key) + sys.getsizeof(oldest_entry)
 
     def get_cached_validation(self, file_path: Path) -> Optional[Dict]:
+        cache_key = None
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -89,11 +90,12 @@ class CodeValidator:
             CodeValidator._cache_misses += 1
             return None
         except Exception as e:
-            logger.debug(f"缓存读取失败 {cache_key}：{e}")
+            logger.debug(f"缓存读取失败 {cache_key or file_path}：{e}")
             CodeValidator._cache_misses += 1
             return None
 
     def cache_validation(self, file_path: Path, result: Dict):
+        cache_key = None
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -108,7 +110,7 @@ class CodeValidator:
             CodeValidator._cache_size_bytes += sys.getsizeof(cache_key) + sys.getsizeof(entry)
             CodeValidator._clear_old_cache()
         except Exception as e:
-            logger.debug(f"缓存写入失败 {cache_key}：{e}")
+            logger.debug(f"缓存写入失败 {cache_key or file_path}：{e}")
 
     @classmethod
     def get_cache_stats(cls) -> Dict[str, Any]:
