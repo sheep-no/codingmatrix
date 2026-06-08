@@ -65,7 +65,7 @@ class TopologyScheduler:
 
     def __init__(
         self,
-        max_concurrent: int = 5,
+        max_concurrent: int = 6,
         max_retries: int = 2,
         timeout_per_file: float = 600.0,
         cancel_event: Optional[asyncio.Event] = None
