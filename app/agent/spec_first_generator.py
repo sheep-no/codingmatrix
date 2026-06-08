@@ -199,7 +199,20 @@ class SpecFirstGenerator:
 
             # 解析 JSON
             openapi_spec = self._extract_json(content)
-            if not openapi_spec or not isinstance(openapi_spec, dict):
+            if not openapi_spec:
+                logger.warning(f"OpenAPI 规范解析失败")
+                return False
+            
+            # 如果返回 list，尝试提取第一个 dict 元素
+            if isinstance(openapi_spec, list):
+                if len(openapi_spec) > 0 and isinstance(openapi_spec[0], dict):
+                    openapi_spec = openapi_spec[0]
+                    logger.info(f"OpenAPI 规范从 list 中提取第一个元素")
+                else:
+                    logger.warning(f"OpenAPI 规范解析失败或类型不正确: list")
+                    return False
+            
+            if not isinstance(openapi_spec, dict):
                 logger.warning(f"OpenAPI 规范解析失败或类型不正确: {type(openapi_spec).__name__}")
                 return False
 

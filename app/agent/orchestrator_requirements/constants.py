@@ -10,9 +10,9 @@ DOMAIN_TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent.parent / "c
 SKIP_COMPLEXITY_LEVELS = {"simple", "small"}
 
 TIME_BUDGET_SECONDS = {
-    "medium": 15,
-    "large": 20,
-    "enterprise": 25,
+    "medium": 30,
+    "large": 40,
+    "enterprise": 45,
 }
 
 CONFIDENCE_DISPLAY_THRESHOLD = 0.4
