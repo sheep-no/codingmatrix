@@ -154,7 +154,11 @@ class TraditionalGenerateMixin:
             if backend_files:
                 api_contract_prompt = generate_frontend_prompt_contract(backend_files)
 
-        dep_graph = DependencyGraph()
+        from app.agent.adapters.language_adapter import LanguageAdapterRegistry
+        detected_language = architecture.get("language", "python")
+        language_adapter = LanguageAdapterRegistry.get_adapter(detected_language)
+
+        dep_graph = DependencyGraph(language_adapter=language_adapter)
         dep_graph.build_from_architecture(architecture)
         dep_layers = dep_graph.get_generation_layers()
 
@@ -202,7 +206,7 @@ class TraditionalGenerateMixin:
         # 完整性验证：补充缺失的 __init__.py 等包入口文件
         if self.enable_validation:
             from app.agent.integrity_validator import IntegrityValidator
-            integrity_validator = IntegrityValidator()
+            integrity_validator = IntegrityValidator(language_adapter=language_adapter)
             generated_files_dict = {}
             for f in self.generated_files:
                 fpath = f.get("path", "")

@@ -133,6 +133,21 @@ class IntegrityValidator:
         """检查包的入口文件是否存在（支持多语言）"""
         packages = set()
 
+        # 自动检测语言适配器（如果未提供）
+        adapter = self.language_adapter
+        if not adapter:
+            from app.agent.adapters.language_adapter import LanguageAdapterRegistry
+            # 从文件扩展名推断语言
+            extensions = {Path(f).suffix for f in files}
+            if extensions & {'.js', '.jsx', '.ts', '.tsx'}:
+                adapter = LanguageAdapterRegistry.get_adapter('javascript')
+            elif extensions & {'.go'}:
+                adapter = LanguageAdapterRegistry.get_adapter('go')
+            elif extensions & {'.java'}:
+                adapter = LanguageAdapterRegistry.get_adapter('java')
+            if adapter:
+                self.language_adapter = adapter
+
         # 提取所有包路径
         for file_path in files:
             if '/' in file_path:
@@ -145,8 +160,8 @@ class IntegrityValidator:
 
         # 检查每个包是否有入口文件
         for pkg in packages:
-            if self.language_adapter:
-                missing = self.language_adapter.validate_package_structure(pkg, files)
+            if adapter:
+                missing = adapter.validate_package_structure(pkg, files)
                 for init_path in missing:
                     if init_path not in files:
                         result.add_issue(IntegrityIssue(

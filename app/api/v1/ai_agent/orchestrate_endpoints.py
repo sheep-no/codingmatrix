@@ -514,6 +514,7 @@ async def orchestrate_project_stream(
                 await queue.put(f"data: {json.dumps({'type': 'critical_decisions', 'data': {'session_id': session_id, 'decisions': questions}}, ensure_ascii=False)}\n\n")
                 decision_task = asyncio.create_task(decision_queue.get())
                 cancel_task = asyncio.create_task(cancel_event.wait())
+                pending = set()
                 try:
                     done, pending = await asyncio.wait(
                         [decision_task, cancel_task],
