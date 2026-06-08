@@ -876,24 +876,6 @@ class DependencyGraph:
                         "suggestion": f"将 {dep} 添加到 file_plan"
                     })
 
-            # 检查包的入口文件
-            if self.language_adapter:
-                init_file_name = self.language_adapter.package_init_filename
-                if '/' in path and not path.endswith(init_file_name):
-                    # 检查是否是需要入口文件的语言
-                    if self.language_adapter.package_init_filename:
-                        parts = path.split('/')
-                        for i in range(1, len(parts)):
-                            pkg = '/'.join(parts[:i])
-                            init_path = self.language_adapter.get_package_init_file(pkg)
-                            if init_path and init_path not in self.nodes:
-                                issues.append({
-                                    "type": "missing_init",
-                                    "file": path,
-                                    "message": f"包缺少入口文件: {pkg}",
-                                    "suggestion": f"将 {init_path} 添加到 file_plan"
-                                })
-
         return issues
 
     def get_missing_files(self) -> List[str]:
@@ -904,18 +886,6 @@ class DependencyGraph:
             for dep in self.adjacency.get(path, set()):
                 if dep not in self.nodes:
                     missing.add(dep)
-
-        # 检查包入口文件
-        if self.language_adapter and self.language_adapter.package_init_filename:
-            init_file_name = self.language_adapter.package_init_filename
-            for path in list(self.nodes):
-                if '/' in path and not path.endswith(init_file_name):
-                    parts = path.split('/')
-                    for i in range(1, len(parts)):
-                        pkg = '/'.join(parts[:i])
-                        init_path = self.language_adapter.get_package_init_file(pkg)
-                        if init_path and init_path not in self.nodes:
-                            missing.add(init_path)
 
         return list(missing)
 
