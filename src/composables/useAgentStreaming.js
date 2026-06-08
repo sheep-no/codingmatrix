@@ -250,22 +250,33 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
   const processSseResponse = async (response) => {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
+    let buffer = ''
     while (true) {
       const { done, value } = await reader.read()
       if (done) {
         break
       }
-      const text = decoder.decode(value)
-      const lines = text.split('\n').filter(line => line.trim())
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
+        const trimmed = line.trim()
+        if (trimmed.startsWith('data: ')) {
           try {
-            const data = JSON.parse(line.slice(6))
+            const data = JSON.parse(trimmed.slice(6))
             handleSseMessage(data)
           } catch (e) {
             console.error('Failed to parse SSE:', e)
           }
         }
+      }
+    }
+    if (buffer.trim().startsWith('data: ')) {
+      try {
+        const data = JSON.parse(buffer.trim().slice(6))
+        handleSseMessage(data)
+      } catch (e) {
+        // ignore trailing incomplete data
       }
     }
   }
