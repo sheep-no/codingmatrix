@@ -303,7 +303,9 @@ class SpecFirstGenerateMixin:
                     from pathlib import Path as _Path
                     from app.agent.language_detector import LanguageDetector
                     lang_rules = LanguageDetector.get_language_specific_rules(target_language)
-                    expected_ext = lang_rules.get("file_extension", "")
+                    raw_ext = lang_rules.get("file_extension", "")
+                    # 处理 ".ts / .js" 这种多扩展名情况，取第一个
+                    expected_ext = raw_ext.split("/")[0].strip() if raw_ext and "/" in raw_ext else raw_ext
                     actual_ext = _Path(file_path).suffix
                     if expected_ext and actual_ext and actual_ext != expected_ext:
                         logger.warning(f"语言不匹配：{file_path} 扩展名={actual_ext}, 但目标语言={target_language} 要求={expected_ext}, 强制修正扩展名")
@@ -751,7 +753,9 @@ class SpecFirstGenerateMixin:
                 from pathlib import Path as _Path
                 from app.agent.language_detector import LanguageDetector
                 lang_rules = LanguageDetector.get_language_specific_rules(target_language)
-                expected_ext = lang_rules.get("file_extension", "")
+                raw_ext = lang_rules.get("file_extension", "")
+                # 处理 ".ts / .js" 这种多扩展名情况，取第一个
+                expected_ext = raw_ext.split("/")[0].strip() if raw_ext and "/" in raw_ext else raw_ext
                 actual_ext = _Path(file_path).suffix
                 if expected_ext and actual_ext and actual_ext != expected_ext:
                     logger.warning(f"语言不匹配：{file_path} 扩展名={actual_ext}, 但目标语言={target_language} 要求={expected_ext}, 强制修正扩展名")

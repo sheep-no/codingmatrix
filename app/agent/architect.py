@@ -332,7 +332,9 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
         # 语言一致性：修正 file_plan 中扩展名不匹配的文件路径
         from app.agent.language_detector import LanguageDetector as _LD
         lang_rules = _LD.get_language_specific_rules(detected_lang)
-        expected_ext = lang_rules.get("file_extension", "")
+        raw_ext = lang_rules.get("file_extension", "")
+        # 处理 ".ts / .js" 这种多扩展名情况，取第一个
+        expected_ext = raw_ext.split("/")[0].strip() if raw_ext and "/" in raw_ext else raw_ext
         if expected_ext:
             from pathlib import Path as _P
             for f in file_plan:
@@ -447,7 +449,9 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
             # 去重合并 + 语言一致性修正
             from app.agent.language_detector import LanguageDetector as _LD
             lang_rules = _LD.get_language_specific_rules(detected_language) if detected_language else {}
-            expected_ext = lang_rules.get("file_extension", "") if lang_rules else ""
+            raw_ext = lang_rules.get("file_extension", "") if lang_rules else ""
+            # 处理 ".ts / .js" 这种多扩展名情况，取第一个
+            expected_ext = raw_ext.split("/")[0].strip() if raw_ext and "/" in raw_ext else raw_ext
 
             added = 0
             for f in batch_files:
