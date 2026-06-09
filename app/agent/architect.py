@@ -329,6 +329,20 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
 
         logger.info(f"_ensure_file_plan_completeness: 检测到语言={detected_lang}, 适配器={adapter.language}")
 
+        # 语言一致性：修正 file_plan 中扩展名不匹配的文件路径
+        from app.agent.language_detector import LanguageDetector as _LD
+        lang_rules = _LD.get_language_specific_rules(detected_lang)
+        expected_ext = lang_rules.get("file_extension", "")
+        if expected_ext:
+            from pathlib import Path as _P
+            for f in file_plan:
+                fpath = f.get("path", "")
+                actual_ext = _P(fpath).suffix
+                if actual_ext and actual_ext != expected_ext:
+                    corrected = fpath[:fpath.rfind(actual_ext)] + expected_ext
+                    logger.info(f"_ensure_file_plan_completeness 路径修正: {fpath} -> {corrected}")
+                    f["path"] = corrected
+
         # 提取所有已规划的文件路径
         planned_paths = {f["path"] for f in file_plan}
         # 提取所有被引用的模块
@@ -430,12 +444,28 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
                 architecture, complexity, remaining
             )
 
-            # 去重合并
+            # 去重合并 + 语言一致性修正
+            from app.agent.language_detector import LanguageDetector as _LD
+            lang_rules = _LD.get_language_specific_rules(detected_language) if detected_language else {}
+            expected_ext = lang_rules.get("file_extension", "") if lang_rules else ""
+
             added = 0
             for f in batch_files:
-                if f["path"] not in existing_paths:
+                fpath = f.get("path", "")
+                if not fpath:
+                    continue
+                # 语言一致性：修正文件扩展名
+                if expected_ext:
+                    from pathlib import Path as _P
+                    actual_ext = _P(fpath).suffix
+                    if actual_ext and actual_ext != expected_ext:
+                        corrected = fpath[:fpath.rfind(actual_ext)] + expected_ext
+                        logger.info(f"file_plan 路径修正: {fpath} -> {corrected}")
+                        f["path"] = corrected
+                        fpath = corrected
+                if fpath not in existing_paths:
                     existing_plan.append(f)
-                    existing_paths.add(f["path"])
+                    existing_paths.add(fpath)
                     added += 1
 
             logger.info(f"分批规划第 {batch} 轮：新增 {added} 个文件，当前共 {len(existing_plan)} 个")

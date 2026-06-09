@@ -307,8 +307,8 @@ class SpecFirstGenerateMixin:
                     actual_ext = _Path(file_path).suffix
                     if expected_ext and actual_ext and actual_ext != expected_ext:
                         logger.warning(f"语言不匹配：{file_path} 扩展名={actual_ext}, 但目标语言={target_language} 要求={expected_ext}, 强制修正扩展名")
-                        # 修正 file_path 的扩展名
-                        corrected_path = str(_Path(file_path).with_suffix(expected_ext))
+                        # 替换整个扩展名（避免 .py.js 问题）
+                        corrected_path = file_path[:file_path.rfind(actual_ext)] + expected_ext
                         logger.info(f"路径修正: {file_path} -> {corrected_path}")
                         file_path = corrected_path
 
@@ -755,7 +755,8 @@ class SpecFirstGenerateMixin:
                 actual_ext = _Path(file_path).suffix
                 if expected_ext and actual_ext and actual_ext != expected_ext:
                     logger.warning(f"语言不匹配：{file_path} 扩展名={actual_ext}, 但目标语言={target_language} 要求={expected_ext}, 强制修正扩展名")
-                    corrected_path = str(_Path(file_path).with_suffix(expected_ext))
+                    # 替换整个扩展名（避免 .py.js 问题）
+                    corrected_path = file_path[:file_path.rfind(actual_ext)] + expected_ext
                     logger.info(f"路径修正: {file_path} -> {corrected_path}")
                     file_path = corrected_path
 
