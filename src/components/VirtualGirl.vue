@@ -646,9 +646,9 @@ window.addEventListener('message',function(e){
 });
 
 window.opener.postMessage({type:'girlai-ready'},'*');
-</script>
-</body>
-</html>`)
+<` + `/script>
+<` + `/body>
+<` + `/html>`)
       pipWindow.document.close()
 
       // 监听 PiP 窗口的消息
