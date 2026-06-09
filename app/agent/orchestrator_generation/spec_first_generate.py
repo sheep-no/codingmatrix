@@ -297,17 +297,36 @@ class SpecFirstGenerateMixin:
                 if initial_content is None or not initial_content.strip():
                     return {"path": file_path, "success": False, "error": "内容提取失败或仅含空白字符"}
 
-                # file_plan 阶段已修正路径，这里只检查生成内容的语言一致性
-                # 如果工程师生成的代码语言与目标语言不匹配，记录警告
+                # 语言一致性验证：检查生成内容是否匹配目标语言
                 target_language = project_context.get("architecture", {}).get("language", "")
                 if target_language and initial_content:
                     _ext = file_path.rsplit('.', 1)[-1].lower() if '.' in file_path else ''
-                    _py_indicators = ['import os', 'from flask', 'from django', 'def ', 'class ', 'if __name__']
-                    _js_indicators = ['const ', 'let ', 'var ', 'require(', 'import ', 'export ', 'module.exports']
+                    _py_indicators = ['import os', 'from flask', 'from django', 'from fastapi', 'def ', 'class ', 'if __name__', 'print(']
+                    _js_indicators = ['const ', 'let ', 'var ', 'require(', 'module.exports', 'export default', 'export const']
+                    _lang_mismatch = False
                     if _ext in ('js', 'ts', 'jsx', 'tsx') and any(ind in initial_content for ind in _py_indicators):
-                        logger.warning(f"语言不匹配：{file_path} 声明为 {target_language}，但生成内容含 Python 特征")
+                        logger.warning(f"语言不匹配：{file_path} 应为 {target_language}，但生成内容含 Python 特征，重试")
+                        _lang_mismatch = True
                     elif _ext == 'py' and any(ind in initial_content for ind in _js_indicators):
-                        logger.warning(f"语言不匹配：{file_path} 声明为 {target_language}，但生成内容含 JS 特征")
+                        logger.warning(f"语言不匹配：{file_path} 应为 {target_language}，但生成内容含 JS 特征，重试")
+                        _lang_mismatch = True
+
+                    if _lang_mismatch:
+                        # 重试一次，在 prompt 中强调语言约束
+                        retry_prompt = f"【紧急】你上次生成的代码语言错误。你必须使用 {target_language} 语言。\n\n" + description
+                        initial_content = await engineer.generate_file(
+                            file_path, retry_prompt, project_context, spec_context, dep_context,
+                            project_path=str(self.output_dir), callback=callback,
+                            is_existing_file=False
+                        )
+                        if asyncio.iscoroutine(initial_content):
+                            initial_content = await initial_content
+                        if initial_content:
+                            initial_content = extract_engineer_content(
+                                initial_content, engineer, self.output_dir, file_path
+                            )
+                            if initial_content:
+                                logger.info(f"语言重试完成: {file_path}")
 
                 if cross_validator.is_critical_file(file_path, file_type, file_priority):
                     self._report_progress(
@@ -742,17 +761,37 @@ class SpecFirstGenerateMixin:
             else:
                 initial_content = self._clean_code_block(initial_content)
 
-            # file_plan 阶段已修正路径，这里只检查生成内容的语言一致性
+            # 语言一致性验证：检查生成内容是否匹配目标语言
             target_language = project_context.get("architecture", {}).get("language", "")
             if target_language and initial_content:
                 _ext = file_path.rsplit('.', 1)[-1].lower() if '.' in file_path else ''
-                _py_indicators = ['import os', 'from flask', 'from django', 'def ', 'class ', 'if __name__']
-                _js_indicators = ['const ', 'let ', 'var ', 'require(', 'import ', 'export ', 'module.exports']
+                _py_indicators = ['import os', 'from flask', 'from django', 'from fastapi', 'def ', 'class ', 'if __name__', 'print(']
+                _js_indicators = ['const ', 'let ', 'var ', 'require(', 'module.exports', 'export default', 'export const']
+                _lang_mismatch = False
                 if _ext in ('js', 'ts', 'jsx', 'tsx') and any(ind in initial_content for ind in _py_indicators):
-                    logger.warning(f"语言不匹配：{file_path} 声明为 {target_language}，但生成内容含 Python 特征")
+                    logger.warning(f"语言不匹配：{file_path} 应为 {target_language}，但生成内容含 Python 特征，重试")
+                    _lang_mismatch = True
                 elif _ext == 'py' and any(ind in initial_content for ind in _js_indicators):
-                    logger.warning(f"语言不匹配：{file_path} 声明为 {target_language}，但生成内容含 JS 特征")
-                    file_path = corrected_path
+                    logger.warning(f"语言不匹配：{file_path} 应为 {target_language}，但生成内容含 JS 特征，重试")
+                    _lang_mismatch = True
+
+                if _lang_mismatch:
+                    retry_prompt = f"【紧急】你上次生成的代码语言错误。你必须使用 {target_language} 语言。\n\n" + description
+                    initial_content = await engineer.generate_file(
+                        file_path, retry_prompt, combined_context, spec_context, dep_context,
+                        project_path=str(self.output_dir), callback=callback,
+                        is_existing_file=False
+                    )
+                    if asyncio.iscoroutine(initial_content):
+                        initial_content = await initial_content
+                    if initial_content:
+                        if engineer.get_edited_files():
+                            full = self.output_dir / normalized
+                            if full.exists():
+                                initial_content = full.read_text(encoding='utf-8')
+                        else:
+                            initial_content = self._clean_code_block(initial_content)
+                        logger.info(f"语言重试完成: {file_path}")
 
             if cross_validator.is_critical_file(file_path, file_type, file_priority):
                 alt_model = self._select_alternative_model(model_name)

@@ -43,7 +43,9 @@ class BackendEngineer(Specialist):
         language = architecture.get("language", "python")
         lang_rules = LanguageDetector.get_language_specific_rules(language)
 
-        prompt = f"""请创建以下后端文件：
+        prompt = f"""【严格约束】你必须使用 {language} 语言编写代码。禁止使用其他语言。
+
+请创建以下后端文件：
 
 文件路径：{file_path}
 文件描述：{description}
@@ -52,6 +54,14 @@ class BackendEngineer(Specialist):
 - 文件扩展名：{lang_rules['file_extension']}
 - 导入语法：{lang_rules['import_syntax']}
 - 入口文件：{lang_rules['entry_point']}
+
+【语言约束 - 必须遵守】
+- 你必须使用 {language} 语法编写此文件
+- 如果目标语言是 javascript，必须使用 const/let/var、require() 或 import/export 语法
+- 如果目标语言是 python，必须使用 def/class、import/from 语法
+- 如果目标语言是 java，必须使用 public class、import 语法
+- 禁止在 javascript 文件中使用 Python 语法（如 def、class、import os、from xxx import）
+- 禁止在 python 文件中使用 JavaScript 语法（如 const、let、require、module.exports）
 
 导入规则（重要）：
 - 包内文件之间的导入必须使用相对导入（如 from .utils import greet）

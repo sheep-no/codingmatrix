@@ -43,7 +43,9 @@ class FrontendEngineer(Specialist):
         language = architecture.get("language", "javascript")
         lang_rules = LanguageDetector.get_language_specific_rules(language)
 
-        prompt = f"""请创建以下前端文件：
+        prompt = f"""【严格约束】你必须使用 {language} 语言编写代码。禁止使用其他语言。
+
+请创建以下前端文件：
 
 文件路径：{file_path}
 文件描述：{description}
@@ -51,6 +53,13 @@ class FrontendEngineer(Specialist):
 语言规则：
 - 文件扩展名：{lang_rules['file_extension']}
 - 导入语法：{lang_rules['import_syntax']}
+
+【语言约束 - 必须遵守】
+- 你必须使用 {language} 语法编写此文件
+- 如果目标语言是 javascript，必须使用 const/let/var、require() 或 import/export 语法
+- 如果目标语言是 typescript，必须使用 const/let/var、import/export 语法和类型注解
+- 禁止在 javascript/typescript 文件中使用 Python 语法（如 def、class、import os、from xxx import）
+- 禁止使用 Python 的缩进风格定义函数
 
 项目上下文：{json.dumps(project_context, ensure_ascii=False, indent=2)}
 """
