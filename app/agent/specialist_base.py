@@ -107,6 +107,7 @@ class Specialist:
         project_path: str = "",
         max_rounds: int = None,
         callback: Optional[Any] = None,
+        heartbeat_tracker=None,
     ) -> str:
         """调用 LLM，支持 ReAct 工具调用循环
 
@@ -120,6 +121,7 @@ class Specialist:
             project_path: 项目路径（工具搜索用）
             max_rounds: 安全阀上限（防止无限循环，默认按复杂度分级）
             callback: 进度回调函数
+            heartbeat_tracker: 心跳活动跟踪器
 
         Returns:
             LLM 最终输出的文本（代码）
@@ -141,9 +143,21 @@ class Specialist:
 
         react_mode = _REACT_MODE_BY_COMPLEXITY.get(self._complexity, "simple")
 
+        # 包装 call_llm_fn，在每次 LLM 调用前后更新 tracker
+        original_call_llm = lambda p, s: self.call_llm(p, s)
+        if heartbeat_tracker:
+            async def tracked_call_llm(p, s):
+                heartbeat_tracker.touch()
+                result = await original_call_llm(p, s)
+                heartbeat_tracker.touch()
+                return result
+            call_llm_fn = tracked_call_llm
+        else:
+            call_llm_fn = original_call_llm
+
         engine = ReActEngine(
             tools=tools,
-            call_llm_fn=lambda p, s: self.call_llm(p, s),
+            call_llm_fn=call_llm_fn,
             project_path=project_path,
             max_rounds=max_rounds,
             mode=react_mode,

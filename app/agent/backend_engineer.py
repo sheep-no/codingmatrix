@@ -127,7 +127,8 @@ from .utils import greet, farewell
             heartbeat_tracker.touch()
         if project_path:
             result = await self.call_llm_with_tools(
-                prompt, self.SYSTEM_PROMPT, project_path=project_path, callback=callback
+                prompt, self.SYSTEM_PROMPT, project_path=project_path, callback=callback,
+                heartbeat_tracker=heartbeat_tracker
             )
         else:
             result = await self.call_llm(prompt, self.SYSTEM_PROMPT)
