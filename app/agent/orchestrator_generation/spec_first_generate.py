@@ -508,12 +508,25 @@ class SpecFirstGenerateMixin:
                 # 为新发现的文件生成内容
                 for missing_file in missing_files:
                     if missing_file not in generated_files_dict:
-                        # 使用默认内容
+                        # 使用默认内容（根据语言适配器确定）
                         init_filename = language_adapter.package_init_filename if language_adapter else '__init__.py'
-                        if init_filename and missing_file.endswith(init_filename):
-                            default_content = '"""Package initialization"""\n'
+                        if init_filename and (missing_file.endswith(init_filename) or missing_file.endswith('__init__.py')):
+                            # 根据文件类型生成正确的内容
+                            if init_filename.endswith('.py'):
+                                default_content = '"""Package initialization"""\n'
+                            elif init_filename.endswith('.js') or init_filename.endswith('.ts'):
+                                default_content = '// Package initialization\n'
+                            else:
+                                default_content = ''
                         else:
-                            default_content = f'"""Module: {missing_file}"""\n'
+                            # 根据文件扩展名生成正确的内容
+                            ext = Path(missing_file).suffix
+                            if ext == '.py':
+                                default_content = f'"""Module: {missing_file}"""\n'
+                            elif ext in ('.js', '.ts'):
+                                default_content = f'// Module: {missing_file}\n'
+                            else:
+                                default_content = ''
 
                         full_path = self.output_dir / missing_file
                         full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -522,7 +535,7 @@ class SpecFirstGenerateMixin:
 
                         ctx.save_file_content(missing_file, default_content, "integrity_fix")
                         logger.info(f"自动补充完整性文件: {missing_file}")
-                        self._report_file_event(missing_file, default_content, "自动补充的模块文件", "python")
+                        self._report_file_event(missing_file, default_content, "自动补充的模块文件", detected_language)
                         files_generated += 1
 
         # 3. CrossValidator 跨文件一致性验证
@@ -941,6 +954,66 @@ class SpecFirstGenerateMixin:
             errors_list.append(f"文件生成失败: {failed_file}")
             ctx.add_error(f"文件生成失败: {failed_file}")
 
+        # ============ 清理不符合项目语言的文件 ============
+        if language_adapter:
+            expected_extensions = set(language_adapter.extensions)
+            # 静态资源扩展名（不参与语言检查）
+            static_extensions = {'.html', '.css', '.json', '.yaml', '.yml', '.toml', '.xml', '.sql', '.md', '.txt', '.rst'}
+            all_valid_extensions = expected_extensions | static_extensions
+            
+            files_to_remove = []
+            for file_path in list(ctx.files.keys()):
+                ext = Path(file_path).suffix.lower()
+                # 检查是否是不符合项目语言的文件
+                if ext in ('.py', '.pyw', '.pyi') and '.py' not in expected_extensions:
+                    files_to_remove.append(file_path)
+                    logger.warning(f"移除不符合项目语言的文件: {file_path} (项目语言: {language_adapter.language})")
+                elif ext in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs') and not any(e in expected_extensions for e in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs')):
+                    files_to_remove.append(file_path)
+                    logger.warning(f"移除不符合项目语言的文件: {file_path} (项目语言: {language_adapter.language})")
+            
+            for file_path in files_to_remove:
+                # 删除文件
+                full_path = self.output_dir / file_path
+                if full_path.exists():
+                    full_path.unlink()
+                    logger.info(f"已删除文件: {full_path}")
+                # 从上下文中移除
+                if file_path in ctx.files:
+                    del ctx.files[file_path]
+                if file_path in generated_files_dict:
+                    del generated_files_dict[file_path]
+                files_generated -= 1
+
+        # ============ 清理文件名有问题的文件 ============
+        files_to_fix = []
+        for file_path in list(ctx.files.keys()):
+            # 检查文件名是否有空格
+            filename = Path(file_path).name
+            if ' ' in filename:
+                files_to_fix.append(file_path)
+                logger.warning(f"文件名包含空格: {file_path}")
+            # 检查文件名是否有中文字符且缺少分隔符
+            elif any('\u4e00' <= c <= '\u9fff' for c in filename):
+                # 中文文件名可能是合理的（如 图表.js），但需要确保路径正确
+                pass
+
+        for file_path in files_to_fix:
+            # 尝试修复文件名（移除空格）
+            fixed_path = file_path.replace(' ', '')
+            if fixed_path != file_path:
+                full_path = self.output_dir / file_path
+                fixed_full_path = self.output_dir / fixed_path
+                if full_path.exists():
+                    fixed_full_path.parent.mkdir(parents=True, exist_ok=True)
+                    full_path.rename(fixed_full_path)
+                    logger.info(f"修复文件名: {file_path} -> {fixed_path}")
+                    # 更新上下文
+                    if file_path in ctx.files:
+                        ctx.files[fixed_path] = ctx.files.pop(file_path)
+                    if file_path in generated_files_dict:
+                        generated_files_dict[fixed_path] = generated_files_dict.pop(file_path)
+
         self._report_progress(
             "dynamic_topology_complete", total_files + 4, total_files + 5,
             files_generated=files_generated,
@@ -948,6 +1021,29 @@ class SpecFirstGenerateMixin:
             stats=scheduler.get_stats(),
             callback=callback
         )
+
+        # ============ 清理根目录重复文件 ============
+        # 检查根目录是否有与 src/ 目录重复的文件
+        root_files = [f for f in ctx.files.keys() if '/' not in f and '\\' not in f]
+        src_files = [f for f in ctx.files.keys() if f.startswith('src/')]
+        
+        for root_file in root_files:
+            root_name = Path(root_file).name
+            # 检查是否有同名的 src/ 文件
+            for src_file in src_files:
+                src_name = Path(src_file).name
+                if root_name == src_name:
+                    # 根目录文件是重复的，删除它
+                    full_path = self.output_dir / root_file
+                    if full_path.exists():
+                        full_path.unlink()
+                        logger.info(f"删除根目录重复文件: {root_file} (与 {src_file} 重复)")
+                    if root_file in ctx.files:
+                        del ctx.files[root_file]
+                    if root_file in generated_files_dict:
+                        del generated_files_dict[root_file]
+                    files_generated -= 1
+                    break
 
         # ============ 完整性验证（新增） ============
         generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
@@ -983,10 +1079,25 @@ class SpecFirstGenerateMixin:
                 architecture = dep_graph.add_missing_files(architecture)
                 for missing_file in missing_files:
                     if missing_file not in generated_files_dict:
-                        if missing_file.endswith('__init__.py'):
-                            default_content = '"""Package initialization"""\n'
+                        # 根据语言适配器确定正确的文件内容
+                        init_filename = language_adapter.package_init_filename if language_adapter else '__init__.py'
+                        if missing_file.endswith(init_filename) or missing_file.endswith('__init__.py'):
+                            # 根据文件类型生成正确的内容
+                            if init_filename.endswith('.py'):
+                                default_content = '"""Package initialization"""\n'
+                            elif init_filename.endswith('.js') or init_filename.endswith('.ts'):
+                                default_content = '// Package initialization\n'
+                            else:
+                                default_content = ''
                         else:
-                            default_content = f'"""Module: {missing_file}"""\n'
+                            # 根据文件扩展名生成正确的内容
+                            ext = Path(missing_file).suffix
+                            if ext == '.py':
+                                default_content = f'"""Module: {missing_file}"""\n'
+                            elif ext in ('.js', '.ts'):
+                                default_content = f'// Module: {missing_file}\n'
+                            else:
+                                default_content = ''
 
                         full_path = self.output_dir / missing_file
                         full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -994,7 +1105,7 @@ class SpecFirstGenerateMixin:
                             f.write(default_content)
                         ctx.save_file_content(missing_file, default_content, "auto_generated")
                         logger.info(f"自动生成缺失文件: {missing_file}")
-                        self._report_file_event(missing_file, default_content, "自动补充的模块文件", "python")
+                        self._report_file_event(missing_file, default_content, "自动补充的模块文件", detected_language)
                         files_generated += 1
 
         # 3. CrossValidator 跨文件一致性验证
