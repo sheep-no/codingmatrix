@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Optional, Dict
 
 from app.utils import call_llm
@@ -308,6 +309,40 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
             "risks": complexity.risk_factors
         }
 
+    @staticmethod
+    def _parse_import_to_module(import_str: str) -> Optional[str]:
+        """解析 import 语句，提取模块路径
+
+        支持格式：
+        - "from src.app.models import Expense" -> "src.app.models"
+        - "from src.app.models.expense import Expense" -> "src.app.models.expense"
+        - "import src.app.models" -> "src.app.models"
+        - "src.app.models" -> "src.app.models" (已经是模块路径)
+
+        Returns:
+            模块路径或 None（如果无法解析）
+        """
+        if not import_str or not isinstance(import_str, str):
+            return None
+
+        import_str = import_str.strip()
+
+        # 格式 1: "from xxx import yyy"
+        match = re.match(r'^from\s+([\w.]+)\s+import\s+', import_str)
+        if match:
+            return match.group(1)
+
+        # 格式 2: "import xxx"
+        match = re.match(r'^import\s+([\w.]+)', import_str)
+        if match:
+            return match.group(1)
+
+        # 格式 3: 已经是模块路径（只包含字母、数字、点、下划线）
+        if re.match(r'^[\w.]+$', import_str):
+            return import_str
+
+        return None
+
     def _ensure_file_plan_completeness(self, architecture: Dict, target_language: Optional[str] = None) -> Dict:
         """确保 file_plan 完整性：只补充 imports 中明确引用但 file_plan 中缺失的文件
 
@@ -345,33 +380,46 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
 
         # 提取所有已规划的文件路径
         planned_paths = {f["path"] for f in file_plan}
-        # 提取所有被引用的模块
-        all_imports = set()
+        # 提取所有被引用的模块（解析 import 语句为模块路径）
+        all_modules = set()
         for f in file_plan:
             imports = f.get("imports", [])
             if isinstance(imports, list):
                 for imp in imports:
                     if isinstance(imp, str):
-                        all_imports.add(imp)
+                        # 解析 import 语句，提取模块路径
+                        module = self._parse_import_to_module(imp)
+                        if module:
+                            all_modules.add(module)
                     elif isinstance(imp, dict):
                         module = imp.get("module", "")
                         if module:
-                            all_imports.add(module)
+                            # 解析 import 语句，提取模块路径
+                            parsed_module = self._parse_import_to_module(module)
+                            if parsed_module:
+                                all_modules.add(parsed_module)
                         for item in imp.get("items", []):
                             if isinstance(item, str):
-                                all_imports.add(item)
+                                # 解析 import 语句，提取模块路径
+                                parsed_item = self._parse_import_to_module(item)
+                                if parsed_item:
+                                    all_modules.add(parsed_item)
 
         # 只补充 imports 中明确引用但 file_plan 中缺失的文件
         missing_files = []
         from app.agent.adapters import ImportInfo
-        for imp in all_imports:
-            import_info = ImportInfo(module=imp, symbols=[], is_relative=False)
+        for module in all_modules:
+            import_info = ImportInfo(module=module, symbols=[], is_relative=False)
             candidates = adapter.resolve_import_to_file(import_info, "")
 
             exists = any(c in planned_paths for c in candidates)
 
             if not exists and candidates:
                 file_path = candidates[0]
+                # 验证文件路径是否合法（不包含空格或特殊字符）
+                if ' ' in file_path or ',' in file_path:
+                    logger.warning(f"跳过非法文件路径: {file_path}")
+                    continue
                 missing_files.append({
                     "path": file_path,
                     "description": "自动补充的模块文件",
