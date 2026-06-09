@@ -197,6 +197,21 @@ class DependencyGraph:
         # 3. 硬编码规则作为兜底（补充 LLM 可能遗漏的依赖）
         self._auto_add_dependencies()
 
+        # 4. 输出依赖图详情（调试用）
+        logger.info(f"=== 依赖图构建详情 ===")
+        logger.info(f"文件节点 ({len(self.nodes)}):")
+        for path, node in sorted(self.nodes.items()):
+            logger.info(f"  {path} (type={node.file_type}, priority={node.priority})")
+        logger.info(f"依赖关系 ({sum(len(d) for d in self.adjacency.values())} 条):")
+        for path, deps in sorted(self.adjacency.items()):
+            if deps:
+                logger.info(f"  {path} -> {sorted(deps)}")
+        logger.info(f"被依赖关系:")
+        for path, dependents in sorted(self.reverse_adjacency.items()):
+            if dependents:
+                logger.info(f"  {path} <- {sorted(dependents)}")
+        logger.info(f"========================")
+
     def _import_to_file_path(self, import_path: str) -> Optional[str]:
         """将 import 路径转换为文件路径"""
         # 使用语言适配器
@@ -269,6 +284,10 @@ class DependencyGraph:
         for path, node in self.nodes.items():
             type_to_files[node.file_type].append(path)
 
+        logger.info(f"_auto_add_dependencies: 文件类型分布 = {dict(type_to_files)}")
+        logger.info(f"_auto_add_dependencies: DEPENDENCY_RULES = {dict(self.DEPENDENCY_RULES)}")
+
+        added_by_rules = 0
         for path, node in self.nodes.items():
             dep_types = self.DEPENDENCY_RULES.get(node.file_type, [])
             for dep_type in dep_types:
@@ -277,6 +296,9 @@ class DependencyGraph:
                     for other_path in type_to_files.get(dep_type, []):
                         if other_path != path:
                             self.add_dependency(path, other_path)
+                            added_by_rules += 1
+
+        logger.info(f"_auto_add_dependencies: 硬编码规则添加了 {added_by_rules} 条依赖")
 
     def ensure_package_files(self) -> List[str]:
         """
