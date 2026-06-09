@@ -203,13 +203,21 @@ class SpecFirstGenerator:
                 logger.warning(f"OpenAPI 规范解析失败")
                 return False
             
-            # 如果返回 list，尝试提取第一个 dict 元素
+            # 如果返回 list，递归提取第一个 dict 元素（处理 [[...]] 嵌套）
             if isinstance(openapi_spec, list):
-                if len(openapi_spec) > 0 and isinstance(openapi_spec[0], dict):
-                    openapi_spec = openapi_spec[0]
-                    logger.info(f"OpenAPI 规范从 list 中提取第一个元素")
+                while isinstance(openapi_spec, list) and len(openapi_spec) > 0:
+                    if isinstance(openapi_spec[0], dict):
+                        openapi_spec = openapi_spec[0]
+                        logger.info(f"OpenAPI 规范从 list 中提取第一个元素")
+                        break
+                    elif isinstance(openapi_spec[0], list):
+                        openapi_spec = openapi_spec[0]
+                        logger.info(f"OpenAPI 规范从嵌套 list 中提取")
+                    else:
+                        logger.warning(f"OpenAPI 规范解析失败: list 首元素类型={type(openapi_spec[0]).__name__}")
+                        return False
                 else:
-                    logger.warning(f"OpenAPI 规范解析失败: list 长度={len(openapi_spec)}, 首元素类型={type(openapi_spec[0]).__name__ if openapi_spec else 'empty'}")
+                    logger.warning(f"OpenAPI 规范解析失败: 空 list")
                     return False
             
             if not isinstance(openapi_spec, dict):
