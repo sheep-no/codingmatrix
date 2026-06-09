@@ -221,26 +221,27 @@ class LanguageDetector:
         evidence = []
 
         # 策略 0: 检查是否是全栈项目（前端 + 后端不同语言）
-        # 如果检测到全栈项目，使用 LLM 进行更准确的检测
+        # 用于日志记录和后续处理
         is_fullstack, frontend_lang, backend_lang = cls._detect_fullstack_languages(requirement_lower)
         if is_fullstack:
             evidence.append(f"全栈项目检测: 前端={frontend_lang}, 后端={backend_lang}")
-            # 使用 LLM 进行确认和更准确的检测
-            llm_result = cls._detect_with_llm_sync(requirement, evidence.copy())
-            if llm_result:
-                return llm_result
 
         # 策略 1: 框架推断（优先于通用语言关键词，因为框架更明确）
         for framework, lang in cls.FRAMEWORK_LANGUAGE.items():
             pattern = r'\b' + re.escape(framework) + r'\b'
             if re.search(pattern, requirement_lower):
                 evidence.append(f"框架推断: '{framework}' → {lang}")
-                return LanguageDetectionResult(
+                result = LanguageDetectionResult(
                     language=lang,
                     confidence=0.95,
                     evidence=evidence,
                     adapter_name=cls._get_adapter_name(lang)
                 )
+                # 如果检测到全栈项目，添加前端和后端语言信息
+                if is_fullstack:
+                    result.frontend_language = frontend_lang
+                    result.backend_language = backend_lang or lang
+                return result
 
         # 策略 2: 显式语言关键词（全局按关键词长度降序匹配，避免短关键词误匹配）
         # 收集所有 (keyword, language) 对
@@ -262,13 +263,10 @@ class LanguageDetector:
             if re.search(pattern, requirement_lower):
                 evidence.append(f"关键词匹配: '{keyword}' → {lang}")
                 # 检查是否有冲突（需求中同时提到了其他语言的框架）
+                # 仅用于日志记录，不改变检测结果
                 conflict = cls._check_language_conflict(requirement_lower, lang)
                 if conflict:
-                    evidence.append(f"检测到冲突: {conflict}")
-                    # 使用 LLM 进行确认
-                    llm_result = cls._detect_with_llm_sync(requirement, evidence.copy())
-                    if llm_result:
-                        return llm_result
+                    evidence.append(f"检测到冲突（已忽略）: {conflict}")
                 return LanguageDetectionResult(
                     language=lang,
                     confidence=0.95,
