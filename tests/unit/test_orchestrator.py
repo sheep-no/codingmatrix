@@ -187,7 +187,7 @@ class TestDynamicModelRouter:
         """SIMPLE 级别返回正确分配"""
         assignment = _LayeredModelRouterCompat.get_assignment(ProjectComplexity.SIMPLE)
         assert isinstance(assignment, ModelAssignment)
-        assert assignment.architect_model == "Qwen/Qwen3.5-4B"
+        assert assignment.architect_model == "Qwen/Qwen3-8B"
         assert assignment.frontend_model == "Qwen/Qwen3-8B"
 
     def test_get_assignment_enterprise_falls_back_to_large(self):

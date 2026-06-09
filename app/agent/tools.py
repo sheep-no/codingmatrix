@@ -710,6 +710,11 @@ def _validate_file_syntax(file_path: str, content: str) -> str:
             return f"Python 语法错误: {e}"
 
     elif ext in ('.js', '.ts', '.vue'):
+        # 检测 Python 代码混入 JS 文件
+        python_indicators = ['def ', 'import ', 'from ', 'class ', 'self.', 'print(']
+        python_count = sum(1 for ind in python_indicators if ind in content)
+        if python_count >= 3:
+            return f"JavaScript 文件疑似包含 Python 代码（匹配 {python_count} 个指标）"
         try:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
                 f.write(content)
@@ -744,6 +749,11 @@ def _validate_file_syntax(file_path: str, content: str) -> str:
     elif ext == '.css':
         if content.count('{') != content.count('}'):
             return "CSS 大括号不匹配"
+        # 检测非 CSS 内容（大段中文描述文本）
+        lines = [l.strip() for l in content.split('\n') if l.strip() and not l.strip().startswith('/*')]
+        chinese_lines = sum(1 for l in lines if len(re.findall(r'[\u4e00-\u9fff]', l)) > 10)
+        if chinese_lines > len(lines) * 0.3 and chinese_lines > 3:
+            return f"CSS 文件包含大量非代码文本（{chinese_lines} 行中文描述）"
         return ""
 
     return ""

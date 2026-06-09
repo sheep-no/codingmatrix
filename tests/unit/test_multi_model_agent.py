@@ -195,11 +195,11 @@ class TestDynamicModelRouter:
         config = {
             "assignments": {
                 "SIMPLE": {
-                    "architect_model": "qwen3.5-4b",
+                    "architect_model": "qwen3-8b",
                     "frontend_model": "qwen3-8b",
                     "backend_model": "qwen3-8b",
                     "reviewer_model": "qwen3-8b",
-                    "fallback_model": "qwen3.5-4b",
+                    "fallback_model": "qwen3-8b",
                 },
             }
         }
@@ -212,7 +212,7 @@ class TestDynamicModelRouter:
             return_value=config,
         ):
             assignment = _LayeredModelRouterCompat.get_assignment(ProjectComplexity.SIMPLE)
-            assert assignment.architect_model == "Qwen/Qwen3.5-4B"
+            assert assignment.architect_model == "Qwen/Qwen3-8B"
             assert assignment.frontend_model == "Qwen/Qwen3-8B"
 
         # 清理缓存，避免影响其他测试

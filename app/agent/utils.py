@@ -14,6 +14,7 @@ def clean_code_block(content: str) -> str:
     """从 LLM 输出中提取代码块
 
     支持 ```python ... ```、``` ... ``` 等格式。
+    先剥离 <think>...</think>` 标签，再提取代码块。
     如果没有代码块标记，返回原始内容（strip 后）。
     """
     import asyncio
@@ -22,6 +23,11 @@ def clean_code_block(content: str) -> str:
         content = str(content)
     elif not isinstance(content, str):
         content = str(content)
+
+    # 剥离 <think>...</think> 标签（DeepSeek-R1 等模型的思考过程）
+    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+    # 剥离 <think>...</think>` 标签（部分模型变体）
+    content = re.sub(r'<thinking>.*?</thinking>', '', content, flags=re.DOTALL).strip()
 
     pattern = r'```(?:\w+)?\s*(.*?)\s*```'
     match = re.search(pattern, content, re.DOTALL)
@@ -144,6 +150,64 @@ def write_file_atomic(output_dir: Path, file_path: str, content: str) -> bool:
         if tmp_path.exists():
             tmp_path.unlink()
         return False
+
+
+def validate_content_quality(file_path: str, content: str) -> str:
+    """验证文件内容质量，检测 LLM 思考过程泄漏等非代码内容
+
+    返回警告信息（空字符串表示通过）。
+    """
+    if not content or len(content.strip()) < 10:
+        return ""
+
+    ext = Path(file_path).suffix.lower()
+    stripped = content.strip()
+
+    # 检测 LLM 思考过程泄漏（中文描述性文本混入代码文件）
+    # 特征：以中文标点或"最终答案"、"任务执行"等开头
+    thinking_patterns = [
+        r'^最终答案',
+        r'^任务执行',
+        r'^基于.*?执行过程',
+        r'^已成功完成',
+        r'^以下是.*?总结',
+        r'^✅',
+        r'^---\s*$',
+        r'^###\s+✅',
+    ]
+    for pattern in thinking_patterns:
+        if re.match(pattern, stripped, re.MULTILINE):
+            return f"内容疑似 LLM 思考过程泄漏（匹配模式: {pattern[:30]}）"
+
+    # CSS 文件内容校验
+    if ext == '.css':
+        # CSS 不应包含大段中文描述（排除注释）
+        lines = [l.strip() for l in stripped.split('\n') if l.strip() and not l.strip().startswith('/*')]
+        chinese_lines = sum(1 for l in lines if len(re.findall(r'[\u4e00-\u9fff]', l)) > 10)
+        if chinese_lines > len(lines) * 0.3 and chinese_lines > 3:
+            return f"CSS 文件包含大量中文文本（{chinese_lines}/{len(lines)} 行），疑似非代码内容"
+        # CSS 至少应有一些选择器或属性
+        if '{' in stripped and '}' in stripped:
+            # 有花括号，基本合格
+            pass
+        elif len(stripped) > 50 and not any(c in stripped for c in '{:;}'):
+            return "CSS 文件缺少基本语法结构（选择器、属性）"
+
+    # JS 文件内容校验
+    if ext in ('.js', '.jsx', '.mjs', '.cjs'):
+        # JS 不应包含 Python 特征
+        python_indicators = ['def ', 'import ', 'from ', 'class ', 'self.', 'print(']
+        python_count = sum(1 for ind in python_indicators if ind in stripped)
+        if python_count >= 3:
+            return f"JavaScript 文件包含 Python 代码特征（匹配 {python_count} 个指标）"
+
+    # Python 文件不应放在前端目录
+    if ext == '.py':
+        frontend_dirs = ['static/js', 'static/css', 'assets/js', 'assets/css', 'public/js', 'public/css']
+        if any(d in file_path.replace('\\', '/') for d in frontend_dirs):
+            return f"Python 文件不应出现在前端资源目录: {file_path}"
+
+    return ""
 
 
 def cleanup_temp_files(output_dir: Path, file_path: str):

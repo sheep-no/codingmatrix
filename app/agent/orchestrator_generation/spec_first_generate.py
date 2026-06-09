@@ -392,6 +392,28 @@ class SpecFirstGenerateMixin:
 
                 final_content = result.final_content
 
+                # 写入前内容质量校验
+                from app.agent.utils import validate_content_quality
+                quality_warning = validate_content_quality(file_path, final_content)
+                if quality_warning:
+                    logger.warning(f"内容质量校验失败: {file_path} - {quality_warning}")
+                    retry_content = await engineer.generate_file(
+                        file_path, f"【重要】请只返回代码，不要返回任何解释或思考过程。\n\n{description}",
+                        project_context, spec_context, dep_context,
+                        project_path=str(self.output_dir), callback=callback,
+                        is_existing_file=False
+                    )
+                    if asyncio.iscoroutine(retry_content):
+                        retry_content = await retry_content
+                    if retry_content:
+                        retry_content = extract_engineer_content(
+                            retry_content, engineer, self.output_dir, file_path
+                        )
+                        retry_warning = validate_content_quality(file_path, retry_content or "")
+                        if not retry_warning and retry_content:
+                            final_content = retry_content
+                            logger.info(f"内容质量重试成功: {file_path}")
+
                 # 原子写入
                 write_file_atomic(self.output_dir, file_path, final_content)
 
@@ -882,6 +904,33 @@ class SpecFirstGenerateMixin:
 
             final_content = result.final_content
 
+            # 写入前内容质量校验：检测 LLM 思考过程泄漏等非代码内容
+            from app.agent.utils import validate_content_quality
+            quality_warning = validate_content_quality(file_path, final_content)
+            if quality_warning:
+                logger.warning(f"内容质量校验失败: {file_path} - {quality_warning}")
+                # 尝试重新生成一次
+                retry_content = await engineer.generate_file(
+                    file_path, f"【重要】请只返回代码，不要返回任何解释或思考过程。\n\n{description}",
+                    project_context, spec_context, dep_context,
+                    project_path=str(self.output_dir), callback=callback,
+                    is_existing_file=False
+                )
+                if asyncio.iscoroutine(retry_content):
+                    retry_content = await retry_content
+                if retry_content:
+                    retry_content = extract_engineer_content(
+                        retry_content, engineer, self.output_dir, file_path
+                    )
+                    retry_warning = validate_content_quality(file_path, retry_content or "")
+                    if not retry_warning and retry_content:
+                        final_content = retry_content
+                        logger.info(f"内容质量重试成功: {file_path}")
+                    else:
+                        logger.warning(f"内容质量重试仍失败: {file_path}，使用占位文件")
+                        final_content = self._generate_placeholder(file_path, description, file_type)
+                        result.success = False
+
             # 写入前语法验证：精炼循环可能未能修复语法错误
             syntax_ok = await self._validate_content_syntax(file_path, final_content)
             if not syntax_ok and final_content:
@@ -964,6 +1013,8 @@ class SpecFirstGenerateMixin:
             files_to_remove = []
             for file_path in list(ctx.files.keys()):
                 ext = Path(file_path).suffix.lower()
+                normalized_path = file_path.replace('\\', '/')
+
                 # 检查是否是不符合项目语言的文件
                 if ext in ('.py', '.pyw', '.pyi') and '.py' not in expected_extensions:
                     files_to_remove.append(file_path)
@@ -971,6 +1022,14 @@ class SpecFirstGenerateMixin:
                 elif ext in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs') and not any(e in expected_extensions for e in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs')):
                     files_to_remove.append(file_path)
                     logger.warning(f"移除不符合项目语言的文件: {file_path} (项目语言: {language_adapter.language})")
+
+                # 检查 Python 文件是否出现在前端资源目录中
+                if ext in ('.py', '.pyw', '.pyi'):
+                    frontend_dirs = ['static/js', 'static/css', 'assets/js', 'assets/css', 'public/js', 'public/css']
+                    if any(d in normalized_path for d in frontend_dirs):
+                        if file_path not in files_to_remove:
+                            files_to_remove.append(file_path)
+                            logger.warning(f"移除前端目录中的 Python 文件: {file_path}")
             
             for file_path in files_to_remove:
                 # 删除文件
@@ -1165,6 +1224,11 @@ class SpecFirstGenerateMixin:
                 return False
 
         elif ext in ('.js', '.ts', '.vue'):
+            # 检测 Python 代码混入 JS 文件
+            python_indicators = ['def ', 'import ', 'from ', 'class ', 'self.', 'print(']
+            python_count = sum(1 for ind in python_indicators if ind in content)
+            if python_count >= 3:
+                return False
             import tempfile
             import subprocess
             try:
@@ -1192,6 +1256,11 @@ class SpecFirstGenerateMixin:
 
         elif ext == '.css':
             if content.count('{') != content.count('}'):
+                return False
+            # 检测非 CSS 内容（大段中文描述文本）
+            lines = [l.strip() for l in content.split('\n') if l.strip() and not l.strip().startswith('/*')]
+            chinese_lines = sum(1 for l in lines if len(re.findall(r'[\u4e00-\u9fff]', l)) > 10)
+            if chinese_lines > len(lines) * 0.3 and chinese_lines > 3:
                 return False
             return True
 
