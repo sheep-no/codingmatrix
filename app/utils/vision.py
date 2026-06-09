@@ -72,7 +72,7 @@ def image_to_base64(image_path: str) -> str:
 VISION_MODEL_FALLBACK = [
     "THUDM/GLM-4.1V-9B-Thinking",  # 首选视觉模型
     "deepseek-ai/DeepSeek-OCR",    # 降级到 OCR 模型
-    "Qwen/Qwen3.5-4B"             # 最后降级到通用模型
+    "Qwen/Qwen3-8B"               # 最后降级到通用模型
 ]
 
 
@@ -119,7 +119,7 @@ async def analyze_image(
     降级顺序：
     1. THUDM/GLM-4.1V-9B-Thinking
     2. deepseek-ai/DeepSeek-OCR
-    3. Qwen/Qwen3.5-4B
+    3. Qwen/Qwen3-8B
 
     Args:
         image_path: 图片文件路径

@@ -30,7 +30,7 @@ class ModelAdapter:
         初始化模型适配器
 
         Args:
-            model_name: 模型名称，如 'Qwen/Qwen3.5-4B'
+            model_name: 模型名称，如 'Qwen/Qwen3-8B'
         """
         self.model_name = model_name
         self.model_config = self._load_model_config(model_name)

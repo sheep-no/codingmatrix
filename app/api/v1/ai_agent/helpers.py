@@ -512,7 +512,7 @@ async def verify_session_ownership(db: AsyncSession, session_id: str, user_id: s
 
 # ==================== 意图检测 ====================
 
-async def detect_resume_intent(requirement: str, model: str = "Qwen/Qwen3.5-4B") -> Dict[str, Any]:
+async def detect_resume_intent(requirement: str, model: str = "Qwen/Qwen3-8B") -> Dict[str, Any]:
     """
     检测用户输入是否包含"继续"意图
     
@@ -587,7 +587,7 @@ async def resolve_resume_session(
     db: AsyncSession,
      user_id: str,
      requirement: str,
-     model: str = "Qwen/Qwen3.5-4B",
+     model: str = "Qwen/Qwen3-8B",
      limit: int = 20
 ) -> Optional[ProjectSession]:
     """
@@ -674,7 +674,7 @@ async def analyze_files_to_regenerate(
      original_requirement: str,
      additional_requirement: str,
      generated_files: List[str],
-     model: str = "Qwen/Qwen3.5-4B"
+     model: str = "Qwen/Qwen3-8B"
 ) -> List[str]:
     """
     分析哪些文件需要重新生成

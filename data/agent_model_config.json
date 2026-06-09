@@ -19,7 +19,7 @@
   },
   "assignments": {
     "SIMPLE": {
-      "architect_model": "qwen3.5-4b",
+      "architect_model": "qwen3-8b",
       "frontend_model": "qwen3-8b",
       "backend_model": "qwen3-8b",
       "reviewer_model": "qwen3-8b",

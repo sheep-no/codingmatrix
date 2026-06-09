@@ -14,7 +14,7 @@ from app.utils import call_llm
 logger = logging.getLogger(__name__)
 
 # 8C8G 环境推荐模型
-DEFAULT_MODEL = "Qwen/Qwen3.5-4B"
+DEFAULT_MODEL = "Qwen/Qwen3-8B"
 FALLBACK_MODEL = "THUDM/GLM-4-9B-0414"
 
 
@@ -26,7 +26,7 @@ class LLMCallNode(TaskNodeBase):
 
     参数:
         prompt: 提示词（必填）
-        model: 模型名称（可选，默认 Qwen3.5-4B）
+        model: 模型名称（可选，默认 Qwen3-8B）
         system_prompt: 系统提示词（可选）
         temperature: 温度参数（可选，默认 0.7）
         max_tokens: 最大生成长度（可选，默认 2048）

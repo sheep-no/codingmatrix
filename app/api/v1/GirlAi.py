@@ -66,7 +66,7 @@ CHARACTER_PROFILES: Dict[str, Dict[str, Any]] = {
             "哈喽哈喽~ 今天有什么有趣的事情吗？٩(◕‿◕) ﾉ"
         ],
         "tags": ["元气", "活泼", "少女", "可爱"],
-        "model": "Qwen/Qwen3.5-4B",
+        "model": "Qwen/Qwen3-8B",
         "temperature": 0.9,
         "max_tokens": 150
     },
@@ -82,7 +82,7 @@ CHARACTER_PROFILES: Dict[str, Dict[str, Any]] = {
             "…笨蛋，下次别让我等这么久啦！"
         ],
         "tags": ["傲娇", "妹妹", "别扭", "可爱"],
-        "model": "Qwen/Qwen3.5-4B",
+        "model": "Qwen/Qwen3-8B",
         "temperature": 0.85,
         "max_tokens": 160
     },

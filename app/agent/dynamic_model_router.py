@@ -260,7 +260,7 @@ class LearningRouter:
 
     def select_model(self, task_type: str, candidate_models: List[str]) -> str:
         if not candidate_models:
-            return candidate_models[0] if candidate_models else "Qwen/Qwen3.5-4B"
+            return candidate_models[0] if candidate_models else "Qwen/Qwen3-8B"
 
         degraded = self._degraded_models.get(task_type, {})
         eligible = []
@@ -433,7 +433,7 @@ class DynamicModelRouter:
     DEFAULT_FALLBACK_ORDER = [
         "Qwen/Qwen3-8B",
         "THUDM/GLM-4-9B-0414",
-        "Qwen/Qwen3.5-4B"
+        "Qwen/Qwen3-8B"
     ]
 
     def __init__(self):
@@ -647,11 +647,11 @@ class _LayeredModelRouterCompat:
     # 默认分配（硬编码兜底）
     DEFAULT_ASSIGNMENTS = {
         ProjectComplexity.SIMPLE: ModelAssignment(
-            architect_model="Qwen/Qwen3.5-4B",
+            architect_model="Qwen/Qwen3-8B",
             frontend_model="Qwen/Qwen3-8B",
             backend_model="Qwen/Qwen3-8B",
             reviewer_model="Qwen/Qwen3-8B",
-            fallback_model="Qwen/Qwen3.5-4B"
+            fallback_model="Qwen/Qwen3-8B"
         ),
         ProjectComplexity.SMALL: ModelAssignment(
             architect_model="THUDM/GLM-Z1-9B-0414",
@@ -710,7 +710,7 @@ class _LayeredModelRouterCompat:
                     frontend_model=_resolve("frontend_model", default.frontend_model if default else "Qwen/Qwen3-8B"),
                     backend_model=_resolve("backend_model", default.backend_model if default else "Qwen/Qwen3-8B"),
                     reviewer_model=_resolve("reviewer_model", default.reviewer_model if default else "THUDM/GLM-4-9B-0414"),
-                    fallback_model=_resolve("fallback_model", default.fallback_model if default else "Qwen/Qwen3.5-4B"),
+                    fallback_model=_resolve("fallback_model", default.fallback_model if default else "Qwen/Qwen3-8B"),
                 )
             except (KeyError, ValueError) as e:
                 logger.warning(f"解析配置文件中的复杂度 '{complexity_name}' 失败: {e}")
@@ -762,7 +762,7 @@ class _LayeredModelRouterCompat:
         Callers should set RoutingConfig(enable_health_awareness=True) to activate.
         """
         if not candidate_models:
-            return "Qwen/Qwen3.5-4B"
+            return "Qwen/Qwen3-8B"
 
         config = routing_config or RoutingConfig()
 
@@ -795,7 +795,7 @@ class _LayeredModelRouterCompat:
                 healthy_models.append(model_name)
 
         if not healthy_models:
-            return "Qwen/Qwen3.5-4B"
+            return "Qwen/Qwen3-8B"
 
         # 计算综合评分
         def calculate_comprehensive_score(model_name: str) -> float:

@@ -683,13 +683,13 @@ class FilesMixin:
         alt_map = {
             DEFAULT_REASONING_MODEL: DEFAULT_CODE_MODEL,
             DEFAULT_CODE_MODEL: DEFAULT_REASONING_MODEL,
-            "Qwen/Qwen3.5-4B": DEFAULT_CODE_MODEL,
+            "Qwen/Qwen3-8B": DEFAULT_CODE_MODEL,
             DEFAULT_ARCHITECT_MODEL: DEFAULT_REASONING_MODEL,
         }
         return alt_map.get(primary_model, DEFAULT_CODE_MODEL)
 
     def _select_engineer_for_model(self, model_name: str) -> Specialist:
-        frontend_models = {"Qwen/Qwen3.5-4B", DEFAULT_CODE_MODEL}
+        frontend_models = {"Qwen/Qwen3-8B", DEFAULT_CODE_MODEL}
         if model_name in frontend_models:
             return self.frontend_engineer
         return self.backend_engineer

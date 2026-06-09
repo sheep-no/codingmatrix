@@ -832,7 +832,7 @@ async def search_sessions(
         scores = {}
         try:
             result_llm = await call_llm(
-                model="Qwen/Qwen3.5-4B",
+                model="Qwen/Qwen3-8B",
                 prompt=prompt,
                 temperature=0.1,
                 max_tokens=1000

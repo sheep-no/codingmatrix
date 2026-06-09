@@ -67,7 +67,7 @@ class ModelInfo:
 DEFAULT_CODE_MODEL = "Qwen/Qwen3-8B"                    # 通用代码任务
 DEFAULT_REASONING_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"  # 推理/后端任务
 DEFAULT_ARCHITECT_MODEL = "THUDM/GLM-Z1-9B-0414"        # 架构设计/评审
-DEFAULT_FAST_MODEL = "Qwen/Qwen3.5-4B"                  # 简单/快速任务
+DEFAULT_FAST_MODEL = "Qwen/Qwen3-8B"                    # 简单/快速任务
 
 # COMPLEXITY_LEVELS 供 ModelRouter.get_role_model 校验复杂度参数
 COMPLEXITY_LEVELS = ("SIMPLE", "SMALL", "MEDIUM", "LARGE", "ENTERPRISE")
