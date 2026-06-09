@@ -650,7 +650,7 @@ class SpecFirstGenerateMixin:
         # 免费模型速率限制：并行度降为 2，避免 429 错误
         scheduler = TopologyScheduler(
             max_concurrent=5, max_retries=2, timeout_per_file=300.0,
-            heartbeat_timeout=120.0,  # 120 秒无文件写入视为僵尸
+            heartbeat_timeout=300.0,  # 300 秒无 LLM 调用活动视为僵尸
             cancel_event=self.cancel_event,
             output_dir=str(self.output_dir)
         )
@@ -674,7 +674,7 @@ class SpecFirstGenerateMixin:
                 callback=callback
             )
 
-        async def file_generator(file_path: str, upstream_context: Dict[str, str]) -> str:
+        async def file_generator(file_path: str, upstream_context: Dict[str, str], tracker=None) -> str:
             """单文件生成器（供 TopologyScheduler 调用）"""
             nonlocal files_generated, files_failed
             file_node = dep_graph.nodes.get(file_path)
@@ -751,7 +751,8 @@ class SpecFirstGenerateMixin:
             initial_content = await engineer.generate_file(
                 file_path, description, combined_context, spec_context, dep_context,
                 project_path=str(self.output_dir), callback=callback,
-                is_existing_file=(self.output_dir / normalized).exists()
+                is_existing_file=(self.output_dir / normalized).exists(),
+                heartbeat_tracker=tracker
             )
             if asyncio.iscoroutine(initial_content):
                 logger.warning(f"generate_file 返回协程，自动 await: {file_path}")
@@ -779,14 +780,18 @@ class SpecFirstGenerateMixin:
 ```"""
 
                 try:
+                    if tracker:
+                        tracker.touch()
                     lang_check_result = await self._quick_llm_check(lang_check_prompt)
+                    if tracker:
+                        tracker.touch()
                     if lang_check_result and "NO" in lang_check_result.upper():
                         logger.warning(f"语言不匹配：{file_path} 应为 {target_language}，LLM 判断内容不是该语言，重试")
                         retry_prompt = f"【紧急】你上次生成的代码语言错误。你必须使用 {target_language} 语言编写。\n\n" + description
                         initial_content = await engineer.generate_file(
                             file_path, retry_prompt, combined_context, spec_context, dep_context,
                             project_path=str(self.output_dir), callback=callback,
-                            is_existing_file=False
+                            is_existing_file=False, heartbeat_tracker=tracker
                         )
                         if asyncio.iscoroutine(initial_content):
                             initial_content = await initial_content
@@ -804,11 +809,16 @@ class SpecFirstGenerateMixin:
             if cross_validator.is_critical_file(file_path, file_type, file_priority):
                 alt_model = self._select_alternative_model(model_name)
                 alt_engineer = self._select_engineer_for_model(alt_model)
+                if tracker:
+                    tracker.touch()
                 alt_content = await alt_engineer.generate_file(
                     file_path, description, combined_context, spec_context, dep_context,
                     project_path=str(self.output_dir), callback=callback,
-                    is_existing_file=(self.output_dir / normalized).exists()
+                    is_existing_file=(self.output_dir / normalized).exists(),
+                    heartbeat_tracker=tracker
                 )
+                if tracker:
+                    tracker.touch()
                 if asyncio.iscoroutine(alt_content):
                     logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
                     alt_content = await alt_content

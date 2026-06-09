@@ -21,6 +21,33 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+
+class HeartbeatTracker:
+    """心跳活动跟踪器
+
+    用于监控异步任务的生命体征。
+    生成器在每次 LLM 调用时更新 last_activity，
+    心跳监控器检查这个时间戳来判断任务是否存活。
+    """
+
+    def __init__(self, timeout: float = 300.0):
+        self.timeout = timeout
+        self.last_activity = time.time()
+        self._lock = asyncio.Lock()
+
+    def touch(self):
+        """更新活动时间戳（由生成器在每次 LLM 调用时调用）"""
+        self.last_activity = time.time()
+
+    def is_alive(self) -> bool:
+        """检查是否还在活动"""
+        return time.time() - self.last_activity < self.timeout
+
+    def elapsed(self) -> float:
+        """距离上次活动的时间"""
+        return time.time() - self.last_activity
+
+
 class FileStatus(Enum):
     PENDING = "pending"
     READY = "ready"
@@ -68,9 +95,9 @@ class TopologyScheduler:
         max_concurrent: int = 5,
         max_retries: int = 2,
         timeout_per_file: float = 180.0,
-        heartbeat_timeout: float = 120.0,  # 心跳超时：120 秒无文件写入视为僵尸
+        heartbeat_timeout: float = 300.0,  # 心跳超时：300 秒无 LLM 调用活动视为僵尸
         cancel_event: Optional[asyncio.Event] = None,
-        output_dir: Optional[str] = None  # 输出目录，用于心跳监控
+        output_dir: Optional[str] = None  # 输出目录，用于文件写入
     ):
         self.max_concurrent = max_concurrent
         self.max_retries = max_retries
@@ -256,6 +283,7 @@ class TopologyScheduler:
         node.status = FileStatus.GENERATING
 
         upstream_context = self._build_upstream_context(file_path)
+        tracker = HeartbeatTracker(timeout=self.heartbeat_timeout)
 
         for attempt in range(self.max_retries + 1):
             try:
@@ -263,8 +291,9 @@ class TopologyScheduler:
                     progress_callback("start", file_path, self.stats.completed_files, self.stats.total_files)
 
                 content = await self._run_with_heartbeat(
-                    generator(file_path, upstream_context),
-                    file_path
+                    generator(file_path, upstream_context, tracker),
+                    file_path,
+                    tracker
                 )
 
                 async with self._lock:
@@ -307,24 +336,24 @@ class TopologyScheduler:
         if progress_callback:
             progress_callback("failed", file_path, self.stats.completed_files, self.stats.total_files)
 
-    async def _run_with_heartbeat(self, coro, file_path: str) -> str:
+    async def _run_with_heartbeat(self, coro, file_path: str, tracker: Optional[HeartbeatTracker] = None) -> str:
         """带心跳监控的协程执行
 
-        监控目标文件的修改时间，如果 heartbeat_timeout 秒内没有文件写入，
+        监控 LLM 调用活动，如果 heartbeat_timeout 秒内没有 LLM 调用，
         认为是僵尸任务并取消。
 
         Args:
             coro: 要执行的协程
-            file_path: 目标文件路径（用于监控写入）
+            file_path: 目标文件路径（用于日志）
+            tracker: 心跳活动跟踪器（由生成器更新）
 
         Returns:
             协程的返回值
         """
-        from pathlib import Path
+        if tracker is None:
+            tracker = HeartbeatTracker(timeout=self.heartbeat_timeout)
 
         task = asyncio.create_task(coro)
-        last_mtime = self._get_file_mtime(file_path)
-        last_activity = time.time()
         check_interval = 10.0  # 每 10 秒检查一次
 
         while not task.done():
@@ -334,13 +363,7 @@ class TopologyScheduler:
                 return task.result()
             except asyncio.TimeoutError:
                 # shield 超时，但任务还在运行
-                current_mtime = self._get_file_mtime(file_path)
-                if current_mtime != last_mtime:
-                    # 文件有写入，重置心跳
-                    last_mtime = current_mtime
-                    last_activity = time.time()
-                    logger.debug(f"[Heartbeat] {file_path} 有文件写入，重置心跳")
-                elif time.time() - last_activity > self.heartbeat_timeout:
+                if not tracker.is_alive():
                     # 心跳超时，取消任务
                     task.cancel()
                     try:
@@ -348,23 +371,12 @@ class TopologyScheduler:
                     except (asyncio.CancelledError, Exception):
                         pass
                     raise asyncio.TimeoutError(
-                        f"心跳超时: {self.heartbeat_timeout}s 内无文件写入"
+                        f"心跳超时: {self.heartbeat_timeout}s 内无 LLM 调用活动"
                     )
                 # else: 继续等待
 
         # 任务已完成（可能被取消或异常）
         return task.result()
-
-    def _get_file_mtime(self, file_path: str) -> float:
-        """获取文件的修改时间，不存在返回 0"""
-        from pathlib import Path
-        try:
-            full_path = Path(self.output_dir) / file_path if hasattr(self, 'output_dir') else Path(file_path)
-            if full_path.exists():
-                return full_path.stat().st_mtime
-        except Exception:
-            pass
-        return 0.0
 
     async def _trigger_downstream(self, completed_file: str) -> None:
         """触发下游文件就绪检查"""

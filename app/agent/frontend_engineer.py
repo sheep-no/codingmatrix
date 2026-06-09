@@ -37,6 +37,7 @@ class FrontendEngineer(Specialist):
         project_path: Optional[str] = None,
         callback: Optional[Any] = None,
         is_existing_file: bool = False,
+        heartbeat_tracker=None,
     ) -> str:
         # 从 project_context 中提取语言信息
         architecture = project_context.get("architecture", {})
@@ -109,8 +110,14 @@ class FrontendEngineer(Specialist):
 请返回完整的文件内容，使用 {language} 语法编写，不要省略任何部分。"""
 
         # 有项目路径时使用 ReAct 工具调用，否则退化为普通 call_llm
+        if heartbeat_tracker:
+            heartbeat_tracker.touch()
         if project_path:
-            return await self.call_llm_with_tools(
+            result = await self.call_llm_with_tools(
                 prompt, self.SYSTEM_PROMPT, project_path=project_path, callback=callback
             )
-        return await self.call_llm(prompt, self.SYSTEM_PROMPT)
+        else:
+            result = await self.call_llm(prompt, self.SYSTEM_PROMPT)
+        if heartbeat_tracker:
+            heartbeat_tracker.touch()
+        return result

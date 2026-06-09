@@ -164,7 +164,7 @@ class FileModelRouter:
     DOC_EXTENSIONS = {'.md', '.txt', '.rst'}
     
     # 模型配置
-    FAST_MODEL = "Qwen/Qwen3.5-4B"       # 前端/配置/文档用快速模型
+    FAST_MODEL = "Qwen/Qwen3-8B"       # 前端/配置/文档用快速模型
     REASONING_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"  # 后端用推理模型
     
     @classmethod
