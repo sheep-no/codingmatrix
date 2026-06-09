@@ -6,21 +6,28 @@ LanguageDetector - 从需求文本自动推断目标编程语言
 2. 框架/技术栈推断（如"Spring Boot" → Java，"Express" → Node.js）
 3. 文件扩展名提示（如".py 文件"、".go 文件"）
 4. 默认 fallback（根据项目类型推断）
+5. LLM 辅助检测（当检测结果可能存在冲突时，使用 LLM 进行上下文感知的语言检测）
 """
 
 import re
-from typing import Optional, Dict, List
+import logging
+from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class LanguageDetectionResult:
     """语言检测结果"""
-    language: str                    # 检测到的语言
+    language: str                    # 检测到的语言（主要语言，通常是后端）
     confidence: float                # 置信度 0-1
     evidence: List[str]              # 检测依据
     adapter_name: str                # 对应的适配器名
     needs_clarification: bool = False  # 是否需要用户澄清（如未知语言的文件扩展名）
+    frontend_language: Optional[str] = None  # 前端语言（如果检测到）
+    backend_language: Optional[str] = None   # 后端语言（如果检测到）
+    detection_method: str = "rule"   # 检测方法：rule（规则）或 llm（LLM 辅助）
 
 
 class LanguageDetector:
@@ -178,6 +185,26 @@ class LanguageDetector:
         "system": "rust",
     }
 
+    # 前端专用关键词（用于区分前端和后端技术栈）
+    FRONTEND_KEYWORDS: List[str] = [
+        "react", "vue", "angular", "svelte", "next", "nuxt",
+        "webpack", "vite", "rollup", "esbuild",
+        "html", "css", "dom", "browser",
+        "前端", "frontend", "front-end",
+        "原生 javascript", "vanilla javascript",
+    ]
+
+    # 后端专用关键词（用于区分前端和后端技术栈）
+    BACKEND_KEYWORDS: List[str] = [
+        "django", "flask", "fastapi", "uvicorn",
+        "express", "koa", "fastify", "nestjs",
+        "spring", "springboot", "hibernate",
+        "gin", "echo", "fiber",
+        "后端", "backend", "back-end",
+        "api", "rest", "graphql",
+        "数据库", "database", "sql", "mysql", "postgresql", "sqlite",
+    ]
+
     @classmethod
     def detect(cls, requirement: str, project_type: Optional[str] = None) -> LanguageDetectionResult:
         """
@@ -193,7 +220,29 @@ class LanguageDetector:
         requirement_lower = requirement.lower()
         evidence = []
 
-        # 策略 1: 显式语言关键词（全局按关键词长度降序匹配，避免短关键词误匹配）
+        # 策略 0: 检查是否是全栈项目（前端 + 后端不同语言）
+        # 如果检测到全栈项目，使用 LLM 进行更准确的检测
+        is_fullstack, frontend_lang, backend_lang = cls._detect_fullstack_languages(requirement_lower)
+        if is_fullstack:
+            evidence.append(f"全栈项目检测: 前端={frontend_lang}, 后端={backend_lang}")
+            # 使用 LLM 进行确认和更准确的检测
+            llm_result = cls._detect_with_llm_sync(requirement, evidence.copy())
+            if llm_result:
+                return llm_result
+
+        # 策略 1: 框架推断（优先于通用语言关键词，因为框架更明确）
+        for framework, lang in cls.FRAMEWORK_LANGUAGE.items():
+            pattern = r'\b' + re.escape(framework) + r'\b'
+            if re.search(pattern, requirement_lower):
+                evidence.append(f"框架推断: '{framework}' → {lang}")
+                return LanguageDetectionResult(
+                    language=lang,
+                    confidence=0.95,
+                    evidence=evidence,
+                    adapter_name=cls._get_adapter_name(lang)
+                )
+
+        # 策略 2: 显式语言关键词（全局按关键词长度降序匹配，避免短关键词误匹配）
         # 收集所有 (keyword, language) 对
         all_keywords = []
         for lang, keywords in cls.LANGUAGE_KEYWORDS.items():
@@ -212,21 +261,17 @@ class LanguageDetector:
                 pattern = r'\b' + re.escape(keyword) + r'\b'
             if re.search(pattern, requirement_lower):
                 evidence.append(f"关键词匹配: '{keyword}' → {lang}")
+                # 检查是否有冲突（需求中同时提到了其他语言的框架）
+                conflict = cls._check_language_conflict(requirement_lower, lang)
+                if conflict:
+                    evidence.append(f"检测到冲突: {conflict}")
+                    # 使用 LLM 进行确认
+                    llm_result = cls._detect_with_llm_sync(requirement, evidence.copy())
+                    if llm_result:
+                        return llm_result
                 return LanguageDetectionResult(
                     language=lang,
                     confidence=0.95,
-                    evidence=evidence,
-                    adapter_name=cls._get_adapter_name(lang)
-                )
-
-        # 策略 2: 框架推断
-        for framework, lang in cls.FRAMEWORK_LANGUAGE.items():
-            pattern = r'\b' + re.escape(framework) + r'\b'
-            if re.search(pattern, requirement_lower):
-                evidence.append(f"框架推断: '{framework}' → {lang}")
-                return LanguageDetectionResult(
-                    language=lang,
-                    confidence=0.90,
                     evidence=evidence,
                     adapter_name=cls._get_adapter_name(lang)
                 )
@@ -319,6 +364,205 @@ class LanguageDetector:
             evidence=evidence,
             adapter_name="python"
         )
+
+    @classmethod
+    def _detect_fullstack_languages(cls, requirement_lower: str) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        检测是否是全栈项目（前端 + 后端使用不同语言）
+
+        Returns:
+            (is_fullstack, frontend_lang, backend_lang)
+        """
+        frontend_lang = None
+        backend_lang = None
+
+        # 检测前端语言
+        for keyword in cls.FRONTEND_KEYWORDS:
+            pattern = r'\b' + re.escape(keyword) + r'\b'
+            if re.search(pattern, requirement_lower):
+                # 根据关键词推断前端语言
+                if keyword in ["react", "vue", "angular", "svelte", "next", "nuxt"]:
+                    frontend_lang = "javascript"
+                    break
+                elif keyword in ["html", "css", "dom", "browser", "原生 javascript", "vanilla javascript"]:
+                    frontend_lang = "javascript"
+                    break
+
+        # 检测后端语言
+        for keyword in cls.BACKEND_KEYWORDS:
+            pattern = r'\b' + re.escape(keyword) + r'\b'
+            if re.search(pattern, requirement_lower):
+                # 根据关键词推断后端语言
+                if keyword in ["django", "flask", "fastapi", "uvicorn"]:
+                    backend_lang = "python"
+                    break
+                elif keyword in ["express", "koa", "fastify", "nestjs"]:
+                    backend_lang = "javascript"
+                    break
+                elif keyword in ["spring", "springboot", "hibernate"]:
+                    backend_lang = "java"
+                    break
+                elif keyword in ["gin", "echo", "fiber"]:
+                    backend_lang = "go"
+                    break
+
+        # 如果前端和后端语言不同，认为是全栈项目
+        if frontend_lang and backend_lang and frontend_lang != backend_lang:
+            return True, frontend_lang, backend_lang
+
+        return False, frontend_lang, backend_lang
+
+    @classmethod
+    def _check_language_conflict(cls, requirement_lower: str, detected_lang: str) -> Optional[str]:
+        """
+        检查是否存在语言冲突（需求中提到了其他语言的框架）
+
+        Returns:
+            冲突描述，如果没有冲突则返回 None
+        """
+        # 检查是否有其他语言的框架被提及
+        for framework, lang in cls.FRAMEWORK_LANGUAGE.items():
+            if lang == detected_lang:
+                continue
+            pattern = r'\b' + re.escape(framework) + r'\b'
+            if re.search(pattern, requirement_lower):
+                return f"检测到 {detected_lang}，但需求中也提到了 {framework}（{lang}）"
+
+        # 检查是否有其他语言的关键词被提及
+        for lang, keywords in cls.LANGUAGE_KEYWORDS.items():
+            if lang == detected_lang:
+                continue
+            for keyword in keywords:
+                # 跳过太短的关键词，避免误匹配
+                if len(keyword) <= 2:
+                    continue
+                pattern = r'\b' + re.escape(keyword) + r'\b'
+                if re.search(pattern, requirement_lower):
+                    return f"检测到 {detected_lang}，但需求中也提到了 {keyword}（{lang}）"
+
+        return None
+
+    @classmethod
+    def _detect_with_llm_sync(cls, requirement: str, evidence: List[str]) -> Optional[LanguageDetectionResult]:
+        """
+        使用 LLM 进行上下文感知的语言检测（同步版本）
+
+        Args:
+            requirement: 需求描述文本
+            evidence: 已有的检测依据
+
+        Returns:
+            LanguageDetectionResult 或 None（如果 LLM 检测失败）
+        """
+        import asyncio
+        try:
+            # 尝试获取事件循环
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 如果已经在异步上下文中，创建一个任务
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run,
+                        cls._detect_with_llm(requirement, evidence)
+                    )
+                    return future.result(timeout=30)
+            else:
+                return loop.run_until_complete(cls._detect_with_llm(requirement, evidence))
+        except Exception as e:
+            logger.warning(f"LLM 辅助语言检测失败: {e}")
+            return None
+
+    @classmethod
+    async def _detect_with_llm(cls, requirement: str, evidence: List[str]) -> Optional[LanguageDetectionResult]:
+        """
+        使用 LLM 进行上下文感知的语言检测
+
+        Args:
+            requirement: 需求描述文本
+            evidence: 已有的检测依据
+
+        Returns:
+            LanguageDetectionResult 或 None（如果 LLM 检测失败）
+        """
+        try:
+            from app.utils import call_llm
+
+            prompt = f"""请分析以下需求文本，确定项目应该使用的主要编程语言和技术栈。
+
+需求文本：
+{requirement}
+
+请按照以下格式回答（只回答 JSON，不要有其他文字）：
+
+{{
+  "primary_language": "主要编程语言（用于生成代码文件）",
+  "frontend_language": "前端语言（如果有前端）或 null",
+  "backend_language": "后端语言（如果有后端）或 null",
+  "reasoning": "选择该语言的原因"
+}}
+
+注意：
+1. 如果需求明确指定了技术栈（如 "Python Flask"、"JavaScript Express"），请优先遵循需求指定的技术栈
+2. 区分前端和后端技术栈，前端可能使用 JavaScript/TypeScript，后端可能使用 Python/Go/Java 等
+3. primary_language 应该是需要生成代码的主要语言（通常是后端语言）
+4. 如果需求没有明确指定，默认使用 Python"""
+
+            response = await call_llm(prompt, "你是一个编程语言检测专家，擅长从需求文本中识别应该使用的技术栈。")
+
+            if not response or not response.strip():
+                return None
+
+            # 解析 JSON 响应
+            import json
+            try:
+                # 尝试提取 JSON
+                json_match = re.search(r'\{[^{}]+\}', response, re.DOTALL)
+                if json_match:
+                    result = json.loads(json_match.group())
+                else:
+                    result = json.loads(response)
+            except json.JSONDecodeError:
+                logger.warning(f"LLM 响应不是有效的 JSON: {response[:200]}")
+                return None
+
+            primary_lang = result.get("primary_language", "").lower()
+            frontend_lang = result.get("frontend_language")
+            backend_lang = result.get("backend_language")
+            reasoning = result.get("reasoning", "")
+
+            # 验证语言是否有效
+            valid_languages = list(cls.LANGUAGE_KEYWORDS.keys())
+            if primary_lang not in valid_languages:
+                # 尝试映射常见的别名
+                lang_aliases = {
+                    "py": "python",
+                    "js": "javascript",
+                    "ts": "typescript",
+                    "node": "javascript",
+                    "nodejs": "javascript",
+                }
+                primary_lang = lang_aliases.get(primary_lang, primary_lang)
+
+            if primary_lang not in valid_languages:
+                logger.warning(f"LLM 返回的语言不在已知列表中: {primary_lang}")
+                return None
+
+            evidence.append(f"LLM 检测: {primary_lang} (原因: {reasoning})")
+
+            return LanguageDetectionResult(
+                language=primary_lang,
+                confidence=0.90,
+                evidence=evidence,
+                adapter_name=cls._get_adapter_name(primary_lang),
+                frontend_language=frontend_lang,
+                backend_language=backend_lang or primary_lang,
+                detection_method="llm"
+            )
+
+        except Exception as e:
+            logger.warning(f"LLM 辅助语言检测异常: {e}")
+            return None
 
     @classmethod
     def _get_adapter_name(cls, language: str) -> str:
