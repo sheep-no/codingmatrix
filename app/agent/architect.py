@@ -330,18 +330,11 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
         logger.info(f"_ensure_file_plan_completeness: 检测到语言={detected_lang}, 适配器={adapter.language}")
 
         # 语言一致性：用语言适配器的默认扩展名修正异常扩展名
-        # 优先使用适配器的 extensions[0]，众数只在适配器不可用时作为 fallback
         from pathlib import Path as _P
         STATIC_EXTS = {'.html', '.css', '.scss', '.less', '.json', '.yaml', '.yml', '.toml', '.md', '.txt', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.woff2', '.ttf', '.eot'}
         expected_ext = adapter.extensions[0] if hasattr(adapter, 'extensions') and adapter.extensions else ""
-        if not expected_ext:
-            # fallback: 众数策略
-            from collections import Counter
-            code_exts = [_P(f["path"]).suffix.lower() for f in file_plan if _P(f["path"]).suffix.lower() and _P(f["path"]).suffix.lower() not in STATIC_EXTS]
-            if code_exts:
-                expected_ext = Counter(code_exts).most_common(1)[0][0]
         if expected_ext:
-            logger.info(f"_ensure_file_plan_completeness: 期望扩展名={expected_ext}")
+            logger.info(f"_ensure_file_plan_completeness: 期望扩展名={expected_ext} (来自适配器 {adapter.language})")
             for f in file_plan:
                 fpath = f.get("path", "")
                 ext = _P(fpath).suffix.lower()
@@ -454,22 +447,17 @@ file_plan 格式要求（每个文件必须包含 imports 字段）：
             # 去重合并 + 语言一致性修正
             from pathlib import Path as _P
             STATIC_EXTS = {'.html', '.css', '.scss', '.less', '.json', '.yaml', '.yml', '.toml', '.md', '.txt', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.woff2', '.ttf', '.eot'}
-            # 优先使用语言适配器的默认扩展名
             expected_ext = adapter.extensions[0] if hasattr(adapter, 'extensions') and adapter.extensions else ""
-            if not expected_ext:
-                from collections import Counter as _Counter
-                existing_code_exts = [_P(ef["path"]).suffix.lower() for ef in existing_plan if _P(ef["path"]).suffix.lower() and _P(ef["path"]).suffix.lower() not in STATIC_EXTS]
-                expected_ext = _Counter(existing_code_exts).most_common(1)[0][0] if existing_code_exts else ""
 
             added = 0
             for f in batch_files:
                 fpath = f.get("path", "")
                 if not fpath:
                     continue
-                # 语言一致性：修正编程文件扩展名（跳过静态资源）
+                # 语言一致性：用适配器默认扩展名修正编程文件（跳过静态资源）
                 if expected_ext:
                     actual_ext = _P(fpath).suffix.lower()
-                    if actual_ext and actual_ext not in STATIC_EXTS and actual_ext != dominant_ext:
+                    if actual_ext and actual_ext not in STATIC_EXTS and actual_ext != expected_ext:
                         corrected = fpath[:fpath.rfind(actual_ext)] + expected_ext
                         logger.info(f"file_plan 路径修正: {fpath} -> {corrected}")
                         f["path"] = corrected
