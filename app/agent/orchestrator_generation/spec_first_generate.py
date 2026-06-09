@@ -648,7 +648,12 @@ class SpecFirstGenerateMixin:
     ) -> Dict[str, Any]:
         """使用动态拓扑调度生成文件"""
         # 免费模型速率限制：并行度降为 2，避免 429 错误
-        scheduler = TopologyScheduler(max_concurrent=5, max_retries=2, timeout_per_file=300.0, cancel_event=self.cancel_event)
+        scheduler = TopologyScheduler(
+            max_concurrent=5, max_retries=2, timeout_per_file=300.0,
+            heartbeat_timeout=120.0,  # 120 秒无文件写入视为僵尸
+            cancel_event=self.cancel_event,
+            output_dir=str(self.output_dir)
+        )
         scheduler.build_from_dependency_graph(dep_graph)
 
         cross_validator = CrossValidator(ctx, language_adapter=language_adapter)

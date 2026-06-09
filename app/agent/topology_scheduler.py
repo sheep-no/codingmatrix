@@ -68,12 +68,16 @@ class TopologyScheduler:
         max_concurrent: int = 5,
         max_retries: int = 2,
         timeout_per_file: float = 180.0,
-        cancel_event: Optional[asyncio.Event] = None
+        heartbeat_timeout: float = 120.0,  # 心跳超时：120 秒无文件写入视为僵尸
+        cancel_event: Optional[asyncio.Event] = None,
+        output_dir: Optional[str] = None  # 输出目录，用于心跳监控
     ):
         self.max_concurrent = max_concurrent
         self.max_retries = max_retries
         self.timeout_per_file = timeout_per_file
+        self.heartbeat_timeout = heartbeat_timeout
         self._external_cancel_event = cancel_event
+        self.output_dir = output_dir
 
         self.nodes: Dict[str, ScheduleNode] = {}
         self.adjacency: Dict[str, Set[str]] = {}  # file -> files it depends on
@@ -247,7 +251,7 @@ class TopologyScheduler:
         generator: Callable,
         progress_callback: Optional[Callable] = None
     ) -> None:
-        """带重试的单文件生成"""
+        """带重试的单文件生成（心跳监控）"""
         node = self.nodes[file_path]
         node.status = FileStatus.GENERATING
 
@@ -258,9 +262,9 @@ class TopologyScheduler:
                 if progress_callback:
                     progress_callback("start", file_path, self.stats.completed_files, self.stats.total_files)
 
-                content = await asyncio.wait_for(
+                content = await self._run_with_heartbeat(
                     generator(file_path, upstream_context),
-                    timeout=self.timeout_per_file
+                    file_path
                 )
 
                 async with self._lock:
@@ -280,19 +284,87 @@ class TopologyScheduler:
 
             except asyncio.TimeoutError:
                 node.retry_count += 1
-                logger.warning(f"文件生成超时: {file_path} (尝试 {attempt + 1}/{self.max_retries + 1})")
+                logger.warning(f"文件生成超时（心跳超时）: {file_path} (尝试 {attempt + 1}/{self.max_retries + 1})")
 
             except asyncio.CancelledError:
                 node.retry_count += 1
                 node.error = "任务被取消"
                 logger.warning(f"文件生成被取消: {file_path} (尝试 {attempt + 1}/{self.max_retries + 1})")
-                # 重新抛出取消异常，让上层处理
                 raise
 
             except Exception as e:
                 node.retry_count += 1
                 node.error = str(e)
                 logger.error(f"文件生成失败: {file_path} - {e} (尝试 {attempt + 1}/{self.max_retries + 1})")
+
+        async with self._lock:
+            node.status = FileStatus.FAILED
+            self.stats.failed_files += 1
+            await self._block_downstream(file_path)
+
+        self._log_schedule("failed", [file_path], error=node.error)
+
+        if progress_callback:
+            progress_callback("failed", file_path, self.stats.completed_files, self.stats.total_files)
+
+    async def _run_with_heartbeat(self, coro, file_path: str) -> str:
+        """带心跳监控的协程执行
+
+        监控目标文件的修改时间，如果 heartbeat_timeout 秒内没有文件写入，
+        认为是僵尸任务并取消。
+
+        Args:
+            coro: 要执行的协程
+            file_path: 目标文件路径（用于监控写入）
+
+        Returns:
+            协程的返回值
+        """
+        from pathlib import Path
+
+        task = asyncio.create_task(coro)
+        last_mtime = self._get_file_mtime(file_path)
+        last_activity = time.time()
+        check_interval = 10.0  # 每 10 秒检查一次
+
+        while not task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=check_interval)
+                # 任务完成，返回结果
+                return task.result()
+            except asyncio.TimeoutError:
+                # shield 超时，但任务还在运行
+                current_mtime = self._get_file_mtime(file_path)
+                if current_mtime != last_mtime:
+                    # 文件有写入，重置心跳
+                    last_mtime = current_mtime
+                    last_activity = time.time()
+                    logger.debug(f"[Heartbeat] {file_path} 有文件写入，重置心跳")
+                elif time.time() - last_activity > self.heartbeat_timeout:
+                    # 心跳超时，取消任务
+                    task.cancel()
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    raise asyncio.TimeoutError(
+                        f"心跳超时: {self.heartbeat_timeout}s 内无文件写入"
+                    )
+                # else: 继续等待
+
+        # 任务已完成（可能被取消或异常）
+        return task.result()
+
+    def _get_file_mtime(self, file_path: str) -> float:
+        """获取文件的修改时间，不存在返回 0"""
+        from pathlib import Path
+        try:
+            full_path = Path(self.output_dir) / file_path if hasattr(self, 'output_dir') else Path(file_path)
+            if full_path.exists():
+                return full_path.stat().st_mtime
+        except Exception:
+            pass
+        return 0.0
 
         async with self._lock:
             node.status = FileStatus.FAILED
