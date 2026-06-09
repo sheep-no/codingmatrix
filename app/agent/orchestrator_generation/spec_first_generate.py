@@ -297,22 +297,17 @@ class SpecFirstGenerateMixin:
                 if initial_content is None or not initial_content.strip():
                     return {"path": file_path, "success": False, "error": "内容提取失败或仅含空白字符"}
 
-                # 语言一致性检查：文件扩展名必须匹配声明的语言
+                # file_plan 阶段已修正路径，这里只检查生成内容的语言一致性
+                # 如果工程师生成的代码语言与目标语言不匹配，记录警告
                 target_language = project_context.get("architecture", {}).get("language", "")
-                if target_language:
-                    from pathlib import Path as _Path
-                    from app.agent.language_detector import LanguageDetector
-                    lang_rules = LanguageDetector.get_language_specific_rules(target_language)
-                    raw_ext = lang_rules.get("file_extension", "")
-                    # 处理 ".ts / .js" 这种多扩展名情况，取第一个
-                    expected_ext = raw_ext.split("/")[0].strip() if raw_ext and "/" in raw_ext else raw_ext
-                    actual_ext = _Path(file_path).suffix
-                    if expected_ext and actual_ext and actual_ext != expected_ext:
-                        logger.warning(f"语言不匹配：{file_path} 扩展名={actual_ext}, 但目标语言={target_language} 要求={expected_ext}, 强制修正扩展名")
-                        # 替换整个扩展名（避免 .py.js 问题）
-                        corrected_path = file_path[:file_path.rfind(actual_ext)] + expected_ext
-                        logger.info(f"路径修正: {file_path} -> {corrected_path}")
-                        file_path = corrected_path
+                if target_language and initial_content:
+                    _ext = file_path.rsplit('.', 1)[-1].lower() if '.' in file_path else ''
+                    _py_indicators = ['import os', 'from flask', 'from django', 'def ', 'class ', 'if __name__']
+                    _js_indicators = ['const ', 'let ', 'var ', 'require(', 'import ', 'export ', 'module.exports']
+                    if _ext in ('js', 'ts', 'jsx', 'tsx') and any(ind in initial_content for ind in _py_indicators):
+                        logger.warning(f"语言不匹配：{file_path} 声明为 {target_language}，但生成内容含 Python 特征")
+                    elif _ext == 'py' and any(ind in initial_content for ind in _js_indicators):
+                        logger.warning(f"语言不匹配：{file_path} 声明为 {target_language}，但生成内容含 JS 特征")
 
                 if cross_validator.is_critical_file(file_path, file_type, file_priority):
                     self._report_progress(
@@ -747,21 +742,16 @@ class SpecFirstGenerateMixin:
             else:
                 initial_content = self._clean_code_block(initial_content)
 
-            # 语言一致性检查：文件扩展名必须匹配声明的语言
+            # file_plan 阶段已修正路径，这里只检查生成内容的语言一致性
             target_language = project_context.get("architecture", {}).get("language", "")
-            if target_language:
-                from pathlib import Path as _Path
-                from app.agent.language_detector import LanguageDetector
-                lang_rules = LanguageDetector.get_language_specific_rules(target_language)
-                raw_ext = lang_rules.get("file_extension", "")
-                # 处理 ".ts / .js" 这种多扩展名情况，取第一个
-                expected_ext = raw_ext.split("/")[0].strip() if raw_ext and "/" in raw_ext else raw_ext
-                actual_ext = _Path(file_path).suffix
-                if expected_ext and actual_ext and actual_ext != expected_ext:
-                    logger.warning(f"语言不匹配：{file_path} 扩展名={actual_ext}, 但目标语言={target_language} 要求={expected_ext}, 强制修正扩展名")
-                    # 替换整个扩展名（避免 .py.js 问题）
-                    corrected_path = file_path[:file_path.rfind(actual_ext)] + expected_ext
-                    logger.info(f"路径修正: {file_path} -> {corrected_path}")
+            if target_language and initial_content:
+                _ext = file_path.rsplit('.', 1)[-1].lower() if '.' in file_path else ''
+                _py_indicators = ['import os', 'from flask', 'from django', 'def ', 'class ', 'if __name__']
+                _js_indicators = ['const ', 'let ', 'var ', 'require(', 'import ', 'export ', 'module.exports']
+                if _ext in ('js', 'ts', 'jsx', 'tsx') and any(ind in initial_content for ind in _py_indicators):
+                    logger.warning(f"语言不匹配：{file_path} 声明为 {target_language}，但生成内容含 Python 特征")
+                elif _ext == 'py' and any(ind in initial_content for ind in _js_indicators):
+                    logger.warning(f"语言不匹配：{file_path} 声明为 {target_language}，但生成内容含 JS 特征")
                     file_path = corrected_path
 
             if cross_validator.is_critical_file(file_path, file_type, file_priority):
