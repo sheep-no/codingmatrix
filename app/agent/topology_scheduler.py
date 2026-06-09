@@ -124,7 +124,8 @@ class TopologyScheduler:
     async def run(
         self,
         generator: Callable[[str, Dict[str, str]], Awaitable[str]],
-        progress_callback: Optional[Callable[[str, str, int, int], None]] = None
+        progress_callback: Optional[Callable[[str, str, int, int], None]] = None,
+        global_timeout: float = 1800.0  # 全局超时 30 分钟
     ) -> Dict[str, Any]:
         """
         执行动态拓扑调度
@@ -132,6 +133,7 @@ class TopologyScheduler:
         Args:
             generator: 文件生成函数，签名 async (file_path, upstream_context) -> content
             progress_callback: 进度回调，签名 (event, file_path, completed, total)
+            global_timeout: 全局超时时间（秒），默认 30 分钟
 
         Returns:
             {
@@ -146,6 +148,7 @@ class TopologyScheduler:
         self._stop_event.clear()
         active_count = 0
         parallelism_samples = []
+        start_time = time.time()
 
         # 联动外部 cancel_event：当用户取消时同步设置 _stop_event
         cancel_watcher = None
@@ -158,6 +161,13 @@ class TopologyScheduler:
 
         try:
             while not self._should_stop():
+                # 全局超时检查
+                elapsed = time.time() - start_time
+                if elapsed > global_timeout:
+                    logger.error(f"[Scheduler] 全局超时 ({global_timeout}s)，强制终止")
+                    self._stop_event.set()
+                    break
+
                 async with self._lock:
                     ready_count = self.ready_queue.qsize()
                     pending_count = sum(
@@ -197,10 +207,16 @@ class TopologyScheduler:
                     active_count -= 1
                     try:
                         await task
+                    except asyncio.CancelledError:
+                        logger.warning(f"[Scheduler] 任务被取消: {task.get_name()}")
                     except Exception as e:
                         logger.error(f"任务执行异常: {e}")
 
+            # 全局超时或正常结束后，取消所有还在运行的任务
             if self._running_tasks:
+                logger.warning(f"[Scheduler] 取消 {len(self._running_tasks)} 个未完成的任务")
+                for task in self._running_tasks:
+                    task.cancel()
                 await asyncio.gather(*self._running_tasks, return_exceptions=True)
         finally:
             if cancel_watcher and not cancel_watcher.done():
@@ -265,6 +281,13 @@ class TopologyScheduler:
             except asyncio.TimeoutError:
                 node.retry_count += 1
                 logger.warning(f"文件生成超时: {file_path} (尝试 {attempt + 1}/{self.max_retries + 1})")
+
+            except asyncio.CancelledError:
+                node.retry_count += 1
+                node.error = "任务被取消"
+                logger.warning(f"文件生成被取消: {file_path} (尝试 {attempt + 1}/{self.max_retries + 1})")
+                # 重新抛出取消异常，让上层处理
+                raise
 
             except Exception as e:
                 node.retry_count += 1
