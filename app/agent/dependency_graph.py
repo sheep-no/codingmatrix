@@ -172,6 +172,7 @@ class DependencyGraph:
             self.add_file(path, priority=priority, description=description)
 
         # 2. 再处理依赖关系（此时所有文件都在图中）
+        files_with_imports = set()
         for file_info in file_plan:
             path = file_info.get("path", "")
             if not path:
@@ -186,7 +187,8 @@ class DependencyGraph:
 
             # 使用 imports 字段构建依赖关系
             imports = file_info.get("imports", [])
-            if isinstance(imports, list):
+            if isinstance(imports, list) and imports:
+                files_with_imports.add(path)
                 for imp in imports:
                     if imp and imp != path:
                         # 转换 import 路径为文件路径
@@ -194,8 +196,8 @@ class DependencyGraph:
                         if dep_path:
                             self.add_dependency(path, dep_path)
 
-        # 3. 硬编码规则作为兜底（补充 LLM 可能遗漏的依赖）
-        self._auto_add_dependencies()
+        # 3. 硬编码规则作为兜底（仅对 LLM 未声明 imports 的文件使用）
+        self._auto_add_dependencies(files_with_imports)
 
         # 4. 输出依赖图详情（调试用）
         logger.info(f"=== 依赖图构建详情 ===")
@@ -278,17 +280,22 @@ class DependencyGraph:
                 model_path = f"app/models/{self._camel_to_snake(schema_name)}.py"
                 self.add_file(model_path, file_type="model", priority=2)
 
-    def _auto_add_dependencies(self):
-        """根据文件类型自动添加依赖（优化版：O(n*k) 而非 O(n²)）"""
+    def _auto_add_dependencies(self, files_with_imports: set):
+        """根据文件类型自动添加依赖（仅对 LLM 未声明 imports 的文件使用硬编码规则）"""
         type_to_files: Dict[str, List[str]] = defaultdict(list)
         for path, node in self.nodes.items():
             type_to_files[node.file_type].append(path)
 
         logger.info(f"_auto_add_dependencies: 文件类型分布 = {dict(type_to_files)}")
-        logger.info(f"_auto_add_dependencies: DEPENDENCY_RULES = {dict(self.DEPENDENCY_RULES)}")
+        logger.info(f"_auto_add_dependencies: 已有 imports 的文件 ({len(files_with_imports)}): {sorted(files_with_imports)}")
 
         added_by_rules = 0
+        skipped_has_imports = 0
         for path, node in self.nodes.items():
+            # 跳过已有 LLM 声明 imports 的文件（LLM 声明优先）
+            if path in files_with_imports:
+                skipped_has_imports += 1
+                continue
             dep_types = self.DEPENDENCY_RULES.get(node.file_type, [])
             for dep_type in dep_types:
                 # 只为实际存在的文件类型添加依赖
@@ -298,7 +305,7 @@ class DependencyGraph:
                             self.add_dependency(path, other_path)
                             added_by_rules += 1
 
-        logger.info(f"_auto_add_dependencies: 硬编码规则添加了 {added_by_rules} 条依赖")
+        logger.info(f"_auto_add_dependencies: 硬编码规则添加了 {added_by_rules} 条依赖, 跳过 {skipped_has_imports} 个已有 imports 的文件")
 
     def ensure_package_files(self) -> List[str]:
         """
