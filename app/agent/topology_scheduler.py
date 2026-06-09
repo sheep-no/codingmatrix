@@ -366,16 +366,6 @@ class TopologyScheduler:
             pass
         return 0.0
 
-        async with self._lock:
-            node.status = FileStatus.FAILED
-            self.stats.failed_files += 1
-            await self._block_downstream(file_path)
-
-        self._log_schedule("failed", [file_path], error=node.error)
-
-        if progress_callback:
-            progress_callback("failed", file_path, self.stats.completed_files, self.stats.total_files)
-
     async def _trigger_downstream(self, completed_file: str) -> None:
         """触发下游文件就绪检查"""
         downstream_files = self.reverse_adjacency.get(completed_file, set())
