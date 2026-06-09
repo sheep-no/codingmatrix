@@ -418,7 +418,13 @@ class IntegrityValidator:
                 # 生成入口文件内容
                 init_filename = self.language_adapter.package_init_filename if self.language_adapter else '__init__.py'
                 if init_filename and missing.endswith(init_filename):
-                    fixes[missing] = '"""Package initialization"""\n'
+                    # 根据文件类型生成正确的内容
+                    if init_filename.endswith('.py'):
+                        fixes[missing] = '"""Package initialization"""\n'
+                    elif init_filename.endswith('.js') or init_filename.endswith('.ts'):
+                        fixes[missing] = '// Package initialization\n'
+                    else:
+                        fixes[missing] = ''
                 elif missing.endswith('index.js') or missing.endswith('index.ts'):
                     fixes[missing] = '// Package initialization\n'
                 else:

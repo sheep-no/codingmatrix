@@ -496,7 +496,7 @@ class SpecFirstGenerateMixin:
                         f.write(fix_content)
                     ctx.save_file_content(fix_path, fix_content, "integrity_fix")
                     logger.info(f"自动修复文件: {fix_path}")
-                    self._report_file_event(fix_path, fix_content, "自动补充的包初始化文件", "python")
+                    self._report_file_event(fix_path, fix_content, "自动补充的包初始化文件", detected_language)
 
         # 2. DependencyGraph 完整性验证
         dep_graph_issues = dep_graph.validate_completeness()
@@ -961,7 +961,7 @@ class SpecFirstGenerateMixin:
                         f.write(fix_content)
                     ctx.save_file_content(fix_path, fix_content, "integrity_fix")
                     logger.info(f"自动修复文件: {fix_path}")
-                    self._report_file_event(fix_path, fix_content, "自动补充的包初始化文件", "python")
+                    self._report_file_event(fix_path, fix_content, "自动补充的包初始化文件", detected_language)
                     files_generated += 1
 
         # 2. DependencyGraph 完整性验证
