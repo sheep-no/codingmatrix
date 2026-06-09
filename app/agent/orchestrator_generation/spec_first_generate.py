@@ -297,36 +297,37 @@ class SpecFirstGenerateMixin:
                 if initial_content is None or not initial_content.strip():
                     return {"path": file_path, "success": False, "error": "内容提取失败或仅含空白字符"}
 
-                # 语言一致性验证：检查生成内容是否匹配目标语言
+                # 语言一致性验证：用 LLM 检查生成内容是否匹配目标语言
                 target_language = project_context.get("architecture", {}).get("language", "")
-                if target_language and initial_content:
-                    _ext = file_path.rsplit('.', 1)[-1].lower() if '.' in file_path else ''
-                    _py_indicators = ['import os', 'from flask', 'from django', 'from fastapi', 'def ', 'class ', 'if __name__', 'print(']
-                    _js_indicators = ['const ', 'let ', 'var ', 'require(', 'module.exports', 'export default', 'export const']
-                    _lang_mismatch = False
-                    if _ext in ('js', 'ts', 'jsx', 'tsx') and any(ind in initial_content for ind in _py_indicators):
-                        logger.warning(f"语言不匹配：{file_path} 应为 {target_language}，但生成内容含 Python 特征，重试")
-                        _lang_mismatch = True
-                    elif _ext == 'py' and any(ind in initial_content for ind in _js_indicators):
-                        logger.warning(f"语言不匹配：{file_path} 应为 {target_language}，但生成内容含 JS 特征，重试")
-                        _lang_mismatch = True
+                if target_language and initial_content and len(initial_content.strip()) > 20:
+                    snippet = initial_content[:500]
+                    lang_check_prompt = f"""判断以下代码是否是 {target_language} 语言。只回答 YES 或 NO，不要解释。
 
-                    if _lang_mismatch:
-                        # 重试一次，在 prompt 中强调语言约束
-                        retry_prompt = f"【紧急】你上次生成的代码语言错误。你必须使用 {target_language} 语言。\n\n" + description
-                        initial_content = await engineer.generate_file(
-                            file_path, retry_prompt, project_context, spec_context, dep_context,
-                            project_path=str(self.output_dir), callback=callback,
-                            is_existing_file=False
-                        )
-                        if asyncio.iscoroutine(initial_content):
-                            initial_content = await initial_content
-                        if initial_content:
-                            initial_content = extract_engineer_content(
-                                initial_content, engineer, self.output_dir, file_path
+代码片段：
+```
+{snippet}
+```"""
+
+                    try:
+                        lang_check_result = await self._quick_llm_check(lang_check_prompt)
+                        if lang_check_result and "NO" in lang_check_result.upper():
+                            logger.warning(f"语言不匹配：{file_path} 应为 {target_language}，LLM 判断内容不是该语言，重试")
+                            retry_prompt = f"【紧急】你上次生成的代码语言错误。你必须使用 {target_language} 语言编写。\n\n" + description
+                            initial_content = await engineer.generate_file(
+                                file_path, retry_prompt, project_context, spec_context, dep_context,
+                                project_path=str(self.output_dir), callback=callback,
+                                is_existing_file=False
                             )
+                            if asyncio.iscoroutine(initial_content):
+                                initial_content = await initial_content
                             if initial_content:
-                                logger.info(f"语言重试完成: {file_path}")
+                                initial_content = extract_engineer_content(
+                                    initial_content, engineer, self.output_dir, file_path
+                                )
+                                if initial_content:
+                                    logger.info(f"语言重试完成: {file_path}")
+                    except Exception as e:
+                        logger.debug(f"语言检查跳过: {e}")
 
                 if cross_validator.is_critical_file(file_path, file_type, file_priority):
                     self._report_progress(
@@ -761,37 +762,39 @@ class SpecFirstGenerateMixin:
             else:
                 initial_content = self._clean_code_block(initial_content)
 
-            # 语言一致性验证：检查生成内容是否匹配目标语言
+            # 语言一致性验证：用 LLM 检查生成内容是否匹配目标语言
             target_language = project_context.get("architecture", {}).get("language", "")
-            if target_language and initial_content:
-                _ext = file_path.rsplit('.', 1)[-1].lower() if '.' in file_path else ''
-                _py_indicators = ['import os', 'from flask', 'from django', 'from fastapi', 'def ', 'class ', 'if __name__', 'print(']
-                _js_indicators = ['const ', 'let ', 'var ', 'require(', 'module.exports', 'export default', 'export const']
-                _lang_mismatch = False
-                if _ext in ('js', 'ts', 'jsx', 'tsx') and any(ind in initial_content for ind in _py_indicators):
-                    logger.warning(f"语言不匹配：{file_path} 应为 {target_language}，但生成内容含 Python 特征，重试")
-                    _lang_mismatch = True
-                elif _ext == 'py' and any(ind in initial_content for ind in _js_indicators):
-                    logger.warning(f"语言不匹配：{file_path} 应为 {target_language}，但生成内容含 JS 特征，重试")
-                    _lang_mismatch = True
+            if target_language and initial_content and len(initial_content.strip()) > 20:
+                snippet = initial_content[:500]
+                lang_check_prompt = f"""判断以下代码是否是 {target_language} 语言。只回答 YES 或 NO，不要解释。
 
-                if _lang_mismatch:
-                    retry_prompt = f"【紧急】你上次生成的代码语言错误。你必须使用 {target_language} 语言。\n\n" + description
-                    initial_content = await engineer.generate_file(
-                        file_path, retry_prompt, combined_context, spec_context, dep_context,
-                        project_path=str(self.output_dir), callback=callback,
-                        is_existing_file=False
-                    )
-                    if asyncio.iscoroutine(initial_content):
-                        initial_content = await initial_content
-                    if initial_content:
-                        if engineer.get_edited_files():
-                            full = self.output_dir / normalized
-                            if full.exists():
-                                initial_content = full.read_text(encoding='utf-8')
-                        else:
-                            initial_content = self._clean_code_block(initial_content)
-                        logger.info(f"语言重试完成: {file_path}")
+代码片段：
+```
+{snippet}
+```"""
+
+                try:
+                    lang_check_result = await self._quick_llm_check(lang_check_prompt)
+                    if lang_check_result and "NO" in lang_check_result.upper():
+                        logger.warning(f"语言不匹配：{file_path} 应为 {target_language}，LLM 判断内容不是该语言，重试")
+                        retry_prompt = f"【紧急】你上次生成的代码语言错误。你必须使用 {target_language} 语言编写。\n\n" + description
+                        initial_content = await engineer.generate_file(
+                            file_path, retry_prompt, combined_context, spec_context, dep_context,
+                            project_path=str(self.output_dir), callback=callback,
+                            is_existing_file=False
+                        )
+                        if asyncio.iscoroutine(initial_content):
+                            initial_content = await initial_content
+                        if initial_content:
+                            if engineer.get_edited_files():
+                                full = self.output_dir / normalized
+                                if full.exists():
+                                    initial_content = full.read_text(encoding='utf-8')
+                            else:
+                                initial_content = self._clean_code_block(initial_content)
+                            logger.info(f"语言重试完成: {file_path}")
+                except Exception as e:
+                    logger.debug(f"语言检查跳过: {e}")
 
             if cross_validator.is_critical_file(file_path, file_type, file_priority):
                 alt_model = self._select_alternative_model(model_name)
@@ -1101,3 +1104,17 @@ class SpecFirstGenerateMixin:
             return '{}\n'
         else:
             return f'// Placeholder: {description}\n'
+
+    async def _quick_llm_check(self, prompt: str) -> str:
+        """快速 LLM 检查（用于语言校验等轻量任务）"""
+        from app.utils import call_llm
+        try:
+            response = await call_llm(
+                prompt=prompt,
+                system_prompt="你是一个代码语言检测器。只回答 YES 或 NO。",
+                api_key_token=getattr(self, 'api_key_token', None)
+            )
+            return response.strip() if response else ""
+        except Exception as e:
+            logger.debug(f"_quick_llm_check 失败: {e}")
+            return ""
