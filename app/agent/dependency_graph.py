@@ -59,6 +59,27 @@ class DependencyGraph:
 
     def add_file(self, path: str, file_type: Optional[str] = None, priority: int = 3, description: str = ""):
         """添加文件节点"""
+        if not path:
+            return
+        
+        # 空格路径检查：拒绝带空格的路径
+        if ' ' in path:
+            logger.warning(f"拒绝带空格的文件路径: {path}")
+            return
+        
+        # 特殊字符检查
+        if ',' in path or ';' in path:
+            logger.warning(f"拒绝含特殊字符的文件路径: {path}")
+            return
+        
+        # 包名检查：拒绝无扩展名且无目录分隔符的路径（如 "moment", "axios", "models"）
+        if '/' not in path and '.' not in path:
+            logger.warning(f"拒绝包名/目录名作为文件路径: {path}")
+            return
+        
+        # 规范化路径：去除多余斜杠、统一使用正斜杠
+        path = path.replace('\\', '/').replace('//', '/')
+        
         if file_type is None:
             file_type = self._infer_file_type(path)
 
@@ -160,16 +181,75 @@ class DependencyGraph:
         if self.language_adapter and hasattr(self.language_adapter, 'set_file_plan_data'):
             self.language_adapter.set_file_plan_data(file_plan)
 
+        # 0.5 过滤和规范化 file_plan
+        cleaned_file_plan = []
+        seen_paths = set()
+        for file_info in file_plan:
+            path = file_info.get("path", "")
+            if not path:
+                continue
+            
+            # 空格路径检查：跳过带空格的路径
+            if ' ' in path:
+                logger.warning(f"跳过带空格的文件路径: {path}")
+                continue
+            
+            # 特殊字符检查
+            if ',' in path or ';' in path:
+                logger.warning(f"跳过含特殊字符的文件路径: {path}")
+                continue
+            
+            # 包名检查：跳过无扩展名且无目录分隔符的路径（如 "moment", "axios", "models"）
+            if '/' not in path and '.' not in path:
+                logger.warning(f"跳过包名/目录名作为文件路径: {path}")
+                continue
+            
+            # 点号路径转换：无斜杠但有多段点号（如 src.app.utils.py）
+            if '/' not in path and '.' in path:
+                dot_segments = path.split('.')
+                if len(dot_segments) >= 3:
+                    known_exts = {'py','js','ts','jsx','tsx','css','html','json','md','yaml','yml','toml','cfg','ini','sh','sql','go','rs','java','rb','php'}
+                    last = dot_segments[-1].lower()
+                    if last in known_exts:
+                        original = path
+                        path = '/'.join(dot_segments[:-1]) + '.' + last
+                        logger.info(f"点号路径自动转换: {original} -> {path}")
+                    else:
+                        logger.warning(f"可疑路径格式（无斜杠但有点号分隔）: {path}，将由验证 LLM 判断")
+            
+            # 规范化路径
+            path = path.replace('\\', '/').replace('//', '/')
+            if path.startswith('./'):
+                path = path[2:]
+            
+            # 去重
+            if path in seen_paths:
+                logger.warning(f"跳过重复的文件路径: {path}")
+                continue
+            seen_paths.add(path)
+            
+            # 更新 file_info 中的路径
+            file_info["path"] = path
+            cleaned_file_plan.append(file_info)
+        
+        if len(cleaned_file_plan) != len(file_plan):
+            logger.warning(f"file_plan 清理: {len(file_plan)} -> {len(cleaned_file_plan)} 个文件")
+        
+        # 使用清理后的 file_plan 更新架构
+        architecture["file_plan"] = cleaned_file_plan
+        file_plan = cleaned_file_plan
+
         # 1. 先添加所有文件节点（确保所有文件都在图中）
         for file_info in file_plan:
             path = file_info.get("path", "")
             description = file_info.get("description", "")
             priority = file_info.get("priority", 3)
+            file_type = file_info.get("file_type")  # 优先使用 file_plan 中的 file_type
 
             if not path:
                 continue
 
-            self.add_file(path, priority=priority, description=description)
+            self.add_file(path, priority=priority, description=description, file_type=file_type)
 
         # 2. 再处理依赖关系（此时所有文件都在图中）
         files_with_imports = set()
@@ -199,6 +279,9 @@ class DependencyGraph:
         # 3. 硬编码规则作为兜底（仅对 LLM 未声明 imports 的文件使用）
         self._auto_add_dependencies(files_with_imports)
 
+        # 3.5 去重：基于图结构消除功能重复文件
+        self.deduplicate()
+
         # 4. 输出依赖图详情（调试用）
         logger.info(f"=== 依赖图构建详情 ===")
         logger.info(f"文件节点 ({len(self.nodes)}):")
@@ -214,6 +297,185 @@ class DependencyGraph:
                 logger.info(f"  {path} <- {sorted(dependents)}")
         logger.info(f"========================")
 
+    def deduplicate(self):
+        """基于图结构消除功能重复文件
+
+        当多个文件同名（如 models.py 和 src/models/models.py）且 file_type 相同时，
+        根据图结构评分选择保留哪个：
+        - 被依赖数（入度）越高越重要
+        - 路径越深越具体
+        - 依赖数越多越完整
+
+        同名但 file_type 不同的文件（如 models/user.py 和 routers/user.py）不视为重复。
+
+        语言无关：不依赖任何语言特定的命名规则。
+        """
+        from collections import defaultdict
+
+        # 按 (文件名, file_type) 分组
+        name_type_to_paths: Dict[tuple, List[str]] = defaultdict(list)
+        for path in list(self.nodes.keys()):
+            filename = Path(path).name
+            node = self.nodes.get(path)
+            file_type = node.file_type if node else 'unknown'
+            name_type_to_paths[(filename, file_type)].append(path)
+
+        removed = []
+
+        for (filename, file_type), paths in name_type_to_paths.items():
+            if len(paths) <= 1:
+                continue
+
+            # 对每个候选文件评分
+            scores = {}
+            for path in paths:
+                # 入度：被多少文件依赖（越多越重要）
+                in_degree = len(self.reverse_adjacency.get(path, set()))
+                # 出度：依赖多少文件（越多越完整）
+                out_degree = len(self.adjacency.get(path, set()))
+                # 路径深度（越深越具体）
+                depth = path.count('/')
+                # 是否有明确的 file_type（非 unknown/unknown）
+                node = self.nodes.get(path)
+                has_type = node and node.file_type not in ('unknown', 'utils', '')
+
+                score = in_degree * 10 + out_degree * 2 + depth * 5 + (20 if has_type else 0)
+                scores[path] = score
+
+            # 保留得分最高的
+            best_path = max(scores, key=scores.get)
+
+            for path in paths:
+                if path == best_path:
+                    continue
+
+                # 将被删除文件的入边重定向到 best_path
+                dependents = list(self.reverse_adjacency.get(path, set()))
+                for dep in dependents:
+                    if dep in self.nodes:
+                        self.adjacency[dep].discard(path)
+                        if best_path not in self.adjacency[dep]:
+                            self.add_dependency(dep, best_path)
+
+                # 将被删除文件的出边转移到 best_path（如果 best_path 还没有该依赖）
+                deps = list(self.adjacency.get(path, set()))
+                for dep in deps:
+                    if dep != best_path and dep in self.nodes:
+                        self.add_dependency(best_path, dep)
+
+                # 从图中移除
+                self._remove_node(path)
+                removed.append((path, best_path, scores[path]))
+
+        if removed:
+            logger.info(f"去重: 移除 {len(removed)} 个重复文件")
+            for old_path, best_path, score in removed:
+                logger.info(f"  移除 {old_path} (score={score}), 保留 {best_path}")
+
+    def get_unknown_type_files(self) -> List[str]:
+        """返回所有 file_type 为 unknown 或 utils 或空字符串的文件路径列表"""
+        return [
+            path for path, node in self.nodes.items()
+            if node.file_type in ('unknown', 'utils', '')
+        ]
+
+    def update_file_type(self, path: str, new_type: str):
+        """更新指定文件的 file_type"""
+        if path in self.nodes and new_type and new_type not in ('unknown', ''):
+            old_type = self.nodes[path].file_type
+            self.nodes[path].file_type = new_type
+            if old_type != new_type:
+                logger.info(f"file_type 更新: {path} ({old_type} -> {new_type})")
+
+    def refactor_file(self, old_path: str, new_files: List[Dict[str, Any]], import_mapping: Dict[str, str]) -> List[str]:
+        """重构文件：将旧节点替换为新节点，更新依赖关系
+
+        Args:
+            old_path: 旧文件路径
+            new_files: 新文件列表，每个包含 path, file_type, priority, description
+            import_mapping: import 映射 {旧 import 路径: 新 import 路径}
+
+        Returns:
+            新添加的文件路径列表
+        """
+        if old_path not in self.nodes:
+            logger.warning(f"重构失败: {old_path} 不在依赖图中")
+            return []
+
+        old_node = self.nodes[old_path]
+        old_type = old_node.file_type
+
+        # 获取旧文件的所有依赖和被依赖关系
+        old_deps = list(self.adjacency.get(old_path, set()))
+        old_dependents = list(self.reverse_adjacency.get(old_path, set()))
+
+        # 添加新文件节点
+        new_paths = []
+        for nf in new_files:
+            nf_path = nf.get("path", "")
+            if not nf_path:
+                continue
+            self.add_file(
+                nf_path,
+                file_type=nf.get("file_type", old_type),
+                priority=nf.get("priority", old_node.priority),
+                description=nf.get("description", "")
+            )
+            new_paths.append(nf_path)
+
+        # 将旧文件的出边（依赖）转移到新文件
+        # 根据 import_mapping 决定每个新文件依赖哪些旧依赖
+        for new_path in new_paths:
+            new_node = self.nodes.get(new_path)
+            if not new_node:
+                continue
+            # 新文件默认继承旧文件的依赖（可通过 import_mapping 精确控制）
+            for old_dep in old_deps:
+                # 检查 import_mapping 是否有重定向
+                mapped_dep = import_mapping.get(old_dep, old_dep)
+                if mapped_dep in self.nodes:
+                    self.add_dependency(new_path, mapped_dep)
+
+        # 将旧文件的入边（被依赖）转移到新文件
+        # 根据 import_mapping 决定哪些已有文件依赖哪个新文件
+        for dependent in old_dependents:
+            if dependent not in self.nodes:
+                continue
+            # 检查 dependent 的依赖应该指向哪个新文件
+            # 默认指向第一个新文件（通常是主入口文件）
+            target = new_paths[0] if new_paths else None
+            # 检查 import_mapping 中是否有更精确的映射
+            for old_import, new_import in import_mapping.items():
+                if old_import == old_path and new_import in self.nodes:
+                    target = new_import
+                    break
+            if target:
+                # 移除旧边，添加新边
+                self.adjacency[dependent].discard(old_path)
+                self.nodes[dependent].dependencies = [d for d in self.nodes[dependent].dependencies if d != old_path]
+                self.add_dependency(dependent, target)
+
+        # 移除旧节点
+        self._remove_node(old_path)
+        logger.info(f"重构完成: {old_path} -> {new_paths}")
+
+        return new_paths
+
+    def _remove_node(self, path: str):
+        """从图中完全移除一个节点及其所有边"""
+        if path in self.nodes:
+            del self.nodes[path]
+        if path in self.adjacency:
+            del self.adjacency[path]
+        if path in self.reverse_adjacency:
+            # 清理其他节点对它的引用
+            for dependent in self.reverse_adjacency[path]:
+                if dependent in self.adjacency:
+                    self.adjacency[dependent].discard(path)
+                if dependent in self.nodes and path in self.nodes[dependent].dependencies:
+                    self.nodes[dependent].dependencies.remove(path)
+            del self.reverse_adjacency[path]
+
     def _import_to_file_path(self, import_path: str) -> Optional[str]:
         """将 import 路径转换为文件路径"""
         # 使用语言适配器
@@ -227,9 +489,8 @@ class DependencyGraph:
                 if candidate in self.nodes:
                     return candidate
 
-            # 返回第一个候选（后续会补充）
-            if candidates:
-                return candidates[0]
+            # 不返回不存在的候选路径（避免创建垃圾文件）
+            return None
 
         # Fallback: 通用规则
         pkg_path = import_path.replace('.', '/')
@@ -252,9 +513,8 @@ class DependencyGraph:
             if file_path in self.nodes:
                 return file_path
 
-        # 尝试返回最可能的路径（后续会补充）
-        default_ext = list(extensions)[0] if extensions else '.py'
-        return pkg_path + default_ext
+        # 不返回不存在的路径（避免创建垃圾文件）
+        return None
 
     def build_from_specs(self, specs: Dict[str, Any]):
         """根据规范构建基础依赖"""
@@ -512,7 +772,7 @@ class DependencyGraph:
     # 向后兼容：保留类方法引用
     get_context_budget = staticmethod(get_context_budget)
 
-    def get_context_for_file(self, file_path: str, generated_files: Dict[str, str], max_context_bytes: int = 0, model_context_length: int = 0) -> str:
+    def get_context_for_file(self, file_path: str, generated_files: Dict[str, str], max_context_bytes: int = 0, model_context_length: int = 0, project_spec: Optional[Dict] = None) -> str:
         """
         获取某个文件生成时应该注入的上下文
 
@@ -526,9 +786,33 @@ class DependencyGraph:
             ctx_len = model_context_length if model_context_length > 0 else 32768
             max_context_bytes = get_context_budget(ctx_len)
 
+        parts = []
+
+        # 注入 project_spec（如果提供）
+        if project_spec:
+            # 获取当前文件的 file_type
+            node = self.nodes.get(file_path)
+            file_type = node.file_type if node else "unknown"
+
+            # 查找精确匹配的 spec，fallback 到 default
+            file_spec = project_spec.get(file_type, project_spec.get("default", {}))
+            if file_spec:
+                spec_lines = []
+                storage = file_spec.get("storage", {})
+                terminology = file_spec.get("terminology", {})
+                if storage:
+                    spec_lines.append(f"- 存储方式: {storage.get('type', 'unknown')}")
+                    if storage.get("filename"):
+                        spec_lines.append(f"- 存储文件: {storage['filename']}")
+                if terminology:
+                    terms = ", ".join(f"{k}={v}" for k, v in terminology.items())
+                    spec_lines.append(f"- 术语表: {terms}")
+                if spec_lines:
+                    parts.append(f"## 项目规范 (file_type={file_type})\n" + "\n".join(spec_lines) + "\n")
+
         dependencies = self.adjacency.get(file_path, set())
         if not dependencies:
-            return ""
+            return "\n".join(parts) if parts else ""
 
         # 按依赖重要性排序（优先级低的 = 更基础 = 更重要）
         sorted_deps = sorted(
@@ -536,11 +820,10 @@ class DependencyGraph:
             key=lambda d: self.nodes[d].priority if d in self.nodes else 99
         )
         if not sorted_deps:
-            return ""
+            return "\n".join(parts) if parts else ""
 
         # 动态分配预算：核心依赖获得更多字节
         total_deps = len(sorted_deps)
-        parts = []
         remaining_budget = max_context_bytes
 
         for i, dep_path in enumerate(sorted_deps):
@@ -577,10 +860,60 @@ class DependencyGraph:
     def to_dict(self) -> Dict[str, Any]:
         """导出依赖图信息"""
         return {
-            "nodes": {path: {"type": node.file_type, "priority": node.priority} for path, node in self.nodes.items()},
+            "nodes": {path: {"type": node.file_type, "priority": node.priority, "description": node.description} for path, node in self.nodes.items()},
             "dependencies": {k: list(v) for k, v in self.adjacency.items() if v},
             "generation_order": self.get_generation_order()
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any], language_adapter=None) -> 'DependencyGraph':
+        """从字典恢复依赖图"""
+        graph = cls(language_adapter=language_adapter)
+        
+        # 恢复节点
+        for path, node_info in data.get("nodes", {}).items():
+            graph.add_file(
+                path=path,
+                file_type=node_info.get("type"),
+                priority=node_info.get("priority", 3),
+                description=node_info.get("description", "")
+            )
+        
+        # 恢复依赖关系
+        for source, targets in data.get("dependencies", {}).items():
+            for target in targets:
+                graph.add_dependency(source, target)
+        
+        return graph
+
+    def save(self, filepath: str):
+        """持久化依赖图到磁盘"""
+        import json
+        data = self.to_dict()
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        logger.info(f"依赖图已保存到: {filepath}")
+
+    @classmethod
+    def load(cls, filepath: str, language_adapter=None) -> Optional['DependencyGraph']:
+        """从磁盘加载依赖图"""
+        import json
+        from pathlib import Path
+        
+        if not Path(filepath).exists():
+            logger.info(f"依赖图文件不存在: {filepath}")
+            return None
+        
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            graph = cls.from_dict(data, language_adapter=language_adapter)
+            logger.info(f"从磁盘加载依赖图: {len(graph.nodes)} 个节点, {len(graph.adjacency)} 条依赖")
+            return graph
+        except Exception as e:
+            logger.warning(f"加载依赖图失败: {e}")
+            return None
 
     # ==================== 辅助方法 ====================
 

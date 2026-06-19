@@ -2,7 +2,7 @@
   <div class="agent-model-config">
     <h3 class="section-title">Agent 模型配置</h3>
     <p class="section-desc">
-      {{ isSuperUser ? '配置 Agent 各环节使用的模型、降级链和错误恢复策略。修改后立即生效。' : '查看 Agent 各环节使用的模型配置。如需修改，请联系超级管理员。' }}
+      {{ isSuperUser ? '配置 Agent 各角色使用的模型、降级链和错误恢复策略。修改后立即生效。' : '查看 Agent 各角色使用的模型配置。如需修改，请联系超级管理员。' }}
     </p>
 
     <!-- 加载状态 -->
@@ -11,38 +11,38 @@
     </div>
 
     <template v-else>
-      <!-- 模型分配表 -->
+      <!-- 角色模型分配表 -->
       <div class="config-table-wrapper">
         <table class="config-table">
           <thead>
             <tr>
-              <th>复杂度</th>
-              <th>架构师</th>
-              <th>前端工程师</th>
-              <th>后端工程师</th>
-              <th>审查员</th>
-              <th>兜底模型</th>
+              <th>角色</th>
+              <th>模型</th>
+              <th>思考预算</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="complexity in complexityLevels" :key="complexity">
-              <td class="complexity-cell">
-                <span class="complexity-badge" :class="complexity.toLowerCase()">{{ complexity }}</span>
+            <tr v-for="role in roles" :key="role.key">
+              <td class="role-cell">
+                <span class="role-badge" :class="role.key">{{ role.label }}</span>
               </td>
-              <td v-for="role in roles" :key="role">
+              <td>
                 <select
                   v-if="isSuperUser"
-                  :value="getSelectedModel(complexity, role)"
+                  :value="getSelectedModel(role.key)"
                   class="model-select"
-                  @change="updateModel(complexity, role, $event.target.value)"
+                  @change="updateModel(role.key, $event.target.value)"
                 >
                   <option v-for="model in availableModels" :key="model.id" :value="model.id">
                     {{ model.name }}
                   </option>
                 </select>
                 <span v-else class="model-readonly">
-                  {{ getModelName(getSelectedModel(complexity, role)) }}
+                  {{ getModelName(getSelectedModel(role.key)) }}
                 </span>
+              </td>
+              <td class="thinking-budget-cell">
+                {{ getThinkingBudgetDisplay(role.key) }}
               </td>
             </tr>
           </tbody>
@@ -54,17 +54,17 @@
         <h3 class="section-title" style="margin-top: 32px;">降级链配置</h3>
         <p class="section-desc">配置模型降级顺序。当首选模型不可用时，按顺序尝试下一个模型。</p>
 
-        <div class="fallback-chains">
-          <div v-for="(chainModels, chainName) in configData.fallback_chains" :key="chainName" class="chain-card">
+        <div class="fallback-chain">
+          <div class="chain-card">
             <div class="chain-header">
-              <span class="chain-name">{{ chainName }}</span>
-              <button class="chain-save-btn" :disabled="chainSaving" @click="saveChain(chainName, chainModels)">
+              <span class="chain-name">降级链</span>
+              <button class="chain-save-btn" :disabled="chainSaving" @click="saveChain">
                 {{ chainSaving ? '保存中...' : '保存' }}
               </button>
             </div>
             <div class="chain-models">
               <div
-                v-for="(modelId, idx) in chainModels"
+                v-for="(modelId, idx) in configData.fallback_chain"
                 :key="idx"
                 class="chain-model-item"
               >
@@ -72,17 +72,17 @@
                 <select
                   :value="modelId"
                   class="model-select"
-                  @change="updateChainModel(chainName, idx, $event.target.value)"
+                  @change="updateChainModel(idx, $event.target.value)"
                 >
                   <option v-for="model in availableModels" :key="model.id" :value="model.id">
                     {{ model.name }}
                   </option>
                 </select>
-                <button class="chain-remove-btn" title="移除" @click="removeChainModel(chainName, idx)">
+                <button class="chain-remove-btn" title="移除" @click="removeChainModel(idx)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               </div>
-              <button class="chain-add-btn" @click="addChainModel(chainName)">
+              <button class="chain-add-btn" @click="addChainModel">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 添加模型
               </button>
@@ -150,22 +150,38 @@ const reloading = ref(false)
 const chainSaving = ref(false)
 const availableModels = ref([])
 
-const complexityLevels = ['SIMPLE', 'SMALL', 'MEDIUM', 'LARGE', 'ENTERPRISE']
-const roles = ['architect', 'frontend', 'backend', 'reviewer', 'fallback']
+const roles = [
+  { key: 'architect', label: '架构师' },
+  { key: 'frontend', label: '前端工程师' },
+  { key: 'backend', label: '后端工程师' },
+  { key: 'reviewer', label: '审查员' },
+  { key: 'fallback', label: '兜底模型' },
+]
 
 const configData = ref({
-  version: '1.0',
+  version: '3.1',
   description: 'Agent 模型配置',
   last_updated: '',
-  assignments: {},
-  fallback_chains: {},
+  roles: {},
+  fallback_chain: [],
   error_type_models: {},
-  settings: {}
+  settings: {},
+  global_thinking_ratio: 0.5,
+  models: {}
 })
 
 function getModelName(modelId) {
   const m = availableModels.value.find(m => m.id === modelId)
   return m ? m.name : modelId
+}
+
+function getThinkingBudgetDisplay(roleKey) {
+  const modelId = configData.value.roles?.[roleKey]
+  if (!modelId) return '-'
+  const modelConfig = configData.value.models?.[modelId]
+  const ratio = modelConfig?.thinking_ratio ?? configData.value.global_thinking_ratio ?? 0.5
+  if (ratio === 0) return '禁用'
+  return `${Math.round(ratio * 100)}%`
 }
 
 async function loadModels() {
@@ -195,41 +211,27 @@ async function loadConfig() {
   }
 }
 
-function getSelectedModel(complexity, role) {
-  const assignment = configData.value.assignments?.[complexity]
-  if (!assignment) {
-    const defaults = {
-      SIMPLE: { architect: 'qwen3.5-4b', frontend: 'qwen3-8b', backend: 'qwen3-8b', reviewer: 'qwen3-8b', fallback: 'qwen3.5-4b' },
-      SMALL: { architect: 'glm-z1-9b', frontend: 'qwen3-8b', backend: 'deepseek-r1', reviewer: 'glm-z1-9b', fallback: 'qwen3-8b' },
-      MEDIUM: { architect: 'glm-z1-9b', frontend: 'qwen3-8b', backend: 'deepseek-r1', reviewer: 'deepseek-r1', fallback: 'qwen3-8b' },
-      LARGE: { architect: 'glm-z1-9b', frontend: 'qwen3-8b', backend: 'deepseek-r1', reviewer: 'deepseek-r1', fallback: 'qwen3-8b' },
-      ENTERPRISE: { architect: 'glm-z1-9b', frontend: 'qwen3-8b', backend: 'deepseek-r1', reviewer: 'deepseek-r1', fallback: 'qwen3-8b' },
-    }
-    return defaults[complexity]?.[role] || 'qwen3-8b'
-  }
-  const roleKey = `${role}_model`
-  return assignment[roleKey] || 'qwen3-8b'
+function getSelectedModel(role) {
+  return configData.value.roles?.[role] || 'qwen3-8b'
 }
 
-async function updateModel(complexity, role, modelId) {
+async function updateModel(role, modelId) {
   try {
     const resp = await api.put('/api/v2/models/agent-config', {
-      complexity,
       role,
       model_id: modelId
     })
     if (resp.ok) {
       const data = await resp.json()
       if (data.success) {
-        if (!configData.value.assignments[complexity]) {
-          configData.value.assignments[complexity] = {}
+        if (!configData.value.roles) {
+          configData.value.roles = {}
         }
-        const roleKey = `${role}_model`
-        configData.value.assignments[complexity][roleKey] = modelId
+        configData.value.roles[role] = modelId
         if (data.config?.last_updated) {
           configData.value.last_updated = data.config.last_updated
         }
-        ElMessage.success(`已更新 ${complexity} 的 ${role} 为 ${getModelName(modelId)}`)
+        ElMessage.success(`已更新 ${roles.find(r => r.key === role)?.label || role} 为 ${getModelName(modelId)}`)
       }
     } else {
       const err = await resp.json().catch(() => ({}))
@@ -240,30 +242,30 @@ async function updateModel(complexity, role, modelId) {
   }
 }
 
-function updateChainModel(chainName, idx, modelId) {
-  if (configData.value.fallback_chains?.[chainName]) {
-    configData.value.fallback_chains[chainName][idx] = modelId
+function updateChainModel(idx, modelId) {
+  if (configData.value.fallback_chain) {
+    configData.value.fallback_chain[idx] = modelId
   }
 }
 
-function addChainModel(chainName) {
-  if (configData.value.fallback_chains?.[chainName]) {
-    configData.value.fallback_chains[chainName].push('qwen3-8b')
+function addChainModel() {
+  if (configData.value.fallback_chain) {
+    configData.value.fallback_chain.push('qwen3-8b')
   }
 }
 
-function removeChainModel(chainName, idx) {
-  if (configData.value.fallback_chains?.[chainName]) {
-    configData.value.fallback_chains[chainName].splice(idx, 1)
+function removeChainModel(idx) {
+  if (configData.value.fallback_chain) {
+    configData.value.fallback_chain.splice(idx, 1)
   }
 }
 
-async function saveChain(chainName, models) {
+async function saveChain() {
   chainSaving.value = true
   try {
     const resp = await api.put('/api/v2/models/agent-config/fallback-chain', {
-      chain_name: chainName,
-      models
+      chain_name: 'default',
+      models: configData.value.fallback_chain
     })
     if (resp.ok) {
       const data = await resp.json()
@@ -271,7 +273,7 @@ async function saveChain(chainName, models) {
         if (data.config?.last_updated) {
           configData.value.last_updated = data.config.last_updated
         }
-        ElMessage.success(`降级链「${chainName}」已保存`)
+        ElMessage.success('降级链已保存')
       }
     } else {
       const err = await resp.json().catch(() => ({}))
@@ -359,13 +361,13 @@ onMounted(async () => {
 .config-table th { background: var(--bg-secondary); font-weight: 600; white-space: nowrap; color: var(--text-secondary); }
 .config-table td { background: var(--bg-primary); }
 
-.complexity-cell { text-align: left; }
-.complexity-badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; }
-.complexity-badge.simple { background: var(--success-bg); color: var(--success); }
-.complexity-badge.small { background: var(--primary-50); color: var(--primary); }
-.complexity-badge.medium { background: var(--warning-bg); color: var(--warning); }
-.complexity-badge.large { background: var(--danger-bg); color: var(--danger); }
-.complexity-badge.enterprise { background: var(--color-primary-50); color: var(--color-primary-700); }
+.role-cell { text-align: left; }
+.role-badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+.role-badge.architect { background: var(--primary-50); color: var(--primary); }
+.role-badge.frontend { background: var(--success-bg); color: var(--success); }
+.role-badge.backend { background: var(--warning-bg); color: var(--warning); }
+.role-badge.reviewer { background: var(--danger-bg); color: var(--danger); }
+.role-badge.fallback { background: var(--color-primary-50); color: var(--color-primary-700); }
 
 .model-select { width: 100%; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 13px; background: var(--bg-primary); color: var(--text-primary); cursor: pointer; }
 .model-select:hover { border-color: var(--primary); }
@@ -373,8 +375,10 @@ onMounted(async () => {
 
 .model-readonly { font-size: 13px; color: var(--text-secondary); }
 
+.thinking-budget-cell { font-size: 13px; color: var(--text-secondary); white-space: nowrap; }
+
 /* 降级链 */
-.fallback-chains { display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px; }
+.fallback-chain { display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px; }
 .chain-card { border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; background: var(--bg-secondary); }
 .chain-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .chain-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }

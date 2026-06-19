@@ -26,13 +26,12 @@ def _load_dual_models_from_config():
         if os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-            # 从 MEDIUM 级别分配中取 architect 和 frontend 作为双模型
-            assignments = config.get("assignments", {})
-            medium = assignments.get("MEDIUM", {})
+            # v3.0: 从 roles 中直接取模型
+            roles = config.get("roles", {})
             from app.agent.dynamic_model_router import resolve_model_key
-            model_a = resolve_model_key(medium.get("backend_model", "deepseek-r1"))
-            model_b = resolve_model_key(medium.get("architect_model", "glm-z1-9b"))
-            fallback = resolve_model_key(medium.get("frontend_model", "qwen3-8b"))
+            model_a = resolve_model_key(roles.get("backend", "deepseek-r1"))
+            model_b = resolve_model_key(roles.get("architect", "glm-z1-9b"))
+            fallback = resolve_model_key(roles.get("frontend", "qwen3-8b"))
             return model_a, model_b, fallback
     except Exception as e:
         logger.warning(f"从配置加载双模型失败，使用默认值: {e}")

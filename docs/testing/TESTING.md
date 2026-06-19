@@ -1,71 +1,138 @@
 # 测试文档
 
-**最后更新**: 2026-05-30  
-**版本**: v5.11.0  
-**E2E 测试状态**: ✅ 100% 通过 (5/5 冒烟测试)
+**最后更新**: 2026-06-09
+**版本**: v5.15.0
+**E2E 测试状态**: 77 spec / 409 用例 (最近一次冒烟通过)
 
 ---
 
-## 测试概况
+## 测试概况 (2026-06-09 实测)
 
-| 测试类型 | 文件数 | 测试用例 | 通过率 | 说明 |
-|----------|--------|----------|--------|------|
-| **单元测试** | 40+ | 500+ | ~95% | 后端业务逻辑 |
-| **集成测试** | 20+ | 150+ | ~90% | API 端点测试 |
-| **E2E 测试** | 48 | 200+ | 100% (冒烟) | Playwright 前端测试 |
-| **总计** | **111+** | **850+** | **~94%** | 全栈测试覆盖 |
+| 测试类型 | 文件数 | 测试用例 | 状态 | 说明 |
+|----------|--------|----------|------|------|
+| **单元测试** | **88** | **1376** | 通过 | 后端业务逻辑 (`tests/unit/`) |
+| **集成测试** | **2** (运行) | **24** | 通过 | **多数已归档到 `archive/integration_old/`** |
+| **E2E 测试** | **77** | **409** | 待验证 | Playwright 前端测试 (`tests/e2e/`) |
+| **性能测试** | 2 | - | 通过 | `tests/performance/` |
+| **归档测试** | 56+ | - | 历史保留 | `tests/archive/legacy/` + `integration_old/` |
+| **总计** | **169+** | **1809+** | - | 实际运行 + 归档 |
+
+> **重要变更**: 集成测试目录从 v5.11.0 报告的 20+ 文件**缩减到 2 个**（`test_auth_api.py` 18 cases, `test_health_api.py` 6 cases）。其余集成测试已迁移到 `tests/archive/integration_old/` 保留为历史参考。如需恢复，可从 archive 目录取回。
 
 ---
 
-## 目录结构
+## 目录结构 (2026-06-09 实际)
 
 ```
 tests/
 ├── conftest.py                    # Pytest 配置和 fixtures
-├── e2e/                           # Playwright E2E 测试 (前端)
-│   ├── 01-auth.spec.js           # 认证流程测试
+├── e2e/                           # Playwright E2E 测试 (77 spec.js, 409 用例)
+│   ├── 01-auth.spec.js            # 认证流程测试
 │   ├── 02-core-navigation.spec.js # 核心导航测试
-│   ├── 03-chat.spec.js           # 聊天功能测试
-│   ├── 04-tools-panel.spec.js    # 工具面板测试
-│   ├── 05-tools-chat.spec.js     # 工具 + 聊天测试
+│   ├── 03-chat.spec.js            # 聊天功能测试
+│   ├── 04-tools-panel.spec.js     # 工具面板测试
+│   ├── 05-tools-chat.spec.js      # 工具 + 聊天测试
 │   ├── 06-project-generate.spec.js # 项目生成测试
 │   ├── 07-image-generator.spec.js # 图像生成测试
-│   ├── 08-workflow.spec.js       # 工作流测试
-│   ├── 09-ppt-generator.spec.js  # PPT 生成测试
-│   ├── 10-admin.spec.js          # 管理后台测试
+│   ├── 08-workflow.spec.js        # 工作流测试
+│   ├── 09-ppt-generator.spec.js   # PPT 生成测试
+│   ├── 10-admin.spec.js           # 管理后台测试
+│   ├── 11-apikey-management.spec.js # API Key 管理测试
 │   ├── 11-theme-shortcuts.spec.js # 主题快捷测试
-│   ├── smoke-test-simple.spec.js # ✅ 冒烟测试 (5 个测试，100% 通过)
+│   ├── smoke-test-simple.spec.js  # 冒烟测试 (推荐先跑)
+│   ├── agent-*.spec.js            # Agent 系列 (20+ spec)
+│   ├── auth-*.spec.js             # 认证系列
+│   ├── test-*.spec.js             # 临时调试 spec
 │   ├── fixtures/
-│   │   └── auth.js               # 认证 helper 函数
-│   └── README.md                 # E2E 测试说明
-├── unit/                          # 单元测试 (后端)
-│   ├── test_agent.py             # Agent 系统测试
+│   │   └── auth.js                # 认证 helper 函数
+│   └── (77 个 .spec.js)
+├── unit/                          # 单元测试 (后端, 88 文件 / 1376 用例)
+│   ├── test_agent.py              # Agent 系统测试
 │   ├── test_agent_capabilities.py # Agent 能力测试
-│   ├── test_comprehensive.py     # 综合单元测试
-│   ├── test_v4_8_features.py     # v4.8 特性测试
-│   ├── test_aicloud.py           # AI 云测试
-│   ├── test_executor.py          # 执行器测试
+│   ├── test_comprehensive.py      # 综合单元测试
+│   ├── test_v4_8_features.py      # v4.8 特性测试
+│   ├── test_aicloud.py            # AI 云测试
+│   ├── test_executor.py           # 执行器测试
 │   ├── test_spec_first_generator.py # 规格优先生成测试
-│   └── ... (40+ 文件)
-├── integration/                   # 集成测试 (API)
-│   ├── test_auth_api.py          # 认证 API
-│   ├── test_ai_agent_api.py      # AI Agent API
-│   ├── test_aicode_api.py        # AI 代码 API
-│   ├── test_aicloud_api.py       # AI 云 API
-│   ├── test_kolors_api.py        # 图像生成 API
-│   ├── test_ppt_api.py           # PPT API
-│   ├── test_file_upload_api.py   # 文件上传 API
-│   ├── test_vision_api.py        # 视觉分析 API
-│   ├── test_v2_admin_api.py      # v2 管理 API
-│   └── ... (20+ 文件)
+│   └── ... (88 文件)
+├── integration/                   # 集成测试 (当前 2 文件, 历史 20+ 已归档)
+│   ├── test_auth_api.py           # 认证 API (18 cases)
+│   └── test_health_api.py         # 健康 API (6 cases)
 ├── performance/                   # 性能测试
+│   ├── benchmark_apikey.py        # API Key 性能基准
 │   └── test_smart_modifications.py # 智能修改性能测试
 ├── frontend/                      # 前端测试
-│   └── test_components.py        # Vue 组件测试配置
-└── archive/                       # 归档的历史测试
-    ├── legacy/                    # 旧版 Python 测试
+│   └── test_components.py         # Vue 组件测试配置
+└── archive/                       # 归档的历史测试 (56+ 文件)
+    ├── legacy/                    # 旧版 Python 测试 (35+)
+    ├── integration_old/           # 旧版集成测试 (21+)
     └── playwright/                # 旧版 Playwright 脚本
 ```
+
+---
+
+## 测试运行命令
+
+### 全部测试
+
+```bash
+# pytest (Makefile / 脚本统一入口)
+make test                       # 等价 pytest tests/ -v
+make test-cov                   # 等价 pytest --cov=app --cov-report=html
+
+# 完整命令
+pytest tests/ -v --tb=short
+pytest tests/unit/ -v            # 仅单元
+pytest tests/integration/ -v    # 仅集成 (仅 2 文件)
+pytest --cov=app --cov=src --cov-report=html
+```
+
+### Playwright E2E
+
+```bash
+# 冒烟测试 (推荐先跑，约 18 秒)
+npx playwright test tests/e2e/smoke-test-simple.spec.js
+
+# 所有 E2E
+npx playwright test tests/e2e/ --reporter=list
+
+# 指定文件
+npx playwright test tests/e2e/01-auth.spec.js
+
+# 带 UI 调试
+npx playwright test --ui
+```
+
+### 当前 Playwright 配置 (`playwright.config.js` 根级)
+
+```js
+{
+  testDir: './tests/e2e',
+  fullyParallel: false,     // 串行
+  workers: 1,               // 单 worker
+  retries: 0,               // 不重试
+  reporter: [['list']],
+  use: {
+    baseURL: 'http://127.0.0.1:3000',  // 前端 Vite 端口 (与历史 8000 不同)
+    trace: 'off',
+    screenshot: 'off',
+    video: 'off',
+  },
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1024, height: 600 } } }
+  ],
+  outputDir: 'test-results/runs/',
+}
+```
+
+> 注意：测试 baseURL 已从历史 `localhost:8000` 改为 `127.0.0.1:3000`（前端 Vite 开发服务器），因为当前架构是前后端分离：后端 8000 / 前端 3000，Vite 通过代理转发 `/api` 到后端。`configs/playwright.config.js` 保留了多浏览器并行配置用于 CI。
+
+### 覆盖率配置
+
+- 根 `pyproject.toml` + `configs/.coveragerc` 双份配置（合并生效）
+- 源目录：`app, src`
+- `fail_under=70`
+- HTML 报告：`htmlcov/index.html`
 
 ---
 
@@ -399,4 +466,4 @@ pytest --cov=app --cov-report=term-missing
 
 ---
 
-*最后更新：2026-05-23*
+*最后更新：2026-06-09*

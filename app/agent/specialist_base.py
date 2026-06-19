@@ -22,24 +22,9 @@ logger = logging.getLogger(__name__)
 # Re-export for backward compatibility
 SpecialistCallError = LLMClientError
 
-# 复杂度到 ReAct 模式的映射
-# simple/small: 简单模式（1 次 LLM 调用/轮，快速）
-# medium/large/enterprise: 完整模式（反思能力，免费模型补偿推理质量）
-_REACT_MODE_BY_COMPLEXITY = {
-    "simple": "simple",
-    "small": "simple",
-    "medium": "full",
-    "large": "full",
-    "enterprise": "full",
-}
-
-_REACT_ROUNDS_BY_COMPLEXITY = {
-    "simple": 2,
-    "small": 2,
-    "medium": 3,
-    "large": 3,
-    "enterprise": 3,
-}
+# ReAct 模式配置（v3.0: 固定 full 模式，不再按复杂度分级）
+_REACT_MODE = "full"
+_REACT_MAX_ROUNDS = 3
 
 
 class Specialist:
@@ -57,7 +42,7 @@ class Specialist:
         self.provider_id = provider_id
         self._cost_tracker = cost_tracker
         self._edited_files: List[str] = []
-        self._write_tools = {"partial_update", "insert_content", "regex_replace"}
+        self._write_tools = {"partial_update", "insert_content", "regex_replace", "write_file", "create_file"}
         self._complexity = complexity
         self.cancel_event = cancel_event
         self._llm_client = LLMClient(
@@ -79,10 +64,34 @@ class Specialist:
         """清空编辑记录（每轮生成前调用）"""
         self._edited_files.clear()
 
+    def update_edited_file_path(self, old_path: str, new_path: str):
+        """更新编辑记录中的文件路径（文件移动时调用）
+
+        Args:
+            old_path: 旧的文件路径
+            new_path: 新的文件路径
+        """
+        for i, f in enumerate(self._edited_files):
+            if f == old_path:
+                self._edited_files[i] = new_path
+                logger.info(f"更新编辑记录: {old_path} -> {new_path}")
+                return
+        # 如果没找到精确匹配，尝试路径末尾匹配
+        old_suffix = old_path.replace('\\', '/').lstrip('/')
+        for i, f in enumerate(self._edited_files):
+            if f.replace('\\', '/').endswith(old_suffix):
+                self._edited_files[i] = new_path
+                logger.info(f"更新编辑记录(后缀匹配): {f} -> {new_path}")
+                return
+
     @traced("specialist.call_llm", attributes={"component": "specialist"})
-    async def call_llm(self, prompt: str, system_prompt: str = "", stream: bool = False) -> str:
-        """调用 LLM（委托给 LLMClient）"""
-        return await self._llm_client.call(prompt, system_prompt, stream)
+    async def call_llm(self, prompt: str, system_prompt: str = "", stream: bool = False, thinking_budget: Optional[int] = None) -> str:
+        """调用 LLM（委托给 LLMClient）
+
+        Args:
+            thinking_budget: 覆盖模型默认的 thinking budget（None=使用默认，0=禁用思考）
+        """
+        return await self._llm_client.call(prompt, system_prompt, stream, thinking_budget=thinking_budget)
 
     @staticmethod
     def _build_tools_description(tools: Dict[str, Dict]) -> str:
@@ -108,6 +117,8 @@ class Specialist:
         max_rounds: int = None,
         callback: Optional[Any] = None,
         heartbeat_tracker=None,
+        enable_streaming_thinking: bool = False,
+        thinking_budget: Optional[int] = None,
     ) -> str:
         """调用 LLM，支持 ReAct 工具调用循环
 
@@ -122,12 +133,16 @@ class Specialist:
             max_rounds: 安全阀上限（防止无限循环，默认按复杂度分级）
             callback: 进度回调函数
             heartbeat_tracker: 心跳活动跟踪器
+            enable_streaming_thinking: 启用真正的 LLM 流式 thinking 推送。
+                启用后，LLM 每个 token 的 reasoning_content 都会通过 callback
+                以 type='thinking' 流式推送到前端，前端按 agent+phase 聚合实现打字机效果。
+            thinking_budget: 覆盖模型默认的 thinking budget（None=使用默认，0=禁用思考）
 
         Returns:
             LLM 最终输出的文本（代码）
         """
         if max_rounds is None:
-            max_rounds = _REACT_ROUNDS_BY_COMPLEXITY.get(self._complexity, 6)
+            max_rounds = _REACT_MAX_ROUNDS
         if tools is None:
             tools = SPECIALIST_TOOLS
             # 合并 MCP 工具（如果 MCPClientManager 已初始化）
@@ -141,19 +156,104 @@ class Specialist:
             except Exception as e:
                 logger.debug(f"MCP 工具合并失败（非致命，使用默认工具集）: {e}")
 
-        react_mode = _REACT_MODE_BY_COMPLEXITY.get(self._complexity, "simple")
+        react_mode = _REACT_MODE
 
-        # 包装 call_llm_fn，在每次 LLM 调用前后更新 tracker
-        original_call_llm = lambda p, s: self.call_llm(p, s)
-        if heartbeat_tracker:
-            async def tracked_call_llm(p, s):
-                heartbeat_tracker.touch()
-                result = await original_call_llm(p, s)
-                heartbeat_tracker.touch()
+        # 选择 LLM 调用函数：流式 thinking 或普通调用
+        if enable_streaming_thinking and callback is not None:
+            # 流式合并窗口（毫秒）：将 50ms 内的多个 chunk 合并为一次推送，
+            # 避免 1 秒 30 个 token 时产生 30 个并发 queue.put 任务
+            _merge_window_ms = 50
+            # 每个 thinking session 一个合并缓冲区
+            _merge_buffers: Dict[str, Dict[str, Any]] = {}
+            _merge_tasks: Dict[str, asyncio.Task] = {}
+
+            def _flush_buffer(key: str) -> None:
+                """推送缓冲区的累积内容并清空"""
+                buf = _merge_buffers.get(key)
+                if not buf or not buf.get("message"):
+                    return
+                try:
+                    self._emit_event(callback, "thinking", {
+                        "agent": buf["agent"],
+                        "model": buf["model"],
+                        "message": buf["message"],
+                        "accumulated": buf["accumulated"],
+                        "streaming": True,
+                        "phase": buf["phase"],
+                    })
+                finally:
+                    buf["message"] = ""
+                    _merge_tasks.pop(key, None)
+
+            async def streaming_call_llm(p: str, s: str) -> str:
+                """流式调用 LLM，每个 chunk 推送 thinking 事件
+
+                合并窗口策略：50ms 内的多个 chunk 累积为一次 SSE 推送，
+                大幅减少后端 queue.put 次数和前端 DOM 更新频率。
+                """
+                if heartbeat_tracker:
+                    heartbeat_tracker.touch()
+
+                # 本次调用的累积 reasoning_content（用于显示完整思考过程）
+                accumulated_reasoning = ""
+                # 本次调用的合并 key
+                merge_key = f"{self.role_name}:{id(p)}"
+                _merge_buffers[merge_key] = {
+                    "agent": self.role_name,
+                    "model": self.model_name,
+                    "message": "",
+                    "accumulated": "",
+                    "phase": "llm_reasoning",
+                }
+
+                async def on_chunk(content_delta: str, reasoning_delta: str) -> None:
+                    nonlocal accumulated_reasoning
+                    # 在每个 chunk 中检查取消信号，及时终止 LLM 调用
+                    if self.cancel_event and self.cancel_event.is_set():
+                        raise asyncio.CancelledError("检测到取消信号，终止 LLM 流式调用")
+                    if heartbeat_tracker:
+                        heartbeat_tracker.touch()
+                    if not reasoning_delta:
+                        return
+                    accumulated_reasoning += reasoning_delta
+                    buf = _merge_buffers.get(merge_key)
+                    if not buf:
+                        return
+                    buf["message"] += reasoning_delta
+                    buf["accumulated"] = accumulated_reasoning
+
+                    # 50ms 合并窗口：如果当前没有 flush 任务在跑，启动一个
+                    if merge_key not in _merge_tasks or _merge_tasks[merge_key].done():
+                        async def _delayed_flush():
+                            await asyncio.sleep(_merge_window_ms / 1000.0)
+                            _flush_buffer(merge_key)
+                        _merge_tasks[merge_key] = asyncio.create_task(_delayed_flush())
+
+                try:
+                    result = await self._llm_client.call_stream(p, s, on_chunk=on_chunk, thinking_budget=thinking_budget)
+                finally:
+                    # 清理缓冲区
+                    _merge_buffers.pop(merge_key, None)
+                    task = _merge_tasks.pop(merge_key, None)
+                    if task and not task.done():
+                        task.cancel()
+                if heartbeat_tracker:
+                    heartbeat_tracker.touch()
                 return result
-            call_llm_fn = tracked_call_llm
+
+            call_llm_fn = streaming_call_llm
         else:
-            call_llm_fn = original_call_llm
+            # 包装 call_llm_fn，在每次 LLM 调用前后更新 tracker
+            original_call_llm = lambda p, s: self.call_llm(p, s, thinking_budget=thinking_budget)
+            if heartbeat_tracker:
+                async def tracked_call_llm(p, s):
+                    heartbeat_tracker.touch()
+                    result = await original_call_llm(p, s)
+                    heartbeat_tracker.touch()
+                    return result
+                call_llm_fn = tracked_call_llm
+            else:
+                call_llm_fn = original_call_llm
 
         engine = ReActEngine(
             tools=tools,

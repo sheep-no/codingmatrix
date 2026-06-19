@@ -133,6 +133,51 @@
             <button class="preview-btn" @click="goToPreview">
               在线预览
             </button>
+            <button class="modify-btn" @click="showModifyPanel = !showModifyPanel">
+              {{ showModifyPanel ? '收起修改' : '修改 PPT' }}
+            </button>
+          </div>
+
+          <!-- 修改面板 -->
+          <div v-if="showModifyPanel" class="modify-panel">
+            <div class="modify-input-group">
+              <textarea
+                v-model="modifyInput"
+                placeholder="输入修改需求，例如：&#10;- 把第三页的标题改成 XXX&#10;- 将背景色改成蓝色&#10;- 添加一页关于...的内容"
+                rows="3"
+                :disabled="isModifying"
+              ></textarea>
+              <div class="modify-actions">
+                <button
+                  class="btn-analyze"
+                  @click="handleAnalyze"
+                  :disabled="isModifying"
+                >
+                  分析 PPT
+                </button>
+                <button
+                  class="btn-apply"
+                  @click="handleModify"
+                  :disabled="!modifyInput.trim() || isModifying"
+                >
+                  {{ isModifying ? '修改中...' : '应用修改' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 修改历史 -->
+            <div v-if="modifyHistory.length > 0" class="modify-history">
+              <h4>修改历史</h4>
+              <div
+                v-for="(item, index) in modifyHistory"
+                :key="index"
+                class="history-item"
+              >
+                <span class="history-index">{{ index + 1 }}.</span>
+                <span class="history-input">{{ item.input }}</span>
+                <span class="history-time">{{ formatTime(item.timestamp) }}</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -173,6 +218,13 @@ const generating = ref(false)
 const generatedSlides = ref([])
 const generatedFileUrl = ref('')
 const progressState = ref(null)
+
+// 增量修改相关状态
+const currentTaskId = ref('')
+const showModifyPanel = ref(false)
+const modifyInput = ref('')
+const isModifying = ref(false)
+const modifyHistory = ref([])
 
 const templates = ref([
   { id: 'modern', name: '现代简约', color: 'linear-gradient(135deg, #2563eb 0%, #3b82f6 100%)' },
@@ -242,6 +294,7 @@ function connectWebSocket(taskId) {
             }
             if (resultData.ppt_id || resultData.filename) {
               const pid = resultData.ppt_id || resultData.filename.replace('.pptx', '')
+              currentTaskId.value = pid
               generatedFileUrl.value = `/api/v1/pptx/download/${pid}`
             }
           } catch (e) {
@@ -326,6 +379,60 @@ function buildFullPrompt() {
   prompt += `幻灯片数量：${slideCount.value}页\n`
   if (features.length > 0) prompt += `特殊要求：${features.join('、')}\n`
   return prompt
+}
+
+// 分析 PPT 状态
+async function handleAnalyze() {
+  if (!currentTaskId.value) return
+
+  try {
+    const result = await api.ppt.analyzePpt(currentTaskId.value)
+    if (result) {
+      ElMessage.success('分析完成，可在下方输入修改需求')
+    }
+  } catch (e) {
+    ElMessage.error('分析失败: ' + e.message)
+  }
+}
+
+// 应用修改
+async function handleModify() {
+  if (!modifyInput.value.trim() || !currentTaskId.value) return
+
+  isModifying.value = true
+  try {
+    const result = await api.ppt.modifyPpt(
+      currentTaskId.value,
+      modifyInput.value.trim(),
+      apiKeyStore.siliconflowKey?.token,
+      true
+    )
+
+    if (result.success) {
+      currentTaskId.value = result.task_id
+      generatedFileUrl.value = result.download_url
+
+      modifyHistory.value.push({
+        input: modifyInput.value.trim(),
+        message: result.message,
+        timestamp: new Date()
+      })
+
+      modifyInput.value = ''
+      ElMessage.success('修改成功!')
+    } else {
+      ElMessage.warning(result.message || '修改失败')
+    }
+  } catch (e) {
+    ElMessage.error('修改失败: ' + e.message)
+  } finally {
+    isModifying.value = false
+  }
+}
+
+// 格式化时间
+function formatTime(date) {
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
 onMounted(() => { loadTemplates() })
@@ -583,4 +690,171 @@ onUnmounted(() => {
 .slide-type { font-size: 12px; color: var(--color-primary); text-transform: capitalize; }
 .slide-card h3 { font-size: 16px; margin-bottom: 8px; }
 .slide-card ul { list-style-position: inside; font-size: 14px; color: var(--text-secondary); }
+
+/* 修改面板样式 */
+.success-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.download-link {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, var(--color-primary) 0%, #3b82f6 100%);
+  color: white;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.download-link:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.preview-btn, .modify-btn {
+  padding: 10px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.preview-btn:hover, .modify-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--color-primary);
+}
+
+.modify-btn {
+  background: var(--bg-tertiary);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.modify-panel {
+  width: 100%;
+  max-width: 600px;
+  margin-top: 24px;
+  padding: 20px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  text-align: left;
+}
+
+.modify-input-group textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color 0.2s;
+}
+
+.modify-input-group textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.modify-input-group textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.modify-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.btn-analyze {
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-analyze:hover:not(:disabled) {
+  background: var(--hover-bg);
+  border-color: var(--color-primary);
+}
+
+.btn-apply {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, var(--color-primary) 0%, #3b82f6 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-apply:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.btn-apply:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.modify-history {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.modify-history h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.history-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.history-item:last-child {
+  border-bottom: none;
+}
+
+.history-index {
+  font-weight: 600;
+  color: var(--color-primary);
+  min-width: 20px;
+}
+
+.history-input {
+  flex: 1;
+}
+
+.history-time {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
 </style>

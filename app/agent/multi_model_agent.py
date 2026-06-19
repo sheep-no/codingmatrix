@@ -142,7 +142,12 @@ class MultiModelAgent:
             except Exception as e:
                 logger.error(f"OrchestratorAgent 委托失败: {e}")
                 await emit("delegation_failed", {"error": str(e)})
-                # 降级到 MultiModelAgent 自己处理
+                return {
+                    "success": False,
+                    "error": f"代码生成委托失败: {e}",
+                    "delegation_failed": True,
+                    "task_type": task_type.value,
+                }
 
         # 分析类任务：使用 AgentExecutor 的 ReAct 工具调用
         if task_type in (TaskType.GENERAL, TaskType.CODE_REVIEW, TaskType.REACT, TaskType.PLANNING, TaskType.REASONING) and output_dir:
@@ -193,7 +198,7 @@ class MultiModelAgent:
             try:
                 from app.agent.dynamic_model_router import get_dynamic_router
                 router = await get_dynamic_router()
-                assignment = await router.get_assignment_with_learning(effective_complexity)
+                assignment = await router.get_assignment_with_learning()
                 reviewer_model = ModelRegistry.get(assignment.reviewer_model)
                 if reviewer_model and reviewer_model != self.reviewer.model:
                     self.reviewer.model = reviewer_model

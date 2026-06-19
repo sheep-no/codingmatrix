@@ -119,6 +119,10 @@
                   <span class="thinking-agent-name">{{ msg.agent }}</span>
                   <span v-if="msg.model" class="thinking-model-badge">{{ msg.model }}</span>
                   <span v-if="msg.phase" class="thinking-phase-tag">{{ msg.phase }}</span>
+                  <span v-if="msg.streaming" class="thinking-streaming-indicator">
+                    <span class="thinking-streaming-dot"></span>
+                    生成中
+                  </span>
                   <span class="thinking-item-time">{{ formatTime(msg.timestamp) }}</span>
                 </div>
                 <div class="thinking-item-message">{{ msg.message }}</div>
@@ -618,6 +622,9 @@ watch(() => props.logs?.length, () => {
 .thinking-agent-name { font-size: 11px; font-weight: 600; color: var(--primary); }
 .thinking-model-badge { font-size: 10px; padding: 1px 4px; background: var(--bg-tertiary); border-radius: 3px; color: var(--text-tertiary); }
 .thinking-phase-tag { font-size: 10px; padding: 1px 4px; background: color-mix(in srgb, var(--success), transparent 90%); border-radius: 3px; color: var(--success); }
+.thinking-streaming-indicator { font-size: 10px; padding: 1px 6px; background: color-mix(in srgb, var(--primary), transparent 90%); border-radius: 3px; color: var(--primary); display: inline-flex; align-items: center; gap: 4px; }
+.thinking-streaming-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); animation: thinking-blink 1s ease-in-out infinite; }
+@keyframes thinking-blink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 .thinking-item-time { font-size: 10px; color: var(--text-tertiary); margin-left: auto; }
 .thinking-item-message { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
 

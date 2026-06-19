@@ -6,7 +6,7 @@ import subprocess as sp
 from typing import Optional, Dict, List
 from pathlib import Path
 
-from app.agent.project_profiler import ProjectProfiler, ProjectProfile
+from app.agent.project_profiler import ProjectProfiler, ProjectProfile, detect_project_language
 
 logger = logging.getLogger(__name__)
 
@@ -100,12 +100,21 @@ class UtilsMixin:
 
         return valid_files
 
-    async def _profile_project(self) -> Optional[ProjectProfile]:
-        """分析项目模式"""
+    async def _profile_project(self, language: Optional[str] = None) -> Optional[ProjectProfile]:
+        """分析项目模式
+
+        Args:
+            language: 显式指定语言（如 "python"/"go"/"javascript"/"rust"/"java"）。
+                      传 None 时自动从 output_dir 检测，未识别则回退到默认（python）。
+        """
         try:
-            profiler = ProjectProfiler()
-            profile = profiler.profile(self.output_dir)
-            logger.info(f"项目指纹 | 架构={profile.architecture.pattern} | 风险点={len(profile.risk_areas)} | 测试约定={len(profile.test_patterns)}")
+            lang = language or detect_project_language(self.output_dir)
+            profiler = ProjectProfiler(self.output_dir, language=lang)
+            profile = profiler.profile()
+            logger.info(
+                f"项目指纹 | 架构={profile.architecture.pattern} | 语言={profile.architecture.language} "
+                f"| 高依赖文件={len(profile.risk_areas.high_dependency)} | 测试框架={profile.test_patterns.framework}"
+            )
             return profile
         except Exception as e:
             logger.error(f"项目分析失败：{e}")

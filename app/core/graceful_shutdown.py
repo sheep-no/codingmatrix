@@ -216,6 +216,8 @@ class GracefulShutdownManager:
     async def shutdown_async(self):
         """异步关闭入口"""
         self.initiate_shutdown()
+        if self._shutdown_event is None:
+            self._shutdown_event = asyncio.Event()
         await self._do_shutdown()
 
     def setup_signal_handlers(self):

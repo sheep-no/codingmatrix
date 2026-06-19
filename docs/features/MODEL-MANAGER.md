@@ -8,9 +8,11 @@
 
 ## v5.12.0+ 重要更新
 
-### 5×5 模型分配矩阵
+### v5.12.0+ 重要更新
 
-v5.12.0+ 引入了**复杂度档 × 角色**的二维模型分配矩阵，取代原有的简单默认模型。详细配置见 `data/agent_model_config.json`，详见 [DYNAMIC-MODEL-ROUTER.md](DYNAMIC-MODEL-ROUTER.md)。
+### 按角色模型分配
+
+v5.12.0+ 引入了按角色的模型分配，取代原有的简单默认模型。v3.0 进一步简化，移除了复杂度分层，改为按角色固定模型分配。详细配置见 `data/agent_model_config.json`，详见 [DYNAMIC-MODEL-ROUTER.md](DYNAMIC-MODEL-ROUTER.md)。
 
 ### 模型健康度监控
 
@@ -111,7 +113,7 @@ v5.12.0+ 引入了**复杂度档 × 角色**的二维模型分配矩阵，取代
 - `app/api/v2/model_admin.py` - **v5.12.0+ 新增**: 模型管理 (context_length, assignments, health)
 - `app/utils/aicloud/model_registry.py` - 模型注册表
 - `app/agent/dynamic_model_router.py` - **v5.12.0+ 增强**: 动态路由
-- `data/agent_model_config.json` - 5×5 模型分配配置
+- `data/agent_model_config.json` - 角色模型分配配置 (v3.0)
 - `tests/unit/test_model_manager_api.py` - 单元测试
 
 ## v5.12.0+ 新增端点
@@ -154,41 +156,33 @@ v5.12.0+ 引入了**复杂度档 × 角色**的二维模型分配矩阵，取代
 
 ### `GET /api/v2/models/assignments`
 
-查看 5×5 模型分配矩阵。
+查看角色模型分配。
 
 **权限**: superadmin
 
 **响应**:
 ```json
 {
-  "version": "2.0",
-  "assignments": {
-    "SIMPLE": {
-      "architect": "qwen3-8b",
-      "frontend": "qwen3-8b",
-      "backend": "qwen3-8b",
-      "reviewer": "qwen3-8b"
-    },
-    "MEDIUM": {
-      "architect": "glm-z1-9b",
-      "frontend": "qwen3-8b",
-      "backend": "deepseek-r1",
-      "reviewer": "deepseek-r1"
-    }
+  "version": "3.0",
+  "roles": {
+    "architect": "glm-z1-9b",
+    "frontend": "glm-4-9b",
+    "backend": "deepseek-r1",
+    "reviewer": "glm-z1-9b",
+    "fallback": "qwen3-8b"
   }
 }
 ```
 
 ### `PUT /api/v2/models/assignments`
 
-修改模型分配。
+修改角色模型分配。
 
 **权限**: superadmin
 
 **请求体**:
 ```json
 {
-  "complexity": "MEDIUM",
   "role": "backend",
   "model": "deepseek-r1"
 }

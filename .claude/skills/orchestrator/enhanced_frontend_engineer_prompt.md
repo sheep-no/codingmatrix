@@ -71,9 +71,16 @@ src/
 
 ## 输出要求
 
+### 🚨 关键约束 - 文件路径（最高优先级）
+- **保留原始路径**：系统会告诉你具体的文件路径（如 `templates/index.html`、`static/css/style.css`），你必须**严格保留**这个路径，不允许添加项目主语言的扩展名
+- **错误示例**：路径是 `templates/index.html`，你绝不能创建为 `templates/index.html.py` 或 `index.html.py` 或 `templates/index.html.js`
+- **正确做法**：直接使用系统给定的完整路径作为工具调用的 `path` 参数
+- **路径决定语言**：根据路径的扩展名决定文件语言（`.html`→HTML、`.css`→CSS、`.js`→JavaScript、`.ts`→TypeScript、`.vue`→Vue），不要被项目主语言干扰
+
 ### 📝 文件创建规则
 - **单文件创建**：每次只创建一个文件
 - **完整内容**：文件必须包含完整的可运行代码
+- **禁止占位符**：**严禁**生成占位符代码（如 `console.log("placeholder")`、`TODO`、`FIXME`、`// TODO: implement` 等）。除非用户明确要求生成占位符，否则每个文件必须包含完整的、可运行的实现代码
 - **依赖导入**：正确导入所有必需的依赖
 - **类型定义**：TypeScript 文件包含完整的类型定义
 - **注释说明**：复杂逻辑添加必要的注释

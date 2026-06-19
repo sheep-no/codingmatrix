@@ -304,8 +304,9 @@ class OrchestratorResponse(BaseModel):
 
 
 class ModifyRequest(BaseModel):
-    project_path: str = Field(..., description="已有项目路径")
-    requirement: str = Field(..., description="修改需求描述", min_length=1, max_length=5000)
+    requirement: Optional[str] = Field(None, description="修改需求描述（分析类请求必填，修改类可选）", max_length=5000)
+    project_path: Optional[str] = Field(None, description="已有项目路径（相对于 projects 目录）")
+    output_dir: Optional[str] = Field(None, description="输出目录（绝对路径或相对于 projects 目录）")
     session_id: Optional[str] = Field(None, description="已有会话 ID")
     enable_review: bool = Field(True, description="是否启用代码审查")
     enable_validation: bool = Field(True, description="是否启用代码验证")
@@ -315,6 +316,7 @@ class ModifyRequest(BaseModel):
     enable_cross_file_analysis: bool = Field(True, description="是否启用跨文件依赖分析（v4.8.0）")
     max_dependency_depth: int = Field(3, description="最大传递依赖深度（v4.8.0）", ge=1, le=10)
     api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
+    incremental: bool = Field(True, description="是否增量修改")
 
 
 class ComplexityAnalysisRequest(BaseModel):

@@ -11,10 +11,10 @@
 """
 from fastapi import Request, HTTPException, status
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 from collections import defaultdict
 from datetime import datetime, timedelta
 import time
+import json
 import threading
 from typing import Dict, List, Optional, Tuple
 from jose import jwt
@@ -241,35 +241,54 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    """速率限制中间件"""
+class RateLimitMiddleware:
+    """速率限制中间件（纯 ASGI 实现）
 
-    async def dispatch(self, request: Request, call_next):
-        # 测试环境跳过速率限制
+    为什么不用 BaseHTTPMiddleware:
+    - 同 RequestLoggingMiddleware，避免 cancel scope 传播到 DB 层
+    """
+
+    SKIP_PATHS = {
+        "/health",
+        "/ready",
+        "/live",
+        "/docs",
+        "/openapi.json",
+        "/favicon.ico",
+        "/api/v1/health",
+        "/api/v1/health/ready",
+        "/api/v1/health/live",
+    }
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         import os
         if os.getenv("ENV") == "testing":
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
-        skip_paths = [
-            "/health",
-            "/ready",
-            "/live",
-            "/docs",
-            "/openapi.json",
-            "/favicon.ico",
-            "/api/v1/health",
-            "/api/v1/health/ready",
-            "/api/v1/health/live",
-        ]
+        path = scope.get("path", "")
 
-        if request.url.path in skip_paths:
-            return await call_next(request)
+        if path in self.SKIP_PATHS:
+            await self.app(scope, receive, send)
+            return
 
         if not rate_limit_config.enabled:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
-        ip, user_id = rate_limiter.get_client_identifiers(request)
-        endpoint = request.url.path
+        # 解析 IP / 用户 ID（从 headers 中提取 Authorization）
+        client = scope.get("client")
+        ip = client[0] if client else ""
+        user_id = _extract_user_id_from_scope(scope)
+
+        endpoint = path
 
         is_limited, tier, limit, window = rate_limiter.check_multi_tier(
             ip, user_id, endpoint
@@ -282,33 +301,66 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 RateLimitTier.USER: "用户",
                 RateLimitTier.ENDPOINT: "端点",
             }
-            return JSONResponse(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={
-                    "error": "请求过于频繁",
-                    "detail": f"{tier_names.get(tier, tier)}限制：{limit}次/{window}秒",
-                    "retry_after": window // 2,
-                    "tier": tier
-                },
-                headers={
-                    "Retry-After": str(window),
-                    "X-RateLimit-Limit": str(limit),
-                    "X-RateLimit-Remaining": "0",
-                    "X-RateLimit-Tier": tier
-                }
-            )
+            payload = {
+                "error": "请求过于频繁",
+                "detail": f"{tier_names.get(tier, tier)}限制：{limit}次/{window}秒",
+                "retry_after": window // 2,
+                "tier": tier,
+            }
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            await send({
+                "type": "http.response.start",
+                "status": status.HTTP_429_TOO_MANY_REQUESTS,
+                "headers": [
+                    (b"content-type", b"application/json; charset=utf-8"),
+                    (b"content-length", str(len(body)).encode()),
+                    (b"retry-after", str(window).encode()),
+                    (b"x-ratelimit-limit", str(limit).encode()),
+                    (b"x-ratelimit-remaining", b"0"),
+                    (b"x-ratelimit-tier", tier.encode()),
+                ],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": body,
+                "more_body": False,
+            })
+            return
 
-        response = await call_next(request)
-
+        # 包装 send 注入剩余配额响应头
         endpoint_limit, endpoint_window = rate_limit_config.get_endpoint_rule(endpoint)
         endpoint_key = f"ep:{endpoint}:{int(time.time() / endpoint_window)}"
         with rate_limiter._lock:
             count = len(rate_limiter._history.get(endpoint_key, []))
         remaining = max(0, endpoint_limit - count)
-        response.headers["X-RateLimit-Limit"] = str(endpoint_limit)
-        response.headers["X-RateLimit-Remaining"] = str(remaining)
 
-        return response
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"x-ratelimit-limit", str(endpoint_limit).encode()))
+                headers.append((b"x-ratelimit-remaining", str(remaining).encode()))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+def _extract_user_id_from_scope(scope) -> Optional[str]:
+    """从 ASGI scope headers 中提取 JWT sub"""
+    raw_headers = scope.get("headers", [])
+    for k, v in raw_headers:
+        if k == b"authorization":
+            auth_header = v.decode("latin-1")
+            if auth_header.startswith("Bearer "):
+                try:
+                    token = auth_header[7:]
+                    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+                    sub = payload.get("sub")
+                    if sub:
+                        return sub
+                except Exception:
+                    return None
+    return None
 
 
 class LoginAttemptTracker:

@@ -399,6 +399,10 @@ class IntegrityValidator:
         """
         根据验证结果生成修复文件
 
+        生成真实的包初始化文件，而非占位符。
+        对于 __init__.py，扫描同目录下的模块并生成 re-export。
+        对于 index.ts/js，扫描同目录下的模块并生成 export 语句。
+
         Args:
             result: 验证结果
             generated_files: 已生成的文件
@@ -418,18 +422,87 @@ class IntegrityValidator:
                 # 生成入口文件内容
                 init_filename = self.language_adapter.package_init_filename if self.language_adapter else '__init__.py'
                 if init_filename and missing.endswith(init_filename):
-                    # 根据文件类型生成正确的内容
-                    if init_filename.endswith('.py'):
-                        fixes[missing] = '"""Package initialization"""\n'
-                    elif init_filename.endswith('.js') or init_filename.endswith('.ts'):
-                        fixes[missing] = '// Package initialization\n'
-                    else:
-                        fixes[missing] = ''
+                    fixes[missing] = self._generate_init_content(missing, generated_files)
                 elif missing.endswith('index.js') or missing.endswith('index.ts'):
-                    fixes[missing] = '// Package initialization\n'
+                    fixes[missing] = self._generate_index_content(missing, generated_files)
                 else:
-                    fixes[missing] = ''
+                    # 根据文件扩展名生成正确的内容
+                    ext = Path(missing).suffix
+                    if ext == '.py':
+                        default_content = f'"""Module: {missing}"""\n'
+                    elif ext in ('.js', '.ts'):
+                        default_content = f'// Module: {missing}\n'
+                    else:
+                        default_content = ''
                 result.fixed_files.append(missing)
                 logger.info(f"自动生成修复文件: {missing}")
 
         return fixes
+
+    def _generate_init_content(self, init_path: str, generated_files: Dict[str, str]) -> str:
+        """生成真实的 __init__.py 内容：扫描同目录模块并 re-export 符号"""
+        parent = str(Path(init_path).parent)
+        lines = [f'"""Package {parent.replace("/", ".")}"""\n']
+
+        # 扫描同目录下的其他 .py 文件
+        for file_path, content in generated_files.items():
+            if file_path == init_path:
+                continue
+            file_parent = str(Path(file_path).parent)
+            if file_parent != parent:
+                continue
+            if not file_path.endswith('.py') or file_path.endswith('__init__.py'):
+                continue
+
+            # 提取模块名
+            module_name = Path(file_path).stem
+
+            # 提取顶层符号（类和函数）
+            symbols = self._extract_top_level_symbols(content)
+            if symbols:
+                import_path = f'.{module_name}'
+                lines.append(f'from {import_path} import {", ".join(symbols)}')
+
+        if len(lines) == 1:
+            # 没有找到可 re-export 的模块
+            lines.append('# This package has no public exports yet\n')
+
+        return '\n'.join(lines) + '\n'
+
+    def _generate_index_content(self, index_path: str, generated_files: Dict[str, str]) -> str:
+        """生成真实的 index.ts/js 内容：扫描同目录模块并 re-export"""
+        parent = str(Path(index_path).parent)
+        ext = Path(index_path).suffix  # .ts or .js
+        lines = [f'// Package {parent.replace("/", ".")}\n']
+
+        # 扫描同目录下的其他 .ts/.js 文件
+        for file_path, content in generated_files.items():
+            if file_path == index_path:
+                continue
+            file_parent = str(Path(file_path).parent)
+            if file_parent != parent:
+                continue
+            file_ext = Path(file_path).suffix
+            if file_ext not in ('.ts', '.js', '.tsx', '.jsx'):
+                continue
+            if Path(file_path).stem in ('index', 'package', 'config'):
+                continue
+
+            module_name = Path(file_path).stem
+            lines.append(f'export * from "./{module_name}";')
+
+        if len(lines) == 1:
+            lines.append('// This package has no public exports yet\n')
+
+        return '\n'.join(lines) + '\n'
+
+    @staticmethod
+    def _extract_top_level_symbols(content: str) -> list:
+        """从 Python 文件中提取顶层类和函数名"""
+        import re
+        symbols = []
+        for match in re.finditer(r'^(?:async\s+)?def\s+(\w+)\s*\(|^class\s+(\w+)', content, re.MULTILINE):
+            name = match.group(1) or match.group(2)
+            if name and not name.startswith('_'):
+                symbols.append(name)
+        return symbols

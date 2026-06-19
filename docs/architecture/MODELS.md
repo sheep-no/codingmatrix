@@ -47,23 +47,19 @@ call_llm() → 4 级优先级路由 → ProviderRouter.route() → Adapter 缓�
 
 ### 5 复杂度档 × 5 角色模型分配 v3.0
 
-v5.13.0+ 更新了模型分配矩阵，原则：
-1. **Reviewer >= Generator**（审查员能力不低于生成员）
-2. **Backend > Frontend**（后端业务更复杂，用更强模型）
-3. **Architect 使用思考模型**（复杂架构需深度推理）
-4. **跨验证用不同模型**（A/B 生成 + 互评）
-5. **SIMPLE 档用轻量模型**（节省成本）
-6. **ENTERPRISE 与 LARGE 共享分配**（模型能力无差异）
+v3.0 更新了模型分配，移除复杂度分层，改为按角色固定模型分配：
 
-**当前分配**（`_LayeredModelRouterCompat.DEFAULT_ASSIGNMENTS`）：
+**当前分配**（`data/agent_model_config.json`）：
 
-| 复杂度 | Architect | Frontend | Backend | Reviewer | Fallback |
-|--------|-----------|----------|---------|----------|----------|
-| SIMPLE | Qwen3.5-4B | Qwen3-8B | Qwen3-8B | Qwen3-8B | Qwen3.5-4B |
-| SMALL | GLM-Z1-9B | Qwen3-8B | DeepSeek-R1-8B | GLM-Z1-9B | Qwen3-8B |
-| MEDIUM | GLM-Z1-9B | Qwen3-8B | DeepSeek-R1-8B | DeepSeek-R1-8B | Qwen3-8B |
-| LARGE | GLM-Z1-9B | Qwen3-8B | DeepSeek-R1-8B | DeepSeek-R1-8B | Qwen3-8B |
-| ENTERPRISE | 同 LARGE | 同 LARGE | 同 LARGE | 同 LARGE | 同 LARGE |
+| 角色 | 模型 | 说明 |
+|------|------|------|
+| Architect | GLM-Z1-9B | 架构师，使用思考模型 |
+| Frontend | GLM-4-9B | 前端工程师 |
+| Backend | DeepSeek-R1 | 后端工程师，使用最强模型 |
+| Reviewer | GLM-Z1-9B | 审查员，与 backend 不同模型实现交叉审查 |
+| Fallback | Qwen3-8B | 兜底模型 |
+
+**降级链**: DeepSeek-R1 → GLM-Z1-9B → GLM-4-9B → Qwen3-8B
 
 > 注：所有模型均为免费模型，通过 SiliconFlow 供应商调用。用户可通过 API Key 替换为自定义模型。
 

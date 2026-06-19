@@ -185,33 +185,72 @@
 
               <!-- 思考过程 -->
               <div v-if="message.reasoning && message.reasoning.trim()" class="thinking-section">
-                <details class="thinking-details" :open="message.isStreaming || message.thinkingOpen !== false">
-                  <summary class="thinking-summary" aria-label="深度思考过程，点击展开/收起">
-                    <div class="thinking-indicator">
-                      <div v-if="message.isStreaming" class="thinking-pulse" aria-hidden="true"></div>
-                      <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                        <circle cx="12" cy="12" r="10" />
-                        <path d="M12 16v-4" />
-                        <path d="M12 8h.01" />
+                <!-- 按 agent 分组展示 thinking -->
+                <template v-if="message.thinkingGroups && Object.keys(message.thinkingGroups).length > 0">
+                  <details
+                    v-for="(data, agent) in message.thinkingGroups"
+                    :key="agent"
+                    class="thinking-details"
+                    :open="message.isStreaming || message.thinkingOpen !== false"
+                  >
+                    <summary class="thinking-summary" :aria-label="`${agent} 思考过程，点击展开/收起`">
+                      <div class="thinking-indicator">
+                        <div v-if="message.isStreaming" class="thinking-pulse" aria-hidden="true"></div>
+                        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                          <circle cx="12" cy="12" r="10" />
+                          <path d="M12 16v-4" />
+                          <path d="M12 8h.01" />
+                        </svg>
+                        <span>{{ agent }} 思考过程</span>
+                        <span v-if="data.model" class="thinking-model">({{ data.model }})</span>
+                      </div>
+                      <svg
+                        class="chevron"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        aria-hidden="true"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
                       </svg>
-                      <span>{{ message.isStreaming ? '正在思考...' : '深度思考过程' }}</span>
-                    </div>
-                    <svg
-                      class="chevron"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      aria-hidden="true"
-                    >
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                  </summary>
-                  <div
-                    class="thinking-content markdown-body"
-                    v-html="renderMarkdown(message.reasoning)"
-                  ></div>
-                </details>
+                    </summary>
+                    <div
+                      class="thinking-content markdown-body"
+                      v-html="renderMarkdown(data.content)"
+                    ></div>
+                  </details>
+                </template>
+                <!-- 兼容旧格式：单个 thinking 块 -->
+                <template v-else>
+                  <details class="thinking-details" :open="message.isStreaming || message.thinkingOpen !== false">
+                    <summary class="thinking-summary" aria-label="深度思考过程，点击展开/收起">
+                      <div class="thinking-indicator">
+                        <div v-if="message.isStreaming" class="thinking-pulse" aria-hidden="true"></div>
+                        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                          <circle cx="12" cy="12" r="10" />
+                          <path d="M12 16v-4" />
+                          <path d="M12 8h.01" />
+                        </svg>
+                        <span>{{ message.isStreaming ? '正在思考...' : '深度思考过程' }}</span>
+                      </div>
+                      <svg
+                        class="chevron"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        aria-hidden="true"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </summary>
+                    <div
+                      class="thinking-content markdown-body"
+                      v-html="renderMarkdown(message.reasoning)"
+                    ></div>
+                  </details>
+                </template>
               </div>
 
               <!-- AI 响应内容 -->
@@ -1602,6 +1641,13 @@
     width: 18px;
     height: 18px;
     opacity: 0.8;
+  }
+
+  .thinking-model {
+    font-size: 11px;
+    font-weight: normal;
+    color: var(--text-tertiary, #94a3b8);
+    margin-left: 4px;
   }
 
   .chevron {

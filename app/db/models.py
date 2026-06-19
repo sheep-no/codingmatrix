@@ -18,9 +18,9 @@ class ProjectSession(Base):
     files_generated = Column(Integer, default=0)
     files_total = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    last_activity_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)  # 最后一次活动时间
-    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_activity_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)  # 最后一次活动时间
+    completed_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index('ix_user_status', 'user_id', 'status'),  # 加速并发检查
@@ -112,4 +112,30 @@ class ImageGenerationHistory(Base):
             "status": self.status,
             "error_message": self.error_message,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ConversationMessage(Base):
+    """对话历史消息表"""
+    __tablename__ = "conversation_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(100), nullable=False, index=True)
+    user_id = Column(String(100), nullable=False, index=True)
+    role = Column(String(20), nullable=False)  # user / assistant / system
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        Index('ix_conversation_session', 'session_id', 'created_at'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "user_id": self.user_id,
+            "role": self.role,
+            "content": self.content,
+            "timestamp": int(self.created_at.timestamp()) if self.created_at else 0,
         }

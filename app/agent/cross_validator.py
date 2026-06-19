@@ -393,74 +393,132 @@ class CrossValidator:
         return definitions
 
     def _extract_file_definitions(self, content: str, file_path: str = "") -> Dict[str, SymbolInfo]:
-        """提取单个文件中的符号定义"""
-        definitions = {}
-        lines = content.split('\n')
+        """提取单个文件中的符号定义
 
+        优先委托给 language_adapter.extract_definitions()，支持任何语言。
+        fallback 使用通用正则匹配（不只 Python）。
+        """
+        if not content:
+            return {}
+
+        # 优先用 language_adapter（Python/JS/Generic 都支持）
+        if self.language_adapter:
+            try:
+                raw_defs = self.language_adapter.extract_definitions(content)
+                return {
+                    name: SymbolInfo(
+                        name=d.name,
+                        symbol_type=d.symbol_type,
+                        file_path=file_path,
+                        line_number=d.line_number,
+                        signature=d.signature,
+                        is_exported=d.is_exported,
+                    )
+                    for name, d in raw_defs.items()
+                }
+            except Exception as e:
+                logger.debug(f"language_adapter.extract_definitions 失败，fallback 到通用正则: {e}")
+
+        # Fallback: 通用正则（覆盖 fn/func/function/def/class/struct/interface/enum/type）
+        return self._extract_definitions_generic(content, file_path)
+
+    def _extract_definitions_generic(self, content: str, file_path: str = "") -> Dict[str, SymbolInfo]:
+        """通用符号定义提取（不依赖特定语言）
+
+        匹配大多数编程语言的常见定义模式：
+        - 函数: fn/func/function/def/sub + 名称 + (
+        - 类型: class/struct/interface/enum/type/trait + 名称
+        - 变量: 模块级别 名称 = 值（不缩进的行）
+        """
+        definitions = {}
+        if not content:
+            return definitions
+
+        # 通用函数定义正则
+        func_pattern = re.compile(
+            r'^(?:(?:pub|public|private|protected|static|async|virtual|override|export)\s+)*'
+            r'(?:fn|func|function|def|sub|void|int|string|bool|fn)\s+(\w+)\s*\(([^)]*)\)',
+            re.IGNORECASE
+        )
+        # 通用类型定义正则
+        class_pattern = re.compile(
+            r'^(?:(?:pub|public|private|protected|abstract|static|final|export)\s+)*'
+            r'(?:class|struct|interface|enum|type|trait|module)\s+(\w+)',
+            re.IGNORECASE
+        )
+        # 排除的关键字（不是真正的函数名）
+        _KEYWORDS = {
+            'if', 'else', 'for', 'while', 'switch', 'case', 'return', 'break',
+            'continue', 'import', 'from', 'package', 'use', 'require', 'include',
+            'try', 'catch', 'finally', 'throw', 'new', 'delete', 'typeof',
+        }
+
+        lines = content.split('\n')
         for i, line in enumerate(lines, 1):
             stripped = line.strip()
 
             # 跳过注释
-            if stripped.startswith('#'):
+            if not stripped:
+                continue
+            if stripped.startswith('//') or stripped.startswith('#') or stripped.startswith('/*'):
                 continue
 
-            # 匹配函数定义
-            func_match = re.match(r'^(?:async\s+)?def\s+(\w+)\s*\((.*?)\)', stripped)
+            # 函数定义
+            func_match = func_pattern.match(stripped)
             if func_match:
                 func_name = func_match.group(1)
                 signature = func_match.group(2)
-                definitions[func_name] = SymbolInfo(
-                    name=func_name,
-                    symbol_type="function",
-                    file_path=file_path,
-                    line_number=i,
-                    signature=signature,
-                    is_exported=not func_name.startswith('_')
-                )
-                continue
+                if func_name.lower() not in _KEYWORDS:
+                    definitions[func_name] = SymbolInfo(
+                        name=func_name,
+                        symbol_type="function",
+                        file_path=file_path,
+                        line_number=i,
+                        signature=signature,
+                        is_exported=not func_name.startswith('_'),
+                    )
+                    continue
 
-            # 匹配类定义
-            class_match = re.match(r'^class\s+(\w+)(?:\s*\([^)]*\))?\s*:', stripped)
+            # 类型定义
+            class_match = class_pattern.match(stripped)
             if class_match:
                 class_name = class_match.group(1)
-                definitions[class_name] = SymbolInfo(
-                    name=class_name,
-                    symbol_type="class",
-                    file_path=file_path,
-                    line_number=i,
-                    is_exported=not class_name.startswith('_')
-                )
-                continue
+                if class_name.lower() not in _KEYWORDS:
+                    definitions[class_name] = SymbolInfo(
+                        name=class_name,
+                        symbol_type="class",
+                        file_path=file_path,
+                        line_number=i,
+                        is_exported=not class_name.startswith('_'),
+                    )
+                    continue
 
-            # 匹配变量定义（模块级别）
+            # 模块级别变量定义（不缩进的行，且不是 import/from）
             if not line.startswith(' ') and not line.startswith('\t'):
-                var_match = re.match(r'^(\w+)\s*=', stripped)
+                var_match = re.match(r'^(\w+)\s*[:=]', stripped)
                 if var_match:
                     var_name = var_match.group(1)
-                    # 跳过导入的模块名
-                    if var_name not in ('import', 'from'):
+                    if var_name.lower() not in _KEYWORDS and var_name not in ('import', 'from', 'package', 'use'):
                         definitions[var_name] = SymbolInfo(
                             name=var_name,
                             symbol_type="variable",
                             file_path=file_path,
                             line_number=i,
-                            is_exported=not var_name.startswith('_')
+                            is_exported=not var_name.startswith('_'),
                         )
 
         return definitions
 
     def _extract_all_usages(self, files: Dict[str, str]) -> List[SymbolUsage]:
-        """提取所有文件中的符号使用"""
+        """提取所有文件中的符号使用
+
+        不按扩展名过滤，对所有文件扫描。GenericLanguageAdapter 的 extensions 为空，
+        如果按扩展名过滤会跳过所有文件。
+        """
         usages = []
-        supported_extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
-
         for file_path, content in files.items():
-            if Path(file_path).suffix not in supported_extensions:
-                continue
-
             file_usages = self._extract_file_usages(content, file_path)
             usages.extend(file_usages)
-
         return usages
 
     def _extract_file_usages(self, content: str, file_path: str) -> List[SymbolUsage]:
@@ -468,11 +526,22 @@ class CrossValidator:
         usages = []
         lines = content.split('\n')
 
+        # 通用定义行检测（跳过定义行本身，避免把定义当成使用）
+        _DEF_LINE_RE = re.compile(
+            r'^\s*(?:(?:pub|public|private|protected|static|async|virtual|override|export)\s+)*'
+            r'(?:fn|func|function|def|class|struct|interface|enum|type|trait|module)\s+\w+',
+            re.IGNORECASE
+        )
+
         for i, line in enumerate(lines, 1):
             stripped = line.strip()
 
-            # 跳过注释和定义
-            if stripped.startswith('#') or stripped.startswith('def ') or stripped.startswith('class '):
+            # 跳过注释和定义行
+            if not stripped:
+                continue
+            if stripped.startswith('//') or stripped.startswith('#') or stripped.startswith('/*'):
+                continue
+            if _DEF_LINE_RE.match(stripped):
                 continue
 
             # 匹配函数调用
@@ -596,23 +665,20 @@ class CrossValidator:
                         if candidate in files:
                             return candidate
 
-        # Fallback: 硬编码 Python 规则
+        # Fallback: 通用导入解析
         for line in content.split('\n'):
             line = line.strip()
 
-            # from xxx import yyy
+            # from xxx import yyy (Python 风格)
             match = re.match(r'^from\s+([\w.]+)\s+import\s+(.+)', line)
             if match:
                 module = match.group(1)
                 imports = [s.strip() for s in match.group(2).split(',')]
 
-                # 检查是否导入了目标符号
                 for imp in imports:
-                    # 处理 from xxx import yyy as zzz
                     parts = imp.split(' as ')
                     imported_name = parts[-1].strip()
                     if imported_name == symbol_name or imported_name == '*':
-                        # 使用语言适配器转换模块路径为文件路径
                         if self.language_adapter:
                             from app.agent.adapters.language_adapter import ImportInfo
                             imp_info = ImportInfo(module=module, is_relative=False)
@@ -621,13 +687,67 @@ class CrossValidator:
                                 if candidate in files:
                                     return candidate
                         else:
-                            # Fallback: 通用检查
-                            source_path = module.replace('.', '/') + '.py'
-                            if source_path in files:
-                                return source_path
-                            init_path = module.replace('.', '/') + '/__init__.py'
-                            if init_path in files:
-                                return init_path
+                            # 通用 fallback：从项目文件中推断扩展名
+                            found = self._find_module_in_files(module, files)
+                            if found:
+                                return found
+
+            # import xxx (Go/Java/Rust 风格)
+            match = re.match(r'^import\s+["\']([^"\']+)["\']', line)
+            if match:
+                module = match.group(1)
+                if self.language_adapter:
+                    from app.agent.adapters.language_adapter import ImportInfo
+                    imp_info = ImportInfo(module=module, is_relative=False)
+                    candidates = self.language_adapter.resolve_import_to_file(imp_info, "")
+                    for candidate in candidates:
+                        if candidate in files:
+                            return candidate
+                else:
+                    found = self._find_module_in_files(module, files)
+                    if found:
+                        return found
+
+            # use xxx (Rust 风格)
+            match = re.match(r'^use\s+([\w:]+)', line)
+            if match:
+                module = match.group(1).replace('::', '/')
+                found = self._find_module_in_files(module, files)
+                if found:
+                    return found
+
+        return None
+
+    def _find_module_in_files(self, module: str, files: Dict[str, str]) -> Optional[str]:
+        """在已生成文件中查找模块路径（通用，不依赖语言）
+
+        从项目文件中推断实际使用的扩展名，逐一尝试。
+        """
+        path_form = module.replace('.', '/')
+
+        # 精确匹配
+        if path_form in files:
+            return path_form
+
+        # 从项目文件中收集所有使用的扩展名
+        extensions = set()
+        for fp in files:
+            if '.' in fp:
+                ext = '.' + fp.rsplit('.', 1)[1]
+                extensions.add(ext)
+
+        # 常见扩展名（如果项目文件中没有收集到，用这些作为兜底）
+        if not extensions:
+            extensions = {'.py', '.js', '.ts', '.go', '.rs', '.java', '.kt', '.rb'}
+
+        # 尝试 path + ext 和 path/__init__ + ext
+        init_names = ['__init__', 'index', 'mod', 'lib']
+        for ext in extensions:
+            if f"{path_form}{ext}" in files:
+                return f"{path_form}{ext}"
+            for init_name in init_names:
+                if f"{path_form}/{init_name}{ext}" in files:
+                    return f"{path_form}/{init_name}{ext}"
 
         return None
 
@@ -745,7 +865,10 @@ class CrossValidator:
         return params
 
     def _validate_imports(self, files: Dict[str, str]) -> List[Dict[str, str]]:
-        """验证导入语句"""
+        """验证导入语句
+
+        优先使用 language_adapter，fallback 使用通用正则（不只 Python）。
+        """
         issues = []
 
         for file_path, content in files.items():
@@ -770,12 +893,8 @@ class CrossValidator:
                             "suggestion": f"确保 {imp.module} 已在 file_plan 中定义"
                         })
             else:
-                # Fallback: 通用导入检查
-                supported_extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
-                if Path(file_path).suffix not in supported_extensions:
-                    continue
-
-                imports = self._extract_python_imports(content)
+                # Fallback: 通用导入检查（不只 Python）
+                imports = self._extract_imports_generic(content)
 
                 for imp in imports:
                     # 跳过相对导入和第三方库
@@ -792,6 +911,45 @@ class CrossValidator:
                         })
 
         return issues
+
+    def _extract_imports_generic(self, content: str) -> List[str]:
+        """通用导入提取（不依赖特定语言）
+
+        匹配大多数语言的导入模式：
+        - from xxx import (Python)
+        - import xxx (Go, Java, Kotlin, Swift, Python)
+        - require('xxx') (Node.js)
+        - use xxx (Rust)
+        - #include xxx (C/C++)
+        - using xxx (C#)
+        """
+        imports = []
+        if not content:
+            return imports
+
+        patterns = [
+            r'^from\s+([\w.]+)\s+import',          # Python from import
+            r'^import\s+["\']([^"\']+)["\']',       # Go import "pkg"
+            r'^import\s+([\w.]+)',                   # Java/Kotlin/Swift import
+            r'^use\s+([\w:]+)',                      # Rust use
+            r'^#include\s+[<"]([^>"]+)[>"]',         # C/C++ #include
+            r'^using\s+([\w.]+)\s*;',                # C# using
+            r'\brequire\s*\(\s*["\']([^"\']+)["\']', # Node.js require
+        ]
+
+        for line in content.split('\n'):
+            line = line.strip()
+            if line.startswith('//') or line.startswith('#') or line.startswith('/*'):
+                continue
+
+            for pattern in patterns:
+                match = re.match(pattern, line)
+                if match:
+                    module = match.group(1)
+                    imports.append(module)
+                    break
+
+        return imports
 
     def _extract_python_imports(self, content: str) -> List[str]:
         """提取 Python 文件中的导入"""
@@ -829,35 +987,21 @@ class CrossValidator:
         return top_level in third_party
 
     def _module_exists_in_files(self, module: str, files: Dict[str, str]) -> bool:
-        """检查模块是否在文件中存在"""
+        """检查模块是否在文件中存在
+
+        优先使用 language_adapter，fallback 使用通用查找（从项目文件推断扩展名）。
+        """
         # 使用语言适配器
         if self.language_adapter:
             from app.agent.adapters.language_adapter import ImportInfo
             imp = ImportInfo(module=module, is_relative=False)
             candidates = self.language_adapter.resolve_import_to_file(imp, "")
-            return any(c in files for c in candidates)
-
-        # Fallback: 通用检查
-        extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
-        pkg_path = module.replace('.', '/')
-
-        for ext in extensions:
-            file_path = f"{pkg_path}{ext}"
-            if file_path in files:
+            if any(c in files for c in candidates):
                 return True
 
-        # 检查是否是包
-        if self.language_adapter:
-            init_file = self.language_adapter.get_package_init_file(pkg_path)
-            if init_file in files:
-                return True
-
-        # 检查是否是包内的模块
-        for f in files:
-            if f.startswith(pkg_path + '/'):
-                return True
-
-        return False
+        # 通用 fallback：从项目文件中推断扩展名
+        result = self._find_module_in_files(module, files)
+        return result is not None
 
     def _validate_api_contracts(
         self,
@@ -1136,14 +1280,13 @@ class CrossValidator:
     ) -> Dict[str, str]:
         """生成缺失的模块文件"""
         if not model:
-            # 如果没有指定模型，使用默认内容
+            # 如果没有指定模型，跳过生成
             extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
             default_ext = list(extensions)[0] if extensions else '.py'
             for module in missing_modules:
                 file_path = module.replace('.', '/') + default_ext
                 if file_path not in files:
-                    files[file_path] = f'"""Module: {module}"""\n\n# TODO: Implement this module\n'
-                    logger.info(f"生成缺失模块（默认内容）: {file_path}")
+                    logger.warning(f"跳过缺失模块生成（无模型）: {file_path} (模块: {module})")
             return files
 
         # 使用 LLM 生成模块内容
@@ -1155,6 +1298,10 @@ class CrossValidator:
             file_path = module.replace('.', '/') + default_ext
             if file_path in files:
                 continue
+
+            # 跳过不在已有文件列表中的路径（避免创建依赖图外的文件）
+            logger.warning(f"跳过缺失模块生成（不在已有文件中）: {file_path} (模块: {module})")
+            continue
 
             # 收集引用该模块的文件
             referencing_files = []
@@ -1358,4 +1505,8 @@ class CrossValidator:
         # 移除 ```python ... ``` 包裹
         content = re.sub(r'^```\w*\n?', '', content, flags=re.MULTILINE)
         content = re.sub(r'\n?```$', '', content, flags=re.MULTILINE)
+        # 移除 ===文件路径=== ... ===END=== 格式
+        content = re.sub(r'===文件路径===\s*\n.*?===END===\s*\n?', '', content, flags=re.DOTALL)
+        # 移除 "修复后的完整代码" 等说明文字
+        content = re.sub(r'^修复后的完整代码\s*\n?', '', content, flags=re.MULTILINE)
         return content.strip()

@@ -1,18 +1,20 @@
 # 动态模型路由
 
-> 最后更新：2026-06-02 | 版本：v5.12.0+
+> 最后更新：2026-06-10 | 版本：v3.0
 
-动态模型路由是 v5.12.0+ 的核心子系统之一，负责根据实时健康度、复杂度等级、角色需求为 Agent 各组件智能选择最合适的 LLM 模型。
+动态模型路由是核心子系统之一，负责根据实时健康度、角色需求为 Agent 各组件智能选择最合适的 LLM 模型。
 
 ---
 
 ## 概述
 
-传统的模型路由是静态的：写死 `TaskType.GENERAL → qwen3-8b` 这样的映射。v5.12.0+ 引入的动态模型路由解决了 3 个核心问题：
+传统的模型路由是静态的：写死 `TaskType.GENERAL → qwen3-8b` 这样的映射。动态模型路由解决了 3 个核心问题：
 
 1. **健康感知**：模型失败时自动降级到备选
-2. **复杂度分层**：简单任务用小模型，复杂任务用大模型
-3. **角色专用**：不同 Agent 角色使用不同模型
+2. **角色专用**：不同 Agent 角色使用不同模型
+3. **降级链**：模型不可用时按优先级自动降级
+
+v3.0 移除了基于复杂度的分层路由（SIMPLE/SMALL/MEDIUM/LARGE/XLARGE），改为按角色固定模型分配。复杂度分析仅用于架构决策（`has_frontend`/`has_database` 等），不再影响模型选择。
 
 ---
 
@@ -23,15 +25,15 @@
 │ DynamicModelRouter                                           │
 │                                                             │
 │  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   │
-│  │ HealthTracker│   │ CircuitBreaker│  │ LayeredRouter│   │
-│  │ (健康度 0-100)│  │ (熔断器)      │  │ (5 档 × 5 角色)│  │
+│  │ HealthTracker│   │ CircuitBreaker│  │ RoleRouter   │   │
+│  │ (健康度 0-100)│  │ (熔断器)      │  │ (5 角色固定)  │   │
 │  └──────┬───────┘   └──────┬───────┘   └──────┬───────┘   │
 │         │                  │                  │            │
 │         └──────────────────┼──────────────────┘            │
 │                            │                               │
 │  ┌─────────────────────────▼─────────────────────────┐    │
-│  │ ModelAssignmentCache (LRU 缓存)                    │    │
-│  │ 缓存: complexity_level × role → model_id            │    │
+│  │ Fallback Chain (降级链)                            │    │
+│  │ deepseek-r1 → glm-z1-9b → glm-4-9b → qwen3-8b    │    │
 │  └─────────────────────────────────────────────────────┘    │
 └──────────────────────────┬──────────────────────────────────┘
                            │
@@ -75,30 +77,33 @@ HALF_OPEN（半开）→ 允许 1 次探测调用
    ↓ 失败 → OPEN
 ```
 
-### 3. LayeredRouter（分层路由）
+### 3. RoleRouter（角色路由）
 
-5 复杂度档 × 5 角色模型的二维矩阵：
+按角色固定模型分配，不再按复杂度分层：
 
-| 复杂度 | Architect | Frontend | Backend | Reviewer | Complexity |
-|--------|-----------|----------|---------|----------|------------|
-| SIMPLE | qwen3.5-4b | qwen3-8b | qwen3-8b | qwen3-8b | 关键词匹配 |
-| SMALL | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | 关键词匹配 |
-| MEDIUM | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | LLM 校准 |
-| LARGE | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | LLM 校准 |
-| XLARGE | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | LLM 校准 |
-
-> **注意**：因 SiliconFlow Qwen3.5-4B 暂时不可用，SIMPLE 架构师临时改为 qwen3-8b（见 `data/agent_model_config.json`）。
+| 角色 | 模型 | 说明 |
+|------|------|------|
+| Architect | glm-z1-9b | 架构师，使用思考模型 |
+| Frontend | glm-4-9b | 前端工程师 |
+| Backend | deepseek-r1 | 后端工程师，使用最强模型 |
+| Reviewer | glm-z1-9b | 审查员，与 backend 不同模型实现交叉审查 |
+| Fallback | qwen3-8b | 兜底模型 |
 
 **分配原则**:
-1. **Reviewer ≥ Generator** — 审查员模型能力不低于生成员
-2. **Backend > Frontend** — 后端业务复杂，用更强模型
-3. **Architect 使用思考模型** — 复杂架构需要深度推理
-4. **跨验证用不同模型** — A/B 生成 + 互评，提高质量
-5. **SIMPLE 档用轻量模型** — 节省成本
+1. **Reviewer 与 Backend 不同模型** — 交叉审查，提高质量
+2. **Architect 使用思考模型** — 复杂架构需要深度推理
+3. **Backend 使用最强模型** — 后端业务复杂
+4. **所有项目统一配置** — 不再按复杂度分级
 
-### 4. ModelAssignmentCache
+### 4. FallbackChain（降级链）
 
-LRU 缓存 `complexity_level × role → model_id` 映射，避免重复计算。
+模型调用失败时按优先级降级：
+
+```
+deepseek-r1 → glm-z1-9b → glm-4-9b → qwen3-8b
+```
+
+降级链可在 `data/agent_model_config.json` 的 `fallback_chain` 字段配置。
 
 ---
 
@@ -106,54 +111,41 @@ LRU 缓存 `complexity_level × role → model_id` 映射，避免重复计算�
 
 ### 配置文件
 
-`data/agent_model_config.json`:
+`data/agent_model_config.json` (v3.0):
 ```json
 {
-  "version": "2.0",
-  "assignments": {
-    "SIMPLE": {
-      "architect": "qwen3-8b",
-      "frontend": "qwen3-8b",
-      "backend": "qwen3-8b",
-      "reviewer": "qwen3-8b"
-    },
-    "SMALL": {
-      "architect": "glm-z1-9b",
-      "frontend": "qwen3-8b",
-      "backend": "deepseek-r1",
-      "reviewer": "deepseek-r1"
-    },
-    "MEDIUM": {
-      "architect": "glm-z1-9b",
-      "frontend": "qwen3-8b",
-      "backend": "deepseek-r1",
-      "reviewer": "deepseek-r1"
-    },
-    "LARGE": {
-      "architect": "glm-z1-9b",
-      "frontend": "qwen3-8b",
-      "backend": "deepseek-r1",
-      "reviewer": "deepseek-r1"
-    },
-    "XLARGE": {
-      "architect": "glm-z1-9b",
-      "frontend": "qwen3-8b",
-      "backend": "deepseek-r1",
-      "reviewer": "deepseek-r1"
-    }
+  "version": "3.0",
+  "description": "Agent 模型配置 v3.0",
+  "roles": {
+    "architect": "glm-z1-9b",
+    "frontend": "glm-4-9b",
+    "backend": "deepseek-r1",
+    "reviewer": "glm-z1-9b",
+    "fallback": "qwen3-8b"
   },
-  "fallback_chains": {
-    "default": ["qwen3-8b", "glm-4-9b", "qwen2.5-7b", "glm-z1-9b", "deepseek-r1"],
-    "thinking": ["glm-z1-9b", "deepseek-r1"],
-    "fast": ["qwen3-8b", "qwen3.5-4b"]
+  "fallback_chain": [
+    "deepseek-r1",
+    "glm-z1-9b",
+    "glm-4-9b",
+    "qwen3-8b"
+  ],
+  "error_type_models": {
+    "validation_error": "qwen3-8b",
+    "timeout_error": "glm-4-9b",
+    "api_error": "glm-z1-9b",
+    "code_error": "deepseek-r1",
+    "logic_error": "glm-z1-9b"
   }
 }
 ```
 
 ### API 端点
 
-- `GET /api/v2/models/assignments` - 查看当前分配
-- `PUT /api/v2/models/assignments` - 修改分配（superadmin）
+- `GET /api/v1/models/agent-config` - 查看当前角色模型分配
+- `PUT /api/v2/models/agent-config` - 修改角色模型分配（superadmin）
+- `PUT /api/v2/models/agent-config/fallback-chain` - 修改降级链（superadmin）
+- `PUT /api/v2/models/agent-config/error-type-model` - 修改错误类型模型映射（superadmin）
+- `POST /api/v2/models/agent-config/reload` - 重新加载配置（superadmin）
 - `GET /api/v2/models/health` - 查看模型健康度
 - `POST /api/v2/models/reset-health` - 重置健康分
 
@@ -163,23 +155,13 @@ LRU 缓存 `complexity_level × role → model_id` 映射，避免重复计算�
 
 模型调用失败时的降级顺序：
 
-### default 链
+### 默认降级链
 
 ```
-qwen3-8b → glm-4-9b → qwen2.5-7b → glm-z1-9b → deepseek-r1
+deepseek-r1 → glm-z1-9b → glm-4-9b → qwen3-8b
 ```
 
-### thinking 链
-
-```
-glm-z1-9b → deepseek-r1
-```
-
-### fast 链
-
-```
-qwen3-8b → qwen3.5-4b
-```
+从最强模型开始，逐步降级到兜底模型。可在配置文件的 `fallback_chain` 字段自定义。
 
 ---
 
@@ -264,12 +246,14 @@ curl http://localhost:8000/api/v2/models/health
 
 | 方法 | 描述 |
 |------|------|
-| `get_assignment(complexity_level, role)` | 获取模型分配 |
+| `get_assignment(role)` | 获取角色模型分配（无复杂度参数） |
+| `get_assignment_with_learning(role)` | 获取分配 + epsilon-greedy 学习（无复杂度参数） |
 | `record_call_result(model, success, latency)` | 记录调用结果 |
 | `is_healthy(model)` | 检查模型是否健康 |
-| `get_fallback(primary_model, role)` | 获取备选模型 |
+| `get_fallback(primary_model)` | 获取降级模型 |
 | `reset_health(model)` | 重置健康分 |
-| `_load_config_assignments()` | 从配置文件加载分配 |
+| `_load_roles_assignment()` | 从配置文件加载角色分配 |
+| `reload_roles_config()` | 重新加载角色配置 |
 
 ### 缓存策略
 
@@ -291,7 +275,7 @@ curl http://localhost:8000/api/v2/models/health
 ### 路由分配不符合预期
 
 1. 查看 `data/agent_model_config.json` 当前配置
-2. 检查 SIMPLE 档是否被改成 qwen3-8b（临时）
+2. 确认 `roles` 字段中各角色的模型是否正确
 3. 通过 admin UI 修改分配
 
 ### 跨模型名称不一致

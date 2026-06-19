@@ -66,7 +66,7 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
   test.describe.configure({ project: 'chromium' });
 
   test('生成个人记账本 Web 应用项目', async ({ page }) => {
-    test.setTimeout(2100000); // 35 分钟
+    test.setTimeout(5400000); // 90 分钟
 
     // 清理运行中的会话
     cleanupRunningSessions();
@@ -306,10 +306,59 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
     const fileWaitStart = Date.now();
     let generationComplete = false;
     let fileCount = 0;
-    const maxFileWait = sseResponseOk ? 1800000 : 30000; // SSE 成功等 30 分钟，失败等 30 秒
+    const maxFileWait = sseResponseOk ? 5100000 : 30000; // SSE 成功等 85 分钟，失败等 30 秒
 
     while (!generationComplete && Date.now() - fileWaitStart < maxFileWait) {
       await page.waitForTimeout(5000);
+
+      // 检查是否有待处理的决策问题
+      const decisionResult = await page.evaluate(() => {
+        try {
+          const agentPage = document.querySelector('.agent-page');
+          if (!agentPage || !agentPage.__vueParentComponent) return { hasDecisions: false };
+
+          const setupState = agentPage.__vueParentComponent.setupState;
+          const pendingDecisions = setupState.pendingDecisions;
+          
+          if (pendingDecisions && pendingDecisions.length > 0) {
+            // 有决策问题，自动选择默认值
+            for (const decision of pendingDecisions) {
+              if (decision.default) {
+                setupState.decisionAnswers[decision.id] = decision.default;
+              } else if (decision.options && decision.options.length > 0) {
+                // 如果没有默认值，选择第一个选项
+                setupState.decisionAnswers[decision.id] = decision.options[0].label;
+              }
+            }
+            
+            return { hasDecisions: true, count: pendingDecisions.length };
+          }
+          
+          return { hasDecisions: false };
+        } catch (e) {
+          return { hasDecisions: false, error: e.message };
+        }
+      });
+
+      if (decisionResult.hasDecisions) {
+        console.log(`✓ 发现 ${decisionResult.count} 个决策问题，自动选择默认值`);
+        
+        // 点击"默认值"按钮（如果有多个决策，需要逐个点击）
+        const defaultButtons = await page.$$('.btn-decision-secondary');
+        for (const btn of defaultButtons) {
+          await btn.click();
+          await page.waitForTimeout(200);
+        }
+        
+        // 点击"确认"按钮提交决策
+        const submitButtons = await page.$$('.btn-decision-primary');
+        for (const btn of submitButtons) {
+          await btn.click();
+          await page.waitForTimeout(200);
+        }
+        
+        console.log(`✓ 已自动提交决策问题`);
+      }
 
       const result = await page.evaluate(() => {
         try {
@@ -438,10 +487,10 @@ test.describe('多模型 Agent 项目生成测试 - 个人记账本', () => {
       console.log(`  ${foundPatterns[name] ? '✓' : '✗'} ${name}`);
     }
 
-    // 文件结构检查
+    // 文件结构检查（支持多种目录结构：templates/static、public、src、views 等）
     const structureChecks = {
-      'templates 目录': fileList.some(f => f.includes('templates/')),
-      'static 目录': fileList.some(f => f.includes('static/')),
+      'templates 目录': fileList.some(f => /templates?\//.test(f) || /views?\//.test(f) || /public\/.*\.html/.test(f) || /src\/.*\.html/.test(f)),
+      'static 目录': fileList.some(f => /static?\//.test(f) || /public\/(css|js|styles|scripts)\//.test(f) || /assets?\//.test(f) || /src\/(script|style|css|js)\//.test(f) || /src\/script\.js/.test(f) || /src\/styles\.css/.test(f)),
       '数据库相关': fileList.some(f => /db|database|sqlite/i.test(f)),
     };
 

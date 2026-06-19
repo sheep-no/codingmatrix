@@ -14,6 +14,41 @@ from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
+# 依赖图白名单：只有在此集合中的文件才允许 write_file/create_file 写入
+# 由 TopologyScheduler.build_from_dependency_graph() 设置
+_allowed_file_paths: Optional[set] = None
+
+
+def set_allowed_file_paths(paths: set):
+    """设置允许写入的文件路径集合（由依赖图提供）"""
+    global _allowed_file_paths
+    _allowed_file_paths = set(paths) if paths else None
+    import logging
+    logger = logging.getLogger(__name__)
+    if paths:
+        logger.info(f"[白名单] 设置允许写入路径: {sorted(_allowed_file_paths)}")
+    else:
+        logger.info("[白名单] 清除允许写入路径")
+
+
+def _safe_join(project_root: str, target: str) -> Path:
+    """安全拼接路径：target 必须在 project_root 下（解析符号链接后）
+
+    Raises:
+        PermissionError: 当 target 解析后在 project_root 之外时
+    """
+    root = Path(project_root).resolve()
+    if Path(target).is_absolute():
+        candidate = Path(target).resolve()
+    else:
+        candidate = (root / target).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        raise PermissionError(f"路径越界：'{target}' 不在项目根目录 '{project_root}' 下")
+    return candidate
+
+
 # ==================== 代码分析辅助 ====================
 
 # 语言对应的符号定义正则
@@ -329,7 +364,7 @@ def _tool_partial_update(project_path: str, path: str, target: str = None,
                          replacement: str = None, function_name: str = None) -> Dict:
     """精准替换文件中的函数或代码块"""
     try:
-        full_path = Path(project_path) / path if not Path(path).is_absolute() else Path(path)
+        full_path = _safe_join(project_path, path)
         if not full_path.exists():
             return {"success": False, "error": f"文件不存在: {path}"}
 
@@ -392,7 +427,7 @@ def _tool_insert_content(project_path: str, path: str, content: str,
                          line: int = None, anchor: str = None) -> Dict:
     """在文件指定位置插入内容（按行号或锚点文本）"""
     try:
-        full_path = Path(project_path) / path if not Path(path).is_absolute() else Path(path)
+        full_path = _safe_join(project_path, path)
         if not full_path.exists():
             return {"success": False, "error": f"文件不存在: {path}"}
 
@@ -424,7 +459,14 @@ def _tool_regex_replace(project_path: str, path: str, pattern: str,
                         replacement: str, recursive: bool = False) -> Dict:
     """基于正则表达式的批量替换"""
     try:
-        full_path = Path(project_path) / path if not Path(path).is_absolute() else Path(path)
+        root = Path(project_path).resolve()
+        full_path = root / path if not Path(path).is_absolute() else Path(path).resolve()
+        # 安全检查：明确路径或 glob 根必须在 project_root 内
+        try:
+            full_path.relative_to(root)
+        except ValueError:
+            return {"success": False, "error": f"路径越界：'{path}' 不在项目根目录下"}
+
         if '*' in str(full_path) or '?' in str(full_path):
             files = [Path(f) for f in glob.glob(str(full_path), recursive=recursive) if Path(f).is_file()]
         else:
@@ -672,13 +714,157 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
         return {"success": False, "error": str(e), "command": command}
 
 
+# ==================== 搜索工具 ====================
+
+
+def _tool_search_files(
+    project_path: str,
+    pattern: str,
+    file_pattern: str = "*",
+    directory: str = ".",
+    context_lines: int = 1,
+    max_results: int = 50,
+) -> Dict:
+    """在项目文件中搜索文本或正则模式（grep 封装）
+
+    用于跨文件验证：检查某个符号是否在目标文件中定义、某个导入是否正确等。
+    支持正则表达式，对任何编程语言通用。
+
+    Args:
+        project_path: 项目根目录
+        pattern: 搜索模式（支持正则）
+        file_pattern: 文件过滤（如 *.py, *.go, *.rs），默认 * 匹配所有文件
+        directory: 搜索目录（相对于项目根目录），默认 .
+        context_lines: 匹配行的上下文行数，默认 1
+        max_results: 最大返回结果数，默认 50
+
+    Returns:
+        {matches: [{file, line_number, content}], total, pattern}
+    """
+    import subprocess
+    import os
+
+    if not pattern or not pattern.strip():
+        return {"success": False, "error": "搜索模式不能为空"}
+
+    try:
+        work_dir = _safe_join(project_path, directory)
+
+        if not work_dir.exists():
+            return {"success": False, "error": f"目录不存在: {directory}"}
+
+        # 优先用 ripgrep (rg)，更快且默认支持正则
+        # fallback 到 grep
+        rg_available = False
+        try:
+            subprocess.run(["rg", "--version"], capture_output=True, timeout=5)
+            rg_available = True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        if rg_available:
+            cmd = [
+                "rg", "-n", "--no-heading",
+                "-C", str(context_lines),
+                "--max-count", str(max_results),
+                "--glob", file_pattern,
+                pattern,
+                str(work_dir),
+            ]
+        else:
+            cmd = [
+                "grep", "-rn",
+                f"-C{context_lines}",
+                f"--max-count={max_results}",
+                f"--include={file_pattern}",
+                pattern,
+                str(work_dir),
+            ]
+
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            cwd=str(work_dir),
+        )
+
+        matches = []
+        if proc.stdout:
+            for line in proc.stdout.strip().split('\n'):
+                if not line or line.startswith('--'):
+                    continue
+                # 解析 grep 输出格式: file:line_number:content 或 file-line_number-content
+                # 也处理 rg 格式: file:line_number:content
+                parts = line.split(':', 2)
+                if len(parts) >= 3:
+                    file_path = parts[0]
+                    # 移除 work_dir 前缀，得到相对路径
+                    if file_path.startswith(str(work_dir)):
+                        file_path = file_path[len(str(work_dir)):].lstrip('/')
+                    try:
+                        line_no = int(parts[1])
+                    except ValueError:
+                        # 上下文行用 - 分隔
+                        try:
+                            line_no = int(parts[1].replace('-', ''))
+                        except (ValueError, AttributeError):
+                            line_no = 0
+                    matches.append({
+                        "file": file_path,
+                        "line_number": line_no,
+                        "content": parts[2].strip() if len(parts) > 2 else "",
+                    })
+
+        return {
+            "success": True,
+            "matches": matches[:max_results],
+            "total": len(matches),
+            "pattern": pattern,
+            "directory": directory,
+        }
+
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": f"搜索超时（15s）: {pattern}"}
+    except Exception as e:
+        return {"success": False, "error": f"搜索失败: {e}"}
+
+
 # ==================== 写入工具 ====================
 
 
 def _tool_write_file(project_path: str, path: str, content: str) -> Dict:
     """写入文件内容（创建或覆盖）"""
     try:
-        full_path = Path(project_path) / path if not Path(path).is_absolute() else Path(path)
+        # 空内容校验：拒绝空文件写入
+        if not content or not content.strip():
+            return {"success": False, "error": "内容为空，拒绝写入。请提供实际的文件内容"}
+
+        # 统一占位符检测
+        from app.agent.utils import is_placeholder_content
+        is_ph, ph_reason = is_placeholder_content(content, path)
+        if is_ph:
+            return {"success": False, "error": f"检测到占位符代码，拒绝写入。{ph_reason}。请提供完整的实现代码"}
+
+        # 依赖图白名单校验：只允许写入依赖图中的文件
+        global _allowed_file_paths
+        if _allowed_file_paths is not None:
+            # 规范化路径：去除开头的 ./ 和 /
+            normalized = path.replace('\\', '/').lstrip('./').lstrip('/')
+            if normalized not in _allowed_file_paths:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"[白名单] 拒绝写入: path={path}, normalized={normalized}, allowed={sorted(_allowed_file_paths)[:5]}...")
+                return {"success": False, "error": f"文件 '{path}' 不在依赖图中，拒绝写入。只允许生成依赖图中定义的文件"}
+
+        # 文件名验证：拒绝无效文件名
+        filename = Path(path).name
+        if not filename or filename.startswith('=') or filename.startswith('.') or re.search(r'[<>:"|?*]', filename):
+            return {"success": False, "error": f"无效的文件名: '{filename}'。文件名不能以 '=' 或 '.' 开头，不能包含特殊字符"}
+        if re.match(r'^=\d', filename):
+            return {"success": False, "error": f"无效的文件名: '{filename}'。这看起来像版本号，不是有效的文件名"}
+
+        full_path = _safe_join(project_path, path)
         full_path.parent.mkdir(parents=True, exist_ok=True)
 
         # 写入前语法验证
@@ -689,6 +875,8 @@ def _tool_write_file(project_path: str, path: str, content: str) -> Dict:
         if validation_warning:
             result["warning"] = validation_warning
         return result
+    except PermissionError as e:
+        return {"success": False, "error": str(e)}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -918,15 +1106,31 @@ async def _tool_http_request(project_path: str, method: str, url: str,
             return {"success": False, "error": "仅支持 http/https 协议"}
 
         host = parsed.hostname
-        if host:
-            try:
-                ip = ipaddress.ip_address(host)
-                if ip.is_private or ip.is_loopback or ip.is_reserved:
-                    return {"success": False, "error": "不允许访问内网地址"}
-            except ValueError:
-                pass
+        if not host:
+            return {"success": False, "error": "URL 缺少主机名"}
 
-        async with _httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        # SSRF 防护：解析 DNS 得到真实 IP，对每个 IP 做内网检查
+        # 避免 DNS rebinding：直接拿 IP 走连接，禁用重定向
+        try:
+            import socket as _socket
+            addr_infos = _socket.getaddrinfo(host, None)
+        except _socket.gaierror as e:
+            return {"success": False, "error": f"DNS 解析失败: {e}"}
+
+        for family, _, _, _, sockaddr in addr_infos:
+            ip_str = sockaddr[0]
+            # IPv4-mapped IPv6 (::ffff:127.0.0.1) 需要剥离
+            if ip_str.startswith("::ffff:"):
+                ip_str = ip_str[7:]
+            try:
+                ip = ipaddress.ip_address(ip_str)
+            except ValueError:
+                continue
+            if (ip.is_private or ip.is_loopback or ip.is_reserved
+                    or ip.is_link_local or ip.is_multicast or ip.is_unspecified):
+                return {"success": False, "error": f"不允许访问内网/保留地址: {ip}"}
+
+        async with _httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
             response = await client.request(
                 method=method.upper(), url=url,
                 headers=headers or {}, json=body
@@ -1030,6 +1234,15 @@ SPECIALIST_TOOLS = {
                        "grep 示例: grep -rn --include='*.py' 'pattern' . | head -20  "
                        "find 示例: find . -name '*.py' | xargs wc -l",
         "params": {"command": "string", "cwd": "string(可选)", "timeout": "int(可选,默认60)"}
+    },
+    "search_files": {
+        "fn": _tool_search_files,
+        "description": "在项目文件中搜索文本或正则模式（grep封装，任何语言通用）。"
+                       "参数: pattern(搜索模式,支持正则), file_pattern(文件过滤,如*.py,默认*), "
+                       "directory(搜索目录,默认.), context_lines(上下文行数,默认1), max_results(最大结果数,默认50)。"
+                       "用途：验证符号是否在目标文件中定义、检查导入是否正确、查找函数/类的使用位置。",
+        "params": {"pattern": "string", "file_pattern": "string(可选)", "directory": "string(可选)",
+                   "context_lines": "int(可选)", "max_results": "int(可选)"}
     },
     "write_file": {
         "fn": _tool_write_file,

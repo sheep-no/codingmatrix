@@ -27,6 +27,7 @@ class LanguageDetectionResult:
     needs_clarification: bool = False  # 是否需要用户澄清（如未知语言的文件扩展名）
     frontend_language: Optional[str] = None  # 前端语言（如果检测到）
     backend_language: Optional[str] = None   # 后端语言（如果检测到）
+    all_languages: Optional[List[str]] = None  # 项目中所有检测到的语言
     detection_method: str = "rule"   # 检测方法：rule（规则）或 llm（LLM 辅助）
 
 
@@ -221,10 +222,14 @@ class LanguageDetector:
         evidence = []
 
         # 策略 0: 检查是否是全栈项目（前端 + 后端不同语言）
-        # 用于日志记录和后续处理
         is_fullstack, frontend_lang, backend_lang = cls._detect_fullstack_languages(requirement_lower)
         if is_fullstack:
             evidence.append(f"全栈项目检测: 前端={frontend_lang}, 后端={backend_lang}")
+
+        # 检测所有出现的语言（用于多语言项目，如 Python + Rust）
+        all_detected_langs = cls._detect_all_languages(requirement_lower)
+        if len(all_detected_langs) > 1:
+            evidence.append(f"多语言检测: {all_detected_langs}")
 
         # 策略 1: 框架推断（优先于通用语言关键词，因为框架更明确）
         for framework, lang in cls.FRAMEWORK_LANGUAGE.items():
@@ -235,12 +240,11 @@ class LanguageDetector:
                     language=lang,
                     confidence=0.95,
                     evidence=evidence,
-                    adapter_name=cls._get_adapter_name(lang)
+                    adapter_name=cls._get_adapter_name(lang),
+                    frontend_language=frontend_lang,
+                    backend_language=backend_lang or lang,
+                    all_languages=all_detected_langs if all_detected_langs else [lang],
                 )
-                # 如果检测到全栈项目，添加前端和后端语言信息
-                if is_fullstack:
-                    result.frontend_language = frontend_lang
-                    result.backend_language = backend_lang or lang
                 return result
 
         # 策略 2: 显式语言关键词（全局按关键词长度降序匹配，避免短关键词误匹配）
@@ -271,7 +275,10 @@ class LanguageDetector:
                     language=lang,
                     confidence=0.95,
                     evidence=evidence,
-                    adapter_name=cls._get_adapter_name(lang)
+                    adapter_name=cls._get_adapter_name(lang),
+                    frontend_language=frontend_lang,
+                    backend_language=backend_lang or lang,
+                    all_languages=all_detected_langs if all_detected_langs else [lang],
                 )
 
         # 策略 3: 文件扩展名
@@ -304,7 +311,10 @@ class LanguageDetector:
                     language=lang,
                     confidence=0.85,
                     evidence=evidence,
-                    adapter_name=cls._get_adapter_name(lang)
+                    adapter_name=cls._get_adapter_name(lang),
+                    frontend_language=frontend_lang,
+                    backend_language=backend_lang or lang,
+                    all_languages=all_detected_langs if all_detected_langs else [lang],
                 )
 
         # 策略 4: 项目类型默认值
@@ -315,7 +325,10 @@ class LanguageDetector:
                 language=lang,
                 confidence=0.60,
                 evidence=evidence,
-                adapter_name=cls._get_adapter_name(lang)
+                adapter_name=cls._get_adapter_name(lang),
+                frontend_language=frontend_lang,
+                backend_language=backend_lang or lang,
+                all_languages=all_detected_langs if all_detected_langs else [lang],
             )
 
         # 策略 5: 中文需求的常见模式
@@ -339,11 +352,15 @@ class LanguageDetector:
                         language=potential_lang,
                         confidence=0.70,
                         evidence=evidence,
-                        adapter_name=cls._get_adapter_name(potential_lang)
+                        adapter_name=cls._get_adapter_name(potential_lang),
+                        frontend_language=frontend_lang,
+                        backend_language=backend_lang or potential_lang,
+                        all_languages=all_detected_langs if all_detected_langs else [potential_lang],
                     )
-                # 不在列表中，但看起来像语言名（短且无特殊字符），低置信度
+                # 不在列表中，但看起来像语言名（短且仅含 ASCII 字母数字），低置信度
                 # 如果在扩展名映射表中有记录，则不需要澄清
-                if len(potential_lang) <= 15 and potential_lang.isalnum():
+                # 注意：必须检查是否为 ASCII，因为中文字符的 isalnum() 也返回 True
+                if len(potential_lang) <= 15 and potential_lang.isascii() and potential_lang.isalnum():
                     has_ext = potential_lang in cls.LANGUAGE_EXTENSION_MAP
                     evidence.append(f"中文模式推断（{'已知' if has_ext else '未知'}语言）: '{match.group(group_idx)}' → {potential_lang}")
                     return LanguageDetectionResult(
@@ -351,7 +368,10 @@ class LanguageDetector:
                         confidence=0.70 if has_ext else 0.40,
                         evidence=evidence,
                         adapter_name="generic",
-                        needs_clarification=not has_ext
+                        needs_clarification=not has_ext,
+                        frontend_language=frontend_lang,
+                        backend_language=backend_lang or potential_lang,
+                        all_languages=all_detected_langs if all_detected_langs else [potential_lang],
                     )
 
         # 默认：Python（最通用）
@@ -360,7 +380,10 @@ class LanguageDetector:
             language="python",
             confidence=0.30,
             evidence=evidence,
-            adapter_name="python"
+            adapter_name="python",
+            frontend_language=frontend_lang,
+            backend_language=backend_lang,
+            all_languages=all_detected_langs if all_detected_langs else ["python"],
         )
 
     @classmethod
@@ -409,6 +432,41 @@ class LanguageDetector:
             return True, frontend_lang, backend_lang
 
         return False, frontend_lang, backend_lang
+
+    @classmethod
+    def _detect_all_languages(cls, requirement_lower: str) -> List[str]:
+        """
+        检测需求中提到的所有编程语言（用于多语言项目）
+
+        例如："Python 后端 + Rust 性能模块" → ["python", "rust"]
+
+        Returns:
+            检测到的语言列表（去重，保持顺序）
+        """
+        detected = []
+
+        # 通过框架推断
+        for framework, lang in cls.FRAMEWORK_LANGUAGE.items():
+            pattern = r'\b' + re.escape(framework) + r'\b'
+            if re.search(pattern, requirement_lower) and lang not in detected:
+                detected.append(lang)
+
+        # 通过语言关键词推断
+        all_keywords = []
+        for lang, keywords in cls.LANGUAGE_KEYWORDS.items():
+            for keyword in keywords:
+                all_keywords.append((keyword, lang))
+        all_keywords.sort(key=lambda x: len(x[0]), reverse=True)
+
+        for keyword, lang in all_keywords:
+            if keyword.startswith('.'):
+                pattern = r'(?:^|\s)' + re.escape(keyword) + r'(?:\s|$|，|。|,|\.)'
+            else:
+                pattern = r'\b' + re.escape(keyword) + r'\b'
+            if re.search(pattern, requirement_lower) and lang not in detected:
+                detected.append(lang)
+
+        return detected
 
     @classmethod
     def _check_language_conflict(cls, requirement_lower: str, detected_lang: str) -> Optional[str]:
@@ -598,6 +656,7 @@ class LanguageDetector:
                 "package_init": "__init__.py",
                 "import_syntax": "from xxx import yyy / import xxx",
                 "entry_point": "main.py 或 app.py",
+                "default_framework": "FastAPI",
                 "test_framework": "pytest",
                 "package_manager": "pip",
                 "config_files": ["requirements.txt", "pyproject.toml", "setup.py"],
@@ -614,6 +673,7 @@ class LanguageDetector:
                 "package_init": "index.ts / index.js",
                 "import_syntax": "import xxx from 'yyy' / const xxx = require('yyy')",
                 "entry_point": "src/index.ts 或 src/main.ts",
+                "default_framework": "Express.js",
                 "test_framework": "jest / vitest",
                 "package_manager": "npm / yarn / pnpm",
                 "config_files": ["package.json", "tsconfig.json", "vite.config.ts"],
@@ -632,6 +692,7 @@ class LanguageDetector:
                 "package_init": "同目录下任意 .go 文件（package 声明）",
                 "import_syntax": "import \"xxx\"",
                 "entry_point": "main.go",
+                "default_framework": "Gin",
                 "test_framework": "testing (标准库)",
                 "package_manager": "go mod",
                 "config_files": ["go.mod", "go.sum"],
@@ -649,6 +710,7 @@ class LanguageDetector:
                 "package_init": "同目录下任意 .java 文件（package 声明）",
                 "import_syntax": "import xxx.yyy;",
                 "entry_point": "Main.java 或 Application.java",
+                "default_framework": "Spring Boot",
                 "test_framework": "JUnit",
                 "package_manager": "Maven / Gradle",
                 "config_files": ["pom.xml", "build.gradle", "settings.gradle"],
@@ -667,6 +729,7 @@ class LanguageDetector:
                 "package_init": "mod.rs 或同目录文件",
                 "import_syntax": "use xxx::yyy;",
                 "entry_point": "src/main.rs",
+                "default_framework": "Actix-web",
                 "test_framework": "cargo test (内置)",
                 "package_manager": "cargo",
                 "config_files": ["Cargo.toml", "Cargo.lock"],
@@ -702,6 +765,7 @@ class LanguageDetector:
                 "package_init": "",
                 "import_syntax": "根据语言约定",
                 "entry_point": f"main{ext}",
+                "default_framework": None,
                 "test_framework": "根据语言约定",
                 "package_manager": "根据语言约定",
                 "config_files": [],

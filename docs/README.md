@@ -1,6 +1,6 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-06-06 | 测试基线：1622 passed / 0 failed | 代码文件：500+
+> 最后更新：2026-06-09 | 后端代码：356 文件 / 99,618 行 | 前端代码：~58,000 行 | Agent 模块：76 + 3 子包 | 端点：226+ | E2E 用例：409
 
 ## 快速导航
 
@@ -11,12 +11,12 @@
 
 ### 架构
 - [系统架构](architecture/ARCHITECTURE.md) - 完整架构设计（含 9 大子系统）
-- [模块说明](architecture/MODULES.md) - 代码结构、职责划分
+- [模块说明](architecture/MODULES.md) - 后端 356 文件 + 前端 58,000 行详细清单
 - [模型系统](architecture/MODELS.md) - 多供应商 LLM 适配器
 - [API 职责矩阵](architecture/API-RESPONSIBILITY-MATRIX.md) - v1/v2 路由职责
 
 ### API
-- [API 文档](api/API-DOCUMENTATION.md) - 180+ 个端点完整文档
+- [API 文档](api/API-DOCUMENTATION.md) - 226+ 个端点完整文档
 - [API 版本管理](api/API-VERSIONS.md) - 版本策略和迁移指南
 
 ### 核心功能模块
@@ -56,68 +56,73 @@
 
 CodingMatrix 是 AI 驱动的全栈代码生成与开发平台，基于 FastAPI (Python 3.11) + Vue 3 + SQLite + Playwright 构建。核心能力是**多角色 AI Agent 系统**：从需求理解、架构设计到代码生成、验证、修复全自动完成。
 
-### 项目规模
+### 项目规模 (2026-06-09)
 
 | 维度 | 数量 | 说明 |
 |------|------|------|
-| **Python 文件** | 356 | 后端核心逻辑 |
-| **Vue 组件** | 69 | 前端 UI 组件 |
-| **JS 文件** | 58 | 前端逻辑和工具 |
+| **Python 文件** | 356 | 后端核心逻辑，99,618 行 |
+| **Vue 组件** | 69 | 前端 UI 组件 (+ 13 Agent 子组件) |
+| **JS 文件** | ~80 | 前端逻辑和工具 (含 16 API 客户端) |
 | **TS 文件** | 1 | 类型定义 |
-| **代码文件总计** | ~500 | |
-| **Agent 模块** | 76 | 多角色协作系统 |
+| **代码文件总计** | ~520 | |
+| **Agent 模块** | 76 + 3 子包 | 多角色协作系统 (34,166 行) |
 | **Orchestrator Mixins** | 25 | 生成流程协调 |
-| **API 路由** | 26 | 前后端接口 |
-| **E2E 测试** | 76 spec | 端到端测试 |
-| **单元测试** | 1622 | 测试覆盖 |
+| **API 路由模块** | 25 | 19 v1 用户 + 8 v2 管理 |
+| **API 端点** | 226+ | 前后端接口 |
+| **E2E 测试** | 77 spec / 409 用例 | 端到端测试 |
+| **单元测试** | 88 文件 / 1376 用例 | 测试覆盖 |
+| **集成测试** | 2 文件 | 多数已归档到 archive/ |
 
 ### 技术栈
 
 | 层级 | 技术 | 说明 |
 |------|------|------|
 | 后端 | FastAPI + Python 3.11 | 异步 Web 框架 |
-| 数据库 | SQLAlchemy + SQLite | 异步 ORM |
-| 缓存 | Redis | 会话、API Key 存储 |
+| 数据库 | SQLAlchemy + SQLite + Alembic | 异步 ORM + 11 个迁移版本 |
+| 缓存 | Redis | 会话、API Key 存储 (可降级内存) |
 | 任务队列 | Celery + APScheduler | 异步任务 + 定时任务 |
-| 前端 | Vue 3 + Vite + Pinia | 响应式 SPA |
-| 测试 | Playwright + pytest | E2E + 单元测试 |
-| 部署 | Docker + Nginx | 容器化部署 |
+| 前端 | Vue 3 + Vite + Pinia | 响应式 SPA (9 stores) |
+| 测试 | Playwright + pytest | E2E (77) + 单元 (1376) |
+| 部署 | Docker + Nginx | 容器化部署, 3 阶段 Dockerfile |
 
-### 核心子系统
+### 核心子系统 (2026-06-09)
 
 | 子系统 | 模块路径 | 描述 |
 |--------|----------|------|
-| **AI Agent 引擎** | `app/agent/` | **76 模块**, ~25,000 行, 25 mixin 协调, 5 角色专家, ReAct 引擎 |
-| **工具系统** | `app/agent/tools.py` | 21 个内置工具 + MCP 扩展, 唯一实现源 |
-| **ReAct 引擎** | `app/agent/react_engine.py` | simple + full 双模式, 滑动窗口历史 |
-| **MCP Client** | `app/agent/mcp_client.py` | stdio/HTTP 双传输, 单例管理器, 对 ReAct 透明 |
-| **动态模型路由** | `app/agent/dynamic_model_router.py` | 健康度 0-100 评分, 熔断, 5x5 矩阵, 学习路由 |
-| **统一 LLM 层** | `app/agent/llm_client.py` | 并发信号量, 超时保护, 成本追踪 |
-| **统一 LLM 调用** | `app/utils/aicloud/llm_caller.py` | 4 级优先级路由, 供应商感知, 多模态支持 |
-| **错误恢复** | `app/agent/error_recovery.py` | 分类 + 供应商感知降级链 + 反馈学习 |
-| **统一 JSON 层** | `app/agent/json_parser.py` | 5 层解析链, 工具调用 3 种策略 |
-| **依赖图** | `app/agent/dependency_graph.py` | 4 模块拆分, 14 语言解析, BFS 影响分析 |
-| **会话管理** | `app/agent/session_manager.py` | 30 天 TTL + 500 上限 + 僵尸清理 |
-| **错误恢复** | `app/agent/error_recovery.py` | 8 种错误分类, 3 次重试, 降级链 |
-| **多供应商 LLM** | `app/adapter/` | 7 供应商 + 动态供应商 + context_length 多级 fallback |
+| **AI Agent 引擎** | `app/agent/` | **76 模块 + 3 子包, 34,166 行, 25 mixin, 5 角色专家, ReAct 引擎** |
+| **统一 LLM 层** | `app/agent/llm_client.py` (191 行) | 并发信号量 6, 超时保护, 成本追踪, 自动上报 DynamicModelRouter |
+| **动态模型路由** | `app/agent/dynamic_model_router.py` (996 行) | 健康度 0-100 评分, 熔断, 角色模型分配, 降级链, epsilon-greedy 学习路由 |
+| **ReAct 引擎** | `app/agent/react_engine.py` (684 行) | simple + full 双模式, 滑动窗口历史, 300s 单轮超时 |
+| **MCP Client** | `app/agent/mcp_client.py` (513 行) | stdio/HTTP 双传输, JSON-RPC 2.0, 4 集成点 (executor/specialist/agent/orchestrator) |
+| **依赖图** | `app/agent/dependency_graph.py` (1,007 行) | 4 模块拆分, 14 语言解析, 拓扑排序 + BFS 影响分析 |
+| **会话管理** | `app/agent/session_manager.py` (582 行) | 5 状态机, 30 天 TTL + 500 上限, DB 写透缓存, 429 限流 |
+| **错误恢复** | `app/agent/error_recovery.py` (797 行) | 8 种错误分类, 3 次重试, 4 级降级链 + 供应商感知 |
+| **统一 JSON 层** | `app/agent/json_parser.py` (345 行) | 5 层解析链, 工具调用 3 种策略 |
+| **工具系统** | `app/agent/tools.py` (1,079 行) | 21 个内置工具 (唯一实现源) + MCP 扩展, SPECIALIST_TOOLS 注册表 |
+| **多供应商 LLM** | `app/adapter/` | 7 供应商 + 动态供应商 + context_length 4 级 fallback |
 
-### 端点模块
+### 端点模块 (25 个 include_router, 226+ 端点)
 
 | 模块 | 端点 | 功能 |
 |------|------|------|
-| Agent 系统 | `/api/v1/agent/*` | 项目生成、代码审查、快照管理、ReAct 调用 |
-| AI 代码 | `/api/v1/code` | 代码生成、流式输出 |
+| Agent 系统 | `/api/v1/agent/*` | 5 子路由聚合 (orchestrate/generate/association/knowledge/performance), 项目生成/代码审查/快照/会话/ReAct |
+| AI 代码 | `/api/v1/code`, `/api/v1/AiProjectCode` | 代码生成、流式输出 |
 | PPT 生成 | `/api/v1/pptx/*` | 异步任务、多格式输出 |
 | 图像生成 | `/api/v1/kolors/*` | 文生图、图生图 |
-| AI Cloud | `/api/v1/aicloud/*` | 沙箱执行、审查队列 |
-| 文件上传 | `/api/v1/files/*` | 单文件/分片上传、下载、hash 去重（供对话/Agent 附件使用） |
+| AI Cloud | `/api/v1/aicloud/*` + `/aicloud-knowledge` | 沙箱执行、审查队列、知识库 |
+| 文件上传 | `/api/v1/files/*` | 单文件/分片上传 (5MB)、断点续传、hash 去重 |
 | 工作流 | `/api/v1/workflow/*` | DAG 编排、9 种节点、重试机制 |
+| 任务队列 | `/api/v1/tasks` | Celery 驱动, WebSocket 进度推送 |
+| 视觉 | `/api/v1/vision` | 图像理解、OCR、代码从图像、安全检查 |
 | 免费模型 | `/api/v1/models` | 内置模型查看、切换 |
 | 动态供应商 | `/api/v1/providers` | 自定义 API 接入、context_length |
 | 用户管理 | `/api/v2/Controller/*` | CRUD、权限管理 |
-| API Key | `/api/v1/apikey` | 用户 API Key 管理、Token 加密存储 |
-| 模型管理 | `/api/v2/models` | 管理员配置 context_length |
+| API Key | `/api/v1/apikey` | 用户 API Key 管理、RSA-2048 加密、context_length |
+| 模型管理 | `/api/v2/models` | 管理员配置 context_length、fallback chain |
+| MCP 管理 | `/api/v2/mcp` | MCP Server CRUD + test + toggle |
 | 沙箱管理 | `/api/v2/admin/sandbox-config` | 管理员配置代码沙箱 |
+| Nginx | `/api/v2/nginx/*` | Nginx 配置检查/生成/部署 |
+| 守护路由 | `/api/v2/guardian` | 服务守护 (最大 v2 模块 858 行) |
 | 健康检查 | `/api/v1/health` | Prometheus 指标 |
 
 ---
@@ -238,4 +243,4 @@ docs/
 
 ---
 
-最后更新：2026-06-06
+最后更新：2026-06-09

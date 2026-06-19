@@ -36,7 +36,19 @@ class ConcurrentLimitManager:
     - 渐进式生效：已有会话自然完成，新限制只对新请求生效
     - 审计日志：记录每次变更的时间、操作者、新旧值
     - 负载自适应：根据系统负载推荐合适的限制值
+
+    使用单例模式：register_session 和 unregister_session 必须操作同一个实例
+    否则 active_count 会泄漏，导致用户被错误拒绝新会话。
     """
+
+    _instance: Optional["ConcurrentLimitManager"] = None
+    _lock = threading.Lock() if False else None  # 延迟初始化见 __new__
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
 
     BASE_LIMITS = {
         "free": 1,
@@ -46,10 +58,13 @@ class ConcurrentLimitManager:
     }
 
     def __init__(self, load_monitor=None):
+        if getattr(self, "_initialized", False):
+            return
         self.load_monitor = load_monitor
         self._limits: Dict[str, int] = dict(self.BASE_LIMITS)
         self._active_sessions: Dict[str, int] = {}
         self._change_log: List[LimitChangeRecord] = []
+        self._initialized = True
 
     async def update_limit(
         self,

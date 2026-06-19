@@ -13,7 +13,6 @@ import logging
 from typing import Set
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -111,105 +110,188 @@ def _scan_value(value) -> list:
     return issues
 
 
-async def _read_body_safe(request: Request) -> bytes:
-    body = await request.body()
+async def _read_body_safe(receive) -> bytes:
+    """从 ASGI receive callable 读取完整 body"""
+    body_chunks = []
+    while True:
+        message = await receive()
+        if message["type"] == "http.request":
+            body = message.get("body", b"")
+            if body:
+                body_chunks.append(body)
+            if not message.get("more_body", False):
+                break
+        elif message["type"] == "http.disconnect":
+            break
+    body = b"".join(body_chunks)
     if len(body) > MAX_BODY_SIZE:
         return b"__TOO_LARGE__"
     return body
 
 
-class InputValidatorMiddleware(BaseHTTPMiddleware):
-    """输入验证中间件"""
+class InputValidatorMiddleware:
+    """输入验证中间件（纯 ASGI 实现）
 
-    async def dispatch(self, request: Request, call_next):
-        if request.url.path in SKIP_PATHS:
-            return await call_next(request)
+    为什么不用 BaseHTTPMiddleware:
+    - 同 RequestLoggingMiddleware，避免 cancel scope 传播到 DB 层
+    """
 
-        # 跳过 AI 项目生成端点的安全检查（需求描述可能包含代码/SQL 关键词）
-        # 使用 startswith 匹配，支持带查询参数或末尾斜杠的变体
-        if any(request.url.path.startswith(skip_path) for skip_path in SKIP_SECURITY_CHECK_PATHS):
-            return await call_next(request)
+    def __init__(self, app):
+        self.app = app
 
-        if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
-            return await call_next(request)
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        content_type = request.headers.get("content-type", "").lower()
+        path = scope.get("path", "")
+        method = scope.get("method", "")
+
+        if path in SKIP_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        if any(path.startswith(p) for p in SKIP_SECURITY_CHECK_PATHS):
+            await self.app(scope, receive, send)
+            return
+
+        if method not in ("POST", "PUT", "PATCH", "DELETE"):
+            await self.app(scope, receive, send)
+            return
+
+        # 解析 headers (ASGI 中是 bytes list of tuples)
+        raw_headers = scope.get("headers", [])
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in raw_headers}
+        content_type = headers.get("content-type", "").lower()
 
         if content_type and not any(
             content_type.startswith(allowed) for allowed in ALLOWED_CONTENT_TYPES
         ):
             logger.warning(
-                f"拒绝不支持的内容类型 | path={request.url.path} | content_type={content_type}"
+                f"拒绝不支持的内容类型 | path={path} | content_type={content_type}"
             )
-            return JSONResponse(
-                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                content={
+            await _send_json_response(
+                send,
+                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                {
                     "code": "UNSUPPORTED_MEDIA_TYPE",
                     "message": f"不支持的内容类型: {content_type}",
                     "details": {"allowed": list(ALLOWED_CONTENT_TYPES)},
                 },
             )
+            return
 
-        if request.method in ("POST", "PUT", "PATCH"):
-            content_length = request.headers.get("content-length")
+        if method in ("POST", "PUT", "PATCH"):
+            content_length = headers.get("content-length")
             if content_length and int(content_length) > MAX_BODY_SIZE:
                 logger.warning(
-                    f"请求体过大 | path={request.url.path} | size={content_length}"
+                    f"请求体过大 | path={path} | size={content_length}"
                 )
-                return JSONResponse(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    content={
+                await _send_json_response(
+                    send,
+                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    {
                         "code": "REQUEST_TOO_LARGE",
                         "message": "请求体过大，最大允许 10MB",
                         "details": {"max_size_bytes": MAX_BODY_SIZE},
                     },
                 )
+                return
 
-        if content_type.startswith("application/json"):
-            body = await _read_body_safe(request)
-            if body == b"__TOO_LARGE__":
-                logger.warning(f"请求体过大 | path={request.url.path}")
-                return JSONResponse(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    content={
-                        "code": "REQUEST_TOO_LARGE",
-                        "message": "请求体过大，最大允许 10MB",
-                        "details": {"max_size_bytes": MAX_BODY_SIZE},
+        if not content_type.startswith("application/json"):
+            await self.app(scope, receive, send)
+            return
+
+        body = await _read_body_safe(receive)
+        if body == b"__TOO_LARGE__":
+            logger.warning(f"请求体过大 | path={path}")
+            await _send_json_response(
+                send,
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                {
+                    "code": "REQUEST_TOO_LARGE",
+                    "message": "请求体过大，最大允许 10MB",
+                    "details": {"max_size_bytes": MAX_BODY_SIZE},
+                },
+            )
+            return
+
+        if body:
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                await _send_json_response(
+                    send,
+                    status.HTTP_400_BAD_REQUEST,
+                    {
+                        "code": "INVALID_JSON",
+                        "message": "请求体 JSON 格式无效",
+                        "details": {},
                     },
                 )
+                return
 
-            if body:
-                try:
-                    data = json.loads(body)
-                except json.JSONDecodeError:
-                    return JSONResponse(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        content={
-                            "code": "INVALID_JSON",
-                            "message": "请求体 JSON 格式无效",
-                            "details": {},
-                        },
-                    )
+            issues = list(set(_scan_value(data)))
+            if issues:
+                logger.warning(
+                    f"输入验证失败 | path={path} | issues={issues}"
+                )
+                detail_parts = []
+                if "sql_injection" in issues:
+                    detail_parts.append("检测到疑似 SQL 注入内容")
+                if "xss" in issues:
+                    detail_parts.append("检测到疑似 XSS 攻击内容")
+                await _send_json_response(
+                    send,
+                    status.HTTP_400_BAD_REQUEST,
+                    {
+                        "code": "INPUT_VALIDATION_FAILED",
+                        "message": "；".join(detail_parts),
+                        "details": {"detected_issues": issues},
+                    },
+                )
+                return
 
-                issues = list(set(_scan_value(data)))
-                if issues:
-                    logger.warning(
-                        f"输入验证失败 | path={request.url.path} | issues={issues}"
-                    )
-                    detail_parts = []
-                    if "sql_injection" in issues:
-                        detail_parts.append("检测到疑似 SQL 注入内容")
-                    if "xss" in issues:
-                        detail_parts.append("检测到疑似 XSS 攻击内容")
-                    return JSONResponse(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        content={
-                            "code": "INPUT_VALIDATION_FAILED",
-                            "message": "；".join(detail_parts),
-                            "details": {"detected_issues": issues},
-                        },
-                    )
+        # 把读到的 body 重新塞回 receive，使下游能再次读取
+        sent = False
+        body_sent = False
 
-                request._body = body
+        async def receive_replay():
+            nonlocal sent, body_sent
+            if not body_sent:
+                body_sent = True
+                return {
+                    "type": "http.request",
+                    "body": body,
+                    "more_body": False,
+                }
+            # 下游可能还需要 receive 别的消息（如 disconnect）
+            # 透传真实 receive
+            return await _passthrough_receive(receive, sent_state=lambda: sent)
 
-        return await call_next(request)
+        await self.app(scope, receive_replay, send)
+
+
+async def _passthrough_receive(receive, sent_state):
+    """透传 receive 调用，下游真正读 body 后才转发"""
+    # 此函数保留扩展位；当前实现中 body_sent=True 后下游 receive 会被 FastAPI
+    # 用于等待 http.disconnect。我们直接转发原 receive 即可。
+    return await receive()
+
+
+async def _send_json_response(send, status_code: int, body: dict):
+    """直接通过 ASGI send 发送 JSON 响应"""
+    payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    await send({
+        "type": "http.response.start",
+        "status": status_code,
+        "headers": [
+            (b"content-type", b"application/json; charset=utf-8"),
+            (b"content-length", str(len(payload)).encode()),
+        ],
+    })
+    await send({
+        "type": "http.response.body",
+        "body": payload,
+        "more_body": False,
+    })

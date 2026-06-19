@@ -41,8 +41,8 @@
 | `POST /api/v1/agent/apikey/{token}/context-lengths` | POST | 设置用户 API Key context_length | normal |
 | `GET /api/v2/admin/sandbox-config` | GET | 查看代码沙箱配置 | superadmin |
 | `PUT /api/v2/admin/sandbox-config` | PUT | 修改代码沙箱配置 | superadmin |
-| `GET /api/v2/models/assignments` | GET | 查看 5x5 模型分配 | superadmin |
-| `PUT /api/v2/models/assignments` | PUT | 修改 5x5 模型分配 | superadmin |
+| `GET /api/v2/models/assignments` | GET | 查看角色模型分配 | superadmin |
+| `PUT /api/v2/models/assignments` | PUT | 修改角色模型分配 | superadmin |
 | `GET /api/v2/models/health` | GET | 查看模型健康度 | superadmin |
 | `POST /api/v2/models/reset-health` | POST | 重置模型健康分 | superadmin |
 | `GET /api/v2/models/context-length` | GET | 查看模型 context_length | superadmin |

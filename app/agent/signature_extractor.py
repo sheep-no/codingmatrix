@@ -30,8 +30,8 @@ def get_context_budget(context_length: int) -> int:
 # 签名提取正则（与 specialist_base._SYMBOL_PATTERNS 一致）
 SIGNATURE_PATTERNS = {
     ".py": {
-        "function": re.compile(r"^(?:async\s+)?def\s+(\w+)\s*\("),
-        "class": re.compile(r"^class\s+(\w+)(?:\s*\([^)]*\))?\s*:"),
+        "function": re.compile(r"^\s*(?:async\s+)?def\s+(\w+)\s*\("),
+        "class": re.compile(r"^\s*class\s+(\w+)(?:\s*\([^)]*\))?\s*:"),
     },
     ".js": {
         "function": re.compile(r"(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\("),
@@ -69,7 +69,13 @@ _GENERIC_DEF = re.compile(r"^\s*(?:(?:pub\s+)?(?:async\s+)?(?:fn|func|function|d
 
 
 def extract_signatures(file_path: str, content: str) -> Optional[str]:
-    """从文件内容中提取函数/类签名，不包含函数体。
+    """从文件内容中提取函数/类签名及类字段定义，不包含函数体。
+
+    提取内容包括：
+    - 类定义行（class Foo(BaseModel):）
+    - 类的字段定义（amount: float, category: str）
+    - 类的方法签名（def get_total(self):）
+    - 顶层函数签名
 
     返回格式化的签名文本，失败时返回 None（调用方退化为截断原文）。
     """
@@ -82,25 +88,74 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
 
         lines = content.split('\n')
 
-        # 有精确正则时：提取类和函数签名
+        # 有精确正则时：提取类签名 + 字段 + 方法签名
         if patterns:
             result_parts = []
             current_class = None
+            class_indent = 0
+            collecting_class_body = False
 
             for line in lines:
                 stripped = line.strip()
                 if not stripped or stripped.startswith('#') or stripped.startswith('//'):
                     continue
 
+                # 计算当前行的缩进
+                indent = len(line) - len(line.lstrip())
+
                 cls_match = patterns["class"].search(line)
                 if cls_match:
                     name = next(g for g in cls_match.groups() if g is not None)
                     current_class = name
+                    class_indent = indent
+                    collecting_class_body = True
                     result_parts.append(stripped[:200])
                     continue
 
+                # 在类体内：收集字段定义和方法签名
+                if collecting_class_body and indent > class_indent:
+                    # 方法签名行
+                    fn_match = patterns["function"].search(line)
+                    if fn_match:
+                        paren_idx = line.find('(')
+                        if paren_idx >= 0:
+                            depth, end = 0, paren_idx
+                            for j in range(paren_idx, min(paren_idx + 500, len(line))):
+                                if line[j] == '(':
+                                    depth += 1
+                                elif line[j] == ')':
+                                    depth -= 1
+                                    if depth == 0:
+                                        end = j + 1
+                                        break
+                            sig = stripped[:end - len(line) + len(stripped) + 1]
+                        else:
+                            sig = stripped
+                        result_parts.append(f"  {sig[:200]}")
+                        continue
+
+                    # 字段定义行（Python: name: Type = default, JS: name = value）
+                    # 匹配 "identifier: type" 或 "identifier = value" 模式
+                    if _is_class_field(stripped, ext):
+                        result_parts.append(f"  {stripped[:200]}")
+                        continue
+
+                    # 装饰器行（@property, @classmethod 等）
+                    if stripped.startswith('@'):
+                        result_parts.append(f"  {stripped[:200]}")
+                        continue
+
+                    # 跳过方法体内的其他行（pass, return, if 等）
+                    continue
+
+                # 遇到新的顶层定义，退出类体收集模式
+                if collecting_class_body and indent <= class_indent:
+                    collecting_class_body = False
+                    current_class = None
+
+                # 顶层函数
                 fn_match = patterns["function"].search(line)
-                if fn_match:
+                if fn_match and not collecting_class_body:
                     paren_idx = line.find('(')
                     if paren_idx >= 0:
                         depth, end = 0, paren_idx
@@ -115,7 +170,7 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
                         sig = stripped[:end - len(line) + len(stripped) + 1]
                     else:
                         sig = stripped
-                    result_parts.append(f"  {sig[:200]}" if current_class else sig[:200])
+                    result_parts.append(sig[:200])
 
             if result_parts:
                 return '\n'.join(result_parts)
@@ -146,3 +201,51 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
     except Exception as e:
         logger.debug(f"签名提取失败：{e}")
         return None
+
+
+def _is_class_field(stripped: str, ext: str) -> bool:
+    """判断是否为类字段定义行"""
+    # 跳过空行、注释、装饰器、pass、return 等
+    if not stripped or stripped.startswith('#') or stripped.startswith('//'):
+        return False
+    if stripped.startswith('@') or stripped in ('pass', '...', 'continue', 'break'):
+        return False
+    # 跳过控制流语句
+    if stripped.startswith(('if ', 'for ', 'while ', 'try:', 'except', 'finally:', 'elif ', 'else:', 'return ', 'raise ', 'yield ', 'with ', 'assert ', 'print(')):
+        return False
+
+    if ext in ('.py', '.pyi'):
+        # Python 字段定义: name: Type 或 name: Type = value
+        # 排除 import、from、def、class 等
+        if stripped.startswith(('import ', 'from ', 'def ', 'class ', 'async def ', 'async def ')):
+            return False
+        # 匹配 "identifier: " 模式
+        if ':' in stripped:
+            before_colon = stripped.split(':')[0].strip()
+            # 字段名应该是简单的标识符（可能含下划线）
+            if before_colon and before_colon.replace('_', '').replace('[', '').replace(']', '').isalnum():
+                # 排除 dict 字面量和 type alias
+                after_colon = stripped.split(':', 1)[1].strip() if ':' in stripped else ''
+                if after_colon and not after_colon.startswith(('=', '(', '{', '[')):
+                    return True
+        return False
+
+    if ext in ('.js', '.ts', '.jsx', '.tsx', '.vue'):
+        # JS/TS 字段: name = value 或 name: type (in interface)
+        if '=' in stripped:
+            before_eq = stripped.split('=')[0].strip()
+            if before_eq and before_eq.replace('_', '').isalnum():
+                return True
+        # TypeScript 接口字段: name: type;
+        if ':' in stripped and stripped.endswith(';'):
+            before_colon = stripped.split(':')[0].strip()
+            if before_colon and before_colon.replace('_', '').isalnum():
+                return True
+        return False
+
+    # 其他语言：尝试通用匹配
+    if ':' in stripped:
+        before_colon = stripped.split(':')[0].strip()
+        if before_colon and before_colon.replace('_', '').isalnum() and len(before_colon) < 50:
+            return True
+    return False

@@ -4,20 +4,23 @@
 拦截对已禁用功能模块的请求，返回 503
 """
 import logging
+import json
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.services.feature_switch import feature_switch_service
 
 logger = logging.getLogger(__name__)
 
 
-class FeatureSwitchMiddleware(BaseHTTPMiddleware):
+class FeatureSwitchMiddleware:
     """
-    功能开关检查中间件
+    功能开关检查中间件（纯 ASGI 实现）
 
     拦截对已禁用功能模块的请求，返回 503 Service Unavailable
+
+    为什么不用 BaseHTTPMiddleware:
+    - 同 RequestLoggingMiddleware，避免 cancel scope 传播到 DB 层
     """
 
     PATH_FEATURE_MAP = {
@@ -35,11 +38,19 @@ class FeatureSwitchMiddleware(BaseHTTPMiddleware):
         "/favicon.ico",
     }
 
-    async def dispatch(self, request: Request, call_next):
-        path = request.url.path
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
 
         if path in self.SKIP_PATHS:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         for path_prefix, feature in self.PATH_FEATURE_MAP.items():
             if path.startswith(path_prefix):
@@ -57,14 +68,26 @@ class FeatureSwitchMiddleware(BaseHTTPMiddleware):
                         f"尝试访问已禁用的功能 | path={path} | feature={feature_name}"
                     )
 
-                    return JSONResponse(
-                        status_code=503,
-                        content={
-                            "detail": f"{feature_name}已关闭，请联系管理员开启",
-                            "code": "FEATURE_DISABLED",
-                            "feature": feature
-                        }
-                    )
+                    payload = {
+                        "detail": f"{feature_name}已关闭，请联系管理员开启",
+                        "code": "FEATURE_DISABLED",
+                        "feature": feature,
+                    }
+                    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                    await send({
+                        "type": "http.response.start",
+                        "status": 503,
+                        "headers": [
+                            (b"content-type", b"application/json; charset=utf-8"),
+                            (b"content-length", str(len(body)).encode()),
+                        ],
+                    })
+                    await send({
+                        "type": "http.response.body",
+                        "body": body,
+                        "more_body": False,
+                    })
+                    return
                 break
 
-        return await call_next(request)
+        await self.app(scope, receive, send)

@@ -72,6 +72,9 @@ class CacheEntry:
     # 架构设计
     architecture: Dict[str, Any] = field(default_factory=dict)
     file_plan: List[Dict[str, Any]] = field(default_factory=list)
+    
+    # 依赖图（序列化后的节点和边）
+    dependency_graph: Dict[str, Any] = field(default_factory=dict)
 
     # 元数据
     complexity: Dict[str, Any] = field(default_factory=dict)
@@ -409,7 +412,8 @@ class SpecCache:
         file_plan: List[Dict],
         complexity: Dict[str, Any],
         tech_stack: List[str],
-        requirement_vector: Optional[List[float]] = None
+        requirement_vector: Optional[List[float]] = None,
+        dependency_graph: Optional[Dict[str, Any]] = None
     ) -> str:
         """缓存规范"""
         req_hash = self._compute_requirement_hash(requirement)
@@ -424,6 +428,7 @@ class SpecCache:
             specs=specs,
             architecture=architecture,
             file_plan=file_plan,
+            dependency_graph=dependency_graph or {},
             complexity=complexity,
             tech_stack=tech_stack,
             keywords=keywords

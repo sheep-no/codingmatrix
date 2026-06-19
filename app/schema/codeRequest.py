@@ -165,8 +165,8 @@ class AgentConfig(BaseModel):
 class ToolDefinition(BaseModel):
     """工具定义模型"""
     name: str
-    func: any
+    func: Any
     description: str
-    parameters: type
+    parameters: Any
 
     model_config = {"arbitrary_types_allowed": True}

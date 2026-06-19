@@ -2,12 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/2026.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
+## [5.15.0] - 2026-06-09
+
+### Documentation
+- 通读项目代码，更新 docs 下 5 个核心 MD 文档以反映实际架构
+- **README.md**: 修正规模数据 (356 文件 / 99,618 行 / 226+ 端点 / 9 stores / 13 composables / 16 API 客户端 / 9 视图 / 77 E2E spec / 88 单元测试文件)
+- **architecture/ARCHITECTURE.md**: 修正 Agent 引擎各文件行数 (tools.py 996→1,079, react_engine.py 578→684, mcp_client.py 462→513, llm_client.py 164→191, session_manager.py 512→582, dependency_graph.py 983→1,007)，补充 Orchestrator Mixins 子包说明
+- **architecture/MODULES.md**: 删除重复项目结构树 (第 9-45 与 47-68 行)，新增前端模块章节 (16 路由 / 9 stores / 13 composables / 9 视图 / 13 Agent 子组件 / 16 API 客户端)，新增技术债务清单 (6 个 1000+ 行单文件, 4 处重复实现, 2 个废弃前端组件, 213 处 console.log)
+- **testing/TESTING.md**: 修正测试规模 (88 单元 / 1376 用例, **集成测试从 20+ 萎缩到 2 个** 已归档), 更新 Playwright 配置 (baseURL 8000→3000, workers 1, retries 0)
+- **guides/PRODUCTION.md**: 重写反映 4 容器实际架构 (api/celery/redis/nginx), 修正环境变量 (DB_POOL_SIZE/WS_MAX_CONNECTIONS/GRACEFUL_SHUTDOWN_TIMEOUT 等), 删除过时的 v3.8 单容器文档
+- **api/API-RESPONSIBILITY-MATRIX.md**: 待更新
+- 所有文档统一"最后更新: 2026-06-09"
+
+### Fixed (from prior unreleased)
 - API Key management system with RSA-2048 encryption
 - Support for 6 LLM providers (SiliconFlow, OpenAI, Anthropic, Bailian, GLM, DeepSeek)
 - Agent model layer configuration (9 layers)
@@ -18,11 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unit tests for crypto module (11 test cases)
 - Performance benchmark tests
 
-### Changed
+### Changed (from prior unreleased)
 - Updated CI/CD workflow with sharded E2E test execution
 - Enhanced security with Redis TTL-based key expiration
 
-### Fixed
+### Fixed (from prior unreleased)
 - P1 security issue: Added rate limiting to all API endpoints
 
 ---

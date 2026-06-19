@@ -154,9 +154,9 @@ class TopologyScheduler:
 
     async def run(
         self,
-        generator: Callable[[str, Dict[str, str]], Awaitable[str]],
+        generator: Callable[[str, Dict[str, str], Optional["HeartbeatTracker"]], Awaitable[str]],
         progress_callback: Optional[Callable[[str, str, int, int], None]] = None,
-        global_timeout: float = 1800.0  # 全局超时 30 分钟
+        global_timeout: float = 7200.0  # 全局超时 120 分钟（免费模型慢）
     ) -> Dict[str, Any]:
         """
         执行动态拓扑调度
@@ -164,7 +164,7 @@ class TopologyScheduler:
         Args:
             generator: 文件生成函数，签名 async (file_path, upstream_context) -> content
             progress_callback: 进度回调，签名 (event, file_path, completed, total)
-            global_timeout: 全局超时时间（秒），默认 30 分钟
+            global_timeout: 全局超时时间（秒），默认 60 分钟
 
         Returns:
             {
@@ -207,9 +207,21 @@ class TopologyScheduler:
                     )
 
                     if ready_count == 0 and pending_count == 0:
+                        blocked = sum(1 for n in self.nodes.values() if n.status == FileStatus.BLOCKED)
+                        failed = sum(1 for n in self.nodes.values() if n.status == FileStatus.FAILED)
+                        completed = sum(1 for n in self.nodes.values() if n.status == FileStatus.COMPLETED)
+                        logger.info(f"[Scheduler] 无就绪/待处理文件，退出循环: completed={completed}, failed={failed}, blocked={blocked}")
                         break
 
                     if ready_count == 0 and pending_count > 0:
+                        # 检查是否所有 pending 文件实际上都在 GENERATING（没有真正可做的）
+                        generating_count = sum(1 for n in self.nodes.values() if n.status == FileStatus.GENERATING)
+                        if generating_count == 0 and active_count == 0:
+                            # 有 PENDING 文件但没有 READY 也没有 GENERATING，说明依赖图有死锁
+                            pending_files = [p for p, n in self.nodes.items() if n.status == FileStatus.PENDING]
+                            logger.error(f"[Scheduler] 疑似死锁: {len(pending_files)} 个 PENDING 文件但无 READY/GENERATING: {pending_files}")
+                            self._stop_event.set()
+                            break
                         await asyncio.sleep(0.1)
                         continue
 
@@ -449,12 +461,20 @@ class TopologyScheduler:
         if self._stop_event.is_set():
             return True
 
-        completed_or_failed = sum(
-            1 for n in self.nodes.values()
-            if n.status in (FileStatus.COMPLETED, FileStatus.FAILED, FileStatus.BLOCKED)
+        # 没有 PENDING / READY / GENERATING 的文件了 → 所有文件都已终态（COMPLETED / FAILED / BLOCKED）
+        has_actionable = any(
+            n.status in (FileStatus.PENDING, FileStatus.READY, FileStatus.GENERATING)
+            for n in self.nodes.values()
         )
+        if has_actionable:
+            return False
 
-        return completed_or_failed >= self.stats.total_files
+        # 所有文件都已终态，检查是否有 BLOCKED 的文件需要记录
+        blocked_count = sum(1 for n in self.nodes.values() if n.status == FileStatus.BLOCKED)
+        if blocked_count > 0:
+            logger.warning(f"[Scheduler] {blocked_count} 个文件被阻塞（上游依赖失败），停止调度")
+
+        return True
 
     def cancel(self) -> None:
         """取消调度"""

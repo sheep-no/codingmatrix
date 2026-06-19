@@ -26,7 +26,7 @@ class EvaluationMixin:
                               message="正在分析需求复杂度...")
 
         self.analyzer = ComplexityAnalyzer()
-        self.complexity = await self.analyzer.analyze_with_llm(requirement, api_key_token=self.api_key_token)
+        self.complexity = self.analyzer.analyze(requirement)
 
         self._report_progress("evaluation", 2, 5, phase="designing_analysis",
                               complexity=self.complexity.level.value,
@@ -35,7 +35,7 @@ class EvaluationMixin:
 
         if getattr(self, 'use_dynamic_topology', True):
             self.model_router = LayeredModelRouter()
-            self.model_assignment = self.model_router.get_assignment(self.complexity.level)
+            self.model_assignment = self.model_router.get_assignment()
         else:
             self.model_router = None
             self.model_assignment = None

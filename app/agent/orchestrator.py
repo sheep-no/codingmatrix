@@ -101,6 +101,7 @@ class OrchestratorAgent(
         self.api_key_token = api_key_token
         self.provider_id = provider_id
         self.cancel_event = cancel_event
+        self.heartbeat_tracker = None
 
         from app.agent.git_operations import GitOperations
         from app.agent.snapshot_manager import SnapshotManager

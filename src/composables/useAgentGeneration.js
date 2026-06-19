@@ -93,15 +93,19 @@ export function useAgentGeneration() {
       const { api } = await import('@/utils/api')
       const response = await api.get('/api/v1/models/agent-config')
       const data = response.data || response
-      if (data.roles && Array.isArray(data.roles) && data.roles.length > 0) {
-        roles.value = data.roles
-        // 保留已有 model 信息，新增角色用默认值
-        const existing = modelAssignments.value || {}
-        const updated = {}
-        for (const role of data.roles) {
-          updated[role] = existing[role] || { model: '', calls: 0, successRate: 100 }
+      // v3.0: roles is an object {role: model_id}, keys are role names
+      if (data.roles && typeof data.roles === 'object' && !Array.isArray(data.roles)) {
+        const roleNames = Object.keys(data.roles)
+        if (roleNames.length > 0) {
+          roles.value = roleNames
+          // 保留已有 model 信息，新增角色用默认值
+          const existing = modelAssignments.value || {}
+          const updated = {}
+          for (const role of roleNames) {
+            updated[role] = existing[role] || { model: data.roles[role] || '', calls: 0, successRate: 100 }
+          }
+          modelAssignments.value = updated
         }
-        modelAssignments.value = updated
       }
     } catch (e) {
       // API 失败时使用默认角色列表

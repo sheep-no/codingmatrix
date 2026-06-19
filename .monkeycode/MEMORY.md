@@ -143,7 +143,22 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 推完后删除分支
   - 例如：创建分支 `260529-fix-batch-7`，提交，push -u，然后删除本地和远程分支
 
-### PPT Agent 功能实现
+### 项目代码结构与规模
+- Date: 2026-06-09
+- Context: Agent 在执行 docs 更新任务时通读全部代码后整理
+- Category: 代码结构
+- Instructions:
+  - 后端: 356 个 Python 文件 / 99,618 行 / 25 个 include_router / 226+ 端点
+  - 前端: 9 个 Pinia stores (v5.14.0 文档写 8 个, 漏了 `providers`)、13 个 composables (含 1 个 `useAgentSession` 包装死代码)、16 个 API 客户端、9 个视图 (含 `Docs.vue`)
+  - Agent 引擎: 76 模块 + 3 子包 (orchestrator_generation/、orchestrator_requirements/、adapters/) / 34,166 行
+  - 单文件 1000+ 行需拆分: agent_core.py (2,393), aiGeneratorPptx.py (1,723), orchestrate_endpoints.py (1,302), cross_validator.py (1,361), dependency_graph.py (1,007), tools.py (1,079)
+  - 测试: 88 单元文件 / 1376 用例, 集成测试从 20+ 萎缩到 2 个 (其余归档), 77 E2E spec / 409 用例
+  - 部署: 4 容器 (api/celery/redis/nginx), api 仅 127.0.0.1:8080 绑定, nginx 80 暴露
+  - 集成测试目录从 v5.11.0 报告的 20+ 文件**缩减到 2 个**，归档到 `tests/archive/integration_old/`
+  - Playwright baseURL 已从 8000 改为 3000 (前端 Vite 端口, 经 Nginx 代理到后端 8080)
+  - 文档统一: docs/README.md、docs/architecture/ARCHITECTURE.md、docs/architecture/MODULES.md、docs/testing/TESTING.md、docs/guides/PRODUCTION.md、CHANGELOG.md 均更新到 2026-06-09
+  - 重复实现: `app/utils/rate_limiter.py` (slowapi) vs `app/middleware/rate_limiter.py` (自研); `app/db/models.py` vs `app/models/`; `src/utils/crypto.js` vs `src/utils/encryption.js`; `src/composables/useAgentSession.js` 是 `stores/agentSession.js` 的薄包装
+  - 废弃前端组件: `AgentHeader.vue` 与 `AgentTopBar.vue` 重叠; `AgentInputPanel.vue` 与 `AgentInputBar.vue` 重叠
 - Date: 2026-05-29
 - Context: Agent 在执行 PPT 增强功能开发时发现
 - Category: 代码模式
@@ -154,3 +169,13 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 配图自动插入到幻灯片右侧位置 (9, 2) 英寸，尺寸 3.5x2.5 英寸
   - API 端点：`/generate-text` (仅大纲) 和 `/generate-from-text` (端到端)
   - 前端支持两种模式：AI Agent 生成和手动输入大纲
+
+- Date: 2026-06-09
+- Context: Agent 在执行多语言技术栈锁定修复时发现
+- Category: 代码模式
+- Instructions:
+  - `ProjectProfiler` (`app/agent/project_profiler.py`) 多语言版：python/javascript/go/rust/java 共 5 种 `LanguageProfile`
+  - 调用方必须传 `language` 参数（或用 `detect_project_language()` 自动检测），否则默认 python
+  - `_profile_project()` in `app/agent/orchestrator_utils.py:103` 现在接受可选 language 参数
+  - 语言检测优先级：manifest 文件 > 扩展名计数（Cargo.toml/pom.xml/go.mod/package.json）
+  - JS init_file 支持多个变体：index.{js,ts,jsx,tsx,mjs,cjs}

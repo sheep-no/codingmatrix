@@ -180,6 +180,52 @@ export function createProjectClient(baseClient) {
         return await response.json()
       }
       throw new Error('需求评价失败')
+    },
+
+    // ========== 搜索会话 ==========
+    async searchSessions(keyword, limit = 20, offset = 0) {
+      try {
+        const response = await client.post('/agent/search_sessions', {
+          keyword,
+          limit,
+          offset
+        })
+        if (response.ok) {
+          return await response.json()
+        }
+        return { sessions: [], total: 0 }
+      } catch (error) {
+        console.error('搜索会话失败:', error)
+        return { sessions: [], total: 0 }
+      }
+    },
+
+    // ========== 完成会话 ==========
+    async completeSession(sessionId) {
+      try {
+        const response = await client.post(`/agent/complete/${sessionId}`)
+        if (response.ok) {
+          return await response.json()
+        }
+        throw new Error('完成会话失败')
+      } catch (error) {
+        console.error('完成会话失败:', error)
+        throw error
+      }
+    },
+
+    // ========== 停止会话（使用独立端点） ==========
+    async stopSessionDirect(sessionId) {
+      try {
+        const response = await client.post(`/agent/stop/${sessionId}`)
+        if (response.ok) {
+          return await response.json()
+        }
+        throw new Error('停止会话失败')
+      } catch (error) {
+        console.error('停止会话失败:', error)
+        throw error
+      }
     }
   }
 }

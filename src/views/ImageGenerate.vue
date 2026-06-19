@@ -131,14 +131,34 @@
         <button
           class="btn-generate"
           :disabled="!canGenerate || isGenerating"
-          @click="handleGenerate"
+          @click="handleSmartGenerate"
         >
           <svg v-if="isGenerating" class="loading-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10" stroke-dasharray="60" stroke-dashoffset="60">
               <animate attributeName="stroke-dashoffset" from="60" to="0" dur="1s" repeatCount="indefinite" />
             </circle>
           </svg>
-          <span>{{ isGenerating ? '生成中...' : '开始生成' }}</span>
+          <span>{{ isGenerating ? '生成中...' : (lastGeneratedImage && prompt.trim() !== originalPrompt ? '基于上一张修改' : '开始生成') }}</span>
+        </button>
+        
+        <!-- 增量修改提示 -->
+        <div v-if="lastGeneratedImage && prompt.trim() !== originalPrompt && !isGenerating" class="incremental-hint">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+          <span>检测到已有图片，将使用图生图模式进行修改</span>
+        </div>
+        
+        <!-- 清除参考图片按钮 -->
+        <button 
+          v-if="lastGeneratedImage && !isGenerating" 
+          class="btn-clear-reference"
+          @click="clearReference"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+          <span>清除参考图片，重新文生图</span>
         </button>
 
         <!-- 错误提示 -->
@@ -234,6 +254,8 @@
   const error = ref('')
   const generatedImages = ref([])
   const history = ref([])
+  const lastGeneratedImage = ref(null)  // 保存最后一张生成的图片 { url, prompt }
+  const originalPrompt = ref('')  // 保存生成图片时的原始 prompt
 
   const styles = [
     { value: 'realistic', name: '写实', color: 'linear-gradient(135deg, #0d9488, #14b8a6)' },
@@ -262,16 +284,6 @@
   function onDrop(e) {
     const file = e.dataTransfer.files?.[0]
     if (file) setFile(file)
-  }
-
-  function setFile(file) {
-    if (file.size > 10 * 1024 * 1024) {
-      error.value = '图片大小不能超过 10MB'
-      return
-    }
-    uploadedFile.value = file
-    previewUrl.value = URL.createObjectURL(file)
-    error.value = ''
   }
 
   async function handleGenerate() {
@@ -314,8 +326,14 @@
         const data = await res.json()
         if (data.images && data.images.length > 0) {
           generatedImages.value = data.images.map(url => ({ url }))
+          // 保存最后一张图片用于增量修改
+          lastGeneratedImage.value = { url: data.images[0], prompt: prompt.value.trim() }
+          originalPrompt.value = prompt.value.trim()
         } else if (data.paths && data.paths.length > 0) {
           generatedImages.value = data.paths.map(url => ({ url }))
+          // 保存最后一张图片用于增量修改
+          lastGeneratedImage.value = { url: data.paths[0], prompt: prompt.value.trim() }
+          originalPrompt.value = prompt.value.trim()
         } else {
           throw new Error('返回数据格式异常')
         }
@@ -344,8 +362,14 @@
         const data = await res.json()
         if (data.images && data.images.length > 0) {
           generatedImages.value = data.images.map(url => ({ url }))
+          // 保存最后一张图片用于增量修改
+          lastGeneratedImage.value = { url: data.images[0], prompt: prompt.value.trim() }
+          originalPrompt.value = prompt.value.trim()
         } else if (data.paths && data.paths.length > 0) {
           generatedImages.value = data.paths.map(url => ({ url }))
+          // 保存最后一张图片用于增量修改
+          lastGeneratedImage.value = { url: data.paths[0], prompt: prompt.value.trim() }
+          originalPrompt.value = prompt.value.trim()
         } else {
           throw new Error('返回数据格式异常')
         }
@@ -382,6 +406,62 @@
         previewUrl.value = ''
       }
     })
+  }
+
+  // 智能增量修改：检测 prompt 变化自动使用 img2img
+  async function handleSmartGenerate() {
+    if (!canGenerate.value || isGenerating.value) return
+    
+    // 检查 API Key 配置
+    if (!apiKeyStore.hasSiliconflowKey) {
+      error.value = '请先配置 API Key 后再使用'
+      return
+    }
+    
+    // 如果有上一张图片，且 prompt 变了，自动使用 img2img
+    const shouldUseImg2Img = lastGeneratedImage.value && 
+                             mode.value === 'text2img' && 
+                             prompt.value.trim() !== originalPrompt.value &&
+                             prompt.value.trim() !== ''
+    
+    if (shouldUseImg2Img) {
+      // 自动设置参考图片
+      if (previewUrl.value) {
+        URL.revokeObjectURL(previewUrl.value)
+      }
+      previewUrl.value = lastGeneratedImage.value.url
+      
+      // 从 URL 获取 blob 作为文件
+      try {
+        const response = await fetch(lastGeneratedImage.value.url)
+        const blob = await response.blob()
+        uploadedFile.value = new File([blob], 'reference.png', { type: 'image/png' })
+      } catch {
+        error.value = '无法加载参考图片，请重新上传'
+        return
+      }
+      
+      // 切换到 img2img 模式
+      mode.value = 'img2img'
+      
+      // 使用默认降噪强度 0.7（保留原图结构，允许修改）
+      denoising.value = 0.7
+    }
+    
+    // 调用原始生成函数
+    await handleGenerate()
+  }
+
+  // 清除参考图片，重新开始文生图
+  function clearReference() {
+    lastGeneratedImage.value = null
+    originalPrompt.value = ''
+    if (previewUrl.value) {
+      URL.revokeObjectURL(previewUrl.value)
+      previewUrl.value = ''
+    }
+    uploadedFile.value = null
+    mode.value = 'text2img'
   }
 
   async function loadHistory() {
@@ -444,7 +524,9 @@
     previewUrl.value = URL.createObjectURL(file)
     error.value = ''
   }
+</script>
 
+<style scoped>
   .page-header {
     display: flex;
     align-items: center;
@@ -789,4 +871,50 @@
   }
 
   .btn-icon-sm svg { width: 16px; height: 16px; }
+
+  .incremental-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: linear-gradient(135deg, rgba(20, 184, 166, 0.1), rgba(59, 130, 246, 0.1));
+    border: 1px solid rgba(20, 184, 166, 0.3);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .incremental-hint svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: var(--teal-hover);
+  }
+
+  .btn-clear-reference {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-tertiary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-clear-reference:hover {
+    background: var(--hover-bg);
+    color: var(--text-secondary);
+    border-color: var(--text-secondary);
+  }
+
+  .btn-clear-reference svg {
+    width: 14px;
+    height: 14px;
+  }
 </style>

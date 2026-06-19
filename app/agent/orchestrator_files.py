@@ -362,27 +362,53 @@ class FilesMixin:
 
         # 统一提取工程师生成的内容
         all_files = list(self.dependency_graph_obj.nodes.keys()) if self.dependency_graph_obj else []
-        content = extract_engineer_content(
+        raw_content = content  # 保存原始内容用于恢复
+
+        # 获取期望的语言，用于 LLM 语言检测
+        project_language = project_context.get("architecture", {}).get("language", "")
+        from app.agent.utils import get_expected_language_for_file
+        expected_language = get_expected_language_for_file(file_path, project_language)
+        async def llm_caller(prompt: str) -> str:
+            return await call_llm(
+                model=DEFAULT_CODE_MODEL,
+                prompt=prompt,
+                system_prompt="你是一个代码语言检测器。只回答 YES 或 NO。",
+                api_key_token=getattr(self, 'api_key_token', None)
+            )
+
+        content = await extract_engineer_content(
             content, engineer, self.output_dir, file_path,
             fix_imports_fn=_fix_absolute_imports,
-            all_files=all_files
+            all_files=all_files,
+            expected_language=expected_language,
+            llm_caller=llm_caller,
         )
 
         if not content:
-            # 空内容：fallback
-            self._report_progress(
-                PROGRESS_LABELS["react_fallback"],
-                len(self.generated_files) + 1,
-                total_files + 4,
-                file_path=file_path
-            )
-            content = await self._direct_llm_generate_file(file_path, description, project_context)
+            # 内容无效（可能是 JSON 元数据），尝试恢复
+            from app.agent.utils import is_valid_code_content
+            _, invalid_reason = is_valid_code_content(file_path, raw_content or "")
+            if invalid_reason:
+                logger.warning(f"内容无效: {file_path} - {invalid_reason}，尝试恢复")
+                content = await self._recover_invalid_content_orchestator(
+                    file_path, description, project_context, invalid_reason, engineer
+                )
+
             if not content:
-                self.errors.append(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
-                return None
-            content = self._clean_code_block(content)
-            content = _fix_absolute_imports(content, file_path, all_files)
-            write_file_atomic(self.output_dir, file_path, content)
+                # 空内容：fallback
+                self._report_progress(
+                    PROGRESS_LABELS["react_fallback"],
+                    len(self.generated_files) + 1,
+                    total_files + 4,
+                    file_path=file_path
+                )
+                content = await self._direct_llm_generate_file(file_path, description, project_context)
+                if not content:
+                    self.errors.append(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
+                    return None
+                content = self._clean_code_block(content)
+                content = _fix_absolute_imports(content, file_path, all_files)
+                write_file_atomic(self.output_dir, file_path, content)
 
         if self.require_approval and self._is_critical_file(file_path):
             self._report_progress(
@@ -555,6 +581,70 @@ class FilesMixin:
             return self.frontend_engineer
         return self.backend_engineer
 
+    async def _recover_invalid_content_orchestator(
+        self,
+        file_path: str,
+        description: str,
+        project_context: Dict,
+        reason: str,
+        engineer,
+    ) -> Optional[str]:
+        """恢复无效内容（orchestrator_files 版本）"""
+        if "JSON 元数据" in reason:
+            recovery_prompt = f"""【紧急修复】上次你返回了 JSON 元数据，不是代码。
+
+错误示例（不要这样返回）：
+{{"status": "completed", "file_path": "{file_path}", ...}}
+
+正确示例（直接返回代码）：
+from fastapi import APIRouter
+router = APIRouter()
+
+请直接返回 {file_path} 的完整代码，不要包裹在 JSON 中。
+文件描述：{description}
+"""
+        elif "Markdown" in reason:
+            recovery_prompt = f"""【紧急修复】上次你返回了 Markdown 文档，不是代码。
+
+请直接返回 {file_path} 的完整代码，不要用 Markdown 格式包裹。
+文件描述：{description}
+"""
+        else:
+            recovery_prompt = f"""【紧急修复】上次生成的内容无效：{reason}
+
+请直接返回 {file_path} 的完整代码。
+文件描述：{description}
+"""
+
+        for attempt in range(2):
+            logger.info(f"内容恢复尝试 {attempt + 1}/2: {file_path}")
+
+            content = await engineer.generate_file(
+                file_path, recovery_prompt, project_context,
+                project_path=str(self.output_dir), callback=self.callback,
+                is_existing_file=False,
+            )
+            if asyncio.iscoroutine(content):
+                content = await content
+
+            all_files = list(self.dependency_graph_obj.nodes.keys()) if self.dependency_graph_obj else []
+            content = await extract_engineer_content(
+                content, engineer, self.output_dir, file_path,
+                fix_imports_fn=_fix_absolute_imports,
+                all_files=all_files
+            )
+
+            if content:
+                from app.agent.utils import is_valid_code_content
+                is_valid, new_reason = is_valid_code_content(file_path, content)
+                if is_valid:
+                    logger.info(f"内容恢复成功: {file_path} (第 {attempt + 1} 次)")
+                    return content
+                logger.warning(f"内容恢复失败: {file_path} - {new_reason} (第 {attempt + 1} 次)")
+
+        logger.error(f"内容恢复彻底失败: {file_path}")
+        return None
+
     async def _direct_llm_generate_file(
         self,
         file_path: str,
@@ -639,7 +729,7 @@ class FilesMixin:
             else:
                 validation_success = False
 
-        if self.enable_review and self.complexity.level not in (ProjectComplexity.SIMPLE,):
+        if self.enable_review:
             review_result = await self.reviewer.review_code(
                 code=content,
                 file_path=file_path,

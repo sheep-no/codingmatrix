@@ -19,27 +19,56 @@ logger = logging.getLogger(__name__)
 # Agent 模型配置文件路径
 AGENT_MODEL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../data/agent_model_config.json")
 
-# 模型 ID 到模型 Key 的映射（从 model_registry 同步）
-MODEL_ID_TO_KEY = {
-    "deepseek-r1": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-    "qwen2.5-7b": "Qwen/Qwen2.5-7B-Instruct",
-    "qwen3-8b": "Qwen/Qwen3-8B",
-    "qwen3.5-4b": "Qwen/Qwen3.5-4B",
-    "glm-z1-9b": "THUDM/GLM-Z1-9B-0414",
-    "glm-4-9b": "THUDM/GLM-4-9B-0414",
-    "glm-4.1v-9b": "THUDM/GLM-4.1V-9B-Thinking",
-    "deepseek-ocr": "deepseek-ai/DeepSeek-OCR",
-    "kolors": "Kwai-Kolors/Kolors",
-    "bce-embedding": "netease-youdao/bce-embedding-base_v1",
-    "bge-large-zh": "BAAI/bge-large-zh-v1.5",
-    "bge-m3": "BAAI/bge-m3",
-    "bge-reranker-v2-m3": "BAAI/bge-reranker-v2-m3",
-    "bce-reranker": "netease-youdao/bce-reranker-base_v1",
-    "hunyuan-mt": "tencent/Hunyuan-MT-7B",
-}
+
+def _build_model_id_to_key() -> Dict[str, str]:
+    """从统一配置文件构建 model_id -> model_name 映射"""
+    try:
+        with open(AGENT_MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        models = config.get("models", {})
+        return {model_id: m["name"] for model_id, m in models.items() if "name" in m}
+    except Exception:
+        return {
+            "deepseek-r1": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+            "qwen3-8b": "Qwen/Qwen3-8B",
+            "glm-z1-9b": "THUDM/GLM-Z1-9B-0414",
+            "glm-4-9b": "THUDM/GLM-4-9B-0414",
+        }
+
+
+def _build_provider_map() -> Dict[str, "ModelProvider"]:
+    """从统一配置文件构建 model_name -> provider 映射"""
+    from app.utils.aicloud.provider_router import ModelProvider
+    try:
+        with open(AGENT_MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        models = config.get("models", {})
+        provider_map = {}
+        provider_enum_map = {
+            "siliconflow": ModelProvider.SILICONFLOW,
+            "dashscope": ModelProvider.DASHSCOPE,
+            "zhipu": ModelProvider.ZHIPU,
+            "deepseek": ModelProvider.DEEPSEEK,
+        }
+        for model_id, m in models.items():
+            name = m.get("name", "")
+            provider_str = m.get("provider", "siliconflow")
+            provider = provider_enum_map.get(provider_str, ModelProvider.SILICONFLOW)
+            if name:
+                provider_map[name] = provider
+        return provider_map
+    except Exception:
+        return {}
+
+
+# 模型 ID 到模型 Key 的映射（从统一配置动态生成）
+MODEL_ID_TO_KEY = _build_model_id_to_key()
 
 # 模型 Key 到模型 ID 的反向映射
 MODEL_KEY_TO_ID = {v: k for k, v in MODEL_ID_TO_KEY.items()}
+
+# 模型名称到供应商的映射（从统一配置动态生成）
+MODEL_PROVIDER_MAP = _build_provider_map()
 
 
 def resolve_model_key(model_id_or_key: str) -> str:
@@ -442,15 +471,23 @@ class DynamicModelRouter:
         self._fallback_order = self._load_fallback_chain("default")
 
     def _load_fallback_chain(self, chain_name: str = "default") -> List[str]:
-        """从配置文件加载降级链"""
+        """从配置文件加载降级链（v3.0: 统一为 fallback_chain）"""
         config = load_agent_model_config()
-        if config and "fallback_chains" in config:
-            chain = config["fallback_chains"].get(chain_name, [])
-            if chain:
-                # 将模型 ID 转换为模型 Key
-                resolved = [resolve_model_key(m) for m in chain]
-                logger.info(f"已从配置加载降级链 '{chain_name}': {resolved}")
-                return resolved
+        if config:
+            # v3.0 格式：直接用 fallback_chain
+            if "fallback_chain" in config:
+                chain = config["fallback_chain"]
+                if chain:
+                    resolved = [resolve_model_key(m) for m in chain]
+                    logger.info(f"已从配置加载降级链: {resolved}")
+                    return resolved
+            # v2.0 兼容：fallback_chains.default
+            if "fallback_chains" in config:
+                chain = config["fallback_chains"].get(chain_name, [])
+                if chain:
+                    resolved = [resolve_model_key(m) for m in chain]
+                    logger.info(f"已从配置加载降级链 '{chain_name}': {resolved}")
+                    return resolved
 
         logger.info(f"使用默认降级链 '{chain_name}': {self.DEFAULT_FALLBACK_ORDER}")
         return self.DEFAULT_FALLBACK_ORDER.copy()
@@ -556,8 +593,9 @@ class DynamicModelRouter:
             else:
                 self._metrics.clear()
 
-    def get_assignment(self, complexity) -> ModelAssignment:
-        static_assignment = _LayeredModelRouterCompat.get_assignment(complexity)
+    def get_assignment(self, complexity=None) -> ModelAssignment:
+        """获取模型分配（不再依赖复杂度，直接读取 roles 配置）"""
+        static_assignment = _load_roles_assignment()
         return self._apply_circuit_breaker(static_assignment)
 
     def _apply_circuit_breaker(self, assignment: "ModelAssignment") -> "ModelAssignment":
@@ -575,9 +613,10 @@ class DynamicModelRouter:
         return assignment
 
     async def get_assignment_with_learning(
-        self, complexity, learning_router: Optional[LearningRouter] = None
+        self, complexity=None, learning_router: Optional[LearningRouter] = None
     ) -> ModelAssignment:
-        static_assignment = _LayeredModelRouterCompat.get_assignment(complexity)
+        """获取模型分配（带学习路由，不再依赖复杂度）"""
+        static_assignment = _load_roles_assignment()
         if learning_router is None:
             learning_router = await get_learning_router()
         if not learning_router.has_sufficient_data():
@@ -637,116 +676,62 @@ class RoutingConfig:
     enable_health_aware_routing: bool = False  # 是否启用健康感知路由（默认关闭）
 
 
-# ==================== 分层模型路由（向后兼容） ====================
+# ==================== 角色模型分配（v3.0 简化配置） ====================
 
-from app.agent.complexity import ProjectComplexity
+# 默认角色分配（硬编码兜底）
+_DEFAULT_ROLES = {
+    "architect": "THUDM/GLM-Z1-9B-0414",
+    "frontend": "Qwen/Qwen3-8B",
+    "backend": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+    "reviewer": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+    "fallback": "Qwen/Qwen3-8B",
+}
 
-class _LayeredModelRouterCompat:
-    """分层模型路由器 - 根据复杂度分配最优模型组合（向后兼容）"""
+_roles_cache: Optional[Dict[str, str]] = None
 
-    # 默认分配（硬编码兜底）
-    DEFAULT_ASSIGNMENTS = {
-        ProjectComplexity.SIMPLE: ModelAssignment(
-            architect_model="Qwen/Qwen3-8B",
-            frontend_model="Qwen/Qwen3-8B",
-            backend_model="Qwen/Qwen3-8B",
-            reviewer_model="Qwen/Qwen3-8B",
-            fallback_model="Qwen/Qwen3-8B"
-        ),
-        ProjectComplexity.SMALL: ModelAssignment(
-            architect_model="THUDM/GLM-Z1-9B-0414",
-            frontend_model="Qwen/Qwen3-8B",
-            backend_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-            reviewer_model="THUDM/GLM-Z1-9B-0414",
-            fallback_model="Qwen/Qwen3-8B"
-        ),
-        ProjectComplexity.MEDIUM: ModelAssignment(
-            architect_model="THUDM/GLM-Z1-9B-0414",
-            frontend_model="Qwen/Qwen3-8B",
-            backend_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-            reviewer_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-            fallback_model="Qwen/Qwen3-8B"
-        ),
-        ProjectComplexity.LARGE: ModelAssignment(
-            architect_model="THUDM/GLM-Z1-9B-0414",
-            frontend_model="Qwen/Qwen3-8B",
-            backend_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-            reviewer_model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-            fallback_model="Qwen/Qwen3-8B"
-        ),
-        # ENTERPRISE 与 LARGE 共享相同分配（模型能力无差异）
-        ProjectComplexity.ENTERPRISE: None,
 
-    }
+def _load_roles_assignment() -> ModelAssignment:
+    """从配置文件加载角色模型分配（v3.0 简化格式）"""
+    global _roles_cache
+    if _roles_cache is not None:
+        return ModelAssignment(
+            architect_model=_roles_cache["architect"],
+            frontend_model=_roles_cache["frontend"],
+            backend_model=_roles_cache["backend"],
+            reviewer_model=_roles_cache["reviewer"],
+            fallback_model=_roles_cache["fallback"],
+        )
 
-    # 运行时缓存的分配（从配置文件加载）
-    _cached_assignments: Optional[Dict[ProjectComplexity, ModelAssignment]] = None
-    _config_loaded: bool = False
+    config = load_agent_model_config()
+    if config and "roles" in config:
+        raw = config["roles"]
+        roles = {}
+        for role, model_id in raw.items():
+            roles[role] = resolve_model_key(model_id)
+        # 用默认值补全缺失字段
+        for key, default_val in _DEFAULT_ROLES.items():
+            if key not in roles:
+                roles[key] = default_val
+        _roles_cache = roles
+        logger.info(f"已从配置加载角色模型分配: {roles}")
+        return ModelAssignment(
+            architect_model=roles["architect"],
+            frontend_model=roles["frontend"],
+            backend_model=roles["backend"],
+            reviewer_model=roles["reviewer"],
+            fallback_model=roles["fallback"],
+        )
 
-    @classmethod
-    def _load_config_assignments(cls) -> Dict[ProjectComplexity, ModelAssignment]:
-        """从配置文件加载模型分配"""
-        if cls._config_loaded:
-            return cls._cached_assignments or cls.DEFAULT_ASSIGNMENTS
+    # 配置文件不存在或格式不对，使用硬编码默认值
+    _roles_cache = _DEFAULT_ROLES.copy()
+    return ModelAssignment(**{k + "_model": v for k, v in _DEFAULT_ROLES.items()})
 
-        config = load_agent_model_config()
-        if not config or "assignments" not in config:
-            cls._config_loaded = True
-            cls._cached_assignments = None
-            return cls.DEFAULT_ASSIGNMENTS
 
-        assignments = {}
-        for complexity_name, model_ids in config["assignments"].items():
-            try:
-                complexity = ProjectComplexity[complexity_name]
-                # 将模型 ID 转换为模型 Key，空值使用默认值
-                default = cls.DEFAULT_ASSIGNMENTS.get(complexity)
-                def _resolve(key, fallback):
-                    val = resolve_model_key(model_ids.get(key, ""))
-                    return val if val else fallback
-
-                assignments[complexity] = ModelAssignment(
-                    architect_model=_resolve("architect_model", default.architect_model if default else "Qwen/Qwen3-8B"),
-                    frontend_model=_resolve("frontend_model", default.frontend_model if default else "Qwen/Qwen3-8B"),
-                    backend_model=_resolve("backend_model", default.backend_model if default else "Qwen/Qwen3-8B"),
-                    reviewer_model=_resolve("reviewer_model", default.reviewer_model if default else "THUDM/GLM-4-9B-0414"),
-                    fallback_model=_resolve("fallback_model", default.fallback_model if default else "Qwen/Qwen3-8B"),
-                )
-            except (KeyError, ValueError) as e:
-                logger.warning(f"解析配置文件中的复杂度 '{complexity_name}' 失败: {e}")
-                continue
-
-        if assignments:
-            # ENTERPRISE 与 LARGE 共享分配（模型能力无差异）
-            if ProjectComplexity.ENTERPRISE not in assignments and ProjectComplexity.LARGE in assignments:
-                assignments[ProjectComplexity.ENTERPRISE] = assignments[ProjectComplexity.LARGE]
-            cls._cached_assignments = assignments
-            cls._config_loaded = True
-            logger.info(f"已从配置文件加载 {len(assignments)} 个模型分配")
-            return assignments
-
-        cls._config_loaded = True
-        cls._cached_assignments = None
-        return cls.DEFAULT_ASSIGNMENTS
-
-    @classmethod
-    def reload_config(cls):
-        """重新加载配置文件（用于动态更新）"""
-        cls._config_loaded = False
-        cls._cached_assignments = None
-        return cls._load_config_assignments()
-
-    @classmethod
-    def get_assignment(cls, complexity: ProjectComplexity) -> ModelAssignment:
-        assignments = cls._load_config_assignments()
-        result = assignments.get(complexity)
-        if result is None:
-            # ENTERPRISE 降级到 LARGE（模型分配无差异）
-            if complexity == ProjectComplexity.ENTERPRISE:
-                result = assignments.get(ProjectComplexity.LARGE)
-        if result is None:
-            result = assignments.get(complexity, cls.DEFAULT_ASSIGNMENTS[ProjectComplexity.MEDIUM])
-        return result
+def reload_roles_config():
+    """重新加载角色配置"""
+    global _roles_cache
+    _roles_cache = None
+    return _load_roles_assignment()
 
     @classmethod
     async def get_best_model_with_health_awareness(
@@ -967,24 +952,37 @@ def get_model_config(model_name: str, task_type: str = "generate", api_key_token
     else:
         dynamic_max_tokens = max(8192, min(16384, int(max_out * 0.15)))
 
-    # 动态计算 thinking_budget：取 max_tokens 的 50%，下限 2048，上限 4096
-    dynamic_thinking_budget = max(2048, min(4096, dynamic_max_tokens // 2))
+    # 动态计算 thinking_budget：从配置读取 thinking_ratio，支持按模型覆盖
+    config = load_agent_model_config()
+    models_config = config.get("models", {}) if config else {}
+    global_ratio = config.get("global_thinking_ratio", 0.5) if config else 0.5
 
-    configs = {
-        "THUDM/GLM-Z1-9B-0414": {"temperature": 0.6, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 300},
-        "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": {"temperature": 0.6, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 300},
-        "Qwen/Qwen3.5-4B": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 300},
-        "Qwen/Qwen3-8B": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 300},
-        "Qwen/Qwen2.5-7B-Instruct": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 300},
-        "THUDM/GLM-4-9B-0414": {"temperature": 0.7, "max_tokens": dynamic_max_tokens, "thinking_budget": dynamic_thinking_budget, "context_length": ctx_len, "timeout": 300},
-    }
-    return configs.get(model_name, {
-        "temperature": 0.7,
-        "max_tokens": max_out,
-        "thinking_budget": min(2048, max_out // 2),
+    # 解析模型 ID 到 Key，用于查找配置
+    model_key = resolve_model_key(model_name)
+    model_id = MODEL_KEY_TO_ID.get(model_key, model_name)
+
+    # 优先用模型配置中的 thinking_ratio，否则用全局默认值
+    model_cfg = models_config.get(model_id, {})
+    thinking_ratio = model_cfg.get("thinking_ratio", global_ratio)
+
+    # thinking_ratio=0 表示禁用思考，否则按比例计算
+    if thinking_ratio > 0:
+        dynamic_thinking_budget = max(2048, int(dynamic_max_tokens * thinking_ratio))
+    else:
+        dynamic_thinking_budget = 0
+
+    # 从统一配置读取模型参数，不再硬编码
+    model_cfg = models_config.get(model_id, {})
+    if not model_cfg:
+        model_cfg = models_config.get(model_key, {})
+
+    return {
+        "temperature": model_cfg.get("temperature", 0.7),
+        "max_tokens": model_cfg.get("max_tokens", dynamic_max_tokens),
+        "thinking_budget": model_cfg.get("thinking_budget", dynamic_thinking_budget),
         "context_length": ctx_len,
-        "timeout": 300,
-    })
+        "timeout": model_cfg.get("timeout", 300),
+    }
 
 
 # 为 DynamicModelRouter 添加 get_model_config 类方法（向后兼容）

@@ -4,14 +4,10 @@
 负责分析用户需求的复杂度，评估项目规模、技术栈和风险因素。
 """
 
-import json
 import logging
 from enum import Enum
 from typing import Optional, List
 from dataclasses import dataclass
-
-from app.utils import call_llm
-from app.agent.models import DEFAULT_CODE_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -172,79 +168,5 @@ class ComplexityAnalyzer:
 
     @classmethod
     async def analyze_with_llm(cls, requirement: str, api_key_token: Optional[str] = None) -> Optional[ComplexityAnalysis]:
-        """
-        使用 LLM 辅助分析复杂度（适用于中大型需求）
-
-        先用关键词快速扫描，再用 LLM 校准估算。
-        LLM 只负责校准文件数和技术栈，避免额外 API 调用开销。
-        """
-        # 先用关键词快速分析
-        keyword_result = cls.analyze(requirement)
-
-        # 小项目不需要 LLM 校准
-        if keyword_result.level in (ProjectComplexity.SIMPLE, ProjectComplexity.SMALL):
-            return keyword_result
-
-        # 中大型项目使用 LLM 校准
-        try:
-            system_prompt = (
-                "你是一个资深软件架构师。根据用户需求评估项目复杂度。"
-                "只返回 JSON，格式：{\"estimated_files\": 数字, \"tech_stack\": [\"技术1\", \"技术2\"], \"risk_factors\": [\"风险1\"]}"
-                "estimated_files 范围：5-100。tech_stack 只列具体框架名。"
-            )
-            user_prompt = f"用户需求：\n{requirement}\n\n关键词初估：约 {keyword_result.estimated_files} 个文件，技术栈：{keyword_result.key_technologies}。请校准估算。"
-
-            response = await call_llm(
-                model=DEFAULT_CODE_MODEL,
-                prompt=user_prompt,
-                max_tokens=512,
-                temperature=0.3,
-                system_prompt=system_prompt,
-                api_key_token=api_key_token
-            )
-            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-
-            # 解析 JSON
-            json_match = content.find('{')
-            if json_match >= 0:
-                llm_result = json.loads(content[json_match:])
-                llm_files = llm_result.get("estimated_files", keyword_result.estimated_files)
-                llm_techs = llm_result.get("tech_stack", keyword_result.key_technologies)
-                llm_risks = llm_result.get("risk_factors", keyword_result.risk_factors)
-
-                # 确定复杂度等级
-                if llm_files <= 3:
-                    level = ProjectComplexity.SIMPLE
-                elif llm_files <= 8:
-                    level = ProjectComplexity.SMALL
-                elif llm_files <= 20:
-                    level = ProjectComplexity.MEDIUM
-                elif llm_files <= 50:
-                    level = ProjectComplexity.LARGE
-                else:
-                    level = ProjectComplexity.ENTERPRISE
-
-                estimated_tokens = cls._estimate_tokens(
-                    level, llm_files,
-                    keyword_result.has_frontend, keyword_result.has_backend,
-                    keyword_result.has_database, keyword_result.has_auth
-                )
-                estimated_cost_usd = (estimated_tokens / 1000) * 0.001
-
-                return ComplexityAnalysis(
-                    level=level,
-                    estimated_files=llm_files,
-                    has_frontend=keyword_result.has_frontend,
-                    has_backend=keyword_result.has_backend,
-                    has_database=keyword_result.has_database,
-                    has_auth=keyword_result.has_auth,
-                    key_technologies=llm_techs if llm_techs else keyword_result.key_technologies,
-                    risk_factors=llm_risks if llm_risks else keyword_result.risk_factors,
-                    estimated_tokens=estimated_tokens,
-                    estimated_cost_usd=estimated_cost_usd
-                )
-        except Exception as e:
-            logger.warning(f"LLM 复杂度校准失败，降级到关键词分析: {e}")
-
-        # 降级到关键词分析
-        return keyword_result
+        """向后兼容：直接调用关键词分析（不再使用 LLM 校准）"""
+        return cls.analyze(requirement)

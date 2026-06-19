@@ -118,16 +118,37 @@ from .helpers import (
     detect_resume_intent, resolve_resume_session, analyze_files_to_regenerate,
     _detect_and_clean_zombie_sessions, cleanup_session_files,
 )
+from app.agent.conversation_store import get_conversation_store
 from app.utils.guardrails import (
     check_disk_space, check_rate_limit, validate_session_id
 )
 
 _decision_queues: Dict[str, asyncio.Queue] = {}
 _cancel_events: Dict[str, asyncio.Event] = {}
+# 运行中的生成任务，用于浏览器重连
+_active_tasks: Dict[str, dict] = {}
 _user_creation_locks: Dict[str, asyncio.Lock] = {}
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# 分析类意图关键词
+_ANALYZE_KEYWORDS = [
+    "分析", "改进", "优化", "建议", "review", "审查", "评估", "怎么样",
+    "有什么", "哪些", "如何改进", "代码质量", "架构", "安全", "性能",
+    "帮我看看", "帮我分析", "帮我review", "帮我评估",
+    "analyze", "improve", "optimize", "suggest", "evaluate", "assess",
+    "what do you think", "how to improve", "code review",
+]
+
+
+def _is_analyze_intent(requirement: str) -> bool:
+    """判断用户意图是分析还是修改"""
+    req_lower = requirement.lower()
+    for keyword in _ANALYZE_KEYWORDS:
+        if keyword in req_lower:
+            return True
+    return False
 
 
 async def _cleanup_session_queues(session_id: str, expected_cancel_event: asyncio.Event = None):
@@ -154,7 +175,72 @@ async def _cleanup_all_queues():
     _cancel_events.clear()
 
 
-@router.post("/modify", response_model=OrchestratorResponse)
+async def _handle_analyze_request(request: ModifyRequest, project_dir: Path, user_id: str) -> dict:
+    """处理分析类请求 — 只读代码，返回自然语言分析"""
+    from app.agent.backend_engineer import BackendEngineer
+    from app.agent.dynamic_model_router import get_dynamic_router
+
+    # 获取模型配置
+    dynamic_router = await get_dynamic_router()
+    model_name = await dynamic_router.get_best_model(
+        ["THUDM/GLM-Z1-9B-0414", "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"],
+        task_type="analyze"
+    )
+
+    # 创建工程师实例
+    engineer = BackendEngineer(
+        role_name="代码分析师",
+        model_name=model_name,
+        task_type="generate",
+    )
+
+    # 读取项目上下文
+    project_context = {}
+    dep_graph_path = project_dir / ".dep_graph.json"
+    if dep_graph_path.exists():
+        try:
+            from app.agent.dependency_graph import DependencyGraph
+            dep_graph = DependencyGraph.load(str(dep_graph_path))
+            # 尝试从节点推断语言
+            language = "python"  # 默认
+            for node in dep_graph.nodes.values():
+                if hasattr(node, 'file_type') and node.file_type == "frontend":
+                    language = "javascript"
+                    break
+            project_context["architecture"] = {
+                "language": language,
+            }
+        except Exception:
+            pass
+
+    # 调用分析模式
+    try:
+        logger.info(f"开始分析: {request.requirement[:50]}...")
+        result = await engineer.analyze(
+            question=request.requirement,
+            project_path=str(project_dir),
+            project_context=project_context,
+        )
+        logger.info(f"分析完成: {type(result)}, 长度: {len(result) if result else 0}")
+        
+        # 确保 result 是字符串
+        if not isinstance(result, str):
+            result = str(result)
+        
+        return {
+            "code": 0,
+            "type": "analysis",
+            "data": {
+                "analysis": result,
+                "project_path": str(project_dir),
+            }
+        }
+    except Exception as e:
+        logger.error(f"分析失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
+
+
+@router.post("/modify")
 async def modify_project(
     request: ModifyRequest,
     token: dict = Depends(verify_token),
@@ -174,76 +260,180 @@ async def modify_project(
     if not disk_ok:
         raise HTTPException(status_code=507, detail=disk_msg)
 
-    base_dir = Path("./projects").resolve()
-    project_dir = (base_dir / request.project_path).resolve()
+    # 支持 project_path 或 output_dir
+    project_path = request.project_path or request.output_dir
+    if not project_path:
+        raise HTTPException(status_code=400, detail="需要提供 project_path 或 output_dir")
 
-    if not str(project_dir).startswith(str(base_dir)):
-        raise HTTPException(status_code=403, detail="无权访问该路径")
+    # 解析项目目录
+    if Path(project_path).is_absolute():
+        project_dir = Path(project_path).resolve()
+    else:
+        # 支持两种相对路径格式：
+        # 1. "projects/1/untitled_xxx" - 相对于工作区根目录
+        # 2. "1/untitled_xxx" - 相对于 projects 目录
+        workspace_dir = Path(".").resolve()
+        projects_dir = workspace_dir / "projects"
+        candidate = (workspace_dir / project_path).resolve()
+        if candidate.exists() and candidate.is_dir():
+            project_dir = candidate
+        else:
+            # 尝试相对于 projects 目录
+            project_dir = (projects_dir / project_path).resolve()
+
     if not project_dir.exists():
-        raise HTTPException(status_code=404, detail=f"项目不存在: {request.project_path}")
+        raise HTTPException(status_code=404, detail=f"项目不存在: {project_path}")
     if not project_dir.is_dir():
         raise HTTPException(status_code=400, detail="不是有效的项目文件夹")
 
+    # 意图判断：分析类请求走 analyze 逻辑
+    if request.requirement and _is_analyze_intent(request.requirement):
+        logger.info(f"检测到分析类意图: {request.requirement[:50]}...")
+        return await _handle_analyze_request(request, project_dir, user_id)
+
     session_id = request.session_id or f"modify_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-    sm = await get_session_manager()
+    # 多轮会话：读取历史并拼接到 requirement
+    conversation_store = get_conversation_store()
+    history = await conversation_store.get_history_async(session_id, user_id)
+    if history:
+        # 截断历史（保留最近 5 轮，最多 4000 token）
+        history = conversation_store.truncate_history(history)
+        # 构建上下文
+        history_text = "\n".join(
+            f"{m['role']}: {m['content'][:300]}" for m in history
+        )
+        enhanced_requirement = f"[历史对话]\n{history_text}\n\n[当前需求]\n{request.requirement}"
+        logger.info(f"多轮会话: 加载 {len(history)} 条历史消息")
+    else:
+        enhanced_requirement = request.requirement
 
-    start_time = time.time()
-    try:
-        def _make_orchestrator(**kwargs):
-            return OrchestratorAgent(
+    # 保存用户消息到历史（先写数据库，再写 Redis）
+    await conversation_store.append_message(session_id, user_id, "user", request.requirement)
+
+    sm = await get_session_manager()
+    cache = await get_spec_cache()
+    learner = await get_feedback_learner()
+
+    # 更新 DB session 状态
+    result = await db.execute(
+        select(ProjectSession).where(ProjectSession.session_id == session_id)
+    )
+    existing_session = result.scalar_one_or_none()
+    if existing_session:
+        existing_session.status = "running"
+        existing_session.requirement = request.requirement
+        await db.commit()
+    else:
+        await _create_project_session(db, int(user_id), session_id, request.requirement, str(project_dir))
+
+    queue: asyncio.Queue = asyncio.Queue()
+    cancel_event = asyncio.Event()
+
+    async def event_generator() -> AsyncIterator[str]:
+        logger.info(f"[SSE] modify event_generator 开始 | session={session_id}")
+        try:
+            async def stream_callback(msg: str):
+                try:
+                    progress_data = json.loads(msg)
+                    msg_type = progress_data.get("type", "")
+                    if msg_type in PASSTHROUGH_SSE_EVENTS:
+                        await queue.put(f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n")
+                    else:
+                        await queue.put(f"data: {json.dumps({'type': 'progress', 'data': progress_data}, ensure_ascii=False)}\n\n")
+                except json.JSONDecodeError:
+                    await queue.put(f"data: {json.dumps({'type': 'log', 'data': {'message': msg}}, ensure_ascii=False)}\n\n")
+
+            orchestrator = OrchestratorAgent(
+                output_dir=str(project_dir),
+                enable_review=request.enable_review,
+                enable_validation=request.enable_validation,
+                enable_error_recovery=request.enable_error_recovery,
+                memory_enabled=request.enable_memory,
+                spec_first=True,
+                dependency_graph=True,
+                callback=stream_callback,
                 session_manager=sm,
                 session_id=session_id,
                 incremental=True,
+                spec_cache=cache,
+                feedback_learner=learner,
                 api_key_token=request.api_key_token,
-                **kwargs,
+                cancel_event=cancel_event,
             )
 
-        agent = MultiModelAgent(
-            enable_review=request.enable_review,
-            orchestrator_factory=_make_orchestrator,
-            api_key_token=request.api_key_token,
-        )
+            async def run_generation():
+                try:
+                    logger.info(f"[SSE] 开始增量修改 | session={session_id}")
+                    gen_result = await orchestrator.generate_incremental(requirement=enhanced_requirement)
+                    files_generated = gen_result.get("total_files_created", 0)
+                    files_total = gen_result.get("total_files", 0)
+                    await sm.complete_session(session_id, files_generated=files_generated, files_total=files_total)
+                    await queue.put(f"data: {json.dumps({'type': 'done', 'data': gen_result}, ensure_ascii=False)}\n\n")
 
-        result = await agent.process(
-            task=request.requirement,
-            output_dir=str(project_dir),
-        )
+                    # 保存助手回复到历史（先写数据库，再写 Redis）
+                    summary = f"修改完成: 生成 {files_generated} 个文件"
+                    if gen_result.get("errors"):
+                        summary += f", {len(gen_result['errors'])} 个错误"
+                    await conversation_store.append_message(session_id, user_id, "assistant", summary)
 
-        # 分析任务结果转换为 OrchestratorResponse 格式
-        if "analysis" in result or ("tool_calls" in result and "files" not in result):
-            result = {
-                "success": result.get("success", True),
-                "output_dir": str(project_dir),
-                "total_files_created": 0,
-                "total_files_failed": 0,
-                "complexity": "ANALYSIS",
-                "models_used": {},
-                "files": [],
-                "validation": {},
-                "errors": [result["error"]] if "error" in result and not result.get("success", True) else [],
-                "warnings": [],
-                "elapsed_time": 0,
-                "fix_attempts": [],
-                "context_summary": result.get("analysis", result.get("error", "")),
-            }
+                    # 记录到 DB
+                    execution_time = gen_result.get("elapsed_time", 0)
+                    await log_tool_execution(
+                        db, session_id, "orchestrator_modify",
+                        {"requirement": request.requirement, "project_path": request.project_path},
+                        json.dumps(gen_result, ensure_ascii=False)[:5000],
+                        success=gen_result.get("success", False),
+                        execution_time=execution_time
+                    )
+                except Exception as e:
+                    logger.error(f"[SSE] 增量修改失败: {e}", exc_info=True)
+                    await sm.complete_session(session_id, errors=[str(e)])
+                    await queue.put(f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n")
+                finally:
+                    await queue.put("[DONE]")
 
-        execution_time = time.time() - start_time
-        await log_tool_execution(
-            db, session_id, "orchestrator_modify",
-            {"requirement": request.requirement, "project_path": request.project_path},
-            json.dumps(result, ensure_ascii=False)[:5000] if result else None,
-            success=result.get("success", False),
-            execution_time=execution_time
-        )
+            gen_task = asyncio.create_task(run_generation())
 
-        return OrchestratorResponse(**result)
+            # 心跳
+            async def heartbeat_sender():
+                while not cancel_event.is_set():
+                    await asyncio.sleep(5)
+                    try:
+                        await queue.put(f": heartbeat\n\n")
+                    except Exception:
+                        break
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"增量修改失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"项目修改失败: {str(e)}")
+            heartbeat_task = asyncio.create_task(heartbeat_sender())
+
+            # SSE 流输出
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=60.0)
+                    if item == "[DONE]":
+                        break
+                    yield item
+                except asyncio.TimeoutError:
+                    if gen_task.done():
+                        break
+                    continue
+
+            heartbeat_task.cancel()
+            logger.info(f"[SSE] modify event_generator 结束 | session={session_id}")
+
+        except Exception as e:
+            logger.error(f"[SSE] modify event_generator 异常: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 @router.post("/orchestrate", response_model=OrchestratorResponse)
@@ -355,6 +545,38 @@ async def orchestrate_project_stream(
         )
         running_session = result.scalar_one_or_none()
         if running_session:
+            # 检查是否有活跃的生成任务（浏览器重连场景）
+            active_task = _active_tasks.get(running_session.session_id)
+            if active_task and not active_task["gen_task"].done():
+                # 重连到现有任务
+                logger.info(f"[SSE] 检测到活跃任务，允许重连 | session={running_session.session_id}")
+                # 直接返回重连响应，使用现有 queue
+                async def reconnect_generator():
+                    queue = active_task["queue"]
+                    try:
+                        while True:
+                            try:
+                                item = await asyncio.wait_for(queue.get(), timeout=30.0)
+                                if item == "[DONE]":
+                                    yield item
+                                    break
+                                yield item
+                            except asyncio.TimeoutError:
+                                if active_task["gen_task"].done():
+                                    break
+                                continue
+                    except asyncio.CancelledError:
+                        logger.info(f"[SSE] 重连客户端断开 | session={running_session.session_id}")
+
+                return StreamingResponse(
+                    reconnect_generator(),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "X-Accel-Buffering": "no"
+                    }
+                )
             raise HTTPException(
                 status_code=429,
                 detail={
@@ -600,6 +822,13 @@ async def orchestrate_project_stream(
             logger.info(f"[SSE] 创建生成任务 | session={session_id}")
             gen_task = asyncio.create_task(run_generation())
 
+            # 存储活跃任务，支持浏览器重连
+            _active_tasks[session_id] = {
+                "gen_task": gen_task,
+                "queue": queue,
+                "cancel_event": cancel_event,
+            }
+
             # 心跳 task：每 5 秒发送一次心跳，防止浏览器/proxy 断连
             async def heartbeat_sender():
                 while not cancel_event.is_set():
@@ -631,23 +860,33 @@ async def orchestrate_project_stream(
                         continue
                 logger.info(f"[SSE] 队列消息处理完成 | session={session_id}")
             except asyncio.CancelledError:
-                logger.info(f"[SSE] 客户端断开连接，取消生成任务 | session={session_id}")
+                logger.info(f"[SSE] 客户端断开连接，生成任务继续在后台运行 | session={session_id}")
             finally:
                 heartbeat_task.cancel()
-                cancel_event.set()
+                # 不设置 cancel_event，不取消 gen_task
+                # 生成任务在服务端独立运行，用户重新连接后可查看进度
                 if not gen_task.done():
-                    gen_task.cancel()
-                    try:
-                        await asyncio.wait_for(gen_task, timeout=5.0)
-                    except (asyncio.CancelledError, asyncio.TimeoutError):
-                        pass
-                if generation_completed:
-                    logger.info(f"[SSE] 生成成功完成，跳过取消清理 | session={session_id}")
+                    logger.info(f"[SSE] 生成任务仍在运行，转为后台模式 | session={session_id}")
+                # 关键：判定"是否真正成功"必须看 gen_task 状态，而不是 generation_completed
+                # generation_completed 可能在客户端断开的瞬间还没被置为 True
+                # 但 gen_task 已完成且无异常 → 生成实际上已成功 → 不可标 cancelled
+                gen_succeeded = (
+                    not generation_completed
+                    and gen_task.done()
+                    and gen_task.exception() is None
+                )
+                if generation_completed or gen_succeeded:
+                    logger.info(f"[SSE] 生成已成功完成 | session={session_id}")
+                    # 清理活跃任务
+                    _active_tasks.pop(session_id, None)
                 else:
-                    logger.info(f"[SSE] 生成未完成，执行取消清理 | session={session_id}")
-                    await _cleanup_session_queues(session_id, cancel_event)
+                    logger.info(f"[SSE] 生成未完成，任务继续在后台运行 | session={session_id}")
                     concurrent_mgr.unregister_session(user_role)
-                    await sm.cancel_session(session_id)  # 写透到 DB
+                    # 注册完成回调，任务结束后清理 _active_tasks
+                    def _on_task_done(t):
+                        _active_tasks.pop(session_id, None)
+                        logger.info(f"[SSE] 后台任务完成，清理活跃任务 | session={session_id}")
+                    gen_task.add_done_callback(_on_task_done)
 
         except asyncio.CancelledError:
             logger.info("[SSE] Orchestrator 流式响应被取消")
@@ -678,12 +917,10 @@ async def stop_project(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    用户停止项目：取消运行中的生成任务 + 更新状态为 cancelled
+    用户停止项目：取消运行中的生成任务 + 删除项目文件 + 释放资源
     
-    Args:
-        session_id: 会话 ID
-        token: 用户 token
-        db: 数据库会话
+    用户已看到下载按钮和确认提示仍选择停止，说明已做好决定。
+    后端应释放资源并删除文件，保护用户隐私。
     """
     user_id = token.get("sub", "anonymous")
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
@@ -704,21 +941,39 @@ async def stop_project(
     if session.status != "running":
         raise HTTPException(status_code=400, detail=f"项目不在运行中，当前状态: {session.status}")
     
-    # 设置 cancel_event 通知生成任务停止
+    # 1. 设置 cancel_event 通知生成任务停止
     cancel_ev = _cancel_events.get(session_id)
     if cancel_ev:
         cancel_ev.set()
     
-    # 更新 SessionManager 状态（DB 更新由 run_generation 的 finally 统一处理，避免竞态）
+    # 2. 清理活跃任务
+    _active_tasks.pop(session_id, None)
+    
+    # 3. 删除项目文件（用户已确认停止，保护隐私）
+    files_deleted = False
+    if session.output_dir:
+        files_deleted = cleanup_session_files(session.output_dir)
+        logger.info(f"停止项目 - 清理文件: {session.output_dir} | 成功={files_deleted}")
+    
+    # 4. 更新 SessionManager 状态，释放内存
     sm = await get_session_manager()
     await sm.cancel_session(session_id)
+    # 从内存中移除会话状态
+    async with sm._lock:
+        sm._active_sessions.pop(session_id, None)
     
-    logger.info(f"用户停止项目 | user={user_id} session={session_id}")
+    # 5. 更新 DB 状态
+    session.status = "cancelled"
+    session.error_message = "用户停止" if files_deleted else "用户停止（文件清理失败）"
+    await db.commit()
+    
+    logger.info(f"用户停止项目 | user={user_id} session={session_id} files_deleted={files_deleted}")
     
     return {
-        "message": "项目已停止",
+        "message": "项目已停止，资源已释放",
         "session_id": session_id,
-        "status": "cancelled"
+        "status": "cancelled",
+        "files_deleted": files_deleted
     }
 
 
@@ -1112,12 +1367,37 @@ async def session_action_endpoint(
         cancel_ev = _cancel_events.get(session_id)
         if cancel_ev:
             cancel_ev.set()
-        await sm.cancel_session(session_id)  # 写透到 DB
+        
+        # 清理活跃任务
+        _active_tasks.pop(session_id, None)
+        
+        # 删除项目文件（用户已确认取消，释放资源）
+        result = await db.execute(
+            select(ProjectSession).where(ProjectSession.session_id == session_id)
+        )
+        session = result.scalar_one_or_none()
+        files_deleted = False
+        if session and session.output_dir:
+            files_deleted = cleanup_session_files(session.output_dir)
+            logger.info(f"取消会话 - 清理文件: {session.output_dir} | 成功={files_deleted}")
+        
+        await sm.cancel_session(session_id)
+        
+        # 从内存中移除会话状态
+        async with sm._lock:
+            sm._active_sessions.pop(session_id, None)
+        
+        # 更新 DB
+        if session:
+            session.status = "cancelled"
+            session.error_message = "用户取消" if files_deleted else "用户取消（文件清理失败）"
+            await db.commit()
+        
         # 释放并发计数
         user_role = token.get("role", "user")
         from app.utils.dynamic_concurrent import ConcurrentLimitManager
         ConcurrentLimitManager().unregister_session(user_role)
-        return {"status": "cancelled", "session_id": session_id}
+        return {"status": "cancelled", "session_id": session_id, "files_deleted": files_deleted}
     elif action == "resume":
         await sm.resume_from_pause(session_id, approved=True)
         return {"status": "resumed", "session_id": session_id}

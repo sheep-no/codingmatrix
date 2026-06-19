@@ -20,6 +20,7 @@ from .error_recovery import ErrorRecoveryMixin
 from .traditional_generate import TraditionalGenerateMixin
 from .spec_first_generate import SpecFirstGenerateMixin
 from .incremental_generate import IncrementalGenerateMixin
+from .incremental_modify import IncrementalModifyMixin
 from .evaluate_mixin import EvaluationMixin
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class GenerationMixin(
     TraditionalGenerateMixin,
     SpecFirstGenerateMixin,
     IncrementalGenerateMixin,
+    IncrementalModifyMixin,
     EvaluationMixin,
 ):
 
@@ -46,7 +48,7 @@ class GenerationMixin(
         await self._init_mcp_tools()
 
         self.analyzer = ComplexityAnalyzer()
-        self.complexity = await self.analyzer.analyze_with_llm(requirement, api_key_token=self.api_key_token)
+        self.complexity = self.analyzer.analyze(requirement)
 
         self._report_progress(
             PROGRESS_LABELS["analyzing_complexity"],
@@ -58,7 +60,7 @@ class GenerationMixin(
 
         if getattr(self, 'use_dynamic_topology', True):
             self.model_router = LayeredModelRouter()
-            self.model_assignment = self.model_router.get_assignment(self.complexity.level)
+            self.model_assignment = self.model_router.get_assignment()
         else:
             self.model_router = None
             self.model_assignment = None

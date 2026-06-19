@@ -72,15 +72,49 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         const agent = data.agent || 'AI Agent'
         const msg = data.message || data.content
         const ts = data.timestamp || Date.now()
-        workspace.thinkingMessages.push({
-          agent,
-          message: msg,
-          timestamp: ts,
-          model: data.model || workspace.currentModel,
-          phase: data.phase || '',
-          reasoningSteps: data.reasoning_steps || [],
-          confidence: data.confidence || null
-        })
+        const phase = data.phase || ''
+        const isStreaming = data.streaming === true
+
+        if (isStreaming && msg) {
+          // 流式 thinking：找到同 agent+phase 的最后一条，追加 message 形成打字机效果
+          const list = workspace.thinkingMessages
+          let lastSame = null
+          for (let i = list.length - 1; i >= 0; i--) {
+            const m = list[i]
+            if (m.agent === agent && (m.phase || '') === phase && m.streaming === true) {
+              lastSame = m
+              break
+            }
+          }
+          if (lastSame) {
+            lastSame.message = (lastSame.message || '') + msg
+            if (data.accumulated) lastSame.accumulated = data.accumulated
+            if (data.model) lastSame.model = data.model
+          } else {
+            // 新流式会话：推入新条目
+            list.push({
+              agent,
+              message: msg,
+              timestamp: ts,
+              model: data.model || workspace.currentModel,
+              phase,
+              streaming: true,
+              accumulated: data.accumulated || msg,
+            })
+          }
+        } else {
+          // 非流式 thinking：保持原行为，push 新条目
+          workspace.thinkingMessages.push({
+            agent,
+            message: msg,
+            timestamp: ts,
+            model: data.model || workspace.currentModel,
+            phase,
+            reasoningSteps: data.reasoning_steps || [],
+            confidence: data.confidence || null
+          })
+        }
+
         addLog('thinking', `[${agent}] ${msg}`)
         if (data.phase) {
           addThinkingToStage(data.phase, { agent, message: msg, timestamp: ts, model: data.model || workspace.currentModel })

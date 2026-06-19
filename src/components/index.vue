@@ -751,6 +751,19 @@
           message.reasoning = ''
         }
         message.reasoning += data.message || ''
+        // 按 agent 分组存储 thinking
+        if (!message.thinkingGroups) {
+          message.thinkingGroups = {}
+        }
+        const agent = data.agent || 'unknown'
+        const model = data.model || ''
+        if (!message.thinkingGroups[agent]) {
+          message.thinkingGroups[agent] = { content: '', model: model }
+        }
+        message.thinkingGroups[agent].content += data.message || ''
+        if (model && !message.thinkingGroups[agent].model) {
+          message.thinkingGroups[agent].model = model
+        }
         break
 
       case 'status':

@@ -36,6 +36,27 @@ class SiliconFlowAdapter(BaseProviderAdapter):
         # 已知不支持 enable_thinking 的模型（首次遇到 400 后动态添加到此集合）
         # 实例级字段，每个 Adapter 独立持有，避免跨请求污染和单测不隔离
         self._unsupported_thinking: set = set()
+        # 缓存 reasoning 模型集合（从统一配置加载一次）
+        self._reasoning_models: Optional[set] = None
+    
+    def _is_reasoning_model(self, model: str) -> bool:
+        """判断模型是否是 reasoning 模型（从统一配置读取）"""
+        if self._reasoning_models is None:
+            import json, os
+            config_path = os.path.join(os.path.dirname(__file__), "../../../../data/agent_model_config.json")
+            self._reasoning_models = set()
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                for model_id, m in config.get("models", {}).items():
+                    if m.get("is_reasoning", False):
+                        self._reasoning_models.add(m.get("name", ""))
+            except Exception:
+                pass
+            # 兜底
+            if not self._reasoning_models:
+                self._reasoning_models = {"deepseek-ai/DeepSeek-R1-0528-Qwen3-8B", "deepseek-ai/DeepSeek-R1"}
+        return model in self._reasoning_models
     
     async def call_llm(
         self,
@@ -55,8 +76,6 @@ class SiliconFlowAdapter(BaseProviderAdapter):
             "Content-Type": "application/json"
         }
         
-        timeout = Timeout(self.timeout, connect=10.0)
-        
         if messages is None:
             messages = []
             if system_prompt:
@@ -74,8 +93,8 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                     cleaned_prompt = user_part
             messages.append({"role": "user", "content": cleaned_prompt})
         
-        # 判断是否是 reasoning 模型
-        is_reasoning = "deepseek-ai/DeepSeek-R1" in model
+        # 判断是否是 reasoning 模型（从统一配置读取）
+        is_reasoning = self._is_reasoning_model(model)
 
         support_thinking = model not in self._unsupported_thinking
         
@@ -103,21 +122,43 @@ class SiliconFlowAdapter(BaseProviderAdapter):
             async def generate():
                 async with _max_concurrent_calls:
                     client = await get_http_client()
-                    async with client.stream(
-                        "POST",
-                        f"{self.base_url}/chat/completions",
-                        headers=headers,
-                        json=data
-                    ) as response:
-                        async for line in response.aiter_lines():
-                            if cancel_event and cancel_event.is_set():
-                                await response.aclose()
-                                raise asyncio.CancelledError("LLM 调用被取消")
-                            if line.startswith("data: "):
-                                chunk = line[6:]
-                                if chunk == "[DONE]":
-                                    break
-                                yield f"{chunk}\n"
+                    try:
+                        async with client.stream(
+                            "POST",
+                            f"{self.base_url}/chat/completions",
+                            headers=headers,
+                            json=data
+                        ) as response:
+                            if response.status_code != 200:
+                                error_body = ""
+                                async for chunk in response.aiter_bytes():
+                                    error_body += chunk.decode(errors="replace")
+                                    if len(error_body) > 2048:
+                                        break
+                                raise Exception(f"HTTP {response.status_code}: {error_body[:500]}")
+                            async for line in response.aiter_lines():
+                                if cancel_event and cancel_event.is_set():
+                                    await response.aclose()
+                                    raise asyncio.CancelledError("LLM 调用被取消")
+                                if line.startswith("data: "):
+                                    chunk = line[6:]
+                                    if chunk == "[DONE]":
+                                        break
+                                    yield f"{chunk}\n"
+                    except httpx.RemoteProtocolError as e:
+                        raise Exception(f"服务器断开连接: {e}" if str(e) else "服务器断开连接（无响应）") from e
+                    except httpx.ReadError as e:
+                        raise Exception(f"读取响应失败: {e}" if str(e) else "读取响应失败（连接中断）") from e
+                    except httpx.ConnectError as e:
+                        raise Exception(f"连接失败: {e}" if str(e) else "连接服务器失败") from e
+                    except httpx.TimeoutException as e:
+                        raise Exception(f"请求超时: {e}" if str(e) else "请求超时") from e
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        if str(e):
+                            raise
+                        raise Exception(f"流式请求异常: {type(e).__name__}") from e
             
             return generate()
         else:

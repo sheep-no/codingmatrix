@@ -78,14 +78,22 @@
 
           <!-- 流式输出日志 -->
           <div ref="logsContainer" class="generation-logs">
-            <!-- 思考内容折叠展示 -->
-            <div v-if="thinkingContent" class="thinking-log-block">
-              <details class="thinking-log-details" :open="isGenerating">
+            <!-- 思考内容按 agent 分组展示 -->
+            <div v-if="thinkingGroups.length > 0" class="thinking-log-block">
+              <details
+                v-for="(group, idx) in thinkingGroups"
+                :key="group.agent"
+                class="thinking-log-details"
+                :open="idx === thinkingGroups.length - 1 && isGenerating"
+              >
                 <summary class="thinking-log-summary">
-                  <span class="thinking-log-label">AI 思考过程</span>
+                  <span class="thinking-log-label">
+                    {{ group.agent }} 思考过程
+                    <span v-if="group.model" class="thinking-model">({{ group.model }})</span>
+                  </span>
                   <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                 </summary>
-                <div class="thinking-log-content markdown-body" v-html="renderThinkingMarkdown(thinkingContent)"></div>
+                <div class="thinking-log-content markdown-body" v-html="renderThinkingMarkdown(group.content)"></div>
               </details>
             </div>
             <!-- 普通日志 -->
@@ -273,6 +281,31 @@
         </div>
       </div>
 
+      <!-- 对话历史面板 -->
+      <div v-if="showConversationPanel" class="knowledge-panel">
+        <div class="panel-header">
+          <h3>对话历史</h3>
+          <button class="close-panel" @click="showConversationPanel = false">×</button>
+        </div>
+        <div class="knowledge-body">
+          <div v-if="conversationHistory.length === 0" class="snapshot-empty">
+            <p>暂无对话历史</p>
+          </div>
+          <div v-else class="conversation-list">
+            <div
+              v-for="(msg, index) in conversationHistory"
+              :key="index"
+              class="conversation-item"
+              :class="msg.role"
+            >
+              <div class="conversation-role">{{ msg.role === 'user' ? '用户' : '助手' }}</div>
+              <div class="conversation-content">{{ msg.content }}</div>
+              <div class="conversation-time">{{ formatConversationTime(msg.timestamp) }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 底部按钮 -->
       <div class="modal-footer">
         <button
@@ -354,13 +387,18 @@
           </svg>
           知识库
         </button>
+        <button v-if="generationComplete" class="btn btn-info" @click="showConversationPanel = !showConversationPanel; loadConversationHistory()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          对话历史
+        </button>
         <button v-if="generationComplete" class="btn btn-warning" @click="enableIncrementalModify">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-            <path d="M2 17l10 5 10-5"/>
-            <path d="M2 12l10 5 10-5"/>
+            <path d="M22 2L11 13"/>
+            <path d="M22 2L15 22L11 13L2 9L22 2Z"/>
           </svg>
-          增量修改
+          发送
         </button>
         <button v-if="generationComplete" class="btn btn-success" @click="close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -418,11 +456,19 @@
   const savedProjects = ref([])
   const thinkingContent = ref('')
 
+  // 思考内容按 agent 分组
+  const thinkingGroups = ref([])
+  const _thinkingMap = {}  // agent -> { content, model }
+
   // 文件预览
   const projectFiles = ref([])
   const fileContent = ref('')
   const showFilePreview = ref(false)
   const filePreviewPanelRef = ref(null)
+
+  // 对话历史
+  const showConversationPanel = ref(false)
+  const conversationHistory = ref([])
 
   const onSelectProjectFile = async (filePath) => {
     try {
@@ -940,6 +986,23 @@
       case 'thinking':
         progressMessage.value = 'AI 正在思考...'
         if (eventData.message) {
+          // 按 agent 分组存储
+          const agent = eventData.agent || 'unknown'
+          const model = eventData.model || ''
+          if (!_thinkingMap[agent]) {
+            _thinkingMap[agent] = { content: '', model: model }
+          }
+          _thinkingMap[agent].content += eventData.message
+          if (model && !_thinkingMap[agent].model) {
+            _thinkingMap[agent].model = model
+          }
+          // 更新响应式数组
+          thinkingGroups.value = Object.entries(_thinkingMap).map(([name, data]) => ({
+            agent: name,
+            content: data.content,
+            model: data.model
+          }))
+          // 同时更新旧的 thinkingContent（兼容）
           thinkingContent.value += eventData.message
         }
         break
@@ -1216,6 +1279,30 @@
     hasStopped.value = true
     addLog('info', '进入增量修改模式，请输入修改需求')
     ElMessage.info('已进入增量修改模式，请输入修改需求')
+  }
+
+  // ========== 对话历史 ==========
+  const loadConversationHistory = async () => {
+    if (!form.value.sessionId) return
+    try {
+      // 使用 Redis 存储的历史（通过后端 API 获取）
+      const result = await api.getConversationHistory(form.value.sessionId)
+      conversationHistory.value = result.items || result.messages || []
+    } catch (error) {
+      console.error('加载对话历史失败:', error)
+      conversationHistory.value = []
+    }
+  }
+
+  const formatConversationTime = (timestamp) => {
+    if (!timestamp) return ''
+    const date = new Date(timestamp * 1000)
+    return date.toLocaleString('zh-CN', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
   }
 
   // ========== 生成完成后自动加载文件 ==========
@@ -2295,5 +2382,58 @@
 
   .btn-danger-small:hover {
     background: var(--danger-bg);
+  }
+
+  /* 对话历史面板 */
+  .conversation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .conversation-item {
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+  }
+
+  .conversation-item.user {
+    background: var(--color-primary-50);
+    border-left: 3px solid var(--primary);
+  }
+
+  .conversation-item.assistant {
+    background: var(--bg-tertiary);
+    border-left: 3px solid var(--success);
+  }
+
+  .conversation-role {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+
+  .conversation-content {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  .conversation-time {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+  }
+
+  /* thinking model 标签 */
+  .thinking-model {
+    font-size: 11px;
+    font-weight: normal;
+    color: var(--text-tertiary);
+    margin-left: 4px;
   }
 </style>

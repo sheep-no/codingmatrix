@@ -64,7 +64,7 @@ class ModelInfo:
 
 # 默认模型常量 — 避免业务代码硬编码模型名称
 # 与 ModelRegistry 中的 key 对应，用于 model_assignment 缺失时的 fallback
-DEFAULT_CODE_MODEL = "Qwen/Qwen3-8B"                    # 通用代码任务
+DEFAULT_CODE_MODEL = "nex-agi/Nex-N2-Pro"                # 通用代码任务（256k context）
 DEFAULT_REASONING_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"  # 推理/后端任务
 DEFAULT_ARCHITECT_MODEL = "THUDM/GLM-Z1-9B-0414"        # 架构设计/评审
 DEFAULT_FAST_MODEL = "Qwen/Qwen3-8B"                    # 简单/快速任务
@@ -96,6 +96,18 @@ class ModelRegistry:
             max_tokens=2048,
             thinking_budget=2048,
             temperature=0.5,
+            speed=1.0
+        ),
+
+        # Nex 系列
+        "nex-n2-pro": ModelInfo(
+            key="nex-n2-pro",
+            name="nex-agi/Nex-N2-Pro",
+            display_name="Nex N2 Pro",
+            capabilities=[ModelCapability.REASONING, ModelCapability.FAST],
+            max_tokens=8192,
+            thinking_budget=8192,
+            temperature=0.7,
             speed=1.0
         ),
 
@@ -297,7 +309,7 @@ class ModelRouter:
         try:
             from app.agent.dynamic_model_router import get_dynamic_router
             router = await get_dynamic_router()
-            assignment = await router.get_assignment_with_learning(complexity)
+            assignment = await router.get_assignment_with_learning()
             role_to_attr = {
                 AgentRole.ARCHITECT: "architect_model",
                 AgentRole.FRONTEND: "frontend_model",

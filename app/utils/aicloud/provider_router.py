@@ -2,48 +2,61 @@
 多供应商模型调用系统 - 供应商路由器
 
 根据模型名称路由到对应供应商，支持故障转移。
+模型映射从 data/agent_model_config.json 统一加载。
 """
 
+import json
 import logging
+import os
 from typing import Optional
 
 from app.utils.aicloud.providers import ModelProvider, ProviderRegistry
 
 logger = logging.getLogger(__name__)
 
+_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../../data/agent_model_config.json")
 
-# 模型到供应商的映射表
-MODEL_PROVIDER_MAP: dict[str, ModelProvider] = {
-    # SiliconFlow 供应的模型
-    "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": ModelProvider.SILICONFLOW,
-    "deepseek-ai/DeepSeek-R1": ModelProvider.SILICONFLOW,
-    "deepseek-ai/DeepSeek-OCR": ModelProvider.SILICONFLOW,
-    "Qwen/Qwen3.5-4B": ModelProvider.SILICONFLOW,
-    "Qwen/Qwen3-8B": ModelProvider.SILICONFLOW,
-    "Qwen/Qwen2.5-7B-Instruct": ModelProvider.SILICONFLOW,
-    "Qwen/Qwen-2.5-7B-Instruct": ModelProvider.SILICONFLOW,
-    "THUDM/GLM-4.1V-9B-Thinking": ModelProvider.SILICONFLOW,
-    "THUDM/GLM-4-9B-0414": ModelProvider.SILICONFLOW,
-    "THUDM/GLM-Z1-9B-0414": ModelProvider.SILICONFLOW,
-    "THUDM/glm-4-9b-chat": ModelProvider.SILICONFLOW,
-    "Kwai-Kolors/Kolors": ModelProvider.SILICONFLOW,
-    "netease-youdao/bce-embedding-base_v1": ModelProvider.SILICONFLOW,
-    
-    # 阿里百炼供应的模型（通过 Model ID 简短名称）
-    "qwen-plus": ModelProvider.DASHSCOPE,
-    "qwen-turbo": ModelProvider.DASHSCOPE,
-    "qwen-max": ModelProvider.DASHSCOPE,
-    "qwen-long": ModelProvider.DASHSCOPE,
-    
-    # 智谱供应的模型（通过简短名称）
-    "glm-4": ModelProvider.ZHIPU,
-    "glm-4v": ModelProvider.ZHIPU,
-    "glm-4-alltools": ModelProvider.ZHIPU,
-    
-    # DeepSeek 官方供应的模型（通过简短名称）
-    "deepseek-chat": ModelProvider.DEEPSEEK,
-    "deepseek-reasoner": ModelProvider.DEEPSEEK,
-}
+
+def _load_provider_map() -> dict[str, ModelProvider]:
+    """从统一配置文件构建模型-供应商映射"""
+    provider_enum_map = {
+        "siliconflow": ModelProvider.SILICONFLOW,
+        "dashscope": ModelProvider.DASHSCOPE,
+        "zhipu": ModelProvider.ZHIPU,
+        "deepseek": ModelProvider.DEEPSEEK,
+    }
+    result = {}
+    try:
+        with open(_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        for model_id, m in config.get("models", {}).items():
+            name = m.get("name", "")
+            provider_str = m.get("provider", "siliconflow")
+            provider = provider_enum_map.get(provider_str, ModelProvider.SILICONFLOW)
+            if name:
+                result[name] = provider
+    except Exception as e:
+        logger.warning(f"加载统一模型配置失败: {e}")
+
+    # 不在统一配置中的特殊模型（兜底）
+    result.setdefault("THUDM/glm-4-9b-chat", ModelProvider.SILICONFLOW)
+    result.setdefault("Qwen/Qwen-2.5-7B-Instruct", ModelProvider.SILICONFLOW)
+    result.setdefault("THUDM/GLM-4.1V-9B-Thinking", ModelProvider.SILICONFLOW)
+    result.setdefault("deepseek-ai/DeepSeek-R1", ModelProvider.SILICONFLOW)
+    result.setdefault("qwen-plus", ModelProvider.DASHSCOPE)
+    result.setdefault("qwen-turbo", ModelProvider.DASHSCOPE)
+    result.setdefault("qwen-max", ModelProvider.DASHSCOPE)
+    result.setdefault("qwen-long", ModelProvider.DASHSCOPE)
+    result.setdefault("glm-4", ModelProvider.ZHIPU)
+    result.setdefault("glm-4v", ModelProvider.ZHIPU)
+    result.setdefault("glm-4-alltools", ModelProvider.ZHIPU)
+    result.setdefault("deepseek-chat", ModelProvider.DEEPSEEK)
+    result.setdefault("deepseek-reasoner", ModelProvider.DEEPSEEK)
+    return result
+
+
+# 从统一配置动态加载
+MODEL_PROVIDER_MAP: dict[str, ModelProvider] = _load_provider_map()
 
 # 故障转移配置
 PROVIDER_FALLBACK: dict[ModelProvider, list[ModelProvider]] = {
@@ -53,7 +66,7 @@ PROVIDER_FALLBACK: dict[ModelProvider, list[ModelProvider]] = {
     ModelProvider.DEEPSEEK: [ModelProvider.SILICONFLOW],
     ModelProvider.OPENAI: [ModelProvider.SILICONFLOW],
     ModelProvider.ANTHROPIC: [ModelProvider.SILICONFLOW],
-    ModelProvider.OLLAMA: [],  # Ollama 本地部署，不故障转移
+    ModelProvider.OLLAMA: [],
 }
 
 
@@ -83,28 +96,23 @@ class ProviderRouter:
     
     def route(self, model_name: str) -> ModelProvider:
         """根据模型名称返回对应供应商"""
-        # 先尝试动态供应商（自定义 base_url）
         try:
             from app.utils.aicloud.dynamic_provider import get_dynamic_provider_manager
             manager = get_dynamic_provider_manager()
             dp = manager.get_by_model(model_name)
             if dp:
-                # 动态供应商找到，但返回特殊标记
                 pass
         except Exception:
             pass
         
-        # 再尝试精确匹配
         provider = MODEL_PROVIDER_MAP.get(model_name)
         if provider:
             return provider
         
-        # 尝试模糊匹配（前缀匹配）
         for model_key, provider in MODEL_PROVIDER_MAP.items():
             if model_name.startswith(model_key.split("/")[0]) or model_key.startswith(model_name.split("/")[0]):
                 return provider
         
-        # 默认返回 SiliconFlow
         logger.warning(f"Unknown model {model_name}, defaulting to SiliconFlow")
         return ModelProvider.SILICONFLOW
     
@@ -113,7 +121,6 @@ class ProviderRouter:
         fallbacks = PROVIDER_FALLBACK.get(primary, [])
         if not self._registry:
             return fallbacks
-        
         return [p for p in fallbacks if self._registry.is_provider_available(p)]
     
     @staticmethod

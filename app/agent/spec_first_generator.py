@@ -169,7 +169,7 @@ class SpecFirstGenerator:
 
     async def _generate_openapi_spec(self, requirement: str, complexity: Dict) -> bool:
         """生成 OpenAPI 3.0 规范"""
-        prompt = f"""请为以下项目需求生成 OpenAPI 3.0 规范：
+        prompt = f"""请为以下项目需求生成 OpenAPI 3.0 规范（JSON 格式）。
 
 需求：{requirement}
 
@@ -180,7 +180,16 @@ class SpecFirstGenerator:
 - 有数据库：{complexity.get('has_database', False)}
 - 技术栈：{', '.join(complexity.get('key_technologies', []))}
 
-请生成完整的 OpenAPI 3.0 规范，包含所有 API 端点和数据模型。"""
+要求：
+1. 必须包含 "openapi": "3.0.0"、"info"、"paths"、"components.schemas" 字段
+2. paths 中必须包含项目所需的全部 CRUD API 端点（至少 3-5 个），每个端点包含 summary、tags、requestBody（如适用）、responses
+3. components.schemas 中必须包含所有数据模型的定义（至少 2-3 个），每个模型包含 type、properties、required
+4. 只输出 JSON 格式的 OpenAPI 规范，不要包含任何解释文字或 Markdown 代码块标记
+5. 输出必须是 JSON 对象（以 {{ 开头，以 }} 结尾），不能是数组（以 [ 开头）
+6. 第一行必须是 {{，最后一行必须是 }}，中间全部是 JSON 键值对
+
+输出示例格式：
+{{"openapi":"3.0.0","info":{{"title":"API","version":"1.0"}},"paths":{{}},"components":{{"schemas":{{}}}}}}"""
 
         try:
             response = await call_llm(
@@ -213,6 +222,43 @@ class SpecFirstGenerator:
                     elif isinstance(openapi_spec[0], list):
                         openapi_spec = openapi_spec[0]
                         logger.info(f"OpenAPI 规范从嵌套 list 中提取")
+                    elif isinstance(openapi_spec[0], str):
+                        # 策略 1: 直接 json.loads
+                        try:
+                            import json
+                            parsed = json.loads(openapi_spec[0])
+                            if isinstance(parsed, dict):
+                                openapi_spec = parsed
+                                logger.info(f"OpenAPI 规范从字符串直接解析")
+                                break
+                        except:
+                            pass
+                        # 策略 2: 在字符串中搜索嵌入的 JSON 对象
+                        str_content = openapi_spec[0]
+                        extracted = self._extract_json(str_content)
+                        if isinstance(extracted, dict) and "openapi" in extracted:
+                            openapi_spec = extracted
+                            logger.info(f"OpenAPI 规范从字符串嵌入内容中提取")
+                            break
+                        # 策略 3: 遍历 list 中所有元素查找 dict
+                        found = False
+                        for item in openapi_spec:
+                            if isinstance(item, dict) and "openapi" in item:
+                                openapi_spec = item
+                                logger.info(f"OpenAPI 规范从 list 中其他元素提取")
+                                found = True
+                                break
+                            elif isinstance(item, str):
+                                inner = self._extract_json(item)
+                                if isinstance(inner, dict) and "openapi" in inner:
+                                    openapi_spec = inner
+                                    logger.info(f"OpenAPI 规范从 list 中字符串元素嵌入内容提取")
+                                    found = True
+                                    break
+                        if found:
+                            break
+                        logger.warning(f"OpenAPI 规范解析失败: list 首元素类型=str, 内容={str_content[:100]}")
+                        return False
                     else:
                         logger.warning(f"OpenAPI 规范解析失败: list 首元素类型={type(openapi_spec[0]).__name__}")
                         return False
@@ -292,6 +338,12 @@ OpenAPI 规范：
     async def _generate_db_schema(self, requirement: str, complexity: Dict) -> bool:
         """生成数据库 Schema"""
         openapi_spec = self.context.get_spec("openapi")
+        # 防御：确保 openapi_spec 是 dict 类型
+        if isinstance(openapi_spec, str):
+            logger.warning(f"openapi_spec 为字符串类型，尝试重新解析")
+            openapi_spec = self._extract_json(openapi_spec) or {}
+        if not isinstance(openapi_spec, dict):
+            openapi_spec = {}
 
         # 根据语言选择 ORM 策略
         lang = self.language

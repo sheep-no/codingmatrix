@@ -1,7 +1,7 @@
 import time
 import asyncio
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Callable
 
 from app.utils.AiCodeUtil import get_embedding
 from app.agent.api_contract_checker import generate_frontend_prompt_contract
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class TraditionalGenerateMixin:
 
     @traced("orchestrator.traditional", attributes={"component": "orchestrator"})
-    async def _generate_traditional(self, requirement: str) -> Dict[str, Any]:
+    async def _generate_traditional(self, requirement: str, callback: Optional[Callable] = None) -> Dict[str, Any]:
         start_time = time.time()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -69,7 +69,7 @@ class TraditionalGenerateMixin:
                 "architect",
                 "正在分析需求，设计系统架构... 我将确定技术栈、项目结构和关键组件。"
             )
-            architecture = await self.architect.design_architecture(requirement, self.complexity)
+            architecture = await self.architect.design_architecture(requirement, self.complexity, callback=callback)
             file_plan = architecture.get("file_plan", [])
 
             # 分批规划：如果 file_plan 文件数不足复杂度预期，自动扩展
@@ -233,16 +233,60 @@ class TraditionalGenerateMixin:
                     })
                     logger.info(f"完整性验证自动补充: {fix_path}")
 
+            # 项目完整性验证：补充缺失的业务文件
+            from app.agent.utils import is_valid_code_content
+            completeness = await self._validate_project_completeness_traditional(
+                file_plan, generated_files_dict
+            )
+            if not completeness["is_complete"]:
+                logger.warning(
+                    f"项目完整性检查未通过: "
+                    f"缺失 {len(completeness['missing_files'])} 个文件, "
+                    f"无效 {len(completeness['invalid_files'])} 个文件"
+                )
+                for missing_file in completeness["missing_files"]:
+                    logger.info(f"尝试补充缺失文件: {missing_file}")
+                    desc = next((f["description"] for f in file_plan if f["path"] == missing_file), "")
+                    content = await self._direct_llm_generate_file(missing_file, desc, project_context)
+                    if content:
+                        is_valid, _ = is_valid_code_content(missing_file, content)
+                        if is_valid:
+                            full_path = self.output_dir / missing_file
+                            full_path.parent.mkdir(parents=True, exist_ok=True)
+                            with open(full_path, 'w', encoding='utf-8') as f:
+                                f.write(content)
+                            self.generated_files.append({
+                                "path": missing_file,
+                                "description": desc or f"补充缺失文件 {missing_file}",
+                                "success": True,
+                                "size": len(content),
+                            })
+                            logger.info(f"缺失文件已补充: {missing_file}")
+
+            logger.info(f"项目生成完成: {completeness['total_generated']}/{completeness['total_planned']} 文件")
+
+            # 项目级沙箱验证（新增）
+            from app.agent.utils import validate_in_sandbox
+            sandbox_ok, sandbox_errors = validate_in_sandbox(
+                project_dir=str(self.output_dir),
+                files=generated_files_dict,
+                level="import",
+                context={"trigger": "project_complete"}
+            )
+            if not sandbox_ok:
+                logger.warning(f"项目级沙箱验证发现 {len(sandbox_errors)} 个错误")
+                self.warnings.extend(sandbox_errors)
+            else:
+                logger.info("项目级沙箱验证通过")
+
         # 静态验证：始终执行（成本低）
         if self.enable_validation:
             final_validation = await self.validator.run_full_validation()
 
-        # 动态测试：由复杂度决定（成本高，SIMPLE/SMALL 跳过）
+        # 动态测试：始终执行（v3.0: 不再按复杂度跳过）
         should_test = (
             self.enable_validation
             and final_validation.get("is_valid", False)
-            and self.complexity
-            and self.complexity.level in (ProjectComplexity.MEDIUM, ProjectComplexity.LARGE)
         )
         if should_test:
             from app.agent.test_runner import IsolatedTestRunner
@@ -332,4 +376,52 @@ class TraditionalGenerateMixin:
                 "files_per_minute": round(len(self.generated_files) / (elapsed / 60), 1) if elapsed > 0 else 0,
                 "avg_file_time": round(elapsed / len(self.generated_files), 1) if len(self.generated_files) > 0 else 0,
             }
+        }
+
+    async def _validate_project_completeness_traditional(
+        self,
+        file_plan: list,
+        generated_files: dict,
+    ) -> dict:
+        """验证项目完整性（传统生成模式）
+
+        检查所有计划文件是否都已生成，内容是否有效。
+
+        Returns:
+            {
+                "total_planned": int,
+                "total_generated": int,
+                "missing_files": [str],
+                "empty_files": [str],
+                "invalid_files": [(str, str)],
+                "is_complete": bool
+            }
+        """
+        from app.agent.utils import is_valid_code_content
+
+        planned_files = {f["path"] for f in file_plan}
+        generated_set = set(generated_files.keys())
+
+        missing_files = sorted(planned_files - generated_set)
+
+        empty_files = [
+            f for f, c in generated_files.items()
+            if not c or len(c.strip()) < 10
+        ]
+
+        invalid_files = []
+        for f, c in generated_files.items():
+            if f in empty_files:
+                continue
+            is_valid, reason = is_valid_code_content(f, c)
+            if not is_valid:
+                invalid_files.append((f, reason))
+
+        return {
+            "total_planned": len(planned_files),
+            "total_generated": len(generated_set),
+            "missing_files": missing_files,
+            "empty_files": empty_files,
+            "invalid_files": invalid_files,
+            "is_complete": len(missing_files) == 0 and len(invalid_files) == 0,
         }

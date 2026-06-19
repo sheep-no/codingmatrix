@@ -76,6 +76,10 @@ async def call_with_retry(
                             wait_time = min(int(retry_after), 60)
                         else:
                             wait_time = (2 ** attempt) * 2.0  # 429 用更长退避
+                    elif result.status_code == 503:
+                        # 503 模型过载，使用更长退避时间
+                        wait_time = (2 ** attempt) * 3.0  # 3s, 6s, 12s
+                        logger.warning(f"API 503 模型过载, 重试 {attempt + 1}/{max_retries}, 等待 {wait_time}s")
                     else:
                         wait_time = (2 ** attempt) * 1.0
                     logger.warning(f"API 失败 (状态码 {result.status_code}), 重试 {attempt + 1}/{max_retries}, 等待 {wait_time}s")

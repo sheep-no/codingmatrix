@@ -48,11 +48,12 @@ class AgentModelConfigResponse(BaseModel):
     version: str
     description: str
     last_updated: str
-    assignments: Dict[str, Dict[str, str]]
-    roles: List[str] = []
-    fallback_chains: Optional[Dict[str, List[str]]] = None
+    roles: Dict[str, str] = {}
+    fallback_chain: Optional[List[str]] = None
     error_type_models: Optional[Dict[str, str]] = None
     settings: Optional[Dict[str, Any]] = None
+    global_thinking_ratio: float = 0.5
+    models: Dict[str, Dict[str, Any]] = {}
 
 
 # ==================== 全局状态 ====================
@@ -143,51 +144,46 @@ async def get_agent_model_config(token: dict = Depends(verify_token)):
     """获取当前 Agent 各环节使用的模型配置（只读）"""
     from app.agent.dynamic_model_router import (
         load_agent_model_config,
-        _LayeredModelRouterCompat,
+        _load_roles_assignment,
         MODEL_KEY_TO_ID,
     )
-    from app.agent.complexity import ProjectComplexity
-
-    def _extract_roles(assignments: Dict[str, Dict[str, str]]) -> List[str]:
-        """从 assignments 中提取角色列表（去掉 _model 后缀）"""
-        for entry in assignments.values():
-            if isinstance(entry, dict):
-                return [k.removesuffix("_model") for k in entry.keys() if k.endswith("_model")]
-        return ["architect", "frontend", "backend", "reviewer", "fallback"]
 
     config = load_agent_model_config()
     if not config:
-        assignments = {}
-        for complexity in ProjectComplexity:
-            assignment = _LayeredModelRouterCompat.DEFAULT_ASSIGNMENTS.get(complexity)
-            if assignment:
-                assignments[complexity.value] = {
-                    "architect_model": MODEL_KEY_TO_ID.get(assignment.architect_model, assignment.architect_model),
-                    "frontend_model": MODEL_KEY_TO_ID.get(assignment.frontend_model, assignment.frontend_model),
-                    "backend_model": MODEL_KEY_TO_ID.get(assignment.backend_model, assignment.backend_model),
-                    "reviewer_model": MODEL_KEY_TO_ID.get(assignment.reviewer_model, assignment.reviewer_model),
-                    "fallback_model": MODEL_KEY_TO_ID.get(assignment.fallback_model, assignment.fallback_model),
-                }
+        assignment = _load_roles_assignment()
+        roles = {
+            "architect": MODEL_KEY_TO_ID.get(assignment.architect_model, assignment.architect_model),
+            "frontend": MODEL_KEY_TO_ID.get(assignment.frontend_model, assignment.frontend_model),
+            "backend": MODEL_KEY_TO_ID.get(assignment.backend_model, assignment.backend_model),
+            "reviewer": MODEL_KEY_TO_ID.get(assignment.reviewer_model, assignment.reviewer_model),
+            "fallback": MODEL_KEY_TO_ID.get(assignment.fallback_model, assignment.fallback_model),
+        }
         return AgentModelConfigResponse(
-            version="1.0",
-            description="Agent 模型配置 - 管理各环节使用的模型",
+            version="3.1",
+            description="Agent 模型配置 - 按角色分配模型",
             last_updated="未配置",
-            assignments=assignments,
-            roles=_extract_roles(assignments),
-            fallback_chains={},
+            roles=roles,
+            fallback_chain=[],
             error_type_models={},
-            settings={}
+            settings={},
+            global_thinking_ratio=0.5,
+            models={}
         )
-    assignments = config.get("assignments", {})
+    roles = config.get("roles", {})
+    # 兼容 v2.0 格式：从 assignments 中提取
+    if not roles and "assignments" in config:
+        medium = config["assignments"].get("MEDIUM") or config["assignments"].get("LARGE") or {}
+        roles = {k.removesuffix("_model"): v for k, v in medium.items() if k.endswith("_model")}
     return AgentModelConfigResponse(
-        version=config.get("version", "1.0"),
+        version=config.get("version", "3.1"),
         description=config.get("description", ""),
         last_updated=config.get("last_updated", ""),
-        assignments=assignments,
-        roles=_extract_roles(assignments),
-        fallback_chains=config.get("fallback_chains"),
+        roles=roles,
+        fallback_chain=config.get("fallback_chain") or config.get("fallback_chains", {}).get("default"),
         error_type_models=config.get("error_type_models"),
-        settings=config.get("settings")
+        settings=config.get("settings"),
+        global_thinking_ratio=config.get("global_thinking_ratio", 0.5),
+        models=config.get("models", {})
     )
 
 

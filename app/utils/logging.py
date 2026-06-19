@@ -18,7 +18,8 @@ from typing import Optional, Any, Dict
 from pathlib import Path
 
 from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
+
+# 纯 ASGI 中间件不再依赖 starlette.middleware.base.BaseHTTPMiddleware
 
 request_id_var: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
 user_id_var: ContextVar[Optional[str]] = ContextVar("user_id", default=None)
@@ -122,47 +123,83 @@ def log_error(logger: logging.Logger, message: str, exc: Exception, **kwargs):
     logger.error(formatter.format(record))
 
 
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """请求日志中间件
+class RequestLoggingMiddleware:
+    """请求日志中间件（纯 ASGI 实现）
 
     功能:
     - 生成唯一 request_id 并添加到响应头
     - 记录请求开始/结束日志
     - 记录请求方法、路径、状态码、耗时
+
+    为什么不用 BaseHTTPMiddleware:
+    - BaseHTTPMiddleware 在内部使用 anyio TaskGroup 包装 call_next
+    - 客户端断开时 cancel scope 传播到下游所有 await
+    - 导致 SQLAlchemy async session.close() 中的 await terminate() 被取消
+    - 连接无法归还到池，触发 _finalize_fairy GC 警告
+    - 纯 ASGI 直接 await self.app()，不引入 TaskGroup 包装层
     """
 
     def __init__(self, app, logger_name: str = "app.request"):
-        super().__init__(app)
+        self.app = app
         self.logger = get_json_logger(logger_name)
 
-    async def dispatch(self, request: Request, call_next):
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         request_id = generate_request_id()
         set_request_context(request_id)
 
         start_time = time.time()
+        status_code = 500
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+        query_string = scope.get("query_string", b"")
+        client = scope.get("client")
+        client_host = client[0] if client else None
 
         self.logger.info(
             "请求开始",
             extra={
                 "extra_data": {
-                    "method": request.method,
-                    "path": request.url.path,
-                    "query_params": dict(request.query_params) if request.query_params else None,
-                    "client_host": request.client.host if request.client else None,
+                    "method": method,
+                    "path": path,
+                    "query_params": _parse_query(query_string),
+                    "client_host": client_host,
                 }
             },
         )
 
-        try:
-            response = await call_next(request)
-            response.headers["X-Request-ID"] = request_id
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                headers = list(message.get("headers", []))
+                headers.append((b"x-request-id", request_id.encode()))
+                message["headers"] = headers
+            await send(message)
 
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except Exception as exc:
+            duration_ms = round((time.time() - start_time) * 1000, 2)
+            log_error(
+                self.logger,
+                "请求处理异常",
+                exc,
+                method=method,
+                path=path,
+                duration_ms=duration_ms,
+            )
+            raise
+        finally:
             duration_ms = round((time.time() - start_time) * 1000, 2)
 
             log_level = logging.INFO
-            if response.status_code >= 500:
+            if status_code >= 500:
                 log_level = logging.ERROR
-            elif response.status_code >= 400:
+            elif status_code >= 400:
                 log_level = logging.WARNING
 
             record = logging.LogRecord(
@@ -176,9 +213,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             )
             record.duration_ms = duration_ms
             record.extra_data = {
-                "method": request.method,
-                "path": request.url.path,
-                "status_code": response.status_code,
+                "method": method,
+                "path": path,
+                "status_code": status_code,
                 "duration_ms": duration_ms,
             }
 
@@ -189,18 +226,13 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             else:
                 self.logger.info(JsonFormatter().format(record))
 
-            return response
-
-        except Exception as exc:
-            duration_ms = round((time.time() - start_time) * 1000, 2)
-            log_error(
-                self.logger,
-                "请求处理异常",
-                exc,
-                method=request.method,
-                path=request.url.path,
-                duration_ms=duration_ms,
-            )
-            raise
-        finally:
             clear_request_context()
+
+
+def _parse_query(query_string: bytes) -> Optional[dict]:
+    """解析 ASGI scope 中的 query_string 为 dict"""
+    if not query_string:
+        return None
+    from urllib.parse import parse_qs
+    parsed = parse_qs(query_string.decode("utf-8", errors="replace"))
+    return {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}

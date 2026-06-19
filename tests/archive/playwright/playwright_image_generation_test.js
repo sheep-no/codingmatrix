@@ -1,7 +1,7 @@
 const { chromium } = require('playwright');
 
 const TEST_PROMPT = '一只在月光下奔跑的银色狐狸，星空背景，梦幻风格';
-const BASE_URL = 'http://localhost:3001';
+const BASE_URL = 'http://localhost:3000';
 
 async function testImageGeneration() {
   console.log('========================================');
@@ -35,12 +35,18 @@ async function testImageGeneration() {
     // 1. Login
     console.log('1. Logging in...');
     await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('.login-btn', { timeout: 10000 });
-    await page.click('.login-btn');
-    await page.waitForSelector('.login-form', { timeout: 5000 });
-    await page.fill('.login-form input[type="email"]', 'mr_yang@example.com');
-    await page.fill('.login-form input[type="password"]', '123456');
-    await page.click('.login-form .form-actions button:last-child');
+    await page.waitForTimeout(3000);
+    
+    // Click login button to open login modal
+    await page.click('button.login-btn');
+    await page.waitForTimeout(1500);
+    
+    // Fill in login form
+    await page.fill('input[type="email"]', 'mr_yang@example.com');
+    await page.fill('input[type="password"]', '12345678');
+    
+    // Click the submit button inside the login modal
+    await page.click('.login-modal button:has-text("登录")');
     await page.waitForTimeout(3000);
 
     const usernameElement = await page.$('.username');

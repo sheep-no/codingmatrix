@@ -279,7 +279,7 @@ class PythonLanguageAdapter(LanguageAdapter):
             part_lower = part.lower()
             if part_lower in ('models', 'model', 'entities', 'entity'):
                 return "model"
-            elif part_lower in ('api', 'routes', 'endpoints', 'views', 'controllers', 'handlers'):
+            elif part_lower in ('api', 'routes', 'routers', 'endpoints', 'views', 'controllers', 'handlers'):
                 return "api"
             elif part_lower in ('services', 'service'):
                 return "service"
@@ -291,6 +291,8 @@ class PythonLanguageAdapter(LanguageAdapter):
                 return "test"
             elif part_lower in ('config', 'settings', 'conf'):
                 return "config"
+            elif part_lower in ('pydantic', 'schemas', 'dto'):
+                return "types"
 
         return "unknown"
 

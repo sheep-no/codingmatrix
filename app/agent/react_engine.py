@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.agent.architect_json_parser import ArchitectJsonParser
+from app.agent.topology_scheduler import HeartbeatTracker
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ class ReActEngine:
         memory: Optional[Any] = None,  # AgentMemory 实例（full 模式用）
         stream_callback: Optional[Callable] = None,  # 流式输出回调（full 模式用）
         cancel_event: Optional[asyncio.Event] = None,  # 取消信号
+        heartbeat_timeout: float = 300.0,  # 心跳超时：300 秒无 LLM 调用活动视为超时
     ):
         """
         初始化 ReAct 引擎
@@ -97,6 +99,7 @@ class ReActEngine:
             role_name: 角色名称（日志用）
             memory: AgentMemory 实例（full 模式用于存储反思和上下文）
             stream_callback: 流式输出回调（full 模式用于实时输出）
+            heartbeat_timeout: 心跳超时秒数，无 LLM 调用活动时视为超时
         """
         self.tools = tools
         self.call_llm_fn = call_llm_fn
@@ -109,11 +112,16 @@ class ReActEngine:
         self.memory = memory
         self.stream_callback = stream_callback
         self.cancel_event = cancel_event
+        self.heartbeat_timeout = heartbeat_timeout
 
         self.tool_names = list(tools.keys())
         self.json_parser = ArchitectJsonParser()
         self.steps: List[ReActStep] = []
         self.tool_history: List[str] = []
+
+        # 心跳跟踪器（用于写入活动超时检测）
+        self._heartbeat_tracker: Optional[HeartbeatTracker] = None
+        self._enhanced_system: str = ""
 
     def _build_tools_description(self) -> str:
         """构建工具描述"""
@@ -141,6 +149,8 @@ class ReActEngine:
                 f"示例：\n"
                 f'{{"tool": "list_files", "params": {{"directory": "."}}}}\n'
                 f'{{"tool": "read_file", "params": {{"file_path": "src/main.py"}}}}\n'
+                f'{{"tool": "search_files", "params": {{"pattern": "def FastAPI|class FastAPI", "file_pattern": "*.py"}}}}\n'
+                f'{{"tool": "search_files", "params": {{"pattern": "export function|export const", "file_pattern": "*.js"}}}}\n'
                 f'{{"tool": "run_command", "params": {{"command": "grep -rn --include=*.py def src/"}}}}\n\n'
                 f"### 重要规则\n"
                 f"1. 每次只调用一个工具，格式为：{{\"tool\": \"...\", \"params\": {{...}}}}\n"
@@ -150,7 +160,7 @@ class ReActEngine:
                 f"5. 可用工具: {', '.join(self.tool_names)}\n"
                 f"6. 当你已收集足够上下文时，直接生成代码或文字答案，无需再调用工具\n"
                 f"7. 在生成或修改代码之前，你必须先使用工具了解项目现有代码结构。不要凭猜测生成代码\n"
-                f"8. 如果任务需要分析项目（如查找函数、统计代码、理解结构），请使用 run_command 工具执行 grep/find/wc 等命令\n"
+                f"8. 导入项目内模块前，必须用 search_files 验证符号在目标文件中存在\n"
                 f"9. 工具调用期间，只返回 {{\"tool\": \"...\", \"params\": {{...}}}} 格式，不要返回其他 JSON 格式\n"
             )
         else:  # full mode
@@ -268,7 +278,7 @@ class ReActEngine:
 }}"""
 
         try:
-            response = await self.call_llm_fn(prompt, "你是一个反思分析器。分析当前执行进度，判断是否需要继续。")
+            response = await self._call_llm_with_heartbeat(prompt, "你是一个反思分析器。分析当前执行进度，判断是否需要继续。")
             result = self.json_parser.safe_parse_json(response)
             if not isinstance(result, dict):
                 # JSON 解析失败或返回非 dict，继续执行而非终止
@@ -287,17 +297,30 @@ class ReActEngine:
             for s in steps if s.step_type in ("thought", "observation")
         ])
 
-        prompt = f"""基于以下执行过程，给出最终答案：
+        prompt = f"""基于以下执行过程，完成原始任务。
 
-任务：{task}
+原始任务：
+{task}
 
-执行过程：
+执行过程（工具探索结果）：
 {steps_summary}
 
-请生成最终答案，总结整个任务的执行结果。"""
+请严格按照原始任务的要求，直接输出最终结果。如果任务要求返回文件内容，请直接返回完整的文件代码，不要添加额外的总结或解释。"""
 
+        # 使用干净的 system prompt，不包含工具描述，避免 LLM 返回工具调用 JSON
+        clean_system = (
+            "你是一个代码生成器。基于用户提供的任务描述和工具探索结果，直接生成最终代码。\n"
+            "【禁止】\n"
+            "- 不要调用任何工具\n"
+            "- 不要输出 JSON 格式的工具调用\n"
+            "- 不要输出 markdown 代码块标记\n"
+            "- 不要输出总结或解释\n"
+            "【要求】\n"
+            "- 直接输出完整的文件代码\n"
+            "- 代码必须可直接使用，无需修改"
+        )
         try:
-            response = await self.call_llm_fn(prompt, "你是一个总结器。基于执行过程生成最终答案。")
+            response = await self._call_llm_with_heartbeat(prompt, clean_system)
             return response
         except Exception as e:
             logger.error(f"生成最终答案失败: {e}")
@@ -408,9 +431,21 @@ class ReActEngine:
                     "round": round_num,
                     "tool_history_count": len(self.tool_history)
                 })
+                # 使用干净的 system prompt，不包含工具描述，避免 LLM 返回工具调用 JSON
+                clean_system = (
+                    "你是一个代码生成器。基于用户提供的任务描述和工具探索结果，直接生成最终代码。\n"
+                    "【禁止】\n"
+                    "- 不要调用任何工具\n"
+                    "- 不要输出 JSON 格式的工具调用\n"
+                    "- 不要输出 markdown 代码块标记\n"
+                    "- 不要输出总结或解释\n"
+                    "【要求】\n"
+                    "- 直接输出完整的文件代码\n"
+                    "- 代码必须可直接使用，无需修改"
+                )
                 final_response = await self.call_llm_fn(
                     f"{current_prompt}\n\n### 注意：已达到工具调用上限，请直接生成最终代码。",
-                    enhanced_system
+                    clean_system
                 )
                 self._add_step(ReActStep("final", final_response))
                 return final_response
@@ -486,6 +521,7 @@ class ReActEngine:
         """完整模式：Thought→Action→Observation→Reflection→Final，反射终止
 
         与 ReActAgent.process() 等价，使用 ReActEngine 的工具和 LLM 调用能力。
+        使用心跳监控替代固定超时：只要 LLM 调用有活动，就不会超时。
         """
         task = prompt
         self._enhanced_system = enhanced_system
@@ -500,23 +536,72 @@ class ReActEngine:
                 logger.info(f"{self.role_name} ReAct 全模式检测到取消信号，终止循环")
                 return ""
 
-            # 单轮累积超时保护（防止 4 次 LLM 调用无限挂起）
+            # 心跳监控超时保护（替代固定 300s 超时）
+            # 只要 LLM 调用有活动，就不会超时
+            tracker = HeartbeatTracker(timeout=self.heartbeat_timeout)
+            self._heartbeat_tracker = tracker
+            task_coro = self._run_full_iteration(task, iteration)
+
             try:
-                result = await asyncio.wait_for(
-                    self._run_full_iteration(task, iteration),
-                    timeout=300.0  # 单轮最大 5 分钟
-                )
+                result = await self._run_with_heartbeat(task_coro, tracker)
                 if result is not None:
                     return result
             except asyncio.TimeoutError:
-                logger.warning(f"{self.role_name} ReAct 全模式 第 {iteration + 1} 轮超时，强制终止")
+                logger.warning(f"{self.role_name} ReAct 全模式 第 {iteration + 1} 轮心跳超时 ({self.heartbeat_timeout}s 无 LLM 调用活动)")
                 await self._emit_event("react_timeout", {
-                    "message": f"第 {iteration + 1} 轮执行超时",
+                    "message": f"第 {iteration + 1} 轮执行超时（{self.heartbeat_timeout}s 无活动）",
                     "round": iteration + 1
                 })
                 return self._build_final_result(task)
 
         return self._build_final_result(task)
+
+    async def _run_with_heartbeat(self, coro, tracker: HeartbeatTracker):
+        """带心跳监控的协程执行
+
+        监控 LLM 调用活动，如果 heartbeat_timeout 秒内没有 LLM 调用，
+        认为是超时并取消。
+
+        Args:
+            coro: 要执行的协程
+            tracker: 心跳活动跟踪器（由 _call_llm_with_heartbeat 更新）
+
+        Returns:
+            协程的返回值
+        """
+        task = asyncio.create_task(coro)
+        check_interval = 10.0  # 每 10 秒检查一次
+
+        while not task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=check_interval)
+                # 任务完成，返回结果
+                return task.result()
+            except asyncio.TimeoutError:
+                # shield 超时，但任务还在运行
+                if not tracker.is_alive():
+                    # 心跳超时，取消任务
+                    task.cancel()
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    raise asyncio.TimeoutError(
+                        f"心跳超时: {self.heartbeat_timeout}s 内无 LLM 调用活动"
+                    )
+                # else: 继续等待
+
+        # 任务已完成（可能被取消或异常）
+        return task.result()
+
+    async def _call_llm_with_heartbeat(self, prompt: str, system_prompt: str) -> str:
+        """带心跳更新的 LLM 调用包装
+
+        在每次 LLM 调用前更新心跳时间戳。
+        """
+        if self._heartbeat_tracker:
+            self._heartbeat_tracker.touch()
+        return await self.call_llm_fn(prompt, system_prompt)
 
     async def _run_full_iteration(self, task: str, iteration: int) -> Optional[str]:
         """执行全模式的单轮迭代
@@ -543,7 +628,7 @@ class ReActEngine:
 请用简洁的语言描述你的思考。"""
 
         try:
-            thought = await self.call_llm_fn(thought_prompt, self._enhanced_system)
+            thought = await self._call_llm_with_heartbeat(thought_prompt, self._enhanced_system)
         except Exception as e:
             logger.error(f"{self.role_name} ReAct 全模式 LLM 调用失败: {e}")
             return ""
@@ -558,11 +643,12 @@ class ReActEngine:
 当前状态：
 {self._build_context()}
 
-请决定使用哪个工具，以 JSON 格式返回：
+如果已经收集到足够的信息，请直接以纯文本形式返回完整的文件代码（不要调用工具，不要用 JSON 格式，不要包裹在 markdown 代码块中）。
+如果还需要更多信息，请以 JSON 格式返回工具调用：
 {{"tool": "工具名", "params": {{"参数名": "值"}}}}"""
 
         try:
-            action_response = await self.call_llm_fn(action_prompt, self._enhanced_system)
+            action_response = await self._call_llm_with_heartbeat(action_prompt, self._enhanced_system)
         except Exception as e:
             logger.error(f"{self.role_name} ReAct 全模式 Action LLM 调用失败: {e}")
             return ""
@@ -625,7 +711,7 @@ class ReActEngine:
 请用简洁的语言描述观察结果。"""
 
         try:
-            observation = await self.call_llm_fn(observe_prompt, self._enhanced_system)
+            observation = await self._call_llm_with_heartbeat(observe_prompt, self._enhanced_system)
         except Exception as e:
             logger.error(f"{self.role_name} ReAct 全模式 Observation LLM 调用失败: {e}")
             observation = f"观察失败: {e}"
