@@ -109,7 +109,17 @@ async def chat(
             history_parts.append(f"{role}：{msg.content}")
         history_context = "\n".join(history_parts) + "\n\n"
 
-    system_prompt = """你是一个智能助手，名为 aicloud。你具有以下特点：
+    # 优先从注册表获取用户自定义 system_prompt
+    system_prompt = None
+    try:
+        from app.services.skill_registry import get_skill
+        system_prompt = get_skill("aicloud_system_prompt")
+    except Exception:
+        pass
+    
+    # 否则使用默认提示词
+    if not system_prompt:
+        system_prompt = """你是一个智能助手，名为 aicloud。你具有以下特点：
 1. 专业、友好、有耐心
 2. 可以帮助用户处理各种问题，包括技术问题和生活问题
 3. 你可以使用 Python 代码执行文件操作、数据分析、报告生成等任务

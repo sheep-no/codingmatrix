@@ -89,12 +89,22 @@ class PPTAgent:
         """根据自然语言输入生成 PPT 大纲"""
         prompt = self._build_prompt(topic, description, num_slides)
 
+        # 优先从注册表获取用户自定义 system_prompt
+        system_prompt = "你是一个专业的 PPT 制作助手。请根据用户输入生成结构化的 PPT 大纲。只返回纯 JSON，不要任何额外文字。"
+        try:
+            from app.services.skill_registry import get_skill
+            custom_prompt = get_skill("ppt_system_prompt")
+            if custom_prompt:
+                system_prompt = custom_prompt
+        except Exception:
+            pass
+
         for attempt in range(1, self.MAX_RETRIES + 1):
             try:
                 raw = await call_llm(
                     model=self.model,
                     prompt=prompt,
-                    system_prompt="你是一个专业的 PPT 制作助手。请根据用户输入生成结构化的 PPT 大纲。只返回纯 JSON，不要任何额外文字。",
+                    system_prompt=system_prompt,
                     temperature=0.7,
                     api_key_token=api_key_token,
                 )

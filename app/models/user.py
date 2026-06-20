@@ -55,3 +55,15 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan"
     )
+    custom_characters = relationship(
+        "CustomCharacter",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="CustomCharacter.created_at.desc()"
+    )
+    user_preferences = relationship(
+        "UserPreference",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="UserPreference.updated_at.desc()"
+    )

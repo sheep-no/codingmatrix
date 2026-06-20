@@ -3,7 +3,7 @@
     <!-- 自动隐藏时只显示侧边栏 -->
     <div v-if="isAutoHide" class="autohide-sidebar">
       <div class="autohide-content" @click.stop="expandWindow">
-        <img src="../img/AiChat.jpeg" class="sidebar-avatar" alt="AI" />
+        <img :src="characterAvatarUrl" class="sidebar-avatar" alt="AI" />
         <span class="sidebar-text">AI</span>
       </div>
     </div>
@@ -36,54 +36,40 @@
       <div class="window-header" @mousedown="startDrag">
         <div class="window-title">
           <div class="ai-avatar">
-            <img src="../img/AiChat.jpeg" alt="AI" />
+            <img :src="characterAvatarUrl" alt="AI" />
           </div>
           <div class="title-content">
-            <span class="title-text">虚拟姬</span>
+            <span class="title-text">{{ characterDisplayName }}</span>
             <span class="title-status" :class="{ online: isConnected, offline: !isConnected }">
               {{ isConnected ? '在线' : '离线' }}
             </span>
           </div>
         </div>
         <div class="window-controls">
+          <button class="control-btn" title="搜索历史" @click.stop="showSearch = !showSearch">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </button>
+          <button class="control-btn" title="导出对话" @click.stop="exportChat">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </button>
           <button class="control-btn" title="最小化" @click.stop="toggleMinimize">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="3"
-            >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
           </button>
           <button class="control-btn" title="清除历史" @click.stop="confirmClearHistory">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="3"
-            >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
               <polyline points="3 6 5 6 21 6"></polyline>
-              <path
-                d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-              ></path>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
             </svg>
           </button>
           <button class="control-btn close-btn" title="关闭" @click.stop="closeWindow">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="3"
-            >
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+              <line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
           </button>
         </div>
@@ -94,6 +80,31 @@
         <div class="window-content" :class="{ 'minimized-content': isMinimized }">
           <!-- 聊天区域 -->
           <div class="chat-section">
+            <!-- 搜索栏（可折叠） -->
+            <div v-if="showSearch" class="search-bar">
+              <input
+                v-model="searchQuery"
+                type="text"
+                class="search-input"
+                placeholder="搜索对话历史..."
+                @keyup.enter="handleSearch"
+              />
+              <button class="search-btn" @click="handleSearch" :disabled="!searchQuery.trim()">搜索</button>
+              <button class="search-close" @click="showSearch = false; searchQuery = ''; searchResults = []">取消</button>
+            </div>
+
+            <!-- 搜索结果 -->
+            <div v-if="searchResults.length > 0" class="search-results">
+              <div class="search-results-header">
+                <span>找到 {{ searchResults.length }} 条结果</span>
+                <button @click="searchResults = []">清除</button>
+              </div>
+              <div v-for="(r, i) in searchResults" :key="i" class="search-result-item" @click="scrollToMessage(r)">
+                <span class="search-result-role">{{ r.role === 'user' ? '你' : characterDisplayName }}</span>
+                <span class="search-result-content">{{ r.content }}</span>
+              </div>
+            </div>
+
             <!-- 角色选择栏 -->
             <div class="character-selector">
               <div class="character-label">选择角色:</div>
@@ -102,12 +113,24 @@
                 class="character-select"
                 @change="onCharacterChange"
               >
-                <option value="gentle">温柔学姐</option>
-                <option value="lively">元气少女</option>
-                <option value="tsundere">傲娇妹妹</option>
-                <option value="intellectual">知性御姐</option>
-                <option value="companion">贴心伴侣</option>
+                <optgroup label="内置角色">
+                  <option value="gentle">温柔学姐</option>
+                  <option value="lively">元气少女</option>
+                  <option value="tsundere">傲娇妹妹</option>
+                  <option value="intellectual">知性御姐</option>
+                  <option value="companion">贴心伴侣</option>
+                </optgroup>
+                <optgroup v-if="customCharacters.length > 0" label="自定义角色">
+                  <option v-for="c in customCharacters" :key="c.id" :value="'custom_' + c.id">
+                    {{ c.name }}
+                  </option>
+                </optgroup>
               </select>
+              <button class="add-character-btn" title="创建角色" @click="showCharacterForm = true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              </button>
               <span class="character-indicator" :class="selectedCharacter">
                 <svg
                   class="character-icon-svg"
@@ -130,7 +153,7 @@
                 :class="['message', message.role]"
               >
                 <div class="message-avatar">
-                  <img v-if="message.role === 'assistant'" src="../img/AiChat.jpeg" alt="AI" />
+                  <img v-if="message.role === 'assistant'" :src="characterAvatarUrl" alt="AI" />
                   <svg
                     v-else
                     class="user-avatar-icon-svg"
@@ -157,7 +180,7 @@
               <!-- 加载中 -->
               <div v-if="isLoading" class="message assistant">
                 <div class="message-avatar">
-                  <img src="../img/AiChat.jpeg" alt="AI" />
+                  <img :src="characterAvatarUrl" alt="AI" />
                 </div>
                 <div class="message-body">
                   <div class="message-header">
@@ -214,6 +237,41 @@
           <div class="spinner-ring"></div>
         </div>
         <span class="loading-text">加载更多...</span>
+      </div>
+
+      <!-- 自定义角色创建表单 -->
+      <div v-if="showCharacterForm" class="character-form-overlay" @click.self="showCharacterForm = false">
+        <div class="character-form">
+          <h3>创建自定义角色</h3>
+          <div class="form-field">
+            <label>角色名称 <span class="required">*</span></label>
+            <input v-model="newCharacter.name" type="text" maxlength="50" placeholder="给角色起个名字" />
+          </div>
+          <div class="form-field">
+            <label>描述</label>
+            <input v-model="newCharacter.description" type="text" maxlength="200" placeholder="一句话描述角色" />
+          </div>
+          <div class="form-field">
+            <label>性格</label>
+            <input v-model="newCharacter.personality" type="text" maxlength="200" placeholder="如：温柔、活泼、傲娇" />
+          </div>
+          <div class="form-field">
+            <label>说话风格</label>
+            <input v-model="newCharacter.speaking_style" type="text" maxlength="200" placeholder="如：语气温柔，常用语气词" />
+          </div>
+          <div class="form-field">
+            <label>开场白</label>
+            <textarea v-model="newCharacter.greeting" rows="2" maxlength="200" placeholder="角色的第一句话"></textarea>
+          </div>
+          <div class="form-field">
+            <label>头像颜色</label>
+            <input v-model="newCharacter.avatar_color" type="color" />
+          </div>
+          <div class="form-actions">
+            <button class="form-cancel" @click="showCharacterForm = false">取消</button>
+            <button class="form-submit" @click="createCharacter" :disabled="!newCharacter.name.trim()">创建</button>
+          </div>
+        </div>
       </div>
     </template>
   </div>
@@ -289,6 +347,126 @@
     tsundere: '口是心非，外冷内热',
     intellectual: '成熟稳重，博学多才',
     companion: '温柔陪伴，知心倾听'
+  }
+
+  // 角色头像 URL（动态根据角色切换）
+  const characterAvatarUrl = computed(() => {
+    const id = selectedCharacter.value
+    if (id.startsWith('custom_')) {
+      const customId = id.replace('custom_', '')
+      const custom = customCharacters.value.find(c => c.id === customId)
+      if (custom) {
+        return generateCustomAvatarSvg(custom.name, custom.avatar_color)
+      }
+    }
+    return `/api/v1/GirlAi/characters/${id}/avatar`
+  })
+
+  // 角色显示名称
+  const characterDisplayName = computed(() => {
+    const id = selectedCharacter.value
+    if (id.startsWith('custom_')) {
+      const customId = id.replace('custom_', '')
+      const custom = customCharacters.value.find(c => c.id === customId)
+      return custom ? custom.name : '自定义角色'
+    }
+    return getCharacterName(id)
+  })
+
+  // 自定义角色列表
+  const customCharacters = ref([])
+
+  // 搜索相关
+  const showSearch = ref(false)
+  const searchQuery = ref('')
+  const searchResults = ref([])
+
+  // 自定义角色表单
+  const showCharacterForm = ref(false)
+  const newCharacter = ref({
+    name: '',
+    description: '',
+    personality: '',
+    speaking_style: '',
+    greeting: '',
+    avatar_color: '#667eea'
+  })
+
+  // 生成自定义角色 SVG 头像
+  function generateCustomAvatarSvg(name, color) {
+    const initial = name.charAt(0)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="${color}"/><text x="50" y="62" text-anchor="middle" font-size="40" font-weight="bold" fill="white">${initial}</text></svg>`
+    return 'data:image/svg+xml,' + encodeURIComponent(svg)
+  }
+
+  // 加载自定义角色
+  async function loadCustomCharacters() {
+    try {
+      const data = await api.getCustomCharacters()
+      customCharacters.value = data.characters || []
+    } catch (e) {
+      console.debug('加载自定义角色失败:', e)
+    }
+  }
+
+  // 创建自定义角色
+  async function createCharacter() {
+    if (!newCharacter.value.name.trim()) return
+    try {
+      const data = await api.createCustomCharacter({
+        name: newCharacter.value.name.trim(),
+        description: newCharacter.value.description.trim(),
+        personality: newCharacter.value.personality.trim(),
+        speaking_style: newCharacter.value.speaking_style.trim(),
+        greetings: newCharacter.value.greeting.trim() ? [newCharacter.value.greeting.trim()] : [],
+        tags: [],
+        avatar_color: newCharacter.value.avatar_color,
+      })
+      ElMessage.success('角色创建成功')
+      showCharacterForm.value = false
+      newCharacter.value = { name: '', description: '', personality: '', speaking_style: '', greeting: '', avatar_color: '#667eea' }
+      await loadCustomCharacters()
+      // 自动切换到新角色
+      selectedCharacter.value = 'custom_' + data.id
+      await onCharacterChange()
+    } catch (e) {
+      ElMessage.error('创建失败: ' + e.message)
+    }
+  }
+
+  // 搜索历史
+  async function handleSearch() {
+    if (!searchQuery.value.trim()) return
+    try {
+      const data = await api.searchGirlAiHistory(searchQuery.value.trim())
+      searchResults.value = data.records || []
+      if (searchResults.value.length === 0) {
+        ElMessage.info('未找到匹配的对话')
+      }
+    } catch (e) {
+      ElMessage.error('搜索失败: ' + e.message)
+    }
+  }
+
+  // 导出对话
+  function exportChat() {
+    if (chatHistory.value.length === 0) {
+      ElMessage.info('暂无对话记录')
+      return
+    }
+    const lines = chatHistory.value.map(m => {
+      const role = m.role === 'user' ? '你' : characterDisplayName.value
+      return `[${role}]\n${m.content}\n`
+    })
+    const text = `=== ${characterDisplayName.value} 对话记录 ===\n导出时间: ${new Date().toLocaleString('zh-CN')}\n\n${lines.join('\n')}`
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `虚拟姬对话_${new Date().toISOString().slice(0, 10)}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('对话已导出')
   }
 
   // 防抖控制
@@ -464,10 +642,12 @@
         currentOffset.value = result.history.length
         hasMoreHistory.value = result.hasMore
       } else {
+        const greetings = getCharacterGreetings(selectedCharacter.value)
+        const greeting = greetings[Math.floor(Math.random() * greetings.length)]
         chatHistory.value = [
           {
             role: 'assistant',
-            content: `你好呀~我是你的${getCharacterName(selectedCharacter.value)}，${characterDescriptions[selectedCharacter.value]}。有什么可以帮助你的吗？`,
+            content: greeting,
             timestamp: Date.now()
           }
         ]
@@ -673,18 +853,9 @@ window.opener.postMessage({type:'girlai-ready'},'*');
           scrollToBottom()
 
           try {
-            const response = await api.post('/GirlAi', {
-              prompt: userMsg,
-              temperature: 0.8,
-              character: selectedCharacter.value
-            })
-            if (response.ok) {
-              const data = await response.json()
-              chatHistory.value.push({ role: 'assistant', content: data.message, timestamp: Date.now() })
-              messageTimestamps.value.push(Date.now())
-            } else {
-              chatHistory.value.push({ role: 'assistant', content: '抱歉，我遇到了一些问题，请稍后再试。', timestamp: Date.now() })
-            }
+            const data = await api.sendGirlAiMessage(userMsg, selectedCharacter.value)
+            chatHistory.value.push({ role: 'assistant', content: data.message, timestamp: Date.now() })
+            messageTimestamps.value.push(Date.now())
           } catch {
             chatHistory.value.push({ role: 'assistant', content: '网络错误，请检查连接后重试。', timestamp: Date.now() })
           } finally {
@@ -885,11 +1056,13 @@ window.opener.postMessage({type:'girlai-ready'},'*');
 
   // 角色切换
   const onCharacterChange = async () => {
-    const systemMessage = `你好呀~我是你的${getCharacterName(selectedCharacter.value)}，${characterDescriptions[selectedCharacter.value]}。有什么可以帮助你的吗？`
+    // 从角色配置中随机选择一个开场白
+    const greetings = getCharacterGreetings(selectedCharacter.value)
+    const greeting = greetings[Math.floor(Math.random() * greetings.length)]
 
     chatHistory.value.push({
       role: 'assistant',
-      content: systemMessage,
+      content: greeting,
       timestamp: Date.now()
     })
     messageTimestamps.value.push(Date.now())
@@ -898,6 +1071,26 @@ window.opener.postMessage({type:'girlai-ready'},'*');
 
     await nextTick()
     scrollToBottom()
+  }
+
+  // 获取角色开场白列表
+  const getCharacterGreetings = character => {
+    const greetings = {
+      gentle: ['亲爱的，今天过得怎么样呀？~', '欢迎回来~ 我一直在等你呢', '看到你来了真开心，想和我聊聊天吗？~'],
+      lively: ['呀吼~！今天也要元气满满哦！(≧∇≦) ノ', '哇！你来啦！我等你好久啦~✨', '哈喽哈喽~ 今天有什么有趣的事情吗？٩(◕‿◕) ノ'],
+      tsundere: ['哼、哼！才、才不是特意等你呢！(￣^￣)', '哦…你来了啊…我、我只是刚好路过而已！', '…笨蛋，下次别让我等这么久啦！'],
+      intellectual: ['你好呀，今天也是求知的一天呢', '欢迎来到知识的殿堂，有什么我可以帮你的吗？', '又见面了，最近在读什么有趣的书吗？'],
+      companion: ['亲爱的~ 我好想你呀！❤', '你终于来啦~ 我一直在想你呢 (´｡• ᵕ •｡`)', '最喜欢你啦~ 今天也想和你在一起 ❤']
+    }
+    if (character.startsWith('custom_')) {
+      const customId = character.replace('custom_', '')
+      const custom = customCharacters.value.find(c => c.id === customId)
+      if (custom && custom.greetings && custom.greetings.length > 0) {
+        return custom.greetings
+      }
+      return [`你好呀~ 我是${custom?.name || '你的自定义角色'}，请多指教~`]
+    }
+    return greetings[character] || greetings.gentle
   }
 
   // 获取角色名称
@@ -934,31 +1127,16 @@ window.opener.postMessage({type:'girlai-ready'},'*');
     scrollToBottom()
 
     try {
-      const response = await api.post('/GirlAi', {
-        prompt: message,
-        temperature: 0.8,
-        character: selectedCharacter.value
-      })
+      const data = await api.sendGirlAiMessage(message, selectedCharacter.value)
 
-      if (response.ok) {
-        const data = await response.json()
-        const assistantTimestamp = Date.now()
-        chatHistory.value.push({
-          role: 'assistant',
-          content: data.message,
-          timestamp: assistantTimestamp
-        })
-        messageTimestamps.value.push(assistantTimestamp)
-        isConnected.value = true
-      } else {
-        const errorTimestamp = Date.now()
-        chatHistory.value.push({
-          role: 'assistant',
-          content: '抱歉，我遇到了一些问题，请稍后再试。',
-          timestamp: errorTimestamp
-        })
-        messageTimestamps.value.push(errorTimestamp)
-      }
+      const assistantTimestamp = Date.now()
+      chatHistory.value.push({
+        role: 'assistant',
+        content: data.message,
+        timestamp: assistantTimestamp
+      })
+      messageTimestamps.value.push(assistantTimestamp)
+      isConnected.value = true
     } catch (error) {
       console.error('调用 GirlAi API 失败:', error)
       const errorTimestamp = Date.now()
@@ -1040,6 +1218,7 @@ window.opener.postMessage({type:'girlai-ready'},'*');
   // 初始化
   onMounted(() => {
     loadChatHistory()
+    loadCustomCharacters()
 
     const screenWidth = window.innerWidth
     const screenHeight = window.innerHeight
@@ -1697,4 +1876,207 @@ window.opener.postMessage({type:'girlai-ready'},'*');
   .window-content.minimized-content {
     display: none;
   }
+
+  /* 搜索栏 */
+  .search-bar {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .search-input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 13px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    outline: none;
+  }
+
+  .search-input:focus { border-color: var(--primary); }
+
+  .search-btn, .search-close {
+    padding: 6px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+  }
+
+  .search-btn { background: var(--primary); color: white; border-color: var(--primary); }
+  .search-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* 搜索结果 */
+  .search-results {
+    max-height: 150px;
+    overflow-y: auto;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 8px;
+  }
+
+  .search-results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+
+  .search-results-header button {
+    border: none;
+    background: none;
+    color: var(--primary);
+    cursor: pointer;
+    font-size: 12px;
+  }
+
+  .search-result-item {
+    display: flex;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.2s;
+  }
+
+  .search-result-item:hover { background: var(--bg-primary); }
+
+  .search-result-role {
+    font-weight: 600;
+    color: var(--primary);
+    white-space: nowrap;
+  }
+
+  .search-result-content {
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 添加角色按钮 */
+  .add-character-btn {
+    padding: 4px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+
+  .add-character-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+  /* 自定义角色表单 */
+  .character-form-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .character-form {
+    width: 320px;
+    max-height: 90%;
+    overflow-y: auto;
+    background: var(--bg-secondary);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  }
+
+  .character-form h3 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    color: var(--text-primary);
+  }
+
+  .form-field {
+    margin-bottom: 12px;
+  }
+
+  .form-field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+
+  .form-field .required { color: #ef4444; }
+
+  .form-field input[type="text"],
+  .form-field textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 13px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    outline: none;
+    font-family: inherit;
+    resize: vertical;
+  }
+
+  .form-field input[type="text"]:focus,
+  .form-field textarea:focus { border-color: var(--primary); }
+
+  .form-field input[type="color"] {
+    width: 40px;
+    height: 32px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    padding: 2px;
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 16px;
+  }
+
+  .form-cancel, .form-submit {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .form-cancel {
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+  }
+
+  .form-submit {
+    border: none;
+    background: var(--primary);
+    color: white;
+    font-weight: 500;
+  }
+
+  .form-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+  .form-submit:hover:not(:disabled) { transform: translateY(-1px); }
 </style>

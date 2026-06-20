@@ -184,8 +184,15 @@ export function createPptClient(client) {
     },
 
     async downloadPDF(pptId) {
-      console.warn('PDF 导出暂未实现，将下载 PPTX 格式')
-      return this.downloadPPT(pptId, 'pptx')
+      try {
+        const response = await client.get(`/pptx/download/${pptId}/pdf`)
+        if (response.ok) {
+          return await response.blob()
+        }
+        throw new Error('PDF 导出需要服务器安装 LibreOffice')
+      } catch (error) {
+        throw new Error(error.message || 'PDF 导出失败', { cause: error })
+      }
     }
   }
 }

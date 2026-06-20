@@ -1,28 +1,30 @@
 # app/api/v1/GirlAi.py
 """
-虚拟姬 AI 对话接口 - v2 增强版
-特点：多角色系统、智能模型选择、情感陪伴优化
+虚拟姬 AI 对话接口 - v3 增强版
+特点：多角色系统、智能模型选择、情感陪伴优化、自定义角色、历史搜索、用户记忆
 """
 
 import asyncio
+import json
 import logging
 import time
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import or_
 
 from app.db.database import get_db
 from app.schema.girl_request import GirlRequest, GirlResponse, HistoryRecord, HistoryResponse
 from app.db.chat_history_service import ChatHistoryService
+from app.models.chat_history import CustomCharacter, UserPreference
 from app.utils import call_llm
 from app.utils.security import verify_token
 from app.utils.aicloud.http_client import call_with_retry
 
-# import sys (adapter module moved to app.adapter)
-# sys.path removed - using app.adapter
 from app.adapter import ModelAdapter
 
 # 初始化日志
@@ -128,6 +130,15 @@ DEFAULT_MAX_TOKENS = 180
 REQUEST_TIMEOUT = 30.0
 MAX_HISTORY_MESSAGES = 10
 
+# 角色 SVG 头像（内联，无需外部文件）
+CHARACTER_AVATARS: Dict[str, str] = {
+    "gentle": '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#f9a8d4"/><stop offset="100%" style="stop-color:#f472b6"/></linearGradient></defs><circle cx="50" cy="50" r="48" fill="url(#g1)"/><circle cx="50" cy="42" r="18" fill="#fff" opacity="0.9"/><ellipse cx="50" cy="70" rx="22" ry="16" fill="#fff" opacity="0.9"/><circle cx="44" cy="40" r="2.5" fill="#333"/><circle cx="56" cy="40" r="2.5" fill="#333"/><path d="M45 48 Q50 52 55 48" stroke="#f472b6" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M32 30 Q38 18 50 18 Q62 18 68 30" stroke="#f472b6" stroke-width="3" fill="none"/></svg>''',
+    "lively": '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#fcd34d"/><stop offset="100%" style="stop-color:#f59e0b"/></linearGradient></defs><circle cx="50" cy="50" r="48" fill="url(#g2)"/><circle cx="50" cy="42" r="18" fill="#fff" opacity="0.9"/><ellipse cx="50" cy="70" rx="22" ry="16" fill="#fff" opacity="0.9"/><circle cx="44" cy="40" r="2.5" fill="#333"/><circle cx="56" cy="40" r="2.5" fill="#333"/><path d="M43 48 Q50 54 57 48" stroke="#f59e0b" stroke-width="2" fill="none" stroke-linecap="round"/><text x="30" y="25" font-size="12" fill="#f59e0b">★</text><text x="62" y="22" font-size="10" fill="#f59e0b">✦</text><path d="M30 32 Q40 20 50 22 Q60 20 70 32" stroke="#f59e0b" stroke-width="3" fill="none"/></svg>''',
+    "tsundere": '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#fca5a5"/><stop offset="100%" style="stop-color:#ef4444"/></linearGradient></defs><circle cx="50" cy="50" r="48" fill="url(#g3)"/><circle cx="50" cy="42" r="18" fill="#fff" opacity="0.9"/><ellipse cx="50" cy="70" rx="22" ry="16" fill="#fff" opacity="0.9"/><circle cx="44" cy="40" r="2.5" fill="#333"/><circle cx="56" cy="40" r="2.5" fill="#333"/><path d="M44 49 L50 47 L56 49" stroke="#ef4444" stroke-width="2" fill="none" stroke-linecap="round"/><ellipse cx="38" cy="46" rx="4" ry="2.5" fill="#fca5a5" opacity="0.6"/><ellipse cx="62" cy="46" rx="4" ry="2.5" fill="#fca5a5" opacity="0.6"/><path d="M32 30 Q40 22 50 24 Q60 22 68 30" stroke="#ef4444" stroke-width="3" fill="none"/></svg>''',
+    "intellectual": '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g4" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#a78bfa"/><stop offset="100%" style="stop-color:#7c3aed"/></linearGradient></defs><circle cx="50" cy="50" r="48" fill="url(#g4)"/><circle cx="50" cy="42" r="18" fill="#fff" opacity="0.9"/><ellipse cx="50" cy="70" rx="22" ry="16" fill="#fff" opacity="0.9"/><circle cx="44" cy="40" r="2.5" fill="#333"/><circle cx="56" cy="40" r="2.5" fill="#333"/><rect x="38" y="37" width="24" height="8" rx="4" fill="none" stroke="#7c3aed" stroke-width="1.5"/><path d="M46 48 Q50 50 54 48" stroke="#7c3aed" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M32 30 Q40 18 50 20 Q60 18 68 30" stroke="#7c3aed" stroke-width="3" fill="none"/></svg>''',
+    "companion": '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g5" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#fda4af"/><stop offset="100%" style="stop-color:#e11d48"/></linearGradient></defs><circle cx="50" cy="50" r="48" fill="url(#g5)"/><circle cx="50" cy="42" r="18" fill="#fff" opacity="0.9"/><ellipse cx="50" cy="70" rx="22" ry="16" fill="#fff" opacity="0.9"/><circle cx="44" cy="40" r="2.5" fill="#333"/><circle cx="56" cy="40" r="2.5" fill="#333"/><path d="M44 48 Q50 53 56 48" stroke="#e11d48" stroke-width="2" fill="none" stroke-linecap="round"/><text x="62" y="30" font-size="14" fill="#e11d48">♥</text><path d="M32 30 Q40 20 50 22 Q60 20 68 30" stroke="#e11d48" stroke-width="3" fill="none"/></svg>''',
+}
+
 # Model Adapter 缓存
 _model_adapters: Dict[str, ModelAdapter] = {}
 
@@ -150,7 +161,8 @@ def _build_emotion_prompt(
     character: Dict[str, Any],
     user_prompt: str,
     recent_messages: List[Dict[str, str]],
-    user_name: Optional[str] = None
+    user_name: Optional[str] = None,
+    user_preferences: Optional[List[Dict[str, str]]] = None
 ) -> str:
     """构建情感陪伴优化的 Prompt"""
     parts = []
@@ -167,6 +179,14 @@ def _build_emotion_prompt(
     for greeting in character["greetings"][:2]:
         parts.append(f"你：{greeting}")
     parts.append("")
+    
+    # 用户偏好记忆
+    if user_preferences:
+        parts.append("【你记住的用户信息】")
+        for pref in user_preferences:
+            parts.append(f"- {pref['key']}：{pref['value']}")
+        parts.append("请在对话中自然地运用这些信息，让用户感到被记住和关心。")
+        parts.append("")
     
     # 对话历史
     if recent_messages:
@@ -209,6 +229,94 @@ def _clean_response(content: str, character_name: str) -> str:
     return content.strip()
 
 
+# =============================================================================
+# 用户偏好提取（异步，不阻塞响应）
+# =============================================================================
+
+# 偏好提取的关键词模式
+_PREFERENCE_PATTERNS = {
+    "name": [
+        r"我叫(.{1,20})", r"我的名字是(.{1,20})", r"叫我(.{1,20})",
+        r"我是(.{1,20})同学", r"我是(.{1,20})老师",
+    ],
+    "age": [
+        r"我(\d{1,3})岁", r"我今年(\d{1,3})", r"我(\d{1,3})年出生",
+    ],
+    "hobby": [
+        r"我喜欢(.{1,30})", r"我的爱好是(.{1,30})", r"我最爱(.{1,30})",
+        r"我平时喜欢(.{1,30})", r"我经常(.{1,30})",
+    ],
+    "mood": [
+        r"我(很开心|很高兴|很伤心|很难过|很累|很烦|压力大|焦虑|无聊)",
+        r"今天(心情好|心情不好|心情差|很糟糕|很美好)",
+    ],
+    "work": [
+        r"我在(.{1,30})工作", r"我是(.{1,20})职业", r"我的工作是(.{1,30})",
+        r"我是做(.{1,20})的", r"我在(.{1,20})上班",
+    ],
+    "location": [
+        r"我住在(.{1,30})", r"我在(.{1,20})住", r"我家在(.{1,30})",
+        r"我是(.{1,20})人",
+    ],
+}
+
+
+async def _extract_user_preferences(
+    user_id: str,
+    user_message: str,
+    assistant_response: str,
+    db: AsyncSession
+):
+    """从对话中异步提取用户偏好并保存"""
+    import re
+
+    try:
+        extracted = {}
+        for key, patterns in _PREFERENCE_PATTERNS.items():
+            for pattern in patterns:
+                match = re.search(pattern, user_message)
+                if match:
+                    value = match.group(1).strip()
+                    if value and len(value) <= 100:
+                        extracted[key] = value
+                    break
+
+        if not extracted:
+            return
+
+        # 保存到数据库（upsert 逻辑）
+        from sqlalchemy import select, and_
+
+        for key, value in extracted.items():
+            stmt = select(UserPreference).where(
+                and_(
+                    UserPreference.user_id == int(user_id),
+                    UserPreference.preference_key == key
+                )
+            )
+            result = await db.execute(stmt)
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                existing.preference_value = value
+                existing.updated_at = datetime.now()
+            else:
+                pref = UserPreference(
+                    user_id=int(user_id),
+                    preference_key=key,
+                    preference_value=value,
+                    confidence=80,
+                    source="extracted"
+                )
+                db.add(pref)
+
+        await db.commit()
+        logger.debug(f"用户偏好提取完成 | user_id={user_id} | preferences={list(extracted.keys())}")
+
+    except Exception as e:
+        logger.debug(f"用户偏好提取失败（不影响主流程）| user_id={user_id} | error={e}")
+
+
 # API 接口
 
 @router.get("/GirlAi/characters")
@@ -232,6 +340,65 @@ async def get_characters(token: dict = Depends(verify_token)):
     return {
         "characters": characters,
         "total": len(characters)
+    }
+
+
+@router.get("/GirlAi/characters/{character_id}/avatar")
+async def get_character_avatar(character_id: str):
+    """获取角色 SVG 头像"""
+    svg = CHARACTER_AVATARS.get(character_id)
+    if not svg:
+        # 返回默认头像
+        svg = CHARACTER_AVATARS["gentle"]
+    return Response(content=svg, media_type="image/svg+xml")
+
+
+@router.get("/GirlAi/history/search")
+async def search_history(
+    q: str = Query(..., min_length=1, max_length=100, description="搜索关键词"),
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+    limit: Optional[int] = 20,
+    offset: Optional[int] = 0
+):
+    """搜索对话历史"""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+
+    from sqlalchemy import select, and_
+    from app.models.chat_history import ChatHistory
+
+    stmt = (
+        select(ChatHistory)
+        .where(
+            and_(
+                ChatHistory.user_id == int(user_id),
+                ChatHistory.content.ilike(f"%{q}%"),
+                ChatHistory.is_archived == False
+            )
+        )
+        .order_by(ChatHistory.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+
+    result = await db.execute(stmt)
+    records = result.scalars().all()
+
+    return {
+        "records": [
+            {
+                "id": str(r.id),
+                "role": r.role,
+                "content": r.content,
+                "model": r.model,
+                "created_at": r.created_at.isoformat() if r.created_at else None
+            }
+            for r in records
+        ],
+        "total": len(records),
+        "query": q
     }
 
 
@@ -286,12 +453,32 @@ async def generate_message(
                 f"上下文加载完成 | user_id={user_id} | duration={context_load_time:.2f}s | messages_loaded={len(recent_messages)}"
             )
 
+            # 加载用户偏好
+            user_preferences = []
+            try:
+                from sqlalchemy import select
+                pref_stmt = (
+                    select(UserPreference)
+                    .where(UserPreference.user_id == int(user_id))
+                    .order_by(UserPreference.confidence.desc())
+                    .limit(10)
+                )
+                pref_result = await db.execute(pref_stmt)
+                prefs = pref_result.scalars().all()
+                user_preferences = [
+                    {"key": p.preference_key, "value": p.preference_value}
+                    for p in prefs
+                ]
+            except Exception as e:
+                logger.debug(f"加载用户偏好失败: {e}")
+
             # 构建情感优化 Prompt
             full_prompt = _build_emotion_prompt(
                 character=character,
                 user_prompt=body.prompt,
                 recent_messages=recent_messages,
-                user_name=None
+                user_name=None,
+                user_preferences=user_preferences
             )
 
             logger.debug(f"Prompt 构建完成 | user_id={user_id} | prompt_length={len(full_prompt)}")
@@ -340,8 +527,12 @@ async def generate_message(
                 tokens_used=tokens_used
             )
             save_duration = time.time() - save_start_time
-
             logger.debug(f"对话记录保存完成 | user_id={user_id} | duration={save_duration:.2f}s")
+
+            # 异步提取用户偏好（不阻塞响应）
+            asyncio.create_task(
+                _extract_user_preferences(user_id, body.prompt, ai_content, db)
+            )
 
             total_duration = time.time() - start_time
             logger.info(f"虚拟姬请求完成 | user_id={user_id} | 角色={character['name']} | total_duration={total_duration:.2f}s")
@@ -425,6 +616,203 @@ async def get_history(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="获取历史记录失败"
         )
+
+
+# =============================================================================
+# 自定义角色 CRUD
+# =============================================================================
+
+@router.get("/GirlAi/characters/custom/list")
+async def list_custom_characters(
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """获取用户的自定义角色列表"""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+
+    from sqlalchemy import select
+    stmt = (
+        select(CustomCharacter)
+        .where(CustomCharacter.user_id == int(user_id))
+        .order_by(CustomCharacter.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    characters = result.scalars().all()
+
+    return {
+        "characters": [
+            {
+                "id": str(c.id),
+                "name": c.name,
+                "description": c.description,
+                "personality": c.personality,
+                "speaking_style": c.speaking_style,
+                "greetings": json.loads(c.greetings) if c.greetings else [],
+                "tags": json.loads(c.tags) if c.tags else [],
+                "model": c.model,
+                "temperature": c.temperature / 100.0,
+                "max_tokens": c.max_tokens,
+                "avatar_color": c.avatar_color,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in characters
+        ],
+        "total": len(characters)
+    }
+
+
+@router.post("/GirlAi/characters/custom")
+async def create_custom_character(
+    body: Dict[str, Any],
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """创建自定义角色"""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+
+    # 验证必填字段
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="角色名称不能为空")
+    if len(name) > 50:
+        raise HTTPException(status_code=400, detail="角色名称过长")
+
+    # 检查用户角色数量限制（最多 10 个）
+    from sqlalchemy import select, func as sql_func
+    count_stmt = (
+        select(sql_func.count())
+        .select_from(CustomCharacter)
+        .where(CustomCharacter.user_id == int(user_id))
+    )
+    count_result = await db.execute(count_stmt)
+    if count_result.scalar() >= 10:
+        raise HTTPException(status_code=400, detail="自定义角色数量已达上限（10个）")
+
+    character = CustomCharacter(
+        user_id=int(user_id),
+        name=name,
+        description=body.get("description", "")[:200],
+        personality=body.get("personality", "")[:200],
+        speaking_style=body.get("speaking_style", "")[:200],
+        greetings=json.dumps(body.get("greetings", []), ensure_ascii=False),
+        tags=json.dumps(body.get("tags", []), ensure_ascii=False),
+        model=body.get("model", DEFAULT_MODEL),
+        temperature=int(float(body.get("temperature", 0.8)) * 100),
+        max_tokens=int(body.get("max_tokens", 180)),
+        avatar_color=body.get("avatar_color", "#667eea")[:20],
+    )
+
+    db.add(character)
+    await db.commit()
+    await db.refresh(character)
+
+    return {
+        "id": str(character.id),
+        "name": character.name,
+        "message": "角色创建成功"
+    }
+
+
+@router.delete("/GirlAi/characters/custom/{character_id}")
+async def delete_custom_character(
+    character_id: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """删除自定义角色"""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+
+    from sqlalchemy import select, and_
+    stmt = select(CustomCharacter).where(
+        and_(
+            CustomCharacter.id == character_id,
+            CustomCharacter.user_id == int(user_id)
+        )
+    )
+    result = await db.execute(stmt)
+    character = result.scalar_one_or_none()
+
+    if not character:
+        raise HTTPException(status_code=404, detail="角色不存在")
+
+    await db.delete(character)
+    await db.commit()
+
+    return {"status": "deleted", "id": character_id}
+
+
+# =============================================================================
+# 用户偏好记忆
+# =============================================================================
+
+@router.get("/GirlAi/preferences")
+async def get_user_preferences(
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """获取用户偏好记忆"""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+
+    from sqlalchemy import select
+    stmt = (
+        select(UserPreference)
+        .where(UserPreference.user_id == int(user_id))
+        .order_by(UserPreference.updated_at.desc())
+    )
+    result = await db.execute(stmt)
+    preferences = result.scalars().all()
+
+    return {
+        "preferences": [
+            {
+                "id": str(p.id),
+                "key": p.preference_key,
+                "value": p.preference_value,
+                "confidence": p.confidence,
+                "source": p.source,
+                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+            }
+            for p in preferences
+        ]
+    }
+
+
+@router.delete("/GirlAi/preferences/{preference_id}")
+async def delete_user_preference(
+    preference_id: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """删除用户偏好"""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+
+    from sqlalchemy import select, and_
+    stmt = select(UserPreference).where(
+        and_(
+            UserPreference.id == preference_id,
+            UserPreference.user_id == int(user_id)
+        )
+    )
+    result = await db.execute(stmt)
+    pref = result.scalar_one_or_none()
+
+    if not pref:
+        raise HTTPException(status_code=404, detail="偏好记录不存在")
+
+    await db.delete(pref)
+    await db.commit()
+
+    return {"status": "deleted", "id": preference_id}
 
 
 @router.delete("/GirlAi/history")

@@ -6,7 +6,7 @@ Database Models
 
 from app.models.base import Base
 from app.models.user import User
-from app.models.chat_history import ChatHistory, ChatSummary
+from app.models.chat_history import ChatHistory, ChatSummary, CustomCharacter, UserPreference
 from app.models.history import History
 from app.models.file import File
 from app.models.task import Task
@@ -29,6 +29,8 @@ __all__ = [
     "User",
     "ChatHistory",
     "ChatSummary",
+    "CustomCharacter",
+    "UserPreference",
     "History",
     "File",
     "Task",

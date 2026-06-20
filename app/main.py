@@ -78,6 +78,7 @@ from app.api.v1.github import router as githubRouter
 from app.api.v1.apikey import router as apikeyRouter
 from app.api.v1.providers import router as providersRouter
 from app.api.v1.model_manager import router as modelManagerRouter
+from app.api.v1.skills import router as skillsRouter
 from app.api.v2.model_admin import router as modelAdminRouter
 from app.api.v2.mcp_admin import router as mcpAdminRouter
 from app.db.database import engine, async_session
@@ -323,6 +324,7 @@ app.include_router(githubRouter, prefix="/api/v1", tags=["github"])
 app.include_router(apikeyRouter)
 app.include_router(providersRouter, tags=["providers"])
 app.include_router(modelManagerRouter, prefix="/api/v1", tags=["models"])
+app.include_router(skillsRouter, prefix="/api/v1", tags=["skills"])
 
 # 健康检查路由（/api/v1/health）
 app.include_router(healthRouter, prefix="/api/v1")

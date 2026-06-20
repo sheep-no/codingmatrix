@@ -36,3 +36,41 @@ class ChatSummary(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="chat_summaries")
+
+
+class CustomCharacter(Base):
+    """用户自定义角色"""
+    __tablename__ = "custom_characters"
+
+    id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("user.id"), nullable=False, index=True)
+    name = Column(String(50), nullable=False)
+    description = Column(String(200), default="")
+    personality = Column(String(200), default="")
+    speaking_style = Column(String(200), default="")
+    greetings = Column(Text, default="[]")  # JSON array of greeting strings
+    tags = Column(Text, default="[]")  # JSON array of tag strings
+    model = Column(String(100), default="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B")
+    temperature = Column(Integer, default=80)  # stored as int (0.8 * 100)
+    max_tokens = Column(Integer, default=180)
+    avatar_color = Column(String(20), default="#667eea")  # hex color for avatar
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User")
+
+
+class UserPreference(Base):
+    """用户偏好记忆（从对话中提取）"""
+    __tablename__ = "user_preferences"
+
+    id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Integer, ForeignKey("user.id"), nullable=False, index=True)
+    preference_key = Column(String(50), nullable=False)  # e.g., "name", "hobby", "mood"
+    preference_value = Column(Text, nullable=False)
+    confidence = Column(Integer, default=80)  # 0-100
+    source = Column(String(20), default="extracted")  # "extracted" or "manual"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User")

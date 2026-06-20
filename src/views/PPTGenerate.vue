@@ -18,6 +18,12 @@
         <span>AI PPT 生成</span>
       </div>
       <div class="header-actions">
+        <button class="header-btn" @click="showHistoryPanel = !showHistoryPanel" title="生成历史">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+          历史
+        </button>
         <span class="header-hint">Agent 驱动自然语言生成</span>
       </div>
     </header>
@@ -33,6 +39,43 @@
             :disabled="generating"
           ></textarea>
           <div class="char-count">{{ topic.length }} / 2000</div>
+        </div>
+
+        <!-- 文件上传区域 -->
+        <div class="form-group">
+          <label>上传文件生成 <span class="optional">(可选)</span></label>
+          <div
+            class="file-upload-area"
+            :class="{ 'has-file': uploadedFile }"
+            @dragover.prevent
+            @drop.prevent="handleFileDrop"
+          >
+            <div v-if="!uploadedFile" class="upload-placeholder" @click="triggerFileInput">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              <p>拖拽文件到此处，或点击上传</p>
+              <span class="upload-hint">支持 PDF、Word、TXT、Markdown、代码文件</span>
+            </div>
+            <div v-else class="file-info">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="24" height="24">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+              <div class="file-details">
+                <span class="file-name">{{ uploadedFile.name }}</span>
+                <span class="file-size">{{ formatFileSize(uploadedFile.size) }}</span>
+              </div>
+              <button class="remove-file" @click.stop="removeFile" title="移除文件">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <input ref="fileInputRef" type="file" accept=".txt,.md,.pdf,.docx,.doc,.py,.js,.ts,.json,.yaml,.yml,.csv,.log" style="display:none" @change="handleFileSelect" />
         </div>
 
         <div class="form-group">
@@ -76,6 +119,16 @@
             </div>
             <div class="option-item">
               <label class="option-label">
+                <span>输出格式</span>
+                <select v-model="outputFormat" class="option-select">
+                  <option value="pptx">PPTX (PowerPoint)</option>
+                  <option value="html">HTML (在线预览)</option>
+                  <option value="markdown">Markdown (文档)</option>
+                </select>
+              </label>
+            </div>
+            <div class="option-item">
+              <label class="option-label">
                 <input v-model="autoImages" type="checkbox" class="option-checkbox" />
                 <span>自动配图</span>
               </label>
@@ -90,12 +143,20 @@
         </div>
 
         <button
+          v-if="!generating"
           class="generate-btn"
-          :disabled="!canGenerate || generating"
+          :disabled="!canGenerate"
           @click="handleGenerate"
         >
-          <span v-if="generating" class="loading-spinner"></span>
-          {{ generating ? 'AI 正在生成...' : '一键生成 PPT' }}
+          {{ uploadedFile ? '根据文件生成 PPT' : '一键生成 PPT' }}
+        </button>
+        <button
+          v-else
+          class="generate-btn cancel-btn"
+          @click="handleCancel"
+        >
+          <span class="loading-spinner"></span>
+          取消生成
         </button>
 
         <div v-if="generating && progressState" class="progress-section">
@@ -129,6 +190,9 @@
           <div class="success-actions">
             <a :href="generatedFileUrl" target="_blank" class="download-link">
               下载 PPTX 文件
+            </a>
+            <a v-if="currentTaskId" :href="`/api/v1/pptx/download/${currentTaskId}/pdf`" target="_blank" class="download-link pdf-link">
+              下载 PDF
             </a>
             <button class="preview-btn" @click="goToPreview">
               在线预览
@@ -196,6 +260,41 @@
         </div>
       </main>
     </div>
+
+    <!-- 历史记录面板 -->
+    <div v-if="showHistoryPanel" class="history-panel-overlay" @click.self="showHistoryPanel = false">
+      <div class="history-panel">
+        <div class="history-panel-header">
+          <h3>生成历史</h3>
+          <button class="close-btn" @click="showHistoryPanel = false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="history-panel-body">
+          <div v-if="loadingHistory" class="history-loading">加载中...</div>
+          <div v-else-if="historyList.length === 0" class="history-empty">暂无历史记录</div>
+          <div v-else class="history-list">
+            <div v-for="item in historyList" :key="item.task_id" class="history-card">
+              <div class="history-card-header">
+                <span class="history-card-title">{{ item.topic || '未命名' }}</span>
+                <span class="history-card-time">{{ new Date(item.created_at).toLocaleString('zh-CN') }}</span>
+              </div>
+              <div class="history-card-meta">
+                <span>{{ item.slide_count || '-' }} 页</span>
+                <span>{{ item.template || 'modern' }}</span>
+              </div>
+              <div class="history-card-actions">
+                <a :href="`/api/v1/pptx/download/${item.task_id}`" class="history-action-btn">下载</a>
+                <button class="history-action-btn" @click="loadFromHistory(item)">加载</button>
+                <button class="history-action-btn delete" @click="deleteHistory(item.task_id)">删除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -212,12 +311,22 @@ const apiKeyStore = useApiKeyStore()
 const topic = ref('')
 const selectedTemplate = ref('modern')
 const slideCount = ref('10')
+const outputFormat = ref('pptx')
 const autoImages = ref(true)
 const enableAnimation = ref(true)
 const generating = ref(false)
 const generatedSlides = ref([])
 const generatedFileUrl = ref('')
 const progressState = ref(null)
+
+// 文件上传相关
+const uploadedFile = ref(null)
+const fileInputRef = ref(null)
+
+// 历史记录相关
+const showHistoryPanel = ref(false)
+const historyList = ref([])
+const loadingHistory = ref(false)
 
 // 增量修改相关状态
 const currentTaskId = ref('')
@@ -240,7 +349,9 @@ const templates = ref([
 
 let ws = null
 
-const canGenerate = computed(() => topic.value.trim().length > 0 && topic.value.length <= 2000)
+const canGenerate = computed(() => {
+  return (topic.value.trim().length > 0 || uploadedFile.value) && topic.value.length <= 2000
+})
 
 function goBack() {
   router.push('/')
@@ -271,9 +382,75 @@ async function loadTemplates() {
   }
 }
 
+// 文件上传相关函数
+function triggerFileInput() {
+  fileInputRef.value?.click()
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files?.[0]
+  if (file) setUploadedFile(file)
+}
+
+function handleFileDrop(e) {
+  const file = e.dataTransfer.files?.[0]
+  if (file) setUploadedFile(file)
+}
+
+function setUploadedFile(file) {
+  const maxSize = 50 * 1024 * 1024
+  if (file.size > maxSize) {
+    ElMessage.error('文件过大，最大支持 50MB')
+    return
+  }
+  uploadedFile.value = file
+}
+
+function removeFile() {
+  uploadedFile.value = null
+  if (fileInputRef.value) fileInputRef.value.value = ''
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+// 历史记录相关函数
+async function loadHistory() {
+  loadingHistory.value = true
+  try {
+    const result = await api.ppt.getHistory(1, 20)
+    historyList.value = result.items || result.history || []
+  } catch (e) {
+    console.warn('加载历史失败:', e)
+  } finally {
+    loadingHistory.value = false
+  }
+}
+
+function loadFromHistory(item) {
+  topic.value = item.topic || ''
+  selectedTemplate.value = item.template || 'modern'
+  slideCount.value = String(item.slide_count || 10)
+  showHistoryPanel.value = false
+  ElMessage.success('已加载历史配置')
+}
+
+async function deleteHistory(taskId) {
+  try {
+    await api.ppt.deleteHistory(taskId)
+    historyList.value = historyList.value.filter(h => h.task_id !== taskId)
+    ElMessage.success('已删除')
+  } catch (e) {
+    ElMessage.error('删除失败: ' + e.message)
+  }
+}
+
 function connectWebSocket(taskId) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${protocol}//${window.location.host}/ws/ppt/${taskId}`
+  const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/ppt/${taskId}`
 
   ws = new WebSocket(wsUrl)
 
@@ -343,18 +520,41 @@ async function handleGenerate() {
   progressState.value = { progress: 0, step: 'starting', message: '正在创建任务...' }
 
   try {
-    const fullPrompt = buildFullPrompt()
-    const result = await api.ppt.createPptTask(fullPrompt, null, apiKeyStore.siliconflowKey?.token, {
-      template_id: selectedTemplate.value,
-      slide_count: parseInt(slideCount.value),
-      auto_images: autoImages.value,
-      enable_animation: enableAnimation.value,
-    })
+    let result
+
+    if (uploadedFile.value) {
+      // 文件上传模式：使用 FormData
+      const formData = new FormData()
+      formData.append('file', uploadedFile.value)
+      formData.append('template', selectedTemplate.value)
+      formData.append('slide_count', parseInt(slideCount.value))
+      formData.append('output_format', outputFormat.value)
+      formData.append('extra_prompt', topic.value.trim())
+      formData.append('api_key_token', apiKeyStore.siliconflowKey?.token || '')
+
+      const token = localStorage.getItem('token') || ''
+      const resp = await fetch('/api/v1/pptx/generate_from_file', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      })
+      result = await resp.json()
+      if (!resp.ok) throw new Error(result.detail || '上传失败')
+    } else {
+      // 文本模式
+      const fullPrompt = buildFullPrompt()
+      result = await api.ppt.createPptTask(fullPrompt, null, apiKeyStore.siliconflowKey?.token, {
+        template_id: selectedTemplate.value,
+        slide_count: parseInt(slideCount.value),
+        auto_images: autoImages.value,
+        enable_animation: enableAnimation.value,
+        output_format: outputFormat.value,
+      })
+    }
 
     if (result && result.task_id) {
       connectWebSocket(result.task_id)
       ElMessage.success('任务已创建，正在生成中...')
-      // 不跳转，留在当前页面等待 WebSocket 进度
     } else {
       ElMessage.error('创建 PPT 任务失败，请稍后重试')
       generating.value = false
@@ -365,7 +565,22 @@ async function handleGenerate() {
     progressState.value = null
     generating.value = false
   }
-  // 注意：不在 finally 中设置 generating = false，由 WebSocket complete/error 事件控制
+}
+
+async function handleCancel() {
+  if (!generating.value) return
+  try {
+    // 尝试从 WebSocket 获取 task_id
+    if (ws) {
+      ws.close()
+      ws = null
+    }
+    generating.value = false
+    progressState.value = null
+    ElMessage.info('已取消生成')
+  } catch {
+    generating.value = false
+  }
 }
 
 function buildFullPrompt() {
@@ -435,7 +650,10 @@ function formatTime(date) {
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
-onMounted(() => { loadTemplates() })
+onMounted(() => {
+  loadTemplates()
+  loadHistory()
+})
 
 onUnmounted(() => {
   if (ws) { ws.close(); ws = null }
@@ -857,4 +1075,194 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--text-tertiary);
 }
+
+/* 文件上传区域 */
+.optional { color: var(--text-tertiary); font-weight: 400; }
+
+.file-upload-area {
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--bg-tertiary);
+}
+
+.file-upload-area:hover { border-color: var(--color-primary); background: var(--bg-primary); }
+.file-upload-area.has-file { border-style: solid; border-color: var(--color-primary); }
+
+.upload-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.upload-placeholder svg { opacity: 0.5; }
+.upload-placeholder p { font-size: 14px; margin: 0; }
+.upload-hint { font-size: 12px; color: var(--text-tertiary); }
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.file-info svg { color: var(--color-primary); flex-shrink: 0; }
+.file-details { flex: 1; text-align: left; }
+.file-name { display: block; font-size: 14px; font-weight: 500; color: var(--text-primary); }
+.file-size { font-size: 12px; color: var(--text-tertiary); }
+
+.remove-file {
+  padding: 4px;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.remove-file:hover { color: #ef4444; background: rgba(239,68,68,0.1); }
+
+/* 取消按钮 */
+.cancel-btn {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+}
+
+/* PDF 下载按钮 */
+.pdf-link {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+}
+
+/* 头部按钮 */
+.header-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.header-btn:hover { border-color: var(--color-primary); }
+
+/* 历史记录面板 */
+.history-panel-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.history-panel {
+  width: 400px;
+  height: 100%;
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  box-shadow: -4px 0 20px rgba(0,0,0,0.2);
+}
+
+.history-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.history-panel-header h3 { margin: 0; font-size: 16px; }
+
+.close-btn {
+  padding: 4px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.close-btn:hover { background: var(--bg-tertiary); }
+
+.history-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.history-loading, .history-empty {
+  text-align: center;
+  padding: 40px 0;
+  color: var(--text-tertiary);
+}
+
+.history-list { display: flex; flex-direction: column; gap: 12px; }
+
+.history-card {
+  padding: 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.history-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.history-card-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.history-card-time { font-size: 12px; color: var(--text-tertiary); }
+
+.history-card-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.history-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.history-action-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.history-action-btn:hover { border-color: var(--color-primary); }
+.history-action-btn.delete { color: #ef4444; border-color: #fca5a5; }
+.history-action-btn.delete:hover { background: rgba(239,68,68,0.1); }
 </style>

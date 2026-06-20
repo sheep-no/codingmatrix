@@ -20,8 +20,8 @@ from enum import Enum
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File as FastAPIFile, Form, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
@@ -1721,3 +1721,428 @@ async def generate_ppt_from_text_task(
     except Exception as exc:
         logger.error("PPT Agent 端到端失败 | error: %s", exc)
         raise HTTPException(status_code=500, detail=f"生成失败: {exc}")
+
+
+# =============================================================================
+# 文件上传生成 PPT
+# =============================================================================
+
+# 支持的文件扩展名
+_PPT_FILE_EXTENSIONS = {
+    ".txt", ".md", ".pdf", ".docx", ".doc",
+    ".py", ".js", ".ts", ".json", ".yaml", ".yml",
+    ".csv", ".log", ".rst", ".html", ".css",
+}
+
+@router.post("/pptx/generate_from_file", response_model=TaskResponse)
+async def generate_ppt_from_file(
+    file: UploadFile = FastAPIFile(..., description="上传文件 (PDF/Word/TXT/MD 等)"),
+    template: str = Form(default="modern", description="模板风格"),
+    slide_count: int = Form(default=10, ge=5, le=PPT_MAX_SLIDES, description="页数"),
+    output_format: str = Form(default="pptx", description="输出格式 (pptx/html/markdown)"),
+    extra_prompt: str = Form(default="", description="额外提示词"),
+    api_key_token: Optional[str] = Form(default=None, description="用户 API Key Token"),
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    上传文件生成 PPT
+
+    支持格式: PDF, Word, TXT, Markdown, 代码文件等
+    流程: 上传文件 → 解析内容 → AI 生成大纲 → 生成 PPT
+    """
+    user_id = token.get("sub", "anonymous")
+
+    # 验证文件扩展名
+    filename = file.filename or "unknown"
+    suffix = Path(filename).suffix.lower()
+    if suffix not in _PPT_FILE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件格式: {suffix}。支持: {', '.join(sorted(_PPT_FILE_EXTENSIONS))}"
+        )
+
+    # 保存上传文件到临时目录
+    upload_dir = Path("./uploads/ppt_uploads")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    file_id = str(uuid.uuid4())
+    temp_path = upload_dir / f"{file_id}{suffix}"
+
+    try:
+        content = await file.read()
+        if len(content) > 50 * 1024 * 1024:  # 50MB 限制
+            raise HTTPException(status_code=400, detail="文件过大，最大支持 50MB")
+        with open(temp_path, "wb") as f:
+            f.write(content)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文件保存失败: {e}")
+
+    # 解析文件内容
+    try:
+        from app.utils.aicloud.knowledge_processor import parse_document
+        parsed_text = parse_document(str(temp_path))
+        if not parsed_text or not parsed_text.strip():
+            raise HTTPException(status_code=400, detail="文件内容为空或无法解析")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文件解析失败: {e}")
+
+    # 截断过长内容（避免 token 超限）
+    max_chars = 30000
+    if len(parsed_text) > max_chars:
+        parsed_text = parsed_text[:max_chars] + f"\n\n[内容过长，已截断至 {max_chars} 字符]"
+
+    # 构建 PPT 请求
+    topic = f"根据以下文件内容生成 PPT：\n\n文件名: {filename}\n\n文件内容:\n{parsed_text}"
+    if extra_prompt:
+        topic += f"\n\n用户要求: {extra_prompt}"
+
+    req = PPTGenerationRequest(
+        topic=topic,
+        template=template,
+        slide_count=slide_count,
+        output_format=output_format,
+        api_key_token=api_key_token,
+    )
+
+    ppt_id = str(uuid.uuid4())
+
+    async def run_file_ppt_generation(task_id: str, **kwargs):
+        async def update_progress(progress: int = 0, message: str = "", **_kwargs):
+            await task_manager.update_progress(task_id, progress, message)
+
+        try:
+            await update_progress(progress=5, message="正在解析文件内容...")
+
+            # 生成大纲
+            await update_progress(progress=20, message="正在根据文件内容生成 PPT 大纲...")
+            outline = await generate_ppt_outline(req, user_id=user_id)
+
+            # 保存大纲快照
+            output_dir = PPT_OUTPUT_DIR
+            output_dir.mkdir(exist_ok=True)
+            snapshot_path = output_dir / f"{task_id}_slides.json"
+            with open(snapshot_path, 'w', encoding='utf-8') as f:
+                json.dump(outline.get('slides', []), f, ensure_ascii=False, indent=2)
+
+            # 根据格式生成文件
+            ext_map = {"pptx": "pptx", "html": "html", "markdown": "md"}
+            ext = ext_map.get(output_format, "pptx")
+            filepath = output_dir / f"{task_id}.{ext}"
+
+            if output_format == "pptx":
+                await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress)
+            elif output_format == "html":
+                await update_progress(progress=60, message="正在生成 HTML 格式...")
+                await generate_html_ppt(filepath, outline, req)
+            elif output_format == "markdown":
+                await update_progress(progress=60, message="正在生成 Markdown 格式...")
+                await generate_markdown_ppt(filepath, outline, req)
+            else:
+                await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress)
+
+            await update_progress(
+                progress=100,
+                message="PPT 生成完成",
+                status="completed",
+                result_data=json.dumps({
+                    "filename": filepath.name,
+                    "ppt_id": task_id,
+                    "source_file": filename,
+                    "download_url": f"/api/v1/pptx/download/{task_id}?format={ext}",
+                    "preview_url": f"/api/v1/pptx/preview/{task_id}" if output_format == "pptx" else None,
+                })
+            )
+
+        except asyncio.CancelledError:
+            await update_progress(status="cancelled", message="任务已取消")
+        except Exception as e:
+            await update_progress(status="failed", message=f"生成失败: {e}", error_message=str(e))
+            logger.error(f"文件 PPT 生成失败 | task_id: {task_id} | error: {e}")
+        finally:
+            # 清理临时文件
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except Exception:
+                pass
+
+    task_response = await task_manager.create_task(
+        task_type="ppt_generation",
+        user_id=user_id,
+        func=run_file_ppt_generation,
+        params={},
+    )
+
+    logger.info(f"文件 PPT 生成任务 | task_id: {task_response} | file: {filename} | user: {user_id}")
+    return TaskResponse(
+        task_id=task_response,
+        task_type="ppt_generation",
+        status="pending",
+        progress=0,
+        progress_message="等待中...",
+        created_at=datetime.now().isoformat()
+    )
+
+
+# =============================================================================
+# 自定义模板上传
+# =============================================================================
+
+@router.post("/pptx/templates/upload")
+async def upload_custom_template(
+    file: UploadFile = FastAPIFile(..., description="上传 PPTX 模板文件"),
+    name: str = Form(..., description="模板名称"),
+    description: str = Form(default="", description="模板描述"),
+    token: dict = Depends(verify_token),
+):
+    """
+    上传自定义 PPT 模板
+
+    上传 .pptx 文件作为模板，系统会解析母版配置（配色、字体、布局）
+    """
+    user_id = token.get("sub", "anonymous")
+
+    # 验证文件类型
+    filename = file.filename or "unknown"
+    if not filename.lower().endswith(".pptx"):
+        raise HTTPException(status_code=400, detail="仅支持 .pptx 格式")
+
+    # 保存模板文件
+    template_dir = Path("./configs/ppt/custom_templates")
+    template_dir.mkdir(parents=True, exist_ok=True)
+
+    template_id = f"custom_{user_id}_{uuid.uuid4().hex[:8]}"
+    template_path = template_dir / f"{template_id}.pptx"
+
+    try:
+        content = await file.read()
+        if len(content) > 20 * 1024 * 1024:  # 20MB 限制
+            raise HTTPException(status_code=400, detail="模板文件过大，最大 20MB")
+        with open(template_path, "wb") as f:
+            f.write(content)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"模板保存失败: {e}")
+
+    # 解析模板配置
+    try:
+        from app.utils.pptx.custom_template import CustomTemplateParser
+        parser = CustomTemplateParser()
+        config = parser.parse(str(template_path))
+
+        # 保存配置
+        config_path = template_dir / f"{template_id}.json"
+        import json as _json
+        with open(config_path, 'w', encoding='utf-8') as f:
+            _json.dump(config, f, ensure_ascii=False, indent=2)
+
+        return {
+            "template_id": template_id,
+            "name": name,
+            "description": description,
+            "config": config,
+            "message": "模板上传成功",
+        }
+    except Exception as e:
+        logger.warning(f"模板解析失败: {e}")
+        # 即使解析失败也保留文件，用户可以手动使用
+        return {
+            "template_id": template_id,
+            "name": name,
+            "description": description,
+            "config": None,
+            "message": f"模板上传成功，但自动解析失败: {e}",
+        }
+
+
+@router.get("/pptx/templates/custom")
+async def list_custom_templates(
+    token: dict = Depends(verify_token),
+):
+    """列出用户上传的自定义模板"""
+    user_id = token.get("sub", "anonymous")
+    template_dir = Path("./configs/ppt/custom_templates")
+
+    if not template_dir.exists():
+        return {"templates": []}
+
+    templates = []
+    for json_file in template_dir.glob("*.json"):
+        try:
+            import json as _json
+            with open(json_file, 'r', encoding='utf-8') as f:
+                config = _json.load(f)
+            template_id = json_file.stem
+            # 只返回当前用户的模板
+            if f"custom_{user_id}_" in template_id:
+                templates.append({
+                    "template_id": template_id,
+                    "config": config,
+                })
+        except Exception:
+            pass
+
+    return {"templates": templates}
+
+
+# =============================================================================
+# PDF 导出
+# =============================================================================
+
+@router.get("/pptx/download/{ppt_id}/pdf")
+async def download_ppt_as_pdf(
+    ppt_id: str,
+    token: dict = Depends(verify_token),
+):
+    """将 PPT 转换为 PDF 并下载"""
+    # 查找 PPTX 文件
+    pptx_path = PPT_OUTPUT_DIR / f"{ppt_id}.pptx"
+    if not pptx_path.exists():
+        raise HTTPException(status_code=404, detail="PPT 文件不存在")
+
+    pdf_path = PPT_OUTPUT_DIR / f"{ppt_id}.pdf"
+
+    # 使用 LibreOffice 转换
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["libreoffice", "--headless", "--convert-to", "pdf", "--outdir", str(PPT_OUTPUT_DIR), str(pptx_path)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"LibreOffice 转换失败: {result.stderr}")
+    except FileNotFoundError:
+        # LibreOffice 未安装，尝试使用 python-pptx 的替代方案
+        raise HTTPException(
+            status_code=501,
+            detail="PDF 导出需要安装 LibreOffice。请在服务器上安装: apt-get install libreoffice-impress"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF 转换失败: {e}")
+
+    if not pdf_path.exists():
+        raise HTTPException(status_code=500, detail="PDF 转换失败")
+
+    return FileResponse(
+        path=str(pdf_path),
+        filename=f"{ppt_id}.pdf",
+        media_type="application/pdf",
+    )
+
+
+# =============================================================================
+# WebSocket 进度推送
+# =============================================================================
+
+@router.websocket("/ws/ppt/{task_id}")
+async def ppt_progress_websocket(websocket: WebSocket, task_id: str):
+    """
+    WebSocket 端点用于实时 PPT 生成进度推送
+
+    客户端连接后会自动接收任务进度更新。
+    消息格式:
+    - {"type": "progress", "progress": 0.5, "step": "generating", "message": "正在生成第 5 页..."}
+    - {"type": "completed", "progress": 1, "step": "completed", "message": "任务完成"}
+    - {"type": "error", "error": "错误信息"}
+    """
+    await websocket.accept()
+    logger.info(f"PPT WebSocket 连接已建立 | task_id={task_id}")
+
+    try:
+        # 获取任务管理器
+        from app.utils.task_manager import task_manager
+
+        last_progress = -1
+        last_status = ""
+
+        while True:
+            # 查询任务状态
+            task_info = await task_manager.get_task_info_async(task_id)
+
+            if not task_info:
+                await websocket.send_json({
+                    "type": "error",
+                    "error": "任务不存在"
+                })
+                break
+
+            current_progress = task_info.get("progress", 0)
+            current_status = task_info.get("status", "")
+            current_message = task_info.get("progress_message", "")
+
+            # 只在进度或状态变化时发送更新
+            if current_progress != last_progress or current_status != last_status:
+                if current_status == "success":
+                    await websocket.send_json({
+                        "type": "completed",
+                        "progress": 1,
+                        "step": "completed",
+                        "message": "任务完成",
+                        "result": task_info.get("result", {})
+                    })
+                    break
+                elif current_status == "failed":
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": task_info.get("error_message", "任务失败"),
+                        "progress": current_progress / 100,
+                        "step": "error",
+                        "message": current_message
+                    })
+                    break
+                elif current_status == "cancelled":
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": "任务已取消",
+                        "progress": current_progress / 100,
+                        "step": "cancelled",
+                        "message": "任务已取消"
+                    })
+                    break
+                else:
+                    await websocket.send_json({
+                        "type": "progress",
+                        "progress": current_progress / 100,
+                        "step": current_status,
+                        "message": current_message
+                    })
+
+                last_progress = current_progress
+                last_status = current_status
+
+            # 检查是否有客户端消息（如 ping）
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
+                if data == "ping":
+                    await websocket.send_text("pong")
+            except asyncio.TimeoutError:
+                pass
+            except WebSocketDisconnect:
+                break
+
+            # 等待一段时间再查询
+            await asyncio.sleep(0.5)
+
+    except WebSocketDisconnect:
+        logger.info(f"PPT WebSocket 连接断开 | task_id={task_id}")
+    except Exception as e:
+        logger.error(f"PPT WebSocket 错误 | task_id={task_id} | error={e}")
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "error": f"服务器错误: {str(e)}"
+            })
+        except:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except:
+            pass

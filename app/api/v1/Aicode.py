@@ -488,7 +488,26 @@ async def _build_context(
 
 
 def _select_prompt_template(prompt: str, use_reasoning: bool) -> str:
-    """选择提示词模板"""
+    """选择提示词模板（支持从注册表获取自定义版本）"""
+    # 优先从注册表获取用户自定义版本
+    try:
+        from app.services.skill_registry import get_skill
+        if use_reasoning:
+            custom = get_skill("chat_reasoning_prompt")
+            if custom:
+                return custom
+        elif any(keyword in prompt.lower() for keyword in ['代码', '编程', 'function', 'code', '程序']):
+            custom = get_skill("chat_code_prompt")
+            if custom:
+                return custom
+        else:
+            custom = get_skill("chat_general_prompt")
+            if custom:
+                return custom
+    except Exception:
+        pass
+    
+    # 否则使用默认模板
     if use_reasoning:
         return REASONING_PROMPT
     elif any(keyword in prompt.lower() for keyword in ['代码', '编程', 'function', 'code', '程序']):

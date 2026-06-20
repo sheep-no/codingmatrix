@@ -15,6 +15,16 @@ class CodeReviewer(Specialist):
 
     @property
     def SYSTEM_PROMPT(self) -> str:
+        # 优先从注册表获取用户自定义版本
+        try:
+            from app.services.skill_registry import get_skill
+            custom_prompt = get_skill("code_reviewer_prompt")
+            if custom_prompt:
+                return custom_prompt
+        except Exception:
+            pass
+        
+        # 否则使用默认加载逻辑
         prompt = load_code_reviewer_prompt()
         if prompt is None:
             logger.error("代码审查员提示词加载失败，使用兜底提示词")

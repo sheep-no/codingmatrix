@@ -210,8 +210,8 @@ async def save_image_generation_history(
 # 请求模型定义
 # -----------------------------
 
-# 风格 prompt 映射
-STYLE_PROMPTS = {
+# 风格 prompt 映射（内置）
+_BUILTIN_STYLE_PROMPTS = {
     "realistic": "写实风格，高质量照片级真实感，专业摄影",
     "anime": "日系动漫风格，精美插画，色彩鲜艳",
     "digital_art": "数字艺术风格，概念艺术，精细细节",
@@ -223,6 +223,52 @@ STYLE_PROMPTS = {
     "pixel": "像素艺术风格，复古游戏画面",
     "minimalist": "极简主义风格，简洁构图，大面积留白",
 }
+
+
+def _load_custom_image_styles() -> dict:
+    """从 Skill 注册表加载自定义图片风格"""
+    custom_styles = {}
+    try:
+        from app.services.skill_registry import get_registry
+        registry = get_registry()
+        
+        # 获取 "image_styles" skill
+        skill_data = registry.get("image_styles")
+        if skill_data and isinstance(skill_data, str):
+            # 解析 Markdown 格式的风格定义
+            # 格式：# 风格名称\n描述内容
+            current_name = None
+            current_desc = []
+            
+            for line in skill_data.split('\n'):
+                if line.startswith('# ') and not line.startswith('## '):
+                    # 保存上一个风格
+                    if current_name and current_desc:
+                        custom_styles[current_name] = '\n'.join(current_desc).strip()
+                    # 开始新风格
+                    current_name = line[2:].strip().lower().replace(' ', '_')
+                    current_desc = []
+                elif current_name:
+                    current_desc.append(line)
+            
+            # 保存最后一个风格
+            if current_name and current_desc:
+                custom_styles[current_name] = '\n'.join(current_desc).strip()
+    except Exception as e:
+        logger.debug(f"加载自定义图片风格失败: {e}")
+    
+    return custom_styles
+
+
+def get_style_prompts() -> dict:
+    """获取所有风格 prompt（内置 + 自定义）"""
+    styles = dict(_BUILTIN_STYLE_PROMPTS)
+    styles.update(_load_custom_image_styles())
+    return styles
+
+
+# 向后兼容
+STYLE_PROMPTS = get_style_prompts()
 
 
 class TextToImageRequest(BaseModel):
@@ -309,10 +355,11 @@ async def text_to_image_api(
     logger.info(f"文生图请求 | user_id={user_id} | prompt={request.prompt[:50]}...")
     
     try:
-        # Step 1: 拼接风格描述
+        # Step 1: 拼接风格描述（动态获取，包括自定义风格）
         full_prompt = request.prompt
-        if request.style and request.style in STYLE_PROMPTS:
-            full_prompt = f"{STYLE_PROMPTS[request.style]}，{full_prompt}"
+        style_prompts = get_style_prompts()
+        if request.style and request.style in style_prompts:
+            full_prompt = f"{style_prompts[request.style]}，{full_prompt}"
 
         # Step 3: 携带会话历史（构建增强 prompt）
         if request.conversation_id:
@@ -475,10 +522,11 @@ async def image_to_image_api(
                 "message": "使用缓存的图片"
             }
         
-        # Step 3: 拼接风格描述
+        # Step 3: 拼接风格描述（动态获取，包括自定义风格）
         full_prompt = request.prompt
-        if request.style and request.style in STYLE_PROMPTS:
-            full_prompt = f"{STYLE_PROMPTS[request.style]}，{full_prompt}"
+        style_prompts = get_style_prompts()
+        if request.style and request.style in style_prompts:
+            full_prompt = f"{style_prompts[request.style]}，{full_prompt}"
 
         # Step 4: 携带会话历史
         if request.conversation_id:
@@ -799,4 +847,29 @@ async def get_config():
         "max_width": 1280,
         "max_height": 1280,
         "max_num_images": 4
+    }
+
+
+@router.get("/styles", summary="获取所有可用风格")
+async def get_styles():
+    """
+    获取所有可用的图片风格（内置 + 自定义）
+    
+    返回：
+    - styles: 风格名称列表
+    - style_prompts: 风格名称到描述的映射
+    - builtin_count: 内置风格数量
+    - custom_count: 自定义风格数量
+    """
+    builtin_styles = dict(_BUILTIN_STYLE_PROMPTS)
+    all_styles = get_style_prompts()
+    
+    custom_styles = {k: v for k, v in all_styles.items() if k not in builtin_styles}
+    
+    return {
+        "styles": list(all_styles.keys()),
+        "style_prompts": all_styles,
+        "builtin_count": len(builtin_styles),
+        "custom_count": len(custom_styles),
+        "custom_styles": list(custom_styles.keys())
     }
