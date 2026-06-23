@@ -57,12 +57,25 @@ def test_providers(s):
     log("\n=== 1. providers.py (自定义 Provider) ===")
     pid = None
 
-    # 1.1 创建 Provider
+    # 读取真实 API Key
+    import os
+    real_api_key = os.environ.get('SILICONFLOW_API_KEY', '')
+    if not real_api_key:
+        try:
+            with open('/workspace/.env', 'r') as f:
+                for line in f:
+                    if line.startswith('SILICONFLOW_API_KEY='):
+                        real_api_key = line.split('=', 1)[1].strip()
+                        break
+        except:
+            pass
+
+    # 1.1 创建 Provider (使用真实 API Key)
     r = s.post(f"{BASE}/api/v1/providers", json={
         "name": "test-provider",
         "base_url": "https://api.siliconflow.cn/v1",
         "protocol": "openai",
-        "api_key": "sk-test-dummy-key"
+        "api_key": real_api_key or "sk-test-dummy-key"
     })
     if r.status_code == 429:
         record("providers", "创建 Provider", False, "限流 429")
@@ -241,9 +254,12 @@ def test_aicloud(s):
         chunks = 0
         for line in r.iter_lines():
             if line:
+                decoded = line.decode()
+                # 跳过 keepalive 心跳
+                if decoded.startswith(':'):
+                    continue
                 chunks += 1
-                if chunks >= 3:
-                    break
+        r.close()  # 关闭连接
         record("aicloud", "流式对话", ok, f"chunks={chunks}")
     except Exception as e:
         record("aicloud", "流式对话", False, str(e)[:60])

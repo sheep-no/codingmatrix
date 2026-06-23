@@ -328,6 +328,9 @@ async def chat_stream(
         full_content = []
 
         try:
+            # 发送初始心跳，防止 keepalive 超时断开连接
+            yield ": keepalive\n\n"
+
             stream_gen = await call_llm(
                 model=model_info.model_key,
                 prompt=full_prompt,
