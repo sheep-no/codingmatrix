@@ -1003,7 +1003,7 @@ async def download_ppt(
     format: str = Query(default="pptx", description="下载格式"),
     token: dict = Depends(verify_token)
 ):
-    """下载 PPT 文件，下载后自动清理"""
+    """下载 PPT 文件"""
     user_id = token.get("sub", "anonymous")
     output_dir = PPT_OUTPUT_DIR
     
@@ -1023,25 +1023,10 @@ async def download_ppt(
     
     logger.info(f"下载 PPT | user: {user_id} | file: {filepath.name}")
     
-    def cleanup_related_files():
-        try:
-            if filepath and filepath.exists():
-                filepath.unlink()
-                logger.info(f"已删除 PPT 文件: {filepath.name}")
-            # 清理关联 JSON
-            json_path = output_dir / f"{ppt_id}_slides.json"
-            if json_path.exists():
-                json_path.unlink()
-        except Exception as e:
-            logger.warning(f"清理文件失败: {e}")
-    
     async def file_stream():
-        try:
-            with open(filepath, "rb") as f:
-                while chunk := f.read(65536):
-                    yield chunk
-        finally:
-            cleanup_related_files()
+        with open(filepath, "rb") as f:
+            while chunk := f.read(65536):
+                yield chunk
     
     mime_types = {
         "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",

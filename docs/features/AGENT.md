@@ -189,7 +189,7 @@ CodingMatrix Agent 是一个基于 ReAct (Reasoning + Acting) 模式的智能任
 
 ## 前端 Agent 工作台
 
-**组件**: `src/components/AgentChat.vue`
+**组件**: `src/views/AgentDashboard.vue` (384 行)
 
 - **路由路径**: `/agent` (新标签页打开)
 - **状态管理**: `useAgentChat` composable + `userStore`
@@ -631,6 +631,20 @@ TASK_MODEL_MAP = {
 - **职责**: 代码质量和安全审查
 - **使用模型**: GLM-Z1-9B + DeepSeek-R1 (双重审查)
 - **审查维度**: 安全性、正确性、性能、可维护性、版本兼容性
+
+### 自定义 Skill 集成
+
+每个 Specialist 在加载系统提示词时，遵循三级优先级：
+
+1. SkillRegistry 自定义 Skill（如 `architect_prompt`）→ 用户上传的
+2. 内置 .md 文件（`.claude/skills/orchestrator/`）→ 默认
+3. 硬编码 `_fallback_prompt()` → 兜底
+
+支持覆盖的 Skill 名称：
+- `architect_prompt` → 架构师
+- `backend_engineer_prompt` → 后端工程师
+- `frontend_engineer_prompt` → 前端工程师
+- `code_reviewer_prompt` → 代码审查员
 
 ### MultiModelAgent (多模型协调器)
 
@@ -1283,15 +1297,24 @@ class MemoryEntry:
 
 - **最大迭代**: 默认 10 次
 - **流式输出**: 支持实时推送思考过程
-- **降级策略**: ReActWithFallback 支持模型切换
+- **降级策略**: 通过 `ReActEngine` (`app/agent/react_engine.py`) 实现模型切换
+
+> **注意**: `ReActWithFallback` 类已在 v5.14.0 中删除（死代码清理，42 行硬编码模型名）。当前降级逻辑由 `ReActEngine` 内置的 fallback 机制和 `ErrorRecoveryLoop` 的供应商感知降级链处理。
 
 ```python
-fallback = ReActWithFallback()
-result = await fallback.process(task, context)
-# 主模型失败时自动切换到备用模型，最多重试 2 次
+from app.agent.react_engine import ReActEngine
+
+engine = ReActEngine(model_router=model_router, error_recovery=error_recovery)
+result = await engine.run(task, context)
+# 降级链由 ErrorRecoveryLoop 根据用户 Key 所属供应商自动选择
 ```
 
 ### 错误恢复
+
+**降级偏好设置**: 用户可通过 API Key 的 `fallback_preference` 设置降级策略：
+- `use_admin_default`: 使用系统默认降级链
+- `custom`: 使用用户自定义降级链
+- `disabled`: 禁用降级
 
 **文件**: `app/agent/error_recovery.py`
 
@@ -1326,7 +1349,7 @@ result = await fallback.process(task, context)
 
 | 参数 | 默认值 | 描述 |
 |------|--------|------|
-| MAX_CONCURRENT_LLM_CALLS | 4 | 最大并发 LLM 调用数 |
+| MAX_CONCURRENT_LLM_CALLS | 6 | 最大并发 LLM 调用数 (`app/agent/llm_client.py`) |
 | MAX_CONTENT_FOR_CONTEXT | 3000 | 依赖上下文最大内容长度 |
 | enable_review | True | 启用代码审查 |
 | enable_validation | True | 启用验证 |

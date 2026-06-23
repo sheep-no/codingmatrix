@@ -12,7 +12,7 @@ codingmatrix/
 │   │   ├── orchestrator_generation/   # 4 mixin: spec_first/traditional/incremental/evaluate
 │   │   ├── orchestrator_requirements/ # 3 层需求关联 + 双模型对抗
 │   │   └── *.py                 # 76 个核心 Agent 模块
-│   ├── api/                     # API 路由 (25 个 include_router, 16,080 行)
+│   ├── api/                     # API 路由 (27 个 include_router, 16,080 行)
 │   │   ├── v1/                  # 19 个用户功能模块
 │   │   │   └── ai_agent/        # 5 子路由聚合 (orchestrate/generate/association/knowledge/performance)
 │   │   └── v2/                  # 8 个管理功能模块
@@ -77,7 +77,7 @@ codingmatrix/
 | Python 文件 | **356** | 持续扩展 |
 | 代码总行数 | **99,618** | +20% |
 | Agent 模块 | **76 + 3 子包** | 一致 |
-| API 路由模块 | **25** (include_router 次数) | 26→25 修正 |
+| API 路由模块 | **27** (include_router 次数) | 25→27 新增 skills/GirlAi |
 | API 端点 | **226+** | +20 |
 | 中间件 | **4** | 一致 |
 | 服务层 | **14** | 新增列项 |
@@ -409,7 +409,7 @@ dependencies.get_affected_files(['models/user.py'])
 
 | 模块 | 路径 | 行数 | 描述 |
 |------|------|------|------|
-| 主应用 | `app/main.py` | **363** | FastAPI 应用入口，7 层中间件，25 个 include_router |
+| 主应用 | `app/main.py` | **363** | FastAPI 应用入口，7 层中间件，27 个 include_router |
 | Celery 配置 | `app/celery_app.py` | 120 | Celery 异步任务配置 |
 | 配置 | `app/core/config.py` | 181 | pydantic-settings 环境变量加载，`SECRET_KEY` 校验 |
 | 日志配置 | `app/core/logging_config.py` | 248 | `SensitiveDataFilter` 10 类敏感信息脱敏 |
@@ -456,7 +456,7 @@ dependencies.get_affected_files(['models/user.py'])
 | **OrchestratorRequirements** | `orchestrator_requirements/` | **1,037** | **3 层需求关联 + 双模型对抗 + 魔鬼代言人** |
 | **Adapters** | `adapters/` | **~1,600** | **语言适配器：generic/python/javascript/language_adapter** |
 
-### API 路由 (app/api/) - 25 个 include_router / 16,080 行
+### API 路由 (app/api/) - 27 个 include_router / 16,080 行
 
 #### v1 用户 API (19 模块)
 
@@ -479,6 +479,8 @@ dependencies.get_affected_files(['models/user.py'])
 | aiGeneratorPptx | `aiGeneratorPptx.py` | **1,723** | 4 | PPT 生成 (最大文件) |
 | github | `github.py` | - | - | GitHub 集成 |
 | health | `health.py` | - | - | 健康检查 |
+| GirlAi.py | `GirlAi.py` | 855 | 11 | characters, chat, history, avatar, search, custom角色 CRUD, preferences |
+| skills.py | `skills.py` | 241 | 8 | upload, list, categories, get, update, delete, upload-file, reload |
 
 #### v2 管理 API (8 模块)
 
@@ -518,12 +520,14 @@ dependencies.get_affected_files(['models/user.py'])
 | `prometheus_metrics.py` | - | Prometheus 指标 |
 | `agent_memory_service.py` | - | Agent 记忆服务层 |
 | `user_preferences.py` | - | 用户偏好 |
+| `skill_registry.py` | 296 | Skill 注册中心 (全局单例、缓存、热重载) |
+| `custom_skill_manager.py` | 292 | 自定义 Skill CRUD (上传/更新/删除/验证) |
 
 ### 核心工具 (app/utils/)
 
 | 模块 | 行数 | 职责 |
 |------|------|------|
-| `agent_core.py` | **2,393** | `ProjectGeneratorAgent` 主入口 (最大工具模块, 需拆分) |
+| `agent_core.py` | **2,393** | `ProjectGeneratorAgent` 主入口 (最大工具模块, 需拆分); `FileModelRouter` 读取 `agent_model_config.json` |
 | `guardrails.py` | 452 | `PromptInjectionDetector` (11+ 模式 + 8 关键词 + 结构异常检测) |
 | `cache.py` | 349 | `MemoryCache` (LRU) + `RedisCache` 双 backend 切换 |
 | `csrf.py` | 164 | `CSRFTokenManager`, 双重提交 Cookie 模式 |
@@ -556,6 +560,7 @@ dependencies.get_affected_files(['models/user.py'])
 | `ProjectSession` (db/) | 项目会话 (v5.12.0+) |
 | `WorkflowHistory` (db/) | 工作流历史 |
 | `ImageGenerationHistory` (db/) | 图像生成历史 |
+| `girl_request.py` (schema/) | GirlAi 请求/响应 (30 行): `GirlRequest`, `GirlResponse` |
 
 ---
 

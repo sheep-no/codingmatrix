@@ -1,18 +1,17 @@
 {
   "version": "4.0",
   "description": "统一模型配置 - 所有模型相关设置集中管理",
-  "last_updated": "2026-06-16T11:20:00.000000",
-
+  "last_updated": "2026-06-23T02:10:51.379804",
   "models": {
     "nex-n2-pro": {
       "name": "nex-agi/Nex-N2-Pro",
       "display_name": "Nex N2 Pro",
       "provider": "siliconflow",
-      "is_reasoning": false,
+      "is_reasoning": true,
       "context_length": 262144,
-      "max_tokens": 8192,
-      "thinking_budget": 0,
-      "thinking_ratio": 0,
+      "max_tokens": 16384,
+      "thinking_budget": 2048,
+      "thinking_ratio": 0.3,
       "temperature": 0.7,
       "timeout": 600,
       "speed": 1.0
@@ -200,22 +199,17 @@
       "speed": 2.0
     }
   },
-
   "roles": {
-    "architect": "glm-z1-9b",
+    "architect": "qwen3-8b",
     "frontend": "deepseek-r1",
     "backend": "nex-n2-pro",
     "reviewer": "glm-z1-9b",
     "fallback": "qwen3-8b"
   },
-
   "fallback_chain": [
-    "deepseek-r1",
-    "glm-z1-9b",
-    "glm-4-9b",
-    "qwen3-8b"
+    "qwen3-8b",
+    "glm-z1-9b"
   ],
-
   "error_type_models": {
     "NameError": "deepseek-r1",
     "AttributeError": "deepseek-r1",
@@ -224,26 +218,44 @@
     "TypeError": "deepseek-r1",
     "KeyError": "deepseek-r1",
     "IndexError": "deepseek-r1",
-    "LogicError": "deepseek-r1"
+    "LogicError": "deepseek-r1",
+    "timeout": "glm-z1-9b"
   },
-
   "settings": {
     "max_concurrent_requests": 100,
     "circuit_breaker_threshold": 3,
     "circuit_breaker_cooldown_seconds": 300
   },
-
   "cross_validation": {
     "enabled": true,
     "auto_priority_1": true,
     "critical_patterns": [
-      "auth", "permission", "middleware", "guard",
-      "payment", "order", "billing", "subscription",
-      "crypto", "encrypt", "token", "jwt", "oauth",
-      "security", "validation", "sanitizer",
-      "admin", "role", "access",
-      "controller", "handler", "router", "endpoint",
-      "database", "connection"
+      "auth",
+      "permission",
+      "middleware",
+      "guard",
+      "payment",
+      "order",
+      "billing",
+      "subscription",
+      "crypto",
+      "encrypt",
+      "token",
+      "jwt",
+      "oauth",
+      "security",
+      "validation",
+      "sanitizer",
+      "admin",
+      "role",
+      "access",
+      "controller",
+      "handler",
+      "router",
+      "endpoint",
+      "database",
+      "connection"
     ]
-  }
+  },
+  "model_context_lengths": {}
 }

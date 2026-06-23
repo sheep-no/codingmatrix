@@ -149,58 +149,80 @@ class ProgressType(str, Enum):
 # ==================== 多模型路由器 ====================
 
 class FileModelRouter:
-    """根据文件类型自动选择最佳模型"""
-    
-    # 前端文件扩展名 → 快速模型
+    """根据文件类型自动选择最佳模型（从 agent_model_config.json 读取配置）"""
+
+    # 前端文件扩展名
     FRONTEND_EXTENSIONS = {'.vue', '.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.scss', '.sass', '.less'}
-    
-    # 后端文件扩展名 → 推理模型
+    # 后端文件扩展名
     BACKEND_EXTENSIONS = {'.py', '.go', '.java', '.rs', '.rb', '.php'}
-    
-    # 配置文件 → 快速模型
+    # 配置文件扩展名
     CONFIG_EXTENSIONS = {'.json', '.yaml', '.yml', '.toml', '.env', '.xml', '.sql'}
-    
-    # 文档文件 → 快速模型
+    # 文档文件扩展名
     DOC_EXTENSIONS = {'.md', '.txt', '.rst'}
-    
-    # 模型配置
-    FAST_MODEL = "Qwen/Qwen3-8B"       # 前端/配置/文档用快速模型
-    REASONING_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"  # 后端用推理模型
-    
-    @classmethod
-    def get_model_for_file(cls, file_path: str) -> str:
+
+    # 硬编码兜底（配置文件加载失败时使用）
+    _DEFAULT_FRONTEND_MODEL = "Qwen/Qwen3-8B"
+    _DEFAULT_BACKEND_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+
+    def __init__(self):
+        self._load_config()
+
+    def _load_config(self):
+        """从 agent_model_config.json 加载角色模型映射"""
+        import json as _json
+        config_path = Path(__file__).parent.parent.parent / "data" / "agent_model_config.json"
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                cfg = _json.load(f)
+            roles = cfg.get("roles", {})
+            models = cfg.get("models", {})
+
+            def _resolve(role_name: str) -> str:
+                """把 role ID 解析为完整模型名称（API 用的 name 字段）"""
+                role_id = roles.get(role_name, "")
+                if not role_id:
+                    return ""
+                # 先查 models 字典获取 name（API 模型 ID）
+                m = models.get(role_id, {})
+                return m.get("name") or role_id
+
+            self.frontend_model = _resolve("frontend") or self._DEFAULT_FRONTEND_MODEL
+            self.backend_model = _resolve("backend") or self._DEFAULT_BACKEND_MODEL
+            self.fallback_model = _resolve("fallback") or self._DEFAULT_FRONTEND_MODEL
+
+            logger.info(f"FileModelRouter 已加载配置: frontend={self.frontend_model}, backend={self.backend_model}, fallback={self.fallback_model}")
+        except Exception as e:
+            logger.warning(f"FileModelRouter 加载配置失败，使用默认值: {e}")
+            self.frontend_model = self._DEFAULT_FRONTEND_MODEL
+            self.backend_model = self._DEFAULT_BACKEND_MODEL
+            self.fallback_model = self._DEFAULT_FRONTEND_MODEL
+
+    def get_model_for_file(self, file_path: str) -> str:
         """根据文件路径返回最佳模型"""
-        from pathlib import Path
         ext = Path(file_path).suffix.lower()
-        
-        if ext in cls.FRONTEND_EXTENSIONS:
-            return cls.FAST_MODEL
-        elif ext in cls.BACKEND_EXTENSIONS:
-            return cls.REASONING_MODEL
-        elif ext in cls.CONFIG_EXTENSIONS:
-            return cls.FAST_MODEL
-        elif ext in cls.DOC_EXTENSIONS:
-            return cls.FAST_MODEL
+
+        if ext in self.BACKEND_EXTENSIONS:
+            return self.backend_model
+        elif ext in self.FRONTEND_EXTENSIONS:
+            return self.frontend_model
         else:
-            return cls.FAST_MODEL  # 默认使用快速模型
-    
-    @classmethod
-    def get_model_for_task(cls, requirement: str) -> str:
+            # 配置文件、文档、未知类型 → 前端/快速模型
+            return self.frontend_model
+
+    def get_model_for_task(self, requirement: str) -> str:
         """根据任务需求返回最佳模型"""
         req_lower = requirement.lower()
-        
-        # 后端关键词
+
         backend_keywords = ['api', '数据库', 'database', '后端', 'backend', 'server', '服务器', 'fastapi', 'django', 'flask']
-        # 前端关键词
         frontend_keywords = ['前端', 'frontend', 'ui', '界面', '页面', 'vue', 'react', 'html', 'css', '样式']
-        
+
         backend_count = sum(1 for kw in backend_keywords if kw in req_lower)
         frontend_count = sum(1 for kw in frontend_keywords if kw in req_lower)
-        
+
         if backend_count > frontend_count:
-            return cls.REASONING_MODEL
+            return self.backend_model
         else:
-            return cls.FAST_MODEL
+            return self.frontend_model
 
 
 # ==================== Token编码器 ====================
@@ -1957,6 +1979,7 @@ class ProjectGeneratorAgent(BaseModel):
                 }, callback)
         else:
             logger.info("验证已禁用")
+            validation_report = {"runnable": True, "errors": [], "warnings": [], "status": "skipped"}
             await self._progress_callback(ProgressType.VALIDATION, {
                 "message": "验证已禁用",
                 "status": "skipped"

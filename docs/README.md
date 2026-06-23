@@ -1,6 +1,6 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-06-09 | 后端代码：356 文件 / 99,618 行 | 前端代码：~58,000 行 | Agent 模块：76 + 3 子包 | 端点：226+ | E2E 用例：409
+> 最后更新：2026-06-22 | 后端代码：356 文件 / 99,618 行 | 前端代码：~58,000 行 | Agent 模块：76 + 3 子包 | 端点：240+ | E2E 用例：409
 
 ## 快速导航
 
@@ -16,7 +16,7 @@
 - [API 职责矩阵](architecture/API-RESPONSIBILITY-MATRIX.md) - v1/v2 路由职责
 
 ### API
-- [API 文档](api/API-DOCUMENTATION.md) - 226+ 个端点完整文档
+- [API 文档](api/API-DOCUMENTATION.md) - 240+ 个端点完整文档
 - [API 版本管理](api/API-VERSIONS.md) - 版本策略和迁移指南
 
 ### 核心功能模块
@@ -32,6 +32,8 @@
 - [多语言依赖解析](features/MULTI-LANGUAGE-DEPENDENCY-PARSER.md) - 14 种语言依赖分析
 - [SSE 展示优化](features/SSE-DISPLAY-OPTIMIZATION.md) - 流式响应展示
 - [PPT Agent](features/PPT-AGENT.md) - PPT 智能生成
+- [自定义 Skill](features/CUSTOM-SKILLS.md) - 自定义提示词管理、热重载
+- [虚拟姬](features/GIRLAI.md) - AI 情感陪伴角色
 - [项目介绍](features/PROJECT-INTRODUCTION.md) - 平台功能总览
 
 ### 部署运维
@@ -68,7 +70,7 @@ CodingMatrix 是 AI 驱动的全栈代码生成与开发平台，基于 FastAPI 
 | **Agent 模块** | 76 + 3 子包 | 多角色协作系统 (34,166 行) |
 | **Orchestrator Mixins** | 25 | 生成流程协调 |
 | **API 路由模块** | 25 | 19 v1 用户 + 8 v2 管理 |
-| **API 端点** | 226+ | 前后端接口 |
+| **API 端点** | 240+ | 前后端接口 |
 | **E2E 测试** | 77 spec / 409 用例 | 端到端测试 |
 | **单元测试** | 88 文件 / 1376 用例 | 测试覆盖 |
 | **集成测试** | 2 文件 | 多数已归档到 archive/ |
@@ -101,7 +103,7 @@ CodingMatrix 是 AI 驱动的全栈代码生成与开发平台，基于 FastAPI 
 | **工具系统** | `app/agent/tools.py` (1,079 行) | 21 个内置工具 (唯一实现源) + MCP 扩展, SPECIALIST_TOOLS 注册表 |
 | **多供应商 LLM** | `app/adapter/` | 7 供应商 + 动态供应商 + context_length 4 级 fallback |
 
-### 端点模块 (25 个 include_router, 226+ 端点)
+### 端点模块 (27 个 include_router, 240+ 端点)
 
 | 模块 | 端点 | 功能 |
 |------|------|------|
@@ -121,6 +123,7 @@ CodingMatrix 是 AI 驱动的全栈代码生成与开发平台，基于 FastAPI 
 | 模型管理 | `/api/v2/models` | 管理员配置 context_length、fallback chain |
 | MCP 管理 | `/api/v2/mcp` | MCP Server CRUD + test + toggle |
 | 沙箱管理 | `/api/v2/admin/sandbox-config` | 管理员配置代码沙箱 |
+| Skills API | `/api/v2/skills/*` | 自定义 Skill CRUD + 热重载 |
 | Nginx | `/api/v2/nginx/*` | Nginx 配置检查/生成/部署 |
 | 守护路由 | `/api/v2/guardian` | 服务守护 (最大 v2 模块 858 行) |
 | 健康检查 | `/api/v1/health` | Prometheus 指标 |
@@ -181,6 +184,8 @@ docs/
 │   ├── SSE-DISPLAY-OPTIMIZATION.md
 │   ├── WEB-SEARCH-ENHANCEMENTS.md
 │   ├── PPT-AGENT.md           # PPT 智能生成
+│   ├── CUSTOM-SKILLS.md       # 自定义 Skill 系统
+│   ├── GIRLAI.md              # 虚拟姬
 │   └── PROJECT-INTRODUCTION.md # 项目介绍
 ├── guides/                      # 开发指南
 │   ├── GETTING-STARTED.md       # 快速开始
@@ -212,6 +217,7 @@ docs/
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| **v5.15.0** | **2026-06-22** | **模型配置 v4.0 + 自定义 Skill 系统 + 虚拟姬增强 + API Key 降级偏好** |
 | **v5.14.0** | **2026-06-06** | **项目规模扩展：76 Agent 模块 + 25 Orchestrator Mixins + 69 Vue 组件 + 26 API 路由** |
 | **v5.13.0** | **2026-06-05** | **LLM 调用路径统一 + 多模态兼容 + 供应商感知降级链** |
 | v5.12.0+ | 2026-06-02 | ReAct 工具调用深度集成 + 动态批处理规划 + 模型 context_length 多级管理 + API Key 修复 + 前端消息处理完善 + 代码沙箱 admin 配置 |
@@ -220,6 +226,15 @@ docs/
 | v5.10.0 | 2026-05-27 | 工作流节点扩展（9种） + 重试机制 + 条件分支 |
 | v5.9.0 | 2026-05-26 | API Key 全局化 + Token 统计 + Orchestrator 端点 |
 | v5.8.1 | 2026-05-23 | KV Cache 优化 + 多角度审查系统 |
+
+### v5.15.0 (2026-06-22)
+
+- **模型配置 v4.0**: 新增 nex-n2-pro 模型，角色分配调整
+- **FileModelRouter**: 改为从 agent_model_config.json 读取配置
+- **自定义 Skill 系统**: 完整的 CRUD API + 热重载 + Agent 提示词覆盖
+- **虚拟姬增强**: 自定义角色、用户偏好、历史搜索
+- **API Key 降级偏好**: fallback_preference (disabled/custom/admin_default)
+- **Bug 修复**: 验证禁用时 validation_report 缺少 runnable 键
 
 ### v5.14.0 项目规模扩展
 
@@ -243,4 +258,4 @@ docs/
 
 ---
 
-最后更新：2026-06-09
+最后更新：2026-06-22

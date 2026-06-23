@@ -95,7 +95,7 @@ class TopologyScheduler:
         max_concurrent: int = 5,
         max_retries: int = 2,
         timeout_per_file: float = 180.0,
-        heartbeat_timeout: float = 300.0,  # 心跳超时：300 秒无 LLM 调用活动视为僵尸
+        heartbeat_timeout: float = 600.0,  # 心跳超时：600 秒无 LLM 调用活动视为僵尸（推理模型需要更长时间）
         cancel_event: Optional[asyncio.Event] = None,
         output_dir: Optional[str] = None  # 输出目录，用于文件写入
     ):

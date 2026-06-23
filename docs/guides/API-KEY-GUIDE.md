@@ -50,10 +50,9 @@
 #### 支持的模型
 
 硅基流动提供以下模型：
-- **Qwen 系列**：qwen-plus, qwen-turbo, qwen-max
-- **DeepSeek 系列**：deepseek-chat, deepseek-reasoner
-- **GLM 系列**：glm-4, glm-4v
-- **其他**：THUDM/chatglm3-6b, kolors 等
+- **Qwen 系列**：Qwen/Qwen3-8B 及其他 Qwen 变体
+- **GLM 系列**：THUDM/GLM-Z1-9B-0414 及其他 GLM 变体
+- **其他**：平台 `agent_model_config.json` 中配置的模型
 
 ### 2.2 其他供应商 Key（可选）
 
@@ -83,11 +82,49 @@
 | 启用/禁用 | 临时禁用某个 Key 而不删除 |
 | 清除 | 永久删除 Key，不可恢复 |
 
-## 3. Token 使用统计
+## 3. 降级偏好设置 (fallback_preference)
+
+每个 API Key 可以独立配置降级策略，控制当主模型失败时的行为。
+
+### 3.1 三种模式
+
+| 模式 | 说明 |
+|------|------|
+| use_admin_default | 使用管理员配置的全局降级链（默认） |
+| custom | 使用用户自定义的降级链 |
+| disabled | 禁用降级，仅使用用户自己的模型 |
+
+### 3.2 API 端点
+
+```bash
+# 设置降级偏好
+curl -X PUT http://localhost:8000/api/v1/agent/apikey/{token}/fallback-preference \
+  -H "Authorization: Bearer <JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{"fallback_preference": "disabled"}'
+
+# 自定义降级链
+curl -X PUT http://localhost:8000/api/v1/agent/apikey/{token}/fallback-preference \
+  -H "Authorization: Bearer <JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{"fallback_preference": "custom", "custom_fallback_chain": ["Qwen/Qwen3-8B", "THUDM/GLM-Z1-9B-0414"]}'
+
+# 查看当前配置
+curl http://localhost:8000/api/v1/agent/apikey/{token}/fallback-preference \
+  -H "Authorization: Bearer <JWT>"
+```
+
+### 3.3 工作原理
+
+- `disabled` 模式：`LLMClient` 检测到偏好后设置 `disable_fallback=True`，`call_llm()` 跳过所有 provider 级别降级
+- `custom` 模式：`ErrorRecoveryLoop` 使用用户提供的模型列表进行降级
+- `use_admin_default` 模式：使用 `agent_model_config.json` 中的 `fallback_chain`
+
+## 4. Token 使用统计
 
 设置页面提供详细的 Token 使用统计：
 
-### 3.1 统计维度
+### 4.1 统计维度
 
 - **今日使用量**：当天消耗的 Token 总数
 - **本月使用量**：当月累计 Token
@@ -95,46 +132,46 @@
 - **消息总数**：发送的消息条数
 - **按模型统计**：每个模型消耗的 Token 分布
 
-### 3.2 用途
+### 4.2 用途
 
 - 监控 API 调用成本
 - 优化模型选择（选择性价比更高的模型）
 - 审计异常消耗
 
-## 4. Agent 环节模型配置
+## 5. Agent 角色模型配置
 
-平台支持为 Agent 的不同环节配置不同的模型：
+平台支持为 Agent 的不同角色配置不同的模型，基于 `agent_model_config.json` 中定义的 5 角色系统：
 
-### 4.1 环节说明
+### 5.1 角色说明
 
-| 环节 | 用途 | 推荐模型 |
+| 角色 | 用途 | 推荐模型 |
 |------|------|---------|
-| 决策层 | 任务分析和规划 | qwen-plus, gpt-4o |
-| 执行层前端 | 前端代码生成 | qwen-coder, claude-3-sonnet |
-| 执行层后端 | 后端代码生成 | deepseek-chat, qwen-max |
-| 架构设计 | 系统架构设计 | gpt-4o, claude-3-opus |
-| 攻坚层 | 复杂问题攻克 | claude-3-opus, gpt-4 |
-| 审查层 | 代码审查和质量检查 | qwen-plus, gpt-4o-mini |
-| 修复层 | 修复审查发现的问题 | deepseek-chat, qwen-coder |
-| 交叉验证 | 多角度验证方案 | qwen-turbo, gpt-3.5-turbo |
-| 反思层 | 总结经验教训 | qwen-plus, claude-3-haiku |
+| architect | 架构设计、任务分析与规划 | Qwen/Qwen3-8B, THUDM/GLM-Z1-9B-0414 |
+| frontend | 前端代码生成 | Qwen/Qwen3-8B, THUDM/GLM-Z1-9B-0414 |
+| backend | 后端代码生成 | Qwen/Qwen3-8B, THUDM/GLM-Z1-9B-0414 |
+| reviewer | 代码审查和质量检查 | Qwen/Qwen3-8B, THUDM/GLM-Z1-9B-0414 |
+| fallback | 降级备用模型 | Qwen/Qwen3-8B, THUDM/GLM-Z1-9B-0414 |
 
-### 4.2 配置方法
+### 5.2 配置方法
 
 1. 进入设置页面 → 「Agent 模型配置」标签
-2. 每个环节可选择：
-   - **系统默认**：使用平台配置的默认模型
+2. 每个角色可选择：
+   - **系统默认**：使用 `agent_model_config.json` 中配置的默认模型
    - **已配置的 API Key**：选择特定的 Key 和模型
    - **自定义供应商模型**：选择已添加的动态供应商模型
 3. 配置自动保存
 
-## 5. 自定义供应商（动态供应商）
+### 5.3 降级链配置
 
-### 5.1 什么是动态供应商？
+管理员可在 `agent_model_config.json` 中配置全局降级链（`fallback_chain`），当主模型不可用时按顺序尝试降级。用户也可通过降级偏好设置（见第3节）自定义个人降级链或禁用降级。
+
+## 6. 自定义供应商（动态供应商）
+
+### 6.1 什么是动态供应商？
 
 支持通过自定义 `base_url` + 协议类型添加任意兼容 OpenAI 或 Anthropic 协议的 API 服务。
 
-### 5.2 支持的协议
+### 6.2 支持的协议
 
 | 协议 | 调用端点 | 认证方式 |
 |------|---------|---------|
@@ -142,7 +179,7 @@
 | OpenAI 兼容 | `{base_url}/models` | Bearer Token（拉取模型列表） |
 | Anthropic 原生 | `{base_url}/messages` | x-api-key Header |
 
-### 5.3 添加供应商
+### 6.3 添加供应商
 
 1. 进入设置页面 → 「自定义供应商」标签
 2. 填写表单：
@@ -154,7 +191,7 @@
 4. 添加后点击「同步模型」拉取模型列表
 5. 点击「测试连接」验证可用性
 
-### 5.4 供应商管理
+### 6.4 供应商管理
 
 | 操作 | 说明 |
 |------|------|
@@ -163,42 +200,42 @@
 | 启用/禁用 | 控制供应商是否参与调用 |
 | 删除 | 移除供应商配置 |
 
-### 5.5 使用动态供应商
+### 6.5 使用动态供应商
 
 添加并启用后，动态供应商的模型会出现在：
-- Agent 环节模型配置的下拉列表中
+- Agent 角色模型配置的下拉列表中
 - 对话模型选择器中（如果平台支持）
 - 项目生成的模型配置中
 
-## 6. 常见问题
+## 7. 常见问题
 
-### 6.1 Key 过期了怎么办？
+### 7.1 Key 过期了怎么办？
 
 1. 清除过期的 Key
 2. 重新添加新的 Key
 3. 或联系供应商续费/刷新 Token
 
-### 6.2 为什么测试连接失败？
+### 7.2 为什么测试连接失败？
 
 - 检查 Key 是否正确
 - 检查网络是否可达供应商 API
 - 检查供应商账户余额是否充足
 - 查看供应商是否有区域限制
 
-### 6.3 可以同时使用多个 Key 吗？
+### 7.3 可以同时使用多个 Key 吗？
 
 可以。平台支持多个供应商 Key 同时配置，不同环节可使用不同的 Key。
 
-### 6.4 Key 会被平台保存吗？
+### 7.4 Key 会被平台保存吗？
 
 不会。Key 仅在 Redis 中加密存储，TTL 到期后自动清除，不写入持久化数据库。
 
-### 6.5 如何选择性价比最高的模型？
+### 7.5 如何选择性价比最高的模型？
 
-- 简单任务：使用 qwen-turbo, gpt-3.5-turbo, claude-3-haiku
-- 日常开发：使用 qwen-plus, gpt-4o-mini, claude-3-sonnet
-- 复杂任务：使用 qwen-max, gpt-4o, claude-3-opus
-- 代码生成：使用 deepseek-chat, qwen-coder, claude-3-5-sonnet
+- 简单任务：使用 Qwen/Qwen3-8B, THUDM/GLM-Z1-9B-0414
+- 日常开发：使用 Qwen/Qwen3-8B, THUDM/GLM-Z1-9B-0414
+- 复杂任务：使用 Qwen/Qwen3-8B, THUDM/GLM-Z1-9B-0414
+- 代码生成：使用 Qwen/Qwen3-8B, THUDM/GLM-Z1-9B-0414
 
 ## 相关文档
 

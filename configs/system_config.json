@@ -1,7 +1,7 @@
 {
   "system_config": {
     "version": "1.0",
-    "last_updated": "2026-05-11T10:30:00Z",
+    "last_updated": "2026-06-23T02:12:23.536609",
     "user_concurrent_limits": {
       "default_tiers": {
         "free": 1,
@@ -24,9 +24,24 @@
     "ppt_generation": {
       "enabled": true,
       "max_slides_per_presentation": 50,
-      "supported_templates": ["modern", "classic", "creative", "business", "academic", "minimalist", "corporate"],
+      "supported_templates": [
+        "modern",
+        "classic",
+        "creative",
+        "business",
+        "academic",
+        "minimalist",
+        "corporate"
+      ],
       "preview_enabled": true,
-      "export_formats": ["pptx", "pdf", "html"]
+      "export_formats": [
+        "pptx",
+        "pdf",
+        "html"
+      ]
     }
-  }
+  },
+  "test_config_key": "test_value",
+  "enable_code_sandbox": true,
+  "sandbox_languages": "python,javascript"
 }

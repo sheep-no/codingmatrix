@@ -45,19 +45,19 @@ call_llm() → 4 级优先级路由 → ProviderRouter.route() → Adapter 缓�
 
 ## v5.12.0+ 关键更新
 
-### 5 复杂度档 × 5 角色模型分配 v3.0
+### 5 复杂度档 × 5 角色模型分配 v4.0
 
-v3.0 更新了模型分配，移除复杂度分层，改为按角色固定模型分配：
+v4.0 更新了模型分配，移除复杂度分层，改为按角色固定模型分配：
 
 **当前分配**（`data/agent_model_config.json`）：
 
-| 角色 | 模型 | 说明 |
-|------|------|------|
-| Architect | GLM-Z1-9B | 架构师，使用思考模型 |
-| Frontend | GLM-4-9B | 前端工程师 |
-| Backend | DeepSeek-R1 | 后端工程师，使用最强模型 |
-| Reviewer | GLM-Z1-9B | 审查员，与 backend 不同模型实现交叉审查 |
-| Fallback | Qwen3-8B | 兜底模型 |
+| 角色 | 模型 ID | API 名称 |
+|------|---------|----------|
+| 架构师 | glm-z1-9b | THUDM/GLM-Z1-9B-0414 |
+| 前端工程师 | deepseek-r1 | deepseek-ai/DeepSeek-R1-0528-Qwen3-8B |
+| 后端工程师 | nex-n2-pro | nex-agi/Nex-N2-Pro |
+| 代码审查 | glm-z1-9b | THUDM/GLM-Z1-9B-0414 |
+| 兜底模型 | qwen3-8b | Qwen/Qwen3-8B |
 
 **降级链**: DeepSeek-R1 → GLM-Z1-9B → GLM-4-9B → Qwen3-8B
 
@@ -195,6 +195,7 @@ CodingMatrix 通过统一适配器接口调用多种 LLM 模型，实现三层�
 | BAAI/bge-reranker-v2-m3 | BAAI | 重排序 | 8k |
 | netease-youdao/bce-embedding-base_v1 | NetEase | 嵌入 | 0.5k |
 | netease-youdao/bce-reranker-base_v1 | NetEase | 重排序 | 0.5k |
+| nex-agi/Nex-N2-Pro | Nex AGI | 推理 | 262k |
 
 ### context_length 管理
 
@@ -209,11 +210,11 @@ CodingMatrix 通过统一适配器接口调用多种 LLM 模型，实现三层�
 
 ### 三层路由策略
 
-| 层级 | 模型 | 适用场景 |
-|------|------|----------|
-| 简单层 | qwen3.5-4b | 快速问答、格式化、简单改写 |
-| 标准层 | qwen2.5-7b, glm-4-9b | 代码生成、通用对话、常规开发任务 |
-| 攻坚层 | deepseek-r1, glm-z1-9b | 深度推理、复杂 bug 分析、架构设计 |
+| 层级 | 路由器 | 职责 |
+|------|--------|------|
+| Layer 1 | FileModelRouter | 读取 `agent_model_config.json`，按文件类型路由 |
+| Layer 2 | DynamicModelRouter | 熔断器、健康度追踪、降级链 |
+| Layer 3 | LearningRouter | 基于历史性能自适应选择 |
 
 ### 配置
 
@@ -266,19 +267,13 @@ export SILICONFLOW_API_KEY=your-api-key
 3. 使用模型：
 
 ```python
-from app.utils.AiCodeUtil import call_siliconflow
+from app.utils.aicloud.llm_caller import call_llm
 
-result = await call_siliconflow(
- prompt="写一个快速排序",
- model="qwen2.5-7b"
+result = await call_llm(
+    model="Qwen/Qwen3-8B",
+    messages=[{"role": "user", "content": "Hello"}],
+    temperature=0.7
 )
-
-async for chunk in await call_siliconflow(
- prompt="写一个快速排序",
- model="qwen2.5-7b",
- stream=True
-):
- print(chunk)
 ```
 
 4. 验证：

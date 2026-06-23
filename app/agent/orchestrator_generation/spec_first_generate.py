@@ -865,8 +865,8 @@ class SpecFirstGenerateMixin:
         """使用动态拓扑调度生成文件"""
         # 免费模型速率限制：并行度降为 2，避免 429 错误
         scheduler = TopologyScheduler(
-            max_concurrent=5, max_retries=2, timeout_per_file=300.0,
-            heartbeat_timeout=300.0,  # 300 秒无 LLM 调用活动视为僵尸
+            max_concurrent=5, max_retries=2, timeout_per_file=600.0,
+            heartbeat_timeout=600.0,  # 600 秒无 LLM 调用活动视为僵尸（推理模型需要更长时间）
             cancel_event=self.cancel_event,
             output_dir=str(self.output_dir)
         )

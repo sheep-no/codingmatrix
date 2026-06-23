@@ -29,7 +29,8 @@ router = APIRouter(prefix="/tasks", tags=["任务管理"])
 @router.post("", response_model=TaskResponse, summary="创建任务")
 async def create_task(
     body: TaskCreateRequest,
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     创建异步任务（Celery 驱动）
@@ -62,8 +63,7 @@ async def create_task(
             detail=f"不支持的任务类型：{task_type}"
         )
 
-    async with get_db() as db:
-        task_record = Task(
+    task_record = Task(
             task_id=f"task_{user_id}_{id(body)}",
             task_type=task_type,
             status="pending",
@@ -75,9 +75,9 @@ async def create_task(
             parent_task_id=body.parent_task_id,
             max_retries=3
         )
-        db.add(task_record)
-        await db.commit()
-        await db.refresh(task_record)
+    db.add(task_record)
+    await db.commit()
+    await db.refresh(task_record)
 
     result = celery_app.send_task(
         celery_task_name,
@@ -91,8 +91,7 @@ async def create_task(
     )
 
     task_record.celery_task_id = result.id
-    async with get_db() as db:
-        await db.commit()
+    await db.commit()
 
     logger.info(f"任务创建成功 | task_id={task_record.task_id} | celery_id={result.id}")
 
@@ -118,16 +117,16 @@ async def create_task(
 @router.get("/{task_id}", response_model=TaskResponse, summary="查询任务状态")
 async def get_task(
     task_id: str,
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
 ):
     """查询任务状态和进度"""
     user_id = int(token.get("sub"))
 
-    async with get_db() as db:
-        result = await db.execute(
-            select(Task).where(Task.task_id == task_id)
-        )
-        task_record = result.scalar_one_or_none()
+    result = await db.execute(
+        select(Task).where(Task.task_id == task_id)
+    )
+    task_record = result.scalar_one_or_none()
 
     if not task_record:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -175,28 +174,28 @@ async def list_tasks(
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     status: Optional[str] = Query(None, description="状态筛选"),
     task_type: Optional[str] = Query(None, description="类型筛选"),
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
 ):
     """列出用户的任务"""
     user_id = int(token.get("sub"))
 
-    async with get_db() as db:
-        query = select(Task).where(Task.user_id == user_id)
+    query = select(Task).where(Task.user_id == user_id)
 
-        if status:
-            query = query.where(Task.status == status)
-        if task_type:
-            query = query.where(Task.task_type == task_type)
+    if status:
+        query = query.where(Task.status == status)
+    if task_type:
+        query = query.where(Task.task_type == task_type)
 
-        count_query = select(func.count()).select_from(query.subquery())
-        total_result = await db.execute(count_query)
-        total = total_result.scalar() or 0
+    count_query = select(func.count()).select_from(query.subquery())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
 
-        query = query.order_by(Task.created_at.desc())
-        query = query.offset((page - 1) * page_size).limit(page_size)
+    query = query.order_by(Task.created_at.desc())
+    query = query.offset((page - 1) * page_size).limit(page_size)
 
-        result = await db.execute(query)
-        tasks = result.scalars().all()
+    result = await db.execute(query)
+    tasks = result.scalars().all()
 
     return TaskListResponse(
         total=total,
@@ -228,38 +227,38 @@ async def list_tasks(
 @router.delete("/{task_id}", status_code=204, summary="取消任务")
 async def cancel_task(
     task_id: str,
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
 ):
     """取消运行中的任务"""
     user_id = int(token.get("sub"))
 
-    async with get_db() as db:
-        result = await db.execute(
-            select(Task).where(Task.task_id == task_id)
+    result = await db.execute(
+        select(Task).where(Task.task_id == task_id)
+    )
+    task_record = result.scalar_one_or_none()
+
+    if not task_record:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if task_record.user_id != user_id:
+        raise HTTPException(status_code=403, detail="无权取消此任务")
+
+    if task_record.status not in ["pending", "running", "retrying"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"任务状态为 {task_record.status}，无法取消"
         )
-        task_record = result.scalar_one_or_none()
 
-        if not task_record:
-            raise HTTPException(status_code=404, detail="任务不存在")
+    if task_record.celery_task_id:
+        celery_app.control.revoke(
+            task_record.celery_task_id,
+            terminate=True,
+            signal='SIGTERM'
+        )
 
-        if task_record.user_id != user_id:
-            raise HTTPException(status_code=403, detail="无权取消此任务")
-
-        if task_record.status not in ["pending", "running", "retrying"]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"任务状态为 {task_record.status}，无法取消"
-            )
-
-        if task_record.celery_task_id:
-            celery_app.control.revoke(
-                task_record.celery_task_id,
-                terminate=True,
-                signal='SIGTERM'
-            )
-
-        task_record.status = "cancelled"
-        await db.commit()
+    task_record.status = "cancelled"
+    await db.commit()
 
     logger.info(f"任务取消成功 | task_id={task_id}")
 
@@ -267,53 +266,53 @@ async def cancel_task(
 @router.post("/{task_id}/retry", response_model=TaskResponse, summary="重试任务")
 async def retry_task(
     task_id: str,
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
 ):
     """重试失败的任务"""
     user_id = int(token.get("sub"))
 
-    async with get_db() as db:
-        result = await db.execute(
-            select(Task).where(Task.task_id == task_id)
+    result = await db.execute(
+        select(Task).where(Task.task_id == task_id)
+    )
+    task_record = result.scalar_one_or_none()
+
+    if not task_record:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if task_record.user_id != user_id:
+        raise HTTPException(status_code=403, detail="无权重试此任务")
+
+    if task_record.status != "failed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"任务状态为 {task_record.status}，无需重试"
         )
-        task_record = result.scalar_one_or_none()
 
-        if not task_record:
-            raise HTTPException(status_code=404, detail="任务不存在")
+    task_record.status = "pending"
+    task_record.retry_count = 0
+    task_record.error_message = None
+    task_record.progress = 0
 
-        if task_record.user_id != user_id:
-            raise HTTPException(status_code=403, detail="无权重试此任务")
+    task_map = {
+        "project_generate": "app.tasks.project_tasks.generate_project",
+        "code_generate": "app.tasks.code_tasks.generate_code",
+    }
 
-        if task_record.status != "failed":
-            raise HTTPException(
-                status_code=400,
-                detail=f"任务状态为 {task_record.status}，无需重试"
-            )
+    celery_task_name = task_map.get(task_record.task_type)
+    if celery_task_name and task_record.celery_task_id:
+        celery_app.send_task(
+            celery_task_name,
+            task_id=task_record.task_id,
+            requirement=task_record.params.get("requirement", ""),
+            prompt=task_record.params.get("prompt", ""),
+            language=task_record.params.get("language", "python"),
+            user_id=user_id,
+            priority=task_record.priority,
+            time_limit=task_record.timeout
+        )
 
-        task_record.status = "pending"
-        task_record.retry_count = 0
-        task_record.error_message = None
-        task_record.progress = 0
-
-        task_map = {
-            "project_generate": "app.tasks.project_tasks.generate_project",
-            "code_generate": "app.tasks.code_tasks.generate_code",
-        }
-
-        celery_task_name = task_map.get(task_record.task_type)
-        if celery_task_name and task_record.celery_task_id:
-            celery_app.send_task(
-                celery_task_name,
-                task_id=task_record.task_id,
-                requirement=task_record.params.get("requirement", ""),
-                prompt=task_record.params.get("prompt", ""),
-                language=task_record.params.get("language", "python"),
-                user_id=user_id,
-                priority=task_record.priority,
-                time_limit=task_record.timeout
-            )
-
-        await db.commit()
+    await db.commit()
 
     logger.info(f"任务重试成功 | task_id={task_id}")
 

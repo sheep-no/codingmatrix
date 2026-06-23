@@ -45,6 +45,7 @@ from app.utils.aicloud.permission import check_aicloud_permission
 from app.utils.aicloud.context_isolator import is_protected_path, is_protected_file
 from app.utils.aicloud.sandbox import ensure_user_sandbox
 from app.utils.aicloud.sandbox_operator import SandboxFileOperator
+from app.utils.file_operator import PathSecurityError
 from app.utils.aicloud.review_queue import create_review, approve_review, reject_review
 from app.utils.aicloud.audit_logger import log_operation, log_file_read, log_file_write
 from app.models.aicloud import AicloudSession, AicloudMessage, AicloudReview, AicloudAuditLog

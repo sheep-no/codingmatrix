@@ -1,6 +1,6 @@
 # 系统架构
 
-> 最后更新: 2026-06-09 | 路由总数：226+ | 后端：356 文件 / 99,618 行 | 前端：~58,000 行 | Agent 模块：76 + 3 子包 | E2E 用例：409
+> 最后更新: 2026-06-09 | 路由总数：240+ | 后端：356 文件 / 99,618 行 | 前端：~58,000 行 | Agent 模块：76 + 3 子包 | E2E 用例：409
 
 ---
 
@@ -17,7 +17,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
                             │ HTTP / SSE / WebSocket
 ┌──────────────────────────┴──────────────────────────────────┐
 │ Backend (FastAPI / Python 3.11)                             │
-│ 356 文件 / 99,618 行 / 25 个 include_router / 226+ 端点      │
+│ 356 文件 / 99,618 行 / 27 个 include_router / 240+ 端点      │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────┐    │
 │ │ Agent 引擎 (76 模块 + 3 子包, 34,166 行)             │    │
@@ -71,6 +71,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 │ │ - RSA-2048 加密传输 + context_length 同步            │    │
 │ │ - Redis 内存存储 + Lua 原子脚本 + TTL 自动过期       │    │
 │ │ - 反向索引 O(1) 查找 + Token 统计                    │    │
+│ │ - fallback_preference: use_admin_default / custom / disabled │    │
 │ └─────────────────────────────────────────────────────┘    │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────┐    │
@@ -102,97 +103,6 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 │ Redis (Cache/API Key) — 可降级到内存                       │
 │ Celery + APScheduler (异步任务 + 定时任务)                   │
 │ SQLite 性能追踪 (模型调用统计)                              │
-└─────────────────────────────────────────────────────────────┘
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Frontend (Vue 3)                                            │
-│ Vite 5 + Element Plus + Pinia + ECharts                      │
-│ 69 组件 · 8 个视图 · 8 个 Store                              │
-└──────────────────────────┬──────────────────────────────────┘
-                            │ HTTP / SSE / WebSocket
-┌──────────────────────────┴──────────────────────────────────┐
-│ Backend (FastAPI / Python 3.11)                             │
-│                                                             │
-│ ┌─────────────────────────────────────────────────────┐    │
-│ │ Agent 引擎 (76 模块, ~25,000 行)                     │    │
-│ │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │    │
-│ │  │ Architect│ │ Frontend │ │ Backend  │ │ Reviewer │ │    │
-│ │  │ +ReAct  │ │ +ReAct   │ │ +ReAct   │ │ +ReAct   │ │    │
-│ │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ │    │
-│  │  ┌──────────────────────────────────────────────┐   │    │
-│  │  │ tools.py (21 工具) + MCP Client 扩展         │   │    │
-│  │  │ react_engine.py (统一 ReAct 引擎)             │   │    │
-│  │  │ llm_client.py (统一 LLM 调用层)               │   │    │
-│  │  │ json_parser.py (统一 JSON 解析层)             │   │    │
-│  │  └──────────────────────────────────────────────┘   │    │
-│  │                                                     │    │
-│  │ 核心子系统:                                         │    │
-│  │ • 动态模型路由 (健康度评分 + 熔断 + 学习路由)        │    │
-│  │ • ReAct 引擎 (simple/full 双模式, 滑动窗口)        │    │
-│  │ • MCP Client (stdio/HTTP 双传输, 工具扩展)         │    │
-│  │ • 依赖图 (4 模块拆分, 外部化规则)                   │    │
-│  │ • 会话生命周期 (TTL + 清理 + 限制)                 │    │
-│  │ • 错误恢复 (分类 + 供应商感知降级链 + 反馈学习)      │    │
-│  │ • 代码沙箱 (Python AST + JavaScript Node.js)        │    │
-│  │ • 迭代修复循环 (RefinementLoop)                     │    │
-│  │ • 多角度审查 (性能/安全/可维护性)                   │    │
-│  │ • 代码补丁生成器 (CodePatcher)                      │    │
-│  │ • 复杂度分析器 (ComplexityAnalyzer)                │    │
-│  └─────────────────────────────────────────────────────┘    │
-│                                                             │
-│ ┌─────────────────────────────────────────────────────┐    │
-│ │ Multi-Provider Model Layer (v5.4.0, 11 个免费模型)    │    │
-│ │ 7 供应商 + 动态供应商 + context_length 4级 fallback   │    │
-│ │ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │    │
-│ │ │SiliconFlw│ │ DashScope│ │ Zhipu    │ │DeepSeek  │ │    │
-│ │ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │    │
-│ │ ┌──────────┐ ┌──────────┐ ┌──────────┐            │    │
-│ │ │ OpenAI   │ │Anthropic │ │ Ollama   │            │    │
-│ │ └──────────┘ └──────────┘ └──────────┘            │    │
-│ └─────────────────────────────────────────────────────┘    │
-│                                                             │
-│ ┌─────────────────────────────────────────────────────┐    │
-│ │ MCP Client Layer (MCP 协议扩展)                       │    │
-│ │ • MCPServerConnection: stdio/HTTP 双传输              │    │
-│ │ • MCPClientManager: 多 Server 管理 (单例)             │    │
-│ │ • 工具前缀 mcp_{server}_{tool}, 对 ReAct 透明        │    │
-│ │ • 4 个集成点: executor/specialist/agent/orchestrator  │    │
-│ └─────────────────────────────────────────────────────┘    │
-│                                                             │
-│ ┌─────────────────────────────────────────────────────┐    │
-│ │ API Key Management (v5.9.0, v5.12.0 增强)            │    │
-│ │ - RSA-2048 加密传输 + context_length 同步            │    │
-│ │ - Redis 内存存储 + TTL 自动过期                       │    │
-│ │ - 反向索引 O(1) 查找 + Token 统计                    │    │
-│ └─────────────────────────────────────────────────────┘    │
-│                                                             │
-│ ┌─────────────────────────────────────────────────────┐    │
-│ │ Code Sandbox (v5.12.0+, admin 可配)                  │    │
-│ │ - Python AST 沙箱 + 30s 超时                        │    │
-│ │ - JavaScript Node.js 沙箱 + 30s 超时               │    │
-│ │ - admin API 动态启用/禁用                           │    │
-│ └─────────────────────────────────────────────────────┘    │
-│                                                             │
-│ ┌─────────────────────────────────────────────────────┐    │
-│ │ Middleware Layer (8 层)                              │    │
-│ │ CORS │ RequestLog │ InputValidator │ RateLimit       │    │
-│ │ FeatureSwitch │ SecurityHeaders │ GZip │ Drain       │    │
-│ └─────────────────────────────────────────────────────┘    │
-│                                                             │
-│ ┌─────────────────────────────────────────────────────┐    │
-│ │ Session Lifecycle (v5.12.0+)                          │    │
-│ │ - 30 天 TTL + 500 上限 + 僵尸检测                     │    │
-│ │ - DB 同步 + 并发限制 (429)                            │    │
-│ │ - 状态机: running/completed/failed/cancelled/expired │    │
-│ └─────────────────────────────────────────────────────┘    │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────┴──────────────────────────────────┐
-│ Data Layer                                                  │
-│                                                             │
-│ SQLite (Async SQLAlchemy + Alembic) │ Celery + APScheduler  │
-│ Redis (Cache/API Key)               │ 异步任务 + 定时任务   │
-│ SQLite 性能追踪 (模型调用统计)       │ 学习数据持久化       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -406,13 +316,13 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 
 | 复杂度 | 架构师 | 前端 | 后端 | 审查员 | 复杂度分析 |
 |--------|--------|------|------|--------|------------|
-| SIMPLE | qwen3.5-4b | qwen3-8b | qwen3-8b | qwen3-8b | 关键词匹配 |
-| SMALL | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | 关键词匹配 |
-| MEDIUM | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | LLM 校准 |
-| LARGE | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | LLM 校准 |
-| XLARGE | glm-z1-9b | qwen3-8b | deepseek-r1 | deepseek-r1 | LLM 校准 |
+| SIMPLE | glm-z1-9b | deepseek-r1 | nex-n2-pro | glm-z1-9b | 关键词匹配 |
+| SMALL | glm-z1-9b | deepseek-r1 | nex-n2-pro | glm-z1-9b | 关键词匹配 |
+| MEDIUM | glm-z1-9b | deepseek-r1 | nex-n2-pro | glm-z1-9b | LLM 校准 |
+| LARGE | glm-z1-9b | deepseek-r1 | nex-n2-pro | glm-z1-9b | LLM 校准 |
+| XLARGE | glm-z1-9b | deepseek-r1 | nex-n2-pro | glm-z1-9b | LLM 校准 |
 
-> 临时配置：因 SiliconFlow Qwen3.5-4B 暂不可用，SIMPLE 架构师临时改为 qwen3-8b。
+> 复杂度分析模型: qwen3-8b (Qwen/Qwen3-8B)
 
 ---
 
@@ -484,6 +394,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 | 模型管理 | /api/v1/models | 免费模型管理 |
 | 供应商 | /api/v1/providers | 动态供应商管理 |
 | 任务队列 | /api/v1/tasks | 任务管理 |
+| skills.py | 自定义 Skill 管理 | /api/v1/skills/* | 241 行 | 8 个端点: upload, list, categories, get, update, delete, upload-file, reload |
 
 ### v2 API (管理功能, 8 个模块)
 

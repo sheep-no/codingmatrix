@@ -220,7 +220,8 @@ async def upload_file(
 @router.get("/{file_id}/download", summary="下载文件")
 async def download_file(
     file_id: int,
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     下载文件
@@ -232,15 +233,14 @@ async def download_file(
     logger.info(f"文件下载请求 | user_id={user_id} | file_id={file_id}")
     
     # 查询文件
-    async with get_db() as db:
-        result = await db.execute(
-            select(File).where(
-                File.id == file_id,
-                File.user_id == user_id,
-                File.is_deleted == 0
-            )
+    result = await db.execute(
+        select(File).where(
+            File.id == file_id,
+            File.user_id == user_id,
+            File.is_deleted == 0
         )
-        db_file = result.scalar()
+    )
+    db_file = result.scalar()
     
     if not db_file:
         raise HTTPException(status_code=404, detail="文件不存在")
@@ -397,7 +397,14 @@ async def merge_chunks(
     # 使用锁保护合并操作
     lock = await _get_chunk_lock(file_id)
     async with lock:
-        meta = ChunkMetadata.load(file_id, 0)
+        # 从文件加载元数据（包含正确的 total_chunks）
+        meta_path = CHUNKS_DIR / file_id / "metadata.json"
+        if not meta_path.exists():
+            raise HTTPException(status_code=404, detail="分片元数据不存在")
+        import json as _json
+        meta_data = _json.loads(meta_path.read_text())
+        total = meta_data.get("total_chunks", 0)
+        meta = ChunkMetadata.load(file_id, total)
 
         # 检查所有分片是否已上传
         if not meta.is_complete():

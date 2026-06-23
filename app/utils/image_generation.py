@@ -80,11 +80,16 @@ def _save_images_from_response(
 ) -> tuple[list[str], list[str]]:
     """
     从 API 响应中保存图片到本地
+    支持两种格式：
+    - b64_json: 直接解码保存
+    - url: 下载后保存
     返回 (images_data_url_list, image_paths_list)
     images_data_url_list 包含 data:image/xxx;base64,... 格式，可直接用于 <img src>
     """
     import time
     import uuid
+    import httpx
+    import asyncio
 
     images = []
     image_paths = []
@@ -92,16 +97,30 @@ def _save_images_from_response(
 
     for image_data in result.get("data", []):
         b64_data = image_data.get("b64_json")
+        url = image_data.get("url")
+
+        timestamp = int(time.time())
+        img_id = uuid.uuid4().hex[:8]
+        img_filename = f"{prefix}_{timestamp}_{img_id}.{output_format}"
+        img_path = OUTPUT_DIR / img_filename
+
         if b64_data:
             images.append(f"data:image/{mime};base64,{b64_data}")
-
-            timestamp = int(time.time())
-            img_id = uuid.uuid4().hex[:8]
-            img_filename = f"{prefix}_{timestamp}_{img_id}.{output_format}"
-            img_path = OUTPUT_DIR / img_filename
-
             base64_to_image(b64_data, str(img_path))
             image_paths.append(str(img_path))
+        elif url:
+            try:
+                resp = httpx.get(url, timeout=60.0, follow_redirects=True)
+                resp.raise_for_status()
+                img_path.write_bytes(resp.content)
+                b64_from_file = base64.b64encode(resp.content).decode('utf-8')
+                images.append(f"data:image/{mime};base64,{b64_from_file}")
+                image_paths.append(str(img_path))
+                logger.info(f"从 URL 下载图片成功: {url[:80]}...")
+            except Exception as e:
+                logger.error(f"从 URL 下载图片失败: {url[:80]}... | error: {e}")
+
+    return images, image_paths
 
     return images, image_paths
 
@@ -195,7 +214,7 @@ async def text_to_image(
         "num_inferences": num_inferences,
         "guidance_scale": guidance_scale,
         "num_images": num_images,
-        "response_format": "b64_json"
+        "response_format": "url"
     }
     if seed is not None:
         data["seed"] = seed
@@ -268,7 +287,7 @@ async def image_to_image(
         "num_inferences": num_inferences,
         "guidance_scale": guidance_scale,
         "num_images": num_images,
-        "response_format": "b64_json"
+        "response_format": "url"
     }
     if width:
         data["width"] = width
@@ -337,7 +356,7 @@ async def inpaint_image(
         "strength": strength,
         "num_inferences": num_inferences,
         "guidance_scale": guidance_scale,
-        "response_format": "b64_json"
+        "response_format": "url"
     }
     if seed is not None:
         data["seed"] = seed

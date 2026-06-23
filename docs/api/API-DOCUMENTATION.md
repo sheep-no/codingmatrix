@@ -142,6 +142,13 @@
 | POST | `/api/v1/GirlAi` | 发送消息 | normal |
 | GET | `/api/v1/GirlAi/history` | 历史记录 | normal |
 | DELETE | `/api/v1/GirlAi/history` | 清空历史 | normal |
+| GET | `/api/v1/GirlAi/characters/{id}/avatar` | 获取角色头像 | normal |
+| GET | `/api/v1/GirlAi/history/search` | 搜索对话历史 | normal |
+| GET | `/api/v1/GirlAi/characters/custom/list` | 列出自定义角色 | normal |
+| POST | `/api/v1/GirlAi/characters/custom` | 创建自定义角色 | normal |
+| DELETE | `/api/v1/GirlAi/characters/custom/{id}` | 删除自定义角色 | normal |
+| GET | `/api/v1/GirlAi/preferences` | 获取用户偏好 | normal |
+| DELETE | `/api/v1/GirlAi/preferences/{id}` | 删除用户偏好 | normal |
 
 ## 图像生成 (`/api/v1/kolors`)
 
@@ -475,7 +482,7 @@
 
 ## API 集成状态
 
-> 端点总数: 180+ | 状态: 全部集成完成
+> 端点总数: 240+ | 状态: 全部集成完成
 
 ### 认证相关 (6/6)
 - [x] POST /api/v1/login - 用户登录 (RSA 加密密码)
@@ -529,11 +536,28 @@
 - [x] GET /api/v1/agent/learning/common-errors/{file_type} - 常见错误
 - [x] POST /api/v1/agent/search_sessions - 语义搜索历史 session
 
-### 虚拟 AI (GirlAi) (4/4)
+### 虚拟 AI (GirlAi) (11/11)
 - [x] GET /api/v1/GirlAi/characters - 角色列表
 - [x] POST /api/v1/GirlAi - 发送消息
 - [x] GET /api/v1/GirlAi/history - 历史记录
 - [x] DELETE /api/v1/GirlAi/history - 清空历史
+- [x] GET /api/v1/GirlAi/characters/{id}/avatar - 获取角色头像
+- [x] GET /api/v1/GirlAi/history/search - 搜索对话历史
+- [x] GET /api/v1/GirlAi/characters/custom/list - 列出自定义角色
+- [x] POST /api/v1/GirlAi/characters/custom - 创建自定义角色
+- [x] DELETE /api/v1/GirlAi/characters/custom/{id} - 删除自定义角色
+- [x] GET /api/v1/GirlAi/preferences - 获取用户偏好
+- [x] DELETE /api/v1/GirlAi/preferences/{id} - 删除用户偏好
+
+### 自定义 Skill 管理 (8/8)
+- [x] POST /api/v1/skills/upload - 上传自定义 Skill（JSON）
+- [x] GET /api/v1/skills/list - 列出所有自定义 Skill
+- [x] GET /api/v1/skills/categories - 获取支持的分类
+- [x] GET /api/v1/skills/{name} - 获取 Skill 详情
+- [x] PUT /api/v1/skills/{name} - 更新 Skill
+- [x] DELETE /api/v1/skills/{name} - 删除 Skill
+- [x] POST /api/v1/skills/upload-file - 文件方式上传 Skill
+- [x] POST /api/v1/skills/reload - 热重载所有 Skill
 
 ### 图像生成 (Kolors) (11/11)
 - [x] POST /api/v1/kolors/text-to-image - 文生图
@@ -675,6 +699,10 @@
 | DELETE | `/api/v1/agent/apikey/{token}` | 清除 Key | normal |
 | GET | `/api/v1/agent/apikeys` | 获取 Key 列表 | normal |
 | PUT | `/api/v1/agent/apikey/{token}/enabled` | 启用/禁用 Key | normal |
+| PUT | `/api/v1/agent/apikey/{token}/fallback-preference` | 设置降级偏好 | normal |
+| GET | `/api/v1/agent/apikey/{token}/fallback-preference` | 获取降级偏好 | normal |
+| POST | `/api/v1/agent/apikey/batch/import` | 批量导入 Key | normal |
+| GET | `/api/v1/agent/apikey/batch/export` | 批量导出 Key | normal |
 
 ### GitHub 集成 (`/api/v1/github`)
 
@@ -695,4 +723,17 @@
 | DELETE | `/api/v1/providers/{provider_id}` | 删除提供商 | normal |
 | PUT | `/api/v1/providers/{provider_id}/toggle` | 启用/禁用提供商 | normal |
 | POST | `/api/v1/providers/{provider_id}/sync` | 同步模型列表 | normal |
+
+### 自定义 Skill 管理 (`/api/v1/skills`)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| POST | `/api/v1/skills/upload` | 上传自定义 Skill（JSON） | normal |
+| GET | `/api/v1/skills/list` | 列出所有自定义 Skill | normal |
+| GET | `/api/v1/skills/categories` | 获取支持的分类 | normal |
+| GET | `/api/v1/skills/{name}` | 获取 Skill 详情 | normal |
+| PUT | `/api/v1/skills/{name}` | 更新 Skill | normal |
+| DELETE | `/api/v1/skills/{name}` | 删除 Skill | normal |
+| POST | `/api/v1/skills/upload-file` | 文件方式上传 Skill | normal |
+| POST | `/api/v1/skills/reload` | 热重载所有 Skill | normal |
 

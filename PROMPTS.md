@@ -1,8 +1,8 @@
 # AI 提示词文档
 
-**更新时间**: 2026-06-19 12:39
+**更新时间**: 2026-06-22 13:26
 
-**总计**: 47 个提示词
+**总计**: 48 个提示词
 
 ---
 
@@ -15,7 +15,7 @@
 - [⚙️ 工作流提示词](#workflow) - 任务分解和工作流控制提示词 (2个)
 - [🌐 API 层提示词](#api) - 对外 API 接口使用的提示词模板 (10个)
 - [🔧 工具提示词](#tool) - 内联的简短工具提示词 (1个)
-- [📦 其他提示词](#other) - 未分类的提示词 (1个)
+- [📦 其他提示词](#other) - 未分类的提示词 (2个)
 
 ---
 
@@ -1660,18 +1660,25 @@ src/
 
 </details>
 
-### 来源: `data/custom_skills/orchestrator/test_architect.md`
+### 来源: `data/custom_skills/orchestrator/test_custom_skill.md`
 
-#### custom_test_architect
+#### custom_test_custom_skill
 
-**用途**: [自定义] 测试用的架构师提示词
-**作者**: test_user
-**版本**: v1
+**用途**: [自定义] 测试用自定义 Skill (已更新)
+**作者**: api_user
+**版本**: v2
 
 ```
-# 测试架构师提示词
+# 测试 Skill (已更新)
 
-你是一个测试架构师。
+你是一个专门用于测试的 AI 助手。
+
+## 规则
+
+1. 始终用中文回答
+2. 在回答末尾加上 [自定义Skill已更新生效]
+3. 保持简洁
+4. 优先展示更新后的行为
 ```
 
 ### 来源: `app/agent/react_engine.py`
@@ -2765,6 +2772,26 @@ API/类型/数据库/配置规范生成提示词
 {risk_factors}
 
 建议操作：{recommended_action}
+
+```
+
+### 来源: `data/custom_skills/other/file_test_skill.md`
+
+#### custom_file_test_skill
+
+**用途**: [自定义] 文件上传测试
+**作者**: api_user
+**版本**: v1
+
+```
+# 文件上传测试 Skill
+
+这是一个通过文件上传创建的 Skill。
+
+## 功能
+
+- 测试文件上传接口
+- 验证 .md 文件解析
 
 ```
 

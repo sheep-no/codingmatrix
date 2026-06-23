@@ -83,7 +83,7 @@ class ReActEngine:
         memory: Optional[Any] = None,  # AgentMemory 实例（full 模式用）
         stream_callback: Optional[Callable] = None,  # 流式输出回调（full 模式用）
         cancel_event: Optional[asyncio.Event] = None,  # 取消信号
-        heartbeat_timeout: float = 300.0,  # 心跳超时：300 秒无 LLM 调用活动视为超时
+        heartbeat_timeout: float = 600.0,  # 心跳超时：600 秒无 LLM 调用活动视为超时（推理模型需要更长时间）
     ):
         """
         初始化 ReAct 引擎

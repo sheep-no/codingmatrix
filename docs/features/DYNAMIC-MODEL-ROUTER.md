@@ -1,6 +1,6 @@
 # 动态模型路由
 
-> 最后更新：2026-06-10 | 版本：v3.0
+> 最后更新：2026-06-22 | 版本：v4.0
 
 动态模型路由是核心子系统之一，负责根据实时健康度、角色需求为 Agent 各组件智能选择最合适的 LLM 模型。
 
@@ -14,7 +14,7 @@
 2. **角色专用**：不同 Agent 角色使用不同模型
 3. **降级链**：模型不可用时按优先级自动降级
 
-v3.0 移除了基于复杂度的分层路由（SIMPLE/SMALL/MEDIUM/LARGE/XLARGE），改为按角色固定模型分配。复杂度分析仅用于架构决策（`has_frontend`/`has_database` 等），不再影响模型选择。
+v4.0 移除了基于复杂度的分层路由（SIMPLE/SMALL/MEDIUM/LARGE/XLARGE），改为按角色固定模型分配。复杂度分析仅用于架构决策（`has_frontend`/`has_database` 等），不再影响模型选择。
 
 ---
 
@@ -33,7 +33,7 @@ v3.0 移除了基于复杂度的分层路由（SIMPLE/SMALL/MEDIUM/LARGE/XLARGE�
 │                            │                               │
 │  ┌─────────────────────────▼─────────────────────────┐    │
 │  │ Fallback Chain (降级链)                            │    │
-│  │ deepseek-r1 → glm-z1-9b → glm-4-9b → qwen3-8b    │    │
+│  │ Nex-N2-Pro → DeepSeek-R1 → GLM-Z1-9B → Qwen3-8B  │    │
 │  └─────────────────────────────────────────────────────┘    │
 └──────────────────────────┬──────────────────────────────────┘
                            │
@@ -83,11 +83,11 @@ HALF_OPEN（半开）→ 允许 1 次探测调用
 
 | 角色 | 模型 | 说明 |
 |------|------|------|
-| Architect | glm-z1-9b | 架构师，使用思考模型 |
-| Frontend | glm-4-9b | 前端工程师 |
-| Backend | deepseek-r1 | 后端工程师，使用最强模型 |
-| Reviewer | glm-z1-9b | 审查员，与 backend 不同模型实现交叉审查 |
-| Fallback | qwen3-8b | 兜底模型 |
+| Architect | THUDM/GLM-Z1-9B-0414 | 架构师，使用思考模型 |
+| Frontend | deepseek-ai/DeepSeek-R1-0528-Qwen3-8B | 前端工程师 |
+| Backend | nex-agi/Nex-N2-Pro | 后端工程师，使用最强模型 |
+| Reviewer | THUDM/GLM-Z1-9B-0414 | 审查员，与 backend 不同模型实现交叉审查 |
+| Fallback | Qwen/Qwen3-8B | 兜底模型 |
 
 **分配原则**:
 1. **Reviewer 与 Backend 不同模型** — 交叉审查，提高质量
@@ -100,10 +100,22 @@ HALF_OPEN（半开）→ 允许 1 次探测调用
 模型调用失败时按优先级降级：
 
 ```
-deepseek-r1 → glm-z1-9b → glm-4-9b → qwen3-8b
+nex-agi/Nex-N2-Pro → deepseek-ai/DeepSeek-R1-0528-Qwen3-8B → THUDM/GLM-Z1-9B-0414 → Qwen/Qwen3-8B
 ```
 
 降级链可在 `data/agent_model_config.json` 的 `fallback_chain` 字段配置。
+
+### 用户降级偏好 (fallback_preference)
+
+每个用户 API Key 可设置独立的降级策略:
+
+| 值 | 说明 |
+|----|------|
+| use_admin_default | 使用管理员配置的降级链（默认） |
+| custom | 使用用户自定义的 `custom_fallback_chain` |
+| disabled | 禁用降级，仅使用用户自己的模型 |
+
+API: `PUT /api/v1/apikey/{token}/fallback-preference`
 
 ---
 
@@ -111,30 +123,96 @@ deepseek-r1 → glm-z1-9b → glm-4-9b → qwen3-8b
 
 ### 配置文件
 
-`data/agent_model_config.json` (v3.0):
+`data/agent_model_config.json` (v4.0):
 ```json
 {
-  "version": "3.0",
-  "description": "Agent 模型配置 v3.0",
+  "version": "4.0",
+  "description": "Agent 模型配置 v4.0",
+  "models": {
+    "THUDM/GLM-Z1-9B-0414": {
+      "name": "glm-z1-9b-0414",
+      "display_name": "GLM-Z1-9B-0414",
+      "provider": "siliconflow",
+      "is_reasoning": true,
+      "context_length": 131072,
+      "max_tokens": 8192,
+      "thinking_budget": 4096,
+      "thinking_ratio": 0.5,
+      "temperature": 0.7,
+      "timeout": 120,
+      "speed": "medium"
+    },
+    "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": {
+      "name": "deepseek-r1-0528-qwen3-8b",
+      "display_name": "DeepSeek-R1-0528-Qwen3-8B",
+      "provider": "siliconflow",
+      "is_reasoning": true,
+      "context_length": 131072,
+      "max_tokens": 8192,
+      "thinking_budget": 4096,
+      "thinking_ratio": 0.5,
+      "temperature": 0.7,
+      "timeout": 120,
+      "speed": "medium"
+    },
+    "nex-agi/Nex-N2-Pro": {
+      "name": "nex-n2-pro",
+      "display_name": "Nex-N2-Pro",
+      "provider": "siliconflow",
+      "is_reasoning": true,
+      "context_length": 131072,
+      "max_tokens": 16384,
+      "thinking_budget": 8192,
+      "thinking_ratio": 0.5,
+      "temperature": 0.7,
+      "timeout": 180,
+      "speed": "slow"
+    },
+    "Qwen/Qwen3-8B": {
+      "name": "qwen3-8b",
+      "display_name": "Qwen3-8B",
+      "provider": "siliconflow",
+      "is_reasoning": false,
+      "context_length": 131072,
+      "max_tokens": 8192,
+      "temperature": 0.7,
+      "timeout": 60,
+      "speed": "fast"
+    }
+  },
   "roles": {
-    "architect": "glm-z1-9b",
-    "frontend": "glm-4-9b",
-    "backend": "deepseek-r1",
-    "reviewer": "glm-z1-9b",
-    "fallback": "qwen3-8b"
+    "architect": "THUDM/GLM-Z1-9B-0414",
+    "frontend": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+    "backend": "nex-agi/Nex-N2-Pro",
+    "reviewer": "THUDM/GLM-Z1-9B-0414",
+    "fallback": "Qwen/Qwen3-8B"
   },
   "fallback_chain": [
-    "deepseek-r1",
-    "glm-z1-9b",
-    "glm-4-9b",
-    "qwen3-8b"
+    "nex-agi/Nex-N2-Pro",
+    "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+    "THUDM/GLM-Z1-9B-0414",
+    "Qwen/Qwen3-8B"
   ],
   "error_type_models": {
-    "validation_error": "qwen3-8b",
-    "timeout_error": "glm-4-9b",
-    "api_error": "glm-z1-9b",
-    "code_error": "deepseek-r1",
-    "logic_error": "glm-z1-9b"
+    "validation_error": "Qwen/Qwen3-8B",
+    "timeout_error": "THUDM/GLM-Z1-9B-0414",
+    "api_error": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+    "code_error": "nex-agi/Nex-N2-Pro",
+    "logic_error": "THUDM/GLM-Z1-9B-0414"
+  },
+  "settings": {
+    "max_concurrent_requests": 10,
+    "circuit_breaker_threshold": 3,
+    "circuit_breaker_cooldown_seconds": 60
+  },
+  "cross_validation": {
+    "enabled": true,
+    "auto_priority_1": true,
+    "critical_patterns": [
+      "security",
+      "database_migration",
+      "payment"
+    ]
   }
 }
 ```
@@ -158,10 +236,40 @@ deepseek-r1 → glm-z1-9b → glm-4-9b → qwen3-8b
 ### 默认降级链
 
 ```
-deepseek-r1 → glm-z1-9b → glm-4-9b → qwen3-8b
+nex-agi/Nex-N2-Pro → deepseek-ai/DeepSeek-R1-0528-Qwen3-8B → THUDM/GLM-Z1-9B-0414 → Qwen/Qwen3-8B
 ```
 
 从最强模型开始，逐步降级到兜底模型。可在配置文件的 `fallback_chain` 字段自定义。
+
+---
+
+## 交叉验证 (cross_validation)
+
+v4.0 引入自动交叉验证机制：当任务涉及关键模式（如安全、数据库迁移、支付）时，系统自动使用不同模型进行独立审查，降低单模型盲区风险。
+
+### 配置
+
+```json
+{
+  "cross_validation": {
+    "enabled": true,
+    "auto_priority_1": true,
+    "critical_patterns": [
+      "security",
+      "database_migration",
+      "payment"
+    ]
+  }
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用交叉验证 |
+| `auto_priority_1` | 自动将匹配 `critical_patterns` 的任务提升为 Priority 1 |
+| `critical_patterns` | 触发交叉验证的关键模式列表 |
+
+当 `enabled=true` 且任务匹配 `critical_patterns` 时，Reviewer 会使用与 Backend 不同的模型独立执行代码审查，两份审查结果合并后输出。
 
 ---
 
