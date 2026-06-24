@@ -1,7 +1,7 @@
 {
   "version": "4.0",
   "description": "统一模型配置 - 所有模型相关设置集中管理",
-  "last_updated": "2026-06-23T02:10:51.379804",
+  "last_updated": "2026-06-23T14:34:49.549275",
   "models": {
     "nex-n2-pro": {
       "name": "nex-agi/Nex-N2-Pro",

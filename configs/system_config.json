@@ -1,7 +1,7 @@
 {
   "system_config": {
     "version": "1.0",
-    "last_updated": "2026-06-23T02:12:23.536609",
+    "last_updated": "2026-06-23T14:36:22.488493",
     "user_concurrent_limits": {
       "default_tiers": {
         "free": 1,
