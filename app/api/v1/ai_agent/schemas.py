@@ -224,6 +224,7 @@ class LoadProjectResponse(BaseModel):
 class OrchestratorRequest(BaseModel):
     requirement: str = Field(..., description="项目需求描述", min_length=1, max_length=MAX_PROMPT_LENGTH)
     project_name: Optional[str] = Field(None, description="项目名称（可选，自动生成）", max_length=50)
+    output_dir: Optional[str] = Field(None, description="输出目录（可选）", max_length=500)
     enable_review: bool = Field(True, description="是否启用代码审查")
     enable_validation: bool = Field(True, description="是否启用代码验证")
     enable_error_recovery: bool = Field(True, description="是否启用错误恢复")
