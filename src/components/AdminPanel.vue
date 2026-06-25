@@ -565,9 +565,9 @@
                   </div>
                   <el-switch
                     v-model="sandboxConfig.enable_code_sandbox"
-                    @change="updateSandboxConfig"
                     active-text="启用"
                     inactive-text="禁用"
+                    @change="updateSandboxConfig"
                   />
                 </div>
 

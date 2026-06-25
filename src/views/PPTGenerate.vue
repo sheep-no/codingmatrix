@@ -18,7 +18,7 @@
         <span>AI PPT 生成</span>
       </div>
       <div class="header-actions">
-        <button class="header-btn" @click="showHistoryPanel = !showHistoryPanel" title="生成历史">
+        <button class="header-btn" title="生成历史" @click="showHistoryPanel = !showHistoryPanel">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
             <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
           </svg>
@@ -68,7 +68,7 @@
                 <span class="file-name">{{ uploadedFile.name }}</span>
                 <span class="file-size">{{ formatFileSize(uploadedFile.size) }}</span>
               </div>
-              <button class="remove-file" @click.stop="removeFile" title="移除文件">
+              <button class="remove-file" title="移除文件" @click.stop="removeFile">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
                   <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                 </svg>
@@ -214,15 +214,15 @@
               <div class="modify-actions">
                 <button
                   class="btn-analyze"
-                  @click="handleAnalyze"
                   :disabled="isModifying"
+                  @click="handleAnalyze"
                 >
                   分析 PPT
                 </button>
                 <button
                   class="btn-apply"
-                  @click="handleModify"
                   :disabled="!modifyInput.trim() || isModifying"
+                  @click="handleModify"
                 >
                   {{ isModifying ? '修改中...' : '应用修改' }}
                 </button>

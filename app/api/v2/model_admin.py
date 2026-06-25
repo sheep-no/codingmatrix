@@ -1,12 +1,17 @@
 """
 模型管理接口（管理员端）
 
-功能：
-1. 切换默认免费模型（超级管理员）
-2. 更新 Agent 模型配置（超级管理员）
-3. 更新降级链配置（超级管理员）
-4. 更新错误类型模型映射（超级管理员）
-5. 重新加载配置（超级管理员）
+⚠️ 已废弃：请使用新的 /api/v2/model-config/* 接口
+
+本文件保留用于向后兼容，将在未来版本中移除。
+
+新接口：
+- GET    /api/v2/model-config/models      - 获取所有模型
+- POST   /api/v2/model-config/models      - 添加模型
+- PUT    /api/v2/model-config/models/{id} - 更新模型
+- DELETE /api/v2/model-config/models/{id} - 删除模型
+- GET    /api/v2/model-config/agent       - 获取 Agent 配置
+- PUT    /api/v2/model-config/agent/role  - 更新角色模型
 """
 
 import logging

@@ -3,7 +3,7 @@
     <!-- 头部 -->
     <div class="editor-header">
       <div class="header-left">
-        <button class="back-btn" @click="goBack" aria-label="返回">
+        <button class="back-btn" aria-label="返回" @click="goBack">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <line x1="19" y1="12" x2="5" y2="12" />
             <polyline points="12 19 5 12 12 5" />

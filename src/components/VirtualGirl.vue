@@ -89,7 +89,7 @@
                 placeholder="搜索对话历史..."
                 @keyup.enter="handleSearch"
               />
-              <button class="search-btn" @click="handleSearch" :disabled="!searchQuery.trim()">搜索</button>
+              <button class="search-btn" :disabled="!searchQuery.trim()" @click="handleSearch">搜索</button>
               <button class="search-close" @click="showSearch = false; searchQuery = ''; searchResults = []">取消</button>
             </div>
 
@@ -269,7 +269,7 @@
           </div>
           <div class="form-actions">
             <button class="form-cancel" @click="showCharacterForm = false">取消</button>
-            <button class="form-submit" @click="createCharacter" :disabled="!newCharacter.name.trim()">创建</button>
+            <button class="form-submit" :disabled="!newCharacter.name.trim()" @click="createCharacter">创建</button>
           </div>
         </div>
       </div>

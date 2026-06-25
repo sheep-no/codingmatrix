@@ -1,223 +1,195 @@
-# 免费模型管理接口
+# 模型管理接口
 
-> 最后更新：2026-06-02 | 版本：v5.12.0+
+> 最后更新：2026-06-25 | 版本：v5.13.0+
 
 ## 概述
 
-免费模型管理接口 (`app/api/v1/model_manager.py`) 提供内置免费模型的查看、切换和管理能力，支持超级管理员动态配置默认模型。
+模型管理接口提供 AI 模型的配置、查看和管理能力。
 
-## v5.12.0+ 重要更新
+## v5.13.0+ 统一模型配置
 
-### v5.12.0+ 重要更新
+### 新接口 (推荐)
 
-### 按角色模型分配
+新的统一模型配置接口更简单直观，支持任意供应商模型。
 
-v5.12.0+ 引入了按角色的模型分配，取代原有的简单默认模型。v3.0 进一步简化，移除了复杂度分层，改为按角色固定模型分配。详细配置见 `data/agent_model_config.json`，详见 [DYNAMIC-MODEL-ROUTER.md](DYNAMIC-MODEL-ROUTER.md)。
+**配置文件**: `data/unified_model_config.json`
 
-### 模型健康度监控
+**API 前缀**: `/api/v2/model-config`
 
-每个内置模型都有健康度评分（0-100），用于动态路由决策。详见 [DYNAMIC-MODEL-ROUTER.md#1-healthtracker健康度追踪](DYNAMIC-MODEL-ROUTER.md#1-healthtracker健康度追踪)。
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v2/model-config/models` | 获取所有模型 |
+| POST | `/api/v2/model-config/models` | 添加模型 |
+| PUT | `/api/v2/model-config/models/{id}` | 更新模型 |
+| DELETE | `/api/v2/model-config/models/{id}` | 删除模型 |
+| PUT | `/api/v2/model-config/models/{id}/toggle` | 切换启用状态 |
+| GET | `/api/v2/model-config/providers` | 获取供应商列表 |
+| POST | `/api/v2/model-config/providers` | 添加供应商 |
+| DELETE | `/api/v2/model-config/providers/{id}` | 删除供应商 |
+| GET | `/api/v2/model-config/agent` | 获取 Agent 配置 |
+| PUT | `/api/v2/model-config/agent/role` | 更新角色模型 |
+| PUT | `/api/v2/model-config/agent/fallback` | 更新降级链 |
+| POST | `/api/v2/model-config/reload` | 重新加载配置 |
 
-### context_length 多级管理
+### 添加新模型
 
-`/api/v2/models/context-length` 端点（superadmin）可管理模型 context_length。详细优先级见 [MODELS.md#context_length-管理](../architecture/MODELS.md#context_length-管理)。
+只需在配置文件中添加一行：
 
-## API 端点
-
-### 获取模型列表
-
-**GET /api/v1/models** - 获取所有可用的免费模型
-
-**权限**: 普通用户
-
-**响应示例**:
 ```json
 {
-  "models": [
-    {
-      "id": "qwen2.5-7b",
-      "name": "qwen2.5-7b",
-      "model_key": "qwen2.5-7b",
-      "description": "代码生成与补全",
-      "capabilities": ["CODE", "FAST"],
-      "tags": ["标准层"],
-      "is_default": true
+  "models": {
+    "gpt-4o": {
+      "name": "gpt-4o",
+      "display_name": "GPT-4o",
+      "provider": "openai",
+      "type": "chat",
+      "context_length": 128000,
+      "max_output": 16384
     }
-  ],
-  "total": 10,
-  "default_model": "qwen2.5-7b"
+  }
 }
 ```
 
-### 获取当前默认模型
+或使用 API：
 
-**GET /api/v1/models/default** - 获取当前默认模型信息
-
-**权限**: 普通用户
-
-### 切换默认模型
-
-**POST /api/v1/models/switch** - 切换默认模型
-
-**权限**: 超级管理员
-
-**请求体**:
-```json
-{
-  "model_id": "deepseek-r1"
-}
+```bash
+curl -X POST http://localhost:8000/api/v2/model-config/models \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "gpt-4o",
+    "name": "gpt-4o",
+    "display_name": "GPT-4o",
+    "provider": "openai",
+    "model_type": "chat",
+    "context_length": 128000
+  }'
 ```
 
-### 按能力筛选模型
+### 模型类型
 
-**GET /api/v1/models/capability/{capability}** - 按能力筛选模型
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| `chat` | 对话模型 | Qwen3, DeepSeek R1 |
+| `embedding` | 嵌入模型 | BGE M3, BCE Embedding |
+| `vision` | 视觉理解 | GLM 4.1V, DeepSeek OCR |
+| `image` | 图像生成 | Kolors |
+| `audio` | 音频处理 | SenseVoice |
 
-**权限**: 普通用户
+### Agent 角色配置
 
-**能力类型**:
-- `CODE` - 代码生成
-- `FAST` - 快速响应
-- `REASONING` - 深度推理
-- `VISION` - 视觉理解
-- `OCR` - 文字识别
-- `EMBEDDING` - 文本向量化
-- `CREATIVE` - 创意生成
+```bash
+# 更新角色模型
+curl -X PUT http://localhost:8000/api/v2/model-config/agent/role \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"role": "architect", "model_id": "qwen3-8b"}'
+
+# 更新降级链
+curl -X PUT http://localhost:8000/api/v2/model-config/agent/fallback \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"chain": ["qwen3-8b", "glm-z1-9b"]}'
+```
+
+## 旧接口 (已废弃)
+
+> ⚠️ 以下接口保留用于向后兼容，将在未来版本中移除。请使用新的 `/api/v2/model-config/*` 接口。
+
+### 用户端接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/models/` | 获取模型列表 |
+| GET | `/api/v1/models/default` | 获取默认模型 |
+| GET | `/api/v1/models/{id}` | 获取模型详情 |
+| GET | `/api/v1/models/capabilities/list` | 获取能力列表 |
+| GET | `/api/v1/models/agent-config` | 获取 Agent 配置 |
+
+### 管理端接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v2/models/default` | 切换默认模型 |
+| PUT | `/api/v2/models/agent-config` | 更新角色配置 |
+| PUT | `/api/v2/models/agent-config/fallback-chain` | 更新降级链 |
+| PUT | `/api/v2/models/agent-config/error-type-model` | 更新错误类型映射 |
+| POST | `/api/v2/models/agent-config/reload` | 重新加载配置 |
+| GET | `/api/v2/models/context-lengths` | 获取上下文长度 |
+| PUT | `/api/v2/models/context-length` | 更新上下文长度 |
+| DELETE | `/api/v2/models/context-length/{key}` | 删除上下文长度 |
 
 ## 内置模型列表
 
 共 17 个内置模型。
 
-| 模型 ID | 能力 | 层级 |
-|---------|------|------|
-| deepseek-r1 | REASONING, CODE | 攻坚层 |
-| deepseek-ocr | OCR, VISION | 专用 |
-| glm-4.1v-9b | VISION | 专用 |
-| qwen3.5-4b | FAST | 简单层 |
-| qwen3-8b | REASONING, FAST | 标准层 |
-| qwen2.5-7b | CODE, FAST | 标准层 |
-| glm-4-9b | FAST, CODE | 标准层 |
-| glm-z1-9b | REASONING | 攻坚层 |
-| kolors | CREATIVE | 专用 |
-| bce-embedding | EMBEDDING | 专用 |
-| bge-m3 | EMBEDDING | 专用 |
-| bge-large-zh | EMBEDDING | 专用 |
-| bge-reranker-v2-m3 | RERANKING | 专用 |
-| bce-reranker | RERANKING | 专用 |
-| sense-voice | ASR | 专用 |
-| telespeech-asr | ASR | 专用 |
-| hunyuan-mt | TRANSLATION | 专用 |
+| 模型 ID | 显示名称 | 类型 | 上下文 |
+|---------|----------|------|--------|
+| qwen3-8b | Qwen3 8B | chat | 128k |
+| deepseek-r1 | DeepSeek R1 | chat | 128k |
+| nex-n2-pro | Nex N2 Pro | chat | 256k |
+| glm-z1-9b | GLM Z1 9B | chat | 128k |
+| glm-4-9b | GLM 4 9B | chat | 32k |
+| qwen2.5-7b | Qwen2.5 7B | chat | 32k |
+| qwen3.5-4b | Qwen3.5 4B | chat | 256k |
+| deepseek-ocr | DeepSeek OCR | vision | 8k |
+| glm-4.1v-9b | GLM 4.1V 9B | vision | 32k |
+| kolors | Kolors | image | 4k |
+| bge-m3 | BGE M3 | embedding | 8k |
+| bce-embedding | BCE Embedding | embedding | 512 |
+| bge-reranker | BGE Reranker | embedding | 8k |
+| hunyuan-mt | Hunyuan MT | chat | 32k |
+| sense-voice | SenseVoice | audio | 4k |
+
+## 配置文件
+
+### unified_model_config.json (新)
+
+```json
+{
+  "version": "5.0",
+  "providers": {
+    "siliconflow": {
+      "name": "SiliconFlow",
+      "base_url": "https://api.siliconflow.cn/v1"
+    }
+  },
+  "models": {
+    "qwen3-8b": {
+      "name": "Qwen/Qwen3-8B",
+      "display_name": "Qwen3 8B",
+      "provider": "siliconflow",
+      "type": "chat",
+      "context_length": 131072,
+      "max_output": 8192,
+      "temperature": 0.7,
+      "timeout": 300,
+      "enabled": true
+    }
+  },
+  "agent": {
+    "roles": {
+      "architect": "qwen3-8b",
+      "frontend": "deepseek-r1",
+      "backend": "nex-n2-pro",
+      "reviewer": "glm-z1-9b",
+      "fallback": "qwen3-8b"
+    },
+    "fallback_chain": ["qwen3-8b", "glm-z1-9b"]
+  }
+}
+```
+
+### agent_model_config.json (旧)
+
+保留用于向后兼容，新项目请使用 `unified_model_config.json`。
 
 ## 相关文件
 
-- `app/api/v1/model_manager.py` - API 端点实现
-- `app/api/v2/model_admin.py` - **v5.12.0+ 新增**: 模型管理 (context_length, assignments, health)
+- `app/services/model_config_manager.py` - **新**: 统一配置管理器
+- `app/api/v2/model_config_api.py` - **新**: 统一配置 API
+- `data/unified_model_config.json` - **新**: 统一配置文件
+- `app/api/v1/model_manager.py` - 旧: 用户端接口
+- `app/api/v2/model_admin.py` - 旧: 管理端接口 (已废弃)
 - `app/utils/aicloud/model_registry.py` - 模型注册表
-- `app/agent/dynamic_model_router.py` - **v5.12.0+ 增强**: 动态路由
-- `data/agent_model_config.json` - 角色模型分配配置 (v3.0)
-- `tests/unit/test_model_manager_api.py` - 单元测试
-
-## v5.12.0+ 新增端点
-
-### `GET /api/v2/models/context-length`
-
-列出所有模型 context_length 配置。
-
-**权限**: superadmin
-
-**响应**:
-```json
-{
-  "models": {
-    "qwen3-8b": {
-      "context_length": 131072,
-      "source": "user_custom"
-    },
-    "glm-z1-9b": {
-      "context_length": 131072,
-      "source": "config_file"
-    }
-  }
-}
-```
-
-### `PUT /api/v2/models/context-length`
-
-设置或更新模型 context_length。
-
-**权限**: superadmin
-
-**请求体**:
-```json
-{
-  "model_id": "qwen3-8b",
-  "context_length": 131072
-}
-```
-
-### `GET /api/v2/models/assignments`
-
-查看角色模型分配。
-
-**权限**: superadmin
-
-**响应**:
-```json
-{
-  "version": "3.0",
-  "roles": {
-    "architect": "glm-z1-9b",
-    "frontend": "glm-4-9b",
-    "backend": "deepseek-r1",
-    "reviewer": "glm-z1-9b",
-    "fallback": "qwen3-8b"
-  }
-}
-```
-
-### `PUT /api/v2/models/assignments`
-
-修改角色模型分配。
-
-**权限**: superadmin
-
-**请求体**:
-```json
-{
-  "role": "backend",
-  "model": "deepseek-r1"
-}
-```
-
-### `GET /api/v2/models/health`
-
-查看所有模型健康度。
-
-**权限**: superadmin
-
-**响应**:
-```json
-{
-  "models": {
-    "qwen3-8b": {
-      "score": 95,
-      "status": "healthy",
-      "circuit_state": "closed",
-      "avg_latency_ms": 8500,
-      "success_rate": 0.98
-    }
-  }
-}
-```
-
-### `POST /api/v2/models/reset-health`
-
-重置指定模型的健康分。
-
-**权限**: superadmin
-
-**请求体**:
-```json
-{
-  "model_id": "qwen3-8b"
-}
-```
+- `app/agent/dynamic_model_router.py` - 动态路由

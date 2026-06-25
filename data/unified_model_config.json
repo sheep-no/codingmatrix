@@ -1,9 +1,11 @@
 {
   "version": "5.0",
-  "description": "统一模型配置 - 简单直观，一行添加新模型",
+  "description": "统一模型配置",
+  "last_updated": "2026-06-25T15:44:54.509598",
   "providers": {
     "siliconflow": {
       "name": "SiliconFlow",
+      "api_key": "",
       "base_url": "https://api.siliconflow.cn/v1",
       "enabled": true
     }
@@ -22,7 +24,10 @@
       "thinking_ratio": 0,
       "speed": 1.5,
       "enabled": true,
-      "tags": ["通用", "快速"]
+      "tags": [
+        "通用",
+        "快速"
+      ]
     },
     "deepseek-r1": {
       "name": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
@@ -37,7 +42,10 @@
       "thinking_ratio": 0.5,
       "speed": 1.0,
       "enabled": true,
-      "tags": ["推理", "代码"]
+      "tags": [
+        "推理",
+        "代码"
+      ]
     },
     "nex-n2-pro": {
       "name": "nex-agi/Nex-N2-Pro",
@@ -52,7 +60,10 @@
       "thinking_ratio": 0.3,
       "speed": 1.0,
       "enabled": true,
-      "tags": ["推理", "长上下文"]
+      "tags": [
+        "推理",
+        "长上下文"
+      ]
     },
     "glm-z1-9b": {
       "name": "THUDM/GLM-Z1-9B-0414",
@@ -67,7 +78,10 @@
       "thinking_ratio": 0.5,
       "speed": 1.0,
       "enabled": true,
-      "tags": ["评测", "审查"]
+      "tags": [
+        "评测",
+        "审查"
+      ]
     },
     "glm-4-9b": {
       "name": "THUDM/GLM-4-9B-0414",
@@ -82,7 +96,9 @@
       "thinking_ratio": 0,
       "speed": 1.5,
       "enabled": true,
-      "tags": ["通用"]
+      "tags": [
+        "通用"
+      ]
     },
     "qwen2.5-7b": {
       "name": "Qwen/Qwen2.5-7B-Instruct",
@@ -97,7 +113,10 @@
       "thinking_ratio": 0,
       "speed": 2.0,
       "enabled": true,
-      "tags": ["代码", "快速"]
+      "tags": [
+        "代码",
+        "快速"
+      ]
     },
     "qwen3.5-4b": {
       "name": "Qwen/Qwen3.5-4B",
@@ -112,7 +131,10 @@
       "thinking_ratio": 0,
       "speed": 2.0,
       "enabled": true,
-      "tags": ["轻量", "长上下文"]
+      "tags": [
+        "轻量",
+        "长上下文"
+      ]
     },
     "deepseek-ocr": {
       "name": "deepseek-ai/DeepSeek-OCR",
@@ -127,7 +149,10 @@
       "thinking_ratio": 0,
       "speed": 1.0,
       "enabled": true,
-      "tags": ["OCR", "视觉"]
+      "tags": [
+        "OCR",
+        "视觉"
+      ]
     },
     "glm-4.1v-9b": {
       "name": "THUDM/GLM-4.1V-9B-Thinking",
@@ -142,7 +167,10 @@
       "thinking_ratio": 0.3,
       "speed": 1.0,
       "enabled": true,
-      "tags": ["视觉", "推理"]
+      "tags": [
+        "视觉",
+        "推理"
+      ]
     },
     "kolors": {
       "name": "Kwai-Kolors/Kolors",
@@ -157,7 +185,9 @@
       "thinking_ratio": 0,
       "speed": 1.0,
       "enabled": true,
-      "tags": ["绘画"]
+      "tags": [
+        "绘画"
+      ]
     },
     "bge-m3": {
       "name": "BAAI/bge-m3",
@@ -172,7 +202,10 @@
       "thinking_ratio": 0,
       "speed": 3.0,
       "enabled": true,
-      "tags": ["嵌入", "多语言"]
+      "tags": [
+        "嵌入",
+        "多语言"
+      ]
     },
     "bce-embedding": {
       "name": "netease-youdao/bce-embedding-base_v1",
@@ -187,7 +220,9 @@
       "thinking_ratio": 0,
       "speed": 3.0,
       "enabled": true,
-      "tags": ["嵌入"]
+      "tags": [
+        "嵌入"
+      ]
     },
     "bge-reranker": {
       "name": "BAAI/bge-reranker-v2-m3",
@@ -202,7 +237,9 @@
       "thinking_ratio": 0,
       "speed": 3.0,
       "enabled": true,
-      "tags": ["重排序"]
+      "tags": [
+        "重排序"
+      ]
     },
     "hunyuan-mt": {
       "name": "tencent/Hunyuan-MT-7B",
@@ -217,7 +254,9 @@
       "thinking_ratio": 0,
       "speed": 2.0,
       "enabled": true,
-      "tags": ["翻译"]
+      "tags": [
+        "翻译"
+      ]
     },
     "sense-voice": {
       "name": "FunAudioLLM/SenseVoiceSmall",
@@ -232,7 +271,9 @@
       "thinking_ratio": 0,
       "speed": 1.0,
       "enabled": true,
-      "tags": ["语音识别"]
+      "tags": [
+        "语音识别"
+      ]
     }
   },
   "agent": {
@@ -243,6 +284,9 @@
       "reviewer": "glm-z1-9b",
       "fallback": "qwen3-8b"
     },
-    "fallback_chain": ["qwen3-8b", "glm-z1-9b"]
+    "fallback_chain": [
+      "qwen3-8b",
+      "glm-z1-9b"
+    ]
   }
 }
