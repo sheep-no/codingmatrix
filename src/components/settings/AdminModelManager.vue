@@ -284,7 +284,7 @@ async function loadContextLengths() {
 
 async function loadModelHealth() {
   try {
-    const resp = await api.get('/api/v1/models/health')
+    const resp = await api.get('/api/v1/health/models')
     if (resp.ok) {
       const data = await resp.json()
       modelHealthData.value = data.models || {}
