@@ -20,19 +20,19 @@
       </div>
 
       <!-- 模型选择器 -->
-      <div v-if="dynamicModels && dynamicModels.length > 0" class="model-selector">
+      <div v-if="dynamicModels && dynamicModels.length > 0" class="model-selector-wrapper">
         <label class="model-selector-label">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           使用自定义模型（可选）
         </label>
-        <select :value="selectedProviderModel" class="model-select" @change="$emit('update:selectedProviderModel', $event.target.value)">
-          <option value="">系统默认模型</option>
-          <optgroup v-for="group in groupedDynamicModels" :key="group.provider" :label="group.provider">
-            <option v-for="m in group.models" :key="m.provider_id + ':' + m.model_id" :value="m.provider_id + '::' + m.model_id">
-              {{ m.model_id }}
-            </option>
-          </optgroup>
-        </select>
+        <ModelSelector
+          :models="dynamicModels"
+          :selected-id="selectedProviderModelId"
+          placeholder="系统默认模型"
+          :show-filters="true"
+          :group-by-provider="true"
+          @select="onModelSelect"
+        />
       </div>
 
       <div v-if="!hasFiles" class="quick-templates">
@@ -118,6 +118,7 @@ v-for="item in flatTreeItems" :key="item.id" class="tree-item"
 
 <script setup>
 import { computed, ref, reactive, onMounted, onUnmounted, watch } from 'vue'
+import ModelSelector from '@/components/common/ModelSelector.vue'
 
 const props = defineProps({
   prompt: { type: String, required: true },
@@ -145,6 +146,19 @@ const groupedDynamicModels = computed(() => {
   }
   return Object.values(groups)
 })
+
+// 计算选中的模型ID（从 provider_id::model_id 格式中提取）
+const selectedProviderModelId = computed(() => {
+  if (!props.selectedProviderModel) return ''
+  const parts = props.selectedProviderModel.split('::')
+  return parts.length > 1 ? parts[1] : props.selectedProviderModel
+})
+
+function onModelSelect(model) {
+  // 构建 provider_id::model_id 格式
+  const value = model.provider_id ? `${model.provider_id}::${model.model_id}` : model.id
+  emit('update:selectedProviderModel', value)
+}
 
 // 虚拟滚动状态
 const virtualScroll = reactive({
@@ -267,7 +281,7 @@ function getFileName(filePath) {
 .project-name-field::placeholder {
   color: var(--text-tertiary);
 }
-.model-selector {
+.model-selector-wrapper {
   margin: 8px 0 12px;
   display: flex;
   flex-direction: column;
@@ -280,16 +294,6 @@ function getFileName(filePath) {
   font-size: 12px;
   color: var(--text-secondary);
 }
-.model-select {
-  padding: 6px 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  font-size: 13px;
-  background: var(--bg-primary);
-  cursor: pointer;
-}
-.model-select:hover { border-color: var(--primary); }
-.model-select:focus { border-color: var(--primary); outline: none; }
 
 /* 虚拟滚动文件树 */
 .file-tree {

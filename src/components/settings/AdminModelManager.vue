@@ -12,6 +12,35 @@
       </div>
     </div>
 
+    <!-- 模型健康状态概览 -->
+    <div class="health-overview">
+      <h3 class="subsection-title">模型健康状态</h3>
+      <div class="health-grid">
+        <div v-for="model in modelsWithHealth" :key="model.id" :class="['health-card', getHealthStatus(model)]">
+          <div class="health-card-header">
+            <span class="health-model-name">{{ model.name }}</span>
+            <span :class="['health-badge', getHealthStatus(model)]">
+              {{ getHealthStatusText(model) }}
+            </span>
+          </div>
+          <div class="health-metrics">
+            <div class="metric">
+              <span class="metric-label">成功率</span>
+              <span class="metric-value">{{ formatPercent(model.health_score) }}%</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">延迟</span>
+              <span class="metric-value">{{ formatLatency(model.avg_latency) }}ms</span>
+            </div>
+            <div class="metric">
+              <span class="metric-label">调用次数</span>
+              <span class="metric-value">{{ model.total_calls || 0 }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 模型搜索 -->
     <div class="filter-bar">
       <input
@@ -52,6 +81,11 @@
         </div>
         <div class="model-card-tags">
           <span v-for="tag in model.tags" :key="tag" class="tag-chip">{{ tag }}</span>
+        </div>
+        <div v-if="model.health_score !== undefined" class="model-card-health">
+          <div :class="['health-indicator', getHealthClass(model.health_score)]">
+            {{ model.health_score }}%
+          </div>
         </div>
       </div>
     </div>
@@ -174,9 +208,19 @@ const contextSearch = ref('')
 const sortOrder = ref('asc')
 const loading = ref(false)
 const loadingContext = ref(false)
+const modelHealthData = ref({})
 
 const currentDefault = computed(() => {
   return models.value.find(m => m.is_default) || {}
+})
+
+const modelsWithHealth = computed(() => {
+  return models.value.map(m => ({
+    ...m,
+    health_score: modelHealthData.value[m.id]?.health_score,
+    avg_latency: modelHealthData.value[m.id]?.avg_latency_ms,
+    total_calls: modelHealthData.value[m.id]?.total_requests
+  }))
 })
 
 const filteredModels = computed(() => {
@@ -238,9 +282,22 @@ async function loadContextLengths() {
   }
 }
 
+async function loadModelHealth() {
+  try {
+    const resp = await api.get('/api/v1/models/health')
+    if (resp.ok) {
+      const data = await resp.json()
+      modelHealthData.value = data.models || {}
+    }
+  } catch {
+    // 健康数据加载失败不影响主功能
+  }
+}
+
 function loadAll() {
   loadModels()
   loadContextLengths()
+  loadModelHealth()
 }
 
 async function confirmSwitchDefault(model) {
@@ -277,6 +334,41 @@ function formatTokens(val) {
   if (val >= 1024 * 1024) return `${(val / 1024 / 1024).toFixed(0)}M`
   if (val >= 1024) return `${(val / 1024).toFixed(0)}k`
   return String(val)
+}
+
+function formatPercent(val) {
+  if (val === undefined || val === null) return '-'
+  return Math.round(val)
+}
+
+function formatLatency(val) {
+  if (val === undefined || val === null) return '-'
+  return Math.round(val)
+}
+
+function getHealthStatus(model) {
+  if (model.health_score === undefined) return 'unknown'
+  if (model.health_score >= 80) return 'healthy'
+  if (model.health_score >= 50) return 'degraded'
+  return 'critical'
+}
+
+function getHealthStatusText(model) {
+  const status = getHealthStatus(model)
+  const texts = {
+    healthy: '健康',
+    degraded: '降级',
+    critical: '熔断',
+    unknown: '未知'
+  }
+  return texts[status] || '未知'
+}
+
+function getHealthClass(score) {
+  if (score === undefined) return 'unknown'
+  if (score >= 80) return 'good'
+  if (score >= 50) return 'warning'
+  return 'critical'
 }
 
 function startEdit(key) {
@@ -375,6 +467,7 @@ onMounted(loadAll)
 <style scoped>
 .admin-model-manager { padding: 20px; max-width: 1000px; margin: 0 auto; }
 .section-title { font-size: 18px; margin-bottom: 8px; color: var(--text-primary); }
+.subsection-title { font-size: 16px; margin-bottom: 12px; color: var(--text-primary); }
 .section-desc { font-size: 14px; color: var(--text-tertiary); margin-bottom: 24px; }
 
 .current-default {
@@ -388,6 +481,104 @@ onMounted(loadAll)
 .default-value { display: flex; flex-direction: column; }
 .model-name { font-size: 16px; font-weight: 600; color: var(--text-primary); }
 .model-desc { font-size: 13px; color: var(--text-tertiary); }
+
+/* 健康状态概览 */
+.health-overview {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.health-card {
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+
+.health-card.healthy {
+  border-color: var(--success);
+}
+
+.health-card.degraded {
+  border-color: var(--warning);
+}
+
+.health-card.critical {
+  border-color: var(--danger);
+}
+
+.health-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.health-model-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.health-badge.healthy {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.health-badge.degraded {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.health-badge.critical {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.health-badge.unknown {
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+
+.health-metrics {
+  display: flex;
+  gap: 12px;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metric-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.metric-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
 
 .filter-bar {
   display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
@@ -446,12 +637,46 @@ onMounted(loadAll)
   color: var(--success);
   border-radius: 4px; font-size: 11px;
 }
-.model-card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.model-card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .tag-chip {
   padding: 2px 8px;
   background: var(--bg-tertiary);
   color: var(--text-tertiary);
   border-radius: 4px; font-size: 11px;
+}
+
+.model-card-health {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.health-indicator {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.health-indicator.good {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.health-indicator.warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.health-indicator.critical {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.health-indicator.unknown {
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
 }
 
 /* 上下文长度表格 */

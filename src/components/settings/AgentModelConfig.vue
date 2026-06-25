@@ -26,17 +26,16 @@
               <td class="role-cell">
                 <span class="role-badge" :class="role.key">{{ role.label }}</span>
               </td>
-              <td>
-                <select
+              <td class="model-cell">
+                <ModelSelector
                   v-if="isSuperUser"
-                  :value="getSelectedModel(role.key)"
-                  class="model-select"
-                  @change="updateModel(role.key, $event.target.value)"
-                >
-                  <option v-for="model in availableModels" :key="model.id" :value="model.id">
-                    {{ model.name }}
-                  </option>
-                </select>
+                  :models="availableModels"
+                  :selected-id="getSelectedModel(role.key)"
+                  :placeholder="'选择模型'"
+                  :show-filters="true"
+                  :group-by-provider="false"
+                  @select="(model) => updateModel(role.key, model.id)"
+                />
                 <span v-else class="model-readonly">
                   {{ getModelName(getSelectedModel(role.key)) }}
                 </span>
@@ -69,15 +68,16 @@
                 class="chain-model-item"
               >
                 <span class="chain-index">{{ idx + 1 }}</span>
-                <select
-                  :value="modelId"
-                  class="model-select"
-                  @change="updateChainModel(idx, $event.target.value)"
-                >
-                  <option v-for="model in availableModels" :key="model.id" :value="model.id">
-                    {{ model.name }}
-                  </option>
-                </select>
+                <div class="chain-model-select">
+                  <ModelSelector
+                    :models="availableModels"
+                    :selected-id="modelId"
+                    :placeholder="'选择模型'"
+                    :show-filters="false"
+                    :group-by-provider="false"
+                    @select="(model) => updateChainModel(idx, model.id)"
+                  />
+                </div>
                 <button class="chain-remove-btn" title="移除" @click="removeChainModel(idx)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
@@ -99,15 +99,16 @@
         <div class="error-type-grid">
           <div v-for="(modelId, errorType) in configData.error_type_models" :key="errorType" class="error-type-item">
             <span class="error-type-name">{{ errorType }}</span>
-            <select
-              :value="modelId"
-              class="model-select"
-              @change="updateErrorTypeModel(errorType, $event.target.value)"
-            >
-              <option v-for="model in availableModels" :key="model.id" :value="model.id">
-                {{ model.name }}
-              </option>
-            </select>
+            <div class="error-type-select">
+              <ModelSelector
+                :models="availableModels"
+                :selected-id="modelId"
+                :placeholder="'选择模型'"
+                :show-filters="false"
+                :group-by-provider="false"
+                @select="(model) => updateErrorTypeModel(errorType, model.id)"
+              />
+            </div>
           </div>
         </div>
       </template>
@@ -141,6 +142,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { api } from '@/utils/api/index'
 import { ElMessage } from 'element-plus'
+import ModelSelector from '@/components/common/ModelSelector.vue'
 
 const userStore = useUserStore()
 const isSuperUser = computed(() => userStore.isSuperUser)
@@ -362,16 +364,13 @@ onMounted(async () => {
 .config-table td { background: var(--bg-primary); }
 
 .role-cell { text-align: left; }
+.model-cell { min-width: 200px; }
 .role-badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; }
 .role-badge.architect { background: var(--primary-50); color: var(--primary); }
 .role-badge.frontend { background: var(--success-bg); color: var(--success); }
 .role-badge.backend { background: var(--warning-bg); color: var(--warning); }
 .role-badge.reviewer { background: var(--danger-bg); color: var(--danger); }
 .role-badge.fallback { background: var(--color-primary-50); color: var(--color-primary-700); }
-
-.model-select { width: 100%; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 13px; background: var(--bg-primary); color: var(--text-primary); cursor: pointer; }
-.model-select:hover { border-color: var(--primary); }
-.model-select:focus { border-color: var(--primary); outline: none; }
 
 .model-readonly { font-size: 13px; color: var(--text-secondary); }
 
@@ -388,6 +387,7 @@ onMounted(async () => {
 .chain-models { display: flex; flex-direction: column; gap: 8px; }
 .chain-model-item { display: flex; align-items: center; gap: 8px; }
 .chain-index { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--primary); color: var(--bg-primary, #fff); font-size: 12px; font-weight: 600; flex-shrink: 0; }
+.chain-model-select { flex: 1; min-width: 0; }
 .chain-remove-btn { background: none; border: none; cursor: pointer; color: var(--text-tertiary); padding: 4px; display: flex; align-items: center; }
 .chain-remove-btn:hover { color: var(--danger); }
 .chain-add-btn { display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: var(--primary-50); color: var(--primary); border: 1px dashed var(--primary-200); border-radius: 4px; font-size: 13px; cursor: pointer; margin-top: 4px; }
@@ -397,6 +397,7 @@ onMounted(async () => {
 .error-type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 24px; }
 .error-type-item { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); }
 .error-type-name { font-size: 13px; font-weight: 600; color: var(--text-primary); min-width: 100px; }
+.error-type-select { flex: 1; min-width: 0; }
 
 .config-info { display: flex; gap: 32px; margin-bottom: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 8px; }
 .info-item { display: flex; gap: 8px; }
