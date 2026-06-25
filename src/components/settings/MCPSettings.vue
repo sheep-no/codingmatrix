@@ -31,7 +31,7 @@
             <span v-else class="server-status disabled">已禁用</span>
           </div>
           <div class="server-card-actions">
-            <button class="btn-icon" title="测试连接" @click="testServer(server.name)" :disabled="testing === server.name">
+            <button class="btn-icon" title="测试连接" :disabled="testing === server.name" @click="testServer(server.name)">
               <svg v-if="testing === server.name" class="spin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
               <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             </button>
@@ -107,7 +107,7 @@
       </div>
       <div class="form-actions">
         <button class="btn btn-outline" @click="showAddForm = false">取消</button>
-        <button class="btn btn-primary" @click="addServer" :disabled="adding">
+        <button class="btn btn-primary" :disabled="adding" @click="addServer">
           {{ adding ? '添加中...' : '添加' }}
         </button>
       </div>
@@ -218,7 +218,9 @@ async function deleteServer(name) {
       ElMessage.success(`已删除 ${name}`)
       await loadServers()
     }
-  } catch {}
+  } catch {
+    // Error handled silently
+  }
 }
 
 async function testServer(name) {

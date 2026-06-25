@@ -342,8 +342,10 @@
         sessionId.value = data.session_id
       }
       if (data.is_continuation) {
+        // TODO: Handle continuation
       }
     } else if (data.event === 'continuation_context') {
+      // TODO: Handle continuation context
     } else if (data.event === 'task_graph_generated') {
       workflowGraph.value = {
         workflow_id: data.workflow_id,
@@ -356,8 +358,10 @@
         }))
       }
       if (sessionId.value) {
+        // TODO: Update session
       }
     } else if (data.event === 'workflow_exported') {
+      // TODO: Handle workflow exported
     } else if (data.event === 'node_completed') {
       const node = workflowGraph.value?.nodes.find(n => n.id === data.node_id)
       if (node) {

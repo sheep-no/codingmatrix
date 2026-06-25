@@ -755,14 +755,16 @@
         if (!message.thinkingGroups) {
           message.thinkingGroups = {}
         }
-        const agent = data.agent || 'unknown'
-        const model = data.model || ''
-        if (!message.thinkingGroups[agent]) {
-          message.thinkingGroups[agent] = { content: '', model: model }
-        }
-        message.thinkingGroups[agent].content += data.message || ''
-        if (model && !message.thinkingGroups[agent].model) {
-          message.thinkingGroups[agent].model = model
+        {
+          const agent = data.agent || 'unknown'
+          const model = data.model || ''
+          if (!message.thinkingGroups[agent]) {
+            message.thinkingGroups[agent] = { content: '', model: model }
+          }
+          message.thinkingGroups[agent].content += data.message || ''
+          if (model && !message.thinkingGroups[agent].model) {
+            message.thinkingGroups[agent].model = model
+          }
         }
         break
 

@@ -12,8 +12,9 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
   const currentSessionId = ref(null)
   const projectPrompt = ref('')
   const sessionHistory = ref([])
+  const pendingDecisions = ref([])
+  const decisionHistory = ref([])
 
-  // ========== Generation State ==========
   const isGenerating = ref(false)
   const workflowStages = ref([])
   const currentPhase = ref('initializing')
