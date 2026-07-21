@@ -19,25 +19,22 @@ logger = logging.getLogger(__name__)
 # Agent 模型配置文件路径
 AGENT_MODEL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../data/agent_model_config.json")
 
+# 备选模型 ID → Key 映射（配置文件不可用时的兜底）
+_FALLBACK_MODEL_ID_TO_KEY: Dict[str, str] = {
+    "deepseek-r1": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+    "qwen3-8b": "Qwen/Qwen3-8B",
+    "glm-z1-9b": "THUDM/GLM-Z1-9B-0414",
+    "glm-4-9b": "THUDM/GLM-4-9B-0414",
+}
 
-def _build_model_id_to_key() -> Dict[str, str]:
-    """从统一配置文件构建 model_id -> model_name 映射"""
-    try:
-        with open(AGENT_MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        models = config.get("models", {})
-        return {model_id: m["name"] for model_id, m in models.items() if "name" in m}
-    except Exception:
-        return {
-            "deepseek-r1": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-            "qwen3-8b": "Qwen/Qwen3-8B",
-            "glm-z1-9b": "THUDM/GLM-Z1-9B-0414",
-            "glm-4-9b": "THUDM/GLM-4-9B-0414",
-        }
+
+_provider_map_cache: Optional[Dict[str, Any]] = None
+_model_id_key_cache: Optional[Dict[str, str]] = None
 
 
 def _build_provider_map() -> Dict[str, "ModelProvider"]:
     """从统一配置文件构建 model_name -> provider 映射"""
+    global _provider_map_cache
     from app.utils.aicloud.provider_router import ModelProvider
     try:
         with open(AGENT_MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -56,9 +53,54 @@ def _build_provider_map() -> Dict[str, "ModelProvider"]:
             provider = provider_enum_map.get(provider_str, ModelProvider.SILICONFLOW)
             if name:
                 provider_map[name] = provider
+        _provider_map_cache = provider_map
         return provider_map
     except Exception:
-        return {}
+        return _provider_map_cache or {}
+
+
+def _build_model_id_to_key() -> Dict[str, str]:
+    """从统一配置构建 model_id -> model_key 映射"""
+    global _model_id_key_cache
+    try:
+        with open(AGENT_MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        models = config.get("models", {})
+        mapping = {}
+        for model_id, m in models.items():
+            name = m.get("name", "")
+            if name:
+                mapping[model_id] = name
+        _model_id_key_cache = mapping
+        return mapping
+    except Exception:
+        return _model_id_key_cache or _FALLBACK_MODEL_ID_TO_KEY
+
+
+def get_model_id_to_key() -> Dict[str, str]:
+    """获取模型ID到模型Key的映射（支持缓存刷新）"""
+    global _model_id_key_cache
+    if _model_id_key_cache is None:
+        _build_model_id_to_key()
+    return _model_id_key_cache or _FALLBACK_MODEL_ID_TO_KEY
+
+
+def get_model_provider_map() -> Dict[str, Any]:
+    """获取模型名到Provider的映射（支持缓存刷新）"""
+    global _provider_map_cache
+    if _provider_map_cache is None:
+        _build_provider_map()
+    return _provider_map_cache or {}
+
+
+def invalidate_model_mapping_cache():
+    """刷新模型映射缓存（调用后重建 MODEL_ID_TO_KEY / MODEL_PROVIDER_MAP）"""
+    global MODEL_ID_TO_KEY, MODEL_PROVIDER_MAP, MODEL_KEY_TO_ID, _model_id_key_cache, _provider_map_cache
+    _model_id_key_cache = None
+    _provider_map_cache = None
+    MODEL_ID_TO_KEY = _build_model_id_to_key()
+    MODEL_PROVIDER_MAP = _build_provider_map()
+    MODEL_KEY_TO_ID = {v: k for k, v in MODEL_ID_TO_KEY.items()}
 
 
 # 模型 ID 到模型 Key 的映射（从统一配置动态生成）
@@ -731,77 +773,76 @@ def reload_roles_config():
     """重新加载角色配置"""
     global _roles_cache
     _roles_cache = None
+    invalidate_model_mapping_cache()
     return _load_roles_assignment()
 
-    @classmethod
-    async def get_best_model_with_health_awareness(
-        cls,
-        candidate_models: List[str],
-        task_type: str = "general",
-        routing_config: Optional[RoutingConfig] = None
-    ) -> str:
-        """
-        带健康感知的模型选择
 
-        NOTE: Currently unused (enable_health_awareness defaults to False).
-        Callers should set RoutingConfig(enable_health_awareness=True) to activate.
-        """
-        if not candidate_models:
-            return "Qwen/Qwen3-8B"
+async def get_best_model_with_health_awareness(
+    candidate_models: List[str],
+    task_type: str = "general",
+    routing_config: Optional[RoutingConfig] = None
+) -> str:
+    """
+    带健康感知的模型选择
 
-        config = routing_config or RoutingConfig()
+    Callers should set RoutingConfig(enable_health_awareness=True) to activate.
+    """
+    if not candidate_models:
+        return "Qwen/Qwen3-8B"
 
-        # 如果未启用健康感知路由，使用传统方式
-        if not config.enable_health_aware_routing:
-            router = await get_dynamic_router()
-            return await router.get_best_model(candidate_models, task_type)
+    config = routing_config or RoutingConfig()
 
-        # 获取系统负载快照
-        snapshot = await system_load_monitor.get_load_snapshot()
-
-        # 检查系统是否过载
-        if system_load_monitor.is_system_overloaded(config.system_overload_threshold):
-            logger.warning(f"系统过载，启用降级策略: {snapshot}")
-            # 选择负载最轻的模型
-            best_model = min(
-                candidate_models,
-                key=lambda m: system_load_monitor.get_model_load_score(m)
-            )
-            logger.info(f"健康感知路由: 选择降级模型 {best_model} (系统过载)")
-            return best_model
-
-        # 正常情况：结合模型健康和系统负载评分
+    # 如果未启用健康感知路由，使用传统方式
+    if not config.enable_health_aware_routing:
         router = await get_dynamic_router()
-        healthy_models = []
+        return await router.get_best_model(candidate_models, task_type)
 
-        for model_name in candidate_models:
-            metrics = router.get_or_create_metrics(model_name)
-            if metrics.consecutive_failures < 3:  # 未熔断
-                healthy_models.append(model_name)
+    # 获取系统负载快照
+    snapshot = await system_load_monitor.get_load_snapshot()
 
-        if not healthy_models:
-            return "Qwen/Qwen3-8B"
-
-        # 计算综合评分
-        def calculate_comprehensive_score(model_name: str) -> float:
-            # 模型健康评分 (0-100)
-            metrics = router.get_or_create_metrics(model_name)
-            model_health_score = metrics.health_score / 100.0
-
-            # 系统负载评分 (0-1, 越低越好)
-            system_load_score = system_load_monitor.get_model_load_score(model_name)
-
-            # 综合评分 = 模型健康 * 权重 + (1 - 系统负载) * 权重
-            comprehensive_score = (
-                model_health_score * config.model_load_weight +
-                (1.0 - system_load_score) * config.system_load_weight
-            )
-
-            return comprehensive_score
-
-        best_model = max(healthy_models, key=calculate_comprehensive_score)
-        logger.info(f"健康感知路由 [{task_type}]: {best_model}")
+    # 检查系统是否过载
+    if system_load_monitor.is_system_overloaded(config.system_overload_threshold):
+        logger.warning(f"系统过载，启用降级策略: {snapshot}")
+        # 选择负载最轻的模型
+        best_model = min(
+            candidate_models,
+            key=lambda m: system_load_monitor.get_model_load_score(m)
+        )
+        logger.info(f"健康感知路由: 选择降级模型 {best_model} (系统过载)")
         return best_model
+
+    # 正常情况：结合模型健康和系统负载评分
+    router = await get_dynamic_router()
+    healthy_models = []
+
+    for model_name in candidate_models:
+        metrics = router.get_or_create_metrics(model_name)
+        if metrics.consecutive_failures < 3:  # 未熔断
+            healthy_models.append(model_name)
+
+    if not healthy_models:
+        return "Qwen/Qwen3-8B"
+
+    # 计算综合评分
+    def calculate_comprehensive_score(model_name: str) -> float:
+        # 模型健康评分 (0-100)
+        metrics = router.get_or_create_metrics(model_name)
+        model_health_score = metrics.health_score / 100.0
+
+        # 系统负载评分 (0-1, 越低越好)
+        system_load_score = system_load_monitor.get_model_load_score(model_name)
+
+        # 综合评分 = 模型健康 * 权重 + (1 - 系统负载) * 权重
+        comprehensive_score = (
+            model_health_score * config.model_load_weight +
+            (1.0 - system_load_score) * config.system_load_weight
+        )
+
+        return comprehensive_score
+
+    best_model = max(healthy_models, key=calculate_comprehensive_score)
+    logger.info(f"健康感知路由 [{task_type}]: {best_model}")
+    return best_model
 
 
 # ==================== get_model_config 工具函数 ====================

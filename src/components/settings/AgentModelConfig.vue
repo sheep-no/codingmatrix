@@ -219,7 +219,7 @@ function getSelectedModel(role) {
 
 async function updateModel(role, modelId) {
   try {
-    const resp = await api.put('/api/v2/models/agent-config', {
+    const resp = await api.put('/api/v2/model-config/agent/role', {
       role,
       model_id: modelId
     })
@@ -230,9 +230,6 @@ async function updateModel(role, modelId) {
           configData.value.roles = {}
         }
         configData.value.roles[role] = modelId
-        if (data.config?.last_updated) {
-          configData.value.last_updated = data.config.last_updated
-        }
         ElMessage.success(`已更新 ${roles.find(r => r.key === role)?.label || role} 为 ${getModelName(modelId)}`)
       }
     } else {
@@ -265,16 +262,12 @@ function removeChainModel(idx) {
 async function saveChain() {
   chainSaving.value = true
   try {
-    const resp = await api.put('/api/v2/models/agent-config/fallback-chain', {
-      chain_name: 'default',
-      models: configData.value.fallback_chain
+    const resp = await api.put('/api/v2/model-config/agent/fallback', {
+      chain: configData.value.fallback_chain
     })
     if (resp.ok) {
       const data = await resp.json()
       if (data.success) {
-        if (data.config?.last_updated) {
-          configData.value.last_updated = data.config.last_updated
-        }
         ElMessage.success('降级链已保存')
       }
     } else {
@@ -318,11 +311,11 @@ async function updateErrorTypeModel(errorType, modelId) {
 async function reloadConfig() {
   reloading.value = true
   try {
-    const resp = await api.post('/api/v2/models/agent-config/reload')
+    const resp = await api.post('/api/v2/model-config/reload')
     if (resp.ok) {
       const data = await resp.json()
       if (data.success) {
-        configData.value = { ...configData.value, ...(data.config || {}) }
+        await loadConfig()
         ElMessage.success('配置已重新加载')
       }
     } else {

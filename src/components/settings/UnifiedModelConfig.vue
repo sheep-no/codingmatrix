@@ -85,7 +85,7 @@
                 :class="['toggle-btn', { active: model.enabled }]"
                 @click="toggleModel(model.id)"
               >
-                {{ model.enabled ? '启用' : '禁用' }}
+                {{ model.enabled ? '禁用' : '启用' }}
               </button>
               <button class="delete-btn" @click="deleteModel(model.id)">删除</button>
             </div>
@@ -275,8 +275,11 @@ async function toggleModel(modelId) {
   try {
     const resp = await api.put(`/api/v2/model-config/models/${modelId}/toggle`)
     if (resp.ok) {
+      const data = await resp.json()
       const model = models.value.find(m => m.id === modelId)
-      if (model) model.enabled = !model.enabled
+      if (model && data.enabled !== undefined) {
+        model.enabled = data.enabled
+      }
       ElMessage.success('状态已切换')
     }
   } catch (e) {

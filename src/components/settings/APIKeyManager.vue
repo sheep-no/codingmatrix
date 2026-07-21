@@ -452,10 +452,11 @@ function toggleFallbackConfig(token) {
 
 async function loadFallbackPreference(key) {
   try {
-    const result = await api.get(`/api/v1/agent/apikey/${key.token}/fallback-preference`)
-    if (result.data) {
-      key.fallback_preference = result.data.fallback_preference || 'use_admin_default'
-      key.custom_fallback_chain = result.data.custom_fallback_chain || []
+    const res = await api.get(`/api/v1/agent/apikey/${key.token}/fallback-preference`)
+    const data = await res.json()
+    if (data) {
+      key.fallback_preference = data.fallback_preference || 'use_admin_default'
+      key.custom_fallback_chain = data.custom_fallback_chain || []
     }
   } catch (e) {
     console.error('加载降级链偏好失败:', e)

@@ -177,7 +177,7 @@ class ModelConfigManager:
             self._models[m.id] = m
     
     def save_config(self):
-        """保存配置"""
+        """保存配置到 unified_model_config.json，并同步到 agent_model_config.json"""
         try:
             data = {
                 "version": "5.0",
@@ -221,10 +221,59 @@ class ModelConfigManager:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             
             logger.info(f"已保存模型配置: {self.config_path}")
+            
+            # 同步到 agent_model_config.json（运行时读取的文件）
+            self._sync_to_agent_config(data)
             return True
         except Exception as e:
             logger.error(f"保存配置失败: {e}")
             return False
+    
+    def _sync_to_agent_config(self, unified_data: Dict):
+        """将统一配置同步到 agent_model_config.json"""
+        agent_config_path = self.config_path.parent / "agent_model_config.json"
+        try:
+            # 保留现有 agent_config.json 中 models 以外的所有字段
+            existing = {}
+            if agent_config_path.exists():
+                with open(agent_config_path, 'r', encoding='utf-8') as f:
+                    existing = json.load(f)
+            
+            # 构建 models 部分
+            synced_models = {}
+            for mid, m in unified_data.get("models", {}).items():
+                synced_models[mid] = {
+                    "name": m["name"],
+                    "display_name": m.get("display_name", mid),
+                    "provider": m.get("provider", "siliconflow"),
+                    "is_reasoning": m.get("is_reasoning", False),
+                    "context_length": m.get("context_length", 32768),
+                    "thinking_ratio": m.get("thinking_ratio", 0.0),
+                    "temperature": m.get("temperature", 0.7),
+                    "timeout": m.get("timeout", 300),
+                    "speed": m.get("speed", 1.0)
+                }
+            
+            agent_config = {
+                "version": "5.0",
+                "description": "统一模型配置 - 由 unified_model_config.json 自动同步",
+                "last_updated": unified_data.get("last_updated", ""),
+                "models": synced_models,
+                "roles": unified_data.get("agent", {}).get("roles", existing.get("roles", {})),
+                "fallback_chain": unified_data.get("agent", {}).get("fallback_chain", existing.get("fallback_chain", [])),
+                "error_type_models": existing.get("error_type_models", {}),
+                "settings": existing.get("settings", {}),
+                "cross_validation": existing.get("cross_validation", {}),
+                "model_context_lengths": existing.get("model_context_lengths", {})
+            }
+            
+            os.makedirs(agent_config_path.parent, exist_ok=True)
+            with open(agent_config_path, 'w', encoding='utf-8') as f:
+                json.dump(agent_config, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"已同步 Agent 模型配置: {agent_config_path}")
+        except Exception as e:
+            logger.error(f"同步 Agent 配置失败: {e}")
     
     # ==================== 模型管理 ====================
     
@@ -362,19 +411,25 @@ class ModelConfigManager:
 
 
 # 全局单例
+import threading
 _manager: Optional[ModelConfigManager] = None
+_lock: threading.Lock = threading.Lock()
 
 
 def get_model_config_manager() -> ModelConfigManager:
     """获取模型配置管理器单例"""
     global _manager
     if _manager is None:
-        _manager = ModelConfigManager()
+        with _lock:
+            if _manager is None:
+                _manager = ModelConfigManager()
     return _manager
 
 
 def reload_model_config():
     """重新加载配置"""
     global _manager
-    _manager = None
-    return get_model_config_manager()
+    with _lock:
+        _manager = None
+        _manager = ModelConfigManager()
+    return _manager

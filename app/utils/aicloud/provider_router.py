@@ -101,7 +101,11 @@ class ProviderRouter:
             manager = get_dynamic_provider_manager()
             dp = manager.get_by_model(model_name)
             if dp:
-                pass
+                if dp.protocol.value == "openai":
+                    return ModelProvider.OPENAI
+                elif dp.protocol.value == "anthropic":
+                    return ModelProvider.ANTHROPIC
+                return ModelProvider.OPENAI
         except Exception:
             pass
         

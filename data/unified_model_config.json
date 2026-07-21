@@ -1,7 +1,7 @@
 {
   "version": "5.0",
   "description": "统一模型配置",
-  "last_updated": "2026-06-25T15:44:54.509598",
+  "last_updated": "2026-07-16T12:40:59.591008",
   "providers": {
     "siliconflow": {
       "name": "SiliconFlow",

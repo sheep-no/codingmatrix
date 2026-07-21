@@ -299,6 +299,7 @@ export const useApiKeyStore = defineStore('apikey', () => {
     deleteKey,
     listKeys,
     toggleEnabled,
+    updateContextLengths,
     setModelOverride,
     getModelOverride,
     getUserModelOverrides,

@@ -121,6 +121,10 @@ async def add_model(
     if manager.get_model(request.id):
         raise HTTPException(status_code=400, detail=f"模型 {request.id} 已存在")
     
+    # 验证供应商存在
+    if not manager.get_provider(request.provider):
+        raise HTTPException(status_code=400, detail=f"供应商 {request.provider} 不存在，请先添加供应商")
+    
     model = ModelConfig(
         id=request.id,
         name=request.name,
@@ -192,10 +196,12 @@ async def toggle_model(
     if not model:
         raise HTTPException(status_code=404, detail=f"模型 {model_id} 不存在")
     
+    old_enabled = model.enabled
     if manager.toggle_model(model_id):
-        new_status = "启用" if not model.enabled else "禁用"
+        new_enabled = not old_enabled
+        new_status = "禁用" if old_enabled else "启用"
         logger.info(f"切换模型状态 | 操作用户={current_user.get('sub')} | 模型={model_id} -> {new_status}")
-        return {"success": True, "message": f"模型 {model_id} 已{new_status}"}
+        return {"success": True, "message": f"模型 {model_id} 已{new_status}", "enabled": new_enabled}
     
     raise HTTPException(status_code=500, detail="操作失败")
 

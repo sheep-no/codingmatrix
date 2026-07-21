@@ -119,6 +119,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { api } from '@/utils/api/index'
 
 const API = '/api/v2/mcp'
 
@@ -144,7 +145,7 @@ const newServer = ref({
 async function loadServers() {
   loading.value = true
   try {
-    const res = await fetch(`${API}/servers`)
+    const res = await api.get(`${API}/servers`)
     const data = await res.json()
     servers.value = data.servers || []
   } catch (e) {
@@ -179,11 +180,7 @@ async function addServer() {
 
   adding.value = true
   try {
-    const res = await fetch(`${API}/servers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
+    const res = await api.post(`${API}/servers`, body)
     const data = await res.json()
     if (!res.ok) { addError.value = data.detail || '添加失败'; return }
     ElMessage.success(`MCP Server "${s.name}" 已添加`)
@@ -199,7 +196,7 @@ async function addServer() {
 
 async function toggleServer(name) {
   try {
-    const res = await fetch(`${API}/servers/${name}/toggle`, { method: 'POST' })
+    const res = await api.post(`${API}/servers/${name}/toggle`)
     const data = await res.json()
     if (res.ok) {
       ElMessage.success(`${name} 已${data.enabled ? '启用' : '禁用'}`)
@@ -213,7 +210,7 @@ async function toggleServer(name) {
 async function deleteServer(name) {
   try {
     await ElMessageBox.confirm(`确定删除 MCP Server "${name}"？`, '确认删除', { type: 'warning' })
-    const res = await fetch(`${API}/servers/${name}`, { method: 'DELETE' })
+    const res = await api.delete(`${API}/servers/${name}`)
     if (res.ok) {
       ElMessage.success(`已删除 ${name}`)
       await loadServers()
@@ -227,7 +224,7 @@ async function testServer(name) {
   testing.value = name
   testResults.value[name] = null
   try {
-    const res = await fetch(`${API}/servers/${name}/test`, { method: 'POST' })
+    const res = await api.post(`${API}/servers/${name}/test`)
     const data = await res.json()
     testResults.value[name] = data
   } catch (e) {

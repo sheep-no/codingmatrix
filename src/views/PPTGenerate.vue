@@ -191,9 +191,9 @@
             <a :href="generatedFileUrl" target="_blank" class="download-link">
               下载 PPTX 文件
             </a>
-            <a v-if="currentTaskId" :href="`/api/v1/pptx/download/${currentTaskId}/pdf`" target="_blank" class="download-link pdf-link">
+            <button v-if="currentTaskId" class="download-link pdf-link" @click="downloadPdf">
               下载 PDF
-            </a>
+            </button>
             <button class="preview-btn" @click="goToPreview">
               在线预览
             </button>
@@ -364,6 +364,25 @@ function goToPreview() {
     if (match) {
       router.push(`/ppt-preview/${match[1]}`)
     }
+  }
+}
+
+async function downloadPdf() {
+  if (!currentTaskId.value) return
+  try {
+    const res = await api.get(`/api/v1/pptx/download/${currentTaskId.value}/pdf`)
+    if (!res.ok) throw new Error('下载失败')
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `presentation_${currentTaskId.value}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    console.error('PDF 下载失败:', e)
   }
 }
 

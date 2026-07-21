@@ -18,12 +18,17 @@
         <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
         系统模型管理
       </button>
+      <button v-if="isSuperUser" :class="['tab', { active: currentTab === 'unified' }]" @click="currentTab = 'unified'">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/></svg>
+        统一模型配置 (v2)
+      </button>
     </div>
     <div class="settings-content">
       <DynamicProviderManager v-if="currentTab === 'providers'" />
       <APIKeyManager v-else-if="currentTab === 'apikey'" />
       <AgentModelConfig v-else-if="currentTab === 'agent'" />
       <AdminModelManager v-else-if="currentTab === 'admin' && isSuperUser" />
+      <UnifiedModelConfig v-else-if="currentTab === 'unified' && isSuperUser" />
     </div>
   </div>
 </template>
@@ -36,6 +41,7 @@ import DynamicProviderManager from '@/components/settings/DynamicProviderManager
 import APIKeyManager from '@/components/settings/APIKeyManager.vue'
 import AgentModelConfig from '@/components/settings/AgentModelConfig.vue'
 import AdminModelManager from '@/components/settings/AdminModelManager.vue'
+import UnifiedModelConfig from '@/components/settings/UnifiedModelConfig.vue'
 
 const route = useRoute()
 const userStore = useUserStore()

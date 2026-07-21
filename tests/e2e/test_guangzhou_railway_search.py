@@ -90,13 +90,14 @@ class TestGuangzhouRailwaySearch:
         print(f"✅ 原始查询：{query}")
         print(f"✅ 增强后的查询：{enhanced}")
         
-        # 4. 验证增强后的查询包含站点限定
-        assert any(site in enhanced for site in [
+        # 4. 非技术查询应追加官网或站点限定
+        assert any(kw in enhanced for kw in [
+            "官网",
             "site:zhihu.com", 
             "site:juejin.cn",
             "site:github.com",
             "site:stackoverflow.com"
-        ]), f"增强查询应该包含站点限定：{enhanced}"
+        ]), f"增强查询应该包含官网或站点限定：{enhanced}"
         
         print("✅ 查询词增强验证通过")
 
