@@ -297,7 +297,7 @@ async def modify_project(
     conversation_store = get_conversation_store()
     history = await conversation_store.get_history_async(session_id, user_id)
     if history:
-        # 截断历史（保留最近 5 轮，最多 4000 token）
+        # 截断历史（保留最近 10 轮，最多 4000 token）
         history = conversation_store.truncate_history(history)
         # 构建上下文
         history_text = "\n".join(

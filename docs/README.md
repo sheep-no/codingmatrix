@@ -46,6 +46,11 @@
 - [CSRF 防护](security/CSRF-IMPLEMENTATION.md) - CSRF 实现
 - [权限规范](security/PERMISSION-SPEC.md) - RBAC 权限模型
 
+### 演化路径
+- [演化路径索引](evolution/README.md) - 各核心子系统未来演化规划
+- [Agent 引擎演化路径](evolution/AGENT-ENGINE.md) - 编排核心、角色、路由、验证闭环的拆分与演进
+- [前端 Agent 界面演化路径](evolution/AGENT-FRONTEND.md) - 布局修正、对话流重构、行级 diff、多文件标签、目录树
+
 ### 其他
 - [分布式追踪](observability/TRACING.md) - OpenTelemetry 集成
 - [AI 提示词](prompts/PROMPTS.md) - 22 个提示词模板
