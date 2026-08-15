@@ -13,14 +13,14 @@
 | 依赖 | `json_parser._get_parser()`（:8） | 单例转发，继承 JP1-JP5 |
 | 被消费 | `architect.py:11/:21/:265/:363/:419` | 架构生成链，`_safe_parse_json` 直接转发无类型检查 |
 | 被消费 | `react_engine.py:17/:118/:194/:282` | 有 `isinstance(result, dict) and "tool" in result` 保护（安全） |
-| 被消费 | `ppt_agent.py:18/:182/:256` | 无保护，`_validate_outline` 假设 Dict |
+| 被消费 | `ppt_agent.py:18/:182/:256` | 无保护，`_validate_outline` 假设 Dict（内部 except 兜底，见 AJP1 认知修正） |
 | 测试 | `test_review_result_parsing.py:24/:95`、`test_orchestrator.py:12/:130-170` | 7 处用例 |
 
 ## 2. 深扫发现
 
 ### P2 项
 
-- **AJP1 包装层无类型保护 → JP1 顶层标量穿透生成链（实测确认）**——architect.py `_safe_parse_json`（:419-422）直接转发 `safe_parse_json` 且返回类型标注 `-> Dict`，但调用方 architect.py:265 后 `isinstance(architecture, list)` 之外直接 `architecture["project_type"]`（:277）——实测 `safe_parse_json('null')` 返回 None 后 `architecture["project_type"]` 抛 **TypeError: 'NoneType' object is not subscriptable**；ppt_agent.py:183 `data = parser.safe_parse_json(raw)` 后 `_validate_outline` 内 `data.get("slides", [])`（:258）抛 **AttributeError: 'NoneType' object has no attribute 'get'**，且外层 `except ValueError`（:186）捕获不了 AttributeError → 未处理崩溃（LLM 输出 `null`/`123`/`"文本"` 时架构生成/PPT 生成直接崩）；react_engine.py:194-201 因有 isinstance 检查而幸免。**JP1 的 12 个消费方中，本模块经 architect/ppt_agent 两条路径把「顶层标量不 raise」放大为生成链崩溃**——JP1 修复优先级应包含此层契约（safe_parse_json 返回非 Dict 时下游 TypeError/AttributeError）。修复方向：包装层不解决根本问题，JP1 修 raise + 下游调用方按 Dict 断言，二者都做。
+- **AJP1 包装层无类型保护 → JP1 顶层标量穿透生成链（实测确认，PPT3 认知修正 2026-08-14）**——architect.py `_safe_parse_json`（:419-422）直接转发 `safe_parse_json` 且返回类型标注 `-> Dict`，但调用方 architect.py:265 后 `isinstance(architecture, list)` 之外直接 `architecture["project_type"]`（:277）——实测 `safe_parse_json('null')` 返回 None 后 `architecture["project_type"]` 抛 **TypeError: 'NoneType' object is not subscriptable**（未处理崩溃，仅此路径成立）；**ppt_agent 路径认知修正（第九十轮 PPT3 实测）**——原断言「ppt_agent.py:258 `data.get("slides", [])` 抛 AttributeError 且外层 `except ValueError`（:186）捕获不了 → 未处理崩溃」**对当前版本不成立**：ppt_agent.py `_validate_outline` 内部自带 `try/except Exception: return None`（:263/:293-295）捕获 AttributeError → `_parse_with_llm_fallback` 返回 None → generate_outline 重试 3 次耗尽走 `_fallback_outline`——实际行为是**静默降级为模板大纲 + 每次 null 输出消耗一次完整 LLM 调用（3 次重试全浪费）**，非崩溃。react_engine.py:194-201 因有 isinstance 检查而幸免。**JP1 的 12 个消费方中，本模块经 architect 路径把「顶层标量不 raise」放大为生成链崩溃（TypeError）、经 ppt_agent 路径放大为静默降级 + 重试浪费**——JP1 修复优先级应包含此层契约（safe_parse_json 返回非 Dict 时下游 TypeError/静默降级）。修复方向：包装层不解决根本问题，JP1 修 raise + 下游调用方按 Dict 断言，二者都做。
 
 ### P3 项
 
@@ -33,7 +33,7 @@
 
 ## 4. 主线关联
 
-- **「存在≠正确」解析端主线**：AJP1 证明 JP1 已从「解析器语义问题」放大为「生成链崩溃」——三消费方两处崩溃一处安全，语义失真的传播路径完整（JP1 解析 → AJP1 传播 → architect/ppt 崩溃）
+- **「存在≠正确」解析端主线**：AJP1 证明 JP1 已从「解析器语义问题」放大为「生成链崩溃」——三消费方 architect（崩溃 TypeError）/ ppt_agent（静默降级+重试浪费，PPT3 修正）/ react_engine（安全），语义失真的传播路径完整（JP1 解析 → AJP1 传播 → architect 崩溃、ppt 降级）
 - **双轨/并存主线**：AJP2 与 CR1（三套审查三轨契约）、三套 API 契约校验同族——同一能力多路径并存
 
 ## 5. 测试状态
