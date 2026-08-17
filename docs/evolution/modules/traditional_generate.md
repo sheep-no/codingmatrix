@@ -1,142 +1,74 @@
-# 传统生成链路演化深扫文档
+# TraditionalGenerate 生成链深扫（traditional_generate.py 427 行 + feature_extractor.py 37 行 + coverage_checker.py 61 行）
 
-> 版本：v1.0 | 扫描日期：2026-08-05 | 状态：已完成
-> 归属：Agent 大系统 / 编排层·传统生成路径（补扫，不在原 13 模块索引内）
-> 路径：`app/agent/orchestrator_generation/`（traditional_generate.py 427 行 + incremental_generate.py 85 行 + evaluate_mixin.py 351 行 + mixin.py 146 行 + coverage_checker.py 61 行 + feature_extractor.py 37 行）
-> 索引：[TASKS.md](../TASKS.md)｜关联：[error_recovery_loop.md](error_recovery_loop.md)｜[incremental_modify.md](incremental_modify.md)｜[error_recovery.md](error_recovery.md)
+> 第一百零四轮推演 | 2026-08-17 | 定位：传统生成链（非 spec-first）主编排——从需求联想增强、架构设计、分批规划、成本审批到文件生成/验证/测试/记忆/快照的完整收尾链，及其功能清单提取与需求覆盖率检查两个收尾步骤
 
-## 1. 模块作用与功能
+## 1. 模块定位
 
-传统生成路径是 spec_first 之外的**第二套生成链路**，由 mixin.py 组装 6 个 Mixin：
+`TraditionalGenerateMixin._generate_traditional`（traditional_generate.py:19-379）是传统生成模式的唯一入口（mixin.py:123 `generate()` 中 `spec_first=False` 分支），由 `GenerationMixin`（mixin.py:29）组合进 `OrchestratorAgent`。链路：缓存查找（spec_cache + embedding）→ 需求联想增强（OA1 消费方）→ 架构设计/分批规划 → 成本估算/审批 → 会话恢复/创建 → API 契约注入 → 依赖图分层 → 三路文件生成（增量/小项目/依赖分层）→ 完整性验证 → 静态验证 → 动态测试 → 记忆保存 → 缓存回写 → 功能清单提取 → 覆盖率检查 → 快照提交。
 
-- **`mixin.py`（146 行）**：`GenerationMixin` 组装层——`generate()` 入口三分流（evaluation_only→evaluate / spec_first→spec_first / 否则→`_generate_traditional`）；`_initialize_components` 初始化全部角色与工具
-- **`traditional_generate.py`（427 行）**：`_generate_traditional` 主流程——缓存查找（embedding+审查闸门）→ 架构设计→成本估算→审批→依赖图分层生成→完整性验证→沙箱验证→动态测试→ReAct 自动修复→成本/覆盖率报告
-- **`incremental_generate.py`（85 行）**：`_handle_incremental_generation`——会话恢复模式的增量生成（git stash 备份→并发生成→失败回滚）
-- **`evaluate_mixin.py`（351 行）**：`evaluate()`——纯评价模式（evaluation_only），需求/架构双 LLM 评价 + 规则化风险评估 + 总评
-- **`coverage_checker.py`（61 行）**：`check_requirement_coverage`——需求项关键词在 file_plan/架构文本的 30% 命中覆盖判定
-- **`feature_extractor.py`（37 行）**：`extract_and_save_feature_list`——生成后功能清单提取 + 模板自动萃取
+- `_validate_project_completeness_traditional`（:381-427）：按 file_plan 检查缺失/空/无效文件
+- `feature_extractor.py`（37）：`extract_and_save_feature_list` 收尾写历史功能数据源（PM 详档 `extract_and_save` 消费方），≥15 项目触发模板萃取（TE 详档触发方）
+- `coverage_checker.py`（61）：`check_requirement_coverage` 用联想项 functional 高置信项（≥0.7）对 file_plan+architecture 关键词匹配算覆盖率
+- 宿主契约依赖：`self.architect/reviewer/spec_cache/session_manager/validator/cost_tracker/error_recovery` 等 20+ 属性（mixin.py:85-93 初始化）
 
-## 2. 依赖与被依赖
+**活跃模块**，调用链：
 
-- **生产使用方**：`orchestrator.py` 组装 `GenerationMixin`（入口 generate）
-- **传统链路关键依赖**：Architect/FrontendEngineer/BackendEngineer/CodeReviewer、ErrorRecoveryLoop（顶层）、CodeValidator、APIContractChecker、DependencyGraph、LanguageAdapterRegistry、IntegrityValidator、IsolatedTestRunner、`validate_in_sandbox`
-- **ERR 链**：traditional_generate.py:297 `_try_react_auto_fix` → 子包 error_recovery.py:26（ERR1/ERR2 已确认失效）——传统链路动态测试失败后的 ReAct 修复**当前完全失效**
-- **测试覆盖**：`test_aicloud` 47 passed 覆盖传统链路核心（全为敏感过滤）；spec_first 有独立测试集
+- `orchestrator_generation/mixin.py:123`：`generate()` 传统分支 → `_generate_traditional`
+- `orchestrator_files.py`：`_generate_files_small_project`/`_generate_files_by_dep_layers` 文件生成（OF 详档）
+- `orchestrator_utils.py:26/:306/:339`：`_cache_review_gate`/`_estimate_generation_cost`/`_git_save_snapshot`（OU 详档）
+- `project_metadata.py:57`：`extract_and_save` 功能清单入库（PM 详档）
+- 下游消费：Layer 2 联想（orchestrator_requirements）读 project_metadata + 模板萃取（TE 详档）
 
-## 3. 已探明 Bug
+### 依赖链
 
-### TG1 [P2] 缺失文件补充走直连 LLM + 非原子写盘
+| 方向 | 模块/位置 | 说明 |
+|------|-----------|------|
+| 上游 | `orchestrator_generation/mixin.py:39-99` | `_initialize_components` 初始化 complexity/architect/reviewer/validator 等 |
+| 上游 | `orchestrator_requirements/mixin.py:30` | `_generate_requirement_associations` 需求联想（OA 详档） |
+| 上游 | `orchestrator_utils.py` | 缓存闸门/成本估算/快照 |
+| 上游 | `orchestrator_files.py` | 三路文件生成器 |
+| 下游 | `project_metadata.py:57` | 功能清单写入（feature_extractor → extract_and_save） |
+| 下游 | `template_extractor.py` | ≥15 项目触发模板萃取（feature_extractor:28） |
+| 下游 | `layer2_semantic.py` | 历史功能数据消费（恒空降级） |
+| 测试 | `tests/unit/test_v5_1_requirement_deep.py:85-120` | 仅 ProjectMetadata CRUD，extract_and_save 零用例 |
 
-- **Bug 代码**：
+## 2. 深扫发现
 
-```python
-# traditional_generate.py:250-257 - 补充缺失文件
-content = await self._direct_llm_generate_file(missing_file, desc, project_context)
-...
-with open(full_path, 'w', encoding='utf-8') as f:   # 非 write_file_atomic
-    f.write(content)
-```
+### P2 项
 
-- **根因**：完整性验证补缺失文件用直连 LLM（无 semaphore/cost_tracker），且 `open` 直写（与 spec_first 的 write_file_atomic 不一致）
-- **影响**：并发不受控、成本不计入、写盘非原子
+- **TG1 [P2] `_extract_feature_list` prompt f-string 未转义花括号——功能清单提取恒 ValueError（实测）**——`project_metadata.py:99` 的 prompt f-string 内嵌 `{"features": [...]}` 模板（:107-108 裸 `{` 未转义 `{{`）→ 每次调用 `_extract_feature_list` 必然 `ValueError: Invalid format specifier`；实测空 dict 与非空 dict 均复现，且 prompt 构造在 try 块外（:99 vs try :122）不被捕获 → `extract_and_save` 中断不落库 → **传统链每轮收尾的功能清单提取从未成功执行过**。传统链收尾 `_extract_and_save_feature_list`（traditional_generate.py:326）每轮必触发，异常被 :329-330 捕获仅 logger.warning（非阻塞静默吞）。
+- **TG2 [P2] `feature_extractor` 输入恒空——generated_files 无 content/code 键（全库确认）**——`feature_extractor.py:17-21` `gf.get("content", gf.get("code", ""))` 读取文件内容，但 `self.generated_files` 全部六处 append 结构均为 `{"path","description","success","size"}` 无 content 键（orchestrator_files.py:483-485/:825/:866、traditional_generate.py:228/:258）→ `files_dict` 恒空 → 即使修 TG1，LLM 也只凭空 file_summary（`_summarize_files` 空 dict → 空串）提取，文件内容信息从未传入——**输入侧与 prompt 侧双断**。
+- **TG3 [P2] 历史功能数据源恒空 + 模板萃取永不触发（实测，级联影响）**——`data/vector_index/project_metadata.json` 实测不存在（`METADATA_PATH` 指向路径无文件），结合 TG1 恒定失败 → 项目从不入库 → `get_projects_by_domain` 恒空 → **模板萃取（≥15 项目）与 Layer 2 联想（≥50 项目）永不触发，TE 详档 TE1「手工模板被自动萃取覆盖」的触发前提实际不可达**（TE1/TE2/TE4 描述的缺陷被 TG1 前置阻断而休眠），Layer 2 关键词/语义联想恒静默降级（OA9）。
+- **TG4 [P2] 完整性检查 `is_complete` 忽略空文件（全库确认）**——`_validate_project_completeness_traditional`（:381-427）`empty_files`（内容 <10 字符，:407-410）单独列出但 `is_complete = missing==0 and invalid==0`（:426）**不含 empty_files 判定**，且 :414 对 empty 文件跳过 invalid 检查 → 文件生成但内容为空仍判项目完成（TR1「存在≠正确」家族）。同时 missing 基于 `generated_files_dict`（:211-219 read 成功集合），read 异常（编码/IO）的文件静默 pass 也算缺失。
+- **TG5 [P2] 缓存审查闸门异常/缺评审即放行（全库确认）**——`_cache_review_gate`（orchestrator_utils.py:26-47）`except Exception: 放行`（:44-45）+ `reviewer` 缺失 return True（:30-31）——缓存架构审查任何异常或未配置审查员都直接命中缓存复用；且只判 `risk_level == "high"`（:41）单一维度，`review_code` 返回 Dict（code_reviewer.py:57）`.get` 不抛错，medium/low 风险与审查失败无差别放行（DGV1 放行家族）。
 
-### TG2 [P2] `success` 语义与 test_results 默认值耦合
+### P3 项
 
-- **Bug 代码**：
+- **TG6 [P3] 缓存命中时联想增强需求与缓存架构错配（全库确认）**——:55-56 用 `_association_result.enhanced_requirement` 覆盖 requirement，但 :60-63 缓存命中分支直接用 `cached.architecture`（旧版架构/文件计划）——增强需求进入 project_context（:182）与 `_cache_specs`（:306）回写，需求与架构错配（仅缓存路径）。
+- **TG7 [P3] 静态验证失败仍报告 success=True（全库确认）**——:345 `success = errors==0 and test_results.get("success", True)`，test_results 默认 `{"success": True}`（:201）；:287-290 静态验证失败（`final_validation.is_valid=False`）时不跑测试 → test_results 恒 True → **整体 success 仅取决于 errors 列表**，静态验证失败不反映在最终结果（TR1「存在≠正确」家族）。
+- **TG8 [P3] 完整性补充文件写盘后验证 dict 未更新（全库确认）**——:221-234 补充的 `__init__.py` 等写盘但 `generated_files_dict` 未加入 → 后续项目级沙箱验证（:270-275 `files=generated_files_dict`）与 `_validate_project_completeness_traditional` 用旧 dict，补充文件不在验证范围。
+- **TG9 [P3] 覆盖率关键词子串匹配无词边界（全库确认）**——coverage_checker.py:45-46 `kw in combined_text` 子串匹配，功能项「订单」匹配「子订单管理」等子串误判已覆盖（BE1/FE1/PP8 子串家族）；且 `confirmed_items` 空时返回 `coverage_rate: 1.0`（:23）「零联想项 = 100% 覆盖」成功态谎报（MAR8 家族）。
+- **TG10 [P3] 补缺失文件走 `_direct_llm_generate_file` 硬编码模型（全库确认）**——traditional_generate.py:250 补文件走 orchestrator_files.py:648 的 `_direct_llm_generate_file`（OF4 硬编码 DEFAULT_CODE_MODEL 不走 DMR/成本），传统链补全路径又一次消费该缺陷。
 
-```python
-# traditional_generate.py:201 - 默认 success=True
-test_results = {"success": True, "message": "未运行动态测试"}
-# :345 - 最终 success 与测试结果绑定
-"success": len(self.errors) == 0 and test_results.get("success", True),
-```
+## 3. 演化方向
 
-- **影响**：`enable_validation=False` 时 `should_test` 恒 False，test_results 保持默认 True——success 只依赖 errors；但 `enable_validation=True` 且动态测试失败但 ReAct 修复失效（ERR 链）时 success=False 且无修复——**语义合理但掩盖了 ReAct 修复完全失效的事实**（用户只看到 success=False，不知修复机制已坏）
+传统生成链收尾端（功能清单提取）是**历史数据积累的唯一写入口**，当前从输入到 prompt 双断：
+- **修复 f-string（TG1，最高优先）**：`project_metadata.py:99-108` 的 `{"features": [...]}` 模板花括号转义为 `{{`——一处改动即激活整条历史数据写入链；同时把 prompt 构造移入 try 或单独校验。
+- **修复输入侧（TG2）**：feature_extractor 改为从 `self.output_dir` 按 path 读文件内容（与完整性检查 :211-219 同模式），或 `_generate_single_file` 返回结构补 content 键。
+- **数据源激活（TG3）**：TG1/TG2 修复后 `project_metadata.json` 开始积累，Layer 2 联想（≥50）与模板萃取（≥15）随之激活——需同步复核 TE1（自动覆盖手工模板）在数据源激活后的真实触发风险。
+- **完整性语义（TG4）**：`is_complete` 纳入 empty_files；read 失败文件显式计入 missing。
+- **闸门语义（TG5）**：缓存审查失败应「重新生成」而非放行；风险维度扩展。
+- **结果语义（TG7/TG9）**：success 纳入静态验证结果；覆盖率空项时 `checked=False` 而非 1.0。
 
-### TG3 [P2] 缓存审查闸门失败后重新设计架构——但缓存命中路径跳过成本估算
+**修复优先级**：TG1（恒 ValueError）> TG2（输入恒空）> TG4（空文件=完成）> TG5（审查放行）> TG7 > TG9 > TG3（随 TG1/TG2 自动激活）> TG6 > TG8 > TG10。
 
-- 缓存命中（:60-66）直接加载 architecture/file_plan，**跳过 :95 成本估算后的审批**（:105 只在高成本+require_approval 时暂停）——缓存命中时无成本审批流程，语义不一致
+## 4. 主线关联
 
-### TG4 [P2] 项目级沙箱仅 import 级验证
+- **「数据源写入端恒失效」主线**：TG1/TG2/TG3 组成完整链路——传统生成链每轮调用功能清单提取，但 prompt f-string 恒抛 ValueError（TG1）+ 输入恒空（TG2）→ 历史功能数据源（Layer 2 + 模板萃取）写入端从代码层面从未工作，`project_metadata.json` 恒空。这**反向修正 TE 详档**：TE1 的「手工模板被自动覆写」风险依赖数据源 ≥15 项目，而 TG1 使该前提不可达——缺陷被更上游的缺陷掩盖（「上游阻断式休眠」模式）。
+- **「存在≠正确」家族**：TG4（空文件=完成）、TG7（静态验证失败 success=True）、TG9（零联想项=100% 覆盖）三处收尾判定都把「存在/无输出」当「正确」，与 TR1/DGV1/CV2 同族。
+- **「放行兜底」家族**：TG5（缓存审查异常放行）与 DGV1（验证失败 passed=True）、EC3（分类失败兜底）同族——LLM 依赖路径的异常都倾向放行而非重试。
+- **「子串假阳性」家族**：TG9 关键词匹配延续 BE1/FE1/PP8/DR6/CMP1 第 N 例。
 
-- **Bug 代码**：:270 `validate_in_sandbox(..., level="import", ...)`——只验证 import 级错误，运行级/API 级不验证；且结果仅 warning（:278）不阻塞
-- **影响**：项目级问题只在 warnings 里，`success` 不受影响
+## 5. 测试状态
 
-### IG1 [P2] 增量生成依赖 LLMClient 内部信号量——并发不受本链路控制
-
-- **Bug 代码**：incremental_generate.py:60-61 注释「由 LLMClient 内部信号量控制并发度」——`asyncio.gather` 无本地信号量，完全依赖 LLMClient（LCL1 缺陷：全局→按模型顺序泄漏）——若 LLMClient 信号量修复延迟，增量并发生成可无界
-
-### IG2 [P3] `generated_files` 结构与复用项混用
-
-- incremental_generate.py:44-49 append 的 reused 项（path/description/success/reused）与 :78 正常项（含 size/action 等）结构不一致——下游消费方（completeness 验证 :211-219 只读 path/content）兼容，但结构不统一
-
-### IG3 [P3] stash 失败静默继续
-
-- incremental_generate.py:63 `stashed = _git_stash_push(...)`——若 push 失败 stashed=False，仍继续生成且失败不回滚
-
-### EV1 [P2] 评价 LLM 调用绕开 model_config/信号量/成本追踪
-
-- **Bug 代码**：
-
-```python
-# evaluate_mixin.py:156-160 - 直连 call_llm，无 max_tokens/config/semaphore/cost_tracker
-response = await call_llm(model=EVALUATION_MODEL, prompt=prompt, api_key_token=self.api_key_token)
-```
-
-- **影响**：与 SFG3/ERL4 同源——评价模式的 LLM 调用不受模型配置（按上下文窗口动态）与信号量约束、成本不计入；且 `EVALUATION_MODEL` 是模块级常量（:15）而非 model_assignment 分配
-
-### EV2 [P2] 评价 JSON schema 混用——总评分可能恒 0
-
-- **Bug 代码**：`_parse_evaluation_json` :339 接受「顶层 score 或 completeness」两套格式；`_build_overall_assessment` :304-305 只读 `completeness.score`——若 LLM 返回顶层 score 格式，`completeness` 缺失 → req_score=0 → 总评分拉低
-- **影响**：评价结果 grade 可能系统性偏低；`_fallback_evaluation`（:346-351）也返回顶层 score——fallback 时 req_score=0 必然发生
-
-### EV3 [P3] 评价模式 architect/reviewer 无 semaphore/cost_tracker
-
-- evaluate_mixin.py:43-52 构造 Architect/CodeReviewer 未传 semaphore/cost_tracker——评价模式 LLM 并发不受控、成本不计入
-
-### CC1 [P2] 覆盖率 30% 关键词命中判定过宽——覆盖率虚高
-
-- **Bug 代码**：
-
-```python
-# coverage_checker.py:45-46 - 30% 关键词命中即算已覆盖
-matched_kw = sum(1 for kw in keywords if len(kw) > 2 and kw in combined_text)
-if matched_kw < len(keywords) * 0.3:
-    uncovered.append(...)
-```
-
-- **根因**：需求项 10 个词命中 3 个（30%）即判覆盖；且 `re.findall(r'\w+', item.content)` 对中文需求按整词匹配（Python 3 `\w` 含 Unicode）——中文长句极难整词命中，实际可能**反向偏低**或按关键词碎片误判
-- **影响**：coverage_rate 与「功能真实实现」无强相关——只反映关键词文本出现；传统链路 :315 仅当 uncovered 非空才报 warning，`coverage_rate=1.0`（无 association 时 :12/:16 硬编码）直接展示为「全覆盖」
-
-### FE1 [P3] 特征提取静默丢文件
-
-- feature_extractor.py:20 `if path and content:` 才收录——缺 content 键的文件静默跳过；`trigger_template_extraction` 无超时（但异常已捕获）
-
-## 4. 潜在问题与未知点
-
-- **两套生成链路并存**：传统（traditional_generate，缓存/依赖图/沙箱）vs spec_first（2383 行编排 Mixin）——入口 `generate()` 按 `spec_first` 开关分流，后续迭代维护成本双倍（TG 系列与 SPFG 系列问题大量同构）
-- `_cache_review_gate`（traditional_generate.py:44）——缓存命中后 reviewer 审查，闸门失败回退重新设计——审查用 reviewer（架构模型）成本不低，缓存命中被审查逻辑部分抵消
-- `_estimate_generation_cost` 与 LC1（成本恒 0）联动——成本估算基于 token 估算而非实测
-- `_wait_for_approval("cost_estimation", timeout=300.0)`（:112）——300 秒等待用户审批，阻塞式
-
-## 5. 修改建议（改什么 → 达成什么目的）
-
-| # | 优先级 | 修改动作 | 达成目的 | 涉及位置 | 对应 Backlog |
-|---|--------|---------|---------|---------|-------------|
-| 1 | P2 | TG1：补缺失文件走统一生成入口（semaphore/cost_tracker/write_file_atomic） | 并发/成本/写盘统一 | traditional_generate.py:250-257 | 新增 |
-| 2 | P2 | TG3：缓存命中路径也过成本审批（或显式声明跳过） | 成本审批语义一致 | traditional_generate.py:60-66 | 新增 |
-| 3 | P2 | TG4：项目级沙箱按需提升 level 且结果进 errors（可配置） | 项目级问题不被淹没 | traditional_generate.py:270 | 新增 |
-| 4 | P2 | IG1：增量并发生成本地加信号量（不依赖 LLMClient 内部） | 并发有界可预测 | incremental_generate.py:65 | 新增 |
-| 5 | P2 | EV1/EV3：评价模式 LLM 调用统一走客户端配置（model_config/semaphore/cost_tracker） | 评价成本计入、并发受控 | evaluate_mixin.py:43-52/:156-160 | 新增 |
-| 6 | P2 | EV2：评价 JSON 解析统一 schema（completeness.score 单一入口），fallback 同 schema | 总评分不因格式混用失真 | evaluate_mixin.py:304-305/:339/:346 | 新增 |
-| 7 | P2 | CC1：覆盖率判定改为语义化（LLM 判定或提升命中阈值+需求结构解析） | 覆盖率反映真实实现 | coverage_checker.py:44-52 | 新增 |
-| 8 | P3 | IG2：generated_files 统一结构（reused 项补 size 等字段） | 下游消费稳定 | incremental_generate.py:44-49 | 新增 |
-| 9 | P3 | IG3：stash push 失败告警/中止 | 失败可回滚保证 | incremental_generate.py:63 | 新增 |
-| 10 | P3 | FE1：缺 content 文件记录 warning 而非静默跳过 | 提取不静默丢文件 | feature_extractor.py:20 | 新增 |
-
-## 6. 演化方向关联
-
-- **两套链路收敛**（最大演化项）：传统路径（traditional_generate）与 spec_first 路径在验证/修复/缓存/沙箱各环节大量同构——演化蓝图 §1「编排层职责归位」：收敛为统一生成管线，传统模式作为无 spec 的降级配置而非独立实现
-- **ERR 链**：traditional_generate.py:297 是 ReAct 自动修复唯一调用方（已被 ERR1/ERR2 确认失效）——修复 RA2+RE1 后传统链路动态测试闭环恢复
-- **EV2/CC1** → 「验证语义化」主线（Evaluator-optimizer 条件回边方向）：LLM 判定替代关键词/评分启发式
-- **EV1/TG1** → 客户端收敛主线（LC1/LCL1 同源）：所有 LLM 调用统一过模型配置+信号量+成本
+**CRUD 单测、写入链零覆盖**——test_v5_1_requirement_deep.py:85-120 仅 3 用例测 `ProjectMetadataManager` CRUD（手工注入 `_projects` 后断言），`extract_and_save`/`_extract_feature_list` 全库零测试；`rg` 确认传统链（`_generate_traditional`/feature_extractor/coverage_checker）无任何测试文件引用。TG1 恒定 ValueError 可一次 `extract_and_save` 调用复现却无任何用例保护，历史数据写入链唯一行为的正确性完全依赖未被验证的实现。
