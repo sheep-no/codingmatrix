@@ -1,6 +1,6 @@
 # spec_first_generate.py 演化深扫文档
 
-> 版本：v0.1 | 扫描日期：2026-08-05 | 状态：已完成
+> 版本：v0.2 | 扫描日期：2026-08-05（首扫）/ 2026-08-17（第一百零七轮重扫） | 状态：已完成
 > 归属：Agent 引擎 / Spec-First 完整编排（A2→A9 主链）
 > 路径：`app/agent/orchestrator_generation/spec_first_generate.py`（2383 行）
 > 索引：[TASKS.md](../TASKS.md)
@@ -177,3 +177,92 @@ dep_graph = DependencyGraph.load(str(dep_graph_path), language_adapter=language_
 - **§15（双 spec_first 文件）**：本 Mixin 是编排层，spec_first_generator.py 是生成器——编排/生成职责分离确认；SPFG1 断点续传是本模块特有逻辑（生成器无此）
 - **动态拓扑（§ 拓扑）**：普通分支 vs 动态拓扑分支双路径并存（:303 vs :320）——`use_dynamic_topology` 开关决定，收敛时应统一（SPFG7 并发差异）
 - **Backlog 关联**：#6、#7、#12，新增 SPFG1-SPFG10
+
+## 7. 重扫（2026-08-17，第一百零七轮）
+
+### 7.1 旧发现复核确认表
+
+v0.1 建档的 SPFG1-SPFG10 **全部仍在**（重读全文逐条核对）：
+
+| 发现 | 现状 | 位置 |
+|------|------|------|
+| SPFG1 断点续传 >10 字节跳过未验证 | 仍在 | :349-383（普通）+ :915-946（动态拓扑） |
+| SPFG2 JS/TS 误判 Python 混入 | 仍在 | :1519-1522 |
+| SPFG2b .jsx/.tsx 不校验 | 仍在 | :1517 仅 .js/.ts/.vue |
+| SPFG3 沙箱修复只认 .py | 仍在 | :1854 |
+| SPFG4 修复 prompt 硬编码 python | 仍在 | :1931 |
+| SPFG5 refactor_file 硬编码 python | 仍在 | :2195-2196 |
+| SPFG6 generate_file 返回类型不稳定 | 仍在 | :417/:473/:536 |
+| SPFG7 层内并发无显式限流 | 仍在 | :586-590 |
+| SPFG8 缓存无失效策略 | 仍在 | :766-784 |
+| SPFG9 语法校验启发式 | 仍在 | :1536/:1544/:1548 |
+| SPFG10 refactor 默认 delete + 验证失败仅 warning | 仍在 | :2277/:2294 |
+
+### 7.2 重扫新增发现
+
+### SPFG11 [P2] 动态拓扑分支「清理不符合项目语言的文件」静默物理删除生成产物（全库确认）
+
+- **Bug 代码**（:1202-1240）：
+
+```python
+expected_extensions = set(language_adapter.extensions) | planned_extensions
+for file_path in list(ctx.files.keys()):
+    ext = Path(file_path).suffix.lower()
+    if ext in ('.py', '.pyw', '.pyi') and not any(e in expected_extensions for e in ('.py', '.pyw', '.pyi')):
+        files_to_remove.append(file_path)
+    elif ext in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs') and not any(e in expected_extensions for e in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs')):
+        files_to_remove.append(file_path)
+for file_path in files_to_remove:
+    full_path = self.output_dir / file_path
+    if full_path.exists():
+        full_path.unlink()   # ← 物理删除
+```
+
+- **根因**：`expected_extensions` = 语言适配器扩展名 ∪ 架构师 file_plan 扩展名——**LLM 生成但 file_plan 未规划扩展名的 .py/.js 系文件在收尾阶段被静默 unlink**（如全栈项目前端 .jsx/.tsx 生成成功但 file_plan 只写了 .js，或 LLM 工具补写 .scss 系外文件）；断点续传场景（output_dir 含既有文件）下既有文件同样可能被删。
+- **影响**：生成产物静默丢失，且普通分支（:320-631）**无此清理逻辑**——双分支行为不一致；use_dynamic_topology 默认 True（mixin.py:61），即默认路径会触发。
+
+### SPFG12 [P2] 动态拓扑分支两类「启发式同名删除」不看内容误删（全库确认）
+
+- **Bug 代码**：①根目录 vs src/ 同名（:1279-1300）——`root_files = [f for f in ctx.files if '/' not in f]` 与 `src/` 下同名文件即删根目录文件（:1293 `full_path.unlink()`）；②功能重复文件按「同名」聚合，优先 `src/ > app/ > src/app/ > 根目录` 保留一个删除其余（:1302-1340）。
+- **根因**：**只看文件名不看内容/依赖关系**——Django 项目根 `manage.py` 与 `src/manage.py`、`app/main.py` 与 `config/main.py` 是不同模块，被误判「重复」而删除。
+- **影响**：默认路径（动态拓扑）下合法文件被启发式删除，且无任何 LLM/人工确认（GO2 删除当前分支家族——「启发式删除破坏已有数据」主线在文件生成收尾的实例，与 OF2 回滚、GO12 reset --hard 同族）。
+
+### SPFG13 [P2] `_validate_project_completeness` 的 is_complete 不含 empty_files（全库确认）
+
+- **Bug 代码**：:2124-2127 检测 `empty_files`（`len(c.strip()) < 10`）但 :2151 `is_complete = len(missing_files)==0 and len(invalid_files)==0 and len(placeholder_files)==0`——**不含 empty_files**，且 :2132 对 empty 文件跳过 invalid 检查。
+- **根因/影响**：文件生成但内容为空仍判项目完整（TG4 同族在 spec-first 链复现——TG 详档 :426 traditional 链同款缺陷，两条生成链 is_complete 语义一致地忽略空文件）；:2126 的 10 字符阈值与 SPFG1 断点续传 10 字节阈值一致——空/占位文件在两处都被当作「有效」。
+
+### SPFG14 [P2] 动态拓扑分支断点续传跳过文件直接标记验证通过（全库确认）
+
+- **Bug 代码**：:933 `ctx.update_file_validation(file_path, True, [])`——跳过已有文件时**不做任何语法/有效性校验**即标记验证通过（普通分支 :380 同款 `"validation_passed": True`）。
+- **根因/影响**：SPFG1「>10 字节跳过未验证」的**验证端放行细节**——v0.1 只覆盖普通分支跳过语义，动态拓扑分支的 `update_file_validation(True, [])` 使占位/垃圾文件在断点续传时被正式标记为验证通过（DGV1 放行家族）。
+
+### SPFG15 [P3] 动态拓扑分支文件名修复 rename 不更新 dep_graph（全库确认）
+
+- **Bug 代码**：:1242-1269——文件名含空格时 `full_path.rename(fixed_path)` 并更新 ctx.files/generated_files_dict，但 **dep_graph 节点路径不更新**（:1262-1269 只更新两个 dict），后续依赖图上下文注入/完整性检查用旧路径。
+- **影响**：被重命名的文件在依赖图中路径失效。
+
+### SPFG16 [P3] `_infer_unknown_file_types` 贪婪跨块解析（全库确认）
+
+- **Bug 代码**：:1671-1679 markdown 清理后直接 `json.loads(text)`——LLM 多 JSON 块/解析失败静默返回（:1695-1696 except 仅 warning），unknown 文件类型保留（MAR5 家族第 N 处；与 EC3/PM1/TE3/OA3 同族）。
+
+### SPFG17 [P3] 四处直连 call_llm 绕过统一 LLM 层（全库确认）
+
+- **位置**：`_infer_unknown_file_types`（:1649 `from app.utils import call_llm`）、`_quick_llm_check`（:2156 同）、`_fix_sandbox_errors`（:1830 `from app.utils.aicloud.llm_caller import call_llm`，:1945 用 `.get("choices")[0]` 解析）、`refactor_file`（:2244 `from app.utils import call_llm`）。
+- **根因/影响**：四路 LLM 调用不走 LLMClient/信号量/成本追踪（LCL1/CEC3/PPT5 家族）；`_fix_sandbox_errors` 的 choices 结构解析与 llm_caller 返回契约耦合。
+
+### SPFG18 [P3] 硬编码模型名（全库确认）
+
+- **位置**：:1135 `"Qwen/Qwen3-8B"`（error_recovery 兜底）、:1584 `"glm-z1-9b"`（validator 兜底）——绕过 DMR 模型分配（IM1/SCT6/DR3 硬编码模型名家族）。
+
+### 7.3 演化方向（重扫追加）
+
+动态拓扑分支（默认路径）的**删除性收尾逻辑**（SPFG11/12）是本轮最严重新增——「清理」以物理 unlink 执行，既不校验内容也不询问，且与普通分支行为不一致：
+- **SPFG11/12 修复（最高优先）**：删除前校验该文件是否在 file_plan/依赖图中（未规划才删）或改为移入备份目录 + 人工确认；两分支清理逻辑统一或移除。
+- **SPFG13 修复**：is_complete 纳入 empty_files（与 TG4 同步修，两链语义对齐）。
+- **SPFG14 修复**：断点续传跳过前调用 `_validate_content_syntax` + `is_placeholder_content` 校验。
+- **SPFG17/18 修复**：四路直连 call_llm 收敛到统一 LLM 层 + 模型名改走 model_assignment/DMR。
+
+### 7.4 测试状态（重扫确认）
+
+v0.1 记录的「2383 行核心编排零测试」**复核仍成立**——tests/ 下仍无任何 SpecFirstGenerate/generate_with_spec_first 引用；SPFG11-SPFG14 四个 P2 项均全库确认（静态可证明）但零用例保护，动态拓扑分支的删除性逻辑（SPFG11/12）无任何测试约束其行为。
