@@ -23,7 +23,7 @@
 
 ### P2（10 项）
 
-- **PAPI1 [P2] 动态供应商管理 API 无 admin 校验——普通登录用户可添加供应商 → 全站模型路由供应商投毒**——app/api/v1/providers.py 全部端点（add/list/get/delete/toggle/sync/test）只用 `Depends(verify_token)` 登录校验——对比 aicloud.py 所有端点 `check_aicloud_permission`（admin）——**权限不一致**——而动态供应商经 llm_caller.py:255 `get_by_model(model)` 对**全站所有用户**的模型调用生效——**恶意用户添加 name/模型 id 与内置相同的供应商 → 全站模型请求（含用户 prompt/上下文）被劫持到攻击者服务器**（api_key 也是攻击者自设，流量直接进攻击者端点）——供应商投毒，最活跃 LLM 路径上的越权。
+- **PAPI1 [P2] 动态供应商全局共享、无用户隔离——用户 A 添加的供应商对全站所有用户调用生效**——app/api/v1/providers.py 允许任何登录用户添加自带 key/base_url 的动态供应商（**这是合理的用户级功能，admin 门禁并非必要**）——但 `get_dynamic_provider_manager()` 是全局单例，llm_caller.py:255 `get_by_model(model)` **全局搜索**——**用户 A 配置与内置模型同 id 的供应商 → 用户 B 调用同名模型时命中 A 的供应商，B 的请求内容（prompt/上下文）外泄给 A 的服务器**——正确修复是**按用户隔离供应商**（providers 归属 user_id，路由仅查当前用户的供应商），而非简单加 admin。
 - **PAPI2 [P2] sync/test 端点 SSRF——向用户可控 base_url 发请求**——providers.py `sync_models` 调 `fetch_models_openai`（dynamic_provider.py:114 `{base_url}/models`）、`test_connection` 调 `{base_url}/messages`——base_url 由普通用户任意配置（无协议白名单/内网 IP 校验）——**服务端发起对内网/metadata 的请求**（169.254.169.254 等）——与 WS2/HRQ1 SSRF 家族同源，且此处是普通用户即可触发。
 - **MR1 [P2] 两套模型名体系分裂——registry model_key vs config id——非 siliconflow 路由死路径**——aicloud.py:335 `model=model_info.model_key`（"Qwen/Qwen3-8B"）传给 call_llm → llm_caller.py:239 `router.route(model)`——而 `MODEL_PROVIDER_MAP` 键是 `data/agent_model_config.json` 的模型 **id**（"qwen3-8b"，provider_router.py:32-37）——**model_key 与 id 互不匹配** → route() 精确匹配失败 → 全部静默兜底 SILICONFLOW——config 中非 siliconflow 供应商（qwen-plus→DASHSCOPE 等兜底条目）对 registry 驱动路径永远不生效。
 - **PR1 [P2] route() 前缀模糊匹配误路由**——provider_router.py:116-118 `model_name.startswith(model_key.split("/")[0])`——"deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"（siliconflow 托管）前缀命中兜底键 "deepseek-ai/DeepSeek-R1"（:45）→ **误路由 DEEPSEEK 官方**——用不存在的模型名调 deepseek 官方 API → 报错/降级（MR1 与 PR1 叠加）。
@@ -46,7 +46,7 @@
 - **DP3 [P3] api_key 明文内存驻留 + list() 返回共享 models 列表引用**——dynamic_provider.py:43 api_key 字段明文；list()（:79-88）新建 DynamicProvider 但 `models=p.models` 共享原对象列表——外部可改内部状态。
 - **DP4 [P3] fetch_models_anthropic 假拉取**——dynamic_provider.py:155-166 硬编码已知模型列表，无实际 API 调用——sync 对 anthropic 供应商是假同步（last_sync 被更新但列表固定）。
 - **DP5 [P3] add() 无 base_url 格式/可达性校验**——dynamic_provider.py:57-64 任意字符串直存。
-- **PAPI3 [P3] delete/toggle/sync/test 无所有者校验**——providers.py 各端点 `manager.get(pid)` 无 user_id 关联——任何登录用户可操作他人添加的供应商（越权）。
+- **PAPI3 [P3] delete/toggle/sync/test 无所有者校验**——providers.py 各端点 `manager.get(pid)` 无 user_id 关联——任何登录用户可操作他人添加的供应商（越权）——**与 PAPI1 同根因（供应商无归属隔离）**。
 - **PAPI4 [P3] api_key 仅查 `len >= 10` 弱校验**——providers.py:83——弱凭据放行。
 - **PERM1 [P3] require_aicloud_permission 依赖项零消费死代码**——permission.py:72-97 全库零引用（aicloud.py 手动调 check_aicloud_permission）——**死代码家族累计第 15 处**。
 - **ADT3 [P3] log_operation 每次 db.commit 无批量**——audit_logger.py:52-54——高频文件读写审计逐个提交。
@@ -57,7 +57,7 @@
 
 ## 三、全库交叉确认
 
-- **供应商投毒链**：PAPI1（无 admin 校验）→ dynamic_provider.add → llm_caller.get_by_model（全站路由生效）——**普通用户添加与内置模型同 id 的供应商即劫持全站模型调用**——aicloud 全线 admin 门禁在 providers API 这一侧是开放的。
+- **供应商投毒链（修正定位）**：PAPI1 的正确缺陷是**全局共享无用户隔离**——`get_dynamic_provider_manager()` 全局单例 + `get_by_model` 全局搜索——用户 A 添加的供应商影响用户 B 的调用——修复是供应商按 user_id 归属、路由仅查当前用户；PAPI3（无所有者校验）是同一根因。
 - **SSRF 链**：PAPI2（端点触发）→ DP2（库函数放行）→ fetch_models_openai 向任意 base_url 发 GET——与 WS2（web_search 详情页）、HRQ1/HRQ2（http_request 节点）构成第四处服务端外连面。
 - **模型名双轨**：MR1 + PR1——registry 的 model_key（"Qwen/Qwen3-8B"）与 config 的 id（"qwen3-8b"）在 route() 处不匹配——非 siliconflow 路由全死 + 前缀误匹配把 siliconflow 托管模型路由到官方供应商——**模型路由层两处缺陷叠加**。
 - **死代码家族累计第 15/16 处**：PERM1（require_aicloud_permission 死依赖）、HC2（_max_concurrent_calls 死常量）。
@@ -66,4 +66,4 @@
 
 ## 四、测试状态
 
-零单元测试。PAPI1（无 admin 校验）、MR1（model_key vs id 路由失配）、PR1（前缀误路由）、MR2（free_only 双处失效）、ADT1（details 字符串化）全部实码可证无任何用例保护。修复建议：① PAPI1/PAPI3 补 admin 校验 + 供应商 user_id 归属；② PAPI2/DP2 加 base_url 白名单（https + 域名）+ 内网 IP 阻断；③ MR1/PR1 统一模型名来源（route 直接吃 registry model_key 或配置对齐）并删除前缀模糊匹配改精确匹配；④ MR2 补 is_free 数据或删 free_only 参数；⑤ ADT1 用 JSON 序列化 details；⑥ ADT2 收敛审计模块；⑦ 下轮转 code_executor + auto_executor + sandbox + sandbox_operator + content_analyzer + context_isolator + sensitive_filter + review_queue + knowledge_processor。
+零单元测试。PAPI1（无 admin 校验）、MR1（model_key vs id 路由失配）、PR1（前缀误路由）、MR2（free_only 双处失效）、ADT1（details 字符串化）全部实码可证无任何用例保护。修复建议：① PAPI1/PAPI3 供应商按 user_id 归属隔离（路由仅查当前用户的供应商，勿用 admin 门禁替代）；② PAPI2/DP2 加 base_url 白名单（https + 域名）+ 内网 IP 阻断；③ MR1/PR1 统一模型名来源（route 直接吃 registry model_key 或配置对齐）并删除前缀模糊匹配改精确匹配；④ MR2 补 is_free 数据或删 free_only 参数；⑤ ADT1 用 JSON 序列化 details；⑥ ADT2 收敛审计模块；⑦ 下轮转 code_executor + auto_executor + sandbox + sandbox_operator + content_analyzer + context_isolator + sensitive_filter + review_queue + knowledge_processor。
