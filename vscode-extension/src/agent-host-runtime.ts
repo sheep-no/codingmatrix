@@ -1,4 +1,5 @@
 import { AgentHostEnvelope, AgentHostSession } from "./agent-host.js";
+import { ApprovalBridge } from "./approval-bridge.js";
 import type { CloudConnection } from "./connection.js";
 import { ToolDispatcher } from "./tool-dispatcher.js";
 import type { LocalValidationResult } from "./protocol.js";
@@ -7,6 +8,7 @@ export interface AgentHostRuntimeOptions {
   session: AgentHostSession;
   dispatcher: ToolDispatcher;
   connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult">;
+  approvalBridge?: ApprovalBridge;
   onEvent?: (event: AgentHostEnvelope) => void | Promise<void>;
 }
 
@@ -22,11 +24,13 @@ export class AgentHostRuntime {
   private readonly dispatcher: ToolDispatcher;
   private readonly connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult">;
   private readonly onEvent: (event: AgentHostEnvelope) => void | Promise<void>;
+  private readonly approvalBridge?: ApprovalBridge;
 
   constructor(options: AgentHostRuntimeOptions) {
     this.session = options.session;
     this.dispatcher = options.dispatcher;
     this.connection = options.connection;
+    this.approvalBridge = options.approvalBridge;
     this.onEvent = options.onEvent ?? (() => undefined);
   }
 
@@ -37,6 +41,10 @@ export class AgentHostRuntime {
     }
     if (action.policy_version !== undefined && action.policy_version !== snapshot.policy_version) {
       throw new AgentHostRuntimeError("policy_mismatch", "action uses a stale policy version");
+    }
+    if (!snapshot.policy.auto_approve && this.approvalBridge) {
+      const approved = await this.approvalBridge.request(action);
+      if (!approved) return { status: "rejected", action_id: action.message_id };
     }
     const result = await this.dispatcher.dispatch(action);
     if (isLocalValidationResult(result)) {
