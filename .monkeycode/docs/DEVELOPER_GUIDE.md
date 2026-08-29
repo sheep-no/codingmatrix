@@ -15,6 +15,9 @@ python3 -m pytest tests/unit/test_workflow_registry.py tests/unit/test_agent_sta
 
 # 执行语法编译检查
 python3 -m compileall -q app/agent app/api
+
+# 构建并测试 VS Code 插件协议包
+npm --prefix vscode-extension test
 ```
 
 历史云端验证记录为：排除 Redis、数据库和 FAISS 外部条件的单元测试 1605 passed、2 skipped。当前本地环境已安装 FAISS 并启动 Redis，完整单元测试结果为 1697 passed、2 skipped；该结果覆盖单元测试与本地基础依赖，生产入口和本地插件验证闭环仍需独立验收。
@@ -28,6 +31,7 @@ python3 -m compileall -q app/agent app/api
 - 修改后执行 `git diff --check` 和相关测试。
 - 验证节点通过 `State.metadata.required_validation_scopes` 声明 `local_runtime` 或 `local_e2e`；云端验证保持 `cloud_syntax`，本地结果按 scope 回传。
 - 会话回放使用 `replay_session()`；发现 sequence 缺口时，调用方应执行返回的 `snapshot_recovery` action。
+- VS Code 插件协议包位于 `vscode-extension/`；修改 `src/protocol.ts` 后执行 `npm --prefix vscode-extension test`，该命令会先进行严格 TypeScript 构建，再运行 Node 原生测试。
 
 ## 运行时验证边界
 

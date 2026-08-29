@@ -4,14 +4,14 @@
 
 ### VSCODE-001 验证动作与结果 Schema
 
-- 状态：`planned`
+- 状态：`completed`
 - 优先级：`P0`
 - 修改：插件协议模型、云端 StateGraph 验证契约
 - 消费：VS Code 插件、`app/agent/nodes/validation.py`
 - 契约：`PendingAction`、`LocalValidationResult`、`MessageEnvelope`
 - 测试：动作解析、版本、scope 和结果序列化测试
 - 验证范围：`cloud_syntax` + `local_runtime`
-- 验收证据：Schema round-trip、非法 scope 拒绝、未知版本错误均有自动化结果。
+- 验收证据：`npm --prefix vscode-extension test` 通过（6/6），覆盖 Schema round-trip、非法 scope 拒绝、未知版本错误和工作区越界路径校验。
 
 ### VSCODE-002 插件连接与认证
 
