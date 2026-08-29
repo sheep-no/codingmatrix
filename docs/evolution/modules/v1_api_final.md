@@ -73,7 +73,7 @@
 ## P3 发现（31 项）
 
 ### auth.py（4 项）
-- **AUT2 [P3]** :126 明文登录 email 全量进日志，加密模式 :115 打码 `email[:3]***` —— 日志 PII 双轨
+- **AUT2 [P3]** :126 明文登录 email 全量进日志，加密模式 :115 打码 `email[:3]***`；生产入口 `main.py:100` 调用 `setup_logging()`，全局 `SensitiveDataFilter` 会对日志 record 做脱敏，现状属于过滤器兜底的日志 PII 防御纵深问题
 - **AUT3 [P3]** 无 /logout 端点，refresh token（7 天 JWT）无吊销机制
 - **AUT4 [P3]** :249-254 注册 check_email_exists TOCTOU → 并发双注册第二个 commit IntegrityError → 500
 - **AUT5 [P3]** :322-325/:354-357 except 返回 detail=str(e) 内部错误泄露（内部泄露家族）

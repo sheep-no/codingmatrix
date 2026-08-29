@@ -4,6 +4,10 @@
 >
 > 定位：这是**演化推演**，不是修复清单。回答三个问题——每个模块现在是什么角色、未来应该演化成什么、为什么。修复（Backlog 455 项 = 13 模块 52 + 补扫 403）只是演化的**前置阻塞项**，不是终点。
 
+## 0.1 第 154 轮模块深扫
+
+- **app/core 核心件合扫（2026-08-28，第一百五十四轮）**：config.py 181 + file_validator.py 327 + graceful_shutdown.py 289 + logging_config.py 247 = 4 文件 1044 行 → [core_layer.md](modules/core_layer.md)。4 文件全部活跃；新增 P2 1 项、P3 20 项（Backlog #1234-#1254）。**FV1 [P2] 魔数检测表使代码文件上传整体失效**：无魔数的 .py/.js/.yaml/.css 等文件默认 `application/octet-stream`，不在 MIME 白名单；以 `#` 开头的 .py/.yaml 与扩展名 MIME 映射不匹配，实测代码文件全部拒绝。累计 P1 17、P2 425、P3 758。
+
 ## 0. 演化总图：四层模型
 
 Agent 引擎的 13 模块按依赖方向分四层，演化目标分层定义：
