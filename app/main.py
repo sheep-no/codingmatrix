@@ -77,6 +77,7 @@ from app.api.v2.guardian_router import router as guardian_router
 from app.api.v1.github import router as githubRouter
 from app.api.v1.apikey import router as apikeyRouter
 from app.api.v1.providers import router as providersRouter
+from app.api.v1.agent_host import router as agentHostRouter
 from app.api.v1.model_manager import router as modelManagerRouter
 from app.api.v1.skills import router as skillsRouter
 from app.api.v2.model_admin import router as modelAdminRouter
@@ -317,6 +318,7 @@ app.include_router(mcpAdminRouter, prefix="/api/v2", tags=["mcp-admin"])
 app.include_router(githubRouter, prefix="/api/v1", tags=["github"])
 app.include_router(apikeyRouter)
 app.include_router(providersRouter, tags=["providers"])
+app.include_router(agentHostRouter, prefix="/api/v1", tags=["agent-host"])
 app.include_router(modelManagerRouter, prefix="/api/v1", tags=["models"])
 app.include_router(skillsRouter, prefix="/api/v1", tags=["skills"])
 
