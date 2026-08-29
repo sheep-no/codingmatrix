@@ -35,6 +35,8 @@ export class AgentHostRuntime {
   }
 
   async process(action: AgentHostEnvelope): Promise<unknown> {
+    if (action.kind === "policy_update") return this.applyPolicyUpdate(action);
+    if (action.kind === "approval_decision") return this.applyApprovalDecision(action);
     const snapshot = this.session.snapshot();
     if (action.session_id !== snapshot.session_id) {
       throw new AgentHostRuntimeError("session_mismatch", "action belongs to another session");
@@ -80,6 +82,32 @@ export class AgentHostRuntime {
     return result;
   }
 
+  private applyPolicyUpdate(action: AgentHostEnvelope): unknown {
+    const payload = action.payload;
+    if (!isRecord(payload) || action.policy_version === undefined || !isRecord(payload.policy)) {
+      throw new AgentHostRuntimeError("policy_mismatch", "policy update requires a version and policy payload");
+    }
+    const policy = this.session.applyPolicyUpdate({
+      policy_version: action.policy_version,
+      policy: payload.policy,
+    });
+    const setPolicy = this.dispatcher.setPolicy;
+    if (typeof setPolicy === "function") setPolicy.call(this.dispatcher, policy);
+    return policy;
+  }
+
+  private applyApprovalDecision(action: AgentHostEnvelope): boolean {
+    if (!this.approvalBridge || !isRecord(action.payload)) return false;
+    const requestId = action.payload.request_id;
+    const approved = action.payload.approved;
+    if (typeof requestId !== "string" || typeof approved !== "boolean") return false;
+    const snapshot = this.session.snapshot();
+    if (action.session_id !== snapshot.session_id) {
+      throw new AgentHostRuntimeError("session_mismatch", "approval belongs to another session");
+    }
+    return this.approvalBridge.decide(requestId, approved);
+  }
+
   async poll(): Promise<number> {
     if (!this.connection) return 0;
     const policyVersion = this.session.snapshot().policy_version;
@@ -103,6 +131,10 @@ export class AgentHostRuntime {
   private async emitResult(event: AgentHostEnvelope): Promise<void> {
     await this.onEvent(event);
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isLocalValidationResult(value: unknown): value is LocalValidationResult {

@@ -70,3 +70,30 @@ test("waits for and honors a local approval decision", async () => {
   assert.equal(approval.decide(requests[0].message_id, true), true);
   assert.deepEqual(await pending, { value: "done" });
 });
+
+test("applies newer policy updates to the session and dispatcher", async () => {
+  const session = createSession();
+  const policies = [];
+  const dispatcher = { ...createDispatcher(), setPolicy: (value) => policies.push(value) };
+  const runtime = new AgentHostRuntime({ session, dispatcher });
+  const nextPolicy = { ...policy, auto_approve: false };
+  const result = await runtime.process({
+    message_id: "policy-1",
+    schema_version: 1,
+    session_id: "session-1",
+    kind: "policy_update",
+    policy_version: 3,
+    payload: { policy: nextPolicy },
+  });
+  assert.equal(result.auto_approve, false);
+  assert.equal(session.snapshot().policy_version, 3);
+  assert.equal(policies.length, 1);
+  await assert.rejects(runtime.process({
+    message_id: "policy-old",
+    schema_version: 1,
+    session_id: "session-1",
+    kind: "policy_update",
+    policy_version: 2,
+    payload: { policy: nextPolicy },
+  }));
+});
