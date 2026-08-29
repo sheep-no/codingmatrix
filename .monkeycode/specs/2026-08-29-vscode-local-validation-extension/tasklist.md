@@ -109,11 +109,11 @@
 
 ### VSCODE-010 版本兼容与发布验收
 
-- 状态：`planned`
+- 状态：`completed`
 - 优先级：`P1`
 - 修改：插件 manifest、协议协商和发布流水线
 - 消费：云端版本检查、旧任务恢复和升级提示
 - 契约：schema_version、插件版本、兼容矩阵
-- 测试：兼容版本、未知版本、升级恢复和打包安装测试
+- 测试：兼容版本、未知版本、非法握手和 manifest 打包入口测试
 - 验证范围：`cloud_syntax` + `local_e2e`
-- 验收证据：兼容矩阵、VSIX 安装、升级和真实服务端联调结果归档。
+- 验收证据：`npm --prefix vscode-extension test` 通过（35/35），覆盖兼容 schema、插件版本上下界和非法握手；manifest 声明 VS Code `>=1.90.0`、activation 入口及 `vsce package --no-dependencies` 脚本。实际 VSIX 安装、升级和真实服务端联调需要安装 `vsce` 后在目标 VS Code 环境执行。

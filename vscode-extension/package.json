@@ -1,15 +1,20 @@
 {
   "name": "codingmatrix-local-validation",
   "displayName": "CodingMatrix Local Validation",
-  "description": "Local validation protocol models for the CodingMatrix VS Code extension",
+  "description": "Local validation execution and result reporting for CodingMatrix",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test test/*.test.mjs"
-  },
+  "publisher": "codingmatrix",
+  "license": "MIT",
   "engines": {
     "vscode": ">=1.90.0"
-  }
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "package": "vsce package --no-dependencies"
+  },
+  "type": "module"
 }

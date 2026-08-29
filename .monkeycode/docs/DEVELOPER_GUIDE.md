@@ -38,6 +38,7 @@ npm --prefix vscode-extension test
 - 结果脱敏和缓存分别位于 `src/result-sanitizer.ts` 与 `src/result-store.ts`；持久化适配层实现 `ResultStorage` 的 `get` 和 `update`，云端确认后调用 `acknowledge(event_id)`。
 - `CloudConnection` 可注入 `ResultStore`，网络中断时持久化结果，恢复连接后调用 `flushPendingResults()`；新连接实例可继续刷新同一存储中的待回传队列。
 - `ValidationStatusView` 位于 `src/status-view.ts`，当前以纯 TypeScript 快照承载状态、通知和诊断数据；修改后通过 `npm --prefix vscode-extension test` 验证，真实 VS Code StatusBar、通知和 DiagnosticCollection 适配层在发布验收阶段接入。
+- `compatibility.ts` 负责 schema 和插件版本握手校验；插件 manifest 位于 `vscode-extension/package.json`，构建后入口是 `dist/extension.js`。本地安装 `vsce` 后可运行 `npm --prefix vscode-extension run package` 生成 VSIX。
 
 ## 运行时验证边界
 
