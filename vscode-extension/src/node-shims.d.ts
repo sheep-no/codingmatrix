@@ -10,6 +10,15 @@ declare module "node:fs/promises" {
   export function writeFile(path: string, content: string, encoding: "utf8"): Promise<void>;
 }
 
+declare module "node:child_process" {
+  export function spawn(command: string, args: string[], options: { cwd: string; shell: false }): {
+    stdout?: { on(event: "data", listener: (chunk: string | Uint8Array) => void): void };
+    stderr?: { on(event: "data", listener: (chunk: string | Uint8Array) => void): void };
+    once(event: "error" | "close", listener: (value?: unknown) => void): void;
+    kill(signal?: string): boolean;
+  };
+}
+
 declare class Buffer extends Uint8Array {
   static from(value: string, encoding: "utf8"): Buffer;
   static byteLength(value: string, encoding: "utf8"): number;
