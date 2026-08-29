@@ -4,6 +4,8 @@
 
 ## 快速导航
 
+- [项目结构](PROJECT-STRUCTURE.md) - 目录职责、入口关系和配置边界
+
 ### 入门
 - [快速开始](guides/GETTING-STARTED.md) - 环境配置、快速启动
 - [多供应商配置](guides/MULTI-PROVIDER-SETUP.md) - 7 个 LLM 供应商配置
