@@ -67,6 +67,49 @@ test("fetches actions with bearer authentication", async () => {
   assert.equal(calls[0].init.headers.authorization, "Bearer access-token");
 });
 
+test("performs authenticated agent host handshake", async () => {
+  const calls = [];
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return response({
+        session_id: "session-1",
+        workspace_id: "workspace-1",
+        extension_version: "0.1.0",
+        protocol_version: 1,
+        capabilities: ["workspace", "validation"],
+        policy_version: 1,
+        policy: {
+          local_execution_enabled: true,
+          validation_operations: {},
+          auto_approve: false,
+          require_confirmation_on_failure: true,
+        },
+        pending_actions: [],
+      });
+    },
+    retryDelayMs: 0,
+  });
+
+  const handshake = await connection.handshake({
+    workspace_id: "workspace-1",
+    extension_version: "0.1.0",
+    protocol_versions: [1],
+    capabilities: ["workspace", "validation"],
+  });
+
+  assert.equal(handshake.session_id, "session-1");
+  assert.equal(calls[0].url, "https://codingmatrix.example/api/v1/agent/host/handshake");
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    workspace_id: "workspace-1",
+    extension_version: "0.1.0",
+    protocol_versions: [1],
+    capabilities: ["workspace", "validation"],
+  });
+});
+
 test("classifies authentication failures without retrying", async () => {
   let attempts = 0;
   const connection = new CloudConnection({

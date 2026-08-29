@@ -5,6 +5,7 @@ import {
   parsePendingAction,
   ProtocolError,
 } from "./protocol.js";
+import { AgentHostSession, HostHandshake, HostHelloPayload } from "./agent-host.js";
 import { ResultStore } from "./result-store.js";
 
 export interface HttpResponseLike {
@@ -31,6 +32,7 @@ export interface CloudConnectionOptions {
   retryDelayMs?: number;
   actionsPath?: string;
   resultsPath?: string;
+  handshakePath?: string;
   resultStore?: ResultStore;
 }
 
@@ -56,6 +58,7 @@ type QueuedResult = {
 
 const DEFAULT_ACTIONS_PATH = "/api/v1/agent/local-validation/actions";
 const DEFAULT_RESULTS_PATH = "/api/v1/agent/local-validation/results";
+const DEFAULT_HANDSHAKE_PATH = "/api/v1/agent/host/handshake";
 
 export class CloudConnection {
   private readonly baseUrl: string;
@@ -65,6 +68,7 @@ export class CloudConnection {
   private readonly retryDelayMs: number;
   private readonly actionsPath: string;
   private readonly resultsPath: string;
+  private readonly handshakePath: string;
   private readonly resultStore?: ResultStore;
   private readonly queuedResults: QueuedResult[] = [];
   private readonly queuedResolvers = new Map<string, QueuedResult>();
@@ -83,11 +87,22 @@ export class CloudConnection {
     this.retryDelayMs = options.retryDelayMs ?? 250;
     this.actionsPath = options.actionsPath ?? DEFAULT_ACTIONS_PATH;
     this.resultsPath = options.resultsPath ?? DEFAULT_RESULTS_PATH;
+    this.handshakePath = options.handshakePath ?? DEFAULT_HANDSHAKE_PATH;
     this.resultStore = options.resultStore;
   }
 
   get pendingResultCount(): number {
     return this.queuedResults.length;
+  }
+
+  async handshake(hello: HostHelloPayload): Promise<HostHandshake> {
+    const response = await this.request(this.handshakePath, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(hello),
+    });
+    const session = new AgentHostSession();
+    return session.acceptHandshake(await this.readJson(response));
   }
 
   async fetchPendingActions(): Promise<PendingAction[]> {
