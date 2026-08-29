@@ -20,7 +20,10 @@ workspace/
 ├── data/                # 模型配置、运行数据、知识库和备份
 ├── migrations/          # 数据库迁移脚本
 ├── docs/                # 面向开发者和运维人员的项目文档
+│   ├── PROJECT-STRUCTURE.md # 项目结构总览
+│   └── ROOT-FILES.md     # 根目录文件分类
 ├── scripts/             # 启动、停止、迁移、测试和验证脚本
+├── examples/            # 示例代码
 ├── .monkeycode/         # 项目规格、协作记忆和平台元数据
 ├── .claude/             # Agent skill 与提示词资源
 ├── Dockerfile           # 镜像构建入口
@@ -61,6 +64,7 @@ workspace/
 - `tests/e2e/`：浏览器端到端测试，根目录 `playwright.config.js` 是默认兼容入口。
 - `tests/performance/`：性能和资源相关测试。
 - `tests/manual/`：手工调用真实服务的流程脚本。脚本通过 `TEST_BASE_URL`、`TEST_ADMIN_EMAIL`、`TEST_ADMIN_PASSWORD` 和 `TEST_API_KEY` 读取运行参数。
+- `examples/`：独立示例代码，不参与应用启动和自动化测试。
 
 ## 配置与数据边界
 
@@ -107,3 +111,4 @@ workspace/
 4. 需要真实服务和人工凭据的流程测试进入 `tests/manual/`。
 5. 新项目文档进入 `docs/` 下的对应分类；历史记录继续放在 `docs/evolution/` 或 `docs/versions/`。
 6. 一次性脚本和已停用脚本保留在 `scripts/_archive/`，避免与活跃入口混淆。
+7. 根目录仅保留应用入口、构建编排、环境模板和 Git 项目元文件。

@@ -11,7 +11,7 @@
 
 | 脚本 | 定位 | 状态判定 | 关键证据 |
 |------|------|---------|---------|
-| `scripts/start.sh` | 生产式单机编排：前端构建、Gunicorn API、Celery、Nginx、Redis 检查 | **活跃入口，当前路径契约错误**；README 标记为主启动脚本，但从 `scripts/` 目录运行时多处路径指向错误位置 | `start.sh:17-18,61-77,86-100,125-139`；`README.ROOT.md:99-102,140-149` |
+| `scripts/start.sh` | 生产式单机编排：前端构建、Gunicorn API、Celery、Nginx、Redis 检查 | **活跃入口，当前路径契约错误**；README 标记为主启动脚本，但从 `scripts/` 目录运行时多处路径指向错误位置 | `start.sh:17-18,61-77,86-100,125-139`；`docs/ROOT-FILES.md:99-102,140-149` |
 | `scripts/dev.sh` | Uvicorn 热重载开发服务 | **活跃开发入口**；依赖调用时的当前工作目录 | `dev.sh:10-22` |
 | `scripts/start-backend.sh` | 临时/快速启动 Uvicorn 并调用两个 HTTP 检查 | **活跃但独立旁路**；与主启动脚本使用不同端口和进程模型 | `start-backend.sh:3-19` |
 | `scripts/stop.sh` | 停止 Celery、Gunicorn、Uvicorn 并清理 PID 文件 | **活跃运维入口，覆盖面与启动入口不一致**；不停止 Nginx，且工作目录仍为 `scripts/` | `stop.sh:4-5,9-29` |
@@ -42,11 +42,11 @@ verify-integration.sh ────► 仅本地文件与源码文本检查
 - **SS1 [P2] `start.sh` 将 `scripts/` 当作项目根目录，主启动链从默认调用位置整体失效**——`start.sh:17-18` 将 `PROJECT_DIR` 固定为 `/workspace/scripts` 并切换到该目录；随后 `start.sh:62-67` 查找 `scripts/src/package.json`，`start.sh:86` 在 `scripts/` 下导入 `app.main`，`start.sh:134-139` 查找 `scripts/configs/nginx.conf`，日志和数据写入 `scripts/logs`、`scripts/data`（`:34-35`）。实际项目根目录是 `/workspace`，前端、`app`、`configs` 均位于根目录。结果是 API 导入、前端构建、Nginx 配置和运行数据路径至少有一项失败或落入错误目录。修复方向：使用脚本目录的父目录作为项目根，或显式设置统一 `PROJECT_ROOT` 并让所有入口复用。
 - **SS2 [P2] 健康 URL 已统一**——`start.sh` 的启动检查和状态检查均请求 `http://127.0.0.1:8080/api/v1/health`，与 FastAPI、Dockerfile、Compose 和 Nginx 探针保持一致；脚本实际进程启动仍需运行环境验证。
 - **SS3 [P2] 停止与启动进程模型分裂，存在残留服务和误杀无关进程风险**——启动入口同时使用 PID 文件、`pkill -f` 和 Nginx 全名匹配（`start.sh:49-57`）；`stop.sh:16-29` 再次用宽匹配停止所有符合命令文本的 Celery/Gunicorn/Uvicorn。`start-backend.sh:3` 直接 `pkill -9 -f uvicorn`，会结束当前环境内所有匹配的 Uvicorn；其后台子进程没有 `trap` 清理（`:6-9`），而 `stop.sh` 仅按另一条命令文本匹配（`:28-29`）。Nginx 由 `start.sh` 启动却未被 `stop.sh` 停止（`stop.sh:7-31`）。修复方向：统一 PID/进程组生命周期，停止前校验命令与 PID，使用受管服务或明确的进程组清理。
-- **SS4 [P2] 8000 与 8080 两套后端端口契约未收敛，README 推荐项与 Compose/主启动项互相偏离**——`dev.sh:22` 和 `start-backend.sh:6` 使用 8000；`start.sh:87`、`status.sh:32-37`、Compose `docker-compose.yml:14-16` 使用 8080；README 同时把 `start.sh` 称为开发环境推荐（`README.ROOT.md:140-145`），并把进程检查/端口检查写成 Uvicorn/8000（`:187-198`）。调用方按不同文档启动时会出现健康检查、停止和状态结果不一致。修复方向：按 development/production 明确单一端口契约，集中定义 API 地址并同步所有脚本与文档。
+- **SS4 [P2] 8000 与 8080 两套后端端口契约未收敛，README 推荐项与 Compose/主启动项互相偏离**——`dev.sh:22` 和 `start-backend.sh:6` 使用 8000；`start.sh:87`、`status.sh:32-37`、Compose `docker-compose.yml:14-16` 使用 8080；README 同时把 `start.sh` 称为开发环境推荐（`docs/ROOT-FILES.md:140-145`），并把进程检查/端口检查写成 Uvicorn/8000（`:187-198`）。调用方按不同文档启动时会出现健康检查、停止和状态结果不一致。修复方向：按 development/production 明确单一端口契约，集中定义 API 地址并同步所有脚本与文档。
 
 ### P3 发现（10 项）
 
-- **SS5 [P3] `dev.sh`、`migrate.sh`、`test.sh` 均依赖调用方当前目录**——`dev.sh:11-14,18,22` 使用相对 `.env`、`logs` 和 `app.main`；`migrate.sh:18,24` 直接调用 Alembic；`test.sh:18` 直接调用 `tests/`。从仓库根目录和从 `scripts/` 目录调用会得到不同结果，迁移配置尤其需要 `configs/alembic.ini`（README.ROOT.md:164-172）。修复方向：统一解析仓库根目录并通过 `--config`/绝对路径传递关键资源。
+- **SS5 [P3] `dev.sh`、`migrate.sh`、`test.sh` 均依赖调用方当前目录**——`dev.sh:11-14,18,22` 使用相对 `.env`、`logs` 和 `app.main`；`migrate.sh:18,24` 直接调用 Alembic；`test.sh:18` 直接调用 `tests/`。从仓库根目录和从 `scripts/` 目录调用会得到不同结果，迁移配置尤其需要 `configs/alembic.ini`（docs/ROOT-FILES.md:164-172）。修复方向：统一解析仓库根目录并通过 `--config`/绝对路径传递关键资源。
 - **SS6 [P3] `start.sh` 的 Redis 默认地址与 Compose 网络地址语义不同**——裸机默认 `redis://localhost:6379/0`（`start.sh:26-32`），Compose API/Celery 使用 `redis://redis:6379/0`（`docker-compose.yml:16-19,43-45`）。同一套环境变量说明在宿主机和容器中需要人工切换，增加误连本机 Redis 的概率。修复方向：按运行模式生成配置或在启动入口显式校验 Redis 主机名。
 - **SS7 [P3] `start.sh` 端口占用检查是交互式阻塞点，无法稳定用于自动化部署**——`start.sh:149-161` 发现 80 端口占用后执行 `read -p`，无人值守调用会挂起；用户输入确认后使用 `pkill -f nginx`，目标识别仍然宽泛。修复方向：增加非交互模式和明确的失败返回，按 PID/配置归属处理端口冲突。
 - **SS8 [P3] 启动成功判定缺少 PID、进程和退出状态联动**——Gunicorn 只依赖一次 curl（`start.sh:102-108`）；Celery 启动后无健康检查，仅读取 PID 或输出 `N/A`（`:114-122`）；Nginx 只用 `pgrep -x nginx`（`:141-146`）。服务短暂启动后退出、PID 文件陈旧或其他实例存在时，报告可能与实际服务状态不符。修复方向：保存并校验进程身份，设置有界重试和各服务就绪检查。
