@@ -30,7 +30,7 @@ test.describe('多模态 Agent Playwright 测试', () => {
 
   test.describe('Vision API 后端测试', () => {
     test('Vision API 路由已注册', async ({ request }) => {
-      const resp = await request.get('http://localhost:8080/openapi.json');
+      const resp = await request.get('http://localhost:8080/api/openapi.json');
       expect(resp.ok()).toBe(true);
       
       const spec = await resp.json();
