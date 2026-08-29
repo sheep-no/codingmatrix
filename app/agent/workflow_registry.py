@@ -79,4 +79,13 @@ async def run_workflow(
         task_id=task_id,
         metadata=dict(metadata or {}),
     )
-    return await definition.graph.run(state, start_at=definition.entry_node)
+    state = await definition.graph.run(state, start_at=definition.entry_node)
+    if state.pending_actions:
+        try:
+            from app.api.v1.agent_host import enqueue_state_actions
+
+            enqueue_state_actions(session_id, state)
+        except KeyError:
+            # A workflow can run without a connected local Host.
+            pass
+    return state

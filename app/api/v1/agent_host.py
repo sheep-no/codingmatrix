@@ -1,4 +1,8 @@
+import json
+import os
+import tempfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -13,6 +17,45 @@ SUPPORTED_PROTOCOL_VERSION = 1
 CAPABILITIES = {"workspace", "file", "terminal", "diagnostics", "validation", "skill_runtime"}
 HOST_EVENT_KINDS = {"approval_request", "progress_event", "diagnostic_event", "tool_result"}
 _sessions: dict[str, dict[str, Any]] = {}
+
+
+class AgentHostSessionStore:
+    """Small atomic JSON store for session queues and event acknowledgements."""
+
+    def __init__(self, directory: Path | None = None) -> None:
+        self.directory = directory or Path(os.getenv("AGENT_HOST_SESSION_DIR", "data/agent_host_sessions"))
+        self.directory.mkdir(parents=True, exist_ok=True)
+
+    def _path(self, session_id: str) -> Path:
+        if not session_id or Path(session_id).name != session_id:
+            raise ValueError("invalid session id")
+        return self.directory / f"{session_id}.json"
+
+    def load(self, session_id: str) -> dict[str, Any] | None:
+        path = self._path(session_id)
+        if not path.exists():
+            return None
+        with path.open(encoding="utf-8") as handle:
+            value = json.load(handle)
+        value["expires_at"] = datetime.fromisoformat(value["expires_at"])
+        return value
+
+    def save(self, session_id: str, session: dict[str, Any]) -> None:
+        target = self._path(session_id)
+        payload = {**session, "expires_at": session["expires_at"].isoformat()}
+        fd, temporary_name = tempfile.mkstemp(prefix=f".{session_id}.", suffix=".tmp", dir=self.directory)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_name, target)
+        except Exception:
+            Path(temporary_name).unlink(missing_ok=True)
+            raise
+
+
+_session_store = AgentHostSessionStore()
 
 
 def _dump_model(model: BaseModel) -> dict[str, Any]:
@@ -58,6 +101,8 @@ def enqueue_state_actions(session_id: str, state: Any) -> int:
         })
         existing.add(action_id)
         added += 1
+    if added:
+        _session_store.save(session_id, session)
     return added
 
 
@@ -140,6 +185,7 @@ async def agent_host_handshake(
         "pending_actions": [],
         "events": {},
     }
+    _session_store.save(session_id, _sessions[session_id])
     return HostHandshakeResponse(
         session_id=session_id,
         workspace_id=request.workspace_id,
@@ -154,12 +200,13 @@ async def agent_host_handshake(
 
 
 def _get_session(session_id: str, token: dict) -> dict[str, Any]:
-    session = _sessions.get(session_id)
+    session = _sessions.get(session_id) or _session_store.load(session_id)
     if session is None or session["user_id"] != str(token.get("sub", "")):
         raise HTTPException(status_code=404, detail="agent host session not found")
     if datetime.now(timezone.utc) >= session["expires_at"]:
         _sessions.pop(session_id, None)
         raise HTTPException(status_code=410, detail="agent host session expired")
+    _sessions[session_id] = session
     return session
 
 
@@ -171,6 +218,7 @@ async def get_agent_host_actions(session_id: str, token: dict = Depends(verify_t
         action for action in session["pending_actions"]
         if action.get("kind") != "policy_update"
     ]
+    _session_store.save(session_id, session)
     return AgentHostActionsResponse(actions=actions)
 
 
@@ -194,6 +242,7 @@ async def post_agent_host_event(
             action for action in session["pending_actions"]
             if action.get("message_id") != source_message_id
         ]
+    _session_store.save(session_id, session)
     return AgentHostEventResponse(accepted=True)
 
 
@@ -218,4 +267,5 @@ async def update_agent_host_policy(
         "policy_version": next_version,
         "payload": {"policy": request.policy},
     })
+    _session_store.save(session_id, session)
     return PolicyUpdateResponse(policy_version=next_version, policy=request.policy)

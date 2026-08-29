@@ -44,7 +44,7 @@ npm --prefix vscode-extension run e2e
 - `compatibility.ts` 负责 schema 和插件版本握手校验；插件 manifest 位于 `vscode-extension/package.json`，构建后入口是 `dist/extension.js`。本地安装 `vsce` 后可运行 `npm --prefix vscode-extension run package` 生成 VSIX。
 - `agent-host.ts` 负责版本化 Agent Host Envelope、Host Hello、能力声明、会话握手和策略版本门禁；该模块保持纯 TypeScript，可在接入 VS Code Webview 和原生 API 前独立测试。
 - 后端 Agent Host 使用 `POST /api/v1/agent/host/handshake` 初始化会话，使用 session actions、events 和 policy 端点完成动作拉取、事件回传和策略同步；所有端点需要 access token，并校验用户与 session 绑定。当前会话状态为进程内存，StateGraph 动作入队时需替换为持久化或任务存储。
-- `enqueue_state_actions()` 负责把 StateGraph 的 `pending_actions` 适配为带 session/task/revision/workspace 上下文的 Host `tool_action`，调用方应在工作流产生新 State 后执行，并依赖 `action_id` 去重。
+- `run_workflow()` 在工作流产生新 State 后自动调用 `enqueue_state_actions()`，把 `pending_actions` 适配为带 session/task/revision/workspace 上下文的 Host `tool_action`，并依赖 `action_id` 去重。`AgentHostSessionStore` 将队列和事件确认原子保存到 `data/agent_host_sessions/`，该目录属于运行时数据并已加入忽略规则。
 - `tool-dispatcher.ts` 负责将 Agent Host 动作路由到工作区文件、诊断和验证适配器；文件动作必须通过 `WorkspaceAuthorization`，验证动作必须通过 `ValidationRunner`，策略关闭时拒绝新的本地动作。
 - 终端 Agent Host 动作沿用 `PendingAction` 的操作白名单和工作区目录约束，并通过 `ValidationRunner` 执行；新增终端能力时保持参数数组和 `shell=false`。
 - `webview-bridge.ts` 和 `agent-host-runtime.ts` 组成 Webview 消息层与 Agent Host 动作运行层；两者保持 VS Code API 解耦，使用 `npm --prefix vscode-extension test` 验证请求关联、超时、会话门禁和结果事件。

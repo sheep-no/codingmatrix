@@ -1,7 +1,10 @@
+from datetime import datetime, timezone
+
 import pytest
 from fastapi import HTTPException
 
 from app.api.v1.agent_host import (
+    AgentHostSessionStore,
     AgentHostEnvelope,
     HostHandshakeRequest,
     agent_host_handshake,
@@ -11,6 +14,8 @@ from app.api.v1.agent_host import (
     PolicyUpdateRequest,
     enqueue_state_actions,
 )
+from app.agent.state import StateDelta, StateGraphBuilder
+from app.agent.workflow_registry import WorkflowDefinition, run_workflow
 
 
 @pytest.mark.asyncio
@@ -134,3 +139,50 @@ async def test_enqueue_state_actions_binds_session_context_and_deduplicates() ->
     assert queued[0]["task_id"] == "task-3"
     assert queued[0]["revision"] == 7
     assert queued[0]["payload"]["workspace_id"] == "workspace-3"
+
+
+def test_agent_host_session_store_round_trips_expiry_and_queue(tmp_path) -> None:
+    store = AgentHostSessionStore(tmp_path)
+    session = {
+        "user_id": "user-4",
+        "workspace_id": "workspace-4",
+        "expires_at": datetime.now(timezone.utc),
+        "policy_version": 1,
+        "policy": {},
+        "pending_actions": [],
+        "events": {},
+    }
+    store.save("session-4", session)
+    restored = store.load("session-4")
+    assert restored["user_id"] == "user-4"
+    assert restored["expires_at"].tzinfo is not None
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_publishes_pending_actions_to_connected_host() -> None:
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-5",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["validation"],
+        ),
+        {"sub": "user-5"},
+    )
+
+    async def create_action(_state):
+        return StateDelta(
+            expected_revision=0,
+            pending_actions=[{"type": "local_validation", "action_id": "workflow-action"}],
+        )
+
+    definition = WorkflowDefinition(
+        name="host-test",
+        entry_node="create_action",
+        graph=StateGraphBuilder().add_node("create_action", create_action).compile(),
+        legacy_endpoint="test",
+    )
+    await run_workflow(definition, session_id=handshake.session_id, task_id="task-5")
+
+    actions = (await get_agent_host_actions(handshake.session_id, {"sub": "user-5"})).actions
+    assert actions[0]["payload"]["action_id"] == "workflow-action"
