@@ -5,19 +5,22 @@ Updated: 2026-08-29
 
 ## 1. 设计概述
 
-系统采用“网页控制面、云端编排、本地 Agent Host 执行”的边界。网页端维护 Agent 会话、模型、Skills、权限和验证策略；云端将需要本地能力的工具动作编排为版本化 `ToolAction`；VS Code 插件在授权工作区内执行动作，并通过事件流回传上下文、进度、诊断和结果。
+系统采用“共享云端会话、双 Agent 工作台、本地 Agent Host 执行”的边界。Web 与 VS Code 工作台共享 Agent 会话、模型、Skills、权限和验证策略；云端将需要本地能力的工具动作编排为版本化 `ToolAction`；VS Code 扩展在授权工作区内执行动作，并通过事件流回传上下文、进度、诊断和结果。
 
-插件是网页 Agent 的本地运行时。StateGraph、模型调用、Skills 生命周期、任务版本和结果聚合由云端负责；插件提供工作区、文件、终端、诊断、验证和本地权限能力。
+Web 与 VS Code 是同一 Agent 系统的两个一等工作台。StateGraph、模型调用、Skills 生命周期、任务版本和结果聚合由云端负责；VS Code 扩展提供工作区、文件、终端、诊断、验证和本地权限能力，VS Code Webview 提供 Agent 交互界面。
 
 ## 2. 架构
 
 ```mermaid
 flowchart LR
-    Web["网页 Agent 工作台"] --> Cloud["FastAPI Agent API"]
+    Web["Web Agent 工作台"] --> Cloud["FastAPI Agent API"]
+    VSCode["VS Code Agent 工作台"] --> Cloud
+    VSCode --> Webview["Agent Webview"]
+    Webview --> Host["本地 Agent Host"]
     Cloud --> Session["会话与策略服务"]
     Session --> Graph["StateGraph 编排"]
     Graph --> Envelope["版本化 ToolAction"]
-    Envelope --> Host["VS Code 本地 Agent Host"]
+    Envelope --> Host
     Host --> Consent["权限与策略判定"]
     Consent --> Tools["文件、终端、诊断、验证工具"]
     Tools --> Workspace["授权工作区"]
@@ -25,14 +28,20 @@ flowchart LR
     Events --> Graph
 ```
 
-### 2.1 网页端边界
+### 2.1 Agent 工作台边界
 
-- Agent 会话页面：对话、计划、任务时间线、审批和结果展示。
-- 模型中心：供应商、BYOK 凭据引用、模型能力、连接测试和会话模型选择。
-- Skills 中心：上传、版本、启用范围、撤销和能力声明。
-- 本地执行策略：总开关、验证类型、自动执行级别、命令和网络权限。
+- Web 工作台：对话、计划、任务时间线、审批和结果展示，支持跨设备、远程项目和团队协作。
+- VS Code 工作台：通过 Webview 提供一致的 Agent 会话体验，通过扩展 API 提供本地能力。
+- 两个工作台共享会话、模型、Skills、策略、消息和任务状态，用户可从任一工作台继续任务。
 
-### 2.2 云端边界
+### 2.2 Webview 与原生扩展边界
+
+- `AgentWebview`：承载 Agent 对话、计划、模型选择、Skills、审批、验证开关和结果时间线。
+- `WebviewBridge`：在 Webview 与扩展 Host 之间传递会话事件、动作请求、策略和本地状态。
+- 原生扩展 Host：访问 VS Code API、授权工作区、执行文件、终端、诊断和验证动作。
+- Webview 使用云端会话 API；敏感本地能力通过受校验的 `WebviewBridge` 调用。
+
+### 2.3 云端边界
 
 - `app/agent/state/models.py`：定义 State、StateDelta、MessageEnvelope 和验证结果模型。
 - `app/agent/nodes/validation.py`：执行 `cloud_syntax`，为本地 scope 创建 PendingAction。
@@ -40,7 +49,7 @@ flowchart LR
 - `app/agent/state/reducer.py`：合并增量、处理 revision 冲突和消息幂等。
 - Agent API：提供动作同步、结果回传和状态查询所需的 HTTP/SSE 接入层。
 
-### 2.3 插件边界
+### 2.4 扩展边界
 
 插件拆分为以下逻辑组件：
 
@@ -54,7 +63,7 @@ flowchart LR
 - `ValidationRunner`：命令启动、超时、取消、退出码和进程树管理。
 - `ResultSanitizer`：日志、环境变量和错误输出脱敏。
 - `ResultStore`：本地未回传结果、幂等键和断线恢复状态持久化。
-- `StatusView`：VS Code 连接、授权、策略和异常状态展示；Agent 主交互保持在网页端。
+- `StatusView`：VS Code 连接、授权、策略和异常状态展示；完整 Agent 交互由 Webview 提供。
 
 ## 3. 交互协议
 
@@ -195,8 +204,8 @@ pending_action
 
 - 首选 WebSocket，用于双向动作、审批、进度和会话控制。
 - 保留 HTTP 拉取与提交，用于插件初始化、断线恢复和受限网络环境。
-- 网页端通过云端事件总线接收插件事件，Agent 会话时间线统一展示。
-- 插件不直接承担模型推理，模型请求由云端模型路由处理；本地模型 Provider 作为后续可选能力接入。
+- Web 工作台和 VS Code Webview 都通过云端事件总线接收扩展事件，两个工作台使用同一 Agent 会话时间线。
+- VS Code Webview 使用云端模型路由执行 Agent 推理；本地模型 Provider 通过同一模型接口作为可选能力接入。
 
 ### 6.2 策略同步
 
