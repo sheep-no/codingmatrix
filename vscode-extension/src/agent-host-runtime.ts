@@ -7,7 +7,7 @@ import type { LocalValidationResult } from "./protocol.js";
 export interface AgentHostRuntimeOptions {
   session: AgentHostSession;
   dispatcher: ToolDispatcher;
-  connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult">;
+  connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult"> & Partial<Pick<CloudConnection, "fetchAgentHostActions" | "submitEvent">>;
   approvalBridge?: ApprovalBridge;
   onEvent?: (event: AgentHostEnvelope) => void | Promise<void>;
 }
@@ -22,7 +22,7 @@ export class AgentHostRuntimeError extends Error {
 export class AgentHostRuntime {
   private readonly session: AgentHostSession;
   private readonly dispatcher: ToolDispatcher;
-  private readonly connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult">;
+  private readonly connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult"> & Partial<Pick<CloudConnection, "fetchAgentHostActions" | "submitEvent">>;
   private readonly onEvent: (event: AgentHostEnvelope) => void | Promise<void>;
   private readonly approvalBridge?: ApprovalBridge;
 
@@ -78,7 +78,8 @@ export class AgentHostRuntime {
       policy_version: snapshot.policy_version,
       payload: result,
     };
-    await this.emitResult(event);
+    if (this.connection?.submitEvent) await this.connection.submitEvent(event);
+    else await this.emitResult(event);
     return result;
   }
 
@@ -110,6 +111,11 @@ export class AgentHostRuntime {
 
   async poll(): Promise<number> {
     if (!this.connection) return 0;
+    if (this.connection.fetchAgentHostActions) {
+      const actions = await this.connection.fetchAgentHostActions();
+      for (const action of actions) await this.process(action);
+      return actions.length;
+    }
     const policyVersion = this.session.snapshot().policy_version;
     const actions = await this.connection.fetchPendingActions();
     for (const action of actions) {

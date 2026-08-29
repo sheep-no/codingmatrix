@@ -5,7 +5,7 @@ import {
   parsePendingAction,
   ProtocolError,
 } from "./protocol.js";
-import { AgentHostSession, HostHandshake, HostHelloPayload } from "./agent-host.js";
+import { AgentHostEnvelope, AgentHostSession, HostHandshake, HostHelloPayload, parseAgentHostEnvelope } from "./agent-host.js";
 import { ResultStore } from "./result-store.js";
 
 export interface HttpResponseLike {
@@ -70,6 +70,7 @@ export class CloudConnection {
   private readonly resultsPath: string;
   private readonly handshakePath: string;
   private readonly resultStore?: ResultStore;
+  private sessionId?: string;
   private readonly queuedResults: QueuedResult[] = [];
   private readonly queuedResolvers = new Map<string, QueuedResult>();
 
@@ -102,7 +103,29 @@ export class CloudConnection {
       body: JSON.stringify(hello),
     });
     const session = new AgentHostSession();
-    return session.acceptHandshake(await this.readJson(response));
+    const handshake = session.acceptHandshake(await this.readJson(response));
+    this.sessionId = handshake.session_id;
+    return handshake;
+  }
+
+  async fetchAgentHostActions(): Promise<AgentHostEnvelope[]> {
+    if (!this.sessionId) throw new CloudConnectionError("request_failed", "agent host handshake is required");
+    const response = await this.request(`/api/v1/agent/host/sessions/${encodeURIComponent(this.sessionId)}/actions`, { method: "GET" });
+    const body = await this.readJson(response);
+    const actions = this.isRecord(body) && Array.isArray(body.actions) ? body.actions : null;
+    if (!actions) throw new ProtocolError("invalid_payload", "agent host actions response must contain an array");
+    return actions.map(parseAgentHostEnvelope);
+  }
+
+  async submitEvent(event: AgentHostEnvelope): Promise<unknown> {
+    if (!this.sessionId) throw new CloudConnectionError("request_failed", "agent host handshake is required");
+    if (event.session_id !== this.sessionId) throw new ProtocolError("invalid_payload", "event session does not match handshake");
+    const response = await this.request(`/api/v1/agent/host/sessions/${encodeURIComponent(this.sessionId)}/events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(event),
+    });
+    return this.readJson(response);
   }
 
   async fetchPendingActions(): Promise<PendingAction[]> {

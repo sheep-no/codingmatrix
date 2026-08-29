@@ -110,6 +110,58 @@ test("performs authenticated agent host handshake", async () => {
   });
 });
 
+test("uses the negotiated session for agent host actions and events", async () => {
+  const calls = [];
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      if (url.endsWith("/handshake")) {
+        return response({
+          session_id: "session-2",
+          workspace_id: "workspace-1",
+          extension_version: "0.1.0",
+          protocol_version: 1,
+          capabilities: ["workspace"],
+          policy_version: 1,
+          policy: {
+            local_execution_enabled: true,
+            validation_operations: {},
+            auto_approve: false,
+            require_confirmation_on_failure: true,
+          },
+          pending_actions: [],
+        });
+      }
+      if (url.endsWith("/actions")) {
+        return response({ actions: [{
+          message_id: "action-1",
+          schema_version: 1,
+          session_id: "session-2",
+          kind: "progress_event",
+          payload: { message: "run" },
+        }] });
+      }
+      return response({ accepted: true });
+    },
+    retryDelayMs: 0,
+  });
+
+  await connection.handshake({
+    workspace_id: "workspace-1",
+    extension_version: "0.1.0",
+    protocol_versions: [1],
+    capabilities: ["workspace"],
+  });
+  const actions = await connection.fetchAgentHostActions();
+  await connection.submitEvent(actions[0]);
+
+  assert.equal(actions[0].session_id, "session-2");
+  assert.equal(calls[1].url, "https://codingmatrix.example/api/v1/agent/host/sessions/session-2/actions");
+  assert.equal(calls[2].url, "https://codingmatrix.example/api/v1/agent/host/sessions/session-2/events");
+});
+
 test("classifies authentication failures without retrying", async () => {
   let attempts = 0;
   const connection = new CloudConnection({
