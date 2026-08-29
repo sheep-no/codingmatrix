@@ -15,14 +15,14 @@
 
 ### VSCODE-002 插件连接与认证
 
-- 状态：`planned`
+- 状态：`completed`
 - 优先级：`P0`
 - 修改：插件连接层、云端插件接入 API
 - 消费：PendingAction 拉取、结果回传和连接状态视图
 - 契约：认证会话、Envelope、task/revision/event 标识
 - 测试：连接、重连、断线缓存和认证失败测试
 - 验证范围：`cloud_syntax` + `local_runtime`
-- 验收证据：连接恢复后结果只提交一次，认证错误可见且不执行动作。
+- 验收证据：`npm --prefix vscode-extension test` 通过（10/10），覆盖 Bearer 认证、认证失败不重试、临时错误重试、断线结果缓存和恢复回传。
 
 ## 阶段 2：本地执行与安全
 
