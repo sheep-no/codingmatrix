@@ -225,6 +225,14 @@ export default defineConfig({
 - ESLint `lint` 脚本使用 `--fix`（`src/package.json:10`），属于带写操作的校验命令；当前未执行，以满足本次只修改 Markdown 的范围。
 - `vite-temp.config.js` 无引用结果来自全库静态搜索；仍需核对外部 CI、容器或人工命令是否通过 `--config` 显式调用。
 
+## 7. 第 163 轮分批重扫修订
+
+- `FEBOOT-02` 保留 P1，Vite 与 FastAPI 都使用 `/workspace/dist`；启动脚本、Nginx、Compose 和 CI 仍使用 `src/dist`，问题范围收窄为部署消费链路。
+- `FEBOOT-03` 保留 P2，新增 `leftlist.vue` 第三处 `restoreUser()` 消费证据。
+- `FEBOOT-05` 保留 P3，正常主题变量存在，问题属于变量缺失时的 fallback 健壮性风险。
+- `FEBOOT-06` 保留 P3 信息项，仓库内没有 `vite-temp.config.js` 消费方。
+- 新增认证复核项见 [frontend_batch_rescan.md](frontend_batch_rescan.md) 的 FRESCAN-01 至 FRESCAN-04。
+
 ## 5. 修改建议（改什么 → 达成什么目的）
 
 | # | 优先级 | 修改动作 | 达成目的 | 涉及位置 | 对应 Backlog |

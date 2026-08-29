@@ -79,6 +79,17 @@
 
 > 第 162 轮新增登记：P0 1 项、P1 10 项、P2 7 项、P3 2 项，Backlog 使用 `#1324-#1343`。活跃确定性缺陷 20 项；未接入/废弃结构事项 1 项，单列为迁移/退役工作。
 
+## I.6 前端分批重扫（第 163 轮）
+
+| 轮次 | 批次 | 范围 | 状态 | 结果 | 详细文档 |
+|------|------|------|------|------|---------|
+| 163 | 一 | 入口、路由、认证与用户恢复 | ✅ 已完成 | FEBOOT-01 至 06 复核；新增认证双轨、token 存储和未接入入口问题 4 项 | [modules/frontend_bootstrap.md](modules/frontend_bootstrap.md) |
+| 163 | 二 | stores、composables、Agent 与首页流式链 | ✅ 已完成 | FESTATE-01 至 07 复核；新增队列竞争、会话归属/清理、分片流和并发问题 7 项 | [modules/frontend_state.md](modules/frontend_state.md) |
+| 163 | 三 | views、components、API 客户端与后端路由 | ✅ 已完成 | FESURF-001 至 008 复核；新增管理路径、导出参数、PPT 字段、原生 fetch 和 WebSocket 双轨问题 5 项 | [modules/frontend_surface.md](modules/frontend_surface.md) |
+| 163 | 四 | Vite、脚本、CI、Compose、Nginx、Vitest 与 E2E | ✅ 已完成 | 复核构建/代理风险；新增生产静态文件、容器 upstream、健康检查、端口、测试依赖和 CI 问题 11 项 | [modules/frontend_batch_rescan.md](modules/frontend_batch_rescan.md) |
+
+> 第 163 轮采用四批次重新扫描，去重后新增活跃问题 26 项：P1 10 项、P2 12 项、P3 4 项；FRESCAN-16 与第 162 轮旧组件双轨事项合并统计。Backlog 使用 `#1344-#1369`。
+
 > 索引扩展：以上为 Agent 引擎核心 13 模块（按依赖/P0 优先排序），I.2-I.4 记录扩展补扫与运行时终审。
 > 扫描进度（2026-08-05）：**13/13 全部完成**（executor / tools / react_agent / react_engine / llm_client / llm_caller / specialist_base / spec_first_generator / spec_first_generate / cross_validator / dynamic_model_router / mcp_client / error_recovery）。
 

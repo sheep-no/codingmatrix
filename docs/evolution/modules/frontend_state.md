@@ -196,3 +196,9 @@ UI 子组件
 - **统一收敛**：优先收敛会话快照、日志持久化和离线队列入口；所有异步请求应返回统一的成功/失败语义，避免 `[]`、`null` 和吞错混用。
 - **智能增强**：SSE 事件应使用显式 schema/事件版本，角色别名和阶段映射由共享契约提供，减少 `useAgentStreaming` 内硬编码。
 - **平台化**：状态持久化、凭证保存、离线队列和流式恢复需要统一生命周期与存储策略；GitHub/API Key 等凭证逐步迁移到后端托管或短期令牌。
+
+## 8. 第 163 轮分批重扫修订
+
+- FESTATE-01 至 FESTATE-07 全部保留；`switchSession` 未导出、首页 `/code` 流跨 chunk 丢数据和 Agent SSE 重连队列竞争形成新增证据。
+- 会话审批归属、删除会话清理、跨 worker 创建锁和生成并发幂等问题见 [frontend_batch_rescan.md](frontend_batch_rescan.md) 的 FRESCAN-05 至 FRESCAN-11。
+- `FESTATE-04` 的主路径当前兼容后端单行帧，标准 SSE 多行、空行和尾帧场景仍需运行验证。

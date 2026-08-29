@@ -166,6 +166,14 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 文档统一: docs/README.md、docs/architecture/ARCHITECTURE.md、docs/architecture/MODULES.md、docs/testing/TESTING.md、docs/guides/PRODUCTION.md、CHANGELOG.md 均更新到 2026-06-09
   - 重复实现: `app/utils/rate_limiter.py` (slowapi) vs `app/middleware/rate_limiter.py` (自研); `app/db/models.py` vs `app/models/`; `src/utils/crypto.js` vs `src/utils/encryption.js`; `src/composables/useAgentSession.js` 是 `stores/agentSession.js` 的薄包装
   - 废弃前端组件: `AgentHeader.vue` 与 `AgentTopBar.vue` 重叠; `AgentInputPanel.vue` 与 `AgentInputBar.vue` 重叠
+
+### 分批次前端扫描
+- Date: 2026-08-29
+- Context: 用户要求前端问题分多批次重新扫描
+- Category: 工作流与协作
+- Instructions:
+  - 前端深扫按入口认证、状态组合逻辑、视图 API、构建测试部署四个批次执行。
+  - 每个批次独立用全库引用、后端路由和配置交叉核验，最终跨批次去重并修订优先级。
 - Date: 2026-05-29
 - Context: Agent 在执行 PPT 增强功能开发时发现
 - Category: 代码模式

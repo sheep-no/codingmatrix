@@ -183,3 +183,9 @@ Vue Router
 ## 8. 扫描结论
 
 确定性活跃缺陷 7 项：P0 1 项、P1 5 项、P2 1 项；未接入/废弃结构问题 1 项，单列为迁移/退役事项。实测问题计数为 0，本轮实测状态为“待实测”，因为未启动服务或浏览器；主要证据来自 `src/router/index.js`、`src/vite.config.js`、`src/utils/api/index.js`、`src/utils/request.ts`、相关活跃组件，以及 `app/main.py` 和 v1/v2 路由定义。
+
+## 9. 第 163 轮分批重扫修订
+
+- FESURF-001 至 FESURF-008 全部保留；FESURF-004 的影响范围扩大到 `admin.js` 多组缺少 `/Controller` 前缀的管理端点。
+- 新增 API、组件和凭证问题见 [frontend_batch_rescan.md](frontend_batch_rescan.md) 的 FRESCAN-12 至 FRESCAN-16。
+- `AgentFilePanel.vue` 的 `v-html` 继续保持待实测安全风险等级，当前证据不足以升级为确定缺陷。
