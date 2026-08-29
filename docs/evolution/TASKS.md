@@ -9,7 +9,7 @@
 
 ### 当前 StateGraph/RAG 规格
 
-统一编排的需求、设计和实施任务位于 `.monkeycode/specs/2026-08-28-stategraph-rag-orchestration/`：
+统一编排的需求、设计和实施任务位于 `.monkeycode/specs/2026-08-28-stategraph-rag-orchestration/`；VS Code 本地验证插件 SSD 位于 `.monkeycode/specs/2026-08-29-vscode-local-validation-extension/`：
 
 - `requirements.md`：Agent、Spec-first、动态拓扑、RAG/Memory、消息和本地验证需求。
 - `design.md`：现状架构、目标 StateGraph、接口边界和迁移映射。
