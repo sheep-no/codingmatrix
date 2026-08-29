@@ -39,14 +39,14 @@
 
 ### VSCODE-004 验证执行器
 
-- 状态：`planned`
+- 状态：`completed`
 - 优先级：`P0`
 - 修改：插件 ValidationRunner
 - 消费：依赖检查、构建、单元测试、E2E 和服务检查动作
 - 契约：operation 白名单、命令参数数组、timeout、cancel
 - 测试：成功、非零退出、超时、取消、输出上限和进程树清理测试
 - 验证范围：`local_runtime` + `local_e2e`
-- 验收证据：每种终止状态均能生成确定性结果，不残留子进程。
+- 验收证据：`npm --prefix vscode-extension test` 通过（22/22），覆盖参数数组启动、shell 禁用、非零退出、超时、取消和输出上限。
 
 ### VSCODE-005 结果脱敏与本地缓存
 
