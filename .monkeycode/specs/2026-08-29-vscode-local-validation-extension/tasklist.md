@@ -125,7 +125,7 @@
 - 目标：将 VS Code 插件从本地验证客户端升级为完整的 VS Code Agent 工作台和本地 Agent Host，与 Web 工作台共享会话、模型、Skills 和策略。
 - 范围：会话握手、工作区能力声明、文件工具、终端工具、诊断工具、验证工具、Skills 下发、模型策略同步、审批、总开关和验证类型开关。
 - 协议：版本化 `AgentHostEnvelope`，支持 `tool_action`、`progress_event`、`approval_request`、`policy_update`、`skill_revoke` 和 `session_control`。
-- 当前进度：已实现 `agent-host.ts` 的 Envelope 解析、Host Hello 生成与解析、会话握手、能力声明和单调递增策略版本门禁；VS Code 插件测试 39/39 通过。
+- 当前进度：已实现 `agent-host.ts` 的 Envelope 解析、Host Hello 生成与解析、会话握手、能力声明和单调递增策略版本门禁；已实现 `ToolDispatcher` 的文件、诊断和验证动作分发，VS Code 插件测试 43/43 通过。
 - 安全：短期会话凭据、工作区绑定、策略版本、能力白名单、风险审批、审计事件和结果脱敏。
 - 交互：Web 和 VS Code 工作台提供一致的对话、审批、进度、日志、诊断和结果体验；VS Code 扩展提供后台运行时和原生本地能力。
 - 依赖：复用现有模型供应商接口、Skill 管理接口、StateGraph、checkpoint、事件适配器和本地验证执行器。
