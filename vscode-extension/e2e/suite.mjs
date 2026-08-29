@@ -15,4 +15,6 @@ export async function run() {
     schema_versions: [1],
     plugin_version: { min: EXTENSION_VERSION, max: "0.1.0" },
   }));
+  const commands = await vscode.commands.getCommands(true);
+  assert.ok(commands.includes("codingmatrix.openAgentWorkbench"), "Agent workbench command should be registered");
 }

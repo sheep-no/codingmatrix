@@ -6,7 +6,7 @@ import type { LocalValidationResult } from "./protocol.js";
 export interface AgentHostRuntimeOptions {
   session: AgentHostSession;
   dispatcher: ToolDispatcher;
-  connection?: Pick<CloudConnection, "submitResult">;
+  connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult">;
   onEvent?: (event: AgentHostEnvelope) => void | Promise<void>;
 }
 
@@ -20,7 +20,7 @@ export class AgentHostRuntimeError extends Error {
 export class AgentHostRuntime {
   private readonly session: AgentHostSession;
   private readonly dispatcher: ToolDispatcher;
-  private readonly connection?: Pick<CloudConnection, "submitResult">;
+  private readonly connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult">;
   private readonly onEvent: (event: AgentHostEnvelope) => void | Promise<void>;
 
   constructor(options: AgentHostRuntimeOptions) {
@@ -70,6 +70,26 @@ export class AgentHostRuntime {
     };
     await this.emitResult(event);
     return result;
+  }
+
+  async poll(): Promise<number> {
+    if (!this.connection) return 0;
+    const policyVersion = this.session.snapshot().policy_version;
+    const actions = await this.connection.fetchPendingActions();
+    for (const action of actions) {
+      await this.process({
+        message_id: action.event_id,
+        schema_version: action.schema_version,
+        session_id: action.session_id,
+        task_id: action.task_id,
+        revision: action.revision,
+        kind: "tool_action",
+        capability: "validation",
+        policy_version: policyVersion,
+        payload: action,
+      });
+    }
+    return actions.length;
   }
 
   private async emitResult(event: AgentHostEnvelope): Promise<void> {

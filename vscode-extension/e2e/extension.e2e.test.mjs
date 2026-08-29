@@ -19,4 +19,10 @@ suite("CodingMatrix Local Validation extension", () => {
       plugin_version: { min: EXTENSION_VERSION, max: "0.1.0" },
     }));
   });
+
+  test("registers and opens the Agent workbench command", async () => {
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(commands.includes("codingmatrix.openAgentWorkbench"));
+    await vscode.commands.executeCommand("codingmatrix.openAgentWorkbench");
+  });
 });

@@ -11,6 +11,14 @@
   },
   "main": "./dist/extension.js",
   "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "codingmatrix.openAgentWorkbench",
+        "title": "CodingMatrix: Open Agent Workbench"
+      }
+    ]
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test test/*.test.mjs",

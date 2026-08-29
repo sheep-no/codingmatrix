@@ -45,6 +45,7 @@ npm --prefix vscode-extension run e2e
 - `agent-host.ts` 负责版本化 Agent Host Envelope、Host Hello、能力声明、会话握手和策略版本门禁；该模块保持纯 TypeScript，可在接入 VS Code Webview 和原生 API 前独立测试。
 - `tool-dispatcher.ts` 负责将 Agent Host 动作路由到工作区文件、诊断和验证适配器；文件动作必须通过 `WorkspaceAuthorization`，验证动作必须通过 `ValidationRunner`，策略关闭时拒绝新的本地动作。
 - `webview-bridge.ts` 和 `agent-host-runtime.ts` 组成 Webview 消息层与 Agent Host 动作运行层；两者保持 VS Code API 解耦，使用 `npm --prefix vscode-extension test` 验证请求关联、超时、会话门禁和结果事件。
+- `agent-workbench.ts` 和 `extension.ts` 提供原生 Webview 面板及 `codingmatrix.openAgentWorkbench` activation 命令；真实 Extension Host E2E 通过 `npm --prefix vscode-extension run e2e` 验证命令注册和面板打开。
 - 真实插件 E2E 位于 `vscode-extension/e2e/`，由 `@vscode/test-electron` 启动 VS Code `1.135.0` 和 `fixtures` 临时工作区；无头 Linux 环境需要 `xvfb`，脚本已通过 `xvfb-run` 提供 DISPLAY。测试覆盖工作区打开、manifest 发现、扩展激活和兼容性握手。
 
 ## 运行时验证边界
