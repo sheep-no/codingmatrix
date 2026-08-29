@@ -85,14 +85,14 @@
 
 ### VSCODE-008 断线恢复与 checkpoint
 
-- 状态：`planned`
+- 状态：`completed`
 - 优先级：`P1`
 - 修改：插件 ResultStore、云端 session/checkpoint 适配
 - 消费：重连、sequence replay 和 snapshot recovery
 - 契约：Checkpoint、MessageEnvelope、sequence、event_id
 - 测试：断线、重启、序列缺口、snapshot recovery 和重复回传测试
 - 验证范围：`local_runtime`
-- 验收证据：插件重启后可恢复待回传结果，云端保持幂等。
+- 验收证据：`npm --prefix vscode-extension test` 通过（27/27），`python3 -m pytest tests/unit/test_state_checkpoint.py tests/unit/test_workflow_registry.py -q` 通过（8/8）。覆盖插件连接实例重启后的持久化结果恢复、云端 checkpoint round-trip、旧 payload 迁移、重复结果确认和 sequence gap 的 `snapshot_recovery`。
 
 ## 阶段 4：VS Code 体验与发布
 

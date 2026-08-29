@@ -5,6 +5,7 @@ import {
   parsePendingAction,
   ProtocolError,
 } from "./protocol.js";
+import { ResultStore } from "./result-store.js";
 
 export interface HttpResponseLike {
   readonly ok: boolean;
@@ -30,6 +31,7 @@ export interface CloudConnectionOptions {
   retryDelayMs?: number;
   actionsPath?: string;
   resultsPath?: string;
+  resultStore?: ResultStore;
 }
 
 export class CloudConnectionError extends Error {
@@ -63,7 +65,9 @@ export class CloudConnection {
   private readonly retryDelayMs: number;
   private readonly actionsPath: string;
   private readonly resultsPath: string;
+  private readonly resultStore?: ResultStore;
   private readonly queuedResults: QueuedResult[] = [];
+  private readonly queuedResolvers = new Map<string, QueuedResult>();
 
   constructor(options: CloudConnectionOptions) {
     if (!options.baseUrl.trim()) {
@@ -79,6 +83,7 @@ export class CloudConnection {
     this.retryDelayMs = options.retryDelayMs ?? 250;
     this.actionsPath = options.actionsPath ?? DEFAULT_ACTIONS_PATH;
     this.resultsPath = options.resultsPath ?? DEFAULT_RESULTS_PATH;
+    this.resultStore = options.resultStore;
   }
 
   get pendingResultCount(): number {
@@ -105,8 +110,18 @@ export class CloudConnection {
       return await this.submitParsedResult(result);
     } catch (error) {
       if (this.isNetworkError(error)) {
-        return new Promise((resolve, reject) => {
-          this.queuedResults.push({ result, resolve, reject });
+        return new Promise(async (resolve, reject) => {
+          const queued = { result, resolve, reject };
+          if (this.resultStore) {
+            try {
+              await this.resultStore.enqueue(result);
+              this.queuedResolvers.set(result.event_id, queued);
+            } catch (enqueueError) {
+              reject(enqueueError);
+            }
+            return;
+          }
+          this.queuedResults.push(queued);
         });
       }
       throw error;
@@ -114,6 +129,9 @@ export class CloudConnection {
   }
 
   async flushPendingResults(): Promise<number> {
+    if (this.resultStore) {
+      return this.flushStoredResults();
+    }
     let flushed = 0;
     while (this.queuedResults.length > 0) {
       const queued = this.queuedResults[0];
@@ -128,6 +146,26 @@ export class CloudConnection {
         }
         this.queuedResults.shift();
         queued.reject(error);
+      }
+    }
+    return flushed;
+  }
+
+  private async flushStoredResults(): Promise<number> {
+    let flushed = 0;
+    const pending = await this.resultStore!.listPending();
+    for (const record of pending) {
+      try {
+        const response = await this.submitParsedResult(record.result);
+        await this.resultStore!.acknowledge(record.result.event_id);
+        this.queuedResolvers.get(record.result.event_id)?.resolve(response);
+        this.queuedResolvers.delete(record.result.event_id);
+        flushed += 1;
+      } catch (error) {
+        if (this.isNetworkError(error)) break;
+        await this.resultStore!.acknowledge(record.result.event_id);
+        this.queuedResolvers.get(record.result.event_id)?.reject(error);
+        this.queuedResolvers.delete(record.result.event_id);
       }
     }
     return flushed;

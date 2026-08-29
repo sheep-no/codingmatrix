@@ -4,6 +4,7 @@ import {
   CloudConnection,
   CloudConnectionError,
 } from "../dist/connection.js";
+import { MemoryResultStorage, ResultStore } from "../dist/result-store.js";
 
 const action = {
   action_id: "action-1",
@@ -124,4 +125,38 @@ test("queues result during network outage and flushes after reconnect", async ()
   assert.equal(await connection.flushPendingResults(), 1);
   assert.deepEqual(await pending, { accepted: true });
   assert.deepEqual(submitted, [result]);
+});
+
+test("restores persisted results after a connection instance restarts", async () => {
+  const storage = new MemoryResultStorage();
+  const resultStore = new ResultStore(storage);
+  let online = false;
+  const first = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    resultStore,
+    fetchImpl: async (_url, init) => {
+      if (!online) throw new TypeError("offline");
+      return response({ accepted: JSON.parse(init.body).event_id });
+    },
+  });
+
+  void first.submitResult(result);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal((await resultStore.listPending()).length, 1);
+
+  online = true;
+  const restarted = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    resultStore: new ResultStore(storage),
+    fetchImpl: async (_url, init) => response({ accepted: JSON.parse(init.body).event_id }),
+  });
+
+  assert.equal(await restarted.flushPendingResults(), 1);
+  assert.deepEqual(await resultStore.listPending(), []);
 });
