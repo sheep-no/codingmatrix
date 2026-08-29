@@ -1,6 +1,6 @@
 # 数据模型与 LLM 适配器
 
-最后更新: 2026-06-06 | 版本：v5.14.0 | 测试基线：1622 passed / 0 failed | Agent 模块：76
+最后更新: 2026-08-29 | 配置基线：`data/unified_model_config.json` v5.0
 
 ---
 
@@ -45,23 +45,23 @@ call_llm() → 4 级优先级路由 → ProviderRouter.route() → Adapter 缓�
 
 ## v5.12.0+ 关键更新
 
-### 5 复杂度档 × 5 角色模型分配 v4.0
+### 五角色模型分配
 
-v4.0 更新了模型分配，移除复杂度分层，改为按角色固定模型分配：
+模型分配按角色固定，复杂度参数由兼容接口保留：
 
 **当前分配**（`data/agent_model_config.json`）：
 
 | 角色 | 模型 ID | API 名称 |
 |------|---------|----------|
-| 架构师 | glm-z1-9b | THUDM/GLM-Z1-9B-0414 |
+| 架构师 | qwen3-8b | Qwen/Qwen3-8B |
 | 前端工程师 | deepseek-r1 | deepseek-ai/DeepSeek-R1-0528-Qwen3-8B |
 | 后端工程师 | nex-n2-pro | nex-agi/Nex-N2-Pro |
 | 代码审查 | glm-z1-9b | THUDM/GLM-Z1-9B-0414 |
 | 兜底模型 | qwen3-8b | Qwen/Qwen3-8B |
 
-**降级链**: DeepSeek-R1 → GLM-Z1-9B → GLM-4-9B → Qwen3-8B
+**降级链**: Qwen3-8B → GLM-Z1-9B
 
-> 注：所有模型均为免费模型，通过 SiliconFlow 供应商调用。用户可通过 API Key 替换为自定义模型。
+> 模型配置由管理面文件维护，Agent 运行时使用其派生文件。Aicloud 用户端模型目录仍由 `MODEL_REGISTRY` 提供。
 
 详见 [DYNAMIC-MODEL-ROUTER.md](../features/DYNAMIC-MODEL-ROUTER.md)
 
@@ -193,16 +193,25 @@ CodingMatrix 通过统一适配器接口调用多种 LLM 模型，实现三层�
 | deepseek-ai/DeepSeek-OCR | DeepSeek | OCR | 8k |
 | BAAI/bge-m3 | BAAI | 嵌入 | 8k |
 | BAAI/bge-reranker-v2-m3 | BAAI | 重排序 | 8k |
+| BAAI/bge-large-zh-v1.5 | BAAI | 中文嵌入 | 0.5k |
+| PaddlePaddle/PaddleOCR-VL-1.5 | SiliconFlow | OCR/视觉 | 待模型元数据确认 |
+| XingChenAGI/XingChenASR-V3.2-Ultra | SiliconFlow | 语音识别 | 待模型元数据确认 |
+| XingChenAGI/XingChenGSR-V1.0 | SiliconFlow | 语音/说话人 | 待模型元数据确认 |
+| XingChenAGI/XingChenASR-Diarize-V3.0 | SiliconFlow | 语音识别/说话人分离 | 待模型元数据确认 |
+| FunAudioLLM/SenseVoiceSmall | SiliconFlow | 语音识别 | 4k |
+| TeleAI/TeleSpeechASR | SiliconFlow | 语音识别 | 待模型元数据确认 |
+| Kwai-Kolors/Kolors | SiliconFlow | 图像生成 | 4k |
+| tencent/Hunyuan-MT-7B | SiliconFlow | 翻译 | 32k |
 | netease-youdao/bce-embedding-base_v1 | NetEase | 嵌入 | 0.5k |
 | netease-youdao/bce-reranker-base_v1 | NetEase | 重排序 | 0.5k |
 | nex-agi/Nex-N2-Pro | Nex AGI | 推理 | 262k |
 
 ### context_length 管理
 
-系统通过多级优先级获取模型的上下文长度：
+系统按以下优先级获取模型的上下文长度：
 
 1. **用户自定义配置**：用户在 API Key 管理页面为自己的 Key 设置的 context_length
-2. **配置文件**：`data/agent_model_config.json` 中的 `model_context_lengths`
+2. **运行时配置**：`data/agent_model_config.json` 中模型条目的 `context_length`
 3. **代码映射**：`dynamic_model_router.py` 中的 `MODEL_CONTEXT_LENGTHS`
 4. **动态供应商**：从 `/v1/models` API 响应中提取
 5. **自定义供应商**：用户提交 Key 时自动同步
@@ -212,7 +221,8 @@ CodingMatrix 通过统一适配器接口调用多种 LLM 模型，实现三层�
 
 | 层级 | 路由器 | 职责 |
 |------|--------|------|
-| Layer 1 | FileModelRouter | 读取 `agent_model_config.json`，按文件类型路由 |
+| 管理面 | ModelConfigManager | 读取并写入 `unified_model_config.json` |
+| 运行时 | FileModelRouter / DynamicModelRouter | 读取 `agent_model_config.json`，按角色、文件类型和健康度路由 |
 | Layer 2 | DynamicModelRouter | 熔断器、健康度追踪、降级链 |
 | Layer 3 | LearningRouter | 基于历史性能自适应选择 |
 

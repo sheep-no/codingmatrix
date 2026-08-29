@@ -270,7 +270,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
    └─ MEDIUM+: LLM 校准
    ↓
 [2] 模型分配 (dynamic_model_router)
-   ├─ 5 复杂度档 × 5 角色模型
+   ├─ 五角色模型配置
    └─ 健康度评分
    ↓
 [3] 架构师设计 (architect.py)
@@ -418,7 +418,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 
 - 健康度评分 (0-100)，失败降低分数
 - 熔断器：连续失败自动跳过
-- 5 复杂度档 x 5 角色模型分配
+- 五角色模型配置分配
 - LearningRouter: epsilon-greedy 探索 (20%)
 - ModelPerformanceTracker: SQLite 持久化统计
 - 上下文窗口自适应：32K/64K/128K 分级计算 max_tokens

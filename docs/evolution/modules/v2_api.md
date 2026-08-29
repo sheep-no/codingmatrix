@@ -23,7 +23,7 @@
 
 1. **用户管理（user_manage.py）**：列表/创建/更新/删除/重置密码 5 端点，`Depends(verify_token)` + 手动 `is_admin` 检查；创建时 validate_password_strength、邮箱唯一、缓存失效链完整。
 2. **nginx 配置管理（nginx_api.py）**：check（nginx -t + LLM 流式分析）/ generate（模板生成 + 缓存 TTL 300）/ deploy（备份→写入→测试→reload）/ config（读指定配置）/ backups（列表/删除）。
-3. **模型管理双轨（model_admin.py + model_config_api.py）**：同一「模型增删改/角色/降级链/上下文长度」能力两套实现——model_admin 走 `dynamic_model_router`（agent_models.json），model_config_api 走 `model_config_manager`（unified_model_config.json，声明为新接口）。
+3. **模型管理双轨（model_admin.py + model_config_api.py）**：同一「模型增删改/角色/降级链/上下文长度」能力两套实现——model_admin 走 `dynamic_model_router`（agent_model_config.json），model_config_api 走 `model_config_manager`（unified_model_config.json）；前者是运行时兼容接口，后者是管理面接口。
 4. **guardian 守护管理（guardian_router.py）**：服务监控启停/熔断/健康探测 + 资源配置 CRUD + Docker 容器列表 + 日志配置 + 内存统计 + 配置备份/恢复 + 限流配置。superadmin 门禁严格。
 5. **mcp 管理（mcp_admin.py）**：MCP Server 增删改/切换/连接测试，JSON 配置文件持久化，env 敏感键脱敏。
 6. **admin 系统配置（admin_config.py）**：用户并发限制覆盖 + 系统配置读写 + 沙箱开关。superadmin 门禁严格。

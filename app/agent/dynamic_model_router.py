@@ -16,7 +16,7 @@ from app.utils.system_load import system_load_monitor
 
 logger = logging.getLogger(__name__)
 
-# Agent 模型配置文件路径
+# Agent 运行时配置文件路径；该文件由 ModelConfigManager 从管理面配置派生生成。
 AGENT_MODEL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../data/agent_model_config.json")
 
 # 备选模型 ID → Key 映射（配置文件不可用时的兜底）
@@ -33,7 +33,7 @@ _model_id_key_cache: Optional[Dict[str, str]] = None
 
 
 def _build_provider_map() -> Dict[str, "ModelProvider"]:
-    """从统一配置文件构建 model_name -> provider 映射"""
+    """从 Agent 运行时配置构建 model_name -> provider 映射。"""
     global _provider_map_cache
     from app.utils.aicloud.provider_router import ModelProvider
     try:
@@ -60,7 +60,7 @@ def _build_provider_map() -> Dict[str, "ModelProvider"]:
 
 
 def _build_model_id_to_key() -> Dict[str, str]:
-    """从统一配置构建 model_id -> model_key 映射"""
+    """从 Agent 运行时配置构建 model_id -> model_key 映射。"""
     global _model_id_key_cache
     try:
         with open(AGENT_MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -718,14 +718,14 @@ class RoutingConfig:
     enable_health_aware_routing: bool = False  # 是否启用健康感知路由（默认关闭）
 
 
-# ==================== 角色模型分配（v3.0 简化配置） ====================
+# ==================== 角色模型分配（五角色配置） ====================
 
 # 默认角色分配（硬编码兜底）
 _DEFAULT_ROLES = {
     "architect": "THUDM/GLM-Z1-9B-0414",
     "frontend": "Qwen/Qwen3-8B",
     "backend": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-    "reviewer": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+    "reviewer": "THUDM/GLM-4-9B-0414",
     "fallback": "Qwen/Qwen3-8B",
 }
 

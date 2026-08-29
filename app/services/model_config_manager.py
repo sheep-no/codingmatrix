@@ -222,18 +222,19 @@ class ModelConfigManager:
             
             logger.info(f"已保存模型配置: {self.config_path}")
             
-            # 同步到 agent_model_config.json（运行时读取的文件）
+            # 同步到 Agent 运行时读取的派生配置文件。
             self._sync_to_agent_config(data)
+            self._refresh_runtime_config()
             return True
         except Exception as e:
             logger.error(f"保存配置失败: {e}")
             return False
     
     def _sync_to_agent_config(self, unified_data: Dict):
-        """将统一配置同步到 agent_model_config.json"""
+        """将管理面配置同步为 Agent 运行时配置。"""
         agent_config_path = self.config_path.parent / "agent_model_config.json"
         try:
-            # 保留现有 agent_config.json 中 models 以外的所有字段
+            # 保留运行时专用字段，模型和角色字段以管理面配置为准。
             existing = {}
             if agent_config_path.exists():
                 with open(agent_config_path, 'r', encoding='utf-8') as f:
@@ -246,8 +247,11 @@ class ModelConfigManager:
                     "name": m["name"],
                     "display_name": m.get("display_name", mid),
                     "provider": m.get("provider", "siliconflow"),
+                    "type": m.get("type", "chat"),
                     "is_reasoning": m.get("is_reasoning", False),
                     "context_length": m.get("context_length", 32768),
+                    "max_output": m.get("max_output", 8192),
+                    "max_tokens": m.get("max_output", 8192),
                     "thinking_ratio": m.get("thinking_ratio", 0.0),
                     "temperature": m.get("temperature", 0.7),
                     "timeout": m.get("timeout", 300),
@@ -274,6 +278,21 @@ class ModelConfigManager:
             logger.info(f"已同步 Agent 模型配置: {agent_config_path}")
         except Exception as e:
             logger.error(f"同步 Agent 配置失败: {e}")
+
+    @staticmethod
+    def _refresh_runtime_config():
+        """刷新已加载的 Agent 模型映射、角色和降级链。"""
+        try:
+            from app.agent.dynamic_model_router import (
+                get_dynamic_router,
+                invalidate_model_mapping_cache,
+                reload_roles_config,
+            )
+            invalidate_model_mapping_cache()
+            reload_roles_config()
+            get_dynamic_router().reload_fallback_chain()
+        except Exception as e:
+            logger.warning(f"刷新 Agent 运行时模型配置失败: {e}")
     
     # ==================== 模型管理 ====================
     
@@ -432,4 +451,5 @@ def reload_model_config():
     with _lock:
         _manager = None
         _manager = ModelConfigManager()
+        ModelConfigManager._refresh_runtime_config()
     return _manager

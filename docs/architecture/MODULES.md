@@ -132,7 +132,7 @@ codingmatrix/
 
 | 子系统 | 文件 | 描述 |
 |--------|------|------|
-| **动态模型路由** | `app/agent/dynamic_model_router.py` | 健康度 0-100 评分、熔断、5 复杂度档 × 5 角色模型 |
+| **动态模型路由** | `app/agent/dynamic_model_router.py` | 健康度 0-100 评分、熔断、五角色模型配置 |
 | **ReAct 工具调用** | `app/agent/react_agent.py` | 5 阶段循环，阶段化模型路由 |
 | **13 工具 Specialist** | `app/agent/specialist_base.py` | 9 只读 + 4 写/验证工具 |
 | **代码沙箱** | `specialist_base.py` (内嵌) | Python AST + JavaScript Node.js |
@@ -731,7 +731,7 @@ dependencies.get_affected_files(['models/user.py'])
 **职责**:
 - 模型健康度追踪（0-100 分）
 - 熔断器（CLOSED/OPEN/HALF_OPEN）
-- 5 复杂度档 × 5 角色模型分配
+- 五角色模型配置分配
 - Fallback 链管理
 - LRU 缓存模型分配
 

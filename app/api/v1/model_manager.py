@@ -2,7 +2,7 @@
 模型浏览接口（用户端）
 
 功能：
-1. 查看所有可用的免费模型
+1. 查看所有可用模型
 2. 获取当前默认模型
 3. 按能力筛选模型
 4. 查看 Agent 模型配置（只读）
@@ -75,9 +75,11 @@ async def list_models(
     capability: Optional[str] = None,
     free_only: bool = False
 ):
-    """获取所有可用的免费模型"""
+    """获取所有可用模型，并按能力和免费标记筛选。"""
     models = []
     for model_id, model in MODEL_REGISTRY.items():
+        if free_only and not model.is_free:
+            continue
         if capability:
             try:
                 cap = ModelCapability(capability)

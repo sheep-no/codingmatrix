@@ -30,7 +30,7 @@ class TaskType(Enum):
 
 
 class AgentRole(Enum):
-    """Agent 角色枚举（5×5 矩阵维度）"""
+    """Agent 五角色固定分配枚举。"""
     ARCHITECT = "architect"
     FRONTEND = "frontend"
     BACKEND = "backend"
@@ -291,10 +291,10 @@ class ModelRouter:
         complexity: str = "MEDIUM"
     ) -> ModelInfo:
         """
-        基于 5×5 模型分配矩阵的角色路由（v5.12.x 新增）
+        基于五角色配置的角色路由。
 
         优先使用 DynamicModelRouter.get_assignment_with_learning 获取角色模型，
-        在没有足够学习数据时回退到静态 5×5 矩阵。
+        在没有足够学习数据时回退到静态角色配置。
 
         Args:
             role: Agent 角色（architect/frontend/backend/reviewer/fallback）
@@ -321,7 +321,7 @@ class ModelRouter:
             if model_key:
                 return ModelRegistry.get(model_key) or ModelRegistry.get("deepseek-r1-qwen3-8b")
         except Exception as e:
-            logger.warning(f"5×5 矩阵角色路由失败，回退到默认: {e}")
+            logger.warning(f"角色路由失败，回退到默认模型: {e}")
 
         role_fallbacks = {
             AgentRole.ARCHITECT: "glm-z1-9b",

@@ -1,28 +1,9 @@
 """
 AI Cloud 模型注册表
 
-支持多供应商模型调用：
-1. 内置供应商：SiliconFlow（默认）、阿里百炼、智谱、DeepSeek官方、OpenAI、Anthropic
-2. 动态供应商：支持用户自定义 base_url 和协议类型（OpenAI兼容/Anthropic原生）
+提供 SiliconFlow 内置模型目录；动态供应商的协议与路由能力由其他 Aicloud 模块提供。
 
-当前内置模型（SiliconFlow）：
-1. deepseek-r1 (DeepSeek-R1-0528-Qwen3-8B) - 默认推理模型
-2. qwen2.5-7b (Qwen2.5-7B-Instruct) - 代码生成
-3. qwen3-8b (Qwen/Qwen3-8B) - 通用对话
-4. qwen3.5-4b (Qwen/Qwen3.5-4B) - 轻量快速
-5. glm-z1-9b (THUDM/GLM-Z1-9B-0414) - 评测审查
-6. deepseek-ocr (DeepSeek-OCR) - 图片理解
-7. paddleocr-vl-1.5 (PaddleOCR-VL-1.5) - 视觉理解
-8. glm-4-9b (THUDM/GLM-4-9B-0414) - 通用对话
-9. kolors (Kwai-Kolors/Kolors) - 图像生成
-10. bce-embedding (netease-youdao/bce-embedding-base_v1) - 文本嵌入
-11. bge-m3 (BAAI/bge-m3) - 多语言嵌入
-12. bge-reranker-v2-m3 (BAAI/bge-reranker-v2-m3) - 重排序
-13. bce-reranker (netease-youdao/bce-reranker-base_v1) - 重排序
-14. bge-large-zh (BAAI/bge-large-zh-v1.5) - 中文嵌入
-15. sense-voice (FunAudioLLM/SenseVoiceSmall) - 语音识别
-16. telespeech-asr (TeleAI/TeleSpeechASR) - 语音识别
-17. hunyuan-mt (tencent/Hunyuan-MT-7B) - 翻译
+当前内置模型共 17 个，完整字段以 MODEL_REGISTRY 为准。
 """
 from dataclasses import dataclass, field
 from enum import Enum

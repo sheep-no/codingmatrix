@@ -50,7 +50,7 @@ class MultiModelAgent:
     多模型 Agent - 整合路由、规划、执行、审查
 
     v5.12.x 增强：
-    - 接入 DynamicModelRouter 5×5 矩阵（按角色 + 复杂度路由）
+    - 接入 DynamicModelRouter 五角色配置路由
     - 所有 LLM 调用统一走全局信号量（get_global_llm_semaphore）
     - 可选 complexity 参数：SIMPLE/SMALL/MEDIUM/LARGE/ENTERPRISE
     - 代码生成任务可委托给 OrchestratorAgent（通过 orchestrator_factory）
@@ -107,7 +107,7 @@ class MultiModelAgent:
 
         v5.12.x 增强：
         - complexity: 显式指定项目复杂度（SIMPLE/SMALL/MEDIUM/LARGE/ENTERPRISE）
-                     传入后，planner/reviewer 走 5×5 矩阵按角色路由
+                     传入后，planner/reviewer 走角色配置路由
         - dependency_hints: 来自 DependencyGraph 的结构化提示，会注入到规划 prompt
         - output_dir: 项目输出目录（代码生成任务委托给 OrchestratorAgent 时必需）
         """
@@ -202,7 +202,7 @@ class MultiModelAgent:
                 reviewer_model = ModelRegistry.get(assignment.reviewer_model)
                 if reviewer_model and reviewer_model != self.reviewer.model:
                     self.reviewer.model = reviewer_model
-                    logger.info(f"按 5×5 矩阵切换 reviewer 模型为 {reviewer_model.display_name}")
+                    logger.info(f"按角色配置切换 reviewer 模型为 {reviewer_model.display_name}")
             except Exception as e:
                 logger.warning(f"reviewer 模型切换失败，使用默认: {e}")
 
