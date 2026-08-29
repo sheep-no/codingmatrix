@@ -97,3 +97,45 @@ test("applies newer policy updates to the session and dispatcher", async () => {
     payload: { policy: nextPolicy },
   }));
 });
+
+test("polls cloud validation actions and submits local results", async () => {
+  const submitted = [];
+  const action = {
+    action_id: "action-poll",
+    event_id: "event-poll",
+    schema_version: 1,
+    session_id: "session-1",
+    task_id: "task-1",
+    revision: 0,
+    workspace_id: "workspace-1",
+    validation_scope: "local_runtime",
+    operation: "unit_test",
+    command: ["node", "--version"],
+    working_directory: ".",
+    timeout_seconds: 10,
+    requested_by: "cloud",
+  };
+  const result = {
+    event_id: "result-poll",
+    schema_version: 1,
+    session_id: "session-1",
+    task_id: "task-1",
+    revision: 0,
+    source: "local",
+    validation_scope: "local_runtime",
+    status: "passed",
+    started_at: "2026-08-29T00:00:00Z",
+    finished_at: "2026-08-29T00:00:01Z",
+    summary: { command_name: "node", diagnostics: [] },
+  };
+  const runtime = new AgentHostRuntime({
+    session: createSession(),
+    dispatcher: { dispatch: async () => result },
+    connection: {
+      fetchPendingActions: async () => [action],
+      submitResult: async (value) => { submitted.push(value); },
+    },
+  });
+  assert.equal(await runtime.poll(), 1);
+  assert.deepEqual(submitted, [result]);
+});
