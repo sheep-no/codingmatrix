@@ -1,23 +1,19 @@
-"""
-Language Adapters - 语言适配层
-
-提供统一接口处理不同编程语言的差异：
-- 导入语法解析
-- 文件类型推断
-- 包/模块结构规则
-- 符号定义提取
-"""
+"""Language and legacy Agent adapters."""
 
 from .language_adapter import (
+    ImportInfo,
     LanguageAdapter,
     LanguageAdapterRegistry,
-    ImportInfo,
     SymbolDefinition,
 )
-
 from .python import PythonLanguageAdapter
 from .javascript import JavaScriptLanguageAdapter
 from .generic import GenericLanguageAdapter
+
+from .event_adapter import progress_event_to_message
+from .legacy_agent_adapter import legacy_result_to_delta
+from .spec_first_adapter import spec_first_result_to_delta
+from .session_adapter import replay_messages, replay_session, state_to_session_summary
 
 __all__ = [
     "LanguageAdapter",
@@ -27,4 +23,10 @@ __all__ = [
     "PythonLanguageAdapter",
     "JavaScriptLanguageAdapter",
     "GenericLanguageAdapter",
+    "legacy_result_to_delta",
+    "progress_event_to_message",
+    "spec_first_result_to_delta",
+    "replay_messages",
+    "replay_session",
+    "state_to_session_summary",
 ]
