@@ -15,18 +15,27 @@ export interface WebviewPanelLike {
   dispose(): void;
 }
 
+export interface AgentWorkbenchControllerOptions {
+  onMessage?: (message: AgentHostEnvelope) => void | Promise<void>;
+}
+
 export function createAgentWorkbenchHtml(): string {
   return `<!doctype html>
 <html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-codingmatrix-agent-host';"><style>
 body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:20px;max-width:900px;margin:auto}h1{font-size:22px}button{color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:0;padding:8px 14px;border-radius:3px}#status{color:var(--vscode-descriptionForeground);margin:12px 0}.panel{border:1px solid var(--vscode-panel-border);padding:14px;margin-top:16px;border-radius:5px}
-</style></head><body><h1>CodingMatrix Agent</h1><div id="status">VS Code Agent 工作台已连接</div><div class="panel"><p>当前工作台共享 Web Agent 会话，可在这里继续对话、审批本地动作和查看验证结果。</p><button id="hello">连接本地 Agent Host</button></div><script nonce="codingmatrix-agent-host">
-const vscode=acquireVsCodeApi(); document.getElementById('hello').addEventListener('click',()=>{vscode.postMessage({type:'workbench_ready'});document.getElementById('status').textContent='已发送工作台连接请求'}); window.addEventListener('message',event=>{if(event.data?.type==='agent_host_message') document.getElementById('status').textContent='已收到 Agent Host 事件'});
+</style></head><body><h1>CodingMatrix Agent</h1><div id="status">VS Code Agent 工作台已连接</div><div class="panel"><p>当前工作台共享 Web Agent 会话，可在这里继续对话、审批本地动作和查看验证结果。</p><button id="hello">连接本地 Agent Host</button><button id="approve" hidden>批准当前动作</button><button id="reject" hidden>拒绝当前动作</button></div><script nonce="codingmatrix-agent-host">
+ const vscode=acquireVsCodeApi(); let approval; const approve=document.getElementById('approve'), reject=document.getElementById('reject'); document.getElementById('hello').addEventListener('click',()=>{vscode.postMessage({type:'workbench_ready'});document.getElementById('status').textContent='已发送工作台连接请求'}); function decide(approved){if(!approval)return;vscode.postMessage({type:'agent_host_message',message:{...approval,kind:'approval_decision',message_id:approval.message_id+':decision',payload:{request_id:approval.message_id,approved}}});approval=undefined;approve.hidden=true;reject.hidden=true;} approve.addEventListener('click',()=>decide(true)); reject.addEventListener('click',()=>decide(false)); window.addEventListener('message',event=>{const data=event.data;if(data?.type!=='agent_host_message')return;document.getElementById('status').textContent='已收到 Agent Host 事件';if(data.message?.kind==='approval_request'){approval=data.message;approve.hidden=false;reject.hidden=false;} });
 </script></body></html>`;
 }
 
 export class AgentWorkbenchController {
   private panel?: WebviewPanelLike;
   private bridge?: WebviewBridge;
+  private readonly onMessage?: (message: AgentHostEnvelope) => void | Promise<void>;
+
+  constructor(options: AgentWorkbenchControllerOptions = {}) {
+    this.onMessage = options.onMessage;
+  }
 
   open(createPanel: () => WebviewPanelLike): WebviewPanelLike {
     if (this.panel) {
@@ -36,6 +45,7 @@ export class AgentWorkbenchController {
     const panel = createPanel();
     panel.webview.html = createAgentWorkbenchHtml();
     this.bridge = new WebviewBridge(this.transportFor(panel));
+    this.bridge.subscribe((message) => { void this.onMessage?.(message); });
     panel.onDidDispose(() => {
       this.bridge?.dispose();
       this.bridge = undefined;
