@@ -54,6 +54,7 @@
 | 11 | dynamic_model_router.py | app/agent/dynamic_model_router.py | 1035 | **P1 DMR1 配置无成本字段（LC1 根因）**；DMR2 熔断阈值 2/3/3 不一致；DEFAULT_FALLBACK_ORDER 重复项 | ✅ 已完成 | [modules/dynamic_model_router.md](modules/dynamic_model_router.md) |
 | 12 | mcp_client.py | app/agent/mcp_client.py | 513 | **P1 MCP1 单例竞争**（executor/mixin 双 new 杀连接）；MCP2 闭包依赖全局 _instance；HTTP 无握手 | ✅ 已完成 | [modules/mcp_client.md](modules/mcp_client.md) |
 | 13 | error_recovery.py | app/agent/orchestrator_generation/error_recovery.py | 33 | **P1 ERR1+ERR2**：process context 被忽略+success 恒 False → 自动修复完全失效；RA2/RE1 链生产端收尾 | ✅ 已完成 | [modules/error_recovery.md](modules/error_recovery.md) |
+| 14 | app/tasks 任务队列 | app/tasks/base.py + code_tasks.py + project_tasks.py | 701 | **TSK1-TSK6 [P2]**：进度回调缺失、代码执行参数契约断裂、项目验证固定成功、异步测试回退宿主、任务参数映射失配、重试 Celery ID 丢失；TSK7-TSK26 [P3] 状态、路径、结果和幂等问题 | ✅ 已完成 | [modules/tasks.md](modules/tasks.md) |
 
 > 索引扩展：以上为 Agent 引擎核心 13 模块（按依赖/P0 优先排序）。后续按需扩展至 B-F/H 大系统的模块清单。
 > 扫描进度（2026-08-05）：**13/13 全部完成**（executor / tools / react_agent / react_engine / llm_client / llm_caller / specialist_base / spec_first_generator / spec_first_generate / cross_validator / dynamic_model_router / mcp_client / error_recovery）。
@@ -246,5 +247,7 @@
 2. **第二轮（拆分统一）**：P1——大文件拆分、token 口径、压缩接线、模型配置合一、对话能力接入
 3. **第三轮（智能增强）**：P2——回检闭环、孤儿接线、ImageProvider、H 组子系统逐项
 4. **第四轮（平台化）**：P3——长记忆、多 Agent、Skill 化、H 组远期
+
+> 第一百五十五轮（v1.156，2026-08-29）app/tasks 任务队列合扫 → [modules/tasks.md](modules/tasks.md)：新增 P2 6 项、P3 20 项（Backlog #1255-#1274）。累计 P1 17、P2 431、P3 778。
 
 > 第一百五十四轮（v1.155，2026-08-28）app/core 核心件合扫 → [modules/core_layer.md](modules/core_layer.md)：新增 P2 1 项、P3 20 项（Backlog #1234-#1254）。累计 P1 17、P2 425、P3 758。

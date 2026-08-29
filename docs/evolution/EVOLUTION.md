@@ -4,6 +4,10 @@
 >
 > 定位：这是**演化推演**，不是修复清单。回答三个问题——每个模块现在是什么角色、未来应该演化成什么、为什么。修复（Backlog 455 项 = 13 模块 52 + 补扫 403）只是演化的**前置阻塞项**，不是终点。
 
+## 0.2 第 155 轮模块深扫
+
+- **app/tasks 任务队列合扫（2026-08-29，第一百五十五轮）**：base.py 189 + code_tasks.py 402 + project_tasks.py 110 = 3 文件 701 行 → [tasks.md](modules/tasks.md)。3 文件全部活跃，任务由 `celery_app.py` 自动发现并由 `task_queue.py`、`DockerRunner`、`IsolatedTestRunner` 消费。新增 P2 6 项、P3 20 项（Backlog #1255-#1274）。核心阻塞包括：`BaseTask` 缺少所有任务调用的 `_get_progress_callback`；`execute_code` 把代码片段参数传入项目验证接口；`validate_project` 跳过验证固定报成功；异步测试内嵌 `asyncio.run` 后回退宿主执行；任务创建参数与任务签名/映射不一致；重试不保存新 Celery ID。累计 P1 17、P2 431、P3 778。
+
 ## 0.1 第 154 轮模块深扫
 
 - **app/core 核心件合扫（2026-08-28，第一百五十四轮）**：config.py 181 + file_validator.py 327 + graceful_shutdown.py 289 + logging_config.py 247 = 4 文件 1044 行 → [core_layer.md](modules/core_layer.md)。4 文件全部活跃；新增 P2 1 项、P3 20 项（Backlog #1234-#1254）。**FV1 [P2] 魔数检测表使代码文件上传整体失效**：无魔数的 .py/.js/.yaml/.css 等文件默认 `application/octet-stream`，不在 MIME 白名单；以 `#` 开头的 .py/.yaml 与扩展名 MIME 映射不匹配，实测代码文件全部拒绝。累计 P1 17、P2 425、P3 758。
