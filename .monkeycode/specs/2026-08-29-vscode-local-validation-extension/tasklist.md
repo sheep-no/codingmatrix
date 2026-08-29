@@ -50,14 +50,14 @@
 
 ### VSCODE-005 结果脱敏与本地缓存
 
-- 状态：`planned`
+- 状态：`completed`
 - 优先级：`P0`
 - 修改：插件 ResultSanitizer、ResultStore
 - 消费：结果回传和断线恢复
 - 契约：LocalValidationResult、脱敏字段和本地缓存记录
 - 测试：密钥、密码、Cookie、连接串、环境变量和多行日志测试
 - 验证范围：`local_runtime`
-- 验收证据：敏感信息进入阻断路径，断线结果可恢复且不重复提交。
+- 验收证据：`npm --prefix vscode-extension test` 通过（26/26），覆盖密钥、Bearer token、密码、Cookie、私钥脱敏，event_id 去重、跨实例持久化和确认删除。
 
 ## 阶段 3：云端合并与状态闭环
 
