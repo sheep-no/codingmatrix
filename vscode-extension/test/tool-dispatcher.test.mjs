@@ -90,6 +90,22 @@ test("dispatches diagnostics and validation through injected adapters", async ()
       requested_by: "cloud",
     }));
     assert.equal(result.status, "passed");
+    const terminal = await dispatcher.dispatch(envelope("terminal", {
+      action_id: "action-terminal",
+      event_id: "event-terminal",
+      schema_version: 1,
+      session_id: "session-1",
+      task_id: "task-1",
+      revision: 0,
+      workspace_id: "workspace-1",
+      validation_scope: "local_runtime",
+      operation: "service_check",
+      command: ["node", "--version"],
+      working_directory: ".",
+      timeout_seconds: 10,
+      requested_by: "cloud",
+    }));
+    assert.equal(terminal.status, "passed");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

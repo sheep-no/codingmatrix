@@ -93,6 +93,8 @@ export class ToolDispatcher {
         return this.dispatchFile(envelope);
       case "validation":
         return this.dispatchValidation(envelope);
+      case "terminal":
+        return this.dispatchTerminal(envelope);
       case "diagnostics":
         return this.dispatchDiagnostics(envelope);
       case "workspace":
@@ -143,6 +145,14 @@ export class ToolDispatcher {
       throw new ToolDispatcherError("execution_disabled", `${action.operation} is disabled by policy`);
     }
     return this.validationRunner.run(action);
+  }
+
+  private async dispatchTerminal(envelope: AgentHostEnvelope): Promise<unknown> {
+    if (envelope.kind !== "tool_action") {
+      throw new ToolDispatcherError("invalid_action", "terminal actions must be tool_action envelopes");
+    }
+    // Terminal actions use the same constrained command contract as validation.
+    return this.dispatchValidation(envelope);
   }
 
   private async dispatchDiagnostics(envelope: AgentHostEnvelope): Promise<Array<Record<string, unknown>>> {
