@@ -233,6 +233,12 @@ export default defineConfig({
 - `FEBOOT-06` 保留 P3 信息项，仓库内没有 `vite-temp.config.js` 消费方。
 - 新增认证复核项见 [frontend_batch_rescan.md](frontend_batch_rescan.md) 的 FRESCAN-01 至 FRESCAN-04。
 
+## 8. 第 164 轮复扫修订
+
+- 新增 `FRESCAN-41`：活跃 API Key 客户端使用独立 `VITE_API_BASE_URL`，fallback 固定为 `http://localhost:8000`，与统一代理契约分裂。
+- 新增 `FRESCAN-42`、`FRESCAN-44`、`FRESCAN-45`：合并镜像 Nginx 权限、CI 触发范围和 source map 生产暴露风险。
+- `FRESCAN-23` 扩展为 Nginx 全局 `proxy_read_timeout 60s` 对长时间无数据 SSE 的断连风险。
+
 ## 5. 修改建议（改什么 → 达成什么目的）
 
 | # | 优先级 | 修改动作 | 达成目的 | 涉及位置 | 对应 Backlog |

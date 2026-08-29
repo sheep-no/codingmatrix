@@ -189,3 +189,9 @@ Vue Router
 - FESURF-001 至 FESURF-008 全部保留；FESURF-004 的影响范围扩大到 `admin.js` 多组缺少 `/Controller` 前缀的管理端点。
 - 新增 API、组件和凭证问题见 [frontend_batch_rescan.md](frontend_batch_rescan.md) 的 FRESCAN-12 至 FRESCAN-16。
 - `AgentFilePanel.vue` 的 `v-html` 继续保持待实测安全风险等级，当前证据不足以升级为确定缺陷。
+
+## 10. 第 164 轮复扫修订
+
+- 新增 `FRESCAN-28`：`HistoryItem.vue` 的活跃历史标题直接进入 `v-html`，与 `AgentFilePanel.vue` 待实测高亮链保持独立。
+- 新增 `FRESCAN-29` 至 `FRESCAN-36`：PPT 错误态、鼠标专用交互、图标按钮、图片 `alt`、label 关联、弹窗语义和静默初始化失败。
+- 新增 `FRESCAN-37` 至 `FRESCAN-40`：任务列表/取消响应、项目文件参数和快照对比参数契约。

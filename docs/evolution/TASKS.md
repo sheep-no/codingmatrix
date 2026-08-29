@@ -90,6 +90,17 @@
 
 > 第 163 轮采用四批次重新扫描，去重后新增活跃问题 26 项：P1 10 项、P2 12 项、P3 4 项；FRESCAN-16 与第 162 轮旧组件双轨事项合并统计。Backlog 使用 `#1344-#1369`。
 
+## I.7 前端四批次复扫（第 164 轮）
+
+| 轮次 | 批次 | 范围 | 状态 | 结果 | 详细文档 |
+|------|------|------|------|------|---------|
+| 164 | 一 | 组件、视图与模板交互 | ✅ 已完成 | 新增 XSS、下载失败、键盘可用性、表单语义和初始化错误态 9 项 | [frontend_batch_rescan_164.md](modules/frontend_batch_rescan_164.md) |
+| 164 | 二 | API 客户端与后端契约 | ✅ 已完成 | 新增任务、项目文件、快照和 API Key 请求契约 4 项，未接入方法 2 项 | [frontend_batch_rescan_164.md](modules/frontend_batch_rescan_164.md) |
+| 164 | 三 | 构建、CI、容器和 Nginx | ✅ 已完成 | 新增 Nginx 权限、TypeScript lint、CI 触发和 source map 5 项；扩大 SSE 超时问题 1 项 | [frontend_batch_rescan_164.md](modules/frontend_batch_rescan_164.md) |
+| 164 | 四 | 认证、持久化与 WebSocket 生命周期 | ✅ 已完成 | 新增跨账户缓存和手动断线重连 4 项 | [frontend_batch_rescan_164.md](modules/frontend_batch_rescan_164.md) |
+
+> 第 164 轮去重后新增活跃问题 22 项：P1 8 项、P2 13 项、P3 1 项；另有未接入方法问题 2 项；FRESCAN-23 为既有问题扩展。Backlog 使用 `#1370-#1391`。
+
 > 索引扩展：以上为 Agent 引擎核心 13 模块（按依赖/P0 优先排序），I.2-I.4 记录扩展补扫与运行时终审。
 > 扫描进度（2026-08-05）：**13/13 全部完成**（executor / tools / react_agent / react_engine / llm_client / llm_caller / specialist_base / spec_first_generator / spec_first_generate / cross_validator / dynamic_model_router / mcp_client / error_recovery）。
 

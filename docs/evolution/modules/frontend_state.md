@@ -202,3 +202,9 @@ UI 子组件
 - FESTATE-01 至 FESTATE-07 全部保留；`switchSession` 未导出、首页 `/code` 流跨 chunk 丢数据和 Agent SSE 重连队列竞争形成新增证据。
 - 会话审批归属、删除会话清理、跨 worker 创建锁和生成并发幂等问题见 [frontend_batch_rescan.md](frontend_batch_rescan.md) 的 FRESCAN-05 至 FRESCAN-11。
 - `FESTATE-04` 的主路径当前兼容后端单行帧，标准 SSE 多行、空行和尾帧场景仍需运行验证。
+
+## 9. 第 164 轮复扫修订
+
+- 新增 `FRESCAN-46` 至 `FRESCAN-48`：Agent 会话、API Key/供应商/模型覆盖和管理日志使用固定 localStorage 键，注销流程未清理，形成跨账户复用风险。
+- 新增 `FRESCAN-49`：`WebSocketManager.disconnect()` 没有手动关闭标记，异步 `onclose` 仍会安排自动重连。
+- `FRESCAN-05` 的 SSE 队列竞争与本轮 `FRESCAN-49` 的 WebSocket 生命周期竞态属于不同传输实现，保持独立登记。
