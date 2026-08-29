@@ -1,8 +1,8 @@
 # Agent 引擎 13 模块演化蓝图
 
-> 版本：v1.0 | 日期：2026-08-05 | 前置：13/13 模块深扫完成（见 [TASKS.md](TASKS.md)，各模块详档在 [modules/](modules/)）
+> 版本：v1.0 | 日期：2026-08-29 | 前置：核心 13/13 模块及第 156-161 轮扩展补扫完成（见 [TASKS.md](TASKS.md)，各模块详档在 [modules/](modules/)）
 >
-> 定位：这是**演化推演**，不是修复清单。回答三个问题——每个模块现在是什么角色、未来应该演化成什么、为什么。修复（Backlog 455 项 = 13 模块 52 + 补扫 403）只是演化的**前置阻塞项**，不是终点。
+> 定位：这是**演化推演**，属于修复工作的路线基线。回答三个问题——每个模块现在是什么角色、未来应该演化成什么、为什么。当前 Backlog 共 1323 项，累计 P1 19、P2 449、P3 807。
 
 ## 0.2 第 155 轮模块深扫
 
@@ -11,6 +11,16 @@
 ## 0.1 第 154 轮模块深扫
 
 - **app/core 核心件合扫（2026-08-28，第一百五十四轮）**：config.py 181 + file_validator.py 327 + graceful_shutdown.py 289 + logging_config.py 247 = 4 文件 1044 行 → [core_layer.md](modules/core_layer.md)。4 文件全部活跃；新增 P2 1 项、P3 20 项（Backlog #1234-#1254）。**FV1 [P2] 魔数检测表使代码文件上传整体失效**：无魔数的 .py/.js/.yaml/.css 等文件默认 `application/octet-stream`，不在 MIME 白名单；以 `#` 开头的 .py/.yaml 与扩展名 MIME 映射不匹配，实测代码文件全部拒绝。累计 P1 17、P2 425、P3 758。
+
+## 0.3 第 156-161 轮扩展补扫与运行时终审
+
+- **第 156 轮应用生命周期**：`app/main.py`、`app/celery_app.py`、`app/api/v1/health.py` → [app_lifecycle.md](modules/app_lifecycle.md)。新增 P2 2 项、P3 7 项。
+- **第 157 轮启动与运维脚本**：8 个 `scripts/` 入口 → [startup_scripts.md](modules/startup_scripts.md)。新增 P2 4 项、P3 10 项。
+- **第 158 轮容器运行时**：Dockerfile、Compose、Nginx、Alembic 配置 → [container_runtime.md](modules/container_runtime.md)。新增 P2 3 项、P3 3 项。
+- **第 159 轮运行时测试入口**：公共 fixture、健康/任务/Bug 回归测试及 pytest 配置 → [runtime_test_entrypoints.md](modules/runtime_test_entrypoints.md)。新增 P2 3 项、P3 4 项。
+- **第 160 轮启动链交叉终审**：启动、容器、任务、数据库、中间件和服务层交叉验证 → [runtime_cross_review.md](modules/runtime_cross_review.md)。新增 P1 2 项、P2 4 项，并收窄 1 项既有误报。
+- **第 161 轮代码审查代理收尾**：`app/utils/review/code_review_agent.py` → [code_review_agent.md](modules/code_review_agent.md)。新增 P2 2 项、P3 5 项，确认静态审查器与活跃 LLM 审查器双轨。
+- **累计状态**：第 156-161 轮新增 P1 2、P2 18、P3 29；Backlog `#1275-#1323`；累计 P1 19、P2 449、P3 807。补扫范围完成闭合，后续进入修复与一致性维护阶段。
 
 ## 0. 演化总图：四层模型
 

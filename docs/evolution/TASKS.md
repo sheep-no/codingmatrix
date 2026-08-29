@@ -56,7 +56,20 @@
 | 13 | error_recovery.py | app/agent/orchestrator_generation/error_recovery.py | 33 | **P1 ERR1+ERR2**：process context 被忽略+success 恒 False → 自动修复完全失效；RA2/RE1 链生产端收尾 | ✅ 已完成 | [modules/error_recovery.md](modules/error_recovery.md) |
 | 14 | app/tasks 任务队列 | app/tasks/base.py + code_tasks.py + project_tasks.py | 701 | **TSK1-TSK6 [P2]**：进度回调缺失、代码执行参数契约断裂、项目验证固定成功、异步测试回退宿主、任务参数映射失配、重试 Celery ID 丢失；TSK7-TSK26 [P3] 状态、路径、结果和幂等问题 | ✅ 已完成 | [modules/tasks.md](modules/tasks.md) |
 
-> 索引扩展：以上为 Agent 引擎核心 13 模块（按依赖/P0 优先排序）。后续按需扩展至 B-F/H 大系统的模块清单。
+## I.4 运行时与收尾补扫（第 156-161 轮）
+
+| 轮次 | 模块 | 路径 | 状态 | 关键发现 | 详细文档 |
+|------|------|------|------|---------|---------|
+| 156 | 应用生命周期 | `app/main.py` + `app/celery_app.py` + `app/api/v1/health.py` | ✅ 已完成 | **AL1-AL2 [P2]**：lifespan 与 startup 双轨导致迁移/调度/供应商恢复绕过；ready 未纳入 Celery；AL3-AL9 [P3]：同步 RPC、配置分裂、投递补偿、scheduler 生命周期、迁移 runner 与健康语义问题 | [modules/app_lifecycle.md](modules/app_lifecycle.md) |
+| 157 | 启动与运维脚本 | `scripts/{start.sh,dev.sh,start-backend.sh,stop.sh,status.sh,migrate.sh,test.sh,verify-integration.sh}` | ✅ 已完成 | **SS1-SS4 [P2]**：项目根目录、健康 URL、进程模型和端口契约分裂；SS5-SS14 [P3]：CWD、Redis、PID、状态、验证和无人值守语义漂移 | [modules/startup_scripts.md](modules/startup_scripts.md) |
+| 158 | 容器运行时 | `Dockerfile` + Compose + Nginx + Alembic 配置 | ✅ 已完成 | **CR1-CR3 [P2]**：Nginx 回环上游、迁移未接入、单容器/独立代理拓扑冲突；CR4-CR6 [P3]：挂载路径、Jaeger profile、镜像版本问题 | [modules/container_runtime.md](modules/container_runtime.md) |
+| 159 | 运行时测试入口 | `tests/conftest.py`、健康/任务/Bug 回归测试及 pytest 配置 | ✅ 已完成 | **RT1-RT3 [P2]**：不健康状态可通过、worker 只测声明、pytest 配置分裂；RT4-RT6 [P3]：async fixture、loop 管理、源码字符串断言问题 | [modules/runtime_test_entrypoints.md](modules/runtime_test_entrypoints.md) |
+| 160 | 启动链交叉终审 | API、脚本、容器、任务、数据库、中间件、服务层 | ✅ 已完成 | **RC1-RC2 [P1]**：容器代理回环、非 root Nginx 权限；**RC3-RC6 [P2]**：健康假象、挂载分裂、调度双跑、生产 Compose 缺 Celery；同步修正 DB12 误报 | [modules/runtime_cross_review.md](modules/runtime_cross_review.md) |
+| 161 | 代码审查代理收尾 | `app/utils/review/code_review_agent.py` | ✅ 已完成 | **B1-B2 [P2]**：无障碍枚举缺失、公开 Skill API 失配；B3-B7 [P3]：异步函数漏检、行号丢失、正则误报、读取异常和状态字段失配；确认与活跃审查器双轨 | [modules/code_review_agent.md](modules/code_review_agent.md) |
+
+> 第 156-161 轮新增登记：P1 2 项、P2 18 项、P3 29 项，Backlog 使用 `#1275-#1323`。补扫范围已闭合，后续进入全库文档一致性维护和修复阶段。
+
+> 索引扩展：以上为 Agent 引擎核心 13 模块（按依赖/P0 优先排序），I.2-I.4 记录扩展补扫与运行时终审。
 > 扫描进度（2026-08-05）：**13/13 全部完成**（executor / tools / react_agent / react_engine / llm_client / llm_caller / specialist_base / spec_first_generator / spec_first_generate / cross_validator / dynamic_model_router / mcp_client / error_recovery）。
 
 ## I.2 编排层补扫（2026-08-05，13 模块之外的 orchestrator_generation 与顶层错误恢复）
@@ -251,3 +264,5 @@
 > 第一百五十五轮（v1.156，2026-08-29）app/tasks 任务队列合扫 → [modules/tasks.md](modules/tasks.md)：新增 P2 6 项、P3 20 项（Backlog #1255-#1274）。累计 P1 17、P2 431、P3 778。
 
 > 第一百五十四轮（v1.155，2026-08-28）app/core 核心件合扫 → [modules/core_layer.md](modules/core_layer.md)：新增 P2 1 项、P3 20 项（Backlog #1234-#1254）。累计 P1 17、P2 425、P3 758。
+
+> 第 156-161 轮（2026-08-29）运行时与收尾补扫完成：累计 P1 19、P2 449、P3 807，Backlog 已登记至 #1323。补扫范围进入闭合状态。
