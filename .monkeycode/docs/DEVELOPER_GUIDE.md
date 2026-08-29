@@ -18,6 +18,9 @@ python3 -m compileall -q app/agent app/api
 
 # 构建并测试 VS Code 插件协议包
 npm --prefix vscode-extension test
+
+# 在真实 VS Code Extension Host 中运行插件 E2E
+npm --prefix vscode-extension run e2e
 ```
 
 历史云端验证记录为：排除 Redis、数据库和 FAISS 外部条件的单元测试 1605 passed、2 skipped。当前本地环境已安装 FAISS 并启动 Redis，完整单元测试结果为 1697 passed、2 skipped；该结果覆盖单元测试与本地基础依赖，生产入口和本地插件验证闭环仍需独立验收。
@@ -39,6 +42,7 @@ npm --prefix vscode-extension test
 - `CloudConnection` 可注入 `ResultStore`，网络中断时持久化结果，恢复连接后调用 `flushPendingResults()`；新连接实例可继续刷新同一存储中的待回传队列。
 - `ValidationStatusView` 位于 `src/status-view.ts`，当前以纯 TypeScript 快照承载状态、通知和诊断数据；修改后通过 `npm --prefix vscode-extension test` 验证，真实 VS Code StatusBar、通知和 DiagnosticCollection 适配层在发布验收阶段接入。
 - `compatibility.ts` 负责 schema 和插件版本握手校验；插件 manifest 位于 `vscode-extension/package.json`，构建后入口是 `dist/extension.js`。本地安装 `vsce` 后可运行 `npm --prefix vscode-extension run package` 生成 VSIX。
+- 真实插件 E2E 位于 `vscode-extension/e2e/`，由 `@vscode/test-electron` 启动 VS Code `1.135.0` 和 `fixtures` 临时工作区；无头 Linux 环境需要 `xvfb`，脚本已通过 `xvfb-run` 提供 DISPLAY。测试覆盖工作区打开、manifest 发现、扩展激活和兼容性握手。
 
 ## 运行时验证边界
 
@@ -46,4 +50,4 @@ npm --prefix vscode-extension test
 - 健康检查覆盖数据库和 Redis，当前不能代表 Celery worker 已在线。
 - `verify-integration.sh` 主要执行静态文件、源码文本和语法检查；ASGI 健康测试使用进程内传输，Celery 测试主要验证配置和任务注册。
 - 真实端口、worker、broker、数据库迁移、Nginx upstream、Nginx 权限和多 worker scheduler 行为需要本地运行环境验证；RC1-RC2 已完成代码配置修复。
-- StateGraph 当前通过单节点 legacy wrapper 接入生产入口；RAG、checkpoint 自动恢复、统一事件出口和 VS Code 本地验证回传仍属于迁移中的能力。验证节点和会话 replay 已完成云端契约层实现，真实插件 E2E 仍需本地环境验收。
+- StateGraph 当前通过单节点 legacy wrapper 接入生产入口；RAG、checkpoint 自动恢复、统一事件出口和 VS Code 本地验证回传仍属于迁移中的能力。验证节点和会话 replay 已完成云端契约层实现，真实插件 E2E 已在 VS Code `1.135.0` Extension Host 中通过。

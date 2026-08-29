@@ -116,4 +116,4 @@
 - 契约：schema_version、插件版本、兼容矩阵
 - 测试：兼容版本、未知版本、非法握手和 manifest 打包入口测试
 - 验证范围：`cloud_syntax` + `local_e2e`
-- 验收证据：`npm --prefix vscode-extension test` 通过（35/35），覆盖兼容 schema、插件版本上下界和非法握手；manifest 声明 VS Code `>=1.90.0`、activation 入口及 `vsce package --no-dependencies` 脚本。实际 VSIX 安装、升级和真实服务端联调需要安装 `vsce` 后在目标 VS Code 环境执行。
+- 验收证据：`npm --prefix vscode-extension test` 通过（35/35），覆盖兼容 schema、插件版本上下界和非法握手；`npm --prefix vscode-extension run e2e` 通过，使用 VS Code `1.135.0`、临时 `fixtures` 工作区和真实 Extension Host 验证 manifest 发现、扩展激活及兼容性握手；manifest 声明 VS Code `>=1.90.0`、activation 入口及 `vsce package --no-dependencies` 脚本。

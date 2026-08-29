@@ -94,6 +94,7 @@ test-results/
 test-static/
 test_output/
 test_output2/
+.vscode-test/
 playwright-report/
 coverage/
 htmlcov/

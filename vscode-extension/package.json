@@ -10,11 +10,15 @@
     "vscode": ">=1.90.0"
   },
   "main": "./dist/extension.js",
-  "activationEvents": [],
+  "activationEvents": ["onStartupFinished"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test test/*.test.mjs",
+    "e2e": "npm run build && xvfb-run -a node e2e/run.mjs",
     "package": "vsce package --no-dependencies"
   },
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "@vscode/test-cli": "^0.0.15"
+  }
 }
