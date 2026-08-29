@@ -19,6 +19,48 @@ def _dump_model(model: BaseModel) -> dict[str, Any]:
     return model.model_dump() if hasattr(model, "model_dump") else model.dict()
 
 
+def enqueue_state_actions(session_id: str, state: Any) -> int:
+    """Adapt State.pending_actions into versioned Host actions for a session."""
+    session = _sessions.get(session_id)
+    if session is None:
+        raise KeyError(f"agent host session not found: {session_id}")
+    state_data = state.to_dict() if hasattr(state, "to_dict") else dict(state)
+    if state_data.get("session_id") not in (None, session_id):
+        raise ValueError("state session does not match agent host session")
+    task_id = str(state_data.get("task_id", ""))
+    revision = int(state_data.get("revision", 0))
+    workspace_id = str(session["workspace_id"])
+    existing = {action.get("payload", {}).get("action_id") for action in session["pending_actions"]}
+    added = 0
+    for pending in state_data.get("pending_actions", []):
+        if not isinstance(pending, dict):
+            continue
+        action_id = str(pending.get("action_id") or pending.get("event_id") or uuid4())
+        if action_id in existing:
+            continue
+        session["pending_actions"].append({
+            "message_id": str(pending.get("event_id") or uuid4()),
+            "schema_version": SUPPORTED_PROTOCOL_VERSION,
+            "session_id": session_id,
+            "task_id": task_id,
+            "revision": revision,
+            "kind": "tool_action",
+            "capability": "validation",
+            "policy_version": session["policy_version"],
+            "payload": {
+                **pending,
+                "action_id": action_id,
+                "session_id": session_id,
+                "task_id": task_id,
+                "revision": revision,
+                "workspace_id": workspace_id,
+            },
+        })
+        existing.add(action_id)
+        added += 1
+    return added
+
+
 class HostHandshakeRequest(BaseModel):
     workspace_id: str = Field(min_length=1, max_length=256)
     extension_version: str = Field(min_length=1, max_length=64)
@@ -44,7 +86,7 @@ class AgentHostEnvelope(BaseModel):
     session_id: str = Field(min_length=1, max_length=256)
     task_id: str | None = None
     revision: int | None = Field(default=None, ge=0)
-    kind: Literal["approval_request", "progress_event", "diagnostic_event", "tool_result"]
+    kind: Literal["tool_action", "approval_request", "progress_event", "diagnostic_event", "tool_result", "policy_update"]
     capability: str | None = None
     policy_version: int | None = Field(default=None, ge=0)
     payload: dict[str, Any]

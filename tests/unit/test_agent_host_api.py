@@ -9,6 +9,7 @@ from app.api.v1.agent_host import (
     post_agent_host_event,
     update_agent_host_policy,
     PolicyUpdateRequest,
+    enqueue_state_actions,
 )
 
 
@@ -102,3 +103,34 @@ async def test_agent_host_session_scopes_events_and_policy_updates() -> None:
     with pytest.raises(HTTPException) as error:
         await get_agent_host_actions(session_id, {"sub": "another-user"})
     assert error.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_enqueue_state_actions_binds_session_context_and_deduplicates() -> None:
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-3",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["validation"],
+        ),
+        {"sub": "user-3"},
+    )
+    state = {
+        "session_id": handshake.session_id,
+        "task_id": "task-3",
+        "revision": 7,
+        "pending_actions": [{
+            "type": "local_validation",
+            "event_id": "pending-1",
+            "scopes": ["local_runtime"],
+        }],
+    }
+
+    assert enqueue_state_actions(handshake.session_id, state) == 1
+    assert enqueue_state_actions(handshake.session_id, state) == 0
+    queued = (await get_agent_host_actions(handshake.session_id, {"sub": "user-3"})).actions
+    assert queued[0]["session_id"] == handshake.session_id
+    assert queued[0]["task_id"] == "task-3"
+    assert queued[0]["revision"] == 7
+    assert queued[0]["payload"]["workspace_id"] == "workspace-3"
