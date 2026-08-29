@@ -1,6 +1,6 @@
 # 数据模型与 LLM 适配器
 
-最后更新: 2026-08-29 | 配置基线：`data/unified_model_config.json` v5.0
+最后更新: 2026-08-29 | 配置基线：`data/unified_model_config.yaml` v5.0
 
 ---
 
@@ -49,7 +49,7 @@ call_llm() → 4 级优先级路由 → ProviderRouter.route() → Adapter 缓�
 
 模型分配按角色固定，复杂度参数由兼容接口保留：
 
-**当前分配**（`data/agent_model_config.json`）：
+**当前分配**（`data/agent_model_config.yaml`）：
 
 | 角色 | 模型 ID | API 名称 |
 |------|---------|----------|
@@ -211,7 +211,7 @@ CodingMatrix 通过统一适配器接口调用多种 LLM 模型，实现三层�
 系统按以下优先级获取模型的上下文长度：
 
 1. **用户自定义配置**：用户在 API Key 管理页面为自己的 Key 设置的 context_length
-2. **运行时配置**：`data/agent_model_config.json` 中模型条目的 `context_length`
+2. **运行时配置**：`data/agent_model_config.yaml` 中模型条目的 `context_length`
 3. **代码映射**：`dynamic_model_router.py` 中的 `MODEL_CONTEXT_LENGTHS`
 4. **动态供应商**：从 `/v1/models` API 响应中提取
 5. **自定义供应商**：用户提交 Key 时自动同步
@@ -221,8 +221,8 @@ CodingMatrix 通过统一适配器接口调用多种 LLM 模型，实现三层�
 
 | 层级 | 路由器 | 职责 |
 |------|--------|------|
-| 管理面 | ModelConfigManager | 读取并写入 `unified_model_config.json` |
-| 运行时 | FileModelRouter / DynamicModelRouter | 读取 `agent_model_config.json`，按角色、文件类型和健康度路由 |
+| 管理面 | ModelConfigManager | 读取并写入 `unified_model_config.yaml` |
+| 运行时 | FileModelRouter / DynamicModelRouter | 读取 `agent_model_config.yaml`，按角色、文件类型和健康度路由 |
 | Layer 2 | DynamicModelRouter | 熔断器、健康度追踪、降级链 |
 | Layer 3 | LearningRouter | 基于历史性能自适应选择 |
 

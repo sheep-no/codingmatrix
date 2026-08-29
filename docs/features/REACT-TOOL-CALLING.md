@@ -352,7 +352,7 @@ ReAct 流程会推送 3 个新事件类型：
 | 观察 | qwen3-8b | 简单分析 |
 | 最终生成 | deepseek-r1 / 对应角色模型 | 高质量输出 |
 
-**配置**: `data/agent_model_config.json`
+**配置**: `data/agent_model_config.yaml`
 
 ```json
 {

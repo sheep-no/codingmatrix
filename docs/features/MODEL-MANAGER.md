@@ -12,7 +12,7 @@
 
 新的统一模型配置接口更简单直观，支持任意供应商模型。
 
-**配置文件**: `data/unified_model_config.json`
+**配置文件**: `data/unified_model_config.yaml`
 
 **API 前缀**: `/api/v2/model-config`
 
@@ -143,7 +143,7 @@ curl -X PUT http://localhost:8000/api/v2/model-config/agent/fallback \
 
 ## 配置文件
 
-### unified_model_config.json (新)
+### unified_model_config.yaml
 
 ```json
 {
@@ -180,15 +180,16 @@ curl -X PUT http://localhost:8000/api/v2/model-config/agent/fallback \
 }
 ```
 
-### agent_model_config.json (旧)
+### agent_model_config.yaml (运行时派生)
 
-保留用于向后兼容，新项目请使用 `unified_model_config.json`。
+由管理面 YAML 配置同步生成，供 Agent 运行时读取。
 
 ## 相关文件
 
 - `app/services/model_config_manager.py` - **新**: 统一配置管理器
 - `app/api/v2/model_config_api.py` - **新**: 统一配置 API
-- `data/unified_model_config.json` - **新**: 统一配置文件
+- `data/unified_model_config.yaml` - 管理面统一配置文件
+- `data/agent_model_config.yaml` - Agent 运行时派生配置
 - `app/api/v1/model_manager.py` - 旧: 用户端接口
 - `app/api/v2/model_admin.py` - 旧: 管理端接口 (已废弃)
 - `app/utils/aicloud/model_registry.py` - 模型注册表

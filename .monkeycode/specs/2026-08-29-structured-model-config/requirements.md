@@ -6,8 +6,8 @@
 
 ## Glossary
 
-- **管理面配置**：`data/unified_model_config.json` 及其 `ModelConfigManager` 数据模型。
-- **运行时配置**：由管理面配置派生的 `data/agent_model_config.json`。
+- **管理面配置**：`data/unified_model_config.yaml` 及其 `ModelConfigManager` 数据模型。
+- **运行时配置**：由管理面配置派生的 `data/agent_model_config.yaml`。
 - **模型 ID**：供配置和 UI 使用的短标识，例如 `qwen3-8b`。
 - **模型 Key**：供应商 API 使用的完整名称，例如 `Qwen/Qwen3-8B`。
 

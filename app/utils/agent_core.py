@@ -149,7 +149,7 @@ class ProgressType(str, Enum):
 # ==================== 多模型路由器 ====================
 
 class FileModelRouter:
-    """根据文件类型自动选择最佳模型（从 agent_model_config.json 读取配置）"""
+    """根据文件类型自动选择最佳模型（从 agent_model_config.yaml 读取配置）。"""
 
     # 前端文件扩展名
     FRONTEND_EXTENSIONS = {'.vue', '.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.scss', '.sass', '.less'}
@@ -168,12 +168,12 @@ class FileModelRouter:
         self._load_config()
 
     def _load_config(self):
-        """从 agent_model_config.json 加载角色模型映射"""
-        import json as _json
-        config_path = Path(__file__).parent.parent.parent / "data" / "agent_model_config.json"
+        """从 Agent 运行时 YAML 配置加载角色模型映射"""
+        from app.utils.model_config_io import load_model_config
+        config_path = Path(__file__).parent.parent.parent / "data" / "agent_model_config.yaml"
         try:
             with open(config_path, encoding="utf-8") as f:
-                cfg = _json.load(f)
+                cfg = load_model_config(config_path)
             roles = cfg.get("roles", {})
             models = cfg.get("models", {})
 

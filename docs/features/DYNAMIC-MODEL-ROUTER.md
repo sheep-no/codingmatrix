@@ -103,7 +103,7 @@ HALF_OPEN（半开）→ 允许 1 次探测调用
 nex-agi/Nex-N2-Pro → deepseek-ai/DeepSeek-R1-0528-Qwen3-8B → THUDM/GLM-Z1-9B-0414 → Qwen/Qwen3-8B
 ```
 
-降级链可在 `data/agent_model_config.json` 的 `fallback_chain` 字段配置。
+降级链可在 `data/agent_model_config.yaml` 的 `fallback_chain` 字段配置。
 
 ### 用户降级偏好 (fallback_preference)
 
@@ -123,7 +123,7 @@ API: `PUT /api/v1/apikey/{token}/fallback-preference`
 
 ### 配置文件
 
-`data/agent_model_config.json` (v4.0):
+`data/agent_model_config.yaml` (v4.0):
 ```json
 {
   "version": "4.0",
@@ -382,7 +382,7 @@ curl http://localhost:8000/api/v2/models/health
 
 ### 路由分配不符合预期
 
-1. 查看 `data/agent_model_config.json` 当前配置
+1. 查看 `data/agent_model_config.yaml` 当前配置
 2. 确认 `roles` 字段中各角色的模型是否正确
 3. 通过 admin UI 修改分配
 

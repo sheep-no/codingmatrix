@@ -179,7 +179,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 
 ```
 1. 用户自定义 (管理员设置) - 最高优先级
-2. 配置文件 (data/agent_model_config.json)
+2. 配置文件 (data/agent_model_config.yaml)
 3. 代码内置映射 (MODEL_CONTEXT_LENGTHS)
 4. 动态供应商声明
 5. 默认 32k - 兜底

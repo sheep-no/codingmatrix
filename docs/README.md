@@ -235,7 +235,7 @@ docs/
 ### v5.15.0 (2026-06-22)
 
 - **模型配置 v4.0**: 新增 nex-n2-pro 模型，角色分配调整
-- **FileModelRouter**: 改为从 agent_model_config.json 读取配置
+- **FileModelRouter**: 改为从 agent_model_config.yaml 读取配置
 - **自定义 Skill 系统**: 完整的 CRUD API + 热重载 + Agent 提示词覆盖
 - **虚拟姬增强**: 自定义角色、用户偏好、历史搜索
 - **API Key 降级偏好**: fallback_preference (disabled/custom/admin_default)

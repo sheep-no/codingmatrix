@@ -7,47 +7,19 @@
 3. 自动适配 - 从供应商自动发现模型
 4. 热更新 - 修改配置立即生效
 
-配置文件格式：
-{
-  "providers": {
-    "siliconflow": {
-      "api_key": "sk-xxx",
-      "base_url": "https://api.siliconflow.cn/v1"
-    }
-  },
-  "models": {
-    "qwen3-8b": {
-      "name": "Qwen/Qwen3-8B",
-      "display_name": "Qwen3 8B",
-      "provider": "siliconflow",
-      "type": "chat",  // chat/embedding/image/vision/audio
-      "context_length": 131072,
-      "max_output": 8192
-    }
-  },
-  "agent": {
-    "roles": {
-      "architect": "qwen3-8b",
-      "frontend": "deepseek-r1",
-      "backend": "nex-n2-pro",
-      "reviewer": "glm-z1-9b",
-      "fallback": "qwen3-8b"
-    },
-    "fallback_chain": ["qwen3-8b", "glm-z1-9b"]
-  }
-}
+配置文件格式为 YAML，包含 `providers`、`models` 和 `agent` 三个顶层区块。
 """
 
-import json
 import os
 import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from pathlib import Path
+from app.utils.model_config_io import load_model_config, save_model_config
 
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH = Path(__file__).parent.parent.parent / "data" / "unified_model_config.json"
+CONFIG_PATH = Path(__file__).parent.parent.parent / "data" / "unified_model_config.yaml"
 
 
 @dataclass
@@ -106,8 +78,7 @@ class ModelConfigManager:
         """加载配置"""
         try:
             if self.config_path.exists():
-                with open(self.config_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
+                data = load_model_config(self.config_path)
                 self._parse_config(data)
                 logger.info(f"已加载模型配置: {self.config_path}")
             else:
@@ -177,7 +148,7 @@ class ModelConfigManager:
             self._models[m.id] = m
     
     def save_config(self):
-        """保存配置到 unified_model_config.json，并同步到 agent_model_config.json"""
+        """保存 YAML 配置，并同步到 Agent 运行时 YAML 配置。"""
         try:
             data = {
                 "version": "5.0",
@@ -217,8 +188,7 @@ class ModelConfigManager:
             }
             
             os.makedirs(self.config_path.parent, exist_ok=True)
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            save_model_config(self.config_path, data)
             
             logger.info(f"已保存模型配置: {self.config_path}")
             
@@ -232,13 +202,12 @@ class ModelConfigManager:
     
     def _sync_to_agent_config(self, unified_data: Dict):
         """将管理面配置同步为 Agent 运行时配置。"""
-        agent_config_path = self.config_path.parent / "agent_model_config.json"
+        agent_config_path = self.config_path.parent / "agent_model_config.yaml"
         try:
             # 保留运行时专用字段，模型和角色字段以管理面配置为准。
             existing = {}
             if agent_config_path.exists():
-                with open(agent_config_path, 'r', encoding='utf-8') as f:
-                    existing = json.load(f)
+                existing = load_model_config(agent_config_path)
             
             # 构建 models 部分
             synced_models = {}
@@ -260,7 +229,7 @@ class ModelConfigManager:
             
             agent_config = {
                 "version": "5.0",
-                "description": "统一模型配置 - 由 unified_model_config.json 自动同步",
+                "description": "统一模型配置 - 由 unified_model_config.yaml 自动同步",
                 "last_updated": unified_data.get("last_updated", ""),
                 "models": synced_models,
                 "roles": unified_data.get("agent", {}).get("roles", existing.get("roles", {})),
@@ -272,8 +241,7 @@ class ModelConfigManager:
             }
             
             os.makedirs(agent_config_path.parent, exist_ok=True)
-            with open(agent_config_path, 'w', encoding='utf-8') as f:
-                json.dump(agent_config, f, ensure_ascii=False, indent=2)
+            save_model_config(agent_config_path, agent_config)
             
             logger.info(f"已同步 Agent 模型配置: {agent_config_path}")
         except Exception as e:

@@ -2,23 +2,24 @@
 多供应商模型调用系统 - 供应商路由器
 
 根据模型名称路由到对应供应商，支持故障转移。
-模型映射从 data/agent_model_config.json 统一加载。
+模型映射从 data/agent_model_config.yaml 统一加载。
 """
 
-import json
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
 from app.utils.aicloud.providers import ModelProvider, ProviderRegistry
+from app.utils.model_config_io import load_model_config
 
 logger = logging.getLogger(__name__)
 
-_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../../data/agent_model_config.json")
+_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../../data/agent_model_config.yaml")
 
 
 def _load_provider_map() -> dict[str, ModelProvider]:
-    """从统一配置文件构建模型-供应商映射"""
+    """从 Agent 运行时 YAML 配置构建模型-供应商映射。"""
     provider_enum_map = {
         "siliconflow": ModelProvider.SILICONFLOW,
         "dashscope": ModelProvider.DASHSCOPE,
@@ -27,8 +28,7 @@ def _load_provider_map() -> dict[str, ModelProvider]:
     }
     result = {}
     try:
-        with open(_CONFIG_PATH, 'r', encoding='utf-8') as f:
-            config = json.load(f)
+        config = load_model_config(Path(_CONFIG_PATH))
         for model_id, m in config.get("models", {}).items():
             name = m.get("name", "")
             provider_str = m.get("provider", "siliconflow")

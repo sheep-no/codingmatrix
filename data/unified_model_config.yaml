@@ -1,0 +1,348 @@
+version: '5.0'
+description: 统一模型配置
+last_updated: '2026-07-16T12:40:59.591008'
+providers:
+  siliconflow:
+    name: SiliconFlow
+    api_key: ''
+    base_url: https://api.siliconflow.cn/v1
+    enabled: true
+models:
+  qwen3-8b:
+    name: Qwen/Qwen3-8B
+    display_name: Qwen3 8B
+    provider: siliconflow
+    type: chat
+    context_length: 131072
+    max_output: 8192
+    temperature: 0.7
+    timeout: 300
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 1.5
+    enabled: true
+    tags:
+    - 通用
+    - 快速
+  deepseek-r1:
+    name: deepseek-ai/DeepSeek-R1-0528-Qwen3-8B
+    display_name: DeepSeek R1
+    provider: siliconflow
+    type: chat
+    context_length: 131072
+    max_output: 8192
+    temperature: 0.6
+    timeout: 300
+    is_reasoning: true
+    thinking_ratio: 0.5
+    speed: 1.0
+    enabled: true
+    tags:
+    - 推理
+    - 代码
+  nex-n2-pro:
+    name: nex-agi/Nex-N2-Pro
+    display_name: Nex N2 Pro
+    provider: siliconflow
+    type: chat
+    context_length: 262144
+    max_output: 16384
+    temperature: 0.7
+    timeout: 600
+    is_reasoning: true
+    thinking_ratio: 0.3
+    speed: 1.0
+    enabled: true
+    tags:
+    - 推理
+    - 长上下文
+  glm-z1-9b:
+    name: THUDM/GLM-Z1-9B-0414
+    display_name: GLM Z1 9B
+    provider: siliconflow
+    type: chat
+    context_length: 131072
+    max_output: 8192
+    temperature: 0.6
+    timeout: 300
+    is_reasoning: false
+    thinking_ratio: 0.5
+    speed: 1.0
+    enabled: true
+    tags:
+    - 评测
+    - 审查
+  glm-4-9b:
+    name: THUDM/GLM-4-9B-0414
+    display_name: GLM 4 9B
+    provider: siliconflow
+    type: chat
+    context_length: 32768
+    max_output: 4096
+    temperature: 0.7
+    timeout: 300
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 1.5
+    enabled: true
+    tags:
+    - 通用
+  qwen2.5-7b:
+    name: Qwen/Qwen2.5-7B-Instruct
+    display_name: Qwen2.5 7B
+    provider: siliconflow
+    type: chat
+    context_length: 32768
+    max_output: 4096
+    temperature: 0.7
+    timeout: 300
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 2.0
+    enabled: true
+    tags:
+    - 代码
+    - 快速
+  qwen3.5-4b:
+    name: Qwen/Qwen3.5-4B
+    display_name: Qwen3.5 4B
+    provider: siliconflow
+    type: chat
+    context_length: 262144
+    max_output: 4096
+    temperature: 0.7
+    timeout: 300
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 2.0
+    enabled: true
+    tags:
+    - 轻量
+    - 长上下文
+  deepseek-ocr:
+    name: deepseek-ai/DeepSeek-OCR
+    display_name: DeepSeek OCR
+    provider: siliconflow
+    type: vision
+    context_length: 8192
+    max_output: 2048
+    temperature: 0.5
+    timeout: 120
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 1.0
+    enabled: true
+    tags:
+    - OCR
+    - 视觉
+  glm-4.1v-9b:
+    name: THUDM/GLM-4.1V-9B-Thinking
+    display_name: GLM 4.1V 9B
+    provider: siliconflow
+    type: vision
+    context_length: 32768
+    max_output: 8192
+    temperature: 0.7
+    timeout: 300
+    is_reasoning: true
+    thinking_ratio: 0.3
+    speed: 1.0
+    enabled: true
+    tags:
+    - 视觉
+    - 推理
+  kolors:
+    name: Kwai-Kolors/Kolors
+    display_name: Kolors
+    provider: siliconflow
+    type: image
+    context_length: 4096
+    max_output: 1024
+    temperature: 0.7
+    timeout: 120
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 1.0
+    enabled: true
+    tags:
+    - 绘画
+  bge-m3:
+    name: BAAI/bge-m3
+    display_name: BGE M3
+    provider: siliconflow
+    type: embedding
+    context_length: 8192
+    max_output: 512
+    temperature: 0
+    timeout: 30
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 3.0
+    enabled: true
+    tags:
+    - 嵌入
+    - 多语言
+  bce-embedding:
+    name: netease-youdao/bce-embedding-base_v1
+    display_name: BCE Embedding
+    provider: siliconflow
+    type: embedding
+    context_length: 512
+    max_output: 512
+    temperature: 0
+    timeout: 30
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 3.0
+    enabled: true
+    tags:
+    - 嵌入
+  bge-reranker:
+    name: BAAI/bge-reranker-v2-m3
+    display_name: BGE Reranker
+    provider: siliconflow
+    type: embedding
+    context_length: 8192
+    max_output: 512
+    temperature: 0
+    timeout: 30
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 3.0
+    enabled: true
+    tags:
+    - 重排序
+  bge-large-zh:
+    name: BAAI/bge-large-zh-v1.5
+    display_name: BGE Large ZH
+    provider: siliconflow
+    type: embedding
+    context_length: 512
+    max_output: 512
+    temperature: 0
+    timeout: 30
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 3.0
+    enabled: true
+    tags:
+    - 嵌入
+    - 中文
+  paddleocr-vl-1.5:
+    name: PaddlePaddle/PaddleOCR-VL-1.5
+    display_name: PaddleOCR VL 1.5
+    provider: siliconflow
+    type: vision
+    context_length: 0
+    max_output: 4096
+    temperature: 0.2
+    timeout: 120
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 1.0
+    enabled: true
+    tags:
+    - OCR
+    - 视觉
+  xingchen-asr-v3.2-ultra:
+    name: XingChenAGI/XingChenASR-V3.2-Ultra
+    display_name: XingChen ASR V3.2 Ultra
+    provider: siliconflow
+    type: audio
+    context_length: 0
+    max_output: 4096
+    temperature: 0
+    timeout: 120
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 1.0
+    enabled: true
+    tags:
+    - 语音识别
+  xingchen-gsr-v1:
+    name: XingChenAGI/XingChenGSR-V1.0
+    display_name: XingChen GSR V1.0
+    provider: siliconflow
+    type: audio
+    context_length: 0
+    max_output: 4096
+    temperature: 0
+    timeout: 120
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 1.0
+    enabled: true
+    tags:
+    - 语音
+    - 说话人
+  xingchen-asr-diarize-v3:
+    name: XingChenAGI/XingChenASR-Diarize-V3.0
+    display_name: XingChen ASR Diarize V3.0
+    provider: siliconflow
+    type: audio
+    context_length: 0
+    max_output: 4096
+    temperature: 0
+    timeout: 120
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 1.0
+    enabled: true
+    tags:
+    - 语音识别
+    - 说话人分离
+  telespeech-asr:
+    name: TeleAI/TeleSpeechASR
+    display_name: TeleSpeech ASR
+    provider: siliconflow
+    type: audio
+    context_length: 0
+    max_output: 4096
+    temperature: 0
+    timeout: 120
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 1.0
+    enabled: true
+    tags:
+    - 语音识别
+  hunyuan-mt:
+    name: tencent/Hunyuan-MT-7B
+    display_name: Hunyuan MT
+    provider: siliconflow
+    type: chat
+    context_length: 32768
+    max_output: 4096
+    temperature: 0.3
+    timeout: 120
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 2.0
+    enabled: true
+    tags:
+    - 翻译
+  sense-voice:
+    name: FunAudioLLM/SenseVoiceSmall
+    display_name: SenseVoice
+    provider: siliconflow
+    type: audio
+    context_length: 4096
+    max_output: 4096
+    temperature: 0
+    timeout: 60
+    is_reasoning: false
+    thinking_ratio: 0
+    speed: 1.0
+    enabled: true
+    tags:
+    - 语音识别
+agent:
+  roles:
+    architect: qwen3-8b
+    frontend: deepseek-r1
+    backend: nex-n2-pro
+    reviewer: glm-z1-9b
+    fallback: qwen3-8b
+  fallback_chain:
+  - qwen3-8b
+  - glm-z1-9b

@@ -6,6 +6,8 @@ SiliconFlow 供应商适配器
 
 import asyncio
 import logging
+import os
+from pathlib import Path
 from typing import AsyncIterator, Optional, Union
 
 import httpx
@@ -40,14 +42,13 @@ class SiliconFlowAdapter(BaseProviderAdapter):
         self._reasoning_models: Optional[set] = None
     
     def _is_reasoning_model(self, model: str) -> bool:
-        """判断模型是否是 reasoning 模型（从统一配置读取）"""
+        """判断模型是否是 reasoning 模型（从运行时 YAML 配置读取）。"""
         if self._reasoning_models is None:
-            import json, os
-            config_path = os.path.join(os.path.dirname(__file__), "../../../../data/agent_model_config.json")
+            config_path = os.path.join(os.path.dirname(__file__), "../../../../data/agent_model_config.yaml")
             self._reasoning_models = set()
             try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
+                from app.utils.model_config_io import load_model_config
+                config = load_model_config(Path(config_path))
                 for model_id, m in config.get("models", {}).items():
                     if m.get("is_reasoning", False):
                         self._reasoning_models.add(m.get("name", ""))

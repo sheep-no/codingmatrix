@@ -1,7 +1,7 @@
 """
 统一模型配置 API
 
-简化版模型管理接口，基于 unified_model_config.json
+简化版模型管理接口，基于 unified_model_config.yaml
 
 端点：
 - GET    /api/v2/model-config/models          - 获取所有模型

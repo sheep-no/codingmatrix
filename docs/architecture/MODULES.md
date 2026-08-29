@@ -527,7 +527,7 @@ dependencies.get_affected_files(['models/user.py'])
 
 | 模块 | 行数 | 职责 |
 |------|------|------|
-| `agent_core.py` | **2,393** | `ProjectGeneratorAgent` 主入口 (最大工具模块, 需拆分); `FileModelRouter` 读取 `agent_model_config.json` |
+| `agent_core.py` | **2,393** | `ProjectGeneratorAgent` 主入口 (最大工具模块, 需拆分); `FileModelRouter` 读取 `agent_model_config.yaml` |
 | `guardrails.py` | 452 | `PromptInjectionDetector` (11+ 模式 + 8 关键词 + 结构异常检测) |
 | `cache.py` | 349 | `MemoryCache` (LRU) + `RedisCache` 双 backend 切换 |
 | `csrf.py` | 164 | `CSRFTokenManager`, 双重提交 Cookie 模式 |

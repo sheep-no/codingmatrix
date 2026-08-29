@@ -1,7 +1,6 @@
 """动态模型路由器 - 基于延迟、成功率、队列深度的智能路由（支持全局健康感知）"""
 
 import asyncio
-import json
 import os
 import random
 import sqlite3
@@ -11,13 +10,15 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from collections import deque
 import logging
+from pathlib import Path
 
 from app.utils.system_load import system_load_monitor
+from app.utils.model_config_io import load_model_config, save_model_config
 
 logger = logging.getLogger(__name__)
 
 # Agent 运行时配置文件路径；该文件由 ModelConfigManager 从管理面配置派生生成。
-AGENT_MODEL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../data/agent_model_config.json")
+AGENT_MODEL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../data/agent_model_config.yaml")
 
 # 备选模型 ID → Key 映射（配置文件不可用时的兜底）
 _FALLBACK_MODEL_ID_TO_KEY: Dict[str, str] = {
@@ -37,8 +38,7 @@ def _build_provider_map() -> Dict[str, "ModelProvider"]:
     global _provider_map_cache
     from app.utils.aicloud.provider_router import ModelProvider
     try:
-        with open(AGENT_MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
-            config = json.load(f)
+        config = load_model_config(Path(AGENT_MODEL_CONFIG_PATH))
         models = config.get("models", {})
         provider_map = {}
         provider_enum_map = {
@@ -63,8 +63,7 @@ def _build_model_id_to_key() -> Dict[str, str]:
     """从 Agent 运行时配置构建 model_id -> model_key 映射。"""
     global _model_id_key_cache
     try:
-        with open(AGENT_MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
-            config = json.load(f)
+        config = load_model_config(Path(AGENT_MODEL_CONFIG_PATH))
         models = config.get("models", {})
         mapping = {}
         for model_id, m in models.items():
@@ -103,13 +102,13 @@ def invalidate_model_mapping_cache():
     MODEL_KEY_TO_ID = {v: k for k, v in MODEL_ID_TO_KEY.items()}
 
 
-# 模型 ID 到模型 Key 的映射（从统一配置动态生成）
+# 模型 ID 到模型 Key 的映射（从运行时 YAML 配置动态生成）
 MODEL_ID_TO_KEY = _build_model_id_to_key()
 
 # 模型 Key 到模型 ID 的反向映射
 MODEL_KEY_TO_ID = {v: k for k, v in MODEL_ID_TO_KEY.items()}
 
-# 模型名称到供应商的映射（从统一配置动态生成）
+# 模型名称到供应商的映射（从运行时 YAML 配置动态生成）
 MODEL_PROVIDER_MAP = _build_provider_map()
 
 
@@ -131,10 +130,9 @@ def load_agent_model_config() -> Optional[Dict[str, Any]]:
     """从配置文件加载 Agent 模型配置"""
     try:
         if os.path.exists(AGENT_MODEL_CONFIG_PATH):
-            with open(AGENT_MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                logger.info(f"已加载 Agent 模型配置: {AGENT_MODEL_CONFIG_PATH}")
-                return config
+            config = load_model_config(Path(AGENT_MODEL_CONFIG_PATH))
+            logger.info(f"已加载 Agent 模型配置: {AGENT_MODEL_CONFIG_PATH}")
+            return config
     except Exception as e:
         logger.warning(f"加载 Agent 模型配置失败: {e}")
     return None
@@ -144,8 +142,7 @@ def save_agent_model_config(config: Dict[str, Any]) -> bool:
     """保存 Agent 模型配置到文件"""
     try:
         os.makedirs(os.path.dirname(AGENT_MODEL_CONFIG_PATH), exist_ok=True)
-        with open(AGENT_MODEL_CONFIG_PATH, 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
+        save_model_config(Path(AGENT_MODEL_CONFIG_PATH), config)
         logger.info(f"已保存 Agent 模型配置: {AGENT_MODEL_CONFIG_PATH}")
         return True
     except Exception as e:

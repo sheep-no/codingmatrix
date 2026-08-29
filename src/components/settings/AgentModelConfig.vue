@@ -117,7 +117,7 @@
       <div class="config-info">
         <div class="info-item">
           <span class="info-label">配置文件：</span>
-          <span class="info-value">data/agent_model_config.json</span>
+          <span class="info-value">data/agent_model_config.yaml</span>
         </div>
         <div class="info-item">
           <span class="info-label">最后更新：</span>

@@ -5,14 +5,14 @@ Updated: 2026-08-29
 
 ## Description
 
-统一模型配置的字段和运行时刷新边界。管理面以 `unified_model_config.json` 为事实源，`agent_model_config.json` 作为 Agent 运行时派生文件；Aicloud 静态 `MODEL_REGISTRY` 在本阶段继续提供用户端目录能力。
+统一模型配置的字段和运行时刷新边界。管理面以 `unified_model_config.yaml` 为事实源，`agent_model_config.yaml` 作为 Agent 运行时派生文件；Aicloud 静态 `MODEL_REGISTRY` 在本阶段继续提供用户端目录能力。
 
 ## Architecture
 
 ```mermaid
 graph LR
-    A[ModelConfigManager] --> B[unified_model_config.json]
-    A --> C[agent_model_config.json]
+    A[ModelConfigManager] --> B[unified_model_config.yaml]
+    A --> C[agent_model_config.yaml]
     C --> D[DynamicModelRouter]
     D --> E[Agent LLM requests]
     F[MODEL_REGISTRY] --> G[Aicloud model browser]
@@ -56,7 +56,7 @@ graph LR
 
 ## References
 
-- `data/unified_model_config.json`
-- `data/agent_model_config.json`
+- `data/unified_model_config.yaml`
+- `data/agent_model_config.yaml`
 - `app/services/model_config_manager.py`
 - `app/agent/dynamic_model_router.py`

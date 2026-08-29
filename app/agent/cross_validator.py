@@ -29,11 +29,11 @@ logger = logging.getLogger(__name__)
 def _load_cross_validation_config() -> Dict[str, Any]:
     """加载交叉验证配置"""
     try:
-        config_path = Path(__file__).parent.parent.parent / "data" / "agent_model_config.json"
+        config_path = Path(__file__).parent.parent.parent / "data" / "agent_model_config.yaml"
         if config_path.exists():
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                return config.get("cross_validation", {})
+            from app.utils.model_config_io import load_model_config
+            config = load_model_config(config_path)
+            return config.get("cross_validation", {})
     except Exception as e:
         logger.warning(f"加载交叉验证配置失败: {e}")
     return {}

@@ -1,5 +1,4 @@
 from pathlib import Path
-import json
 import os
 import logging
 
@@ -20,12 +19,12 @@ CONFIDENCE_DEFAULT_SHOW = 0.7
 
 
 def _load_dual_models_from_config():
-    """从 agent_model_config.json 加载双模型配置（统一配置来源）"""
-    config_path = os.path.join(os.path.dirname(__file__), "../../../data/agent_model_config.json")
+    """从 Agent 运行时 YAML 配置加载双模型配置。"""
+    config_path = os.path.join(os.path.dirname(__file__), "../../../data/agent_model_config.yaml")
     try:
         if os.path.exists(config_path):
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
+            from app.utils.model_config_io import load_model_config
+            config = load_model_config(Path(config_path))
             # v3.0: 从 roles 中直接取模型
             roles = config.get("roles", {})
             from app.agent.dynamic_model_router import resolve_model_key
