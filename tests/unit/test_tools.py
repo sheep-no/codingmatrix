@@ -33,6 +33,8 @@ from app.agent.tools import (
     SPECIALIST_TOOLS,
     _SYMBOL_PATTERNS,
     _EXT_BY_LANG,
+    _execute_python_sandbox,
+    _tool_run_command,
 )
 
 
@@ -104,6 +106,19 @@ class TestReadFile:
     def test_read_directory_as_file(self, project_dir):
         result = _tool_read_file(project_dir, "utils")
         assert "error" in result
+
+
+class TestSandboxAndCommand:
+    def test_python_sandbox_executes_and_cleans_up(self):
+        result = _execute_python_sandbox("print('ok')", timeout=5)
+        assert result["success"] is True
+        assert result["output"].strip() == "ok"
+
+    def test_command_cwd_rejects_prefix_collision(self, project_dir):
+        sibling = f"{project_dir}_evil"
+        result = _tool_run_command(project_dir, "pwd", cwd=f"../{Path(sibling).name}")
+        assert result["success"] is False
+        assert "项目路径内" in result["error"]
 
 
 class TestListFiles:

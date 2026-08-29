@@ -102,7 +102,7 @@ services:
     depends_on:
       redis: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -161,7 +161,7 @@ RUN apt-get update && \
 
 # 复制后端依赖 + 代码 + 前端 dist
 # 启动命令: nginx & uvicorn app.main:app --port 8080 --workers 2
-# HEALTHCHECK: curl -f http://localhost:8080/health
+# HEALTHCHECK: curl -f http://localhost:8080/api/v1/health
 ```
 
 ### 构建与启动
@@ -182,7 +182,7 @@ docker compose logs -f nginx
 
 # 健康检查
 curl http://localhost/health           # Nginx 入口
-curl http://localhost:8080/health      # API 直连
+curl http://localhost:8080/api/v1/health      # API 直连
 ```
 
 ### 不使用 Docker 的部署 (推荐轻量场景)

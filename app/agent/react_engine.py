@@ -206,9 +206,11 @@ class ReActEngine:
 
         try:
             fn = self.tools[tool_name]["fn"]
-            result = fn(project_path=self.project_path, **tool_params)
+            result = await asyncio.wait_for(
+                asyncio.to_thread(fn, project_path=self.project_path, **tool_params),
+                timeout=timeout,
+            )
 
-            # 异步函数返回 coroutine，需要 await
             if asyncio.iscoroutine(result):
                 result = await asyncio.wait_for(result, timeout=timeout)
 

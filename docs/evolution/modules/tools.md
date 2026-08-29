@@ -61,7 +61,9 @@
 
 ## 3. 已探明 Bug（含 bug 代码）
 
-### T1 [P0] `_execute_python_sandbox` 因 `os` 未导入 → Python 沙箱执行必然失败
+### T1 [P0] `_execute_python_sandbox` 因 `os` 未导入 → Python 沙箱执行必然失败（已修复）
+
+> 修复：函数内补充 `os` 导入，并清理冗余的 `error` 条件表达式。
 
 - **现象**：Python 代码沙箱执行恒返回失败
 - **Bug 代码**：
@@ -92,7 +94,9 @@ def _execute_python_sandbox(code: str, timeout: int) -> Dict:
 - **触发条件**：任何 `_execute_python_sandbox` 调用（正常 return 前 finally 必执行）
 - **验证**：实测 `python3 -c "from app.agent.tools import _execute_python_sandbox; _execute_python_sandbox('print(1)', 5)"` → `NameError: name 'os' is not defined`（复现）
 
-### T2 [P1] `_tool_run_command` cwd 校验用 `startswith` → 目录前缀绕过
+### T2 [P1] `_tool_run_command` cwd 校验用 `startswith` → 目录前缀绕过（已修复）
+
+> 修复：使用 `Path.relative_to()` 校验目录是否位于项目根目录内。
 
 - **Bug 代码**：
 
@@ -109,7 +113,9 @@ if cwd:
 - **影响**：命令可在项目目录之外的相似前缀目录执行（命令本身仍受白名单约束，风险中等）
 - **触发条件**：cwd 指向路径前缀含 project_root 的越界目录
 
-### T3 [P1] MAX_OUTPUT_BYTES 定义未使用 → OOM 防护失效
+### T3 [P1] MAX_OUTPUT_BYTES 定义未使用 → OOM 防护失效（已修复）
+
+> 修复：将 stdout/stderr 重定向到临时文件，读取时限制为 `MAX_OUTPUT_BYTES + 1`，返回结果继续保留尾部摘要。
 
 - **Bug 代码**：
 

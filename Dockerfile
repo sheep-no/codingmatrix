@@ -60,32 +60,31 @@ COPY pyproject.toml ./
 # Copy frontend build artifacts from frontend stage
 COPY --from=frontend-builder /app/src/dist ./src/dist
 
-# Copy nginx configuration
-COPY configs/nginx.conf /etc/nginx/nginx.conf
-
 # Install nginx
 RUN apt-get update && \
     apt-get install -y --no-install-recommends nginx && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /var/log/nginx /var/lib/nginx /workspace/src/dist /workspace/logs /workspace/data && \
+    mkdir -p /var/log/nginx /var/lib/nginx /etc/nginx/conf.d /workspace/src/dist /workspace/logs /workspace/data && \
     ln -sf /app/src/dist /workspace/src/dist && \
     ln -sf /app/logs /workspace/logs && \
     ln -sf /app/data /workspace/data
 
+# Copy nginx configuration after the package creates its runtime directories.
+COPY configs/nginx.conf /etc/nginx/nginx.conf
+COPY configs/nginx-upstream-local.conf /etc/nginx/conf.d/upstream.conf
+
 # Create necessary directories and set permissions
 RUN mkdir -p /app/logs /app/data && \
     chown -R appuser:appuser /app && \
-    chown -R appuser:appuser /var/log/nginx /var/lib/nginx /var/run
+    chown -R nginx:nginx /var/log/nginx /var/lib/nginx /var/run
 
 # Expose ports
 EXPOSE 80 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
-
-# Switch to non-root user
-USER appuser
+    CMD curl -f http://localhost:8080/api/v1/health || exit 1
 
 # Start command
-CMD ["sh", "-c", "nginx & uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 2"]
+# Nginx needs a root master for port 80, while the API runs as appuser.
+CMD ["sh", "-c", "nginx && exec su -s /bin/sh appuser -c 'exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 2'"]

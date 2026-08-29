@@ -20,6 +20,7 @@ from app.db.database import get_db
 from app.schema.codeRequest import GenerateRequest, GenerateResponse
 from app.models.saved_project import SavedProject
 from app.utils.agent_core import ProjectGeneratorAgent
+from app.agent.workflow_registry import build_legacy_workflow, run_workflow
 
 from .schemas import (
     SaveProjectRequest, SaveProjectResponse,
@@ -75,13 +76,25 @@ async def generate_project(
     disconnect_task = asyncio.create_task(_watch_disconnect())
 
     try:
-        result = await agent.generate_project(
-            requirement=req.requirement,
-            output_dir=output_dir,
-            session_id=req.session_id,
-            callback=empty_callback,
-            cancel_event=cancel_event
+        task_id = req.session_id or Path(output_dir).name
+
+        async def run_generate(_state):
+            return await agent.generate_project(
+                requirement=req.requirement,
+                output_dir=output_dir,
+                session_id=req.session_id,
+                callback=empty_callback,
+                cancel_event=cancel_event,
+            )
+
+        workflow = build_legacy_workflow("generate", "/generate", run_generate)
+        state = await run_workflow(
+            workflow,
+            session_id=req.session_id or task_id,
+            task_id=task_id,
+            metadata={"requirement": req.requirement, "output_dir": output_dir},
         )
+        result = state.metadata["legacy_result"]
 
         project_name = Path(output_dir).name
 

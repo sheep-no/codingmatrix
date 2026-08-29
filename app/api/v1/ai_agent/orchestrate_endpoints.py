@@ -17,6 +17,7 @@ from app.utils.security import verify_token
 from app.db.database import get_db, async_session
 from app.db.models import ProjectSession
 from app.agent import OrchestratorAgent
+from app.agent.workflow_registry import build_legacy_workflow, run_workflow
 from app.agent.multi_model_agent import MultiModelAgent
 
 
@@ -365,7 +366,20 @@ async def modify_project(
             async def run_generation():
                 try:
                     logger.info(f"[SSE] 开始增量修改 | session={session_id}")
-                    gen_result = await orchestrator.generate_incremental(requirement=enhanced_requirement)
+                    workflow = build_legacy_workflow(
+                        "modify",
+                        "/modify",
+                        lambda _state: orchestrator.generate_incremental(
+                            requirement=enhanced_requirement
+                        ),
+                    )
+                    graph_state = await run_workflow(
+                        workflow,
+                        session_id=session_id,
+                        task_id=session_id,
+                        metadata={"project_path": str(project_dir)},
+                    )
+                    gen_result = graph_state.metadata["legacy_result"]
                     files_generated = gen_result.get("total_files_created", 0)
                     files_total = gen_result.get("total_files", 0)
                     await sm.complete_session(session_id, files_generated=files_generated, files_total=files_total)
@@ -476,7 +490,18 @@ async def orchestrate_project(
             evaluation_only=request.evaluation_only
         )
         
-        result = await orchestrator.generate(requirement=request.requirement)
+        workflow = build_legacy_workflow(
+            "orchestrate",
+            "/orchestrate",
+            lambda _state: orchestrator.generate(requirement=request.requirement),
+        )
+        graph_state = await run_workflow(
+            workflow,
+            session_id=str(session_id or output_dir),
+            task_id=str(session_id or output_dir),
+            metadata={"requirement": request.requirement, "output_dir": output_dir},
+        )
+        result = graph_state.metadata["legacy_result"]
 
         execution_time = time.time() - start_time
         await log_tool_execution(
@@ -799,7 +824,20 @@ async def orchestrate_project_stream(
             async def run_generation():
                 try:
                     logger.info(f"[SSE] 开始生成任务 | session={session_id}")
-                    result = await orchestrator.generate(requirement=request.requirement)
+                    workflow = build_legacy_workflow(
+                        "orchestrate_stream",
+                        "/orchestrate/stream",
+                        lambda _state: orchestrator.generate(
+                            requirement=request.requirement
+                        ),
+                    )
+                    graph_state = await run_workflow(
+                        workflow,
+                        session_id=session_id,
+                        task_id=session_id,
+                        metadata={"output_dir": output_dir},
+                    )
+                    result = graph_state.metadata["legacy_result"]
                     # 检查是否在生成完成后被取消（stop_project 竞态保护）
                     if cancel_event.is_set():
                         logger.info(f"[SSE] 生成完成后检测到取消信号，跳过 complete_session | session={session_id}")

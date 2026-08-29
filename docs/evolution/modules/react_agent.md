@@ -45,6 +45,8 @@
 
 ### RA1 [P0] 工具调用契约断裂：executor wrapper 签名不兼容 ReActEngine 注入（第二层断裂，当前被短路遮蔽）
 
+> 修复：Executor wrapper 同时接受旧的参数字典调用和 `project_path` 关键字调用。
+
 - **现象**：ReActAgent.process 触发工具调用时，ReActEngine._execute_tool 注入 `project_path` 参数导致 TypeError
 - **重要修正（2026-08-05 react_engine 深扫）**：此 TypeError **当前实际不会被触发**——react_engine.py:344 的 `project_path` 空串短路（RE1）在工具调用前就已跳过整个 ReAct 循环。RA1 是短路修复后的**第二层断裂**（react_agent.py:149 project_path="" 修好后必然触发）
 - **Bug 代码**（跨模块三方）：
@@ -69,7 +71,9 @@ async def wrapper(params: Dict) -> ToolResult:
 - **影响**：error_recovery 修复闭环的工具调用全部失败（executor.md B1 的 §9.1 单例问题之上叠加的**第二层断裂**）；第一层为 react_engine.md RE1（project_path 短路，当前遮蔽本 bug）
 - **触发条件**：RE1 修复（project_path 正常传递）后，任何 action 步骤必 TypeError
 
-### RA2 [P1] `process` 的 context 参数未使用 → error_recovery 传入的项目路径被丢弃
+### RA2 [P1] `process` 的 context 参数未使用 → error_recovery 传入的项目路径被丢弃（已修复）
+
+> 修复：从 `context["project_path"]` 构造 ReActEngine，并保留工具参数的 JSON Schema 类型。
 
 - **Bug 代码**：
 
@@ -87,7 +91,7 @@ async def process(self, task: str, context: Dict[str, Any] = None) -> ReActResul
 - **影响**：修复闭环的工具路径上下文丢失（叠加 RA1，工具调用双重失效）
 - **触发条件**：error_recovery 正常调用
 
-### RA3 [P1] `ReActResult.success` 判定缺陷：纯文本回答任务恒判失败
+### RA3 [P1] `ReActResult.success` 判定缺陷：纯文本回答任务恒判失败（已修复）
 
 - **Bug 代码**：
 

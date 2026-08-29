@@ -202,3 +202,10 @@ def start_scheduler():
     logger.info("  - 文件清理：每 7 天执行")
     logger.info("  - 任务清理：每 7 天执行")
     logger.info("  - 日志清理：每 7 天执行")
+
+
+def stop_scheduler() -> None:
+    """停止当前进程的 scheduler，供应用生命周期和独立服务调用。"""
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+        logger.info("定时任务调度器已停止")

@@ -29,6 +29,7 @@ from app.agent.dynamic_model_router import (
     MODEL_ID_TO_KEY,
     MODEL_CONTEXT_LENGTHS,
     get_context_length,
+    _LayeredModelRouterCompat,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class SwitchModelRequest(BaseModel):
 
 
 class UpdateAgentModelRequest(BaseModel):
+    complexity: str = Field("MEDIUM", description="复杂度: SIMPLE, SMALL, MEDIUM, LARGE, ENTERPRISE")
     role: str = Field(..., description="角色: architect, frontend, backend, reviewer, fallback")
     model_id: str = Field(..., description="模型 ID (如 qwen3-8b, deepseek-r1)")
 
@@ -98,6 +100,9 @@ async def update_agent_model_config(
     current_user: dict = Depends(require_superadmin)
 ):
     """更新指定角色的模型配置（仅超级管理员）"""
+    valid_complexities = {"SIMPLE", "SMALL", "MEDIUM", "LARGE", "ENTERPRISE"}
+    if request.complexity.upper() not in valid_complexities:
+        raise HTTPException(status_code=400, detail=f"无效的复杂度: {request.complexity}")
     valid_roles = ["architect", "frontend", "backend", "reviewer", "fallback"]
     if request.role not in valid_roles:
         raise HTTPException(
@@ -130,6 +135,7 @@ async def update_agent_model_config(
         raise HTTPException(status_code=500, detail="保存配置文件失败")
 
     reload_roles_config()
+    _LayeredModelRouterCompat.reload_config()
     logger.info(f"Agent 模型配置已更新 | 操作用户={current_user.get('sub')} | roles.{request.role} = {request.model_id}")
 
     return {
@@ -145,6 +151,7 @@ async def reload_agent_model_config_endpoint(
 ):
     """重新从配置文件加载 Agent 模型配置（仅超级管理员）"""
     reload_roles_config()
+    _LayeredModelRouterCompat.reload_config()
     config = load_agent_model_config()
     return {
         "success": True,
@@ -159,6 +166,9 @@ async def update_fallback_chain(
     current_user: dict = Depends(require_superadmin)
 ):
     """更新降级链的模型列表（仅超级管理员）"""
+    valid_chain_names = {"default", "error_recovery", "code_generation"}
+    if request.chain_name not in valid_chain_names:
+        raise HTTPException(status_code=400, detail=f"无效的降级链名称: {request.chain_name}")
     for model_id in request.models:
         if model_id not in MODEL_ID_TO_KEY:
             raise HTTPException(
@@ -183,6 +193,7 @@ async def update_fallback_chain(
         raise HTTPException(status_code=500, detail="保存配置文件失败")
 
     reload_roles_config()
+    _LayeredModelRouterCompat.reload_config()
     logger.info(f"降级链配置已更新 | 操作用户={current_user.get('sub')} | {request.chain_name} = {request.models}")
 
     return {

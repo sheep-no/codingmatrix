@@ -132,10 +132,14 @@ class ReActAgent:
         for name, tool_info in self.executor.tool_registry._tools.items():
             fn = tool_info.get("func")
             if fn:
+                schema = tool_info.get("parameters") or {}
                 tools[name] = {
                     "fn": fn,
                     "description": tool_info.get("description", ""),
-                    "params": {p: "string" for p in (tool_info.get("parameters") or {}).get("properties", {}).keys()},
+                    "params": {
+                        name: prop.get("type", "string")
+                        for name, prop in schema.get("properties", {}).items()
+                    },
                 }
 
         # 如果 executor 没有工具，使用 SPECIALIST_TOOLS
@@ -146,7 +150,7 @@ class ReActAgent:
         engine = ReActEngine(
             tools=tools,
             call_llm_fn=lambda p, s: self._call_llm(p, s),
-            project_path="",
+            project_path=str((context or {}).get("project_path", "")),
             max_rounds=self.max_iterations,
             mode="full",
             role_name="ReActAgent",
@@ -173,7 +177,9 @@ class ReActAgent:
         execution_time = time.time() - start_time
 
         return ReActResult(
-            success=any(s.success for s in steps if s.step_type == "action"),
+            success=bool(final_answer and final_answer.strip()) or any(
+                s.success for s in steps if s.step_type == "action"
+            ),
             final_answer=final_answer,
             steps=steps,
             total_steps=len(steps),
@@ -196,5 +202,4 @@ class ReActAgent:
         except Exception as e:
             logger.error(f"ReActAgent LLM 调用失败: {e}")
             return ""
-
 

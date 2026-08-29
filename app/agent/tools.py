@@ -519,6 +519,7 @@ def _tool_execute_code(project_path: str, code: str, language: str = "python",
 
 def _execute_python_sandbox(code: str, timeout: int) -> Dict:
     """Python 沙箱执行（通过子进程隔离）"""
+    import os
     import subprocess
     import tempfile
 
@@ -549,7 +550,7 @@ def _execute_python_sandbox(code: str, timeout: int) -> Dict:
         return {
             "success": result.returncode == 0,
             "output": result.stdout or None,
-            "error": result.stderr or None if result.returncode != 0 else result.stderr or None
+            "error": result.stderr or None,
         }
     except subprocess.TimeoutExpired:
         return {"success": False, "error": f"执行超时（{timeout}秒）"}
@@ -666,7 +667,9 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
         work_dir = Path(project_path)
         if cwd:
             work_dir = (work_dir / cwd).resolve()
-            if not str(work_dir).startswith(str(Path(project_path).resolve())):
+            try:
+                work_dir.relative_to(Path(project_path).resolve())
+            except ValueError:
                 return {"success": False, "error": "安全限制: 工作目录必须在项目路径内"}
 
         if not work_dir.exists():
@@ -675,12 +678,14 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
         # 使用进程组管理，确保超时时杀死所有子进程
         # 限制输出缓冲区大小，防止 OOM
         MAX_OUTPUT_BYTES = 1024 * 1024  # 1MB
+        import tempfile
+        stdout_file = tempfile.TemporaryFile()
+        stderr_file = tempfile.TemporaryFile()
         proc = subprocess.Popen(
             command,
             shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            stdout=stdout_file,
+            stderr=stderr_file,
             cwd=str(work_dir),
             env={
                 **os.environ,
@@ -690,21 +695,28 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
             start_new_session=True,  # 独立进程组，超时时可整体杀死
         )
         try:
-            stdout, stderr = proc.communicate(timeout=timeout)
+            proc.communicate(timeout=timeout)
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            stdout = stdout_file.read(MAX_OUTPUT_BYTES + 1)
+            stderr = stderr_file.read(MAX_OUTPUT_BYTES + 1)
         except subprocess.TimeoutExpired:
             # 杀死整个进程组
             os.killpg(os.getpgid(proc.pid), subprocess.signal.SIGKILL)
-            stdout, stderr = proc.communicate()
+            proc.communicate()
             return {"success": False, "error": f"命令执行超时（{timeout}秒）", "command": command}
         except Exception:
             proc.kill()
-            stdout, stderr = proc.communicate()
+            proc.communicate()
             raise
+        finally:
+            stdout_file.close()
+            stderr_file.close()
 
         return {
             "success": proc.returncode == 0,
-            "output": stdout[-5000:] if stdout else "",
-            "error": stderr[-2000:] if stderr else None,
+            "output": stdout[-5000:].decode(errors="replace") if stdout else "",
+            "error": stderr[-2000:].decode(errors="replace") if stderr else None,
             "return_code": proc.returncode,
             "command": command,
             "cwd": str(work_dir),

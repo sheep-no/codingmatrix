@@ -5,6 +5,143 @@
 > 索引结构：**总索引（本文件）→ 大系统演化文件 → 子系统演化文件 + 具体演化路径**。
 > 每个大系统一份演化文件，大系统文件内列出其子系统演化文件与演化路径。详见「大系统索引」。
 
+## SSD 规范：任务、文件与验证边界
+
+### 当前 StateGraph/RAG 规格
+
+统一编排的需求、设计和实施任务位于 `.monkeycode/specs/2026-08-28-stategraph-rag-orchestration/`：
+
+- `requirements.md`：Agent、Spec-first、动态拓扑、RAG/Memory、消息和本地验证需求。
+- `design.md`：现状架构、目标 StateGraph、接口边界和迁移映射。
+- `tasklist.md`：按契约、适配器、图运行时、验证节点和入口迁移拆分的 SSD 任务。
+
+> SSD（System Specification Document）用于约束本文件中的每一条演化任务。任务条目必须同时声明目标、关联文件、状态字段、消息协议、序列化方式、验证位置和验收证据。只有完成代码、测试和证据回填后，任务状态才可标记为“已完成”。
+
+### 1. 产品边界
+
+| 能力 | 云端 | VS Code 插件本地 | 结果可信范围 |
+|------|------|------------------|--------------|
+| 文件计划、补丁和状态编排 | 负责 | 接收并执行 | 云端记录计划版本 |
+| Python/JavaScript/TypeScript 等基础语法验证 | 负责 | 可选复核 | `cloud_syntax` |
+| 依赖安装、项目构建、单元测试、E2E 测试 | 生成验证计划 | 负责实际执行 | `local_runtime` / `local_e2e` |
+| 用户项目运行环境、数据库和本地服务验证 | 保存结果摘要 | 负责实际执行 | `local_runtime` |
+| 密钥、完整环境变量和本地敏感文件 | 禁止收集 | 仅在用户本地使用 | 云端只接收脱敏结果 |
+
+云端结果只表示基础语法和结构检查结果。云端状态禁止将本地运行测试、依赖安装或 E2E 验证标记为通过。VS Code 插件尚未实现前，所有本地验证任务必须进入 `waiting_local_validation` 状态，并在结果中标记 `local_validation_pending`。
+
+### 2. SSD 任务条目格式
+
+每个可执行任务必须包含以下字段：
+
+| 字段 | 要求 |
+|------|------|
+| `task_id` | 稳定 ID，格式为系统缩写 + 序号，例如 `RE-001` |
+| `priority` | `P0`、`P1`、`P2` 或 `P3` |
+| `status` | `planned`、`in_progress`、`blocked`、`waiting_local_validation`、`completed` |
+| `source` | 对应模块深扫文档、代码位置或用户决策 |
+| `owner_files` | 任务直接修改的现存文件或拟新增文件 |
+| `consumer_files` | 读取其状态、消息或结果的调用方文件 |
+| `contract_files` | State、Message、Schema、数据库或配置契约文件 |
+| `test_files` | 单元、集成、插件或 E2E 测试文件 |
+| `validation_scope` | `cloud_syntax`、`local_runtime`、`local_e2e` 或组合值 |
+| `acceptance_evidence` | 测试命令、结果摘要、日志或人工确认记录 |
+
+任务条目使用以下结构描述关联文件：
+
+```markdown
+### [TASK-ID] 任务名称
+
+- 状态：`planned`
+- 优先级：`P1`
+- 来源：`modules/<module>.md:行号`
+- 目标：明确可验证的行为变化
+- 关联文件：
+  - 修改：`现存文件路径`
+  - 消费：`调用方文件路径`
+  - 契约：`State/Message/Schema 文件路径`
+  - 测试：`测试文件路径`
+- 验证范围：`cloud_syntax` + `local_runtime`
+- 验收标准：可观察、可重复、可自动化
+- 证据：完成验证后填写命令和结果
+```
+
+### 3. 状态管理规范
+
+状态管理采用 LangGraph 风格的 StateGraph 思路：节点读取不可变 State 快照，节点只返回增量更新，由统一 reducer 合并状态。节点之间禁止通过模块级可变单例、隐式全局变量或直接修改其他模块对象传递业务状态。
+
+核心 State 至少包含：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `session_id` | `string` | 会话唯一标识 |
+| `task_id` | `string` | 任务唯一标识 |
+| `revision` | `integer` | 乐观锁版本，每次合并递增 |
+| `status` | `enum` | 当前流程状态 |
+| `messages` | `Message[]` | 统一消息列表 |
+| `planned_changes` | `FileChange[]` | 计划修改的文件 |
+| `generated_files` | `FileArtifact[]` | 生成或修改的文件摘要 |
+| `validation_results` | `ValidationResult[]` | 云端和本地验证结果 |
+| `pending_actions` | `Action[]` | 等待插件或用户执行的动作 |
+| `errors` | `ErrorInfo[]` | 结构化错误 |
+
+建议状态流转：
+
+`planned` → `generated` → `syntax_validated` → `waiting_local_validation` → `local_validated` → `completed`
+
+异常流转使用 `failed`、`cancelled` 和 `partial_success`。`completed` 只能由所有必需验证范围完成后产生。
+
+### 4. 统一消息与序列化规范
+
+所有 SSE、WebSocket、VS Code 插件通信、日志回放和 checkpoint 均使用统一消息封装：
+
+```json
+{
+  "schema_version": 1,
+  "event_id": "uuid",
+  "session_id": "uuid",
+  "task_id": "uuid",
+  "revision": 12,
+  "sequence": 12,
+  "type": "validation.completed",
+  "source": "cloud",
+  "timestamp": "2026-08-28T00:00:00Z",
+  "payload": {}
+}
+```
+
+规范要求：
+
+- State、Message、Checkpoint、ValidationResult 使用显式 Schema 序列化。
+- 时间统一使用 UTC ISO-8601 字符串。
+- `event_id` 用于幂等消费，`revision` 用于并发冲突检测，`sequence` 用于顺序恢复。
+- 异常序列化为 `code`、`message`、`retryable`、`details`，禁止直接序列化异常对象。
+- 文件内容默认只传摘要、hash、变更片段和诊断位置；密钥与完整环境变量禁止进入云端 payload。
+- Schema 变更必须递增 `schema_version`，并提供旧版本读取策略。
+
+### 5. 关联文件基线
+
+| 领域 | 现存文件 | SSD 职责 | 后续文件 |
+|------|----------|----------|----------|
+| Agent 状态 | `app/agent/shared_context.py`、`app/agent/session_manager.py` | 迁移会话、阶段和 checkpoint 语义 | `app/agent/state/` 下的 State 模型与 reducer |
+| ReAct 状态 | `app/agent/react_engine.py`、`app/agent/react_agent.py` | 统一步骤、工具结果和最终状态 | `app/agent/state/react_state.py` |
+| 编排状态 | `app/agent/orchestrator.py`、`app/agent/orchestrator_progress.py` | 生成阶段、进度和事件来源 | `app/agent/state/orchestration_state.py` |
+| 文件变更 | `app/agent/file_contract.py`、`app/agent/code_patcher.py` | 文件计划、补丁和安全契约 | `app/agent/messages/file_change.py` |
+| 云端语法验证 | `app/agent/code_validator.py`、`app/agent/integrity_validator.py` | 语法、结构和接口基础检查 | `app/agent/validation/cloud_syntax.py` |
+| 本地验证协议 | 目前未实现 | 记录等待本地验证的协议边界 | `vscode-extension/`、`app/agent/validation/local_result.py` |
+| 消息传递 | `app/agent/orchestrator_progress.py`、各 SSE/WS 路由 | 现有事件出口收敛对象 | `app/agent/messages/envelope.py` |
+| 序列化 | 现有各模块局部 Dict/dataclass | 收敛为版本化 Schema | `app/agent/schemas/state.py`、`app/agent/schemas/message.py` |
+
+### 6. 验收要求
+
+任务完成前必须同时满足：
+
+- 关联的 `owner_files`、`consumer_files` 和 `contract_files` 已逐一核对。
+- 云端验证结果带有明确的 `source=cloud` 和 `scope=cloud_syntax`。
+- 需要本地环境的任务带有 `waiting_local_validation` 或本地插件产生的验证结果。
+- State 合并、消息消费和 checkpoint 恢复具备幂等测试。
+- 文档中的“已实测”“实码可证”“待实测”与实际证据一致。
+- `acceptance_evidence` 已填写测试命令、结果和未覆盖范围。
+
 ## 大系统索引
 
 | 大系统 | 演化文件 | 子系统 | 推演状态 |
@@ -64,7 +201,7 @@
 | 157 | 启动与运维脚本 | `scripts/{start.sh,dev.sh,start-backend.sh,stop.sh,status.sh,migrate.sh,test.sh,verify-integration.sh}` | ✅ 已完成 | **SS1-SS4 [P2]**：项目根目录、健康 URL、进程模型和端口契约分裂；SS5-SS14 [P3]：CWD、Redis、PID、状态、验证和无人值守语义漂移 | [modules/startup_scripts.md](modules/startup_scripts.md) |
 | 158 | 容器运行时 | `Dockerfile` + Compose + Nginx + Alembic 配置 | ✅ 已完成 | **CR1-CR3 [P2]**：Nginx 回环上游、迁移未接入、单容器/独立代理拓扑冲突；CR4-CR6 [P3]：挂载路径、Jaeger profile、镜像版本问题 | [modules/container_runtime.md](modules/container_runtime.md) |
 | 159 | 运行时测试入口 | `tests/conftest.py`、健康/任务/Bug 回归测试及 pytest 配置 | ✅ 已完成 | **RT1-RT3 [P2]**：不健康状态可通过、worker 只测声明、pytest 配置分裂；RT4-RT6 [P3]：async fixture、loop 管理、源码字符串断言问题 | [modules/runtime_test_entrypoints.md](modules/runtime_test_entrypoints.md) |
-| 160 | 启动链交叉终审 | API、脚本、容器、任务、数据库、中间件、服务层 | ✅ 已完成 | **RC1-RC2 [P1]**：容器代理回环、非 root Nginx 权限；**RC3-RC6 [P2]**：健康假象、挂载分裂、调度双跑、生产 Compose 缺 Celery；同步修正 DB12 误报 | [modules/runtime_cross_review.md](modules/runtime_cross_review.md) |
+| 160 | 启动链交叉终审 | API、脚本、容器、任务、数据库、中间件、服务层 | ✅ 扫描完成，RC1-RC6 已代码修复待运行验证 | **RC1-RC2 [P1]**：容器代理回环、非 root Nginx 权限；**RC3-RC6 [P2]**：健康路径、挂载路径、调度单实例、生产 Compose Celery；**CR3 [P2]**：生产 API/Nginx 职责分离；全部代码修复完成，容器运行验证待完成；同步修正 DB12 误报 | [modules/runtime_cross_review.md](modules/runtime_cross_review.md) |
 | 161 | 代码审查代理收尾 | `app/utils/review/code_review_agent.py` | ✅ 已完成 | **B1-B2 [P2]**：无障碍枚举缺失、公开 Skill API 失配；B3-B7 [P3]：异步函数漏检、行号丢失、正则误报、读取异常和状态字段失配；确认与活跃审查器双轨 | [modules/code_review_agent.md](modules/code_review_agent.md) |
 
 > 第 156-161 轮新增登记：P1 2 项、P2 18 项、P3 29 项，Backlog 使用 `#1275-#1323`。补扫范围已闭合，后续进入全库文档一致性维护和修复阶段。

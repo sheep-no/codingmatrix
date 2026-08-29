@@ -83,7 +83,7 @@ from app.api.v2.model_admin import router as modelAdminRouter
 from app.api.v2.model_config_api import router as modelConfigRouter
 from app.api.v2.mcp_admin import router as mcpAdminRouter
 from app.db.database import engine, async_session
-from app.db.scheduler import start_scheduler
+from app.db.scheduler import start_scheduler, stop_scheduler
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from fastapi import Depends
@@ -102,6 +102,7 @@ setup_logging()
 
 @asynccontextmanager
 async def lifespan(App: FastAPI):
+    scheduler_started = False
     shutdown_manager.setup_signal_handlers()
 
     # 确保用户项目上传目录存在
@@ -122,6 +123,21 @@ async def lifespan(App: FastAPI):
 
     await _warm_up_database_pool()
 
+    try:
+        await run_async_migrations()
+    except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
+        logger.error(f"数据库迁移异常 | error={str(e)}")
+
+    if os.getenv("ENABLE_SCHEDULER", "false").lower() in {"1", "true", "yes"}:
+        try:
+            start_scheduler()
+            scheduler_started = True
+            logger.info("定时任务调度器启动成功")
+        except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
+            logger.error(f"定时任务调度器启动失败 | error={str(e)}")
+
+    await _restore_user_providers()
+
     guardian = AsyncSmartGuardian(check_interval=10)
     await guardian.scan_and_learn(auto_enable_trusted=True)
     await guardian.start_monitoring_enabled_services()
@@ -130,6 +146,8 @@ async def lifespan(App: FastAPI):
 
     yield
 
+    if scheduler_started:
+        stop_scheduler()
     await guardian.shutdown()
     await shutdown_manager.shutdown_async()
     await _cleanup_http_client()
@@ -268,32 +286,6 @@ async def _restore_user_providers():
     except Exception as e:
         logger.warning(f"恢复用户供应商模型失败：{e}")
 
-
-
-# 启动事件
-@app.on_event("startup")
-async def on_startup():
-    # await clear_history_table()
-    # await create_tables()  # 已注释，改用 Alembic
-
-    # 调用 Alembic 迁移
-    try:
-        await run_async_migrations()
-    except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-        logger.error(f"数据库迁移异常 | error={str(e)}")
-    
-    # 启动定时任务调度器
-    try:
-        start_scheduler()
-        logger.info("定时任务调度器启动成功")
-    except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-        logger.error(f"定时任务调度器启动失败 | error={str(e)}")
-    
-    # 恢复用户 API Key 对应的供应商模型列表
-    try:
-        await _restore_user_providers()
-    except Exception as e:
-        logger.warning(f"恢复用户供应商模型失败（不影响正常启动）：{e}")
 
 
 # 业务路由

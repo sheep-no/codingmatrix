@@ -705,6 +705,50 @@ async def get_dynamic_router() -> DynamicModelRouter:
 LayeredModelRouter = DynamicModelRouter
 
 
+class _LayeredModelRouterCompat:
+    """兼容旧版按项目复杂度读取角色模型分配的接口。"""
+
+    _config_loaded = False
+    _cached_assignments: Optional[Dict[str, ModelAssignment]] = None
+
+    @classmethod
+    def get_assignment(cls, complexity) -> ModelAssignment:
+        from app.agent.complexity import ProjectComplexity
+
+        if not cls._config_loaded:
+            config = load_agent_model_config() or {}
+            assignments = config.get("assignments", {})
+            defaults = ModelAssignment(
+                architect_model="Qwen/Qwen3-8B",
+                frontend_model="Qwen/Qwen3-8B",
+                backend_model="Qwen/Qwen3-8B",
+                reviewer_model="Qwen/Qwen3-8B",
+                fallback_model="Qwen/Qwen3-8B",
+            )
+            parsed: Dict[str, ModelAssignment] = {}
+            for level in ProjectComplexity:
+                raw = assignments.get(level.name, assignments.get(level.value, {}))
+                parsed[level.value] = ModelAssignment(
+                    **{field_name: resolve_model_key(raw.get(field_name, getattr(defaults, field_name)))
+                       for field_name in (
+                           "architect_model", "frontend_model", "backend_model",
+                           "reviewer_model", "fallback_model",
+                       )}
+                )
+            cls._cached_assignments = parsed
+            cls._config_loaded = True
+
+        level = getattr(complexity, "value", str(complexity)).lower()
+        if level == ProjectComplexity.ENTERPRISE.value:
+            level = ProjectComplexity.LARGE.value
+        return cls._cached_assignments[level]
+
+    @classmethod
+    def reload_config(cls):
+        cls._config_loaded = False
+        cls._cached_assignments = None
+
+
 @dataclass
 class RoutingConfig:
     """路由配置"""

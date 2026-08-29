@@ -100,7 +100,7 @@ start_api() {
         --pid "$PROJECT_DIR/gunicorn.pid"
 
     sleep 2
-    if curl -s http://127.0.0.1:8080/health &>/dev/null; then
+    if curl -s http://127.0.0.1:8080/api/v1/health &>/dev/null; then
         log_info "API 服务启动成功 (PID: $(cat $PROJECT_DIR/gunicorn.pid))"
     else
         log_error "API 服务启动失败"
@@ -170,7 +170,7 @@ check_status() {
     log_info "=========================================="
 
     # API
-    if curl -s http://127.0.0.1:8080/health &>/dev/null; then
+    if curl -s http://127.0.0.1:8080/api/v1/health &>/dev/null; then
         echo -e "[${GREEN}RUNNING${NC}] API (Gunicorn)"
     else
         echo -e "[${RED}STOPPED${NC}] API (Gunicorn)"

@@ -22,7 +22,21 @@ logger = logging.getLogger(__name__)
 # Re-export for backward compatibility
 SpecialistCallError = LLMClientError
 
-# ReAct 模式配置（v3.0: 固定 full 模式，不再按复杂度分级）
+# ReAct 模式配置
+_REACT_MODE_BY_COMPLEXITY = {
+    "simple": "simple",
+    "small": "simple",
+    "medium": "full",
+    "large": "full",
+    "enterprise": "full",
+}
+_REACT_ROUNDS_BY_COMPLEXITY = {
+    "simple": 3,
+    "small": 4,
+    "medium": 6,
+    "large": 8,
+    "enterprise": 10,
+}
 _REACT_MODE = "full"
 _REACT_MAX_ROUNDS = 3
 
@@ -42,7 +56,7 @@ class Specialist:
         self.provider_id = provider_id
         self._cost_tracker = cost_tracker
         self._edited_files: List[str] = []
-        self._write_tools = {"partial_update", "insert_content", "regex_replace", "write_file", "create_file"}
+        self._write_tools = {"partial_update", "insert_content", "regex_replace"}
         self._complexity = complexity
         self.cancel_event = cancel_event
         self._llm_client = LLMClient(
@@ -91,7 +105,11 @@ class Specialist:
         Args:
             thinking_budget: 覆盖模型默认的 thinking budget（None=使用默认，0=禁用思考）
         """
-        return await self._llm_client.call(prompt, system_prompt, stream, thinking_budget=thinking_budget)
+        if thinking_budget is None:
+            return await self._llm_client.call(prompt, system_prompt, stream)
+        return await self._llm_client.call(
+            prompt, system_prompt, stream, thinking_budget=thinking_budget
+        )
 
     @staticmethod
     def _build_tools_description(tools: Dict[str, Dict]) -> str:
@@ -142,7 +160,9 @@ class Specialist:
             LLM 最终输出的文本（代码）
         """
         if max_rounds is None:
-            max_rounds = _REACT_MAX_ROUNDS
+            max_rounds = _REACT_ROUNDS_BY_COMPLEXITY.get(
+                self._complexity, _REACT_MAX_ROUNDS
+            )
         if tools is None:
             tools = SPECIALIST_TOOLS
             # 合并 MCP 工具（如果 MCPClientManager 已初始化）
@@ -156,7 +176,7 @@ class Specialist:
             except Exception as e:
                 logger.debug(f"MCP 工具合并失败（非致命，使用默认工具集）: {e}")
 
-        react_mode = _REACT_MODE
+        react_mode = _REACT_MODE_BY_COMPLEXITY.get(self._complexity, _REACT_MODE)
 
         # 选择 LLM 调用函数：流式 thinking 或普通调用
         if enable_streaming_thinking and callback is not None:

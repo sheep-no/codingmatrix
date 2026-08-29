@@ -10,6 +10,7 @@ Agent Executor - 扩展执行器
 """
 
 import asyncio
+import inspect
 import logging
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass
@@ -201,15 +202,21 @@ class EnhancedExecutor:
 
         def _adapt_sync(fn):
             """将 tools.py 的同步函数适配为 (params) -> ToolResult"""
-            async def wrapper(params: Dict) -> ToolResult:
-                return await asyncio.to_thread(_wrap_sync, fn, self.project_path, params)
+            async def wrapper(params: Optional[Dict] = None, project_path: Optional[str] = None, **kwargs) -> ToolResult:
+                call_params = dict(params or {})
+                call_params.update(kwargs)
+                call_project_path = project_path if project_path is not None else self.project_path
+                return await asyncio.to_thread(_wrap_sync, fn, call_project_path, call_params)
             wrapper.__name__ = getattr(fn, '__name__', 'adapted')
             return wrapper
 
         def _adapt_async(fn):
             """将 tools.py 的异步函数适配为 (params) -> ToolResult"""
-            async def wrapper(params: Dict) -> ToolResult:
-                return await _wrap_async(fn, self.project_path, params)
+            async def wrapper(params: Optional[Dict] = None, project_path: Optional[str] = None, **kwargs) -> ToolResult:
+                call_params = dict(params or {})
+                call_params.update(kwargs)
+                call_project_path = project_path if project_path is not None else self.project_path
+                return await _wrap_async(fn, call_project_path, call_params)
             wrapper.__name__ = getattr(fn, '__name__', 'adapted')
             return wrapper
 
@@ -375,10 +382,13 @@ class EnhancedExecutor:
         if not func:
             return ToolResult(False, None, f"未知工具: {tool_name}", 0, tool_name)
         try:
+            call_kwargs = {}
+            if "project_path" in inspect.signature(func).parameters:
+                call_kwargs["project_path"] = self.project_path
             if asyncio.iscoroutinefunction(func):
-                result = await func(params)
+                result = await func(params, **call_kwargs)
             else:
-                result = await asyncio.to_thread(func, params)
+                result = await asyncio.to_thread(func, params, **call_kwargs)
             return result
         except Exception as e:
             return ToolResult(False, None, str(e), 0, tool_name)

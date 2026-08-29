@@ -72,6 +72,8 @@ if not self.project_path or not self.tools:
 
 ### RE2 [P0] 工具 fn 签名契约：`fn(project_path=..., **params)`（:209）与 executor wrapper `wrapper(params)` 冲突
 
+> 修复：Executor wrapper 同时兼容旧的参数字典调用和引擎注入的 `project_path` 关键字调用。
+
 - **Bug 代码**：
 
 ```python
@@ -83,7 +85,9 @@ result = fn(project_path=self.project_path, **tool_params)
 - **根因**：引擎按 SPECIALIST_TOOLS 风格 fn（首参 `project_path`）设计（test_react_engine :133/:144 佐证）；executor ToolRegistry wrapper 签名 `wrapper(params)`（executor.py:204）破坏该约定 → 若 ReActAgent 修好 RE1 短路，将在此处 TypeError（RA1）
 - **影响**：ReActAgent 栈工具契约断裂的**引擎侧根源**（修复闭环当前被 RE1 遮蔽）
 
-### RE3 [P1] 同步工具无超时保护：wait_for 只包 coroutine，同步 fn 阻塞无界
+### RE3 [P1] 同步工具无超时保护：wait_for 只包 coroutine，同步 fn 阻塞无界（已修复）
+
+> 修复：同步工具通过 `asyncio.to_thread()` 执行，并由 `asyncio.wait_for()` 控制等待时限。
 
 - **Bug 代码**：
 

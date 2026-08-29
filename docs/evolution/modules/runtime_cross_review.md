@@ -22,55 +22,57 @@
 | 链路节点 | 当前事实 | 证据 | 终审结论 |
 |---|---|---|---|
 | 真实 Python 入口 | 应用对象为 `app`，定义于 `app/main.py`；FastAPI 文档挂载为 `/api/docs`、`/api/redoc`、`/api/openapi.json` | `app/main.py:166` | 入口定位明确 |
-| 生产容器 API | Dockerfile 使用 `uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 2` | `Dockerfile:90-91` | 与 DB2 的多 worker 结论一致 |
+| 生产容器 API | Dockerfile 支持单容器模式；生产 Compose 显式覆盖为仅运行 2 worker Uvicorn，由独立 Nginx 提供入口 | `Dockerfile`、`docker-compose.prod.yml`、`configs/nginx.conf` | RC3 运行模型代码修复完成，容器验证待完成 |
 | 宿主脚本 API | `start.sh` 使用 Gunicorn 2 worker 监听 `0.0.0.0:8080`；`dev.sh` 和 `start-backend.sh` 使用 Uvicorn 8000 | `scripts/start.sh:80-100`、`scripts/dev.sh:20-22`、`scripts/start-backend.sh:5-8` | 启动方式存在三套端口/进程语义，文档必须按场景区分 |
-| Nginx 容器到 API | Compose 中 Nginx 与 API 分属不同容器；Nginx 配置 upstream 固定为 `127.0.0.1:8080` | `docker-compose.yml:70-83`、`docker-compose.prod.yml:79-92`、`configs/nginx.conf:80-84` | **确认 P1：容器间代理目标错误，Nginx 回连自身** |
-| API 健康检查 | FastAPI 明确注册 `/api/v1/health`；`/health` 未注册为 API 路由，根捕获路由会把非 API 路径返回前端 `index.html` | `app/main.py:304-332`、`app/main.py:345-365`、`app/api/v1/health.py:25-31` | **确认 P2：Dockerfile、生产 Compose、Nginx 和生产文档把 `/health` 当 API 健康端点，实际可能以 SPA 200 掩盖 API 不健康** |
-| Nginx 健康检查 | Nginx `/health` 代理到自身配置的 API upstream | `configs/nginx.conf:121-125` | 与 upstream 错误叠加，Nginx 健康状态不能证明 API 可达 |
-| 容器文件路径 | Dockerfile 工作目录为 `/app`，运行时目录与依赖复制均在 `/app`；普通 Compose API volume 却挂载到 `/workspace/app`、`/workspace/logs`、`/workspace/data` | `Dockerfile:25`、`Dockerfile:41`、`Dockerfile:54-61`、`docker-compose.yml:23-26` | **确认 P2：普通 Compose 的源码/日志/数据挂载与运行目录分裂** |
+| Nginx 容器到 API | Compose 中 Nginx 与 API 分属不同容器；Compose upstream 使用 `api:8080` | `docker-compose.yml`、`docker-compose.prod.yml`、`configs/nginx-upstream-compose.conf` | RC1 代码修复完成，网络代理待验证 |
+| API 健康检查 | FastAPI、Dockerfile、Compose、Nginx 和启动脚本统一使用 `/api/v1/health`；Nginx 保留 `/health` 到真实 API 的显式别名 | `app/main.py`、`app/api/v1/health.py`、`Dockerfile`、`docker-compose*.yml`、`configs/nginx.conf`、`scripts/start.sh` | **RC3 代码修复完成，容器运行验证待完成** |
+| Nginx 健康检查 | Nginx `/api/v1/health` 代理到 API upstream，`/health` 显式映射到相同 API | `configs/nginx.conf` | RC3 与 RC1 已完成代码修复 |
+| 容器文件路径 | Dockerfile 与普通 Compose 的代码、日志、数据路径统一使用 `/app` | `Dockerfile`、`docker-compose.yml` | **RC4 代码修复完成，容器运行验证待完成** |
 | 前端构建产物 | Dockerfile 将 dist 放到 `/app/src/dist`，随后创建 `/workspace/src/dist` 并建立软链接；普通 Compose Nginx 只挂载宿主 `./src/dist` | `Dockerfile:60-73`、`docker-compose.yml:77-80` | 镜像内路径可用性取决于软链接和挂载组合，Compose API 与 Nginx 使用两套文件视图 |
-| Nginx 运行权限 | 镜像切换 `USER appuser` 后执行 `nginx & ...`；Nginx 配置要求 `user root`、监听 80、写 `/var/run/nginx.pid` | `Dockerfile:43-48`、`Dockerfile:75-88`、`Dockerfile:90-91`、`configs/nginx.conf:6-16`、`configs/nginx.conf:86-89` | **确认 P1：非 root 容器启动 Nginx 的绑定 80、PID 和日志权限链未闭合** |
+| Nginx 运行权限 | 修复前镜像切换 `USER appuser` 后执行 `nginx & ...`；当前由 root master 启动、`nginx` worker 运行并将 Uvicorn 降权为 `appuser` | `Dockerfile:43-48`、`Dockerfile:75-91`、`configs/nginx.conf:6-16`、`configs/nginx.conf:86-89` | **RC2 代码修复完成，容器端口、PID 和日志权限待运行验证** |
 | 数据库启动 | `on_startup` 执行自定义 `run_async_migrations()`；lifespan 中 `_warm_up_database_pool()`，另有未调用的 `create_tables()` | `app/main.py:123-124`、`app/main.py:236-240`、`app/main.py:273-290`、`migrations/runner.py:27-62` | 自定义表创建与预热均接线；`create_all` 当前为死函数，DB12 中“同一次启动两条建表路径并行生效”的表述需要收窄 |
-| 调度器启动 | `start_scheduler()` 位于 startup 钩子，每个 worker 各执行一次；调度器是模块级 `AsyncIOScheduler` | `app/main.py:273-290`、`app/db/scheduler.py:16`、`app/db/scheduler.py:155-200` | **确认 P2：DB2 多 worker 双跑成立**；`max_instances=1` 只限制单进程内实例 |
+| 调度器启动 | API 由 `ENABLE_SCHEDULER` 控制；普通 Compose 使用单 worker，生产 Compose 使用独立 scheduler 服务 | `app/main.py`、`app/db/scheduler_runner.py`、`docker-compose*.yml` | **RC5 代码修复完成，单实例运行待验证** |
 | Redis 启动 | Compose API 依赖 Redis，但普通 Compose 仅声明启动顺序；生产 Compose 使用 Redis `service_healthy` 条件 | `docker-compose.yml:16-30`、`docker-compose.prod.yml:17-30`、`docker-compose.prod.yml:61-66` | 生产依赖闭环较完整，普通 Compose 的就绪保障较弱 |
-| Celery 启动 | `start.sh` 启动 Celery；普通 Compose 有独立 celery 服务；生产 Compose 没有 Celery 服务 | `scripts/start.sh:111-123`、`docker-compose.yml:35-55`、`docker-compose.prod.yml:5-126` | **确认 P2：生产 Compose 与生产文档声明的 Celery 运行模型不一致**；API 健康检查仍可能探测 Celery |
+| Celery 启动 | `start.sh`、普通 Compose 和生产 Compose 均声明独立 Celery worker | `scripts/start.sh:111-123`、`docker-compose.yml:35-55`、`docker-compose.prod.yml` | **RC6 代码修复完成，worker 消费和健康状态待验证** |
 | 任务执行前提 | `tasks.md` 已确认 BaseTask 缺进度回调、项目验证固定成功、任务签名映射错位、异步嵌套 `asyncio.run` | `tasks.md:19-59` | 这些问题位于 API/worker 启动完成后的执行链，属于启动成功后的功能性阻断，结论与启动配置相互加强 |
 
-## 3. 已确认问题
+## 3. 已确认问题与修复状态
+
+### RC1-RC2 修复记录（2026-08-29）
+
+- RC1 已修复：`configs/nginx.conf` 通过 `/etc/nginx/conf.d/upstream.conf` 注入上游；Compose 使用 `configs/nginx-upstream-compose.conf` 指向 `api:8080`，Dockerfile 单容器使用 `configs/nginx-upstream-local.conf` 指向 `127.0.0.1:8080`。
+- RC2 已修复：Dockerfile 安装 Nginx 后复制运行配置，Nginx 由 root master 启动并以 `nginx` worker 用户运行，Uvicorn 通过 `su` 降权到 `appuser`；`/var/log/nginx`、`/var/lib/nginx` 和 `/var/run` 由 `nginx` 用户管理。
+- 当前状态：代码和配置静态检查已完成；Docker build、Nginx `-t`、Compose 网络代理、80 端口绑定和 API 实际可达性等待容器环境验证。
 
 ### RC1 [P1] Nginx 容器代理回环地址导致 API 入口断链
 
-Compose 启动 `nginx` 与 `api` 为独立服务，二者通过同一 bridge network 通信（`docker-compose.yml:70-83`、`docker-compose.prod.yml:79-92`）。Nginx upstream 却固定为 `server 127.0.0.1:8080`（`configs/nginx.conf:80-84`），该地址指向 Nginx 容器自身。API 容器的服务名是 `api`，生产服务名仍为 `api`（`docker-compose.prod.yml:9-13`），所以 `/api/`、`/ws/`、`/health` 代理请求无法到达 API 容器。
+修复前，Compose 启动的独立 Nginx 使用 `server 127.0.0.1:8080`，该地址指向 Nginx 容器自身。当前 Compose 专用 upstream 已改为 `server api:8080`；单容器 Dockerfile 继续使用本机 upstream。容器网络中的 `/api/`、`/ws/` 和健康路径仍需运行验证。
 
-这项确认了文档中“80 暴露、8080 API 直连”的拓扑描述（`README.ROOT.md:138-149`、`docs/guides/PRODUCTION.md:167-186`）只描述端口表面，未验证容器间真实路由。建议将容器模式的 upstream 收敛到 Compose 服务名，并为独立宿主脚本保留单独配置入口。
+修复将容器模式 upstream 收敛到 Compose 服务名，并为单容器模式保留独立配置入口；原有端口和健康路径文档仍需配合 RC3 一并核对。
 
 ### RC2 [P1] 非 root 用户与 Nginx 监听/运行目录权限冲突
 
-Dockerfile 创建并切换到 `appuser`（`Dockerfile:43-48`、`Dockerfile:87-88`），最终命令却在同一 shell 中启动 Nginx 和 Uvicorn（`Dockerfile:90-91`）。Nginx 配置要求监听特权端口 80（`configs/nginx.conf:86-89`），使用 `/var/run/nginx.pid`（`configs/nginx.conf:15`），并设置 `user root`（`configs/nginx.conf:6-7`）。现有权限设置只覆盖 `/var/log/nginx`、`/var/lib/nginx`、`/var/run` 的所有权（`Dockerfile:75-78`），端口能力、PID 文件创建和 Nginx master/worker 用户语义仍未形成可验证闭环。
+修复前，Dockerfile 切换到 `appuser` 后在同一 shell 启动 Nginx 和 Uvicorn，Nginx 监听 80 并使用 `/var/run/nginx.pid`，权限链无法闭合。当前 Dockerfile 由 root master 启动 Nginx，Nginx worker 使用 `nginx` 用户，Uvicorn 使用 `appuser`，并完成相关运行目录授权。
 
-该问题属于镜像启动硬阻断，影响 Dockerfile 单容器模式和 Compose 复用该镜像的 `api` 服务。Compose 独立 Nginx 使用 nginx 官方镜像，权限问题的适用面集中在 Dockerfile 内置 Nginx 路径。
+当前代码路径已完成权限模型调整；Dockerfile 镜像启动、Nginx PID 创建、80 端口绑定和 Uvicorn 降权仍需容器运行验证。Compose 独立 Nginx 继续使用官方镜像，采用其 `nginx` 用户模型。
 
-### RC3 [P2] `/health` 检查路径形成成功态假象
+### RC3 [P2] 健康检查路径已统一
 
-FastAPI 健康 router 的实际路径是 `/api/v1/health`（`app/main.py:331-332`、`app/api/v1/health.py:25-31`）。Dockerfile、生产 Compose 健康检查、Nginx `/health` location 和生产文档均使用 `/health`（`Dockerfile:83-85`、`docker-compose.yml` 未为 api 定义独立 healthcheck、`docker-compose.prod.yml:32-37`、`configs/nginx.conf:121-125`、`docs/guides/PRODUCTION.md:183-186`）。
+FastAPI、Dockerfile、Compose、Nginx 和启动脚本统一使用 `/api/v1/health`。Nginx 保留 `/health` 显式别名并转发到同一真实 API，避免 SPA fallback 的 200 响应掩盖 API 状态。容器内 API 与 Nginx 的实际探针仍需运行验证。
 
-`app/main.py:345-365` 的 SPA fallback 会处理非 `api/` 路径，因此 `/health` 可能返回 `index.html` 并带 200；该响应无法证明数据库、Redis 或 API 健康逻辑通过。Nginx 端 `/health` 还受 RC1 影响，形成双重误判来源。
+### RC4 [P2] Compose 挂载路径已统一
 
-### RC4 [P2] 普通 Compose 的挂载路径与容器工作目录分裂
-
-镜像工作目录与后端代码位于 `/app`（`Dockerfile:41`、`Dockerfile:54-58`），前端产物位于 `/app/src/dist`（`Dockerfile:60-61`）。普通 Compose API 却挂载 `./app` 到 `/workspace/app`、日志到 `/workspace/logs`、数据到 `/workspace/data`（`docker-compose.yml:23-26`），运行命令仍从镜像的 `/app` 工作目录执行。Dockerfile 为 `/workspace` 创建软链接（`Dockerfile:70-73`），但普通 Compose 的 `./app` 挂载会覆盖软链接目标关系，无法自动证明 Python 导入、日志落盘和数据访问使用同一份文件树。
+镜像工作目录、后端代码、日志和数据目录均位于 `/app`。普通 Compose 的 API/Celery bind mount 已统一挂载到 `/app/app`、`/app/logs` 和 `/app/data`，与生产 Compose 的 named volume 路径一致。容器内 Python 导入、日志落盘和数据访问仍需运行验证。
 
 生产 Compose 使用 `/app/logs` 和 `/app/data` named volume（`docker-compose.prod.yml:24-26`），与镜像工作目录一致，路径问题主要集中在普通 Compose。
 
-### RC5 [P2] 调度器双跑结论成立，且启动钩子位置应统一
+### RC5 [P2] 调度器已拆分为独立单实例
 
-既有 `db_layer.md` 的 DB2 通过 `Dockerfile:91` 的 `--workers 2` 与 `main.py:287` 的 `start_scheduler()` 推导每 worker 启动调度器（`db_layer.md:60-78`）。当前代码核对确认：`start_scheduler()` 位于 `@app.on_event("startup")`（`app/main.py:273-290`），模块级调度器注册四个周期任务且只设置 `max_instances=1`（`app/db/scheduler.py:155-200`）。该缺陷不受 lifespan 中 `yield` 的存在影响。
+应用初始化已统一进入 `lifespan`。API 仅在 `ENABLE_SCHEDULER=true` 时启动 scheduler；普通 Compose 使用单 worker API，生产 Compose 将 API 设置为 `false` 并运行独立 `scheduler` 服务，通过 `app.db.scheduler_runner` 保持唯一调度进程。容器启动和任务单实例仍需运行验证。
 
-同时，应用已经使用 lifespan 承载缓存、数据库池、Guardian 和关闭流程（`app/main.py:103-143`），又使用 startup 事件承载迁移、调度器和供应商恢复（`app/main.py:273-296`）。这是两套生命周期机制并存的维护风险，建议统一到一个生命周期入口，再单独抽出唯一调度进程或分布式 leader 锁。
+### RC6 [P2] 生产 Compose 已补齐 Celery 服务
 
-### RC6 [P2] 生产 Compose 缺少 Celery 服务，健康能力与部署拓扑不一致
-
-`start.sh` 明确启动 Celery worker（`scripts/start.sh:111-123`），普通 Compose 也定义 celery 服务（`docker-compose.yml:35-55`）。生产 Compose 只有 api、redis、nginx 三个服务（`docker-compose.prod.yml:5-126`），生产文档却将 Celery 列为非 Docker 部署的第 4 步（`docs/guides/PRODUCTION.md:198-206`），并把详细健康检查描述为包含 Celery（`docs/guides/PRODUCTION.md:241-249`）。因此生产 Compose 的任务队列执行依赖没有部署声明，健康文档与服务清单无法互相证明。
+生产 Compose 现已声明独立 `celery` worker，并依赖健康的 Redis；API、Celery、scheduler、Redis 和 Nginx 的服务职责均有对应条目。Celery worker 的任务消费和健康语义仍需容器运行验证。
 
 ## 4. 已排除误报
 

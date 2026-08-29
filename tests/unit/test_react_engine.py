@@ -168,6 +168,22 @@ class TestExecuteTool:
         assert success is False
         assert "tool broken" in result["error"]
 
+    @pytest.mark.asyncio
+    async def test_sync_tool_timeout_does_not_block_engine(self):
+        def slow_tool(project_path="", **kwargs):
+            import time
+            time.sleep(0.1)
+            return {"result": "late"}
+
+        engine = ReActEngine(
+            tools={"slow_tool": {"fn": slow_tool, "description": "test", "params": {}}},
+            call_llm_fn=AsyncMock(),
+            project_path="/tmp",
+        )
+        success, result = await engine._execute_tool("slow_tool", {}, timeout=0.01)
+        assert success is False
+        assert "超时" in result["error"]
+
 
 class TestBuildHistoryText:
     def test_empty_history(self):
