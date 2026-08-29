@@ -1,30 +1,38 @@
-# VS Code 本地验证插件技术设计
+# 网页 Agent 本地 Agent Host 技术设计
 
 Feature Name: vscode-local-validation-extension
 Updated: 2026-08-29
 
 ## 1. 设计概述
 
-VS Code 本地验证插件采用“云端编排、本地执行、结果回传”的边界。云端生成结构化 `PendingAction`，插件通过受认证的连接获取动作，经过工作区授权、协议版本、路径和执行策略校验后，在本地执行验证命令，再通过 `LocalValidationResult` 回传脱敏结果。
+系统采用“网页控制面、云端编排、本地 Agent Host 执行”的边界。网页端维护 Agent 会话、模型、Skills、权限和验证策略；云端将需要本地能力的工具动作编排为版本化 `ToolAction`；VS Code 插件在授权工作区内执行动作，并通过事件流回传上下文、进度、诊断和结果。
 
-插件是本地验证执行器和用户确认界面。StateGraph、任务版本、终态推导和跨范围结果合并由云端负责。
+插件是网页 Agent 的本地运行时。StateGraph、模型调用、Skills 生命周期、任务版本和结果聚合由云端负责；插件提供工作区、文件、终端、诊断、验证和本地权限能力。
 
 ## 2. 架构
 
 ```mermaid
 flowchart LR
-    VSCode["VS Code 工作区"] --> Extension["本地验证插件"]
-    Extension --> Consent["授权与安全校验"]
-    Consent --> Runner["本地验证执行器"]
-    Runner --> Workspace["项目依赖、构建、测试与服务"]
-    Runner --> Sanitizer["结果脱敏器"]
-    Sanitizer --> Cloud["FastAPI Agent API"]
-    Cloud --> StateGraph["StateGraph 验证节点"]
-    StateGraph --> Reducer["StateReducer"]
-    Reducer --> Pending["PendingAction 与终态"]
+    Web["网页 Agent 工作台"] --> Cloud["FastAPI Agent API"]
+    Cloud --> Session["会话与策略服务"]
+    Session --> Graph["StateGraph 编排"]
+    Graph --> Envelope["版本化 ToolAction"]
+    Envelope --> Host["VS Code 本地 Agent Host"]
+    Host --> Consent["权限与策略判定"]
+    Consent --> Tools["文件、终端、诊断、验证工具"]
+    Tools --> Workspace["授权工作区"]
+    Host --> Events["事件流与结果回传"]
+    Events --> Graph
 ```
 
-### 2.1 云端边界
+### 2.1 网页端边界
+
+- Agent 会话页面：对话、计划、任务时间线、审批和结果展示。
+- 模型中心：供应商、BYOK 凭据引用、模型能力、连接测试和会话模型选择。
+- Skills 中心：上传、版本、启用范围、撤销和能力声明。
+- 本地执行策略：总开关、验证类型、自动执行级别、命令和网络权限。
+
+### 2.2 云端边界
 
 - `app/agent/state/models.py`：定义 State、StateDelta、MessageEnvelope 和验证结果模型。
 - `app/agent/nodes/validation.py`：执行 `cloud_syntax`，为本地 scope 创建 PendingAction。
@@ -32,19 +40,51 @@ flowchart LR
 - `app/agent/state/reducer.py`：合并增量、处理 revision 冲突和消息幂等。
 - Agent API：提供动作同步、结果回传和状态查询所需的 HTTP/SSE 接入层。
 
-### 2.2 插件边界
+### 2.3 插件边界
 
 插件拆分为以下逻辑组件：
 
-- `CloudConnection`：云端认证、动作拉取、结果提交、重连和退避。
+- `CloudConnection`：云端认证、动作同步、事件提交、重连和退避。
+- `AgentHostSession`：工作区绑定、会话握手、策略同步、能力声明和断线恢复。
+- `ToolDispatcher`：文件、终端、诊断、验证和 Skill 工具动作分发。
+- `ApprovalBridge`：接收网页审批结果，处理本地策略和高风险动作确认。
+- `SkillRuntime`：校验 Skill 版本和能力声明，提供受策略限制的 Skill 执行上下文。
 - `WorkspaceAuthorization`：工作区确认、路径归属和授权撤销。
 - `ActionValidator`：协议版本、任务版本、scope、命令和路径校验。
 - `ValidationRunner`：命令启动、超时、取消、退出码和进程树管理。
 - `ResultSanitizer`：日志、环境变量和错误输出脱敏。
 - `ResultStore`：本地未回传结果、幂等键和断线恢复状态持久化。
-- `StatusView`：VS Code 状态栏、通知、进度和诊断信息展示。
+- `StatusView`：VS Code 连接、授权、策略和异常状态展示；Agent 主交互保持在网页端。
 
 ## 3. 交互协议
+
+### 3.0 版本化 Agent Host Envelope
+
+所有网页端与插件消息使用统一 Envelope，核心字段如下：
+
+```json
+{
+  "message_id": "message-uuid",
+  "schema_version": 1,
+  "session_id": "session-uuid",
+  "task_id": "task-uuid",
+  "revision": 12,
+  "kind": "tool_action",
+  "capability": "validation",
+  "policy_version": 4,
+  "payload": {}
+}
+```
+
+`kind` 支持 `host_hello`、`tool_action`、`approval_request`、`approval_decision`、`progress_event`、`diagnostic_event`、`tool_result`、`policy_update`、`skill_revoke` 和 `session_control`。`capability` 支持 `workspace`、`file`、`terminal`、`diagnostics`、`validation` 和 `skill_runtime`。
+
+### 3.0.1 会话握手
+
+插件连接后发送工作区标识、插件版本、协议版本和能力清单。云端返回会话绑定、有效策略、允许的能力和当前未完成动作。握手成功后插件才消费动作队列。
+
+### 3.0.2 工具动作
+
+文件读取、文件变更、终端执行、诊断采集和验证动作共享 `ToolAction` 外层结构。每个动作包含能力、风险级别、目标资源、参数、超时、幂等键和策略版本；具体参数根据能力类型进行独立 Schema 校验。
 
 ### 3.1 验证动作
 
@@ -58,7 +98,7 @@ flowchart LR
   "revision": 12,
   "workspace_id": "workspace-hash",
   "validation_scope": "local_runtime",
-  "operation": "test",
+   "operation": "unit_test",
   "command": ["python3", "-m", "pytest", "tests/unit", "-q"],
   "working_directory": ".",
   "timeout_seconds": 300,
@@ -151,6 +191,17 @@ pending_action
 
 插件接入现有 Agent API 时保留 legacy SSE 事件兼容层。新增插件消息使用版本化 Envelope，旧事件只作为过渡消费格式。
 
+### 6.1 传输选择
+
+- 首选 WebSocket，用于双向动作、审批、进度和会话控制。
+- 保留 HTTP 拉取与提交，用于插件初始化、断线恢复和受限网络环境。
+- 网页端通过云端事件总线接收插件事件，Agent 会话时间线统一展示。
+- 插件不直接承担模型推理，模型请求由云端模型路由处理；本地模型 Provider 作为后续可选能力接入。
+
+### 6.2 策略同步
+
+策略以 `policy_version` 单调递增。插件只接受当前会话绑定的策略版本；收到新版本后原子替换本地策略快照，并将执行中的动作继续绑定原策略版本。
+
 ## 7. 错误处理
 
 | 错误 | 插件行为 | 云端状态 |
@@ -195,14 +246,19 @@ pending_action
 - 模拟云端断线后恢复结果回传。
 - 验证敏感信息不进入网络 payload。
 - 验证升级和不兼容协议提示。
+- 验证网页会话暂停、取消、继续和策略版本同步。
+- 验证 Skill 下发、能力校验和撤销事件。
+- 验证文件、终端和诊断动作在同一会话时间线中回传。
 
 ## 10. 分阶段交付
 
-1. 契约与 mock 连接：完成动作、结果、版本和错误模型。
-2. 工作区与执行器：完成授权、路径、命令、超时和取消。
-3. 结果闭环：完成脱敏、本地存储、回传、幂等和 revision 冲突处理。
-4. VS Code 体验：完成进度、诊断、任务取消和断线恢复界面。
-5. 生产验收：完成真实插件 E2E、打包、升级和兼容矩阵。
+1. Agent Host 契约：完成 Envelope、握手、能力清单、会话控制和错误模型。
+2. 工作区工具：完成文件、终端、诊断、验证、授权、超时和取消。
+3. 网页会话闭环：完成双向事件、进度、审批、断线恢复和统一时间线。
+4. 模型与 Skills：接入供应商配置、BYOK、模型策略、Skill 上传、版本和撤销。
+5. 执行策略：完成总开关、验证类型开关、自动执行级别、风险规则和审计。
+6. VS Code 体验：完成后台连接状态、授权异常、通知和最小化本地控制面。
+7. 生产验收：完成真实插件 E2E、打包、升级、兼容矩阵和多工作区验证。
 
 ## 11. 参考
 
