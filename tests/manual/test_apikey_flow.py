@@ -5,15 +5,18 @@
 import requests
 import json
 import base64
+import os
 import sys
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8000")
 API_PREFIX = f"{BASE_URL}/api/v1"
 
-TEST_API_KEY = "sk-hvrcuxxqjhkdsaysyqeulrvsjieknsdqablvxhuhesiuinny"
+TEST_API_KEY = os.getenv("TEST_API_KEY")
 TEST_PROVIDER = "siliconflow"
+TEST_ADMIN_EMAIL = os.getenv("TEST_ADMIN_EMAIL", "admin@example.com")
+TEST_ADMIN_PASSWORD = os.getenv("TEST_ADMIN_PASSWORD")
 
 GREEN = "\033[92m"
 RED = "\033[91m"
@@ -43,11 +46,13 @@ class ApiKeyTester:
         self._login()
 
     def _login(self):
+        if not TEST_ADMIN_PASSWORD:
+            raise RuntimeError("TEST_ADMIN_PASSWORD must be set")
         resp = self.session.get(f"{API_PREFIX}/csrf-token")
         csrf = resp.json()["csrf_token"]
         resp = self.session.post(
             f"{API_PREFIX}/login",
-            json={"email": "admin@example.com", "password": "admin123"},
+            json={"email": TEST_ADMIN_EMAIL, "password": TEST_ADMIN_PASSWORD},
             headers={"X-CSRF-Token": csrf}
         )
         self.jwt = resp.json()["access_token"]
@@ -68,6 +73,8 @@ class ApiKeyTester:
 
     def test_upload_key(self):
         step("测试 1: 上传 API Key（RSA 加密 → Redis 存储）")
+        if not TEST_API_KEY:
+            raise RuntimeError("TEST_API_KEY must be set")
         encrypted = self._encrypt_key(TEST_API_KEY)
         ok(f"RSA 加密完成，密文长度: {len(encrypted)} 字符")
         

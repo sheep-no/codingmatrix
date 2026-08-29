@@ -1,6 +1,6 @@
 # 根目录文件说明
 
-> 最后更新：2026-05-23 | 版本：v5.8.0
+> 最后更新：2026-08-29 | 版本：v5.10.0
 
 ## 📁 目录结构
 
@@ -9,6 +9,10 @@
 ├── app/                         # 后端 FastAPI 应用
 ├── src/                         # 前端 Vue 3 应用
 ├── tests/                       # 测试 (Pytest + Playwright)
+│   ├── unit/                    # 单元测试
+│   ├── integration/             # 集成测试
+│   ├── e2e/                     # Playwright 端到端测试
+│   └── manual/                  # 需要运行服务的手工接口流程测试
 ├── docs/                        # 文档
 ├── scripts/                     # 运维脚本
 │   ├── *.sh                     # Linux/Mac脚本
@@ -62,8 +66,8 @@
 | 文件 | 大小 | 说明 |
 |------|------|------|
 | `pyproject.toml` | 1KB | Python 项目配置 (PEP 518) |
-| `playwright.config.ts` | 2KB | Playwright E2E 测试配置 |
-| `package.json` | <1KB | Node.js 依赖 (仅 Playwright) |
+| `configs/playwright.config.js` | 2KB | Playwright 多浏览器测试配置 |
+| `src/package.json` | 2KB | 前端 Node.js 依赖和 Vite 脚本 |
 | `Makefile` | 2KB | Make 命令集 |
 | `.gitignore` | 1KB | Git 忽略规则 |
 
@@ -128,7 +132,7 @@
 | `test_api_endpoints.sh` | Shell | 已弃用的 API 测试 |
 | `monitor_api.sh` | Shell | 功能已由监控系统替代 |
 | `manage-services.sh` | Shell | 功能由 docker-compose 替代 |
-| `playwright.config.js` | Config | 已升级为 playwright.config.ts |
+| `playwright.config.js` | Config | E2E 默认配置入口；详细多浏览器配置位于 `configs/` |
 | `windows/` | Windows | 已整理到 scripts/ 根目录 |
 
 ---

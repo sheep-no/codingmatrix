@@ -4,9 +4,12 @@
 """
 import requests
 import json
+import os
 import sys
 
-BASE = "http://localhost:8000/api/v1"
+BASE = f"{os.getenv('TEST_BASE_URL', 'http://localhost:8000')}/api/v1"
+TEST_ADMIN_EMAIL = os.getenv("TEST_ADMIN_EMAIL", "admin@example.com")
+TEST_ADMIN_PASSWORD = os.getenv("TEST_ADMIN_PASSWORD")
 
 GREEN = "\033[92m"
 RED = "\033[91m"
@@ -26,10 +29,12 @@ class SkillTester:
         self.test_skill_name = "test_custom_skill"
 
     def _login(self):
+        if not TEST_ADMIN_PASSWORD:
+            raise RuntimeError("TEST_ADMIN_PASSWORD must be set")
         r = self.s.get(f"{BASE}/csrf-token")
         csrf = r.json()["csrf_token"]
         r = self.s.post(f"{BASE}/login",
-            json={"email": "admin@example.com", "password": "admin123"},
+            json={"email": TEST_ADMIN_EMAIL, "password": TEST_ADMIN_PASSWORD},
             headers={"X-CSRF-Token": csrf})
         self.jwt = r.json()["access_token"]
         ok(f"登录成功")

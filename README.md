@@ -73,6 +73,10 @@ pytest tests/integration/ -v
 | `tests/` | 测试 (136 文件) | ~1100+ 测试 |
 | `docs/` | 项目文档 | 50+ 文档 |
 
+完整的目录职责、入口关系和配置边界见 [`docs/PROJECT-STRUCTURE.md`](docs/PROJECT-STRUCTURE.md)。
+
+手工接口流程测试位于 `tests/manual/`，通过 `TEST_ADMIN_PASSWORD` 等环境变量提供测试凭据。
+
 ## ✨ 核心特性
 
 | 特性 | 状态 | 说明 |
