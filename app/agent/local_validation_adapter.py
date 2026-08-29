@@ -17,14 +17,33 @@ def local_result_to_delta(state: State, result: Dict[str, Any]) -> StateDelta:
         raise ValueError("local validation revision does not match state")
     if result.get("schema_version", 1) != 1:
         raise ValueError("unsupported local validation schema version")
-    scope = result.get("scope")
+    protocol_result = "validation_scope" in result or "source" in result
+    if protocol_result and result.get("source") != "local":
+        raise ValueError("local validation source must be local")
+    if protocol_result and result.get("session_id") != state.session_id:
+        raise ValueError("local validation session_id does not match state")
+    scope = result.get("validation_scope", result.get("scope"))
     if scope not in LOCAL_SCOPES:
         raise ValueError("local validation scope must be local_runtime or local_e2e")
+    if "status" in result:
+        if result.get("status") not in {"passed", "failed"}:
+            raise ValueError("local validation status must be passed or failed")
+        passed = result["status"] == "passed"
+    else:
+        passed = result.get("passed")
+    if not isinstance(passed, bool):
+        raise ValueError("local validation result requires a boolean passed or status")
+    event_id = result.get("event_id")
+    if event_id is not None and not isinstance(event_id, str):
+        raise ValueError("local validation event_id must be a string")
     validation = {
         **result,
         "source": "vscode",
         "scope": scope,
+        "passed": passed,
     }
+    if event_id is not None:
+        validation["event_id"] = event_id
     validations = [*state.validation_results, validation]
     required_scopes = {
         required

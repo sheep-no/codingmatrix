@@ -63,14 +63,14 @@
 
 ### VSCODE-006 本地结果适配与 revision 门禁
 
-- 状态：`in_progress`
+- 状态：`completed`
 - 优先级：`P0`
 - 修改：`app/agent/local_validation_adapter.py`、相关测试和插件适配层
 - 消费：StateReducer、ValidationNode、插件结果提交
 - 契约：task、revision、schema version、scope、source
-- 测试：`tests/unit/test_local_validation_adapter.py`、revision 冲突和幂等测试
+- 测试：`tests/unit/test_local_validation_adapter.py`、`tests/unit/test_agent_state.py`，覆盖 revision 冲突和验证结果幂等
 - 验证范围：`cloud_syntax` + `local_runtime`
-- 验收证据：现有专项测试已覆盖本地 scope、身份校验和终态推导；插件真实 E2E 待补充。
+- 验收证据：`python3 -m pytest tests/unit/test_local_validation_adapter.py tests/unit/test_agent_state.py -q` 通过（10/10）；`npm --prefix vscode-extension test` 通过（26/26）。覆盖协议字段映射、source/session 校验、非法 status、revision 门禁、同一 delta 内重复 event_id 和重复回传 no-op；插件真实 E2E 待补充。
 
 ### VSCODE-007 多验证范围终态推导
 

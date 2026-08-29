@@ -44,3 +44,27 @@ def test_reducer_rejects_stale_revision() -> None:
 
     with pytest.raises(StateConflictError):
         reducer.apply(state, StateDelta(expected_revision=1))
+
+
+def test_reducer_deduplicates_validation_results_by_event_id() -> None:
+    reducer = StateReducer()
+    state = State(session_id="session-1", task_id="task-1")
+    delta = StateDelta(
+        expected_revision=0,
+        validation_results=[
+            {"event_id": "validation-1", "scope": "local_runtime", "passed": True},
+            {"event_id": "validation-1", "scope": "local_runtime", "passed": True},
+        ],
+        status="local_validated",
+    )
+
+    state = reducer.apply(state, delta)
+    duplicate = StateDelta(
+        expected_revision=state.revision,
+        validation_results=[{"event_id": "validation-1", "scope": "local_runtime", "passed": True}],
+        status="local_validated",
+    )
+    state_after_duplicate = reducer.apply(state, duplicate)
+
+    assert len(state.validation_results) == 1
+    assert state_after_duplicate == state

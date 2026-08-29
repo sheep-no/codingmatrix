@@ -55,3 +55,67 @@ def test_local_result_completes_when_all_required_scopes_are_present() -> None:
     )
 
     assert delta.status == "completed"
+
+
+def test_protocol_result_maps_fields_and_status_to_internal_contract() -> None:
+    state = State("s1", "t1", revision=2)
+    delta = local_result_to_delta(
+        state,
+        {
+            "event_id": "event-1",
+            "session_id": "s1",
+            "task_id": "t1",
+            "revision": 2,
+            "schema_version": 1,
+            "source": "local",
+            "validation_scope": "local_runtime",
+            "status": "passed",
+        },
+    )
+
+    assert delta.validation_results == [{
+        "event_id": "event-1",
+        "session_id": "s1",
+        "task_id": "t1",
+        "revision": 2,
+        "schema_version": 1,
+        "source": "vscode",
+        "validation_scope": "local_runtime",
+        "status": "passed",
+        "scope": "local_runtime",
+        "passed": True,
+    }]
+
+
+def test_protocol_result_rejects_wrong_source_or_session() -> None:
+    state = State("s1", "t1", revision=2)
+    base = {
+        "task_id": "t1",
+        "revision": 2,
+        "source": "local",
+        "session_id": "s1",
+        "validation_scope": "local_runtime",
+        "status": "passed",
+    }
+
+    with pytest.raises(ValueError, match="source"):
+        local_result_to_delta(state, {**base, "source": "cloud"})
+    with pytest.raises(ValueError, match="session_id"):
+        local_result_to_delta(state, {**base, "session_id": "other"})
+
+
+def test_protocol_result_rejects_unknown_status() -> None:
+    state = State("s1", "t1", revision=2)
+
+    with pytest.raises(ValueError, match="status"):
+        local_result_to_delta(
+            state,
+            {
+                "task_id": "t1",
+                "revision": 2,
+                "source": "local",
+                "session_id": "s1",
+                "validation_scope": "local_runtime",
+                "status": "cancelled",
+            },
+        )
