@@ -74,14 +74,14 @@
 
 ### VSCODE-007 多验证范围终态推导
 
-- 状态：`planned`
+- 状态：`completed`
 - 优先级：`P1`
 - 修改：`app/agent/nodes/validation.py`、StateGraph 状态测试
 - 消费：插件回传的 `local_runtime` 和 `local_e2e` 结果
 - 契约：PendingAction、ValidationResult、terminal status policy
 - 测试：部分完成、全部通过、失败、重复结果和过期结果测试
 - 验证范围：`cloud_syntax` + `local_runtime` + `local_e2e`
-- 验收证据：必需 scope 全部通过后才产生 `completed`。
+- 验收证据：`python3 -m pytest tests/unit/test_validation_nodes.py tests/unit/test_local_validation_adapter.py tests/unit/test_agent_state.py -q` 通过（19/19）；覆盖多个必需 scope 的等待、全部通过后的 `completed`、失败终态、等待确认、重复结果和过期 revision 门禁。
 
 ### VSCODE-008 断线恢复与 checkpoint
 

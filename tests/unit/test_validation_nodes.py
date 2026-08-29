@@ -3,6 +3,7 @@
 import pytest
 
 from app.agent.nodes import cloud_validation_node, local_validation_action
+from app.agent.nodes.validation import derive_validation_status
 from app.agent.state import State
 
 
@@ -38,3 +39,38 @@ def test_local_validation_action_creates_pending_action() -> None:
 def test_local_validation_action_rejects_unknown_scope() -> None:
     with pytest.raises(ValueError):
         local_validation_action(State("s1", "t1"), {"type": "run_tests", "scope": "cloud_syntax"})
+
+
+def test_validation_status_waits_for_every_required_scope() -> None:
+    status = derive_validation_status(
+        [
+            {"scope": "local_runtime", "passed": True},
+        ],
+        {"local_runtime", "local_e2e"},
+    )
+
+    assert status == "waiting_local_validation"
+
+
+def test_validation_status_completes_when_every_required_scope_passes() -> None:
+    status = derive_validation_status(
+        [
+            {"scope": "local_runtime", "passed": True},
+            {"scope": "local_e2e", "passed": True},
+        ],
+        {"local_runtime", "local_e2e"},
+    )
+
+    assert status == "completed"
+
+
+def test_validation_status_fails_when_a_validation_fails() -> None:
+    status = derive_validation_status(
+        [
+            {"scope": "local_runtime", "passed": True},
+            {"scope": "local_e2e", "passed": False},
+        ],
+        {"local_runtime", "local_e2e"},
+    )
+
+    assert status == "failed"

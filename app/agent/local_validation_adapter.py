@@ -7,6 +7,15 @@ from typing import Any, Dict
 from app.agent.state import State, StateDelta
 from app.agent.nodes.validation import LOCAL_SCOPES, derive_validation_status
 
+RESULT_STATUSES = {
+    "passed",
+    "failed",
+    "timeout",
+    "rejected",
+    "waiting_for_confirmation",
+    "cancelled",
+}
+
 
 def local_result_to_delta(state: State, result: Dict[str, Any]) -> StateDelta:
     if not isinstance(result, dict):
@@ -26,12 +35,20 @@ def local_result_to_delta(state: State, result: Dict[str, Any]) -> StateDelta:
     if scope not in LOCAL_SCOPES:
         raise ValueError("local validation scope must be local_runtime or local_e2e")
     if "status" in result:
-        if result.get("status") not in {"passed", "failed"}:
-            raise ValueError("local validation status must be passed or failed")
-        passed = result["status"] == "passed"
+        if result.get("status") not in RESULT_STATUSES:
+            raise ValueError("unsupported local validation status")
+        passed = (
+            True
+            if result["status"] == "passed"
+            else None
+            if result["status"] == "waiting_for_confirmation"
+            else False
+        )
     else:
         passed = result.get("passed")
-    if not isinstance(passed, bool):
+    if not isinstance(passed, bool) and not (
+        "status" in result and result.get("status") == "waiting_for_confirmation" and passed is None
+    ):
         raise ValueError("local validation result requires a boolean passed or status")
     event_id = result.get("event_id")
     if event_id is not None and not isinstance(event_id, str):

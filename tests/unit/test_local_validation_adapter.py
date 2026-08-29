@@ -104,6 +104,47 @@ def test_protocol_result_rejects_wrong_source_or_session() -> None:
         local_result_to_delta(state, {**base, "session_id": "other"})
 
 
+def test_protocol_result_accepts_terminal_failure_statuses() -> None:
+    state = State("s1", "t1", revision=2)
+
+    for status in ("timeout", "rejected", "cancelled"):
+        delta = local_result_to_delta(
+            state,
+            {
+                "task_id": "t1",
+                "revision": 2,
+                "source": "local",
+                "session_id": "s1",
+                "validation_scope": "local_runtime",
+                "status": status,
+            },
+        )
+        assert delta.validation_results[0]["passed"] is False
+
+
+def test_protocol_result_waiting_for_confirmation_keeps_validation_pending() -> None:
+    state = State(
+        "s1",
+        "t1",
+        revision=2,
+        metadata={"required_validation_scopes": ["local_runtime"]},
+    )
+    delta = local_result_to_delta(
+        state,
+        {
+            "task_id": "t1",
+            "revision": 2,
+            "source": "local",
+            "session_id": "s1",
+            "validation_scope": "local_runtime",
+            "status": "waiting_for_confirmation",
+        },
+    )
+
+    assert delta.validation_results[0]["passed"] is None
+    assert delta.status == "waiting_local_validation"
+
+
 def test_protocol_result_rejects_unknown_status() -> None:
     state = State("s1", "t1", revision=2)
 
@@ -116,6 +157,6 @@ def test_protocol_result_rejects_unknown_status() -> None:
                 "source": "local",
                 "session_id": "s1",
                 "validation_scope": "local_runtime",
-                "status": "cancelled",
+                "status": "unknown",
             },
         )
