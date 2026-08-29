@@ -2,7 +2,7 @@
 
 > 版本：v1.0 | 日期：2026-08-29 | 前置：核心 13/13 模块及第 156-161 轮扩展补扫完成（见 [TASKS.md](TASKS.md)，各模块详档在 [modules/](modules/)）
 >
-> 定位：这是**演化推演**，属于修复工作的路线基线。回答三个问题——每个模块现在是什么角色、未来应该演化成什么、为什么。当前 Backlog 共 1323 项，累计 P1 19、P2 449、P3 807。
+> 定位：这是**演化推演**，属于修复工作的路线基线。回答三个问题——每个模块现在是什么角色、未来应该演化成什么、为什么。当前 Backlog 共 1343 项，累计 P0 1、P1 29、P2 456、P3 809。
 
 ## 0.2 第 155 轮模块深扫
 
@@ -21,6 +21,13 @@
 - **第 160 轮启动链交叉终审**：启动、容器、任务、数据库、中间件和服务层交叉验证 → [runtime_cross_review.md](modules/runtime_cross_review.md)。新增 P1 2 项、P2 4 项，并收窄 1 项既有误报。
 - **第 161 轮代码审查代理收尾**：`app/utils/review/code_review_agent.py` → [code_review_agent.md](modules/code_review_agent.md)。新增 P2 2 项、P3 5 项，确认静态审查器与活跃 LLM 审查器双轨。
 - **累计状态**：第 156-161 轮新增 P1 2、P2 18、P3 29；Backlog `#1275-#1323`；累计 P1 19、P2 449、P3 807。补扫范围完成闭合，后续进入修复与一致性维护阶段。
+
+## 0.4 第 162 轮前端应用深扫
+
+- **前端入口与构建**：`src/main.js`、`src/App.vue`、`src/router/index.js`、Vite 配置 → [frontend_bootstrap.md](modules/frontend_bootstrap.md)。新增 P1 2 项、P2 2 项、P3 2 项；确认认证守卫、构建输出路径、用户恢复和配置双轨问题。
+- **前端状态与组合逻辑**：`src/stores/`、`src/composables/` → [frontend_state.md](modules/frontend_state.md)。新增 P1 3 项、P2 4 项；确认会话 no-op、离线队列未接线、日志 watcher、SSE、凭证持久化等问题。
+- **前端视图、组件与 API**：`src/views/`、`src/components/`、`src/utils/api/`、关键工具与前端测试 → [frontend_surface.md](modules/frontend_surface.md)。新增 P0 1 项、P1 5 项、P2 1 项；另登记 1 项未接入/废弃结构事项。
+- **累计状态**：第 162 轮新增 P0 1、P1 10、P2 7、P3 2；Backlog `#1324-#1343`；累计 P0 1、P1 29、P2 456、P3 809。前端入口、状态和表面层完成首轮静态深扫，运行回归仍待安排。
 
 ## 0. 演化总图：四层模型
 

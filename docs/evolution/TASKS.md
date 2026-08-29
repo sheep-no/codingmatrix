@@ -69,6 +69,16 @@
 
 > 第 156-161 轮新增登记：P1 2 项、P2 18 项、P3 29 项，Backlog 使用 `#1275-#1323`。补扫范围已闭合，后续进入全库文档一致性维护和修复阶段。
 
+## I.5 前端应用深扫（第 162 轮）
+
+| 轮次 | 模块 | 路径 | 状态 | 关键发现 | 详细文档 |
+|------|------|------|------|---------|---------|
+| 162 | 前端入口与构建 | `src/main.js`、`src/App.vue`、`src/router/index.js`、Vite 配置 | ✅ 已完成 | **FEBOOT-01 [P1]** 认证守卫对匿名访问放行；**FEBOOT-02 [P1]** 构建输出目录与启动脚本/Nginx 静态根目录不一致；FEBOOT-03-06：用户恢复重复刷新、未接入认证方法路径错误、背景 fallback 被覆盖、未接入构建配置双轨 | [modules/frontend_bootstrap.md](modules/frontend_bootstrap.md) |
+| 162 | 前端状态与组合逻辑 | `src/stores/`、`src/composables/` | ✅ 已完成 | **FESTATE-01 [P1]** Agent 会话保存链落入 no-op；**FESTATE-02 [P1]** 离线队列未接入发送链；**FESTATE-03 [P1]** 日志持久化 watcher 使用错误的 `.value`；FESTATE-04-07：SSE 帧解析、剪贴板异步错误、导航状态缺口、GitHub token 客户端持久化 | [modules/frontend_state.md](modules/frontend_state.md) |
+| 162 | 前端视图、组件与 API | `src/views/`、`src/components/`、`src/utils/api/`、关键工具、前端测试 | ✅ 已完成 | **FESURF-001 [P0]** PPT 客户端导出形状与活跃消费者不一致；**FESURF-002-006 [P1]** API Key、WebSocket、ServiceManager、备份和 AiCloud 端点契约问题；**FESURF-007 [P2]** headers 被覆盖；FESURF-008：旧 Agent/图表组件双轨 | [modules/frontend_surface.md](modules/frontend_surface.md) |
+
+> 第 162 轮新增登记：P0 1 项、P1 10 项、P2 7 项、P3 2 项，Backlog 使用 `#1324-#1343`。活跃确定性缺陷 20 项；未接入/废弃结构事项 1 项，单列为迁移/退役工作。
+
 > 索引扩展：以上为 Agent 引擎核心 13 模块（按依赖/P0 优先排序），I.2-I.4 记录扩展补扫与运行时终审。
 > 扫描进度（2026-08-05）：**13/13 全部完成**（executor / tools / react_agent / react_engine / llm_client / llm_caller / specialist_base / spec_first_generator / spec_first_generate / cross_validator / dynamic_model_router / mcp_client / error_recovery）。
 
