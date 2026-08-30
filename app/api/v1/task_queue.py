@@ -37,6 +37,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tasks", tags=["任务管理"])
 
 
+def _merge_task_runtime_state(task_record, celery_state, celery_info):
+    """Merge SQL progress with Celery runtime metadata without losing persisted updates."""
+    persisted_status = str(task_record.status or "pending").lower()
+    if persisted_status in {"success", "failed", "cancelled"}:
+        status = persisted_status
+    else:
+        status = celery_state.lower() if celery_state else persisted_status
+
+    progress = int(task_record.progress or 0)
+    progress_message = task_record.progress_message or ""
+    if isinstance(celery_info, dict):
+        celery_progress = celery_info.get("progress")
+        if isinstance(celery_progress, (int, float)):
+            progress = max(progress, int(celery_progress))
+        celery_message = celery_info.get("message")
+        if celery_message:
+            progress_message = celery_message
+    return status, progress, progress_message
+
+
 @router.post("", response_model=TaskResponse, summary="创建任务")
 async def create_task(
     body: TaskCreateRequest,
@@ -148,13 +168,9 @@ async def get_task(
         celery_state = celery_result.state
         celery_info = celery_result.info
 
-    status = celery_state.lower() if celery_state else task_record.status
-    progress = 0
-    progress_message = task_record.progress_message or ""
-
-    if celery_info and isinstance(celery_info, dict):
-        progress = celery_info.get("progress", progress)
-        progress_message = celery_info.get("message", progress_message)
+    status, progress, progress_message = _merge_task_runtime_state(
+        task_record, celery_state, celery_info
+    )
 
     return TaskResponse(
         task_id=task_record.task_id,
