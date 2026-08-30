@@ -59,4 +59,4 @@
 
 ## 持久化与事件
 
-`CheckpointStore` 提供版本化 JSON checkpoint 的保存和加载能力，`progress_event_to_message()` 提供进度事件到 `MessageEnvelope` 的转换，`replay_session()` 提供带序列缺口恢复动作的回放结果。插件连接层使用 `ResultStore` 支持跨实例断线结果恢复。当前 API、SessionManager 和任务队列尚未自动调用 checkpoint 持久化，现有 SSE 仍保留原始事件出口。
+`CheckpointStore` 提供版本化 JSON checkpoint 的保存和加载能力，路径由 `AGENT_STATE_CHECKPOINT_DIR` 配置。`run_workflow()` 会按 `session_id/task_id` 保存 StateGraph 结果，并在等待本地动作时保存下一节点游标；`resume_workflow_from_local_result()` 在进程内注册表存在时从游标继续执行，在注册表缺失时从 checkpoint 加载状态并合并经过校验的本地结果。通过 `register_recoverable_workflow_factory()` 注册 workflow factory 后，新进程可以根据 checkpoint 中的 workflow 名称重建 definition 并继续执行。Agent Host 提供 Skills 同步/撤销和会话 pause/resume/cancel 控制接口，VS Code runtime 负责应用这些控制消息。`progress_event_to_message()` 提供进度事件到 `MessageEnvelope` 的转换，`replay_session()` 提供带序列缺口恢复动作的回放结果。插件连接层使用 `ResultStore` 支持跨实例断线结果恢复。多个 worker 指向同一个共享 `AGENT_STATE_CHECKPOINT_DIR` 时可共享状态，现有 SSE 仍保留原始事件出口。

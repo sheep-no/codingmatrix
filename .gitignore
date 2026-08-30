@@ -79,6 +79,7 @@ generated_project/
 projects/
 sessions/
 embeddings/
+data/agent_state_checkpoints/
 
 # =============================================================================
 # PPT 相关

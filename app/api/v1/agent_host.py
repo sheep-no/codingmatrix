@@ -131,7 +131,7 @@ class AgentHostEnvelope(BaseModel):
     session_id: str = Field(min_length=1, max_length=256)
     task_id: str | None = None
     revision: int | None = Field(default=None, ge=0)
-    kind: Literal["tool_action", "approval_request", "progress_event", "diagnostic_event", "tool_result", "policy_update"]
+    kind: Literal["tool_action", "approval_request", "approval_decision", "progress_event", "diagnostic_event", "tool_result", "policy_update", "skill_revoke", "session_control"]
     capability: str | None = None
     policy_version: int | None = Field(default=None, ge=0)
     payload: dict[str, Any]
@@ -155,6 +155,14 @@ class PolicyUpdateRequest(BaseModel):
 class PolicyUpdateResponse(BaseModel):
     policy_version: int
     policy: dict[str, Any]
+
+
+class SkillSyncRequest(BaseModel):
+    skills: dict[str, dict[str, Any]]
+
+
+class SessionControlRequest(BaseModel):
+    action: Literal["pause", "resume", "cancel"]
 
 
 @router.post("/agent/host/handshake", response_model=HostHandshakeResponse)
@@ -185,6 +193,8 @@ async def agent_host_handshake(
         "policy": policy,
         "pending_actions": [],
         "events": {},
+        "skills": {},
+        "control_status": "active",
     }
     _session_store.save(session_id, _sessions[session_id])
     return HostHandshakeResponse(
@@ -207,6 +217,8 @@ def _get_session(session_id: str, token: dict) -> dict[str, Any]:
     if datetime.now(timezone.utc) >= session["expires_at"]:
         _sessions.pop(session_id, None)
         raise HTTPException(status_code=410, detail="agent host session expired")
+    session.setdefault("skills", {})
+    session.setdefault("control_status", "active")
     _sessions[session_id] = session
     return session
 
@@ -296,3 +308,70 @@ async def update_agent_host_policy(
     })
     _session_store.save(session_id, session)
     return PolicyUpdateResponse(policy_version=next_version, policy=request.policy)
+
+
+def _queue_session_action(session_id: str, session: dict[str, Any], action: dict[str, Any]) -> None:
+    session["pending_actions"].append({
+        "message_id": str(uuid4()),
+        "schema_version": SUPPORTED_PROTOCOL_VERSION,
+        "session_id": session_id,
+        "kind": action["kind"],
+        "capability": action.get("capability"),
+        "policy_version": session["policy_version"],
+        "payload": action["payload"],
+    })
+
+
+@router.put("/agent/host/sessions/{session_id}/skills")
+async def sync_agent_host_skills(
+    session_id: str,
+    request: SkillSyncRequest,
+    token: dict = Depends(verify_token),
+) -> dict[str, Any]:
+    session = _get_session(session_id, token)
+    session["skills"] = request.skills
+    _queue_session_action(session_id, session, {
+        "kind": "tool_action",
+        "capability": "skill_runtime",
+        "payload": {"operation": "sync", "skills": request.skills},
+    })
+    _session_store.save(session_id, session)
+    return {"skills": session["skills"], "policy_version": session["policy_version"]}
+
+
+@router.delete("/agent/host/sessions/{session_id}/skills/{skill_name}")
+async def revoke_agent_host_skill(
+    session_id: str,
+    skill_name: str,
+    token: dict = Depends(verify_token),
+) -> dict[str, Any]:
+    session = _get_session(session_id, token)
+    session["skills"].pop(skill_name, None)
+    _queue_session_action(session_id, session, {
+        "kind": "skill_revoke",
+        "capability": "skill_runtime",
+        "payload": {"skill_name": skill_name},
+    })
+    _session_store.save(session_id, session)
+    return {"skills": session["skills"]}
+
+
+@router.post("/agent/host/sessions/{session_id}/control")
+async def control_agent_host_session(
+    session_id: str,
+    request: SessionControlRequest,
+    token: dict = Depends(verify_token),
+) -> dict[str, str]:
+    session = _get_session(session_id, token)
+    if request.action == "cancel":
+        session["control_status"] = "cancelled"
+    elif request.action == "pause":
+        session["control_status"] = "paused"
+    else:
+        session["control_status"] = "active"
+    _queue_session_action(session_id, session, {
+        "kind": "session_control",
+        "payload": {"action": request.action},
+    })
+    _session_store.save(session_id, session)
+    return {"status": session["control_status"]}

@@ -11,6 +11,7 @@ from .models import State, StateDelta
 from .reducer import StateReducer
 
 END = "__end__"
+NEXT_NODE_METADATA_KEY = "_next_node"
 NodeHandler = Callable[[State], Union[StateDelta, Awaitable[StateDelta]]]
 RouteHandler = Callable[[State], Union[str, Awaitable[str]]]
 
@@ -83,6 +84,9 @@ class StateGraph:
                 return state
 
             current = await self._next_node(current, state)
+            if state.pending_actions:
+                state.metadata[NEXT_NODE_METADATA_KEY] = current
+                return state
             steps += 1
         return state
 

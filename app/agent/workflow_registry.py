@@ -3,13 +3,33 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
 
 from app.agent.adapters import legacy_result_to_delta
-from app.agent.state import State, StateGraph, StateGraphBuilder
+from app.agent.state import CheckpointStore, State, StateGraph, StateGraphBuilder, StateReducer
+from app.agent.state.graph import END, NEXT_NODE_METADATA_KEY
 
 
 _active_workflows: Dict[tuple[str, str], tuple[WorkflowDefinition, State]] = {}
+_checkpoint_store = CheckpointStore(
+    Path(os.getenv("AGENT_STATE_CHECKPOINT_DIR", "data/agent_state_checkpoints"))
+)
+_recoverable_workflow_factories: Dict[str, Callable[[], WorkflowDefinition]] = {}
+
+
+def _checkpoint_id(session_id: str, task_id: str) -> str:
+    return f"{session_id}--{task_id}"
+
+
+def register_recoverable_workflow_factory(
+    name: str, factory: Callable[[], WorkflowDefinition]
+) -> None:
+    """Register a factory used to rebuild a workflow after process restart."""
+    if not name or not callable(factory):
+        raise ValueError("workflow factory requires a name and callable")
+    _recoverable_workflow_factories[name] = factory
 
 
 @dataclass(frozen=True)
@@ -80,10 +100,11 @@ async def run_workflow(
     state = State(
         session_id=session_id,
         task_id=task_id,
-        metadata=dict(metadata or {}),
+        metadata={**dict(metadata or {}), "_workflow_name": definition.name},
     )
     state = await definition.graph.run(state, start_at=definition.entry_node)
     _active_workflows[(session_id, task_id)] = (definition, state)
+    _checkpoint_store.save(state, _checkpoint_id(session_id, task_id))
     if state.pending_actions:
         try:
             from app.api.v1.agent_host import enqueue_state_actions
@@ -103,14 +124,27 @@ async def resume_workflow_from_local_result(
 ) -> State:
     """Merge a local Host result and continue the active workflow state."""
     execution = _active_workflows.get((session_id, task_id))
-    if execution is None:
-        raise KeyError(f"active workflow not found: {session_id}/{task_id}")
-
-    definition, state = execution
+    definition = None
+    if execution is not None:
+        definition, state = execution
+    else:
+        state = _checkpoint_store.load(_checkpoint_id(session_id, task_id))
+        if state is None:
+            raise KeyError(f"active workflow not found: {session_id}/{task_id}")
+        workflow_name = state.metadata.get("_workflow_name")
+        factory = _recoverable_workflow_factories.get(workflow_name)
+        if factory is not None:
+            definition = factory()
     from app.agent.local_validation_adapter import local_result_to_delta
 
-    state = definition.graph.reducer.apply(state, local_result_to_delta(state, result))
-    _active_workflows[(session_id, task_id)] = (definition, state)
+    reducer = definition.graph.reducer if definition is not None else StateReducer()
+    state = reducer.apply(state, local_result_to_delta(state, result))
+    next_node = state.metadata.pop(NEXT_NODE_METADATA_KEY, None)
+    if definition is not None and not state.pending_actions and next_node and next_node != END:
+        state = await definition.graph.run(state, start_at=next_node)
+    if definition is not None:
+        _active_workflows[(session_id, task_id)] = (definition, state)
+    _checkpoint_store.save(state, _checkpoint_id(session_id, task_id))
     if state.pending_actions:
         try:
             from app.api.v1.agent_host import enqueue_state_actions
