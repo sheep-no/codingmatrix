@@ -41,7 +41,6 @@ def _load_provider_map() -> dict[str, ModelProvider]:
     # 不在统一配置中的特殊模型（兜底）
     result.setdefault("THUDM/glm-4-9b-chat", ModelProvider.SILICONFLOW)
     result.setdefault("Qwen/Qwen-2.5-7B-Instruct", ModelProvider.SILICONFLOW)
-    result.setdefault("THUDM/GLM-4.1V-9B-Thinking", ModelProvider.SILICONFLOW)
     result.setdefault("deepseek-ai/DeepSeek-R1", ModelProvider.SILICONFLOW)
     result.setdefault("qwen-plus", ModelProvider.DASHSCOPE)
     result.setdefault("qwen-turbo", ModelProvider.DASHSCOPE)

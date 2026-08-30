@@ -126,7 +126,7 @@ class TestProviderRouter:
         router = ProviderRouter.get_instance()
         
         assert router.route("Qwen/Qwen3.5-4B") == ModelProvider.SILICONFLOW
-        assert router.route("THUDM/GLM-4.1V-9B-Thinking") == ModelProvider.SILICONFLOW
+        assert router.route("THUDM/GLM-4-9B-0414") == ModelProvider.SILICONFLOW
         assert router.route("deepseek-ai/DeepSeek-OCR") == ModelProvider.SILICONFLOW
         assert router.route("qwen-plus") == ModelProvider.DASHSCOPE
         assert router.route("glm-4") == ModelProvider.ZHIPU
@@ -176,11 +176,19 @@ class TestModelProviderMap:
             "Qwen/Qwen3.5-4B",
             "Qwen/Qwen3-8B",
             "Qwen/Qwen2.5-7B-Instruct",
-            "THUDM/GLM-4.1V-9B-Thinking",
             "THUDM/GLM-4-9B-0414",
             "THUDM/GLM-Z1-9B-0414",
             "Kwai-Kolors/Kolors",
-            "netease-youdao/bce-embedding-base_v1",
+            "BAAI/bge-m3",
+            "BAAI/bge-reranker-v2-m3",
+            "BAAI/bge-large-zh-v1.5",
+            "PaddlePaddle/PaddleOCR-VL-1.5",
+            "XingChenAGI/XingChenASR-V3.2-Ultra",
+            "XingChenAGI/XingChenGSR-V1.0",
+            "XingChenAGI/XingChenASR-Diarize-V3.0",
+            "FunAudioLLM/SenseVoiceSmall",
+            "TeleAI/TeleSpeechASR",
+            "tencent/Hunyuan-MT-7B",
         ]
         
         for model in builtin_models:

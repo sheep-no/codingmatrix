@@ -380,15 +380,17 @@ async def update_agent_host_policy(
 
 
 def _queue_session_action(session_id: str, session: dict[str, Any], action: dict[str, Any]) -> None:
-    session["pending_actions"].append({
+    envelope = {
         "message_id": str(uuid4()),
         "schema_version": SUPPORTED_PROTOCOL_VERSION,
         "session_id": session_id,
         "kind": action["kind"],
-        "capability": action.get("capability"),
         "policy_version": session["policy_version"],
         "payload": action["payload"],
-    })
+    }
+    if action.get("capability") is not None:
+        envelope["capability"] = action["capability"]
+    session["pending_actions"].append(envelope)
 
 
 @router.put("/agent/host/sessions/{session_id}/skills")

@@ -22,16 +22,6 @@ models:
     temperature: 0.6
     timeout: 300
     speed: 1.0
-  nex-n2-pro:
-    name: nex-agi/Nex-N2-Pro
-    display_name: Nex N2 Pro
-    provider: siliconflow
-    is_reasoning: true
-    context_length: 262144
-    thinking_ratio: 0.3
-    temperature: 0.7
-    timeout: 600
-    speed: 1.0
   glm-z1-9b:
     name: THUDM/GLM-Z1-9B-0414
     display_name: GLM Z1 9B
@@ -82,16 +72,6 @@ models:
     temperature: 0.5
     timeout: 120
     speed: 1.0
-  glm-4.1v-9b:
-    name: THUDM/GLM-4.1V-9B-Thinking
-    display_name: GLM 4.1V 9B
-    provider: siliconflow
-    is_reasoning: true
-    context_length: 32768
-    thinking_ratio: 0.3
-    temperature: 0.7
-    timeout: 300
-    speed: 1.0
   kolors:
     name: Kwai-Kolors/Kolors
     display_name: Kolors
@@ -108,16 +88,6 @@ models:
     provider: siliconflow
     is_reasoning: false
     context_length: 8192
-    thinking_ratio: 0
-    temperature: 0
-    timeout: 30
-    speed: 3.0
-  bce-embedding:
-    name: netease-youdao/bce-embedding-base_v1
-    display_name: BCE Embedding
-    provider: siliconflow
-    is_reasoning: false
-    context_length: 512
     thinking_ratio: 0
     temperature: 0
     timeout: 30
@@ -233,7 +203,7 @@ models:
 roles:
   architect: qwen3-8b
   frontend: deepseek-r1
-  backend: nex-n2-pro
+  backend: qwen3-8b
   reviewer: glm-z1-9b
   fallback: qwen3-8b
 fallback_chain:

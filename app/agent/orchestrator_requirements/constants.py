@@ -35,9 +35,9 @@ def _load_dual_models_from_config():
     except Exception as e:
         logger.warning(f"从配置加载双模型失败，使用默认值: {e}")
     return (
-        "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-        "THUDM/GLM-Z1-9B-0414",
         "Qwen/Qwen3-8B",
+        "THUDM/GLM-Z1-9B-0414",
+        "Qwen/Qwen3.5-4B",
     )
 
 

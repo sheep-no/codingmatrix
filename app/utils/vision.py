@@ -2,7 +2,6 @@
 视觉模型工具 - 支持图片理解和分析
 
 模型分工:
-- THUDM/GLM-4.1V-9B-Thinking: 视觉理解、图像分析（主力）
 - deepseek-ai/DeepSeek-OCR: OCR 文字识别（专用）
 - Qwen/Qwen3-8B: 图像内容描述生成
 """
@@ -70,9 +69,9 @@ def image_to_base64(image_path: str) -> str:
 
 # 视觉模型降级列表
 VISION_MODEL_FALLBACK = [
-    "THUDM/GLM-4.1V-9B-Thinking",  # 首选视觉模型
-    "deepseek-ai/DeepSeek-OCR",    # 降级到 OCR 模型
-    "Qwen/Qwen3-8B"               # 最后降级到通用模型
+    "deepseek-ai/DeepSeek-OCR",  # 首选视觉模型
+    "PaddlePaddle/PaddleOCR-VL-1.5",
+    "Qwen/Qwen3-8B"              # 最后降级到通用模型
 ]
 
 
@@ -117,8 +116,8 @@ async def analyze_image(
     分析图片内容（带降级机制）
 
     降级顺序：
-    1. THUDM/GLM-4.1V-9B-Thinking
-    2. deepseek-ai/DeepSeek-OCR
+    1. deepseek-ai/DeepSeek-OCR
+    2. PaddlePaddle/PaddleOCR-VL-1.5
     3. Qwen/Qwen3-8B
 
     Args:

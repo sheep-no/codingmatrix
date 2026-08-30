@@ -64,7 +64,7 @@ class ModelInfo:
 
 # 默认模型常量 — 避免业务代码硬编码模型名称
 # 与 ModelRegistry 中的 key 对应，用于 model_assignment 缺失时的 fallback
-DEFAULT_CODE_MODEL = "nex-agi/Nex-N2-Pro"                # 通用代码任务（256k context）
+DEFAULT_CODE_MODEL = "Qwen/Qwen3-8B"                     # 通用代码任务（128k context）
 DEFAULT_REASONING_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"  # 推理/后端任务
 DEFAULT_ARCHITECT_MODEL = "THUDM/GLM-Z1-9B-0414"        # 架构设计/评审
 DEFAULT_FAST_MODEL = "Qwen/Qwen3-8B"                    # 简单/快速任务
@@ -96,18 +96,6 @@ class ModelRegistry:
             max_tokens=2048,
             thinking_budget=2048,
             temperature=0.5,
-            speed=1.0
-        ),
-
-        # Nex 系列
-        "nex-n2-pro": ModelInfo(
-            key="nex-n2-pro",
-            name="nex-agi/Nex-N2-Pro",
-            display_name="Nex N2 Pro",
-            capabilities=[ModelCapability.REASONING, ModelCapability.FAST],
-            max_tokens=8192,
-            thinking_budget=8192,
-            temperature=0.7,
             speed=1.0
         ),
 
@@ -144,16 +132,6 @@ class ModelRegistry:
         ),
 
         # GLM 系列
-        "glm-4.1v-9b": ModelInfo(
-            key="glm-4.1v-9b",
-            name="THUDM/GLM-4.1V-9B-Thinking",
-            display_name="GLM-4.1V 9B (Thinking)",
-            capabilities=[ModelCapability.VISION, ModelCapability.REASONING],
-            max_tokens=4096,
-            thinking_budget=4096,
-            temperature=0.7,
-            speed=0.8
-        ),
         "glm-4-9b": ModelInfo(
             key="glm-4-9b",
             name="THUDM/GLM-4-9B-0414",
@@ -188,16 +166,6 @@ class ModelRegistry:
         ),
 
         # 嵌入模型
-        "bce-embedding": ModelInfo(
-            key="bce-embedding",
-            name="netease-youdao/bce-embedding-base_v1",
-            display_name="BCE 嵌入",
-            capabilities=[ModelCapability.EMBEDDING],
-            max_tokens=512,
-            thinking_budget=0,
-            temperature=0.0,
-            speed=1.0
-        ),
     }
 
     @classmethod

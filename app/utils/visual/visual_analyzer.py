@@ -194,7 +194,7 @@ class VisualAnalyzer:
     
     # 可用的多模态模型（内置模型）
     MULTIMODAL_MODELS = [
-        "THUDM/GLM-4.1V-9B-Thinking",  # 主力视觉模型
+        "deepseek-ai/DeepSeek-OCR",  # 主力视觉模型
     ]
     
     def __init__(self, model_name: Optional[str] = None):

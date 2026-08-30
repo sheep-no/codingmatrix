@@ -206,7 +206,7 @@ def select_model_for_prompt(prompt: str, use_reasoning: bool, has_files: bool) -
     根据提示内容智能选择模型
     """
     if has_files:
-        return "THUDM/GLM-4.1V-9B-Thinking"
+        return "deepseek-ai/DeepSeek-OCR"
     if use_reasoning:
         return "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
 

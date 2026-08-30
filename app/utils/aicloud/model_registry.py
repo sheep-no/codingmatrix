@@ -128,19 +128,6 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         cost_per_1m_output=4.0,
         tags=["OCR", "视觉"]
     ),
-    "glm-4.1v-9b": ModelInfo(
-        id="glm-4.1v-9b",
-        name="GLM-4.1V 9B",
-        model_key="THUDM/GLM-4.1V-9B-Thinking",
-        provider=ModelProvider.SILICONFLOW,
-        description="智谱多模态视觉模型，支持图片理解与推理",
-        max_tokens=8192,
-        max_context=32768,
-        capabilities=[ModelCapability.VISION, ModelCapability.TEXT, ModelCapability.REASONING],
-        cost_per_1m_input=1.0,
-        cost_per_1m_output=4.0,
-        tags=["视觉", "多模态", "推理"]
-    ),
     "glm-4-9b": ModelInfo(
         id="glm-4-9b",
         name="GLM-4 9B",
@@ -167,19 +154,6 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         cost_per_1m_output=4.0,
         tags=["绘画", "生成"]
     ),
-    "bce-embedding": ModelInfo(
-        id="bce-embedding",
-        name="BCE Embedding",
-        model_key="netease-youdao/bce-embedding-base_v1",
-        provider=ModelProvider.SILICONFLOW,
-        description="网易有道嵌入模型，文本向量化",
-        max_tokens=512,
-        max_context=512,
-        capabilities=[ModelCapability.TEXT],
-        cost_per_1m_input=0.5,
-        cost_per_1m_output=0.0,
-        tags=["嵌入", "向量"]
-    ),
     "bge-m3": ModelInfo(
         id="bge-m3",
         name="BGE M3",
@@ -205,19 +179,6 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         cost_per_1m_input=0.5,
         cost_per_1m_output=0.0,
         tags=["重排序", "检索"]
-    ),
-    "bce-reranker": ModelInfo(
-        id="bce-reranker",
-        name="BCE Reranker",
-        model_key="netease-youdao/bce-reranker-base_v1",
-        provider=ModelProvider.SILICONFLOW,
-        description="网易有道重排序模型，文档排序优化",
-        max_tokens=512,
-        max_context=512,
-        capabilities=[ModelCapability.TEXT],
-        cost_per_1m_input=0.5,
-        cost_per_1m_output=0.0,
-        tags=["重排序", "排序"]
     ),
     "bge-large-zh": ModelInfo(
         id="bge-large-zh",

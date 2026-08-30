@@ -10,17 +10,59 @@ import { WorkspaceAuthorization } from "./workspace-authorization.js";
 import { CloudConnection } from "./connection.js";
 import { discoverWorkspaceSkills, WorkspaceSkillRoot } from "./skill-discovery.js";
 
+declare const process: { env: Record<string, string | undefined> };
+
 let runtime: AgentHostRuntime | undefined;
 let pollTimer: ReturnType<typeof setInterval> | undefined;
+let connectionStartId = 0;
+let cloudConnection: CloudConnection | undefined;
+let agentConversationId = `vscode-agent-${Date.now()}`;
+let hostSession: AgentHostSession | undefined;
+let connectionFolders: WorkspaceSkillRoot[] = [];
+let connectionWorkspaceId = "";
+let extensionContext: vscode.ExtensionContext | undefined;
 const controller = new AgentWorkbenchController({
   onMessage: async (message) => {
     if (runtime) await runtime.process(message);
   },
+  onPrompt: async (prompt) => {
+    if (!cloudConnection) {
+      await controller.publishWorkbenchEvent({ type: "error", data: { error: "云端 Agent 尚未连接" } });
+      return;
+    }
+    try {
+      await cloudConnection.streamAgentPrompt(
+        { requirement: prompt, session_id: agentConversationId },
+        (event) => controller.publishWorkbenchEvent(event),
+      );
+    } catch (error) {
+      await controller.publishWorkbenchEvent({
+        type: "error",
+        data: { error: error instanceof Error ? error.message : "Agent 请求失败" },
+      });
+    }
+  },
+  onControl: async (action) => {
+    if (!cloudConnection) {
+      await controller.publishWorkbenchEvent({ type: "error", data: { error: "云端 Agent 尚未连接" } });
+      return;
+    }
+    try {
+      const result = await cloudConnection.controlSession(action);
+      await vscode.commands.executeCommand("setContext", "codingmatrix.agentSessionStatus", result.status);
+      await controller.publishWorkbenchEvent({ type: "progress", data: { message: `会话状态：${result.status}` } });
+    } catch (error) {
+      await controller.publishWorkbenchEvent({ type: "error", data: { error: error instanceof Error ? error.message : "会话控制失败" } });
+    }
+  },
 });
 
 export function activate(context: vscode.ExtensionContext): void {
-  const workspace = vscode.workspace.workspaceFolders?.[0];
-  if (workspace) {
+  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+  const workspace = workspaceFolders[0];
+  if (workspaceFolders.length > 0) {
+    const workspaceSlug = workspace.name.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80) || "workspace";
+    agentConversationId = `vscode-agent-${workspaceSlug}-${Date.now()}`;
     const authorization = new WorkspaceAuthorization();
     const session = new AgentHostSession();
     const policy = {
@@ -29,7 +71,7 @@ export function activate(context: vscode.ExtensionContext): void {
       auto_approve: false,
       require_confirmation_on_failure: true,
     };
-    void authorization.grant(workspace.name, workspace.uri.fsPath).then(() => {
+    void Promise.all(workspaceFolders.map((folder) => authorization.grant(folder.name, folder.uri.fsPath))).then(() => {
       session.acceptHandshake({
         session_id: "vscode-local-session",
         workspace_id: workspace.name,
@@ -44,11 +86,12 @@ export function activate(context: vscode.ExtensionContext): void {
       const dispatcher = new ToolDispatcher({ authorization, validationRunner: runner, policy });
       const approval = new ApprovalBridge({ onRequest: (event) => controller.publish(event) });
       const settings = vscode.workspace.getConfiguration("codingmatrix.agent");
-      const apiUrl = settings.get<string>("apiUrl")?.trim();
-      const accessToken = settings.get<string>("accessToken")?.trim();
+      const apiUrl = settings.get<string>("apiUrl")?.trim() || process.env.CODINGMATRIX_E2E_API_URL;
+      const accessToken = settings.get<string>("accessToken")?.trim() || process.env.CODINGMATRIX_E2E_ACCESS_TOKEN;
       const connection = apiUrl && accessToken
         ? new CloudConnection({ baseUrl: apiUrl, accessToken })
         : undefined;
+      cloudConnection = connection;
       runtime = new AgentHostRuntime({
         session,
         dispatcher,
@@ -65,9 +108,12 @@ export function activate(context: vscode.ExtensionContext): void {
           await vscode.commands.executeCommand("setContext", "codingmatrix.agentSkillRevoked", skillName);
         },
       });
+      hostSession = session;
+      connectionFolders = workspaceFolders.map((folder) => ({ name: folder.name, path: folder.uri.fsPath }));
+      connectionWorkspaceId = workspace.name;
+      extensionContext = context;
       if (connection) {
-        const folders: WorkspaceSkillRoot[] = (vscode.workspace.workspaceFolders ?? []).map((folder) => ({ name: folder.name, path: folder.uri.fsPath }));
-        void startCloudConnection(connection, runtime, folders, workspace.name, settings.get<number>("pollIntervalMs", 1000) ?? 1000, context)
+        void startCloudConnection(connection, runtime, session, connectionFolders, workspace.name, settings.get<number>("pollIntervalMs", 1000) ?? 1000, context)
           .catch(async () => {
             await vscode.commands.executeCommand("setContext", "codingmatrix.agentConnectionStatus", "offline");
           });
@@ -75,28 +121,68 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   }
   context.subscriptions.push(vscode.commands.registerCommand(AGENT_WORKBENCH_COMMAND, () => controller.open(() => vscode.window.createWebviewPanel(AGENT_WORKBENCH_VIEW_TYPE, "CodingMatrix Agent", vscode.ViewColumn.One, { enableScripts: true }))));
+  for (const [command, action] of [
+    ["codingmatrix.pauseAgentSession", "pause"],
+    ["codingmatrix.resumeAgentSession", "resume"],
+    ["codingmatrix.cancelAgentSession", "cancel"],
+  ] as const) {
+    context.subscriptions.push(vscode.commands.registerCommand(command, async () => {
+      if (!cloudConnection) {
+        await controller.publishWorkbenchEvent({ type: "error", data: { error: "云端 Agent 尚未连接" } });
+        return;
+      }
+      try {
+        const result = await cloudConnection.controlSession(action);
+        await vscode.commands.executeCommand("setContext", "codingmatrix.agentSessionStatus", result.status);
+        await controller.publishWorkbenchEvent({ type: "progress", data: { message: `会话状态：${result.status}` } });
+      } catch (error) {
+        await controller.publishWorkbenchEvent({ type: "error", data: { error: error instanceof Error ? error.message : "会话控制失败" } });
+      }
+    }));
+  }
+  context.subscriptions.push(vscode.commands.registerCommand("codingmatrix.reconnectAgentSession", () => reconnectConfiguredSession()));
 }
 
 export function deactivate(): void {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = undefined;
+  cloudConnection = undefined;
   runtime = undefined;
+  hostSession = undefined;
+  extensionContext = undefined;
+}
+
+async function reconnectConfiguredSession(): Promise<void> {
+  if (!runtime || !hostSession || !extensionContext || !connectionWorkspaceId) return;
+  const settings = vscode.workspace.getConfiguration("codingmatrix.agent");
+  const apiUrl = settings.get<string>("apiUrl")?.trim() || process.env.CODINGMATRIX_E2E_API_URL;
+  const accessToken = settings.get<string>("accessToken")?.trim() || process.env.CODINGMATRIX_E2E_ACCESS_TOKEN;
+  if (!apiUrl || !accessToken) return;
+  const connection = new CloudConnection({ baseUrl: apiUrl, accessToken });
+  cloudConnection = connection;
+  runtime.setConnection(connection);
+  await startCloudConnection(connection, runtime, hostSession, connectionFolders, connectionWorkspaceId, settings.get<number>("pollIntervalMs", 1000) ?? 1000, extensionContext);
 }
 
 async function startCloudConnection(
   connection: CloudConnection,
   hostRuntime: AgentHostRuntime,
+  session: AgentHostSession,
   workspaceFolders: WorkspaceSkillRoot[],
   workspaceId: string,
   pollIntervalMs: number,
   context: vscode.ExtensionContext,
 ): Promise<void> {
-  await connection.handshake({
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = undefined;
+  const startId = ++connectionStartId;
+  const handshake = await connection.handshake({
     workspace_id: workspaceId,
     extension_version: "0.1.0",
     protocol_versions: [1],
     capabilities: ["workspace", "file", "terminal", "diagnostics", "validation", "skill_runtime"],
   });
+  session.acceptHandshake(handshake);
   const syncSkills = async (): Promise<void> => {
     const skills = await discoverWorkspaceSkills(workspaceFolders);
     await connection.syncSkills(skills);
@@ -116,5 +202,6 @@ async function startCloudConnection(
     context.subscriptions.push(watcher, watcher.onDidCreate(scheduleSync), watcher.onDidChange(scheduleSync), watcher.onDidDelete(scheduleSync));
   }
   await hostRuntime.poll();
+  if (startId !== connectionStartId) return;
   pollTimer = setInterval(() => { void hostRuntime.poll(); }, Math.max(250, pollIntervalMs));
 }

@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
-    ALLOWED_MODELS: str = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B,deepseek-ai/DeepSeek-OCR,PaddlePaddle/PaddleOCR-VL-1.5,Qwen/Qwen3.5-4B,Qwen/Qwen3-8B,Qwen/Qwen2.5-7B-Instruct,THUDM/GLM-4-9B-0414,THUDM/GLM-Z1-9B-0414,Kwai-Kolors/Kolors,netease-youdao/bce-embedding-base_v1"
+    ALLOWED_MODELS: str = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B,deepseek-ai/DeepSeek-OCR,Qwen/Qwen3.5-4B,Qwen/Qwen3-8B,Qwen/Qwen2.5-7B-Instruct,BAAI/bge-m3,BAAI/bge-reranker-v2-m3,Kwai-Kolors/Kolors,THUDM/GLM-4-9B-0414,THUDM/GLM-Z1-9B-0414,BAAI/bge-large-zh-v1.5,PaddlePaddle/PaddleOCR-VL-1.5,XingChenAGI/XingChenASR-V3.2-Ultra,XingChenAGI/XingChenGSR-V1.0,XingChenAGI/XingChenASR-Diarize-V3.0,FunAudioLLM/SenseVoiceSmall,TeleAI/TeleSpeechASR,tencent/Hunyuan-MT-7B"
 
     ALLOWED_HOSTS: str = "localhost,127.0.0.1,0.0.0.0"
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"

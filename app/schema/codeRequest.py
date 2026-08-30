@@ -10,7 +10,6 @@ ALLOWED_MODELS_LIST = [
     "Qwen/Qwen3.5-4B",
     "Qwen/Qwen3-8B",
     "Qwen/Qwen2.5-7B-Instruct",
-    "THUDM/GLM-4.1V-9B-Thinking",
     "THUDM/GLM-4-9B-0414",
     "THUDM/GLM-Z1-9B-0414",
 ]

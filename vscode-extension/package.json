@@ -36,6 +36,22 @@
       {
         "command": "codingmatrix.openAgentWorkbench",
         "title": "CodingMatrix: Open Agent Workbench"
+      },
+      {
+        "command": "codingmatrix.pauseAgentSession",
+        "title": "CodingMatrix: Pause Agent Session"
+      },
+      {
+        "command": "codingmatrix.resumeAgentSession",
+        "title": "CodingMatrix: Resume Agent Session"
+      },
+      {
+        "command": "codingmatrix.cancelAgentSession",
+        "title": "CodingMatrix: Cancel Agent Session"
+      },
+      {
+        "command": "codingmatrix.reconnectAgentSession",
+        "title": "CodingMatrix: Reconnect Agent Session"
       }
     ]
   },

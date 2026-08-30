@@ -908,13 +908,10 @@ MODEL_CONTEXT_LENGTHS: Dict[str, int] = {
     # GLM 系列
     "THUDM/GLM-Z1-9B-0414": 128 * 1024,   # 128k
     "THUDM/GLM-4-9B-0414": 32 * 1024,     # 32k
-    "THUDM/GLM-4.1V-9B-Thinking": 32 * 1024,
     # Embedding / Reranker（无传统上下文，按最大输入估算）
     "BAAI/bge-m3": 8 * 1024,                          # 8k
     "BAAI/bge-reranker-v2-m3": 8 * 1024,              # 8k
     "BAAI/bge-large-zh-v1.5": 512,                    # 0.5k
-    "netease-youdao/bce-embedding-base_v1": 512,      # 0.5k
-    "netease-youdao/bce-reranker-base_v1": 512,       # 0.5k
     # 翻译模型
     "tencent/Hunyuan-MT-7B": 32 * 1024,   # 32k
     # 特殊模型（语音/图像/视频）不在此映射中，使用默认值

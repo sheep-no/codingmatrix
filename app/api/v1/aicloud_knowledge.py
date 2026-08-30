@@ -148,7 +148,7 @@ async def upload_document(
                 content=chunk.content,
                 content_hash=chunk.content_hash,
                 embedding=str(vector),  # 存储为 JSON 字符串
-                embedding_model="netease-youdao/bce-embedding-base_v1",
+                embedding_model="BAAI/bge-m3",
                 chunk_index=chunk.chunk_index,
                 collection=collection,
             )

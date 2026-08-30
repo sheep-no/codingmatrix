@@ -25,7 +25,7 @@ export class AgentHostRuntimeError extends Error {
 export class AgentHostRuntime {
   private readonly session: AgentHostSession;
   private readonly dispatcher: ToolDispatcher;
-  private readonly connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult"> & Partial<Pick<CloudConnection, "fetchAgentHostActions" | "submitEvent">>;
+  private connection?: Pick<CloudConnection, "fetchPendingActions" | "submitResult"> & Partial<Pick<CloudConnection, "fetchAgentHostActions" | "submitEvent">>;
   private readonly onEvent: (event: AgentHostEnvelope) => void | Promise<void>;
   private readonly approvalBridge?: ApprovalBridge;
   private readonly onSessionControl?: AgentHostRuntimeOptions["onSessionControl"];
@@ -42,6 +42,10 @@ export class AgentHostRuntime {
     this.onSessionControl = options.onSessionControl;
     this.onSkillRevoke = options.onSkillRevoke;
     this.onSkillSync = options.onSkillSync;
+  }
+
+  setConnection(connection: AgentHostRuntimeOptions["connection"]): void {
+    this.connection = connection;
   }
 
   async process(action: AgentHostEnvelope): Promise<unknown> {

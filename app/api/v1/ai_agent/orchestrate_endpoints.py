@@ -204,7 +204,7 @@ async def _handle_analyze_request(request: ModifyRequest, project_dir: Path, use
     # 获取模型配置
     dynamic_router = await get_dynamic_router()
     model_name = await dynamic_router.get_best_model(
-        ["THUDM/GLM-Z1-9B-0414", "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"],
+        ["THUDM/GLM-Z1-9B-0414", "Qwen/Qwen3-8B"],
         task_type="analyze"
     )
 

@@ -160,7 +160,7 @@ def chunk_text(
 
 async def embed_chunks(
     chunks: List[DocumentChunk],
-    model: str = "netease-youdao/bce-embedding-base_v1"
+    model: str = "BAAI/bge-m3"
 ) -> List[Tuple[DocumentChunk, List[float]]]:
     """
     为文本块生成向量
