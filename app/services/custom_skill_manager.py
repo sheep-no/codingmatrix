@@ -89,8 +89,10 @@ class CustomSkillManager:
             return False, f"文件大小超过限制 ({MAX_FILE_SIZE // 1024}KB)"
         return True, ""
 
-    def _get_skill_path(self, category: str, name: str) -> Path:
+    def _get_skill_path(self, category: str, name: str, owner_user_id: Optional[str] = None) -> Path:
         """获取 skill 文件路径"""
+        if owner_user_id is not None:
+            return CUSTOM_SKILLS_DIR / category / str(owner_user_id) / f"{name}.md"
         return CUSTOM_SKILLS_DIR / category / f"{name}.md"
 
     def _find_skill(self, name: str) -> Optional[Dict]:
@@ -100,13 +102,22 @@ class CustomSkillManager:
                 return skill
         return None
 
+    def _find_owned_skill(self, name: str, owner_user_id: str) -> Optional[Dict]:
+        """Find a skill that belongs to the authenticated user."""
+        return next(
+            (skill for skill in self._metadata["skills"]
+             if skill["name"] == name and skill.get("owner_user_id") == str(owner_user_id)),
+            None,
+        )
+
     def upload_skill(
         self,
         name: str,
         category: str,
         content: str,
         description: str = "",
-        author: str = "anonymous"
+        author: str = "anonymous",
+        owner_user_id: Optional[str] = None,
     ) -> tuple[bool, str, Optional[Dict]]:
         """
         上传/创建 skill
@@ -128,30 +139,33 @@ class CustomSkillManager:
             return False, msg, None
 
         # 检查是否已存在
-        existing = self._find_skill(name)
+        existing = self._find_owned_skill(name, owner_user_id) if owner_user_id is not None else self._find_skill(name)
         if existing:
             return False, f"Skill '{name}' 已存在，请使用更新接口", None
 
         # 检查用户 skill 数量
-        user_skills = [s for s in self._metadata["skills"] if s.get("author") == author]
+        user_skills = [s for s in self._metadata["skills"] if s.get("owner_user_id") == str(owner_user_id)] if owner_user_id is not None else [s for s in self._metadata["skills"] if s.get("author") == author]
         if len(user_skills) >= MAX_SKILLS_PER_USER:
             return False, f"已达到最大 skill 数量限制 ({MAX_SKILLS_PER_USER})", None
 
         # 保存文件
-        skill_path = self._get_skill_path(category, name)
+        skill_path = self._get_skill_path(category, name, owner_user_id)
+        skill_path.parent.mkdir(parents=True, exist_ok=True)
         skill_path.write_text(content, encoding="utf-8")
 
         # 更新元数据
         skill_info = {
             "name": name,
             "category": category,
-            "file": f"{category}/{name}.md",
+            "file": str(skill_path.relative_to(CUSTOM_SKILLS_DIR)),
             "description": description,
             "author": author,
             "created_at": datetime.utcnow().isoformat() + "Z",
             "updated_at": datetime.utcnow().isoformat() + "Z",
             "version": 1
         }
+        if owner_user_id is not None:
+            skill_info["owner_user_id"] = str(owner_user_id)
         self._metadata["skills"].append(skill_info)
         self._save_metadata()
 
@@ -164,7 +178,8 @@ class CustomSkillManager:
         self,
         name: str,
         content: str,
-        description: Optional[str] = None
+        description: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
     ) -> tuple[bool, str, Optional[Dict]]:
         """
         更新 skill 内容
@@ -173,7 +188,7 @@ class CustomSkillManager:
             (success, message, skill_info)
         """
         # 查找 skill
-        skill = self._find_skill(name)
+        skill = self._find_owned_skill(name, owner_user_id) if owner_user_id is not None else self._find_skill(name)
         if not skill:
             return False, f"Skill '{name}' 不存在", None
 
@@ -183,7 +198,7 @@ class CustomSkillManager:
             return False, msg, None
 
         # 更新文件
-        skill_path = self._get_skill_path(skill["category"], name)
+        skill_path = CUSTOM_SKILLS_DIR / skill["file"]
         skill_path.write_text(content, encoding="utf-8")
 
         # 更新元数据
@@ -198,7 +213,7 @@ class CustomSkillManager:
 
         return True, "Skill 更新成功", skill
 
-    def delete_skill(self, name: str) -> tuple[bool, str]:
+    def delete_skill(self, name: str, owner_user_id: Optional[str] = None) -> tuple[bool, str]:
         """
         删除 skill
         
@@ -206,17 +221,17 @@ class CustomSkillManager:
             (success, message)
         """
         # 查找 skill
-        skill = self._find_skill(name)
+        skill = self._find_owned_skill(name, owner_user_id) if owner_user_id is not None else self._find_skill(name)
         if not skill:
             return False, f"Skill '{name}' 不存在"
 
         # 删除文件
-        skill_path = self._get_skill_path(skill["category"], name)
+        skill_path = CUSTOM_SKILLS_DIR / skill["file"]
         if skill_path.exists():
             skill_path.unlink()
 
         # 更新元数据
-        self._metadata["skills"] = [s for s in self._metadata["skills"] if s["name"] != name]
+        self._metadata["skills"] = [s for s in self._metadata["skills"] if s is not skill]
         self._save_metadata()
 
         # 通知注册表
@@ -224,14 +239,14 @@ class CustomSkillManager:
 
         return True, "Skill 删除成功"
 
-    def get_skill(self, name: str) -> Optional[Dict]:
+    def get_skill(self, name: str, owner_user_id: Optional[str] = None) -> Optional[Dict]:
         """获取 skill 信息和内容"""
-        skill = self._find_skill(name)
+        skill = self._find_owned_skill(name, owner_user_id) if owner_user_id is not None else self._find_skill(name)
         if not skill:
             return None
 
         # 读取内容
-        skill_path = self._get_skill_path(skill["category"], name)
+        skill_path = CUSTOM_SKILLS_DIR / skill["file"]
         content = ""
         if skill_path.exists():
             content = skill_path.read_text(encoding="utf-8")
@@ -241,7 +256,8 @@ class CustomSkillManager:
     def list_skills(
         self,
         category: Optional[str] = None,
-        author: Optional[str] = None
+        author: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
     ) -> List[Dict]:
         """
         列出 skill
@@ -251,6 +267,9 @@ class CustomSkillManager:
             author: 按作者过滤
         """
         skills = self._metadata["skills"]
+
+        if owner_user_id is not None:
+            skills = [s for s in skills if s.get("owner_user_id") == str(owner_user_id)]
 
         if category:
             skills = [s for s in skills if s["category"] == category]
@@ -263,12 +282,25 @@ class CustomSkillManager:
         """获取所有 skill（包含内容）"""
         result = []
         for skill in self._metadata["skills"]:
-            skill_path = self._get_skill_path(skill["category"], skill["name"])
+            skill_path = CUSTOM_SKILLS_DIR / skill["file"]
             content = ""
             if skill_path.exists():
                 content = skill_path.read_text(encoding="utf-8")
             result.append({**skill, "content": content})
         return result
+
+    def migrate_legacy_skills(self, owner_user_id: str) -> int:
+        """Assign legacy api_user records to the selected first administrator."""
+        migrated = 0
+        for skill in self._metadata["skills"]:
+            if skill.get("author") == "api_user" and not skill.get("owner_user_id"):
+                skill["owner_user_id"] = str(owner_user_id)
+                migrated += 1
+        if migrated:
+            self._save_metadata()
+            from app.services.skill_registry import get_registry
+            get_registry().reload_custom_skills()
+        return migrated
 
     def get_skills_by_category(self) -> Dict[str, List[Dict]]:
         """按分类获取 skill"""

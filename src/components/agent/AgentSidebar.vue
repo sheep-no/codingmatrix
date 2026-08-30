@@ -64,6 +64,22 @@
         </div>
       </div>
     </div>
+
+    <div class="sidebar-section skills-section">
+      <div class="section-header">
+        <span class="section-title">可用 Skills</span>
+        <span class="file-count">{{ userSkills.length + workspaceSkills.length }}</span>
+      </div>
+      <div v-if="userSkills.length === 0 && workspaceSkills.length === 0" class="session-empty">暂无可用 Skills</div>
+      <div v-for="skill in userSkills" :key="`user-${skill.name}`" class="skill-item">
+        <span class="skill-name">user:{{ skill.name }}</span>
+        <span class="skill-source">个人</span>
+      </div>
+      <div v-for="skill in workspaceSkills" :key="skill.name" class="skill-item">
+        <span class="skill-name">{{ skill.name }}</span>
+        <span class="skill-source">工作区</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -77,7 +93,9 @@ const props = defineProps({
   fileCount: { type: Number, default: 0 },
   categories: { type: Array, default: () => [] },
   searchQuery: { type: String, default: '' },
-  selectedPath: { type: String, default: '' }
+  selectedPath: { type: String, default: '' },
+  userSkills: { type: Array, default: () => [] },
+  workspaceSkills: { type: Array, default: () => [] }
 })
 
 defineEmits(['new-session', 'switch-session', 'delete-session', 'update:searchQuery', 'toggle-category', 'select-file'])
@@ -182,6 +200,10 @@ function getFileName(filePath) {
   padding: 2px 6px;
   border-radius: 4px;
 }
+.skills-section { max-height: 180px; overflow-y: auto; border-top: 1px solid var(--border-color); }
+.skill-item { display: flex; justify-content: space-between; gap: 8px; padding: 7px 16px; font-size: 12px; }
+.skill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.skill-source { flex: 0 0 auto; color: var(--text-tertiary); }
 
 /* 会话列表 */
 .session-list {

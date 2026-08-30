@@ -218,6 +218,8 @@ class SkillRegistry:
             
             for skill_info in skills:
                 name = skill_info.get("name", "")
+                owner_user_id = skill_info.get("owner_user_id")
+                registry_name = f"user:{owner_user_id}:{name}" if owner_user_id else name
                 category = skill_info.get("category", "other")
                 file_path = CUSTOM_SKILLS_DIR / skill_info.get("file", "")
                 description = skill_info.get("description", "")
@@ -234,7 +236,7 @@ class SkillRegistry:
                         return loader
                     
                     self.register(
-                        name=name,
+                        name=registry_name,
                         category=category,
                         loader=make_loader(file_path),
                         description=description,

@@ -98,7 +98,7 @@ export class ToolDispatcher {
       case "diagnostics":
         return this.dispatchDiagnostics(envelope);
       case "workspace":
-      case "terminal":
+        return this.dispatchWorkspace(envelope);
       case "skill_runtime":
         throw new ToolDispatcherError("unsupported_capability", `${envelope.capability} dispatch is not implemented`);
     }
@@ -164,6 +164,17 @@ export class ToolDispatcher {
       throw new ToolDispatcherError("workspace_required", "workspace authorization is required");
     }
     return this.diagnostics(workspaceId);
+  }
+
+  private dispatchWorkspace(envelope: AgentHostEnvelope): Array<{ workspace_id: string; root: string }> {
+    if (envelope.kind !== "tool_action" || !isRecord(envelope.payload)) {
+      throw new ToolDispatcherError("invalid_action", "workspace actions must be tool_action envelopes");
+    }
+    const operation = envelope.payload.operation;
+    if (operation !== "inspect" && operation !== "list_roots") {
+      throw new ToolDispatcherError("invalid_action", "workspace operation must be inspect or list_roots");
+    }
+    return this.authorization.listAuthorized();
   }
 }
 

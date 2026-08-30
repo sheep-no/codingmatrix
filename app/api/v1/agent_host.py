@@ -106,6 +106,40 @@ def enqueue_state_actions(session_id: str, state: Any) -> int:
     return added
 
 
+def broadcast_user_skill_update(user_id: str) -> int:
+    """Queue the latest private Skill snapshot for every active session of a user."""
+    from app.services.custom_skill_manager import get_skill_manager
+
+    manager = get_skill_manager()
+    skills = {}
+    for skill in manager.list_skills(owner_user_id=str(user_id)):
+        detail = manager.get_skill(skill["name"], owner_user_id=str(user_id))
+        if detail:
+            skills[f"user:{skill['name']}"] = detail
+    updated = 0
+    for session_id, session in _sessions.items():
+        if session.get("user_id") != str(user_id):
+            continue
+        _queue_session_action(session_id, session, {
+            "kind": "tool_action",
+            "capability": "skill_runtime",
+            "payload": {"operation": "sync_user", "skills": skills},
+        })
+        _session_store.save(session_id, session)
+        updated += 1
+    return updated
+
+
+def get_latest_session_skills(user_id: str) -> dict[str, dict[str, Any]]:
+    """Return the newest non-expired workspace snapshot owned by a user."""
+    now = datetime.now(timezone.utc)
+    sessions = [
+        session for session in _sessions.values()
+        if session.get("user_id") == str(user_id) and now < session.get("expires_at", now)
+    ]
+    return dict(sessions[-1].get("skills", {})) if sessions else {}
+
+
 class HostHandshakeRequest(BaseModel):
     workspace_id: str = Field(min_length=1, max_length=256)
     extension_version: str = Field(min_length=1, max_length=64)
@@ -123,6 +157,7 @@ class HostHandshakeResponse(BaseModel):
     policy: dict[str, Any]
     pending_actions: list[dict[str, Any]]
     expires_at: str
+    user_skills: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class AgentHostEnvelope(BaseModel):
@@ -131,7 +166,7 @@ class AgentHostEnvelope(BaseModel):
     session_id: str = Field(min_length=1, max_length=256)
     task_id: str | None = None
     revision: int | None = Field(default=None, ge=0)
-    kind: Literal["tool_action", "approval_request", "progress_event", "diagnostic_event", "tool_result", "policy_update"]
+    kind: Literal["tool_action", "approval_request", "approval_decision", "progress_event", "diagnostic_event", "tool_result", "policy_update", "skill_revoke", "session_control"]
     capability: str | None = None
     policy_version: int | None = Field(default=None, ge=0)
     payload: dict[str, Any]
@@ -144,6 +179,7 @@ class AgentHostActionsResponse(BaseModel):
 class AgentHostEventResponse(BaseModel):
     accepted: bool
     duplicate: bool = False
+    state_status: str | None = None
 
 
 class PolicyUpdateRequest(BaseModel):
@@ -154,6 +190,22 @@ class PolicyUpdateRequest(BaseModel):
 class PolicyUpdateResponse(BaseModel):
     policy_version: int
     policy: dict[str, Any]
+
+
+class SkillSyncRequest(BaseModel):
+    skills: dict[str, dict[str, Any]]
+
+
+class AgentHostSessionSummary(BaseModel):
+    session_id: str
+    workspace_id: str
+    control_status: str
+    skills: dict[str, dict[str, Any]]
+    expires_at: str
+
+
+class SessionControlRequest(BaseModel):
+    action: Literal["pause", "resume", "cancel"]
 
 
 @router.post("/agent/host/handshake", response_model=HostHandshakeResponse)
@@ -184,8 +236,16 @@ async def agent_host_handshake(
         "policy": policy,
         "pending_actions": [],
         "events": {},
+        "skills": {},
+        "control_status": "active",
     }
     _session_store.save(session_id, _sessions[session_id])
+    from app.services.custom_skill_manager import get_skill_manager
+    user_id = str(token.get("sub", ""))
+    user_skills = {
+        f"user:{skill['name']}": {**skill, "content": get_skill_manager().get_skill(skill["name"], owner_user_id=user_id)["content"]}
+        for skill in get_skill_manager().list_skills(owner_user_id=user_id)
+    }
     return HostHandshakeResponse(
         session_id=session_id,
         workspace_id=request.workspace_id,
@@ -196,6 +256,7 @@ async def agent_host_handshake(
         policy=policy,
         pending_actions=[],
         expires_at=expires_at.isoformat(),
+        user_skills=user_skills,
     )
 
 
@@ -206,8 +267,29 @@ def _get_session(session_id: str, token: dict) -> dict[str, Any]:
     if datetime.now(timezone.utc) >= session["expires_at"]:
         _sessions.pop(session_id, None)
         raise HTTPException(status_code=410, detail="agent host session expired")
+    session.setdefault("skills", {})
+    session.setdefault("control_status", "active")
     _sessions[session_id] = session
     return session
+
+
+@router.get("/agent/host/sessions", response_model=list[AgentHostSessionSummary])
+async def list_agent_host_sessions(token: dict = Depends(verify_token)) -> list[AgentHostSessionSummary]:
+    user_id = str(token.get("sub", ""))
+    summaries = []
+    for session_id, session in list(_sessions.items()):
+        if session.get("user_id") != user_id:
+            continue
+        if datetime.now(timezone.utc) >= session["expires_at"]:
+            continue
+        summaries.append(AgentHostSessionSummary(
+            session_id=session_id,
+            workspace_id=session["workspace_id"],
+            control_status=session.get("control_status", "active"),
+            skills=session.get("skills", {}),
+            expires_at=session["expires_at"].isoformat(),
+        ))
+    return summaries
 
 
 @router.get("/agent/host/sessions/{session_id}/actions", response_model=AgentHostActionsResponse)
@@ -235,6 +317,32 @@ async def post_agent_host_event(
         raise HTTPException(status_code=422, detail="unsupported host event kind")
     if event.message_id in session["events"]:
         return AgentHostEventResponse(accepted=True, duplicate=True)
+    state_status = None
+    if event.kind == "tool_result":
+        from app.agent.workflow_registry import resume_workflow_from_local_result
+
+        if not event.task_id or event.revision is None:
+            raise HTTPException(status_code=422, detail="tool_result requires task_id and revision")
+        result = {
+            **event.payload,
+            "event_id": event.message_id,
+            "schema_version": event.schema_version,
+            "session_id": session_id,
+            "task_id": event.task_id,
+            "revision": event.revision,
+            "source": "local",
+        }
+        try:
+            state = await resume_workflow_from_local_result(
+                session_id=session_id,
+                task_id=event.task_id,
+                result=result,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (TypeError, ValueError, RuntimeError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        state_status = state.status
     session["events"][event.message_id] = _dump_model(event)
     if event.kind == "tool_result" and event.message_id.endswith(":result"):
         source_message_id = event.message_id.removesuffix(":result")
@@ -243,7 +351,7 @@ async def post_agent_host_event(
             if action.get("message_id") != source_message_id
         ]
     _session_store.save(session_id, session)
-    return AgentHostEventResponse(accepted=True)
+    return AgentHostEventResponse(accepted=True, state_status=state_status)
 
 
 @router.put("/agent/host/sessions/{session_id}/policy", response_model=PolicyUpdateResponse)
@@ -269,3 +377,72 @@ async def update_agent_host_policy(
     })
     _session_store.save(session_id, session)
     return PolicyUpdateResponse(policy_version=next_version, policy=request.policy)
+
+
+def _queue_session_action(session_id: str, session: dict[str, Any], action: dict[str, Any]) -> None:
+    envelope = {
+        "message_id": str(uuid4()),
+        "schema_version": SUPPORTED_PROTOCOL_VERSION,
+        "session_id": session_id,
+        "kind": action["kind"],
+        "policy_version": session["policy_version"],
+        "payload": action["payload"],
+    }
+    if action.get("capability") is not None:
+        envelope["capability"] = action["capability"]
+    session["pending_actions"].append(envelope)
+
+
+@router.put("/agent/host/sessions/{session_id}/skills")
+async def sync_agent_host_skills(
+    session_id: str,
+    request: SkillSyncRequest,
+    token: dict = Depends(verify_token),
+) -> dict[str, Any]:
+    session = _get_session(session_id, token)
+    session["skills"] = request.skills
+    _queue_session_action(session_id, session, {
+        "kind": "tool_action",
+        "capability": "skill_runtime",
+        "payload": {"operation": "sync", "skills": request.skills},
+    })
+    _session_store.save(session_id, session)
+    return {"skills": session["skills"], "policy_version": session["policy_version"]}
+
+
+@router.delete("/agent/host/sessions/{session_id}/skills/{skill_name}")
+async def revoke_agent_host_skill(
+    session_id: str,
+    skill_name: str,
+    token: dict = Depends(verify_token),
+) -> dict[str, Any]:
+    session = _get_session(session_id, token)
+    session["skills"].pop(skill_name, None)
+    _queue_session_action(session_id, session, {
+        "kind": "skill_revoke",
+        "capability": "skill_runtime",
+        "payload": {"skill_name": skill_name},
+    })
+    _session_store.save(session_id, session)
+    return {"skills": session["skills"]}
+
+
+@router.post("/agent/host/sessions/{session_id}/control")
+async def control_agent_host_session(
+    session_id: str,
+    request: SessionControlRequest,
+    token: dict = Depends(verify_token),
+) -> dict[str, str]:
+    session = _get_session(session_id, token)
+    if request.action == "cancel":
+        session["control_status"] = "cancelled"
+    elif request.action == "pause":
+        session["control_status"] = "paused"
+    else:
+        session["control_status"] = "active"
+    _queue_session_action(session_id, session, {
+        "kind": "session_control",
+        "payload": {"action": request.action},
+    })
+    _session_store.save(session_id, session)
+    return {"status": session["control_status"]}
