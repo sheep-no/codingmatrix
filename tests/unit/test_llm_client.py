@@ -20,6 +20,18 @@ from app.agent.llm_client import (
 )
 
 
+@pytest.fixture(autouse=True)
+def reset_llm_semaphores():
+    """每个用例使用独立的并发状态，避免跨模块测试污染。"""
+    import app.agent.llm_client as llm_client
+
+    llm_client._global_semaphore = None
+    llm_client._model_semaphores.clear()
+    yield
+    llm_client._global_semaphore = None
+    llm_client._model_semaphores.clear()
+
+
 class TestGlobalSemaphore:
     def test_semaphore_returns_same_instance(self):
         s1 = get_global_semaphore()

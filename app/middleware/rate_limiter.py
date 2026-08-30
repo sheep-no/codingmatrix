@@ -49,6 +49,7 @@ class RateLimiter:
             "/api/v1/register": (10, 60),
             "/api/v1/refresh": (10, 60),
             "/api/v1/files/upload": (20, 60),
+            "/api/v1/chat": (60, 60),
             "/api/v1/code": (60, 60),
             "/api/v1/generate": (60, 60),
             "/api/v1/pptx": (60, 60),

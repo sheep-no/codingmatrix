@@ -378,6 +378,8 @@ async def modify_project(
                         session_id=session_id,
                         task_id=session_id,
                         metadata={"project_path": str(project_dir)},
+                        db=db,
+                        user_id=int(user_id),
                     )
                     gen_result = graph_state.metadata["legacy_result"]
                     files_generated = gen_result.get("total_files_created", 0)
@@ -500,6 +502,8 @@ async def orchestrate_project(
             session_id=str(session_id or output_dir),
             task_id=str(session_id or output_dir),
             metadata={"requirement": request.requirement, "output_dir": output_dir},
+            db=db,
+            user_id=int(user_id),
         )
         result = graph_state.metadata["legacy_result"]
 
@@ -836,6 +840,8 @@ async def orchestrate_project_stream(
                         session_id=session_id,
                         task_id=session_id,
                         metadata={"output_dir": output_dir},
+                        db=db,
+                        user_id=int(user_id),
                     )
                     result = graph_state.metadata["legacy_result"]
                     # 检查是否在生成完成后被取消（stop_project 竞态保护）

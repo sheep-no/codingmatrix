@@ -219,14 +219,10 @@ class LLMClient:
         if self._semaphore:
             if self._cancel_event and self._cancel_event.is_set():
                 raise asyncio.CancelledError("请求已取消")
-            # 同时获取全局信号量和按模型信号量
-            await self._semaphore.acquire()
-            await self._model_semaphore.acquire()
-            try:
-                stream_iter = await asyncio.wait_for(_do_call_stream(), timeout=call_timeout)
-            finally:
-                self._model_semaphore.release()
-                self._semaphore.release()
+            # 嵌套上下文确保等待模型额度时被取消也会释放全局额度。
+            async with self._semaphore:
+                async with self._model_semaphore:
+                    stream_iter = await asyncio.wait_for(_do_call_stream(), timeout=call_timeout)
         else:
             stream_iter = await asyncio.wait_for(_do_call_stream(), timeout=call_timeout)
 
@@ -340,14 +336,10 @@ class LLMClient:
             if self._semaphore:
                 if self._cancel_event and self._cancel_event.is_set():
                     raise asyncio.CancelledError("请求已取消")
-                # 同时获取全局信号量和按模型信号量
-                await self._semaphore.acquire()
-                await self._model_semaphore.acquire()
-                try:
-                    response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
-                finally:
-                    self._model_semaphore.release()
-                    self._semaphore.release()
+                # 嵌套上下文确保等待模型额度时被取消也会释放全局额度。
+                async with self._semaphore:
+                    async with self._model_semaphore:
+                        response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
             else:
                 response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
 

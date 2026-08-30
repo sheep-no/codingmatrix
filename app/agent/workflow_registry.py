@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Iterable, Optional
 
 from app.agent.adapters import legacy_result_to_delta
 from app.agent.state import State, StateGraph, StateGraphBuilder
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,8 @@ async def run_workflow(
     session_id: str,
     task_id: str,
     metadata: Optional[Dict[str, Any]] = None,
+    db: Optional["AsyncSession"] = None,
+    user_id: Optional[int] = None,
 ) -> State:
     """Execute a registered workflow from a serializable initial State."""
 
@@ -88,4 +93,8 @@ async def run_workflow(
         except KeyError:
             # A workflow can run without a connected local Host.
             pass
+    if db is not None and user_id is not None:
+        from app.services.agent_state_adapter import persist_agent_state
+
+        await persist_agent_state(db, user_id, state)
     return state

@@ -113,7 +113,7 @@ async def lifespan(App: FastAPI):
 
     init_rate_limit(App)
 
-    redis_url = os.getenv("REDIS_URL")
+    redis_url = settings.REDIS_URL
     if redis_url:
         cache = await get_cache_manager(redis_url=redis_url)
         logger.info(f"Redis 缓存已初始化 | backend={cache.backend}")
@@ -129,7 +129,7 @@ async def lifespan(App: FastAPI):
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"数据库迁移异常 | error={str(e)}")
 
-    if os.getenv("ENABLE_SCHEDULER", "false").lower() in {"1", "true", "yes"}:
+    if settings.ENABLE_SCHEDULER:
         try:
             start_scheduler()
             scheduler_started = True
@@ -295,7 +295,7 @@ async def _restore_user_providers():
 #     return {"msg": "ok"}
 
 app.include_router(userRouter, prefix="/api/v1", tags=["auth"])
-app.include_router(codeRouter, prefix="/api/v1", tags=["code"])
+app.include_router(codeRouter, prefix="/api/v1", tags=["chat"])
 app.include_router(GirlAiRouter, prefix="/api/v1", tags=["GirlAi"])
 app.include_router(pptxRouter, prefix="/api/v1", tags=["pptx"])
 app.include_router(fileUploadRouter, prefix="/api/v1", tags=["files"])

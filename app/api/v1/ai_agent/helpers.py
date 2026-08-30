@@ -359,7 +359,10 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
             is_zombie = False
             
             # 检查 1：最后活动时间超过 7 天
-            if session.last_activity_at and session.last_activity_at < timeout_threshold:
+            last_activity_at = session.last_activity_at
+            if last_activity_at and last_activity_at.tzinfo is None:
+                last_activity_at = last_activity_at.replace(tzinfo=timezone.utc)
+            if last_activity_at and last_activity_at < timeout_threshold:
                 is_zombie = True
                 logger.warning(f"检测到超时会话 (最后活动超过7天): session_id={session.session_id}, user_id={user_id}")
             

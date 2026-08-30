@@ -13,8 +13,8 @@ const crypto = require('crypto');
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
 
-// 真实的 SiliconFlow API Key
-const REAL_API_KEY = 'sk-hvrcuxxqjhkdsaysyqeulrvsjieknsdqablvxhuhesiuinny';
+// 通过测试环境变量提供 SiliconFlow API Key
+const REAL_API_KEY = process.env.TEST_API_KEY;
 
 // RSA 加密函数
 function encryptWithPublicKey(publicKeyPem, data) {
@@ -40,7 +40,7 @@ async function submitApiKey(page, apiKey, token, provider = 'siliconflow') {
   if (keys.length > 0) {
     const existingKey = keys.find(k => k.provider === provider);
     if (existingKey) {
-      console.log(`[DEBUG] 使用已存在的 API Key: ${existingKey.token}`);
+      console.log('[DEBUG] 使用已存在的 SiliconFlow API Key');
       return { success: true, token: existingKey.token };
     }
   }
@@ -122,6 +122,7 @@ async function getPageState(page) {
 test.describe('Agent 逻辑错误修复能力测试', () => {
   test('生成项目 → 删除代码行 → 模糊问题 → Agent 修复', async ({ page }) => {
     test.setTimeout(900000); // 15分钟超时
+    test.skip(!REAL_API_KEY, '需要设置 TEST_API_KEY 才能执行真实模型验收');
 
     // 捕获浏览器控制台日志
     page.on('console', msg => {
@@ -136,7 +137,7 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     let loginResult;
     try {
       loginResult = await apiLogin(page, BASE_URL);
-      console.log('[DEBUG] 登录成功:', loginResult);
+      console.log('[DEBUG] 登录成功');
     } catch (error) {
       console.log('[ERROR] 登录失败:', error.message);
       test.skip();
@@ -220,7 +221,7 @@ test.describe('Agent 逻辑错误修复能力测试', () => {
     await page.waitForTimeout(1000);
 
     // 点击生成按钮
-    const generateBtn = page.locator('button:has-text("开始生成")').first();
+    const generateBtn = page.locator('.action-buttons .btn-primary').first();
     await generateBtn.click({ force: true });
     console.log('[DEBUG] 已点击生成按钮');
 

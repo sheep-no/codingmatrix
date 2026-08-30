@@ -1,6 +1,10 @@
 const { test, expect } = require('@playwright/test')
 
+const TEST_EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com'
+const TEST_PASSWORD = process.env.TEST_ADMIN_PASSWORD
+
 test('Agent API 测试', async ({ request }) => {
+  test.skip(!TEST_PASSWORD, '需要设置 TEST_ADMIN_PASSWORD 才能执行认证 API 验收')
   const csrfResponse = await request.get('/api/v1/csrf-token')
   const csrfData = await csrfResponse.json()
   expect(csrfData.csrf_token).toBeTruthy()
@@ -8,11 +12,12 @@ test('Agent API 测试', async ({ request }) => {
   const loginResponse = await request.post('/api/v1/login', {
     headers: {
       'Content-Type': 'application/json',
-      'X-CSRF-Token': csrfData.csrf_token
+      'X-CSRF-Token': csrfData.csrf_token,
+      'Cookie': `csrf_token=${csrfData.csrf_token}`
     },
     data: {
-      email: 'admin@example.com',
-      password: 'admin123'
+      email: TEST_EMAIL,
+      password: TEST_PASSWORD
     }
   })
   expect(loginResponse.ok()).toBeTruthy()
@@ -28,22 +33,24 @@ test('Agent API 测试', async ({ request }) => {
   const modelConfig = await modelConfigResponse.json()
   console.log('Agent model config:', JSON.stringify(modelConfig, null, 2))
   
-  expect(modelConfig.assignments).toBeTruthy()
-  expect(modelConfig.fallback_chains).toBeTruthy()
+  expect(modelConfig.roles).toBeTruthy()
+  expect(modelConfig.fallback_chain).toBeTruthy()
 })
 
 test('动态供应商 API 测试', async ({ request }) => {
+  test.skip(!TEST_PASSWORD, '需要设置 TEST_ADMIN_PASSWORD 才能执行认证 API 验收')
   const csrfResponse = await request.get('/api/v1/csrf-token')
   const csrfData = await csrfResponse.json()
   
   const loginResponse = await request.post('/api/v1/login', {
     headers: {
       'Content-Type': 'application/json',
-      'X-CSRF-Token': csrfData.csrf_token
+      'X-CSRF-Token': csrfData.csrf_token,
+      'Cookie': `csrf_token=${csrfData.csrf_token}`
     },
     data: {
-      email: 'admin@example.com',
-      password: 'admin123'
+      email: TEST_EMAIL,
+      password: TEST_PASSWORD
     }
   })
   const loginData = await loginResponse.json()

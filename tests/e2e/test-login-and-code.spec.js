@@ -103,10 +103,10 @@ test.describe('用户登录并测试 Code API', () => {
         console.log('API Key 页面包含必填:', apikeyText.includes('必填'))
       }
       
-      // 测试 Code API
+      // 测试 Chat API
       const codeResult = await page.evaluate(async (token) => {
         try {
-          const response = await fetch('/api/v1/code', {
+          const response = await fetch('/api/v1/chat', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

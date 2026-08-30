@@ -99,24 +99,12 @@ class ModelRegistry:
             speed=1.0
         ),
 
-        # Nex 系列
-        "nex-n2-pro": ModelInfo(
-            key="nex-n2-pro",
-            name="nex-agi/Nex-N2-Pro",
-            display_name="Nex N2 Pro",
-            capabilities=[ModelCapability.REASONING, ModelCapability.FAST],
-            max_tokens=8192,
-            thinking_budget=8192,
-            temperature=0.7,
-            speed=1.0
-        ),
-
         # Qwen 系列
         "qwen3.5-4b": ModelInfo(
             key="qwen3.5-4b",
             name="Qwen/Qwen3.5-4B",
             display_name="Qwen 3.5 4B",
-            capabilities=[ModelCapability.FAST],
+            capabilities=[ModelCapability.FAST, ModelCapability.VISION],
             max_tokens=4096,
             thinking_budget=4096,
             temperature=0.7,
@@ -143,17 +131,6 @@ class ModelRegistry:
             speed=1.8
         ),
 
-        # GLM 系列
-        "glm-4.1v-9b": ModelInfo(
-            key="glm-4.1v-9b",
-            name="THUDM/GLM-4.1V-9B-Thinking",
-            display_name="GLM-4.1V 9B (Thinking)",
-            capabilities=[ModelCapability.VISION, ModelCapability.REASONING],
-            max_tokens=4096,
-            thinking_budget=4096,
-            temperature=0.7,
-            speed=0.8
-        ),
         "glm-4-9b": ModelInfo(
             key="glm-4-9b",
             name="THUDM/GLM-4-9B-0414",
@@ -224,7 +201,7 @@ class ModelRouter:
         TaskType.CODE_GENERATION: ["qwen2.5-7b", "deepseek-r1-qwen3-8b"],
         TaskType.CODE_REVIEW: ["deepseek-r1-qwen3-8b", "glm-z1-9b"],
         TaskType.FILE_OPERATION: ["glm-4-9b", "qwen3.5-4b"],
-        TaskType.VISUAL_UNDERSTANDING: ["glm-4.1v-9b", "deepseek-ocr"],
+        TaskType.VISUAL_UNDERSTANDING: ["qwen3.5-4b", "deepseek-ocr"],
         TaskType.IMAGE_GENERATION: ["kolors"],
         TaskType.REASONING: ["deepseek-r1-qwen3-8b", "glm-z1-9b"],
         TaskType.FAST_RESPONSE: ["qwen3.5-4b", "glm-4-9b"],

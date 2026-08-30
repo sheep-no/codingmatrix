@@ -26,7 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
 from app.db.database import get_db
-from app.utils.security import verify_token
+from app.db.database import async_session
+from app.utils.security import verify_token, verify_token_ws
 from app.utils.task_manager import task_manager
 from app.schema.task_schema import TaskResponse
 
@@ -39,6 +40,7 @@ from app.utils.visual import (
 )
 
 from app.models.file import File
+from app.models.task import Task
 from sqlalchemy import select
 
 # PPT 工具模块
@@ -62,6 +64,28 @@ router = APIRouter(tags=["PPT 生成 (增强版)"])
 PPT_DEFAULT_MODEL = "THUDM/GLM-Z1-9B-0414"
 PPT_MAX_SLIDES = 50
 PPT_OUTPUT_DIR = Path("./pptx_output")
+PPT_OWNER_DIR = PPT_OUTPUT_DIR / ".owners"
+
+
+def _register_ppt_owner(ppt_id: str, user_id: str) -> None:
+    """Register the owner of a generated PPT artifact."""
+    PPT_OWNER_DIR.mkdir(parents=True, exist_ok=True)
+    with open(PPT_OWNER_DIR / f"{ppt_id}.json", "w", encoding="utf-8") as owner_file:
+        json.dump({"ppt_id": ppt_id, "user_id": str(user_id)}, owner_file)
+
+
+def _verify_ppt_owner(ppt_id: str, user_id: str) -> None:
+    """Reject access when an artifact has a different registered owner."""
+    owner_path = PPT_OWNER_DIR / f"{ppt_id}.json"
+    if not owner_path.exists():
+        raise HTTPException(status_code=404, detail="PPT 任务不存在或已过期")
+    try:
+        with open(owner_path, "r", encoding="utf-8") as owner_file:
+            owner = json.load(owner_file)
+    except (OSError, ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="PPT 任务状态不可用")
+    if str(owner.get("user_id")) != str(user_id):
+        raise HTTPException(status_code=403, detail="无权访问此 PPT")
 
 # 所有合法模板 ID（前端、后端、配置文件共用此列表）
 VALID_TEMPLATE_IDS = [
@@ -804,6 +828,24 @@ async def generate_ppt_task(
     """
     user_id = token.get("sub", "anonymous")
     conversation_id = req.conversation_id
+
+    if os.getenv("PPT_USE_CELERY", "false").lower() in {"1", "true", "yes"}:
+        from app.services.ppt_dispatch_service import dispatch_ppt_to_celery
+
+        task_id, celery_task_id = await dispatch_ppt_to_celery(
+            db,
+            int(user_id),
+            req.model_dump(mode="json"),
+        )
+        return TaskResponse(
+            task_id=task_id,
+            celery_task_id=celery_task_id,
+            task_type="ppt_generation",
+            status="pending",
+            progress=0,
+            progress_message="等待 Celery worker...",
+            created_at=datetime.now().isoformat(),
+        )
     
     # 解析 material_file_ids (兼容旧版 prompt 格式)
     material_file_ids = req.material_file_ids or []
@@ -817,8 +859,16 @@ async def generate_ppt_task(
     ppt_id = str(uuid.uuid4())
     
     async def run_ppt_generation(task_id: str, **kwargs):
+        _register_ppt_owner(task_id, user_id)
         async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
-            await task_manager.update_progress(task_id, progress, message)
+            await task_manager.update_progress(
+                task_id,
+                progress,
+                message,
+                status=status,
+                result_data=result_data,
+                error_message=_kwargs.get("error_message"),
+            )
 
         try:
             await update_progress(progress=5, message="正在准备上下文...")
@@ -899,17 +949,19 @@ async def generate_ppt_task(
                 # 默认回退到 PPTX
                 await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress)
 
+            result = {
+                "filename": filepath.name,
+                "ppt_id": task_id,
+                "download_url": f"/api/v1/pptx/download/{task_id}?format={ext}",
+                "preview_url": f"/api/v1/pptx/preview/{task_id}" if req.output_format == OutputFormat.PPTX else None
+            }
             await update_progress(
                 progress=100,
                 message="PPT 生成完成",
                 status="completed",
-                result_data=json.dumps({
-                    "filename": filepath.name,
-                    "ppt_id": task_id,
-                    "download_url": f"/api/v1/pptx/download/{task_id}?format={ext}",
-                    "preview_url": f"/api/v1/pptx/preview/{task_id}" if req.output_format == OutputFormat.PPTX else None
-                })
+                result_data=json.dumps(result)
             )
+            return result
             
         except asyncio.CancelledError:
             # 取消时保存已有的中间状态
@@ -981,6 +1033,7 @@ async def generate_ppt(
         else:
             await generate_pptx_file_enhanced(filepath, outline, req)
 
+        _register_ppt_owner(ppt_id, user_id)
         return PPTGenerationResponse(
             id=ppt_id,
             status="completed",
@@ -1005,6 +1058,7 @@ async def download_ppt(
 ):
     """下载 PPT 文件"""
     user_id = token.get("sub", "anonymous")
+    _verify_ppt_owner(ppt_id, user_id)
     output_dir = PPT_OUTPUT_DIR
     
     possible_extensions = ["pptx", "pdf", "html", "md"]
@@ -1051,6 +1105,7 @@ async def preview_ppt(
 ):
     """在线预览 PPT"""
     user_id = token.get("sub", "anonymous")
+    _verify_ppt_owner(ppt_id, user_id)
     output_dir = PPT_OUTPUT_DIR
     pptx_path = output_dir / f"{ppt_id}.pptx"
     
@@ -1075,6 +1130,7 @@ async def get_ppt_slides(
     token: dict = Depends(verify_token)
 ):
     """获取 PPT 幻灯片数据 (JSON)"""
+    _verify_ppt_owner(ppt_id, token.get("sub", "anonymous"))
     output_dir = PPT_OUTPUT_DIR
     json_path = output_dir / f"{ppt_id}_slides.json"
     
@@ -1121,6 +1177,7 @@ async def update_ppt_task(
 ):
     """基于已有的大纲/中间状态增量生成 PPT"""
     user_id = token.get("sub")
+    _verify_ppt_owner(task_id, user_id)
     output_dir = PPT_OUTPUT_DIR
 
     # 查找之前的幻灯片数据
@@ -1186,20 +1243,27 @@ async def update_ppt_task(
                 merged_outline = {"title": new_title, "slides": new_slides}
                 await generate_pptx_file_enhanced(filepath, merged_outline, new_req, update_progress=update_progress)
 
+            # 只有新文件生成成功后才更新快照，保留上一版可恢复内容。
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(new_slides, f, ensure_ascii=False, indent=2)
+            logger.info(f"更新大纲快照 | task_id={task_id} | slides={len(new_slides)}")
+
             ext_map = {OutputFormat.PPTX: "pptx", OutputFormat.HTML: "html", OutputFormat.MARKDOWN: "md"}
             ext = ext_map.get(new_req.output_format, "pptx")
 
+            result = {
+                "filename": filepath.name,
+                "ppt_id": task_id,
+                "download_url": f"/api/v1/pptx/download/{task_id}?format={ext}",
+                "preview_url": f"/api/v1/pptx/preview/{task_id}" if new_req.output_format == OutputFormat.PPTX else None
+            }
             await update_progress(
                 progress=100,
                 message="PPT 更新完成",
                 status="completed",
-                result_data=json.dumps({
-                    "filename": filepath.name,
-                    "ppt_id": task_id,
-                    "download_url": f"/api/v1/pptx/download/{task_id}?format={ext}",
-                    "preview_url": f"/api/v1/pptx/preview/{task_id}" if new_req.output_format == OutputFormat.PPTX else None
-                })
+                result_data=json.dumps(result)
             )
+            return result
 
         except Exception as e:
             await update_progress(
@@ -1252,6 +1316,7 @@ async def modify_ppt_visual_endpoint(
     """
     user_id = token.get("sub", "anonymous")
     output_dir = PPT_OUTPUT_DIR
+    _verify_ppt_owner(task_id, user_id)
 
     # 查找已有的 PPTX 文件
     pptx_path = output_dir / f"{task_id}.pptx"
@@ -1279,6 +1344,7 @@ async def modify_ppt_visual_endpoint(
         )
 
         if result["success"]:
+            _register_ppt_owner(new_task_id, user_id)
             return {
                 "success": True,
                 "message": result["message"],
@@ -1637,6 +1703,7 @@ async def generate_ppt_from_text_task(
         outline_dict = PPTAgent.adapt_for_pptx_engine(outline)
 
         async def run_ppt_gen(task_id: str, **kwargs):
+            _register_ppt_owner(task_id, user_id)
             async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
                 await task_manager.update_progress(task_id, progress, message)
 
@@ -1669,17 +1736,19 @@ async def generate_ppt_from_text_task(
                 await update_progress(progress=20, message="正在生成 PPTX 文件...")
                 await generate_pptx_file_enhanced(filepath, outline_dict, compat_req, update_progress=update_progress)
 
+                result = {
+                    "filename": filepath.name,
+                    "ppt_id": task_id,
+                    "download_url": f"/api/v1/pptx/download/{task_id}?format=pptx",
+                    "preview_url": f"/api/v1/pptx/preview/{task_id}",
+                }
                 await update_progress(
                     progress=100,
                     message="PPT 生成完成",
                     status="completed",
-                    result_data=json.dumps({
-                        "filename": filepath.name,
-                        "ppt_id": task_id,
-                        "download_url": f"/api/v1/pptx/download/{task_id}?format=pptx",
-                        "preview_url": f"/api/v1/pptx/preview/{task_id}",
-                    })
+                    result_data=json.dumps(result)
                 )
+                return result
 
             except asyncio.CancelledError:
                 await update_progress(status="cancelled", message="任务已取消")
@@ -1796,6 +1865,7 @@ async def generate_ppt_from_file(
     ppt_id = str(uuid.uuid4())
 
     async def run_file_ppt_generation(task_id: str, **kwargs):
+        _register_ppt_owner(task_id, user_id)
         async def update_progress(progress: int = 0, message: str = "", **_kwargs):
             await task_manager.update_progress(task_id, progress, message)
 
@@ -1829,18 +1899,20 @@ async def generate_ppt_from_file(
             else:
                 await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress)
 
+            result = {
+                "filename": filepath.name,
+                "ppt_id": task_id,
+                "source_file": filename,
+                "download_url": f"/api/v1/pptx/download/{task_id}?format={ext}",
+                "preview_url": f"/api/v1/pptx/preview/{task_id}" if output_format == "pptx" else None,
+            }
             await update_progress(
                 progress=100,
                 message="PPT 生成完成",
                 status="completed",
-                result_data=json.dumps({
-                    "filename": filepath.name,
-                    "ppt_id": task_id,
-                    "source_file": filename,
-                    "download_url": f"/api/v1/pptx/download/{task_id}?format={ext}",
-                    "preview_url": f"/api/v1/pptx/preview/{task_id}" if output_format == "pptx" else None,
-                })
+                result_data=json.dumps(result)
             )
+            return result
 
         except asyncio.CancelledError:
             await update_progress(status="cancelled", message="任务已取消")
@@ -2037,6 +2109,17 @@ async def ppt_progress_websocket(websocket: WebSocket, task_id: str):
     - {"type": "completed", "progress": 1, "step": "completed", "message": "任务完成"}
     - {"type": "error", "error": "错误信息"}
     """
+    access_token = websocket.query_params.get("token", "")
+    valid, payload, close_code, reason = verify_token_ws(access_token)
+    if not valid or not payload:
+        await websocket.close(code=close_code or 1008, reason=reason or "未授权")
+        return
+    try:
+        _verify_ppt_owner(task_id, payload.get("sub", ""))
+    except HTTPException as error:
+        await websocket.close(code=1008, reason=str(error.detail))
+        return
+
     await websocket.accept()
     logger.info(f"PPT WebSocket 连接已建立 | task_id={task_id}")
 
@@ -2046,10 +2129,77 @@ async def ppt_progress_websocket(websocket: WebSocket, task_id: str):
 
         last_progress = -1
         last_status = ""
+        try:
+            last_event_sequence = max(0, int(websocket.query_params.get("after_sequence", "0")))
+        except ValueError:
+            last_event_sequence = 0
+        snapshot_sent = False
 
         while True:
+            # SQL 事件日志提供断线后的可靠重放来源。
+            try:
+                from app.services.task_event_service import replay_task_events
+
+                async with async_session() as event_db:
+                    events = await replay_task_events(
+                        event_db,
+                        task_id,
+                        int(payload.get("sub", 0)),
+                        after_sequence=last_event_sequence,
+                        limit=100,
+                    )
+                for event in events:
+                    await websocket.send_json({
+                        "type": event.event_type,
+                        "sequence": event.sequence,
+                        "status": event.status,
+                        "progress": event.progress,
+                        "payload": event.payload_json,
+                        "created_at": event.created_at.isoformat() if event.created_at else None,
+                    })
+                    last_event_sequence = event.sequence
+                if last_event_sequence > 0 and not events and not snapshot_sent:
+                    from app.services.task_checkpoint_service import get_latest_checkpoint
+
+                    async with async_session() as checkpoint_db:
+                        checkpoint = await get_latest_checkpoint(
+                            checkpoint_db,
+                            task_id,
+                            int(payload.get("sub", 0)),
+                        )
+                    if checkpoint:
+                        await websocket.send_json({
+                            "type": "snapshot_recovery",
+                            "sequence": last_event_sequence,
+                            "revision": checkpoint.revision,
+                            "step": checkpoint.step,
+                            "state": checkpoint.state_json,
+                        })
+                    snapshot_sent = True
+            except Exception as event_error:
+                logger.debug(f"PPT SQL 事件重放暂不可用 | task_id={task_id} | error={event_error}")
+
             # 查询任务状态
             task_info = await task_manager.get_task_info_async(task_id)
+
+            if not task_info:
+                async with async_session() as task_db:
+                    task_result = await task_db.execute(
+                        select(Task).where(
+                            Task.task_id == task_id,
+                            Task.user_id == int(payload.get("sub", 0)),
+                        )
+                    )
+                    task_record = task_result.scalar_one_or_none()
+                if task_record:
+                    task_info = {
+                        "task_id": task_record.task_id,
+                        "status": task_record.status,
+                        "progress": task_record.progress or 0,
+                        "progress_message": task_record.progress_message or "",
+                        "result": task_record.result or task_record.result_json or {},
+                        "error_message": task_record.error_message,
+                    }
 
             if not task_info:
                 await websocket.send_json({

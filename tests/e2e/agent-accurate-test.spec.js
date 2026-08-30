@@ -7,6 +7,8 @@
 
 const { test, expect } = require('@playwright/test');
 
+const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
+
 // 复杂的全栈项目需求
 const COMPLEX_REQUIREMENT = `
 请生成一个完整的待办事项管理系统（Todo Management System），要求如下：
@@ -133,7 +135,7 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
       console.log('\n=== 测试 3: Agent API 实际测试 ===');
       
       // 先登录获取 Token
-      const loginResponse = await page.request.post('http://localhost:8080/api/v1/login', {
+      const loginResponse = await page.request.post(`${API_BASE}/api/v1/login`, {
         data: {
           email: 'mr_yang@example.com',
           password: '12345678'
@@ -161,7 +163,7 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
       console.log('发送简单需求到 Agent...');
       console.log('需求:', simpleRequirement);
       
-      const response = await page.request.post('http://localhost:8080/api/v1/agent/generate', {
+      const response = await page.request.post(`${API_BASE}/api/v1/agent/generate`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -198,7 +200,7 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
       // 获取 Token
       let token = await page.evaluate(() => localStorage.getItem('access_token'));
       if (!token) {
-        const loginResponse = await page.request.post('http://localhost:8080/api/v1/login', {
+        const loginResponse = await page.request.post(`${API_BASE}/api/v1/login`, {
           data: { email: 'mr_yang@example.com', password: '12345678' }
         });
         if (loginResponse.status() === 200) {
@@ -226,7 +228,7 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
       console.log('发送中等需求到 Agent...');
       console.log('需求长度:', mediumRequirement.length, '字符');
       
-      const response = await page.request.post('http://localhost:8080/api/v1/agent/generate', {
+      const response = await page.request.post(`${API_BASE}/api/v1/agent/generate`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -262,7 +264,7 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
       // 获取 Token
       let token = await page.evaluate(() => localStorage.getItem('access_token'));
       if (!token) {
-        const loginResponse = await page.request.post('http://localhost:8080/api/v1/login', {
+        const loginResponse = await page.request.post(`${API_BASE}/api/v1/login`, {
           data: { email: 'mr_yang@example.com', password: '12345678' }
         });
         if (loginResponse.status() === 200) {
@@ -283,7 +285,7 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
       
       const startTime = Date.now();
       
-      const response = await page.request.post('http://localhost:8080/api/v1/agent/generate', {
+      const response = await page.request.post(`${API_BASE}/api/v1/agent/generate`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -353,7 +355,7 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
       // 获取 Token
       let token = await page.evaluate(() => localStorage.getItem('access_token'));
       if (!token) {
-        const loginResponse = await page.request.post('http://localhost:8080/api/v1/login', {
+        const loginResponse = await page.request.post(`${API_BASE}/api/v1/login`, {
           data: { email: 'mr_yang@example.com', password: '12345678' }
         });
         if (loginResponse.status() === 200) {
@@ -367,7 +369,7 @@ test.describe('多模态 Agent 全栈项目生成准确测试', () => {
       }
       
       // 测试复杂度分析 API
-      const response = await page.request.post('http://localhost:8080/api/v1/agent/analyze_complexity', {
+      const response = await page.request.post(`${API_BASE}/api/v1/agent/analyze_complexity`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'

@@ -212,7 +212,7 @@ test.describe('前端界面测试 Code API', () => {
       
       console.log('已发送消息，等待流式响应...')
       
-      // 监听网络请求，验证是否调用了 /api/v1/code 接口
+       // 监听网络请求，验证是否调用了 /api/v1/chat 接口
       const codeApiCalled = await page.evaluate(() => {
         return new Promise((resolve) => {
           const originalFetch = window.fetch
@@ -220,9 +220,9 @@ test.describe('前端界面测试 Code API', () => {
           
           window.fetch = function(...args) {
             const url = args[0]
-            if (typeof url === 'string' && url.includes('/api/v1/code')) {
-              apiCalled = true
-              console.log('检测到 /api/v1/code 请求:', url)
+             if (typeof url === 'string' && url.includes('/api/v1/chat')) {
+               apiCalled = true
+               console.log('检测到 /api/v1/chat 请求:', url)
             }
             return originalFetch.apply(this, args)
           }

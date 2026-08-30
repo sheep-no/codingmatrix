@@ -20,6 +20,7 @@ from sqlalchemy import or_
 from app.db.database import get_db
 from app.schema.girl_request import GirlRequest, GirlResponse, HistoryRecord, HistoryResponse
 from app.db.chat_history_service import ChatHistoryService
+from app.services.girlai_state_adapter import append_conversation_turn
 from app.models.chat_history import CustomCharacter, UserPreference
 from app.utils import call_llm
 from app.utils.security import verify_token
@@ -526,6 +527,15 @@ async def generate_message(
                 model=character['model'],
                 tokens_used=tokens_used
             )
+            await append_conversation_turn(
+                db,
+                int(user_id),
+                body.prompt,
+                ai_content,
+                model=character['model'],
+                character_id=getattr(body, 'character_id', None),
+            )
+            await db.commit()
             save_duration = time.time() - save_start_time
             logger.debug(f"对话记录保存完成 | user_id={user_id} | duration={save_duration:.2f}s")
 

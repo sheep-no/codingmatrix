@@ -43,7 +43,8 @@ router = APIRouter()
 async def generate_project(
         req: GenerateRequest,
         token: dict = Depends(verify_token),
-        request: Request = None
+        request: Request = None,
+        db: AsyncSession = Depends(get_db),
 ):
     user_id = token.get("sub", "anonymous")
     # 使用毫秒级时间戳 + UUID 前 8 位避免并发同秒冲突
@@ -93,6 +94,8 @@ async def generate_project(
             session_id=req.session_id or task_id,
             task_id=task_id,
             metadata={"requirement": req.requirement, "output_dir": output_dir},
+            db=db,
+            user_id=int(user_id),
         )
         result = state.metadata["legacy_result"]
 

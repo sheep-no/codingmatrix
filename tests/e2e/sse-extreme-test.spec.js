@@ -7,7 +7,7 @@ const path = require('path');
 const TEST_EMAIL = process.env.TEST_EMAIL || 'mr_yang@example.com';
 const TEST_PASSWORD = process.env.TEST_PASSWORD || '12345678';
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
-const BACKEND_URL = 'http://127.0.0.1:8080';
+const BACKEND_URL = process.env.API_BASE || 'http://127.0.0.1:8000';
 const STATE_FILE = path.resolve(__dirname, '../../test-results/extreme-test-state.json');
 
 // 极限复杂度需求

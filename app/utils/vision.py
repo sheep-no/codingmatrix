@@ -2,9 +2,9 @@
 视觉模型工具 - 支持图片理解和分析
 
 模型分工:
-- THUDM/GLM-4.1V-9B-Thinking: 视觉理解、图像分析（主力）
+- Qwen/Qwen3.5-4B: 视觉理解、图像分析和内容描述（主力）
 - deepseek-ai/DeepSeek-OCR: OCR 文字识别（专用）
-- Qwen/Qwen3-8B: 图像内容描述生成
+- Qwen/Qwen3-8B: 视觉任务降级
 """
 import base64
 import logging
@@ -18,9 +18,9 @@ from fastapi import HTTPException
 logger = logging.getLogger(__name__)
 
 # 视觉模型配置
-VISION_MODEL = "deepseek-ai/DeepSeek-OCR"  # 主力视觉模型（图像理解）
+VISION_MODEL = "Qwen/Qwen3.5-4B"  # 主力视觉模型（图像理解）
 OCR_MODEL = "deepseek-ai/DeepSeek-OCR"  # OCR 专用（文字识别）
-IMAGE_DESC_MODEL = "deepseek-ai/DeepSeek-OCR"  # 图像内容描述生成
+IMAGE_DESC_MODEL = "Qwen/Qwen3.5-4B"  # 图像内容描述生成
 
 # 支持的图片格式
 SUPPORTED_IMAGE_FORMATS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']
@@ -70,9 +70,9 @@ def image_to_base64(image_path: str) -> str:
 
 # 视觉模型降级列表
 VISION_MODEL_FALLBACK = [
-    "THUDM/GLM-4.1V-9B-Thinking",  # 首选视觉模型
+    "Qwen/Qwen3.5-4B",             # 首选视觉模型
     "deepseek-ai/DeepSeek-OCR",    # 降级到 OCR 模型
-    "Qwen/Qwen3-8B"               # 最后降级到通用模型
+    "Qwen/Qwen3-8B"                # 最后降级到通用模型
 ]
 
 
@@ -117,7 +117,7 @@ async def analyze_image(
     分析图片内容（带降级机制）
 
     降级顺序：
-    1. THUDM/GLM-4.1V-9B-Thinking
+    1. Qwen/Qwen3.5-4B
     2. deepseek-ai/DeepSeek-OCR
     3. Qwen/Qwen3-8B
 

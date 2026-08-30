@@ -5,8 +5,9 @@
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:8000'
 
-export const TEST_EMAIL = 'admin@example.com'
-export const TEST_PASSWORD = 'admin123'
+export const TEST_EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com'
+export const TEST_PASSWORD = process.env.TEST_ADMIN_PASSWORD
+let cachedLoginData = null
 
 /**
  * API 登录 - 使用 page.request API
@@ -16,22 +17,30 @@ export const TEST_PASSWORD = 'admin123'
  */
 export async function apiLogin(page, frontendUrl) {
   console.log('[apiLogin] Starting login for', TEST_EMAIL);
+  if (!TEST_PASSWORD) {
+    throw new Error('请设置 TEST_ADMIN_PASSWORD 后再执行认证 E2E')
+  }
   const FRONTEND_URL = frontendUrl || 'http://localhost:3000';
   try {
-    // Get CSRF token and login via API (no page navigation needed for API calls)
-    const csrfResp = await page.request.get(`${BASE_URL}/api/v1/csrf-token`)
-    const csrfData = await csrfResp.json()
-    const csrfToken = csrfData.csrf_token
+    let data = cachedLoginData
+    if (!data) {
+      const csrfResp = await page.request.get(`${BASE_URL}/api/v1/csrf-token`)
+      const csrfData = await csrfResp.json()
+      const csrfToken = csrfData.csrf_token
 
-    // Login via API
-    const loginResp = await page.request.post(`${BASE_URL}/api/v1/login`, {
-      data: { email: TEST_EMAIL, password: TEST_PASSWORD },
-      headers: { 'X-CSRF-Token': csrfToken }
-    })
-    const data = await loginResp.json()
+      const loginResp = await page.request.post(`${BASE_URL}/api/v1/login`, {
+        data: { email: TEST_EMAIL, password: TEST_PASSWORD },
+        headers: {
+          'X-CSRF-Token': csrfToken,
+          Cookie: `csrf_token=${csrfToken}`
+        }
+      })
+      data = await loginResp.json()
 
-    if (!loginResp.ok || !data.access_token) {
-      throw new Error(`Login failed: ${data.message || data.detail || 'Unknown error'}`)
+      if (!loginResp.ok || !data.access_token) {
+        throw new Error(`Login failed: ${data.message || data.detail || 'Unknown error'}`)
+      }
+      cachedLoginData = data
     }
 
     // Navigate to frontend to set storage in correct origin

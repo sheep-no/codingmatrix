@@ -1,7 +1,10 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:8000';
+const FRONTEND_BASE = process.env.BASE_URL || 'http://127.0.0.1:3000';
+const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
+const TEST_EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin_test@example.com';
+const TEST_PASSWORD = process.env.TEST_ADMIN_PASSWORD;
 
 test('Agent 页面 401/500 错误全面诊断', async ({ page, browser }) => {
   const errors401 = [];
@@ -63,11 +66,18 @@ test('Agent 页面 401/500 错误全面诊断', async ({ page, browser }) => {
   // ========== 步骤 1: 通过 API 登录获取 token ==========
   console.log('步骤 1: 通过 API 登录...');
 
-  const loginResponse = await page.request.post(`${BASE_URL}/api/v1/auth/login`, {
+  test.skip(!TEST_PASSWORD, '需要设置 TEST_ADMIN_PASSWORD 才能执行认证诊断');
+  const csrfResponse = await page.request.get(`${API_BASE}/api/v1/csrf-token`);
+  const csrfToken = (await csrfResponse.json()).csrf_token;
+  const loginResponse = await page.request.post(`${API_BASE}/api/v1/login`, {
     data: {
-      username: 'admin',
-      password: 'admin123',
+      email: TEST_EMAIL,
+      password: TEST_PASSWORD,
     },
+    headers: {
+      'X-CSRF-Token': csrfToken,
+      Cookie: `csrf_token=${csrfToken}`
+    }
   });
 
   const loginStatus = loginResponse.status();
@@ -78,7 +88,6 @@ test('Agent 页面 401/500 错误全面诊断', async ({ page, browser }) => {
 
   if (loginStatus === 200) {
     const loginData = await loginResponse.json();
-    console.log('登录响应体:', JSON.stringify(loginData, null, 2));
 
     // 尝试多种可能的 token 字段名
     token = loginData.access_token || loginData.token || loginData.data?.access_token || loginData.data?.token || '';
@@ -87,18 +96,17 @@ test('Agent 页面 401/500 错误全面诊断', async ({ page, browser }) => {
     if (!token) {
       console.log('警告: 登录成功但未找到 token 字段，可用字段:', Object.keys(loginData));
     } else {
-      console.log('成功获取 token (前 20 字符):', token.substring(0, 20) + '...');
+      console.log('成功获取 token');
     }
   } else {
-    const loginBody = await loginResponse.text();
-    console.log('登录失败！响应体:', loginBody);
+    console.log('登录失败');
   }
 
   // ========== 步骤 2: 导航到 /agent 页面 ==========
   console.log('\n步骤 2: 导航到 /agent 页面...');
 
   // 在导航前设置 localStorage
-  await page.goto(`${BASE_URL}/agent`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${FRONTEND_BASE}/agent`, { waitUntil: 'domcontentloaded' });
 
   // 设置 token 到 localStorage
   if (token) {
@@ -111,7 +119,7 @@ test('Agent 页面 401/500 错误全面诊断', async ({ page, browser }) => {
   }
 
   // 刷新页面使 token 生效
-  await page.reload({ waitUntil: 'networkidle', timeout: 30000 });
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
   console.log('页面已刷新');
 
   // 等待页面基本加载
@@ -203,7 +211,7 @@ test('Agent 页面 401/500 错误全面诊断', async ({ page, browser }) => {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const apiResponse = await page.request.get(`${BASE_URL}${endpoint}`, {
+      const apiResponse = await page.request.get(`${API_BASE}${endpoint}`, {
         headers,
       });
 
@@ -213,7 +221,7 @@ test('Agent 页面 401/500 错误全面诊断', async ({ page, browser }) => {
       if (apiStatus === 401 || apiStatus === 500) {
         const apiBody = await apiResponse.text();
         const errorInfo = {
-          url: `${BASE_URL}${endpoint}`,
+          url: `${API_BASE}${endpoint}`,
           status: apiStatus,
           method: 'GET',
           requestHeaders: headers,

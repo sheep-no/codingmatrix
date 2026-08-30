@@ -114,6 +114,8 @@ class TaskManager:
             "completed_at": None
         }
 
+        await self._persist_sql_create(task_info)
+
         # 存储到 Redis
         try:
             r = await self._get_redis()
@@ -145,6 +147,7 @@ class TaskManager:
             for k, v in kwargs.items():
                 task_info[k] = v
             await self._save_task_to_redis(task_id, task_info)
+            await self._persist_sql_update(task_info)
 
         try:
             await _update_status(
@@ -154,16 +157,29 @@ class TaskManager:
             )
 
             result = await func(task_id=task_id, **params)
-
-            await _update_status(
+            latest_task_info = await self._get_task_from_redis(task_id) or task_info
+            terminal_statuses = {
                 TaskStatus.SUCCESS.value,
-                result=result or {},
-                progress=100,
-                progress_message="完成",
-                completed_at=datetime.utcnow().isoformat()
-            )
-
-            logger.info(f"任务完成 | task_id={task_id} | status=success")
+                TaskStatus.FAILED.value,
+                TaskStatus.CANCELLED.value,
+            }
+            if latest_task_info.get("status") in terminal_statuses:
+                task_info = latest_task_info
+                if not task_info.get("completed_at"):
+                    await _update_status(
+                        task_info["status"],
+                        completed_at=datetime.utcnow().isoformat(),
+                    )
+                logger.info(f"任务完成 | task_id={task_id} | status={task_info['status']}")
+            else:
+                await _update_status(
+                    TaskStatus.SUCCESS.value,
+                    result=result or {},
+                    progress=100,
+                    progress_message="完成",
+                    completed_at=datetime.utcnow().isoformat()
+                )
+                logger.info(f"任务完成 | task_id={task_id} | status=success")
 
         except asyncio.CancelledError:
             await _update_status(
@@ -203,9 +219,65 @@ class TaskManager:
         try:
             r = await self._get_redis()
             await r.set(f"{TASK_PREFIX}{task_id}", json.dumps(task_info, default=str), ex=TASK_TTL)
+            await r.publish(f"task_events:{task_id}", json.dumps(task_info, default=str))
         except Exception as e:
             logger.warning(f"Redis 保存失败: {e}")
             self._tasks[task_id] = task_info
+
+    async def _persist_sql_create(self, task_info: dict):
+        """双写统一 SQL 状态；数据库异常不影响旧任务执行。"""
+        try:
+            from app.db.database import async_session
+            from app.services.unified_state_service import create_task
+
+            async with async_session() as db:
+                await create_task(
+                    db,
+                    int(task_info["user_id"]),
+                    task_info["task_type"],
+                    task_id=task_info["task_id"],
+                    session_id=task_info.get("session_id"),
+                    idempotency_key=task_info.get("idempotency_key"),
+                    params=task_info.get("params") or {},
+                    input_file_id=task_info.get("input_file_id"),
+                )
+                await db.commit()
+        except Exception as error:
+            logger.warning("统一任务 SQL 创建失败 | task_id=%s | error=%s", task_info["task_id"], error)
+
+    async def _persist_sql_update(self, task_info: dict):
+        """把 Redis/内存任务快照同步到 SQL，并追加可重放事件。"""
+        try:
+            from app.db.database import async_session
+            from app.services.unified_state_service import append_task_event, transition_task
+
+            async with async_session() as db:
+                await transition_task(
+                    db,
+                    task_info["task_id"],
+                    int(task_info["user_id"]),
+                    task_info["status"],
+                    progress=task_info.get("progress"),
+                    stage=task_info.get("progress_message"),
+                    result=task_info.get("result") or None,
+                    error_message=task_info.get("error_message"),
+                )
+                await append_task_event(
+                    db,
+                    task_info["task_id"],
+                    int(task_info["user_id"]),
+                    "task.updated",
+                    payload={
+                        "progress_message": task_info.get("progress_message"),
+                        "result": task_info.get("result") or {},
+                        "error_message": task_info.get("error_message"),
+                    },
+                    status=task_info["status"],
+                    progress=task_info.get("progress"),
+                )
+                await db.commit()
+        except Exception as error:
+            logger.warning("统一任务 SQL 更新失败 | task_id=%s | error=%s", task_info["task_id"], error)
 
     def get_task_info(self, task_id: str) -> Optional[dict]:
         """获取任务信息（同步）"""
@@ -228,7 +300,15 @@ class TaskManager:
                         pass
         return task_info
 
-    async def update_progress(self, task_id: str, progress: int, message: str = ""):
+    async def update_progress(
+        self,
+        task_id: str,
+        progress: int,
+        message: str = "",
+        status: str = None,
+        result_data: Any = None,
+        error_message: str = None,
+    ):
         """
         更新任务进度
 
@@ -236,13 +316,42 @@ class TaskManager:
             task_id: 任务 ID
             progress: 进度百分比 (0-100)
             message: 进度描述
+            status: 可选任务状态
+            result_data: 可选任务结果
+            error_message: 可选错误信息
         """
         task_info = await self._get_task_from_redis(task_id)
         if task_info and task_info["status"] == TaskStatus.RUNNING.value:
             task_info["progress"] = min(max(0, progress), 100)
             task_info["progress_message"] = message
+            if status:
+                task_info["status"] = TaskStatus.SUCCESS.value if status == "completed" else status
+            if result_data is not None:
+                try:
+                    task_info["result"] = json.loads(result_data) if isinstance(result_data, str) else result_data
+                except (TypeError, ValueError):
+                    task_info["result"] = result_data
+            if error_message:
+                task_info["error_message"] = error_message
             await self._save_task_to_redis(task_id, task_info)
             logger.debug(f"更新进度 | task_id={task_id} | progress={progress}% | message={message}")
+
+    async def reconcile_task(self, task_id: str) -> Optional[dict]:
+        """核对 Redis/内存快照与 SQL 状态，返回差异报告。"""
+        snapshot = await self._get_task_from_redis(task_id)
+        if not snapshot:
+            return None
+        try:
+            from app.db.database import async_session
+            from app.services.unified_state_service import compare_task_snapshot
+
+            async with async_session() as db:
+                report = await compare_task_snapshot(db, task_id, int(snapshot["user_id"]), snapshot)
+                await db.commit()
+                return report
+        except Exception as error:
+            logger.warning("统一任务状态核对失败 | task_id=%s | error=%s", task_id, error)
+            return {"task_id": task_id, "consistent": False, "error": str(error)}
 
     async def cancel_task(self, task_id: str) -> bool:
         """

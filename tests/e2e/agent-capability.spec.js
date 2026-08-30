@@ -13,6 +13,8 @@
 
 const { test, expect } = require('@playwright/test');
 
+const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
+
 // 不同复杂度的需求描述
 const REQUIREMENTS = {
   simple: {
@@ -81,7 +83,7 @@ test.describe('多模态 Agent 核心能力测试', () => {
       console.log('\n=== 测试 1: Agent 服务可用性 ===');
       
       // 检查健康端点
-      const healthResponse = await page.request.get('http://localhost:8080/api/v1/health');
+      const healthResponse = await page.request.get(`${API_BASE}/api/v1/health`);
       expect(healthResponse.status()).toBe(200);
       
       const healthData = await healthResponse.json();
@@ -93,7 +95,7 @@ test.describe('多模态 Agent 核心能力测试', () => {
 
     test('Agent 模型列表端点应返回可用模型', async ({ page }) => {
       // 需要先登录获取 token
-      const loginResponse = await page.request.post('http://localhost:8080/api/v1/login', {
+      const loginResponse = await page.request.post(`${API_BASE}/api/v1/login`, {
         data: {
           email: 'mr_yang@example.com',
           password: '12345678'
@@ -104,7 +106,7 @@ test.describe('多模态 Agent 核心能力测试', () => {
         const loginData = await loginResponse.json();
         const token = loginData.access_token;
         
-        const modelsResponse = await page.request.get('http://localhost:8080/api/v1/agent/models', {
+        const modelsResponse = await page.request.get(`${API_BASE}/api/v1/agent/models`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -172,7 +174,7 @@ test.describe('多模态 Agent 核心能力测试', () => {
       
       const title = await page.title();
       console.log('页面标题:', title);
-      expect(title).toContain('AI');
+      expect(title).toBe('CodingMatrix');
       
       // 检查页面基本结构
       const hasApp = await page.locator('.app-container').first().isVisible();

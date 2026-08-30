@@ -53,6 +53,7 @@ from app.utils import call_llm
 from app.utils.aicloud.model_registry import get_model, get_default_model, get_available_models, get_provider_info
 from app.utils.aicloud.auto_executor import execute_with_llm_loop
 from app.utils.aicloud.sandbox import get_sandbox_workspace_path, ensure_user_sandbox
+from app.services.aicloud_state_adapter import append_legacy_message, ensure_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/aicloud", tags=["aicloud"])
@@ -94,6 +95,7 @@ async def chat(
         session = AicloudSession(id=session_id, user_id=user_id)
         db.add(session)
         await db.commit()
+    await ensure_session(db, user_id, session_id)
 
     messages_result = await db.execute(
         select(AicloudMessage)
@@ -207,6 +209,10 @@ async def chat(
     )
     db.add(user_message)
     await db.commit()
+    await append_legacy_message(
+        db, user_id, session_id, user_message.role, user_message.content, str(user_message.id)
+    )
+    await db.commit()
 
     try:
         # 使用自动执行循环
@@ -242,6 +248,10 @@ async def chat(
     db.add(ai_message)
 
     session.last_active_at = datetime.utcnow()
+    await db.commit()
+    await append_legacy_message(
+        db, user_id, session_id, ai_message.role, ai_message.content, str(ai_message.id)
+    )
     await db.commit()
 
     await log_operation(
@@ -287,6 +297,7 @@ async def chat_stream(
         session = AicloudSession(id=session_id, user_id=user_id)
         db.add(session)
         await db.commit()
+    await ensure_session(db, user_id, session_id)
 
     messages_result = await db.execute(
         select(AicloudMessage)
@@ -320,6 +331,10 @@ async def chat_stream(
         content=request.message
     )
     db.add(user_message)
+    await db.commit()
+    await append_legacy_message(
+        db, user_id, session_id, user_message.role, user_message.content, str(user_message.id)
+    )
     await db.commit()
 
     async def generate():
@@ -360,6 +375,10 @@ async def chat_stream(
             )
             db.add(ai_message)
             session.last_active_at = datetime.utcnow()
+            await db.commit()
+            await append_legacy_message(
+                db, user_id, session_id, ai_message.role, ai_message.content, str(ai_message.id)
+            )
             await db.commit()
 
             await log_operation(

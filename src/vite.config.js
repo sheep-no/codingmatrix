@@ -48,9 +48,6 @@ export default defineConfig({
     // 现在明确列出：本地开发 + 线上预览域名
     allowedHosts: ['localhost', '127.0.0.1', '.monkeycode-ai.online'],
     cors: true,
-    hmr: {
-      protocol: 'wss',
-    },
     proxy: {
       '/api/v1': {
         target: 'http://localhost:8000',

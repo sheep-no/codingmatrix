@@ -48,7 +48,6 @@ const frontendApis = {
     '/api/v1/agent/cache/clear',
   ],
   admin: [
-    '/api/v2/system/get_system_info',
     '/api/v2/admin/users',
     '/api/v2/admin/users/{user_id}',
     '/api/v2/admin/services',
@@ -125,7 +124,6 @@ const backendRoutes = {
   '/api/v1/agent/concurrent-limits/history': 'GET',
   '/api/v1/agent/cache/stats': 'GET',
   '/api/v1/agent/cache/clear': 'POST',
-  '/api/v2/system/get_system_info': 'GET',
   '/api/v2/admin/users': 'GET,POST',
   '/api/v2/admin/users/{user_id}': 'DELETE',
   '/api/v2/admin/services': 'GET,POST',
@@ -155,21 +153,11 @@ test.describe('API端点验证', () => {
     // 检查所有前端API路径
     for (const [category, apis] of Object.entries(frontendApis)) {
       for (const frontendApi of apis) {
-        // 替换路径参数为具体值以便测试
-        const testPath = frontendApi
-          .replace('{session_id}', 'test_session')
-          .replace('{project_id}', 'test_project')
-          .replace('{user_id}', '1')
-          .replace('{service_name}', 'nginx')
-          .replace('{file_type}', 'py')
-          .replace('{session_id_from}', 'session1')
-          .replace('{session_id_to}', 'session2');
-        
         // 查找匹配的后端路由
         const backendMatch = Object.keys(backendRoutes).find(route => {
           // 规范化路径参数比较
           const normalizedRoute = route.replace(/\{[^}]+\}/g, '{param}');
-          const normalizedTestPath = testPath.replace(/\{[^}]+\}/g, '{param}');
+          const normalizedTestPath = frontendApi.replace(/\{[^}]+\}/g, '{param}');
           return normalizedRoute === normalizedTestPath;
         });
         
@@ -254,7 +242,7 @@ test.describe('API端点验证', () => {
     const criticalEndpoints = [
       { path: '/api/v1/agent/saved', method: 'GET' },
       { path: '/api/v1/agent/orchestrate/stream', method: 'POST' }, // POST方法
-      { path: '/api/v2/system/get_system_info', method: 'GET' },
+      { path: '/api/v2/Controller/admin/stats', method: 'GET' },
     ];
     
     for (const endpoint of criticalEndpoints) {

@@ -31,6 +31,14 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
 
 ## 条目
 
+### Playwright 依赖解析冲突排查
+- Date: 2026-08-29
+- Context: Agent 在验证前端聊天路由迁移时发现
+- Category: 测试方法
+- Instructions:
+  - 根目录与 `src/node_modules` 同时安装 Playwright 时，使用 `src/playwright.config.js` 执行位于 `tests/e2e/` 的测试会触发 `Requiring @playwright/test second time`。
+  - 前端单元测试可在 `src/` 目录执行 `npx vitest run`；Playwright E2E 需要统一 CLI 与测试文件解析到同一份 Playwright 依赖后再运行。
+
 ### 扫描文件先定作用与状态再深入
 - Date: 2026-08-26
 - Context: 深扫 app/api/v1/AiProjectCode.py 时用户纠正——该文件实际已废弃；随后用户明确每次扫描前须先确定文件作用

@@ -7,7 +7,7 @@ AI Agent - 多模型 Agent 架构
 - Qwen/Qwen3.5-4B - 轻量快速响应
 - Qwen/Qwen3-8B - 通用对话
 - Qwen/Qwen2.5-7B-Instruct - 指令跟随
-- THUDM/GLM-4.1V-9B-Thinking - 视觉推理
+- Qwen/Qwen3.5-4B - 视觉理解
 - Kwai-Kolors/Kolors - 图像生成
 - THUDM/GLM-4-9B-0414 - 快速任务
 - THUDM/GLM-Z1-9B-0414 - 深度推理

@@ -19,6 +19,7 @@ test.describe('PPT 生成页面', () => {
   test('主题输入 - 文本框应可见', async ({ page }) => {
     await page.goto('/ppt-generate');
     await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('.ppt-generate-page textarea');
     
     const hasInput = await page.evaluate(() => {
       return !!document.querySelector('textarea, input');
@@ -29,6 +30,7 @@ test.describe('PPT 生成页面', () => {
   test('模板选择 - 应有模板选项', async ({ page }) => {
     await page.goto('/ppt-generate');
     await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('.template-grid');
     
     const hasUI = await page.evaluate(() => {
       return !!document.querySelector('[class*="template"], button, [class*="select"]');
@@ -39,6 +41,7 @@ test.describe('PPT 生成页面', () => {
   test('开始生成 - 点击生成按钮', async ({ page }) => {
     await page.goto('/ppt-generate');
     await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('.generate-btn');
     
     const hasBtn = await page.evaluate(() => {
       return !!document.querySelector('button');
@@ -59,6 +62,7 @@ test.describe('PPT 生成页面', () => {
   test('下载 PPT - 下载按钮应可用', async ({ page }) => {
     await page.goto('/ppt-generate');
     await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('.ppt-generate-page');
     
     const hasBtn = await page.evaluate(() => {
       return !!document.querySelector('button');

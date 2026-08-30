@@ -268,7 +268,6 @@ test.describe('综合诊断测试', () => {
       { endpoint: '/api/v1/agent/session/{session_id}/decision', method: 'POST', category: 'agent' },
       
       // 管理员
-      { endpoint: '/api/v2/system/get_system_info', method: 'GET', category: 'admin' },
       { endpoint: '/api/v2/admin/users', method: 'GET', category: 'admin' },
       { endpoint: '/api/v2/admin/users', method: 'POST', category: 'admin' },
       { endpoint: '/api/v2/admin/users/{user_id}', method: 'DELETE', category: 'admin' },
