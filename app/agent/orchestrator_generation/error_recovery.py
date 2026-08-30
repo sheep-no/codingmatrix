@@ -1,5 +1,6 @@
 import logging
 from typing import Optional, Dict, Any
+from app.agent.models import DEFAULT_FAST_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ class ErrorRecoveryMixin:
             from app.agent.react_agent import ReActAgent, ReActResult
             fallback_model = getattr(self.model_assignment, 'fallback_model', None) if hasattr(self, 'model_assignment') else None
             react_agent = ReActAgent(
-                model_name=fallback_model or "Qwen/Qwen3-8B",
+                model_name=fallback_model or DEFAULT_FAST_MODEL,
                 max_iterations=5,
                 api_key_token=getattr(self, 'api_key_token', None),
             )

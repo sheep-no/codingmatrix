@@ -1,18 +1,12 @@
 from pydantic import BaseModel, field_validator, Field
 from typing import Optional, List, Dict, Any
 import re
+from app.agent.models import DEFAULT_REASONING_MODEL
+from app.utils.aicloud.model_registry import MODEL_REGISTRY
 
 
 # AI Code 可用模型（代码问答/生成/视觉理解）
-ALLOWED_MODELS_LIST = [
-    "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-    "deepseek-ai/DeepSeek-OCR",
-    "Qwen/Qwen3.5-4B",
-    "Qwen/Qwen3-8B",
-    "Qwen/Qwen2.5-7B-Instruct",
-    "THUDM/GLM-4-9B-0414",
-    "THUDM/GLM-Z1-9B-0414",
-]
+ALLOWED_MODELS_LIST = [model.model_key for model in MODEL_REGISTRY.values()]
 
 
 class FileAttachment(BaseModel):
@@ -77,7 +71,7 @@ class GenerateRequest(BaseModel):
     docker_timeout: int = Field(default=300, ge=60, le=1800, description="Docker 运行超时 (秒)")
     enable_security_scan: bool = Field(default=True, description="是否启用安全扫描")
 
-    model: str = Field(default="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B", description="模型名称")
+    model: str = Field(default=DEFAULT_REASONING_MODEL, description="模型名称")
     max_thinking_tokens: int = Field(default=8192, description="最大思考 Token 数")
     max_output_tokens: int = Field(default=32768, description="最大输出 Token 数")
     temperature: float = Field(default=0.7, description="采样温度", ge=0.0, le=2.0)
@@ -101,7 +95,7 @@ class GenerateResponse(BaseModel):
 
 class AgentConfig(BaseModel):
     """Agent 配置模型（支持 Docker 容器化验证）"""
-    model: str = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+    model: str = DEFAULT_REASONING_MODEL
     max_thinking_tokens: int = 8192
     max_output_tokens: int = 128000
     temperature: float = 0.1

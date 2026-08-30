@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import logging
+from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +36,15 @@ def _load_dual_models_from_config():
     except Exception as e:
         logger.warning(f"从配置加载双模型失败，使用默认值: {e}")
     return (
-        "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-        "THUDM/GLM-Z1-9B-0414",
-        "Qwen/Qwen3-8B",
+        DEFAULT_REASONING_MODEL,
+        DEFAULT_ARCHITECT_MODEL,
+        DEFAULT_FAST_MODEL,
     )
 
 
 DUAL_MODEL_A, DUAL_MODEL_B, DUAL_MODEL_FALLBACK = _load_dual_models_from_config()
 
-DEVILS_ADVOCATE_MODEL = "THUDM/GLM-Z1-9B-0414"
+DEVILS_ADVOCATE_MODEL = DEFAULT_ARCHITECT_MODEL
 
 MIN_HISTORY_PROJECTS = 50
 MIN_HISTORY_WITH_FEATURES = 20

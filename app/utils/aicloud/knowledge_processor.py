@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
+from app.agent.models import DEFAULT_EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ def chunk_text(
 
 async def embed_chunks(
     chunks: List[DocumentChunk],
-    model: str = "netease-youdao/bce-embedding-base_v1"
+    model: str = DEFAULT_EMBEDDING_MODEL
 ) -> List[Tuple[DocumentChunk, List[float]]]:
     """
     为文本块生成向量

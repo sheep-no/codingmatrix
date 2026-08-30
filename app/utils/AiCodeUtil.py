@@ -11,6 +11,7 @@ from collections import OrderedDict
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.agent.models import DEFAULT_EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ def _clean_expired_disk_cache():
             pass
 
 
-async def get_embedding(text: str, model: str = "netease-youdao/bce-embedding-base_v1") -> list:
+async def get_embedding(text: str, model: str = DEFAULT_EMBEDDING_MODEL) -> list:
     """
     获取文本的嵌入向量（用于语义相似度计算）
     默认使用 BCE embedding base v1，支持中文/英文双语

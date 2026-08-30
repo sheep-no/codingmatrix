@@ -10,12 +10,13 @@ from typing import Any, Dict, List, Optional
 from app.schema.workflow import TaskType
 from app.utils.workflow.node_types.base import TaskNodeBase, NodeResult
 from app.utils import call_llm
+from app.agent.models import DEFAULT_FAST_MODEL
 
 logger = logging.getLogger(__name__)
 
 # 8C8G 环境推荐模型
-DEFAULT_MODEL = "Qwen/Qwen3-8B"
-FALLBACK_MODEL = "THUDM/GLM-4-9B-0414"
+DEFAULT_MODEL = DEFAULT_FAST_MODEL
+FALLBACK_MODEL = DEFAULT_FAST_MODEL
 
 
 class LLMCallNode(TaskNodeBase):

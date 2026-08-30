@@ -19,6 +19,7 @@ from app.db.models import ProjectSession
 from app.agent import OrchestratorAgent
 from app.agent.workflow_registry import build_legacy_workflow, run_workflow
 from app.agent.multi_model_agent import MultiModelAgent
+from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 
 
 # SSE 透传事件类型集合：直接发送给前端（不被包装成 progress）
@@ -1131,7 +1132,7 @@ async def search_sessions(
         scores = {}
         try:
             result_llm = await call_llm(
-                model="Qwen/Qwen3-8B",
+                model=DEFAULT_FAST_MODEL,
                 prompt=prompt,
                 temperature=0.1,
                 max_tokens=1000

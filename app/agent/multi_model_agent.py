@@ -11,7 +11,7 @@ AI Agent - 多模型 Agent 架构
 - Kwai-Kolors/Kolors - 图像生成
 - THUDM/GLM-4-9B-0414 - 快速任务
 - THUDM/GLM-Z1-9B-0414 - 深度推理
-- netease-youdao/bce-embedding-base_v1 - 嵌入/相似度
+ - BAAI/bge-m3 - 嵌入/相似度
 
 架构：
 - Router: 任务路由，根据任务类型选择模型

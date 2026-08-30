@@ -43,7 +43,7 @@ def _load_provider_map() -> dict[str, ModelProvider]:
     result.setdefault("Qwen/Qwen-2.5-7B-Instruct", ModelProvider.SILICONFLOW)
     # 保留旧模型名的供应商兼容映射，实际视觉路由使用 Qwen3.5。
     result.setdefault("THUDM/GLM-4.1V-9B-Thinking", ModelProvider.SILICONFLOW)
-    result.setdefault("netease-youdao/bce-embedding-base_v1", ModelProvider.SILICONFLOW)
+    result.setdefault("BAAI/bge-m3", ModelProvider.SILICONFLOW)
     result.setdefault("deepseek-ai/DeepSeek-R1", ModelProvider.SILICONFLOW)
     result.setdefault("qwen-plus", ModelProvider.DASHSCOPE)
     result.setdefault("qwen-turbo", ModelProvider.DASHSCOPE)

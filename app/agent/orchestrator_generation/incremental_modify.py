@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Any
 
 from app.agent.dependency_graph import DependencyGraph
 from app.agent.orchestrator_progress import PROGRESS_LABELS
+from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -479,8 +480,9 @@ class IncrementalModifyMixin:
             is_simple = self._is_simple_change(file_info)
             if is_simple:
                 # 简单变更用轻量模型（更快）
-                engineer = self._select_engineer(file_path, force_model="THUDM/GLM-4-9B-0414")
-                model_name = "THUDM/GLM-4-9B-0414"
+                from app.agent.models import DEFAULT_FAST_MODEL
+                engineer = self._select_engineer(file_path, force_model=DEFAULT_FAST_MODEL)
+                model_name = DEFAULT_FAST_MODEL
                 logger.info(f"简单变更，使用轻量模型: {file_path}")
             else:
                 engineer = self._select_engineer(file_path)
@@ -686,9 +688,9 @@ class IncrementalModifyMixin:
 
         # 降级模型链：GLM-4-9B → DeepSeek-R1 → Qwen3-8B
         fallback_models = [
-            "THUDM/GLM-4-9B-0414",
-            "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-            "Qwen/Qwen3-8B"
+            DEFAULT_ARCHITECT_MODEL,
+            DEFAULT_REASONING_MODEL,
+            DEFAULT_FAST_MODEL
         ]
 
         results = {}

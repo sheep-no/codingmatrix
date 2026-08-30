@@ -17,6 +17,7 @@ from app.agent.architecture_inspector import ArchitectureInspector
 from app.agent.orchestrator_progress import MAX_CONTENT_FOR_CONTEXT
 from app.agent.adapters import LanguageAdapterRegistry
 from app.agent.dynamic_model_router import get_context_length
+from app.agent.models import DEFAULT_FAST_MODEL
 from app.agent.utils import extract_engineer_content, write_file_atomic, cleanup_temp_files
 from app.agent.dependency_graph_validator import DependencyGraphValidator, format_validation_feedback, MAX_VALIDATION_RETRIES
 
@@ -1132,7 +1133,7 @@ class SpecFirstGenerateMixin:
                     _wf_atomic(self.output_dir, normalized, final_content, skip_placeholder_check=True)
                     try:
                         backend_model = getattr(self, 'model_assignment', None)
-                        backend_model = backend_model.backend_model if backend_model else "Qwen/Qwen3-8B"
+                        backend_model = backend_model.backend_model if backend_model else DEFAULT_FAST_MODEL
                         er_success, er_content = await self.error_recovery.validate_and_fix(
                             file_path=full_path,
                             content=final_content,

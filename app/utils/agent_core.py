@@ -161,8 +161,9 @@ class FileModelRouter:
     DOC_EXTENSIONS = {'.md', '.txt', '.rst'}
 
     # 硬编码兜底（配置文件加载失败时使用）
-    _DEFAULT_FRONTEND_MODEL = "Qwen/Qwen3-8B"
-    _DEFAULT_BACKEND_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+    from app.agent.models import DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
+    _DEFAULT_FRONTEND_MODEL = DEFAULT_FAST_MODEL
+    _DEFAULT_BACKEND_MODEL = DEFAULT_REASONING_MODEL
 
     def __init__(self):
         self._load_config()

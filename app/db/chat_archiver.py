@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.chat_history import ChatHistory, ChatSummary
 from app.utils import call_llm
 from app.db.database import async_session
+from app.agent.models import DEFAULT_REASONING_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,7 @@ class ChatArchiver:
                     
                     # 调用 AI 生成摘要
                     response = await call_llm(
-                        model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+                        model=DEFAULT_REASONING_MODEL,
                         prompt=summary_prompt,
                         stream=False,
                         max_tokens=300,

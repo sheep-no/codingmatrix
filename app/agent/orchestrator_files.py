@@ -12,7 +12,7 @@ from app.agent.code_patcher import apply_incremental_change
 from app.agent.complexity import ProjectComplexity
 from app.agent.code_validator import CodeValidator
 from app.agent.orchestrator_progress import PROGRESS_LABELS
-from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL, DEFAULT_ARCHITECT_MODEL
+from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL, DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL
 from app.agent.utils import extract_engineer_content, write_file_atomic
 
 
@@ -773,13 +773,13 @@ router = APIRouter()
         alt_map = {
             DEFAULT_REASONING_MODEL: DEFAULT_CODE_MODEL,
             DEFAULT_CODE_MODEL: DEFAULT_REASONING_MODEL,
-            "Qwen/Qwen3-8B": DEFAULT_CODE_MODEL,
+            DEFAULT_FAST_MODEL: DEFAULT_CODE_MODEL,
             DEFAULT_ARCHITECT_MODEL: DEFAULT_REASONING_MODEL,
         }
         return alt_map.get(primary_model, DEFAULT_CODE_MODEL)
 
     def _select_engineer_for_model(self, model_name: str) -> Specialist:
-        frontend_models = {"Qwen/Qwen3-8B", DEFAULT_CODE_MODEL}
+        frontend_models = {DEFAULT_FAST_MODEL, DEFAULT_CODE_MODEL}
         if model_name in frontend_models:
             return self.frontend_engineer
         return self.backend_engineer

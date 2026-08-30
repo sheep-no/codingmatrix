@@ -1,6 +1,15 @@
 version: '5.0'
 description: 统一模型配置
 last_updated: '2026-07-16T12:40:59.591008'
+defaults:
+  code: qwen2.5-7b
+  reasoning: deepseek-r1
+  architect: glm-z1-9b
+  fast: qwen3-8b
+  visual: qwen3.5-4b
+  ocr: deepseek-ocr
+  embedding: bge-m3
+  ppt: qwen3.5-4b
 providers:
   siliconflow:
     name: SiliconFlow

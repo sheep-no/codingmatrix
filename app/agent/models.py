@@ -9,6 +9,7 @@ from typing import Optional, List, Dict
 from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass, field
+from app.utils.model_defaults import get_default_model
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +65,14 @@ class ModelInfo:
 
 # 默认模型常量 — 避免业务代码硬编码模型名称
 # 与 ModelRegistry 中的 key 对应，用于 model_assignment 缺失时的 fallback
-DEFAULT_CODE_MODEL = "nex-agi/Nex-N2-Pro"                # 通用代码任务（256k context）
-DEFAULT_REASONING_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"  # 推理/后端任务
-DEFAULT_ARCHITECT_MODEL = "THUDM/GLM-Z1-9B-0414"        # 架构设计/评审
-DEFAULT_FAST_MODEL = "Qwen/Qwen3-8B"                    # 简单/快速任务
+DEFAULT_CODE_MODEL = get_default_model("code")
+DEFAULT_REASONING_MODEL = get_default_model("reasoning")
+DEFAULT_ARCHITECT_MODEL = get_default_model("architect")
+DEFAULT_FAST_MODEL = get_default_model("fast")
+DEFAULT_VISUAL_MODEL = get_default_model("visual")
+DEFAULT_OCR_MODEL = get_default_model("ocr")
+DEFAULT_EMBEDDING_MODEL = get_default_model("embedding")
+DEFAULT_PPT_MODEL = get_default_model("ppt")
 
 # COMPLEXITY_LEVELS 供 ModelRouter.get_role_model 校验复杂度参数
 COMPLEXITY_LEVELS = ("SIMPLE", "SMALL", "MEDIUM", "LARGE", "ENTERPRISE")
@@ -167,8 +172,8 @@ class ModelRegistry:
         # 嵌入模型
         "bce-embedding": ModelInfo(
             key="bce-embedding",
-            name="netease-youdao/bce-embedding-base_v1",
-            display_name="BCE 嵌入",
+            name="BAAI/bge-m3",
+            display_name="BGE M3 嵌入",
             capabilities=[ModelCapability.EMBEDDING],
             max_tokens=512,
             thinking_budget=0,

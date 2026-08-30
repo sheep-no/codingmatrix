@@ -49,6 +49,7 @@ from app.utils.pptx.text_processor import (
 )
 from app.utils.pptx.image_search import ImageSearchManager
 from app.utils.pptx.ppt_style import PPTStyle, PPT_TEMPLATES
+from app.agent.models import DEFAULT_PPT_MODEL
 
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -61,7 +62,7 @@ router = APIRouter(tags=["PPT 生成 (增强版)"])
 # PPT 全局常量
 # =============================================================================
 
-PPT_DEFAULT_MODEL = "THUDM/GLM-Z1-9B-0414"
+PPT_DEFAULT_MODEL = DEFAULT_PPT_MODEL
 PPT_MAX_SLIDES = 50
 PPT_OUTPUT_DIR = Path("./pptx_output")
 PPT_OWNER_DIR = PPT_OUTPUT_DIR / ".owners"

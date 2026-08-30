@@ -26,6 +26,7 @@ from app.db.database import get_db
 from app.schema.codeRequest import CodeRequest
 from app.utils import call_llm
 from app.utils.web_search import FreeWebSearch
+from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from fastapi.responses import StreamingResponse
 from app.utils.security import verify_token
 from app.db.add_history import save_history_to_db
@@ -233,14 +234,14 @@ def select_model_for_prompt(prompt: str, use_reasoning: bool, has_files: bool) -
     if has_files:
         return "Qwen/Qwen3.5-4B"
     if use_reasoning:
-        return "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+        return DEFAULT_REASONING_MODEL
 
     analysis_keywords = ['分析', '解释', '原理', '为什么', '比较', '区别',
                          '是什么', '优缺点', '如何理解', '详细说明']
     if any(kw in prompt.lower() for kw in analysis_keywords):
-        return "THUDM/GLM-Z1-9B-0414"
+        return DEFAULT_ARCHITECT_MODEL
 
-    return "Qwen/Qwen3-8B"
+    return DEFAULT_FAST_MODEL
 
 
 def format_tokens_usage(resp: Dict) -> Dict:

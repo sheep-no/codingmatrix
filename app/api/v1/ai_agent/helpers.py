@@ -18,6 +18,7 @@ from app.db.models import ProjectSession
 from app.utils.guard_contracts import get_guard_contracts
 from app.utils.agent_skills import get_skills_manager
 from app.schema.codeRequest import GenerateRequest, AgentConfig
+from app.agent.models import DEFAULT_FAST_MODEL
 
 from .project_config import (
     PROJECTS_BASE_DIR,
@@ -515,7 +516,7 @@ async def verify_session_ownership(db: AsyncSession, session_id: str, user_id: s
 
 # ==================== 意图检测 ====================
 
-async def detect_resume_intent(requirement: str, model: str = "Qwen/Qwen3-8B") -> Dict[str, Any]:
+async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL) -> Dict[str, Any]:
     """
     检测用户输入是否包含"继续"意图
     
@@ -590,7 +591,7 @@ async def resolve_resume_session(
     db: AsyncSession,
      user_id: str,
      requirement: str,
-     model: str = "Qwen/Qwen3-8B",
+     model: str = DEFAULT_FAST_MODEL,
      limit: int = 20
 ) -> Optional[ProjectSession]:
     """
@@ -677,7 +678,7 @@ async def analyze_files_to_regenerate(
      original_requirement: str,
      additional_requirement: str,
      generated_files: List[str],
-     model: str = "Qwen/Qwen3-8B"
+     model: str = DEFAULT_FAST_MODEL
 ) -> List[str]:
     """
     分析哪些文件需要重新生成
