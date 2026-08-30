@@ -162,6 +162,7 @@ export class ValidationStatusView {
     if (operation === "build" || operation === "unit_test" || operation === "e2e_test") {
       return "runs local project verification";
     }
+    if (operation === "dependency_install") return "installs project dependencies";
     if (operation === "dependency_check") return "inspects project dependencies";
     if (operation === "service_check") return "checks a local service";
     return "checks project syntax";

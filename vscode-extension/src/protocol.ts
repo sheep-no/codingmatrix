@@ -9,6 +9,7 @@ export type ValidationScope = (typeof LOCAL_VALIDATION_SCOPES)[number];
 
 export const VALIDATION_OPERATIONS = [
   "syntax_check",
+  "dependency_install",
   "dependency_check",
   "build",
   "unit_test",
@@ -25,10 +26,41 @@ export const VALIDATION_RESULT_STATUSES = [
   "rejected",
   "waiting_for_confirmation",
   "cancelled",
+  "skipped",
 ] as const;
 
 export type ValidationResultStatus =
   (typeof VALIDATION_RESULT_STATUSES)[number];
+
+export const EXECUTION_STEP_STATUSES = [
+  "pending",
+  "running",
+  "passed",
+  "failed",
+  "skipped",
+  "cancelled",
+] as const;
+
+export type ExecutionStepStatus = (typeof EXECUTION_STEP_STATUSES)[number];
+
+export interface LocalExecutionPlan {
+  plan_id: string;
+  run_id: string;
+  plan_schema_version: typeof SUPPORTED_SCHEMA_VERSION;
+  session_id: string;
+  task_id: string;
+  revision: number;
+  workspace_id: string;
+  steps: LocalExecutionStep[];
+}
+
+export interface LocalExecutionStep {
+  step_id: string;
+  kind: "file_transfer" | "hash_check" | "validation";
+  status: ExecutionStepStatus;
+  depends_on: string[];
+  action?: PendingAction;
+}
 
 export interface PendingAction {
   action_id: string;
@@ -44,6 +76,8 @@ export interface PendingAction {
   working_directory: string;
   timeout_seconds: number;
   requested_by: "cloud";
+  run_id?: string;
+  step_id?: string;
 }
 
 export interface ValidationSummary {
@@ -67,6 +101,8 @@ export interface LocalValidationResult {
   finished_at: string;
   exit_code?: number;
   summary: ValidationSummary;
+  run_id?: string;
+  step_id?: string;
 }
 
 export class ProtocolError extends Error {
@@ -88,6 +124,18 @@ function requiredString(
   field: string,
 ): string {
   const value = payload[field];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new ProtocolError("invalid_payload", `${field} must be a non-empty string`);
+  }
+  return value;
+}
+
+function optionalString(
+  payload: Record<string, unknown>,
+  field: string,
+): string | undefined {
+  const value = payload[field];
+  if (value === undefined) return undefined;
   if (typeof value !== "string" || value.length === 0) {
     throw new ProtocolError("invalid_payload", `${field} must be a non-empty string`);
   }
@@ -166,6 +214,8 @@ export function parsePendingAction(input: unknown): PendingAction {
   if (typeof timeout !== "number" || !Number.isInteger(timeout) || timeout <= 0) {
     throw new ProtocolError("invalid_payload", "timeout_seconds must be a positive integer");
   }
+  const runId = optionalString(input, "run_id");
+  const stepId = optionalString(input, "step_id");
   return {
     action_id: requiredString(input, "action_id"),
     event_id: requiredString(input, "event_id"),
@@ -180,6 +230,8 @@ export function parsePendingAction(input: unknown): PendingAction {
     working_directory: safeWorkingDirectory(requiredString(input, "working_directory")),
     timeout_seconds: timeout,
     requested_by: "cloud",
+    ...(runId === undefined ? {} : { run_id: runId }),
+    ...(stepId === undefined ? {} : { step_id: stepId }),
   };
 }
 
@@ -206,6 +258,8 @@ export function parseLocalValidationResult(input: unknown): LocalValidationResul
   if (exitCode !== undefined && (typeof exitCode !== "number" || !Number.isInteger(exitCode))) {
     throw new ProtocolError("invalid_payload", "exit_code must be an integer");
   }
+  const runId = optionalString(input, "run_id");
+  const stepId = optionalString(input, "step_id");
   return {
     event_id: requiredString(input, "event_id"),
     schema_version: schemaVersion(input),
@@ -225,5 +279,7 @@ export function parseLocalValidationResult(input: unknown): LocalValidationResul
       ...(typeof summary.tests_failed === "number" ? { tests_failed: summary.tests_failed } : {}),
       diagnostics: [...diagnostics] as Array<Record<string, unknown>>,
     },
+    ...(runId === undefined ? {} : { run_id: runId }),
+    ...(stepId === undefined ? {} : { step_id: stepId }),
   };
 }

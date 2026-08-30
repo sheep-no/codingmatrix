@@ -128,6 +128,8 @@ export class ValidationRunner {
             command_name: action.command[0],
             diagnostics,
           },
+          ...(action.run_id === undefined ? {} : { run_id: action.run_id }),
+          ...(action.step_id === undefined ? {} : { step_id: action.step_id }),
         });
       };
 

@@ -152,6 +152,32 @@ async def test_enqueue_state_actions_binds_session_context_and_deduplicates() ->
     assert queued[0]["payload"]["workspace_id"] == "workspace-3"
 
 
+@pytest.mark.asyncio
+async def test_enqueue_state_actions_maps_execution_capabilities() -> None:
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-capabilities",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["file", "terminal", "validation"],
+        ),
+        {"sub": "user-capabilities"},
+    )
+    state = {
+        "session_id": handshake.session_id,
+        "task_id": "task-capabilities",
+        "pending_actions": [
+            {"type": "file_sync", "action_id": "file-action"},
+            {"type": "install_dependencies", "action_id": "install-action"},
+            {"type": "local_validation", "action_id": "validation-action"},
+        ],
+    }
+
+    assert enqueue_state_actions(handshake.session_id, state) == 3
+    queued = (await get_agent_host_actions(handshake.session_id, {"sub": "user-capabilities"})).actions
+    assert [action["capability"] for action in queued] == ["file", "terminal", "validation"]
+
+
 def test_agent_host_session_store_round_trips_expiry_and_queue(tmp_path) -> None:
     store = AgentHostSessionStore(tmp_path)
     session = {

@@ -17,7 +17,7 @@ from app.utils.security import verify_token
 from app.db.database import get_db, async_session
 from app.db.models import ProjectSession
 from app.agent import OrchestratorAgent
-from app.agent.workflow_registry import build_legacy_workflow, run_workflow
+from app.agent.workflow_registry import build_legacy_workflow, get_legacy_result, run_workflow
 from app.agent.multi_model_agent import MultiModelAgent
 from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 
@@ -124,6 +124,7 @@ from app.agent.conversation_store import get_conversation_store
 from app.utils.guardrails import (
     check_disk_space, check_rate_limit, validate_session_id
 )
+from .single_file_generation import generate_single_file
 
 _decision_queues: Dict[str, asyncio.Queue] = {}
 _cancel_events: Dict[str, asyncio.Event] = {}
@@ -401,7 +402,7 @@ async def modify_project(
                         db=db,
                         user_id=int(user_id),
                     )
-                    gen_result = graph_state.metadata["legacy_result"]
+                    gen_result = get_legacy_result(graph_state)
                     files_generated = gen_result.get("total_files_created", 0)
                     files_total = gen_result.get("total_files", 0)
                     await sm.complete_session(session_id, files_generated=files_generated, files_total=files_total)
@@ -489,12 +490,23 @@ async def orchestrate_project(
 
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
-    skill_context = _skill_context_for_user(user_id)
 
     session = await create_agent_session(
         db, int(user_id), "orchestrator", request.requirement
     )
     session_id = session.id if session else None
+
+    single_file_result = await generate_single_file(
+        requirement=request.requirement,
+        project_name=request.project_name,
+        api_key_token=request.api_key_token,
+        provider_id=request.provider_id,
+    )
+    if single_file_result is not None:
+        single_file_result["session_id"] = session_id
+        return OrchestratorResponse(**single_file_result)
+
+    skill_context = _skill_context_for_user(user_id)
 
     start_time = time.time()
 
@@ -526,7 +538,7 @@ async def orchestrate_project(
             db=db,
             user_id=int(user_id),
         )
-        result = graph_state.metadata["legacy_result"]
+        result = get_legacy_result(graph_state)
 
         execution_time = time.time() - start_time
         await log_tool_execution(
@@ -865,7 +877,7 @@ async def orchestrate_project_stream(
                         db=db,
                         user_id=int(user_id),
                     )
-                    result = graph_state.metadata["legacy_result"]
+                    result = get_legacy_result(graph_state)
                     # 检查是否在生成完成后被取消（stop_project 竞态保护）
                     if cancel_event.is_set():
                         logger.info(f"[SSE] 生成完成后检测到取消信号，跳过 complete_session | session={session_id}")

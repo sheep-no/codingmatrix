@@ -154,6 +154,58 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         cost_per_1m_output=4.0,
         tags=["绘画", "生成"]
     ),
+    "paddleocr-vl-1.5": ModelInfo(
+        id="paddleocr-vl-1.5",
+        name="PaddleOCR VL 1.5",
+        model_key="PaddlePaddle/PaddleOCR-VL-1.5",
+        provider=ModelProvider.SILICONFLOW,
+        description="PaddleOCR 多模态视觉模型，支持 OCR 与文档理解",
+        max_tokens=4096,
+        max_context=8192,
+        capabilities=[ModelCapability.VISION, ModelCapability.TEXT],
+        cost_per_1m_input=1.0,
+        cost_per_1m_output=4.0,
+        tags=["OCR", "视觉"]
+    ),
+    "xingchen-asr-v3.2-ultra": ModelInfo(
+        id="xingchen-asr-v3.2-ultra",
+        name="XingChen ASR V3.2 Ultra",
+        model_key="XingChenAGI/XingChenASR-V3.2-Ultra",
+        provider=ModelProvider.SILICONFLOW,
+        description="XingChen 高性能语音识别模型",
+        max_tokens=4096,
+        max_context=8192,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.5,
+        cost_per_1m_output=1.0,
+        tags=["语音识别", "ASR"]
+    ),
+    "xingchen-gsr-v1": ModelInfo(
+        id="xingchen-gsr-v1",
+        name="XingChen GSR V1.0",
+        model_key="XingChenAGI/XingChenGSR-V1.0",
+        provider=ModelProvider.SILICONFLOW,
+        description="XingChen 语音与说话人识别模型",
+        max_tokens=4096,
+        max_context=8192,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.5,
+        cost_per_1m_output=1.0,
+        tags=["语音", "说话人"]
+    ),
+    "xingchen-asr-diarize-v3": ModelInfo(
+        id="xingchen-asr-diarize-v3",
+        name="XingChen ASR Diarize V3.0",
+        model_key="XingChenAGI/XingChenASR-Diarize-V3.0",
+        provider=ModelProvider.SILICONFLOW,
+        description="XingChen 语音识别与说话人分离模型",
+        max_tokens=4096,
+        max_context=8192,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.5,
+        cost_per_1m_output=1.0,
+        tags=["语音识别", "说话人分离"]
+    ),
     "bge-m3": ModelInfo(
         id="bge-m3",
         name="BGE M3",

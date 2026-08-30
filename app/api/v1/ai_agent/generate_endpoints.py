@@ -20,7 +20,7 @@ from app.db.database import get_db
 from app.schema.codeRequest import GenerateRequest, GenerateResponse
 from app.models.saved_project import SavedProject
 from app.utils.agent_core import ProjectGeneratorAgent
-from app.agent.workflow_registry import build_legacy_workflow, run_workflow
+from app.agent.workflow_registry import build_legacy_workflow, get_legacy_result, run_workflow
 
 from .schemas import (
     SaveProjectRequest, SaveProjectResponse,
@@ -97,7 +97,7 @@ async def generate_project(
             db=db,
             user_id=int(user_id),
         )
-        result = state.metadata["legacy_result"]
+        result = get_legacy_result(state)
 
         project_name = Path(output_dir).name
 

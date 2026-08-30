@@ -142,7 +142,7 @@ flowchart LR
 }
 ```
 
-结果状态包含 `passed`、`failed`、`timeout`、`rejected`、`waiting_for_confirmation` 和 `cancelled`。插件上传前对命令输出、环境变量和诊断文本执行脱敏。
+结果状态包含 `passed`、`skipped`、`failed`、`timeout`、`rejected`、`waiting_for_confirmation` 和 `cancelled`。插件上传前对命令输出、环境变量和诊断文本执行脱敏。执行计划使用 `plan_schema_version=1`，通过 `run_id`、`step_id` 和依赖关系保证文件传输、hash 校验、依赖安装与验证阶段串行执行。
 
 ## 4. 生命周期
 
@@ -181,7 +181,7 @@ pending_action
 
 - 工作区授权使用 VS Code workspace identity 和规范化绝对路径。
 - 插件执行命令使用参数数组，禁止把云端字符串直接交给 shell 解释器。
-- 动作按 `operation` 白名单分类：`syntax_check`、`dependency_check`、`build`、`unit_test`、`e2e_test` 和 `service_check`。
+- 动作按 `operation` 白名单分类：`syntax_check`、`dependency_install`、`dependency_check`、`build`、`unit_test`、`e2e_test` 和 `service_check`。
 - 默认要求项目开发者确认会改变文件、安装依赖、启动服务或访问网络的动作。
 - 进程执行设置超时、取消信号、输出上限和子进程清理策略。
 - 脱敏规则覆盖 API key、Bearer token、密码、Cookie、私钥、连接串和环境变量值。
