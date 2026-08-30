@@ -236,7 +236,6 @@ async def post_agent_host_event(
         raise HTTPException(status_code=422, detail="unsupported host event kind")
     if event.message_id in session["events"]:
         return AgentHostEventResponse(accepted=True, duplicate=True)
-    session["events"][event.message_id] = _dump_model(event)
     state_status = None
     if event.kind == "tool_result":
         from app.agent.workflow_registry import resume_workflow_from_local_result
@@ -263,6 +262,7 @@ async def post_agent_host_event(
         except (TypeError, ValueError, RuntimeError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         state_status = state.status
+    session["events"][event.message_id] = _dump_model(event)
     if event.kind == "tool_result" and event.message_id.endswith(":result"):
         source_message_id = event.message_id.removesuffix(":result")
         session["pending_actions"] = [
