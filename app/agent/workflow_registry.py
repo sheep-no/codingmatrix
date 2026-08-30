@@ -9,6 +9,9 @@ from app.agent.adapters import legacy_result_to_delta
 from app.agent.state import State, StateGraph, StateGraphBuilder
 
 
+_active_workflows: Dict[tuple[str, str], tuple[WorkflowDefinition, State]] = {}
+
+
 @dataclass(frozen=True)
 class WorkflowDefinition:
     name: str
@@ -80,6 +83,7 @@ async def run_workflow(
         metadata=dict(metadata or {}),
     )
     state = await definition.graph.run(state, start_at=definition.entry_node)
+    _active_workflows[(session_id, task_id)] = (definition, state)
     if state.pending_actions:
         try:
             from app.api.v1.agent_host import enqueue_state_actions
@@ -87,5 +91,31 @@ async def run_workflow(
             enqueue_state_actions(session_id, state)
         except KeyError:
             # A workflow can run without a connected local Host.
+            pass
+    return state
+
+
+async def resume_workflow_from_local_result(
+    *,
+    session_id: str,
+    task_id: str,
+    result: Dict[str, Any],
+) -> State:
+    """Merge a local Host result and continue the active workflow state."""
+    execution = _active_workflows.get((session_id, task_id))
+    if execution is None:
+        raise KeyError(f"active workflow not found: {session_id}/{task_id}")
+
+    definition, state = execution
+    from app.agent.local_validation_adapter import local_result_to_delta
+
+    state = definition.graph.reducer.apply(state, local_result_to_delta(state, result))
+    _active_workflows[(session_id, task_id)] = (definition, state)
+    if state.pending_actions:
+        try:
+            from app.api.v1.agent_host import enqueue_state_actions
+
+            enqueue_state_actions(session_id, state)
+        except KeyError:
             pass
     return state

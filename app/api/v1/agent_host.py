@@ -144,6 +144,7 @@ class AgentHostActionsResponse(BaseModel):
 class AgentHostEventResponse(BaseModel):
     accepted: bool
     duplicate: bool = False
+    state_status: str | None = None
 
 
 class PolicyUpdateRequest(BaseModel):
@@ -236,6 +237,32 @@ async def post_agent_host_event(
     if event.message_id in session["events"]:
         return AgentHostEventResponse(accepted=True, duplicate=True)
     session["events"][event.message_id] = _dump_model(event)
+    state_status = None
+    if event.kind == "tool_result":
+        from app.agent.workflow_registry import resume_workflow_from_local_result
+
+        if not event.task_id or event.revision is None:
+            raise HTTPException(status_code=422, detail="tool_result requires task_id and revision")
+        result = {
+            **event.payload,
+            "event_id": event.message_id,
+            "schema_version": event.schema_version,
+            "session_id": session_id,
+            "task_id": event.task_id,
+            "revision": event.revision,
+            "source": "local",
+        }
+        try:
+            state = await resume_workflow_from_local_result(
+                session_id=session_id,
+                task_id=event.task_id,
+                result=result,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (TypeError, ValueError, RuntimeError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        state_status = state.status
     if event.kind == "tool_result" and event.message_id.endswith(":result"):
         source_message_id = event.message_id.removesuffix(":result")
         session["pending_actions"] = [
@@ -243,7 +270,7 @@ async def post_agent_host_event(
             if action.get("message_id") != source_message_id
         ]
     _session_store.save(session_id, session)
-    return AgentHostEventResponse(accepted=True)
+    return AgentHostEventResponse(accepted=True, state_status=state_status)
 
 
 @router.put("/agent/host/sessions/{session_id}/policy", response_model=PolicyUpdateResponse)

@@ -186,3 +186,60 @@ async def test_run_workflow_publishes_pending_actions_to_connected_host() -> Non
 
     actions = (await get_agent_host_actions(handshake.session_id, {"sub": "user-5"})).actions
     assert actions[0]["payload"]["action_id"] == "workflow-action"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_resumes_workflow_and_reaches_completed() -> None:
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-6",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["validation"],
+        ),
+        {"sub": "user-6"},
+    )
+
+    async def create_action(_state):
+        return StateDelta(
+            expected_revision=0,
+            status="waiting_local_validation",
+            pending_actions=[{
+                "type": "local_validation",
+                "action_id": "workflow-action-6",
+                "scope": "local_e2e",
+            }],
+            metadata={"required_validation_scopes": ["local_e2e"]},
+        )
+
+    definition = WorkflowDefinition(
+        name="host-resume-test",
+        entry_node="create_action",
+        graph=StateGraphBuilder().add_node("create_action", create_action).compile(),
+        legacy_endpoint="test",
+    )
+    await run_workflow(definition, session_id=handshake.session_id, task_id="task-6")
+    action = (await get_agent_host_actions(handshake.session_id, {"sub": "user-6"})).actions[0]
+
+    response = await post_agent_host_event(
+        handshake.session_id,
+        AgentHostEnvelope(
+            message_id=f"{action['message_id']}:result",
+            schema_version=1,
+            session_id=handshake.session_id,
+            task_id="task-6",
+            revision=1,
+            kind="tool_result",
+            capability="validation",
+            policy_version=1,
+            payload={
+                "validation_scope": "local_e2e",
+                "status": "passed",
+                "summary": {"tests_passed": 1},
+            },
+        ),
+        {"sub": "user-6"},
+    )
+
+    assert response.state_status == "completed"
+    assert (await get_agent_host_actions(handshake.session_id, {"sub": "user-6"})).actions == []

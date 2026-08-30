@@ -45,7 +45,7 @@ flowchart LR
 
 ## StateGraph 边界
 
-节点读取 State 快照并返回 StateDelta，reducer 负责 revision、消息幂等和增量合并。`CheckpointStore`、事件 Envelope 和本地验证适配器已经提供基础契约。会话适配器支持按 sequence replay，并在检测到缺口时返回 snapshot recovery action。云端验证结果限定为 `cloud_syntax`；当 State 声明必需本地 scope 时，验证节点创建 `waiting_local_validation` 动作，`run_workflow()` 将动作适配并发布到已连接的 Agent Host session，插件结果按 task、revision、schema version 和 scope 校验后合并，所有必需 scope 通过后才进入终态。Agent Host session 使用原子 JSON 队列保存动作、策略版本和事件确认，支持进程重启后的恢复。API 入口仍保留原始 SSE 事件出口，完整生产级多 worker 共享存储和插件真实 E2E 闭环需要运行环境继续验收。
+节点读取 State 快照并返回 StateDelta，reducer 负责 revision、消息幂等和增量合并。`CheckpointStore`、事件 Envelope 和本地验证适配器已经提供基础契约。会话适配器支持按 sequence replay，并在检测到缺口时返回 snapshot recovery action。云端验证结果限定为 `cloud_syntax`；当 State 声明必需本地 scope 时，验证节点创建 `waiting_local_validation` 动作，`run_workflow()` 将动作适配并发布到已连接的 Agent Host session，插件 `tool_result` 经过任务版本和本地结果适配器校验后恢复活动 StateGraph，所有必需 scope 通过后进入 `completed`。Agent Host session 使用原子 JSON 队列保存动作、策略版本和事件确认，支持进程重启后的恢复。API 入口仍保留原始 SSE 事件出口，完整生产级多 worker 共享存储和插件真实 E2E 闭环需要运行环境继续验收。
 
 ## 检索与运行时边界
 

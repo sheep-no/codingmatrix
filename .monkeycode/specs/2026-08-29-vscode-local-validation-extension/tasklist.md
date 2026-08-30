@@ -125,7 +125,7 @@
 - 目标：将 VS Code 插件从本地验证客户端升级为完整的 VS Code Agent 工作台和本地 Agent Host，与 Web 工作台共享会话、模型、Skills 和策略。
 - 范围：会话握手、工作区能力声明、文件工具、终端工具、诊断工具、验证工具、Skills 下发、模型策略同步、审批、总开关和验证类型开关。
 - 协议：版本化 `AgentHostEnvelope`，支持 `tool_action`、`progress_event`、`approval_request`、`policy_update`、`skill_revoke` 和 `session_control`。
-- 当前进度：已实现 `agent-host.ts` 的 Envelope 解析、Host Hello 生成与解析、会话握手、能力声明和单调递增策略版本门禁；已实现 `ToolDispatcher` 的文件、终端、诊断和验证动作分发，`ApprovalBridge` 的审批请求与决定，以及 `WebviewBridge`、`AgentHostRuntime` 的云端动作轮询、策略更新、原生 Agent Webview 审批消息链路、真实本地 Host activation 接线和命令 E2E；后端已新增认证握手、session actions、Host events、policy 更新接口、StateGraph 自动动作入队和文件持久化 session store，支持用户绑定 session、事件幂等、策略版本冲突、action 去重和进程重启恢复；`CloudConnection.handshake()`、session 动作拉取和事件回传已接入，相关后端测试 26/26 通过，VS Code 插件测试 55/55 通过。
+- 当前进度：已实现 `agent-host.ts` 的 Envelope 解析、Host Hello 生成与解析、会话握手、能力声明和单调递增策略版本门禁；已实现 `ToolDispatcher` 的文件、终端、诊断和验证动作分发，`ApprovalBridge` 的审批请求与决定，以及 `WebviewBridge`、`AgentHostRuntime` 的云端动作轮询、策略更新、原生 Agent Webview 审批消息链路、真实本地 Host activation 接线和命令 E2E；后端已新增认证握手、session actions、Host events、policy 更新接口、StateGraph 自动动作入队、文件持久化 session store 和 `tool_result` 恢复 StateGraph，支持用户绑定 session、事件幂等、策略版本冲突、action 去重、进程重启恢复和本地结果驱动的 `completed` 终态；`CloudConnection.handshake()`、session 动作拉取和事件回传已接入，相关后端测试 27/27 通过，VS Code 插件测试 55/55 通过。
 - 安全：短期会话凭据、工作区绑定、策略版本、能力白名单、风险审批、审计事件和结果脱敏。
 - 交互：Web 和 VS Code 工作台提供一致的对话、审批、进度、日志、诊断和结果体验；VS Code 扩展提供后台运行时和原生本地能力。
 - 依赖：复用现有模型供应商接口、Skill 管理接口、StateGraph、checkpoint、事件适配器和本地验证执行器。
