@@ -6,8 +6,17 @@ declare module "node:crypto" {
 
 declare module "node:fs/promises" {
   export function readFile(path: string, encoding: "utf8"): Promise<string>;
+  export function readdir(path: string, options: { withFileTypes: true }): Promise<Array<{
+    name: string;
+    isDirectory(): boolean;
+  }>>;
   export function stat(path: string): Promise<{ isFile(): boolean }>;
   export function writeFile(path: string, content: string, encoding: "utf8"): Promise<void>;
+}
+
+declare module "node:path" {
+  export function join(...parts: string[]): string;
+  export function relative(from: string, to: string): string;
 }
 
 declare module "node:child_process" {

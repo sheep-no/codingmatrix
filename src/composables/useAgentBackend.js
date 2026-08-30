@@ -28,6 +28,8 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
   const showVersionHistoryModal = ref(false)
   const showUploadModal = ref(false)
   const showDiffModal = ref(false)
+  const userSkills = ref([])
+  const workspaceSkills = ref([])
   const selectedDiffFile = ref(null)
   const uploadingZip = ref(false)
   const importProgress = ref({ current: 0, total: 0, currentFile: '' })
@@ -54,6 +56,20 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
       ElMessage.error('加载项目列表失败')
     } finally {
       isLoadingProjects.value = false
+    }
+  }
+
+  const loadAvailableSkills = async () => {
+    try {
+      const [userResponse, sessions] = await Promise.all([
+        projectApi.listSkills?.() || [],
+        projectApi.listAgentHostSessions?.() || []
+      ])
+      userSkills.value = Array.isArray(userResponse) ? userResponse : userResponse.skills || []
+      const latestSession = (sessions || []).find(session => session.control_status !== 'cancelled')
+      workspaceSkills.value = latestSession ? Object.values(latestSession.skills || {}) : []
+    } catch (error) {
+      console.error('加载 Skills 失败:', error)
     }
   }
 
@@ -321,12 +337,13 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
     backendPerformanceData, backendPerformanceTrends, isLoadingPerformance,
     performanceStats, showSettingsModal, showPerformanceModal, showLearningModal,
     showVersionHistoryModal, showUploadModal, showDiffModal, selectedDiffFile,
+    userSkills, workspaceSkills,
     uploadingZip, importProgress, fileInput, settings,
     loadSavedProjects, saveProjectToBackend, downloadProject, deleteFileFromBackend,
     loadPerformanceMetrics, openPerformancePanel, loadSnapshots, rollbackToSnapshot,
     loadBackendSettings, clearBackendCache, exportPerformanceData,
     saveSettings, loadSettings, copySettingsToClipboard,
     openSettingsWithBackend, openLearningPanel, openVersionHistoryWithBackend,
-    analyzeRequirementComplexity, stopSession, submitDecision
+    analyzeRequirementComplexity, stopSession, submitDecision, loadAvailableSkills
   })
 }

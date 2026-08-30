@@ -106,6 +106,40 @@ def enqueue_state_actions(session_id: str, state: Any) -> int:
     return added
 
 
+def broadcast_user_skill_update(user_id: str) -> int:
+    """Queue the latest private Skill snapshot for every active session of a user."""
+    from app.services.custom_skill_manager import get_skill_manager
+
+    manager = get_skill_manager()
+    skills = {}
+    for skill in manager.list_skills(owner_user_id=str(user_id)):
+        detail = manager.get_skill(skill["name"], owner_user_id=str(user_id))
+        if detail:
+            skills[f"user:{skill['name']}"] = detail
+    updated = 0
+    for session_id, session in _sessions.items():
+        if session.get("user_id") != str(user_id):
+            continue
+        _queue_session_action(session_id, session, {
+            "kind": "tool_action",
+            "capability": "skill_runtime",
+            "payload": {"operation": "sync_user", "skills": skills},
+        })
+        _session_store.save(session_id, session)
+        updated += 1
+    return updated
+
+
+def get_latest_session_skills(user_id: str) -> dict[str, dict[str, Any]]:
+    """Return the newest non-expired workspace snapshot owned by a user."""
+    now = datetime.now(timezone.utc)
+    sessions = [
+        session for session in _sessions.values()
+        if session.get("user_id") == str(user_id) and now < session.get("expires_at", now)
+    ]
+    return dict(sessions[-1].get("skills", {})) if sessions else {}
+
+
 class HostHandshakeRequest(BaseModel):
     workspace_id: str = Field(min_length=1, max_length=256)
     extension_version: str = Field(min_length=1, max_length=64)
@@ -123,6 +157,7 @@ class HostHandshakeResponse(BaseModel):
     policy: dict[str, Any]
     pending_actions: list[dict[str, Any]]
     expires_at: str
+    user_skills: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class AgentHostEnvelope(BaseModel):
@@ -161,6 +196,14 @@ class SkillSyncRequest(BaseModel):
     skills: dict[str, dict[str, Any]]
 
 
+class AgentHostSessionSummary(BaseModel):
+    session_id: str
+    workspace_id: str
+    control_status: str
+    skills: dict[str, dict[str, Any]]
+    expires_at: str
+
+
 class SessionControlRequest(BaseModel):
     action: Literal["pause", "resume", "cancel"]
 
@@ -197,6 +240,12 @@ async def agent_host_handshake(
         "control_status": "active",
     }
     _session_store.save(session_id, _sessions[session_id])
+    from app.services.custom_skill_manager import get_skill_manager
+    user_id = str(token.get("sub", ""))
+    user_skills = {
+        f"user:{skill['name']}": {**skill, "content": get_skill_manager().get_skill(skill["name"], owner_user_id=user_id)["content"]}
+        for skill in get_skill_manager().list_skills(owner_user_id=user_id)
+    }
     return HostHandshakeResponse(
         session_id=session_id,
         workspace_id=request.workspace_id,
@@ -207,6 +256,7 @@ async def agent_host_handshake(
         policy=policy,
         pending_actions=[],
         expires_at=expires_at.isoformat(),
+        user_skills=user_skills,
     )
 
 
@@ -221,6 +271,25 @@ def _get_session(session_id: str, token: dict) -> dict[str, Any]:
     session.setdefault("control_status", "active")
     _sessions[session_id] = session
     return session
+
+
+@router.get("/agent/host/sessions", response_model=list[AgentHostSessionSummary])
+async def list_agent_host_sessions(token: dict = Depends(verify_token)) -> list[AgentHostSessionSummary]:
+    user_id = str(token.get("sub", ""))
+    summaries = []
+    for session_id, session in list(_sessions.items()):
+        if session.get("user_id") != user_id:
+            continue
+        if datetime.now(timezone.utc) >= session["expires_at"]:
+            continue
+        summaries.append(AgentHostSessionSummary(
+            session_id=session_id,
+            workspace_id=session["workspace_id"],
+            control_status=session.get("control_status", "active"),
+            skills=session.get("skills", {}),
+            expires_at=session["expires_at"].isoformat(),
+        ))
+    return summaries
 
 
 @router.get("/agent/host/sessions/{session_id}/actions", response_model=AgentHostActionsResponse)

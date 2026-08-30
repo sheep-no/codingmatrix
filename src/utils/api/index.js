@@ -40,6 +40,7 @@ import { createKolorsClient } from './kolors'
 import { createAiCloudClient } from './aicloud'
 import { createAdminClient } from './admin'
 import { createGithubClient } from './github'
+import { createSkillsClient } from './skills'
 import { WebSocketManager } from './websocket'
 
 export {
@@ -83,7 +84,8 @@ function createDefaultClient(store) {
     ...createKolorsClient(baseClient),
     ...createAiCloudClient(baseClient),
     ...createAdminClient(baseClient),
-    ...createGithubClient(baseClient)
+    ...createGithubClient(baseClient),
+    ...createSkillsClient(baseClient)
   }
 }
 

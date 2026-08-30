@@ -24,6 +24,8 @@
         :categories="files.fileCategories"
         :search-query="files.fileSearchQuery"
         :selected-path="selectedFilePath"
+        :user-skills="backend.userSkills"
+        :workspace-skills="backend.workspaceSkills"
         @new-session="doCreateNewSession"
         @switch-session="doSwitchSession"
         @delete-session="doDeleteSession"
@@ -376,6 +378,7 @@ onMounted(() => {
     })
   )
   backend.loadBackendSettings().catch(() => {})
+  backend.loadAvailableSkills()
 })
 onBeforeUnmount(() => {
   session.stopAutoSave()

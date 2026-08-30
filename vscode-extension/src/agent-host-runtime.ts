@@ -150,7 +150,7 @@ export class AgentHostRuntime {
   }
 
   private async applySkillSync(action: AgentHostEnvelope): Promise<boolean> {
-    if (!isRecord(action.payload) || action.payload.operation !== "sync" || !isRecord(action.payload.skills)) {
+    if (!isRecord(action.payload) || !["sync", "sync_user"].includes(String(action.payload.operation)) || !isRecord(action.payload.skills)) {
       throw new AgentHostRuntimeError("policy_mismatch", "skill sync requires a skills object");
     }
     await this.onSkillSync?.(action.payload.skills);

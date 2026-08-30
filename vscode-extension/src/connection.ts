@@ -128,6 +128,16 @@ export class CloudConnection {
     return this.readJson(response);
   }
 
+  async syncSkills(skills: Record<string, unknown>): Promise<unknown> {
+    if (!this.sessionId) throw new CloudConnectionError("request_failed", "agent host handshake is required");
+    const response = await this.request(`/api/v1/agent/host/sessions/${encodeURIComponent(this.sessionId)}/skills`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ skills }),
+    });
+    return this.readJson(response);
+  }
+
   async fetchPendingActions(): Promise<PendingAction[]> {
     const response = await this.request(this.actionsPath, { method: "GET" });
     const body = await this.readJson(response);

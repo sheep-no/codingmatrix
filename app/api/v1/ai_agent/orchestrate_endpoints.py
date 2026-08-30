@@ -131,6 +131,26 @@ _active_tasks: Dict[str, dict] = {}
 _user_creation_locks: Dict[str, asyncio.Lock] = {}
 
 logger = logging.getLogger(__name__)
+
+
+def _skill_context_for_user(user_id: str) -> str:
+    """Build a bounded, namespaced Skill context for the Web Agent."""
+    from app.api.v1.agent_host import get_latest_session_skills
+    from app.services.custom_skill_manager import get_skill_manager
+
+    sections = []
+    manager = get_skill_manager()
+    for skill in manager.list_skills(owner_user_id=str(user_id)):
+        detail = manager.get_skill(skill["name"], owner_user_id=str(user_id))
+        if detail:
+            sections.append(f"[user:{skill['name']}]\n{detail['content']}")
+    for name, skill in get_latest_session_skills(str(user_id)).items():
+        content = skill.get("content") if isinstance(skill, dict) else None
+        if isinstance(content, str):
+            sections.append(f"[{name}]\n{content}")
+    if not sections:
+        return ""
+    return "\n\n[Available Skills]\n" + "\n\n".join(sections)[:200_000]
 router = APIRouter()
 
 # 分析类意图关键词
@@ -250,7 +270,6 @@ async def modify_project(
     user_id = token.get("sub", "anonymous")
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
-
     # 防护：检查速率限制
     rate_ok, rate_msg = check_rate_limit(f"modify:{user_id}")
     if not rate_ok:
@@ -467,6 +486,7 @@ async def orchestrate_project(
 
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+    skill_context = _skill_context_for_user(user_id)
 
     session = await create_agent_session(
         db, int(user_id), "orchestrator", request.requirement
@@ -493,7 +513,7 @@ async def orchestrate_project(
         workflow = build_legacy_workflow(
             "orchestrate",
             "/orchestrate",
-            lambda _state: orchestrator.generate(requirement=request.requirement),
+            lambda _state: orchestrator.generate(requirement=request.requirement + skill_context),
         )
         graph_state = await run_workflow(
             workflow,
@@ -539,6 +559,7 @@ async def orchestrate_project_stream(
 
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+    skill_context = _skill_context_for_user(user_id)
 
     # 防护：检查速率限制
     rate_ok, rate_msg = check_rate_limit(f"stream:{user_id}")
@@ -828,7 +849,7 @@ async def orchestrate_project_stream(
                         "orchestrate_stream",
                         "/orchestrate/stream",
                         lambda _state: orchestrator.generate(
-                            requirement=request.requirement
+                            requirement=request.requirement + skill_context
                         ),
                     )
                     graph_state = await run_workflow(

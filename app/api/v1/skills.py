@@ -2,13 +2,19 @@
 自定义 Skill 管理 API
 允许用户上传、管理和使用自定义提示词 skill
 """
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
 from app.services.custom_skill_manager import get_skill_manager, VALID_CATEGORIES
+from app.utils.security import verify_token
+from app.db.database import get_db
+from app.models.user import User
+from app.models.Permission import Permission
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/skills", tags=["Skills"])
 
@@ -53,7 +59,7 @@ class SkillDetail(SkillInfo):
 # ============================================================================
 
 @router.post("/upload", response_model=SkillInfo, summary="上传自定义 Skill")
-async def upload_skill(request: SkillUploadRequest):
+async def upload_skill(request: SkillUploadRequest, token: dict = Depends(verify_token)):
     """
     上传自定义 Skill
     
@@ -68,19 +74,22 @@ async def upload_skill(request: SkillUploadRequest):
         category=request.category,
         content=request.content,
         description=request.description,
-        author="api_user"  # TODO: 从认证信息获取
+        author=str(token.get("sub", "")),
+        owner_user_id=str(token.get("sub", "")),
     )
     
     if not success:
         raise HTTPException(status_code=400, detail=message)
-    
+    from app.api.v1.agent_host import broadcast_user_skill_update
+    broadcast_user_skill_update(str(token.get("sub", "")))
     return skill_info
 
 
 @router.get("/list", response_model=List[SkillInfo], summary="列出所有自定义 Skill")
 async def list_skills(
     category: Optional[str] = None,
-    author: Optional[str] = None
+    author: Optional[str] = None,
+    token: dict = Depends(verify_token),
 ):
     """
     列出所有自定义 Skill
@@ -89,7 +98,7 @@ async def list_skills(
     - **author**: 按作者过滤（可选）
     """
     manager = get_skill_manager()
-    skills = manager.list_skills(category=category, author=author)
+    skills = manager.list_skills(category=category, author=author, owner_user_id=str(token.get("sub", "")))
     return skills
 
 
@@ -111,14 +120,14 @@ async def get_categories():
 
 
 @router.get("/{name}", response_model=SkillDetail, summary="获取 Skill 详情")
-async def get_skill(name: str):
+async def get_skill(name: str, token: dict = Depends(verify_token)):
     """
     获取指定 Skill 的详细信息和内容
     
     - **name**: Skill 名称
     """
     manager = get_skill_manager()
-    skill = manager.get_skill(name)
+    skill = manager.get_skill(name, owner_user_id=str(token.get("sub", "")))
     
     if not skill:
         raise HTTPException(status_code=404, detail=f"Skill '{name}' 不存在")
@@ -127,7 +136,7 @@ async def get_skill(name: str):
 
 
 @router.put("/{name}", response_model=SkillInfo, summary="更新 Skill")
-async def update_skill(name: str, request: SkillUpdateRequest):
+async def update_skill(name: str, request: SkillUpdateRequest, token: dict = Depends(verify_token)):
     """
     更新 Skill 内容
     
@@ -139,32 +148,35 @@ async def update_skill(name: str, request: SkillUpdateRequest):
     success, message, skill_info = manager.update_skill(
         name=name,
         content=request.content,
-        description=request.description
+        description=request.description,
+        owner_user_id=str(token.get("sub", "")),
     )
     
     if not success:
         if "不存在" in message:
             raise HTTPException(status_code=404, detail=message)
         raise HTTPException(status_code=400, detail=message)
-    
+    from app.api.v1.agent_host import broadcast_user_skill_update
+    broadcast_user_skill_update(str(token.get("sub", "")))
     return skill_info
 
 
 @router.delete("/{name}", summary="删除 Skill")
-async def delete_skill(name: str):
+async def delete_skill(name: str, token: dict = Depends(verify_token)):
     """
     删除指定 Skill
     
     - **name**: Skill 名称
     """
     manager = get_skill_manager()
-    success, message = manager.delete_skill(name)
+    success, message = manager.delete_skill(name, owner_user_id=str(token.get("sub", "")))
     
     if not success:
         if "不存在" in message:
             raise HTTPException(status_code=404, detail=message)
         raise HTTPException(status_code=400, detail=message)
-    
+    from app.api.v1.agent_host import broadcast_user_skill_update
+    broadcast_user_skill_update(str(token.get("sub", "")))
     return {"message": message}
 
 
@@ -173,7 +185,8 @@ async def upload_skill_file(
     file: UploadFile = File(...),
     name: str = Form(...),
     category: str = Form(...),
-    description: str = Form("")
+    description: str = Form(""),
+    token: dict = Depends(verify_token),
 ):
     """
     通过文件上传 Skill
@@ -201,12 +214,14 @@ async def upload_skill_file(
         category=category,
         content=content_str,
         description=description,
-        author="api_user"
+        author=str(token.get("sub", "")),
+        owner_user_id=str(token.get("sub", "")),
     )
     
     if not success:
         raise HTTPException(status_code=400, detail=message)
-    
+    from app.api.v1.agent_host import broadcast_user_skill_update
+    broadcast_user_skill_update(str(token.get("sub", "")))
     return skill_info
 
 
@@ -239,3 +254,24 @@ async def reload_prompts():
         raise HTTPException(status_code=500, detail="提取超时")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/migrate-legacy", summary="迁移历史 Skill 所有权")
+async def migrate_legacy_skills(
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    if token.get("permission_level") not in {"admin", "superadmin"}:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    result = await db.execute(
+        select(User.id)
+        .join(Permission, Permission.user_id == User.id)
+        .where(Permission.permission_level.in_(["admin", "superadmin"]))
+        .order_by(User.created_at.asc(), User.id.asc())
+        .limit(1)
+    )
+    administrator_id = result.scalar_one_or_none()
+    if administrator_id is None:
+        raise HTTPException(status_code=409, detail="没有可用的系统管理员用户，迁移可重试")
+    migrated = get_skill_manager().migrate_legacy_skills(str(administrator_id))
+    return {"migrated": migrated, "owner_user_id": str(administrator_id)}
