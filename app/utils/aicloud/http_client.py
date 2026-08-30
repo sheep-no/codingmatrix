@@ -21,27 +21,34 @@ _max_concurrent_calls = asyncio.Semaphore(20)
 # 共享 HTTP 客户端
 _http_client: Optional[httpx.AsyncClient] = None
 _http_client_lock = asyncio.Lock()
+_http_client_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
 async def get_http_client() -> httpx.AsyncClient:
     """获取或创建共享的 HTTP 客户端（连接池复用，双重检查锁）"""
-    global _http_client
-    if _http_client is None or _http_client.is_closed:
+    global _http_client, _http_client_loop
+    current_loop = asyncio.get_running_loop()
+    client_is_stale = _http_client_loop is not None and _http_client_loop is not current_loop
+    if _http_client is None or _http_client.is_closed or client_is_stale:
         async with _http_client_lock:
-            if _http_client is None or _http_client.is_closed:
+            current_loop = asyncio.get_running_loop()
+            client_is_stale = _http_client_loop is not None and _http_client_loop is not current_loop
+            if _http_client is None or _http_client.is_closed or client_is_stale:
                 _http_client = httpx.AsyncClient(
                     timeout=Timeout(300.0, connect=10.0),
                     limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
                 )
+                _http_client_loop = current_loop
     return _http_client
 
 
 async def close_http_client():
     """关闭 HTTP 客户端"""
-    global _http_client
+    global _http_client, _http_client_loop
     if _http_client and not _http_client.is_closed:
         await _http_client.aclose()
         _http_client = None
+        _http_client_loop = None
 
 
 async def call_with_retry(

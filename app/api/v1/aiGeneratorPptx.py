@@ -30,6 +30,8 @@ from app.db.database import async_session
 from app.utils.security import verify_token, verify_token_ws
 from app.utils.task_manager import task_manager
 from app.schema.task_schema import TaskResponse
+from app.services.unified_state_service import get_owned_task, transition_task
+from app.celery_app import celery_app
 
 # 视觉决策模块
 from app.utils.visual import (
@@ -838,6 +840,7 @@ async def generate_ppt_task(
             int(user_id),
             req.model_dump(mode="json"),
         )
+        _register_ppt_owner(task_id, str(user_id))
         return TaskResponse(
             task_id=task_id,
             celery_task_id=celery_task_id,
@@ -1146,27 +1149,42 @@ async def get_ppt_slides(
 @router.delete("/pptx/{task_id}/cancel")
 async def cancel_ppt_task(
     task_id: str,
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
 ):
     """取消正在进行的 PPT 生成任务，并保存中间状态"""
     user_id = token.get("sub")
 
     task_info = await task_manager.get_task_info_async(task_id)
-    if not task_info:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    if task_info:
+        if task_info.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="无权取消此任务")
 
-    if task_info.get("user_id") != user_id:
-        raise HTTPException(status_code=403, detail="无权取消此任务")
+        if task_info.get("status") in ["success", "failed", "cancelled"]:
+            return {"status": "already_finished", "message": f"任务已结束（{task_info['status']}）"}
 
-    if task_info.get("status") in ["success", "failed", "cancelled"]:
-        return {"status": "already_finished", "message": f"任务已结束（{task_info['status']}）"}
-
-    success = await task_manager.cancel_task(task_id)
-    if success:
-        logger.info(f"取消 PPT 任务 | task_id={task_id} | user={user_id}")
-        return {"status": "cancelled", "message": "任务已取消"}
-    else:
+        success = await task_manager.cancel_task(task_id)
+        if success:
+            logger.info(f"取消 PPT 任务 | task_id={task_id} | user={user_id}")
+            return {"status": "cancelled", "message": "任务已取消"}
         return {"status": "not_running", "message": "任务未在执行"}
+
+    try:
+        task_record = await get_owned_task(db, task_id, int(user_id))
+    except Exception as error:
+        raise HTTPException(status_code=404, detail="任务不存在") from error
+
+    if task_record.status in ["success", "failed", "cancelled"]:
+        return {"status": "already_finished", "message": f"任务已结束（{task_record.status}）"}
+
+    if task_record.celery_task_id:
+        celery_app.control.revoke(task_record.celery_task_id, terminate=True, signal="SIGTERM")
+        await transition_task(db, task_id, int(user_id), "cancelled", progress=task_record.progress or 0)
+        await db.commit()
+        logger.info(f"取消 Celery PPT 任务 | task_id={task_id} | user={user_id}")
+        return {"status": "cancelled", "message": "任务已取消"}
+
+    return {"status": "not_running", "message": "任务未在执行"}
 
 
 @router.post("/pptx/{task_id}/update", response_model=TaskResponse)
