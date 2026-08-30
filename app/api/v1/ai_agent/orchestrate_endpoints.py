@@ -123,6 +123,7 @@ from app.agent.conversation_store import get_conversation_store
 from app.utils.guardrails import (
     check_disk_space, check_rate_limit, validate_session_id
 )
+from .single_file_generation import generate_single_file
 
 _decision_queues: Dict[str, asyncio.Queue] = {}
 _cancel_events: Dict[str, asyncio.Event] = {}
@@ -486,12 +487,23 @@ async def orchestrate_project(
 
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
-    skill_context = _skill_context_for_user(user_id)
 
     session = await create_agent_session(
         db, int(user_id), "orchestrator", request.requirement
     )
     session_id = session.id if session else None
+
+    single_file_result = await generate_single_file(
+        requirement=request.requirement,
+        project_name=request.project_name,
+        api_key_token=request.api_key_token,
+        provider_id=request.provider_id,
+    )
+    if single_file_result is not None:
+        single_file_result["session_id"] = session_id
+        return OrchestratorResponse(**single_file_result)
+
+    skill_context = _skill_context_for_user(user_id)
 
     start_time = time.time()
 
