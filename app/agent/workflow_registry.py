@@ -61,6 +61,24 @@ class WorkflowRegistry:
 LegacyHandler = Callable[[State], Any | Awaitable[Any]]
 
 
+def get_legacy_result(state: State) -> Dict[str, Any]:
+    """Return a wrapped endpoint result or raise the graph's original error."""
+    result = state.metadata.get("legacy_result")
+    if isinstance(result, dict):
+        return result
+
+    error_messages = [
+        str(error.get("message") or error)
+        for error in state.errors
+        if error
+    ]
+    if error_messages:
+        raise RuntimeError("; ".join(error_messages))
+
+    workflow_name = state.metadata.get("_workflow_name", "unknown")
+    raise RuntimeError(f"workflow {workflow_name} completed without a result")
+
+
 def build_legacy_workflow(
     name: str,
     legacy_endpoint: str,

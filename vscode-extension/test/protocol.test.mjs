@@ -26,6 +26,16 @@ test("parses a valid pending action", () => {
   assert.deepEqual(parsePendingAction(action), action);
 });
 
+test("parses dependency installation actions with execution identifiers", () => {
+  const dependencyAction = {
+    ...action,
+    operation: "dependency_install",
+    run_id: "run-1",
+    step_id: "step-dependencies",
+  };
+  assert.deepEqual(parsePendingAction(dependencyAction), dependencyAction);
+});
+
 test("rejects cloud validation scope for local actions", () => {
   assert.throws(
     () => parsePendingAction({ ...action, validation_scope: "cloud_syntax" }),
@@ -66,6 +76,25 @@ test("round trips a local validation result", () => {
     },
   };
   assert.deepEqual(parseLocalValidationResult(JSON.parse(JSON.stringify(result))), result);
+});
+
+test("accepts skipped local results and execution identifiers", () => {
+  const result = {
+    event_id: "result-skipped",
+    schema_version: 1,
+    session_id: "session-1",
+    task_id: "task-1",
+    revision: 2,
+    source: "local",
+    validation_scope: "local_runtime",
+    status: "skipped",
+    started_at: "2026-08-29T00:00:00Z",
+    finished_at: "2026-08-29T00:00:00Z",
+    summary: { command_name: "dependency_install", diagnostics: [] },
+    run_id: "run-1",
+    step_id: "step-dependencies",
+  };
+  assert.deepEqual(parseLocalValidationResult(result), result);
 });
 
 test("rejects results from cloud source", () => {

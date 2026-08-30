@@ -81,6 +81,7 @@ def enqueue_state_actions(session_id: str, state: Any) -> int:
         action_id = str(pending.get("action_id") or pending.get("event_id") or uuid4())
         if action_id in existing:
             continue
+        capability = _pending_action_capability(pending)
         session["pending_actions"].append({
             "message_id": str(pending.get("event_id") or uuid4()),
             "schema_version": SUPPORTED_PROTOCOL_VERSION,
@@ -88,7 +89,7 @@ def enqueue_state_actions(session_id: str, state: Any) -> int:
             "task_id": task_id,
             "revision": revision,
             "kind": "tool_action",
-            "capability": "validation",
+            "capability": capability,
             "policy_version": session["policy_version"],
             "payload": {
                 **pending,
@@ -104,6 +105,19 @@ def enqueue_state_actions(session_id: str, state: Any) -> int:
     if added:
         _session_store.save(session_id, session)
     return added
+
+
+def _pending_action_capability(action: dict[str, Any]) -> str:
+    """Map State actions to the Host capability that owns their execution."""
+    capability = action.get("capability")
+    if capability in {"file", "terminal", "validation", "diagnostics", "workspace"}:
+        return capability
+    action_type = action.get("type")
+    if action_type == "file_sync":
+        return "file"
+    if action_type in {"install_dependencies", "dependency_install"}:
+        return "terminal"
+    return "validation"
 
 
 def broadcast_user_skill_update(user_id: str) -> int:

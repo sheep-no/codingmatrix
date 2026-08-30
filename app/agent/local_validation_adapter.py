@@ -14,6 +14,7 @@ RESULT_STATUSES = {
     "rejected",
     "waiting_for_confirmation",
     "cancelled",
+    "skipped",
 }
 
 
@@ -39,7 +40,7 @@ def local_result_to_delta(state: State, result: Dict[str, Any]) -> StateDelta:
             raise ValueError("unsupported local validation status")
         passed = (
             True
-            if result["status"] == "passed"
+            if result["status"] in {"passed", "skipped"}
             else None
             if result["status"] == "waiting_for_confirmation"
             else False
