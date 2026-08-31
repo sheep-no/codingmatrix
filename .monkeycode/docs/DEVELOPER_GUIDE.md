@@ -4,7 +4,7 @@
 
 开发与测试约定使用 Python 3.11。当前 Dockerfile 使用 Python 3.10，部署前需要统一版本或明确兼容矩阵。测试依赖至少包含 `pytest`、`pytest-asyncio`、`aiofiles`、`PyJWT` 和 `apscheduler`。Redis、数据库和 FAISS 相关测试还需要对应本地服务或可选组件。
 
-本地默认环境使用 SQLite `app.db` 和 Redis `redis://127.0.0.1:6379/0`。硅基流动配置使用 `SILICONFLOW_API_KEY` 和 `SILICONFLOW_BASE_URL`，默认地址为 `https://api.siliconflow.cn/v1`；真实 API Key 只放在本地 `.env`，使用占位符维护示例。
+本地默认环境使用 SQLite `app.db` 和 Redis `redis://127.0.0.1:6379/0`。硅基流动配置使用 `SILICONFLOW_API_KEY` 和 `SILICONFLOW_BASE_URL`，默认地址为 `https://api.siliconflow.cn/v1`；真实 API Key 只放在本地 `.env`，使用占位符维护示例。启动时 `.env` 采用 `override=False`，已有进程环境变量优先。
 
 前端 Vite 默认监听 3000 端口，并将 `/api/v1`、`/api/v2` 代理到后端 8000 端口。后端构建产物由 FastAPI 提供时使用 8000 端口。
 
@@ -47,6 +47,8 @@ P4.4 当前验收：状态迁移、核对、切换、worker recovery、SQL repla
 
 API 路由契约 E2E 已完成静态路径校准，当前结果为 `3 passed`、`2 skipped`。认证 E2E 使用 `TEST_ADMIN_EMAIL` 和 `TEST_ADMIN_PASSWORD`，默认测试邮箱为 `admin_test@example.com`；固定账号未设置密码时认证用例会明确跳过。完整浏览器验收已通过一次性本地测试账号完成。
 
+GirlAI 本轮验证结果：后端专项回归 `40 passed`，前端 GirlAI API 测试 `2 passed`；使用现有注册账户的真实登录、角色列表、GirlAI 对话、历史查询和双写保存均通过。真实对话响应耗时约 4.6 秒并返回 HTTP 200。模型供应商鉴权失败时返回通用 HTTP 502，失败请求不会写入历史。
+
 ## 验证命令
 
 ```bash
@@ -81,6 +83,7 @@ npm --prefix vscode-extension run e2e
 - 云端状态不能把本地构建、依赖安装或 E2E 标记为完成。
 - legacy endpoint 迁移保留原响应和事件结构，便于渐进式回归。
 - 修改后执行 `git diff --check` 和相关测试。
+- GirlAI 相关修改后执行 `python3 -m pytest tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py tests/unit/test_database_services.py -q`，并在 `/workspace/src` 执行 `npm run test:run -- utils/api/girl.test.js`。
 - 验证节点通过 `State.metadata.required_validation_scopes` 声明 `local_runtime` 或 `local_e2e`；云端验证保持 `cloud_syntax`，本地结果按 scope 回传。
 - 本地结果协议使用 `validation_scope`、`status` 和 `source=local`；`local_result_to_delta()` 负责映射为内部字段并执行 task/session/revision/schema 校验。StateReducer 按验证结果 `event_id` 去重，重复回传保持状态和 revision 不变。
 - 会话回放使用 `replay_session()`；发现 sequence 缺口时，调用方应执行返回的 `snapshot_recovery` action。
