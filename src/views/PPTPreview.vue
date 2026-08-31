@@ -174,7 +174,7 @@ async function downloadPDF() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `ppt-${pptId}.pptx`
+    a.download = `ppt-${pptId}.pdf`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)

@@ -188,9 +188,9 @@
         <div v-else-if="generatedFileUrl" class="success-container">
           <h3>生成成功!</h3>
           <div class="success-actions">
-            <a :href="generatedFileUrl" target="_blank" class="download-link">
+            <button class="download-link" @click="downloadPpt">
               下载 PPTX 文件
-            </a>
+            </button>
             <button v-if="currentTaskId" class="download-link pdf-link" @click="downloadPdf">
               下载 PDF
             </button>
@@ -286,7 +286,7 @@
                 <span>{{ item.template || 'modern' }}</span>
               </div>
               <div class="history-card-actions">
-                <a :href="`/api/v1/pptx/download/${item.task_id}`" class="history-action-btn">下载</a>
+                <button class="history-action-btn" @click="downloadHistory(item.task_id)">下载</button>
                 <button class="history-action-btn" @click="loadFromHistory(item)">加载</button>
                 <button class="history-action-btn delete" @click="deleteHistory(item.task_id)">删除</button>
               </div>
@@ -304,9 +304,11 @@ import { useRouter } from 'vue-router'
 import { useApiKeyStore } from '@/stores/apikey'
 import { api } from '@/utils/api/index'
 import { ElMessage } from 'element-plus'
+import { useTokenManager } from '@/utils/tokenManager'
 
 const router = useRouter()
 const apiKeyStore = useApiKeyStore()
+const { getToken } = useTokenManager()
 
 const topic = ref('')
 const selectedTemplate = ref('modern')
@@ -348,6 +350,28 @@ const templates = ref([
 ])
 
 let ws = null
+
+async function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+async function downloadPpt() {
+  if (!currentTaskId.value) return
+  await downloadBlob(await api.ppt.downloadPPT(currentTaskId.value), `presentation_${currentTaskId.value}.pptx`)
+}
+
+async function downloadHistory(taskId) {
+  try {
+    await downloadBlob(await api.ppt.downloadPPT(taskId), `presentation_${taskId}.pptx`)
+  } catch (error) {
+    ElMessage.error('下载失败: ' + error.message)
+  }
+}
 
 const canGenerate = computed(() => {
   return (topic.value.trim().length > 0 || uploadedFile.value) && topic.value.length <= 2000
@@ -469,7 +493,8 @@ async function deleteHistory(taskId) {
 
 function connectWebSocket(taskId) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/ppt/${taskId}`
+  const token = getToken()
+  const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/ppt/${taskId}?token=${encodeURIComponent(token || '')}`
 
   ws = new WebSocket(wsUrl)
 
@@ -478,7 +503,7 @@ function connectWebSocket(taskId) {
       const data = JSON.parse(event.data)
       if (data.type === 'progress') {
         progressState.value = { progress: data.progress, step: data.step, message: data.message }
-      } else if (data.type === 'complete') {
+      } else if (data.type === 'complete' || data.type === 'completed') {
         progressState.value = { progress: 1, step: 'completed', message: '任务完成' }
         generating.value = false
         // 获取结果
@@ -551,7 +576,7 @@ async function handleGenerate() {
       formData.append('extra_prompt', topic.value.trim())
       formData.append('api_key_token', apiKeyStore.siliconflowKey?.token || '')
 
-      const token = localStorage.getItem('token') || ''
+      const token = getToken() || ''
       const resp = await fetch('/api/v1/pptx/generate_from_file', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
@@ -572,6 +597,7 @@ async function handleGenerate() {
     }
 
     if (result && result.task_id) {
+      currentTaskId.value = result.task_id
       connectWebSocket(result.task_id)
       ElMessage.success('任务已创建，正在生成中...')
     } else {
@@ -589,7 +615,7 @@ async function handleGenerate() {
 async function handleCancel() {
   if (!generating.value) return
   try {
-    // 尝试从 WebSocket 获取 task_id
+    await api.ppt.cancelPptTask(currentTaskId.value)
     if (ws) {
       ws.close()
       ws = null

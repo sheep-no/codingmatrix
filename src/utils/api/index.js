@@ -80,7 +80,7 @@ function createDefaultClient(store) {
     ...createChatClient(baseClient),
     ...createFileClient(baseClient),
     ...createTaskClient(baseClient),
-    ...createPptClient(baseClient),
+    ppt: createPptClient(baseClient),
     ...createKolorsClient(baseClient),
     ...createAiCloudClient(baseClient),
     ...createAdminClient(baseClient),

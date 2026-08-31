@@ -1207,8 +1207,6 @@ async def update_ppt_task(
     with open(json_path, 'r', encoding='utf-8') as f:
         existing_slides = json.load(f)
 
-    new_ppt_id = str(uuid.uuid4())
-
     async def run_incremental_ppt(task_id: str, **kwargs):
         async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
             await task_manager.update_progress(task_id, progress, message)
@@ -1242,7 +1240,8 @@ async def update_ppt_task(
             new_slides = new_outline.get('slides', existing_slides)
             new_title = new_outline.get('title', existing_slides[0].get('title', 'PPT') if existing_slides else 'PPT')
 
-            filepath = output_dir / f"{task_id}.{new_req.output_format.value}"
+            output_id = task_id
+            filepath = output_dir / f"{output_id}.{new_req.output_format.value}"
             slides_data = new_slides
 
             if new_req.output_format == OutputFormat.PPTX:
@@ -1263,18 +1262,20 @@ async def update_ppt_task(
                 await generate_pptx_file_enhanced(filepath, merged_outline, new_req, update_progress=update_progress)
 
             # 只有新文件生成成功后才更新快照，保留上一版可恢复内容。
-            with open(json_path, 'w', encoding='utf-8') as f:
+            new_json_path = output_dir / f"{output_id}_slides.json"
+            with open(new_json_path, 'w', encoding='utf-8') as f:
                 json.dump(new_slides, f, ensure_ascii=False, indent=2)
-            logger.info(f"更新大纲快照 | task_id={task_id} | slides={len(new_slides)}")
+            _register_ppt_owner(output_id, user_id)
+            logger.info(f"更新大纲快照 | task_id={output_id} | slides={len(new_slides)}")
 
             ext_map = {OutputFormat.PPTX: "pptx", OutputFormat.HTML: "html", OutputFormat.MARKDOWN: "md"}
             ext = ext_map.get(new_req.output_format, "pptx")
 
             result = {
                 "filename": filepath.name,
-                "ppt_id": task_id,
-                "download_url": f"/api/v1/pptx/download/{task_id}?format={ext}",
-                "preview_url": f"/api/v1/pptx/preview/{task_id}" if new_req.output_format == OutputFormat.PPTX else None
+                "ppt_id": output_id,
+                "download_url": f"/api/v1/pptx/download/{output_id}?format={ext}",
+                "preview_url": f"/api/v1/pptx/preview/{output_id}" if new_req.output_format == OutputFormat.PPTX else None
             }
             await update_progress(
                 progress=100,
@@ -1398,6 +1399,7 @@ async def analyze_ppt_endpoint(
 
     返回 PPT 的布局、字体、颜色等信息，用于了解当前状态。
     """
+    _verify_ppt_owner(task_id, token.get("sub", "anonymous"))
     output_dir = PPT_OUTPUT_DIR
     pptx_path = output_dir / f"{task_id}.pptx"
 
@@ -1460,6 +1462,12 @@ async def list_ppt_history(
     for json_path in sorted(output_dir.glob("*_slides.json"), reverse=True):
         ppt_id = json_path.name.replace("_slides.json", "")
         try:
+            owner_path = PPT_OWNER_DIR / f"{ppt_id}.json"
+            if not owner_path.exists():
+                continue
+            with open(owner_path, "r", encoding="utf-8") as owner_file:
+                if str(json.load(owner_file).get("user_id")) != str(user_id):
+                    continue
             with open(json_path, "r", encoding="utf-8") as f:
                 slides_data = json.load(f)
             pptx_path = output_dir / f"{ppt_id}.pptx"
@@ -1485,6 +1493,8 @@ async def delete_ppt_history(
     token: dict = Depends(verify_token)
 ):
     """删除指定 PPT 历史记录及其文件"""
+    user_id = token.get("sub", "anonymous")
+    _verify_ppt_owner(task_id, user_id)
     output_dir = PPT_OUTPUT_DIR
     json_path = output_dir / f"{task_id}_slides.json"
 
@@ -1503,12 +1513,21 @@ async def get_ppt_stats(
     token: dict = Depends(verify_token)
 ):
     """获取 PPT 生成统计信息"""
+    user_id = str(token.get("sub", "anonymous"))
     output_dir = PPT_OUTPUT_DIR
     if not output_dir.exists():
         return {"total": 0, "completed": 0, "failed": 0}
 
-    total = len(list(output_dir.glob("*_slides.json")))
-    completed = len(list(output_dir.glob("*.pptx")))
+    owned_ids = []
+    for owner_path in PPT_OWNER_DIR.glob("*.json"):
+        try:
+            with open(owner_path, "r", encoding="utf-8") as owner_file:
+                if str(json.load(owner_file).get("user_id")) == user_id:
+                    owned_ids.append(owner_path.stem)
+        except (OSError, ValueError):
+            continue
+    total = sum((output_dir / f"{ppt_id}_slides.json").exists() for ppt_id in owned_ids)
+    completed = sum((output_dir / f"{ppt_id}.pptx").exists() for ppt_id in owned_ids)
     return {"total": total, "completed": completed, "failed": 0}
 
 
@@ -2076,6 +2095,7 @@ async def download_ppt_as_pdf(
     token: dict = Depends(verify_token),
 ):
     """将 PPT 转换为 PDF 并下载"""
+    _verify_ppt_owner(ppt_id, token.get("sub", "anonymous"))
     # 查找 PPTX 文件
     pptx_path = PPT_OUTPUT_DIR / f"{ppt_id}.pptx"
     if not pptx_path.exists():
