@@ -24,7 +24,8 @@ try:
     # 加载 .env 文件（自动查找项目根目录）
     env_path = BASE_DIR_PATH / ".env"
     if env_path.exists():
-        load_dotenv(dotenv_path=env_path, override=True)
+        # Keep explicit process environment variables authoritative in deployments and tests.
+        load_dotenv(dotenv_path=env_path, override=False)
         logging.getLogger(__name__).info(f"已加载环境变量：{env_path}")
     else:
         logging.getLogger(__name__).warning(f"未找到.env 文件：{env_path}")

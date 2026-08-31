@@ -126,7 +126,8 @@ class ChatHistoryService:
         )
         self.db.add(assistant_msg)
 
-        await self.db.commit()
+        await self.db.flush()
+        return user_msg, assistant_msg
 
     async def get_user_history(
             self,
@@ -191,7 +192,7 @@ class ChatHistoryService:
             and_(ChatHistory.id == record_id, ChatHistory.user_id == user_id)
         )
         result = await self.db.execute(stmt)
-        await self.db.commit()
+        await self.db.flush()
         return result.rowcount > 0
 
     async def delete_records(self, record_ids: List[str], user_id: str) -> int:
@@ -209,7 +210,7 @@ class ChatHistoryService:
             and_(ChatHistory.id.in_(record_ids), ChatHistory.user_id == user_id)
         )
         result = await self.db.execute(stmt)
-        await self.db.commit()
+        await self.db.flush()
         return result.rowcount
 
     async def clear_user_history(self, user_id: str) -> int:
@@ -224,5 +225,5 @@ class ChatHistoryService:
         """
         stmt = delete(ChatHistory).where(ChatHistory.user_id == user_id)
         result = await self.db.execute(stmt)
-        await self.db.commit()
+        await self.db.flush()
         return result.rowcount

@@ -24,6 +24,10 @@ from app.models.chat_history import ChatHistory, ChatSummary
 from app.utils import call_llm
 from app.db.database import async_session
 from app.agent.models import DEFAULT_REASONING_MODEL
+from app.services.girlai_state_adapter import (
+    delete_messages_for_legacy_ids,
+    save_summary_checkpoint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -183,13 +187,21 @@ class ChatArchiver:
                 end_date=old_messages[-1].created_at
             )
             self.db.add(summary)
+            await self.db.flush()
+            await save_summary_checkpoint(
+                self.db,
+                user_id,
+                summary_text,
+                old_messages[0].created_at,
+                old_messages[-1].created_at,
+                str(summary.id),
+            )
             
             # 硬删除已归档的原始消息
             message_ids = [msg.id for msg in old_messages]
             delete_stmt = delete(ChatHistory).where(ChatHistory.id.in_(message_ids))
             deleted_count = await self.db.execute(delete_stmt)
-            
-            await self.db.commit()
+            await delete_messages_for_legacy_ids(self.db, user_id, message_ids)
             
             # 性能日志
             duration = time.time() - start_time

@@ -19,32 +19,23 @@ export function createGirlClient(client) {
     },
 
     async getGirlAiHistory(limit = 100, offset = 0) {
-      try {
-        const response = await client.get('/GirlAi/history', { limit, offset })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { records: [] }
-      } catch (error) {
-        console.error('Failed to load GirlAI history:', error)
-        return { records: [] }
+      const response = await client.get('/GirlAi/history', { limit, offset })
+      if (response.ok) {
+        return await response.json()
       }
+      const error = await response.json()
+      throw new Error(error.detail || 'Load history failed')
     },
 
     async deleteGirlAiHistory(recordIds = [], deleteAll = false) {
-      try {
-        const response = await client.delete('/GirlAi/history', {
-          record_ids: recordIds,
-          delete_all: deleteAll
-        })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        console.error('Failed to delete GirlAI history:', error)
-        return { success: false }
+      const params = new URLSearchParams({ all: String(deleteAll) })
+      recordIds.forEach(id => params.append('record_ids', id))
+      const response = await client.delete(`/GirlAi/history?${params.toString()}`)
+      if (response.ok) {
+        return await response.json()
       }
+      const error = await response.json()
+      throw new Error(error.detail || 'Delete history failed')
     },
 
     async searchGirlAiHistory(query, limit = 20) {
