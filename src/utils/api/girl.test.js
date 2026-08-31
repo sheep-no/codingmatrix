@@ -34,4 +34,34 @@ describe('GirlAI client', () => {
 
     expect(baseClient.delete).toHaveBeenCalledWith('/GirlAi/history?all=true')
   })
+
+  it('preserves HTTP status when a request fails', async () => {
+    const baseClient = {
+      get: vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        text: vi.fn().mockResolvedValue('{"detail":"temporarily unavailable"}')
+      })
+    }
+
+    await expect(createGirlClient(baseClient).getCustomCharacters()).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 503,
+      detail: 'temporarily unavailable'
+    })
+  })
+
+  it('returns an empty list for a successful empty response', async () => {
+    const baseClient = {
+      get: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 204,
+        text: vi.fn()
+      })
+    }
+
+    await expect(createGirlClient(baseClient).getCustomCharacters()).resolves.toEqual({
+      characters: []
+    })
+  })
 })

@@ -18,10 +18,24 @@ function simpleHexDecode(hex) {
 }
 
 function getStoredToken() {
-  const stored = localStorage.getItem('github_token')
+  try {
+    const persisted = JSON.parse(localStorage.getItem('github-store') || '{}')
+    if (persisted.githubToken) {
+      sessionStorage.setItem('github_token', simpleHexEncode(persisted.githubToken))
+      delete persisted.githubToken
+      localStorage.setItem('github-store', JSON.stringify(persisted))
+    }
+  } catch {
+    localStorage.removeItem('github-store')
+  }
+
+  const stored = sessionStorage.getItem('github_token') || localStorage.getItem('github_token')
   if (!stored) return ''
   try {
-    return simpleHexDecode(stored)
+    const token = simpleHexDecode(stored)
+    sessionStorage.setItem('github_token', simpleHexEncode(token))
+    localStorage.removeItem('github_token')
+    return token
   } catch (e) {
     console.debug('[github] 解码失败（已损坏）:', e.message)
     return ''
@@ -43,9 +57,10 @@ export const useGithubStore = defineStore(
     function setGithubToken(token) {
       if (token) {
         const encodedToken = simpleHexEncode(token)
-        localStorage.setItem('github_token', encodedToken)
+        sessionStorage.setItem('github_token', encodedToken)
         githubToken.value = token
       } else {
+        sessionStorage.removeItem('github_token')
         localStorage.removeItem('github_token')
         githubToken.value = ''
       }
@@ -62,6 +77,7 @@ export const useGithubStore = defineStore(
       useGithub.value = false
 
       localStorage.removeItem('github_username')
+      sessionStorage.removeItem('github_token')
       localStorage.removeItem('github_token')
       localStorage.removeItem('use_github')
     }
@@ -94,7 +110,7 @@ export const useGithubStore = defineStore(
     persist: {
       key: 'github-store',
       storage: localStorage,
-      paths: ['githubUsername', 'githubToken', 'useGithub']
+      paths: ['githubUsername', 'useGithub']
     }
   }
 )

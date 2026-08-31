@@ -14,15 +14,22 @@ export function useAgentSession() {
     get projectPrompt() { return store.projectPrompt },
     set projectPrompt(v) { store.projectPrompt = v },
     get sessionHistory() { return store.sessionHistory },
-    saveSessionState() { /* no-op, state is in store */ },
-    restoreSessionState() { return null },
-    clearSessionState() { /* no-op */ },
-    loadSessionHistory: store.loadSessionHistory,
-    createNewSession: store.createNewSession,
-    switchSession: store.switchSession,
-    deleteSession: store.deleteSession,
-    startAutoSave() { /* no-op */ },
-    stopAutoSave() { /* no-op */ },
+    saveSessionState: (...args) => store.saveSessionState(...args),
+    restoreSessionState: (...args) => store.restoreSessionState(...args),
+    clearSessionState() {
+      store.saveSessionState({
+        workflowStages: [], pendingDecisions: [], decisionHistory: [],
+        generatedFiles: [], thinkingMessages: [], executionDetails: [], logs: [],
+        currentPhase: 'initializing', currentStep: 0, totalSteps: 0,
+        startTime: null, modelAssignments: {}, recoveryAttempts: []
+      })
+    },
+    loadSessionHistory: (...args) => store.loadSessionHistory(...args),
+    createNewSession: (...args) => store.createNewSession(...args),
+    switchSession: (...args) => store.switchSession(...args),
+    deleteSession: (...args) => store.deleteSession(...args),
+    startAutoSave: (...args) => store.startAutoSave(...args),
+    stopAutoSave: (...args) => store.stopAutoSave(...args),
     MAX_LOG_ENTRIES: 100,
     MAX_THINKING_ENTRIES: 50,
     MAX_HISTORY_ENTRIES: 10

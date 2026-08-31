@@ -16,10 +16,9 @@ export function createFileClient(client) {
         formData.append('conversation_id', conversationId)
       }
 
-      const response = await fetch(`${import.meta.env.VITE_API_BASE || '/api/v1'}/files/upload`, {
+      const response = await client.request('/files/upload', {
         method: 'POST',
-        body: formData,
-        credentials: 'include'
+        body: formData
       })
 
       if (response.ok) {
@@ -50,14 +49,10 @@ export function createFileClient(client) {
       formData.append('chunk_index', chunkIndex)
       formData.append('chunk', chunk)
 
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE || '/api/v1'}/files/upload/chunk/${fileId}/${chunkIndex}`,
-        {
-          method: 'POST',
-          body: formData,
-          credentials: 'include'
-        }
-      )
+      const response = await client.request(`/files/upload/chunk/${fileId}/${chunkIndex}`, {
+        method: 'POST',
+        body: formData
+      })
 
       if (response.ok) {
         return await response.json()

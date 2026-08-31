@@ -145,6 +145,7 @@
   import Button from './ui/Button.vue'
   import { api } from '@/utils/api/index'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { consumeJsonStream } from '@/utils/streamParser'
 
   const props = defineProps({
     visible: { type: Boolean, default: false }
@@ -182,27 +183,9 @@
         abortController.signal
       )
 
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
-
-        for (const line of lines) {
-          if (line.trim()) {
-            try {
-              const data = JSON.parse(line)
-              handleStreamData(data)
-            } catch (e) {
-              console.warn('JSON parse error:', e, line)
-            }
-          }
-        }
-      }
+      await consumeJsonStream(response, handleStreamData, {
+        onParseError: (error, line) => console.warn('JSON parse error:', error, line)
+      })
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.error('工作流执行失败:', error)
@@ -264,27 +247,9 @@
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
-
-        for (const line of lines) {
-          if (line.trim()) {
-            try {
-              const data = JSON.parse(line)
-              handleStreamData(data)
-            } catch (e) {
-              console.warn('JSON parse error:', e, line)
-            }
-          }
-        }
-      }
+      await consumeJsonStream(response, handleStreamData, {
+        onParseError: (error, line) => console.warn('JSON parse error:', error, line)
+      })
       showRawJson.value = true
     } catch (error) {
       console.error('获取工作流计划失败:', error)

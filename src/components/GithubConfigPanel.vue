@@ -99,8 +99,6 @@ watch(isConfigured, async (newVal) => {
 
 // 生命周期钩子
 onMounted(() => {
-  // 从 store 恢复配置
-  githubStore.restoreGithubConfig()
   useGithub.value = githubStore.useGithub
   githubUsername.value = githubStore.githubUsername
   githubToken.value = githubStore.githubToken
