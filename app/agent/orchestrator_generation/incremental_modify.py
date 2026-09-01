@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Any
 from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
+from app.agent.generation_plan import GenerationPlan
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +239,14 @@ class IncrementalModifyMixin:
                 "original_content": fi.get("original_content", ""),
                 "reason": fi.get("reason", ""),
             })
+
+        incremental_project_plan = GenerationPlan.build(
+            file_plan,
+            language=detected_language,
+            requested_paths=[item["path"] for item in file_plan],
+            policy="strict",
+        )
+        project_context["generation_plan"] = incremental_project_plan.model_dump(mode="json")
 
         # 使用动态拓扑调度生成
         from app.agent.spec_first_generator import SpecFirstGenerator

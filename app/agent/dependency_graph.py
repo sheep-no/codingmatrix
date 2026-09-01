@@ -22,6 +22,7 @@ from collections import defaultdict
 from app.agent.signature_extractor import extract_signatures, get_context_budget
 from app.agent.shadow_scanner import scan_shadow_dependencies, SKIP_DIRS
 from app.agent.dependency_rules import DEPENDENCY_RULES, PATH_TYPE_RULES, EXTENSION_TYPE_MAP
+from app.agent.generation_plan import GenerationPlan
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ class DependencyGraph:
         self.adjacency: Dict[str, Set[str]] = defaultdict(set)  # file -> set of files it depends on
         self.reverse_adjacency: Dict[str, Set[str]] = defaultdict(set)  # file -> set of files that depend on it
         self.language_adapter = language_adapter  # 语言适配器（可选）
+        self.generation_plan = None
 
     def add_file(self, path: str, file_type: Optional[str] = None, priority: int = 3, description: str = ""):
         """添加文件节点"""
@@ -190,6 +192,14 @@ class DependencyGraph:
     def build_from_architecture(self, architecture: Dict[str, Any]):
         """从架构设计结果构建依赖图（优先使用 LLM 声明的依赖）"""
         file_plan = architecture.get("file_plan", [])
+        if file_plan:
+            try:
+                self.generation_plan = GenerationPlan.from_architecture(architecture)
+            except ValueError as exc:
+                # Legacy graph rules still resolve inferred and external imports.
+                # Preserve that migration behavior while exposing the failed plan.
+                self.generation_plan = None
+                logger.warning("项目级生成计划暂未冻结，沿用依赖图兼容规则: %s", exc)
 
         # 0. 自动设置 GenericLanguageAdapter 的 file_plan_data
         # 这样 _import_to_file_path 就可以正确解析任何语言的 import
@@ -266,13 +276,48 @@ class DependencyGraph:
             description = file_info.get("description", "")
             priority = file_info.get("priority", 3)
             file_type = file_info.get("file_type")
-            if not file_type or file_type in {"unknown", "other"}:
+            if not file_type or file_type in {"unknown", "other", "utils"}:
                 file_type = self._infer_file_type(path)
 
             if not path:
                 continue
 
             self.add_file(path, priority=priority, description=description, file_type=file_type)
+
+        database_paths = {
+            path for path, node in self.nodes.items()
+            if node.file_type == "database"
+        }
+        model_paths = {
+            path for path, node in self.nodes.items()
+            if node.file_type == "model"
+        }
+        for file_info in file_plan:
+            if file_info.get("path") not in database_paths:
+                continue
+
+            def references_model(value: Any) -> bool:
+                return (
+                    isinstance(value, str)
+                    and (
+                        value in model_paths
+                        or self._import_to_file_path(value) in model_paths
+                    )
+                )
+
+            for field in ("imports", "dependencies"):
+                values = file_info.get(field)
+                if isinstance(values, list):
+                    file_info[field] = [
+                        value for value in values
+                        if not references_model(value)
+                    ]
+            contract = file_info.get("contract")
+            if isinstance(contract, dict) and isinstance(contract.get("required_imports"), list):
+                contract["required_imports"] = [
+                    value for value in contract["required_imports"]
+                    if not references_model(value)
+                ]
 
         # 2. 再处理依赖关系（此时所有文件都在图中）
         files_with_resolved_imports = set()
@@ -300,7 +345,77 @@ class DependencyGraph:
                             files_with_resolved_imports.add(path)
 
         # 3. 类型规则补齐已解析 imports 尚未覆盖的依赖类型
-        self._auto_add_dependencies(files_with_resolved_imports)
+        contract_driven = any(
+            isinstance(item, dict) and isinstance(item.get("contract"), dict) and item.get("contract")
+            for item in file_plan
+        )
+        self._auto_add_dependencies(files_with_resolved_imports, use_legacy_rules=not contract_driven)
+        if contract_driven:
+            # Contracts define exact edges; preserve the invariant that an entry
+            # module can consume the repository layer when the plan omits it.
+            entry_paths = [
+                path for path, node in self.nodes.items()
+                if node.file_type == "entry"
+            ]
+            repository_paths = [
+                path for path, node in self.nodes.items()
+                if node.file_type == "repository"
+            ]
+            for entry_path in entry_paths:
+                for repository_path in repository_paths:
+                    if repository_path not in self.adjacency.get(entry_path, set()):
+                        self.add_dependency(entry_path, repository_path)
+
+            # Keep persistence infrastructure below application models. LLM
+            # plans occasionally emit both directions; the database module
+            # must remain generatable before model declarations.
+            for database_path in database_paths:
+                for model_path in model_paths & self.adjacency.get(database_path, set()):
+                    self.adjacency[database_path].discard(model_path)
+                    self.reverse_adjacency[model_path].discard(database_path)
+                    if model_path in self.nodes[database_path].dependencies:
+                        self.nodes[database_path].dependencies.remove(model_path)
+                for model_path in model_paths:
+                    if database_path not in self.adjacency.get(model_path, set()):
+                        self.add_dependency(model_path, database_path)
+
+            # Python validation schemas describe the public shape of ORM
+            # entities, so generate them with the real model declarations in
+            # context instead of asking two independent layers to guess types.
+            python_schema_paths = {
+                path for path, node in self.nodes.items()
+                if path.endswith(".py") and node.file_type in {"schema", "types"}
+            }
+            python_model_paths = {path for path in model_paths if path.endswith(".py")}
+            for schema_path in python_schema_paths:
+                for model_path in python_model_paths:
+                    if model_path not in self.adjacency.get(schema_path, set()):
+                        self.add_dependency(schema_path, model_path)
+
+            # Python repositories consume validated request/response schemas.
+            # Normalize an accidental reverse edge before enforcing that layer.
+            python_repository_paths = {
+                path for path in repository_paths if path.endswith(".py")
+            }
+            for repository_path in python_repository_paths:
+                for schema_path in python_schema_paths:
+                    self.adjacency[schema_path].discard(repository_path)
+                    self.reverse_adjacency[repository_path].discard(schema_path)
+                    if repository_path in self.nodes[schema_path].dependencies:
+                        self.nodes[schema_path].dependencies.remove(repository_path)
+                    if schema_path not in self.adjacency.get(repository_path, set()):
+                        self.add_dependency(repository_path, schema_path)
+
+            # Tests execute against the completed runtime graph. Keep them in a
+            # final generation layer even when a contract omits explicit imports.
+            test_paths = {
+                path for path, node in self.nodes.items()
+                if node.file_type == "test"
+            }
+            runtime_paths = set(self.nodes) - test_paths
+            for test_path in test_paths:
+                for runtime_path in runtime_paths:
+                    self.add_dependency(test_path, runtime_path)
 
         # 3.5 去重：基于图结构消除功能重复文件
         self.deduplicate()
@@ -574,8 +689,11 @@ class DependencyGraph:
                 model_path = f"app/models/{self._camel_to_snake(schema_name)}.py"
                 self.add_file(model_path, file_type="model", priority=2)
 
-    def _auto_add_dependencies(self, files_with_imports: set):
+    def _auto_add_dependencies(self, files_with_imports: set, use_legacy_rules: bool = True):
         """按文件类型补齐 imports 尚未覆盖的依赖类型。"""
+        if not use_legacy_rules:
+            logger.info("架构契约已提供依赖边界，跳过基于文件类型的兼容规则")
+            return
         type_to_files: Dict[str, List[str]] = defaultdict(list)
         for path, node in self.nodes.items():
             type_to_files[node.file_type].append(path)

@@ -20,6 +20,7 @@ from app.agent.dynamic_model_router import get_context_length
 from app.agent.models import DEFAULT_FAST_MODEL
 from app.agent.utils import extract_engineer_content, write_file_atomic, cleanup_temp_files
 from app.agent.dependency_graph_validator import DependencyGraphValidator, format_validation_feedback, MAX_VALIDATION_RETRIES
+from app.agent.generation_plan import GenerationPlan
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,8 @@ class SpecFirstGenerateMixin:
             "complexity": ctx.complexity,
             "output_dir": getattr(self, '_relative_output_dir', None) or str(self.output_dir)
         }
+        project_plan = GenerationPlan.from_architecture(architecture)
+        project_context["generation_plan"] = project_plan.model_dump(mode="json")
 
         constraint_prompt = constraint_parser.generate_prompt_fragment("all", "all")
         if constraint_prompt:
