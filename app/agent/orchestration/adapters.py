@@ -72,7 +72,7 @@ class TraditionalAdapter:
             requested_paths=requested_paths,
             policy="strict" if requested_paths is not None else "extensible",
         )
-        entries = [item.model_dump(mode="python") for item in self.project_plan.files]
+        entries = list(self.project_plan.file_entries())
         self._plan = build_file_plan(entries, requested_paths=requested_paths)
         self._project_context.setdefault("architecture", self._architecture)
         return self._plan

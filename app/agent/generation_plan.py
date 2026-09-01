@@ -20,7 +20,10 @@ class PlanFile(BaseModel):
     path: str = Field(min_length=1)
     role: str = ""
     language: str = ""
+    file_type: str = ""
+    priority: int = Field(default=3, ge=1, le=5)
     dependencies: Tuple[str, ...] = ()
+    imports: Tuple[str, ...] = ()
 
 
 class GenerationPlan(BaseModel):
@@ -76,14 +79,29 @@ class GenerationPlan(BaseModel):
         dependencies = dependency_data if isinstance(dependency_data, DependencyManifest) else DependencyManifest.build(dependency_data or ())
         return cls.build(files, language=str(project.get("language", architecture.get("language", ""))), framework=str(project.get("framework", architecture.get("framework", ""))), runtime=str(project.get("runtime", architecture.get("runtime", ""))), interfaces=interfaces, dependencies=dependencies, **kwargs)
 
+    def file_entries(self) -> Tuple[Mapping[str, object], ...]:
+        """Return a compatibility projection with mutable collection fields."""
+        return tuple({
+            "path": item.path,
+            "description": item.role,
+            "language": item.language,
+            "file_type": item.file_type,
+            "priority": item.priority,
+            "dependencies": list(item.dependencies),
+            "imports": list(item.imports),
+        } for item in self.files)
+
 
 def _coerce_file(item: Mapping[str, object] | PlanFile) -> PlanFile:
     if isinstance(item, PlanFile):
         return item
-    raw = item.get("dependencies", item.get("depends_on", item.get("imports", ())))
+    raw = item.get("dependencies", item.get("depends_on", ()))
     if isinstance(raw, str):
         raw = (raw,)
-    return PlanFile(path=_normalize_path(str(item.get("path", ""))), role=str(item.get("role", item.get("description", ""))), language=str(item.get("language", "")), dependencies=tuple(_normalize_path(str(value)) for value in raw or ()))
+    imports = item.get("imports", ())
+    if isinstance(imports, str):
+        imports = (imports,)
+    return PlanFile(path=_normalize_path(str(item.get("path", ""))), role=str(item.get("role", item.get("description", ""))), language=str(item.get("language", "")), file_type=str(item.get("file_type", "")), priority=item.get("priority", 3), dependencies=tuple(_normalize_path(str(value)) for value in raw or ()), imports=tuple(str(value) for value in imports or ()))
 
 
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
