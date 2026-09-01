@@ -237,6 +237,40 @@ async def test_finish_schedule_maps_timeout_to_single_terminal_state(tmp_path) -
 
 
 @pytest.mark.asyncio
+async def test_finish_schedule_rejects_mismatched_artifact_evidence(tmp_path) -> None:
+    core = OrchestratorCore(OrchestrationCheckpointStore(tmp_path))
+    started = await core.run(make_command())
+    schedule = GenerationScheduleResult(
+        status=GenerationScheduleStatus.COMPLETED,
+        nodes={"main.py": GenerationNodeResult(path="main.py", status=GenerationNodeStatus.COMPLETED)},
+        stats=GenerationScheduleStats(
+            total_files=1,
+            completed_files=1,
+            failed_files=0,
+            timed_out_files=0,
+            cancelled_files=0,
+            blocked_files=0,
+            max_parallelism=1,
+        ),
+    )
+    evidence = ArtifactConsistencyResult(
+        success=True,
+        planned_paths=("main.py",),
+        manifest_paths=("main.py",),
+        completed_paths=("other.py",),
+        disk_paths=("main.py",),
+    )
+
+    result = await core.finish_schedule(
+        "task-1", schedule, event_id="terminal-mismatch", expected_revision=started.state.revision,
+        artifact_consistency=evidence,
+    )
+
+    assert result.state.status is OrchestrationStatus.FAILED
+    assert result.state.diagnostics[-1]["code"] == "orchestration.schedule_artifact_mismatch"
+
+
+@pytest.mark.asyncio
 async def test_resume_rejects_unknown_task(tmp_path) -> None:
     core = OrchestratorCore(OrchestrationCheckpointStore(tmp_path))
 

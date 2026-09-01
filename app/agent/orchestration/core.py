@@ -108,6 +108,23 @@ class OrchestratorCore:
     ) -> OrchestrationResult:
         """Map one scheduler result to the single task terminal transition."""
         if schedule.status is GenerationScheduleStatus.COMPLETED:
+            if artifact_consistency is not None and artifact_consistency.success:
+                scheduled_paths = tuple(sorted(event.path for event in schedule.completion_events))
+                if scheduled_paths != artifact_consistency.completed_paths:
+                    return await self.finish(
+                        task_id,
+                        OrchestrationStatus.FAILED,
+                        event_id=event_id,
+                        expected_revision=expected_revision,
+                        diagnostic={
+                            "code": "orchestration.schedule_artifact_mismatch",
+                            "message": "scheduler completion events do not match artifact evidence",
+                            "details": {
+                                "scheduled_paths": scheduled_paths,
+                                "artifact_paths": artifact_consistency.completed_paths,
+                            },
+                        },
+                    )
             return await self.finish(
                 task_id,
                 OrchestrationStatus.COMPLETED,
