@@ -12,6 +12,7 @@ from app.agent.orchestration import (
     build_file_plan,
     check_artifact_success_gate,
 )
+from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan
 from app.agent.shared_context import SharedContext
 
 
@@ -176,6 +177,23 @@ def test_success_gate_accepts_matching_valid_artifacts_and_hidden_metadata(tmp_p
 
     assert result.success is True
     assert result.planned_paths == result.manifest_paths == result.completed_paths == result.disk_paths
+
+
+def test_success_gate_accepts_project_generation_plan(tmp_path: Path) -> None:
+    plan = ProjectGenerationPlan.build(
+        [{"path": "model.py"}, {"path": "service.py", "dependencies": ["model.py"]}],
+        requested_paths=["model.py", "service.py"],
+        policy="strict",
+    )
+    committer, context = make_committer(tmp_path)
+    events = [
+        commit_valid_file(committer, context, "model.py", "class Model:\n    pass\n"),
+        commit_valid_file(committer, context, "service.py", "def load():\n    return Model\n"),
+    ]
+
+    result = check_artifact_success_gate(plan, context.get_artifact_manifest(), events, tmp_path)
+
+    assert result.success is True
 
 
 @pytest.mark.parametrize("difference", ["missing_event", "extra_manifest", "extra_disk"])
