@@ -208,8 +208,13 @@ class SpecFirstGenerateMixin:
             "complexity": ctx.complexity,
             "output_dir": getattr(self, '_relative_output_dir', None) or str(self.output_dir)
         }
-        project_plan = GenerationPlan.from_architecture(architecture)
-        project_context["generation_plan"] = project_plan.model_dump(mode="json")
+        try:
+            project_plan = GenerationPlan.from_architecture(architecture)
+        except ValueError as exc:
+            project_plan = None
+            logger.warning("Spec-First 项目计划暂未冻结，保留兼容生成流程: %s", exc)
+        if project_plan is not None:
+            project_context["generation_plan"] = project_plan.model_dump(mode="json")
 
         constraint_prompt = constraint_parser.generate_prompt_fragment("all", "all")
         if constraint_prompt:

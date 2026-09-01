@@ -187,6 +187,8 @@ class TraditionalGenerateMixin:
             "output_dir": str(self.output_dir),
             "api_contract": api_contract_prompt
         }
+        if dep_graph.generation_plan is not None:
+            project_context["generation_plan"] = dep_graph.generation_plan.model_dump(mode="json")
 
         total_files = len(file_plan)
 
