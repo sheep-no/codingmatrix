@@ -801,6 +801,16 @@ class FilesMixin:
                 content, file_path, generated_contents or {}, all_files
             ))
 
+        from app.agent.validation_report import ValidationReport
+        validation_report = ValidationReport.create(source="cloud")
+        for validation_error in import_errors:
+            validation_report = validation_report.with_finding(
+                validation_error,
+                file_path=file_path,
+                scope="cloud_syntax",
+            )
+        self.validation_report = validation_report
+                "validation_report": validation_report.model_dump(mode="json"),
         if import_errors:
             error_message = f"文件生成失败: {file_path}（跨文件导入不一致: {'；'.join(import_errors)}）"
             self.errors.append(error_message)
@@ -808,6 +818,7 @@ class FilesMixin:
             return {
                 "path": file_path,
                 "description": description,
+                "validation_report": validation_report.model_dump(mode="json"),
                 "success": False,
                 "size": 0,
             }
@@ -908,6 +919,7 @@ class FilesMixin:
                         fixed_content=content,
                         errors={"validation_error": [fix_attempt.error_message]},
                         model_name=self._select_model_for_file(file_path),
+            "validation_report": validation_report.model_dump(mode="json"),
                         success=fix_attempt.fix_applied
                     )
 
@@ -915,6 +927,7 @@ class FilesMixin:
             "path": file_path,
             "description": description,
             "success": True,
+            "validation_report": validation_report.model_dump(mode="json"),
             "size": len(content)
         }
 

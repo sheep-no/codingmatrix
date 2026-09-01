@@ -100,12 +100,12 @@
   - 将 workflow、session、Core 和 SSE 的成功、失败、阻断、取消状态映射到唯一终态事件；对应设计 3.6、3.12 和正确性属性 7。
   - [x] 15.1 增加计划集合、调度集合、磁盘集合、事件集合一致性测试，以及失败级联和恢复测试；对应需求 4.1-4.4、设计正确性属性 3、4、7、8、9。专项回归 `tests/unit/test_orchestrator_files.py tests/unit/test_orchestration_artifact_committer.py tests/unit/test_orchestration_adapters.py` 已通过（100/100）。
 
-- [ ] 16. 建立统一 ValidationReport 和受控修复路由
+- [x] 16. 建立统一 ValidationReport 和受控修复路由
   - 新建 `app/agent/validation_report.py`，统一收集语法、导入、依赖、导出、签名、async、类型、框架启动、测试和持久化结果；对应需求 3.1-3.4、5.1-5.4。
   - 将 `orchestrator_files.py` 中的 SQLAlchemy、import、参数和 Schema 修复器改为按错误类别注册的安全修复器；对应设计 3.5 和正确性属性 6。
   - 删除基于同名符号猜测 owner、删除业务字段掩盖契约错误、静默增加第三方依赖和生成空壳文件的成功路径；对应需求 2.2、3.1、4.4、5.2。
   - 为每类错误建立一次计划修订、一次接口修订或一次文件修复的重试预算，并记录候选版本、诊断版本和上下文 hash；对应需求 5.3-5.4、9.1-9.5。
-  - [ ] 16.1 为未知依赖、错误导出、async/sync、fixture 生命周期和业务字段缺失编写回归与属性测试；对应设计正确性属性 6、10。
+  - [x] 16.1 为未知依赖、错误导出、async/sync、fixture 生命周期和业务字段缺失编写回归与属性测试；对应设计正确性属性 6、10。专项测试 `tests/unit/test_validation_report.py tests/unit/test_repair_router.py tests/unit/test_orchestrator_files.py` 已通过。
 
 - [ ] 17. 实现语言 Adapter、能力模型和框架 Profile
   - 新建 `app/agent/languages/`，将 Python、TypeScript/JavaScript、Go、Java 和 Rust 的 AST、模块、签名、编译和测试能力统一为 LanguageAdapter 接口；对应需求 1.1-1.4、6.1-6.4。

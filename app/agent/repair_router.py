@@ -47,6 +47,12 @@ class RepairRouter:
     _AUTO_CATEGORIES = {
         "syntax": "code_repair",
         "import": "dependency_repair",
+        "dependency": "dependency_repair",
+        "export": "dependency_repair",
+        "signature": "code_repair",
+        "async": "code_repair",
+        "fixture": "code_repair",
+        "schema": "code_repair",
         "name": "code_repair",
         "type": "code_repair",
     }
@@ -54,6 +60,18 @@ class RepairRouter:
     @classmethod
     def route(cls, error_type: str = "", error_message: str = "") -> RepairRoute:
         normalized = f"{error_type} {error_message}".lower()
+        if any(token in normalized for token in ("fixture", "pytest.fixture", "fixture 生命周期")):
+            return RepairRoute("fixture", "code_repair", True)
+        if any(token in normalized for token in ("schema", "字段缺失", "业务字段")):
+            return RepairRoute("schema", "code_repair", True)
+        if any(token in normalized for token in ("async", "await", "同步异步")):
+            return RepairRoute("async", "code_repair", True)
+        if any(token in normalized for token in ("signature", "缺少必需参数", "参数不匹配")):
+            return RepairRoute("signature", "code_repair", True)
+        if any(token in normalized for token in ("export", "未导出符号", "公共符号")):
+            return RepairRoute("export", "dependency_repair", True)
+        if any(token in normalized for token in ("dependency", "依赖", "第三方依赖")):
+            return RepairRoute("dependency", "dependency_repair", True)
         if any(token in normalized for token in ("syntaxerror", "语法", "parse error")):
             return RepairRoute("syntax", "code_repair", True)
         if any(token in normalized for token in ("importerror", "modulenotfound", "no module", "导入")):
