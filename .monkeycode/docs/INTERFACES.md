@@ -41,6 +41,16 @@
 - `GET /api/v1/agent/sessions/{session_id}/model-context`：读取当前用户 Agent 会话的最新模型上下文；旧会话返回当前运行时默认上下文。
 - `PUT /api/v1/agent/sessions/{session_id}/model-context`：合并角色模型、当前模型、调用统计和降级记录，并创建独立模型上下文 Checkpoint。
 
+## PPT API
+
+- `POST /api/v1/pptx/generate_task`：创建异步 PPT 任务。文本请求使用 `prompt`、`template`、`slide_count`、`output_format` 和 `options`；`options` 支持 `auto_images` 与 `enable_animation`。
+- `GET /api/v1/pptx/history`：返回 `{records, total}`，前端按 `records` 消费历史列表。
+- `GET /api/v1/pptx/download/{ppt_id}?format=pptx`：下载生成文件。
+- `GET /api/v1/pptx/preview/{ppt_id}`：返回 PPTX 快照预览页面。
+- `GET /api/v1/pptx/{ppt_id}/slides`：读取预览所需的幻灯片快照。
+- `DELETE /api/v1/pptx/{task_id}/cancel`：取消生成任务。
+- `GET /api/v1/ws/ppt/{task_id}`：接收进度、完成和错误事件；事件回放使用 `payload.message` 或 `payload.result` 承载详细数据。
+
 模型上下文包含 `schema_version`、`config_version`、`roles`、`current_model`、`current_agent`、`assignments`、`fallback_history` 和 `updated_at`。接口仅接收模型标识和运行统计，不接收供应商凭据。
 
 ## State Contracts

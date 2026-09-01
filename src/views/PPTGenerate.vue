@@ -465,7 +465,7 @@ async function loadHistory() {
   loadingHistory.value = true
   try {
     const result = await api.ppt.getHistory(1, 20)
-    historyList.value = result.items || result.history || []
+    historyList.value = result.records || []
   } catch (e) {
     console.warn('加载历史失败:', e)
   } finally {

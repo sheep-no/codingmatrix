@@ -21,4 +21,4 @@ async def test_dispatch_ppt_creates_sql_task_and_submits_json_payload(monkeypatc
 
     assert (task_id, celery_id) == ("ppt-1", "celery-1")
     assert task.celery_task_id == "celery-1"
-    db.commit.assert_awaited_once()
+    assert db.commit.await_count == 2

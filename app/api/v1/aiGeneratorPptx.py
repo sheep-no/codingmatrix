@@ -633,7 +633,7 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
                 except Exception: pass
 
             try:
-                layout_plan = await layout_decider.plan_slide_layout(
+                layout_plan = layout_decider.plan_slide_layout(
                     slide_decision=slide_decision,
                     page_number=idx + 1,
                     total_pages=total_slides
@@ -1209,7 +1209,14 @@ async def update_ppt_task(
 
     async def run_incremental_ppt(task_id: str, **kwargs):
         async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
-            await task_manager.update_progress(task_id, progress, message)
+            await task_manager.update_progress(
+                task_id,
+                progress,
+                message,
+                status=status,
+                result_data=result_data,
+                error_message=_kwargs.get("error_message"),
+            )
 
         try:
             await update_progress(progress=5, message="正在加载已有内容...")
@@ -1743,7 +1750,14 @@ async def generate_ppt_from_text_task(
         async def run_ppt_gen(task_id: str, **kwargs):
             _register_ppt_owner(task_id, user_id)
             async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
-                await task_manager.update_progress(task_id, progress, message)
+                await task_manager.update_progress(
+                    task_id,
+                    progress,
+                    message,
+                    status=status,
+                    result_data=result_data,
+                    error_message=_kwargs.get("error_message"),
+                )
 
             try:
                 await update_progress(progress=5, message="正在准备上下文...")
@@ -1904,8 +1918,15 @@ async def generate_ppt_from_file(
 
     async def run_file_ppt_generation(task_id: str, **kwargs):
         _register_ppt_owner(task_id, user_id)
-        async def update_progress(progress: int = 0, message: str = "", **_kwargs):
-            await task_manager.update_progress(task_id, progress, message)
+        async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
+            await task_manager.update_progress(
+                task_id,
+                progress,
+                message,
+                status=status,
+                result_data=result_data,
+                error_message=_kwargs.get("error_message"),
+            )
 
         try:
             await update_progress(progress=5, message="正在解析文件内容...")

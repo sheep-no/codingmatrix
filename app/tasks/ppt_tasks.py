@@ -164,6 +164,9 @@ def generate_ppt(self, task_id: str, user_id: int, request_data: dict[str, Any],
     except SoftTimeLimitExceeded:
         logger.error("PPT task timed out | task_id=%s", task_id)
         raise RuntimeError("PPT 任务执行超时")
+    except Exception as exc:
+        logger.exception("PPT task failed | task_id=%s", task_id)
+        raise self.retry(exc=exc, countdown=60)
 
 
 __all__ = ["generate_ppt"]

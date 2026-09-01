@@ -23,10 +23,12 @@ export function createPptClient(client) {
         prompt,
         conversation_id: conversationId,
         api_key_token,
-        template_id: options.template_id || 'modern',
-        slide_count: options.slide_count || 10,
-        auto_images: options.auto_images !== false,
-        enable_animation: options.enable_animation !== false,
+         template: options.template || options.template_id || 'modern',
+         slide_count: options.slide_count || 10,
+         options: {
+           auto_images: options.auto_images !== false,
+           enable_animation: options.enable_animation !== false,
+         },
         output_format: options.output_format || 'pptx',
       })
       if (response.ok) {
