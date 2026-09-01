@@ -190,6 +190,19 @@ class TraditionalGenerateMixin:
         if dep_graph.generation_plan is not None:
             project_context["generation_plan"] = dep_graph.generation_plan.model_dump(mode="json")
 
+        from app.agent.shared_context import SharedContext
+        from app.agent.orchestration.artifact_committer import ArtifactCommitter
+        self.shared_context = SharedContext(requirement, self.output_dir)
+        planned_files = dep_graph.generation_plan.files if dep_graph.generation_plan else ()
+        for planned_file in planned_files:
+            self.shared_context.register_file(planned_file.path, planned_file.file_type)
+        self.artifact_committer = ArtifactCommitter(
+            self.output_dir,
+            self.shared_context,
+            task_id=self.session_id or self.shared_context.session_id,
+        )
+        self.artifact_completion_events = []
+
         total_files = len(file_plan)
 
         if self.incremental and self.session_id:

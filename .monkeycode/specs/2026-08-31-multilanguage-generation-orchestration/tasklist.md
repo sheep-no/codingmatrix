@@ -93,12 +93,12 @@
   - 将 Architect、DependencyGraph、TraditionalAdapter、SpecFirstAdapter 和 IncrementalAdapter 的输入统一转换为不可变计划版本；对应需求 8.1-8.4、11.3-11.5。
   - [x] 14.1 为计划闭包、接口唯一 owner、依赖白名单和多语言路径编写单元及属性测试；对应设计正确性属性 1、2、9。专项测试 `tests/unit/test_generation_contracts.py tests/unit/test_orchestration_plan.py` 已通过（29/29）。
 
-- [ ] 15. 收敛文件调度、产物状态和终态事实源
+- [x] 15. 收敛文件调度、产物状态和终态事实源
   - 修改 `app/agent/dependency_graph.py` 和 `app/agent/topology_scheduler.py`，使依赖图和拓扑层只从当前 GenerationPlan 派生，禁止静默删除或追加计划节点；对应需求 4.1-4.4。
   - 修改 `app/agent/orchestrator_generation/traditional_generate.py`、`spec_first_generate.py` 和 `orchestrator_files.py`，统一使用 GenerationScheduler、ArtifactCommitter 和 ArtifactManifest；对应设计 3.4、3.5、3.9。
   - 将文件生成、磁盘落盘、hash、验证状态和 SSE `file_completed` 事件统一绑定到产物提交结果；对应设计正确性属性 3、8、10。
   - 将 workflow、session、Core 和 SSE 的成功、失败、阻断、取消状态映射到唯一终态事件；对应设计 3.6、3.12 和正确性属性 7。
-  - [ ] 15.1 增加计划集合、调度集合、磁盘集合、事件集合一致性测试，以及失败级联和恢复测试；对应需求 4.1-4.4、设计正确性属性 3、4、7、8、9。
+  - [x] 15.1 增加计划集合、调度集合、磁盘集合、事件集合一致性测试，以及失败级联和恢复测试；对应需求 4.1-4.4、设计正确性属性 3、4、7、8、9。专项回归 `tests/unit/test_orchestrator_files.py tests/unit/test_orchestration_artifact_committer.py tests/unit/test_orchestration_adapters.py` 已通过（100/100）。
 
 - [ ] 16. 建立统一 ValidationReport 和受控修复路由
   - 新建 `app/agent/validation_report.py`，统一收集语法、导入、依赖、导出、签名、async、类型、框架启动、测试和持久化结果；对应需求 3.1-3.4、5.1-5.4。

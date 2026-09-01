@@ -133,6 +133,9 @@ class OrchestratorAgent(
         self._start_time: Optional[float] = None
         self._current_phase: str = "initializing"
         self._generated_contents: Dict[str, str] = {}
+        self.shared_context = None
+        self.artifact_committer = None
+        self.artifact_completion_events = []
 
         # 成本追踪器
         self.cost_tracker = CostTracker()
