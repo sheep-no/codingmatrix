@@ -855,8 +855,24 @@ class FilesMixin:
         file_path = self._normalize_file_path(file_path)
 
         # 所有生成路径统一在内容处理完成后落盘，事件只代表已持久化产物。
-        if not write_file_atomic(self.output_dir, file_path, content):
+        commit_result = None
+        artifact_committer = getattr(self, "artifact_committer", None)
+        if artifact_committer is not None:
+            commit_result = artifact_committer.commit(
+                file_path,
+                content,
+                model_name=self._select_model_for_file(file_path),
+            )
+            persisted = commit_result.success
+            if persisted and commit_result.completion_event is not None:
+                completion_events = getattr(self, "artifact_completion_events", None)
+                if completion_events is not None:
+                    completion_events.append(commit_result.completion_event)
+        else:
+            persisted = write_file_atomic(self.output_dir, file_path, content)
+        if not persisted:
             error_message = f"文件落盘失败: {file_path}"
+            if commit_result is not None and commit_result.diagnostic:
             self.errors.append(error_message)
             logger.error(error_message)
             return {

@@ -10,6 +10,7 @@ from app.agent.orchestrator_files import _structured_import_diagnostics
 from app.agent.architect import Architect
 from app.agent.dependency_graph import DependencyGraph
 from app.agent.backend_engineer import BackendEngineer
+from app.agent.shared_context import SharedContext
 
 
 class _FilesTestOrchestrator(FilesMixin):
@@ -115,6 +116,34 @@ async def test_single_file_generation_persists_without_review_or_validation(tmp_
     assert result["success"] is True
     assert output_file.read_text(encoding="utf-8") == "def main_value():\n    return 'persisted'\n"
     assert output_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_single_file_generation_records_verified_artifact_event(tmp_path, monkeypatch):
+    async def extract_content(content, *_args, **_kwargs):
+        return content
+
+    monkeypatch.setattr(
+        "app.agent.orchestrator_files.extract_engineer_content",
+        extract_content,
+    )
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    context = SharedContext("entry", tmp_path)
+    context.register_file("main.py", "source")
+    orchestrator.shared_context = context
+    orchestrator.artifact_committer = ArtifactCommitter(
+        tmp_path, context, task_id="task-1"
+    )
+    orchestrator.artifact_completion_events = []
+
+    result = await orchestrator._generate_single_file(
+        {"path": "main.py", "description": "entry"},
+        {"architecture": {"language": "python"}},
+        1,
+    )
+
+    assert result["success"] is True
+    assert [event.path for event in orchestrator.artifact_completion_events] == ["main.py"]
 
 
 @pytest.mark.asyncio
