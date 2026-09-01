@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from .artifact_committer import ArtifactConsistencyResult
+from .generation_scheduler import GenerationScheduleResult, GenerationScheduleStatus
 from .models import (
     OrchestrationCommand,
     OrchestrationResult,
@@ -95,6 +96,41 @@ class OrchestratorCore:
         if updated is not state:
             await self.store.save(updated)
         return OrchestrationResult(state=updated)
+
+    async def finish_schedule(
+        self,
+        task_id: str,
+        schedule: GenerationScheduleResult,
+        *,
+        event_id: str,
+        expected_revision: int,
+        artifact_consistency: Optional[ArtifactConsistencyResult] = None,
+    ) -> OrchestrationResult:
+        """Map one scheduler result to the single task terminal transition."""
+        if schedule.status is GenerationScheduleStatus.COMPLETED:
+            return await self.finish(
+                task_id,
+                OrchestrationStatus.COMPLETED,
+                event_id=event_id,
+                expected_revision=expected_revision,
+                artifact_consistency=artifact_consistency,
+            )
+        status = {
+            GenerationScheduleStatus.CANCELLED: OrchestrationStatus.CANCELLED,
+            GenerationScheduleStatus.TIMED_OUT: OrchestrationStatus.TIMED_OUT,
+        }.get(schedule.status, OrchestrationStatus.FAILED)
+        diagnostic = {
+            "code": f"generation_schedule.{schedule.status.value}",
+            "message": f"generation schedule ended with status {schedule.status.value}",
+            "details": {"nodes": {path: node.status.value for path, node in schedule.nodes.items()}},
+        }
+        return await self.finish(
+            task_id,
+            status,
+            event_id=event_id,
+            expected_revision=expected_revision,
+            diagnostic=diagnostic,
+        )
 
     async def resume(self, task_id: str) -> OrchestrationResult:
         return OrchestrationResult(state=await self._require_state(task_id), resumed=True)

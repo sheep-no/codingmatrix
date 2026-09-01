@@ -17,6 +17,13 @@ from app.agent.orchestration import (
     OrchestratorCore,
     StageResult,
 )
+from app.agent.orchestration.generation_scheduler import (
+    GenerationNodeResult,
+    GenerationScheduleResult,
+    GenerationScheduleStats,
+    GenerationScheduleStatus,
+    GenerationNodeStatus,
+)
 
 
 def make_command() -> OrchestrationCommand:
@@ -201,6 +208,32 @@ async def test_failed_artifact_gate_converges_task_to_failed(tmp_path) -> None:
 
     assert failed.state.status is OrchestrationStatus.FAILED
     assert failed.state.diagnostics[-1]["code"] == ARTIFACT_CONSISTENCY_FAILED
+
+
+@pytest.mark.asyncio
+async def test_finish_schedule_maps_timeout_to_single_terminal_state(tmp_path) -> None:
+    core = OrchestratorCore(OrchestrationCheckpointStore(tmp_path))
+    started = await core.run(make_command())
+    schedule = GenerationScheduleResult(
+        status=GenerationScheduleStatus.TIMED_OUT,
+        nodes={"main.py": GenerationNodeResult(path="main.py", status=GenerationNodeStatus.TIMED_OUT)},
+        stats=GenerationScheduleStats(
+            total_files=1,
+            completed_files=0,
+            failed_files=0,
+            timed_out_files=1,
+            cancelled_files=0,
+            blocked_files=0,
+            max_parallelism=1,
+        ),
+    )
+
+    result = await core.finish_schedule(
+        "task-1", schedule, event_id="terminal-timeout", expected_revision=started.state.revision
+    )
+
+    assert result.state.status is OrchestrationStatus.TIMED_OUT
+    assert result.state.diagnostics[-1]["code"] == "generation_schedule.timed_out"
 
 
 @pytest.mark.asyncio
