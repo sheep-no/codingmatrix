@@ -12,11 +12,27 @@
       @open-performance="openPerformancePanel"
       @open-learning="openLearningPanel"
       @analyze-complexity="analyzeRequirementComplexity(projectPrompt)"
-    />
+      />
+
+    <div class="agent-mobile-toolbar">
+      <button class="mobile-toolbar-btn" type="button" aria-label="打开会话列表" @click="mobilePanel = 'sessions'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+        <span>会话</span>
+      </button>
+      <div class="mobile-session-title">
+        <span>{{ sessionId ? '当前会话' : '新建项目' }}</span>
+        <small v-if="isGenerating">生成中</small>
+      </div>
+      <button class="mobile-toolbar-btn" type="button" aria-label="打开文件预览" :disabled="!selectedFile" @click="mobilePanel = 'files'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M4 5a2 2 0 0 1 2-2h5l2 3h5a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5z"/></svg>
+        <span>文件</span>
+      </button>
+    </div>
 
     <div class="agent-main">
       <!-- 左侧栏 -->
       <AgentSidebar
+        :class="{ 'mobile-drawer-open': mobilePanel === 'sessions' }"
         :session-id="sessionId"
         :sessions="sessionHistory"
         :has-files="generatedFiles.length > 0"
@@ -73,6 +89,7 @@
 
       <!-- 右侧文件预览 -->
       <AgentFilePanel
+        :class="{ 'mobile-drawer-open': mobilePanel === 'files' }"
         :selected-file="selectedFile"
         :highlighted-code="getHighlightedCode"
         :line-count="getLineCount || 0"
@@ -88,6 +105,8 @@
         @delete-file="deleteFileFromBackend(selectedFilePath, workspace.currentProjectPath)"
       />
     </div>
+
+    <button v-if="mobilePanel" class="agent-mobile-scrim" type="button" aria-label="关闭面板" @click="mobilePanel = null"></button>
 
     <!-- Modals -->
     <UploadModal v-model="backend.showUploadModal" @upload="(f) => handleFileSelect(f)" />
@@ -133,6 +152,7 @@ const projectApi = window.api || {}
 
 const selectedProviderModel = ref('')
 const projectName = ref('')
+const mobilePanel = ref(null)
 
 // ========== Composables ==========
 const session = useAgentSession()
@@ -306,6 +326,7 @@ const doSwitchSession = async (id) => {
     recoveryAttempts: generation.recoveryAttempts
   })
   if (!switched) return false
+  mobilePanel.value = null
   workspace.currentModel = generation.currentModel
   workspace.currentAgent = generation.currentAgent
   try {
