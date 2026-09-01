@@ -6,7 +6,7 @@
 
 本地默认环境使用 SQLite `app.db` 和 Redis `redis://127.0.0.1:6379/0`。硅基流动配置使用 `SILICONFLOW_API_KEY` 和 `SILICONFLOW_BASE_URL`，默认地址为 `https://api.siliconflow.cn/v1`；真实 API Key 只放在本地 `.env`，使用占位符维护示例。启动时 `.env` 采用 `override=False`，已有进程环境变量优先。
 
-前端 Vite 默认监听 3000 端口，并将 `/api/v1`、`/api/v2` 代理到后端 8000 端口。后端构建产物由 FastAPI 提供时使用 8000 端口。
+前端 Vite 默认监听 3000 端口，并将 `/api/v1`、`/api/v2` 和 WebSocket 请求代理到后端 8000 端口。后端 Docker 运行时使用 8080，Nginx 对外提供 80 端口。前端构建产物输出到仓库根目录 `dist/`。
 
 ## 初始化数据库
 
@@ -43,7 +43,7 @@ PYTHONPATH=/workspace REDIS_URL=redis://127.0.0.1:6379/0 celery -A app.celery_ap
 
 四模块批量切换使用 `activate_modules_in_order`，通过 `rollout_percentage` 控制用户 cohort 比例。灰度验证应按 AICloud、GirlAI、Agent、Workflow 顺序执行，每个模块完成核对后再进入下一个模块。
 
-P4.4 当前验收：状态迁移、核对、切换、worker recovery、SQL replay、快照恢复和跨用户所有权测试为 `16 passed`；认证、核心导航、Workflow、PPT 浏览器验收为 `34 passed`；API 路由契约测试为 `3 passed`、`2 skipped`；前端单元测试为 `3 passed`。8000、8080、3000 端口健康检查返回 200，Redis 返回 `PONG`。PPT Celery worker 重启后重新注册 `app.tasks.ppt_tasks.generate_ppt` 并进入 ready 状态，真实 HTTP Markdown 任务已由 worker 消费并完成 `success`。WebSearch 外部网络流程为 `14 passed`，PPT 状态与恢复专项为 `12 passed`。浏览器测试使用系统 Chromium；供应商 401 响应类型错误和过时系统信息端点引用已修复。
+历史 P4.4 验收记录：状态迁移、核对、切换、worker recovery、SQL replay、快照恢复和跨用户所有权测试为 `16 passed`；认证、核心导航、Workflow、PPT 浏览器验收为 `34 passed`；API 路由契约测试为 `3 passed`、`2 skipped`。该批次记录用于追溯，实时结果以当前命令执行输出为准。浏览器测试使用系统 Chromium；供应商 401 响应类型错误和过时系统信息端点引用已修复。
 
 API 路由契约 E2E 已完成静态路径校准，当前结果为 `3 passed`、`2 skipped`。认证 E2E 使用 `TEST_ADMIN_EMAIL` 和 `TEST_ADMIN_PASSWORD`，默认测试邮箱为 `admin_test@example.com`；固定账号未设置密码时认证用例会明确跳过。完整浏览器验收已通过一次性本地测试账号完成。
 
@@ -76,6 +76,27 @@ npm --prefix vscode-extension test
 # 在真实 VS Code Extension Host 中运行插件 E2E
 npm --prefix vscode-extension run e2e
 ```
+
+## 前端开发
+
+```bash
+# 进入前端目录
+cd /workspace/src
+
+# 启动开发服务
+npm run dev
+
+# 单次运行测试
+npm run test:run
+
+# 执行 lint
+npm run lint
+
+# 构建生产资源
+NODE_OPTIONS=--max-old-space-size=1800 npm run build
+```
+
+根目录的 `npm run test:e2e` 用于 Playwright；前端 `dev`、`build`、`lint` 和 Vitest 命令均位于 `src/package.json`。
 
 历史云端验证记录为：排除 Redis、数据库和 FAISS 外部条件的单元测试 1605 passed、2 skipped。当前本地环境已安装 FAISS 并启动 Redis，后端 unit/integration 完整回归结果为 `1784 passed, 2 skipped`；该结果覆盖单元测试与本地基础依赖，生产入口和本地插件验证闭环仍需独立验收。
 
@@ -122,5 +143,5 @@ npm --prefix vscode-extension run e2e
 - 重启 PPT worker 后再次调用 DeepSeek R1，SiliconFlow 返回 HTTP `200 OK`；响应 JSON 不完整触发大纲解析回退，任务完成 `success`。当前验证重点转为模型响应解析的容错处理。
 - Agent 能力 Playwright E2E 已通过 `23 passed`；无认证综合诊断 E2E 已通过 `6 passed`。相关测试使用 `API_BASE`，页面检查使用 `domcontentloaded`，未认证端点按 5xx 服务错误判定。
 - 认证 Agent API、会话生命周期和历史会话 E2E 初次执行结果为 `10 failed`，失败集中在测试账号登录，后端返回“邮箱或密码错误”，连续重试后出现登录端点限流。更新被 Git 忽略的 `.env.test` 后，种子账号认证成功，Agent API 验收为 `2 passed`。
-- 会话 UI 已迁移到当前 `AgentSidebar` 的 `.session-item` 和 `button[title="新建会话"]` 选择器；历史会话整组 E2E 为 `5 passed`，生命周期创建、切换、删除主流程、并发限制 API 和取消状态均已通过。前端单元测试为 `3 passed`，在 `/workspace/src` 执行 `npm run build` 返回 `0`。真实模型 Agent E2E 执行为 `2 skipped`，原因是运行环境当前未提供 `TEST_API_KEY`。
+- 会话 UI 使用当前 `AgentSidebar` 的 `.session-item` 和 `button[title="新建会话"]` 选择器；历史会话整组 E2E 曾为 `5 passed`，生命周期创建、切换、删除主流程、并发限制 API 和取消状态均已通过。真实模型 Agent E2E 曾有 `2 skipped`，原因是测试环境缺少 `TEST_API_KEY`。本轮手机端改动的前端单元测试为 `23 passed`，生产构建返回 `0`。
 - StateGraph 当前通过单节点 legacy wrapper 接入生产入口；RAG、checkpoint 自动恢复、统一事件出口和 VS Code 本地验证回传仍属于迁移中的能力。验证节点和会话 replay 已完成云端契约层实现，真实插件 E2E 已在 VS Code `1.135.0` Extension Host 中通过。

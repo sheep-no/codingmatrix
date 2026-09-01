@@ -2,7 +2,7 @@
 
 ## 概述
 
-本项目是基于 FastAPI 的 AI 编程后端，提供项目生成、项目修改、编排执行、模型路由、会话管理和代码验证能力。Agent 能力由传统 Agent、Spec-first、依赖图、拓扑调度和 ReAct 工具链组成。StateGraph 迁移层以统一 State、StateDelta、checkpoint 和事件适配器连接现有能力。
+本项目由 FastAPI 后端、Vue 3 Web 前端、Celery 异步任务、Redis 和可选 VS Code Agent Host 组成，提供聊天、项目生成与修改、PPT、图像、AI Cloud、GirlAI、工作流和本地验证能力。Agent 能力由传统 Agent、Spec-first、依赖图、拓扑调度和 ReAct 工具链组成。StateGraph 迁移层以统一 State、StateDelta、checkpoint 和事件适配器连接现有能力。
 
 ## 技术栈
 
@@ -11,6 +11,10 @@
 - SQLite/PostgreSQL 数据访问与 Redis 会话缓存
 - pytest、pytest-asyncio
 - FAISS/VectorIndex 与外部模型、知识检索服务
+
+## 部署拓扑
+
+开发模式使用 Vite `3000`、FastAPI `8000` 和 Redis `6379`；Vite 将 `/api/v1`、`/api/v2` 和 WebSocket 请求代理到后端。Docker/生产模式使用 API `8080`、Nginx `80`、Redis `6379`，Compose 服务包括 `api`、`celery`、`redis` 和 `nginx`。
 
 ## 项目结构
 
@@ -42,6 +46,10 @@ flowchart LR
 ```
 
 `generate`、`modify`、同步 `orchestrate` 和流式 `orchestrate/stream` 已通过 `build_legacy_workflow` 运行。当前每个入口使用一个 `legacy_agent` 节点包装既有 Agent 结果，并保留原有响应与事件结构。Spec-first、RAG、依赖图、拓扑、验证和恢复能力仍处于渐进迁移阶段，生产入口尚未组成完整多阶段 StateGraph。
+
+## 前端边界
+
+Web 前端通过 Vue Router 组织页面，通过 Pinia 保存认证、Agent 会话、生成文件和模型上下文。Agent Dashboard 将会话、生成、文件、工作区、流式处理和后端管理拆分到 composables。桌面端使用三栏布局；手机端使用单列工作区和两侧抽屉，相关样式集中在 `src/styles/agent-layout.css`。前端通过同源 `/api` 前缀访问后端，开发环境由 Vite proxy 处理跨服务转发。
 
 ## StateGraph 边界
 

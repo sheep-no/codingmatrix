@@ -1,5 +1,12 @@
 # Interfaces
 
+## 认证与公共 API
+
+- `POST /api/v1/auth/login`：登录并建立认证会话。
+- `POST /api/v1/auth/register`：注册用户。
+- `GET /api/v1/health`：检查数据库和 Redis 状态。
+- `GET /api/v1/public-key`：读取前端加密所需的公开密钥。
+
 ## Chat API
 
 - `POST /api/v1/chat`：主聊天接口，支持流式输出、会话历史、文件理解和联网搜索。
@@ -20,10 +27,17 @@
 
 ## Agent API
 
-- `POST /api/v1/ai-agent/generate`：生成项目。
-- `POST /api/v1/ai-agent/modify`：修改项目或执行分析请求。
-- `POST /api/v1/ai-agent/orchestrate`：同步编排项目生成。
-- `POST /api/v1/ai-agent/orchestrate/stream`：SSE 流式编排。
+- `POST /api/v1/agent/generate`：生成项目。
+- `POST /api/v1/agent/modify`：修改项目或执行分析请求。
+- `POST /api/v1/agent/orchestrate`：同步编排项目生成。
+- `POST /api/v1/agent/orchestrate/stream`：SSE 流式编排。
+- `POST /api/v1/agent/stop/{session_id}`：停止 Agent 会话。
+- `POST /api/v1/agent/complete/{session_id}`：完成 Agent 会话。
+- `POST /api/v1/agent/search_sessions`：查询当前用户会话。
+- `GET /api/v1/agent/generate/files`：列出生成项目文件。
+- `GET /api/v1/agent/generate/read`：读取生成文件内容。
+- `GET /api/v1/agent/generate/download/{project_path}`：下载生成项目。
+- `GET /api/v1/agent/token-usage`：读取 token 使用统计。
 - `GET /api/v1/agent/sessions/{session_id}/model-context`：读取当前用户 Agent 会话的最新模型上下文；旧会话返回当前运行时默认上下文。
 - `PUT /api/v1/agent/sessions/{session_id}/model-context`：合并角色模型、当前模型、调用统计和降级记录，并创建独立模型上下文 Checkpoint。
 
