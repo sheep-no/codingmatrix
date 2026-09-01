@@ -43,6 +43,31 @@ flowchart LR
 
 `generate`、`modify`、同步 `orchestrate` 和流式 `orchestrate/stream` 已通过 `build_legacy_workflow` 运行。当前每个入口使用一个 `legacy_agent` 节点包装既有 Agent 结果，并保留原有响应与事件结构。Spec-first、RAG、依赖图、拓扑、验证和恢复能力仍处于渐进迁移阶段，生产入口尚未组成完整多阶段 StateGraph。
 
+## Orchestrator Core 目标架构
+
+多语言代码生成主规格规划使用 `OrchestratorCore` 收敛传统生成、Spec-First 和增量修改的任务生命周期。现有 `OrchestratorAgent` 将保留入口兼容职责，三类生成模式通过适配器提供计划和单文件生成能力。目标生命周期为 `planning`、`scheduling`、`generating`、`persisting`、`validating`、`finalizing`，并统一收敛到完成、失败、超时或取消终态。
+
+```mermaid
+flowchart LR
+    API["现有 Agent API 和 SSE"] --> Compatibility["OrchestratorAgent 兼容层"]
+    Compatibility --> Core["OrchestratorCore 目标状态机"]
+    Adapter["生成模式适配器"] --> Core
+    Core --> Scheduler["统一拓扑调度器"]
+    Scheduler --> Model["模型网关与墙钟预算"]
+    Scheduler --> Committer["产物提交器"]
+    Committer --> Manifest["磁盘产物清单"]
+    Core --> Validation["云端语法与本地验证协调"]
+    Core --> Store["Checkpoint 和事件存储"]
+```
+
+目标设计采用四级执行预算：单次模型调用、单文件、阶段和任务。流式保活数据不改变墙钟 deadline；超时和用户取消需要传播到活动模型调用及文件任务，并在终态前完成子任务回收。
+
+文件计划分为 `strict` 和 `extensible`。需求明确指定文件集合时使用 `strict`，冻结计划外的业务文件形成结构化计划错误；允许架构补全时使用 `extensible`，新增文件需要记录来源和理由。文件生成成功由原子写入、磁盘回读、非空、大小和 hash 校验共同决定，文件完成事件只能引用已登记产物。
+
+迁移顺序为传统生成、Spec-First、增量修改。每个入口保留 legacy/core 路由和原有 HTTP、SSE、会话契约，checkpoint 记录引擎版本，恢复任务继续使用创建时的引擎版本。
+
+`app.agent.orchestration` 已实现第一阶段内核原语：严格 Pydantic 契约、单向阶段转换、revision 校验、持久化事件幂等、唯一终态、原子 JSON checkpoint，以及任务创建、推进、终止、取消和恢复协调。文件计划层已实现统一安全路径规范化、`strict/extensible` 自动策略、结构化计划错误、依赖集合校验、扩展来源记录，以及带稳定 digest 的不可变计划版本。执行层已实现不可变的任务、阶段、文件和模型调用四级预算，预算随 command 写入 checkpoint；`ModelGateway` 使用绝对墙钟 deadline 包住模型调用和完整流消费，区分保活、普通流数据与业务模型数据，并在超时、用户取消或外部任务取消后关闭活动流。`ArtifactCommitter` 统一执行安全路径校验、大小限制、原子写入、磁盘回读和 SHA-256 一致性验证，验证成功后才登记 `SharedContext` 清单并返回幂等的 `file_completed` 事件。成功门禁比较冻结计划、完成事件、清单和磁盘业务文件集合，忽略隐藏元数据，并要求每个计划文件 hash 一致且验证状态有效；Core 进入 `completed` 前必须携带通过的门禁结果，失败结果收敛为带 `artifact_consistency_failed` 诊断的失败终态。`GenerationScheduler` 以冻结计划为输入，按依赖就绪队列调度独立文件，使用 `TaskGroup` 管理子任务，执行并发上限、重试预算、文件/阶段超时、取消传播、上游失败阻断和循环依赖死锁收敛，并保证活动任务最终归零。传统入口已具备 `TraditionalAdapter`、legacy/core 引擎选择、无源码影子状态对比和 checkpoint 引擎版本元数据；Core 生产生成入口等待任务 11.1 的契约与真实生成验收后切换。实施进度和验收门禁记录在 `../specs/2026-08-31-multilanguage-generation-orchestration/`。
+
 ## StateGraph 边界
 
 节点读取 State 快照并返回 StateDelta，reducer 负责 revision、消息幂等和增量合并。`CheckpointStore`、事件 Envelope 和本地验证适配器已经提供基础契约。会话适配器支持按 sequence replay，并在检测到缺口时返回 snapshot recovery action。云端验证结果限定为 `cloud_syntax`；当 State 声明必需本地 scope 时，验证节点创建 `waiting_local_validation` 动作，`run_workflow()` 将动作适配并发布到已连接的 Agent Host session，同时按 `session_id/task_id` 保存 checkpoint 和下一节点游标；插件 `tool_result` 经过任务版本和本地结果适配器校验后恢复活动 StateGraph，并从游标继续执行后续节点，所有必需 scope 通过后进入 `completed`。活动注册表缺失时可以从 checkpoint 加载状态并合并结果；跨进程续跑需要启动时注册可恢复的 workflow definition。Agent Host session 使用原子 JSON 队列保存动作、策略版本和事件确认，支持进程重启后的恢复；真实 HTTP 已验证 handshake、事件、策略、Skills 和 session control 闭环，用户模型供应商 Key 流程已通过 `13/13` 验收。API 入口仍保留原始 SSE 事件出口，多 worker 和模型驱动的跨工作台续跑仍需独立验收。

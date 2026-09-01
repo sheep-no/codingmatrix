@@ -1,6 +1,11 @@
+import ast
+import builtins
+import importlib.util
 import re
+import symtable
 import json
 import asyncio
+import hashlib
 import logging
 import subprocess
 from typing import Optional, Dict, List, Tuple
@@ -14,12 +19,276 @@ from app.agent.code_validator import CodeValidator
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL, DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL
 from app.agent.utils import extract_engineer_content, write_file_atomic
+from app.agent.dependency_graph import summarize_dependency_context
 
 
 logger = logging.getLogger(__name__)
 
 # 写入类工具名称（用于编辑标记检测）
 _WRITE_TOOLS = {"partial_update", "insert_content", "regex_replace"}
+
+
+def _python_module_name(file_path: str) -> str:
+    normalized = file_path.replace('\\', '/').removesuffix('.py')
+    if normalized.endswith('/__init__'):
+        normalized = normalized[:-len('/__init__')]
+    return normalized.replace('/', '.')
+
+
+def _python_exports(content: str) -> set[str]:
+    tree = ast.parse(content)
+    exports = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            exports.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    exports.add(target.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                exports.add(alias.asname or alias.name.split('.', 1)[0])
+    return exports
+
+
+def _structured_import_diagnostics(errors: List[str]) -> List[Dict[str, str]]:
+    """将静态门禁文本转换为模型可直接执行的诊断项。"""
+    diagnostics = []
+    for error in errors:
+        diagnostic = {"message": error}
+        match = re.match(r"(.+?\.py) 未导出符号 (.+)，", error)
+        if match:
+            diagnostic.update({
+                "type": "missing_export",
+                "dependency_file": match.group(1),
+                "symbol": match.group(2),
+            })
+        elif "名称 " in error and "未定义或导入" in error:
+            symbol = error.split("名称 ", 1)[1].split(" 在", 1)[0]
+            diagnostic.update({"type": "undefined_global", "symbol": symbol})
+        elif error.startswith("调用 "):
+            diagnostic["type"] = "signature_mismatch"
+        elif "禁止混用" in error:
+            diagnostic["type"] = "database_abstraction_mismatch"
+        else:
+            diagnostic["type"] = "static_validation_error"
+        diagnostics.append(diagnostic)
+    return diagnostics
+
+
+def _validate_python_implementation(content: str, file_path: str) -> List[str]:
+    """Reject syntactically valid Python placeholders that contain no implementation."""
+    if not file_path.endswith('.py') or file_path.endswith('__init__.py'):
+        return []
+    try:
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError:
+        return []
+
+    substantive_nodes = [
+        node for node in tree.body
+        if not isinstance(node, (ast.Import, ast.ImportFrom))
+        and not (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        )
+    ]
+    if substantive_nodes:
+        return []
+    return ["Python 文件仅包含导入或说明文本，缺少可执行实现"]
+
+
+def _validate_python_project_imports(
+    content: str,
+    file_path: str,
+    generated_contents: Dict[str, str],
+    all_project_files: List[str],
+) -> List[str]:
+    """校验 Python 项目内导入只引用已生成依赖及其真实导出。"""
+    if not file_path.endswith('.py'):
+        return []
+    try:
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError as exc:
+        return [f"Python 语法错误: {exc.msg} (line {exc.lineno})"]
+
+    project_modules = {
+        _python_module_name(path): path
+        for path in all_project_files
+        if path.endswith('.py') and path != file_path
+    }
+    generated_modules = {
+        _python_module_name(path): source
+        for path, source in generated_contents.items()
+        if path.endswith('.py')
+    }
+    errors = []
+    imported_project_functions: Dict[str, Tuple[str, str]] = {}
+    symbol_table = symtable.symtable(content, file_path, "exec")
+    defined_globals = {
+        symbol.get_name()
+        for symbol in symbol_table.get_symbols()
+        if symbol.is_assigned() or symbol.is_imported() or symbol.is_namespace()
+    }
+    referenced_globals = {
+        symbol.get_name()
+        for symbol in symbol_table.get_symbols()
+        if symbol.is_referenced()
+    }
+    pending_tables = list(symbol_table.get_children())
+    while pending_tables:
+        child_table = pending_tables.pop()
+        pending_tables.extend(child_table.get_children())
+        for symbol in child_table.get_symbols():
+            if symbol.is_global() and symbol.is_assigned():
+                defined_globals.add(symbol.get_name())
+            if symbol.is_global() and symbol.is_referenced():
+                referenced_globals.add(symbol.get_name())
+
+    runtime_globals = set(dir(builtins)) | {
+        "__file__",
+        "__name__",
+        "__package__",
+        "__spec__",
+    }
+    for name in sorted(referenced_globals - defined_globals - runtime_globals):
+        errors.append(f"名称 {name} 在模块全局作用域中未定义或导入")
+
+    creates_sqlalchemy_base = any(
+        isinstance(node, (ast.Assign, ast.AnnAssign))
+        and any(
+            isinstance(target, ast.Name) and target.id == "Base"
+            for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+        )
+        and isinstance(node.value, ast.Call)
+        and (
+            isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "declarative_base"
+            or isinstance(node.value.func, ast.Attribute)
+            and node.value.func.attr == "declarative_base"
+        )
+        for node in tree.body
+    )
+    if creates_sqlalchemy_base:
+        for module, source in generated_modules.items():
+            try:
+                dependency_exports = _python_exports(source)
+            except SyntaxError:
+                continue
+            if "Base" in dependency_exports and module in project_modules:
+                errors.append(
+                    f"{project_modules[module]} 已导出 SQLAlchemy Base，{file_path} 必须导入复用，"
+                    "禁止再次调用 declarative_base()"
+                )
+                break
+
+    if file_path.endswith("models.py"):
+        database_source = generated_modules.get("database")
+        if database_source:
+            database_uses_sqlite = bool(re.search(r"\b(?:import\s+sqlite3|from\s+sqlite3\s+import)\b", database_source))
+            database_uses_sqlalchemy = "sqlalchemy" in database_source
+            model_uses_sqlite = bool(re.search(r"\b(?:import\s+sqlite3|from\s+sqlite3\s+import)\b", content))
+            model_uses_sqlalchemy = "sqlalchemy" in content
+            if database_uses_sqlite and model_uses_sqlalchemy:
+                errors.append("database.py 使用原生 sqlite3 时，models.py 禁止混用 SQLAlchemy ORM")
+            elif database_uses_sqlalchemy and model_uses_sqlite:
+                errors.append("database.py 使用 SQLAlchemy 时，models.py 禁止混用原生 sqlite3")
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                module = alias.name
+                if module in project_modules and module not in generated_modules:
+                    errors.append(f"项目模块 {project_modules[module]} 尚未生成，当前拓扑层禁止导入")
+                elif module not in project_modules:
+                    root_module = module.split('.', 1)[0]
+                    try:
+                        available = importlib.util.find_spec(root_module) is not None
+                    except (ImportError, ValueError, AttributeError):
+                        available = False
+                    if not available:
+                        errors.append(f"模块 {root_module} 不在项目文件集合中且当前运行时不可用")
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            module = node.module.lstrip('.')
+            if module not in project_modules:
+                root_module = module.split('.', 1)[0]
+                try:
+                    available = importlib.util.find_spec(root_module) is not None
+                except (ImportError, ValueError, AttributeError):
+                    available = False
+                if not available:
+                    errors.append(f"模块 {root_module} 不在项目文件集合中且当前运行时不可用")
+                continue
+            if module not in generated_modules:
+                errors.append(f"项目模块 {project_modules[module]} 尚未生成，当前拓扑层禁止导入")
+                continue
+            try:
+                exports = _python_exports(generated_modules[module])
+            except SyntaxError:
+                continue
+            for alias in node.names:
+                if alias.name != '*' and alias.name not in exports:
+                    errors.append(
+                        f"{project_modules[module]} 未导出符号 {alias.name}，请使用其真实接口"
+                    )
+                elif alias.name != '*':
+                    imported_project_functions[alias.asname or alias.name] = (module, alias.name)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        imported_function = imported_project_functions.get(node.func.id)
+        if not imported_function:
+            continue
+        module, exported_name = imported_function
+        try:
+            dependency_tree = ast.parse(generated_modules[module])
+        except (SyntaxError, KeyError):
+            continue
+        definition = next(
+            (
+                candidate
+                for candidate in dependency_tree.body
+                if isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and candidate.name == exported_name
+            ),
+            None,
+        )
+        if definition is None:
+            continue
+
+        positional_params = [*definition.args.posonlyargs, *definition.args.args]
+        required_count = len(positional_params) - len(definition.args.defaults)
+        positional_count = len(node.args)
+        keyword_names = {keyword.arg for keyword in node.keywords if keyword.arg is not None}
+        supplied_names = {
+            parameter.arg for parameter in positional_params[:positional_count]
+        } | keyword_names
+        required_names = {parameter.arg for parameter in positional_params[:required_count]}
+        missing_names = sorted(required_names - supplied_names)
+
+        if definition.args.vararg is None and positional_count > len(positional_params):
+            errors.append(
+                f"调用 {node.func.id} 传入 {positional_count} 个位置参数，"
+                f"但 {project_modules[module]} 中定义最多接受 {len(positional_params)} 个"
+            )
+        if missing_names:
+            errors.append(
+                f"调用 {node.func.id} 缺少必需参数 {', '.join(missing_names)}，"
+                f"请匹配 {project_modules[module]} 中的真实签名"
+            )
+        accepted_keywords = {
+            parameter.arg for parameter in [*positional_params, *definition.args.kwonlyargs]
+        }
+        unexpected_keywords = sorted(keyword_names - accepted_keywords)
+        if definition.args.kwarg is None and unexpected_keywords:
+            errors.append(
+                f"调用 {node.func.id} 使用了未声明参数 {', '.join(unexpected_keywords)}，"
+                f"请匹配 {project_modules[module]} 中的真实签名"
+            )
+    return list(dict.fromkeys(errors))
 
 
 def _is_edit_marker(content: str) -> bool:
@@ -96,7 +365,47 @@ def _fix_absolute_imports(
     # 当前文件的包路径
     parts = file_path.replace('\\', '/').split('/')
     if len(parts) < 2:
-        return content  # 顶层文件，无需处理
+        root_modules = {
+            Path(project_file).stem
+            for project_file in all_project_files
+            if '/' not in project_file.replace('\\', '/') and project_file.endswith('.py')
+        }
+        def normalize_root_from_dot_import(match: re.Match) -> str:
+            imported_names = match.group(2)
+            module_names = [
+                name.strip().split(" as ", 1)[0]
+                for name in imported_names.split(",")
+            ]
+            if module_names and all(name in root_modules for name in module_names):
+                return f"{match.group(1)}import {imported_names}"
+            return match.group(0)
+
+        content = re.sub(
+            r'^(\s*)from\s+\.\s+import\s+([A-Za-z_]\w*(?:\s+as\s+[A-Za-z_]\w*)?(?:\s*,\s*[A-Za-z_]\w*(?:\s+as\s+[A-Za-z_]\w*)?)*)$',
+            normalize_root_from_dot_import,
+            content,
+            flags=re.MULTILINE,
+        )
+        content = re.sub(
+            r'^(\s*from\s+)\.([A-Za-z_]\w*)(\s+import\s+)',
+            lambda match: (
+                f"{match.group(1)}{match.group(2)}{match.group(3)}"
+                if match.group(2) in root_modules
+                else match.group(0)
+            ),
+            content,
+            flags=re.MULTILINE,
+        )
+        return re.sub(
+            r'^(\s*from\s+)([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)(\s+import\s+)',
+            lambda match: (
+                f"{match.group(1)}{match.group(2).rsplit('.', 1)[-1]}{match.group(3)}"
+                if match.group(2).rsplit('.', 1)[-1] in root_modules
+                else match.group(0)
+            ),
+            content,
+            flags=re.MULTILINE,
+        )
     current_pkg = '/'.join(parts[:-1])  # e.g. "src/utils"
 
     # 构建同包文件集合（用于判断目标模块是否在同一包内）
@@ -343,6 +652,14 @@ class FilesMixin:
             dep_context = self.dependency_graph_obj.get_context_for_file(
                 file_path, generated_contents or {}
             )
+        dep_audit = summarize_dependency_context(dep_context)
+        logger.info(
+            "依赖上下文审计: target=%s model=%s generated_count=%d dep=%s",
+            file_path,
+            self._select_model_for_file(file_path),
+            len(generated_contents or {}),
+            dep_audit,
+        )
 
         # 判断文件是否已存在
         full_path = self.output_dir / self._normalize_file_path(file_path)
@@ -408,7 +725,92 @@ class FilesMixin:
                     return None
                 content = self._clean_code_block(content)
                 content = _fix_absolute_imports(content, file_path, all_files)
-                write_file_atomic(self.output_dir, file_path, content)
+
+        import_errors = _validate_python_implementation(content, file_path)
+        import_errors.extend(_validate_python_project_imports(
+            content, file_path, generated_contents or {}, all_files
+        ))
+        seen_error_fingerprints = set()
+        for correction_round in range(1, 4):
+            if not import_errors:
+                break
+            current_fingerprints = {
+                hashlib.sha256(error.strip().encode("utf-8")).hexdigest()
+                for error in import_errors
+            }
+            repeated_fingerprints = current_fingerprints & seen_error_fingerprints
+            if repeated_fingerprints:
+                logger.error(
+                    "重复静态错误，停止继续修复: file=%s fingerprints=%d errors=%s",
+                    file_path,
+                    len(repeated_fingerprints),
+                    import_errors,
+                )
+                break
+            seen_error_fingerprints.update(current_fingerprints)
+            logger.warning(
+                "跨文件导入门禁失败: file=%s round=%d errors=%s",
+                file_path,
+                correction_round,
+                import_errors,
+            )
+            engineer.clear_edits()
+            correction = "；".join(import_errors)
+            diagnostics = json.dumps(
+                _structured_import_diagnostics(import_errors),
+                ensure_ascii=False,
+                indent=2,
+            )
+            correction_instructions = (
+                "这些错误来自候选代码的静态检查。对于‘名称 X 在模块全局作用域中未定义或导入’，"
+                "必须在模块顶层添加定义 X 的真实 import，或彻底移除对 X 的引用；"
+                "对于项目模块或符号错误，只能使用已生成依赖上下文中真实存在的模块和导出。"
+                "候选文件必须包含该文件职责所需的完整可执行实现，不能只返回 import、注释或问题说明。"
+                "输出前逐个检查函数体、默认参数、ORM 字段参数和装饰器引用的名称，"
+                "确认每个名称均已在模块顶层定义或导入。"
+            )
+            corrected_raw = await engineer.generate_file(
+                file_path,
+                f"{description}\n此前候选文件校验失败：{correction}。"
+                f"\n结构化诊断（逐项修复）：\n{diagnostics}\n{correction_instructions}"
+                "请基于下面的上一版候选源码重新生成完整文件并修复全部问题：\n"
+                f"```{expected_language}\n{content}\n```",
+                project_context,
+                spec_context,
+                dep_context,
+                project_path=str(self.output_dir),
+                callback=self.callback,
+                is_existing_file=is_existing,
+            )
+            if asyncio.iscoroutine(corrected_raw):
+                corrected_raw = await corrected_raw
+            corrected_content = await extract_engineer_content(
+                corrected_raw,
+                engineer,
+                self.output_dir,
+                file_path,
+                fix_imports_fn=_fix_absolute_imports,
+                all_files=all_files,
+                expected_language=expected_language,
+                llm_caller=llm_caller,
+            )
+            if corrected_content:
+                content = corrected_content
+            import_errors = _validate_python_implementation(content, file_path)
+            import_errors.extend(_validate_python_project_imports(
+                content, file_path, generated_contents or {}, all_files
+            ))
+
+        if import_errors:
+            error_message = f"文件生成失败: {file_path}（跨文件导入不一致: {'；'.join(import_errors)}）"
+            self.errors.append(error_message)
+            logger.error(error_message)
+            return {
+                "path": file_path,
+                "description": description,
+                "success": False,
+                "size": 0,
+            }
 
         if self.require_approval and self._is_critical_file(file_path):
             self._report_progress(
@@ -451,6 +853,18 @@ class FilesMixin:
 
         # 验证并修复路径格式
         file_path = self._normalize_file_path(file_path)
+
+        # 所有生成路径统一在内容处理完成后落盘，事件只代表已持久化产物。
+        if not write_file_atomic(self.output_dir, file_path, content):
+            error_message = f"文件落盘失败: {file_path}"
+            self.errors.append(error_message)
+            logger.error(error_message)
+            return {
+                "path": file_path,
+                "description": description,
+                "success": False,
+                "size": 0,
+            }
 
         self._report_progress(
             PROGRESS_LABELS["file_generated"],

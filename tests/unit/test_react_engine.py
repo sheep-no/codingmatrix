@@ -261,6 +261,42 @@ class TestRunSimpleMode:
         assert call_count == 2
 
     @pytest.mark.asyncio
+    async def test_required_tool_blocks_direct_final_response(self):
+        call_count = 0
+
+        async def mock_llm(prompt, system_prompt):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return "direct response"
+            if call_count == 2:
+                return '{"tool": "read_symbols", "params": {"file_path": "test.py"}}'
+            return "direct response"
+
+        def mock_read_symbols(project_path="", **kwargs):
+            return {"symbols": []}
+
+        tools = {
+            "read_symbols": {
+                "fn": mock_read_symbols,
+                "description": "read symbols",
+                "params": {"file_path": "string"},
+            }
+        }
+        engine = ReActEngine(
+            tools=tools,
+            call_llm_fn=mock_llm,
+            project_path="/tmp",
+            max_rounds=3,
+            required_tool_names={"read_symbols"},
+        )
+        result = await engine.run("task", "sys")
+
+        assert result == "direct response"
+        assert call_count == 3
+        assert "read_symbols" in engine.used_tool_names
+
+    @pytest.mark.asyncio
     async def test_max_rounds_safety_valve(self):
         async def mock_llm(prompt, system_prompt):
             # always return tool call

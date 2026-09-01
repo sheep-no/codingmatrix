@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
 from app.agent.adapters import legacy_result_to_delta
 from app.agent.state import CheckpointStore, State, StateGraph, StateGraphBuilder, StateReducer
 from app.agent.state.graph import END, NEXT_NODE_METADATA_KEY
+from app.agent.orchestration.routing import engine_metadata
 
 
 _active_workflows: Dict[tuple[str, str], tuple[WorkflowDefinition, State]] = {}
@@ -112,17 +113,39 @@ async def run_workflow(
     session_id: str,
     task_id: str,
     metadata: Optional[Dict[str, Any]] = None,
+    db: Any = None,
+    user_id: Optional[int] = None,
 ) -> State:
     """Execute a registered workflow from a serializable initial State."""
 
     state = State(
         session_id=session_id,
         task_id=task_id,
-        metadata={**dict(metadata or {}), "_workflow_name": definition.name},
+        metadata={
+            **engine_metadata((metadata or {}).get("engine")),
+            **dict(metadata or {}),
+            "_workflow_name": definition.name,
+        },
     )
     state = await definition.graph.run(state, start_at=definition.entry_node)
+    required_scopes = state.metadata.get("required_validation_scopes", [])
+    if isinstance(required_scopes, str):
+        required_scopes = [required_scopes]
+    required_scopes = [scope for scope in required_scopes if scope in {"local_runtime", "local_e2e"}]
+    if required_scopes and not state.pending_actions and state.status == "completed":
+        state.status = "waiting_local_validation"
+        state.pending_actions = [{
+            "type": "local_validation",
+            "scopes": required_scopes,
+            "status": "waiting_local_validation",
+            "source_revision": state.revision,
+        }]
     _active_workflows[(session_id, task_id)] = (definition, state)
     _checkpoint_store.save(state, _checkpoint_id(session_id, task_id))
+    if db is not None and user_id is not None:
+        from app.services import agent_state_adapter
+
+        await agent_state_adapter.persist_agent_state(db, user_id, state)
     if state.pending_actions:
         try:
             from app.api.v1.agent_host import enqueue_state_actions

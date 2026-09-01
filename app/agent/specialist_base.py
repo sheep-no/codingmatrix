@@ -137,6 +137,7 @@ class Specialist:
         heartbeat_tracker=None,
         enable_streaming_thinking: bool = False,
         thinking_budget: Optional[int] = None,
+        required_tool_names: Optional[set[str]] = None,
     ) -> str:
         """调用 LLM，支持 ReAct 工具调用循环
 
@@ -285,6 +286,7 @@ class Specialist:
             emit_event_fn=self._emit_event,
             role_name=self.role_name,
             cancel_event=self.cancel_event,
+            required_tool_names=required_tool_names,
         )
 
         original_execute_tool = engine._execute_tool

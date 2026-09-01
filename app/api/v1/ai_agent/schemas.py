@@ -242,6 +242,19 @@ class OrchestratorRequest(BaseModel):
         description="前端传来的项目路径（增量模式用，兼容旧时间戳目录）",
         max_length=500
     )
+    required_validation_scopes: List[str] = Field(
+        default_factory=list,
+        description="需要由 Agent Host 执行的本地验证范围",
+        max_length=2,
+    )
+
+    @field_validator('required_validation_scopes')
+    @classmethod
+    def validate_validation_scopes(cls, v):
+        allowed = {"local_runtime", "local_e2e"}
+        if any(scope not in allowed for scope in v):
+            raise ValueError("required_validation_scopes 仅支持 local_runtime 和 local_e2e")
+        return list(dict.fromkeys(v))
 
     @field_validator('session_id')
     @classmethod

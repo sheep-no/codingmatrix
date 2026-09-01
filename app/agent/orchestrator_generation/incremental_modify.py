@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
-from app.agent.dependency_graph import DependencyGraph
+from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 
@@ -739,6 +739,13 @@ class IncrementalModifyMixin:
                         model_context_length=self._get_context_length(model_name),
                         project_spec=project_context.get("architecture", {}).get("project_spec"),
                     )
+                    logger.info(
+                        "依赖上下文审计: target=%s model=%s generated_count=%d dep=%s",
+                        file_path,
+                        model_name,
+                        len(generated_contents),
+                        summarize_dependency_context(dep_context),
+                    )
 
                     # 生成文件
                     content = await engineer.generate_file(
@@ -949,6 +956,13 @@ class IncrementalModifyMixin:
             upstream_context,
             model_context_length=self._get_context_length(model_name),
             project_spec=project_context.get("architecture", {}).get("project_spec"),
+        )
+        logger.info(
+            "依赖上下文审计: target=%s model=%s upstream_count=%d dep=%s",
+            file_path,
+            model_name,
+            len(upstream_context),
+            summarize_dependency_context(dep_context),
         )
 
         # 根据 action 决定生成策略

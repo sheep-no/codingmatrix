@@ -19,7 +19,7 @@ DEPENDENCY_RULES: Dict[str, List[str]] = {
     # 数据库相关
     "database": ["config"],
     "model": ["database", "config"],
-    "repository": ["model"],
+    "repository": ["database", "model", "schema", "types"],
     "migration": ["model", "database"],
 
     # 类型和工具
@@ -36,6 +36,7 @@ DEPENDENCY_RULES: Dict[str, List[str]] = {
     "view": ["service", "schema", "types"],
     "controller": ["service", "schema", "types"],
     "router": ["service", "schema", "types"],
+    "entry": ["api", "router", "controller", "service", "repository", "schema", "types", "model", "database"],
 
     # 前端
     "frontend_types": ["api"],
@@ -45,7 +46,7 @@ DEPENDENCY_RULES: Dict[str, List[str]] = {
     "frontend_style": [],
 
     # 测试
-    "test": ["model", "service", "api"],
+    "test": ["entry", "api", "router", "controller", "service", "repository", "schema", "types", "model", "database"],
 
     # 文档
     "readme": [],
@@ -98,6 +99,8 @@ PATH_TYPE_RULES: List[Tuple[str, str]] = [
     ("entity/", "model"),
 
     # Repository
+    ("crud.py", "repository"),
+    ("crud/", "repository"),
     ("repositories/", "repository"),
     ("repository/", "repository"),
     ("repos/", "repository"),

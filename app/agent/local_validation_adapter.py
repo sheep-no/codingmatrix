@@ -15,6 +15,7 @@ RESULT_STATUSES = {
     "waiting_for_confirmation",
     "cancelled",
     "skipped",
+    "unsupported",
 }
 
 
@@ -42,13 +43,15 @@ def local_result_to_delta(state: State, result: Dict[str, Any]) -> StateDelta:
             True
             if result["status"] in {"passed", "skipped"}
             else None
-            if result["status"] == "waiting_for_confirmation"
+            if result["status"] in {"waiting_for_confirmation", "unsupported"}
             else False
         )
     else:
         passed = result.get("passed")
     if not isinstance(passed, bool) and not (
-        "status" in result and result.get("status") == "waiting_for_confirmation" and passed is None
+        "status" in result
+        and result.get("status") in {"waiting_for_confirmation", "unsupported"}
+        and passed is None
     ):
         raise ValueError("local validation result requires a boolean passed or status")
     event_id = result.get("event_id")
@@ -60,6 +63,8 @@ def local_result_to_delta(state: State, result: Dict[str, Any]) -> StateDelta:
         "scope": scope,
         "passed": passed,
     }
+    if result.get("status") == "unsupported":
+        validation["unsupported"] = True
     if event_id is not None:
         validation["event_id"] = event_id
     validations = [*state.validation_results, validation]

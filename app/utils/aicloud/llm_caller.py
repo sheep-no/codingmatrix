@@ -152,6 +152,8 @@ class _SemaphoreWrappedAsyncIterator:
         self._inner = inner
         self._global_sem = global_sem
         self._model_sem = model_sem
+        self._closed = False
+        self._released = False
 
     def __aiter__(self):
         return self
@@ -159,21 +161,33 @@ class _SemaphoreWrappedAsyncIterator:
     async def __anext__(self) -> str:
         try:
             return await self._inner.__anext__()
-        except StopAsyncIteration:
-            # 迭代结束，释放信号量
-            logger.info(f"[信号量] 流式迭代结束，释放信号量")
-            if self._model_sem:
-                self._model_sem.release()
-            if self._global_sem:
-                self._global_sem.release()
+        except BaseException:
+            try:
+                await self.aclose()
+            except Exception as close_error:
+                logger.warning("关闭 LLM 流失败: %s", close_error)
             raise
-        except Exception:
-            # 异常时也释放信号量
-            if self._model_sem:
-                self._model_sem.release()
-            if self._global_sem:
-                self._global_sem.release()
-            raise
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            close = getattr(self._inner, "aclose", None)
+            if close is not None:
+                await close()
+        finally:
+            self._release()
+
+    def _release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        logger.info("[信号量] 流式迭代关闭，释放信号量")
+        if self._model_sem:
+            self._model_sem.release()
+        if self._global_sem:
+            self._global_sem.release()
 
 
 async def call_llm(
@@ -298,6 +312,15 @@ async def call_llm(
     if not adapter.api_key:
         raise ProviderAPIKeyNotConfiguredError(adapter.provider.value)
 
+    logger.info(
+        "LLM请求审计: provider=%s model=%s thinking_budget=%d max_tokens=%d stream=%s",
+        adapter.provider.value,
+        model,
+        thinking_budget,
+        max_tokens,
+        stream,
+    )
+
     # 获取按模型并发信号量（延迟导入避免循环依赖）
     global_sem = None
     model_sem = None
@@ -309,11 +332,22 @@ async def call_llm(
         except Exception:
             pass  # 信号量不可用时不阻塞调用
 
-        # 获取信号量：全局 + 按模型
-        if global_sem:
-            await global_sem.acquire()
-        if model_sem:
-            await model_sem.acquire()
+        # 获取信号量：全局 + 按模型。等待第二级额度时取消也必须归还第一级额度。
+        global_acquired = False
+        model_acquired = False
+        try:
+            if global_sem:
+                await global_sem.acquire()
+                global_acquired = True
+            if model_sem:
+                await model_sem.acquire()
+                model_acquired = True
+        except BaseException:
+            if model_acquired:
+                model_sem.release()
+            if global_acquired:
+                global_sem.release()
+            raise
         logger.info(f"[信号量] 已获取 {model} 信号量 (global={global_sem._value if global_sem else 'N/A'}, model={model_sem._value if model_sem else 'N/A'})")
 
     try:
@@ -341,7 +375,21 @@ async def call_llm(
             global_sem.release()
             global_sem = None
         return result
+    except asyncio.CancelledError:
+        if model_sem:
+            model_sem.release()
+        if global_sem:
+            global_sem.release()
+        raise
     except Exception as e:
+        logger.warning(
+            "LLM请求失败: provider=%s model=%s thinking_budget=%d error_type=%s status=%s",
+            adapter.provider.value,
+            model,
+            thinking_budget,
+            type(e).__name__,
+            getattr(e, "status_code", None),
+        )
         # 释放信号量
         logger.info(f"[信号量] 异常释放 {model} 信号量: {e}")
         if model_sem:
@@ -356,6 +404,8 @@ async def call_llm(
             fallback_providers = router.get_fallback_providers(primary_provider)
 
             for fallback in fallback_providers:
+                fallback_global_acquired = False
+                fallback_model_acquired = False
                 try:
                     # 优先使用用户 Key（如果用户配置了），否则使用平台默认
                     fallback_adapter = await get_adapter(fallback, user_config)
@@ -372,8 +422,10 @@ async def call_llm(
                             pass
                     if global_sem:
                         await global_sem.acquire()
+                        fallback_global_acquired = True
                     if model_sem:
                         await model_sem.acquire()
+                        fallback_model_acquired = True
 
                     fallback_result = await fallback_adapter.call_llm(
                         model=model,
@@ -393,11 +445,17 @@ async def call_llm(
                     if global_sem:
                         global_sem.release()
                     return fallback_result
+                except asyncio.CancelledError:
+                    if fallback_model_acquired:
+                        model_sem.release()
+                    if fallback_global_acquired:
+                        global_sem.release()
+                    raise
                 except Exception as fallback_error:
                     logger.warning(f"Stream fallback {fallback.value} also failed: {fallback_error}")
-                    if model_sem:
+                    if fallback_model_acquired:
                         model_sem.release()
-                    if global_sem:
+                    if fallback_global_acquired:
                         global_sem.release()
                     continue
         raise

@@ -45,6 +45,7 @@ flowchart LR
 
 - `app/agent/state/models.py`：定义 State、StateDelta、MessageEnvelope 和验证结果模型。
 - `app/agent/nodes/validation.py`：执行 `cloud_syntax`，为本地 scope 创建 PendingAction。
+- `app/agent/utils.py`：仅提供云端基础语法检查；运行时、依赖、构建和 E2E 检查交由 Agent Host。
 - `app/agent/local_validation_adapter.py`：校验插件结果的 task、revision、schema version 和 scope。
 - `app/agent/state/reducer.py`：合并增量、处理 revision 冲突和消息幂等。
 - Agent API：提供动作同步、结果回传和状态查询所需的 HTTP/SSE 接入层。
@@ -142,7 +143,7 @@ flowchart LR
 }
 ```
 
-结果状态包含 `passed`、`skipped`、`failed`、`timeout`、`rejected`、`waiting_for_confirmation` 和 `cancelled`。插件上传前对命令输出、环境变量和诊断文本执行脱敏。执行计划使用 `plan_schema_version=1`，通过 `run_id`、`step_id` 和依赖关系保证文件传输、hash 校验、依赖安装与验证阶段串行执行。
+结果状态包含 `passed`、`skipped`、`failed`、`timeout`、`rejected`、`waiting_for_confirmation` 和 `cancelled`。插件上传前对命令输出、环境变量和诊断文本执行脱敏。执行计划使用 `plan_schema_version=1`，通过 `run_id`、`step_id` 和依赖关系保证文件传输、hash 校验、依赖安装与验证阶段串行执行。云端旧生成入口只执行 `cloud_syntax`；运行时、依赖、构建和 E2E 检查由 Agent Host 以 `local_runtime` 或 `local_e2e` 执行。
 
 ## 4. 生命周期
 

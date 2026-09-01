@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import Dict, Optional, Any
 
 from app.agent.specialist_base import Specialist
@@ -48,6 +49,10 @@ class BackendEngineer(Specialist):
             return 'service'
         if 'repo' in path_lower or 'repository' in path_lower or 'dao' in path_lower:
             return 'repository'
+        if path_lower.endswith('crud.py') or '/crud/' in path_lower:
+            return 'repository'
+        if 'schema' in path_lower or 'dto' in path_lower:
+            return 'schema'
         if 'database' in path_lower or 'db' in path_lower:
             return 'database'
         if 'config' in path_lower or 'settings' in path_lower:
@@ -100,6 +105,117 @@ class BackendEngineer(Specialist):
 
         return "\n".join(lines)
 
+    @staticmethod
+    def _build_file_scope_constraints(file_path: str, architecture: Dict) -> str:
+        """构建架构文件集合和项目内导入约束。"""
+        planned_files = [
+            item.get("path", "")
+            for item in architecture.get("file_plan", [])
+            if isinstance(item, dict) and item.get("path")
+        ]
+        if not planned_files:
+            return ""
+
+        normalized_path = file_path.replace("\\", "/")
+        if "/" in normalized_path:
+            import_style = "包内项目文件使用相对导入，例如 from .models import Todo。"
+        else:
+            import_style = "同目录项目文件使用顶层绝对导入，例如 from models import Todo。"
+
+        return "\n".join([
+            "【项目文件集合 - 严格遵守】",
+            f"- 架构声明的完整文件集合：{', '.join(planned_files)}",
+            "- 项目内模块只能从上述文件集合导入。",
+            "- 所需路由、端点和业务逻辑必须在上述文件集合内实现。",
+            f"- {import_style}",
+        ])
+
+    @staticmethod
+    def _build_runtime_consistency_constraints(
+        file_path: str, file_type: str, project_language: str, architecture: Dict
+    ) -> str:
+        """构建跨文件运行时和测试 API 一致性约束。"""
+        if project_language.lower() != "python":
+            return ""
+
+        framework = str(architecture.get("framework", "")).lower()
+        project_spec = architecture.get("project_spec", {})
+        if isinstance(project_spec, dict):
+            framework = framework or str(project_spec.get("framework", "")).lower()
+
+        lines = [
+            "【Python 运行时一致性 - 必须遵守】",
+            "- 每个被引用的项目模块、类、函数和变量都必须显式导入，且导入来源必须与依赖文件的实际定义一致。",
+            "- 同名符号只能从一个模块导入；模型类与 Schema 类重名时必须使用明确别名。",
+            "- 同一调用链的同步/异步风格必须一致：async 函数必须 await，普通函数禁止 await。",
+            "- 只能调用依赖文件中已经存在的方法、装饰器和导出符号，禁止臆造接口。",
+        ]
+        if file_type == "repository":
+            lines.extend([
+                "- 必须导入并复用 database、model、schema 依赖中的现有定义，禁止复制或重新定义这些依赖的类和函数。",
+                "- 调用依赖函数时必须严格匹配其参数类型、参数顺序和返回值；CRUD 返回值必须可供 API 层直接判断和序列化。",
+                "- 数据库访问必须与 database.py 采用同一抽象层；SQLAlchemy Session 与原生 sqlite3 Connection 禁止混用。",
+            ])
+            if file_path.replace("\\", "/").rsplit("/", 1)[-1].lower() == "crud.py":
+                lines.extend([
+                    "- crud.py 必须直接导出模块级函数 create_todo、get_todos、get_todo、update_todo、delete_todo，供 main.py 通过 crud.<函数名> 调用。",
+                    "- 每个上述模块级函数必须实现真实 SQLite 增删改查；禁止只定义 CRUDTodo 类或仅提供静态方法而省略模块级包装函数。",
+                ])
+        if file_type == "model":
+            lines.extend([
+                "- database.py 已提供 SQLAlchemy Base 时，模型必须通过 from database import Base 复用同一元数据注册表。",
+                "- 禁止在 models.py 中再次调用 declarative_base() 创建独立 Base。",
+            ])
+        if file_type == "database":
+            lines.extend([
+                "- FastAPI TestClient 可能跨线程调用数据库；SQLite 连接必须按请求/调用创建并关闭，或明确使用 check_same_thread=False，并保证提交和关闭安全。",
+                "- database.py 必须导出与依赖文件实际使用一致的连接获取接口，禁止让单个初始化线程创建的连接直接跨线程复用。",
+                "- 整个项目必须统一选择 SQLAlchemy 或原生 sqlite3；使用 SQLAlchemy 模型时，database.py 必须导出同一个 Base、engine、SessionLocal 和可关闭 Session 的 get_db。",
+                "- get_db 使用 @contextmanager 时，调用方必须使用 with get_db() as db；作为 FastAPI yield 依赖时，调用方必须使用 Depends(get_db)。",
+            ])
+        if file_type == "entry":
+            lines.extend([
+                "- FastAPI startup 和 shutdown 事件函数不得声明框架不会注入的参数。",
+                "- response_model 必须与实际返回值匹配；创建、读取、更新、删除端点必须返回可序列化的真实资源或明确状态码。",
+                "- 数据库初始化和 CRUD 调用必须严格使用依赖源码中的真实函数签名。",
+                "- get_db 返回生成器或上下文管理器时，必须通过 Depends(get_db) 或 with get_db() as db 获取真实会话，禁止把包装对象当作 Session。",
+            ])
+        if file_type == "test" or "test" in file_path.lower():
+            lines.extend([
+                "- pytest fixture、测试函数和客户端调用的同步/异步风格必须一致。",
+                "- FastAPI 同步测试优先使用 fastapi.testclient.TestClient。",
+                "- 测试断言必须匹配 main.py 的实际路径、状态码以及 CRUD 函数的真实签名和返回值。",
+                "- SQLite CRUD 测试必须调用真实 API 和临时数据库验证持久化，禁止 mock 或 patch CRUD 函数。",
+                "- 调用 init_database、get_db 等依赖函数前必须逐项核对依赖源码参数；依赖未提供数据库路径参数时禁止自行传入。",
+            ])
+            if framework == "fastapi":
+                lines.extend([
+                    "- 使用 httpx.AsyncClient 时必须传入 httpx.ASGITransport(app=app) 作为 transport。",
+                    "- 禁止从 httpx 导入 ASGIApp，禁止向 AsyncClient 传入 app 参数。",
+                ])
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_dependency_import_constraints(dep_context: str) -> str:
+        """限制项目内导入只能指向当前拓扑层已经生成的依赖。"""
+        dependency_files = []
+        for match in re.finditer(r"^## 依赖文件:\s*(.+?)\s*$", dep_context, re.MULTILINE):
+            dependency_files.append(match.group(1).strip())
+
+        if not dependency_files:
+            return "\n".join([
+                "【项目内导入白名单 - 最高优先级】",
+                "- 当前文件没有已生成的上游依赖，禁止导入任何其他项目文件。",
+                "- 当前文件必须作为独立基础层实现，供后续文件导入。",
+            ])
+
+        return "\n".join([
+            "【项目内导入白名单 - 最高优先级】",
+            f"- 当前文件只允许导入这些已生成项目文件：{', '.join(dependency_files)}",
+            "- 禁止导入白名单之外的项目文件，避免逆向依赖和循环导入。",
+            "- 导入前必须依据下方依赖源码核对真实导出符号。",
+        ])
+
     @traced("backend.generate_file", attributes={"component": "specialist", "role": "backend"})
     async def generate_file(
         self,
@@ -129,6 +245,11 @@ class BackendEngineer(Specialist):
         file_type = self._infer_file_type_from_path(file_path)
         file_spec = project_spec.get(file_type, project_spec.get("default", {}))
         spec_constraints = self._build_spec_constraints(file_type, file_spec)
+        file_scope_constraints = self._build_file_scope_constraints(file_path, architecture)
+        runtime_consistency_constraints = self._build_runtime_consistency_constraints(
+            file_path, file_type, project_language, architecture
+        )
+        dependency_import_constraints = self._build_dependency_import_constraints(dep_context)
 
         prompt = f"""【严格约束】你必须严格按文件路径指定的语言编写代码，禁止自行添加或修改扩展名。
 
@@ -148,6 +269,12 @@ class BackendEngineer(Specialist):
 
 {spec_constraints}
 
+{file_scope_constraints}
+
+{runtime_consistency_constraints}
+
+{dependency_import_constraints}
+
 【语言约束 - 必须遵守】
 - 文件路径中已经包含正确的扩展名（如 .py、.go、.java、.json、.toml、.md 等），你必须保留原始路径，不允许添加项目主语言的扩展名
 - 例如：文件路径是 "requirements.txt"，你创建的文件路径必须是 "requirements.txt"，不能是 "requirements.txt.py"
@@ -165,9 +292,8 @@ class BackendEngineer(Specialist):
 - 只能使用 {project_language} 的标准库和后端框架 API
 
 导入规则（重要）：
-- 包内文件之间的导入必须使用相对导入（如 from .utils import greet）
-- 不要使用绝对导入（如 from src.utils import greet）
-- 只有第三方库才用绝对导入
+- 严格采用“项目文件集合”指定的导入风格
+- 第三方库使用绝对导入
 
 【跨文件导入验证 - 必须执行】
 在生成代码前，你必须验证所有跨文件导入的正确性：
@@ -259,6 +385,7 @@ from .utils import greet, farewell
                 project_path=project_path, callback=callback,
                 heartbeat_tracker=heartbeat_tracker, enable_streaming_thinking=True,
                 thinking_budget=50,
+                required_tool_names={"read_symbols"},
             )
         else:
             result = await self.call_llm(prompt, self.SYSTEM_PROMPT, thinking_budget=50)

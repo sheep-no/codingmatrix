@@ -84,6 +84,7 @@ class ReActEngine:
         stream_callback: Optional[Callable] = None,  # 流式输出回调（full 模式用）
         cancel_event: Optional[asyncio.Event] = None,  # 取消信号
         heartbeat_timeout: float = 600.0,  # 心跳超时：600 秒无 LLM 调用活动视为超时（推理模型需要更长时间）
+        required_tool_names: Optional[set[str]] = None,
     ):
         """
         初始化 ReAct 引擎
@@ -113,11 +114,13 @@ class ReActEngine:
         self.stream_callback = stream_callback
         self.cancel_event = cancel_event
         self.heartbeat_timeout = heartbeat_timeout
+        self.required_tool_names = set(required_tool_names or set())
 
         self.tool_names = list(tools.keys())
         self.json_parser = ArchitectJsonParser()
         self.steps: List[ReActStep] = []
         self.tool_history: List[str] = []
+        self.used_tool_names: set[str] = set()
 
         # 心跳跟踪器（用于写入活动超时检测）
         self._heartbeat_tracker: Optional[HeartbeatTracker] = None
@@ -462,6 +465,19 @@ class ReActEngine:
 
             tool_call = self._parse_tool_call(response)
             if not tool_call:
+                missing_required_tools = self.required_tool_names - self.used_tool_names
+                if missing_required_tools and round_num < self.max_rounds:
+                    missing = ", ".join(sorted(missing_required_tools))
+                    self.tool_history.append(
+                        f"系统门禁：尚未完成依赖核对，必须先调用以下工具之一: {missing}"
+                    )
+                    logger.warning(
+                        "%s ReAct 未完成强制工具核对: missing=%s round=%d",
+                        self.role_name,
+                        missing,
+                        round_num,
+                    )
+                    continue
                 logger.info(f"{self.role_name} ReAct 自然终止: 第 {round_num} 轮, 工具调用 {len(self.tool_history)} 次")
                 self._add_step(ReActStep("final", response))
                 return response
@@ -496,6 +512,7 @@ class ReActEngine:
 
             self.steps[-1].tool_result = tool_result
             self.steps[-1].success = success
+            self.used_tool_names.add(tool_name)
 
             result_str = json.dumps(tool_result, ensure_ascii=False)[:1500]
             self.tool_history.append(

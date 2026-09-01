@@ -154,3 +154,11 @@
 - 范围：测试账号初始化、登录、API Key 管理、模型调用和降级策略配置。
 - 验收证据：`tests/manual/test_apikey_flow.py` 报告 `13/13` 通过；后端 Agent Host 接口单测 `python3 -m pytest tests/unit/test_agent_host_api.py -q` 报告 `12 passed`。
 - 环境边界：测试 API Key 仅通过进程环境变量注入并在流程结束后清理；本轮提供的 Key 连接校验成功，模型调用成功，用户 Key 阻塞项已解除。
+
+### VSCODE-015 云端旧沙盒路径边界修复
+
+- 状态：`in_progress`
+- 优先级：`P0`
+- 目标：将旧生成流程中的运行时沙盒调用收敛为 `cloud_syntax`，把运行时、依赖、构建、单元测试和 E2E 验证交给 VS Code Agent Host。
+- 修改：`app/agent/utils.py` 的验证范围分流、云端沙盒缺失策略和对应单元测试。
+- 验收证据：相关回归测试通过（22 passed）；覆盖云端 `bwrap` 缺失时跳过运行时沙盒、Agent Host 发布 `local_validation` 动作、Host 回传 `tool_result`、checkpoint 恢复和 `completed` 状态归并；真实模型生成请求已成功完成并生成 10 个文件，日志确认云端语法验证跳过 `bwrap`；真实 HTTP Agent Host 握手成功；`npm --prefix vscode-extension run e2e` 通过（退出码 0）。剩余验收是使用已绑定 Host 会话重新触发生成，并由 VS Code Host 实际拉取、执行和回传本地结果。

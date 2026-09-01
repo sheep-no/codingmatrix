@@ -9,6 +9,7 @@ from app.agent.state import State, StateDelta
 
 
 LOCAL_SCOPES = {"local_runtime", "local_e2e"}
+UNSUPPORTED_STATUS = "unsupported"
 
 
 def _required_scopes(state: State) -> Set[str]:
@@ -25,6 +26,12 @@ def derive_validation_status(
     results = list(validation_results)
     if any(result.get("passed") is False for result in results):
         return "failed"
+    if any(
+        result.get("status") == UNSUPPORTED_STATUS
+        or result.get("unsupported") is True
+        for result in results
+    ):
+        return UNSUPPORTED_STATUS
     completed_scopes = {
         result.get("scope")
         for result in results
@@ -54,7 +61,7 @@ async def cloud_validation_node(
     validations = [*state.validation_results, validation]
     required_scopes = _required_scopes(state)
     pending = []
-    if required_scopes:
+    if required_scopes and validation.get("status") != UNSUPPORTED_STATUS:
         pending = [
             {
                 "type": "local_validation",

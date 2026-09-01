@@ -23,6 +23,7 @@ class TraditionalGenerateMixin:
         self.generated_files = []
         self.errors = []
         self.warnings = []
+        self._generated_contents = {}
 
         cached = None
         requirement_vector = None
@@ -160,6 +161,7 @@ class TraditionalGenerateMixin:
 
         dep_graph = DependencyGraph(language_adapter=language_adapter)
         dep_graph.build_from_architecture(architecture)
+        self.dependency_graph_obj = dep_graph
         dep_layers = dep_graph.get_generation_layers()
 
         self._report_progress(
@@ -203,20 +205,20 @@ class TraditionalGenerateMixin:
         if self.memory_enabled:
             save_memory_task = asyncio.create_task(self._save_to_memory(requirement, architecture))
 
+        generated_files_dict = {}
+        for generated_file in self.generated_files:
+            generated_path = generated_file.get("path", "")
+            full_path = self.output_dir / generated_path
+            if generated_path and full_path.exists():
+                try:
+                    generated_files_dict[generated_path] = full_path.read_text(encoding="utf-8")
+                except Exception as exc:
+                    logger.debug("读取生成文件失败 %s：%s", generated_path, exc)
+
         # 完整性验证：补充缺失的 __init__.py 等包入口文件
         if self.enable_validation:
             from app.agent.integrity_validator import IntegrityValidator
             integrity_validator = IntegrityValidator(language_adapter=language_adapter)
-            generated_files_dict = {}
-            for f in self.generated_files:
-                fpath = f.get("path", "")
-                full = self.output_dir / fpath
-                if fpath and full.exists():
-                    try:
-                        generated_files_dict[fpath] = full.read_text(encoding='utf-8')
-                    except Exception as e:
-                        logger.debug(f"读取生成文件失败 {fpath}：{e}")
-                        pass
             integrity_result = integrity_validator.validate(generated_files_dict)
             if not integrity_result.passed:
                 fixes = integrity_validator.generate_fixes(integrity_result, generated_files_dict)
@@ -233,38 +235,6 @@ class TraditionalGenerateMixin:
                     })
                     logger.info(f"完整性验证自动补充: {fix_path}")
 
-            # 项目完整性验证：补充缺失的业务文件
-            from app.agent.utils import is_valid_code_content
-            completeness = await self._validate_project_completeness_traditional(
-                file_plan, generated_files_dict
-            )
-            if not completeness["is_complete"]:
-                logger.warning(
-                    f"项目完整性检查未通过: "
-                    f"缺失 {len(completeness['missing_files'])} 个文件, "
-                    f"无效 {len(completeness['invalid_files'])} 个文件"
-                )
-                for missing_file in completeness["missing_files"]:
-                    logger.info(f"尝试补充缺失文件: {missing_file}")
-                    desc = next((f["description"] for f in file_plan if f["path"] == missing_file), "")
-                    content = await self._direct_llm_generate_file(missing_file, desc, project_context)
-                    if content:
-                        is_valid, _ = is_valid_code_content(missing_file, content)
-                        if is_valid:
-                            full_path = self.output_dir / missing_file
-                            full_path.parent.mkdir(parents=True, exist_ok=True)
-                            with open(full_path, 'w', encoding='utf-8') as f:
-                                f.write(content)
-                            self.generated_files.append({
-                                "path": missing_file,
-                                "description": desc or f"补充缺失文件 {missing_file}",
-                                "success": True,
-                                "size": len(content),
-                            })
-                            logger.info(f"缺失文件已补充: {missing_file}")
-
-            logger.info(f"项目生成完成: {completeness['total_generated']}/{completeness['total_planned']} 文件")
-
             # 项目级沙箱验证（新增）
             from app.agent.utils import validate_in_sandbox
             sandbox_ok, sandbox_errors = validate_in_sandbox(
@@ -278,6 +248,22 @@ class TraditionalGenerateMixin:
                 self.warnings.extend(sandbox_errors)
             else:
                 logger.info("项目级沙箱验证通过")
+
+        completeness = await self._validate_project_completeness_traditional(
+            file_plan, generated_files_dict
+        )
+        if not completeness["is_complete"]:
+            completeness_error = (
+                f"项目文件不完整: 缺失 {completeness['missing_files']}，"
+                f"无效 {completeness['invalid_files']}"
+            )
+            logger.error(completeness_error)
+            self.errors.append(completeness_error)
+        logger.info(
+            "项目生成完成: %s/%s 文件",
+            completeness["total_generated"],
+            completeness["total_planned"],
+        )
 
         # 静态验证：始终执行（成本低）
         if self.enable_validation:
@@ -342,7 +328,11 @@ class TraditionalGenerateMixin:
         )
 
         return {
-            "success": len(self.errors) == 0 and test_results.get("success", True),
+            "success": (
+                len(self.errors) == 0
+                and (not self.enable_validation or final_validation.get("is_valid", False))
+                and test_results.get("success", True)
+            ),
             "output_dir": self.output_dir.name,
             "total_files_created": len(self.generated_files),
             "files": self.generated_files,

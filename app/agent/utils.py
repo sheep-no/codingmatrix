@@ -2,12 +2,15 @@
 Agent 公共工具函数
 """
 
+import asyncio
 import logging
 import re
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+LANGUAGE_VALIDATION_TIMEOUT_SECONDS = 30
 
 
 def clean_code_block(content: str) -> str:
@@ -888,7 +891,9 @@ def validate_in_sandbox(
     context: dict = None,
     llm_caller=None,
 ) -> tuple:
-    """统一沙箱验证入口
+    """执行云端基础语法验证。
+
+    运行时、依赖、构建和 E2E 验证属于 VS Code Agent Host 的本地职责。
 
     Args:
         project_dir: 项目目录路径
@@ -900,6 +905,7 @@ def validate_in_sandbox(
     Returns:
         (is_valid, errors): 有效返回 (True, [])，无效返回 (False, [错误列表])
     """
+    import shutil
     import subprocess
     import tempfile
 
@@ -910,7 +916,15 @@ def validate_in_sandbox(
     if level == "auto":
         level = _decide_level(context)
 
-    logger.info(f"沙箱验证: level={level}, files={len(files)}")
+    if level in {"run", "import", "contract"}:
+        logger.info(
+            "云端跳过运行时沙箱验证: level=%s, scope=local_runtime, "
+            "由 VS Code Agent Host 执行",
+            level,
+        )
+        return True, []
+
+    logger.info(f"云端语法验证: level={level}, files={len(files)}")
 
     # 2. 按扩展名分组
     groups = _group_files_by_extension(files)
@@ -936,7 +950,11 @@ def validate_in_sandbox(
     # 4. 合并脚本
     combined_script = "\n# === 分组分隔 ===\n".join(scripts)
 
-    # 5. 在沙箱中执行
+    # 5. 云端基础语法验证需要 bwrap；本地运行验证由 Agent Host 执行。
+    if shutil.which("bwrap") is None:
+        logger.info("云端语法验证跳过：bwrap 不可用，等待 VS Code Agent Host 本地验证")
+        return True, []
+
     with tempfile.TemporaryDirectory(prefix='sandbox_validate_') as tmp_dir:
         bwrap_cmd = [
             'bwrap',
@@ -1061,10 +1079,20 @@ async def validate_language_with_llm(
 
     try:
         logger.info(f"LLM 语言检测: {file_path} 期望={expected_language}")
-        result = await llm_caller(prompt)
+        result = await asyncio.wait_for(
+            llm_caller(prompt),
+            timeout=LANGUAGE_VALIDATION_TIMEOUT_SECONDS,
+        )
         logger.info(f"LLM 语言检测结果: {file_path} -> {result}")
         if result and "NO" in result.upper():
             return False, f"语言不匹配：期望 {expected_language}，LLM 判断内容不是该语言"
+        return True, ""
+    except asyncio.TimeoutError:
+        logger.warning(
+            "LLM 语言检测超时，已跳过: file=%s timeout=%ss",
+            file_path,
+            LANGUAGE_VALIDATION_TIMEOUT_SECONDS,
+        )
         return True, ""
     except Exception as e:
         logger.debug(f"LLM 语言检测跳过: {e}")

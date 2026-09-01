@@ -132,6 +132,99 @@ class TestDependencyGraph:
         
         # 硬编码规则应该补充依赖关系（service 依赖 model）
         # 注意：这取决于 _auto_add_dependencies 的实现
+
+    def test_prefixed_import_resolves_to_unique_flattened_file(self, graph):
+        architecture = {
+            "file_plan": [
+                {"path": "models.py", "file_type": "model", "imports": []},
+                {
+                    "path": "crud.py",
+                    "file_type": "repository",
+                    "imports": ["src.models"],
+                },
+            ]
+        }
+
+        graph.build_from_architecture(architecture)
+
+        assert graph.adjacency["crud.py"] == {"models.py"}
+
+    def test_unresolved_import_keeps_type_rule_fallback(self, graph):
+        architecture = {
+            "file_plan": [
+                {"path": "models.py", "file_type": "model", "imports": []},
+                {
+                    "path": "crud.py",
+                    "file_type": "repository",
+                    "imports": ["missing.external_module"],
+                },
+            ]
+        }
+
+        graph.build_from_architecture(architecture)
+
+        assert graph.adjacency["crud.py"] == {"models.py"}
+
+    def test_conflicting_imports_follow_architecture_type_rules(self, graph):
+        architecture = {
+            "file_plan": [
+                {
+                    "path": "database.py",
+                    "file_type": "database",
+                    "priority": 2,
+                    "imports": ["models"],
+                },
+                {
+                    "path": "models.py",
+                    "file_type": "model",
+                    "priority": 2,
+                    "imports": ["database"],
+                },
+            ]
+        }
+
+        graph.build_from_architecture(architecture)
+
+        assert graph.adjacency["models.py"] == {"database.py"}
+        assert graph.adjacency["database.py"] == set()
+
+    def test_entry_rule_supplements_partial_flat_crud_contract_imports(self, graph):
+        architecture = {
+            "file_plan": [
+                {"path": "main.py", "file_type": "entry", "imports": ["database"]},
+                {"path": "database.py", "file_type": "database", "imports": []},
+                {"path": "models.py", "file_type": "model", "imports": []},
+                {"path": "schemas.py", "file_type": "types", "imports": []},
+                {"path": "crud.py", "file_type": "repository", "imports": []},
+            ]
+        }
+
+        graph.build_from_architecture(architecture)
+
+        assert graph.adjacency["main.py"] == {
+            "database.py",
+            "models.py",
+            "schemas.py",
+            "crud.py",
+        }
+
+    def test_unknown_file_types_are_inferred_from_paths(self, graph):
+        architecture = {
+            "file_plan": [
+                {"path": "database.py", "file_type": "database", "imports": ["models"]},
+                {"path": "models.py", "file_type": "unknown", "imports": ["database"]},
+                {"path": "schemas.py", "file_type": "unknown", "imports": ["models"]},
+                {"path": "crud.py", "file_type": "unknown", "imports": ["models"]},
+            ]
+        }
+
+        graph.build_from_architecture(architecture)
+
+        assert graph.nodes["models.py"].file_type == "model"
+        assert graph.nodes["schemas.py"].file_type == "types"
+        assert graph.nodes["crud.py"].file_type == "repository"
+        assert graph.adjacency["models.py"] == {"database.py"}
+        assert graph.adjacency["database.py"] == set()
     
     def test_extract_dependencies_from_content_python(self, graph):
         """测试从 Python 内容中提取依赖"""
@@ -200,3 +293,97 @@ import UserCard from '../components/User.vue';
         assert order.index("models/user.py") < order.index("services/user_service.py")
         # services 应该在 routers 之前
         assert order.index("services/user_service.py") < order.index("routers/user.py")
+
+    def test_summarize_dependency_context_is_auditable_without_source(self):
+        from app.agent.dependency_graph import summarize_dependency_context
+
+        summary = summarize_dependency_context(
+            "## 依赖文件: models/user.py\n```python\ndef secret_token():\n    return 'sensitive'\n```\n"
+        )
+
+        assert summary["present"] is True
+        assert summary["dependency_files"] == ["models/user.py"]
+        assert summary["dependency_file_count"] == 1
+        assert summary["signature_marker_count"] == 1
+        assert "secret_token" not in summary["preview"]
+        assert "sensitive" not in summary["preview"]
+
+    def test_summarize_empty_dependency_context(self):
+        from app.agent.dependency_graph import summarize_dependency_context
+
+        assert summarize_dependency_context("") == {
+            "present": False,
+            "chars": 0,
+            "dependency_files": [],
+            "dependency_file_count": 0,
+            "signature_marker_count": 0,
+            "preview": "",
+        }
+
+    def test_context_package_contains_dependency_metadata_and_code_budget(self, graph):
+        graph.add_file("services/user_service.py", priority=3)
+        graph.add_file("models/user.py", priority=1)
+        graph.add_dependency("services/user_service.py", "models/user.py")
+
+        package = graph.get_context_package_for_file(
+            "services/user_service.py",
+            {"models/user.py": "class User:\n    def name(self):\n        return 'user'\n"},
+            max_context_bytes=300,
+        )
+
+        assert package["target_file"] == "services/user_service.py"
+        assert package["budget_chars"] == 300
+        assert len(package["dependencies"]) == 1
+        dependency = package["dependencies"][0]
+        assert dependency["path"] == "models/user.py"
+        assert dependency["relation"] == "imports"
+        assert dependency["content_chars"] > 0
+        assert dependency["signature_chars"] + dependency["relevant_code_chars"] <= 300
+
+    def test_context_package_without_dependencies_is_serializable(self, graph):
+        graph.add_file("main.go")
+
+        package = graph.get_context_package_for_file("main.go", {})
+
+        assert package["target_file"] == "main.go"
+        assert package["dependencies"] == []
+        assert package["budget_chars"] > 0
+
+    def test_python_adapter_places_crud_after_runtime_dependencies(self):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({
+            "file_plan": [
+                {"path": "database.py", "file_type": "database"},
+                {"path": "models.py", "file_type": "model"},
+                {"path": "schemas.py", "file_type": "schema"},
+                {"path": "crud.py", "file_type": "unknown"},
+            ]
+        })
+
+        assert graph.nodes["crud.py"].file_type == "repository"
+        assert graph.adjacency["crud.py"] == {"database.py", "models.py", "schemas.py"}
+        layers = graph.get_generation_layers()
+        assert layers.index(["crud.py"]) > layers.index(["schemas.py"])
+
+    def test_tests_receive_all_python_runtime_dependencies(self):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({
+            "file_plan": [
+                {"path": "database.py", "file_type": "database"},
+                {"path": "models.py", "file_type": "model"},
+                {"path": "schemas.py", "file_type": "schema"},
+                {"path": "crud.py", "file_type": "repository"},
+                {"path": "main.py", "file_type": "entry"},
+                {"path": "test_main.py", "file_type": "test"},
+            ]
+        })
+
+        assert graph.adjacency["test_main.py"] == {
+            "database.py", "models.py", "schemas.py", "crud.py", "main.py"
+        }

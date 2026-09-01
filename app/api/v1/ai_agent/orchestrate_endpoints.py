@@ -100,6 +100,20 @@ def resolve_stream_output_dir(
     resolved_session = f"{user_id}_{resolved_name}"
     output_dir = f"{user_id}/{resolved_name}"
     return output_dir, resolved_name, resolved_session
+
+
+def _generation_result_error(result: Dict[str, Any]) -> str | None:
+    """Return an actionable error when an orchestrator result is unsuccessful."""
+    if result.get("success") is True:
+        return None
+    errors = result.get("errors") or []
+    if isinstance(errors, str):
+        errors = [errors]
+    if errors:
+        return "；".join(str(error) for error in errors)
+    return "生成流程未达到成功终态"
+
+
 from app.agent.impact_analyzer import ImpactAnalyzer
 from app.agent.project_profiler import ProjectProfiler
 from app.agent.test_selector import TestSelector
@@ -128,6 +142,14 @@ from .single_file_generation import generate_single_file
 
 _decision_queues: Dict[str, asyncio.Queue] = {}
 _cancel_events: Dict[str, asyncio.Event] = {}
+
+
+def _generation_http_exception(error: Exception) -> HTTPException:
+    """Expose actionable provider configuration failures to API clients."""
+    message = str(error)
+    if "Provider " in message and "not configured" in message:
+        return HTTPException(status_code=503, detail=message)
+    return HTTPException(status_code=500, detail=f"项目生成失败: {message}")
 # 运行中的生成任务，用于浏览器重连
 _active_tasks: Dict[str, dict] = {}
 _user_creation_locks: Dict[str, asyncio.Lock] = {}
@@ -522,7 +544,9 @@ async def orchestrate_project(
             callback=lambda msg: logger.info(f"Orchestrator 进度: {msg[:200]}"),
             session_id=session_id,
             incremental=request.incremental,
-            evaluation_only=request.evaluation_only
+            evaluation_only=request.evaluation_only,
+            api_key_token=request.api_key_token,
+            provider_id=request.provider_id,
         )
         
         workflow = build_legacy_workflow(
@@ -534,7 +558,11 @@ async def orchestrate_project(
             workflow,
             session_id=str(session_id or output_dir),
             task_id=str(session_id or output_dir),
-            metadata={"requirement": request.requirement, "output_dir": output_dir},
+            metadata={
+                "requirement": request.requirement,
+                "output_dir": output_dir,
+                "required_validation_scopes": request.required_validation_scopes,
+            },
             db=db,
             user_id=int(user_id),
         )
@@ -563,7 +591,7 @@ async def orchestrate_project(
         raise
     except Exception as e:
         logger.error(f"Orchestrator 生成失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"项目生成失败: {str(e)}")
+        raise _generation_http_exception(e) from e
 
 
 @router.post("/orchestrate/stream")
@@ -873,7 +901,10 @@ async def orchestrate_project_stream(
                         workflow,
                         session_id=session_id,
                         task_id=session_id,
-                        metadata={"output_dir": output_dir},
+                        metadata={
+                            "output_dir": output_dir,
+                            "required_validation_scopes": request.required_validation_scopes,
+                        },
                         db=db,
                         user_id=int(user_id),
                     )
@@ -882,6 +913,14 @@ async def orchestrate_project_stream(
                     if cancel_event.is_set():
                         logger.info(f"[SSE] 生成完成后检测到取消信号，跳过 complete_session | session={session_id}")
                         await queue.put(f"data: {json.dumps({'type': 'cancelled', 'data': {'message': '项目已停止'}}, ensure_ascii=False)}\n\n")
+                        return
+                    result_error = _generation_result_error(result)
+                    if result_error:
+                        logger.error("[SSE] 生成结果失败 | session=%s error=%s", session_id, result_error)
+                        await sm.complete_session(session_id, errors=[result_error])
+                        await queue.put(
+                            f"data: {json.dumps({'type': 'error', 'data': {'error': result_error}}, ensure_ascii=False)}\n\n"
+                        )
                         return
                     files_generated = result.get("total_files_created", 0)
                     files_total = result.get("total_files", 0)

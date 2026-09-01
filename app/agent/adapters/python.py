@@ -101,6 +101,8 @@ class PythonLanguageAdapter(LanguageAdapter):
         ("entity/", "model"),
 
         # Repository
+        ("crud.py", "repository"),
+        ("crud/", "repository"),
         ("repositories/", "repository"),
         ("repository/", "repository"),
         ("repos/", "repository"),

@@ -160,6 +160,13 @@ class LLMClient:
             self._record_usage(response, start_time)
             return full_content
 
+        except asyncio.CancelledError:
+            latency_ms = (time.time() - start_time) * 1000
+            await (await get_dynamic_router()).record_call(
+                self.model_name, success=False, latency_ms=latency_ms, error="cancelled"
+            )
+            raise
+
         except asyncio.TimeoutError:
             latency_ms = (time.time() - start_time) * 1000
             await (await get_dynamic_router()).record_call(
@@ -352,6 +359,13 @@ class LLMClient:
 
             self._record_usage(response, start_time)
             return content
+
+        except asyncio.CancelledError:
+            latency_ms = (time.time() - start_time) * 1000
+            await (await get_dynamic_router()).record_call(
+                self.model_name, success=False, latency_ms=latency_ms, error="cancelled"
+            )
+            raise
 
         except asyncio.TimeoutError:
             latency_ms = (time.time() - start_time) * 1000
