@@ -49,6 +49,9 @@ from .plan import (
     build_file_plan,
     normalize_plan_path,
 )
+from app.agent.dependency_manifest import Dependency, DependencyKind, DependencyManifest
+from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan, PlanFile
+from app.agent.interface_registry import InterfaceEntry, InterfaceRegistry, InterfaceSymbol, InterfaceVisibility
 from .state_machine import (
     InvalidOrchestrationTransition,
     OrchestrationRevisionConflict,
@@ -118,6 +121,15 @@ __all__ = [
     "GenerationModeAdapter",
     "GenerationRequest",
     "TraditionalAdapter",
+    "Dependency",
+    "DependencyKind",
+    "DependencyManifest",
+    "ProjectGenerationPlan",
+    "PlanFile",
+    "InterfaceEntry",
+    "InterfaceRegistry",
+    "InterfaceSymbol",
+    "InterfaceVisibility",
     "CORE_ENGINE",
     "CORE_ENGINE_VERSION",
     "LEGACY_ENGINE",

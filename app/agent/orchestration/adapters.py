@@ -8,6 +8,7 @@ from typing import Any, Dict, Mapping, Optional, Protocol
 from .generation_scheduler import FileGenerationContext, GeneratedContent
 from .models import OrchestrationState
 from .plan import GenerationPlan, build_file_plan
+from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,7 @@ class TraditionalAdapter:
         self._requirement = ""
         self._project_context: Dict[str, Any] = {}
         self._plan: Optional[GenerationPlan] = None
+        self.project_plan: Optional[ProjectGenerationPlan] = None
 
     async def create_plan(self, request: GenerationRequest) -> GenerationPlan:
         self._requirement = request.requirement
@@ -62,8 +64,16 @@ class TraditionalAdapter:
             self.agent.complexity,
             callback=getattr(self.agent, "callback", None),
         )
-        entries = self._architecture.get("file_plan", [])
-        self._plan = build_file_plan(entries)
+        # Freeze the project-level contract first; the legacy scheduler receives
+        # a compatibility projection of the same validated file nodes.
+        requested_paths = request.metadata.get("requested_paths")
+        self.project_plan = ProjectGenerationPlan.from_architecture(
+            self._architecture,
+            requested_paths=requested_paths,
+            policy="strict" if requested_paths is not None else "extensible",
+        )
+        entries = [item.model_dump(mode="python") for item in self.project_plan.files]
+        self._plan = build_file_plan(entries, requested_paths=requested_paths)
         self._project_context.setdefault("architecture", self._architecture)
         return self._plan
 

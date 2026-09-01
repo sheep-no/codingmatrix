@@ -62,6 +62,8 @@ async def test_traditional_adapter_creates_plan_and_generates_file(tmp_path):
     assert [item.path for item in plan.files] == ["app.py", "config.py"]
     assert generated.content == "# app.py\n"
     assert generated.model_name == "test-model"
+    assert adapter.project_plan is not None
+    assert adapter.project_plan.language == "python"
 
 
 def test_engine_selection_defaults_to_legacy(monkeypatch):
