@@ -24,6 +24,10 @@
 - `POST /api/v1/ai-agent/modify`：修改项目或执行分析请求。
 - `POST /api/v1/ai-agent/orchestrate`：同步编排项目生成。
 - `POST /api/v1/ai-agent/orchestrate/stream`：SSE 流式编排。
+- `GET /api/v1/agent/sessions/{session_id}/model-context`：读取当前用户 Agent 会话的最新模型上下文；旧会话返回当前运行时默认上下文。
+- `PUT /api/v1/agent/sessions/{session_id}/model-context`：合并角色模型、当前模型、调用统计和降级记录，并创建独立模型上下文 Checkpoint。
+
+模型上下文包含 `schema_version`、`config_version`、`roles`、`current_model`、`current_agent`、`assignments`、`fallback_history` 和 `updated_at`。接口仅接收模型标识和运行统计，不接收供应商凭据。
 
 ## State Contracts
 

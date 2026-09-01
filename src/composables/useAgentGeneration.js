@@ -21,6 +21,16 @@ export function useAgentGeneration() {
     set roles(value) { store.roles = value },
     get modelAssignments() { return store.modelAssignments },
     set modelAssignments(value) { store.modelAssignments = value },
+    get modelConfigVersion() { return store.modelConfigVersion },
+    set modelConfigVersion(value) { store.modelConfigVersion = value },
+    get modelContextRevision() { return store.modelContextRevision },
+    set modelContextRevision(value) { store.modelContextRevision = value },
+    get currentModel() { return store.currentModel },
+    set currentModel(value) { store.currentModel = value },
+    get currentAgent() { return store.currentAgent },
+    set currentAgent(value) { store.currentAgent = value },
+    get fallbackHistory() { return store.fallbackHistory },
+    set fallbackHistory(value) { store.fallbackHistory = value },
     get recoveryAttempts() { return store.recoveryAttempts },
     set recoveryAttempts(value) { store.recoveryAttempts = value },
     ensureStage: (...args) => store.ensureStage(...args),
@@ -31,6 +41,8 @@ export function useAgentGeneration() {
     getPlaceholder: hasFiles => store.getPlaceholder(hasFiles),
     resetStages: () => store.resetStages(),
     resetState: () => store.resetState(),
-    fetchRoles: () => store.fetchRoles()
+    fetchRoles: () => store.fetchRoles(),
+    getModelContextSnapshot: () => store.getModelContextSnapshot(),
+    applyModelContext: (context, revision) => store.applyModelContext(context, revision)
   })
 }

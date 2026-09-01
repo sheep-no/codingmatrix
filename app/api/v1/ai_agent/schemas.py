@@ -335,6 +335,35 @@ class ComplexityAnalysisResponse(BaseModel):
     model_assignment: Dict[str, str]
 
 
+class ModelAssignmentContext(BaseModel):
+    model: str = ""
+    calls: int = Field(0, ge=0)
+    success_rate: float = Field(100.0, ge=0, le=100)
+
+
+class ModelFallbackEvent(BaseModel):
+    from_model: Optional[str] = None
+    to_model: str
+    reason: Optional[str] = None
+    timestamp: Optional[str] = None
+
+
+class AgentModelContextUpdate(BaseModel):
+    expected_revision: int = Field(..., ge=0)
+    config_version: Optional[str] = None
+    roles: Optional[Dict[str, str]] = None
+    current_model: Optional[str] = None
+    current_agent: Optional[str] = None
+    assignments: Optional[Dict[str, ModelAssignmentContext]] = None
+    fallback_history: Optional[List[ModelFallbackEvent]] = Field(None, max_length=50)
+
+
+class AgentModelContextResponse(BaseModel):
+    found: bool
+    revision: int = Field(0, ge=0)
+    context: Dict[str, Any]
+
+
 class ProjectSessionConfigRequest(BaseModel):
     max_sessions_per_user: int = Field(..., ge=1, le=100, description="每用户最大活跃项目会话数")
 

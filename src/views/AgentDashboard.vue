@@ -246,47 +246,92 @@ const clearAllState = () => {
 }
 
 // ========== Session ==========
-const doCreateNewSession = () => session.createNewSession({
-  _generation: generation,
-  _workspace: workspace,
-  _files: files,
-  workflowStages: generation.workflowStages,
-  pendingDecisions: workspace.pendingDecisions,
-  decisionHistory: workspace.decisionHistory,
-  generatedFiles: files.generatedFiles,
-  thinkingMessages: workspace.thinkingMessages,
-  executionDetails: workspace.executionDetails,
-  logs: workspace.logs,
-  currentPhase: generation.currentPhase,
-  currentStep: generation.currentStep,
-  totalSteps: generation.totalSteps,
-  startTime: generation.startTime,
-  modelAssignments: generation.modelAssignments,
-  recoveryAttempts: generation.recoveryAttempts
-})
-const doSwitchSession = (id) => session.switchSession(id, {
-  _generation: generation,
-  _workspace: workspace,
-  _files: files,
-  workflowStages: generation.workflowStages,
-  pendingDecisions: workspace.pendingDecisions,
-  decisionHistory: workspace.decisionHistory,
-  generatedFiles: files.generatedFiles,
-  thinkingMessages: workspace.thinkingMessages,
-  executionDetails: workspace.executionDetails,
-  logs: workspace.logs,
-  currentPhase: generation.currentPhase,
-  currentStep: generation.currentStep,
-  totalSteps: generation.totalSteps,
-  startTime: generation.startTime,
-  modelAssignments: generation.modelAssignments,
-  recoveryAttempts: generation.recoveryAttempts
-})
-const doDeleteSession = (id) => session.deleteSession(id, () => {
-  files.clearAll()
-  workspace.logs = []
-  workspace.thinkingMessages = []
-})
+const doCreateNewSession = () => {
+  if (generation.isGenerating) {
+    ElMessage.warning('项目生成期间无法新建会话')
+    return false
+  }
+  return session.createNewSession({
+    _generation: generation,
+    _workspace: workspace,
+    _files: files,
+    workflowStages: generation.workflowStages,
+    pendingDecisions: workspace.pendingDecisions,
+    decisionHistory: workspace.decisionHistory,
+    generatedFiles: files.generatedFiles,
+    thinkingMessages: workspace.thinkingMessages,
+    executionDetails: workspace.executionDetails,
+    logs: workspace.logs,
+    currentPhase: generation.currentPhase,
+    currentStep: generation.currentStep,
+    totalSteps: generation.totalSteps,
+    startTime: generation.startTime,
+    modelAssignments: generation.modelAssignments,
+    modelConfigVersion: generation.modelConfigVersion,
+    modelContextRevision: generation.modelContextRevision,
+    currentModel: generation.currentModel,
+    currentAgent: generation.currentAgent,
+    fallbackHistory: generation.fallbackHistory,
+    recoveryAttempts: generation.recoveryAttempts
+  })
+}
+let sessionSwitchRequest = 0
+const doSwitchSession = async (id) => {
+  if (generation.isGenerating) {
+    ElMessage.warning('项目生成期间无法切换会话')
+    return false
+  }
+  const requestId = ++sessionSwitchRequest
+  const switched = session.switchSession(id, {
+    _generation: generation,
+    _workspace: workspace,
+    _files: files,
+    workflowStages: generation.workflowStages,
+    pendingDecisions: workspace.pendingDecisions,
+    decisionHistory: workspace.decisionHistory,
+    generatedFiles: files.generatedFiles,
+    thinkingMessages: workspace.thinkingMessages,
+    executionDetails: workspace.executionDetails,
+    logs: workspace.logs,
+    currentPhase: generation.currentPhase,
+    currentStep: generation.currentStep,
+    totalSteps: generation.totalSteps,
+    startTime: generation.startTime,
+    modelAssignments: generation.modelAssignments,
+    modelConfigVersion: generation.modelConfigVersion,
+    modelContextRevision: generation.modelContextRevision,
+    currentModel: generation.currentModel,
+    currentAgent: generation.currentAgent,
+    fallbackHistory: generation.fallbackHistory,
+    recoveryAttempts: generation.recoveryAttempts
+  })
+  if (!switched) return false
+  workspace.currentModel = generation.currentModel
+  workspace.currentAgent = generation.currentAgent
+  try {
+    const response = await projectApi.getAgentModelContext(id)
+    if (requestId !== sessionSwitchRequest || session.currentSessionId !== id) return true
+    generation.applyModelContext(response.context, response.revision)
+    workspace.currentModel = generation.currentModel
+    workspace.currentAgent = generation.currentAgent
+  } catch (error) {
+    if (requestId === sessionSwitchRequest && session.currentSessionId === id) {
+      workspace.addLog('warning', `恢复后端模型上下文失败，使用本地快照: ${error.message}`)
+    }
+  }
+  return true
+}
+const doDeleteSession = (id) => {
+  if (generation.isGenerating) {
+    ElMessage.warning('项目生成期间无法删除会话')
+    return false
+  }
+  return session.deleteSession(id, () => {
+    files.clearAll()
+    workspace.logs = []
+    workspace.thinkingMessages = []
+  })
+}
 
 // ========== File Operations ==========
 const showFileDiff = (p) => workspace.showFileDiff(files.fileDiffs, p, backend.showDiffModal, backend.selectedDiffFile)
@@ -348,6 +393,11 @@ watch([() => files.generatedFiles?.length, () => session.currentSessionId, () =>
       totalSteps: generation.totalSteps,
       startTime: generation.startTime,
       modelAssignments: generation.modelAssignments,
+      modelConfigVersion: generation.modelConfigVersion,
+      modelContextRevision: generation.modelContextRevision,
+      currentModel: generation.currentModel,
+      currentAgent: generation.currentAgent,
+      fallbackHistory: generation.fallbackHistory,
       recoveryAttempts: generation.recoveryAttempts
     })
   }
@@ -374,6 +424,11 @@ onMounted(() => {
       totalSteps: generation.totalSteps,
       startTime: generation.startTime,
       modelAssignments: generation.modelAssignments,
+      modelConfigVersion: generation.modelConfigVersion,
+      modelContextRevision: generation.modelContextRevision,
+      currentModel: generation.currentModel,
+      currentAgent: generation.currentAgent,
+      fallbackHistory: generation.fallbackHistory,
       recoveryAttempts: generation.recoveryAttempts
     })
   )

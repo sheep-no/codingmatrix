@@ -117,10 +117,14 @@ async def run_workflow(
 ) -> State:
     """Execute a workflow and persist the result when database context is provided."""
 
+    from app.services.model_context_service import build_runtime_model_context
+
+    state_metadata = dict(metadata or {})
+    state_metadata.setdefault("model_context", build_runtime_model_context())
     state = State(
         session_id=session_id,
         task_id=task_id,
-        metadata={**dict(metadata or {}), "_workflow_name": definition.name},
+        metadata={**state_metadata, "_workflow_name": definition.name},
     )
     state = await definition.graph.run(state, start_at=definition.entry_node)
     _active_workflows[(session_id, task_id)] = (definition, state)

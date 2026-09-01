@@ -163,6 +163,10 @@ _backup_docs/
 # =============================================================================
 src-minimal/
 specs/
+!.monkeycode/specs/
+.monkeycode/specs/*
+!.monkeycode/specs/2026-09-01-agent-model-context/
+!.monkeycode/specs/2026-09-01-agent-model-context/**
 
 # =============================================================================
 # 依赖图缓存

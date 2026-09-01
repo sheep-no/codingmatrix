@@ -1,7 +1,7 @@
 /**
  * 项目生成 API 客户端 (v5.0.2 全量补全)
  */
-import { createBaseClient, apiUrl } from './base'
+import { createBaseClient } from './base'
 
 export function createProjectClient(baseClient) {
   const client = baseClient || createBaseClient()
@@ -55,6 +55,19 @@ export function createProjectClient(baseClient) {
         return await response.json()
       }
       throw new Error('删除会话失败')
+    },
+
+    async getAgentModelContext(sessionId) {
+      const response = await client.get(`/agent/sessions/${sessionId}/model-context`)
+      if (response.ok) return await response.json()
+      throw new Error('获取模型上下文失败')
+    },
+
+    async updateAgentModelContext(sessionId, context) {
+      const response = await client.put(`/agent/sessions/${sessionId}/model-context`, context)
+      if (response.ok) return await response.json()
+      if (response.status === 409) return { conflict: true }
+      throw new Error('更新模型上下文失败')
     },
 
     async submitDecision(sessionId, decisions) {
