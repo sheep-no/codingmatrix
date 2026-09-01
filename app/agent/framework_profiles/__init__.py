@@ -14,6 +14,11 @@ class ProfileStatus(str, Enum):
     CUSTOM_PENDING = "custom_pending"
 
 
+class ProfileScope(str, Enum):
+    SYSTEM = "system"
+    WORKSPACE = "workspace"
+
+
 class FrameworkProfile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -28,6 +33,24 @@ class FrameworkProfile(BaseModel):
     test_command: Tuple[str, ...] = ()
     start_command: Tuple[str, ...] = ()
     health_path: str = "/health"
+    scope: ProfileScope = ProfileScope.SYSTEM
+    owner_id: str | None = None
+
+    @classmethod
+    def custom_pending(
+        cls, *, name: str, language: str, owner_id: str, version: str = "1"
+    ) -> "FrameworkProfile":
+        if not owner_id.strip():
+            raise ValueError("custom profile requires owner_id")
+        return cls(
+            name=name,
+            language=language,
+            version=version,
+            status=ProfileStatus.CUSTOM_PENDING,
+            capabilities=CapabilitySet(),
+            scope=ProfileScope.WORKSPACE,
+            owner_id=owner_id,
+        )
 
 
 class ProfileRegistry:
@@ -40,7 +63,14 @@ class ProfileRegistry:
 
     def register(self, profile: FrameworkProfile) -> None:
         key = (profile.language.lower(), profile.name.lower(), profile.version)
+        if profile.scope is ProfileScope.WORKSPACE and not profile.owner_id:
+            raise ValueError("workspace profile requires owner_id")
         self._profiles[key] = profile
+
+    def register_workspace(self, profile: FrameworkProfile, owner_id: str) -> None:
+        if profile.scope is not ProfileScope.WORKSPACE or profile.owner_id != owner_id:
+            raise ValueError("workspace profile owner does not match registration scope")
+        self.register(profile)
 
     def get(self, language: str, framework: str, version: str = "latest") -> FrameworkProfile | None:
         language_key = {"js": "typescript", "javascript": "typescript"}.get(
@@ -53,6 +83,7 @@ class ProfileRegistry:
         candidates = [
             profile for (item_language, item_framework, _), profile in self._profiles.items()
             if item_language == language_key and item_framework == framework_key
+            and profile.scope is ProfileScope.SYSTEM
         ]
         return candidates[0] if candidates else None
 

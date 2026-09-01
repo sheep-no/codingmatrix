@@ -1,7 +1,7 @@
 import pytest
 
 from app.agent.capabilities import Capability
-from app.agent.framework_profiles import DEFAULT_PROFILES, ProfileStatus
+from app.agent.framework_profiles import DEFAULT_PROFILES, FrameworkProfile, ProfileRegistry, ProfileScope, ProfileStatus
 
 
 @pytest.mark.parametrize(
@@ -29,3 +29,19 @@ def test_javascript_alias_resolves_typescript_profile():
     profile = DEFAULT_PROFILES.require("javascript", "express")
 
     assert profile.language == "typescript"
+
+
+def test_workspace_profile_requires_matching_owner_and_stays_pending():
+    registry = ProfileRegistry()
+    profile = FrameworkProfile.custom_pending(
+        name="internal-web", language="python", owner_id="workspace-1"
+    )
+
+    registry.register_workspace(profile, "workspace-1")
+
+    assert profile.status is ProfileStatus.CUSTOM_PENDING
+    assert profile.scope is ProfileScope.WORKSPACE
+    assert registry.get("python", "internal-web") is None
+
+    with pytest.raises(ValueError):
+        registry.register_workspace(profile, "workspace-2")
