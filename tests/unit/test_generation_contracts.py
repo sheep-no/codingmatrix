@@ -59,7 +59,9 @@ def test_plan_projection_preserves_scheduler_metadata_and_imports() -> None:
         "file_type": "entry",
         "priority": 1,
         "imports": ["src/config.ts"],
+        "contract": {"exports": ["main"]},
     }, {"path": "src/config.ts"}])
     item = next(item for item in plan.files if item.path == "src/main.ts")
     assert (item.file_type, item.priority, item.imports) == ("entry", 1, ("src/config.ts",))
+    assert item.contract == {"exports": ["main"]}
     assert plan.file_entries()[1]["dependencies"] == []

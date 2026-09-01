@@ -195,6 +195,7 @@ class DependencyGraph:
         if file_plan:
             try:
                 self.generation_plan = GenerationPlan.from_architecture(architecture)
+                file_plan = list(self.generation_plan.file_entries())
             except ValueError as exc:
                 # Legacy graph rules still resolve inferred and external imports.
                 # Preserve that migration behavior while exposing the failed plan.

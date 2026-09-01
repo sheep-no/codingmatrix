@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from pathlib import PurePosixPath
-from typing import Iterable, Mapping, Optional, Tuple
+from typing import Any, Iterable, Mapping, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -24,6 +24,7 @@ class PlanFile(BaseModel):
     priority: int = Field(default=3, ge=1, le=5)
     dependencies: Tuple[str, ...] = ()
     imports: Tuple[str, ...] = ()
+    contract: Mapping[str, Any] = Field(default_factory=dict)
 
 
 class GenerationPlan(BaseModel):
@@ -89,6 +90,7 @@ class GenerationPlan(BaseModel):
             "priority": item.priority,
             "dependencies": list(item.dependencies),
             "imports": list(item.imports),
+            "contract": dict(item.contract),
         } for item in self.files)
 
 
@@ -101,7 +103,10 @@ def _coerce_file(item: Mapping[str, object] | PlanFile) -> PlanFile:
     imports = item.get("imports", ())
     if isinstance(imports, str):
         imports = (imports,)
-    return PlanFile(path=_normalize_path(str(item.get("path", ""))), role=str(item.get("role", item.get("description", ""))), language=str(item.get("language", "")), file_type=str(item.get("file_type", "")), priority=item.get("priority", 3), dependencies=tuple(_normalize_path(str(value)) for value in raw or ()), imports=tuple(str(value) for value in imports or ()))
+    contract = item.get("contract", {})
+    if not isinstance(contract, Mapping):
+        raise ValueError("file contract must be an object")
+    return PlanFile(path=_normalize_path(str(item.get("path", ""))), role=str(item.get("role", item.get("description", ""))), language=str(item.get("language", "")), file_type=str(item.get("file_type", "")), priority=item.get("priority", 3), dependencies=tuple(_normalize_path(str(value)) for value in raw or ()), imports=tuple(str(value) for value in imports or ()), contract=dict(contract))
 
 
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
