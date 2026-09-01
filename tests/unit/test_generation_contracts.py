@@ -28,6 +28,11 @@ def test_generation_plan_rejects_missing_dependency_and_unsafe_path() -> None:
         GenerationPlan.build([{"path": "main.go", "dependencies": ["missing.go"]}])
     with pytest.raises(ValueError, match="traversal"):
         GenerationPlan.build([{"path": "../main.go"}])
+    with pytest.raises(ValueError, match="cycle"):
+        GenerationPlan.build([
+            {"path": "a.py", "dependencies": ["b.py"]},
+            {"path": "b.py", "dependencies": ["a.py"]},
+        ])
 
 
 def test_interface_registry_rejects_duplicate_public_owner() -> None:

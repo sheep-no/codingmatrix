@@ -139,6 +139,27 @@ class TopologyScheduler:
         self.stats.total_files = len(self.nodes)
         logger.info(f"TopologyScheduler 构建完成: {self.stats.total_files} 个文件节点")
 
+    def build_from_generation_plan(self, plan: Any) -> None:
+        """Build scheduling state directly from a frozen project plan."""
+        self.nodes.clear()
+        self.adjacency.clear()
+        self.reverse_adjacency.clear()
+        planned_paths = {item.path for item in plan.files}
+        for item in plan.files:
+            dependencies = set(item.dependencies)
+            if not dependencies.issubset(planned_paths):
+                raise ValueError(f"plan dependency is outside the frozen node set: {item.path}")
+            self.nodes[item.path] = ScheduleNode(
+                file_path=item.path,
+                dependency_count=len(dependencies),
+                status=FileStatus.PENDING,
+            )
+            self.adjacency[item.path] = dependencies
+            for dependency in dependencies:
+                self.reverse_adjacency.setdefault(dependency, set()).add(item.path)
+        self.stats.total_files = len(self.nodes)
+        logger.info("TopologyScheduler 从冻结 GenerationPlan 构建完成: %s 个文件节点", self.stats.total_files)
+
     async def initialize_ready_queue(self) -> List[str]:
         """初始化就绪队列，返回初始就绪文件列表"""
         ready_files = []

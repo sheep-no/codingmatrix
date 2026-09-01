@@ -60,6 +60,7 @@ class GenerationPlan(BaseModel):
         missing = {dependency for item in normalized for dependency in item.dependencies if dependency not in paths}
         if missing:
             raise ValueError(f"generation plan has missing file dependencies: {sorted(missing)}")
+        _assert_acyclic(normalized)
         requested = tuple(sorted({_normalize_path(path) for path in (requested_paths or ())}))
         if policy == "strict" and set(requested) != paths:
             raise ValueError("strict generation plan files must equal requested_paths")
@@ -126,3 +127,23 @@ def _normalize_path(path: str) -> str:
     if not parts:
         raise ValueError("plan paths must identify a file")
     return PurePosixPath(*parts).as_posix()
+
+
+def _assert_acyclic(files: Tuple[PlanFile, ...]) -> None:
+    dependencies = {item.path: set(item.dependencies) for item in files}
+    visiting = set()
+    visited = set()
+
+    def visit(path: str) -> None:
+        if path in visiting:
+            raise ValueError(f"generation plan contains a dependency cycle at: {path}")
+        if path in visited:
+            return
+        visiting.add(path)
+        for dependency in dependencies[path]:
+            visit(dependency)
+        visiting.remove(path)
+        visited.add(path)
+
+    for path in dependencies:
+        visit(path)
