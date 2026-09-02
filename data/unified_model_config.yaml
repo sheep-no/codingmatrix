@@ -2,7 +2,7 @@ version: '5.0'
 description: 统一模型配置
 last_updated: '2026-07-16T12:40:59.591008'
 defaults:
-  code: qwen2.5-7b
+  code: qwen3.5-4b
   reasoning: deepseek-r1
   architect: glm-z1-9b
   fast: qwen3-8b
@@ -302,7 +302,7 @@ agent:
   roles:
     architect: qwen3-8b
     frontend: deepseek-r1
-    backend: deepseek-r1
+    backend: qwen3.5-4b
     reviewer: glm-z1-9b
     fallback: qwen3-8b
   fallback_chain:

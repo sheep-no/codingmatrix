@@ -112,14 +112,14 @@
   - 新建 `app/agent/capabilities/`，抽象 HTTP API、ORM、数据库、认证、WebSocket、依赖注入、测试客户端和迁移能力；对应设计 3.1、3.2。
   - 新建 `app/agent/framework_profiles/`，以版本化 YAML/JSON 描述框架依赖、能力映射、文件模板、安装、构建、测试、启动和健康检查命令；对应需求 6.1-6.4。
   - 实现 ProfileRegistry，根据语言、框架版本和能力选择 Profile，并标记正式、实验和待验证状态；对应需求 6.2、8.1-8.4。
-  - [ ] 17.1 为 Python/FastAPI、Python/Flask、TypeScript/Express 和 TypeScript/NestJS 建立语言解析、Profile 加载和最小 CRUD 验收测试；对应需求 6.1-6.4、设计正确性属性 10。
+  - [x] 17.1 为 Python/FastAPI、Python/Flask、TypeScript/Express 和 TypeScript/NestJS 建立语言解析、Profile 加载和最小 CRUD 验收测试；对应需求 6.1-6.4、设计正确性属性 10。专项回归 `tests/unit/test_languages.py tests/unit/test_framework_profiles.py` 已通过。
 
 - [ ] 18. 接入官方脚手架、Toolchain 探测和自定义框架 Profile
   - 新建 `app/agent/scaffolding/`，通过官方 CLI 或模板创建框架基线，再将真实文件、依赖和符号导入 GenerationPlan；对应需求 6.1、8.1-8.4。
   - 新建 `app/agent/toolchain/`，自动探测安装、编译、格式检查、静态检查、测试、启动和健康检查命令，并输出统一执行契约；对应需求 3.3-3.4、6.3。
   - 增加用户工作区 Profile 的 schema、版本、作用域、命令白名单、依赖白名单和沙箱校验；对应需求 6.2、6.4、8.2。
   - 将用户新增框架先标记为 `custom_pending`，通过语法、安装、启动、CRUD 和持久化探针后再升级为 `experimental` 或 `supported`；对应需求 6.3、6.4。
-  - [ ] 18.1 编写内置 Profile、用户 Profile 隔离、恶意命令拒绝、版本兼容和 Toolchain 探针测试；对应需求 6.2-6.4、设计正确性属性 10、11。
+  - [x] 18.1 编写内置 Profile、用户 Profile 隔离、恶意命令拒绝、版本兼容和 Toolchain 探针测试；对应需求 6.2-6.4、设计正确性属性 10、11。专项回归 `tests/unit/test_framework_profiles.py tests/unit/test_toolchain.py tests/unit/test_scaffolding.py` 已通过（16/16）。
 
 - [ ] 19. 统一 ContextEnvelope、MCP、RAG、Skills 和 Memory
   - 新建 `app/agent/context_assembler.py`，将需求、GenerationPlan、接口注册表、依赖地图、框架 Profile、检索结果、Memory 和反馈提示按来源、优先级和作用域组装；对应需求 2.1-2.4、9.1-9.5。
@@ -127,9 +127,20 @@
   - 将 Skills 转换为带阶段、优先级、适用语言/框架、硬约束和验证规则的结构化策略；对应需求 5.1-5.4、6.1-6.4。
   - 将 MCP 工具描述扩展为能力、读写范围、项目作用域、依赖、超时和审计字段，并接入 Toolchain 和 ValidationCoordinator；对应设计 3.8、3.10-3.12。
   - 统一 `ModelGateway`、动态路由、LearningRouter 和反馈事件，记录模型、阶段、文件、计划版本、上下文 hash 和验证结果；对应需求 9.1-9.5、11.1-11.2。
-  - [ ] 19.1 编写 ContextEnvelope 来源优先级、敏感信息过滤、MCP 权限、RAG 注入和 Memory 检索测试；对应需求 9.1-9.5、设计正确性属性 5、11。
+  - 已将 ContextEnvelope 接入传统、Spec-First 和增量修改入口；ModelCallContext 与结构化模型诊断支持可选 context hash，并保持旧诊断字段兼容。
+  - [x] 19.1 编写 ContextEnvelope 来源优先级、敏感信息过滤、MCP 权限、RAG 注入和 Memory 检索测试；对应需求 9.1-9.5、设计正确性属性 5、11。专项回归 `tests/unit/test_context_assembler.py` 已通过（3/3）。
 
 - [ ] 20. 完成多语言评测矩阵和迁移收口
+  - 已建立 `app.agent.evaluation_matrix.FIXED_CRUD_CASES` 和 `build_report()`，覆盖 Python/FastAPI、Python/Flask、TypeScript/Express、TypeScript/NestJS、Go HTTP 和 Java Spring Boot，并提供成功率、P95、缺失样例、非法指标和失败分类；真实运行数据和入口迁移仍待完成。
+  - 已增加 `app.agent.profile_discovery`，按项目清单发现 Web、Windows、Android、爬虫、游戏和 CLI 应用域，输出候选 Profile、能力缺口和探针结果；`build_probe_plan()` 已输出经 `CommandSpec` 校验的参数数组探针步骤，`ProfileCache` 已支持工作区画像持久化、复用和 `custom_pending -> experimental -> supported` 状态门禁。
+  - 已将 `profile_context()` 接入传统、Spec-First 和增量修改入口，规划阶段会把应用域、框架、能力、缺口和画像状态传入生成上下文。
+  - 已增加 `app.agent.capability_resolver`，根据应用域输出必需能力、能力缺口、生成约束和验证步骤，并将能力策略加入 `profile_context()`。
+  - 能力策略已增加 `required_components`，为 Web、游戏、爬虫、Android 和 Windows 生成 handler/service、rules/renderer、fetcher/parser/pipeline、screen/navigation 和 window/event_handler 等组件提示。
+  - `ResolvedCapabilities.component_file_plan()` 已将领域组件映射为可投影到 GenerationPlan 的文件节点，并通过 `profile_context()` 传入三类生成入口。
+  - `add_profile_components()` 已将组件节点和顺序依赖投影到 `GenerationPlan`；strict 计划保持冻结文件集合，extensible 计划允许受控扩展。
+  - 新增 `ValidationCoordinator`，将 Profile 验证步骤转换为安全 `CommandSpec`，执行结果统一映射为 `ValidationReport`；不支持步骤、超时和非零退出码均形成结构化诊断。
+  - 真实 SSE 验收已验证健康检查 HTTP 200、认证、模型调用、heartbeat 和文件事件链路；修复上下文来源值 `plan` 后，第二轮仍因模型生成的 `src/main.py` 导入 `models` 与计划文件集合不一致而进入 error 终态，项目目录仅落下 `.git`、`.gitignore` 和空 `src/`，尚未形成可验收产物。
+  - 后续实测已增加唯一短模块别名解析、数据库层受限延迟模型导入和“只生成以下 N 个文件”严格集合识别；最终轮确认架构计划从 5 个文件收敛为指定的 `main.py`、`todo.py`、`test_main.py`。模型输出仍引用冻结计划外的 `typer`、`src.models.todo_model` 和 `src.utils.cli_utils`，系统按门禁进入唯一 error 终态且未落盘无效文件。相关回归 `114 passed`。
   - 建立 Python/FastAPI、Python/Flask、TypeScript/Express、TypeScript/NestJS、Go HTTP 和 Java Spring Boot 的固定 CRUD 评测样例；对应需求 6.3、11.2。
   - 为每个样例记录计划一致性、接口一致性、依赖闭包、文件完整性、编译、测试、启动、持久化、Token、P95 耗时和最终成功率；对应需求 6.3、9.1-9.5、11.2。
   - Traditional、Spec-First 和 Incremental 入口依次迁移到统一执行器，完成 legacy/core 影子对比后切换默认路由；对应需求 11.3-11.5。

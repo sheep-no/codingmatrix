@@ -20,6 +20,7 @@ from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL, DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL
 from app.agent.utils import extract_engineer_content, write_file_atomic
 from app.agent.dependency_graph import summarize_dependency_context
+from app.agent.topology_scheduler import HeartbeatTracker
 
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,26 @@ def _python_module_name(file_path: str) -> str:
     if normalized.endswith('/__init__'):
         normalized = normalized[:-len('/__init__')]
     return normalized.replace('/', '.')
+
+
+def _python_project_module_aliases(all_project_files: List[str], current_file: str) -> Dict[str, str]:
+    """Resolve unique short imports such as ``models`` from planned paths."""
+    candidates: Dict[str, set[str]] = {}
+    for path in all_project_files:
+        if not path.endswith('.py') or path == current_file:
+            continue
+        module = _python_module_name(path)
+        parts = module.split('.')
+        aliases = {module, parts[-1]}
+        if len(parts) > 1:
+            aliases.add(parts[-2])
+        for alias in aliases:
+            candidates.setdefault(alias, set()).add(module)
+    return {
+        alias: next(iter(modules))
+        for alias, modules in candidates.items()
+        if len(modules) == 1
+    }
 
 
 def _python_exports(content: str) -> set[str]:
@@ -49,6 +70,19 @@ def _python_exports(content: str) -> set[str]:
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             for alias in node.names:
                 exports.add(alias.asname or alias.name.split('.', 1)[0])
+    return exports
+
+
+def _python_defined_exports(content: str) -> set[str]:
+    """Return symbols defined by a module, excluding imported re-exports."""
+    tree = ast.parse(content)
+    exports = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            exports.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            exports.update(target.id for target in targets if isinstance(target, ast.Name))
     return exports
 
 
@@ -71,10 +105,319 @@ def _structured_import_diagnostics(errors: List[str]) -> List[Dict[str, str]]:
             diagnostic["type"] = "signature_mismatch"
         elif "禁止混用" in error:
             diagnostic["type"] = "database_abstraction_mismatch"
+        elif error.startswith("修复响应无效"):
+            diagnostic["type"] = "repair_response_invalid"
         else:
             diagnostic["type"] = "static_validation_error"
         diagnostics.append(diagnostic)
     return diagnostics
+
+
+def _repair_python_known_imports(content: str, errors: List[str]) -> str:
+    """Add unambiguous framework imports reported as undefined globals."""
+    if "模块 sqlalchemy.ext.session 当前运行时不可导入" in errors:
+        content = re.sub(
+            r"^from[ \t]+sqlalchemy\.ext\.session[ \t]+import[ \t]+sessionmaker[ \t]*$",
+            "from sqlalchemy.orm import sessionmaker",
+            content,
+            flags=re.MULTILINE,
+        )
+    known_imports = {
+        "datetime": "from datetime import datetime",
+        "Depends": "from fastapi import Depends",
+        "FastAPI": "from fastapi import FastAPI",
+        "HTTPException": "from fastapi import HTTPException",
+        "TestClient": "from fastapi.testclient import TestClient",
+        "Session": "from sqlalchemy.orm import Session",
+        "create_engine": "from sqlalchemy import create_engine",
+        "pytest": "import pytest",
+        "List": "from typing import List",
+        "Optional": "from typing import Optional",
+        "Dict": "from typing import Dict",
+        "Tuple": "from typing import Tuple",
+        "Set": "from typing import Set",
+        "Any": "from typing import Any",
+        "Union": "from typing import Union",
+        "Literal": "from typing import Literal",
+        "Annotated": "from typing import Annotated",
+        "Callable": "from typing import Callable",
+        "Iterable": "from typing import Iterable",
+        "Sequence": "from typing import Sequence",
+        "Mapping": "from typing import Mapping",
+    }
+    missing_names = {
+        match.group(1)
+        for error in errors
+        if (match := re.fullmatch(r"名称 (\w+) 在模块全局作用域中未定义或导入", error))
+    }
+    imports = [
+        statement
+        for name, statement in known_imports.items()
+        if name in missing_names and statement not in content
+    ]
+    if not imports:
+        return content
+    return "\n".join(imports) + "\n" + content.lstrip("\n")
+
+
+def _repair_python_sqlalchemy_text_execute(content: str, file_path: str) -> str:
+    """Wrap raw SQL passed to execute() for SQLAlchemy 2 compatibility."""
+    if not file_path.endswith(".py") or ".execute(" not in content:
+        return content
+    try:
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError:
+        return content
+
+    lines = content.splitlines(keepends=True)
+    line_offsets = []
+    offset = 0
+    for line in lines:
+        line_offsets.append(offset)
+        offset += len(line)
+
+    def source_offset(line_number: int, byte_column: int) -> int:
+        line = lines[line_number - 1]
+        char_column = len(line.encode("utf-8")[:byte_column].decode("utf-8"))
+        return line_offsets[line_number - 1] + char_column
+
+    replacements = []
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "execute"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            continue
+        argument = node.args[0]
+        start = source_offset(argument.lineno, argument.col_offset)
+        end = source_offset(argument.end_lineno, argument.end_col_offset)
+        replacements.append((start, end))
+
+    if not replacements:
+        return content
+    for start, end in sorted(replacements, reverse=True):
+        content = content[:start] + f"text({content[start:end]})" + content[end:]
+    if not re.search(r"^from\s+sqlalchemy\s+import\s+.*\btext\b", content, re.MULTILINE):
+        content = "from sqlalchemy import text\n" + content.lstrip("\n")
+    return content
+
+
+def _repair_python_sqlalchemy_get_db(
+    content: str,
+    file_path: str,
+    architecture: Optional[Dict] = None,
+) -> str:
+    """Complete the standard FastAPI session dependency for SQLAlchemy databases."""
+    if not _file_matches_role(file_path, architecture, {"database"}) or "SessionLocal" not in content:
+        return content
+    try:
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError:
+        return content
+    if any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "get_db" for node in tree.body):
+        return content
+    return content.rstrip() + (
+        "\n\n\ndef get_db():\n"
+        "    db = SessionLocal()\n"
+        "    try:\n"
+        "        yield db\n"
+        "    finally:\n"
+        "        db.close()\n"
+    )
+
+
+def _repair_python_project_call_keywords(content: str, errors: List[str]) -> str:
+    """Remove keyword arguments proven absent from a generated dependency signature."""
+    invalid_keywords: Dict[str, set[str]] = {}
+    pattern = re.compile(r"调用 (\w+) 使用了未声明参数 ([\w, ]+)，请匹配 .+ 中的真实签名")
+    for error in errors:
+        match = pattern.fullmatch(error)
+        if match:
+            invalid_keywords.setdefault(match.group(1), set()).update(
+                name.strip() for name in match.group(2).split(",") if name.strip()
+            )
+    if not invalid_keywords:
+        return content
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return content
+
+    changed = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        rejected = invalid_keywords.get(node.func.id)
+        if not rejected:
+            continue
+        retained = [keyword for keyword in node.keywords if keyword.arg not in rejected]
+        if len(retained) != len(node.keywords):
+            node.keywords = retained
+            changed = True
+    if not changed:
+        return content
+    ast.fix_missing_locations(tree)
+    return ast.unparse(tree) + "\n"
+
+
+def _repair_python_schema_field_access(content: str, errors: List[str]) -> str:
+    """Remove operations that read fields absent from generated request schemas."""
+    invalid_attributes = {
+        (match.group(1), match.group(2))
+        for error in errors
+        if (
+            match := re.fullmatch(
+                r".+?\.py 访问 (\w+)\.(\w+)，但 .+?\.py 的 \w+ 未定义字段 \w+",
+                error,
+            )
+        )
+    }
+    if not invalid_attributes:
+        return content
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return content
+
+    def contains_invalid_attribute(node: ast.AST) -> bool:
+        return any(
+            isinstance(candidate, ast.Attribute)
+            and isinstance(candidate.value, ast.Name)
+            and (candidate.value.id, candidate.attr) in invalid_attributes
+            for candidate in ast.walk(node)
+        )
+
+    class SchemaFieldRepair(ast.NodeTransformer):
+        def visit_Call(self, node):
+            self.generic_visit(node)
+            node.keywords = [
+                keyword for keyword in node.keywords
+                if not contains_invalid_attribute(keyword.value)
+            ]
+            return node
+
+        def visit_If(self, node):
+            if contains_invalid_attribute(node.test):
+                return None
+            self.generic_visit(node)
+            if not node.body:
+                node.body = [ast.Pass()]
+            return node
+
+        def visit_Assign(self, node):
+            if contains_invalid_attribute(node.value):
+                return None
+            return self.generic_visit(node)
+
+        def visit_AnnAssign(self, node):
+            if node.value is not None and contains_invalid_attribute(node.value):
+                return None
+            return self.generic_visit(node)
+
+        def visit_FunctionDef(self, node):
+            self.generic_visit(node)
+            if not node.body:
+                node.body = [ast.Pass()]
+            return node
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+    repaired_tree = SchemaFieldRepair().visit(tree)
+    ast.fix_missing_locations(repaired_tree)
+    repaired = ast.unparse(repaired_tree) + "\n"
+    return repaired if repaired != content else content
+
+
+def _repair_python_project_symbol_imports(
+    content: str,
+    errors: List[str],
+    generated_contents: Dict[str, str],
+) -> str:
+    """Import project symbols from their unique generated definition."""
+    defined_exporters: Dict[str, List[str]] = {}
+    exported_symbols: Dict[str, List[str]] = {}
+    for dependency_path, dependency_source in generated_contents.items():
+        if not dependency_path.endswith(".py"):
+            continue
+        try:
+            for name in _python_exports(dependency_source):
+                exported_symbols.setdefault(name, []).append(
+                    _python_module_name(dependency_path)
+                )
+            for name in _python_defined_exports(dependency_source):
+                defined_exporters.setdefault(name, []).append(
+                    _python_module_name(dependency_path)
+                )
+        except SyntaxError:
+            continue
+
+    misplaced_symbols = {}
+    for error in errors:
+        match = re.fullmatch(r"(.+?\.py) 未导出符号 (\w+)，请使用其真实接口", error)
+        if not match:
+            continue
+        source_module = _python_module_name(match.group(1))
+        symbol = match.group(2)
+        candidates = defined_exporters.get(symbol) or exported_symbols.get(symbol, [])
+        if len(candidates) == 1 and candidates[0] != source_module:
+            misplaced_symbols[(source_module, symbol)] = candidates[0]
+
+    if misplaced_symbols:
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            tree = None
+        if tree is not None:
+            changed = False
+            body = []
+            for node in tree.body:
+                if not isinstance(node, ast.ImportFrom) or not node.module:
+                    body.append(node)
+                    continue
+                source_module = node.module.lstrip(".")
+                retained_aliases = []
+                relocated = []
+                for alias in node.names:
+                    target_module = misplaced_symbols.get((source_module, alias.name))
+                    if target_module:
+                        relocated.append((target_module, alias))
+                        changed = True
+                    else:
+                        retained_aliases.append(alias)
+                if retained_aliases:
+                    node.names = retained_aliases
+                    body.append(node)
+                body.extend(
+                    ast.ImportFrom(module=target_module, names=[alias], level=0)
+                    for target_module, alias in relocated
+                )
+            if changed:
+                tree.body = body
+                ast.fix_missing_locations(tree)
+                content = ast.unparse(tree) + "\n"
+
+    missing_names = {
+        match.group(1)
+        for error in errors
+        if (match := re.fullmatch(r"名称 (\w+) 在模块全局作用域中未定义或导入", error))
+    }
+    imports = []
+    for name in sorted(missing_names):
+        defining_exporters = defined_exporters.get(name, [])
+        exporters = exported_symbols.get(name, [])
+        if len(defining_exporters) == 1:
+            exporters = defining_exporters
+        if len(exporters) == 1:
+            statement = f"from {exporters[0]} import {name}"
+            if statement not in content:
+                imports.append(statement)
+    if not imports:
+        return content
+    return "\n".join(imports) + "\n" + content.lstrip("\n")
 
 
 def _validate_python_implementation(content: str, file_path: str) -> List[str]:
@@ -100,11 +443,637 @@ def _validate_python_implementation(content: str, file_path: str) -> List[str]:
     return ["Python 文件仅包含导入或说明文本，缺少可执行实现"]
 
 
+def _validate_python_test_structure(content: str, file_path: str) -> List[str]:
+    """Reject Python test modules that pytest cannot collect or configure."""
+    if not file_path.endswith(".py") or "test" not in Path(file_path).name.lower():
+        return []
+    try:
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError:
+        return []
+
+    errors = []
+    top_level_functions = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name.startswith("test_") and node.name not in top_level_functions:
+                errors.append(f"{file_path} 的 {node.name} 必须定义在模块顶层")
+            has_monkeypatch_call = any(
+                isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Attribute)
+                and child.func.attr == "setattr"
+                and isinstance(child.func.value, ast.Name)
+                and child.func.value.id == "monkeypatch"
+                for child in ast.walk(node)
+            )
+            parameter_names = {
+                argument.arg
+                for argument in (
+                    list(node.args.posonlyargs)
+                    + list(node.args.args)
+                    + list(node.args.kwonlyargs)
+                )
+            }
+            if has_monkeypatch_call and "monkeypatch" not in parameter_names:
+                errors.append(f"{file_path} 使用 monkeypatch.setattr 的函数必须声明 monkeypatch fixture")
+
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == "tmp_path"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "pytestconfig"
+        ):
+            errors.append(
+                f"{file_path} 不能从 pytestconfig 获取 tmp_path，必须声明并使用 tmp_path fixture"
+            )
+            break
+    return errors
+
+
+def _validate_python_database_abstraction(
+    content: str,
+    file_path: str,
+    architecture: Optional[Dict] = None,
+) -> List[str]:
+    """Prevent a database module from mixing incompatible persistence stacks."""
+    if not _file_matches_role(file_path, architecture, {"database"}):
+        return []
+    try:
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError:
+        return []
+    imported_modules = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported_modules.add(node.module.split(".", 1)[0])
+    if "sqlite3" in imported_modules and "sqlalchemy" in imported_modules:
+        return [f"{file_path} 同时使用 sqlite3 和 SQLAlchemy，必须统一为一种数据库抽象"]
+    return []
+
+
+def _file_plan_item(file_path: str, architecture: Optional[Dict]) -> Dict:
+    if not isinstance(architecture, dict):
+        return {}
+    normalized = file_path.replace("\\", "/")
+    for item in architecture.get("file_plan", []):
+        if isinstance(item, dict) and item.get("path", "").replace("\\", "/") == normalized:
+            return item
+    return {}
+
+
+def _file_contract(file_path: str, architecture: Optional[Dict]) -> Dict:
+    contract = _file_plan_item(file_path, architecture).get("contract", {})
+    return contract if isinstance(contract, dict) else {}
+
+
+def _file_role(file_path: str, architecture: Optional[Dict]) -> str:
+    item = _file_plan_item(file_path, architecture)
+    contract = _file_contract(file_path, architecture)
+    return str(contract.get("role") or item.get("file_type") or "").lower()
+
+
+_ROLE_ALIASES = {
+    "database": {"database", "persistence", "storage"},
+    "model": {"model", "entity", "entities"},
+    "schema": {"schema", "types", "dto"},
+    "repository": {"repository", "crud", "dao"},
+    "entry": {"entry", "api", "application"},
+    "test": {"test", "tests"},
+}
+
+
+def _file_matches_role(
+    file_path: str,
+    architecture: Optional[Dict],
+    expected_roles: set[str],
+) -> bool:
+    """Match architecture metadata first, then infer legacy plans from paths."""
+    item = _file_plan_item(file_path, architecture)
+    contract = _file_contract(file_path, architecture)
+    declared_roles = {
+        str(item.get("file_type") or "").lower(),
+        str(contract.get("role") or "").lower(),
+    } - {""}
+    accepted_roles = {
+        alias
+        for role in expected_roles
+        for alias in _ROLE_ALIASES.get(role, {role})
+    }
+    if declared_roles:
+        return bool(declared_roles & accepted_roles)
+
+    path_lower = file_path.replace("\\", "/").lower()
+    inferred_roles = set()
+    if "test" in path_lower:
+        inferred_roles.add("test")
+    if any(token in path_lower for token in ("database", "/db", "db.py")):
+        inferred_roles.add("database")
+    if any(token in path_lower for token in ("model", "entit")):
+        inferred_roles.add("model")
+    if any(token in path_lower for token in ("schema", "dto", "types")):
+        inferred_roles.add("schema")
+    if any(token in path_lower for token in ("crud", "repo", "dao")):
+        inferred_roles.add("repository")
+    if any(token in Path(path_lower).stem for token in ("main", "app", "server", "entry")):
+        inferred_roles.add("entry")
+    return bool(inferred_roles & expected_roles)
+
+
+def _architecture_path_for_role(
+    architecture: Optional[Dict],
+    expected_role: str,
+) -> str:
+    file_plan = architecture.get("file_plan", []) if isinstance(architecture, dict) else []
+    for item in file_plan:
+        if not isinstance(item, dict):
+            continue
+        candidate_path = str(item.get("path", ""))
+        if candidate_path and _file_matches_role(candidate_path, architecture, {expected_role}):
+            return candidate_path
+    return ""
+
+
+def _repair_python_sqlalchemy_table_initialization(
+    content: str,
+    file_path: str,
+    generated_contents: Dict[str, str],
+    architecture: Optional[Dict],
+) -> str:
+    """Create SQLAlchemy tables from an entry module after models are imported."""
+    if not _file_matches_role(file_path, architecture, {"entry"}):
+        return content
+    database_path = _architecture_path_for_role(architecture, "database")
+    database_source = generated_contents.get(database_path, "")
+    if not database_source or "sqlalchemy" not in database_source.lower():
+        return content
+    try:
+        database_exports = _python_exports(database_source)
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError:
+        return content
+    if not {"Base", "engine"}.issubset(database_exports):
+        return content
+    database_module = _python_module_name(database_path)
+    create_all_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "create_all"
+    ]
+    if create_all_calls:
+        changed = False
+        for call in create_all_calls:
+            bind_keyword = next(
+                (keyword for keyword in call.keywords if keyword.arg == "bind"),
+                None,
+            )
+            if bind_keyword is None:
+                call.keywords.append(ast.keyword(arg="bind", value=ast.Name(id="engine")))
+                changed = True
+            elif not isinstance(bind_keyword.value, ast.Name) or bind_keyword.value.id != "engine":
+                bind_keyword.value = ast.Name(id="engine")
+                changed = True
+        imported_names = {
+            alias.asname or alias.name
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom) and node.module == database_module
+            for alias in node.names
+        }
+        if "engine" not in imported_names:
+            tree.body.insert(
+                0,
+                ast.ImportFrom(
+                    module=database_module,
+                    names=[ast.alias(name="engine")],
+                    level=0,
+                ),
+            )
+            changed = True
+        if not changed:
+            return content
+        ast.fix_missing_locations(tree)
+        return ast.unparse(tree) + "\n"
+
+    import_node = ast.ImportFrom(
+        module=database_module,
+        names=[ast.alias(name="Base"), ast.alias(name="engine")],
+        level=0,
+    )
+    create_tables = ast.parse("Base.metadata.create_all(bind=engine)").body[0]
+    insertion_index = 0
+    if (
+        tree.body
+        and isinstance(tree.body[0], ast.Expr)
+        and isinstance(tree.body[0].value, ast.Constant)
+        and isinstance(tree.body[0].value.value, str)
+    ):
+        insertion_index = 1
+    while insertion_index < len(tree.body) and isinstance(
+        tree.body[insertion_index], (ast.Import, ast.ImportFrom)
+    ):
+        insertion_index += 1
+    tree.body.insert(insertion_index, import_node)
+    tree.body.insert(insertion_index + 1, create_tables)
+    ast.fix_missing_locations(tree)
+    return ast.unparse(tree) + "\n"
+
+
+def _repair_python_test_database_fixtures(
+    content: str, file_path: str, architecture: Optional[Dict]
+) -> str:
+    """Ensure SQLAlchemy test table fixtures run with per-test isolation."""
+    normalized_name = Path(file_path).name.lower()
+    is_test = (
+        _file_role(file_path, architecture) == "test"
+        or normalized_name.startswith("test_")
+        or normalized_name.endswith("_test.py")
+    )
+    if not is_test or "create_all" not in content or "TestClient" not in content:
+        return content
+    try:
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError:
+        return content
+
+    fixture_functions = []
+    setup_fixtures = []
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        fixture_decorators = []
+        for decorator in node.decorator_list:
+            target = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if isinstance(target, ast.Attribute) and target.attr == "fixture":
+                fixture_decorators.append(decorator)
+            elif isinstance(target, ast.Name) and target.id == "fixture":
+                fixture_decorators.append(decorator)
+        if not fixture_decorators:
+            continue
+        fixture_functions.append((node, fixture_decorators))
+        if any(
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Attribute)
+            and child.func.attr == "create_all"
+            for child in ast.walk(node)
+        ):
+            setup_fixtures.append(node.name)
+    if not setup_fixtures:
+        return content
+
+    changed = False
+    setup_fixture_names = set(setup_fixtures)
+
+    class FixtureContextRepair(ast.NodeTransformer):
+        def visit_With(self, node: ast.With):
+            nonlocal changed
+            replacement = []
+            for item in node.items:
+                context = item.context_expr
+                if (
+                    isinstance(context, ast.Call)
+                    and isinstance(context.func, ast.Name)
+                    and context.func.id in setup_fixture_names
+                ):
+                    changed = True
+                    replacement.extend(node.body)
+                    break
+            else:
+                return self.generic_visit(node)
+            return [self.visit(child) for child in replacement]
+
+    tree = FixtureContextRepair().visit(tree)
+    for node, decorators in fixture_functions:
+        for decorator in decorators:
+            if not isinstance(decorator, ast.Call):
+                continue
+            for keyword in decorator.keywords:
+                if (
+                    keyword.arg == "scope"
+                    and isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value != "function"
+                ):
+                    keyword.value = ast.Constant(value="function")
+                    changed = True
+        if node.name in setup_fixtures:
+            continue
+        existing_args = {argument.arg for argument in node.args.args}
+        for setup_fixture in setup_fixtures:
+            if setup_fixture not in existing_args:
+                node.args.args.append(ast.arg(arg=setup_fixture))
+                changed = True
+    if not changed:
+        return content
+    ast.fix_missing_locations(tree)
+    return ast.unparse(tree) + "\n"
+
+
+def _declared_python_framework_roots(architecture: Optional[Dict]) -> set[str]:
+    """Return Python framework imports explicitly selected by the architecture."""
+    if not isinstance(architecture, dict):
+        return set()
+    framework_values = [architecture.get("framework"), architecture.get("tech_stack")]
+    project_spec = architecture.get("project_spec", {})
+    if isinstance(project_spec, dict):
+        framework_values.append(project_spec.get("framework"))
+        for section in project_spec.values():
+            if isinstance(section, dict):
+                framework_values.append(section.get("framework"))
+    serialized = " ".join(
+        str(value).lower() for value in framework_values if value
+    )
+    known_frameworks = {
+        "django", "falcon", "fastapi", "flask", "litestar", "sanic", "starlette",
+    }
+    return {framework for framework in known_frameworks if framework in serialized}
+
+
+def _validate_python_contract(content: str, file_path: str, architecture: Optional[Dict]) -> List[str]:
+    """Validate language-neutral architecture contracts for Python files."""
+    file_plan_item = _file_plan_item(file_path, architecture)
+    contract = _file_contract(file_path, architecture)
+    if not contract or not file_path.endswith(".py"):
+        return []
+    try:
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError:
+        return []
+    imported_roots = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_roots.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported_roots.add(node.module.lstrip(".").split(".", 1)[0])
+    forbidden = contract.get("forbidden_imports", [])
+    if isinstance(forbidden, str):
+        forbidden = [forbidden]
+    file_type = str(file_plan_item.get("file_type", "")).lower()
+    if file_type in {"entry", "api"}:
+        # Entry and API modules must be able to import the framework selected
+        # by the project architecture, even if an inconsistent model-produced
+        # contract also lists that framework as forbidden.
+        allowed_frameworks = _declared_python_framework_roots(architecture)
+        forbidden = [
+            module for module in forbidden
+            if str(module).split(".", 1)[0].lower() not in allowed_frameworks
+        ]
+    if file_type == "test" or str(contract.get("role", "")).lower() == "test":
+        # Test modules need their runner and client fixtures to execute.
+        allowed_test_support = {
+            "json", "os", "pathlib", "sys", "tempfile", "typing",
+        }
+        forbidden = [
+            module for module in forbidden
+            if str(module).split(".", 1)[0] not in {
+                "pytest", "fastapi", *allowed_test_support,
+            }
+        ]
+    if str(contract.get("role", "")).lower() == "database":
+        # The database abstraction is an implementation dependency of the
+        # database module itself, even when a broad contract lists it as
+        # forbidden for downstream layers.
+        abstraction = str(contract.get("database_abstraction", "")).lower()
+        allowed_database_modules = {
+            "sqlalchemy": {"sqlalchemy"},
+            "sqlite3": {"sqlite3"},
+            "raw_sql": {"sqlite3"},
+        }.get(abstraction, set())
+        forbidden = [
+            module for module in forbidden
+            if str(module).split(".", 1)[0] not in allowed_database_modules
+        ]
+    errors = [
+        f"{file_path} 违反架构契约，禁止导入模块 {module}"
+        for module in forbidden
+        if str(module).split(".", 1)[0] in imported_roots
+    ]
+    declared_exports = contract.get("exports", [])
+    if isinstance(declared_exports, str):
+        declared_exports = [declared_exports]
+    actual_exports = _python_exports(content)
+    # Tests are terminal consumers discovered by the runner, not public API
+    # modules consumed by downstream generated files.
+    exports_to_validate = [] if file_type == "test" else declared_exports
+    for declared_export in exports_to_validate:
+        if not isinstance(declared_export, str):
+            continue
+        match = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*(?:\([^)]*\))?\s*", declared_export)
+        if match and match.group(1) not in actual_exports:
+            errors.append(
+                f"{file_path} 未导出架构契约要求的公共符号 {match.group(1)}"
+            )
+    abstraction = str(contract.get("database_abstraction", "")).lower()
+    if abstraction and abstraction not in {"unknown", "none"}:
+        abstraction_markers = {
+            "sqlalchemy": "sqlalchemy",
+            "sqlite3": "sqlite3",
+            "raw_sql": "sqlite3",
+        }
+        marker = abstraction_markers.get(abstraction)
+        if marker and marker not in imported_roots:
+            errors.append(f"{file_path} 未遵守架构契约声明的数据库抽象 {abstraction}")
+    return errors
+
+
+def _repair_python_shared_base(
+    content: str,
+    file_path: str,
+    generated_contents: Dict[str, str],
+    architecture: Optional[Dict] = None,
+) -> str:
+    """Normalize a model's duplicate SQLAlchemy Base to the shared database Base."""
+    if not _file_matches_role(file_path, architecture, {"model"}):
+        return content
+    database_path = _architecture_path_for_role(architecture, "database") or "database.py"
+    database_source = generated_contents.get(database_path, "")
+    if "Base = declarative_base()" not in database_source:
+        return content
+    if "declarative_base" not in content:
+        return content
+
+    repaired = re.sub(
+        r"^\s*from\s+sqlalchemy(?:\.(?:orm|ext(?:\.declarative)?))?\s+import\s+declarative_base\s*$\n?",
+        "",
+        content,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
+        r"^\s*Base\s*=\s*(?:declarative_base\(\)|[\w.]+\.declarative_base\(\))\s*$\n?",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
+    if repaired == content:
+        return content
+    return f"from {_python_module_name(database_path)} import Base\n" + repaired.lstrip("\n")
+
+
+def _invalid_sqlalchemy_metadata_owners(content: str, file_path: str) -> List[ast.Attribute]:
+    """Find model-class metadata initialization through a nonexistent Class.Base."""
+    if not file_path.endswith(".py"):
+        return []
+    try:
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError:
+        return []
+
+    invalid_owners = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        metadata = node.func.value
+        if node.func.attr != "create_all" or not isinstance(metadata, ast.Attribute):
+            continue
+        owner = metadata.value
+        if (
+            metadata.attr == "metadata"
+            and isinstance(owner, ast.Attribute)
+            and owner.attr == "Base"
+            and isinstance(owner.value, ast.Name)
+            and owner.value.id[:1].isupper()
+        ):
+            invalid_owners.append(owner)
+    return invalid_owners
+
+
+def _validate_python_sqlalchemy_metadata_owner(content: str, file_path: str) -> List[str]:
+    if not _invalid_sqlalchemy_metadata_owners(content, file_path):
+        return []
+    return [
+        f"{file_path} 必须通过共享 Base.metadata.create_all 初始化 SQLAlchemy 元数据"
+    ]
+
+
+def _python_class_fields(content: str) -> Dict[str, set[str]]:
+    """Extract declared class fields without importing generated project code."""
+    tree = ast.parse(content)
+    fields = {}
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        fields[node.name] = {
+            target.id
+            for statement in node.body
+            for target in (
+                statement.targets
+                if isinstance(statement, ast.Assign)
+                else [statement.target]
+                if isinstance(statement, ast.AnnAssign)
+                else []
+            )
+            if isinstance(target, ast.Name)
+        }
+    return fields
+
+
+def _validate_python_schema_field_access(
+    content: str,
+    file_path: str,
+    generated_contents: Dict[str, str],
+) -> List[str]:
+    """Reject attribute reads absent from an annotated generated Schema class."""
+    if not file_path.endswith(".py"):
+        return []
+    try:
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError:
+        return []
+
+    schema_fields: Dict[str, Tuple[str, set[str]]] = {}
+    for dependency_path, dependency_source in generated_contents.items():
+        if not dependency_path.endswith(".py"):
+            continue
+        try:
+            for class_name, fields in _python_class_fields(dependency_source).items():
+                schema_fields.setdefault(class_name, (dependency_path, fields))
+        except SyntaxError:
+            continue
+
+    allowed_methods = {
+        "copy", "dict", "json", "model_copy", "model_dump", "model_dump_json",
+    }
+    errors = []
+    seen = set()
+    for function in (
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ):
+        parameters = [*function.args.posonlyargs, *function.args.args, *function.args.kwonlyargs]
+        annotated_parameters = {}
+        for parameter in parameters:
+            annotation = parameter.annotation
+            if isinstance(annotation, ast.Name) and annotation.id in schema_fields:
+                annotated_parameters[parameter.arg] = annotation.id
+        if not annotated_parameters:
+            continue
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
+                continue
+            class_name = annotated_parameters.get(node.value.id)
+            if not class_name or node.attr in allowed_methods:
+                continue
+            dependency_path, fields = schema_fields[class_name]
+            if node.attr in fields:
+                continue
+            fingerprint = (node.value.id, class_name, node.attr)
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            errors.append(
+                f"{file_path} 访问 {node.value.id}.{node.attr}，但 "
+                f"{dependency_path} 的 {class_name} 未定义字段 {node.attr}"
+            )
+    return errors
+
+
+def _repair_python_sqlalchemy_metadata_owner(
+    content: str,
+    file_path: str,
+    generated_contents: Dict[str, str],
+    architecture: Optional[Dict] = None,
+) -> str:
+    """Replace Model.Base.metadata with the database module's shared Base."""
+    database_path = _architecture_path_for_role(architecture, "database") or "database.py"
+    database_source = generated_contents.get(database_path, "")
+    try:
+        database_exports = _python_exports(database_source)
+    except SyntaxError:
+        return content
+    invalid_owners = _invalid_sqlalchemy_metadata_owners(content, file_path)
+    if "Base" not in database_exports or not invalid_owners:
+        return content
+
+    line_offsets = []
+    offset = 0
+    for line in content.splitlines(keepends=True):
+        line_offsets.append(offset)
+        offset += len(line)
+    replacements = []
+    for owner in invalid_owners:
+        start = line_offsets[owner.lineno - 1] + owner.col_offset
+        end = line_offsets[owner.end_lineno - 1] + owner.end_col_offset
+        replacements.append((start, end))
+    repaired = content
+    for start, end in sorted(replacements, reverse=True):
+        repaired = repaired[:start] + "Base" + repaired[end:]
+    if "Base" not in _python_exports(repaired):
+        repaired = f"from {_python_module_name(database_path)} import Base\n" + repaired.lstrip("\n")
+    return repaired
+
+
 def _validate_python_project_imports(
     content: str,
     file_path: str,
     generated_contents: Dict[str, str],
     all_project_files: List[str],
+    architecture: Optional[Dict] = None,
 ) -> List[str]:
     """校验 Python 项目内导入只引用已生成依赖及其真实导出。"""
     if not file_path.endswith('.py'):
@@ -119,13 +1088,25 @@ def _validate_python_project_imports(
         for path in all_project_files
         if path.endswith('.py') and path != file_path
     }
+    project_aliases = _python_project_module_aliases(all_project_files, file_path)
+    project_modules.update({alias: project_modules[module] for alias, module in project_aliases.items()})
     generated_modules = {
         _python_module_name(path): source
         for path, source in generated_contents.items()
         if path.endswith('.py')
     }
+    generated_modules.update({alias: generated_modules[module] for alias, module in project_aliases.items() if module in generated_modules})
     errors = []
     imported_project_functions: Dict[str, Tuple[str, str]] = {}
+
+    def allows_deferred_model_import(module: str) -> bool:
+        target_path = project_modules.get(module)
+        return bool(
+            target_path
+            and architecture
+            and _file_matches_role(file_path, architecture, {"database"})
+            and _file_matches_role(target_path, architecture, {"model"})
+        )
     symbol_table = symtable.symtable(content, file_path, "exec")
     defined_globals = {
         symbol.get_name()
@@ -184,32 +1165,42 @@ def _validate_python_project_imports(
                 )
                 break
 
-    if file_path.endswith("models.py"):
-        database_source = generated_modules.get("database")
+    if _file_matches_role(file_path, architecture, {"model"}):
+        database_path = _architecture_path_for_role(architecture, "database") or "database.py"
+        database_source = generated_modules.get(_python_module_name(database_path))
         if database_source:
             database_uses_sqlite = bool(re.search(r"\b(?:import\s+sqlite3|from\s+sqlite3\s+import)\b", database_source))
             database_uses_sqlalchemy = "sqlalchemy" in database_source
             model_uses_sqlite = bool(re.search(r"\b(?:import\s+sqlite3|from\s+sqlite3\s+import)\b", content))
             model_uses_sqlalchemy = "sqlalchemy" in content
             if database_uses_sqlite and model_uses_sqlalchemy:
-                errors.append("database.py 使用原生 sqlite3 时，models.py 禁止混用 SQLAlchemy ORM")
+                errors.append(
+                    f"{database_path} 使用原生 sqlite3 时，{file_path} 禁止混用 SQLAlchemy ORM"
+                )
             elif database_uses_sqlalchemy and model_uses_sqlite:
-                errors.append("database.py 使用 SQLAlchemy 时，models.py 禁止混用原生 sqlite3")
+                errors.append(
+                    f"{database_path} 使用 SQLAlchemy 时，{file_path} 禁止混用原生 sqlite3"
+                )
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 module = alias.name
                 if module in project_modules and module not in generated_modules:
-                    errors.append(f"项目模块 {project_modules[module]} 尚未生成，当前拓扑层禁止导入")
+                    if not allows_deferred_model_import(module):
+                        errors.append(f"项目模块 {project_modules[module]} 尚未生成，当前拓扑层禁止导入")
                 elif module not in project_modules:
                     root_module = module.split('.', 1)[0]
                     try:
-                        available = importlib.util.find_spec(root_module) is not None
+                        root_available = importlib.util.find_spec(root_module) is not None
+                        module_available = importlib.util.find_spec(module) is not None
                     except (ImportError, ValueError, AttributeError):
-                        available = False
-                    if not available:
+                        root_available = False
+                        module_available = False
+                    if not root_available:
                         errors.append(f"模块 {root_module} 不在项目文件集合中且当前运行时不可用")
+                    elif not module_available:
+                        errors.append(f"模块 {module} 当前运行时不可导入")
         elif isinstance(node, ast.ImportFrom) and node.module:
             module = node.module.lstrip('.')
             if module not in project_modules:
@@ -220,9 +1211,23 @@ def _validate_python_project_imports(
                     available = False
                 if not available:
                     errors.append(f"模块 {root_module} 不在项目文件集合中且当前运行时不可用")
+                else:
+                    try:
+                        imported_module = importlib.import_module(module)
+                    except Exception:
+                        imported_module = None
+                    if imported_module is None:
+                        errors.append(f"模块 {module} 当前运行时不可导入")
+                    else:
+                        for alias in node.names:
+                            if alias.name != "*" and not hasattr(imported_module, alias.name):
+                                errors.append(
+                                    f"模块 {module} 未导出符号 {alias.name}，请使用其真实接口"
+                                )
                 continue
             if module not in generated_modules:
-                errors.append(f"项目模块 {project_modules[module]} 尚未生成，当前拓扑层禁止导入")
+                if not allows_deferred_model_import(module):
+                    errors.append(f"项目模块 {project_modules[module]} 尚未生成，当前拓扑层禁止导入")
                 continue
             try:
                 exports = _python_exports(generated_modules[module])
@@ -289,6 +1294,56 @@ def _validate_python_project_imports(
                 f"请匹配 {project_modules[module]} 中的真实签名"
             )
     return list(dict.fromkeys(errors))
+
+
+def _repair_python_sync_async_calls(
+    content: str,
+    generated_contents: Dict[str, str],
+) -> str:
+    """Align await usage with the actual async/sync project function definition."""
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return content
+
+    async_functions: Dict[Tuple[str, str], bool] = {}
+    for path, source in generated_contents.items():
+        if not path.endswith(".py"):
+            continue
+        try:
+            dependency_tree = ast.parse(source, filename=path)
+        except SyntaxError:
+            continue
+        module = _python_module_name(path)
+        for node in dependency_tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                async_functions[(module, node.name)] = isinstance(node, ast.AsyncFunctionDef)
+
+    imported_functions: Dict[str, Tuple[str, str]] = {}
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module:
+            module = node.module.lstrip(".")
+            for alias in node.names:
+                imported_functions[alias.asname or alias.name] = (module, alias.name)
+
+    changed = False
+
+    class AwaitRepair(ast.NodeTransformer):
+        def visit_Await(self, node: ast.Await):
+            nonlocal changed
+            value = node.value
+            if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+                imported = imported_functions.get(value.func.id)
+                if imported and async_functions.get(imported) is False:
+                    changed = True
+                    return self.visit(value)
+            return self.generic_visit(node)
+
+    repaired_tree = AwaitRepair().visit(tree)
+    if not changed:
+        return content
+    ast.fix_missing_locations(repaired_tree)
+    return ast.unparse(repaired_tree) + "\n"
 
 
 def _is_edit_marker(content: str) -> bool:
@@ -594,6 +1649,26 @@ class FilesMixin:
                         full_path.unlink()
                         logger.info(f"删除失败的新文件: {fp}")
                 self.warnings.append(f"第 {layer_idx+1} 层生成失败，已回滚")
+                blocked_files = [
+                    downstream
+                    for remaining_layer in layers[layer_idx + 1:]
+                    for downstream in remaining_layer
+                    if downstream in file_info_map
+                    and any(
+                        failed_file in dep_graph.adjacency.get(downstream, set())
+                        for failed_file in layer_files
+                    )
+                ]
+                if blocked_files:
+                    logger.warning(
+                        "依赖层失败，阻断下游文件: failed_layer=%s blocked=%s",
+                        layer_files,
+                        sorted(set(blocked_files)),
+                    )
+                    self.warnings.append(
+                        f"已阻断依赖失败文件的下游生成: {sorted(set(blocked_files))}"
+                    )
+                    break
             else:
                 # 成功：丢弃 stash
                 if stashed:
@@ -668,10 +1743,15 @@ class FilesMixin:
         # 清空编辑记录
         engineer.clear_edits()
 
+        heartbeat_tracker = HeartbeatTracker(
+            timeout=float(getattr(self, "heartbeat_timeout", 120.0))
+        )
+
         content = await engineer.generate_file(
             file_path, description, project_context, spec_context, dep_context,
             project_path=str(self.output_dir), callback=self.callback,
             is_existing_file=is_existing,
+            heartbeat_tracker=heartbeat_tracker,
         )
         if asyncio.iscoroutine(content):
             logger.warning(f"generate_file 返回协程，自动 await: {file_path}")
@@ -700,6 +1780,26 @@ class FilesMixin:
             expected_language=expected_language,
             llm_caller=llm_caller,
         )
+        architecture = project_context.get("architecture", {})
+        if content:
+            content = _repair_python_shared_base(
+                content, file_path, generated_contents or {}, architecture
+            )
+            content = _repair_python_sqlalchemy_metadata_owner(
+                content, file_path, generated_contents or {}, architecture
+            )
+            content = _repair_python_sqlalchemy_text_execute(content, file_path)
+            content = _repair_python_sqlalchemy_get_db(content, file_path, architecture)
+            content = _repair_python_sqlalchemy_table_initialization(
+                content,
+                file_path,
+                generated_contents or {},
+                architecture,
+            )
+            content = _repair_python_test_database_fixtures(
+                content, file_path, architecture
+            )
+            content = _repair_python_sync_async_calls(content, generated_contents or {})
 
         if not content:
             # 内容无效（可能是 JSON 元数据），尝试恢复
@@ -708,7 +1808,14 @@ class FilesMixin:
             if invalid_reason:
                 logger.warning(f"内容无效: {file_path} - {invalid_reason}，尝试恢复")
                 content = await self._recover_invalid_content_orchestator(
-                    file_path, description, project_context, invalid_reason, engineer
+                    file_path,
+                    description,
+                    project_context,
+                    invalid_reason,
+                    engineer,
+                    spec_context=spec_context,
+                    dep_context=dep_context,
+                    heartbeat_tracker=heartbeat_tracker,
                 )
 
             if not content:
@@ -727,9 +1834,39 @@ class FilesMixin:
                 content = _fix_absolute_imports(content, file_path, all_files)
 
         import_errors = _validate_python_implementation(content, file_path)
-        import_errors.extend(_validate_python_project_imports(
-            content, file_path, generated_contents or {}, all_files
+        import_errors.extend(_validate_python_database_abstraction(content, file_path, architecture))
+        import_errors.extend(_validate_python_sqlalchemy_metadata_owner(content, file_path))
+        import_errors.extend(_validate_python_schema_field_access(
+            content, file_path, generated_contents or {}
         ))
+        import_errors.extend(_validate_python_contract(
+            content, file_path, project_context.get("architecture", {})
+        ))
+        import_errors.extend(_validate_python_project_imports(
+            content, file_path, generated_contents or {}, all_files,
+            project_context.get("architecture", {}),
+        ))
+        repaired_content = _repair_python_known_imports(content, import_errors)
+        repaired_content = _repair_python_project_symbol_imports(
+            repaired_content, import_errors, generated_contents or {}
+        )
+        repaired_content = _repair_python_project_call_keywords(repaired_content, import_errors)
+        repaired_content = _repair_python_schema_field_access(repaired_content, import_errors)
+        if repaired_content != content:
+            content = repaired_content
+            import_errors = _validate_python_implementation(content, file_path)
+            import_errors.extend(_validate_python_database_abstraction(content, file_path, architecture))
+            import_errors.extend(_validate_python_sqlalchemy_metadata_owner(content, file_path))
+            import_errors.extend(_validate_python_schema_field_access(
+                content, file_path, generated_contents or {}
+            ))
+            import_errors.extend(_validate_python_contract(
+                content, file_path, project_context.get("architecture", {})
+            ))
+            import_errors.extend(_validate_python_project_imports(
+                content, file_path, generated_contents or {}, all_files,
+                project_context.get("architecture", {}),
+            ))
         seen_error_fingerprints = set()
         for correction_round in range(1, 4):
             if not import_errors:
@@ -769,6 +1906,26 @@ class FilesMixin:
                 "输出前逐个检查函数体、默认参数、ORM 字段参数和装饰器引用的名称，"
                 "确认每个名称均已在模块顶层定义或导入。"
             )
+            dependency_exports = []
+            for dependency_path, dependency_source in (generated_contents or {}).items():
+                if not dependency_path.endswith(".py"):
+                    continue
+                try:
+                    exports = sorted(_python_exports(dependency_source))
+                except SyntaxError:
+                    continue
+                dependency_exports.append(f"{dependency_path}: {', '.join(exports)}")
+            if dependency_exports:
+                correction_instructions += (
+                    "已生成依赖真实公共符号清单如下，只能从清单中选择项目符号："
+                    + "；".join(dependency_exports)
+                    + "。"
+                )
+            if any("禁止混用" in error for error in import_errors):
+                correction_instructions += (
+                    "当前文件违反数据库抽象统一约束：必须根据架构契约和已生成依赖选择唯一持久化栈，"
+                    "从候选源码中完整移除另一套驱动及其 API，不能只删除一条 import。"
+                )
             corrected_raw = await engineer.generate_file(
                 file_path,
                 f"{description}\n此前候选文件校验失败：{correction}。"
@@ -781,6 +1938,7 @@ class FilesMixin:
                 project_path=str(self.output_dir),
                 callback=self.callback,
                 is_existing_file=is_existing,
+                heartbeat_tracker=heartbeat_tracker,
             )
             if asyncio.iscoroutine(corrected_raw):
                 corrected_raw = await corrected_raw
@@ -795,11 +1953,79 @@ class FilesMixin:
                 llm_caller=llm_caller,
             )
             if corrected_content:
-                content = corrected_content
-            import_errors = _validate_python_implementation(content, file_path)
-            import_errors.extend(_validate_python_project_imports(
-                content, file_path, generated_contents or {}, all_files
-            ))
+                content = _repair_python_shared_base(
+                    corrected_content, file_path, generated_contents or {}, architecture
+                )
+                content = _repair_python_sqlalchemy_metadata_owner(
+                    content, file_path, generated_contents or {}, architecture
+                )
+                content = _repair_python_sqlalchemy_text_execute(content, file_path)
+                content = _repair_python_sqlalchemy_get_db(content, file_path, architecture)
+                content = _repair_python_sqlalchemy_table_initialization(
+                    content,
+                    file_path,
+                    generated_contents or {},
+                    architecture,
+                )
+                content = _repair_python_test_database_fixtures(
+                    content, file_path, project_context.get("architecture", {})
+                )
+                content = _repair_python_sync_async_calls(
+                    content, generated_contents or {}
+                )
+                import_errors = _validate_python_implementation(content, file_path)
+                import_errors.extend(
+                    _validate_python_database_abstraction(content, file_path, architecture)
+                )
+                import_errors.extend(_validate_python_sqlalchemy_metadata_owner(content, file_path))
+                import_errors.extend(_validate_python_schema_field_access(
+                    content, file_path, generated_contents or {}
+                ))
+                import_errors.extend(_validate_python_contract(
+                    content, file_path, project_context.get("architecture", {})
+                ))
+                import_errors.extend(_validate_python_project_imports(
+                    content, file_path, generated_contents or {}, all_files,
+                    project_context.get("architecture", {}),
+                ))
+                repaired_content = _repair_python_known_imports(content, import_errors)
+                repaired_content = _repair_python_project_symbol_imports(
+                    repaired_content, import_errors, generated_contents or {}
+                )
+                repaired_content = _repair_python_project_call_keywords(
+                    repaired_content, import_errors
+                )
+                repaired_content = _repair_python_schema_field_access(
+                    repaired_content, import_errors
+                )
+                if repaired_content != content:
+                    content = repaired_content
+                    import_errors = _validate_python_implementation(content, file_path)
+                    import_errors.extend(
+                        _validate_python_database_abstraction(content, file_path, architecture)
+                    )
+                    import_errors.extend(_validate_python_sqlalchemy_metadata_owner(content, file_path))
+                    import_errors.extend(_validate_python_schema_field_access(
+                        content, file_path, generated_contents or {}
+                    ))
+                    import_errors.extend(_validate_python_contract(
+                        content, file_path, project_context.get("architecture", {})
+                    ))
+                    import_errors.extend(_validate_python_project_imports(
+                        content, file_path, generated_contents or {}, all_files,
+                        project_context.get("architecture", {}),
+                    ))
+            else:
+                from app.agent.utils import is_valid_code_content
+                _, invalid_reason = is_valid_code_content(file_path, corrected_raw or "")
+                invalid_reason = invalid_reason or "无法提取有效完整文件内容"
+                import_errors = [f"修复响应无效: {invalid_reason}"]
+                logger.warning(
+                    "静态修复响应无效，保留上一版候选继续重试: file=%s round=%d reason=%s",
+                    file_path,
+                    correction_round,
+                    invalid_reason,
+                )
 
         from app.agent.validation_report import ValidationReport
         validation_report = ValidationReport.create(source="cloud")
@@ -810,7 +2036,7 @@ class FilesMixin:
                 scope="cloud_syntax",
             )
         self.validation_report = validation_report
-                "validation_report": validation_report.model_dump(mode="json"),
+
         if import_errors:
             error_message = f"文件生成失败: {file_path}（跨文件导入不一致: {'；'.join(import_errors)}）"
             self.errors.append(error_message)
@@ -818,9 +2044,9 @@ class FilesMixin:
             return {
                 "path": file_path,
                 "description": description,
-                "validation_report": validation_report.model_dump(mode="json"),
                 "success": False,
                 "size": 0,
+                "validation_report": validation_report.model_dump(mode="json"),
             }
 
         if self.require_approval and self._is_critical_file(file_path):
@@ -861,6 +2087,15 @@ class FilesMixin:
             )
             if not success:
                 self.warnings.append(f"文件验证未完全通过: {file_path}")
+                self.errors.append(f"文件验证失败，禁止落盘: {file_path}")
+                return {
+                    "path": file_path,
+                    "description": description,
+                    "success": False,
+                    "size": 0,
+                    "validation_report": self.validation_report.model_dump(mode="json")
+                    if self.validation_report else {},
+                }
 
         # 验证并修复路径格式
         file_path = self._normalize_file_path(file_path)
@@ -884,6 +2119,7 @@ class FilesMixin:
         if not persisted:
             error_message = f"文件落盘失败: {file_path}"
             if commit_result is not None and commit_result.diagnostic:
+                error_message = f"{error_message}（{commit_result.diagnostic.message}）"
             self.errors.append(error_message)
             logger.error(error_message)
             return {
@@ -919,7 +2155,6 @@ class FilesMixin:
                         fixed_content=content,
                         errors={"validation_error": [fix_attempt.error_message]},
                         model_name=self._select_model_for_file(file_path),
-            "validation_report": validation_report.model_dump(mode="json"),
                         success=fix_attempt.fix_applied
                     )
 
@@ -927,8 +2162,8 @@ class FilesMixin:
             "path": file_path,
             "description": description,
             "success": True,
+            "size": len(content),
             "validation_report": validation_report.model_dump(mode="json"),
-            "size": len(content)
         }
 
     def _friendly_error(self, error_msg: str) -> str:
@@ -1013,7 +2248,7 @@ class FilesMixin:
         if ext in {'.vue', '.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.scss', '.sass', '.less'}:
             return self.model_assignment.frontend_model if self.model_assignment else DEFAULT_CODE_MODEL
         elif ext in {'.py', '.go', '.java', '.rs', '.rb', '.php'}:
-            return self.model_assignment.backend_model if self.model_assignment else DEFAULT_REASONING_MODEL
+            return self.model_assignment.backend_model if self.model_assignment else DEFAULT_CODE_MODEL
         else:
             return self.model_assignment.frontend_model if self.model_assignment else DEFAULT_CODE_MODEL
 
@@ -1031,6 +2266,9 @@ class FilesMixin:
         project_context: Dict,
         reason: str,
         engineer,
+        spec_context: str = "",
+        dep_context: str = "",
+        heartbeat_tracker=None,
     ) -> Optional[str]:
         """恢复无效内容（orchestrator_files 版本）"""
         if "JSON 元数据" in reason:
@@ -1064,8 +2302,11 @@ router = APIRouter()
 
             content = await engineer.generate_file(
                 file_path, recovery_prompt, project_context,
+                spec_context=spec_context,
+                dep_context=dep_context,
                 project_path=str(self.output_dir), callback=self.callback,
                 is_existing_file=False,
+                heartbeat_tracker=heartbeat_tracker,
             )
             if asyncio.iscoroutine(content):
                 content = await content
@@ -1137,9 +2378,6 @@ router = APIRouter()
         content: str,
         description: str
     ) -> Tuple[bool, str]:
-        full_path = self.output_dir / file_path
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-
         content_hash = CodeValidator._compute_content_hash(content)
         cache_key = f"{file_path}:{content_hash}"
         cached_result = self.validator._validation_cache.get(cache_key) if self.validator else None
@@ -1153,15 +2391,14 @@ router = APIRouter()
 
         validation_success = True
 
-        with open(full_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-
         if self.enable_error_recovery:
+            full_path = self.output_dir / file_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
             success, content = await self.error_recovery.validate_and_fix(
                 file_path=full_path,
                 content=content,
                 file_description=description,
-                backend_model=self.model_assignment.backend_model if self.model_assignment else DEFAULT_REASONING_MODEL,
+                backend_model=self.model_assignment.backend_model if self.model_assignment else DEFAULT_CODE_MODEL,
                 callback=self.callback
             )
             if success:

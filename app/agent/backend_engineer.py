@@ -131,6 +131,34 @@ class BackendEngineer(Specialist):
         ])
 
     @staticmethod
+    def _get_file_contract(file_path: str, architecture: Dict) -> Dict:
+        normalized = file_path.replace("\\", "/")
+        for item in architecture.get("file_plan", []):
+            if isinstance(item, dict) and item.get("path", "").replace("\\", "/") == normalized:
+                contract = item.get("contract", {})
+                return contract if isinstance(contract, dict) else {}
+        return {}
+
+    @classmethod
+    def _build_contract_constraints(cls, file_path: str, architecture: Dict) -> str:
+        contract = cls._get_file_contract(file_path, architecture)
+        if not contract:
+            return ""
+        lines = ["【架构职责契约 - 必须遵守】"]
+        for key, label in (("role", "职责"), ("runtime", "运行时"), ("database_abstraction", "数据库抽象")):
+            if contract.get(key):
+                lines.append(f"- {label}: {contract[key]}")
+        for key, label in (("exports", "必须导出的公共符号"), ("required_imports", "必须满足的导入"),
+                           ("forbidden_imports", "禁止导入"), ("shared_symbols", "必须复用的共享符号")):
+            values = contract.get(key, [])
+            if values:
+                values = values if isinstance(values, list) else [values]
+                lines.append(f"- {label}: {', '.join(map(str, values))}")
+        if contract.get("notes"):
+            lines.append(f"- 补充约束: {contract['notes']}")
+        return "\n".join(lines)
+
+    @staticmethod
     def _build_runtime_consistency_constraints(
         file_path: str, file_type: str, project_language: str, architecture: Dict
     ) -> str:
@@ -143,6 +171,35 @@ class BackendEngineer(Specialist):
         if isinstance(project_spec, dict):
             framework = framework or str(project_spec.get("framework", "")).lower()
 
+        planned_items = [
+            item
+            for item in architecture.get("file_plan", [])
+            if isinstance(item, dict) and item.get("path")
+        ]
+
+        def item_type(item: Dict) -> str:
+            contract = item.get("contract", {})
+            contract_role = contract.get("role") if isinstance(contract, dict) else ""
+            return str(
+                item.get("file_type")
+                or contract_role
+                or BackendEngineer._infer_file_type_from_path(str(item.get("path", "")))
+            ).lower()
+
+        def planned_path(*roles: str) -> str:
+            return next(
+                (
+                    str(item["path"])
+                    for item in planned_items
+                    if item_type(item) in roles
+                ),
+                "",
+            )
+
+        database_path = planned_path("database", "persistence", "storage") or "database.py"
+        model_path = planned_path("model", "entity", "entities") or "models.py"
+        database_module = database_path.replace("\\", "/").removesuffix(".py").replace("/", ".")
+
         lines = [
             "【Python 运行时一致性 - 必须遵守】",
             "- 每个被引用的项目模块、类、函数和变量都必须显式导入，且导入来源必须与依赖文件的实际定义一致。",
@@ -154,17 +211,30 @@ class BackendEngineer(Specialist):
             lines.extend([
                 "- 必须导入并复用 database、model、schema 依赖中的现有定义，禁止复制或重新定义这些依赖的类和函数。",
                 "- 调用依赖函数时必须严格匹配其参数类型、参数顺序和返回值；CRUD 返回值必须可供 API 层直接判断和序列化。",
-                "- 数据库访问必须与 database.py 采用同一抽象层；SQLAlchemy Session 与原生 sqlite3 Connection 禁止混用。",
+                f"- 数据库访问必须与 {database_path} 采用同一抽象层；SQLAlchemy Session 与原生 sqlite3 Connection 禁止混用。",
             ])
-            if file_path.replace("\\", "/").rsplit("/", 1)[-1].lower() == "crud.py":
+            contract = BackendEngineer._get_file_contract(file_path, architecture)
+            declared_exports = contract.get("exports", [])
+            if isinstance(declared_exports, str):
+                declared_exports = [declared_exports]
+            if declared_exports:
                 lines.extend([
-                    "- crud.py 必须直接导出模块级函数 create_todo、get_todos、get_todo、update_todo、delete_todo，供 main.py 通过 crud.<函数名> 调用。",
-                    "- 每个上述模块级函数必须实现真实 SQLite 增删改查；禁止只定义 CRUDTodo 类或仅提供静态方法而省略模块级包装函数。",
+                    f"- 架构契约要求当前模块直接导出公共符号：{', '.join(map(str, declared_exports))}。",
+                    "- 仓储公共函数必须实现真实持久化操作，并可由入口层直接导入调用。",
+                    "- CRUD 只能读取请求 Schema 实际声明的字段；数据库生成的 id、created_at、updated_at 等字段由模型默认值负责，禁止从未声明的请求字段读取。",
                 ])
         if file_type == "model":
             lines.extend([
-                "- database.py 已提供 SQLAlchemy Base 时，模型必须通过 from database import Base 复用同一元数据注册表。",
-                "- 禁止在 models.py 中再次调用 declarative_base() 创建独立 Base。",
+                f"- {database_path} 已提供 SQLAlchemy Base 时，模型必须通过 from {database_module} import Base 复用同一元数据注册表。",
+                f"- 禁止在 {file_path} 中再次调用 declarative_base() 创建独立 Base。",
+                "- API 创建资源时不会提交主键；主键必须使用自增 Integer，或提供可序列化的 UUID 默认值。",
+                "- created_at、updated_at 等时间列存在时必须提供 datetime 默认值，并与响应 Schema 的类型和可空性一致。",
+            ])
+        if file_type in {"schema", "types"}:
+            lines.extend([
+                "- 请求 Schema 只声明客户端可提交字段；数据库生成的主键和时间字段只出现在响应 Schema。",
+                "- 响应 Schema 的字段类型、可空性和默认值必须逐项匹配依赖源码中的 ORM 模型列。",
+                "- Pydantic 响应模型必须启用从 ORM 属性读取数据的配置。",
             ])
         if file_type == "database":
             lines.extend([
@@ -173,6 +243,18 @@ class BackendEngineer(Specialist):
                 "- 整个项目必须统一选择 SQLAlchemy 或原生 sqlite3；使用 SQLAlchemy 模型时，database.py 必须导出同一个 Base、engine、SessionLocal 和可关闭 Session 的 get_db。",
                 "- get_db 使用 @contextmanager 时，调用方必须使用 with get_db() as db；作为 FastAPI yield 依赖时，调用方必须使用 Depends(get_db)。",
             ])
+            if (
+                project_language.lower() == "python"
+                and framework == "fastapi"
+                and any(item_type(item) in {"model", "entity", "entities"} for item in planned_items)
+            ):
+                lines.extend([
+                    "- 当前项目包含模型层；数据库层统一采用 SQLAlchemy，禁止在同一文件中导入或调用 sqlite3。",
+                    "- 当前数据库文件是依赖基础层，禁止导入模型、仓储、Schema 或任何下游项目模块。",
+                    "- 数据库文件必须定义并导出 Base = declarative_base()、engine、SessionLocal 和 get_db，供模型层复用同一 Base。",
+                    "- 数据库文件只提供数据库基础设施；禁止创建 Web 应用、声明路由或引用未定义的框架符号。",
+                    f"- 当前模型文件为 {model_path}；数据库层禁止导入该模型文件或其他下游项目模块。",
+                ])
         if file_type == "entry":
             lines.extend([
                 "- FastAPI startup 和 shutdown 事件函数不得声明框架不会注入的参数。",
@@ -180,13 +262,49 @@ class BackendEngineer(Specialist):
                 "- 数据库初始化和 CRUD 调用必须严格使用依赖源码中的真实函数签名。",
                 "- get_db 返回生成器或上下文管理器时，必须通过 Depends(get_db) 或 with get_db() as db 获取真实会话，禁止把包装对象当作 Session。",
             ])
+            planned_types = {item_type(item) for item in planned_items}
+            if "repository" in planned_types:
+                lines.append(
+                    "- 入口层调用仓储模块的命名空间或符号前，必须显式导入架构声明的仓储文件，并使用其真实导出接口。"
+                )
+            if project_language.lower() == "python":
+                route_modules = [
+                    str(item["path"])
+                    for item in planned_items
+                    if str(item["path"]) != file_path
+                    and item_type(item) in {"api", "router", "routes"}
+                ]
+                if not route_modules:
+                    lines.extend([
+                        f"- 当前文件集合未声明独立路由层；所有 API 路由必须直接定义在 {file_path}，禁止导入未声明的路由模块。",
+                    ])
+                if planned_path("database", "persistence", "storage"):
+                    lines.extend([
+                        f"- 使用数据库 engine、SessionLocal 或 get_db 前，必须从 {database_path} 显式导入，并严格使用其实际导出符号。",
+                    ])
+                lines.append(
+                    "- 同一资源集合的所有方法必须使用需求指定的同一个规范路径；需求为 /api/v1/todos 时，GET、POST 均使用 /api/v1/todos，禁止单独添加尾斜杠。"
+                )
         if file_type == "test" or "test" in file_path.lower():
             lines.extend([
                 "- pytest fixture、测试函数和客户端调用的同步/异步风格必须一致。",
+                "- 文件持久化测试必须使用 tmp_path 创建真实临时文件，并用 pytest monkeypatch 替换存储路径解析函数或路径常量。",
+                "- 禁止 patch 或 mock builtins.open、pathlib.Path、os.path.exists、json.load、json.dump；连续 CRUD 操作必须读写同一个真实临时文件。",
+                "- 需求指定 monkeypatch 时必须直接使用 pytest 的 monkeypatch fixture，禁止用 unittest.mock.patch 或 MagicMock 替代。",
+                "- monkeypatch 文件路径时必须导入模块（例如 import todo）并使用 monkeypatch.setattr(todo, '_get_storage_path', lambda: str(tmp_path / 'data.json'))；禁止给导入到测试局部作用域的函数名重新赋值。",
+                "- 测试函数或 fixture 必须声明 monkeypatch 参数并直接调用 monkeypatch.setattr；禁止实例化 pytest.MonkeyPatch，禁止使用 with pytest.MonkeyPatch()，因为该对象不提供上下文管理器协议。",
+                "- 每个文件持久化测试的函数签名必须包含 (tmp_path, monkeypatch)，函数体直接使用 monkeypatch.setattr(todo, '_get_storage_path', ...)；不要创建任何 MonkeyPatch 对象。",
+                "- fixture 必须声明 monkeypatch 依赖并在 fixture 结束后由 pytest 自动恢复；禁止手动保存和恢复被 patch 的符号，禁止在 fixture 中删除 tmp_path 内容。",
+                "- 持久化状态断言必须在每个操作后重新调用 list_todos() 或从文件重新读取，不能检查操作前保留的对象列表。",
+                "- pytest 测试函数必须直接定义在模块顶层，禁止把 test_* 函数嵌套在另一个函数或条件块中。",
+                "- 模块直接执行入口只能调用 pytest 或 raise SystemExit(main())；禁止在模块顶层使用 return。",
+                "- 测试文件只定义 pytest 测试和必要 fixture，不要额外创建一个包裹全部测试的 test_main 函数。",
                 "- FastAPI 同步测试优先使用 fastapi.testclient.TestClient。",
-                "- 测试断言必须匹配 main.py 的实际路径、状态码以及 CRUD 函数的真实签名和返回值。",
+                "- 测试断言必须匹配入口模块的实际路径、状态码以及 CRUD 函数的真实签名和返回值。",
                 "- SQLite CRUD 测试必须调用真实 API 和临时数据库验证持久化，禁止 mock 或 patch CRUD 函数。",
                 "- 调用 init_database、get_db 等依赖函数前必须逐项核对依赖源码参数；依赖未提供数据库路径参数时禁止自行传入。",
+                f"- 测试必须复用已生成 {database_path} 的 engine、Base、SessionLocal 或 get_db；禁止引入依赖源码中未出现的数据库包。",
+                "- 每个测试中引用的 Schema、fixture 和客户端变量都必须在模块顶层显式导入或定义。",
             ])
             if framework == "fastapi":
                 lines.extend([
@@ -216,6 +334,32 @@ class BackendEngineer(Specialist):
             "- 导入前必须依据下方依赖源码核对真实导出符号。",
         ])
 
+    @staticmethod
+    def _build_interface_constraints(dep_context: str) -> str:
+        """把依赖签名提升为不可变的跨文件接口事实。"""
+        interface_lines = []
+        for block in re.split(r"(?=^## 依赖文件:)", dep_context, flags=re.MULTILINE):
+            match = re.search(r"^## 依赖文件:\s*(.+?)\s*$", block, re.MULTILINE)
+            if not match:
+                continue
+            signatures = [
+                line.strip()
+                for line in block.splitlines()
+                if re.match(r"^\s*(?:async\s+)?def\s+|^\s*class\s+", line)
+            ]
+            if signatures:
+                interface_lines.append(f"- {match.group(1)}: {'; '.join(signatures)}")
+        if not interface_lines:
+            return ""
+        return "\n".join([
+            "【跨文件接口事实 - 最高优先级】",
+            "- 以下签名来自已生成依赖文件，必须原样遵守，尤其是返回类型和类字段。",
+            *interface_lines,
+            "- 返回对象类型使用属性访问（例如 todo.id、todo.title）；返回字典类型才使用下标访问（例如 item['id']）。",
+            "- 调用方的测试、服务和入口代码必须与被调用函数的实际返回类型保持一致。",
+            "- 以下划线开头的函数、类和变量属于模块私有实现，跨文件调用方禁止导入或调用；只能使用公共导出符号。",
+        ])
+
     @traced("backend.generate_file", attributes={"component": "specialist", "role": "backend"})
     async def generate_file(
         self,
@@ -242,14 +386,38 @@ class BackendEngineer(Specialist):
 
         # 从 project_spec 中提取当前文件的约束
         project_spec = architecture.get("project_spec", {})
-        file_type = self._infer_file_type_from_path(file_path)
+        file_plan_item = next(
+            (item for item in architecture.get("file_plan", [])
+             if isinstance(item, dict) and item.get("path", "").replace("\\", "/") == file_path.replace("\\", "/")),
+            {},
+        )
+        file_type = file_plan_item.get("file_type") or self._infer_file_type_from_path(file_path)
         file_spec = project_spec.get(file_type, project_spec.get("default", {}))
         spec_constraints = self._build_spec_constraints(file_type, file_spec)
+        contract_constraints = self._build_contract_constraints(file_path, architecture)
         file_scope_constraints = self._build_file_scope_constraints(file_path, architecture)
         runtime_consistency_constraints = self._build_runtime_consistency_constraints(
             file_path, file_type, project_language, architecture
         )
         dependency_import_constraints = self._build_dependency_import_constraints(dep_context)
+        interface_constraints = self._build_interface_constraints(dep_context)
+        if file_type == "model" and re.search(
+            r"^\s*(?:import\s+sqlite3|from\s+sqlite3\s+import\s+)",
+            dep_context,
+            re.MULTILINE,
+        ):
+            runtime_consistency_constraints += (
+                "\n- 已生成的 database.py 使用原生 sqlite3；models.py 必须继续使用原生 sqlite3 数据访问，"
+                "禁止导入 SQLAlchemy、declarative_base、Column、Integer、String 或 relationship。"
+            )
+        if file_type == "model" and re.search(
+            r"(?:^|\n)\s*(?:Base\s*=\s*declarative_base\(\)|from\s+sqlalchemy(?:\.orm)?\s+import[^\n]*declarative_base)",
+            dep_context,
+        ):
+            runtime_consistency_constraints += (
+                "\n- 已生成的 database.py 已导出 SQLAlchemy Base；本文件必须直接使用 `from database import Base`。"
+                "\n- 只能在 Base 上声明模型类；禁止导入或调用 declarative_base()，禁止创建第二个 Base。"
+            )
 
         prompt = f"""【严格约束】你必须严格按文件路径指定的语言编写代码，禁止自行添加或修改扩展名。
 
@@ -269,11 +437,15 @@ class BackendEngineer(Specialist):
 
 {spec_constraints}
 
+{contract_constraints}
+
 {file_scope_constraints}
 
 {runtime_consistency_constraints}
 
 {dependency_import_constraints}
+
+{interface_constraints}
 
 【语言约束 - 必须遵守】
 - 文件路径中已经包含正确的扩展名（如 .py、.go、.java、.json、.toml、.md 等），你必须保留原始路径，不允许添加项目主语言的扩展名
@@ -380,12 +552,29 @@ from .utils import greet, farewell
                 if k in ('read_file', 'list_files', 'read_symbols', 'read_imports',
                          'summarize_file', 'search_files')
             }
+            dependency_files = re.findall(
+                r"^## 依赖文件:\s*(.+?)\s*$", dep_context, re.MULTILINE
+            )
+            preverified_tool_names = set()
+            read_symbols_tool = read_only_tools.get("read_symbols")
+            if read_symbols_tool:
+                for dependency_file in dependency_files:
+                    try:
+                        result = read_symbols_tool["fn"](
+                            project_path=project_path,
+                            file_path=dependency_file.strip(),
+                        )
+                        if isinstance(result, dict) and result.get("success", True):
+                            preverified_tool_names.add("read_symbols")
+                    except Exception as exc:
+                        logger.debug("宿主侧依赖符号预读失败: %s: %s", dependency_file, exc)
             result = await self.call_llm_with_tools(
                 prompt, self.SYSTEM_PROMPT, tools=read_only_tools,
-                project_path=project_path, callback=callback,
+                project_path=project_path, react_mode="simple", callback=callback,
                 heartbeat_tracker=heartbeat_tracker, enable_streaming_thinking=True,
                 thinking_budget=50,
-                required_tool_names={"read_symbols"},
+                required_tool_names={"read_symbols"} if dependency_files else set(),
+                preverified_tool_names=preverified_tool_names,
             )
         else:
             result = await self.call_llm(prompt, self.SYSTEM_PROMPT, thinking_budget=50)

@@ -13,6 +13,11 @@ from app.agent.tracing import traced
 logger = logging.getLogger(__name__)
 
 
+def _requires_layered_generation(total_files: int, dep_graph: DependencyGraph) -> bool:
+    """Use topology layers whenever project files have ordering constraints."""
+    return total_files > 5 or any(dep_graph.adjacency.values())
+
+
 class TraditionalGenerateMixin:
 
     @traced("orchestrator.traditional", attributes={"component": "orchestrator"})
@@ -187,6 +192,18 @@ class TraditionalGenerateMixin:
             "output_dir": str(self.output_dir),
             "api_contract": api_contract_prompt
         }
+        from app.agent.profile_discovery import profile_context
+        project_context["profile"] = profile_context(self.output_dir)
+        from app.agent.context_assembler import ContextAssembler
+        context_items = [
+            {"source": "requirement", "source_id": "request", "content": requirement, "priority": 100},
+            {"source": "generation_plan", "source_id": "generation_plan", "content": str(project_context.get("generation_plan", file_plan)), "priority": 95},
+        ]
+        project_context["context_envelope"] = ContextAssembler().assemble(
+            task_id=self.session_id or "legacy-traditional",
+            stage="planning",
+            items=context_items,
+        ).model_dump(mode="json")
         if dep_graph.generation_plan is not None:
             project_context["generation_plan"] = dep_graph.generation_plan.model_dump(mode="json")
 
@@ -209,10 +226,10 @@ class TraditionalGenerateMixin:
             await self._handle_incremental_generation(
                 requirement, file_plan, project_context, total_files
             )
-        elif total_files <= 5:
-            await self._generate_files_small_project(file_plan, project_context, total_files)
-        else:
+        elif _requires_layered_generation(total_files, dep_graph):
             await self._generate_files_by_dep_layers(file_plan, project_context, total_files, dep_graph)
+        else:
+            await self._generate_files_small_project(file_plan, project_context, total_files)
 
         final_validation = {}
         test_results = {"success": True, "message": "未运行动态测试"}

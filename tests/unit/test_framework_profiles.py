@@ -45,3 +45,26 @@ def test_workspace_profile_requires_matching_owner_and_stays_pending():
 
     with pytest.raises(ValueError):
         registry.register_workspace(profile, "workspace-2")
+
+
+def test_workspace_profile_requires_dependency_and_command_allowlists():
+    registry = ProfileRegistry()
+    profile = FrameworkProfile(
+        name="internal-web", language="python", version="1",
+        status=ProfileStatus.CUSTOM_PENDING, capabilities={},
+        dependencies=("fastapi",), scope=ProfileScope.WORKSPACE, owner_id="workspace-1",
+        command_allowlist=(("python3", "-m", "pytest"),), dependency_allowlist=("fastapi",),
+    )
+    registry.register_workspace(profile, "workspace-1")
+
+    assert registry.validate_workspace_command(profile, ("python3", "-m", "pytest"))
+    assert not registry.validate_workspace_command(profile, ("sh", "run.sh"))
+
+
+def test_profile_registry_does_not_fallback_to_incompatible_version():
+    registry = ProfileRegistry([FrameworkProfile(
+        name="custom", language="python", version="2", status=ProfileStatus.EXPERIMENTAL,
+        capabilities={},
+    )])
+
+    assert registry.get("python", "custom", "1") is None

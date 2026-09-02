@@ -48,6 +48,17 @@ class TestCodeValidator:
         assert "size_bytes" in stats
         assert "hit_rate" in stats
 
+    @pytest.mark.asyncio
+    async def test_single_file_validation_resolves_sibling_generated_module(self, validator):
+        project_path = validator.project_path
+        (project_path / "todo.py").write_text("VALUE = 1\n", encoding="utf-8")
+        candidate = project_path / ".temp_main.py"
+        candidate.write_text("from todo import VALUE\n", encoding="utf-8")
+
+        result = await validator.validate_single_file(candidate)
+
+        assert result["is_valid"] is True
+
 class TestCodeValidatorLRU:
     def test_lru_cache_limit(self):
         from app.agent.code_validator import CodeValidator

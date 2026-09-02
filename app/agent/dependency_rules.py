@@ -156,6 +156,8 @@ PATH_TYPE_RULES: List[Tuple[str, str]] = [
     # 测试
     ("tests/", "test"),
     ("test/", "test"),
+    ("test_", "test"),
+    ("_test.py", "test"),
     ("__tests__/", "test"),
 
     # 文档

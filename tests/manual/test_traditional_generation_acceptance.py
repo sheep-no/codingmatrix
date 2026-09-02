@@ -18,24 +18,39 @@ from app.utils.security import create_access_token
 
 
 URL = "http://127.0.0.1:8000/api/v1/agent/orchestrate/stream"
-EXPECTED_FILES = {
-    "main.py",
-    "models.py",
-    "database.py",
-    "schemas.py",
-    "crud.py",
-    "test_main.py",
-}
+RENAMED_MODE = "--renamed" in sys.argv
+FILE_NAMES = (
+    {
+        "entry": "app_entry.py",
+        "model": "entities.py",
+        "database": "persistence.py",
+        "schema": "dto.py",
+        "repository": "repository.py",
+        "test": "api_test.py",
+    }
+    if RENAMED_MODE
+    else {
+        "entry": "main.py",
+        "model": "models.py",
+        "database": "database.py",
+        "schema": "schemas.py",
+        "repository": "crud.py",
+        "test": "test_main.py",
+    }
+)
+EXPECTED_FILES = set(FILE_NAMES.values())
+ENTRY_MODULE = FILE_NAMES["entry"].removesuffix(".py")
 REQUIREMENT = (
     "创建一个 FastAPI + SQLite 待办事项 CRUD 项目，包含创建、查询、更新、删除接口，"
     "API 使用 /api/v1/todos 路径，创建返回 201、查询和更新返回 200、删除返回 204、资源不存在返回 404。"
     "数据必须真实持久化到 todos.db；单元测试必须使用 TestClient 和真实临时 SQLite 数据库覆盖完整 CRUD，禁止 mock CRUD。"
-    "只需要 main.py、models.py、database.py、schemas.py、crud.py、test_main.py 六个文件。"
+    f"只需要 {', '.join(FILE_NAMES.values())} 六个文件，并严格按照职责使用这些文件名。"
 )
 
 
 async def main() -> int:
-    project_name = f"traditional_acceptance_{int(time.time())}"
+    mode = "renamed" if RENAMED_MODE else "standard"
+    project_name = f"traditional_acceptance_{mode}_{int(time.time())}"
     output_dir = Path("/workspace/projects/1") / project_name
     token = create_access_token(sub="1", permission_level="super", expires_delta=None)
     request = {
@@ -102,7 +117,7 @@ async def main() -> int:
         hashes[relative_path] = hashlib.sha256(content.encode("utf-8")).hexdigest()
     print(f"sha256={json.dumps(hashes, sort_keys=True)}")
     print("syntax=passed")
-    test_file = output_dir / "test_main.py"
+    test_file = output_dir / FILE_NAMES["test"]
     runtime = subprocess.run(
         [sys.executable, "-m", "pytest", str(test_file), "-q"],
         cwd=output_dir,
@@ -122,7 +137,7 @@ async def main() -> int:
     persistence_probe = """
 import sqlite3
 from fastapi.testclient import TestClient
-from main import app
+from __ENTRY_MODULE__ import app
 
 with TestClient(app) as client:
     created = client.post('/api/v1/todos', json={'title': 'persisted', 'description': 'probe'})
@@ -142,7 +157,7 @@ with TestClient(app) as client:
     assert deleted.status_code == 204, deleted.text
     missing = client.get(f'/api/v1/todos/{todo_id}')
     assert missing.status_code == 404, missing.text
-"""
+""".replace("__ENTRY_MODULE__", ENTRY_MODULE)
     persistence = subprocess.run(
         [sys.executable, "-c", persistence_probe],
         cwd=output_dir,

@@ -264,6 +264,10 @@ class PythonLanguageAdapter(LanguageAdapter):
         if file_path.endswith('__init__.py'):
             return "config"
 
+        filename = Path(file_path).name.lower()
+        if filename.startswith("test_") or filename.endswith("_test.py"):
+            return "test"
+
         # 检查路径规则
         for pattern, file_type in self.PATH_TYPE_RULES:
             if pattern.endswith('/'):

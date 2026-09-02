@@ -95,6 +95,40 @@ class GenerationPlan(BaseModel):
         } for item in self.files)
 
 
+def add_profile_components(
+    files: Iterable[Mapping[str, object] | PlanFile],
+    profile_context: Mapping[str, object],
+    *,
+    policy: str = "extensible",
+    requested_paths: Optional[Iterable[str]] = None,
+    language: str = "",
+    framework: str = "",
+    runtime: str = "",
+) -> GenerationPlan:
+    """Project domain component hints into a plan without expanding strict scopes."""
+    entries = list(files)
+    existing = {str(item.path if isinstance(item, PlanFile) else item.get("path", "")) for item in entries}
+    if policy != "strict":
+        raw_policy = profile_context.get("capability_policy", {})
+        component_plan = raw_policy.get("component_file_plan", ()) if isinstance(raw_policy, Mapping) else ()
+        previous = None
+        for item in component_plan:
+            path = str(item.get("path", ""))
+            if not path or path in existing:
+                continue
+            component = str(item.get("component", "component"))
+            entry = {"path": path, "role": component, "file_type": component, "priority": 3}
+            if previous:
+                entry["dependencies"] = (previous,)
+            entries.append(entry)
+            existing.add(path)
+            previous = path
+    return GenerationPlan.build(
+        entries, language=language, framework=framework, runtime=runtime,
+        policy=policy, requested_paths=requested_paths,
+    )
+
+
 def _coerce_file(item: Mapping[str, object] | PlanFile) -> PlanFile:
     if isinstance(item, PlanFile):
         return item

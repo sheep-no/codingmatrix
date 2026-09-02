@@ -33,6 +33,7 @@ class ModelCallContext(BaseModel):
     file_path: Optional[str] = None
     call_id: str = Field(min_length=1)
     react_round: int = Field(default=0, ge=0)
+    context_hash: Optional[str] = Field(default=None, min_length=64, max_length=64)
     started_at: datetime
     deadline_at: datetime
 
@@ -54,6 +55,7 @@ class ModelCallContext(BaseModel):
         call_id: str,
         file_path: Optional[str] = None,
         react_round: int = 0,
+        context_hash: Optional[str] = None,
         task_elapsed_seconds: float = 0.0,
         stage_elapsed_seconds: float = 0.0,
         file_elapsed_seconds: float = 0.0,
@@ -65,6 +67,7 @@ class ModelCallContext(BaseModel):
             file_path=file_path,
             call_id=call_id,
             react_round=react_round,
+            context_hash=context_hash,
             started_at=started_at,
             deadline_at=budget.model_deadline(
                 started_at=started_at,
@@ -103,7 +106,7 @@ class ModelGatewayError(RuntimeError):
 
     @property
     def diagnostic(self) -> Dict[str, Any]:
-        return {
+        diagnostic = {
             "code": self.code,
             "message": str(self),
             "task_id": self.context.task_id,
@@ -112,6 +115,9 @@ class ModelGatewayError(RuntimeError):
             "call_id": self.context.call_id,
             "react_round": self.context.react_round,
         }
+        if self.context.context_hash is not None:
+            diagnostic["context_hash"] = self.context.context_hash
+        return diagnostic
 
 
 class ModelCallTimeout(ModelGatewayError):

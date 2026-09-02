@@ -158,7 +158,7 @@ class Architect(Specialist):
 - 必须包含以下字段：project_type, frontend_structure, backend_structure, api_spec, db_schema, file_plan, project_spec
 - 所有文件必须使用正确的文件扩展名和语法
 
-file_plan 格式要求（每个文件必须包含 imports、file_type 和 language 字段）：
+file_plan 格式要求（每个文件必须包含 imports、file_type、language 和 contract 字段）：
 ```json
 {{{{"file_plan": [
     {{"path": "<入口文件>", "description": "主程序入口", "priority": 1, "file_type": "entry", "language": "{target_language}", "imports": [...]}},
@@ -169,6 +169,8 @@ file_plan 格式要求（每个文件必须包含 imports、file_type 和 langua
 ```
 
 file_type 可选值（每个文件必须选择一个，不得留空或使用其他值）：entry, model, api, service, repository, types, database, config, middleware, frontend_component, frontend_page, frontend_style, template, test, utils, docs
+
+每个 file_plan 项目还必须包含 contract 对象。contract 描述该文件的职责边界和跨文件接口，字段可包括 role、exports、forbidden_imports、required_imports、shared_symbols、database_abstraction、runtime 和 notes。依赖方向使用 imports 或 dependencies 声明，公共符号使用 exports 声明；这些契约必须根据实际职责填写，不能根据固定文件名推断。同一模块禁止同时出现在 required_imports 和 forbidden_imports 中；入口和 API 文件必须允许导入 project_spec 声明的框架。
 
 file_type 选择指南：
 - entry: 程序入口文件（如 main.py, app.py, index.js）
@@ -614,7 +616,12 @@ language 字段要求：
             })
             planned_paths.add(path)
 
-        return architecture
+        strict_paths = self._extract_strict_file_paths(requirement)
+        return self._ensure_file_plan_completeness(
+            architecture,
+            language,
+            strict_paths=strict_paths,
+        )
 
     def _build_default_project_spec(self, language: str, frontend_language: Optional[str], complexity: ComplexityAnalysis) -> Dict:
         """构建默认的 project_spec（向后兼容）"""
@@ -726,6 +733,12 @@ language 字段要求：
             return None
         match = re.search(r"(?:只需要|仅需要|only)\s*(.{1,300}?)(?:个|份)?\s*文件", requirement, re.IGNORECASE)
         if not match:
+            match = re.search(
+                r"(?:只生成|仅生成)\s*(?:以下\s*)?(?:\d+\s*个\s*)?(.{1,300}?)(?:。|$)",
+                requirement,
+                re.IGNORECASE,
+            )
+        if not match:
             return None
         paths = set(re.findall(r"[\w./-]+\.(?:py|js|ts|jsx|tsx|vue|html|css|scss|json|yaml|yml|toml|go|java|rs)", match.group(1)))
         return paths or None
@@ -786,6 +799,7 @@ language 字段要求：
                 normalized["path"] = strict_path
                 strict_file_plan.append(normalized)
             architecture["file_plan"] = strict_file_plan
+            architecture["strict_file_paths"] = sorted(strict_paths)
             logger.info(
                 "严格文件集合生效: %d -> %d 个文件",
                 original_count,
@@ -933,6 +947,10 @@ language 字段要求：
             扩展后的架构设计
         """
         existing_plan = architecture.get("file_plan", [])
+        strict_paths = architecture.get("strict_file_paths")
+        if strict_paths:
+            logger.info("严格文件集合已冻结，跳过 file_plan 扩展: %s", strict_paths)
+            return architecture
         existing_paths = {f["path"] for f in existing_plan}
 
         if len(existing_plan) >= target_file_count:

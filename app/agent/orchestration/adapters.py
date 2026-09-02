@@ -8,7 +8,7 @@ from typing import Any, Dict, Mapping, Optional, Protocol
 from .generation_scheduler import FileGenerationContext, GeneratedContent
 from .models import OrchestrationState
 from .plan import GenerationPlan, build_file_plan
-from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan
+from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan, add_profile_components
 
 
 @dataclass(frozen=True)
@@ -58,6 +58,7 @@ class TraditionalAdapter:
     async def create_plan(self, request: GenerationRequest) -> GenerationPlan:
         self._requirement = request.requirement
         self._project_context = dict(request.metadata)
+        self._project_context.setdefault("context_hash", request.metadata.get("context_hash"))
         await self.agent._initialize_components(request.requirement)
         self._architecture = await self.agent.architect.design_architecture(
             request.requirement,
@@ -72,6 +73,17 @@ class TraditionalAdapter:
             requested_paths=requested_paths,
             policy="strict" if requested_paths is not None else "extensible",
         )
+        profile_context = request.metadata.get("profile_context")
+        if isinstance(profile_context, Mapping):
+            self.project_plan = add_profile_components(
+                self.project_plan.files,
+                profile_context,
+                policy=self.project_plan.policy,
+                requested_paths=self.project_plan.requested_paths,
+                language=self.project_plan.language,
+                framework=self.project_plan.framework,
+                runtime=self.project_plan.runtime,
+            )
         entries = list(self.project_plan.file_entries())
         self._plan = build_file_plan(entries, requested_paths=requested_paths)
         self._project_context.setdefault("architecture", self._architecture)

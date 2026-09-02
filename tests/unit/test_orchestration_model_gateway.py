@@ -97,6 +97,18 @@ def test_context_uses_smallest_remaining_scope_for_deadline() -> None:
     assert (context.deadline_at - context.started_at).total_seconds() == pytest.approx(0.04)
 
 
+def test_model_context_and_diagnostics_carry_context_hash() -> None:
+    context_hash = "a" * 64
+    context = ModelCallContext.from_budget(
+        make_budget(), task_id="task-1", stage_id="stage-1", call_id="call-1",
+        context_hash=context_hash,
+    )
+
+    assert context.context_hash == context_hash
+    error = ModelCallTimeout("timed out", context)
+    assert error.diagnostic["context_hash"] == context_hash
+
+
 @pytest.mark.asyncio
 async def test_non_streaming_call_times_out_with_structured_diagnostic() -> None:
     async def hanging_caller(**_: Any) -> dict[str, Any]:

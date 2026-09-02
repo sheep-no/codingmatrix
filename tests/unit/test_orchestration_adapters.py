@@ -66,6 +66,26 @@ async def test_traditional_adapter_creates_plan_and_generates_file(tmp_path):
     assert adapter.project_plan.language == "python"
 
 
+@pytest.mark.asyncio
+async def test_traditional_adapter_projects_profile_components_into_extensible_plan(tmp_path):
+    adapter = TraditionalAdapter(_Agent(tmp_path))
+    request = GenerationRequest(
+        requirement="build a game",
+        task_id="task-2",
+        session_id="session-2",
+        metadata={"profile_context": {"capability_policy": {"component_file_plan": [
+            {"path": "game/rules.py", "component": "rules"},
+            {"path": "game/renderer.py", "component": "renderer"},
+        ]}}},
+    )
+
+    plan = await adapter.create_plan(request)
+
+    assert "game/rules.py" in {item.path for item in plan.files}
+    renderer = next(item for item in adapter.project_plan.files if item.path == "game/renderer.py")
+    assert renderer.dependencies == ("game/rules.py",)
+
+
 def test_engine_selection_defaults_to_legacy(monkeypatch):
     monkeypatch.delenv("AGENT_ORCHESTRATION_ENGINE", raising=False)
     assert select_engine() == LEGACY_ENGINE

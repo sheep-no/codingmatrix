@@ -1005,7 +1005,10 @@ class DependencyGraph:
             else:
                 budget = max(200, remaining_budget // max(1, remaining_deps))
 
-            signatures = extract_signatures(dep_path, content)
+            if self.language_adapter and hasattr(self.language_adapter, "extract_signatures"):
+                signatures = self.language_adapter.extract_signatures(content, dep_path)
+            else:
+                signatures = extract_signatures(dep_path, content)
             signature_budget = max(0, int(budget * 0.4))
             code_budget = max(0, budget - signature_budget)
             signature_text = (signatures or "")[:signature_budget]

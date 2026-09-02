@@ -66,7 +66,9 @@ flowchart LR
 
 迁移顺序为传统生成、Spec-First、增量修改。每个入口保留 legacy/core 路由和原有 HTTP、SSE、会话契约，checkpoint 记录引擎版本，恢复任务继续使用创建时的引擎版本。
 
-`app.agent.orchestration` 已实现第一阶段内核原语：严格 Pydantic 契约、单向阶段转换、revision 校验、持久化事件幂等、唯一终态、原子 JSON checkpoint，以及任务创建、推进、终止、取消和恢复协调。文件计划层已实现统一安全路径规范化、`strict/extensible` 自动策略、结构化计划错误、依赖集合校验、扩展来源记录，以及带稳定 digest 的不可变计划版本。执行层已实现不可变的任务、阶段、文件和模型调用四级预算，预算随 command 写入 checkpoint；`ModelGateway` 使用绝对墙钟 deadline 包住模型调用和完整流消费，区分保活、普通流数据与业务模型数据，并在超时、用户取消或外部任务取消后关闭活动流。`ArtifactCommitter` 统一执行安全路径校验、大小限制、原子写入、磁盘回读和 SHA-256 一致性验证，验证成功后才登记 `SharedContext` 清单并返回幂等的 `file_completed` 事件。成功门禁比较冻结计划、完成事件、清单和磁盘业务文件集合，忽略隐藏元数据，并要求每个计划文件 hash 一致且验证状态有效；Core 进入 `completed` 前必须携带通过的门禁结果，失败结果收敛为带 `artifact_consistency_failed` 诊断的失败终态。`GenerationScheduler` 以冻结计划为输入，按依赖就绪队列调度独立文件，使用 `TaskGroup` 管理子任务，执行并发上限、重试预算、文件/阶段超时、取消传播、上游失败阻断和循环依赖死锁收敛，并保证活动任务最终归零。传统入口已具备 `TraditionalAdapter`、legacy/core 引擎选择、无源码影子状态对比和 checkpoint 引擎版本元数据；Core 生产生成入口等待任务 11.1 的契约与真实生成验收后切换。实施进度和验收门禁记录在 `../specs/2026-08-31-multilanguage-generation-orchestration/`。
+`app.agent.orchestration` 已实现第一阶段内核原语：严格 Pydantic 契约、单向阶段转换、revision 校验、持久化事件幂等、唯一终态、原子 JSON checkpoint，以及任务创建、推进、终止、取消和恢复协调。文件计划层已实现统一安全路径规范化、`strict/extensible` 自动策略、结构化计划错误、依赖集合校验、扩展来源记录，以及带稳定 digest 的不可变计划版本。执行层已实现不可变的任务、阶段、文件和模型调用四级预算，预算随 command 写入 checkpoint；`ModelGateway` 使用绝对墙钟 deadline 包住模型调用和完整流消费，区分保活、普通流数据与业务模型数据，并在超时、用户取消或外部任务取消后关闭活动流。`ArtifactCommitter` 统一执行安全路径校验、大小限制、原子写入、磁盘回读和 SHA-256 一致性验证，验证成功后才登记 `SharedContext` 清单并返回幂等的 `file_completed` 事件。成功门禁比较冻结计划、完成事件、清单和磁盘业务文件集合，忽略隐藏元数据，并要求每个计划文件 hash 一致且验证状态有效；Core 进入 `completed` 前必须携带通过的门禁结果，失败结果收敛为带 `artifact_consistency_failed` 诊断的失败终态。`GenerationScheduler` 以冻结计划为输入，按依赖就绪队列调度独立文件，使用 `TaskGroup` 管理子任务，执行并发上限、重试预算、文件/阶段超时、取消传播、上游失败阻断和循环依赖死锁收敛，并保证活动任务最终归零。传统入口已具备 `TraditionalAdapter`、legacy/core 引擎选择、无源码影子状态对比和 checkpoint 引擎版本元数据；传统单文件生成还将 120 秒活动 tracker 传递到 Specialist 和 simple ReAct，模型流 chunk 更新活动时间，无活动调用取消后进入内容恢复重试。Core 生产生成入口等待任务 11.1 的契约与真实生成验收后切换。实施进度和验收门禁记录在 `../specs/2026-08-31-multilanguage-generation-orchestration/`。
+
+云端文件校验通过 `app.agent.validation_report.ValidationReport` 统一表达。报告为不可变、可序列化结构，记录 `cloud_syntax` scope、错误类别、文件路径、诊断上下文 hash、修复候选 hash 和修复证据；`RepairRouter` 对 syntax、dependency、export、signature、async、fixture、schema 和 type 类错误使用受控自动修复，对 business、test 和 unknown 类错误进入用户确认流程。`RepairBudget` 限制单类错误最多 3 次、任务累计最多 5 次，预算耗尽后保留可定位诊断并停止自动修复。
 
 ## StateGraph 边界
 
@@ -75,6 +77,15 @@ flowchart LR
 ## 检索与运行时边界
 
 `RetrievalService` 已实现请求范围过滤、内容 hash 去重、排序和降级结果，但当前未接入生产 Agent 主链路。检索 chunk 的实际字段为 `source_type`、`source_id`、`content_hash`、`metadata` 和 `retrieved_at`；`project_scope` 与 `session_scope` 通过请求和 metadata 参与过滤。
+
+`ContextAssembler` 将需求、计划、检索结果、Memory 和 MCP/Skill 描述转换为带来源、优先级、作用域和内容 hash 的 `ContextEnvelope`，执行字符预算和敏感字段脱敏。`app.agent.languages` 复用已注册的 Python 与 JavaScript Adapter，统一提供解析、符号和编译/测试能力元数据。Toolchain 命令使用参数数组，并通过 Profile 的命令与依赖白名单约束工作区扩展。
+
+`app.agent.profile_discovery` 根据工作区 manifest 和依赖线索创建 `DiscoveredProfile`，应用域覆盖 Web、Windows、Android、爬虫、游戏和 CLI。未知技术栈进入 `custom_pending` 并输出 `CapabilityGap`，通过 Toolchain 探针结果后再升级为实验或正式 Profile。
+已验证的工作区画像由 `ProfileCache` 保存到 `.monkeycode/profiles.json`，后续任务可复用画像并通过 schema version 触发安全失效。探针结果将画像从 `custom_pending` 推进到 `experimental`；完整 conformance checks 通过后才升级到 `supported`。
+传统、Spec-First 和增量修改入口在规划阶段读取 `profile_context()`，将画像状态和能力缺口传递给生成与验证流程。
+`CapabilityResolver` 将应用域映射为必需能力、生成约束和验证步骤；Pygame、Scrapy、Android 和 Windows 等应用类型可以复用同一生成生命周期。
+解析结果还包含 `required_components`，为生成计划提供领域级组件提示，保持领域策略与具体框架 Profile 解耦。
+`add_profile_components()` 将组件提示投影为 `GenerationPlan` 节点和顺序依赖；`strict` 计划保持用户冻结集合，`extensible` 计划记录受控领域扩展。
 
 Skills 使用 `system:`, `user:` 和 `workspace:<folder-name>:` 命名空间。User Skills 通过认证用户 ID 隔离；Workspace Skills 由 VS Code 的所有 workspace folders 递归发现，并在 Agent Host session 内保存和同步。Web 端读取当前用户 Skills 与用户拥有的 Agent Host sessions，用于展示当前会话上下文。VS Code activation 会为所有 workspace folders 建立独立授权，`workspace` capability 的 `inspect` 和 `list_roots` 操作返回当前已授权根目录。
 

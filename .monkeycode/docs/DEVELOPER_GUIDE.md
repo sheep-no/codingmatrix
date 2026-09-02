@@ -94,7 +94,14 @@ npm --prefix vscode-extension run e2e
 - 模型取消路径必须关闭底层异步流并归还信号量；现有 `LLMClient` 在成功、失败、超时和取消后均调用动态路由结果记录，使 `active_requests` 收敛为零。
 - 新内核生成内容统一通过 `ArtifactCommitter.commit()` 落盘；调用方只发布返回结果中的首次 `completion_event`。任务进入成功终态前调用 `check_artifact_success_gate()`，并将成功结果传给 `OrchestratorCore.finish()`；`artifact_commit_failed` 和 `artifact_consistency_failed` 保持为稳定错误码。
 - 新内核文件调度使用 `GenerationScheduler`；生成器只接收 `FileGenerationContext`，完成内容交给 `ArtifactCommitter`，下游只在所有上游节点完成后释放。阶段或用户取消后等待 `TaskGroup` 子任务回收，并将所有未完成节点收敛到对应终态。
+- 云端校验结果使用 `ValidationReport`；新增修复类别先通过 `RepairRouter` 分类，再由 `RepairBudget` 控制单类 3 次、任务累计 5 次的自动修复额度。错误诊断应携带文件路径、scope、上下文 hash 和候选版本 hash，业务逻辑、测试断言及未知错误进入用户确认。
+- 生成前上下文通过 `ContextAssembler` 装配；输入条目必须声明 `source`、`source_id`、`content`、优先级和作用域，Memory、Retrieval 与 MCP/Skill 内容由装配器统一脱敏、去重并生成 `context_hash`。
+- 新增语言能力时优先通过 `app.agent.languages` 暴露 Adapter 和能力元数据；框架 Profile 的工作区命令必须使用参数数组，并同时维护命令白名单与依赖白名单。
+- 语言接口提取优先调用 `LanguageAdapter.extract_signatures()`；需要外部语言工具时使用 `ToolchainRunner` 和 `CommandSpec(action=ToolchainAction.INSPECT, command=(...))`，保持 `shell=false`、超时和输出上限，工具失败后回退内置解析器。
+- 未声明技术栈通过 `app.agent.profile_discovery.discover_profile()` 生成候选画像，再用 `build_probe_plan()` 产生参数数组探针；探针执行结果决定 `custom_pending`、`experimental` 和 `supported` 状态流转。
+- 工作区 Profile 通过 `ProfileCache` 读写 `.monkeycode/profiles.json`；画像缓存属于运行时元数据，读取时必须校验 schema version，写入时使用原子替换。
 - 传统生成迁移使用 `TraditionalAdapter` 和 `route_generation()`；设置 `AGENT_ORCHESTRATION_ENGINE=core` 可选择 Core 实验路由，默认保持 legacy。影子对比只记录成功状态与文件路径集合，checkpoint metadata 保存 `engine_version`。
+- 传统生成的模型活动超时由传入 Specialist/ReAct 的 `HeartbeatTracker` 判断，默认 120 秒；流式 chunk 必须调用 `touch()`。SSE heartbeat 只用于 HTTP 连接保活，排查生成停滞时应查看最近模型数据时间和 `react_timeout` 事件。
 - 验证节点通过 `State.metadata.required_validation_scopes` 声明 `local_runtime` 或 `local_e2e`；云端验证保持 `cloud_syntax`，本地结果按 scope 回传。
 - 本地结果协议使用 `validation_scope`、`status` 和 `source=local`；`local_result_to_delta()` 负责映射为内部字段并执行 task/session/revision/schema 校验。StateReducer 按验证结果 `event_id` 去重，重复回传保持状态和 revision 不变。
 - 会话回放使用 `replay_session()`；发现 sequence 缺口时，调用方应执行返回的 `snapshot_recovery` action。

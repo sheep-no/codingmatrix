@@ -3,7 +3,7 @@
 from enum import Enum
 from typing import Dict, Iterable, Tuple
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.agent.capabilities import Capability, CapabilitySet
 
@@ -35,6 +35,19 @@ class FrameworkProfile(BaseModel):
     health_path: str = "/health"
     scope: ProfileScope = ProfileScope.SYSTEM
     owner_id: str | None = None
+    command_allowlist: Tuple[Tuple[str, ...], ...] = ()
+    dependency_allowlist: Tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_workspace_contract(self) -> "FrameworkProfile":
+        if self.scope is ProfileScope.WORKSPACE:
+            if not self.owner_id:
+                raise ValueError("workspace profile requires owner_id")
+            if any(not command for command in self.command_allowlist):
+                raise ValueError("workspace command allowlist cannot contain empty commands")
+            if any(dependency not in self.dependency_allowlist for dependency in self.dependencies):
+                raise ValueError("profile dependencies must be in dependency_allowlist")
+        return self
 
     @classmethod
     def custom_pending(
@@ -50,6 +63,8 @@ class FrameworkProfile(BaseModel):
             capabilities=CapabilitySet(),
             scope=ProfileScope.WORKSPACE,
             owner_id=owner_id,
+            command_allowlist=(),
+            dependency_allowlist=(),
         )
 
 
@@ -72,6 +87,11 @@ class ProfileRegistry:
             raise ValueError("workspace profile owner does not match registration scope")
         self.register(profile)
 
+    def validate_workspace_command(self, profile: FrameworkProfile, command: Tuple[str, ...]) -> bool:
+        if profile.scope is not ProfileScope.WORKSPACE:
+            return False
+        return command in profile.command_allowlist
+
     def get(self, language: str, framework: str, version: str = "latest") -> FrameworkProfile | None:
         language_key = {"js": "typescript", "javascript": "typescript"}.get(
             language.lower(), language.lower()
@@ -84,6 +104,7 @@ class ProfileRegistry:
             profile for (item_language, item_framework, _), profile in self._profiles.items()
             if item_language == language_key and item_framework == framework_key
             and profile.scope is ProfileScope.SYSTEM
+            and (version == "latest" or profile.version == version)
         ]
         return candidates[0] if candidates else None
 

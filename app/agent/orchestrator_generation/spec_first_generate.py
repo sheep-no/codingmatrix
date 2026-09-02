@@ -20,7 +20,9 @@ from app.agent.dynamic_model_router import get_context_length
 from app.agent.models import DEFAULT_FAST_MODEL
 from app.agent.utils import extract_engineer_content, write_file_atomic, cleanup_temp_files
 from app.agent.dependency_graph_validator import DependencyGraphValidator, format_validation_feedback, MAX_VALIDATION_RETRIES
-from app.agent.generation_plan import GenerationPlan
+from app.agent.generation_plan import GenerationPlan, add_profile_components
+from app.agent.toolchain import detect_toolchain
+from app.agent.validation_coordinator import ValidationCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -208,13 +210,41 @@ class SpecFirstGenerateMixin:
             "complexity": ctx.complexity,
             "output_dir": getattr(self, '_relative_output_dir', None) or str(self.output_dir)
         }
+        from app.agent.profile_discovery import profile_context
+        project_context["profile"] = profile_context(self.output_dir)
+        from app.agent.context_assembler import ContextAssembler
+        project_context["context_envelope"] = ContextAssembler().assemble(
+            task_id=self.session_id or "legacy-spec-first",
+            stage="planning",
+            items=[
+                {"source": "requirement", "source_id": "request", "content": requirement, "priority": 100},
+                {"source": "generation_plan", "source_id": "generation_plan", "content": str(architecture), "priority": 95},
+            ],
+        ).model_dump(mode="json")
         try:
             project_plan = GenerationPlan.from_architecture(architecture)
+            project_plan = add_profile_components(
+                project_plan.files,
+                project_context["profile"],
+                policy=project_plan.policy,
+                requested_paths=project_plan.requested_paths,
+                language=project_plan.language,
+                framework=project_plan.framework,
+                runtime=project_plan.runtime,
+            )
+            architecture["file_plan"] = project_plan.file_entries()
         except ValueError as exc:
             project_plan = None
             logger.warning("Spec-First 项目计划暂未冻结，保留兼容生成流程: %s", exc)
         if project_plan is not None:
             project_context["generation_plan"] = project_plan.model_dump(mode="json")
+        validation_plan = ValidationCoordinator().build_plan(
+            project_context["profile"], detect_toolchain(self.output_dir)
+        )
+        project_context["validation_plan"] = {
+            "commands": [command.model_dump(mode="json") for command in validation_plan.commands],
+            "unsupported_steps": list(validation_plan.unsupported_steps),
+        }
 
         constraint_prompt = constraint_parser.generate_prompt_fragment("all", "all")
         if constraint_prompt:

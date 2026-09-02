@@ -225,6 +225,23 @@ class TestDependencyGraph:
         assert graph.nodes["crud.py"].file_type == "repository"
         assert graph.adjacency["models.py"] == {"database.py"}
         assert graph.adjacency["database.py"] == set()
+
+    def test_generic_utils_file_types_are_inferred_from_paths(self, graph):
+        architecture = {
+            "file_plan": [
+                {"path": "database.py", "file_type": "utils", "imports": []},
+                {"path": "models.py", "file_type": "utils", "imports": ["database"]},
+                {"path": "crud.py", "file_type": "utils", "imports": ["models"]},
+            ]
+        }
+
+        graph.build_from_architecture(architecture)
+
+        assert graph.nodes["database.py"].file_type == "database"
+        assert graph.nodes["models.py"].file_type == "model"
+        assert graph.nodes["crud.py"].file_type == "repository"
+        assert graph.adjacency["models.py"] == {"database.py"}
+        assert graph.adjacency["crud.py"] == {"models.py", "database.py"}
     
     def test_extract_dependencies_from_content_python(self, graph):
         """测试从 Python 内容中提取依赖"""
@@ -387,3 +404,145 @@ import UserCard from '../components/User.vue';
         assert graph.adjacency["test_main.py"] == {
             "database.py", "models.py", "schemas.py", "crud.py", "main.py"
         }
+
+    def test_contract_driven_entry_receives_repository_dependency(self):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({
+            "file_plan": [
+                {"path": "crud.py", "file_type": "repository", "contract": {"role": "CRUD"}},
+                {"path": "main.py", "file_type": "entry", "contract": {"role": "API entry"}},
+            ]
+        })
+
+        assert graph.adjacency["main.py"] == {"crud.py"}
+
+    def test_generic_python_test_filename_is_classified_as_test(self):
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        graph.add_file("test_main.py")
+
+        assert graph.nodes["test_main.py"].file_type == "test"
+
+    def test_python_adapter_classifies_root_test_filename_as_test(self):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({
+            "file_plan": [
+                {"path": "main.py", "file_type": "entry"},
+                {"path": "test_main.py", "file_type": "unknown"},
+            ]
+        })
+
+        assert graph.nodes["test_main.py"].file_type == "test"
+        assert graph.adjacency["test_main.py"] == {"main.py"}
+
+    def test_contract_graph_keeps_database_before_models(self):
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        architecture = {
+            "file_plan": [
+                {
+                    "path": "database.py",
+                    "file_type": "database",
+                    "imports": ["models"],
+                    "dependencies": ["models.py"],
+                    "contract": {
+                        "role": "database",
+                        "required_imports": ["models", "sqlalchemy"],
+                    },
+                },
+                {"path": "models.py", "file_type": "model", "dependencies": ["database.py"], "contract": {"role": "model"}},
+            ]
+        }
+
+        graph.build_from_architecture(architecture)
+
+        assert graph.get_generation_order() == ["database.py", "models.py"]
+        database_plan = architecture["file_plan"][0]
+        assert database_plan["imports"] == []
+        assert database_plan["dependencies"] == []
+        assert database_plan["contract"]["required_imports"] == ["sqlalchemy"]
+
+    def test_contract_graph_adds_omitted_model_database_dependency(self):
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        graph.build_from_architecture({
+            "file_plan": [
+                {"path": "database.py", "file_type": "database", "contract": {"role": "database"}},
+                {"path": "models.py", "file_type": "model", "contract": {"role": "model"}},
+            ]
+        })
+
+        assert graph.adjacency["models.py"] == {"database.py"}
+        assert graph.get_generation_layers() == [["database.py"], ["models.py"]]
+
+    def test_contract_graph_generates_python_schemas_after_models(self):
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        graph.build_from_architecture({
+            "file_plan": [
+                {"path": "database.py", "file_type": "database", "contract": {"role": "database"}},
+                {"path": "models.py", "file_type": "model", "contract": {"role": "model"}},
+                {"path": "schemas.py", "file_type": "types", "contract": {"role": "schemas"}},
+            ]
+        })
+
+        assert graph.adjacency["schemas.py"] == {"models.py"}
+        layers = graph.get_generation_layers()
+        assert layers.index(["schemas.py"]) > layers.index(["models.py"])
+
+    def test_contract_graph_generates_python_repository_after_schemas(self):
+        from app.agent.dependency_graph import DependencyGraph
+
+        architecture = {
+            "file_plan": [
+                {"path": "database.py", "file_type": "database", "contract": {"role": "database"}},
+                {"path": "models.py", "file_type": "model", "contract": {"role": "model"}},
+                {
+                    "path": "schemas.py",
+                    "file_type": "types",
+                    "dependencies": ["crud.py"],
+                    "contract": {"role": "schemas"},
+                },
+                {"path": "crud.py", "file_type": "repository", "contract": {"role": "repository"}},
+            ]
+        }
+        graph = DependencyGraph()
+
+        graph.build_from_architecture(architecture)
+
+        assert "crud.py" not in graph.adjacency["schemas.py"]
+        assert graph.adjacency["crud.py"] == {"schemas.py"}
+        assert graph.get_generation_layers() == [
+            ["database.py"],
+            ["models.py"],
+            ["schemas.py"],
+            ["crud.py"],
+        ]
+
+    def test_contract_tests_are_generated_after_runtime_files(self):
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        graph.build_from_architecture({
+            "file_plan": [
+                {"path": "database.py", "file_type": "database", "contract": {"role": "database"}},
+                {"path": "main.py", "file_type": "entry", "contract": {"role": "API entry"}},
+                {"path": "test_main.py", "file_type": "test", "contract": {"role": "tests"}},
+            ]
+        })
+
+        layers = graph.get_generation_layers()
+
+        test_layer = next(index for index, layer in enumerate(layers) if "test_main.py" in layer)
+        main_layer = next(index for index, layer in enumerate(layers) if "main.py" in layer)
+        assert test_layer > main_layer

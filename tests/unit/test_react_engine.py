@@ -19,6 +19,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from app.agent.react_engine import ReActEngine, ReActStep, ReActResult
+from app.agent.topology_scheduler import HeartbeatTracker
 
 
 class TestReActStep:
@@ -217,6 +218,52 @@ class TestBuildHistoryText:
 
 class TestRunSimpleMode:
     @pytest.mark.asyncio
+    async def test_inactive_llm_is_cancelled_by_heartbeat(self):
+        cancelled = asyncio.Event()
+
+        async def hanging_llm(_prompt, _system_prompt):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        tracker = HeartbeatTracker(timeout=0.03)
+        engine = ReActEngine(
+            tools={"t": {"fn": lambda **_kwargs: {}, "description": "t", "params": {}}},
+            call_llm_fn=hanging_llm,
+            project_path="/tmp",
+            heartbeat_timeout=tracker.timeout,
+            heartbeat_tracker=tracker,
+        )
+
+        result = await asyncio.wait_for(engine.run("task", "sys"), timeout=0.3)
+
+        assert result == ""
+        assert cancelled.is_set()
+
+    @pytest.mark.asyncio
+    async def test_model_activity_keeps_simple_mode_alive(self):
+        tracker = HeartbeatTracker(timeout=0.03)
+
+        async def active_llm(_prompt, _system_prompt):
+            for _ in range(5):
+                await asyncio.sleep(0.01)
+                tracker.touch()
+            return "final answer"
+
+        engine = ReActEngine(
+            tools={"t": {"fn": lambda **_kwargs: {}, "description": "t", "params": {}}},
+            call_llm_fn=active_llm,
+            project_path="/tmp",
+            heartbeat_timeout=tracker.timeout,
+            heartbeat_tracker=tracker,
+        )
+
+        result = await asyncio.wait_for(engine.run("task", "sys"), timeout=0.3)
+
+        assert result == "final answer"
+
+    @pytest.mark.asyncio
     async def test_no_project_path_fallback(self):
         mock_llm = AsyncMock(return_value="direct response")
         engine = ReActEngine(tools={}, call_llm_fn=mock_llm, project_path="")
@@ -295,6 +342,22 @@ class TestRunSimpleMode:
         assert result == "direct response"
         assert call_count == 3
         assert "read_symbols" in engine.used_tool_names
+
+    @pytest.mark.asyncio
+    async def test_preverified_tool_allows_direct_final_response(self):
+        mock_llm = AsyncMock(return_value="final code")
+        engine = ReActEngine(
+            tools={"read_symbols": {"fn": lambda **kwargs: {}, "description": "read", "params": {}}},
+            call_llm_fn=mock_llm,
+            project_path="/tmp",
+            required_tool_names={"read_symbols"},
+            preverified_tool_names={"read_symbols"},
+        )
+
+        result = await engine.run("task", "sys")
+
+        assert result == "final code"
+        mock_llm.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_max_rounds_safety_valve(self):
