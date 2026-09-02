@@ -14,6 +14,7 @@ from app.agent.tools import (
     _tool_read_file, _tool_list_files, _tool_read_symbols,
     _tool_read_imports, _tool_summarize_file, _tool_run_command,
 )
+from app.agent.models import DEFAULT_FAST_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ class AgentExecutor:
         self,
         task: str,
         project_path: str,
-        model_name: str = "Qwen/Qwen3-8B",
+        model_name: str = DEFAULT_FAST_MODEL,
         max_rounds: int = 10,
         api_key_token: str = None,
     ) -> Dict:

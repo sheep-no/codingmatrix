@@ -30,6 +30,7 @@ class RateLimitConfig:
             "/api/v1/register": RateLimitRule(limit=10, window=60),
             "/api/v1/refresh": RateLimitRule(limit=10, window=60),
             "/api/v1/files/upload": RateLimitRule(limit=20, window=60),
+            "/api/v1/chat": RateLimitRule(limit=60, window=60),
             "/api/v1/code": RateLimitRule(limit=60, window=60),
             "/api/v1/generate": RateLimitRule(limit=60, window=60),
             "/api/v1/pptx": RateLimitRule(limit=60, window=60),

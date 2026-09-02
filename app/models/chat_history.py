@@ -5,6 +5,7 @@ from sqlalchemy.orm import relationship
 from app.models.base import Base
 import uuid
 from datetime import datetime
+from app.agent.models import DEFAULT_REASONING_MODEL
 
 
 class ChatHistory(Base):
@@ -50,7 +51,7 @@ class CustomCharacter(Base):
     speaking_style = Column(String(200), default="")
     greetings = Column(Text, default="[]")  # JSON array of greeting strings
     tags = Column(Text, default="[]")  # JSON array of tag strings
-    model = Column(String(100), default="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B")
+    model = Column(String(100), default=DEFAULT_REASONING_MODEL)
     temperature = Column(Integer, default=80)  # stored as int (0.8 * 100)
     max_tokens = Column(Integer, default=180)
     avatar_color = Column(String(20), default="#667eea")  # hex color for avatar

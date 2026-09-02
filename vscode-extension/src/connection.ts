@@ -7,13 +7,17 @@ import {
 } from "./protocol.js";
 import { AgentHostEnvelope, AgentHostSession, HostHandshake, HostHelloPayload, parseAgentHostEnvelope } from "./agent-host.js";
 import { ResultStore } from "./result-store.js";
+import { nodeFetch } from "./node-fetch.js";
 
 export interface HttpResponseLike {
   readonly ok: boolean;
   readonly status: number;
+  readonly body?: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }> } } | null;
   json(): Promise<unknown>;
   text(): Promise<string>;
 }
+
+export type AgentStreamEvent = { type: string; data?: unknown };
 
 export type FetchLike = (
   input: string,
@@ -21,6 +25,7 @@ export type FetchLike = (
     method?: string;
     headers?: Record<string, string>;
     body?: string;
+    signal?: AbortSignal;
   },
 ) => Promise<HttpResponseLike>;
 
@@ -83,7 +88,7 @@ export class CloudConnection {
     }
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.accessToken = options.accessToken;
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+    this.fetchImpl = options.fetchImpl ?? nodeFetch;
     this.maxRetries = options.maxRetries ?? 2;
     this.retryDelayMs = options.retryDelayMs ?? 250;
     this.actionsPath = options.actionsPath ?? DEFAULT_ACTIONS_PATH;
@@ -126,6 +131,61 @@ export class CloudConnection {
       body: JSON.stringify(event),
     });
     return this.readJson(response);
+  }
+
+  async controlSession(action: "pause" | "resume" | "cancel"): Promise<{ status: string }> {
+    if (!this.sessionId) throw new CloudConnectionError("request_failed", "agent host handshake is required");
+    const response = await this.request(`/api/v1/agent/host/sessions/${encodeURIComponent(this.sessionId)}/control`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const body = await this.readJson(response);
+    if (!this.isRecord(body) || typeof body.status !== "string") {
+      throw new ProtocolError("invalid_payload", "session control response must contain a status");
+    }
+    return { status: body.status };
+  }
+
+  async syncSkills(skills: Record<string, unknown>): Promise<unknown> {
+    if (!this.sessionId) throw new CloudConnectionError("request_failed", "agent host handshake is required");
+    const response = await this.request(`/api/v1/agent/host/sessions/${encodeURIComponent(this.sessionId)}/skills`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ skills }),
+    });
+    return this.readJson(response);
+  }
+
+  async streamAgentPrompt(
+    request: Record<string, unknown>,
+    onEvent: (event: AgentStreamEvent) => void | Promise<void>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const response = await this.request("/api/v1/ai-agent/orchestrate/stream", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+      signal,
+    });
+    if (!response.body) throw new CloudConnectionError("request_failed", "agent stream response has no body");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const chunk = await reader.read();
+      buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) {
+        const data = frame.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+        if (!data) continue;
+        await onEvent(JSON.parse(data) as AgentStreamEvent);
+      }
+      if (chunk.done) break;
+    }
+    const finalData = buffer.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+    if (finalData) await onEvent(JSON.parse(finalData) as AgentStreamEvent);
   }
 
   async fetchPendingActions(): Promise<PendingAction[]> {
@@ -220,7 +280,7 @@ export class CloudConnection {
 
   private async request(
     path: string,
-    init: { method: string; headers?: Record<string, string>; body?: string },
+    init: { method: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
   ): Promise<HttpResponseLike> {
     let lastError: unknown;
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
@@ -263,7 +323,7 @@ export class CloudConnection {
           }
           throw new CloudConnectionError(
             "network_unavailable",
-            "cloud network request failed",
+            `cloud network request failed for ${this.baseUrl}${path}${error instanceof Error && error.message ? `: ${error.message}` : ""}`,
           );
         }
         lastError = error;

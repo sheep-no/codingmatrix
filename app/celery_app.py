@@ -20,6 +20,7 @@ celery_app = Celery(
     include=[
         "app.tasks.project_tasks",
         "app.tasks.code_tasks",
+        "app.tasks.ppt_tasks",
     ]
 )
 
@@ -42,10 +43,12 @@ celery_app.conf.update(
     task_routes={
         "app.tasks.project_tasks.*": {"queue": "tasks"},
         "app.tasks.code_tasks.*": {"queue": "tasks"},
+        "app.tasks.ppt_tasks.*": {"queue": "ppt"},
     },
     task_annotations={
         "app.tasks.project_tasks.*": {"rate_limit": "10/m"},
         "app.tasks.code_tasks.*": {"rate_limit": "60/m"},
+        "app.tasks.ppt_tasks.*": {"rate_limit": "10/m"},
     },
     worker_concurrency=int(os.getenv("CELERY_CONCURRENCY", "1")),
     worker_max_tasks_per_child=int(os.getenv("CELERY_MAX_TASKS_PER_CHILD", "50")),

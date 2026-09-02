@@ -7,6 +7,7 @@
 
 import re
 import logging
+import ast
 from pathlib import Path
 from typing import Optional
 
@@ -81,6 +82,10 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
     """
     try:
         ext = Path(file_path).suffix.lower()
+        if ext in (".py", ".pyi"):
+            python_signatures = _extract_python_signatures(content)
+            if python_signatures:
+                return python_signatures
         patterns = SIGNATURE_PATTERNS.get(ext)
         if patterns is None:
             fallback = {".jsx": ".js", ".tsx": ".ts"}.get(ext, ext)
@@ -201,6 +206,37 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
     except Exception as e:
         logger.debug(f"签名提取失败：{e}")
         return None
+
+
+def _extract_python_signatures(content: str) -> Optional[str]:
+    """使用 AST 提取完整 Python 签名，保留返回类型和类字段。"""
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return None
+
+    result_parts = []
+
+    def function_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
+        prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
+        arguments = ast.unparse(node.args)
+        return_annotation = f" -> {ast.unparse(node.returns)}" if node.returns else ""
+        return f"{prefix} {node.name}({arguments}){return_annotation}:"
+
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            result_parts.append(function_signature(node))
+        elif isinstance(node, ast.ClassDef):
+            bases = f"({', '.join(ast.unparse(base) for base in node.bases)})" if node.bases else ""
+            result_parts.append(f"class {node.name}{bases}:")
+            for member in node.body:
+                if isinstance(member, ast.AnnAssign) and isinstance(member.target, ast.Name):
+                    annotation = ast.unparse(member.annotation)
+                    result_parts.append(f"  {member.target.id}: {annotation}")
+                elif isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    result_parts.append(f"  {function_signature(member)}")
+
+    return "\n".join(result_parts) or None
 
 
 def _is_class_field(stripped: str, ext: str) -> bool:

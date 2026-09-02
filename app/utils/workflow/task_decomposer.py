@@ -12,10 +12,11 @@ from typing import Dict, List, Any, Optional
 
 from app.schema.workflow import TaskGraph, TaskNode, TaskType
 from app.utils import call_llm
+from app.agent.models import DEFAULT_REASONING_MODEL
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+DEFAULT_MODEL = DEFAULT_REASONING_MODEL
 
 # 提示词文件路径
 _SKILL_DIR = Path(__file__).parent.parent.parent.parent / "skills" / "workflow-planner"

@@ -4,6 +4,7 @@
 提供基于 Celery + Redis 的分布式任务队列功能。
 """
 import logging
+from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,9 +22,39 @@ from app.models.task import Task
 from app.celery_app import celery_app
 from app.services.websocket_manager import ws_manager
 from app.tasks.base import parse_priority, parse_timeout
+from app.services.unified_state_service import (
+    StateConflictError,
+    StateNotFoundError,
+    StateOwnershipError,
+    append_task_event,
+    get_owned_task,
+    heartbeat_task,
+    replay_task_events,
+    transition_task,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tasks", tags=["任务管理"])
+
+
+def _merge_task_runtime_state(task_record, celery_state, celery_info):
+    """Merge SQL progress with Celery runtime metadata without losing persisted updates."""
+    persisted_status = str(task_record.status or "pending").lower()
+    if persisted_status in {"success", "failed", "cancelled"}:
+        status = persisted_status
+    else:
+        status = celery_state.lower() if celery_state else persisted_status
+
+    progress = int(task_record.progress or 0)
+    progress_message = task_record.progress_message or ""
+    if isinstance(celery_info, dict):
+        celery_progress = celery_info.get("progress")
+        if isinstance(celery_progress, (int, float)):
+            progress = max(progress, int(celery_progress))
+        celery_message = celery_info.get("message")
+        if celery_message:
+            progress_message = celery_message
+    return status, progress, progress_message
 
 
 @router.post("", response_model=TaskResponse, summary="创建任务")
@@ -123,16 +154,12 @@ async def get_task(
     """查询任务状态和进度"""
     user_id = int(token.get("sub"))
 
-    result = await db.execute(
-        select(Task).where(Task.task_id == task_id)
-    )
-    task_record = result.scalar_one_or_none()
-
-    if not task_record:
-        raise HTTPException(status_code=404, detail="任务不存在")
-
-    if task_record.user_id != user_id:
-        raise HTTPException(status_code=403, detail="无权访问此任务")
+    try:
+        task_record = await get_owned_task(db, task_id, user_id)
+    except StateNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except StateOwnershipError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
 
     celery_state = None
     celery_info = None
@@ -141,13 +168,9 @@ async def get_task(
         celery_state = celery_result.state
         celery_info = celery_result.info
 
-    status = celery_state.lower() if celery_state else task_record.status
-    progress = 0
-    progress_message = task_record.progress_message or ""
-
-    if celery_info and isinstance(celery_info, dict):
-        progress = celery_info.get("progress", progress)
-        progress_message = celery_info.get("message", progress_message)
+    status, progress, progress_message = _merge_task_runtime_state(
+        task_record, celery_state, celery_info
+    )
 
     return TaskResponse(
         task_id=task_record.task_id,
@@ -166,6 +189,62 @@ async def get_task(
         started_at=task_record.started_at.isoformat() if task_record.started_at else None,
         completed_at=task_record.completed_at.isoformat() if task_record.completed_at else None
     )
+
+
+@router.get("/{task_id}/events", summary="重放任务事件")
+async def get_task_events(
+    task_id: str,
+    after_sequence: int = Query(0, ge=0),
+    limit: int = Query(500, ge=1, le=1000),
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """从 SQL 事件日志读取断线后的增量事件。"""
+    user_id = int(token.get("sub"))
+    try:
+        events = await replay_task_events(db, task_id, user_id, after_sequence, limit)
+    except StateNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except StateOwnershipError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    return {
+        "task_id": task_id,
+        "after_sequence": after_sequence,
+        "events": [
+            {
+                "sequence": event.sequence,
+                "event_type": event.event_type,
+                "status": event.status,
+                "progress": event.progress,
+                "payload": event.payload_json,
+                "created_at": event.created_at.isoformat() if event.created_at else None,
+            }
+            for event in events
+        ],
+    }
+
+
+@router.post("/{task_id}/heartbeat", summary="更新任务 worker lease")
+async def task_heartbeat(
+    task_id: str,
+    worker_id: str = Query(..., min_length=1, max_length=100),
+    lease_seconds: int = Query(60, ge=5, le=3600),
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    user_id = int(token.get("sub"))
+    try:
+        task = await heartbeat_task(
+            db, task_id, user_id, worker_id, datetime.utcnow() + timedelta(seconds=lease_seconds)
+        )
+        await db.commit()
+    except StateNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except StateOwnershipError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except StateConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"task_id": task.task_id, "worker_id": task.worker_id, "lease_until": task.lease_until.isoformat()}
 
 
 @router.get("", response_model=TaskListResponse, summary="列出任务")
@@ -258,6 +337,8 @@ async def cancel_task(
         )
 
     task_record.status = "cancelled"
+    task_record.completed_at = task_record.completed_at or datetime.utcnow()
+    await append_task_event(db, task_id, user_id, "task.cancelled", status="cancelled")
     await db.commit()
 
     logger.info(f"任务取消成功 | task_id={task_id}")
@@ -332,6 +413,62 @@ async def retry_task(
         created_at=task_record.created_at.isoformat() if task_record.created_at else "",
         started_at=None,
         completed_at=None
+    )
+
+
+@router.post("/{task_id}/recover", response_model=TaskResponse, summary="恢复任务")
+async def recover_task(
+    task_id: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """将可恢复终态任务切换为 pending，并记录恢复事件。"""
+    user_id = int(token.get("sub"))
+    try:
+        task_record = await get_owned_task(db, task_id, user_id)
+        if task_record.status not in {"failed", "cancelled"}:
+            raise HTTPException(status_code=400, detail=f"任务状态为 {task_record.status}，无法恢复")
+        await transition_task(db, task_id, user_id, "pending", progress=0, error_message=None, allow_recovery=True)
+        await append_task_event(db, task_id, user_id, "task.recovered", status="pending")
+        task_map = {
+            "project_generate": "app.tasks.project_tasks.generate_project",
+            "code_generate": "app.tasks.code_tasks.generate_code",
+            "modify_with_test": "app.tasks.code_tasks.modify_with_test",
+        }
+        celery_task_name = task_map.get(task_record.task_type)
+        if celery_task_name:
+            result = celery_app.send_task(
+                celery_task_name,
+                task_id=task_record.task_id,
+                **(task_record.params or {}),
+                user_id=user_id,
+                priority=task_record.priority,
+                time_limit=task_record.timeout,
+            )
+            task_record.celery_task_id = result.id
+        await db.commit()
+    except StateNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except StateOwnershipError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except StateConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return TaskResponse(
+        task_id=task_record.task_id,
+        celery_task_id=task_record.celery_task_id,
+        task_type=task_record.task_type,
+        status=task_record.status,
+        priority=task_record.priority,
+        progress=task_record.progress or 0,
+        progress_message="等待恢复...",
+        result=task_record.result,
+        error_message=task_record.error_message,
+        retry_count=task_record.retry_count,
+        max_retries=task_record.max_retries,
+        parent_task_id=task_record.parent_task_id,
+        created_at=task_record.created_at.isoformat() if task_record.created_at else "",
+        started_at=task_record.started_at.isoformat() if task_record.started_at else None,
+        completed_at=task_record.completed_at.isoformat() if task_record.completed_at else None,
     )
 
 

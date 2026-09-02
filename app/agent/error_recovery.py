@@ -19,6 +19,7 @@ from app.agent.test_runner import TestRunner
 from app.agent.error_classifier import error_classifier, ErrorClassification
 from app.agent.strategy_evaluator import strategy_evaluator, StrategyEvaluationResult
 from app.agent.specialist_base import get_global_llm_semaphore
+from app.agent.repair_router import RepairBudget, RepairRouter
 
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ class ErrorRecoveryLoop:
         self.api_key_token = api_key_token
         self.cancel_event = cancel_event
         self.fix_history: List[FixAttempt] = []
+        self.repair_budget = RepairBudget()
         self._semaphore = get_global_llm_semaphore()
         self.MODEL_FALLBACK_CHAIN = self._load_fallback_chain("error_recovery")
 
@@ -200,6 +202,19 @@ class ErrorRecoveryLoop:
         error_messages = "; ".join(self._extract_error_messages(errors))
         classification = await error_classifier.classify_error(error_messages, content)
         error_classifier.add_to_history(classification)
+        route = RepairRouter.route(classification.error_type, error_messages)
+        if not route.auto_apply:
+            logger.info(
+                "错误需要用户确认，跳过自动修复: category=%s repairer=%s",
+                route.category,
+                route.repairer,
+            )
+            return {
+                "success": False,
+                "fixed_content": content,
+                "requires_confirmation": True,
+                "repair_category": route.category,
+            }
 
         # 通过策略评估器获取修复模板
         fix_template, strategy_id = strategy_evaluator.get_strategy_template(classification.error_type)
@@ -208,7 +223,16 @@ class ErrorRecoveryLoop:
         if fix_template is None:
             fix_template = self._build_default_fix_template()
 
-        for attempt in range(self.MAX_FIX_ATTEMPTS):
+        attempts_used = 0
+        for attempt in range(min(self.MAX_FIX_ATTEMPTS, route.max_attempts)):
+            if not self.repair_budget.consume(route.category):
+                logger.warning(
+                    "自动修复预算耗尽: category=%s total=%d",
+                    route.category,
+                    self.repair_budget.total_used,
+                )
+                break
+            attempts_used += 1
             # 检查取消信号
             if self.cancel_event and self.cancel_event.is_set():
                 logger.info(f"[错误恢复] 检测到取消信号，终止修复循环 | attempt={attempt}")
@@ -373,7 +397,7 @@ class ErrorRecoveryLoop:
             error_type=classification.error_type,
             error_message="多次修复失败: " + "; ".join(self._extract_error_messages(errors)),
             fix_applied=False,
-            attempts=self.MAX_FIX_ATTEMPTS
+            attempts=attempts_used
         ))
 
         # 记录最终失败评估结果
@@ -388,7 +412,13 @@ class ErrorRecoveryLoop:
                 )
             )
 
-        return {"success": False, "fixed_content": content}
+        return {
+            "success": False,
+            "fixed_content": content,
+            "requires_confirmation": False,
+            "repair_category": route.category,
+            "budget_exhausted": not self.repair_budget.can_consume(route.category),
+        }
 
     async def _evaluate_code_quality(self, code: str, file_path: Path) -> float:
         """评估修复后代码的质量（通过模拟审查轮次）"""

@@ -7,7 +7,7 @@ from collections import defaultdict
 
 from app.agent.spec_first_generator import SpecFirstGenerator
 from app.agent.refinement_loop import RefinementLoop
-from app.agent.dependency_graph import DependencyGraph
+from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
 from app.agent.cross_validator import CrossValidator
 from app.agent.shared_context import SharedContext
 from app.agent.topology_scheduler import TopologyScheduler
@@ -17,8 +17,12 @@ from app.agent.architecture_inspector import ArchitectureInspector
 from app.agent.orchestrator_progress import MAX_CONTENT_FOR_CONTEXT
 from app.agent.adapters import LanguageAdapterRegistry
 from app.agent.dynamic_model_router import get_context_length
+from app.agent.models import DEFAULT_FAST_MODEL
 from app.agent.utils import extract_engineer_content, write_file_atomic, cleanup_temp_files
 from app.agent.dependency_graph_validator import DependencyGraphValidator, format_validation_feedback, MAX_VALIDATION_RETRIES
+from app.agent.generation_plan import GenerationPlan, add_profile_components
+from app.agent.toolchain import detect_toolchain
+from app.agent.validation_coordinator import ValidationCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +142,9 @@ class SpecFirstGenerateMixin:
         # 如果 file_plan 为空，使用默认架构
         if not file_plan:
             logger.warning("架构师未返回 file_plan，使用默认架构")
-            architecture = self.architect._get_default_architecture(self.complexity)
+            architecture = self.architect._get_requirement_aware_default_architecture(
+                requirement, self.complexity
+            )
             file_plan = architecture.get("file_plan", [])
 
         # 分批规划：如果 file_plan 文件数不足复杂度预期，自动扩展
@@ -203,6 +209,41 @@ class SpecFirstGenerateMixin:
             "architecture": architecture,
             "complexity": ctx.complexity,
             "output_dir": getattr(self, '_relative_output_dir', None) or str(self.output_dir)
+        }
+        from app.agent.profile_discovery import profile_context
+        project_context["profile"] = profile_context(self.output_dir)
+        from app.agent.context_assembler import ContextAssembler
+        project_context["context_envelope"] = ContextAssembler().assemble(
+            task_id=self.session_id or "legacy-spec-first",
+            stage="planning",
+            items=[
+                {"source": "requirement", "source_id": "request", "content": requirement, "priority": 100},
+                {"source": "generation_plan", "source_id": "generation_plan", "content": str(architecture), "priority": 95},
+            ],
+        ).model_dump(mode="json")
+        try:
+            project_plan = GenerationPlan.from_architecture(architecture)
+            project_plan = add_profile_components(
+                project_plan.files,
+                project_context["profile"],
+                policy=project_plan.policy,
+                requested_paths=project_plan.requested_paths,
+                language=project_plan.language,
+                framework=project_plan.framework,
+                runtime=project_plan.runtime,
+            )
+            architecture["file_plan"] = project_plan.file_entries()
+        except ValueError as exc:
+            project_plan = None
+            logger.warning("Spec-First 项目计划暂未冻结，保留兼容生成流程: %s", exc)
+        if project_plan is not None:
+            project_context["generation_plan"] = project_plan.model_dump(mode="json")
+        validation_plan = ValidationCoordinator().build_plan(
+            project_context["profile"], detect_toolchain(self.output_dir)
+        )
+        project_context["validation_plan"] = {
+            "commands": [command.model_dump(mode="json") for command in validation_plan.commands],
+            "unsupported_steps": list(validation_plan.unsupported_steps),
         }
 
         constraint_prompt = constraint_parser.generate_prompt_fragment("all", "all")
@@ -297,6 +338,13 @@ class SpecFirstGenerateMixin:
             dep_graph.save(str(dep_graph_path))
 
         layers = dep_graph.get_generation_layers()
+        for planned_path, planned_node in dep_graph.nodes.items():
+            dependencies = sorted(dep_graph.adjacency.get(planned_path, set()))
+            if planned_path not in ctx.files:
+                ctx.register_file(planned_path, planned_node.file_type, dependencies)
+            else:
+                ctx.files[planned_path].depends_on = dependencies
+                ctx.dependencies[planned_path] = dependencies
         ctx.set_metric("generation_layers", len(layers))
         ctx.set_metric("generation_order", [f for layer in layers for f in layer])
 
@@ -340,6 +388,24 @@ class SpecFirstGenerateMixin:
                 description = file_node.description if file_node else f"生成 {file_path}"
                 file_type = file_node.file_type if file_node else "unknown"
                 file_priority = file_node.priority if file_node else 5
+
+                if not ctx.are_dependencies_ready(file_path):
+                    dependencies = sorted(dep_graph.adjacency.get(file_path, set()))
+                    message = f"上游产物未通过校验: {', '.join(dependencies)}"
+                    logger.warning("跳过文件生成: %s (%s)", file_path, message)
+                    return {
+                        "path": file_path,
+                        "description": description,
+                        "file_type": file_type,
+                        "success": False,
+                        "size": 0,
+                        "refinement_attempts": 0,
+                        "issues_fixed": 0,
+                        "content": "",
+                        "model_name": "blocked",
+                        "validation_passed": False,
+                        "validation_issues": [message],
+                    }
 
                 # 断点续传：检查文件是否已存在且完整
                 normalized = self._strip_output_dir_prefix(file_path)
@@ -407,6 +473,14 @@ class SpecFirstGenerateMixin:
                 dep_context = dep_graph.get_context_for_file(
                     file_path, generated_contents, model_context_length=get_context_length(model_name),
                     project_spec=architecture.get("project_spec")
+                )
+                dep_audit = summarize_dependency_context(dep_context)
+                logger.info(
+                    "依赖上下文审计: target=%s model=%s generated_count=%d dep=%s",
+                    file_path,
+                    model_name,
+                    len(generated_contents),
+                    dep_audit,
                 )
 
                 initial_content = await engineer.generate_file(
@@ -970,6 +1044,14 @@ class SpecFirstGenerateMixin:
                 model_context_length=get_context_length(model_name),
                 project_spec=project_context.get("architecture", {}).get("project_spec"),
             )
+            dep_audit = summarize_dependency_context(dep_context)
+            logger.info(
+                "依赖上下文审计: target=%s model=%s upstream_count=%d dep=%s",
+                file_path,
+                model_name,
+                len(upstream_context or generated_contents),
+                dep_audit,
+            )
 
             initial_content = await engineer.generate_file(
                 file_path, description, combined_context, spec_context, dep_context,
@@ -1132,7 +1214,7 @@ class SpecFirstGenerateMixin:
                     _wf_atomic(self.output_dir, normalized, final_content, skip_placeholder_check=True)
                     try:
                         backend_model = getattr(self, 'model_assignment', None)
-                        backend_model = backend_model.backend_model if backend_model else "Qwen/Qwen3-8B"
+                        backend_model = backend_model.backend_model if backend_model else DEFAULT_FAST_MODEL
                         er_success, er_content = await self.error_recovery.validate_and_fix(
                             file_path=full_path,
                             content=final_content,

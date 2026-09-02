@@ -20,6 +20,11 @@ from app.models.history import History
 from app.models.chat_history import ChatHistory
 from app.models.file import File
 from app.models.task import Task
+from app.models.unified_state import (
+    Session, Message, TaskEvent, Checkpoint, Artifact,
+    StateCompatibilityMapping, StateRetentionRecord,
+    StateReconciliationRecord,
+)
 from app.models.Permission import Permission
 
 # 初始化配置

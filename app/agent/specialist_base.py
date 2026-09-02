@@ -133,10 +133,13 @@ class Specialist:
         tools: Optional[Dict[str, Dict]] = None,
         project_path: str = "",
         max_rounds: int = None,
+        react_mode: Optional[str] = None,
         callback: Optional[Any] = None,
         heartbeat_tracker=None,
         enable_streaming_thinking: bool = False,
         thinking_budget: Optional[int] = None,
+        required_tool_names: Optional[set[str]] = None,
+        preverified_tool_names: Optional[set[str]] = None,
     ) -> str:
         """调用 LLM，支持 ReAct 工具调用循环
 
@@ -176,7 +179,11 @@ class Specialist:
             except Exception as e:
                 logger.debug(f"MCP 工具合并失败（非致命，使用默认工具集）: {e}")
 
-        react_mode = _REACT_MODE_BY_COMPLEXITY.get(self._complexity, _REACT_MODE)
+        selected_react_mode = react_mode or _REACT_MODE_BY_COMPLEXITY.get(
+            self._complexity, _REACT_MODE
+        )
+        if selected_react_mode not in {"simple", "full"}:
+            raise ValueError(f"不支持的 ReAct 模式: {selected_react_mode}")
 
         # 选择 LLM 调用函数：流式 thinking 或普通调用
         if enable_streaming_thinking and callback is not None:
@@ -280,11 +287,17 @@ class Specialist:
             call_llm_fn=call_llm_fn,
             project_path=project_path,
             max_rounds=max_rounds,
-            mode=react_mode,
+            mode=selected_react_mode,
             callback=callback,
             emit_event_fn=self._emit_event,
             role_name=self.role_name,
             cancel_event=self.cancel_event,
+            heartbeat_timeout=(
+                heartbeat_tracker.timeout if heartbeat_tracker else 600.0
+            ),
+            heartbeat_tracker=heartbeat_tracker,
+            required_tool_names=required_tool_names,
+            preverified_tool_names=preverified_tool_names,
         )
 
         original_execute_tool = engine._execute_tool

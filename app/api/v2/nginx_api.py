@@ -33,13 +33,14 @@ from app.schema.nginxConf import (
     NginxConf, NginxCheck, NginxGenerateRequest, NginxGenerateResponse,
     NginxDeployRequest, NginxDeployResponse
 )
+from app.agent.models import DEFAULT_CODE_MODEL
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/nginx", tags=["Nginx 配置管理"])
 
 # 配置常量
 NGINX_CHECK_TIMEOUT = 30
-DEFAULT_AI_MODEL = "Qwen/Qwen2.5-Coder-7B-Instruct"
+DEFAULT_AI_MODEL = DEFAULT_CODE_MODEL
 CACHE_TTL = 300  # 缓存 5 分钟
 
 

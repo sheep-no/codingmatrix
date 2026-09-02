@@ -12,7 +12,6 @@ suite("CodingMatrix Local Validation extension", () => {
     await extension.activate();
     assert.equal(extension.isActive, true);
   });
-
   test("keeps the shipped compatibility contract in the extension host", () => {
     assert.doesNotThrow(() => assertCompatible({
       schema_versions: [1],
@@ -25,4 +24,5 @@ suite("CodingMatrix Local Validation extension", () => {
     assert.ok(commands.includes("codingmatrix.openAgentWorkbench"));
     await vscode.commands.executeCommand("codingmatrix.openAgentWorkbench");
   });
+
 });

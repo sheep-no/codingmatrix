@@ -500,7 +500,7 @@
             }))
         }
 
-        response = await api.stream('/code', requestData, abortController.signal)
+        response = await api.stream('/chat', requestData, abortController.signal)
       }
 
       if (!response.ok) {

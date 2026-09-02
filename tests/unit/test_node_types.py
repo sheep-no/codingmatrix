@@ -8,6 +8,7 @@ import pytest
 import sys
 import os
 import asyncio
+from unittest.mock import AsyncMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -81,8 +82,11 @@ class TestWebSearchNode:
     async def test_execute_returns_result(self):
         """执行返回结果"""
         node = WebSearchNode("test", {"query": "test"})
+        node.searcher.search = AsyncMock(return_value=[])
         result = await node.execute({})
         assert isinstance(result, NodeResult)
+        assert result.success is True
+        node.searcher.search.assert_awaited_once_with("test", count=5, lang="zh-CN")
 
 
 class TestCodeExecutionNode:

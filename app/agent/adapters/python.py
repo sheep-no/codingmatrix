@@ -101,6 +101,8 @@ class PythonLanguageAdapter(LanguageAdapter):
         ("entity/", "model"),
 
         # Repository
+        ("crud.py", "repository"),
+        ("crud/", "repository"),
         ("repositories/", "repository"),
         ("repository/", "repository"),
         ("repos/", "repository"),
@@ -261,6 +263,10 @@ class PythonLanguageAdapter(LanguageAdapter):
         # __init__.py 是包配置文件
         if file_path.endswith('__init__.py'):
             return "config"
+
+        filename = Path(file_path).name.lower()
+        if filename.startswith("test_") or filename.endswith("_test.py"):
+            return "test"
 
         # 检查路径规则
         for pattern, file_type in self.PATH_TYPE_RULES:

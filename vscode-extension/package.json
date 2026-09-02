@@ -12,10 +12,46 @@
   "main": "./dist/extension.js",
   "activationEvents": ["onStartupFinished"],
   "contributes": {
+    "configuration": {
+      "title": "CodingMatrix Agent",
+      "properties": {
+        "codingmatrix.agent.apiUrl": {
+          "type": "string",
+          "description": "CodingMatrix API base URL"
+        },
+        "codingmatrix.agent.accessToken": {
+          "type": "string",
+          "description": "CodingMatrix access token",
+          "scope": "machine"
+        },
+        "codingmatrix.agent.pollIntervalMs": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 250,
+          "description": "Agent Host cloud action polling interval in milliseconds"
+        }
+      }
+    },
     "commands": [
       {
         "command": "codingmatrix.openAgentWorkbench",
         "title": "CodingMatrix: Open Agent Workbench"
+      },
+      {
+        "command": "codingmatrix.pauseAgentSession",
+        "title": "CodingMatrix: Pause Agent Session"
+      },
+      {
+        "command": "codingmatrix.resumeAgentSession",
+        "title": "CodingMatrix: Resume Agent Session"
+      },
+      {
+        "command": "codingmatrix.cancelAgentSession",
+        "title": "CodingMatrix: Cancel Agent Session"
+      },
+      {
+        "command": "codingmatrix.reconnectAgentSession",
+        "title": "CodingMatrix: Reconnect Agent Session"
       }
     ]
   },

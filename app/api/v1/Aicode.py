@@ -26,6 +26,7 @@ from app.db.database import get_db
 from app.schema.codeRequest import CodeRequest
 from app.utils import call_llm
 from app.utils.web_search import FreeWebSearch
+from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from fastapi.responses import StreamingResponse
 from app.utils.security import verify_token
 from app.db.add_history import save_history_to_db
@@ -36,6 +37,9 @@ from sqlalchemy import select, delete, and_
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.utils.json_parser import RobustJSONParser
+from app.services.chat_context import fit_context, is_context_length_error
+from app.models.unified_state import Session
+from app.services.unified_state_service import append_message, create_session
 
 # 初始化日志
 logger = logging.getLogger(__name__)
@@ -45,6 +49,28 @@ _parser = RobustJSONParser(strict_mode=False)
 # 部分响应缓存 {task_id: {"prompt": ..., "partial_response": ..., "model": ..., "timestamp": ...}}
 _partial_response_cache: Dict[str, dict] = {}
 _PARTIAL_TTL = 300  # 5 分钟过期
+
+
+async def _append_shared_chat_messages(
+    db: AsyncSession,
+    user_id: int,
+    conversation_id: int,
+    prompt: str,
+    response: str,
+) -> None:
+    """把旧 History 写入统一会话消息，迁移期间保持双写。"""
+    session = await db.scalar(
+        select(Session).where(
+            Session.user_id == user_id,
+            Session.module == "chat",
+            Session.external_id == str(conversation_id),
+        )
+    )
+    if session is None:
+        session = await create_session(db, user_id, "chat", external_id=str(conversation_id))
+    await append_message(db, session.id, user_id, "user", prompt)
+    await append_message(db, session.id, user_id, "assistant", response)
+    await db.commit()
 
 
 def _cleanup_partial_cache():
@@ -206,16 +232,16 @@ def select_model_for_prompt(prompt: str, use_reasoning: bool, has_files: bool) -
     根据提示内容智能选择模型
     """
     if has_files:
-        return "THUDM/GLM-4.1V-9B-Thinking"
+        return "Qwen/Qwen3.5-4B"
     if use_reasoning:
-        return "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+        return DEFAULT_REASONING_MODEL
 
     analysis_keywords = ['分析', '解释', '原理', '为什么', '比较', '区别',
                          '是什么', '优缺点', '如何理解', '详细说明']
     if any(kw in prompt.lower() for kw in analysis_keywords):
-        return "THUDM/GLM-Z1-9B-0414"
+        return DEFAULT_ARCHITECT_MODEL
 
-    return "Qwen/Qwen3-8B"
+    return DEFAULT_FAST_MODEL
 
 
 def format_tokens_usage(resp: Dict) -> Dict:
@@ -557,7 +583,8 @@ async def stream_response(
     )
 
     system_prompt = _select_prompt_template(prompt, use_reasoning)
-    final_prompt = system_prompt.format(prompt=prompt, context=full_context or "（无额外上下文）")
+    fitted_context, context_budget = fit_context(prompt, full_context, model, api_key_token)
+    final_prompt = system_prompt.format(prompt=prompt, context=fitted_context or "（无额外上下文）")
 
     # 如果有前缀文本，追加到提示词中
     if prefix_text:
@@ -568,7 +595,18 @@ async def stream_response(
     response_parts = []
 
     try:
-        result_gen = await call_llm(model=model, prompt=final_prompt, stream=True, cancel_event=cancel_event, api_key_token=api_key_token)
+        try:
+            result_gen = await call_llm(model=model, prompt=final_prompt, stream=True,
+                                        max_tokens=context_budget.max_output_tokens,
+                                        cancel_event=cancel_event, api_key_token=api_key_token)
+        except Exception as error:
+            if not is_context_length_error(error) or not fitted_context:
+                raise
+            compact_context, _ = fit_context(prompt, fitted_context[:len(fitted_context) // 2], model, api_key_token)
+            retry_prompt = system_prompt.format(prompt=prompt, context=compact_context or "（无额外上下文）")
+            result_gen = await call_llm(model=model, prompt=retry_prompt, stream=True,
+                                        max_tokens=context_budget.max_output_tokens,
+                                        cancel_event=cancel_event, api_key_token=api_key_token)
 
         async for chunk in result_gen:
             # 检测 SSE 断开
@@ -615,6 +653,7 @@ async def stream_response(
             response=full_response,
             thinking=None
         )
+        await _append_shared_chat_messages(db, int(user_id), new_conv_id, prompt, full_response)
         logger.info(f"历史记录保存成功 | conversation_id={new_conv_id}")
         yield f'{{"conversation_id": {new_conv_id}}}\n'
 
@@ -667,11 +706,23 @@ async def generate_response(
     )
     
     system_prompt = _select_prompt_template(prompt, use_reasoning)
-    final_prompt = system_prompt.format(prompt=prompt, context=full_context or "（无额外上下文）")
+    fitted_context, context_budget = fit_context(prompt, full_context, model, api_key_token)
+    final_prompt = system_prompt.format(prompt=prompt, context=fitted_context or "（无额外上下文）")
     
     logger.info(f"执行非流式请求 | user_id={user_id} | model={model}")
     
-    result = await call_llm(model=model, prompt=final_prompt, stream=False, api_key_token=api_key_token)
+    try:
+        result = await call_llm(model=model, prompt=final_prompt, stream=False,
+                                max_tokens=context_budget.max_output_tokens,
+                                api_key_token=api_key_token)
+    except Exception as error:
+        if not is_context_length_error(error) or not fitted_context:
+            raise
+        compact_context, _ = fit_context(prompt, fitted_context[:len(fitted_context) // 2], model, api_key_token)
+        retry_prompt = system_prompt.format(prompt=prompt, context=compact_context or "（无额外上下文）")
+        result = await call_llm(model=model, prompt=retry_prompt, stream=False,
+                                max_tokens=context_budget.max_output_tokens,
+                                api_key_token=api_key_token)
     response = result["choices"][0]["message"]["content"]
     tokens_used = format_tokens_usage(result)
     
@@ -682,7 +733,14 @@ async def generate_response(
             "response": "",
             "tokens_used": tokens_used,
             "conversation_id": None,
-            "context_length": len(full_context),
+            "context_length": len(fitted_context),
+            "context_usage": {
+                "context_length": context_budget.context_length,
+                "input_budget_tokens": context_budget.input_budget_tokens,
+                "input_tokens_estimate": context_budget.input_tokens,
+                "max_output_tokens": context_budget.max_output_tokens,
+                "truncated": context_budget.truncated,
+            },
             "error": "AI 生成响应为空，未保存历史记录"
         }
     
@@ -694,19 +752,28 @@ async def generate_response(
         response=response,
         thinking=None
     )
+    await _append_shared_chat_messages(db, int(user_id), new_conv_id, prompt, response)
     
     return {
         "response": response,
         "tokens_used": tokens_used,
         "conversation_id": new_conv_id,
-        "context_length": len(full_context)
+        "context_length": len(fitted_context),
+        "context_usage": {
+            "context_length": context_budget.context_length,
+            "input_budget_tokens": context_budget.input_budget_tokens,
+            "input_tokens_estimate": context_budget.input_tokens,
+            "max_output_tokens": context_budget.max_output_tokens,
+            "truncated": context_budget.truncated,
+        },
     }
 
 
 # API 端点
 # -----------------------------
 
-@router.post("/code", summary="通用问答（支持文件/图片理解）")
+@router.post("/chat", summary="通用聊天（支持文件/图片理解）")
+@router.post("/code", summary="通用问答兼容入口（支持文件/图片理解）", include_in_schema=False)
 async def generate_code(
     request: Request,
     body: CodeRequest,

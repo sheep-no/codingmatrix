@@ -220,6 +220,16 @@ class TestDynamicModelRouter:
         _LayeredModelRouterCompat._cached_assignments = None
 
     @pytest.mark.asyncio
+    async def test_backend_role_uses_code_model_from_runtime_config(self):
+        """后端代码生成角色使用统一配置中的专用代码模型。"""
+        from app.agent.dynamic_model_router import reload_roles_config
+
+        reload_roles_config()
+        assignment = DynamicModelRouter().get_assignment()
+
+        assert assignment.backend_model == "Qwen/Qwen3.5-4B"
+
+    @pytest.mark.asyncio
     async def test_enterprise_falls_back_to_large(self):
         """ENTERPRISE 降级到 LARGE"""
         # 清除缓存

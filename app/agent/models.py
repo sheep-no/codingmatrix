@@ -9,6 +9,7 @@ from typing import Optional, List, Dict
 from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass, field
+from app.utils.model_defaults import get_default_model
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +65,14 @@ class ModelInfo:
 
 # 默认模型常量 — 避免业务代码硬编码模型名称
 # 与 ModelRegistry 中的 key 对应，用于 model_assignment 缺失时的 fallback
-DEFAULT_CODE_MODEL = "nex-agi/Nex-N2-Pro"                # 通用代码任务（256k context）
-DEFAULT_REASONING_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"  # 推理/后端任务
-DEFAULT_ARCHITECT_MODEL = "THUDM/GLM-Z1-9B-0414"        # 架构设计/评审
-DEFAULT_FAST_MODEL = "Qwen/Qwen3-8B"                    # 简单/快速任务
+DEFAULT_CODE_MODEL = get_default_model("code")
+DEFAULT_REASONING_MODEL = get_default_model("reasoning")
+DEFAULT_ARCHITECT_MODEL = get_default_model("architect")
+DEFAULT_FAST_MODEL = get_default_model("fast")
+DEFAULT_VISUAL_MODEL = get_default_model("visual")
+DEFAULT_OCR_MODEL = get_default_model("ocr")
+DEFAULT_EMBEDDING_MODEL = get_default_model("embedding")
+DEFAULT_PPT_MODEL = get_default_model("ppt")
 
 # COMPLEXITY_LEVELS 供 ModelRouter.get_role_model 校验复杂度参数
 COMPLEXITY_LEVELS = ("SIMPLE", "SMALL", "MEDIUM", "LARGE", "ENTERPRISE")
@@ -99,24 +104,12 @@ class ModelRegistry:
             speed=1.0
         ),
 
-        # Nex 系列
-        "nex-n2-pro": ModelInfo(
-            key="nex-n2-pro",
-            name="nex-agi/Nex-N2-Pro",
-            display_name="Nex N2 Pro",
-            capabilities=[ModelCapability.REASONING, ModelCapability.FAST],
-            max_tokens=8192,
-            thinking_budget=8192,
-            temperature=0.7,
-            speed=1.0
-        ),
-
         # Qwen 系列
         "qwen3.5-4b": ModelInfo(
             key="qwen3.5-4b",
             name="Qwen/Qwen3.5-4B",
             display_name="Qwen 3.5 4B",
-            capabilities=[ModelCapability.FAST],
+            capabilities=[ModelCapability.CODE, ModelCapability.FAST, ModelCapability.VISION],
             max_tokens=4096,
             thinking_budget=4096,
             temperature=0.7,
@@ -143,17 +136,6 @@ class ModelRegistry:
             speed=1.8
         ),
 
-        # GLM 系列
-        "glm-4.1v-9b": ModelInfo(
-            key="glm-4.1v-9b",
-            name="THUDM/GLM-4.1V-9B-Thinking",
-            display_name="GLM-4.1V 9B (Thinking)",
-            capabilities=[ModelCapability.VISION, ModelCapability.REASONING],
-            max_tokens=4096,
-            thinking_budget=4096,
-            temperature=0.7,
-            speed=0.8
-        ),
         "glm-4-9b": ModelInfo(
             key="glm-4-9b",
             name="THUDM/GLM-4-9B-0414",
@@ -190,8 +172,8 @@ class ModelRegistry:
         # 嵌入模型
         "bce-embedding": ModelInfo(
             key="bce-embedding",
-            name="netease-youdao/bce-embedding-base_v1",
-            display_name="BCE 嵌入",
+            name="BAAI/bge-m3",
+            display_name="BGE M3 嵌入",
             capabilities=[ModelCapability.EMBEDDING],
             max_tokens=512,
             thinking_budget=0,
@@ -221,10 +203,10 @@ class ModelRouter:
 
     TASK_MODEL_MAP = {
         TaskType.GENERAL: ["qwen3-8b", "deepseek-r1-qwen3-8b"],
-        TaskType.CODE_GENERATION: ["qwen2.5-7b", "deepseek-r1-qwen3-8b"],
+        TaskType.CODE_GENERATION: ["qwen3.5-4b", "qwen2.5-7b"],
         TaskType.CODE_REVIEW: ["deepseek-r1-qwen3-8b", "glm-z1-9b"],
         TaskType.FILE_OPERATION: ["glm-4-9b", "qwen3.5-4b"],
-        TaskType.VISUAL_UNDERSTANDING: ["glm-4.1v-9b", "deepseek-ocr"],
+        TaskType.VISUAL_UNDERSTANDING: ["qwen3.5-4b", "deepseek-ocr"],
         TaskType.IMAGE_GENERATION: ["kolors"],
         TaskType.REASONING: ["deepseek-r1-qwen3-8b", "glm-z1-9b"],
         TaskType.FAST_RESPONSE: ["qwen3.5-4b", "glm-4-9b"],
@@ -326,7 +308,7 @@ class ModelRouter:
         role_fallbacks = {
             AgentRole.ARCHITECT: "glm-z1-9b",
             AgentRole.FRONTEND: "qwen3-8b",
-            AgentRole.BACKEND: "deepseek-r1-qwen3-8b",
+            AgentRole.BACKEND: "qwen2.5-7b",
             AgentRole.REVIEWER: "deepseek-r1-qwen3-8b",
             AgentRole.FALLBACK: "qwen3-8b",
         }

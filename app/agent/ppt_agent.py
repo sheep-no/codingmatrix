@@ -20,7 +20,9 @@ from app.agent.architect_json_parser import ArchitectJsonParser
 logger = logging.getLogger(__name__)
 
 # 与 aiGeneratorPptx.py 保持一致
-PPT_DEFAULT_MODEL = "THUDM/GLM-Z1-9B-0414"
+from app.agent.models import DEFAULT_PPT_MODEL
+
+PPT_DEFAULT_MODEL = DEFAULT_PPT_MODEL
 
 
 class SlideType(str, Enum):

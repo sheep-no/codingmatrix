@@ -16,8 +16,25 @@ omit = [
 ]
 
 [tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/integration"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+addopts = ["-v", "--tb=short", "--strict-markers", "--disable-warnings"]
+markers = [
+    "api: API 接口测试",
+    "asyncio: 异步测试",
+    "database: 数据库相关测试",
+    "integration: 集成测试",
+    "guardian: Guardian 相关测试",
+    "logging: 日志相关测试",
+    "monitoring: 监控相关测试",
+    "security: 安全性测试",
+    "smoke: 冒烟测试",
+    "unit: 单元测试",
+]
 
 [tool.coverage.report]
 exclude_lines = [

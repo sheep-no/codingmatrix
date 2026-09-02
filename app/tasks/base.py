@@ -55,6 +55,10 @@ class BaseTask(Task):
             self._ws_manager = ws_manager
         return self._ws_manager
 
+    def _get_progress_callback(self, task_id: str, user_id: int) -> ProgressCallback:
+        """Create the shared progress publisher used by worker tasks."""
+        return ProgressCallback(task_id, int(user_id), self.ws_manager)
+
     def on_failure(self, exc, task_id, args, kwargs, einfo):
         """Handle task failure"""
         logger.error(f"Task {task_id} failed: {exc}", exc_info=einfo)

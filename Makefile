@@ -38,11 +38,11 @@ prod:
 
 # 运行测试
 test:
-	pytest tests/ -v
+	pytest
 
 # 运行测试并生成覆盖率报告
 test-cov:
-	pytest tests/ --cov=app --cov-report=html
+	pytest --cov=app --cov-report=html
 	@echo "覆盖率报告已生成：htmlcov/index.html"
 
 # 代码检查

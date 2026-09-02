@@ -111,6 +111,35 @@ test("dispatches diagnostics and validation through injected adapters", async ()
   }
 });
 
+test("dispatches workspace root inspection through authorization", async () => {
+  const { root } = await createDispatcher();
+  const secondRoot = await mkdtemp(join(tmpdir(), "codingmatrix-agent-host-second-"));
+  try {
+    const authorization = new WorkspaceAuthorization();
+    await authorization.grant("workspace-1", root);
+    await authorization.grant("workspace-2", secondRoot);
+    const dispatcher = new ToolDispatcher({
+      authorization,
+      validationRunner: { run: async () => ({ status: "passed" }) },
+    });
+
+    assert.deepEqual(
+      await dispatcher.dispatch(envelope("workspace", { operation: "list_roots" })),
+      [
+        { workspace_id: "workspace-1", root },
+        { workspace_id: "workspace-2", root: secondRoot },
+      ],
+    );
+    await assert.rejects(
+      dispatcher.dispatch(envelope("workspace", { operation: "unknown" })),
+      (error) => error instanceof ToolDispatcherError && error.code === "invalid_action",
+    );
+  } finally {
+    await rm(secondRoot, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("honors local execution and operation policy", async () => {
   const { root, dispatcher } = await createDispatcher();
   try {

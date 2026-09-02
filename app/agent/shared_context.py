@@ -12,6 +12,8 @@ SharedContext - 共享上下文
 
 import json
 import logging
+import hashlib
+import re
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,6 +35,12 @@ class FileArtifact:
     validation_errors: List[str] = field(default_factory=list)
     review_issues: List[str] = field(default_factory=list)
     fix_attempts: int = 0
+    content_hash: str = ""
+    imports: List[str] = field(default_factory=list)
+    exports: List[str] = field(default_factory=list)
+    language: str = ""
+    status: str = "generated"
+    diagnostics: List[str] = field(default_factory=list)
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -186,9 +194,18 @@ class SharedContext:
 
     def save_file_content(self, file_path: str, content: str, model_name: str):
         """保存文件内容"""
+        content = content or ""
+        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        imports, exports = self._extract_file_symbols(file_path, content)
         if file_path in self.files:
             self.files[file_path].content = content
             self.files[file_path].generated_by = model_name
+            self.files[file_path].content_hash = content_hash
+            self.files[file_path].imports = imports
+            self.files[file_path].exports = exports
+            self.files[file_path].language = Path(file_path).suffix.lstrip(".")
+            self.files[file_path].status = "generated"
+            self.files[file_path].diagnostics = []
         else:
             self.file_generation_order += 1
             self.files[file_path] = FileArtifact(
@@ -196,15 +213,70 @@ class SharedContext:
                 content=content,
                 file_type="unknown",
                 generated_by=model_name,
-                generation_order=self.file_generation_order
+                generation_order=self.file_generation_order,
+                content_hash=content_hash,
+                imports=imports,
+                exports=exports,
+                language=Path(file_path).suffix.lstrip("."),
             )
 
     def update_file_validation(self, file_path: str, passed: bool, errors: Optional[List[str]] = None):
         """更新文件验证状态"""
         if file_path in self.files:
             self.files[file_path].validation_passed = passed
+            self.files[file_path].status = "valid" if passed else "invalid"
             if errors:
                 self.files[file_path].validation_errors.extend(errors)
+                self.files[file_path].diagnostics.extend(errors)
+
+    def is_file_ready(self, file_path: str) -> bool:
+        """判断文件及其上游依赖是否可以供下游生成使用。"""
+        artifact = self.files.get(file_path)
+        if artifact is None or not artifact.content.strip() or not artifact.validation_passed:
+            return False
+        return self.are_dependencies_ready(file_path)
+
+    def are_dependencies_ready(self, file_path: str) -> bool:
+        """判断目标文件的所有上游产物是否有效。"""
+        return all(
+            dependency in self.files
+            and self.files[dependency].content.strip()
+            and self.files[dependency].validation_passed
+            for dependency in self.dependencies.get(file_path, [])
+        )
+
+    def get_artifact_manifest(self) -> Dict[str, Dict[str, Any]]:
+        """返回不包含源码的文件产物清单。"""
+        return {
+            path: {
+                "path": artifact.path,
+                "content_hash": artifact.content_hash,
+                "imports": list(artifact.imports),
+                "exports": list(artifact.exports),
+                "language": artifact.language,
+                "depends_on": list(artifact.depends_on),
+                "status": artifact.status,
+                "validation_passed": artifact.validation_passed,
+                "diagnostics": list(artifact.diagnostics),
+            }
+            for path, artifact in self.files.items()
+        }
+
+    @staticmethod
+    def _extract_file_symbols(file_path: str, content: str) -> tuple[List[str], List[str]]:
+        """提取跨语言常见导入和导出符号，无法识别时返回空列表。"""
+        imports = re.findall(
+            r"^\s*(?:from\s+([\w./-]+)\s+import|import\s+([\w./-]+)|#include\s*[<\"]([^>\"]+)|(?:const|let|var)\s+\w+\s*=\s*require\(['\"]([^'\"]+))",
+            content,
+            re.MULTILINE,
+        )
+        import_values = [value for match in imports for value in match if value]
+        exports = re.findall(
+            r"^\s*(?:export\s+)?(?:async\s+)?(?:class|def|function|func|fn|struct|interface|type|enum)\s+([A-Za-z_]\w*)",
+            content,
+            re.MULTILINE,
+        )
+        return sorted(set(import_values)), sorted(set(exports))
 
     def update_file_review(self, file_path: str, issues: Optional[List[str]] = None):
         """更新文件审查结果"""
@@ -312,8 +384,14 @@ class SharedContext:
                 "model": v.generated_by,
                 "order": v.generation_order,
                 "depends_on": v.depends_on,
+                "content_hash": v.content_hash,
+                "imports": v.imports,
+                "exports": v.exports,
+                "language": v.language,
+                "status": v.status,
                 "validation_passed": v.validation_passed,
                 "validation_errors": v.validation_errors,
+                "diagnostics": v.diagnostics,
                 "review_issues": v.review_issues,
                 "fix_attempts": v.fix_attempts,
                 "timestamp": v.timestamp

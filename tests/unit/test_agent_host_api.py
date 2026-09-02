@@ -13,9 +13,20 @@ from app.api.v1.agent_host import (
     update_agent_host_policy,
     PolicyUpdateRequest,
     enqueue_state_actions,
+    sync_agent_host_skills,
+    revoke_agent_host_skill,
+    control_agent_host_session,
+    SkillSyncRequest,
+    SessionControlRequest,
 )
 from app.agent.state import StateDelta, StateGraphBuilder
-from app.agent.workflow_registry import WorkflowDefinition, run_workflow
+import app.agent.workflow_registry as workflow_registry
+from app.agent.workflow_registry import (
+    WorkflowDefinition,
+    register_recoverable_workflow_factory,
+    resume_workflow_from_local_result,
+    run_workflow,
+)
 
 
 @pytest.mark.asyncio
@@ -141,6 +152,32 @@ async def test_enqueue_state_actions_binds_session_context_and_deduplicates() ->
     assert queued[0]["payload"]["workspace_id"] == "workspace-3"
 
 
+@pytest.mark.asyncio
+async def test_enqueue_state_actions_maps_execution_capabilities() -> None:
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-capabilities",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["file", "terminal", "validation"],
+        ),
+        {"sub": "user-capabilities"},
+    )
+    state = {
+        "session_id": handshake.session_id,
+        "task_id": "task-capabilities",
+        "pending_actions": [
+            {"type": "file_sync", "action_id": "file-action"},
+            {"type": "install_dependencies", "action_id": "install-action"},
+            {"type": "local_validation", "action_id": "validation-action"},
+        ],
+    }
+
+    assert enqueue_state_actions(handshake.session_id, state) == 3
+    queued = (await get_agent_host_actions(handshake.session_id, {"sub": "user-capabilities"})).actions
+    assert [action["capability"] for action in queued] == ["file", "terminal", "validation"]
+
+
 def test_agent_host_session_store_round_trips_expiry_and_queue(tmp_path) -> None:
     store = AgentHostSessionStore(tmp_path)
     session = {
@@ -156,6 +193,32 @@ def test_agent_host_session_store_round_trips_expiry_and_queue(tmp_path) -> None
     restored = store.load("session-4")
     assert restored["user_id"] == "user-4"
     assert restored["expires_at"].tzinfo is not None
+
+
+@pytest.mark.asyncio
+async def test_agent_host_syncs_skills_and_session_control() -> None:
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-controls",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["skill_runtime"],
+        ),
+        {"sub": "user-controls"},
+    )
+    session_id = handshake.session_id
+    skills = {"review": {"content": "Review changed files", "version": 1}}
+
+    synced = await sync_agent_host_skills(session_id, SkillSyncRequest(skills=skills), {"sub": "user-controls"})
+    assert synced["skills"] == skills
+    revoked = await revoke_agent_host_skill(session_id, "review", {"sub": "user-controls"})
+    assert revoked["skills"] == {}
+    controlled = await control_agent_host_session(
+        session_id, SessionControlRequest(action="pause"), {"sub": "user-controls"}
+    )
+    assert controlled == {"status": "paused"}
+    actions = (await get_agent_host_actions(session_id, {"sub": "user-controls"})).actions
+    assert [action["kind"] for action in actions[-3:]] == ["tool_action", "skill_revoke", "session_control"]
 
 
 @pytest.mark.asyncio
@@ -186,3 +249,192 @@ async def test_run_workflow_publishes_pending_actions_to_connected_host() -> Non
 
     actions = (await get_agent_host_actions(handshake.session_id, {"sub": "user-5"})).actions
     assert actions[0]["payload"]["action_id"] == "workflow-action"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_resumes_workflow_and_reaches_completed() -> None:
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-6",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["validation"],
+        ),
+        {"sub": "user-6"},
+    )
+
+    async def create_action(_state):
+        return StateDelta(
+            expected_revision=0,
+            status="waiting_local_validation",
+            pending_actions=[{
+                "type": "local_validation",
+                "action_id": "workflow-action-6",
+                "scope": "local_e2e",
+            }],
+            metadata={"required_validation_scopes": ["local_e2e"]},
+        )
+
+    definition = WorkflowDefinition(
+        name="host-resume-test",
+        entry_node="create_action",
+        graph=StateGraphBuilder().add_node("create_action", create_action).compile(),
+        legacy_endpoint="test",
+    )
+    await run_workflow(definition, session_id=handshake.session_id, task_id="task-6")
+    action = (await get_agent_host_actions(handshake.session_id, {"sub": "user-6"})).actions[0]
+
+    response = await post_agent_host_event(
+        handshake.session_id,
+        AgentHostEnvelope(
+            message_id=f"{action['message_id']}:result",
+            schema_version=1,
+            session_id=handshake.session_id,
+            task_id="task-6",
+            revision=1,
+            kind="tool_result",
+            capability="validation",
+            policy_version=1,
+            payload={
+                "validation_scope": "local_e2e",
+                "status": "passed",
+                "summary": {"tests_passed": 1},
+            },
+        ),
+        {"sub": "user-6"},
+    )
+
+    assert response.state_status == "completed"
+    assert (await get_agent_host_actions(handshake.session_id, {"sub": "user-6"})).actions == []
+
+
+@pytest.mark.asyncio
+async def test_tool_result_resumes_from_checkpoint_after_registry_reset() -> None:
+    session_id = "session-checkpoint"
+    task_id = "task-checkpoint"
+
+    async def create_action(_state):
+        return StateDelta(
+            expected_revision=0,
+            status="waiting_local_validation",
+            pending_actions=[{"type": "local_validation", "action_id": "checkpoint-action", "scope": "local_runtime"}],
+            metadata={"required_validation_scopes": ["local_runtime"]},
+        )
+
+    definition = WorkflowDefinition(
+        name="checkpoint-resume-test",
+        entry_node="create_action",
+        graph=StateGraphBuilder().add_node("create_action", create_action).compile(),
+        legacy_endpoint="test",
+    )
+    await run_workflow(definition, session_id=session_id, task_id=task_id)
+    workflow_registry._active_workflows.pop((session_id, task_id))
+
+    state = await resume_workflow_from_local_result(
+        session_id=session_id,
+        task_id=task_id,
+        result={
+            "session_id": session_id,
+            "task_id": task_id,
+            "revision": 1,
+            "schema_version": 1,
+            "source": "local",
+            "validation_scope": "local_runtime",
+            "status": "passed",
+        },
+    )
+
+    assert state.status == "completed"
+    assert state.pending_actions == []
+
+
+@pytest.mark.asyncio
+async def test_tool_result_continues_from_persisted_next_graph_node() -> None:
+    session_id = "session-graph-cursor"
+    task_id = "task-graph-cursor"
+
+    async def create_action(_state):
+        return StateDelta(
+            expected_revision=0,
+            status="waiting_local_validation",
+            pending_actions=[{"type": "local_validation", "scope": "local_runtime"}],
+            metadata={"required_validation_scopes": ["local_runtime"]},
+        )
+
+    async def finish(state):
+        assert state.status == "completed"
+        return StateDelta(expected_revision=state.revision, metadata={"continued": True})
+
+    graph = (
+        StateGraphBuilder()
+        .add_node("create_action", create_action)
+        .add_node("finish", finish)
+        .add_edge("create_action", "finish")
+        .compile()
+    )
+    definition = WorkflowDefinition("graph-cursor-test", "create_action", graph, "test")
+    state = await run_workflow(definition, session_id=session_id, task_id=task_id)
+    assert state.metadata["_next_node"] == "finish"
+
+    state = await resume_workflow_from_local_result(
+        session_id=session_id,
+        task_id=task_id,
+        result={
+            "session_id": session_id,
+            "task_id": task_id,
+            "revision": 1,
+            "source": "local",
+            "validation_scope": "local_runtime",
+            "status": "passed",
+        },
+    )
+
+    assert state.metadata["continued"] is True
+    assert "_next_node" not in state.metadata
+
+
+@pytest.mark.asyncio
+async def test_tool_result_rebuilds_workflow_from_registered_factory() -> None:
+    session_id = "session-factory"
+    task_id = "task-factory"
+
+    async def create_action(_state):
+        return StateDelta(
+            expected_revision=0,
+            status="waiting_local_validation",
+            pending_actions=[{"type": "local_validation", "scope": "local_runtime"}],
+            metadata={"required_validation_scopes": ["local_runtime"]},
+        )
+
+    async def finish(state):
+        return StateDelta(expected_revision=state.revision, metadata={"factory_continued": True})
+
+    def factory():
+        graph = (
+            StateGraphBuilder()
+            .add_node("create_action", create_action)
+            .add_node("finish", finish)
+            .add_edge("create_action", "finish")
+            .compile()
+        )
+        return WorkflowDefinition("factory-resume-test", "create_action", graph, "test")
+
+    definition = factory()
+    register_recoverable_workflow_factory(definition.name, factory)
+    await run_workflow(definition, session_id=session_id, task_id=task_id)
+    workflow_registry._active_workflows.pop((session_id, task_id))
+
+    state = await resume_workflow_from_local_result(
+        session_id=session_id,
+        task_id=task_id,
+        result={
+            "session_id": session_id,
+            "task_id": task_id,
+            "revision": 1,
+            "source": "local",
+            "validation_scope": "local_runtime",
+            "status": "passed",
+        },
+    )
+
+    assert state.metadata["factory_continued"] is True

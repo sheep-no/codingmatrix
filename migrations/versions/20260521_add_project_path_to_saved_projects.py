@@ -1,7 +1,7 @@
 """add_project_path_to_saved_projects
 
 Revision ID: 20260521_add_project_path
-Revises: a1b2c3d4e5f6_add_performance_indexes
+Revises: a1b2c3d4e5f6
 Create Date: 2026-05-21
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20260521_add_project_path'
-down_revision = 'a1b2c3d4e5f6_add_performance_indexes'
+down_revision = 'a1b2c3d4e5f6'
 branch_labels = None
 depends_on = None
 

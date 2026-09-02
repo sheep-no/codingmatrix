@@ -35,7 +35,11 @@ export const useProviderStore = defineStore('providers', () => {
   async function listProviders() {
     try {
       const resp = await api.get('/providers')
-      providers.value = await resp.json()
+      if (!resp.ok) {
+        return []
+      }
+      const data = await resp.json()
+      providers.value = Array.isArray(data) ? data : []
       saveToStorage()
       return providers.value
     } catch (e) {

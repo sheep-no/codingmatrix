@@ -14,6 +14,12 @@ from pathlib import Path
 
 from app.utils.system_load import system_load_monitor
 from app.utils.model_config_io import load_model_config, save_model_config
+from app.agent.models import (
+    DEFAULT_ARCHITECT_MODEL,
+    DEFAULT_CODE_MODEL,
+    DEFAULT_FAST_MODEL,
+    DEFAULT_REASONING_MODEL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +28,11 @@ AGENT_MODEL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../data/ag
 
 # 备选模型 ID → Key 映射（配置文件不可用时的兜底）
 _FALLBACK_MODEL_ID_TO_KEY: Dict[str, str] = {
-    "deepseek-r1": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
-    "qwen3-8b": "Qwen/Qwen3-8B",
-    "glm-z1-9b": "THUDM/GLM-Z1-9B-0414",
+    "deepseek-r1": DEFAULT_REASONING_MODEL,
+    "qwen2.5-7b": "Qwen/Qwen2.5-7B-Instruct",
+    "qwen3.5-4b": DEFAULT_CODE_MODEL,
+    "qwen3-8b": DEFAULT_FAST_MODEL,
+    "glm-z1-9b": DEFAULT_ARCHITECT_MODEL,
     "glm-4-9b": "THUDM/GLM-4-9B-0414",
 }
 
@@ -328,7 +336,7 @@ class LearningRouter:
 
     def select_model(self, task_type: str, candidate_models: List[str]) -> str:
         if not candidate_models:
-            return candidate_models[0] if candidate_models else "Qwen/Qwen3-8B"
+            return candidate_models[0] if candidate_models else DEFAULT_FAST_MODEL
 
         degraded = self._degraded_models.get(task_type, {})
         eligible = []
@@ -499,9 +507,9 @@ class DynamicModelRouter:
 
     # 默认降级链（硬编码兜底）
     DEFAULT_FALLBACK_ORDER = [
-        "Qwen/Qwen3-8B",
+        DEFAULT_FAST_MODEL,
         "THUDM/GLM-4-9B-0414",
-        "Qwen/Qwen3-8B"
+        DEFAULT_ARCHITECT_MODEL,
     ]
 
     def __init__(self):
@@ -719,11 +727,11 @@ class _LayeredModelRouterCompat:
             config = load_agent_model_config() or {}
             assignments = config.get("assignments", {})
             defaults = ModelAssignment(
-                architect_model="Qwen/Qwen3-8B",
-                frontend_model="Qwen/Qwen3-8B",
-                backend_model="Qwen/Qwen3-8B",
-                reviewer_model="Qwen/Qwen3-8B",
-                fallback_model="Qwen/Qwen3-8B",
+                architect_model=DEFAULT_ARCHITECT_MODEL,
+                frontend_model=DEFAULT_FAST_MODEL,
+                backend_model=DEFAULT_CODE_MODEL,
+                reviewer_model=DEFAULT_ARCHITECT_MODEL,
+                fallback_model=DEFAULT_FAST_MODEL,
             )
             parsed: Dict[str, ModelAssignment] = {}
             for level in ProjectComplexity:
@@ -763,11 +771,11 @@ class RoutingConfig:
 
 # 默认角色分配（硬编码兜底）
 _DEFAULT_ROLES = {
-    "architect": "THUDM/GLM-Z1-9B-0414",
-    "frontend": "Qwen/Qwen3-8B",
-    "backend": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+    "architect": DEFAULT_ARCHITECT_MODEL,
+    "frontend": DEFAULT_FAST_MODEL,
+    "backend": DEFAULT_CODE_MODEL,
     "reviewer": "THUDM/GLM-4-9B-0414",
-    "fallback": "Qwen/Qwen3-8B",
+    "fallback": DEFAULT_FAST_MODEL,
 }
 
 _roles_cache: Optional[Dict[str, str]] = None
@@ -829,7 +837,7 @@ async def get_best_model_with_health_awareness(
     Callers should set RoutingConfig(enable_health_awareness=True) to activate.
     """
     if not candidate_models:
-        return "Qwen/Qwen3-8B"
+        return DEFAULT_FAST_MODEL
 
     config = routing_config or RoutingConfig()
 
@@ -862,7 +870,7 @@ async def get_best_model_with_health_awareness(
             healthy_models.append(model_name)
 
     if not healthy_models:
-        return "Qwen/Qwen3-8B"
+        return DEFAULT_FAST_MODEL
 
     # 计算综合评分
     def calculate_comprehensive_score(model_name: str) -> float:
@@ -894,27 +902,24 @@ async def get_best_model_with_health_awareness(
 MODEL_CONTEXT_LENGTHS: Dict[str, int] = {
     # Qwen 系列
     "Qwen/Qwen3.5-4B": 256 * 1024,       # 256k
-    "Qwen/Qwen3-8B": 128 * 1024,         # 128k
+    DEFAULT_FAST_MODEL: 128 * 1024,       # 128k
     "Qwen/Qwen2.5-7B-Instruct": 32 * 1024,  # 32k
     "Qwen/Qwen2.5-Coder-32B-Instruct": 32 * 1024,
     "Qwen/Qwen2.5-72B-Instruct": 32 * 1024,
     "Qwen/QVQ-72B-Preview": 32 * 1024,
     # DeepSeek 系列
-    "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B": 128 * 1024,  # 128k
+    DEFAULT_REASONING_MODEL: 128 * 1024,  # 128k
     "deepseek-ai/DeepSeek-OCR": 8 * 1024,                  # 8k
     "deepseek-ai/DeepSeek-R1": 64 * 1024,
     "deepseek-ai/DeepSeek-V3": 64 * 1024,
     "deepseek-ai/DeepSeek-V2.5": 32 * 1024,
     # GLM 系列
-    "THUDM/GLM-Z1-9B-0414": 128 * 1024,   # 128k
+    DEFAULT_ARCHITECT_MODEL: 128 * 1024,   # 128k
     "THUDM/GLM-4-9B-0414": 32 * 1024,     # 32k
-    "THUDM/GLM-4.1V-9B-Thinking": 32 * 1024,
     # Embedding / Reranker（无传统上下文，按最大输入估算）
     "BAAI/bge-m3": 8 * 1024,                          # 8k
     "BAAI/bge-reranker-v2-m3": 8 * 1024,              # 8k
     "BAAI/bge-large-zh-v1.5": 512,                    # 0.5k
-    "netease-youdao/bce-embedding-base_v1": 512,      # 0.5k
-    "netease-youdao/bce-reranker-base_v1": 512,       # 0.5k
     # 翻译模型
     "tencent/Hunyuan-MT-7B": 32 * 1024,   # 32k
     # 特殊模型（语音/图像/视频）不在此映射中，使用默认值

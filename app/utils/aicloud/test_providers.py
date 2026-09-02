@@ -180,7 +180,7 @@ class TestModelProviderMap:
             "THUDM/GLM-4-9B-0414",
             "THUDM/GLM-Z1-9B-0414",
             "Kwai-Kolors/Kolors",
-            "netease-youdao/bce-embedding-base_v1",
+            "BAAI/bge-m3",
         ]
         
         for model in builtin_models:

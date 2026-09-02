@@ -92,8 +92,8 @@ class ModelAdapter:
                 'temperature': 0.5,
                 'thinking_budget': 2048,
             },
-            # GLM 系列
-            'THUDM/GLM-4.1V-9B-Thinking': {
+            # Qwen 视觉模型
+            'Qwen/Qwen3.5-4B': {
                 'max_tokens': 4096,
                 'temperature': 0.7,
                 'thinking_budget': 4096,

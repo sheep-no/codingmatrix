@@ -12,6 +12,8 @@ from app.db.chat_archiver import ChatArchiver
 from app.models.file import File
 from app.models.task import Task
 from app.utils.task_manager import task_manager
+from app.services.worker_recovery_service import recover_expired_tasks
+from app.services.state_migration_service import RetentionPolicy, process_retention_records
 
 scheduler = AsyncIOScheduler()
 logger = logging.getLogger(__name__)
@@ -152,6 +154,38 @@ async def cleanup_logs_task():
         logger.error(f"日志清理任务失败：{str(e)}", exc_info=True)
 
 
+async def recover_expired_tasks_task():
+    """每分钟扫描过期 worker lease 并重新投递可重试任务。"""
+    async with async_session() as db:
+        try:
+            recovered = await recover_expired_tasks(db, limit=100)
+            await db.commit()
+            if recovered:
+                logger.info(f"过期任务恢复完成 | count={len(recovered)} | task_ids={recovered}")
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"过期任务恢复失败：{str(e)}", exc_info=True)
+
+
+async def unified_retention_task():
+    """按统一状态策略推进归档和外部产物清理。"""
+    async with async_session() as db:
+        try:
+            result = await process_retention_records(
+                db,
+                RetentionPolicy(
+                    name="default",
+                    archive_after_seconds=7 * 24 * 60 * 60,
+                    cleanup_after_seconds=30 * 24 * 60 * 60,
+                ),
+            )
+            await db.commit()
+            logger.info("统一状态保留任务完成 | result=%s", result)
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"统一状态保留任务失败：{str(e)}", exc_info=True)
+
+
 # 配置定时任务
 # 1. 对话归档 - 每 10 天执行一次
 scheduler.add_job(
@@ -193,6 +227,26 @@ scheduler.add_job(
     coalesce=True,
 )
 
+# 5. worker lease 恢复 - 每分钟执行一次
+scheduler.add_job(
+    recover_expired_tasks_task,
+    trigger=IntervalTrigger(minutes=1),
+    id="worker_lease_recovery",
+    replace_existing=True,
+    max_instances=1,
+    coalesce=True,
+)
+
+# 6. 统一状态归档与外部产物清理 - 每天执行一次
+scheduler.add_job(
+    unified_retention_task,
+    trigger=IntervalTrigger(days=1),
+    id="unified_state_retention",
+    replace_existing=True,
+    max_instances=1,
+    coalesce=True,
+)
+
 
 def start_scheduler():
     """启动定时任务调度器"""
@@ -202,6 +256,8 @@ def start_scheduler():
     logger.info("  - 文件清理：每 7 天执行")
     logger.info("  - 任务清理：每 7 天执行")
     logger.info("  - 日志清理：每 7 天执行")
+    logger.info("  - worker lease 恢复：每 1 分钟执行")
+    logger.info("  - 统一状态保留：每 1 天执行")
 
 
 def stop_scheduler() -> None:

@@ -3,7 +3,7 @@ AI Cloud 模型注册表
 
 提供 SiliconFlow 内置模型目录；动态供应商的协议与路由能力由其他 Aicloud 模块提供。
 
-当前内置模型共 17 个，完整字段以 MODEL_REGISTRY 为准。
+当前内置模型共 18 个，完整字段以 MODEL_REGISTRY 为准。
 """
 from dataclasses import dataclass, field
 from enum import Enum
@@ -56,7 +56,7 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         provider=ModelProvider.SILICONFLOW,
         description="DeepSeek 推理模型，逻辑推理和代码能力强",
         max_tokens=8192,
-        max_context=128000,
+        max_context=131072,
         capabilities=[ModelCapability.TEXT, ModelCapability.CODE, ModelCapability.REASONING],
         is_default=True,
         cost_per_1m_input=1.0,
@@ -83,7 +83,7 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         provider=ModelProvider.SILICONFLOW,
         description="Qwen3 通用模型，综合能力均衡",
         max_tokens=8192,
-        max_context=32768,
+        max_context=131072,
         capabilities=[ModelCapability.TEXT, ModelCapability.CODE],
         cost_per_1m_input=0.35,
         cost_per_1m_output=1.4,
@@ -96,7 +96,7 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         provider=ModelProvider.SILICONFLOW,
         description="轻量快速模型，适合简单任务",
         max_tokens=4096,
-        max_context=32768,
+        max_context=262144,
         capabilities=[ModelCapability.TEXT, ModelCapability.FAST],
         cost_per_1m_input=0.15,
         cost_per_1m_output=0.6,
@@ -109,7 +109,7 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         provider=ModelProvider.SILICONFLOW,
         description="智谱 GLM 系列，适合评测和审查",
         max_tokens=8192,
-        max_context=32768,
+        max_context=131072,
         capabilities=[ModelCapability.TEXT, ModelCapability.REASONING],
         cost_per_1m_input=0.5,
         cost_per_1m_output=2.0,
@@ -127,19 +127,6 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         cost_per_1m_input=1.0,
         cost_per_1m_output=4.0,
         tags=["OCR", "视觉"]
-    ),
-    "glm-4.1v-9b": ModelInfo(
-        id="glm-4.1v-9b",
-        name="GLM-4.1V 9B",
-        model_key="THUDM/GLM-4.1V-9B-Thinking",
-        provider=ModelProvider.SILICONFLOW,
-        description="智谱多模态视觉模型，支持图片理解与推理",
-        max_tokens=8192,
-        max_context=32768,
-        capabilities=[ModelCapability.VISION, ModelCapability.TEXT, ModelCapability.REASONING],
-        cost_per_1m_input=1.0,
-        cost_per_1m_output=4.0,
-        tags=["视觉", "多模态", "推理"]
     ),
     "glm-4-9b": ModelInfo(
         id="glm-4-9b",
@@ -167,18 +154,57 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         cost_per_1m_output=4.0,
         tags=["绘画", "生成"]
     ),
-    "bce-embedding": ModelInfo(
-        id="bce-embedding",
-        name="BCE Embedding",
-        model_key="netease-youdao/bce-embedding-base_v1",
+    "paddleocr-vl-1.5": ModelInfo(
+        id="paddleocr-vl-1.5",
+        name="PaddleOCR VL 1.5",
+        model_key="PaddlePaddle/PaddleOCR-VL-1.5",
         provider=ModelProvider.SILICONFLOW,
-        description="网易有道嵌入模型，文本向量化",
-        max_tokens=512,
-        max_context=512,
+        description="PaddleOCR 多模态视觉模型，支持 OCR 与文档理解",
+        max_tokens=4096,
+        max_context=8192,
+        capabilities=[ModelCapability.VISION, ModelCapability.TEXT],
+        cost_per_1m_input=1.0,
+        cost_per_1m_output=4.0,
+        tags=["OCR", "视觉"]
+    ),
+    "xingchen-asr-v3.2-ultra": ModelInfo(
+        id="xingchen-asr-v3.2-ultra",
+        name="XingChen ASR V3.2 Ultra",
+        model_key="XingChenAGI/XingChenASR-V3.2-Ultra",
+        provider=ModelProvider.SILICONFLOW,
+        description="XingChen 高性能语音识别模型",
+        max_tokens=4096,
+        max_context=8192,
         capabilities=[ModelCapability.TEXT],
         cost_per_1m_input=0.5,
-        cost_per_1m_output=0.0,
-        tags=["嵌入", "向量"]
+        cost_per_1m_output=1.0,
+        tags=["语音识别", "ASR"]
+    ),
+    "xingchen-gsr-v1": ModelInfo(
+        id="xingchen-gsr-v1",
+        name="XingChen GSR V1.0",
+        model_key="XingChenAGI/XingChenGSR-V1.0",
+        provider=ModelProvider.SILICONFLOW,
+        description="XingChen 语音与说话人识别模型",
+        max_tokens=4096,
+        max_context=8192,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.5,
+        cost_per_1m_output=1.0,
+        tags=["语音", "说话人"]
+    ),
+    "xingchen-asr-diarize-v3": ModelInfo(
+        id="xingchen-asr-diarize-v3",
+        name="XingChen ASR Diarize V3.0",
+        model_key="XingChenAGI/XingChenASR-Diarize-V3.0",
+        provider=ModelProvider.SILICONFLOW,
+        description="XingChen 语音识别与说话人分离模型",
+        max_tokens=4096,
+        max_context=8192,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.5,
+        cost_per_1m_output=1.0,
+        tags=["语音识别", "说话人分离"]
     ),
     "bge-m3": ModelInfo(
         id="bge-m3",
@@ -206,19 +232,6 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         cost_per_1m_output=0.0,
         tags=["重排序", "检索"]
     ),
-    "bce-reranker": ModelInfo(
-        id="bce-reranker",
-        name="BCE Reranker",
-        model_key="netease-youdao/bce-reranker-base_v1",
-        provider=ModelProvider.SILICONFLOW,
-        description="网易有道重排序模型，文档排序优化",
-        max_tokens=512,
-        max_context=512,
-        capabilities=[ModelCapability.TEXT],
-        cost_per_1m_input=0.5,
-        cost_per_1m_output=0.0,
-        tags=["重排序", "排序"]
-    ),
     "bge-large-zh": ModelInfo(
         id="bge-large-zh",
         name="BGE Large ZH",
@@ -231,6 +244,58 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         cost_per_1m_input=0.5,
         cost_per_1m_output=0.0,
         tags=["嵌入", "中文", "检索"]
+    ),
+    "paddleocr-vl-1.5": ModelInfo(
+        id="paddleocr-vl-1.5",
+        name="PaddleOCR VL 1.5",
+        model_key="PaddlePaddle/PaddleOCR-VL-1.5",
+        provider=ModelProvider.SILICONFLOW,
+        description="PaddleOCR 视觉文字识别模型",
+        max_tokens=4096,
+        max_context=8192,
+        capabilities=[ModelCapability.VISION],
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
+        tags=["OCR", "视觉"]
+    ),
+    "xingchen-asr-v3.2-ultra": ModelInfo(
+        id="xingchen-asr-v3.2-ultra",
+        name="XingChen ASR V3.2 Ultra",
+        model_key="XingChenAGI/XingChenASR-V3.2-Ultra",
+        provider=ModelProvider.SILICONFLOW,
+        description="星尘语音识别模型",
+        max_tokens=4096,
+        max_context=4096,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
+        tags=["语音", "ASR"]
+    ),
+    "xingchen-gsr-v1": ModelInfo(
+        id="xingchen-gsr-v1",
+        name="XingChen GSR V1.0",
+        model_key="XingChenAGI/XingChenGSR-V1.0",
+        provider=ModelProvider.SILICONFLOW,
+        description="星尘语音和说话人识别模型",
+        max_tokens=4096,
+        max_context=4096,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
+        tags=["语音", "说话人"]
+    ),
+    "xingchen-asr-diarize-v3": ModelInfo(
+        id="xingchen-asr-diarize-v3",
+        name="XingChen ASR Diarize V3.0",
+        model_key="XingChenAGI/XingChenASR-Diarize-V3.0",
+        provider=ModelProvider.SILICONFLOW,
+        description="星尘语音识别和说话人分离模型",
+        max_tokens=4096,
+        max_context=4096,
+        capabilities=[ModelCapability.TEXT],
+        cost_per_1m_input=0.0,
+        cost_per_1m_output=0.0,
+        tags=["语音", "说话人分离"]
     ),
     "sense-voice": ModelInfo(
         id="sense-voice",

@@ -23,6 +23,11 @@ from app.models.agent_memory import (
     ToolExecutionLog,
     ModelUsageStats,
 )
+from app.models.unified_state import (
+    Session, Message, TaskEvent, Checkpoint, Artifact,
+    StateCompatibilityMapping, StateRetentionRecord,
+    StateReconciliationRecord,
+)
 
 __all__ = [
     "Base",
@@ -49,4 +54,12 @@ __all__ = [
     "KnowledgeEntry",
     "ToolExecutionLog",
     "ModelUsageStats",
+    "Session",
+    "Message",
+    "TaskEvent",
+    "Checkpoint",
+    "Artifact",
+    "StateCompatibilityMapping",
+    "StateRetentionRecord",
+    "StateReconciliationRecord",
 ]

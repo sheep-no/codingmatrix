@@ -8,6 +8,7 @@ from app.agent.workflow_registry import (
     WorkflowDefinition,
     WorkflowRegistry,
     build_legacy_workflow,
+    get_legacy_result,
     run_workflow,
 )
 
@@ -73,3 +74,16 @@ async def test_legacy_workflow_supports_async_stream_handler() -> None:
     assert state.status == "failed"
     assert state.errors[0]["message"] == "validation failed"
     assert state.metadata["legacy_result"]["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_legacy_workflow_exposes_original_handler_error() -> None:
+    async def generate(_state):
+        raise RuntimeError("provider is not configured")
+
+    definition = build_legacy_workflow("generate", "/generate", generate)
+    state = await run_workflow(definition, session_id="s1", task_id="t1")
+
+    assert state.status == "failed"
+    with pytest.raises(RuntimeError, match="provider is not configured"):
+        get_legacy_result(state)

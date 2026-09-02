@@ -191,7 +191,7 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
     // Computed
     sessionId, overallProgress,
     // Session methods
-    loadSessionHistory, createNewSession, deleteSession,
+    loadSessionHistory, createNewSession, switchSession, deleteSession,
     // Generation methods
     ensureStage, updateStageStatus, addThinkingToStage,
     resetStages, resetState, fetchRoles, getETA

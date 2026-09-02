@@ -20,8 +20,10 @@ from sqlalchemy import or_
 from app.db.database import get_db
 from app.schema.girl_request import GirlRequest, GirlResponse, HistoryRecord, HistoryResponse
 from app.db.chat_history_service import ChatHistoryService
+from app.services.girlai_state_adapter import append_conversation_turn
 from app.models.chat_history import CustomCharacter, UserPreference
 from app.utils import call_llm
+from app.agent.models import DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from app.utils.security import verify_token
 from app.utils.aicloud.http_client import call_with_retry
 
@@ -52,7 +54,7 @@ CHARACTER_PROFILES: Dict[str, Dict[str, Any]] = {
             "看到你来了真开心，想和我聊聊天吗？~"
         ],
         "tags": ["温柔", "治愈", "姐姐", "贴心"],
-        "model": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+        "model": DEFAULT_REASONING_MODEL,
         "temperature": 0.8,
         "max_tokens": 180
     },
@@ -68,7 +70,7 @@ CHARACTER_PROFILES: Dict[str, Dict[str, Any]] = {
             "哈喽哈喽~ 今天有什么有趣的事情吗？٩(◕‿◕) ﾉ"
         ],
         "tags": ["元气", "活泼", "少女", "可爱"],
-        "model": "Qwen/Qwen3-8B",
+        "model": DEFAULT_FAST_MODEL,
         "temperature": 0.9,
         "max_tokens": 150
     },
@@ -84,7 +86,7 @@ CHARACTER_PROFILES: Dict[str, Dict[str, Any]] = {
             "…笨蛋，下次别让我等这么久啦！"
         ],
         "tags": ["傲娇", "妹妹", "别扭", "可爱"],
-        "model": "Qwen/Qwen3-8B",
+        "model": DEFAULT_FAST_MODEL,
         "temperature": 0.85,
         "max_tokens": 160
     },
@@ -100,7 +102,7 @@ CHARACTER_PROFILES: Dict[str, Dict[str, Any]] = {
             "又见面了，最近在读什么有趣的书吗？"
         ],
         "tags": ["知性", "学霸", "优雅", "理性"],
-        "model": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+        "model": DEFAULT_REASONING_MODEL,
         "temperature": 0.7,
         "max_tokens": 200
     },
@@ -116,7 +118,7 @@ CHARACTER_PROFILES: Dict[str, Dict[str, Any]] = {
             "最喜欢你啦~ 今天也想和你在一起 ❤"
         ],
         "tags": ["伴侣", "恋人", "专一", "浪漫"],
-        "model": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+        "model": DEFAULT_REASONING_MODEL,
         "temperature": 0.85,
         "max_tokens": 200
     }
@@ -124,7 +126,7 @@ CHARACTER_PROFILES: Dict[str, Dict[str, Any]] = {
 
 # 全局配置
 
-DEFAULT_MODEL = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+DEFAULT_MODEL = DEFAULT_REASONING_MODEL
 DEFAULT_TEMPERATURE = 0.8
 DEFAULT_MAX_TOKENS = 180
 REQUEST_TIMEOUT = 30.0
@@ -526,6 +528,15 @@ async def generate_message(
                 model=character['model'],
                 tokens_used=tokens_used
             )
+            await append_conversation_turn(
+                db,
+                int(user_id),
+                body.prompt,
+                ai_content,
+                model=character['model'],
+                character_id=getattr(body, 'character_id', None),
+            )
+            await db.commit()
             save_duration = time.time() - save_start_time
             logger.debug(f"对话记录保存完成 | user_id={user_id} | duration={save_duration:.2f}s")
 

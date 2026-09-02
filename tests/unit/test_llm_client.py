@@ -20,6 +20,18 @@ from app.agent.llm_client import (
 )
 
 
+@pytest.fixture(autouse=True)
+def reset_llm_semaphores():
+    """每个用例使用独立的并发状态，避免跨模块测试污染。"""
+    import app.agent.llm_client as llm_client
+
+    llm_client._global_semaphore = None
+    llm_client._model_semaphores.clear()
+    yield
+    llm_client._global_semaphore = None
+    llm_client._model_semaphores.clear()
+
+
 class TestGlobalSemaphore:
     def test_semaphore_returns_same_instance(self):
         s1 = get_global_semaphore()
@@ -221,6 +233,68 @@ class TestLLMClientCall:
         client = LLMClient(model_name="test-model")
         result = await client.call("Hi")
         assert result == ""
+
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.LayeredModelRouter")
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_call_cancellation_records_router_completion(
+        self, mock_call_llm, mock_get_router, mock_router_cls
+    ):
+        mock_router_cls.get_model_config.return_value = {
+            "max_tokens": 4096, "thinking_budget": 0,
+            "temperature": 0.7, "timeout": 300,
+        }
+        mock_router = AsyncMock()
+        mock_get_router.return_value = mock_router
+
+        async def hanging_call(*args, **kwargs):
+            await asyncio.Future()
+
+        mock_call_llm.side_effect = hanging_call
+        task = asyncio.create_task(LLMClient(model_name="test-model").call("Hi"))
+        await asyncio.sleep(0)
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        mock_router.start_call.assert_awaited_once_with("test-model")
+        mock_router.record_call.assert_awaited_once()
+        assert mock_router.record_call.await_args.kwargs["error"] == "cancelled"
+
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.LayeredModelRouter")
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_stream_cancellation_records_router_completion(
+        self, mock_call_llm, mock_get_router, mock_router_cls
+    ):
+        mock_router_cls.get_model_config.return_value = {
+            "max_tokens": 4096, "thinking_budget": 0,
+            "temperature": 0.7, "timeout": 300,
+        }
+        mock_router = AsyncMock()
+        mock_get_router.return_value = mock_router
+        stream_started = asyncio.Event()
+
+        async def hanging_stream():
+            stream_started.set()
+            await asyncio.Future()
+            yield "unreachable"
+
+        mock_call_llm.return_value = hanging_stream()
+        client = LLMClient(model_name="test-model")
+        task = asyncio.create_task(
+            client.call_stream("Hi", on_chunk=AsyncMock())
+        )
+        await asyncio.wait_for(stream_started.wait(), timeout=1)
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        mock_router.start_call.assert_awaited_once_with("test-model")
+        mock_router.record_call.assert_awaited_once()
+        assert mock_router.record_call.await_args.kwargs["error"] == "cancelled"
 
 
 class TestLLMClientError:

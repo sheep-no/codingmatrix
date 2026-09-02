@@ -13,8 +13,8 @@ const crypto = require('crypto');
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
 
-// 真实的 SiliconFlow API Key
-const REAL_API_KEY = 'sk-hvrcuxxqjhkdsaysyqeulrvsjieknsdqablvxhuhesiuinny';
+// 通过测试环境变量提供 SiliconFlow API Key
+const REAL_API_KEY = process.env.TEST_API_KEY;
 
 // RSA 加密函数
 function encryptWithPublicKey(publicKeyPem, data) {
@@ -43,7 +43,7 @@ async function submitApiKey(page, apiKey, token, provider = 'siliconflow') {
   if (keys.length > 0) {
     const existingKey = keys.find(k => k.provider === provider);
     if (existingKey) {
-      console.log(`[DEBUG] 使用已存在的 API Key: ${existingKey.token}`);
+      console.log('[DEBUG] 使用已存在的 SiliconFlow API Key');
       return { success: true, token: existingKey.token };
     }
   }
@@ -153,6 +153,7 @@ async function getPageState(page) {
 test.describe('多模型 Agent 修改能力测试', () => {
   test('完整测试：生成 -> 删除文件 -> 模糊问题修复', async ({ page }) => {
     test.setTimeout(600000); // 10分钟超时
+    test.skip(!REAL_API_KEY, '需要设置 TEST_API_KEY 才能执行真实模型验收');
     
     // 捕获浏览器控制台日志
     page.on('console', msg => {
@@ -167,14 +168,14 @@ test.describe('多模型 Agent 修改能力测试', () => {
     let loginResult;
     try {
       loginResult = await apiLogin(page, BASE_URL);
-      console.log('[DEBUG] 登录成功:', loginResult);
+      console.log('[DEBUG] 登录成功');
     } catch (error) {
       console.log('[ERROR] 登录失败:', error.message);
       test.skip();
       return;
     }
     
-    // 提交真实的 SiliconFlow API Key 并设置前端 localStorage
+    // 提交测试环境提供的 SiliconFlow API Key 并设置前端 localStorage
     console.log('[DEBUG] 正在提交 SiliconFlow API Key...');
     let siliconflowTokenId = 'mock-siliconflow-token';
     try {
@@ -183,7 +184,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
       
       if (submitResult.success) {
         siliconflowTokenId = submitResult.token;
-        console.log('[DEBUG] 使用真实 token ID:', siliconflowTokenId);
+        console.log('[DEBUG] 已获得 SiliconFlow token ID');
       } else {
         console.log('[WARNING] API Key 提交失败:', submitResult.message);
       }
@@ -356,7 +357,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
     }
     
     // 点击生成按钮 - 使用 Playwright 的 click 方法
-    const generateBtn = page.locator('button:has-text("开始生成")').first();
+    const generateBtn = page.locator('.action-buttons .btn-primary').first();
     
     // 监听网络请求
     const requests = [];
@@ -773,7 +774,7 @@ test.describe('多模型 Agent 修改能力测试', () => {
     await textarea.fill('创建一个 Hello World 的 Python 脚本');
     
     // 开始生成
-    await page.click('.btn-primary:has-text("开始生成")');
+    await page.click('.action-buttons .btn-primary');
     
     // 等待第一个文件出现
     try {

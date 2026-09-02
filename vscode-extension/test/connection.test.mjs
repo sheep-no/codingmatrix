@@ -110,6 +110,66 @@ test("performs authenticated agent host handshake", async () => {
   });
 });
 
+test("controls the negotiated agent host session", async () => {
+  const calls = [];
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      if (url.endsWith("/handshake")) {
+        return response({
+          session_id: "session-1",
+          workspace_id: "workspace-1",
+          extension_version: "0.1.0",
+          protocol_version: 1,
+          capabilities: ["workspace"],
+          policy_version: 1,
+          policy: { local_execution_enabled: true, validation_operations: {}, auto_approve: false, require_confirmation_on_failure: true },
+          pending_actions: [],
+        });
+      }
+      return response({ status: "paused" });
+    },
+    retryDelayMs: 0,
+  });
+  await connection.handshake({ workspace_id: "workspace-1", extension_version: "0.1.0", protocol_versions: [1], capabilities: ["workspace"] });
+  assert.deepEqual(await connection.controlSession("pause"), { status: "paused" });
+  assert.equal(calls[1].url, "https://codingmatrix.example/api/v1/agent/host/sessions/session-1/control");
+  assert.equal(JSON.parse(calls[1].init.body).action, "pause");
+});
+
+test("streams Agent events with bearer authentication", async () => {
+  const calls = [];
+  const chunks = [
+    new TextEncoder().encode('data: {"type":"progress","data":{"message":"开始"}}\n\n'),
+    new TextEncoder().encode('data: {"type":"done","data":{"success":true}}\n\n'),
+  ];
+  const connection = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      let index = 0;
+      return {
+        ...response({}, 200),
+        body: { getReader: () => ({ read: async () => index < chunks.length ? { done: false, value: chunks[index++] } : { done: true } }) },
+      };
+    },
+  });
+  const events = [];
+
+  await connection.streamAgentPrompt({ requirement: "检查项目" }, (event) => events.push(event));
+
+  assert.equal(calls[0].url, "https://codingmatrix.example/api/v1/ai-agent/orchestrate/stream");
+  assert.equal(calls[0].init.headers.authorization, "Bearer access-token");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { requirement: "检查项目" });
+  assert.deepEqual(events, [
+    { type: "progress", data: { message: "开始" } },
+    { type: "done", data: { success: true } },
+  ]);
+});
+
 test("uses the negotiated session for agent host actions and events", async () => {
   const calls = [];
   const connection = new CloudConnection({

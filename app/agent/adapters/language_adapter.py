@@ -100,6 +100,12 @@ class LanguageAdapter(ABC):
         """
         pass
 
+    def extract_signatures(self, content: str, file_path: str = "") -> Optional[str]:
+        """提取依赖上下文所需的签名；专用适配器可接入语言工具链。"""
+        from app.agent.signature_extractor import extract_signatures
+
+        return extract_signatures(file_path, content)
+
     @abstractmethod
     def get_package_init_file(self, package_path: str) -> str:
         """

@@ -119,7 +119,7 @@ test.describe('前端 Code 接口完整交互测试', () => {
         // 先获取 token（从 localStorage 或 cookie）
         const token = localStorage.getItem('access_token') || ''
         
-        const response = await fetch('/api/v1/code', {
+        const response = await fetch('/api/v1/chat', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

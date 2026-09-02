@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 import re
+from app.agent.models import DEFAULT_REASONING_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -530,7 +531,7 @@ async def summarize_page_with_llm(page_text: str, url: str, max_length: int = 20
 请直接输出摘要，不要有其他解释。"""
 
         response = await call_llm(
-            model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+            model=DEFAULT_REASONING_MODEL,
             prompt=prompt,
             stream=False,
             max_tokens=256,

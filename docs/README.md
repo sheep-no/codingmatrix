@@ -116,7 +116,7 @@ CodingMatrix 是 AI 驱动的全栈代码生成与开发平台，基于 FastAPI 
 | 模块 | 端点 | 功能 |
 |------|------|------|
 | Agent 系统 | `/api/v1/agent/*` | 5 子路由聚合 (orchestrate/generate/association/knowledge/performance), 项目生成/代码审查/快照/会话/ReAct |
-| AI 代码 | `/api/v1/code`, `/api/v1/AiProjectCode` | 代码生成、流式输出 |
+| AI 聊天 | `/api/v1/chat`（`/api/v1/code` 兼容） | 通用问答、代码生成、流式输出 |
 | PPT 生成 | `/api/v1/pptx/*` | 异步任务、多格式输出 |
 | 图像生成 | `/api/v1/kolors/*` | 文生图、图生图 |
 | AI Cloud | `/api/v1/aicloud/*` + `/aicloud-knowledge` | 沙箱执行、审查队列、知识库 |

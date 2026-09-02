@@ -29,6 +29,7 @@ test.describe('工作流页面', () => {
   test('执行工作流 - 执行按钮应可见', async ({ page }) => {
     await page.goto('/workflow');
     await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('.execute-btn');
     
     const hasBtn = await page.evaluate(() => {
       return !!document.querySelector('button');
@@ -49,6 +50,7 @@ test.describe('工作流页面', () => {
   test('导入工作流 - 导入功能应可用', async ({ page }) => {
     await page.goto('/workflow');
     await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('.workflow-page');
     
     const hasBtn = await page.evaluate(() => {
       return !!document.querySelector('button');
@@ -59,6 +61,7 @@ test.describe('工作流页面', () => {
   test('导出工作流 - 导出功能应可用', async ({ page }) => {
     await page.goto('/workflow');
     await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('.export-btn');
     
     const hasBtn = await page.evaluate(() => {
       return !!document.querySelector('button');

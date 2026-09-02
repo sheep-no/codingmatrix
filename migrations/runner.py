@@ -22,6 +22,12 @@ from app.models.base import Base
 from app.models.server_config import ServerConfig
 from app.models.user import User
 from app.models.history import History
+from app.models.task import Task
+from app.models.unified_state import (
+    Session, Message, TaskEvent, Checkpoint, Artifact,
+    StateCompatibilityMapping, StateRetentionRecord,
+    StateReconciliationRecord,
+)
 
 
 async def run_async_migrations():
@@ -58,5 +64,38 @@ async def run_async_migrations():
                 print(f"✅ 创建表: {table_name}")
             else:
                 print(f"⏭ 表已存在，跳过: {table_name}")
+
+        # create_all does not evolve an existing tasks table. Add the unified
+        # state columns here so upgrades remain safe for existing SQLite/MySQL
+        # deployments that predate the unified state model.
+        if "tasks" in existing_tables:
+            if db_type == "sqlite":
+                columns_result = await conn.execute(text("PRAGMA table_info(tasks)"))
+                task_columns = {row[1] for row in columns_result}
+            else:
+                columns_result = await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = :db_name AND table_name = 'tasks'"
+                    ),
+                    {"db_name": parsed.path.strip("/")},
+                )
+                task_columns = {row[0] for row in columns_result}
+
+            additions = {
+                "session_id": "VARCHAR(64)",
+                "revision": "INTEGER NOT NULL DEFAULT 0",
+                "idempotency_key": "VARCHAR(128)",
+                "stage": "VARCHAR(80)",
+                "lease_until": "DATETIME",
+                "error_json": "JSON",
+                "result_json": "JSON",
+                "updated_at": "DATETIME",
+                "finished_at": "DATETIME",
+            }
+            for column_name, column_type in additions.items():
+                if column_name not in task_columns:
+                    await conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {column_name} {column_type}"))
+                    print(f"已升级 tasks 表字段: {column_name}")
 
     await engine.dispose()

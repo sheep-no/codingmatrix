@@ -59,7 +59,7 @@ test.describe('Code API 前端调用测试', () => {
     console.log('页面内容（前300字符）:', bodyText.substring(0, 300))
   })
 
-  test('2. 模拟调用 code 接口（非流式）', async ({ request }) => {
+  test('2. 模拟调用 chat 接口（非流式）', async ({ request }) => {
     const headers = {
       'Content-Type': 'application/json',
     }
@@ -67,7 +67,7 @@ test.describe('Code API 前端调用测试', () => {
       headers['Authorization'] = `Bearer ${authToken}`
     }
 
-    const response = await request.post('http://localhost:8000/api/v1/code', {
+    const response = await request.post('http://localhost:8000/api/v1/chat', {
       headers,
       data: {
         prompt: '你好，请简单介绍一下 Python',
@@ -85,7 +85,7 @@ test.describe('Code API 前端调用测试', () => {
     expect([200, 401]).toContain(response.status())
   })
 
-  test('3. 模拟调用 code 接口（流式）', async ({ request }) => {
+  test('3. 模拟调用 chat 接口（流式）', async ({ request }) => {
     const headers = {
       'Content-Type': 'application/json',
     }
@@ -93,7 +93,7 @@ test.describe('Code API 前端调用测试', () => {
       headers['Authorization'] = `Bearer ${authToken}`
     }
 
-    const response = await request.post('http://localhost:8000/api/v1/code', {
+    const response = await request.post('http://localhost:8000/api/v1/chat', {
       headers,
       data: {
         prompt: '写一个 Hello World 的 Python 程序',
@@ -112,7 +112,7 @@ test.describe('Code API 前端调用测试', () => {
     expect([200, 401]).toContain(response.status())
   })
 
-  test('4. 测试带搜索功能的 code 接口', async ({ request }) => {
+  test('4. 测试带搜索功能的 chat 接口', async ({ request }) => {
     const headers = {
       'Content-Type': 'application/json',
     }
@@ -120,7 +120,7 @@ test.describe('Code API 前端调用测试', () => {
       headers['Authorization'] = `Bearer ${authToken}`
     }
 
-    const response = await request.post('http://localhost:8000/api/v1/code', {
+    const response = await request.post('http://localhost:8000/api/v1/chat', {
       headers,
       data: {
         prompt: 'Python 最新版本是什么？',
@@ -138,7 +138,7 @@ test.describe('Code API 前端调用测试', () => {
     expect([200, 401]).toContain(response.status())
   })
 
-  test('5. 测试空 prompt 校验', async ({ request }) => {
+  test('5. 测试 chat 空 prompt 校验', async ({ request }) => {
     const headers = {
       'Content-Type': 'application/json',
     }
@@ -146,7 +146,7 @@ test.describe('Code API 前端调用测试', () => {
       headers['Authorization'] = `Bearer ${authToken}`
     }
 
-    const response = await request.post('http://localhost:8000/api/v1/code', {
+    const response = await request.post('http://localhost:8000/api/v1/chat', {
       headers,
       data: {
         prompt: '',

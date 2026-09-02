@@ -1,4 +1,6 @@
 const { test, expect } = require('@playwright/test');
+
+const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8000';
 const path = require('path');
 const fs = require('fs');
 
@@ -15,7 +17,7 @@ test.describe('多模态 Agent Playwright 测试', () => {
 
   test.beforeAll(async ({ request }) => {
     try {
-      const resp = await request.post('http://localhost:8080/api/v1/login', {
+      const resp = await request.post(`${API_BASE}/api/v1/login`, {
         data: { email: TEST_EMAIL, password: TEST_PASSWORD },
       });
       if (resp.ok()) {
@@ -30,7 +32,7 @@ test.describe('多模态 Agent Playwright 测试', () => {
 
   test.describe('Vision API 后端测试', () => {
     test('Vision API 路由已注册', async ({ request }) => {
-      const resp = await request.get('http://localhost:8080/api/openapi.json');
+      const resp = await request.get(`${API_BASE}/api/openapi.json`);
       expect(resp.ok()).toBe(true);
       
       const spec = await resp.json();
@@ -48,7 +50,7 @@ test.describe('多模态 Agent Playwright 测试', () => {
       const formData = new FormData();
       formData.append('file', new Blob([TEST_IMAGE_DATA], { type: 'image/png' }), 'test.png');
 
-      const resp = await request.post('http://localhost:8080/api/v1/vision/ocr', {
+      const resp = await request.post(`${API_BASE}/api/v1/vision/ocr`, {
         multipart: formData,
       });
 
@@ -63,7 +65,7 @@ test.describe('多模态 Agent Playwright 测试', () => {
       formData.append('file', new Blob([TEST_IMAGE_DATA], { type: 'image/png' }), 'test.png');
       formData.append('prompt', 'describe');
 
-      const resp = await request.post('http://localhost:8080/api/v1/vision/analyze', {
+      const resp = await request.post(`${API_BASE}/api/v1/vision/analyze`, {
         headers: { 'Authorization': `Bearer ${authToken}` },
         multipart: formData,
       });

@@ -95,6 +95,36 @@ class TestTaskStatus:
         assert TaskPriority.MEDIUM.value == "medium"
         assert TaskPriority.LOW.value == "low"
 
+    def test_runtime_state_preserves_persisted_progress(self):
+        from app.api.v1.task_queue import _merge_task_runtime_state
+
+        task = type("TaskRecord", (), {
+            "status": "running",
+            "progress": 20,
+            "progress_message": "正在生成 PPT 大纲...",
+        })()
+
+        status, progress, message = _merge_task_runtime_state(task, "STARTED", None)
+
+        assert status == "started"
+        assert progress == 20
+        assert message == "正在生成 PPT 大纲..."
+
+    def test_runtime_state_keeps_cancelled_status_over_celery_revoked(self):
+        from app.api.v1.task_queue import _merge_task_runtime_state
+
+        task = type("TaskRecord", (), {
+            "status": "cancelled",
+            "progress": 20,
+            "progress_message": "已取消",
+        })()
+
+        status, progress, message = _merge_task_runtime_state(
+            task, "REVOKED", {"progress": 0, "message": ""}
+        )
+
+        assert (status, progress, message) == ("cancelled", 20, "已取消")
+
 
 class TestTaskSchema:
     """测试任务 Schema"""

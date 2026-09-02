@@ -42,6 +42,9 @@ class Task(Base):
 
     # 任务标识
     task_id = Column(String(64), unique=True, nullable=False, index=True)
+    session_id = Column(String(64), ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True, index=True)
+    revision = Column(Integer, default=0, nullable=False)
+    idempotency_key = Column(String(128), nullable=True, index=True)
 
     # Celery 集成
     celery_task_id = Column(String(64), nullable=True, index=True)
@@ -51,6 +54,8 @@ class Task(Base):
 
     # 任务状态
     status = Column(String(20), default=TaskStatus.PENDING.value, nullable=False, index=True)
+    stage = Column(String(80), nullable=True)
+    lease_until = Column(DateTime, nullable=True)
 
     # 任务优先级 (1-10, 10 is highest)
     priority = Column(Integer, default=5)
@@ -65,6 +70,8 @@ class Task(Base):
     # 任务结果
     result = Column(JSON, default=dict)
     error_message = Column(Text)
+    error_json = Column(JSON, default=dict)
+    result_json = Column(JSON, default=dict)
 
     # 进度信息
     progress = Column(Integer, default=0)
@@ -80,6 +87,8 @@ class Task(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
 
     # 执行信息
     retry_count = Column(Integer, default=0)
@@ -97,6 +106,7 @@ class Task(Base):
         Index('idx_task_status_created', 'status', 'created_at'),
         Index('idx_celery_task_id', 'celery_task_id'),
         Index('idx_parent_task_id', 'parent_task_id'),
+        Index('idx_task_idempotency', 'user_id', 'idempotency_key'),
     )
 
     def to_dict(self) -> dict:

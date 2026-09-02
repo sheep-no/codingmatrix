@@ -74,7 +74,7 @@ class GenerationMixin(
             2, 5,
             architect=_get_model("architect_model", DEFAULT_ARCHITECT_MODEL),
             frontend=_get_model("frontend_model", DEFAULT_CODE_MODEL),
-            backend=_get_model("backend_model", DEFAULT_REASONING_MODEL),
+            backend=_get_model("backend_model", DEFAULT_CODE_MODEL),
             reviewer=_get_model("reviewer_model", DEFAULT_ARCHITECT_MODEL)
         )
 
@@ -84,7 +84,7 @@ class GenerationMixin(
 
         self.architect = Architect("架构师", _get_model("architect_model", DEFAULT_ARCHITECT_MODEL), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
         self.frontend_engineer = FrontendEngineer("前端工程师", _get_model("frontend_model", DEFAULT_CODE_MODEL), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
-        self.backend_engineer = BackendEngineer("后端工程师", _get_model("backend_model", DEFAULT_REASONING_MODEL), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
+        self.backend_engineer = BackendEngineer("后端工程师", _get_model("backend_model", DEFAULT_CODE_MODEL), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
         self.reviewer = CodeReviewer("审查员", _get_model("reviewer_model", DEFAULT_ARCHITECT_MODEL), task_type="review", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
         self.validator = CodeValidator(self.output_dir)
         self.error_recovery = ErrorRecoveryLoop(self.validator, self.reviewer, api_key_token=self.api_key_token, cancel_event=self.cancel_event)

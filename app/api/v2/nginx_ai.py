@@ -11,6 +11,7 @@ from app.utils.AiCodeUtil import *
 from app.utils import call_llm
 from app.schema.nginxConf import *
 from app.core.config import settings
+from app.agent.models import DEFAULT_CODE_MODEL
 import shutil
 
 # 初始化日志
@@ -19,7 +20,7 @@ router = APIRouter()
 
 # 配置常量
 NGINX_CHECK_TIMEOUT = 30  # 秒，大配置文件需要更长时间
-DEFAULT_AI_MODEL = getattr(settings, 'NGINX_AI_MODEL', "Qwen/Qwen2.5-Coder-7B-Instruct")
+DEFAULT_AI_MODEL = getattr(settings, 'NGINX_AI_MODEL', DEFAULT_CODE_MODEL)
 
 
 @router.post("/nginx/check")

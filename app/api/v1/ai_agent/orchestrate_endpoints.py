@@ -17,8 +17,9 @@ from app.utils.security import verify_token
 from app.db.database import get_db, async_session
 from app.db.models import ProjectSession
 from app.agent import OrchestratorAgent
-from app.agent.workflow_registry import build_legacy_workflow, run_workflow
+from app.agent.workflow_registry import build_legacy_workflow, get_legacy_result, run_workflow
 from app.agent.multi_model_agent import MultiModelAgent
+from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 
 
 # SSE 透传事件类型集合：直接发送给前端（不被包装成 progress）
@@ -99,6 +100,20 @@ def resolve_stream_output_dir(
     resolved_session = f"{user_id}_{resolved_name}"
     output_dir = f"{user_id}/{resolved_name}"
     return output_dir, resolved_name, resolved_session
+
+
+def _generation_result_error(result: Dict[str, Any]) -> str | None:
+    """Return an actionable error when an orchestrator result is unsuccessful."""
+    if result.get("success") is True:
+        return None
+    errors = result.get("errors") or []
+    if isinstance(errors, str):
+        errors = [errors]
+    if errors:
+        return "；".join(str(error) for error in errors)
+    return "生成流程未达到成功终态"
+
+
 from app.agent.impact_analyzer import ImpactAnalyzer
 from app.agent.project_profiler import ProjectProfiler
 from app.agent.test_selector import TestSelector
@@ -123,14 +138,43 @@ from app.agent.conversation_store import get_conversation_store
 from app.utils.guardrails import (
     check_disk_space, check_rate_limit, validate_session_id
 )
+from .single_file_generation import generate_single_file
 
 _decision_queues: Dict[str, asyncio.Queue] = {}
 _cancel_events: Dict[str, asyncio.Event] = {}
+
+
+def _generation_http_exception(error: Exception) -> HTTPException:
+    """Expose actionable provider configuration failures to API clients."""
+    message = str(error)
+    if "Provider " in message and "not configured" in message:
+        return HTTPException(status_code=503, detail=message)
+    return HTTPException(status_code=500, detail=f"项目生成失败: {message}")
 # 运行中的生成任务，用于浏览器重连
 _active_tasks: Dict[str, dict] = {}
 _user_creation_locks: Dict[str, asyncio.Lock] = {}
 
 logger = logging.getLogger(__name__)
+
+
+def _skill_context_for_user(user_id: str) -> str:
+    """Build a bounded, namespaced Skill context for the Web Agent."""
+    from app.api.v1.agent_host import get_latest_session_skills
+    from app.services.custom_skill_manager import get_skill_manager
+
+    sections = []
+    manager = get_skill_manager()
+    for skill in manager.list_skills(owner_user_id=str(user_id)):
+        detail = manager.get_skill(skill["name"], owner_user_id=str(user_id))
+        if detail:
+            sections.append(f"[user:{skill['name']}]\n{detail['content']}")
+    for name, skill in get_latest_session_skills(str(user_id)).items():
+        content = skill.get("content") if isinstance(skill, dict) else None
+        if isinstance(content, str):
+            sections.append(f"[{name}]\n{content}")
+    if not sections:
+        return ""
+    return "\n\n[Available Skills]\n" + "\n\n".join(sections)[:200_000]
 router = APIRouter()
 
 # 分析类意图关键词
@@ -184,7 +228,7 @@ async def _handle_analyze_request(request: ModifyRequest, project_dir: Path, use
     # 获取模型配置
     dynamic_router = await get_dynamic_router()
     model_name = await dynamic_router.get_best_model(
-        ["THUDM/GLM-Z1-9B-0414", "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"],
+        ["THUDM/GLM-Z1-9B-0414", "Qwen/Qwen3-8B"],
         task_type="analyze"
     )
 
@@ -250,7 +294,6 @@ async def modify_project(
     user_id = token.get("sub", "anonymous")
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
-
     # 防护：检查速率限制
     rate_ok, rate_msg = check_rate_limit(f"modify:{user_id}")
     if not rate_ok:
@@ -378,8 +421,10 @@ async def modify_project(
                         session_id=session_id,
                         task_id=session_id,
                         metadata={"project_path": str(project_dir)},
+                        db=db,
+                        user_id=int(user_id),
                     )
-                    gen_result = graph_state.metadata["legacy_result"]
+                    gen_result = get_legacy_result(graph_state)
                     files_generated = gen_result.get("total_files_created", 0)
                     files_total = gen_result.get("total_files", 0)
                     await sm.complete_session(session_id, files_generated=files_generated, files_total=files_total)
@@ -473,6 +518,18 @@ async def orchestrate_project(
     )
     session_id = session.id if session else None
 
+    single_file_result = await generate_single_file(
+        requirement=request.requirement,
+        project_name=request.project_name,
+        api_key_token=request.api_key_token,
+        provider_id=request.provider_id,
+    )
+    if single_file_result is not None:
+        single_file_result["session_id"] = session_id
+        return OrchestratorResponse(**single_file_result)
+
+    skill_context = _skill_context_for_user(user_id)
+
     start_time = time.time()
 
     try:
@@ -487,21 +544,29 @@ async def orchestrate_project(
             callback=lambda msg: logger.info(f"Orchestrator 进度: {msg[:200]}"),
             session_id=session_id,
             incremental=request.incremental,
-            evaluation_only=request.evaluation_only
+            evaluation_only=request.evaluation_only,
+            api_key_token=request.api_key_token,
+            provider_id=request.provider_id,
         )
         
         workflow = build_legacy_workflow(
             "orchestrate",
             "/orchestrate",
-            lambda _state: orchestrator.generate(requirement=request.requirement),
+            lambda _state: orchestrator.generate(requirement=request.requirement + skill_context),
         )
         graph_state = await run_workflow(
             workflow,
             session_id=str(session_id or output_dir),
             task_id=str(session_id or output_dir),
-            metadata={"requirement": request.requirement, "output_dir": output_dir},
+            metadata={
+                "requirement": request.requirement,
+                "output_dir": output_dir,
+                "required_validation_scopes": request.required_validation_scopes,
+            },
+            db=db,
+            user_id=int(user_id),
         )
-        result = graph_state.metadata["legacy_result"]
+        result = get_legacy_result(graph_state)
 
         execution_time = time.time() - start_time
         await log_tool_execution(
@@ -526,7 +591,7 @@ async def orchestrate_project(
         raise
     except Exception as e:
         logger.error(f"Orchestrator 生成失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"项目生成失败: {str(e)}")
+        raise _generation_http_exception(e) from e
 
 
 @router.post("/orchestrate/stream")
@@ -539,6 +604,7 @@ async def orchestrate_project_stream(
 
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+    skill_context = _skill_context_for_user(user_id)
 
     # 防护：检查速率限制
     rate_ok, rate_msg = check_rate_limit(f"stream:{user_id}")
@@ -828,20 +894,33 @@ async def orchestrate_project_stream(
                         "orchestrate_stream",
                         "/orchestrate/stream",
                         lambda _state: orchestrator.generate(
-                            requirement=request.requirement
+                            requirement=request.requirement + skill_context
                         ),
                     )
                     graph_state = await run_workflow(
                         workflow,
                         session_id=session_id,
                         task_id=session_id,
-                        metadata={"output_dir": output_dir},
+                        metadata={
+                            "output_dir": output_dir,
+                            "required_validation_scopes": request.required_validation_scopes,
+                        },
+                        db=db,
+                        user_id=int(user_id),
                     )
-                    result = graph_state.metadata["legacy_result"]
+                    result = get_legacy_result(graph_state)
                     # 检查是否在生成完成后被取消（stop_project 竞态保护）
                     if cancel_event.is_set():
                         logger.info(f"[SSE] 生成完成后检测到取消信号，跳过 complete_session | session={session_id}")
                         await queue.put(f"data: {json.dumps({'type': 'cancelled', 'data': {'message': '项目已停止'}}, ensure_ascii=False)}\n\n")
+                        return
+                    result_error = _generation_result_error(result)
+                    if result_error:
+                        logger.error("[SSE] 生成结果失败 | session=%s error=%s", session_id, result_error)
+                        await sm.complete_session(session_id, errors=[result_error])
+                        await queue.put(
+                            f"data: {json.dumps({'type': 'error', 'data': {'error': result_error}}, ensure_ascii=False)}\n\n"
+                        )
                         return
                     files_generated = result.get("total_files_created", 0)
                     files_total = result.get("total_files", 0)
@@ -1125,7 +1204,7 @@ async def search_sessions(
         scores = {}
         try:
             result_llm = await call_llm(
-                model="Qwen/Qwen3-8B",
+                model=DEFAULT_FAST_MODEL,
                 prompt=prompt,
                 temperature=0.1,
                 max_tokens=1000

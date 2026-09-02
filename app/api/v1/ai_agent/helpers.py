@@ -18,6 +18,7 @@ from app.db.models import ProjectSession
 from app.utils.guard_contracts import get_guard_contracts
 from app.utils.agent_skills import get_skills_manager
 from app.schema.codeRequest import GenerateRequest, AgentConfig
+from app.agent.models import DEFAULT_FAST_MODEL
 
 from .project_config import (
     PROJECTS_BASE_DIR,
@@ -359,7 +360,10 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
             is_zombie = False
             
             # 检查 1：最后活动时间超过 7 天
-            if session.last_activity_at and session.last_activity_at < timeout_threshold:
+            last_activity_at = session.last_activity_at
+            if last_activity_at and last_activity_at.tzinfo is None:
+                last_activity_at = last_activity_at.replace(tzinfo=timezone.utc)
+            if last_activity_at and last_activity_at < timeout_threshold:
                 is_zombie = True
                 logger.warning(f"检测到超时会话 (最后活动超过7天): session_id={session.session_id}, user_id={user_id}")
             
@@ -512,7 +516,7 @@ async def verify_session_ownership(db: AsyncSession, session_id: str, user_id: s
 
 # ==================== 意图检测 ====================
 
-async def detect_resume_intent(requirement: str, model: str = "Qwen/Qwen3-8B") -> Dict[str, Any]:
+async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL) -> Dict[str, Any]:
     """
     检测用户输入是否包含"继续"意图
     
@@ -587,7 +591,7 @@ async def resolve_resume_session(
     db: AsyncSession,
      user_id: str,
      requirement: str,
-     model: str = "Qwen/Qwen3-8B",
+     model: str = DEFAULT_FAST_MODEL,
      limit: int = 20
 ) -> Optional[ProjectSession]:
     """
@@ -674,7 +678,7 @@ async def analyze_files_to_regenerate(
      original_requirement: str,
      additional_requirement: str,
      generated_files: List[str],
-     model: str = "Qwen/Qwen3-8B"
+     model: str = DEFAULT_FAST_MODEL
 ) -> List[str]:
     """
     分析哪些文件需要重新生成
