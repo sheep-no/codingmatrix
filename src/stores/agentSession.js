@@ -1,11 +1,9 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { useApiKeyStore } from '@/stores/apikey'
-import { getPhaseLabel } from '@/constants/agentPhases'
 
 const SESSION_KEY = 'agent_project_sessions'
 const MAX_HISTORY_ENTRIES = 10
+let autoSaveTimer = null
 
 export const useAgentSessionStore = defineStore('agentSession', () => {
   // ========== Session State ==========
@@ -52,7 +50,10 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
     }
   }
 
-  function createNewSession() {
+  function createNewSession(snapshot = {}) {
+    const persistedSnapshot = Object.fromEntries(
+      Object.entries(snapshot).filter(([key]) => !key.startsWith('_'))
+    )
     const newId = Date.now().toString()
     const newSession = {
       id: newId,
@@ -60,8 +61,9 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
       timestamp: Date.now(),
       filesCount: 0, files: [], logs: [], thinking: [], steps: [],
       workflowStages: [], pendingDecisions: [], decisionHistory: [],
-      currentPhase: '', currentStep: '', totalSteps: 0,
-      startTime: null, modelAssignments: {}, recoveryAttempts: 0
+      currentPhase: '', currentStep: 0, totalSteps: 0,
+      startTime: null, modelAssignments: {}, recoveryAttempts: [],
+      ...persistedSnapshot
     }
     sessionHistory.value = [newSession, ...sessionHistory.value].slice(0, MAX_HISTORY_ENTRIES)
     _saveSessionHistory()
@@ -88,14 +90,70 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
     }
   }
 
-  function switchSession(id) {
+  function switchSession(id, context = null) {
     const session = sessionHistory.value.find(s => s.id === id)
     if (session) {
       currentSessionId.value = id
       projectPrompt.value = session.prompt || ''
+
+      if (context) {
+        workflowStages.value = session.workflowStages || []
+        pendingDecisions.value = session.pendingDecisions || []
+        decisionHistory.value = session.decisionHistory || []
+        currentPhase.value = session.currentPhase || 'initializing'
+        currentStep.value = session.currentStep || 0
+        totalSteps.value = session.totalSteps || 0
+        startTime.value = session.startTime || null
+        modelAssignments.value = session.modelAssignments || {}
+        recoveryAttempts.value = session.recoveryAttempts || []
+        context._generation.workflowStages = workflowStages.value
+        context._generation.currentPhase = currentPhase.value
+        context._generation.currentStep = currentStep.value
+        context._generation.totalSteps = totalSteps.value
+        context._generation.startTime = startTime.value
+        context._generation.modelAssignments = modelAssignments.value
+        context._generation.recoveryAttempts = recoveryAttempts.value
+        context._workspace.pendingDecisions = pendingDecisions.value
+        context._workspace.decisionHistory = decisionHistory.value
+        context._workspace.logs = session.logs || []
+        context._workspace.thinkingMessages = session.thinkingMessages || session.thinking || []
+        context._workspace.executionDetails = session.executionDetails || []
+        context._files.generatedFiles = session.generatedFiles || session.files || []
+      }
       return true
     }
     return false
+  }
+
+  function saveSessionState(snapshot = {}) {
+    const session = sessionHistory.value.find(item => item.id === currentSessionId.value)
+    if (!session) return false
+    Object.assign(session, {
+      ...snapshot,
+      prompt: projectPrompt.value,
+      timestamp: Date.now(),
+      filesCount: snapshot.generatedFiles?.length || 0
+    })
+    sessionHistory.value = [session, ...sessionHistory.value.filter(item => item.id !== session.id)]
+      .slice(0, MAX_HISTORY_ENTRIES)
+    _saveSessionHistory()
+    return true
+  }
+
+  function restoreSessionState() {
+    return sessionHistory.value.find(item => item.id === currentSessionId.value) || null
+  }
+
+  function startAutoSave(shouldSave, save) {
+    stopAutoSave()
+    autoSaveTimer = setInterval(() => {
+      if (shouldSave()) save()
+    }, 5000)
+  }
+
+  function stopAutoSave() {
+    if (autoSaveTimer) clearInterval(autoSaveTimer)
+    autoSaveTimer = null
   }
 
   // ========== Generation Methods ==========
@@ -179,6 +237,17 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
     return `${Math.ceil(remaining / 3600000)}小时`
   }
 
+  function getOverallProgress() {
+    return overallProgress.value
+  }
+
+  function getPlaceholder(hasFiles) {
+    if (hasFiles) {
+      return '描述你需要修改或新增的内容，例如：\n\n添加用户权限验证功能...\n优化登录页面UI...\n新增数据导出功能...\n\n或者描述遇到的问题：\n\n用户登录时出现500错误...\n数据保存失败...'
+    }
+    return '描述你想要生成的项目，例如：\n\n一个带用户登录功能的 Vue 3 + FastAPI 项目...\n\n或者选择下面的快速模板：'
+  }
+
   // Initialize
   _buildAssignments()
   loadSessionHistory()
@@ -192,8 +261,9 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
     sessionId, overallProgress,
     // Session methods
     loadSessionHistory, createNewSession, switchSession, deleteSession,
+    saveSessionState, restoreSessionState, startAutoSave, stopAutoSave,
     // Generation methods
     ensureStage, updateStageStatus, addThinkingToStage,
-    resetStages, resetState, fetchRoles, getETA
+    resetStages, resetState, fetchRoles, getETA, getOverallProgress, getPlaceholder
   }
 })

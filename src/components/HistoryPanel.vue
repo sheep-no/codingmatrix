@@ -216,7 +216,7 @@ function viewPPT(item) {
 // 下载 PPT
 async function downloadPPT(item) {
   try {
-    const blob = await api.ppt.downloadPPT(item.file_id)
+      const blob = await api.ppt.downloadPPT(item.task_id || item.file_id)
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url

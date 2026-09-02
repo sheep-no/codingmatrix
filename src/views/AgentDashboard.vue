@@ -382,6 +382,5 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   session.stopAutoSave()
-  if (session.currentSessionId) session.clearSessionState()
 })
 </script>

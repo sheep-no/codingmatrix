@@ -209,11 +209,10 @@ async def text_to_image(
         "model": KOLORS_MODEL,
         "prompt": prompt,
         "negative_prompt": negative_prompt,
-        "width": width,
-        "height": height,
-        "num_inferences": num_inferences,
+        "image_size": f"{width}x{height}",
+        "num_inference_steps": num_inferences,
         "guidance_scale": guidance_scale,
-        "num_images": num_images,
+        "batch_size": num_images,
         "response_format": "url"
     }
     if seed is not None:

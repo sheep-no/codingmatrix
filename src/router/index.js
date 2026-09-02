@@ -8,7 +8,7 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: () => import('../components/index.vue'),
-      meta: { requiresAuth: true }
+      meta: { public: true }
     },
     {
       path: '/project-generate',
@@ -100,28 +100,25 @@ const router = createRouter({
   ]
 })
 
+export function resolveRouteAccess(to, token, permissionLevel) {
+  if (to.meta.requiresAuth && !token) {
+    return { name: 'home', query: { redirect: to.fullPath } }
+  }
+
+  if (to.meta.requiresSuper && !['admin', 'superadmin'].includes(permissionLevel)) {
+    return { name: 'home' }
+  }
+
+  return true
+}
+
 // 路由守卫：认证 + 权限验证 (v5.0.2 修复：从 Pinia store 读取 token)
 router.beforeEach((to, from, next) => {
   const userStore = useUserStore()
   const token = userStore.getAccessToken() || localStorage.getItem('access_token')
   const permissionLevel = userStore.permissionLevel || localStorage.getItem('permission_level')
-
-  if (to.meta.requiresAuth) {
-    if (!token) {
-      // 未登录，直接访问首页（首页会自动弹出登录框）
-      next()
-      return
-    }
-  }
-
-  if (to.meta.requiresSuper) {
-    if (!['admin', 'superadmin'].includes(permissionLevel)) {
-      next('/')
-      return
-    }
-  }
-
-  next()
+  const access = resolveRouteAccess(to, token, permissionLevel)
+  next(access === true ? undefined : access)
 })
 
 export default router

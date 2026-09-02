@@ -9,17 +9,35 @@
 
   const emit = defineEmits(['select', 'delete'])
 
-  const displayTitle = computed(() => {
+  const titleText = computed(() => {
     const text = props.item.title || props.item.prompt?.slice(0, 30) || ''
-    if (!props.searchKeyword) return text
-    return highlightText(text, props.searchKeyword)
+    return text
   })
 
-  function highlightText(text, keyword) {
-    if (!keyword) return text
-    const regex = new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
-    return text.replace(regex, '<mark>$1</mark>')
-  }
+  const titleParts = computed(() => {
+    const text = titleText.value
+    const keyword = props.searchKeyword.trim()
+    if (!keyword) return [{ text, highlighted: false }]
+
+    const regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+    const parts = []
+    let lastIndex = 0
+    let match
+
+    while ((match = regex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push({ text: text.slice(lastIndex, match.index), highlighted: false })
+      }
+      parts.push({ text: match[0], highlighted: true })
+      lastIndex = match.index + match[0].length
+    }
+
+    if (lastIndex < text.length) {
+      parts.push({ text: text.slice(lastIndex), highlighted: false })
+    }
+
+    return parts.length ? parts : [{ text, highlighted: false }]
+  })
 
   function handleClick() {
     emit('select', props.item)
@@ -38,7 +56,12 @@
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
       </svg>
     </span>
-    <span class="item-text" v-html="displayTitle"></span>
+    <span class="item-text">
+      <template v-for="(part, index) in titleParts" :key="`${part.text}-${index}`">
+        <mark v-if="part.highlighted">{{ part.text }}</mark>
+        <template v-else>{{ part.text }}</template>
+      </template>
+    </span>
     <button
       class="delete-btn"
       aria-label="删除会话"

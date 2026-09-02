@@ -420,6 +420,7 @@
   import GithubConfigPanel from './GithubConfigPanel.vue'
   import FilePreviewPanel from './FilePreviewPanel.vue'
   import { createProjectClient } from '@/utils/api/project'
+  import { consumeJsonStream } from '@/utils/streamParser'
   import { api } from '@/utils/api/index'
 
   // ========== 1. Props & Emit ==========
@@ -830,27 +831,7 @@
           throw new Error(errorData.detail || '修改失败')
         }
 
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          const chunk = decoder.decode(value)
-          const lines = chunk.split('\n').filter(line => line.trim())
-
-          for (const line of lines) {
-            try {
-              if (line.startsWith('data: ')) {
-                const data = JSON.parse(line.substring(6))
-                handleStreamData(data)
-              }
-            } catch (e) {
-              // 忽略解析错误
-            }
-          }
-        }
+        await consumeJsonStream(response, handleStreamData)
 
         onGenerationComplete()
         isIncrementalMode.value = false
@@ -898,27 +879,9 @@
         throw new Error(errorData.detail || '生成失败')
       }
 
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n').filter(line => line.trim())
-
-        for (const line of lines) {
-          try {
-            if (line.startsWith('data: ')) {
-              const data = JSON.parse(line.substring(6))
-              handleStreamData(data)
-            }
-          } catch (e) {
-            console.error('解析流数据失败:', line, e)
-          }
-        }
-      }
+      await consumeJsonStream(response, handleStreamData, {
+        onParseError: (error, line) => console.error('解析流数据失败:', line, error)
+      })
 
       generationComplete.value = true
       currentPhase.value = 'complete'

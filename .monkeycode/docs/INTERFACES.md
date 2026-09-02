@@ -5,6 +5,19 @@
 - `POST /api/v1/chat`：主聊天接口，支持流式输出、会话历史、文件理解和联网搜索。
 - `POST /api/v1/code`：主聊天兼容别名，客户端迁移到 `/api/v1/chat`。
 
+## GirlAI API
+
+- `GET /api/v1/GirlAi/characters`：返回内置角色列表。
+- `GET /api/v1/GirlAi/characters/custom/list`：返回当前认证用户拥有的自定义角色。
+- `POST /api/v1/GirlAi/characters/custom`：创建用户自定义角色；角色通过 `custom_<id>` 作为对话请求的 `character_id`。
+- `POST /api/v1/GirlAi`：生成一轮虚拟姬对话。自定义角色按角色 ID 和用户 ID 校验归属；模型调用成功后，legacy `chat_histories` 与 unified `sessions/messages` 在同一事务中写入。
+- `GET /api/v1/GirlAi/history`：按 `limit` 和 `offset` 查询当前用户历史，结果按最新记录优先返回。
+- `GET /api/v1/GirlAi/history/search`：搜索当前用户历史记录。
+- `DELETE /api/v1/GirlAi/history?all=true`：清空当前用户 legacy 和 unified GirlAI 消息。
+- `DELETE /api/v1/GirlAi/history?all=false&record_ids=<id>`：删除指定 legacy 记录，并按 `legacy_message_id` 同步清理 unified 消息。
+
+模型供应商异常由 GirlAI 路由转换为通用 `502`，请求事务回滚，供应商原始错误细节不会返回给客户端。
+
 ## Agent API
 
 - `POST /api/v1/ai-agent/generate`：生成项目。
@@ -142,7 +155,7 @@ Agent、Workflow 和 PPT 入口已逐步接入统一 checkpoint、Task Event 和
 
 AICloud 适配器入口为 `ensure_session`、`append_legacy_message` 和 `list_session_messages`，旧会话和消息通过 `state_compatibility_mappings` 保留可追溯关系。
 
-GirlAI 适配器入口为 `ensure_session`、`append_conversation_turn`、`list_messages_for_user` 和 `save_summary_checkpoint`，角色标识和摘要来源保存在统一状态 metadata 中。
+GirlAI 适配器入口为 `ensure_session`、`append_conversation_turn`、`delete_messages_for_legacy_ids`、`clear_messages_for_user`、`list_messages_for_user` 和 `save_summary_checkpoint`，角色标识、legacy 消息关联和摘要来源保存在统一状态 metadata 或 checkpoint state 中。
 
 AICloud 与 GirlAI 的旧历史读取回归测试覆盖兼容映射复用、缺失映射创建、用户归属隔离、消息顺序和读取数量限制。
 

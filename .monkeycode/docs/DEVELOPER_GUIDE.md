@@ -4,7 +4,7 @@
 
 开发与测试约定使用 Python 3.11。当前 Dockerfile 使用 Python 3.10，部署前需要统一版本或明确兼容矩阵。测试依赖至少包含 `pytest`、`pytest-asyncio`、`aiofiles`、`PyJWT` 和 `apscheduler`。Redis、数据库和 FAISS 相关测试还需要对应本地服务或可选组件。
 
-本地默认环境使用 SQLite `app.db` 和 Redis `redis://127.0.0.1:6379/0`。硅基流动配置使用 `SILICONFLOW_API_KEY` 和 `SILICONFLOW_BASE_URL`，默认地址为 `https://api.siliconflow.cn/v1`；真实 API Key 只放在本地 `.env`，使用占位符维护示例。
+本地默认环境使用 SQLite `app.db` 和 Redis `redis://127.0.0.1:6379/0`。硅基流动配置使用 `SILICONFLOW_API_KEY` 和 `SILICONFLOW_BASE_URL`，默认地址为 `https://api.siliconflow.cn/v1`；真实 API Key 只放在本地 `.env`，使用占位符维护示例。启动时 `.env` 采用 `override=False`，已有进程环境变量优先。
 
 前端 Vite 默认监听 3000 端口，并将 `/api/v1`、`/api/v2` 代理到后端 8000 端口。后端构建产物由 FastAPI 提供时使用 8000 端口。
 
@@ -46,6 +46,8 @@ PYTHONPATH=/workspace REDIS_URL=redis://127.0.0.1:6379/0 celery -A app.celery_ap
 P4.4 当前验收：状态迁移、核对、切换、worker recovery、SQL replay、快照恢复和跨用户所有权测试为 `16 passed`；认证、核心导航、Workflow、PPT 浏览器验收为 `34 passed`；API 路由契约测试为 `3 passed`、`2 skipped`；前端单元测试为 `3 passed`。8000、8080、3000 端口健康检查返回 200，Redis 返回 `PONG`。PPT Celery worker 重启后重新注册 `app.tasks.ppt_tasks.generate_ppt` 并进入 ready 状态，真实 HTTP Markdown 任务已由 worker 消费并完成 `success`。WebSearch 外部网络流程为 `14 passed`，PPT 状态与恢复专项为 `12 passed`。浏览器测试使用系统 Chromium；供应商 401 响应类型错误和过时系统信息端点引用已修复。
 
 API 路由契约 E2E 已完成静态路径校准，当前结果为 `3 passed`、`2 skipped`。认证 E2E 使用 `TEST_ADMIN_EMAIL` 和 `TEST_ADMIN_PASSWORD`，默认测试邮箱为 `admin_test@example.com`；固定账号未设置密码时认证用例会明确跳过。完整浏览器验收已通过一次性本地测试账号完成。
+
+GirlAI 本轮验证结果：后端专项回归 `40 passed`，前端 GirlAI API 测试 `2 passed`；使用现有注册账户的真实登录、角色列表、GirlAI 对话、历史查询和双写保存均通过。真实对话响应耗时约 4.6 秒并返回 HTTP 200。模型供应商鉴权失败时返回通用 HTTP 502，失败请求不会写入历史。
 
 ## 验证命令
 
@@ -102,6 +104,7 @@ npm --prefix vscode-extension run e2e
 - 工作区 Profile 通过 `ProfileCache` 读写 `.monkeycode/profiles.json`；画像缓存属于运行时元数据，读取时必须校验 schema version，写入时使用原子替换。
 - 传统生成迁移使用 `TraditionalAdapter` 和 `route_generation()`；设置 `AGENT_ORCHESTRATION_ENGINE=core` 可选择 Core 实验路由，默认保持 legacy。影子对比只记录成功状态与文件路径集合，checkpoint metadata 保存 `engine_version`。
 - 传统生成的模型活动超时由传入 Specialist/ReAct 的 `HeartbeatTracker` 判断，默认 120 秒；流式 chunk 必须调用 `touch()`。SSE heartbeat 只用于 HTTP 连接保活，排查生成停滞时应查看最近模型数据时间和 `react_timeout` 事件。
+- GirlAI 相关修改后执行 `python3 -m pytest tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py tests/unit/test_database_services.py -q`，并在 `/workspace/src` 执行 `npm run test:run -- utils/api/girl.test.js`。
 - 验证节点通过 `State.metadata.required_validation_scopes` 声明 `local_runtime` 或 `local_e2e`；云端验证保持 `cloud_syntax`，本地结果按 scope 回传。
 - 本地结果协议使用 `validation_scope`、`status` 和 `source=local`；`local_result_to_delta()` 负责映射为内部字段并执行 task/session/revision/schema 校验。StateReducer 按验证结果 `event_id` 去重，重复回传保持状态和 revision 不变。
 - 会话回放使用 `replay_session()`；发现 sequence 缺口时，调用方应执行返回的 `snapshot_recovery` action。

@@ -74,16 +74,18 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     assetsDir: 'static',
-    sourcemap: true,
+    sourcemap: process.env.VITE_BUILD_SOURCEMAP === 'true',
     chunkSizeWarningLimit: 500,
-    cssCodeSplit: false,
+    cssCodeSplit: true,
     rollupOptions: {
       output: {
         manualChunks: {
           'vendor-vue': ['vue', 'vue-router', 'pinia'],
           'vendor-element': ['element-plus'],
           'vendor-echarts': ['echarts'],
-          'vendor-utils': ['axios']
+          'vendor-markdown': ['markdown-it', 'marked', 'highlight.js'],
+          'vendor-files': ['jszip', 'xlsx'],
+          'vendor-utils': ['axios', 'dompurify']
         }
       }
     }

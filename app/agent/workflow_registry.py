@@ -116,7 +116,7 @@ async def run_workflow(
     db: Any = None,
     user_id: Optional[int] = None,
 ) -> State:
-    """Execute a registered workflow from a serializable initial State."""
+    """Execute a workflow and persist the result when database context is provided."""
 
     state = State(
         session_id=session_id,
@@ -143,9 +143,9 @@ async def run_workflow(
     _active_workflows[(session_id, task_id)] = (definition, state)
     _checkpoint_store.save(state, _checkpoint_id(session_id, task_id))
     if db is not None and user_id is not None:
-        from app.services import agent_state_adapter
+        from app.services.agent_state_adapter import persist_agent_state
 
-        await agent_state_adapter.persist_agent_state(db, user_id, state)
+        await persist_agent_state(db, user_id, state)
     if state.pending_actions:
         try:
             from app.api.v1.agent_host import enqueue_state_actions

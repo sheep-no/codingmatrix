@@ -32,6 +32,77 @@ async def test_append_conversation_turn_writes_both_roles(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_clear_messages_for_user_reuses_mapping(monkeypatch):
+    db = AsyncMock()
+    mapping = type("Mapping", (), {"unified_id": "girlai-session"})()
+    monkeypatch.setattr(
+        girlai_state_adapter,
+        "resolve_compatibility_mapping",
+        AsyncMock(return_value=mapping),
+    )
+    db.execute.return_value.rowcount = 4
+
+    deleted = await girlai_state_adapter.clear_messages_for_user(db, 7)
+
+    assert deleted == 4
+    db.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_clear_messages_for_user_skips_missing_mapping(monkeypatch):
+    db = AsyncMock()
+    monkeypatch.setattr(
+        girlai_state_adapter,
+        "resolve_compatibility_mapping",
+        AsyncMock(return_value=None),
+    )
+
+    deleted = await girlai_state_adapter.clear_messages_for_user(db, 7)
+
+    assert deleted == 0
+    db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_append_conversation_turn_links_legacy_message_ids(monkeypatch):
+    db = AsyncMock()
+    session = Session(id="session-1", user_id=7, module="girlai")
+    monkeypatch.setattr(girlai_state_adapter, "ensure_session", AsyncMock(return_value=session))
+    append = AsyncMock(side_effect=[object(), object()])
+    monkeypatch.setattr(girlai_state_adapter, "append_message", append)
+
+    await girlai_state_adapter.append_conversation_turn(
+        db,
+        7,
+        "你好",
+        "你好，我在。",
+        legacy_message_ids=("legacy-user", "legacy-assistant"),
+    )
+
+    assert append.await_args_list[0].args[5]["legacy_message_id"] == "legacy-user"
+    assert append.await_args_list[1].args[5]["legacy_message_id"] == "legacy-assistant"
+
+
+@pytest.mark.asyncio
+async def test_delete_messages_for_legacy_ids_uses_existing_mapping(monkeypatch):
+    db = AsyncMock()
+    mapping = type("Mapping", (), {"unified_id": "girlai-session"})()
+    monkeypatch.setattr(
+        girlai_state_adapter,
+        "resolve_compatibility_mapping",
+        AsyncMock(return_value=mapping),
+    )
+    db.execute.return_value.rowcount = 2
+
+    deleted = await girlai_state_adapter.delete_messages_for_legacy_ids(
+        db, 7, [11, "12"]
+    )
+
+    assert deleted == 2
+    db.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_summary_checkpoint_uses_idempotent_task_key(monkeypatch):
     db = AsyncMock()
     task = type("Task", (), {"task_id": "task-1"})()

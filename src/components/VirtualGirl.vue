@@ -150,6 +150,7 @@
               <div
                 v-for="(message, index) in chatHistory"
                 :key="`msg-${index}`"
+                :data-message-id="message.id || ''"
                 :class="['message', message.role]"
               >
                 <div class="message-avatar">
@@ -281,6 +282,7 @@
   import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
   import { api } from '@/utils/api/index'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import { useUserStore } from '@/stores/user'
 
   const props = defineProps({
     visible: { type: Boolean, default: false }
@@ -290,7 +292,8 @@
 
   // 模式选择
   const usePiPMode = ref(false)
-  const STORAGE_KEY = 'virtualGirlChatHistory'
+  const userStore = useUserStore()
+  const storageKey = computed(() => `virtualGirlChatHistory:${userStore.email || userStore.username || 'anonymous'}`)
 
   // 本地窗口显示状态
   const showWindow = ref(props.visible)
@@ -338,6 +341,7 @@
   const chatMessages = ref(null)
   const isHistoryLoaded = ref(false)
   const messageTimestamps = ref([])
+  let historyRequestVersion = 0
 
   // 角色选择
   const selectedCharacter = ref('gentle')
@@ -448,6 +452,18 @@
     }
   }
 
+  async function scrollToMessage(result) {
+    const index = chatHistory.value.findIndex(message => message.id === result.id)
+    if (index < 0) {
+      ElMessage.info('该消息位于更早的历史记录中，请先加载更多记录')
+      return
+    }
+    showSearch.value = false
+    await nextTick()
+    const element = chatMessages.value?.querySelectorAll('[data-message-id]')?.[index]
+    element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
   // 导出对话
   function exportChat() {
     if (chatHistory.value.length === 0) {
@@ -501,7 +517,7 @@
   const saveChatHistory = () => {
     try {
       localStorage.setItem(
-        STORAGE_KEY,
+        storageKey.value,
         JSON.stringify({
           history: chatHistory.value,
           timestamps: messageTimestamps.value,
@@ -518,69 +534,24 @@
     try {
       const data = await api.getGirlAiHistory(limit, offset)
       if (data && data.records && Array.isArray(data.records)) {
-        const records = data.records.map(record => ({
+        const records = [...data.records].reverse().map(record => ({
+          id: record.id,
           role: record.role,
-          content: record.content
+          content: record.content,
+          timestamp: record.created_at ? new Date(record.created_at).getTime() : Date.now()
         }))
 
-        const newHistory = groupAndReversePairs(records)
-
         return {
-          history: newHistory,
+          history: records,
           total: data.total || 0,
           hasMore: data.has_more !== false
         }
       }
-      return null
+      return { history: [], total: 0, hasMore: false }
     } catch (error) {
       console.error('从 API 加载历史记录失败:', error)
-      return null
+      throw error
     }
-  }
-
-  // 按反转对话对顺序，保持对话对内 user→assistant 的顺序
-  const groupAndReversePairs = records => {
-    const conversations = []
-    let currentPair = []
-
-    for (let i = 0; i < records.length; i++) {
-      const record = records[i]
-
-      if (record.role === 'user') {
-        if (currentPair.length > 0) {
-          conversations.push([...currentPair])
-          currentPair = []
-        }
-        currentPair.push(record)
-
-        if (i < records.length - 1 && records[i + 1]?.role === 'assistant') {
-          currentPair.push(records[i + 1])
-          i++
-          conversations.push([...currentPair])
-          currentPair = []
-        }
-      } else if (record.role === 'assistant') {
-        if (currentPair.length === 0) {
-          currentPair.push(record)
-          conversations.push([...currentPair])
-          currentPair = []
-        }
-      }
-    }
-
-    if (currentPair.length > 0) {
-      conversations.push(currentPair)
-    }
-
-    if (
-      conversations.length === 0 ||
-      (conversations.length === 1 && conversations[0].length === records.length)
-    ) {
-      return records
-    }
-
-    const reversed = [...conversations].reverse()
-    return reversed.flat()
   }
 
   // 加载更多历史记录
@@ -593,31 +564,31 @@
     const oldScrollHeight = chatMessagesEl.scrollHeight
     const oldScrollTop = chatMessagesEl.scrollTop
 
-    const result = await loadHistoryFromAPI(currentOffset.value, HISTORY_PAGE_SIZE)
+    try {
+      const result = await loadHistoryFromAPI(currentOffset.value, HISTORY_PAGE_SIZE)
 
-    if (result && result.history && result.history.length > 0) {
-      const newMessages = result.history.map(msg => ({
-        ...msg,
-        timestamp: Date.now()
-      }))
+      if (result && result.history && result.history.length > 0) {
+        const existingIds = new Set(chatHistory.value.map(message => message.id).filter(Boolean))
+        const newMessages = result.history.filter(message => !message.id || !existingIds.has(message.id))
 
-      chatHistory.value = [...newMessages, ...chatHistory.value]
-      currentOffset.value += result.history.length
-      hasMoreHistory.value = result.hasMore
+        chatHistory.value = [...newMessages, ...chatHistory.value]
+        currentOffset.value += result.history.length
+        hasMoreHistory.value = result.hasMore
 
-      await nextTick()
-      const newScrollHeight = chatMessagesEl.scrollHeight
-      chatMessagesEl.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight)
+        await nextTick()
+        const newScrollHeight = chatMessagesEl.scrollHeight
+        chatMessagesEl.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight)
 
-      saveChatHistory()
+        saveChatHistory()
+      }
+    } finally {
+      isLoadingMore.value = false
     }
-
-    isLoadingMore.value = false
   }
 
   // 从 localStorage 恢复聊天历史
   const loadChatHistory = async () => {
-    if (isHistoryLoading.value) return
+    if (isHistoryLoading.value || isLoading.value) return
 
     if (historyLoadTimer) {
       clearTimeout(historyLoadTimer)
@@ -625,6 +596,7 @@
     }
 
     isHistoryLoading.value = true
+    const requestVersion = ++historyRequestVersion
 
     try {
       chatHistory.value = []
@@ -632,12 +604,10 @@
       isHistoryLoaded.value = false
 
       const result = await loadHistoryFromAPI(0, HISTORY_PAGE_SIZE)
+      if (requestVersion !== historyRequestVersion) return
 
       if (result && result.history && result.history.length > 0) {
-        chatHistory.value = result.history.map((msg, index) => ({
-          ...msg,
-          timestamp: Date.now() - (result.history.length - index) * 1000
-        }))
+        chatHistory.value = result.history
         messageTimestamps.value = chatHistory.value.map(msg => msg.timestamp)
         currentOffset.value = result.history.length
         hasMoreHistory.value = result.hasMore
@@ -665,8 +635,9 @@
 
   // 获取消息时间
   const getMessageTime = index => {
-    if (index < messageTimestamps.value.length) {
-      const date = new Date(messageTimestamps.value[index])
+    const timestamp = chatHistory.value[index]?.timestamp
+    if (timestamp) {
+      const date = new Date(timestamp)
       return date.toLocaleTimeString('zh-CN', {
         hour: '2-digit',
         minute: '2-digit'
@@ -846,6 +817,12 @@ window.opener.postMessage({type:'girlai-ready'},'*');
         if (event.data.type === 'girlai-send') {
           // PiP 窗口发送消息，主窗口调用 API
           const userMsg = event.data.prompt
+          if (isLoading.value) {
+            pipWindow.postMessage({ type: 'girlai-busy' }, '*')
+            return
+          }
+          isLoading.value = true
+          const requestVersion = ++historyRequestVersion
           chatHistory.value.push({ role: 'user', content: userMsg, timestamp: Date.now() })
           messageTimestamps.value.push(Date.now())
           saveChatHistory()
@@ -854,11 +831,14 @@ window.opener.postMessage({type:'girlai-ready'},'*');
 
           try {
             const data = await api.sendGirlAiMessage(userMsg, selectedCharacter.value)
+            if (requestVersion !== historyRequestVersion) return
             chatHistory.value.push({ role: 'assistant', content: data.message, timestamp: Date.now() })
             messageTimestamps.value.push(Date.now())
+            currentOffset.value += 2
           } catch {
             chatHistory.value.push({ role: 'assistant', content: '网络错误，请检查连接后重试。', timestamp: Date.now() })
           } finally {
+            isLoading.value = false
             saveChatHistory()
             await nextTick()
             scrollToBottom()
@@ -1013,10 +993,14 @@ window.opener.postMessage({type:'girlai-ready'},'*');
     }
 
     try {
+      historyRequestVersion += 1
       const result = await api.deleteGirlAiHistory([], true)
       if (result && result.status === 'deleted') {
         chatHistory.value = []
-        localStorage.removeItem(STORAGE_KEY)
+        messageTimestamps.value = []
+        currentOffset.value = 0
+        hasMoreHistory.value = false
+        localStorage.removeItem(storageKey.value)
         ElMessage.success(`已清除 ${result.count} 条历史记录`)
         if (pipWindowRef) {
           pipWindowRef.postMessage({ type: 'girlai-history', messages: [] }, '*')
@@ -1110,6 +1094,7 @@ window.opener.postMessage({type:'girlai-ready'},'*');
     if (!inputMessage.value.trim() || isLoading.value) return
 
     const message = inputMessage.value.trim()
+    const requestVersion = ++historyRequestVersion
     const timestamp = Date.now()
 
     chatHistory.value.push({
@@ -1128,6 +1113,7 @@ window.opener.postMessage({type:'girlai-ready'},'*');
 
     try {
       const data = await api.sendGirlAiMessage(message, selectedCharacter.value)
+      if (requestVersion !== historyRequestVersion) return
 
       const assistantTimestamp = Date.now()
       chatHistory.value.push({
@@ -1136,6 +1122,7 @@ window.opener.postMessage({type:'girlai-ready'},'*');
         timestamp: assistantTimestamp
       })
       messageTimestamps.value.push(assistantTimestamp)
+      currentOffset.value += 2
       isConnected.value = true
     } catch (error) {
       console.error('调用 GirlAi API 失败:', error)
@@ -1146,9 +1133,9 @@ window.opener.postMessage({type:'girlai-ready'},'*');
         timestamp: errorTimestamp
       })
       messageTimestamps.value.push(errorTimestamp)
+      isConnected.value = false
     } finally {
       isLoading.value = false
-      isConnected.value = true
 
       saveChatHistory()
 
@@ -1204,7 +1191,7 @@ window.opener.postMessage({type:'girlai-ready'},'*');
 
   // 监听存储变化
   const handleStorage = e => {
-    if (e.key === STORAGE_KEY) {
+    if (e.key === storageKey.value) {
       if (historyLoadTimer) {
         clearTimeout(historyLoadTimer)
       }

@@ -15,19 +15,21 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import or_
+from sqlalchemy import and_, or_, select
 
-from app.db.database import get_db
+from app.db.database import async_session, get_db
 from app.schema.girl_request import GirlRequest, GirlResponse, HistoryRecord, HistoryResponse
 from app.db.chat_history_service import ChatHistoryService
-from app.services.girlai_state_adapter import append_conversation_turn
+from app.services.girlai_state_adapter import (
+    append_conversation_turn,
+    clear_messages_for_user,
+    delete_messages_for_legacy_ids,
+)
 from app.models.chat_history import CustomCharacter, UserPreference
 from app.utils import call_llm
 from app.agent.models import DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from app.utils.security import verify_token
 from app.utils.aicloud.http_client import call_with_retry
-
-from app.adapter import ModelAdapter
 
 # 初始化日志
 logger = logging.getLogger(__name__)
@@ -35,9 +37,6 @@ router = APIRouter()
 
 # 并发限制
 _max_concurrent_calls = asyncio.Semaphore(10)
-
-# 异步锁
-_model_adapters_lock = asyncio.Lock()
 
 # 角色配置
 
@@ -141,22 +140,38 @@ CHARACTER_AVATARS: Dict[str, str] = {
     "companion": '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g5" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#fda4af"/><stop offset="100%" style="stop-color:#e11d48"/></linearGradient></defs><circle cx="50" cy="50" r="48" fill="url(#g5)"/><circle cx="50" cy="42" r="18" fill="#fff" opacity="0.9"/><ellipse cx="50" cy="70" rx="22" ry="16" fill="#fff" opacity="0.9"/><circle cx="44" cy="40" r="2.5" fill="#333"/><circle cx="56" cy="40" r="2.5" fill="#333"/><path d="M44 48 Q50 53 56 48" stroke="#e11d48" stroke-width="2" fill="none" stroke-linecap="round"/><text x="62" y="30" font-size="14" fill="#e11d48">♥</text><path d="M32 30 Q40 20 50 22 Q60 20 68 30" stroke="#e11d48" stroke-width="3" fill="none"/></svg>''',
 }
 
-# Model Adapter 缓存
-_model_adapters: Dict[str, ModelAdapter] = {}
+async def _get_character(
+    character_id: str,
+    user_id: int,
+    db: AsyncSession,
+) -> Dict[str, Any]:
+    """Load a built-in or user-owned custom character."""
+    if character_id in CHARACTER_PROFILES:
+        return CHARACTER_PROFILES[character_id]
 
+    custom_id = character_id.removeprefix("custom_")
+    result = await db.execute(
+        select(CustomCharacter).where(
+            CustomCharacter.id == custom_id,
+            CustomCharacter.user_id == user_id,
+        )
+    )
+    custom = result.scalar_one_or_none()
+    if not custom:
+        raise HTTPException(status_code=404, detail="角色不存在")
 
-async def _get_model_adapter(model_name: str) -> ModelAdapter:
-    """获取或创建 Model Adapter（单例缓存，异步安全）"""
-    async with _model_adapters_lock:
-        if model_name not in _model_adapters:
-            _model_adapters[model_name] = ModelAdapter(model_name)
-            logger.debug(f"Model Adapter 已创建：{model_name}")
-        return _model_adapters[model_name]
-
-
-def _get_character(character_id: str) -> Dict[str, Any]:
-    """获取角色配置"""
-    return CHARACTER_PROFILES.get(character_id, CHARACTER_PROFILES["gentle"])
+    return {
+        "id": f"custom_{custom.id}",
+        "name": custom.name,
+        "description": custom.description,
+        "personality": custom.personality,
+        "speaking_style": custom.speaking_style,
+        "greetings": json.loads(custom.greetings or "[]"),
+        "tags": json.loads(custom.tags or "[]"),
+        "model": custom.model or DEFAULT_MODEL,
+        "temperature": custom.temperature / 100.0,
+        "max_tokens": custom.max_tokens,
+    }
 
 
 def _build_emotion_prompt(
@@ -164,7 +179,8 @@ def _build_emotion_prompt(
     user_prompt: str,
     recent_messages: List[Dict[str, str]],
     user_name: Optional[str] = None,
-    user_preferences: Optional[List[Dict[str, str]]] = None
+    user_preferences: Optional[List[Dict[str, str]]] = None,
+    history_summary: Optional[str] = None,
 ) -> str:
     """构建情感陪伴优化的 Prompt"""
     parts = []
@@ -188,6 +204,11 @@ def _build_emotion_prompt(
         for pref in user_preferences:
             parts.append(f"- {pref['key']}：{pref['value']}")
         parts.append("请在对话中自然地运用这些信息，让用户感到被记住和关心。")
+        parts.append("")
+
+    if history_summary:
+        parts.append("【较早对话摘要】")
+        parts.append(history_summary)
         parts.append("")
     
     # 对话历史
@@ -231,6 +252,18 @@ def _clean_response(content: str, character_name: str) -> str:
     return content.strip()
 
 
+def _extract_llm_response(response: Dict[str, Any]) -> tuple[str, int]:
+    """Validate the provider response before persisting a conversation turn."""
+    try:
+        content = response["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as error:
+        raise RuntimeError("AI 服务返回了无效响应") from error
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("AI 服务返回了空响应")
+    usage = response.get("usage") or {}
+    return content, int(usage.get("total_tokens") or 0)
+
+
 # =============================================================================
 # 用户偏好提取（异步，不阻塞响应）
 # =============================================================================
@@ -267,7 +300,6 @@ async def _extract_user_preferences(
     user_id: str,
     user_message: str,
     assistant_response: str,
-    db: AsyncSession
 ):
     """从对话中异步提取用户偏好并保存"""
     import re
@@ -289,30 +321,30 @@ async def _extract_user_preferences(
         # 保存到数据库（upsert 逻辑）
         from sqlalchemy import select, and_
 
-        for key, value in extracted.items():
-            stmt = select(UserPreference).where(
-                and_(
-                    UserPreference.user_id == int(user_id),
-                    UserPreference.preference_key == key
+        async with async_session() as db:
+            for key, value in extracted.items():
+                stmt = select(UserPreference).where(
+                    and_(
+                        UserPreference.user_id == int(user_id),
+                        UserPreference.preference_key == key
+                    )
                 )
-            )
-            result = await db.execute(stmt)
-            existing = result.scalar_one_or_none()
+                result = await db.execute(stmt)
+                existing = result.scalar_one_or_none()
 
-            if existing:
-                existing.preference_value = value
-                existing.updated_at = datetime.now()
-            else:
-                pref = UserPreference(
-                    user_id=int(user_id),
-                    preference_key=key,
-                    preference_value=value,
-                    confidence=80,
-                    source="extracted"
-                )
-                db.add(pref)
+                if existing:
+                    existing.preference_value = value
+                    existing.updated_at = datetime.now()
+                else:
+                    db.add(UserPreference(
+                        user_id=int(user_id),
+                        preference_key=key,
+                        preference_value=value,
+                        confidence=80,
+                        source="extracted"
+                    ))
 
-        await db.commit()
+            await db.commit()
         logger.debug(f"用户偏好提取完成 | user_id={user_id} | preferences={list(extracted.keys())}")
 
     except Exception as e:
@@ -360,8 +392,8 @@ async def search_history(
     q: str = Query(..., min_length=1, max_length=100, description="搜索关键词"),
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
-    limit: Optional[int] = 20,
-    offset: Optional[int] = 0
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0)
 ):
     """搜索对话历史"""
     user_id = token.get("sub")
@@ -431,10 +463,11 @@ async def generate_message(
         raise HTTPException(status_code=401, detail="无效的用户令牌")
 
     # 获取角色配置
-    character = _get_character(getattr(body, 'character_id', 'gentle') or 'gentle')
+    character_id = getattr(body, 'character_id', 'gentle') or 'gentle'
+    character = await _get_character(character_id, int(user_id), db)
     logger.info(
         f"虚拟姬对话请求 | user_id={user_id} | 角色={character['name']} | "
-        f"模型={character['model']} | prompt_preview={body.prompt[:50] if body.prompt else ''}..."
+        f"模型={character['model']}"
     )
 
     start_time = time.time()
@@ -480,38 +513,39 @@ async def generate_message(
                 user_prompt=body.prompt,
                 recent_messages=recent_messages,
                 user_name=None,
-                user_preferences=user_preferences
+                user_preferences=user_preferences,
+                history_summary=history_summary,
             )
 
             logger.debug(f"Prompt 构建完成 | user_id={user_id} | prompt_length={len(full_prompt)}")
             logger.info(f"调用 AI 服务 | user_id={user_id} | model={character['model']}")
 
-            # 使用 Model Adapter 调用 AI 服务
-            adapter = await _get_model_adapter(character['model'])
-            
             ai_start_time = time.time()
             
             # 添加重试机制
             async def llm_call():
-                return await asyncio.wait_for(
-                    call_llm(
-                        model=character['model'],
-                        prompt=full_prompt,
-                        system_prompt="",
-                        stream=False,
-                        max_tokens=getattr(body, 'max_tokens', None) or character['max_tokens'],
-                        thinking_budget=64,
-                        temperature=getattr(body, 'temperature', None) or character['temperature']
-                    ),
-                    timeout=REQUEST_TIMEOUT
+                return await call_llm(
+                    model=character['model'],
+                    prompt=full_prompt,
+                    system_prompt="",
+                    stream=False,
+                    max_tokens=getattr(body, 'max_tokens', None) or character['max_tokens'],
+                    thinking_budget=64,
+                    temperature=(
+                        body.temperature
+                        if body.temperature is not None
+                        else character['temperature']
+                    )
                 )
-            
-            response = await call_with_retry(llm_call, max_retries=3)
+
+            response = await asyncio.wait_for(
+                call_with_retry(llm_call, max_retries=3),
+                timeout=REQUEST_TIMEOUT,
+            )
             
             ai_duration = time.time() - ai_start_time
 
-            ai_content = response["choices"][0]["message"]["content"]
-            tokens_used = response["usage"]["total_tokens"]
+            ai_content, tokens_used = _extract_llm_response(response)
             
             # 清理响应
             ai_content = _clean_response(ai_content, character['name'])
@@ -521,7 +555,7 @@ async def generate_message(
 
             # 保存对话记录
             save_start_time = time.time()
-            await history_service.save_conversation_turn(
+            legacy_messages = await history_service.save_conversation_turn(
                 user_id=user_id,
                 user_content=body.prompt,
                 assistant_content=ai_content,
@@ -535,6 +569,7 @@ async def generate_message(
                 ai_content,
                 model=character['model'],
                 character_id=getattr(body, 'character_id', None),
+                legacy_message_ids=tuple(str(message.id) for message in legacy_messages),
             )
             await db.commit()
             save_duration = time.time() - save_start_time
@@ -542,7 +577,7 @@ async def generate_message(
 
             # 异步提取用户偏好（不阻塞响应）
             asyncio.create_task(
-                _extract_user_preferences(user_id, body.prompt, ai_content, db)
+                _extract_user_preferences(user_id, body.prompt, ai_content)
             )
 
             total_duration = time.time() - start_time
@@ -555,17 +590,29 @@ async def generate_message(
             )
 
         except asyncio.TimeoutError:
+            await db.rollback()
             logger.error(f"虚拟姬请求超时 | user_id={user_id} | timeout={REQUEST_TIMEOUT}s")
             raise HTTPException(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 detail="AI 响应超时，请稍后重试"
             )
 
+        except HTTPException as e:
+            await db.rollback()
+            logger.warning(
+                f"虚拟姬模型服务异常 | user_id={user_id} | status={e.status_code}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="AI 服务暂时不可用，请稍后重试",
+            ) from e
+
         except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
+            await db.rollback()
             logger.error(f"虚拟姬请求异常 | user_id={user_id} | error={str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"生成失败：{str(e)}"
+                detail="AI 回复生成失败，请稍后重试"
             )
 
 
@@ -573,8 +620,8 @@ async def generate_message(
 async def get_history(
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
-    limit: Optional[int] = 20,
-    offset: Optional[int] = 0
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0)
 ):
     """获取对话历史记录"""
     user_id = token.get("sub")
@@ -828,7 +875,7 @@ async def delete_user_preference(
 
 @router.delete("/GirlAi/history")
 async def delete_history(
-    record_ids: List[str] = Query(..., description="要删除的记录ID列表"),
+    record_ids: Optional[List[str]] = Query(None, description="要删除的记录ID列表"),
     all: bool = Query(False, description="是否清除所有历史记录"),
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db)
@@ -840,6 +887,7 @@ async def delete_history(
     - **all**: 是否清除所有历史记录（会忽略 record_ids）
     """
     user_id = token.get("sub")
+    record_ids = record_ids or []
 
     if not user_id:
         raise HTTPException(status_code=401, detail="无效的用户令牌")
@@ -851,10 +899,16 @@ async def delete_history(
 
         if all:
             deleted_count = await history_service.clear_user_history(user_id)
+            await clear_messages_for_user(db, int(user_id))
+            await db.commit()
             logger.info(f"清除全部历史记录 | user_id={user_id} | deleted={deleted_count}")
             return {"status": "deleted", "count": deleted_count}
         else:
+            if not record_ids:
+                raise HTTPException(status_code=400, detail="请选择要删除的历史记录")
             deleted_count = await history_service.delete_records(record_ids, user_id)
+            await delete_messages_for_legacy_ids(db, int(user_id), record_ids)
+            await db.commit()
             logger.info(f"删除历史记录 | user_id={user_id} | deleted={deleted_count}")
             return {"status": "deleted", "count": deleted_count, "ids": record_ids}
 

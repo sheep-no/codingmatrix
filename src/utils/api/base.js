@@ -115,8 +115,11 @@ export function createBaseClient(userStore = null) {
 
       const fullUrl = url.startsWith('http') || url.startsWith('/api/') ? url : `${apiUrl}${url}`
 
-      const headers = {
-        'Content-Type': 'application/json'
+      const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
+      const headers = { ...(options.headers || {}) }
+
+      if (!isFormData && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json'
       }
 
       if (token) {
