@@ -409,10 +409,12 @@
 <script setup>
   import { ref, onMounted, onUnmounted } from 'vue'
   import { createApiClient } from '@/utils/api/index'
+  import { createAdminClient } from '@/utils/api/admin'
   import { useUserStore } from '@/stores/user'
 
   const userStore = useUserStore()
   const api = createApiClient(userStore)
+  const adminApi = createAdminClient(api)
 
   // 状态
   const loading = ref(false)
@@ -461,29 +463,7 @@
   async function refreshServices() {
     loading.value = true
     try {
-      const response = await api.get('/api/v2/services')
-
-      if (!response.ok) {
-        let errorMsg = `获取服务列表失败 (${response.status})`
-        try {
-          const errorData = await response.clone().json()
-          errorMsg = errorData.detail || errorData.message || errorMsg
-        } catch (e) {
-          // 如果不是JSON，尝试获取响应文本
-          try {
-            const errorText = await response.text()
-            if (errorText) {
-              errorMsg = errorText
-            }
-          } catch (textError) {
-            // 忽略文本读取错误，使用状态文本
-          }
-        }
-        showMessage(errorMsg, 'error')
-        return
-      }
-
-      const data = await response.json()
+      const data = await adminApi.getServices()
       services.value = data.services || []
       stats.value.learned = data.learned || 0
       stats.value.enabled = data.enabled || 0
@@ -504,30 +484,12 @@
     }
 
     try {
-      const response = await api.post('/api/v2/guard/start', {
+      const data = await adminApi.startGuard({
         service_name: startForm.value.service_name,
         port: startForm.value.port,
         restart_cmd: startForm.value.restart_cmd
       })
 
-      if (!response.ok) {
-        let errorMsg = `启动失败 (${response.status})`
-        try {
-          const errorData = await response.clone().json()
-          errorMsg = errorData.detail || errorData.message || errorMsg
-        } catch (e) {
-          try {
-            const errorText = await response.text()
-            if (errorText) errorMsg = errorText
-          } catch (textError) {
-            // 忽略文本读取错误
-          }
-        }
-        showMessage(errorMsg, 'error')
-        return
-      }
-
-      const data = await response.json()
       showMessage(data.message, 'success')
       startForm.value.service_name = ''
       startForm.value.port = ''
@@ -556,7 +518,7 @@
 
     fuseSaving.value = true
     try {
-      const result = await api.updateFuseConfig(
+      const result = await adminApi.updateFuseConfig(
         currentService.value.port,
         currentService.value.process_signature,
         {
@@ -566,12 +528,12 @@
         }
       )
 
-      if (result.ok) {
+      if (result && result.status === 'success') {
         showMessage('熔断配置已更新', 'success')
         closeFuseModal()
         refreshServices()
       } else {
-        showMessage(result.data.detail || '更新失败', 'error')
+        showMessage(result?.message || '更新失败', 'error')
       }
     } catch (error) {
       console.error('更新熔断配置失败:', error)
@@ -603,18 +565,18 @@
 
     renameSaving.value = true
     try {
-      const result = await api.renameService(
+      const result = await adminApi.renameService(
         currentService.value.port,
         currentService.value.process_signature,
         renameForm.value.new_name
       )
 
-      if (result.ok) {
+      if (result && result.status === 'success') {
         showMessage('重命名成功', 'success')
         closeRenameModal()
         refreshServices()
       } else {
-        showMessage(result.data.detail || '重命名失败', 'error')
+        showMessage(result?.message || '重命名失败', 'error')
       }
     } catch (error) {
       console.error('重命名失败:', error)
@@ -634,26 +596,7 @@
   // 显示熔断状态
   async function showFuseStatus(service) {
     try {
-      const response = await api.get(`/api/v2/service/${service.name}/fuse-status`)
-
-      if (!response.ok) {
-        let errorMsg = `获取状态失败 (${response.status})`
-        try {
-          const errorData = await response.clone().json()
-          errorMsg = errorData.detail || errorMsg
-        } catch (e) {
-          try {
-            const errorText = await response.text()
-            if (errorText) errorMsg = errorText
-          } catch (textError) {
-            // 忽略文本读取错误
-          }
-        }
-        showMessage(errorMsg, 'error')
-        return
-      }
-
-      const data = await response.json()
+      const data = await adminApi.getFuseStatus(service.name)
       fuseStatusData.value = data
       showStatusModal.value = true
     } catch (error) {
@@ -671,26 +614,7 @@
   // 健康检查
   async function checkServiceHealth(service) {
     try {
-      const response = await api.get(`/api/v2/health/${service.port}`)
-
-      if (!response.ok) {
-        let errorMsg = `健康检查失败 (${response.status})`
-        try {
-          const errorData = await response.clone().json()
-          errorMsg = errorData.detail || errorMsg
-        } catch (e) {
-          try {
-            const errorText = await response.text()
-            if (errorText) errorMsg = errorText
-          } catch (textError) {
-            // 忽略文本读取错误
-          }
-        }
-        showMessage(errorMsg, 'error')
-        return
-      }
-
-      const data = await response.json()
+      const data = await adminApi.checkHealth(service.port)
       showMessage(
         `健康检查: ${data.status === 'open' ? '正常' : '异常'}`,
         data.status === 'open' ? 'success' : 'error'

@@ -15,7 +15,7 @@
       />
 
     <div class="agent-mobile-toolbar">
-      <button class="mobile-toolbar-btn" type="button" aria-label="打开会话列表" @click="mobilePanel = 'sessions'">
+      <button ref="sessionsTrigger" class="mobile-toolbar-btn" type="button" aria-label="打开会话列表" @click="openMobilePanel('sessions')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
         <span>会话</span>
       </button>
@@ -23,7 +23,7 @@
         <span>{{ sessionId ? '当前会话' : '新建项目' }}</span>
         <small v-if="isGenerating">生成中</small>
       </div>
-      <button class="mobile-toolbar-btn" type="button" aria-label="打开文件预览" :disabled="!selectedFile" @click="mobilePanel = 'files'">
+      <button ref="filesTrigger" class="mobile-toolbar-btn" type="button" aria-label="打开文件预览" :disabled="!selectedFile" @click="openMobilePanel('files')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M4 5a2 2 0 0 1 2-2h5l2 3h5a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5z"/></svg>
         <span>文件</span>
       </button>
@@ -32,7 +32,11 @@
     <div class="agent-main">
       <!-- 左侧栏 -->
       <AgentSidebar
+        ref="sessionsDrawer"
         :class="{ 'mobile-drawer-open': mobilePanel === 'sessions' }"
+        :role="mobilePanel === 'sessions' ? 'dialog' : undefined"
+        :aria-modal="mobilePanel === 'sessions' ? 'true' : undefined"
+        :tabindex="mobilePanel === 'sessions' ? -1 : undefined"
         :session-id="sessionId"
         :sessions="sessionHistory"
         :has-files="generatedFiles.length > 0"
@@ -89,7 +93,11 @@
 
       <!-- 右侧文件预览 -->
       <AgentFilePanel
+        ref="filesDrawer"
         :class="{ 'mobile-drawer-open': mobilePanel === 'files' }"
+        :role="mobilePanel === 'files' ? 'dialog' : undefined"
+        :aria-modal="mobilePanel === 'files' ? 'true' : undefined"
+        :tabindex="mobilePanel === 'files' ? -1 : undefined"
         :selected-file="selectedFile"
         :highlighted-code="getHighlightedCode"
         :line-count="getLineCount || 0"
@@ -106,7 +114,7 @@
       />
     </div>
 
-    <button v-if="mobilePanel" class="agent-mobile-scrim" type="button" aria-label="关闭面板" @click="mobilePanel = null"></button>
+    <button v-if="mobilePanel" class="agent-mobile-scrim" type="button" aria-label="关闭面板" @click="closeMobilePanel"></button>
 
     <!-- Modals -->
     <UploadModal v-model="backend.showUploadModal" @upload="(f) => handleFileSelect(f)" />
@@ -120,7 +128,7 @@
 
 <script setup>
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
+import { ref, nextTick, onMounted, onBeforeUnmount, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useApiKeyStore } from '@/stores/apikey'
@@ -153,6 +161,51 @@ const projectApi = window.api || {}
 const selectedProviderModel = ref('')
 const projectName = ref('')
 const mobilePanel = ref(null)
+const sessionsTrigger = ref(null)
+const filesTrigger = ref(null)
+const sessionsDrawer = ref(null)
+const filesDrawer = ref(null)
+let mobilePanelTrigger = null
+
+const openMobilePanel = async (panel) => {
+  mobilePanelTrigger = panel === 'sessions' ? sessionsTrigger.value : filesTrigger.value
+  mobilePanel.value = panel
+  await nextTick()
+  const drawer = panel === 'sessions' ? sessionsDrawer.value?.$el : filesDrawer.value?.$el
+  drawer?.focus()
+}
+
+const closeMobilePanel = async () => {
+  mobilePanel.value = null
+  await nextTick()
+  mobilePanelTrigger?.focus()
+  mobilePanelTrigger = null
+}
+
+const handlePageKeydown = (event) => {
+  if (!mobilePanel.value) return
+  if (event.key === 'Escape') {
+    closeMobilePanel()
+    return
+  }
+  if (event.key !== 'Tab') return
+  const drawer = mobilePanel.value === 'sessions' ? sessionsDrawer.value?.$el : filesDrawer.value?.$el
+  const focusable = [...(drawer?.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])]
+  if (focusable.length === 0) {
+    event.preventDefault()
+    drawer?.focus()
+    return
+  }
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && (document.activeElement === first || document.activeElement === drawer)) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
 
 // ========== Composables ==========
 const session = useAgentSession()
@@ -326,7 +379,7 @@ const doSwitchSession = async (id) => {
     recoveryAttempts: generation.recoveryAttempts
   })
   if (!switched) return false
-  mobilePanel.value = null
+  await closeMobilePanel()
   workspace.currentModel = generation.currentModel
   workspace.currentAgent = generation.currentAgent
   try {
@@ -425,6 +478,7 @@ watch([() => files.generatedFiles?.length, () => session.currentSessionId, () =>
 }, { deep: true })
 
 onMounted(() => {
+  window.addEventListener('keydown', handlePageKeydown)
   apiKeyStore.loadFromStorage()
   providerStore.loadFromStorage()
   providerStore.listProviders().catch(() => {})
@@ -457,6 +511,7 @@ onMounted(() => {
   backend.loadAvailableSkills()
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handlePageKeydown)
   session.stopAutoSave()
 })
 </script>

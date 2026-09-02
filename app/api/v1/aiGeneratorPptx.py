@@ -10,6 +10,7 @@ PPT 生成 API - 统一增强版
 6. 提供同步/异步生成、下载、预览、幻灯片详情接口。
 """
 import asyncio
+import html
 import json
 import logging
 import os
@@ -89,6 +90,11 @@ def _verify_ppt_owner(ppt_id: str, user_id: str) -> None:
         raise HTTPException(status_code=404, detail="PPT 任务状态不可用")
     if str(owner.get("user_id")) != str(user_id):
         raise HTTPException(status_code=403, detail="无权访问此 PPT")
+
+
+def _preview_url(ppt_id: str, output_format: "OutputFormat") -> str:
+    """Return a preview URL that preserves the generated artifact format."""
+    return f"/api/v1/pptx/preview/{ppt_id}?format={output_format.value}"
 
 # 所有合法模板 ID（前端、后端、配置文件共用此列表）
 VALID_TEMPLATE_IDS = [
@@ -659,12 +665,14 @@ async def generate_html_ppt(filepath: Path, outline: Dict[str, Any], req: PPTGen
     """生成 HTML 格式 PPT"""
     template = PPT_TEMPLATES.get(req.template, PPT_TEMPLATES["modern"])
     
+    title = html.escape(str(outline.get('title', 'PPT')))
+    language = html.escape(req.language, quote=True)
     html_content = f"""<!DOCTYPE html>
-<html lang="{req.language}">
+<html lang="{language}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{outline.get('title', 'PPT')}</title>
+    <title>{title}</title>
     <style>
         :root {{
             --primary-color: {template['primary_color']};
@@ -694,7 +702,7 @@ async def generate_html_ppt(filepath: Path, outline: Dict[str, Any], req: PPTGen
 </head>
 <body>
     <div class="slide">
-        <h1>{outline.get('title', 'PPT 标题')}</h1>
+        <h1>{title}</h1>
         <p style="color: var(--secondary-color);">生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
     </div>
 """
@@ -703,11 +711,14 @@ async def generate_html_ppt(filepath: Path, outline: Dict[str, Any], req: PPTGen
         if slide_data.get('slide_type') == 'cover':
             continue
             
+        slide_title = html.escape(str(slide_data.get('title', '幻灯片标题')))
+        slide_content = html.escape(str(slide_data.get('content', ''))).replace('\n', '<br>')
+        slide_number = html.escape(str(slide_data.get('slide_number', 0)))
         html_content += f"""
     <div class="slide">
-        <h2>{slide_data.get('title', '幻灯片标题')}</h2>
-        <div class="slide-content">{slide_data.get('content', '')}</div>
-        <div class="slide-number">{slide_data.get('slide_number', 0)}</div>
+        <h2>{slide_title}</h2>
+        <div class="slide-content">{slide_content}</div>
+        <div class="slide-number">{slide_number}</div>
     </div>
 """
     
@@ -737,14 +748,14 @@ async def generate_markdown_ppt(filepath: Path, outline: Dict[str, Any], req: PP
     
     logger.info(f"Markdown PPT 保存成功 | file: {filepath}")
 
-def generate_preview_html(ppt_id: str, pptx_path: Path) -> str:
+def generate_preview_html(ppt_id: str) -> str:
     """生成预览 HTML 页面"""
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PPT 预览 - {ppt_id}</title>
+    <title>PPT 预览 - {html.escape(ppt_id)}</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f1f5f9; padding: 20px; }}
@@ -768,7 +779,7 @@ def generate_preview_html(ppt_id: str, pptx_path: Path) -> str:
     <div class="container">
         <div class="header">
             <h1>PPT 预览</h1>
-            <p style="color: #64748b; margin-top: 8px;">PPT ID: {ppt_id}</p>
+            <p style="color: #64748b; margin-top: 8px;">PPT ID: {html.escape(ppt_id)}</p>
         </div>
         
         <div class="download-section">
@@ -782,7 +793,7 @@ def generate_preview_html(ppt_id: str, pptx_path: Path) -> str:
     </div>
     
     <script>
-        fetch('/api/v1/pptx/{ppt_id}/slides')
+        fetch('/api/v1/pptx/{html.escape(ppt_id)}' + '/slides')
             .then(r => r.json())
             .then(data => {{
                 const container = document.getElementById('slides-container');
@@ -792,14 +803,18 @@ def generate_preview_html(ppt_id: str, pptx_path: Path) -> str:
                         card.className = 'slide-card';
                         card.innerHTML = `
                             <div class="slide-header">
-                                <span class="slide-number">${{idx + 1}}</span>
-                                <span class="slide-type">${{slide.slide_type || 'content'}}</span>
+                                <span class="slide-number"></span>
+                                <span class="slide-type"></span>
                             </div>
                             <div class="slide-body">
-                                <div class="slide-title">${{slide.title}}</div>
-                                <div class="slide-content">${{slide.content}}</div>
+                                <div class="slide-title"></div>
+                                <div class="slide-content"></div>
                             </div>
                         `;
+                        card.querySelector('.slide-number').textContent = idx + 1;
+                        card.querySelector('.slide-type').textContent = slide.slide_type || 'content';
+                        card.querySelector('.slide-title').textContent = slide.title || '';
+                        card.querySelector('.slide-content').textContent = slide.content || '';
                         container.appendChild(card);
                     }});
                 }}
@@ -957,7 +972,7 @@ async def generate_ppt_task(
                 "filename": filepath.name,
                 "ppt_id": task_id,
                 "download_url": f"/api/v1/pptx/download/{task_id}?format={ext}",
-                "preview_url": f"/api/v1/pptx/preview/{task_id}" if req.output_format == OutputFormat.PPTX else None
+                "preview_url": _preview_url(task_id, req.output_format) if req.output_format in {OutputFormat.PPTX, OutputFormat.HTML, OutputFormat.MARKDOWN} else None
             }
             await update_progress(
                 progress=100,
@@ -1046,7 +1061,7 @@ async def generate_ppt(
             output_format=req.output_format.value,
             created_at=datetime.now().isoformat(),
             download_url=f"/api/v1/pptx/download/{ppt_id}?format={ext}",
-            preview_url=f"/api/v1/pptx/preview/{ppt_id}",
+            preview_url=_preview_url(ppt_id, req.output_format) if req.output_format in {OutputFormat.PPTX, OutputFormat.HTML, OutputFormat.MARKDOWN} else None,
             slides=outline.get('slides', [])
         )
     except Exception as e:
@@ -1065,9 +1080,12 @@ async def download_ppt(
     _verify_ppt_owner(ppt_id, user_id)
     output_dir = PPT_OUTPUT_DIR
     
-    possible_extensions = ["pptx", "pdf", "html", "md"]
-    if format in ["pptx", "pdf", "html", "md"]:
-        possible_extensions = [format] + [e for e in possible_extensions if e != format]
+    requested_extension = "md" if format == "markdown" else format
+    supported_extensions = ["pptx", "pdf", "html", "md"]
+    if requested_extension in supported_extensions:
+        possible_extensions = [requested_extension]
+    else:
+        raise HTTPException(status_code=400, detail="不支持的下载格式")
         
     filepath = None
     for ext in possible_extensions:
@@ -1079,6 +1097,7 @@ async def download_ppt(
     if not filepath:
         raise HTTPException(status_code=404, detail="PPT 文件不存在")
     
+    actual_format = filepath.suffix.lstrip('.')
     logger.info(f"下载 PPT | user: {user_id} | file: {filepath.name}")
     
     async def file_stream():
@@ -1095,7 +1114,7 @@ async def download_ppt(
     
     return StreamingResponse(
         file_stream(),
-        media_type=mime_types.get(format, "application/octet-stream"),
+        media_type=mime_types.get(actual_format, "application/octet-stream"),
         headers={
             "Content-Disposition": f'attachment; filename="{filepath.name}"'
         }
@@ -1105,27 +1124,27 @@ async def download_ppt(
 @router.get("/pptx/preview/{ppt_id}", response_class=HTMLResponse)
 async def preview_ppt(
     ppt_id: str,
+    format: str = Query(default="pptx", description="预览格式"),
     token: dict = Depends(verify_token)
 ):
     """在线预览 PPT"""
     user_id = token.get("sub", "anonymous")
     _verify_ppt_owner(ppt_id, user_id)
     output_dir = PPT_OUTPUT_DIR
-    pptx_path = output_dir / f"{ppt_id}.pptx"
-    
-    # 尝试查找任意格式文件
-    if not pptx_path.exists():
-        found = False
-        for ext in ["html", "md"]:
-            if (output_dir / f"{ppt_id}.{ext}").exists():
-                found = True
-                break
-        if not found:
-            raise HTTPException(status_code=404, detail="PPT 文件不存在")
+    if format not in {"pptx", "html", "markdown", "md"}:
+        raise HTTPException(status_code=400, detail="不支持的预览格式")
+    extension = "md" if format == "markdown" else format
+    artifact_path = output_dir / f"{ppt_id}.{extension}"
+    if not artifact_path.exists():
+        raise HTTPException(status_code=404, detail="PPT 文件不存在")
 
     logger.info(f"预览 PPT | user: {user_id} | ppt_id: {ppt_id}")
-    html_content = generate_preview_html(ppt_id, pptx_path)
-    return HTMLResponse(content=html_content)
+    if extension == "html":
+        return HTMLResponse(content=artifact_path.read_text(encoding="utf-8"))
+    if extension == "md":
+        markdown = html.escape(artifact_path.read_text(encoding="utf-8"))
+        return HTMLResponse(content=f"<html><body><pre>{markdown}</pre></body></html>")
+    return HTMLResponse(content=generate_preview_html(ppt_id))
 
 
 @router.get("/pptx/{ppt_id}/slides")
@@ -1282,7 +1301,7 @@ async def update_ppt_task(
                 "filename": filepath.name,
                 "ppt_id": output_id,
                 "download_url": f"/api/v1/pptx/download/{output_id}?format={ext}",
-                "preview_url": f"/api/v1/pptx/preview/{output_id}" if new_req.output_format == OutputFormat.PPTX else None
+                "preview_url": _preview_url(output_id, new_req.output_format) if new_req.output_format in {OutputFormat.PPTX, OutputFormat.HTML, OutputFormat.MARKDOWN} else None
             }
             await update_progress(
                 progress=100,
@@ -1840,6 +1859,18 @@ _PPT_FILE_EXTENSIONS = {
     ".csv", ".log", ".rst", ".html", ".css",
 }
 
+
+async def _stream_upload_to_path(file: UploadFile, destination: Path, max_size: int) -> int:
+    """Persist an upload in bounded chunks and return its byte count."""
+    total_size = 0
+    with destination.open("wb") as output:
+        while chunk := await file.read(1024 * 1024):
+            total_size += len(chunk)
+            if total_size > max_size:
+                raise HTTPException(status_code=400, detail=f"文件过大，最大支持 {max_size // 1024 // 1024}MB")
+            output.write(chunk)
+    return total_size
+
 @router.post("/pptx/generate_from_file", response_model=TaskResponse)
 async def generate_ppt_from_file(
     file: UploadFile = FastAPIFile(..., description="上传文件 (PDF/Word/TXT/MD 等)"),
@@ -1875,11 +1906,7 @@ async def generate_ppt_from_file(
     temp_path = upload_dir / f"{file_id}{suffix}"
 
     try:
-        content = await file.read()
-        if len(content) > 50 * 1024 * 1024:  # 50MB 限制
-            raise HTTPException(status_code=400, detail="文件过大，最大支持 50MB")
-        with open(temp_path, "wb") as f:
-            f.write(content)
+        await _stream_upload_to_path(file, temp_path, 50 * 1024 * 1024)
     except HTTPException:
         raise
     except Exception as e:
@@ -1963,7 +1990,7 @@ async def generate_ppt_from_file(
                 "ppt_id": task_id,
                 "source_file": filename,
                 "download_url": f"/api/v1/pptx/download/{task_id}?format={ext}",
-                "preview_url": f"/api/v1/pptx/preview/{task_id}" if output_format == "pptx" else None,
+                "preview_url": f"/api/v1/pptx/preview/{task_id}?format={output_format}" if output_format in {"pptx", "html", "markdown"} else None,
             }
             await update_progress(
                 progress=100,
@@ -2035,11 +2062,7 @@ async def upload_custom_template(
     template_path = template_dir / f"{template_id}.pptx"
 
     try:
-        content = await file.read()
-        if len(content) > 20 * 1024 * 1024:  # 20MB 限制
-            raise HTTPException(status_code=400, detail="模板文件过大，最大 20MB")
-        with open(template_path, "wb") as f:
-            f.write(content)
+        await _stream_upload_to_path(file, template_path, 20 * 1024 * 1024)
     except HTTPException:
         raise
     except Exception as e:

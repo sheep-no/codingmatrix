@@ -23,7 +23,14 @@ async function createDispatcher() {
   const dispatcher = new ToolDispatcher({
     authorization,
     validationRunner,
-    diagnostics: async () => [{ source: "typescript", message: "unused variable" }],
+    diagnostics: async () => [{
+      file: "src/example.ts",
+      message: "unused variable",
+      severity: 1,
+      source: "typescript",
+      code: 6133,
+      range: { start: { line: 2, character: 4 }, end: { line: 2, character: 10 } },
+    }],
   });
   return { root, dispatcher };
 }
@@ -73,6 +80,14 @@ test("dispatches diagnostics and validation through injected adapters", async ()
   const { root, dispatcher } = await createDispatcher();
   try {
     const diagnostics = await dispatcher.dispatch(envelope("diagnostics", { workspace_id: "workspace-1" }));
+    assert.deepEqual(diagnostics[0], {
+      file: "src/example.ts",
+      message: "unused variable",
+      severity: 1,
+      source: "typescript",
+      code: 6133,
+      range: { start: { line: 2, character: 4 }, end: { line: 2, character: 10 } },
+    });
     assert.equal(diagnostics[0].source, "typescript");
     const result = await dispatcher.dispatch(envelope("validation", {
       action_id: "action-1",

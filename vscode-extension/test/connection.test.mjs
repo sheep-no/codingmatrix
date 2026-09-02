@@ -161,7 +161,7 @@ test("streams Agent events with bearer authentication", async () => {
 
   await connection.streamAgentPrompt({ requirement: "检查项目" }, (event) => events.push(event));
 
-  assert.equal(calls[0].url, "https://codingmatrix.example/api/v1/ai-agent/orchestrate/stream");
+  assert.equal(calls[0].url, "https://codingmatrix.example/api/v1/agent/orchestrate/stream");
   assert.equal(calls[0].init.headers.authorization, "Bearer access-token");
   assert.deepEqual(JSON.parse(calls[0].init.body), { requirement: "检查项目" });
   assert.deepEqual(events, [
@@ -272,14 +272,48 @@ test("queues result during network outage and flushes after reconnect", async ()
     },
   });
 
-  const pending = connection.submitResult(result);
-  await new Promise((resolve) => setImmediate(resolve));
+  const pending = await connection.submitResult(result);
+  assert.deepEqual(pending, { status: "queued", event_id: "result-1" });
   assert.equal(connection.pendingResultCount, 1);
 
   online = true;
   assert.equal(await connection.flushPendingResults(), 1);
-  assert.deepEqual(await pending, { accepted: true });
   assert.deepEqual(submitted, [result]);
+});
+
+test("flushes persisted results after a successful handshake", async () => {
+  const storage = new MemoryResultStorage();
+  const resultStore = new ResultStore(storage);
+  let online = false;
+  const first = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    resultStore,
+    fetchImpl: async () => { throw new TypeError("offline"); },
+  });
+  assert.deepEqual(await first.submitResult(result), { status: "queued", event_id: "result-1" });
+
+  online = true;
+  const calls = [];
+  const reconnected = new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    resultStore: new ResultStore(storage),
+    fetchImpl: async (url, init) => {
+      calls.push(url);
+      if (url.endsWith("/handshake")) {
+        return response({ session_id: "session-1", workspace_id: "workspace-1", extension_version: "0.1.0", protocol_version: 1, capabilities: ["workspace"], policy_version: 1, policy: { local_execution_enabled: true, validation_operations: {}, auto_approve: false, require_confirmation_on_failure: true }, pending_actions: [] });
+      }
+      return response({ accepted: true });
+    },
+  });
+  await reconnected.handshake({ workspace_id: "workspace-1", extension_version: "0.1.0", protocol_versions: [1], capabilities: ["workspace"] });
+  assert.deepEqual(calls, ["https://codingmatrix.example/api/v1/agent/host/handshake", "https://codingmatrix.example/api/v1/agent/local-validation/results"]);
+  assert.deepEqual(await resultStore.listPending(), []);
 });
 
 test("restores persisted results after a connection instance restarts", async () => {
@@ -298,8 +332,7 @@ test("restores persisted results after a connection instance restarts", async ()
     },
   });
 
-  void first.submitResult(result);
-  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(await first.submitResult(result), { status: "queued", event_id: "result-1" });
   assert.equal((await resultStore.listPending()).length, 1);
 
   online = true;
