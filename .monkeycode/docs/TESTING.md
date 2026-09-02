@@ -69,3 +69,11 @@ Agent Host 和本地验证修改后运行 `npm --prefix vscode-extension test`�
 - `verify-integration.sh` 主要提供静态、语法和配置级证据。
 - 真实 PPT Celery、VS Code Extension Host、供应商调用和多 worker 行为需要单独验收。
 - 修改后至少执行 `git diff --check`、相关测试和生产构建。
+
+## 最近结果（2026-09-02）
+
+- VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `62 passed`。
+- VS Code Extension Development Host：E2E 通过，已验证扩展激活、Agent Workbench 打开、兼容性握手和工作区能力。
+- 前端相关回归：`23 passed`，生产构建成功。
+- PPT 专项回归：`141 passed`；真实 HTTP/WebSocket 验收覆盖 HTML 生成、PPTX 下载、进度事件和格式错误隔离。
+- 原始 `npm --prefix vscode-extension run e2e` 在当前无头环境会受到 `xauth` 缺失影响；使用已启动的 `Xvfb` 直接运行 E2E 入口后完成验收。

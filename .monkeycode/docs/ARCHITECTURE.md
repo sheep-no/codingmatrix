@@ -2,7 +2,7 @@
 
 ## 概述
 
-本项目由 FastAPI 后端、Vue 3 Web 前端、Celery 异步任务、Redis 和可选 VS Code Agent Host 组成，提供聊天、项目生成与修改、PPT、图像、AI Cloud、GirlAI、工作流和本地验证能力。Agent 能力由传统 Agent、Spec-first、依赖图、拓扑调度和 ReAct 工具链组成。StateGraph 迁移层以统一 State、StateDelta、checkpoint 和事件适配器连接现有能力。
+本项目由 FastAPI 后端、Vue 3 Web 前端、Celery 异步任务、Redis 和 VS Code Agent Host 组成，提供聊天、项目生成与修改、PPT、图像、AI Cloud、GirlAI、工作流和本地验证能力。Agent 能力由传统 Agent、Spec-first、依赖图、拓扑调度和 ReAct 工具链组成。StateGraph 迁移层以统一 State、StateDelta、checkpoint 和事件适配器连接现有能力。当前 Web 与 VS Code 工作台的核心 Agent 交互链路已打通，VS Code 侧承担本地工作区动作和验证执行。
 
 ## 技术栈
 
@@ -50,6 +50,8 @@ flowchart LR
 ## 前端边界
 
 Web 前端通过 Vue Router 组织页面，通过 Pinia 保存认证、Agent 会话、生成文件和模型上下文。Agent Dashboard 将会话、生成、文件、工作区、流式处理和后端管理拆分到 composables。桌面端使用三栏布局；手机端使用单列工作区和两侧抽屉，相关样式集中在 `src/styles/agent-layout.css`。前端通过同源 `/api` 前缀访问后端，开发环境由 Vite proxy 处理跨服务转发。
+
+VS Code 工作台由 `vscode-extension/src/agent-workbench.ts` 提供原生 Webview，由 `extension.ts` 创建 Agent Host 运行时。工作台支持需求输入、流式事件展示、暂停、恢复、取消、动作批准和拒绝；Host 通过 `CloudConnection` 与 `/api/v1/agent/host/*` 交互，并通过 `/api/v1/agent/orchestrate/stream` 发起 Agent 流式请求。VS Code 工作台当前采用轻量面板形态，Web 端的完整历史会话、模型选择、文件版本历史、性能和学习面板仍保留在 Web 工作台。
 
 ## StateGraph 边界
 

@@ -41,6 +41,19 @@
 
 桌面端使用 `src/styles/agent-layout.css` 的三栏布局。视口宽度小于等于 768px 时，工作区切换为单列视图，会话历史从左侧抽屉打开，文件预览从右侧抽屉打开，输入区保留底部安全区域。手机端状态和抽屉状态仍由 `AgentDashboard` 管理。
 
+## VS Code Agent 工作台
+
+VS Code 扩展位于 `vscode-extension/`，使用原生 Webview 提供轻量 Agent 工作台。当前支持：
+
+- 需求输入和云端 SSE 流式结果展示。
+- Agent 会话暂停、恢复和取消。
+- 本地 Agent Host 动作审批，包括批准和拒绝。
+- 工作区授权、文件读写、诊断、终端和本地验证。
+- Workspace Skills 自动发现与同步。
+- 网络中断时本地验证结果持久化排队，恢复连接后补交云端。
+
+VS Code 工作台与 Web 工作台共享 Agent Host 协议和云端 Agent API。Web 工作台继续承担完整的会话历史、模型选择、文件树、版本历史、性能面板和学习面板；VS Code 工作台聚焦本地执行环境与验证结果回传。
+
 ## 状态持久化
 
 `src/stores/agentSession.js` 使用 Pinia 和 `localStorage` 保存当前会话。历史会话最多保留 10 条，快照包含工作流阶段、生成文件、当前 Agent、当前模型、模型分配、模型配置版本、模型上下文 revision、fallback 历史和恢复次数。
