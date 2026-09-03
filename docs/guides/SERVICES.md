@@ -1,246 +1,134 @@
-# 服务启动说明
+# 服务与端口指南
 
-> 最后更新：2026-05-27 | v5.10.0
+> 最后更新：2026-09-03
 
-## 重要说明
+本文档以 `app/main.py`、`src/vite.config.js`、`Dockerfile`、`docker-compose.yml`、`docker-compose.prod.yml` 和 Nginx 配置为准。
 
-**统一端口**: 后端的 `dist/` 目录包含前端构建产物，统一在 **8000 端口** 提供服务
+## 服务拓扑
 
-无需分别启动前后端，一个命令即可：
+| 场景 | 服务 | 地址或端口 | 说明 |
+|------|------|------------|------|
+| 本地开发 | Vite | `http://localhost:3000` | 前端开发入口；代理 `/api/v1`、`/api/v2` 和 WebSocket 到后端 |
+| 本地开发 | FastAPI | `http://localhost:8000` | 后端 API |
+| 本地依赖 | Redis | `127.0.0.1:6379` | 配置 `REDIS_URL` 后用于缓存、API Key 和 Celery broker/backend |
+| 容器 | FastAPI | 容器内 `8080`，宿主机 `127.0.0.1:8080` | Compose API 服务 |
+| 容器 | Nginx | `http://localhost:80` | 对外静态资源与 API/WebSocket 入口 |
+| 容器 | Redis | 容器内 `6379`，宿主机 `127.0.0.1:6379` | Compose Redis 服务 |
+| 容器 | Celery | 无 HTTP 端口 | 异步任务 worker |
+| 生产 Compose | scheduler | 无 HTTP 端口 | 独立执行 `python -m app.db.scheduler_runner` |
 
-```bash
-# 启动服务
-python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+FastAPI 的文档入口是 `/api/docs`，OpenAPI JSON 是 `/api/openapi.json`。健康检查包括 `/api/v1/health`、`/api/v1/health/ready`、`/api/v1/health/live`、`/api/v1/health/detailed`、`/api/v1/health/metrics` 和 `/api/v1/health/models`。Nginx 额外将 `/health` 转发到 `/api/v1/health`。
 
-# 访问
-open http://localhost:8000
-```
+## 本地开发
 
----
-
-## 快速启动
-
-### 方法 1: 使用服务管理脚本（推荐）
-
-```bash
-# 启动服务
-./manage-services.sh start
-
-# 查看状态
-./manage-services.sh status
-
-# 健康检查
-./manage-services.sh health
-
-# 查看日志
-./manage-services.sh logs
-
-# 停止服务
-./manage-services.sh stop
-
-# 重启服务
-./manage-services.sh restart
-```
-
-### 方法 2: 手动启动
+后端使用 Python 3.11 开发与测试；当前 Dockerfile 运行时是 Python 3.10。启动前应确认依赖与目标 Python 版本兼容。
 
 ```bash
-cd /workspace
-# 统一在 8000 端口提供前后端服务
-nohup python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload > logs/backend.log 2>&1 &
-echo $! > logs/backend.pid
-```
+# 启动后端 API
+PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-### 开发模式（前后端分离）
-
-如需分别开发前后端：
-
-```bash
-# 终端 1: 启动后端 API（8000 端口）
-python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-# 终端 2: 启动前端开发服务器（3000 端口，带 HMR）
-cd src
+# 启动前端开发服务器
+cd /workspace/src
 npm run dev
 ```
 
-**注意**: 开发模式需要配置 Vite proxy，详见 `src/vite.config.js`
+Vite 固定监听 `0.0.0.0:3000`。代理目标固定为 `http://localhost:8000`，并允许 `localhost`、`127.0.0.1` 和 `.monkeycode-ai.online` Host。
 
----
+## 前端静态托管
 
-## 服务地址
-
-| 服务 | 地址 | 说明 |
-|------|------|------|
-| 统一服务 | http://localhost:8000 | 生产模式 |
-| 前端应用 | http://localhost:8000 | 统一入口 |
-| 后端 API | http://localhost:8000/api/v1 | API 端点 |
-| API 文档 | http://localhost:8000/docs | Swagger UI |
-| 健康检查 | http://localhost:8000/api/v1/health | 健康状态 |
-| 模型列表 | http://localhost:8000/api/v1/health/models | 支持的模型 |
-
----
-
-## API 端点概览
-
-### v1 API
-
-| 模块 | 端点 | 功能 |
-|------|------|------|
-| 认证 | `/api/v1/login, /register, /refresh` | 用户认证、JWT Token |
-| Agent | `/api/v1/agent/*` | 项目生成、代码审查、快照管理 |
-| AI 代码 | `/api/v1/code` | 代码生成、流式输出 |
-| PPT | `/api/v1/pptx/*` | PPT 生成 |
-| 图像 | `/api/v1/kolors/*` | 文生图、图生图 |
-| AI Cloud | `/api/v1/aicloud/*` | 沙箱执行、审查队列 |
-| 文件 | `/api/v1/files/*` | 文件上传、解析 |
-| 工作流 | `/api/v1/workflow/*` | 可视化编排 |
-| 健康 | `/api/v1/health` | 健康检查、指标 |
-| API Key | `/api/v1/agent/apikey/*` | API Key 管理 |
-
-### v2 API
-
-| 模块 | 端点 | 功能 |
-|------|------|------|
-| 管理 | `/api/v2/admin/*` | 管理员配置 |
-| Nginx | `/api/v2/nginx/*` | Nginx 配置管理 |
-| 监控 | `/api/v2/Controller/*` | 系统监控 |
-| 用户 | `/api/v2/Controller/users/*` | 用户管理 |
-| 守护 | `/api/v2/Controller/guardian/*` | 进程守护 |
-
----
-
-## 日志位置
-
-| 类型 | 路径 |
-|------|------|
-| 后端日志 | `/workspace/logs/backend.log` |
-| 进程 PID | `/workspace/logs/backend.pid` |
-| E2E测试报告 | `/workspace/test-results/` |
-| Playwright 报告 | `/workspace/playwright-report/` |
-
----
-
-## 停止服务
-
-### 使用脚本
-```bash
-./manage-services.sh stop
-```
-
-### 手动停止
-```bash
-# 读取 PID
-cat logs/backend.pid
-
-# 停止服务
-kill $(cat logs/backend.pid)
-
-# 或强制停止
-pkill -f "uvicorn app.main"
-```
-
----
-
-## 健康检查
+`npm run build` 由 `src/vite.config.js` 输出到仓库根目录 `dist/`。`app/main.py` 同样从仓库根目录 `dist/` 提供 `/static`、`/` 和 Vue Router history fallback，因此本地单进程静态托管可使用：
 
 ```bash
-# 基础健康检查
-curl http://localhost:8000/api/v1/health
-
-# 查看支持的模型
-curl http://localhost:8000/api/v1/health/models
-
-# 查看详细状态
-curl http://localhost:8000/api/v1/system/health
-```
-
-响应示例：
-```json
-{
-  "status": "healthy",
-  "timestamp": "2026-05-26T...",
-  "version": "v5.10.0"
-}
-```
-
----
-
-## 端口说明
-
-### 为什么使用 8000 端口？
-
-1. **统一部署**: 后端 dist 目录包含前端构建产物
-2. **避免 CORS**: 前后端同端口，无需跨域配置
-3. **简化运维**: 一个进程管理所有服务
-
-### 端口历史
-
-| 版本 | 端口 | 说明 |
-|------|------|------|
-| v4.x | 8080 | 早期版本 |
-| v5.0-v5.3 | 8002 | 临时端口 |
-| **v5.4.0+** | **8000** | **统一端口** |
-
----
-
-## 常见问题
-
-### Q: 前端构建产物在哪里？
-
-A: `app/dist/` 目录包含前端构建产物：
-```
-app/dist/
-├── static/          # 静态资源
-│   ├── vendor-*.js  # 第三方库
-│   ├── index-*.js   # 主应用
-│   └── *.css        # 样式文件
-└── index.html       # 入口文件
-```
-
-### Q: 如何更新前端？
-
-```bash
-# 构建前端
-cd src
+# 构建前端到 /workspace/dist
+cd /workspace/src
 npm run build
 
-# 产物自动输出到 app/dist/
-# 重启后端即可
+# 由 FastAPI 托管构建产物与 API
+cd /workspace
+PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-### Q: 可以分别开发吗？
+当前 Compose 的 Nginx 挂载源是 `./src/dist`，Dockerfile 也引用构建阶段的 `/app/src/dist`；这两处与 Vite 的实际输出目录 `/workspace/dist` 或构建容器内 `/app/dist` 不一致。使用 Nginx 或构建镜像前需要先统一产物路径。
 
-可以，见上方"开发模式"章节。
+## Docker Compose
 
----
+基础 Compose 定义 `api`、`celery`、`redis` 和 `nginx`；生产 Compose 额外定义独立 `scheduler`。API upstream 为 `api:8080`，单镜像内 Nginx upstream 为 `127.0.0.1:8080`。
 
-## 环境变量
-
-关键环境变量：
+基础 `docker-compose.yml` 中的 Jaeger 服务字段当前位于顶层 `networks.jaeger`，Compose schema 会在解析阶段拒绝该文件。生产 Compose 还存在前端产物路径、生产密钥和数据库持久化阻塞。修复这些配置后，预期入口为：
 
 ```bash
-# 后端配置
-SILICONFLOW_API_KEY=your-key
-SECRET_KEY=your-secret
+# 启动基础服务
+docker compose up -d api celery redis nginx
 
-# 多供应商配置（可选）
-DASHSCOPE_API_KEY=your-dashscope-key
-ZHIPU_API_KEY=your-zhipu-key
-DEEPSEEK_API_KEY=your-deepseek-key
+# 启动生产服务
+docker compose -f docker-compose.prod.yml up -d api celery scheduler redis nginx
 ```
 
-详见 [多供应商配置](MULTI-PROVIDER-SETUP.md)
+这些命令当前用于说明预期拓扑，尚不具备直接成功运行的条件。完整阻塞清单见 [生产部署指南](PRODUCTION.md)，追踪配置见 [分布式追踪](../observability/TRACING.md)。
 
----
+## Celery 与 PPT
+
+Celery 使用 `REDIS_URL` 作为 broker 和 backend。基础 Compose worker 未限制队列；本地仅处理 PPT 队列时使用：
+
+```bash
+cd /workspace
+PYTHONPATH=/workspace REDIS_URL=redis://127.0.0.1:6379/0 celery -A app.celery_app worker --loglevel=info --concurrency=1 --pool=solo --queues=ppt
+```
+
+设置 `PPT_USE_CELERY=true` 后，PPT 创建接口通过 Celery 投递任务。生产 Compose 将 API、Celery 和 scheduler 的数据目录挂载到共享 `api-data` 卷，并为 API 与 Celery 共享 `ppt-artifacts` 卷。
+
+## 数据库与迁移
+
+应用 lifespan 启动时调用 `migrations.runner.run_async_migrations()`。该运行时迁移器支持 SQLite 和 MySQL，创建缺失表，并为已有 `tasks` 表补充统一状态字段；它不执行 Alembic 版本脚本中的全部结构变更。
+
+Alembic 当前只有一个 head：`20260902_ppt_quality_state`。`migrations/env.py` 固定使用仓库根目录 `app.db`，不会读取运行时 `DATABASE_URL`。
+
+```bash
+# 查看 Alembic head 与当前版本
+alembic -c configs/alembic.ini heads
+alembic -c configs/alembic.ini current
+
+# 已由运行时迁移器初始化的既有数据库首次接入 Alembic
+alembic -c configs/alembic.ini stamp 20260902_ppt_quality_state
+
+# 已纳入 Alembic 管理的数据库升级
+alembic -c configs/alembic.ini upgrade head
+```
+
+执行 `stamp` 前应确认目标数据库已经包含该 head 所代表的表、索引和字段；`stamp` 只登记版本，不创建结构。
+
+## 关键配置
+
+```bash
+DATABASE_URL=sqlite+aiosqlite:////workspace/app.db
+REDIS_URL=redis://127.0.0.1:6379/0
+SECRET_KEY=<至少16字符的随机密钥>
+ENABLE_SCHEDULER=false
+PPT_USE_CELERY=false
+```
+
+开发环境未设置 `SECRET_KEY` 时会生成进程级临时值；生产环境必须显式配置。`REDIS_URL` 默认为空，此时 API 缓存回退到内存；API Key 管理和 Celery 仍需要可用 Redis。
+
+## 核验
+
+```bash
+# FastAPI 健康检查
+curl http://localhost:8000/api/v1/health
+curl http://localhost:8000/api/v1/health/ready
+
+# 容器 Nginx 入口
+curl http://localhost/api/v1/health
+
+# API 文档
+curl -I http://localhost:8000/api/docs
+```
+
+健康接口检查数据库和 Redis；它不检查 Celery worker 在线状态。
 
 ## 相关文档
 
 - [快速开始](GETTING-STARTED.md)
 - [生产部署](PRODUCTION.md)
 - [多供应商配置](MULTI-PROVIDER-SETUP.md)
-- [API 文档](../api/API-DOCUMENTATION.md)
-
----
-
-最后更新：2026-05-27
+- [API Key 指南](API-KEY-GUIDE.md)
+- [追踪指南](../observability/TRACING.md)

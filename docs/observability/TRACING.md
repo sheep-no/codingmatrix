@@ -1,330 +1,154 @@
-# OpenTelemetry 分布式追踪指南
+# OpenTelemetry 追踪指南
 
-> 最后更新: 2026-06-02 | 版本：v5.12.0+
+> 最后更新：2026-09-03
 
-## v5.12.0+ 追踪更新
+项目在 `app/agent/tracing.py` 中提供可选的 OpenTelemetry Agent Span。追踪默认关闭，并以显式 `@traced` 装饰器覆盖部分编排、工程师、会话和测试操作。
 
-v5.12.0+ 新增对 ReAct 工具调用、动态模型路由、工程师主动编辑等新功能的追踪支持。
+## 实现边界
 
-### 新增 Span 类别
+- 配置在模块导入时从环境变量读取，因此应在启动 Python 进程前设置。
+- 启用后创建全局 `TracerProvider`、概率采样器和 `BatchSpanProcessor`。
+- 支持 Jaeger Thrift HTTP、OTLP HTTP 和仅记录不导出的 `none` 模式。
+- OpenTelemetry 包缺失时记录告警并回退到 no-op tracer。
+- 追踪关闭时装饰器和手动 Span 调用仍可执行，所有操作由 no-op 对象吸收。
+- 当前没有 FastAPI、HTTP 客户端、SQLAlchemy、Redis 或 Celery 自动插桩。
+- `inject_trace_context()` 已实现 W3C Trace Context Header 注入，但当前代码没有调用它。
+- `shutdown_tracing()` 已实现 provider shutdown 与 pending Span flush，但当前应用生命周期没有调用它。
 
-| Span 名称 | 描述 | 触发条件 |
-|-----------|------|----------|
-| `react.thought` | ReAct 思考阶段 | ReActAgent 思考时 |
-| `react.action` | ReAct 行动阶段 | 工具调用请求时 |
-| `react.observation` | ReAct 观察阶段 | 工具执行结果返回时 |
-| `react.reflection` | ReAct 反思阶段 | 决定下一步时 |
-| `react.final` | ReAct 最终生成 | 最终答案生成时 |
-| `specialist.call_llm_with_tools` | LLM + 工具调用 | Engineer 调用 ReAct 时 |
-| `specialist.tool.partial_update` | 局部更新工具 | 工程师调用 partial_update |
-| `specialist.tool.insert_content` | 插入内容工具 | 工程师调用 insert_content |
-| `specialist.tool.regex_replace` | 正则替换工具 | 工程师调用 regex_replace |
-| `specialist.tool.execute_code` | 代码执行工具 | 工程师调用 execute_code |
-| `dynamic_model_router.get_assignment` | 获取模型分配 | 每次分配查询 |
-| `dynamic_model_router.record_call_result` | 记录调用结果 | 每次 LLM 调用后 |
-| `session_manager.detect_zombie` | 检测僵尸会话 | 启动 / 定期 |
-| `orchestrator.git_stash_push` | Git stash 备份 | 编辑前 |
-| `orchestrator.git_stash_pop` | Git stash 还原 | 失败时 |
-| `orchestrator.edit_marker_check` | Edit marker 检测 | 工程师返回内容时 |
+## 配置
 
-### Span 属性扩展
+| 环境变量 | 默认值 | 说明 |
+|----------|--------|------|
+| `OTEL_ENABLED` | 空 | `1`、`true` 或 `True` 时启用 |
+| `OTEL_EXPORTER` | `jaeger` | `jaeger`、`otlp` 或 `none`；未知值回退 Jaeger |
+| `OTEL_JAEGER_ENDPOINT` | `http://jaeger:14268/api/traces` | Jaeger Thrift HTTP collector |
+| `OTEL_OTLP_ENDPOINT` | `http://otel-collector:4318` | 传给 OTLP HTTP exporter 的 endpoint |
+| `OTEL_SERVICE_NAME` | `ai-agent` | `service.name` 与 tracer 名称 |
+| `OTEL_SAMPLING_RATE` | `1.0` | `ProbabilitySampler` 采样率 |
+| `OTEL_BATCH_MAX_QUEUE` | `2048` | BatchSpanProcessor 最大队列 |
+| `OTEL_BATCH_SCHEDULE_DELAY` | `5.0` | 批量导出间隔，单位秒 |
+| `OTEL_BATCH_MAX_EXPORT` | `512` | 每批最大 Span 数 |
 
-新功能 Span 携带丰富的属性：
+`OTEL_SAMPLING_RATE` 和三个批处理参数在模块导入时直接转为数字；非法值会使模块导入失败。部署配置应限制采样率在 `0.0` 到 `1.0` 之间，并保证 `OTEL_BATCH_MAX_EXPORT <= OTEL_BATCH_MAX_QUEUE`。
 
-```python
-# react.* 系列
-{
-    "react.round": 1,
-    "react.tool": "read_file",
-    "react.max_rounds": 2,
-    "model.name": "qwen3-8b",
-    "model.role": "thinking",
-    "file_path": "src/utils.py"
-}
+OTLP collector 通常接收 `/v1/traces`，部署时应将 `OTEL_OTLP_ENDPOINT` 设置为 collector 实际接受的完整 URL，例如 `http://otel-collector:4318/v1/traces`。
 
-# specialist.tool.* 系列
-{
-    "tool.name": "partial_update",
-    "tool.file": "src/api/users.py",
-    "tool.lines_changed": 5,
-    "model.name": "deepseek-r1",
-    "is_existing_file": true
-}
-
-# dynamic_model_router.* 系列
-{
-    "complexity.level": "MEDIUM",
-    "role": "backend",
-    "model.assigned": "deepseek-r1",
-    "model.health_score": 95,
-    "model.circuit_state": "closed"
-}
-
-# session_manager.* 系列
-{
-    "session.id": "uuid",
-    "user.id": "user-1",
-    "session.status": "running",
-    "zombie.detected": false,
-    "cleanup.count": 3
-}
-```
-
-### Edit Marker 追踪
-
-v5.12.0+ 的工程师 Edit marker 协议有专门的 Span：
-
-```
-[orchestrator.generate_file]
-  └─[orchestrator.edit_marker_check]
-      ├─ marker.detected: true
-      ├─ marker.action: "edited"
-      ├─ marker.files: ["src/api/users.py"]
-      └─[specialist.tool.partial_update]
-         ├─ tool.file: "src/api/users.py"
-         └─ tool.lines_changed: 5
-```
-
-### Git Stash 追踪
-
-Git stash 原子回滚操作有专门 Span：
-
-```
-[orchestrator.generate_dependency_layer]
-  ├─[orchestrator.git_stash_push]
-  │  ├─ stash.files_count: 3
-  │  └─ stash.existing_files: ["src/main.py", "src/api/users.py"]
-  ├─[specialist.call_llm_with_tools]
-  └─[orchestrator.git_stash_drop]   (成功)
-   或
-   └─[orchestrator.git_stash_pop]   (失败)
-```
-
----
-
-## 概述
-
-CodingMatrix v5.9.0 集成 OpenTelemetry 分布式追踪能力，用于可视化 Agent 调用链、诊断性能瓶颈、分析错误分布。v5.9.0 新增 API Key 使用追踪和 Token 消耗统计。
-
-### 架构组件
-
-```
-┌─────────────────┐ ┌──────────────────┐ ┌─────────────────┐
-│ Agent 应用 │────>│ OTel SDK │────>│ Jaeger │
-│ (Python 3.11) │ │ (tracing.py) │ │ (All-in-One) │
-│ │ │ │ │ :16686 UI │
-│ @traced() │ │ BatchProcessor │ │ :14268 HTTP │
-│ tracer.start() │ │ Sampler │ │ :14250 gRPC │
-└─────────────────┘ └──────────────────┘ └─────────────────┘
-```
-
-## 快速开始
-
-### 1. 启动 Jaeger
-
-```bash
-docker compose up -d jaeger
-```
-
-访问 http://localhost:16686 查看 Jaeger UI。
-
-### 2. 启用追踪
+## 启用 Jaeger 导出
 
 ```bash
 export OTEL_ENABLED=1
 export OTEL_EXPORTER=jaeger
 export OTEL_JAEGER_ENDPOINT=http://localhost:14268/api/traces
+export OTEL_SERVICE_NAME=ai-agent
+export OTEL_SAMPLING_RATE=1.0
+
+python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 3. 运行应用
+`configs/requirements.txt` 已声明 OpenTelemetry API、SDK、Jaeger Thrift exporter 和 OTLP exporter 依赖。
 
-```bash
-python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
-```
+仓库根目录 `docker-compose.yml` 当前把 Jaeger 定义缩进在顶层 `networks` 块内，未形成可由 Compose 启动的 `services.jaeger`。使用 `docker compose up jaeger` 前应先修复 Compose 结构，或使用部署环境已有的 collector。
 
-触发一次项目生成操作后，在 Jaeger UI 中即可看到完整的调用链。
+## 实际 Span
 
-## 配置项
+| Span 名称 | 代码范围 |
+|-----------|----------|
+| `orchestrator.initialize_components` | 初始化编排组件 |
+| `orchestrator.generate` | 生成流程入口 |
+| `orchestrator.traditional` | 传统生成流程 |
+| `orchestrator.evaluate` | 评估流程 |
+| `orchestrator.requirement_association` | 需求关联 |
+| `specialist.call_llm` | Specialist LLM 调用 |
+| `specialist.call_llm_with_tools` | Specialist 带工具 LLM 调用 |
+| `architect.design` | 架构设计 |
+| `frontend.generate_file` | 前端文件生成 |
+| `frontend.analyze` | 前端分析 |
+| `backend.generate_file` | 后端文件生成 |
+| `backend.analyze` | 后端分析 |
+| `reviewer.review_code` | 代码审查 |
+| `test.run` | 测试执行 |
+| `session.create` | 会话创建 |
+| `session.resume` | 会话恢复 |
+| `session.cleanup` | 会话清理 |
+| `session.save` | 会话保存 |
 
-| 环境变量 | 默认值 | 描述 |
-|----------|--------|------|
-| `OTEL_ENABLED` | `""` (关闭) | 设为 `1` / `true` 启用追踪 |
-| `OTEL_EXPORTER` | `jaeger` | 导出目标: `jaeger` / `otlp` / `none` |
-| `OTEL_JAEGER_ENDPOINT` | `http://jaeger:14268/api/traces` | Jaeger HTTP 收集器地址 |
-| `OTEL_OTLP_ENDPOINT` | `http://otel-collector:4318` | OTLP HTTP 端点 |
-| `OTEL_SERVICE_NAME` | `ai-agent` | 服务名称 |
-| `OTEL_SAMPLING_RATE` | `1.0` | 采样率 (0.0~1.0)，1.0 表示全部采样 |
-| `OTEL_BATCH_MAX_QUEUE` | `2048` | 批量处理器最大队列大小 |
-| `OTEL_BATCH_SCHEDULE_DELAY` | `5.0` | 批量导出间隔 (秒) |
-| `OTEL_BATCH_MAX_EXPORT` | `512` | 每次批量导出的最大 Span 数 |
+Span 的父子关系取决于这些方法调用时是否存在当前 OpenTelemetry Context。当前实现没有为每个 HTTP 请求或 Celery 任务显式创建统一根 Span。
 
-## 使用方式
+## 自动属性
 
-### 装饰器方式 (推荐)
+`@traced` 自动写入：
+
+- 装饰器声明的静态属性，例如 `component`、`role`、`mode`。
+- `code.function`：被装饰函数名。
+- 返回值为字典时，从 `success`、`model_name`、`file_path`、`complexity_level` 中提取已有字段，并写为 `result.<key>`。
+- 异常时调用 `record_exception()`，并设置 `error=true` 和 `error.type` 后重新抛出异常。
+
+敏感数据、提示词、模型完整响应和用户 API Key 不应写入 Span attributes 或 events。
+
+## 代码用法
+
+### 装饰器
 
 ```python
 from app.agent.tracing import traced
 
-@traced("my_operation", attributes={"component": "my_module"})
-async def my_function():
- ...
+
+@traced("example.process", attributes={"component": "example"})
+async def process():
+    return {"success": True}
 ```
 
-### 手动方式
+### 手动 Span
 
 ```python
 from app.agent.tracing import tracer
 
-with tracer.start_as_current_span("my_span") as span:
- span.set_attribute("key", "value")
- # 业务逻辑...
+
+with tracer.start_as_current_span("example.validate") as span:
+    span.set_attribute("validation.kind", "schema")
 ```
 
-### 获取当前 Trace ID
-
-用于日志关联：
+### 日志关联
 
 ```python
 from app.agent.tracing import get_current_trace_id
 
+
 trace_id = get_current_trace_id()
-logger.info(f"trace_id={trace_id} 开始处理请求")
+logger.info("validation started trace_id=%s", trace_id)
 ```
 
-## 已追踪方法
+启用 OpenTelemetry 且当前存在有效 Span 时，函数返回 32 位十六进制 Trace ID。其他情况下返回 `set_trace_id()` 写入的 ContextVar 值或 `None`。
 
-### Orchestrator (orchestrator.py)
+### HTTP 上下文注入
 
-| Span 名称 | 描述 |
-|-----------|------|
-| `orchestrator.generate` | 项目生成主入口 |
-| `orchestrator.initialize_components` | 组件初始化 (复杂度分析 + 模型分配 + 角色创建) |
-| `orchestrator.traditional` | 传统生成策略 |
+```python
+from app.agent.tracing import inject_trace_context
 
-### Specialists (specialists.py)
 
-| Span 名称 | 描述 |
-|-----------|------|
-| `specialist.call_llm` | LLM 调用 (所有角色基类方法) |
-| `architect.design` | 架构设计 |
-| `frontend.generate_file` | 前端文件生成 |
-| `backend.generate_file` | 后端文件生成 |
-| `reviewer.review_code` | 代码审查 |
-
-### Session (session_manager.py)
-
-| Span 名称 | 描述 |
-|-----------|------|
-| `session.create` | 创建会话 |
-| `session.resume` | 恢复会话 |
-| `session.save` | 保存会话状态 |
-| `session.cleanup` | 清理过期会话 |
-
-### Testing (test_runner.py)
-
-| Span 名称 | 描述 |
-|-----------|------|
-| `test.run` | 执行沙箱测试 |
-
-### Code Sandbox (v5.12.0+ 新增, specialist_base.py)
-
-| Span 名称 | 描述 |
-|-----------|------|
-| `sandbox.execute_python` | Python 沙箱执行 |
-| `sandbox.execute_javascript` | JavaScript 沙箱执行 |
-| `sandbox.ast_check` | AST 静态分析 |
-| `sandbox.dangerous_pattern_block` | 危险模式拦截 |
-
-### Session Manager (v5.12.0+ 新增, session_manager.py)
-
-| Span 名称 | 描述 |
-|-----------|------|
-| `session.detect_zombie` | 僵尸会话检测 |
-| `session.cleanup_expired` | 过期会话清理 |
-| `session.sync_from_db` | 从 DB 恢复状态 |
-| `session.persist_state` | 内存状态持久化 |
-
-### Dynamic Model Router (v5.12.0+ 新增, dynamic_model_router.py)
-
-| Span 名称 | 描述 |
-|-----------|------|
-| `router.get_assignment` | 获取模型分配 |
-| `router.record_call_result` | 记录调用结果 |
-| `router.circuit_breaker_state_change` | 熔断器状态变更 |
-| `router.health_score_update` | 健康分更新 |
-
-## Jaeger UI 使用
-
-1. 访问 http://localhost:16686
-2. Service 选择 `ai-agent`
-3. Operation 选择具体操作名 (如 `orchestrator.generate`)
-4. 点击 **Find Traces** 查看追踪结果
-5. 点击具体 Trace 查看 Span 树和详细信息
-
-### 可查看的信息
-
-- **Span 耗时**: 每个操作的执行时间
-- **Span 属性**: 模型名称、文件路径、复杂度等级等
-- **错误信息**: 异常类型和堆栈跟踪
-- **Trace 拓扑**: 完整的调用链关系
-
-## 生产部署
-
-### Docker Compose
-
-`docker-compose.yml` 已包含 Jaeger 服务，默认不启动。生产环境可单独部署：
-
-```bash
-docker compose up -d jaeger
+headers = inject_trace_context({"Content-Type": "application/json"})
 ```
 
-### 独立 Jaeger 集群
+该函数只注入出站 W3C Trace Context。接收端还需配置上下文提取与 server Span，当前仓库没有对应接入。
 
-生产环境建议使用 Jaeger 集群而非 all-in-one：
+## 运维核验
 
-```yaml
-# docker-compose.prod.yml
-services:
- jaeger-collector:
- image: jaegertracing/jaeger-collector:latest
- ports:
- - "14268:14268"
- environment:
- - SPAN_STORAGE_TYPE=elasticsearch
- - ES_SERVER_URLS=http://elasticsearch:9200
+1. 启动日志出现 `OpenTelemetry enabled`，并显示 service、exporter 和 sampling rate。
+2. collector 接口可从 API 容器网络访问。
+3. 执行一个带 `@traced` 的 Agent 操作后查询 `service.name=ai-agent`。
+4. 检查 BatchSpanProcessor 导出错误、队列堆积和 collector 拒绝日志。
+5. 进程优雅关闭前调用 `shutdown_tracing()`，以降低批量 Span 丢失风险。
 
- jaeger-query:
- image: jaegertracing/jaeger-query:latest
- ports:
- - "16686:16686"
- environment:
- - SPAN_STORAGE_TYPE=elasticsearch
- - ES_SERVER_URLS=http://elasticsearch:9200
-```
+## 当前加固项
 
-### OTLP 导出
+- 将 `shutdown_tracing()` 接入 FastAPI lifespan 的关闭阶段。
+- 为 HTTP 与 Celery 入口建立根 Span，并在出站请求中调用 `inject_trace_context()`。
+- 对采样率与批处理配置增加边界校验和错误回退。
+- 修复 Compose 的 Jaeger 服务结构，再将 Jaeger UI 纳入本地观测拓扑。
+- 按数据分类规则审核新增属性，避免采集凭据和用户内容。
 
-如果使用 OpenTelemetry Collector：
+## 相关文档
 
-```bash
-export OTEL_EXPORTER=otlp
-export OTEL_OTLP_ENDPOINT=http://otel-collector:4318
-```
-
-## 依赖
-
-新增 Python 依赖 (已添加到 `configs/requirements.txt`)：
-
-```
-opentelemetry-api==1.29.0
-opentelemetry-sdk==1.29.0
-opentelemetry-exporter-jaeger-thrift==1.21.0
-opentelemetry-exporter-otlp-proto-http==1.29.0
-```
-
-## 注意事项
-
-1. **性能影响**: 开启追踪会增加少量开销，生产环境建议设置 `OTEL_SAMPLING_RATE=0.1` (10% 采样)
-2. **No-op 降级**: 未安装 OTel 依赖或未启用时，自动降级为 No-op，不影响业务逻辑
-3. **优雅关闭**: 应用退出时调用 `shutdown_tracing()` 确保 pending spans 全部导出
-4. **敏感信息**: Span 属性中不会记录密钥、密码等敏感内容
+- [服务与端口](../guides/SERVICES.md)
+- [安全概览](../security/SECURITY-OVERVIEW.md)
+- [生产部署](../guides/PRODUCTION.md)

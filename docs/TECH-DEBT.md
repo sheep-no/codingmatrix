@@ -1,8 +1,66 @@
 # 技术债务跟踪
 
-> 最后更新：2026-06-06 | 测试基线：1622 passed / 0 failed | Agent 模块：76
+> 最后核对：2026-09-03
 
-## 已修复的问题
+`已解决` 表示当前代码保持对应修复；`仍在` 表示当前实现可直接定位；`部分解决` 表示原修复范围仍有同类残留。历史测试数字保留其发生时的范围。
+
+## 既有编号逐项复核
+
+| # | 原问题 | 当前状态 | 当前依据 |
+|---:|---|---|---|
+| 1 | 启动时清空 history 表 | 已解决 | `app/main.py` 保留辅助函数定义，启动流程未调用 |
+| 2 | superadmin 权限值不匹配 | 已解决 | `app/utils/security.py` 校验 `permission_level == "superadmin"` |
+| 3 | admin config router 重复注册 | 已解决 | `app/main.py` 仅在 `/api/v2` 挂载一次 |
+| 4 | drain middleware 缺少 `JSONResponse` | 已解决 | middleware 分支内显式导入 |
+| 5 | Celery signal 使用异步 task | 已解决 | `app/celery_app.py` signal handler 使用同步 SQLAlchemy `Session` |
+| 6 | 无时区 `datetime.utcnow()` | 部分解决 | 主要模型列已迁移，`app/models/file.py` 与 `app/models/aicloud.py` 仍有残留调用 |
+| 7 | WebSocket Manager 单连接 | 已解决 | `app/services/websocket_manager.py` 按用户保存连接列表 |
+| 8 | CORS host 正则未转义 | 仍在 | `app/main.py` 仍直接执行 `ALLOWED_HOSTS.replace(",", "|")` |
+| 9 | PostgreSQL UUID 未使用导入 | 已解决 | `app/models/chat_history.py` 已无该导入 |
+| 10 | `CHUNKS_DIR` 定义顺序 | 已解决 | `app/api/v1/file_upload.py` 在使用前定义常量 |
+| 11 | SQL LIKE 未转义 | 已解决 | `app/db/search_history.py` 使用 `escape_like_pattern` 和显式 escape |
+| 15 | login 限流标识不一致 | 已解决 | 检查、失败和成功记录统一使用 `identifier` |
+| 18 | health 版本来源分裂 | 仍在 | `app/api/v1/health.py` 为 `v5.10.0`，`app/services/health_checker.py` 为 `v3.0`，`CHANGELOG.md` 最新版本为 `5.15.0` |
+| 19 | cloudflared 遗留注释 | 仍在 | `app/main.py` 末尾仍有 Windows cloudflared 命令注释 |
+| 20 | 旧 Agent router 备份残留 | 已解决 | 备份残留已移除 |
+| 21 | FeatureSwitchMiddleware 路径 | 已解决 | `app/middleware/feature_switch.py` 使用 `/api/v1/agent` |
+| 22 | evaluate 角色缺用户模型上下文 | 已解决 | Architect、CodeReviewer 传递 token 与 provider ID |
+| 23 | evaluate LLM 调用缺 token | 已解决 | 相关调用传递 `api_key_token` |
+| 24 | recovery auto-fix 硬编码模型 | 已解决 | 使用 `model_assignment.fallback_model` 并传 token |
+| 25 | ReAct Agent 调用缺 token | 已解决 | `app/agent/react_agent.py` 传递用户 token |
+| 26 | fallback chain 绑定单一供应商 | 已解决 | `app/agent/error_recovery.py` 提供供应商链和 provider 检测 |
+| 27 | `ReActWithFallback` 死代码 | 已解决 | 当前无该符号，调用链使用 `ReActEngine` |
+| 28 | 未使用的 `call_siliconflow` | 已解决 | `app/utils/AiCodeUtil.py` 已无该函数；适配器仍有过时注释 |
+
+## 当前仍在技术债
+
+| 优先级 | 问题 | 实际位置 | 状态 |
+|---|---|---|---|
+| P1 | CORS host 字符串直接拼为正则 | `app/main.py` | 仍在 |
+| P2 | 开发测试使用 Python 3.11，Dockerfile 使用 3.10 | `Dockerfile` | 仍在 |
+| P2 | lifespan 与 startup hook 并存 | `app/main.py` | 仍在 |
+| P2 | 多 API worker 下进程内 scheduler 可能重复执行 | `app/main.py`、`app/db/scheduler.py` | 仍在 |
+| P2 | `/api/v1/health` 与部署侧 `/health` 契约分裂 | `app/api/v1/health.py`、部署配置 | 仍在 |
+| P2 | health 响应版本来源分裂 | `app/api/v1/health.py`、`app/services/health_checker.py`、`CHANGELOG.md` | 仍在；分别为 `v5.10.0`、`v3.0`、`5.15.0` |
+| P2 | StateGraph 生产入口仍以单节点 legacy wrapper 为主 | `app/agent/state/`、`app/agent/workflow_registry.py` | 仍在 |
+| P2 | 统一检索尚未接入生产 Agent 主链 | `app/agent/retrieval/` | 仍在 |
+| P2 | 跨工作台续跑与多 worker 恢复缺独立验收 | `app/api/v1/agent_host.py`、`app/agent/state/` | 仍在 |
+| P3 | 无时区时间调用在模型、状态、PPT 和 Skill 模块仍有残留 | `app/models/`、`app/services/` | 仍在 |
+| P3 | VS Code 发布元数据与真实状态栏适配仍需收尾 | `vscode-extension/package.json`、`vscode-extension/src/status-view.ts` | 部分解决；构建、Node 测试和 Host E2E 已通过 |
+| P3 | Makefile `clean` 指向已归档脚本 | `Makefile`、`scripts/_archive/cleanup.sh` | 仍在 |
+| P3 | ModelAdapter 注释引用已删除函数 | `app/adapter/model_adapter.py` | 仍在 |
+
+## 当前验收基线
+
+- 后端 unit/integration 最近完整记录：`1784 passed, 2 skipped`。
+- 前端全量 Vitest：`36 passed`，Vite 生产构建成功。
+- PPT 专项：`141 passed`；`elegant` 统一生成测试 `24 passed`。
+- VS Code 扩展 Node 测试：`62 passed`，Extension Development Host E2E 已完成。
+- 2026-06-06 的 `1622 passed / 0 failed` 与更早 `1244 passed / 3 skipped` 属于历史阶段结果。
+
+## 历史修复记录
+
+### 已修复的问题
 
 ### P0: 严重 Bug (4 项)
 
@@ -18,9 +76,9 @@
 | # | 问题 | 文件 | 修复内容 |
 |---|------|------|----------|
 | 5 | Celery 信号 asyncio.create_task | `app/celery_app.py` | 改用同步数据库操作 |
-| 6 | datetime.utcnow() 无时区 | `app/models/file.py`, `aicloud.py`, `chat_history_service.py` | 改用 `datetime.now(timezone.utc)` |
+| 6 | datetime.utcnow() 无时区 | 历史修复覆盖部分模型时间列 | 改用 `datetime.now(timezone.utc)`；当前仍有残留 |
 | 7 | WebSocket Manager 单连接 | `app/services/websocket_manager.py` | 支持同一用户多连接 |
-| 8 | CORS ALLOWED_HOSTS 正则 | `app/main.py` | 使用 `re.escape()` 转义 |
+| 8 | CORS ALLOWED_HOSTS 正则 | `app/main.py` | 历史曾记录修复；当前实现已回归 |
 | 10 | file_upload.py CHUNKS_DIR | `app/api/v1/file_upload.py` | 移动配置到类定义之前 |
 
 ### P2: 中等问题 (3 项)
@@ -35,9 +93,9 @@
 
 | # | 问题 | 文件 | 修复内容 |
 |---|------|------|----------|
-| 18 | health.py 版本号 | `app/api/v1/health.py` | 更新为 `v5.10.0` |
-| 19 | main.py 遗留注释 | `app/main.py` | 移除 cloudflared 注释 |
-| 20 | ai_agent.py.orig 文件 | `app/api/v1/ai_agent.py.orig` | 删除文件 |
+| 18 | health.py 版本号 | `app/api/v1/health.py` | 历史上更新为 `v5.10.0`；当前仍与 `health_checker.py` 的 `v3.0` 及 `CHANGELOG.md` 的 `5.15.0` 分裂 |
+| 19 | main.py 遗留注释 | `app/main.py` | 历史曾记录移除；当前注释仍存在 |
+| 20 | 旧 Agent router 备份残留 | 已移除 | 删除历史残留文件 |
 | 21 | FeatureSwitchMiddleware 路径 | `app/middleware/feature_switch.py` | `/api/v1/project` → `/api/v1/agent` |
 
 ### P4: Agent 架构级 Bug (4 项)
@@ -129,7 +187,7 @@
 
 ### 工具覆盖缺失 ✅ 已完成
 
-**偿还日期**: 2026-05-22 | **来源**: `docs/AGENT-COMPLETE-REPORT.md`
+**偿还日期**: 2026-05-22 | **来源**: 历史 Agent 完成报告
 
 以下 5 个工具已在 `app/agent/executor.py` 中实现：
 
@@ -206,7 +264,7 @@
 - 修复 4 个 P0 级严重 Bug（启动清空数据、权限检查、路由重复、导入缺失）
 - 修复 5 个 P1 级高危问题（Celery 信号、时区、WebSocket、CORS、文件上传）
 - 修复 3 个 P2 级中等问题（UUID 导入、SQL 注入、限流一致性）
-- 修复 4 个 P3 级低等问题（版本号、注释、残留文件、路径映射）
+- 历史处理 4 个 P3 级低等问题（版本号、注释、残留文件、路径映射）；版本来源分裂当前仍在
 
 **效果**:
 - 消除所有已知严重 Bug
@@ -244,4 +302,4 @@
 
 ---
 
-最后更新：2026-06-04
+最后核对：2026-09-03

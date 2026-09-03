@@ -1,58 +1,59 @@
 # CodingMatrix 模块说明
 
-> 最后更新：2026-06-09 | 后端代码：356 文件 / 99,618 行 | 前端代码：~58,000 行 | 端点：226+ | Agent 模块：76 + 3 子包
+> 最后更新：2026-09-03 | 后端：423 个 Python 文件 / 117,655 行 | API：42 个 Python 文件 / 20,267 行、28 个挂载路由、约 279 个路由装饰器 | Agent：125 个 Python 文件
 
 ## 项目结构概览
 
 ```
 codingmatrix/
-├── app/                         # 后端 (FastAPI, Python 3.11, 356 文件 / 99,618 行)
-│   ├── agent/                   # Agent 核心 (76 模块 + 3 子包, 34,166 行)
+├── app/                         # 后端 (FastAPI, Python 3.11, 423 个 Python 文件 / 117,655 行)
+│   ├── agent/                   # Agent 核心 (125 个 Python 文件)
 │   │   ├── adapters/            # 语言适配器 (generic/python/javascript)
+│   │   ├── state/               # StateGraph、reducer、checkpoint 与状态迁移
 │   │   ├── orchestrator_generation/   # 4 mixin: spec_first/traditional/incremental/evaluate
 │   │   ├── orchestrator_requirements/ # 3 层需求关联 + 双模型对抗
-│   │   └── *.py                 # 76 个核心 Agent 模块
-│   ├── api/                     # API 路由 (27 个 include_router, 16,080 行)
-│   │   ├── v1/                  # 19 个用户功能模块
+│   │   └── *.py                 # 编排、路由、验证、恢复与工具实现
+│   ├── api/                     # API 路由 (42 个 Python 文件 / 20,267 行)
+│   │   ├── v1/                  # 20 个挂载路由
 │   │   │   └── ai_agent/        # 5 子路由聚合 (orchestrate/generate/association/knowledge/performance)
 │   │   └── v2/                  # 8 个管理功能模块
 │   ├── core/                    # 核心配置 (4 文件, 1,042 行)
 │   ├── db/                      # 数据库 + 业务表 (12 文件)
 │   ├── middleware/              # 4 个中间件 (765 行)
-│   ├── models/                  # ORM 数据模型 (14 文件, 833 行)
+│   ├── models/                  # ORM 数据模型 (15 个 Python 文件 / 34 张表)
 │   ├── schema/                  # Pydantic Schema
-│   ├── services/                # 服务层 (14 文件, 3,277 行)
+│   ├── services/                # 服务层 (38 个 Python 文件)
 │   ├── tasks/                   # 异步任务
 │   └── utils/                   # 工具函数 (65+ 文件, 15,734 行)
 │       ├── aicloud/             # AI Cloud 子包 (28 文件)
 │       ├── workflow/            # 工作流引擎子包
 │       ├── pptx/                # PPT 生成子包 (11 文件)
 │       └── validators/          # 验证器子包
-├── src/                         # 前端 (Vue 3, 58,155 行)
-│   ├── api/                     # API 客户端 (16 模块)
-│   ├── components/              # Vue 组件 (69 + 13 Agent 子组件)
+├── src/                         # 前端 (Vue 3, 71 个 Vue 文件)
+│   ├── components/              # Vue 组件 (61 个，含 13 个 Agent 组件)
 │   │   ├── agent/               # Agent 子组件 (7 layout + 6 modal)
 │   │   ├── settings/            # 设置相关
 │   │   └── ui/                  # 通用 UI
-│   ├── composables/             # 组合式 API (13 个, 含 1 wrapper)
+│   ├── composables/             # 组合式 API (14 个)
 │   ├── constants/
 │   ├── router/                  # Vue Router (16 路由)
-│   ├── stores/                  # Pinia 状态 (9 stores)
+│   ├── stores/                  # Pinia 状态 (10 stores)
 │   ├── styles/
-│   ├── utils/                   # 前端工具
+│   ├── utils/                   # 前端工具；utils/api 下 19 个 API 客户端模块
 │   └── views/                   # 页面视图 (9 视图)
-├── tests/                       # 测试 (88 单元 + 2 集成 + 77 E2E)
+├── vscode-extension/            # VS Code Agent Host 客户端 (19 个 TypeScript 文件)
+├── tests/                       # 单元、集成、前端和 E2E 测试
 │   ├── archive/                 # 归档的旧测试
 │   ├── e2e/                     # Playwright E2E (77 spec.js)
 │   ├── fixtures/                # Playwright fixtures
 │   ├── frontend/                # 前端测试
-│   ├── integration/             # 集成测试 (2 文件, 历史归档于 archive/)
+│   ├── integration/             # 集成测试 (4 文件 / 31 个直接定义)
 │   ├── performance/             # 性能测试
-│   └── unit/                    # 单元测试 (88 文件 / 1376 用例)
+│   └── unit/                    # 单元测试 (144 个 Python 测试文件)
 ├── configs/                     # 配置文件
 ├── data/                        # 数据目录 (SQLite, model_config, learning_data)
 ├── docs/                        # 文档中心
-├── migrations/                  # Alembic 数据库迁移 (11 个版本)
+├── migrations/                  # Alembic 数据库迁移 (15 个有效版本文件)
 ├── projects/                    # 用户项目上传目录
 ├── scripts/                     # 运维脚本
 ├── sessions/                    # Agent 会话数据
@@ -62,36 +63,35 @@ codingmatrix/
 ├── .claude/                     # AI Agent 配置
 ├── .monkeycode/                 # 项目级记忆与规格
 ├── .github/                     # CI/CD 配置
-├── main.py → app/main.py        # 项目启动入口
 ├── Makefile                     # Make 命令集
 ├── pyproject.toml               # Python 项目配置
 └── playwright.config.js         # Playwright 根级配置
 ```
 
-## 项目规模 (2026-06-09)
+## 项目规模（2026-09-03）
 
 ### 后端规模
 
-| 维度 | 数量 | 同比 v5.14.0 |
-|------|------|--------------|
-| Python 文件 | **356** | 持续扩展 |
-| 代码总行数 | **99,618** | +20% |
-| Agent 模块 | **76 + 3 子包** | 一致 |
-| API 路由模块 | **27** (include_router 次数) | 25→27 新增 skills/GirlAi |
-| API 端点 | **226+** | +20 |
-| 中间件 | **4** | 一致 |
-| 服务层 | **14** | 新增列项 |
-| 单文件 1000+ 行 | **6** | cross_validator/tools/dynamic_model_router/dependency_graph/agent_core/aiGeneratorPptx |
+| 维度 | 数量 | 口径 |
+|------|------|------|
+| Python 文件 | **423** | `app/**/*.py`，包含仓库内受忽略规则影响的已存在源码 |
+| Python 代码行 | **117,655** | 同一文件集合 |
+| Agent 文件 | **125** | `app/agent/**/*.py` |
+| API 文件 | **42 / 20,267 行** | `app/api/**/*.py` |
+| API 挂载路由 | **28** | `app/main.py` 的 `include_router` 调用 |
+| API 路由装饰器 | **约 279** | `app/api` 内 HTTP 与 WebSocket 路由声明 |
+| 服务层 | **38** | `app/services/*.py` |
+| ORM | **15 个文件 / 34 张表** | `app/models` 的 Python 文件和 `__tablename__` 声明 |
+| Alembic 迁移 | **15** | `migrations/versions` 中有效 `.py` 文件 |
 
 ### 前端规模
 
 | 维度 | 数量 | 备注 |
 |------|------|------|
-| Vue 文件 | **69** | 与 v5.14.0 一致 |
-| 前端代码总行数 | **58,155** | 含 views/components/composables |
-| Pinia Stores | **9** | v5.14.0 报告 8, **多出 `providers`** |
-| Composables | **13** | v5.14.0 报告 15, **多报 2 个**（实际 12 业务 + 1 wrapper） |
-| API 客户端模块 | **16** | v5.14.0 报告 14, **多出 2 个** |
+| Vue 文件 | **71** | `src/**/*.vue` |
+| Pinia Stores | **10** | `src/stores` |
+| Composables | **14** | `src/composables` |
+| API 客户端模块 | **19** | `src/utils/api/*.js`，排除 4 个 `*.test.js` |
 | 视图页面 | **9** | v5.14.0 报告 8, **多出 `Docs.vue`** |
 | 路由 | **16** | 含 1 通配、1 重定向、1 别名 |
 | Agent 子组件 | **7 layout + 6 modal** | 新模块文档化 |
@@ -100,9 +100,9 @@ codingmatrix/
 
 | 维度 | 数量 | 备注 |
 |------|------|------|
-| 单元测试文件 | **88** | 1376 用例 |
-| 集成测试文件 | **2** | v5.11.0 报告 20+, **已归档 21 个到 archive/integration_old/** |
-| E2E spec 文件 | **77** | 409 用例 |
+| 单元测试文件 | **144** | `tests/unit/test_*.py` |
+| 集成测试 | **4 文件 / 31 个直接定义** | `tests/integration/test_*.py` |
+| E2E | **77 spec / 433 个直接定义** | `tests/e2e/*.spec.js` |
 | 归档测试 | **56+** | tests/archive/legacy/ + integration_old/ |
 
 ### 已知技术债务
@@ -126,7 +126,24 @@ codingmatrix/
 5. **双层架构**: `app/api/v1/aicloud.py` (928 行) 与 `app/utils/aicloud/` (28 文件) 职责重叠
 6. **TODO 占位**: `spec_first_generate.py:1291-1297`, `cross_validator.py:1145,1199`
 
-## v5.12.0+ 核心变化
+## 2026-09 新增核心模块
+
+| 领域 | 关键模块 | 职责 |
+|------|----------|------|
+| Agent 状态 | `app/agent/state/{models,reducer,graph,checkpoint,migrations}.py` | 统一 State/Delta、revision 校验、图执行、checkpoint 与迁移 |
+| 工作流接入 | `app/agent/workflow_registry.py` | legacy 工作流包装、统一图注册和进程重启恢复 |
+| SQL 状态 | `unified_state_service.py`、`session_state_service.py`、`task_state_service.py`、`task_event_service.py` | 会话、消息、任务事件和 artifact 的权威状态访问 |
+| 状态迁移 | `state_migration_service.py`、`reconciliation_service.py`、`state_cutover_service.py` | 双写迁移、对账和按模块切换 |
+| 状态适配 | `aicloud_state_adapter.py`、`girlai_state_adapter.py`、`agent_state_adapter.py`、`workflow_state_adapter.py` | legacy 状态键和统一状态模型之间的边界适配 |
+| PPT | `ppt_outline_service.py`、`ppt_generation_orchestrator.py`、`ppt_quality_orchestrator.py`、`ppt_dispatch_service.py` | 大纲审批、阶段生成、规则/视觉 QA、重排、取消与恢复 |
+| 模型上下文 | `model_context_service.py` | 角色分配、调用统计、fallback history 和 checkpoint |
+| Worker 恢复 | `worker_recovery_service.py`、`task_checkpoint_service.py` | lease 过期重排、重试预算和任务恢复点 |
+| Agent Host | `app/api/v1/agent_host.py` | VS Code 握手、动作、事件、策略、Skill 和会话控制 |
+| Mobile Agent | `src/views/AgentDashboard.vue`、`src/styles/agent-layout.css` | 768px 单列布局、会话/文件抽屉、遮罩与焦点管理 |
+
+这些模块建立在既有 v5.12 Agent、ReAct、MCP 和动态模型路由能力之上。统一状态迁移采用兼容包装和按模块切换，现有多阶段实现继续通过 `workflow_registry.py` 接入。
+
+## v5.12.0+ 基础能力
 
 ### 1. 新增 v5.12.0+ 子系统
 
@@ -134,7 +151,7 @@ codingmatrix/
 |--------|------|------|
 | **动态模型路由** | `app/agent/dynamic_model_router.py` | 健康度 0-100 评分、熔断、五角色模型配置 |
 | **ReAct 工具调用** | `app/agent/react_agent.py` | 5 阶段循环，阶段化模型路由 |
-| **13 工具 Specialist** | `app/agent/specialist_base.py` | 9 只读 + 4 写/验证工具 |
+| **20 工具 Specialist** | `app/agent/specialist_base.py` | 使用 `SPECIALIST_TOOLS` 注册表并支持 MCP 扩展 |
 | **代码沙箱** | `specialist_base.py` (内嵌) | Python AST + JavaScript Node.js |
 | **Git Stash 编辑回滚** | `orchestrator_files.py` | 原子回滚机制 |
 | **编辑追踪** | `specialist_base.py` | `_edited_files` 列表 |
@@ -409,7 +426,7 @@ dependencies.get_affected_files(['models/user.py'])
 
 | 模块 | 路径 | 行数 | 描述 |
 |------|------|------|------|
-| 主应用 | `app/main.py` | **363** | FastAPI 应用入口，7 层中间件，27 个 include_router |
+| 主应用 | `app/main.py` | - | FastAPI 应用入口，生命周期管理与 28 个 `include_router` |
 | Celery 配置 | `app/celery_app.py` | 120 | Celery 异步任务配置 |
 | 配置 | `app/core/config.py` | 181 | pydantic-settings 环境变量加载，`SECRET_KEY` 校验 |
 | 日志配置 | `app/core/logging_config.py` | 248 | `SensitiveDataFilter` 10 类敏感信息脱敏 |
@@ -419,14 +436,14 @@ dependencies.get_affected_files(['models/user.py'])
 | 调度器 | `app/db/scheduler.py` | 204 | APScheduler 定时任务 (归档 10 天/清理 30 天) |
 | 聊天归档 | `app/db/chat_archiver.py` | 372 | 用户聊天归档 |
 
-### Agent 引擎 (app/agent/) - 76 模块 + 3 子包 / 34,166 行
+### Agent 引擎 (app/agent/) - 125 个 Python 文件
 
 | 模块 | 路径 | 行数 | 描述 |
 |------|------|------|------|
-| **tools.py** | `tools.py` | **1,079** | **唯一工具实现源，21 个内置工具 + SPECIALIST_TOOLS 注册表** |
-| **react_engine.py** | `react_engine.py` | **684** | **统一 ReAct 引擎，simple + full 双模式，滑动窗口历史 (300s 单轮超时)** |
+| **tools.py** | `tools.py` | **1,304** | **唯一工具实现源，20 个内置工具 + SPECIALIST_TOOLS 注册表** |
+| **react_engine.py** | `react_engine.py` | **772** | **统一 ReAct 引擎，simple + full 双模式，滑动窗口历史 (300s 单轮超时)** |
 | **mcp_client.py** | `mcp_client.py` | **513** | **MCP Client，stdio/HTTP 双传输，JSON-RPC 2.0 (协议 2024-11-05)** |
-| **llm_client.py** | `llm_client.py` | **191** | **统一 LLM 调用层，并发信号量 (MAX_CONCURRENT=6) + 超时 + 成本追踪** |
+| **llm_client.py** | `llm_client.py` | **389** | **统一 LLM 调用层，并发信号量 (MAX_CONCURRENT=6) + 超时 + 成本追踪** |
 | **json_parser.py** | `json_parser.py` | **345** | **统一 JSON 解析，5 层链路 + 工具调用 3 种策略** |
 | Orchestrator | `orchestrator.py` | **137** | 总指挥：6 mixin 组合 (Progress/Generation/Files/Testing/Utils/Requirements) |
 | MultiModelAgent | `multi_model_agent.py` | 246 | 多模型协调：任务路由、规划、执行、审查 |
@@ -456,16 +473,15 @@ dependencies.get_affected_files(['models/user.py'])
 | **OrchestratorRequirements** | `orchestrator_requirements/` | **1,037** | **3 层需求关联 + 双模型对抗 + 魔鬼代言人** |
 | **Adapters** | `adapters/` | **~1,600** | **语言适配器：generic/python/javascript/language_adapter** |
 
-### API 路由 (app/api/) - 27 个 include_router / 16,080 行
+### API 路由 (app/api/) - 28 个挂载路由 / 42 个 Python 文件 / 20,267 行
 
-#### v1 用户 API (19 模块)
+#### v1 用户 API（20 个挂载路由）
 
 | 模块 | 文件 | 行数 | 端点数 | 主要端点 |
 |------|------|------|--------|----------|
 | **ai_agent** (子包) | `ai_agent/router.py` + 5 子路由 | **3,313** | 30+ | `POST /api/v1/agent/orchestrate[/stream]`、`/generate`、`/modify`、`/stop/{sid}`、`/rollback`、`/snapshots/{sid}`、`/analyze_complexity`、`/evaluate`、`/search_sessions`、`/requirement-association`、`/knowledge`、`/performance`、`/concurrent-limits`、`/learning/*`、`/token-usage` |
 | auth | `auth.py` | 550 | 9 | `/public-key`、`/csrf-token`、`/login`、`/register`、`/refresh`、`/user/profile`、`/history`、`/conversation/history`、`/conversations` |
 | Aicode | `Aicode.py` | 919 | 5+ | 流式代码生成 |
-| AiProjectCode | `AiProjectCode.py` | - | - | 项目级代码生成 |
 | apikey | `apikey.py` | 585 | 11 | `POST /agent/apikey`、`/test`、`/batch/import`、`PUT /{token}/enabled`、`/context-lengths`、`/fallback-preference` |
 | providers | `providers.py` | 238 | 7 | `POST/GET /providers`、`/{id}/sync`、`/{id}/test` |
 | model_manager | `model_manager.py` | 213 | - | `GET /models/`、`/agent-config` (用户端) |
@@ -480,6 +496,7 @@ dependencies.get_affected_files(['models/user.py'])
 | github | `github.py` | - | - | GitHub 集成 |
 | health | `health.py` | - | - | 健康检查 |
 | GirlAi.py | `GirlAi.py` | 855 | 11 | characters, chat, history, avatar, search, custom角色 CRUD, preferences |
+| agent_host | `agent_host.py` | - | 8 | `/agent/host/handshake`、sessions/actions/events、policy、skills、control |
 | skills.py | `skills.py` | 241 | 8 | upload, list, categories, get, update, delete, upload-file, reload |
 
 #### v2 管理 API (8 模块)
@@ -503,7 +520,7 @@ dependencies.get_affected_files(['models/user.py'])
 | `security_headers.py` | 103 | CSP/X-Frame-Options/XSS-Protection/Referrer-Policy/Cross-Origin-* |
 | `feature_switch.py` | 70 | 4 路径功能开关 (aicloud/docker/project/workflow), 禁用返回 503 |
 
-### 服务层 (app/services/) - 14 文件 / 3,277 行
+### 服务层 (app/services/) - 38 个 Python 文件
 
 | 模块 | 行数 | 职责 |
 |------|------|------|
@@ -539,7 +556,7 @@ dependencies.get_affected_files(['models/user.py'])
 | `validators/` | - | 验证器子包 |
 | `dynamic_package_manager.py` | - | 动态依赖管理 |
 
-### 数据模型 (app/models/) - 14 文件 / 833 行
+### 数据模型 (app/models/) - 15 个 Python 文件 / 34 张表
 
 | 模型 | 说明 |
 |------|------|
@@ -560,11 +577,14 @@ dependencies.get_affected_files(['models/user.py'])
 | `ProjectSession` (db/) | 项目会话 (v5.12.0+) |
 | `WorkflowHistory` (db/) | 工作流历史 |
 | `ImageGenerationHistory` (db/) | 图像生成历史 |
+| `Session/Message/TaskEvent/Checkpoint/Artifact` | 统一运行时状态 |
+| `StateCompatibilityMapping/StateRetentionRecord/StateReconciliationRecord` | 兼容映射、保留和对账 |
+| `PPTOutline/PPTQualityReport` | PPT 大纲审批与质量报告 |
 | `girl_request.py` (schema/) | GirlAi 请求/响应 (30 行): `GirlRequest`, `GirlResponse` |
 
 ---
 
-## 前端模块 (src/) - ~58,000 行
+## 前端模块 (src/) - 71 个 Vue 文件
 
 ### 路由 (src/router/index.js) - 16 路由
 
@@ -589,7 +609,7 @@ dependencies.get_affected_files(['models/user.py'])
 
 > 守卫逻辑：`requiresAuth` 不阻断未登录请求 (首页会弹登录框), `requiresSuper` 检查 `permissionLevel` 为 `admin` 或 `superadmin`
 
-### Pinia Stores (src/stores/) - 9 stores
+### Pinia Stores (src/stores/) - 10 stores
 
 | Store | 行数 | 风格 | 核心 State | 关键 Actions |
 |-------|------|------|-----------|---------------|
@@ -603,7 +623,7 @@ dependencies.get_affected_files(['models/user.py'])
 | `task` | 211 | options API | `tasks`(Map)/`activeTasks`/`completedTasks`(≤50) | `initNotifications`(订阅)/`handleTaskUpdate` |
 | `user` | 159 | setup + persist | `isLoggedIn`/`username`/`email`/`permissionLevel` | `setUser`/`clearUser`/`restoreUser`/`refreshAccessToken` |
 
-### Composables (src/composables/) - 13 个 (含 1 wrapper)
+### Composables (src/composables/) - 14 个
 
 | Composable | 行数 | 职责 |
 |------------|------|------|
@@ -660,11 +680,10 @@ dependencies.get_affected_files(['models/user.py'])
 | `DiffModal.vue` | 26 | 文件 diff |
 | `VersionHistoryModal.vue` | 26 | 文件版本历史/快照 |
 
-### API 客户端 (src/api/ + src/utils/api/) - 16 模块
+### API 客户端 (src/utils/api/) - 19 模块
 
 | 模块 | 职责 |
 |------|------|
-| `api/apikey.js` | API Key 管理 (RSA 加密) |
 | `utils/api/base.js` | 基础 axios/fetch 封装 |
 | `utils/api/auth.js` | 登录/注册/登出 |
 | `utils/api/project.js` | 项目管理 |
@@ -681,6 +700,8 @@ dependencies.get_affected_files(['models/user.py'])
 | `utils/api/github.js` | GitHub |
 | `utils/api/websocket.js` | WebSocket (websocketPool 546 行) |
 | `utils/api/config.js` | 配置 |
+| `utils/api/skills.js` | Skill 管理 |
+| `utils/api/client.js` | 客户端工厂与配置封装 |
 | `utils/api/index.js` | 统一入口 (123 行) |
 
 ---
@@ -787,9 +808,9 @@ dependencies.get_affected_files(['models/user.py'])
 
 详见 [SESSION-LIFECYCLE.md](../features/SESSION-LIFECYCLE.md)
 
-### 工具系统 (tools.py, 996 行)
+### 工具系统 (tools.py, 1,304 行)
 
-**文件**: `app/agent/tools.py` — 唯一工具实现源，21 个内置工具
+**文件**: `app/agent/tools.py` — 唯一工具实现源，20 个内置工具
 
 **代码分析工具 (6)**:
 1. `read_file` - 读取文件内容
@@ -816,7 +837,7 @@ dependencies.get_affected_files(['models/user.py'])
 **注册表**:
 - `SPECIALIST_TOOLS`: 18 个工具 (供 Specialist 使用)
 - `ANALYSIS_TOOLS`: 6 个只读工具子集 (供 AgentExecutor 分析任务)
-- `ToolRegistry` (executor.py): 18 个工具 (供 ReActAgent 使用)
+- `ToolRegistry` (`executor.py`, 461 行): 供 ReActAgent 使用
 
 ### Code Sandbox (代码沙箱)
 
@@ -851,4 +872,4 @@ SANDBOX_LANGUAGES = "python,javascript"
 
 ---
 
-最后更新：2026-06-09
+最后更新：2026-09-03

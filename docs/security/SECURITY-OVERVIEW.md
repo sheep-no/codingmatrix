@@ -1,286 +1,123 @@
-# 安全架构概览
+# 安全实现概览
 
-> 最后更新: 2026-06-02 | 状态: 生产就绪 | 版本: v5.12.0+
+> 最后更新：2026-09-03
 
-## v5.12.0+ 安全更新
+本文档描述当前代码已经接入的安全边界。核心实现位于 `app/utils/security.py`、`app/utils/encryption.py`、`app/utils/csrf.py`、`app/middleware/`、`app/api/v1/auth.py` 和 `app/utils/permissions.py`。
 
-### 1. 代码沙箱 (Code Sandbox)
+## 认证
 
-v5.12.0+ 新增可配置的代码沙箱系统，用于在 ReAct 工具调用中安全执行任意代码。
+- 登录、注册和刷新路径为 `/api/v1/login`、`/api/v1/register` 和 `/api/v1/refresh`。
+- access token 使用 HS256 JWT，默认有效期 30 分钟，通过响应 JSON 返回。
+- refresh token 使用派生自 `SECRET_KEY` 的 HS256 JWT，有效期 7 天，保存在 `HttpOnly` Cookie 中。
+- access token 包含 `sub`、`exp`、`iat`、`type=access`、`refresh_until`、`permission_level` 和 `role`。
+- Bearer 鉴权由 `verify_token` 提供，并要求 Token 类型为 `access`。
+- WebSocket 使用 `verify_token_ws`，以关闭码区分 access token 过期、刷新窗口过期和策略拒绝。
 
-#### 支持的沙箱
+`SECRET_KEY` 在生产环境必须显式配置且至少 16 字符。开发环境缺失时会生成进程级随机值，重启后已有 Token 随之失效。
 
-| 语言 | 实现方式 | 限制 |
-|------|----------|------|
-| Python | AST 静态分析 + 限制性 builtins | exec/eval/compile/__import__/open/getattr/setattr 全部禁止 |
-| JavaScript | Node.js 子进程 + 危险模式拦截 | child_process/fs/eval/Function/process.exit/process.env 全部禁止 |
+## 密码与登录载荷
 
-#### 安全特性
+- 密码哈希使用 bcrypt，cost 为 12，并按 bcrypt 约束处理 UTF-8 编码后的前 72 字节。
+- 注册密码至少 8 字符，并要求大写字母、小写字母、数字、特殊字符，同时拒绝内置常见密码列表。
+- Web 前端使用 AES-256-CBC 加密登录 JSON，并使用 RSA-2048 OAEP/SHA-256 加密 AES Key。
+- 后端登录端点当前兼容明文 `email` 与 `password` JSON。
+- RSA 登录密钥默认从工作目录的 `keys/` 文件加载，首次缺失时生成并保存；多 worker 需要共享同一密钥卷。
 
-- **AST 静态分析**（Python）：执行前解析语法树，拦截危险节点
-- **危险模式黑名单**（JavaScript）：正则匹配代码，禁止危险 API
-- **超时控制**：30 秒硬超时，防止死循环
-- **进程隔离**：JavaScript 使用独立子进程，崩溃不影响主进程
-- **管理员可控**：`ENABLE_CODE_SANDBOX` 和 `SANDBOX_LANGUAGES` 可通过 API 动态配置
+详细流程见 [加密登录](ENCRYPTED-LOGIN.md)。
 
-#### API 端点
+## CSRF
 
-```http
-GET /api/v2/admin/sandbox-config
-PUT /api/v2/admin/sandbox-config
+CSRF 使用 Cookie、Header 与服务端有效 Token 三重匹配：
+
+- Cookie：`csrf_token`，JavaScript 可读，`SameSite=lax`，有效期一小时。
+- Header：`X-CSRF-Token`。
+- 服务端状态：当前进程内 `CSRFTokenManager`。
+- 接入端点：登录、注册、刷新。
+
+项目未注册全局 CSRF 中间件。多 worker 的进程内 Token 状态及前端注册/刷新接线差异见 [CSRF 实现](CSRF-IMPLEMENTATION.md)。
+
+## RBAC
+
+权限值固定为 `normal`、`admin` 和 `superadmin`。登录时从 `permission` 表读取 `permission_level` 并映射 JWT `role`：
+
+| permission_level | JWT role | 主要用途 |
+|------------------|----------|----------|
+| `normal` | `user` | 已认证业务接口 |
+| `admin` | `admin` | 用户、服务、监控等管理接口 |
+| `superadmin` | `superadmin` | 配置、模型、MCP、Nginx 部署等高权限操作 |
+
+路由通过 `verify_token`、`require_admin`、`require_superadmin` 或端点内 `is_admin()` 检查权限。前端展示控制只改善交互，后端依赖才是访问控制边界。详见 [权限规范](PERMISSION-SPEC.md)。
+
+## 用户供应商 Key
+
+- 用户 Key 先由前端使用 `/api/v1/agent/apikey/public-key` 返回的 RSA 公钥加密。
+- 后端解密后将真实 Key、元数据与索引保存到 Redis，并设置 TTL。
+- SQL 数据库不保存该模块的真实用户 Key。
+- 每个用户最多 20 个 Key，支持启用状态、模型 context length 和降级偏好。
+- Redis 必须使用受限网络、访问控制和符合部署风险的持久化策略。
+
+动态供应商 `/api/v1/providers` 接收原始 `api_key` 字段，依赖 HTTPS 保护传输；当前管理器为进程内状态，接口实现未增加用户级记录隔离。详见 [API Key 指南](../guides/API-KEY-GUIDE.md) 与 [多供应商配置](../guides/MULTI-PROVIDER-SETUP.md)。
+
+## HTTP 中间件
+
+`app/main.py` 注册以下安全相关组件：
+
+- `CORSMiddleware`：来源取自 `CORS_ORIGINS`，正则取自 `ALLOWED_HOSTS`，允许 credentials、全部方法和全部请求头。
+- `RequestLoggingMiddleware`：生成请求 ID 并记录请求耗时。
+- `InputValidatorMiddleware`：请求体大小及 SQL 注入/XSS 模式检查。
+- `RateLimitMiddleware`：请求限流；登录另有 IP 与邮箱组合的失败尝试限流。
+- `FeatureSwitchMiddleware`：按功能开关限制模块。
+- `SecurityHeadersMiddleware`：统一安全响应头。
+- `GZipMiddleware`：响应超过 500 字节时压缩。
+- 性能监控中间件：慢请求阈值为一秒。
+- draining 中间件：优雅关闭阶段返回 503 与 `Retry-After: 30`。
+
+## 安全响应头
+
+`SecurityHeadersMiddleware` 设置：
+
+- `Content-Security-Policy`
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `X-XSS-Protection: 1; mode=block`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Permissions-Policy`
+- `X-Permitted-Cross-Domain-Policies: none`
+- `Cross-Origin-Opener-Policy: same-origin`
+- 除 API docs/redoc 外的 `Cross-Origin-Embedder-Policy: require-corp`
+- API 响应的 `Cache-Control: no-store, no-cache, must-revalidate, private`、`Pragma: no-cache` 和 `Expires: 0`
+
+Swagger、ReDoc 与 OpenAPI 路径使用允许 jsDelivr 的单独 CSP。Nginx 也设置部分安全头，其中 `X-Frame-Options` 配置为 `SAMEORIGIN`；经 FastAPI 返回的响应还会携带应用层 `DENY` 值，部署时应统一策略。
+
+## CORS 与主机配置
+
+默认配置仅包含：
+
+```text
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
 ```
 
-请求体：
-```json
-{
-  "enable_code_sandbox": true,
-  "sandbox_languages": "python,javascript"
-}
-```
+`ALLOWED_HOSTS` 当前被直接转换为 CORS `allow_origin_regex`，它并非独立的 Host Header 校验中间件。生产环境应使用精确转义的来源正则，并在 Nginx 或专用中间件校验 Host。
 
-详见 [REACT-TOOL-CALLING.md#代码沙箱](../features/REACT-TOOL-CALLING.md#代码沙箱)
+## 文件与工作区边界
 
-### 2. Engineer 写入工具安全审计
+- 文件上传 API 使用认证依赖、类型/大小检查和分块写盘。
+- Agent 路径输入通过项目内路径安全校验限制绝对路径、父目录穿越及敏感目标。
+- VS Code Agent Host 使用工作区授权、真实路径解析、符号链接越界检查、参数数组进程执行和 `shell=false`。
+- 本地验证结果回传前由 sanitizer 处理密钥、Bearer Token、密码、Cookie、私钥和连接串。
 
-v5.12.0+ 工程师获得 4 个写入/验证工具（`partial_update` / `insert_content` / `regex_replace` / `execute_code`），需要额外的安全约束：
+## 当前部署重点
 
-#### 文件路径验证
+- 生产环境使用 HTTPS，确保 Secure Cookie、登录兼容载荷和动态供应商 Key 传输得到 TLS 保护。
+- 多 worker 部署前共享 RSA 密钥文件，并处理进程内 CSRF Token 和动态供应商状态共享。
+- CORS 仅配置明确来源，并统一 Nginx 与应用安全头。
+- Redis 作为用户 Key 和任务基础设施，应限制网络访问并启用认证。
+- 健康端点检查数据库与 Redis，Celery worker 状态需要单独监控。
 
-- 工程师只能修改工作目录内的文件
-- 路径遍历攻击防护（`../` 拦截）
-- 文件大小限制（默认 1MB）
+## 相关文档
 
-#### Git Stash 原子回滚
-
-- 每次编辑前自动 `git stash` 备份
-- 失败时自动 `git stash pop` 还原
-- 成功时 `git stash drop` 清理
-- 新文件失败时直接 `unlink()` 删除
-
-详见 [REACT-TOOL-CALLING.md#git-stash-原子回滚](../features/REACT-TOOL-CALLING.md#git-stash-原子回滚)
-
-### 3. 会话并发限制加固
-
-v5.12.0+ 实施严格的并发限制：
-
-- `MAX_PROJECT_SESSIONS_PER_USER = 2`：每个用户最多 2 个活跃项目会话
-- 超出时返回 409 响应，包含活跃会话列表
-- 僵尸会话自动检测并清理（防资源泄漏）
-
-详见 [SESSION-LIFECYCLE.md#并发限制429-响应](../features/SESSION-LIFECYCLE.md#并发限制429-响应)
-
-### 4. API Key context_length 多级保护
-
-v5.12.0+ 用户 API Key 支持自定义 context_length，需注意：
-
-- 用户自定义 context_length 仅对自己的请求生效
-- 管理员配置的 context_length 全局生效
-- 用户提交 OpenAI/Anthropic Key 时自动同步模型列表
-
-详见 [MODELS.md#context_length-管理](../architecture/MODELS.md#context_length-管理)
-
----
-
-## 认证与授权
-
-### JWT 认证
-- **Access Token**: 短期有效 (30 分钟)
-- **Refresh Token**: 长期有效 (7 天)
-- **Token 轮换**: 刷新时生成新的 Refresh Token，旧的失效
-- **Cookie 存储**: HttpOnly + Secure + SameSite=lax
-
-### 密码安全
-- **RSA-OAEP 加密**: 前端使用后端公钥加密密码后再传输
-- **bcrypt 哈希**: 后端存储密码使用 bcrypt 算法 (rounds=12)
-
-### 三级权限系统
-
-| 级别 | 角色 | 权限范围 |
-|------|------|----------|
-| 0 | normal | 基础 AI 功能 (代码生成、项目生成、图像生成等) |
-| 1 | admin | 用户管理、服务管理、基础系统监控 |
-| 2 | super | Nginx 配置、系统配置、限流管理 |
-| 3 | superadmin | 并发限制动态配置、最高权限 |
-
-### 权限装饰器
-```python
-@require_role(Role.SUPERADMIN)
-async def handler(request):
- pass
-
-@require_role(Role.ADMIN, Role.SUPERADMIN)
-async def handler(request):
- pass
-```
-
-### API Key 安全 (v5.9.0)
-
-#### RSA-2048 加密传输
-
-用户 API Key 使用 RSA-2048 加密传输：
-
-1. 前端获取后端 RSA 公钥
-2. 使用公钥加密 API Key
-3. 加密后的 Token 存储在 Redis 中
-4. Token 有 TTL，自动过期
-
-#### Redis 内存存储
-
-```python
-# 存储结构
-api_key_token = {
- "user_id": "user-uuid",
- "encrypted_key": "RSA-encrypted-api-key",
- "created_at": "2026-05-26T10:00:00Z",
- "expires_at": "2026-05-26T18:00:00Z"  # 8 小时过期
-}
-```
-
-#### Token 使用统计
-
-```python
-# 从 chat_histories 表查询
-token_usage = {
- "today": {"prompt_tokens": 1000, "completion_tokens": 2000},
- "this_month": {"prompt_tokens": 50000, "completion_tokens": 100000},
- "total": {"prompt_tokens": 200000, "completion_tokens": 400000},
- "by_model": {
-   "glm-z1-9b": {"prompt_tokens": 5000, "completion_tokens": 10000},
-   "deepseek-r1": {"prompt_tokens": 3000, "completion_tokens": 8000}
- }
-}
-```
-
-## 网络安全
-
-### CSRF 防护
-- **Double-submit Cookie 模式**
-- **X-CSRFToken 头部**: 前端在请求中携带 CSRF Token
-- **SameSite Cookie**: Strict 模式防止跨站请求
-
-### 速率限制
-- **全局限流**: 所有请求统一限流
-- **IP 限流**: 基于 IP 地址的请求频率控制
-- **用户限流**: 基于用户 ID 的请求频率控制
-- **端点限流**: 针对特定 API 端点的限流
-- **动态配置**: 通过 `/api/v2` 管理界面实时调整
-
-### 并发限制
-- **用户级并发**: 每个用户同时进行的请求数限制
-- **JSON 配置**: `data/concurrency_config.json`
-- **API 管理**: `POST /api/v2/admin/user-limit` 动态配置
-
-## 数据安全
-
-### 传输加密
-- **HTTPS**: 生产环境强制 HTTPS
-- **RSA-OAEP**: 密码传输加密
-- **AES-CBC**: 敏感数据传输加密
-
-### 存储安全
-- **密码哈希**: Argon2id
-- **Token 安全**: HttpOnly + Secure Cookie
-- **文件加密**: 上传文件可选加密存储
-
-### XSS 防护
-- **CSP**: Content-Security-Policy 头部
-- **DOMPurify**: 前端 HTML 内容清理
-- **转义输出**: 所有用户输入在输出时转义
-
-## 中间件安全链
-
-```
-Request → LogMiddleware (请求日志)
- → SecurityMiddleware (安全头部)
- → CORSMiddleware (跨域控制)
- → CSRFMiddleware (CSRF 验证)
- → RateLimitMiddleware (速率限制)
- → JWTMiddleware (认证)
- → ConcurrencyLimitMiddleware (并发限制)
- → Route Handler
-```
-
-### SecurityMiddleware 设置的头部
-
-| 头部 | 值 | 说明 |
-|------|-----|------|
-| X-Content-Type-Options | nosniff | 防止 MIME 类型嗅探 |
-| X-Frame-Options | DENY | 禁止 iframe 嵌入 |
-| X-XSS-Protection | 1; mode=block | 浏览器 XSS 防护 |
-| Referrer-Policy | strict-origin-when-cross-origin | 引用策略 |
-| Permissions-Policy | camera=(), microphone=() | 权限策略 |
-
-## 文件上传安全
-
-### 验证机制
-- **MIME 类型检查**: 验证文件真实类型
-- **扩展名白名单**: 只允许安全的文件扩展名
-- **大小限制**: 最大上传文件大小可配置
-- **病毒扫描**: 可选的病毒扫描集成
-
-### 存储安全
-- **随机文件名**: 避免文件名冲突和路径遍历
-- **权限控制**: 文件访问需要相应权限
-- **隔离存储**: 不同用户的文件隔离存储
-
-## 审计与监控
-
-### 审计日志
-- **操作记录**: 所有管理操作记录日志
-- **登录日志**: 所有登录尝试记录
-- **文件操作**: 文件上传/删除记录
-
-### 系统监控
-- **健康检查**: `/api/v1/health` 端点
-- **Prometheus 指标**: `/api/v1/health/metrics`
-- **实时统计**: WebSocket 推送系统统计
-
-## 安全最佳实践
-
-### 开发时
-1. 不要硬编码密钥或密码
-2. 使用环境变量管理敏感配置
-3. 遵循最小权限原则
-4. 所有用户输入都要验证
-
-### 部署时
-1. 使用 HTTPS
-2. 配置防火墙规则
-3. 定期更新依赖
-4. 启用安全监控
-
-### 运维时
-1. 定期审查审计日志
-2. 监控异常请求模式
-3. 及时更新安全策略
-4. 定期备份数据
-
-## 输入验证
-
-CodingMatrix 遵循 OWASP Top 10 安全最佳实践。
-
-### 验证机制
-- **Pydantic Schema**: 严格类型验证
-- **SQL 参数化查询**: 防注入
-- **文件上传限制**: 类型/大小限制
-- **路径遍历防护**: 防止目录穿越
-
-### 安全端点
-
-| 端点 | 描述 |
-|------|------|
-| GET /api/v1/public-key | 获取 RSA 公钥 |
-| GET /api/v1/csrf-token | 获取 CSRF Token |
-| POST /api/v1/vision/check-safety | 图像安全检查 |
-
-### 服务保护
-- **熔断器**: 防止服务雪崩
-- **超时控制**: 防止请求 hang 住
-- **资源限制**: CPU/内存使用限制
-
-## 安全建议
-
-1. 定期更新依赖 (运行 `pip audit`)
-2. 定期轮换 SECRET_KEY
-3. 监控异常访问模式
-4. 保持 HTTPS 始终开启
+- [加密登录](ENCRYPTED-LOGIN.md)
+- [CSRF 实现](CSRF-IMPLEMENTATION.md)
+- [权限规范](PERMISSION-SPEC.md)
+- [服务与端口](../guides/SERVICES.md)

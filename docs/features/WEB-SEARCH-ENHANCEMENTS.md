@@ -1,66 +1,68 @@
 # Web 搜索增强功能
 
-> 最后更新：2026-05-27 | 版本：v5.10.0
+> 最后核对：2026-09-03
+> 状态：独立模块可用，生产搜索主链路未接入
 
-## 概述
+## 当前状态
 
-Web 搜索增强模块 (`app/utils/web_search_enhancements.py`) 提供智能化的搜索查询优化和结果处理能力，提升搜索结果的质量和相关性。
+`app/utils/web_search_enhancements.py` 提供查询改写、结果去重和质量排序。当前生产搜索入口 `app/utils/web_search.py` 与 Workflow 搜索节点 `app/utils/workflow/node_types/web_search.py` 均未导入该模块，因此这些增强规则不会自动影响 Agent 或 Workflow 的搜索结果。
 
-## 核心功能
+该模块目前由以下测试直接覆盖：
 
-### 1. 查询词增强
+- `tests/unit/test_web_search_enhancements.py`
+- `tests/e2e/test_web_search_e2e.py`
+- `tests/e2e/test_web_search_flow_e2e.py`
+- `tests/e2e/test_guangzhou_railway_search.py`
 
-自动识别查询类型并优化搜索词：
+## 可用能力
 
-| 查询类型 | 检测方式 | 增强策略 |
-|----------|----------|----------|
-| 中文查询 | 字符比例检测 (>30%) | 添加中文搜索优化 |
-| 技术查询 | 关键词匹配 | 添加技术文档站点限定 |
-| 错误查询 | 错误关键词检测 | 添加解决方案关键词 |
+### 查询增强
 
-### 2. 结果去重
+`enhance_query(query, prompt="", enable_enhance=True)` 根据错误、技术、政府、企业、教程、新闻和学校等关键词改写查询。调用方可通过 `enable_enhance=False` 保留原查询。
 
-基于 URL 和标题相似度进行智能去重：
-- URL 完全匹配去重
-- 标题相似度计算（编辑距离）
-- 保留质量更高的结果
+已知限制：教程类查询使用硬编码年份 `2025` 和 `2024`。截至 2026-09-03，该时效规则已经过期，接入生产链路前应改为运行时年份或配置值。
 
-### 3. 质量评分
+### 结果去重
 
-对搜索结果进行多维度评分：
+`deduplicate_results(results, threshold=0.85)` 先移除查询参数后比较 URL，再使用标题词集合的 Jaccard 相似度过滤近似结果。
 
-| 评分维度 | 权重 | 说明 |
-|----------|------|------|
-| 来源权威性 | 30% | 官方文档、GitHub、Stack Overflow 等 |
-| 内容完整性 | 25% | 摘要长度、格式完整性 |
-| 时效性 | 20% | 发布时间、更新时间 |
-| 相关性 | 25% | 与查询词的匹配度 |
+输入元素使用模块内的 `SearchResult` 类型，字段为 `title`、`url`、`snippet`、`source` 和 `summary`。
 
-## 使用方式
+### 质量排序
+
+`score_search_result(result)` 按域名、标题、摘要长度和日期线索计算分数。`sort_by_quality(results)` 按该分数降序排列。
+
+质量域名列表和评分权重均为静态规则，接入生产环境时需要结合搜索提供方返回模型、业务区域和可信来源策略校准。
+
+## 直接使用
 
 ```python
 from app.utils.web_search_enhancements import (
-    enhance_query,
+    SearchResult,
     deduplicate_results,
-    score_results
+    enhance_query,
+    sort_by_quality,
 )
 
-# 增强查询词
-enhanced_query = enhance_query("Python 连接 MySQL 报错")
-
-# 去重结果
-unique_results = deduplicate_results(results)
-
-# 质量评分
-scored_results = score_results(unique_results, query)
+query = enhance_query("FastAPI dependency injection")
+results = [
+    SearchResult(
+        title="Dependencies - FastAPI",
+        url="https://fastapi.tiangolo.com/tutorial/dependencies/",
+        snippet="FastAPI dependency injection documentation",
+    )
+]
+ranked = sort_by_quality(deduplicate_results(results))
 ```
 
-## 集成说明
+## 接入边界
 
-搜索增强功能已集成到 `app/utils/web_search.py` 的 `search_web()` 函数中，自动对所有搜索请求生效。
+生产接入需要在搜索请求前显式调用 `enhance_query`，并将实际搜索结果转换为本模块的 `SearchResult` 后执行去重与排序。接入时还需要统一搜索结果类型，避免 `app/utils/web_search.py` 与增强模块各自维护数据模型。
 
-## 相关文件
+旧文档中的 `score_results` 名称已经失效。当前公开函数名称为 `score_search_result` 和 `sort_by_quality`。
 
-- `app/utils/web_search_enhancements.py` - 增强功能实现
-- `app/utils/web_search.py` - 搜索主模块
-- `tests/unit/test_web_search_enhancements.py` - 单元测试
+## 代码索引
+
+- `app/utils/web_search_enhancements.py`：独立增强实现
+- `app/utils/web_search.py`：当前生产搜索实现
+- `app/utils/workflow/node_types/web_search.py`：当前 Workflow 搜索节点
