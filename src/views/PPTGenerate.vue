@@ -142,8 +142,53 @@
           </div>
         </div>
 
+        <div v-if="workflowStep >= 2" class="outline-review-panel">
+          <div class="workflow-heading">
+            <span>第 2 步：审阅大纲</span>
+            <div class="workflow-heading-actions">
+              <span class="workflow-version">v{{ outlineDraft?.version || 1 }}</span>
+              <button class="outline-add-btn" type="button" @click="addOutlineSlide">新增页面</button>
+            </div>
+          </div>
+          <div v-for="(slide, index) in outlineSlides" :key="slide.id" class="outline-slide-editor">
+            <span class="outline-index">{{ index + 1 }}</span>
+            <div class="outline-fields">
+              <select v-model="slide.slide_type" class="outline-type-select" aria-label="页面类型">
+                <option value="key_points">要点页</option>
+                <option value="comparison">对比页</option>
+                <option value="timeline">时间线</option>
+                <option value="data_chart">数据图表</option>
+                <option value="closing">结论页</option>
+              </select>
+              <input v-model="slide.title" class="outline-title-input" placeholder="页面标题" />
+              <input v-model="slide.key_message" class="outline-message-input" placeholder="页面核心结论" />
+              <textarea v-model="slide.content_blocks[0].content" class="outline-content-input" rows="2" placeholder="页面内容"></textarea>
+              <div v-if="slideValidationMessages(slide).length" class="outline-validation">
+                {{ slideValidationMessages(slide).join('；') }}
+              </div>
+            </div>
+            <div class="outline-slide-actions">
+              <button class="outline-move-up" type="button" :disabled="index === 0" :aria-label="`上移第 ${index + 1} 页`" @click="moveOutlineSlide(index, -1)">上移</button>
+              <button class="outline-move-down" type="button" :disabled="index === outlineSlides.length - 1" :aria-label="`下移第 ${index + 1} 页`" @click="moveOutlineSlide(index, 1)">下移</button>
+              <button class="outline-remove" type="button" :disabled="outlineSlides.length === 1" :aria-label="`删除第 ${index + 1} 页`" @click="removeOutlineSlide(index)">删除</button>
+            </div>
+          </div>
+          <button class="generate-btn outline-approve-btn" :disabled="outlineSaving || !outlineCanApprove" @click="approveOutline">
+            {{ outlineSaving ? '正在保存...' : '批准大纲并继续' }}
+          </button>
+        </div>
+
+        <div v-if="workflowStep === 3" class="quality-mode-panel">
+          <div class="workflow-heading"><span>第 3 步：选择质量模式</span></div>
+          <label v-for="mode in qualityModes" :key="mode.id" class="quality-mode-option">
+            <input v-model="qualityMode" type="radio" :value="mode.id" />
+            <span><strong>{{ mode.name }}</strong><small>{{ mode.description }}</small></span>
+          </label>
+          <button class="generate-btn" :disabled="generating" @click="generateApprovedOutline">开始生成 PPT</button>
+        </div>
+
         <button
-          v-if="!generating"
+          v-if="!generating && workflowStep === 1"
           class="generate-btn"
           :disabled="!canGenerate"
           @click="handleGenerate"
@@ -151,7 +196,7 @@
           {{ uploadedFile ? '根据文件生成 PPT' : '一键生成 PPT' }}
         </button>
         <button
-          v-else
+          v-else-if="generating"
           class="generate-btn cancel-btn"
           @click="handleCancel"
         >
@@ -316,6 +361,15 @@ const slideCount = ref('10')
 const outputFormat = ref('pptx')
 const autoImages = ref(true)
 const enableAnimation = ref(true)
+const workflowStep = ref(1)
+const outlineDraft = ref(null)
+const outlineSlides = ref([])
+const outlineSaving = ref(false)
+const qualityMode = ref('standard')
+const qualityModes = [
+  { id: 'standard', name: '标准模式', description: '规则质检和自动重排，速度更快' },
+  { id: 'refined', name: '精修模式', description: '增加逐页视觉复审，适合正式交付' },
+]
 const generating = ref(false)
 const generatedSlides = ref([])
 const generatedFileUrl = ref('')
@@ -356,13 +410,19 @@ async function downloadBlob(blob, filename) {
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = filename
+  document.body.appendChild(anchor)
   anchor.click()
+  document.body.removeChild(anchor)
   URL.revokeObjectURL(url)
 }
 
 async function downloadPpt() {
   if (!currentTaskId.value) return
-  await downloadBlob(await api.ppt.downloadPPT(currentTaskId.value), `presentation_${currentTaskId.value}.pptx`)
+  try {
+    await downloadBlob(await api.ppt.downloadPPT(currentTaskId.value), `presentation_${currentTaskId.value}.pptx`)
+  } catch (error) {
+    ElMessage.error('PPTX 下载失败: ' + error.message)
+  }
 }
 
 async function downloadHistory(taskId) {
@@ -377,6 +437,73 @@ const canGenerate = computed(() => {
   return (topic.value.trim().length > 0 || uploadedFile.value) && topic.value.length <= 2000
 })
 
+const outlineCanApprove = computed(() => outlineSlides.value.length > 0 && outlineSlides.value.every(isOutlineSlideValid))
+
+let localSlideSequence = 0
+
+function normalizeOutlineSlides(slides) {
+  return (slides || []).map((slide, position) => ({
+    ...slide,
+    position,
+    slide_type: slide.slide_type || 'key_points',
+    narrative_role: slide.narrative_role || 'opportunity_map',
+    content_blocks: slide.content_blocks?.length
+      ? slide.content_blocks.map(block => ({ type: 'text', metadata: {}, ...block }))
+      : [{ type: 'text', content: '', metadata: {} }],
+  }))
+}
+
+function isOutlineSlideValid(slide) {
+  return Boolean(
+    slide.title?.trim()
+    && slide.key_message?.trim()
+    && slide.content_blocks?.some(block => block.content?.trim())
+  )
+}
+
+function slideValidationMessages(slide) {
+  const messages = []
+  if (!slide.title?.trim()) messages.push('请填写页面标题')
+  if (!slide.key_message?.trim()) messages.push('请填写页面核心结论')
+  if (!slide.content_blocks?.some(block => block.content?.trim())) messages.push('请填写有效页面内容')
+  return messages
+}
+
+function reindexOutlineSlides() {
+  outlineSlides.value.forEach((slide, position) => {
+    slide.position = position
+  })
+}
+
+function addOutlineSlide() {
+  outlineSlides.value.push({
+    id: `draft-slide-${Date.now()}-${localSlideSequence++}`,
+    position: outlineSlides.value.length,
+    slide_type: 'key_points',
+    narrative_role: 'opportunity_map',
+    evidence_sources: [],
+    title: '',
+    key_message: '',
+    content_blocks: [{ type: 'text', content: '', metadata: {} }],
+    asset_intent: null,
+    speaker_notes: '',
+  })
+}
+
+function removeOutlineSlide(index) {
+  if (outlineSlides.value.length <= 1) return
+  outlineSlides.value.splice(index, 1)
+  reindexOutlineSlides()
+}
+
+function moveOutlineSlide(index, direction) {
+  const target = index + direction
+  if (target < 0 || target >= outlineSlides.value.length) return
+  const [slide] = outlineSlides.value.splice(index, 1)
+  outlineSlides.value.splice(target, 0, slide)
+  reindexOutlineSlides()
+}
+
 function goBack() {
   router.push('/')
 }
@@ -384,7 +511,7 @@ function goBack() {
 function goToPreview() {
   if (generatedFileUrl.value) {
     // 从 URL 中提取 ppt_id
-    const match = generatedFileUrl.value.match(/\/pptx\/download\/(.+)$/)
+    const match = generatedFileUrl.value.match(/\/pptx\/download\/([^?]+)/)
     if (match) {
       router.push(`/ppt-preview/${match[1]}`)
     }
@@ -394,9 +521,7 @@ function goToPreview() {
 async function downloadPdf() {
   if (!currentTaskId.value) return
   try {
-    const res = await api.get(`/api/v1/pptx/download/${currentTaskId.value}/pdf`)
-    if (!res.ok) throw new Error('下载失败')
-    const blob = await res.blob()
+    const blob = await api.ppt.downloadPDF(currentTaskId.value)
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -407,6 +532,7 @@ async function downloadPdf() {
     URL.revokeObjectURL(url)
   } catch (e) {
     console.error('PDF 下载失败:', e)
+    ElMessage.error('PDF 下载失败: ' + e.message)
   }
 }
 
@@ -558,6 +684,45 @@ async function handleGenerate() {
     return
   }
 
+  if (workflowStep.value === 1) {
+    try {
+      const draft = await api.ppt.createOutline({
+        topic: topic.value.trim() || uploadedFile.value?.name || '未命名演示',
+        num_slides: parseInt(slideCount.value),
+        template_id: selectedTemplate.value,
+        material_file_ids: [],
+      })
+      outlineDraft.value = draft
+      outlineSlides.value = normalizeOutlineSlides(draft.slides)
+      workflowStep.value = 2
+      ElMessage.success('大纲已生成，请审阅页面结构')
+    } catch (e) {
+      ElMessage.error('大纲生成失败: ' + e.message)
+    }
+    return
+  }
+}
+
+async function approveOutline() {
+  if (!outlineDraft.value || !outlineCanApprove.value) return
+  outlineSaving.value = true
+  try {
+    reindexOutlineSlides()
+    const updated = await api.ppt.updateOutline(outlineDraft.value.id, { slides: outlineSlides.value })
+    const approved = await api.ppt.approveOutline(updated.id)
+    outlineDraft.value = approved
+    outlineSlides.value = normalizeOutlineSlides(approved.slides)
+    workflowStep.value = 3
+    ElMessage.success('大纲已批准，请选择质量模式')
+  } catch (e) {
+    ElMessage.error('大纲审批失败: ' + e.message)
+  } finally {
+    outlineSaving.value = false
+  }
+}
+
+async function generateApprovedOutline() {
+  if (!outlineDraft.value || generating.value) return
   generating.value = true
   generatedSlides.value = []
   generatedFileUrl.value = ''
@@ -565,6 +730,10 @@ async function handleGenerate() {
 
   try {
     let result
+
+    if (outlineDraft.value) {
+      result = await api.ppt.generateFromOutline(outlineDraft.value.id, qualityMode.value)
+    } else {
 
     if (uploadedFile.value) {
       // 文件上传模式：使用 FormData
@@ -594,6 +763,7 @@ async function handleGenerate() {
         enable_animation: enableAnimation.value,
         output_format: outputFormat.value,
       })
+    }
     }
 
     if (result && result.task_id) {
@@ -848,6 +1018,134 @@ onUnmounted(() => {
   margin-right: 8px;
   cursor: pointer;
   accent-color: var(--color-primary);
+}
+
+.outline-review-panel,
+.quality-mode-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+}
+
+.workflow-heading,
+.workflow-heading-actions,
+.outline-slide-actions {
+  display: flex;
+  align-items: center;
+}
+
+.workflow-heading {
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.workflow-heading-actions,
+.outline-slide-actions {
+  gap: 6px;
+}
+
+.workflow-version {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.outline-add-btn,
+.outline-slide-actions button {
+  padding: 5px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.outline-slide-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.outline-slide-editor {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.outline-index {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.outline-fields {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.outline-fields input,
+.outline-fields select,
+.outline-fields textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.outline-slide-actions {
+  grid-column: 2;
+  justify-content: flex-end;
+}
+
+.outline-remove {
+  color: #dc2626 !important;
+}
+
+.outline-validation {
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.quality-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.quality-mode-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.quality-mode-option small {
+  color: var(--text-secondary);
 }
 
 .generate-btn {

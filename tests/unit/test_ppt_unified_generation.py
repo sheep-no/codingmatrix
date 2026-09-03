@@ -10,12 +10,14 @@ import os
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
+from pptx import Presentation
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.api.v1.aiGeneratorPptx import (
+    _normalize_approved_outline,
     generate_pptx_file_enhanced,
     PPT_TEMPLATES,
 )
@@ -26,7 +28,7 @@ class TestTemplateMapping:
 
     def test_all_api_templates_exist(self):
         """所有 API 模板都存在"""
-        expected_templates = ["modern", "business", "creative", "minimal", "academic", "tech", "education", "medical"]
+        expected_templates = ["modern", "business", "creative", "minimal", "academic", "tech", "education", "medical", "elegant"]
         for tpl in expected_templates:
             assert tpl in PPT_TEMPLATES, f"Missing template: {tpl}"
 
@@ -56,6 +58,7 @@ class TestUnifiedGeneration:
         req.template = "modern"
         req.language = "zh-CN"
         req.style = "professional"
+        req.api_key_token = None
         return req
 
     @pytest.fixture
@@ -231,6 +234,205 @@ class TestUnifiedGeneration:
             for orig, saved in zip(original_slides, saved_slides):
                 assert orig["title"] == saved["title"]
                 assert orig["slide_type"] == saved["slide_type"]
+
+    @pytest.mark.asyncio
+    async def test_visual_plan_preserves_narrative_role_layouts(self, mock_request):
+        """视觉分析成功时仍使用五类叙事角色专属版式。"""
+        mock_request.template = "business"
+        roles = [
+            ("opportunity_map", "机会 01"),
+            ("evidence_story", "EVIDENCE"),
+            ("strategic_choice", "方案 A"),
+            ("execution_roadmap", "进入下一阶段的门槛"),
+            ("decision_close", "决策 01"),
+        ]
+        outline = {
+            "title": "叙事版式回归测试",
+            "slides": [
+                {
+                    "slide_type": "content",
+                    "title": f"页面 {index}",
+                    "content": ["要点一", "要点二", "要点三", "验证指标"],
+                    "narrative_role": role,
+                }
+                for index, (role, _) in enumerate(roles, 1)
+            ],
+        }
+        visual_plan = MagicMock()
+        visual_plan.slides = [MagicMock() for _ in roles]
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "app.api.v1.aiGeneratorPptx.visual_analyzer.analyze_ppt_content",
+            new=AsyncMock(return_value=visual_plan),
+        ):
+            filepath = Path(tmpdir) / "narrative_roles.pptx"
+            await generate_pptx_file_enhanced(filepath, outline, mock_request)
+            presentation = Presentation(filepath)
+
+        for slide, (_, expected_label) in zip(list(presentation.slides)[1:], roles):
+            slide_text = "\n".join(
+                shape.text for shape in slide.shapes if hasattr(shape, "text")
+            )
+            assert expected_label in slide_text
+
+    @pytest.mark.asyncio
+    async def test_creative_theme_uses_distinct_geometry(self):
+        """Creative 主题拥有独立构图，避免退化为颜色换肤。"""
+        outline = {
+            "title": "主题构图测试",
+            "slides": [{
+                "slide_type": "comparison",
+                "title": "战略取舍",
+                "content": ["方案一", "方案二", "推荐方案二"],
+                "narrative_role": "strategic_choice",
+            }],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "app.api.v1.aiGeneratorPptx.visual_analyzer.analyze_ppt_content",
+            new=AsyncMock(return_value=None),
+        ):
+            presentations = []
+            for template in ("business", "creative"):
+                req = MagicMock(template=template, api_key_token=None)
+                filepath = Path(tmpdir) / f"{template}.pptx"
+                await generate_pptx_file_enhanced(filepath, outline, req)
+                presentations.append(Presentation(filepath))
+
+        geometries = []
+        for presentation in presentations:
+            geometries.append([
+                (shape.shape_type, shape.left, shape.top, shape.width, shape.height)
+                for shape in presentation.slides[1].shapes
+            ])
+        assert geometries[0] != geometries[1]
+
+    @pytest.mark.asyncio
+    async def test_priority_themes_use_pairwise_distinct_geometry(self):
+        """高频主题使用成对不同的页面骨架。"""
+        outline = {
+            "title": "高频主题构图测试",
+            "slides": [{
+                "slide_type": "comparison",
+                "title": "优先路径选择",
+                "key_message": "四周内验证高价值路径",
+                "content": ["路径一", "路径二", "优先路径二", "复盘后扩大投入"],
+                "narrative_role": "strategic_choice",
+            }],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "app.api.v1.aiGeneratorPptx.visual_analyzer.analyze_ppt_content",
+            new=AsyncMock(return_value=None),
+        ):
+            geometries = {}
+            for template in ("modern", "minimal", "academic", "education", "medical", "elegant", "tech", "business", "creative"):
+                req = MagicMock(template=template, api_key_token=None)
+                filepath = Path(tmpdir) / f"{template}.pptx"
+                await generate_pptx_file_enhanced(filepath, outline, req)
+                presentation = Presentation(filepath)
+                geometries[template] = [
+                    (shape.shape_type, shape.left, shape.top, shape.width, shape.height)
+                    for shape in presentation.slides[1].shapes
+                ]
+
+        signatures = {tuple(geometry) for geometry in geometries.values()}
+        assert len(signatures) == len(geometries)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("template", "expected_label"),
+        [
+            ("modern", "DECISION"),
+            ("minimal", "DECISION /"),
+            ("academic", "RESEARCH CONCLUSION"),
+            ("education", "LEARNING CHECK"),
+            ("medical", "CLINICAL RATIONALE"),
+            ("elegant", "BOARD RECOMMENDATION"),
+            ("tech", "LOCK / RECOMMENDATION"),
+        ],
+    )
+    async def test_priority_theme_renders_semantic_choice(self, template, expected_label):
+        """高频主题保留策略选择语义和结论标签。"""
+        outline = {
+            "title": "语义主题测试",
+            "slides": [{
+                "slide_type": "comparison",
+                "title": "战略选择",
+                "key_message": "先验证闭环，再扩大投入",
+                "content": ["完整平台", "场景闭环", "推荐场景闭环"],
+                "narrative_role": "strategic_choice",
+            }],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "app.api.v1.aiGeneratorPptx.visual_analyzer.analyze_ppt_content",
+            new=AsyncMock(return_value=None),
+        ):
+            req = MagicMock(template=template, api_key_token=None)
+            filepath = Path(tmpdir) / f"{template}.pptx"
+            await generate_pptx_file_enhanced(filepath, outline, req)
+            presentation = Presentation(filepath)
+
+        slide_text = "\n".join(
+            shape.text for shape in presentation.slides[1].shapes if hasattr(shape, "text")
+        )
+        assert expected_label in slide_text
+        assert "推荐场景闭环" in slide_text
+
+    def test_approved_outline_preserves_structured_commercial_blocks(self):
+        outline = {
+            "title": "商业字段",
+            "slides": [{
+                "title": "机会判断",
+                "key_message": "两周内验证",
+                "slide_type": "key_points",
+                "narrative_role": "opportunity_map",
+                "content_blocks": [{
+                    "type": "metric",
+                    "content": "验证投入产出比",
+                    "metadata": {"roi": "≥3.0", "validation_period": "2 周"},
+                }],
+            }],
+        }
+
+        normalized = _normalize_approved_outline(outline)
+
+        assert normalized["slides"][0]["content_blocks"][0]["metadata"]["roi"] == "≥3.0"
+        assert normalized["slides"][0]["key_message"] == "两周内验证"
+
+    @pytest.mark.asyncio
+    async def test_renderer_displays_commercial_metadata(self):
+        outline = {
+            "title": "商业字段渲染",
+            "slides": [{
+                "slide_type": "comparison",
+                "title": "战略选择",
+                "narrative_role": "strategic_choice",
+                "content_blocks": [
+                    {"type": "option", "content": "完整平台", "metadata": {"cost": "高", "timeframe": "12 周", "risk": "扩散"}},
+                    {"type": "option", "content": "场景闭环", "metadata": {"cost": "中", "timeframe": "4 周", "risk": "选型"}},
+                    {"type": "recommendation", "content": "推荐场景闭环", "metadata": {"rationale": "反馈更快"}},
+                ],
+            }],
+        }
+        req = MagicMock(template="business", api_key_token=None)
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "app.api.v1.aiGeneratorPptx.visual_analyzer.analyze_ppt_content",
+            new=AsyncMock(return_value=None),
+        ):
+            filepath = Path(tmpdir) / "commercial_metadata.pptx"
+            await generate_pptx_file_enhanced(filepath, outline, req)
+            presentation = Presentation(filepath)
+
+        slide_text = "\n".join(
+            shape.text for shape in presentation.slides[1].shapes if hasattr(shape, "text")
+        )
+        assert "成本：高" in slide_text
+        assert "周期：12 周" in slide_text
+        assert "风险：扩散" in slide_text
+        assert "依据：反馈更快" in slide_text
 
 
 class TestEndToEndGeneration:

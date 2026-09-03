@@ -125,14 +125,14 @@
             <label>X 轴</label>
             <select v-model="config.xAxis" @change="updateChart">
               <option value="">选择字段</option>
-              <option v-for="field in currentDataSource.fields" :key="field" :value="field">{{ field }}</option>
+              <option v-for="field in availableFields" :key="field" :value="field">{{ field }}</option>
             </select>
           </div>
           <div class="field-group">
             <label>Y 轴</label>
             <select v-model="config.yAxis" @change="updateChart">
               <option value="">选择字段</option>
-              <option v-for="field in currentDataSource.fields" :key="field" :value="field">{{ field }}</option>
+              <option v-for="field in availableFields" :key="field" :value="field">{{ field }}</option>
             </select>
           </div>
           <div class="field-group">
@@ -252,7 +252,7 @@
             <line x1="8" y1="12" x2="16" y2="12" />
           </svg>
           <span>添加图表</span>
-          <kbd v-if="currentDataSource" class="toolbar-kbd">Enter</kbd>
+          <kbd v-if="currentDataSource" class="toolbar-kbd">Ctrl/⌘ + Enter</kbd>
         </button>
         <button
           class="toolbar-btn"
@@ -320,10 +320,11 @@ const fileInput = ref(null)
 const isDarkTheme = ref(false)
 const dataSources = ref([])
 const selectedDataSourceIndex = ref(null)
-const selectedChartIndex = ref(0)
+const selectedChartIndex = ref(null)
 const charts = ref([])
 const chartRefs = ref([])
 let chartIdCounter = 0
+let dataSourceIdCounter = 0
 let chartInstances = {}
 
 const config = ref({
@@ -343,6 +344,13 @@ const currentDataSource = computed(() => {
   if (selectedDataSourceIndex.value === null) return null
   return dataSources.value[selectedDataSourceIndex.value]
 })
+
+const selectedChart = computed(() => {
+  if (selectedChartIndex.value === null) return null
+  return charts.value[selectedChartIndex.value] || null
+})
+
+const availableFields = computed(() => selectedChart.value?.fields || currentDataSource.value?.fields || [])
 
 const statusText = computed(() => {
   if (dataSources.value.length === 0) return '请先导入数据'
@@ -374,21 +382,27 @@ const goBack = () => {
 const selectDataSource = index => {
   selectedDataSourceIndex.value = index
   const source = dataSources.value[index]
-  if (source && source.fields.length > 0) {
-    if (!config.value.xAxis) config.value.xAxis = source.fields[0]
-    if (config.value.yAxis === '' || !source.fields.includes(config.value.yAxis)) {
-      config.value.yAxis = source.fields[1] || source.fields[0]
-    }
+  if (selectedChart.value?.dataSourceId !== source.id) {
+    selectedChartIndex.value = null
+    config.value.xAxis = source.fields[0] || ''
+    config.value.yAxis = source.fields[1] || source.fields[0] || ''
   }
-  updateChart()
 }
 
 const removeDataSource = index => {
   dataSources.value.splice(index, 1)
-  if (selectedDataSourceIndex.value === index) {
-    selectedDataSourceIndex.value = dataSources.value.length > 0 ? 0 : null
+  if (dataSources.value.length === 0) {
+    selectedDataSourceIndex.value = null
+  } else if (selectedDataSourceIndex.value === index) {
+    selectedDataSourceIndex.value = Math.min(index, dataSources.value.length - 1)
+  } else if (selectedDataSourceIndex.value > index) {
+    selectedDataSourceIndex.value -= 1
   }
-  updateChart()
+
+  if (!selectedChart.value && currentDataSource.value) {
+    config.value.xAxis = currentDataSource.value.fields[0] || ''
+    config.value.yAxis = currentDataSource.value.fields[1] || currentDataSource.value.fields[0] || ''
+  }
 }
 
 const handleUploadClick = () => fileInput.value?.click()
@@ -412,7 +426,7 @@ const processFile = async file => {
         const data = JSON.parse(e.target.result)
         const arr = Array.isArray(data) ? data : [data]
         const fields = arr.length > 0 ? Object.keys(arr[0]) : []
-        dataSources.value.push({ name: file.name, data: arr, fields })
+        dataSources.value.push({ id: ++dataSourceIdCounter, name: file.name, data: arr, fields })
         if (selectedDataSourceIndex.value === null) {
           selectedDataSourceIndex.value = dataSources.value.length - 1
           selectDataSource(selectedDataSourceIndex.value)
@@ -420,7 +434,7 @@ const processFile = async file => {
           updateChart()
         }
         ElMessage.success(`已导入 ${file.name}（${arr.length} 行）`)
-      } catch (err) {
+      } catch {
         ElMessage.error('JSON 解析失败')
       }
     }
@@ -432,7 +446,7 @@ const processFile = async file => {
         const ws = wb.Sheets[wb.SheetNames[0]]
         const data = XLSX.utils.sheet_to_json(ws)
         const fields = data.length > 0 ? Object.keys(data[0]) : []
-        dataSources.value.push({ name: file.name, data, fields })
+        dataSources.value.push({ id: ++dataSourceIdCounter, name: file.name, data, fields })
         if (selectedDataSourceIndex.value === null) {
           selectedDataSourceIndex.value = dataSources.value.length - 1
           selectDataSource(selectedDataSourceIndex.value)
@@ -440,7 +454,7 @@ const processFile = async file => {
           updateChart()
         }
         ElMessage.success(`已导入 ${file.name}（${data.length} 行）`)
-      } catch (err) {
+      } catch {
         ElMessage.error('文件解析失败')
       }
     }
@@ -464,6 +478,10 @@ const addChart = () => {
   }
   const newChart = {
     id: ++chartIdCounter,
+    dataSourceId: currentDataSource.value.id,
+    dataSourceName: currentDataSource.value.name,
+    sourceData: currentDataSource.value.data,
+    fields: [...currentDataSource.value.fields],
     chartType: config.value.chartType,
     title: config.value.title || `图表 ${charts.value.length + 1}`,
     xAxis: config.value.xAxis,
@@ -481,12 +499,16 @@ const addChart = () => {
 }
 
 const removeChart = index => {
-  if (chartInstances[index]) {
-    chartInstances[index].dispose()
-    delete chartInstances[index]
+  const chart = charts.value[index]
+  if (chart && chartInstances[chart.id]) {
+    chartInstances[chart.id].dispose()
+    delete chartInstances[chart.id]
   }
   charts.value.splice(index, 1)
-  if (selectedChartIndex.value >= charts.value.length) {
+  chartRefs.value.splice(index, 1)
+  if (charts.value.length === 0) {
+    selectedChartIndex.value = null
+  } else if (selectedChartIndex.value === index) {
     selectedChartIndex.value = Math.max(0, charts.value.length - 1)
   } else if (selectedChartIndex.value > index) {
     selectedChartIndex.value -= 1
@@ -512,23 +534,35 @@ const clearAllCharts = async () => {
 }
 
 const updateChart = () => {
+  const chart = selectedChart.value
+  if (!chart) return
+
+  Object.assign(chart, {
+    chartType: config.value.chartType,
+    title: config.value.title,
+    xAxis: config.value.xAxis,
+    yAxis: config.value.yAxis,
+    color: config.value.color,
+    showLegend: config.value.showLegend,
+    showLabel: config.value.showLabel,
+    smooth: config.value.smooth,
+    aggregate: config.value.aggregate
+  })
   renderChart(selectedChartIndex.value)
 }
 
 const renderChart = index => {
   if (index === null || index < 0 || index >= charts.value.length) return
-  if (!currentDataSource.value) return
-
   const chart = charts.value[index]
   const el = chartRefs.value[index]
   if (!el) return
 
-  if (!chartInstances[index]) {
-    chartInstances[index] = echarts.init(el)
+  if (!chartInstances[chart.id]) {
+    chartInstances[chart.id] = echarts.init(el)
   }
 
-  const instance = chartInstances[index]
-  const data = currentDataSource.value.data
+  const instance = chartInstances[chart.id]
+  const data = chart.sourceData
 
   const aggregated = aggregateData(data, chart)
   const option = buildChartOption(chart, aggregated)
@@ -564,6 +598,8 @@ const aggregateData = (data, chart) => {
 const buildChartOption = (chart, data) => {
   const names = data.map(d => d.name)
   const values = data.map(d => d.value)
+  const seriesName = chart.title || '数据'
+  const label = { show: chart.showLabel }
 
   const baseOption = {
     animation: chart.animation?.enabled ?? true,
@@ -577,36 +613,52 @@ const buildChartOption = (chart, data) => {
   let series
   switch (chart.chartType) {
     case 'bar':
-      series = [{ type: 'bar', data: values, itemStyle: { color: chart.color } }]
+      series = [{ name: seriesName, type: 'bar', data: values, label, itemStyle: { color: chart.color } }]
       break
     case 'line':
-      series = [{ type: 'line', data: values, smooth: chart.smooth, itemStyle: { color: chart.color } }]
+      series = [{ name: seriesName, type: 'line', data: values, smooth: chart.smooth, label, itemStyle: { color: chart.color } }]
       break
     case 'area':
-      series = [{ type: 'line', data: values, smooth: chart.smooth, areaStyle: {}, itemStyle: { color: chart.color } }]
+      series = [{ name: seriesName, type: 'line', data: values, smooth: chart.smooth, areaStyle: {}, label, itemStyle: { color: chart.color } }]
       break
     case 'scatter':
-      series = [{ type: 'scatter', data: values, itemStyle: { color: chart.color } }]
+      series = [{ name: seriesName, type: 'scatter', data: values, label, itemStyle: { color: chart.color } }]
       break
     case 'pie':
       baseOption.xAxis = null
       baseOption.yAxis = null
-      series = [{ type: 'pie', data: data.map(d => ({ name: d.name, value: d.value })), itemStyle: { color: chart.color } }]
+      baseOption.tooltip = { trigger: 'item' }
+      series = [{
+        name: seriesName,
+        type: 'pie',
+        data: data.map(d => ({ name: d.name, value: d.value })),
+        label,
+        itemStyle: { color: chart.color }
+      }]
       break
     case 'radar':
       baseOption.xAxis = null
       baseOption.yAxis = null
-      baseOption.radar = { indicator: names.map(n => ({ name: n, max: Math.max(...values) * 1.2 })) }
-      series = [{ type: 'radar', data: [{ value: values, name: chart.title }] }]
+      baseOption.tooltip = { trigger: 'item' }
+      baseOption.radar = { indicator: names.map(n => ({ name: n, max: Math.max(1, ...values.map(Math.abs)) * 1.2 })) }
+      series = [{
+        name: seriesName,
+        type: 'radar',
+        data: [{ value: values, name: seriesName }],
+        label,
+        itemStyle: { color: chart.color },
+        lineStyle: { color: chart.color }
+      }]
       break
     default:
-      series = [{ type: 'bar', data: values, itemStyle: { color: chart.color } }]
+      series = [{ name: seriesName, type: 'bar', data: values, label, itemStyle: { color: chart.color } }]
   }
 
   baseOption.series = series
 
-  if (chart.showLegend && chart.chartType !== 'pie' && chart.chartType !== 'radar') {
-    baseOption.legend = { data: [chart.title || '数据'] }
+  baseOption.legend = {
+    show: chart.showLegend,
+    data: chart.chartType === 'pie' ? names : [seriesName]
   }
 
   return baseOption
@@ -645,9 +697,11 @@ const handleKeydown = e => {
   }
 }
 
-watch(selectedChartIndex, (newVal, oldVal) => {
-  if (newVal >= 0 && newVal < charts.value.length) {
+watch(selectedChartIndex, newVal => {
+  if (Number.isInteger(newVal) && newVal >= 0 && newVal < charts.value.length) {
     const chart = charts.value[newVal]
+    const sourceIndex = dataSources.value.findIndex(source => source.id === chart.dataSourceId)
+    if (sourceIndex >= 0) selectedDataSourceIndex.value = sourceIndex
     config.value.chartType = chart.chartType
     config.value.title = chart.title
     config.value.xAxis = chart.xAxis

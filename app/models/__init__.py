@@ -28,6 +28,7 @@ from app.models.unified_state import (
     StateCompatibilityMapping, StateRetentionRecord,
     StateReconciliationRecord,
 )
+from app.models.ppt_state import PPTOutline, PPTQualityReport
 
 __all__ = [
     "Base",
@@ -62,4 +63,6 @@ __all__ = [
     "StateCompatibilityMapping",
     "StateRetentionRecord",
     "StateReconciliationRecord",
+    "PPTOutline",
+    "PPTQualityReport",
 ]

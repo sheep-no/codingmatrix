@@ -18,6 +18,52 @@
  */
 export function createPptClient(client) {
   return {
+    async createOutline(payload) {
+      const response = await client.post('/pptx/outlines', payload)
+      if (response.ok) return await response.json()
+      const error = await response.json()
+      throw new Error(error.detail || '创建大纲失败')
+    },
+
+    async updateOutline(outlineId, payload) {
+      const response = await client.patch(`/pptx/outlines/${outlineId}`, payload)
+      if (response.ok) return await response.json()
+      const error = await response.json()
+      throw new Error(error.detail || '更新大纲失败')
+    },
+
+    async approveOutline(outlineId) {
+      const response = await client.post(`/pptx/outlines/${outlineId}/approve`)
+      if (response.ok) return await response.json()
+      const error = await response.json()
+      throw new Error(error.detail || '批准大纲失败')
+    },
+
+    async generateFromOutline(outlineId, qualityMode = 'standard') {
+      const response = await client.post(`/pptx/outlines/${outlineId}/generate`, {
+        quality_mode: qualityMode,
+      })
+      if (response.ok) return await response.json()
+      const error = await response.json()
+      throw new Error(error.detail || '创建 PPT 任务失败')
+    },
+
+    async getQualityReport(taskId) {
+      const response = await client.get(`/pptx/${taskId}/quality-report`)
+      if (response.ok) return await response.json()
+      return null
+    },
+
+    async regenerateOutlineSlide(outlineId, slideId, qualityMode = 'standard', slide = null) {
+      const response = await client.post(`/pptx/outlines/${outlineId}/slides/${slideId}/regenerate`, {
+        quality_mode: qualityMode,
+        slide,
+      })
+      if (response.ok) return await response.json()
+      const error = await response.json()
+      throw new Error(error.detail || '页面再生成失败')
+    },
+
     async createPptTask(prompt, conversationId = null, api_key_token = null, options = {}) {
       const response = await client.post('/pptx/generate_task', {
         prompt,
@@ -66,6 +112,7 @@ export function createPptClient(client) {
 
     async downloadPPT(pptId, format = 'pptx') {
       try {
+        if (format === 'pdf') return await this.downloadPDF(pptId)
         const response = await client.get(`/pptx/download/${pptId}?format=${format}`)
         if (response.ok) {
           return await response.blob()
@@ -74,6 +121,13 @@ export function createPptClient(client) {
       } catch (error) {
         throw new Error(error.message || 'Download failed', { cause: error })
       }
+    },
+
+    async downloadPDF(pptId) {
+      const response = await client.get(`/pptx/download/${pptId}/pdf`)
+      if (response.ok) return await response.blob()
+      const error = await response.json().catch(() => ({}))
+      throw new Error(error.detail || 'PDF 下载失败')
     },
 
     async cancelPptTask(taskId) {

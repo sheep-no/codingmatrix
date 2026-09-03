@@ -8,6 +8,8 @@ from typing import Dict, List, Optional, Type
 from pathlib import Path
 
 from app.utils.pptx.templates.base import TemplateBase, TemplateConfig, TemplateCategory
+from app.utils.pptx.design_tokens import DesignTokens, resolve_design_tokens
+from app.utils.pptx.scenario import classify_scenario
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,13 @@ class TemplateManager:
     def get_config(self, template_id: str) -> Optional[TemplateConfig]:
         """根据 ID 获取模板配置"""
         return self._template_configs.get(template_id)
+
+    def resolve_design_tokens(self, template_id: str, version: str = "1.0") -> DesignTokens:
+        """Resolve one token bundle for every page in a generation task."""
+        config = self.get_config(template_id)
+        if config is None:
+            raise KeyError(f"模板不存在：{template_id}")
+        return resolve_design_tokens(config, version)
 
     def list_templates(self) -> List[Dict]:
         """列出所有可用模板"""
@@ -91,6 +100,25 @@ class TemplateManager:
 
         return candidates[:5]  # 最多推荐 5 个
 
+    def recommend_for_scenario(self, text: str, limit: int = 3) -> Dict[str, object]:
+        """Return a scenario result and stable ranked template candidates."""
+        result = classify_scenario(text)
+        scored = []
+        for index, (template_id, config) in enumerate(self._template_configs.items()):
+            category_score = 3 if config.category == result.category else 0
+            keyword_score = sum(
+                1 for keyword in result.matched_keywords
+                if keyword.lower() in config.description.lower() or keyword.lower() in config.name.lower()
+            )
+            scored.append((category_score + keyword_score, -index, template_id))
+        candidates = [template_id for _, _, template_id in sorted(scored, reverse=True)[:max(3, limit)]]
+        return {
+            "scenario": result.scenario,
+            "confidence": result.confidence,
+            "matched_keywords": list(result.matched_keywords),
+            "templates": candidates,
+        }
+
     def _register_builtin_templates(self):
         """注册内置模板"""
         try:
@@ -100,6 +128,7 @@ class TemplateManager:
                 PitchDeckTemplate,
                 EducationTemplate,
                 MinimalTemplate,
+                TechTemplate,
             )
 
             presets = [
@@ -108,6 +137,7 @@ class TemplateManager:
                 PitchDeckTemplate(),
                 EducationTemplate(),
                 MinimalTemplate(),
+                TechTemplate(),
             ]
 
             for preset in presets:

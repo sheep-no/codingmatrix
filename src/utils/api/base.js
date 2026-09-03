@@ -258,6 +258,13 @@ export function createBaseClient(userStore = null) {
       return response
     },
 
+    async patch(url, data) {
+      return this.request(url, {
+        method: 'PATCH',
+        body: JSON.stringify(data)
+      })
+    },
+
     async delete(url, data = null) {
       const options = { method: 'DELETE' }
       if (data) {

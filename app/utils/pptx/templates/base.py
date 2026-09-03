@@ -23,6 +23,7 @@ class TemplateCategory(Enum):
     BUSINESS = "business"      # 商务汇报
     ACADEMIC = "academic"      # 学术论文
     PITCH = "pitch"            # 产品路演
+    TECH = "tech"              # 科技演示
     EDUCATION = "education"    # 教育培训
     MINIMAL = "minimal"        # 简约风格
 

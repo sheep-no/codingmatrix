@@ -16,6 +16,7 @@ from app.agent.dynamic_model_router import (
     _LayeredModelRouterCompat,
     load_agent_model_config,
 )
+from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL
 from app.agent.memory import (
     ConversationMemory,
     KnowledgeMemory,
@@ -187,8 +188,8 @@ class TestDynamicModelRouter:
         """SIMPLE 级别返回正确分配"""
         assignment = _LayeredModelRouterCompat.get_assignment(ProjectComplexity.SIMPLE)
         assert isinstance(assignment, ModelAssignment)
-        assert assignment.architect_model == "Qwen/Qwen3-8B"
-        assert assignment.frontend_model == "Qwen/Qwen3-8B"
+        assert assignment.architect_model == DEFAULT_ARCHITECT_MODEL
+        assert assignment.frontend_model == DEFAULT_FAST_MODEL
 
     def test_get_assignment_enterprise_falls_back_to_large(self):
         """ENTERPRISE 降级到 LARGE"""

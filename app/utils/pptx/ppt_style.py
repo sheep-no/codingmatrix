@@ -25,10 +25,10 @@ PPT_TEMPLATES = {
     },
     "creative": {
         "name": "创意设计",
-        "primary_color": "#dc2626",
-        "secondary_color": "#ea580c",
+        "primary_color": "#4c1d3d",
+        "secondary_color": "#d95d55",
         "font_family": "Verdana, sans-serif",
-        "background": "#fef2f2"
+        "background": "#fff8f1"
     },
     "minimal": {
         "name": "极简主义",
@@ -55,7 +55,7 @@ PPT_TEMPLATES = {
         "name": "教育培训",
         "primary_color": "#16a34a",
         "secondary_color": "#15803d",
-        "font_family": "Comic Sans MS, cursive",
+        "font_family": "Aptos, Arial, sans-serif",
         "background": "#f0fdf4"
     },
     "medical": {
@@ -85,6 +85,7 @@ class PPTStyle:
     """PPT 样式配置"""
     def __init__(self, template_name="modern"):
         tpl = PPT_TEMPLATES.get(template_name, PPT_TEMPLATES["modern"])
+        self.template_name = template_name if template_name in PPT_TEMPLATES else "modern"
 
         pc = hex_to_rgb(tpl['primary_color'])
         sc = hex_to_rgb(tpl['secondary_color'])
@@ -94,8 +95,8 @@ class PPTStyle:
         self.PRIMARY_LIGHT = RGBColor(min(pc[0]+50, 255), min(pc[1]+50, 255), min(pc[2]+50, 255))
         self.PRIMARY_DARK = RGBColor(max(pc[0]-50, 0), max(pc[1]-50, 0), max(pc[2]-50, 0))
 
-        self.ACCENT_COLOR = RGBColor(0xFF, 0x66, 0x00)
-        self.ACCENT_LIGHT = RGBColor(0xFF, 0x99, 0x66)
+        self.ACCENT_COLOR = RGBColor(*sc) if self.template_name == "creative" else RGBColor(0xFF, 0x66, 0x00)
+        self.ACCENT_LIGHT = RGBColor(0xED, 0xA5, 0x9F) if self.template_name == "creative" else RGBColor(0xFF, 0x99, 0x66)
 
         self.BG_WHITE = RGBColor(*bg)
         self.BG_LIGHT_BLUE = RGBColor(0xE8, 0xF4, 0xFC)
