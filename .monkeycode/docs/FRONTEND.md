@@ -60,6 +60,12 @@ VS Code 工作台与 Web 工作台共享 Agent Host 协议和云端 Agent API。
 
 模型上下文通过 `src/utils/api/project.js` 读写后端接口。`useAgentStreaming` 消费 SSE `model_info` 事件，合并当前模型、调用统计和降级记录，并在流结束时写回后端。模型上下文只保存模型标识和运行统计，供应商凭据由现有 Key Store 管理。
 
+## PPT 三步流程
+
+`src/views/PPTGenerate.vue` 依次完成主题输入、大纲审阅和质量模式选择。大纲审阅支持页面类型、标题、核心结论和内容编辑，也支持新增、删除与上下重排；页面位置在结构变更后重新编号。任一页面缺少标题、核心结论或有效内容时，页面显示校验信息并禁用批准操作。
+
+`src/views/PPTPreview.vue` 读取质量报告并展示整体质量分、逐页分、问题类型、规则修复动作、自动重排次数和人工复核页，同时允许针对问题页创建重新生成任务。对应 Vitest 位于 `src/views/PPTGenerate.test.js` 和 `src/views/PPTPreview.test.js`。
+
 ## Vite 开发服务
 
 配置位于 `src/vite.config.js`：

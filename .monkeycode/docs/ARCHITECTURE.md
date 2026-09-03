@@ -49,7 +49,7 @@ flowchart LR
 
 ## 前端边界
 
-Web 前端通过 Vue Router 组织页面，通过 Pinia 保存认证、Agent 会话、生成文件和模型上下文。Agent Dashboard 将会话、生成、文件、工作区、流式处理和后端管理拆分到 composables。桌面端使用三栏布局；手机端使用单列工作区和两侧抽屉，相关样式集中在 `src/styles/agent-layout.css`。前端通过同源 `/api` 前缀访问后端，开发环境由 Vite proxy 处理跨服务转发。
+Web 前端通过 Vue Router 组织页面，通过 Pinia 保存认证、Agent 会话、生成文件和模型上下文。Agent Dashboard 将会话、生成、文件、工作区、流式处理和后端管理拆分到 composables。桌面端使用三栏布局；手机端使用单列工作区和两侧抽屉，相关样式集中在 `src/styles/agent-layout.css`。PPT Web 流程按输入、大纲审阅和质量模式选择三步推进；大纲编辑器维护页面位置并在标题、核心结论或内容缺失时阻止批准，预览页消费质量报告展示整体分、逐页分、问题类型、修复动作和人工复核页。前端通过同源 `/api` 前缀访问后端，开发环境由 Vite proxy 处理跨服务转发。
 
 VS Code 工作台由 `vscode-extension/src/agent-workbench.ts` 提供原生 Webview，由 `extension.ts` 创建 Agent Host 运行时。工作台支持需求输入、流式事件展示、暂停、恢复、取消、动作批准和拒绝；Host 通过 `CloudConnection` 与 `/api/v1/agent/host/*` 交互，并通过 `/api/v1/agent/orchestrate/stream` 发起 Agent 流式请求。VS Code 工作台当前采用轻量面板形态，Web 端的完整历史会话、模型选择、文件版本历史、性能和学习面板仍保留在 Web 工作台。
 
@@ -77,6 +77,18 @@ Skills 使用 `system:`, `user:` 和 `workspace:<folder-name>:` 命名空间。U
 ## 统一状态迁移
 
 统一状态层复用既有 `tasks` 表，并新增 `sessions`、`messages`、`task_events`、`checkpoints` 和 `artifacts`。`TaskManager` 在 Redis/内存状态变更时双写 SQL 任务快照和事件，Redis Pub/Sub 仅负责低延迟通知，SQL 事件表负责恢复和重放。启动迁移运行器会为旧 `tasks` 表补齐 session、revision、幂等键、stage、lease、结构化错误/结果和时间字段。
+
+PPT 大纲使用 `ppt_outlines` 保存版本化草稿和批准快照。生成任务记录 `outline_id`、`outline_version` 和 `quality_mode`；生成阶段将大纲和产物分别写入统一 Checkpoint 与 Artifact，质量报告通过任务和大纲版本建立关联。
+
+PPT 模板管理器通过 `recommend_for_scenario()` 返回场景置信度、命中关键词和至少三个候选模板。内置模板包含商业报告、学术答辩、产品路演、教育培训、医疗健康、极简和科技蓝调；`resolve_design_tokens()` 将 `TemplateConfig` 字段解析为版本化颜色、字体、间距、形状、图片和图表令牌，供后续语义规划和渲染阶段复用。
+
+语义规划器 `plan_outline()` 将大纲映射为页面类型、布局候选和容量预算，保留页面及内容块顺序，并对旧版 `title`、`content`、`chart`、`image` 等类型提供兼容映射。商业演示使用 `content_blocks[].metadata` 承载指标、成本、周期、风险、依据、交付物、门槛、负责人和时限；`narrative_role` 将页面归一为机会、证据、策略、路线和决策五类叙事角色。
+
+`run_quality_pipeline()` 先执行确定性规则质检和最多两轮自动重排，再按 `quality_mode` 选择视觉复审。精修服务异常时质量报告保存降级问题，产物仍可继续交付。
+
+`PPTGenerationOrchestrator` 提供可恢复的异步阶段契约，按 `planning -> assets -> rendering -> rule_qa -> reflow -> vision_qa -> completed` 发出结构化进度事件，并在阶段边界执行取消检查。Celery PPT 任务已通过阶段处理器接入该编排器；发生自动重排时，`reflow` 阶段会重新渲染最终产物。
+
+增强 PPTX 路径为每个内容页归一化语义类型，映射到兼容的 `LayoutType`，并为整次生成解析一次不可变 `DesignTokens`。`LayoutDecider.render_slide()` 使用 token-aware style adapter 应用颜色、字体和背景令牌，同时保留旧 `PPTStyle` 作为安全回退。最终 PPTX 渲染优先消费结构化 `content_blocks`，旧 `content` 和 `bullets` 继续经过归一层兼容。`business`、`creative`、`modern`、`minimal`、`tech`、`academic`、`education`、`medical` 和 `elegant` 分别实现独立封面、几何构图、信息层级和视觉动线；五类叙事角色直接选择各主题的专属页面结构。`academic` 使用研究问题、证据注释、假设对照、研究协议和来源脚注表达研究简报语境；`education` 使用学习目标、课堂证据、练习卡、课程路径和课后行动表达教学工作坊语境；`medical` 使用临床信号、证据评估、方案取舍、照护路径和行动结论表达临床简报语境；`elegant` 使用主信号、证据注释、路径取舍、纵向里程碑和董事会决议表达高端备忘录语境。
 
 后续模块迁移新增 `state_compatibility_mappings` 和 `state_retention_records`。前者关联旧模块标识与统一资源，后者记录归档、清理、重试和外部文件保留状态。对应模型位于 `app.models.unified_state`，数据库迁移位于 `migrations/versions/20260829_add_state_migration_tables.py`。
 

@@ -152,9 +152,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ENV=production
 WORKDIR /app
 
-# 安装 curl + 创建非 root 用户
+# 安装 Web 健康检查、PPT/PDF 转换和创建非 root 用户
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
+    apt-get install -y --no-install-recommends curl libreoffice-impress poppler-utils && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd -r appuser && \
     useradd -r -g appuser -d /app -s /sbin/nologin appuser
@@ -188,24 +188,33 @@ curl http://localhost:8080/api/v1/health      # API 直连
 ### 不使用 Docker 的部署 (推荐轻量场景)
 
 ```bash
-# 1. 安装依赖
+# 1. 安装 Python 依赖
 pip install -r configs/requirements.txt
 
-# 2. 数据库迁移
+# 2. 安装 PPT/PDF 渲染依赖
+apt-get update
+apt-get install -y libreoffice-impress poppler-utils
+
+# 3. 数据库迁移
 alembic upgrade head
 # 或: make migrate
 
-# 3. 启动后端 (gunicorn 2 workers)
+# 已存在且由应用初始化过的数据库，首次接入 Alembic 时使用以下命令登记当前基线
+# 登记基线后执行一次幂等升级校验
+alembic stamp 20260902_ppt_quality_state
+alembic upgrade head
+
+# 4. 启动后端 (gunicorn 2 workers)
 gunicorn app.main:app \
   --bind 0.0.0.0:8080 \
   --workers 2 --threads 2 \
   --worker-class uvicorn.workers.UvicornH11Worker \
   --timeout 120 --keep-alive 5
 
-# 4. 启动 Celery
+# 5. 启动 Celery
 celery -A app.celery_app worker --loglevel=info --concurrency=1
 
-# 5. Nginx 静态文件
+# 6. Nginx 静态文件
 # src/dist 由前端 npm run build 生成
 ```
 

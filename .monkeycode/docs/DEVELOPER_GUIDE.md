@@ -80,7 +80,8 @@ npm --prefix vscode-extension run e2e
 ## 最近验收结果（2026-09-02）
 
 - PPT 专项单元测试：`141 passed`。
-- 前端相关测试：`23 passed`，前端生产构建成功。
+- `elegant` 董事会备忘录主题统一生成测试：`24 passed`；6 页 PPTX、PDF 和 PNG 样稿生成成功，证据页与路线页二轮视觉评分为 `9.0/10` 和 `8.5/10`。
+- 前端全量测试：`36 passed`；PPT 工作流测试覆盖大纲修改、新增、重排、删除、批准禁用，以及逐页质量分、问题、修复动作和人工复核标记展示；前端生产构建成功。
 - VS Code 扩展构建成功，Node 原生测试：`62 passed`。
 - VS Code Extension Development Host E2E 成功，覆盖扩展发现、激活、兼容性校验、Agent Workbench 命令和工作区加载。
 - 已生成 VSIX：`vscode-extension/codingmatrix-local-validation-0.1.0.vsix`。

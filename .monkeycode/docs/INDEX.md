@@ -1,10 +1,10 @@
 # CodingMatrix 项目文档
 
-## 当前状态（2026-09-02）
+## 当前状态（2026-09-03）
 
 - Agent Web 工作台与 VS Code 工作台的核心链路已实现：云端流式 Agent、会话控制、本地 Host 动作、审批、本地验证、Skill 同步和断线结果恢复均已接入并完成对应测试。
 - VS Code 扩展流式请求使用 `/api/v1/agent/orchestrate/stream`，安装包已生成于 `vscode-extension/codingmatrix-local-validation-0.1.0.vsix`。
-- PPT 生成链路已完成共享产物卷、格式严格分流、HTML 输出转义和分块上传改造；PPT 专项测试为 `141 passed`。
+- PPT 生成链路已完成共享产物卷、格式严格分流、HTML 输出转义、分块上传，以及五类叙事角色和九套独立主题构图；Web 三步流程支持大纲新增、删除、重排、编辑与批准校验，预览页展示逐页质量分、问题和修复动作；前端全量测试为 `36 passed`。
 - 当前 Web 工作台的完整会话历史、模型选择、文件版本、性能面板等 UI 尚未完整迁移到 VS Code 原生 Webview。
 
 - [架构文档](ARCHITECTURE.md)：FastAPI、Vue、StateGraph、统一状态和部署拓扑。

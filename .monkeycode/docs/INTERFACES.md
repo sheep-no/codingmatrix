@@ -45,6 +45,22 @@ VS Code 工作台使用 `POST /api/v1/agent/orchestrate/stream` 接收 SSE Agent
 
 ## PPT API
 
+- `POST /api/v1/pptx/outlines`：创建可编辑 PPT 大纲草稿；支持主题和素材文件 ID 输入。
+- `GET /api/v1/pptx/outlines/{outline_id}?version=N`：读取指定或最新大纲版本。
+- `PATCH /api/v1/pptx/outlines/{outline_id}`：创建修改后的大纲版本。
+- `POST /api/v1/pptx/outlines/{outline_id}/approve`：校验并批准当前大纲版本。
+- `POST /api/v1/pptx/outlines/{outline_id}/generate`：基于批准的大纲版本创建带质量模式的生成任务。
+- `OutlineCreateRequest.material_file_ids`：可选素材文件 ID 列表，与主题输入共用大纲审批流程。
+- `OutlineSlide.content_blocks[].metadata`：商业页面结构化字段，按叙事角色保存指标、目标、成本、周期、风险、依据、交付物、门槛、负责人和时限。
+- `OutlineSlide.narrative_role`：支持 `opportunity_map`、`evidence_story`、`strategic_choice`、`execution_roadmap` 和 `decision_close`，用于选择页面商业构图。
+- `GET /api/v1/pptx/{task_id}/quality-report`：读取当前用户任务的最新质量报告，包括整体分、逐页分、问题及其 `fix_action` 和重排记录；前端根据高严重度问题和两次重排记录推导人工复核页，同时兼容显式 `manual_review_slides` 标记。
+
+语义渲染规则位于 `app.utils.pptx.semantic_renderer`：页面类型统一归一到 11 类，图片按比例适配内容框并在素材不可用时返回模板回退标记，数据页根据关系选择柱状图、折线图、环图或散点图并生成来源占位信息。
+实际 PPTX 生成通过 `layout_type_for_slide_type()` 将语义页面接入旧布局计划；`LayoutDecider.render_slide(..., tokens=...)` 应用同一任务级设计令牌。模板管理器可按 `tech` 模板 ID 解析深色科技主题令牌；`business`、`creative`、`modern`、`minimal`、`tech`、`academic`、`education`、`medical` 和 `elegant` 根据 `narrative_role` 进入独立构图分支。学术主题优先显示 `evidence_sources` 的首个来源，来源缺失时显示明确的待补来源提示；教育主题使用 `Aptos`/`Arial` 回退字体并保持课程卡片的投屏字号；医疗主题提供临床证据来源占位；`elegant` 主题提供 `BOARD RECOMMENDATION` 等董事会决策语义标签。
+PDF 生成采用临时 PPTX 转换链路，调用 `libreoffice --headless --convert-to pdf`；服务器缺少 LibreOffice 时返回 501，并提示安装 `libreoffice-impress`。
+
+视觉回归工具位于 `app.utils.pptx.visual_regression`，用于生成稳定的语义布局 manifest、比较页面差异和计算 PNG 像素变化比例。服务器通过 LibreOffice 生成 PDF，再由 `pdftoppm` 生成 PNG 页面。
+当前验收基线：后端全量 `1892 passed, 2 skipped`，前端全量 `36 passed`，Vite 生产构建通过；固定大纲真实生成了 6 页 PPTX、PDF 和 6 张 `1280x720` PNG 预览图。最新主题专项回归为 `88 passed`，教育主题增量定向回归 `7 passed`，医疗主题增量定向回归 `8 passed`，`elegant` 统一生成测试 `24 passed`；视觉复审评分为 `business 8.0/10`、`creative 8.8/10`、`modern 8.3/10`、`minimal 8.6/10`、`tech 8.0/10`，`academic` 路线页二轮评分为 `8.2/10`，`education` 代表页评分约 `7.0-7.6/10`；医疗与 `elegant` 主题 6 页真实样稿均无元素越界，`elegant` 证据页与路线页二轮评分为 `9.0/10` 和 `8.5/10`。
 - `POST /api/v1/pptx/generate_task`：创建异步 PPT 任务。文本请求使用 `prompt`、`template`、`slide_count`、`output_format` 和 `options`；`options` 支持 `auto_images` 与 `enable_animation`。
 - `GET /api/v1/pptx/history`：返回 `{records, total}`，前端按 `records` 消费历史列表。
 - `GET /api/v1/pptx/download/{ppt_id}?format=pptx`：下载生成文件。
