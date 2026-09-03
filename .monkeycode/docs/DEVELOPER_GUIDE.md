@@ -120,6 +120,7 @@ NODE_OPTIONS=--max-old-space-size=1800 npm run build
 - legacy endpoint 迁移保留原响应和事件结构，便于渐进式回归。
 - 修改后执行 `git diff --check` 和相关测试。
 - GirlAI 相关修改后执行 `python3 -m pytest tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py tests/unit/test_database_services.py -q`，并在 `/workspace/src` 执行 `npm run test:run -- utils/api/girl.test.js`。
+- GirlAI 结构化伙伴契约修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py -q`。
 - Agent 模型上下文只保存模型 ID、配置版本、调用统计和降级记录；模型 Key 对应的供应商凭据继续由现有 Key Store 管理。修改模型上下文契约后同时运行后端 `test_model_context_service.py` 与前端 `agentSession.test.js`、`project.test.js`。
 - 验证节点通过 `State.metadata.required_validation_scopes` 声明 `local_runtime` 或 `local_e2e`；云端验证保持 `cloud_syntax`，本地结果按 scope 回传。
 - 本地结果协议使用 `validation_scope`、`status` 和 `source=local`；`local_result_to_delta()` 负责映射为内部字段并执行 task/session/revision/schema 校验。StateReducer 按验证结果 `event_id` 去重，重复回传保持状态和 revision 不变。

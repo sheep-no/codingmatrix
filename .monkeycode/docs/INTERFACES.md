@@ -153,6 +153,8 @@ AICloud 适配器入口为 `ensure_session`、`append_legacy_message` 和 `list_
 
 GirlAI 适配器入口为 `ensure_session`、`append_conversation_turn`、`delete_messages_for_legacy_ids`、`clear_messages_for_user`、`list_messages_for_user` 和 `save_summary_checkpoint`，角色标识、legacy 消息关联和摘要来源保存在统一状态 metadata 或 checkpoint state 中。
 
+GirlAI 结构化伙伴回合契约位于 `app.schema.girl_companion`。`parse_companion_turn()` 将供应商响应规范化为版本化回合；无法解析结构化 JSON 时保留助手文本，并返回 `structured_output`、`emotion` 和 `intent` 能力降级标记。伙伴 API 和持久化动作仍按 `.monkeycode/specs/2026-09-03-girlai-companion-enhancement/` 的实施计划推进。
+
 AICloud 与 GirlAI 的旧历史读取回归测试覆盖兼容映射复用、缺失映射创建、用户归属隔离、消息顺序和读取数量限制。
 
 Agent 适配器入口为 `ensure_project_session`、`save_graph_checkpoint` 和 `persist_agent_state`。`generate`、同步 `orchestrate`、增量修改 SSE 和 `orchestrate/stream` 已通过 `run_workflow(..., db=db, user_id=user_id)` 触发统一持久化。Workflow 适配器入口为 `ensure_workflow_task`、`record_workflow_stage` 和 `register_workflow_artifacts`。

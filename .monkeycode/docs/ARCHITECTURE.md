@@ -104,6 +104,8 @@ AICloud 通过 `app.services.aicloud_state_adapter` 将旧 `aicloud_sessions/aic
 
 GirlAI 通过 `app.services.girlai_state_adapter` 将用户维度的 `chat_histories` 映射为稳定的 `user:{user_id}` 统一会话，每轮历史写入统一 user/assistant 消息；统一消息 metadata 保存 `legacy_message_id`，支持选择性删除时同步清理。`ChatSummary` 通过统一 `girlai_summary` 任务保存为幂等 checkpoint，归档和 legacy 原始消息删除处于同一事务边界。
 
+GirlAI 伙伴增强的结构化回合契约位于 `app.schema.girl_companion`，解析和降级入口位于 `app.services.girlai_companion_service.parse_companion_turn`。当前实现支持 JSON、JSON code fence 和纯文本降级，提供情绪、意图、记忆候选、工具请求、模型上下文和能力降级字段；伙伴编排、记忆授权、工具策略、任务、提醒和语音 API 仍按规格计划逐阶段接入。
+
 Agent 通过 `app.services.agent_state_adapter` 映射 `ProjectSession`/JSON session，并将可序列化 State 保存到统一任务 checkpoint；`persist_agent_state` 同时写入消息事件和生成文件 Artifact。`run_workflow` 接收可选数据库上下文后自动调用该持久化入口，`generate`、同步 `orchestrate`、增量修改 SSE 和 `orchestrate/stream` 均已传入数据库上下文。Workflow 通过 `app.services.workflow_state_adapter` 将 `WorkflowHistory` 映射为统一 task，节点阶段写入 Task Event，生成文件登记到 Artifact。
 
 Agent 模型上下文使用独立的 `agent_model_context` 任务和 Checkpoint revision 序列。工作流启动时将运行时配置版本与角色映射写入 `State.metadata.model_context`，Graph 持久化时同步初始模型上下文；前端根据 SSE `model_info` 事件补充当前模型、调用统计和降级记录，并在流结束后写回后端。会话切换通过用户作用域的兼容映射读取最新完整快照，本地 Pinia 和 localStorage 作为网络异常时的缓存。
