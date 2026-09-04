@@ -108,6 +108,8 @@ GirlAI 伙伴增强的结构化回合契约位于 `app.schema.girl_companion`，
 
 伙伴上下文构建位于 `app.services.girlai_companion_context`，按角色设定、摘要、授权记忆、活动任务、近期消息和当前输入组合上下文，并在超出预算时保留角色指令和当前输入。`app.services.girlai_companion_model.CompanionModelService` 通过 `DynamicModelRouter` 暴露对话、分类、记忆和 fallback 模型选择；模型调用编排和状态写入仍待后续阶段接入。
 
+结构化伙伴 API 位于 `app.api.v1.GirlAi`，通过 `CompanionTurnRequest` 和 `CompanionTurnResponse` 暴露回合状态与能力降级字段。伙伴回合沿用现有 GirlAI 事务边界，成功后同时写入 legacy `chat_histories` 和 unified `sessions/messages`；独立 revision checkpoint、记忆候选持久化、工具审批和任务事件属于后续阶段。
+
 Agent 通过 `app.services.agent_state_adapter` 映射 `ProjectSession`/JSON session，并将可序列化 State 保存到统一任务 checkpoint；`persist_agent_state` 同时写入消息事件和生成文件 Artifact。`run_workflow` 接收可选数据库上下文后自动调用该持久化入口，`generate`、同步 `orchestrate`、增量修改 SSE 和 `orchestrate/stream` 均已传入数据库上下文。Workflow 通过 `app.services.workflow_state_adapter` 将 `WorkflowHistory` 映射为统一 task，节点阶段写入 Task Event，生成文件登记到 Artifact。
 
 Agent 模型上下文使用独立的 `agent_model_context` 任务和 Checkpoint revision 序列。工作流启动时将运行时配置版本与角色映射写入 `State.metadata.model_context`，Graph 持久化时同步初始模型上下文；前端根据 SSE `model_info` 事件补充当前模型、调用统计和降级记录，并在流结束后写回后端。会话切换通过用户作用域的兼容映射读取最新完整快照，本地 Pinia 和 localStorage 作为网络异常时的缓存。

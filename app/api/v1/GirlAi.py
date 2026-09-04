@@ -19,17 +19,24 @@ from sqlalchemy import and_, or_, select
 
 from app.db.database import async_session, get_db
 from app.schema.girl_request import GirlRequest, GirlResponse, HistoryRecord, HistoryResponse
+from app.schema.girl_companion import (
+    CompanionTurnRequest,
+    CompanionTurnResponse,
+)
 from app.db.chat_history_service import ChatHistoryService
 from app.services.girlai_state_adapter import (
     append_conversation_turn,
     clear_messages_for_user,
     delete_messages_for_legacy_ids,
+    ensure_session,
 )
 from app.models.chat_history import CustomCharacter, UserPreference
 from app.utils import call_llm
 from app.agent.models import DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from app.utils.security import verify_token
 from app.utils.aicloud.http_client import call_with_retry
+from app.services.girlai_companion_context import build_companion_context
+from app.services.girlai_companion_service import parse_companion_turn
 
 # 初始化日志
 logger = logging.getLogger(__name__)
@@ -614,6 +621,136 @@ async def generate_message(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="AI 回复生成失败，请稍后重试"
             )
+
+
+@router.post(
+    "/GirlAi/companion/turn",
+    response_model=CompanionTurnResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def generate_companion_turn(
+    body: CompanionTurnRequest,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+) -> CompanionTurnResponse:
+    """Generate a structured GirlAI turn while preserving legacy history."""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+
+    character = await _get_character(body.character_id, int(user_id), db)
+    history_service = ChatHistoryService(db)
+    start_time = time.time()
+
+    async with _max_concurrent_calls:
+        try:
+            recent_messages, history_summary = await history_service.get_lightweight_context(
+                str(user_id), max_messages=MAX_HISTORY_MESSAGES
+            )
+            preference_result = await db.execute(
+                select(UserPreference)
+                .where(UserPreference.user_id == int(user_id))
+                .order_by(UserPreference.confidence.desc())
+                .limit(10)
+            )
+            memories = [
+                {
+                    "key": preference.preference_key,
+                    "value": preference.preference_value,
+                    "status": "confirmed",
+                    "visibility": "companion_allowed",
+                }
+                for preference in preference_result.scalars().all()
+            ]
+            context = build_companion_context(
+                character=character,
+                user_prompt=body.prompt,
+                recent_messages=recent_messages,
+                history_summary=history_summary,
+                memories=memories,
+            )
+            structured_prompt = (
+                f"{context.prompt}\n\n"
+                "请仅返回 JSON。字段包括 assistant_text、emotion、intent、"
+                "memory_candidates、tool_requests、task_suggestion 和 schema_version。"
+            )
+
+            async def llm_call():
+                return await call_llm(
+                    model=character["model"],
+                    prompt=structured_prompt,
+                    system_prompt="",
+                    stream=False,
+                    max_tokens=body.max_tokens or character["max_tokens"],
+                    thinking_budget=64,
+                    temperature=body.temperature if body.temperature is not None else character["temperature"],
+                )
+
+            raw_response = await asyncio.wait_for(
+                call_with_retry(llm_call, max_retries=3), timeout=REQUEST_TIMEOUT
+            )
+            turn = parse_companion_turn(raw_response, character["name"], model=character["model"])
+            session = await ensure_session(db, int(user_id), body.character_id)
+            turn.turn_id = body.turn_id or f"girlai-turn-{int(time.time() * 1000)}"
+            turn.conversation_id = session.id
+            turn.model_context.current_model = character["model"]
+
+            legacy_messages = await history_service.save_conversation_turn(
+                user_id=str(user_id),
+                user_content=body.prompt,
+                assistant_content=turn.assistant_text,
+                model=character["model"],
+                tokens_used=int((raw_response.get("usage") or {}).get("total_tokens") or 0),
+            )
+            await append_conversation_turn(
+                db,
+                int(user_id),
+                body.prompt,
+                turn.assistant_text,
+                model=character["model"],
+                character_id=body.character_id,
+                legacy_message_ids=tuple(str(message.id) for message in legacy_messages),
+            )
+            await db.commit()
+            tokens_used = int((raw_response.get("usage") or {}).get("total_tokens") or 0)
+            return CompanionTurnResponse(
+                **turn.model_dump() if hasattr(turn, "model_dump") else turn.dict(),
+                model=character["model"],
+                tokens_used=tokens_used,
+                state_revision=0,
+            )
+        except asyncio.TimeoutError as error:
+            await db.rollback()
+            raise HTTPException(status_code=504, detail="AI 响应超时，请稍后重试") from error
+        except HTTPException:
+            await db.rollback()
+            raise
+        except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as error:
+            await db.rollback()
+            logger.error("结构化虚拟姬请求异常 | user_id=%s | error=%s", user_id, error)
+            raise HTTPException(status_code=502, detail="AI 服务暂时不可用，请稍后重试") from error
+
+
+@router.get("/GirlAi/companion/state")
+async def get_companion_state(
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the authenticated user's baseline companion state."""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+    session = await ensure_session(db, int(user_id))
+    await db.commit()
+    return {
+        "conversation_id": session.id,
+        "character_id": "gentle",
+        "emotion": {"label": "neutral", "intensity": 0.0, "confidence": 0.0},
+        "memory_authorization": {"enabled": True, "visibility": ["companion_allowed"]},
+        "capabilities": {"text": True, "voice_input": False, "voice_output": False},
+        "state_revision": 0,
+        "degraded_capabilities": [],
+    }
 
 
 @router.get("/GirlAi/history")

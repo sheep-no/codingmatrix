@@ -18,6 +18,8 @@
 - `GET /api/v1/GirlAi/characters/custom/list`：返回当前认证用户拥有的自定义角色。
 - `POST /api/v1/GirlAi/characters/custom`：创建用户自定义角色；角色通过 `custom_<id>` 作为对话请求的 `character_id`。
 - `POST /api/v1/GirlAi`：生成一轮虚拟姬对话。自定义角色按角色 ID 和用户 ID 校验归属；模型调用成功后，legacy `chat_histories` 与 unified `sessions/messages` 在同一事务中写入。
+- `POST /api/v1/GirlAi/companion/turn`：生成结构化虚拟姬伙伴回合，返回助手文本、情绪、意图、记忆候选、工具请求、模型上下文、`conversation_id`、`turn_id`、`state_revision` 和能力降级信息；成功回合同步写入 legacy 与 unified 历史。
+- `GET /api/v1/GirlAi/companion/state`：返回当前认证用户的伙伴会话、基础情绪、记忆授权和文字/语音能力状态。
 - `GET /api/v1/GirlAi/history`：按 `limit` 和 `offset` 查询当前用户历史，结果按最新记录优先返回。
 - `GET /api/v1/GirlAi/history/search`：搜索当前用户历史记录。
 - `DELETE /api/v1/GirlAi/history?all=true`：清空当前用户 legacy 和 unified GirlAI 消息。

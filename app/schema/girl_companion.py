@@ -5,6 +5,16 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+class CompanionTurnRequest(BaseModel):
+    """Request body for a structured companion turn."""
+
+    prompt: str = Field(..., min_length=1, max_length=2000)
+    character_id: str = Field(default="gentle", min_length=1, max_length=128)
+    turn_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=1.5)
+    max_tokens: Optional[int] = Field(default=None, ge=50, le=1000)
+
+
 class EmotionState(BaseModel):
     """Normalized emotion state returned by the companion pipeline."""
 
@@ -61,3 +71,11 @@ class CompanionTurn(BaseModel):
     model_context: ModelContext = Field(default_factory=ModelContext)
     degraded_capabilities: List[str] = Field(default_factory=list)
     schema_version: int = Field(default=1, ge=1)
+
+
+class CompanionTurnResponse(CompanionTurn):
+    """API response with persisted conversation state metadata."""
+
+    model: str = Field(..., max_length=256)
+    tokens_used: int = Field(default=0, ge=0)
+    state_revision: int = Field(default=0, ge=0)
