@@ -25,7 +25,7 @@ from app.models.history import History
 from app.models.task import Task
 from app.models.chat_history import ChatHistory, ChatSummary, CustomCharacter, UserPreference
 from app.models.unified_state import (
-    Session, Message, TaskEvent, Checkpoint, Artifact,
+    Session, Message, SessionEvent, TaskEvent, Checkpoint, Artifact,
     StateCompatibilityMapping, StateRetentionRecord,
     StateReconciliationRecord,
 )

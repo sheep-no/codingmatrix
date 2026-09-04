@@ -18,8 +18,8 @@
 - `GET /api/v1/GirlAi/characters/custom/list`：返回当前认证用户拥有的自定义角色。
 - `POST /api/v1/GirlAi/characters/custom`：创建用户自定义角色；角色通过 `custom_<id>` 作为对话请求的 `character_id`。
 - `POST /api/v1/GirlAi`：生成一轮虚拟姬对话。自定义角色按角色 ID 和用户 ID 校验归属；模型调用成功后，legacy `chat_histories` 与 unified `sessions/messages` 在同一事务中写入。
-- `POST /api/v1/GirlAi/companion/turn`：生成结构化虚拟姬伙伴回合，返回助手文本、情绪、意图、带持久化 ID 的待确认记忆候选、工具请求、模型上下文、`conversation_id`、`turn_id`、`state_revision` 和能力降级信息；成功回合同步写入 legacy 与 unified 历史。
-- `GET /api/v1/GirlAi/companion/state`：返回当前认证用户的伙伴会话、基础情绪、记忆授权和文字/语音能力状态。
+- `POST /api/v1/GirlAi/companion/turn`：生成结构化虚拟姬伙伴回合，返回助手文本、标准化情绪和工作意图、关怀策略、最多三个工作选项、带持久化 ID 的待确认记忆候选、工具请求、模型上下文、`conversation_id`、`turn_id`、`state_revision` 和能力降级信息；成功回合同步写入 legacy 与 unified 历史。同一 `turn_id` 的完成请求直接回放，活跃或失败请求返回 `409`，超过租约的 processing 请求可恢复执行。
+- `GET /api/v1/GirlAi/companion/state`：返回当前认证用户的伙伴会话、最近完成回合的情绪、意图、关怀策略、工作选项、记忆授权、`state_revision` 和文字/语音能力状态。
 - `GET /api/v1/GirlAi/memories?limit=20&offset=0&status=candidate`：分页返回当前用户的活跃记忆，可按 `candidate`、`confirmed` 或 `rejected` 状态筛选。
 - `POST /api/v1/GirlAi/memories/{memory_id}/confirm`：确认并可修订当前用户的候选记忆，设置 `conversation_only` 或 `companion_allowed` 可见性。
 - `DELETE /api/v1/GirlAi/memories/{memory_id}`：软删除当前用户的记忆并立即撤销后续伙伴上下文检索；跨用户资源统一返回 `404`。
@@ -29,6 +29,8 @@
 - `DELETE /api/v1/GirlAi/history?all=false&record_ids=<id>`：删除指定 legacy 记录，并按 `legacy_message_id` 同步清理 unified 消息。
 
 模型供应商异常由 GirlAI 路由转换为通用 `502`，请求事务回滚，供应商原始错误细节不会返回给客户端。
+
+GirlAI 分类阈值由 `GIRLAI_EMOTION_CONFIDENCE_THRESHOLD` 和 `GIRLAI_INTENT_CONFIDENCE_THRESHOLD` 配置，默认均为 `0.6`；单次分类超时由 `GIRLAI_CLASSIFICATION_TIMEOUT_SECONDS` 配置，回合预留租约由 `GIRLAI_TURN_RESERVATION_TIMEOUT_SECONDS` 配置。低置信度结果保留原始标签和置信度，同时对外采用 `neutral` 情绪或 `unknown` 意图。
 
 ## Agent API
 
@@ -158,7 +160,7 @@ AICloud 适配器入口为 `ensure_session`、`append_legacy_message` 和 `list_
 
 GirlAI 适配器入口为 `ensure_session`、`append_conversation_turn`、`delete_messages_for_legacy_ids`、`clear_messages_for_user`、`list_messages_for_user` 和 `save_summary_checkpoint`，角色标识、legacy 消息关联和摘要来源保存在统一状态 metadata 或 checkpoint state 中。
 
-GirlAI 结构化伙伴回合契约位于 `app.schema.girl_companion`。`parse_companion_turn()` 将供应商响应规范化为版本化回合；无法解析结构化 JSON 时保留助手文本，并返回 `structured_output`、`emotion` 和 `intent` 能力降级标记。伙伴 API 和持久化动作仍按 `.monkeycode/specs/2026-09-03-girlai-companion-enhancement/` 的实施计划推进。
+GirlAI 结构化伙伴回合契约位于 `app.schema.girl_companion`。`parse_companion_turn()` 将供应商响应规范化为版本化回合；无法解析结构化 JSON 时保留助手文本，并返回 `structured_output`、`emotion` 和 `intent` 能力降级标记。`SessionEvent` 使用会话内单调递增 sequence 和唯一 `turn_id` 保存 processing、completed、degraded 或 failed 回合；内部 `reservation_token` 仅用于 lease owner fencing，响应不会暴露该字段；`state_revision` 对应事件 sequence。
 
 AICloud 与 GirlAI 的旧历史读取回归测试覆盖兼容映射复用、缺失映射创建、用户归属隔离、消息顺序和读取数量限制。
 

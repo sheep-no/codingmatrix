@@ -47,7 +47,7 @@ PYTHONPATH=/workspace REDIS_URL=redis://127.0.0.1:6379/0 celery -A app.celery_ap
 
 API 路由契约 E2E 已完成静态路径校准，当前结果为 `3 passed`、`2 skipped`。认证 E2E 使用 `TEST_ADMIN_EMAIL` 和 `TEST_ADMIN_PASSWORD`，默认测试邮箱为 `admin_test@example.com`；固定账号未设置密码时认证用例会明确跳过。完整浏览器验收已通过一次性本地测试账号完成。
 
-GirlAI 本轮验证结果：后端专项回归 `40 passed`，前端 GirlAI API 测试 `2 passed`；使用现有注册账户的真实登录、角色列表、GirlAI 对话、历史查询和双写保存均通过。真实对话响应耗时约 4.6 秒并返回 HTTP 200。模型供应商鉴权失败时返回通用 HTTP 502，失败请求不会写入历史。
+GirlAI 情绪与意图增强专项回归覆盖结构化回合、分类阈值、关怀策略、记忆、上下文、幂等预留、过期租约接管、owner fencing、首次会话唯一性、失败事件、统一状态和数据库服务。Alembic head 为 `20260904_girlai_turn_fencing`。真实 HTTP 已验证供应商鉴权失败时返回通用 HTTP 502，并将脱敏后的 `companion.turn.failed` 写入统一事件；当前测试供应商凭据返回 401，高置信度真实模型成功链路待凭据恢复后复验。
 
 ## 验证命令
 
@@ -124,6 +124,7 @@ NODE_OPTIONS=--max-old-space-size=1800 npm run build
 - GirlAI 伙伴上下文和模型选择修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_companion_model.py -q`。
 - GirlAI 伙伴 API 修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_api.py tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_companion_model.py tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py -q`。
 - GirlAI 伙伴记忆修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_memory.py tests/unit/test_girlai_companion_api.py tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_companion_model.py tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py -q`。
+- GirlAI 情绪、意图和统一回合事件修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_api.py tests/unit/test_girlai_state_adapter.py tests/unit/test_girlai_companion_classifier.py tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_memory.py tests/unit/test_girlai_companion_model.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_refactor.py tests/unit/test_unified_state_models.py tests/unit/test_unified_state_service.py tests/unit/test_database_services.py -q`。
 - Agent 模型上下文只保存模型 ID、配置版本、调用统计和降级记录；模型 Key 对应的供应商凭据继续由现有 Key Store 管理。修改模型上下文契约后同时运行后端 `test_model_context_service.py` 与前端 `agentSession.test.js`、`project.test.js`。
 - 验证节点通过 `State.metadata.required_validation_scopes` 声明 `local_runtime` 或 `local_e2e`；云端验证保持 `cloud_syntax`，本地结果按 scope 回传。
 - 本地结果协议使用 `validation_scope`、`status` 和 `source=local`；`local_result_to_delta()` 负责映射为内部字段并执行 task/session/revision/schema 校验。StateReducer 按验证结果 `event_id` 去重，重复回传保持状态和 revision 不变。

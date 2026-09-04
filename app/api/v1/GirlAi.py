@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from typing import List, Literal, Optional, Dict, Any
 from datetime import datetime
 
@@ -29,10 +30,14 @@ from app.schema.girl_companion import (
 )
 from app.db.chat_history_service import ChatHistoryService
 from app.services.girlai_state_adapter import (
+    append_companion_turn_state,
     append_conversation_turn,
     clear_messages_for_user,
     delete_messages_for_legacy_ids,
     ensure_session,
+    fail_companion_turn_state,
+    get_latest_companion_turn_state,
+    reserve_companion_turn_state,
 )
 from app.models.chat_history import CustomCharacter, UserPreference
 from app.utils import call_llm
@@ -40,6 +45,10 @@ from app.agent.models import DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from app.utils.security import verify_token
 from app.utils.aicloud.http_client import call_with_retry
 from app.services.girlai_companion_context import build_companion_context
+from app.services.girlai_companion_classifier import (
+    apply_companion_policy,
+    classify_companion_input,
+)
 from app.services.girlai_companion_service import parse_companion_turn
 from app.services.girlai_companion_memory import (
     CompanionMemoryNotFoundError,
@@ -53,6 +62,35 @@ router = APIRouter()
 
 # 并发限制
 _max_concurrent_calls = asyncio.Semaphore(10)
+
+
+async def _record_companion_turn_failure(
+    db: AsyncSession,
+    user_id: int,
+    session_id: Optional[str],
+    turn_id: str,
+    error_type: str,
+    reservation_token: Optional[str],
+) -> None:
+    if session_id is None:
+        return
+    try:
+        await fail_companion_turn_state(
+            db,
+            user_id,
+            session_id,
+            turn_id,
+            error_type,
+            reservation_token,
+        )
+        await db.commit()
+    except Exception as persistence_error:
+        await db.rollback()
+        logger.warning(
+            "GirlAI 失败事件写入异常 | user_id=%s | error_type=%s",
+            user_id,
+            type(persistence_error).__name__,
+        )
 
 # 角色配置
 
@@ -637,9 +675,37 @@ async def generate_companion_turn(
     character = await _get_character(body.character_id, int(user_id), db)
     history_service = ChatHistoryService(db)
     start_time = time.time()
+    session_id = None
+    reserved_turn_id = body.turn_id or f"girlai-turn-{uuid.uuid4()}"
+    reservation_created = False
+    reservation_token = None
 
     async with _max_concurrent_calls:
         try:
+            session = await ensure_session(db, int(user_id), body.character_id)
+            session_id = session.id
+            reservation, reservation_created = await reserve_companion_turn_state(
+                db,
+                int(user_id),
+                session_id,
+                reserved_turn_id,
+            )
+            if not reservation_created:
+                if reservation.event_type in {
+                    "companion.turn.completed",
+                    "companion.turn.degraded",
+                }:
+                    replay = dict(reservation.payload_json)
+                    replay["turn_id"] = reserved_turn_id
+                    replay["conversation_id"] = session_id
+                    replay["model"] = replay.get("model") or character["model"]
+                    replay["tokens_used"] = int(replay.get("tokens_used") or 0)
+                    replay["state_revision"] = reservation.sequence
+                    return CompanionTurnResponse(**replay)
+                raise HTTPException(status_code=409, detail="该对话回合正在处理或已失败")
+            reservation_token = reservation.reservation_token
+            await db.commit()
+
             recent_messages, history_summary = await history_service.get_lightweight_context(
                 str(user_id), max_messages=MAX_HISTORY_MESSAGES
             )
@@ -663,8 +729,11 @@ async def generate_companion_turn(
             )
             structured_prompt = (
                 f"{context.prompt}\n\n"
-                "请仅返回 JSON。字段包括 assistant_text、emotion、intent、"
-                "memory_candidates、tool_requests、task_suggestion 和 schema_version。"
+                "请仅返回 JSON，严格使用以下字段类型："
+                "assistant_text 为字符串；emotion 为包含 label、intensity、confidence 的对象；"
+                "intent 为包含 label、confidence 的对象；memory_candidates 为对象数组，"
+                "每项包含 key、value、confidence、source；tool_requests 为对象数组；"
+                "task_suggestion 为对象或 null；schema_version 为 1。"
             )
 
             async def llm_call():
@@ -682,6 +751,8 @@ async def generate_companion_turn(
                 call_with_retry(llm_call, max_retries=3), timeout=REQUEST_TIMEOUT
             )
             turn = parse_companion_turn(raw_response, character["name"], model=character["model"])
+            classification = await classify_companion_input(body.prompt)
+            turn = apply_companion_policy(turn, classification)
             persisted_candidates = await memory_service.create_candidates(
                 int(user_id), turn.memory_candidates
             )
@@ -694,9 +765,8 @@ async def generate_companion_turn(
             turn.memory_candidates = [
                 candidate for candidate in turn.memory_candidates if candidate.id is not None
             ]
-            session = await ensure_session(db, int(user_id), body.character_id)
-            turn.turn_id = body.turn_id or f"girlai-turn-{int(time.time() * 1000)}"
-            turn.conversation_id = session.id
+            turn.turn_id = reserved_turn_id
+            turn.conversation_id = session_id
             turn.model_context.current_model = character["model"]
 
             legacy_messages = await history_service.save_conversation_turn(
@@ -715,23 +785,50 @@ async def generate_companion_turn(
                 character_id=body.character_id,
                 legacy_message_ids=tuple(str(message.id) for message in legacy_messages),
             )
+            state_event = await append_companion_turn_state(
+                db,
+                int(user_id),
+                session_id,
+                turn,
+                model=character["model"],
+                tokens_used=int((raw_response.get("usage") or {}).get("total_tokens") or 0),
+                reservation_token=reservation_token,
+            )
             await db.commit()
             tokens_used = int((raw_response.get("usage") or {}).get("total_tokens") or 0)
             return CompanionTurnResponse(
                 **turn.model_dump() if hasattr(turn, "model_dump") else turn.dict(),
                 model=character["model"],
                 tokens_used=tokens_used,
-                state_revision=0,
+                state_revision=state_event.sequence,
             )
         except asyncio.TimeoutError as error:
             await db.rollback()
+            await _record_companion_turn_failure(
+                db, int(user_id), session_id, reserved_turn_id, type(error).__name__, reservation_token
+            )
             raise HTTPException(status_code=504, detail="AI 响应超时，请稍后重试") from error
-        except HTTPException:
+        except HTTPException as error:
             await db.rollback()
+            if reservation_created:
+                await _record_companion_turn_failure(
+                    db, int(user_id), session_id, reserved_turn_id, type(error).__name__, reservation_token
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail="AI 服务暂时不可用，请稍后重试",
+                ) from error
             raise
         except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as error:
             await db.rollback()
-            logger.error("结构化虚拟姬请求异常 | user_id=%s | error=%s", user_id, error)
+            await _record_companion_turn_failure(
+                db, int(user_id), session_id, reserved_turn_id, type(error).__name__, reservation_token
+            )
+            logger.error(
+                "结构化虚拟姬请求异常 | user_id=%s | error_type=%s",
+                user_id,
+                type(error).__name__,
+            )
             raise HTTPException(status_code=502, detail="AI 服务暂时不可用，请稍后重试") from error
 
 
@@ -745,15 +842,24 @@ async def get_companion_state(
     if not user_id:
         raise HTTPException(status_code=401, detail="无效的用户令牌")
     session = await ensure_session(db, int(user_id))
+    state_event = await get_latest_companion_turn_state(db, int(user_id), session.id)
     await db.commit()
+    payload = state_event.payload_json if state_event else {}
     return {
         "conversation_id": session.id,
         "character_id": "gentle",
-        "emotion": {"label": "neutral", "intensity": 0.0, "confidence": 0.0},
+        "emotion": payload.get(
+            "emotion",
+            {"label": "neutral", "intensity": 0.0, "confidence": 0.0},
+        ),
+        "intent": payload.get("intent", {"label": "unknown", "confidence": 0.0}),
+        "care_required": payload.get("care_required", False),
+        "response_style": payload.get("response_style", "standard"),
+        "work_options": payload.get("work_options", []),
         "memory_authorization": {"enabled": True, "visibility": ["companion_allowed"]},
         "capabilities": {"text": True, "voice_input": False, "voice_output": False},
-        "state_revision": 0,
-        "degraded_capabilities": [],
+        "state_revision": state_event.sequence if state_event else 0,
+        "degraded_capabilities": payload.get("degraded_capabilities", []),
     }
 
 

@@ -6,6 +6,7 @@ import re
 from typing import Any, Mapping, Optional
 
 from app.schema.girl_companion import CompanionTurn
+from app.services.girlai_companion_classifier import normalize_emotion, normalize_intent
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,10 @@ def parse_companion_turn(
     model_context.setdefault("calls", 1)
     model_context.setdefault("fallback_used", False)
     payload["assistant_text"] = assistant_text.strip()
+    payload["emotion"] = normalize_emotion(payload.get("emotion"))
+    payload["intent"] = normalize_intent(payload.get("intent"))
+    payload["memory_candidates"] = payload.get("memory_candidates") or []
+    payload["tool_requests"] = payload.get("tool_requests") or []
     payload["model_context"] = model_context
     payload["schema_version"] = payload.get("schema_version", 1)
 

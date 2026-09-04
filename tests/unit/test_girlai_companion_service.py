@@ -7,7 +7,7 @@ def test_parse_structured_companion_turn_with_defaults():
             "choices": [
                 {
                     "message": {
-                        "content": '{"assistant_text":"我来帮你拆解任务。","emotion":{"label":"focused"}}'
+                        "content": '{"assistant_text":"我来帮你拆解任务。","emotion":{"label":"focused","confidence":0.9}}'
                     }
                 }
             ],
@@ -53,13 +53,13 @@ def test_fenced_json_response_is_parsed():
     assert turn.intent.confidence == 0.8
 
 
-def test_invalid_structured_fields_fall_back_to_text():
+def test_out_of_range_emotion_values_are_normalized():
     turn = parse_companion_turn(
         {
             "choices": [
                 {
                     "message": {
-                        "content": '{"assistant_text":"继续推进。","emotion":{"intensity":4}}'
+                        "content": '{"assistant_text":"继续推进。","emotion":{"label":"专注","intensity":4,"confidence":0.9}}'
                     }
                 }
             ]
@@ -67,4 +67,5 @@ def test_invalid_structured_fields_fall_back_to_text():
     )
 
     assert turn.assistant_text == "继续推进。"
-    assert turn.degraded_capabilities == ["structured_output"]
+    assert turn.emotion.label == "focused"
+    assert turn.emotion.intensity == 1.0

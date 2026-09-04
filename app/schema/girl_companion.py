@@ -6,6 +6,31 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
+EmotionLabel = Literal[
+    "neutral",
+    "happy",
+    "sad",
+    "anxious",
+    "stressed",
+    "tired",
+    "angry",
+    "overwhelmed",
+    "focused",
+]
+IntentLabel = Literal[
+    "unknown",
+    "chat",
+    "acknowledge",
+    "task_planning",
+    "task_execution",
+    "task_review",
+    "task_blocked",
+    "rest_request",
+    "help_request",
+    "remember_preference",
+]
+
+
 class CompanionTurnRequest(BaseModel):
     """Request body for a structured companion turn."""
 
@@ -19,16 +44,20 @@ class CompanionTurnRequest(BaseModel):
 class EmotionState(BaseModel):
     """Normalized emotion state returned by the companion pipeline."""
 
-    label: str = Field(default="neutral", min_length=1, max_length=64)
+    label: EmotionLabel = "neutral"
     intensity: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    raw_label: Optional[str] = Field(default=None, max_length=64)
+    low_confidence: bool = False
 
 
 class IntentState(BaseModel):
     """Normalized work intent returned by the companion pipeline."""
 
-    label: str = Field(default="unknown", min_length=1, max_length=64)
+    label: IntentLabel = "unknown"
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    raw_label: Optional[str] = Field(default=None, max_length=64)
+    low_confidence: bool = False
 
 
 class MemoryCandidate(BaseModel):
@@ -86,6 +115,7 @@ class ModelContext(BaseModel):
     """Safe model execution metadata; credentials are excluded by contract."""
 
     current_model: Optional[str] = Field(default=None, max_length=256)
+    classification_model: Optional[str] = Field(default=None, max_length=256)
     current_agent: Optional[str] = Field(default=None, max_length=128)
     calls: int = Field(default=0, ge=0)
     fallback_used: bool = False
@@ -100,6 +130,9 @@ class CompanionTurn(BaseModel):
     assistant_text: str = Field(..., min_length=1, max_length=20000)
     emotion: EmotionState = Field(default_factory=EmotionState)
     intent: IntentState = Field(default_factory=IntentState)
+    care_required: bool = False
+    response_style: Literal["standard", "neutral", "care"] = "standard"
+    work_options: List[str] = Field(default_factory=list, max_length=3)
     memory_candidates: List[MemoryCandidate] = Field(default_factory=list)
     tool_requests: List[ToolRequest] = Field(default_factory=list)
     task_suggestion: Optional[Dict[str, Any]] = None
