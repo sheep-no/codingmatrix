@@ -47,7 +47,7 @@ PYTHONPATH=/workspace REDIS_URL=redis://127.0.0.1:6379/0 celery -A app.celery_ap
 
 API 路由契约 E2E 已完成静态路径校准，当前结果为 `3 passed`、`2 skipped`。认证 E2E 使用 `TEST_ADMIN_EMAIL` 和 `TEST_ADMIN_PASSWORD`，默认测试邮箱为 `admin_test@example.com`；固定账号未设置密码时认证用例会明确跳过。完整浏览器验收已通过一次性本地测试账号完成。
 
-GirlAI 情绪与意图增强专项回归覆盖结构化回合、分类阈值、关怀策略、记忆、上下文、幂等预留、过期租约接管、owner fencing、首次会话唯一性、失败事件、统一状态和数据库服务，当前结果为 `81 passed`。Alembic head 为 `20260904_girlai_turn_fencing`。真实 HTTP 已验证主模型调用、分类 fallback、状态恢复和同一 `turn_id` 幂等回放成功；分类 reasoning 参数兼容、内部推理文本过滤和降级标记修复已通过定向单元测试，更新后真实供应商复验需要重新向服务进程注入临时凭据。
+GirlAI 情绪与意图增强专项回归覆盖结构化回合、分类阈值、关怀策略、记忆、上下文、幂等预留、过期租约接管、owner fencing、首次会话唯一性、失败事件、统一状态和数据库服务，当前结果为 `81 passed`。Alembic head 为 `20260904_girlai_turn_fencing`。更新后真实 HTTP 已验证主模型与分类模型调用、状态恢复和同一 `turn_id` 幂等回放成功；分类模型使用正数 `thinking_budget` 直接完成识别，推理文本过滤生效，响应仅保留实际存在的 `structured_output` 降级标记。
 
 ## 验证命令
 
