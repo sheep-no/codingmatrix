@@ -186,6 +186,7 @@ REQUEST_TIMEOUT = 30.0
 MAX_HISTORY_MESSAGES = 10
 COMPANION_STRUCTURED_MIN_TOKENS = 512
 COMPANION_STRUCTURED_MAX_TEMPERATURE = 0.3
+COMPANION_REQUEST_TIMEOUT = 60.0
 COMPANION_STRUCTURED_SYSTEM_PROMPT = """你负责生成 GirlAI 伙伴回合。仅输出一个合法 JSON 对象，不要输出 Markdown、解释或思考过程。严格使用以下结构：
 {"assistant_text":"给用户的回复","emotion":{"label":"neutral","intensity":0.0,"confidence":0.0},"intent":{"label":"unknown","confidence":0.0},"memory_candidates":[],"tool_requests":[],"task_suggestion":null,"schema_version":1}
 assistant_text 必须是非空字符串。emotion、intent 必须是对象。memory_candidates 每项仅包含 key、value、confidence、source。tool_requests 每项仅包含 name、arguments、reason。"""
@@ -753,7 +754,7 @@ async def generate_companion_turn(
                 )
 
             raw_response = await asyncio.wait_for(
-                call_with_retry(llm_call, max_retries=3), timeout=REQUEST_TIMEOUT
+                call_with_retry(llm_call, max_retries=3), timeout=COMPANION_REQUEST_TIMEOUT
             )
             turn = parse_companion_turn(raw_response, character["name"], model=character["model"])
             classification = await classify_companion_input(body.prompt)

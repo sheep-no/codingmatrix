@@ -104,6 +104,7 @@ async def test_companion_turn_returns_structured_response_and_persists_both_hist
     assert llm.await_args.kwargs["temperature"] == 0.3
     assert "仅输出一个合法 JSON 对象" in llm.await_args.kwargs["system_prompt"]
     assert "请帮我规划" in llm.await_args.kwargs["prompt"]
+    assert girl_module.COMPANION_REQUEST_TIMEOUT == 60.0
     history.save_conversation_turn.assert_awaited_once()
     append.assert_awaited_once()
     append_state.assert_awaited_once()

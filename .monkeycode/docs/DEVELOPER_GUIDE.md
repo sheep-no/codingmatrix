@@ -47,7 +47,7 @@ PYTHONPATH=/workspace REDIS_URL=redis://127.0.0.1:6379/0 celery -A app.celery_ap
 
 API 路由契约 E2E 已完成静态路径校准，当前结果为 `3 passed`、`2 skipped`。认证 E2E 使用 `TEST_ADMIN_EMAIL` 和 `TEST_ADMIN_PASSWORD`，默认测试邮箱为 `admin_test@example.com`；固定账号未设置密码时认证用例会明确跳过。完整浏览器验收已通过一次性本地测试账号完成。
 
-GirlAI 情绪与意图增强专项回归覆盖结构化回合、分类阈值、关怀策略、记忆、上下文、幂等预留、过期租约接管、owner fencing、首次会话唯一性、失败事件、统一状态和数据库服务，当前结果为 `82 passed`。Alembic head 为 `20260904_girlai_turn_fencing`。真实 HTTP 已验证主模型与分类模型调用、状态恢复和同一 `turn_id` 幂等回放成功；分类模型使用正数 `thinking_budget` 直接完成识别，推理文本过滤生效。随后增加的嵌入 JSON 提取、512 token 最低结构化输出预算和温度限制已通过定向测试，仍需重启后使用临时供应商凭据确认 `structured_output` 降级标记消失。
+GirlAI 情绪与意图增强专项回归覆盖结构化回合、分类阈值、关怀策略、记忆、上下文、幂等预留、过期租约接管、owner fencing、首次会话唯一性、失败事件、统一状态和数据库服务，当前结果为 `82 passed`。Alembic head 为 `20260904_girlai_turn_fencing`。真实 HTTP 已验证主模型与分类模型调用、状态恢复和同一 `turn_id` 幂等回放成功；分类模型使用正数 `thinking_budget` 直接完成识别，推理文本过滤生效。嵌入 JSON 提取、512 token 最低结构化输出预算、温度限制和 60 秒伙伴请求超时已通过真实供应商复验：主回合、状态读取和幂等回放均返回 `200`，`structured_output` 降级标记消失，回放响应与原响应一致，状态版本保持一致。
 
 ## 验证命令
 
