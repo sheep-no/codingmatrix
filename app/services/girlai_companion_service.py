@@ -32,13 +32,23 @@ def _response_content(response: Mapping[str, Any]) -> str:
 
 
 def _parse_json_content(content: str) -> Optional[dict[str, Any]]:
-    candidate = content.strip()
+    candidate = _THINK_BLOCK_RE.sub("", content).strip()
     fenced = _JSON_FENCE_RE.match(candidate)
     if fenced:
         candidate = fenced.group(1).strip()
     try:
         parsed = json.loads(candidate)
     except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        for index, character in enumerate(candidate):
+            if character != "{":
+                continue
+            try:
+                parsed, _ = decoder.raw_decode(candidate[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
         return None
     return parsed if isinstance(parsed, dict) else None
 

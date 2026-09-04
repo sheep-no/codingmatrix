@@ -184,6 +184,11 @@ DEFAULT_TEMPERATURE = 0.8
 DEFAULT_MAX_TOKENS = 180
 REQUEST_TIMEOUT = 30.0
 MAX_HISTORY_MESSAGES = 10
+COMPANION_STRUCTURED_MIN_TOKENS = 512
+COMPANION_STRUCTURED_MAX_TEMPERATURE = 0.3
+COMPANION_STRUCTURED_SYSTEM_PROMPT = """你负责生成 GirlAI 伙伴回合。仅输出一个合法 JSON 对象，不要输出 Markdown、解释或思考过程。严格使用以下结构：
+{"assistant_text":"给用户的回复","emotion":{"label":"neutral","intensity":0.0,"confidence":0.0},"intent":{"label":"unknown","confidence":0.0},"memory_candidates":[],"tool_requests":[],"task_suggestion":null,"schema_version":1}
+assistant_text 必须是非空字符串。emotion、intent 必须是对象。memory_candidates 每项仅包含 key、value、confidence、source。tool_requests 每项仅包含 name、arguments、reason。"""
 
 # 角色 SVG 头像（内联，无需外部文件）
 CHARACTER_AVATARS: Dict[str, str] = {
@@ -727,24 +732,24 @@ async def generate_companion_turn(
                 history_summary=history_summary,
                 memories=memories,
             )
-            structured_prompt = (
-                f"{context.prompt}\n\n"
-                "请仅返回 JSON，严格使用以下字段类型："
-                "assistant_text 为字符串；emotion 为包含 label、intensity、confidence 的对象；"
-                "intent 为包含 label、confidence 的对象；memory_candidates 为对象数组，"
-                "每项包含 key、value、confidence、source；tool_requests 为对象数组；"
-                "task_suggestion 为对象或 null；schema_version 为 1。"
-            )
-
             async def llm_call():
+                requested_temperature = (
+                    body.temperature if body.temperature is not None else character["temperature"]
+                )
                 return await call_llm(
                     model=character["model"],
-                    prompt=structured_prompt,
-                    system_prompt="",
+                    prompt=context.prompt,
+                    system_prompt=COMPANION_STRUCTURED_SYSTEM_PROMPT,
                     stream=False,
-                    max_tokens=body.max_tokens or character["max_tokens"],
+                    max_tokens=max(
+                        body.max_tokens or character["max_tokens"],
+                        COMPANION_STRUCTURED_MIN_TOKENS,
+                    ),
                     thinking_budget=64,
-                    temperature=body.temperature if body.temperature is not None else character["temperature"],
+                    temperature=min(
+                        requested_temperature,
+                        COMPANION_STRUCTURED_MAX_TEMPERATURE,
+                    ),
                 )
 
             raw_response = await asyncio.wait_for(

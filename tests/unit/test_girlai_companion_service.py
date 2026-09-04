@@ -114,6 +114,28 @@ def test_fenced_json_response_is_parsed():
     assert turn.intent.confidence == 0.8
 
 
+def test_json_after_reasoning_text_is_parsed():
+    turn = parse_companion_turn(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "<think>分析用户输入</think>\n"
+                            "结果如下：\n"
+                            '{"assistant_text":"先确认阻塞点。","schema_version":1}\n'
+                            "以上是结构化结果。"
+                        )
+                    }
+                }
+            ]
+        }
+    )
+
+    assert turn.assistant_text == "先确认阻塞点。"
+    assert turn.degraded_capabilities == []
+
+
 def test_out_of_range_emotion_values_are_normalized():
     turn = parse_companion_turn(
         {

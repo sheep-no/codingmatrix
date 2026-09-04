@@ -104,7 +104,7 @@ AICloud 通过 `app.services.aicloud_state_adapter` 将旧 `aicloud_sessions/aic
 
 GirlAI 通过 `app.services.girlai_state_adapter` 将用户维度的 `chat_histories` 映射为稳定的 `user:{user_id}` 统一会话，每轮历史写入统一 user/assistant 消息；统一消息 metadata 保存 `legacy_message_id`，支持选择性删除时同步清理。`ChatSummary` 通过统一 `girlai_summary` 任务保存为幂等 checkpoint，归档和 legacy 原始消息删除处于同一事务边界。
 
-GirlAI 伙伴增强的结构化回合契约位于 `app.schema.girl_companion`，解析和降级入口位于 `app.services.girlai_companion_service.parse_companion_turn`。当前实现支持 JSON、JSON code fence 和纯文本降级，提供情绪、意图、记忆候选、工具请求、模型上下文和能力降级字段。`app.services.girlai_companion_classifier` 通过 `DynamicModelRouter` 选择轻量分类模型和 fallback，将输出归一到有限情绪与工作意图标签；低置信度结果使用中性策略，需要关怀的情绪会返回关怀语气和最多三个工作选项。分类失败保留文字主链路，并记录情绪与意图分类降级。工具策略、任务、提醒和语音 API 按规格计划逐阶段接入。
+GirlAI 伙伴增强的结构化回合契约位于 `app.schema.girl_companion`，解析和降级入口位于 `app.services.girlai_companion_service.parse_companion_turn`。当前实现支持 JSON、JSON code fence、推理文本后嵌入的完整 JSON 对象和纯文本降级；结构化生成使用独立系统模板、至少 512 个输出 token 和最高 0.3 的温度，提供情绪、意图、记忆候选、工具请求、模型上下文和能力降级字段。`app.services.girlai_companion_classifier` 通过 `DynamicModelRouter` 选择轻量分类模型和 fallback，将输出归一到有限情绪与工作意图标签；低置信度结果使用中性策略，需要关怀的情绪会返回关怀语气和最多三个工作选项。分类失败保留文字主链路，并记录情绪与意图分类降级。工具策略、任务、提醒和语音 API 按规格计划逐阶段接入。
 
 伙伴上下文构建位于 `app.services.girlai_companion_context`，按角色设定、摘要、授权记忆、活动任务、近期消息和当前输入组合上下文，并在超出预算时保留角色指令和当前输入。`app.services.girlai_companion_model.CompanionModelService` 通过 `DynamicModelRouter` 暴露对话、分类、记忆和 fallback 模型选择；模型调用编排和状态写入仍待后续阶段接入。
 

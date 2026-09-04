@@ -74,11 +74,16 @@ async def test_companion_turn_returns_structured_response_and_persists_both_hist
         ),
     )
 
-    async def retry(callback, max_retries=3):
-        return {
+    llm = AsyncMock(
+        return_value={
             "choices": [{"message": {"content": '{"assistant_text":"我来帮你。","intent":{"label":"planning"}}'}}],
             "usage": {"total_tokens": 9},
         }
+    )
+    monkeypatch.setattr(girl_module, "call_llm", llm)
+
+    async def retry(callback, max_retries=3):
+        return await callback()
 
     monkeypatch.setattr(girl_module, "call_with_retry", retry)
 
@@ -95,6 +100,10 @@ async def test_companion_turn_returns_structured_response_and_persists_both_hist
     assert response.emotion.label == "focused"
     assert response.tokens_used == 9
     assert response.state_revision == 1
+    assert llm.await_args.kwargs["max_tokens"] == 512
+    assert llm.await_args.kwargs["temperature"] == 0.3
+    assert "仅输出一个合法 JSON 对象" in llm.await_args.kwargs["system_prompt"]
+    assert "请帮我规划" in llm.await_args.kwargs["prompt"]
     history.save_conversation_turn.assert_awaited_once()
     append.assert_awaited_once()
     append_state.assert_awaited_once()
