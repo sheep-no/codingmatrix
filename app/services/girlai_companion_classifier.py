@@ -230,7 +230,7 @@ async def classify_companion_input(
                     system_prompt="",
                     stream=False,
                     max_tokens=180,
-                    thinking_budget=0,
+                    thinking_budget=64,
                     temperature=0.0,
                 ),
                 timeout=settings.GIRLAI_CLASSIFICATION_TIMEOUT_SECONDS,
@@ -266,8 +266,21 @@ def apply_companion_policy(turn: CompanionTurn, result: ClassificationResult) ->
     turn.model_context.fallback_history = list(
         dict.fromkeys([*turn.model_context.fallback_history, *result.fallback_history])
     )
+    degraded_capabilities = turn.degraded_capabilities
+    if not result.parse_failed:
+        resolved_capabilities = {
+            "emotion",
+            "intent",
+            "emotion_classification",
+            "intent_classification",
+        }
+        degraded_capabilities = [
+            capability
+            for capability in degraded_capabilities
+            if capability not in resolved_capabilities
+        ]
     turn.degraded_capabilities = list(
-        dict.fromkeys([*turn.degraded_capabilities, *result.degraded_capabilities])
+        dict.fromkeys([*degraded_capabilities, *result.degraded_capabilities])
     )
     if turn.emotion.low_confidence:
         turn.degraded_capabilities = list(

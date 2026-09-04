@@ -83,6 +83,10 @@ async def test_classifier_uses_fallback_model():
     assert result.fallback_history == ["primary-model"]
     assert result.calls == 2
     assert result.intent.label == "task_execution"
+    assert all(
+        call.kwargs["thinking_budget"] > 0
+        for call in caller.await_args_list
+    )
 
 
 @pytest.mark.asyncio
@@ -108,7 +112,10 @@ async def test_classifier_failure_keeps_neutral_state():
 
 
 def test_care_policy_keeps_text_and_adds_work_options():
-    turn = CompanionTurn(assistant_text="我来陪你处理。")
+    turn = CompanionTurn(
+        assistant_text="我来陪你处理。",
+        degraded_capabilities=["structured_output", "emotion", "intent"],
+    )
     result = ClassificationResult(
         emotion=EmotionState(label="stressed", intensity=0.8, confidence=0.9),
         intent=IntentState(label="task_blocked", confidence=0.9),
@@ -124,3 +131,4 @@ def test_care_policy_keeps_text_and_adds_work_options():
     assert "我来陪你处理" in updated.assistant_text
     assert "你可以选择" in updated.assistant_text
     assert updated.model_context.classification_model == "classifier"
+    assert updated.degraded_capabilities == ["structured_output"]

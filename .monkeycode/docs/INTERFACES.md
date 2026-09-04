@@ -160,7 +160,7 @@ AICloud 适配器入口为 `ensure_session`、`append_legacy_message` 和 `list_
 
 GirlAI 适配器入口为 `ensure_session`、`append_conversation_turn`、`delete_messages_for_legacy_ids`、`clear_messages_for_user`、`list_messages_for_user` 和 `save_summary_checkpoint`，角色标识、legacy 消息关联和摘要来源保存在统一状态 metadata 或 checkpoint state 中。
 
-GirlAI 结构化伙伴回合契约位于 `app.schema.girl_companion`。`parse_companion_turn()` 将供应商响应规范化为版本化回合；无法解析结构化 JSON 时保留助手文本，并返回 `structured_output`、`emotion` 和 `intent` 能力降级标记。`SessionEvent` 使用会话内单调递增 sequence 和唯一 `turn_id` 保存 processing、completed、degraded 或 failed 回合；内部 `reservation_token` 仅用于 lease owner fencing，响应不会暴露该字段；`state_revision` 对应事件 sequence。
+GirlAI 结构化伙伴回合契约位于 `app.schema.girl_companion`。`parse_companion_turn()` 将供应商响应规范化为版本化回合；无法解析结构化 JSON 时保留安全的助手文本，并返回 `structured_output`、`emotion` 和 `intent` 能力降级标记。解析器会移除 `<think>` 块，并在文本含内部推理模板标记或结构化字段校验失败时使用通用降级回复。独立分类成功后会清除主模型遗留的情绪和意图降级标记；分类请求使用正数 `thinking_budget` 兼容 reasoning 模型。`SessionEvent` 使用会话内单调递增 sequence 和唯一 `turn_id` 保存 processing、completed、degraded 或 failed 回合；内部 `reservation_token` 仅用于 lease owner fencing，响应不会暴露该字段；`state_revision` 对应事件 sequence。
 
 AICloud 与 GirlAI 的旧历史读取回归测试覆盖兼容映射复用、缺失映射创建、用户归属隔离、消息顺序和读取数量限制。
 

@@ -11,6 +11,14 @@ from app.services.girlai_companion_classifier import normalize_emotion, normaliz
 logger = logging.getLogger(__name__)
 
 _JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.IGNORECASE | re.DOTALL)
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.IGNORECASE | re.DOTALL)
+_REASONING_MARKERS = (
+    "分析用户输入",
+    "我需要：",
+    "输出必须是JSON",
+    "assistant_text 示例",
+    "现在，emotion",
+)
 
 
 def _response_content(response: Mapping[str, Any]) -> str:
@@ -35,6 +43,13 @@ def _parse_json_content(content: str) -> Optional[dict[str, Any]]:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _safe_fallback_text(content: str, character_name: str) -> str:
+    cleaned = _THINK_BLOCK_RE.sub("", content).strip()
+    if cleaned and not any(marker in cleaned for marker in _REASONING_MARKERS):
+        return cleaned
+    return f"{character_name}暂时没能整理好回复，请稍后再试一次。"
+
+
 def parse_companion_turn(
     response: Mapping[str, Any],
     character_name: str = "虚拟姬",
@@ -53,7 +68,7 @@ def parse_companion_turn(
 
     if payload is None:
         return CompanionTurn(
-            assistant_text=content,
+            assistant_text=_safe_fallback_text(content, character_name),
             degraded_capabilities=["structured_output", "emotion", "intent"],
             model_context= {
                 "current_model": model,
@@ -64,8 +79,8 @@ def parse_companion_turn(
 
     assistant_text = payload.get("assistant_text") or payload.get("message")
     if not isinstance(assistant_text, str) or not assistant_text.strip():
-        logger.warning("GirlAI 结构化响应缺少 assistant_text，回退到原始响应")
-        assistant_text = content
+        logger.warning("GirlAI 结构化响应缺少 assistant_text，使用安全降级回复")
+        assistant_text = _safe_fallback_text("", character_name)
         payload["degraded_capabilities"] = list(
             dict.fromkeys([*(payload.get("degraded_capabilities") or []), "assistant_text"])
         )
@@ -89,7 +104,7 @@ def parse_companion_turn(
     except Exception as error:
         logger.warning("GirlAI 结构化响应校验失败，使用降级回合: %s", error)
         turn = CompanionTurn(
-            assistant_text=assistant_text.strip(),
+            assistant_text=_safe_fallback_text(assistant_text, character_name),
             degraded_capabilities=["structured_output"],
             model_context=model_context,
         )
