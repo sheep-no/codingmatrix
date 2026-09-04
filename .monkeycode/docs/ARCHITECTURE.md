@@ -104,11 +104,11 @@ AICloud 通过 `app.services.aicloud_state_adapter` 将旧 `aicloud_sessions/aic
 
 GirlAI 通过 `app.services.girlai_state_adapter` 将用户维度的 `chat_histories` 映射为稳定的 `user:{user_id}` 统一会话，每轮历史写入统一 user/assistant 消息；统一消息 metadata 保存 `legacy_message_id`，支持选择性删除时同步清理。`ChatSummary` 通过统一 `girlai_summary` 任务保存为幂等 checkpoint，归档和 legacy 原始消息删除处于同一事务边界。
 
-GirlAI 伙伴增强的结构化回合契约位于 `app.schema.girl_companion`，解析和降级入口位于 `app.services.girlai_companion_service.parse_companion_turn`。当前实现支持 JSON、JSON code fence 和纯文本降级，提供情绪、意图、记忆候选、工具请求、模型上下文和能力降级字段；伙伴编排、记忆授权、工具策略、任务、提醒和语音 API 仍按规格计划逐阶段接入。
+GirlAI 伙伴增强的结构化回合契约位于 `app.schema.girl_companion`，解析和降级入口位于 `app.services.girlai_companion_service.parse_companion_turn`。当前实现支持 JSON、JSON code fence 和纯文本降级，提供情绪、意图、记忆候选、工具请求、模型上下文和能力降级字段；工具策略、任务、提醒和语音 API 按规格计划逐阶段接入。
 
 伙伴上下文构建位于 `app.services.girlai_companion_context`，按角色设定、摘要、授权记忆、活动任务、近期消息和当前输入组合上下文，并在超出预算时保留角色指令和当前输入。`app.services.girlai_companion_model.CompanionModelService` 通过 `DynamicModelRouter` 暴露对话、分类、记忆和 fallback 模型选择；模型调用编排和状态写入仍待后续阶段接入。
 
-结构化伙伴 API 位于 `app.api.v1.GirlAi`，通过 `CompanionTurnRequest` 和 `CompanionTurnResponse` 暴露回合状态与能力降级字段。伙伴回合沿用现有 GirlAI 事务边界，成功后同时写入 legacy `chat_histories` 和 unified `sessions/messages`；独立 revision checkpoint、记忆候选持久化、工具审批和任务事件属于后续阶段。
+结构化伙伴 API 位于 `app.api.v1.GirlAi`，通过 `CompanionTurnRequest` 和 `CompanionTurnResponse` 暴露回合状态与能力降级字段。伙伴回合沿用现有 GirlAI 事务边界，成功后同时写入 legacy `chat_histories` 和 unified `sessions/messages`。`app.services.girlai_companion_memory.CompanionMemoryService` 将模型结果保存为待确认候选，用户确认后才允许 `companion_allowed` 记忆进入上下文；删除采用 `deleted` 状态和可见性撤销，保持审计记录并立即停止检索。独立 revision checkpoint、工具审批和任务事件属于后续阶段。
 
 Agent 通过 `app.services.agent_state_adapter` 映射 `ProjectSession`/JSON session，并将可序列化 State 保存到统一任务 checkpoint；`persist_agent_state` 同时写入消息事件和生成文件 Artifact。`run_workflow` 接收可选数据库上下文后自动调用该持久化入口，`generate`、同步 `orchestrate`、增量修改 SSE 和 `orchestrate/stream` 均已传入数据库上下文。Workflow 通过 `app.services.workflow_state_adapter` 将 `WorkflowHistory` 映射为统一 task，节点阶段写入 Task Event，生成文件登记到 Artifact。
 

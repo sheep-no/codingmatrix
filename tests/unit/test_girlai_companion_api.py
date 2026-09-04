@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.v1 import GirlAi as girl_module
-from app.schema.girl_companion import CompanionTurnRequest
+from app.schema.girl_companion import CompanionMemoryConfirmRequest, CompanionTurnRequest
 
 
 @pytest.mark.asyncio
@@ -91,3 +91,74 @@ async def test_companion_state_returns_authenticated_session(monkeypatch):
     assert state["capabilities"]["text"] is True
     assert state["state_revision"] == 0
     db.commit.assert_awaited_once()
+
+
+def _memory(**overrides):
+    values = {
+        "id": "memory-1",
+        "preference_key": "work",
+        "preference_value": "开发平台",
+        "confidence": 88,
+        "source": "conversation",
+        "status": "candidate",
+        "consent_source": "system_derived",
+        "visibility": "conversation_only",
+        "last_used_at": None,
+        "created_at": None,
+        "updated_at": None,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+@pytest.mark.asyncio
+async def test_memory_api_lists_and_confirms_owned_candidate(monkeypatch):
+    db = AsyncMock()
+    candidate = _memory()
+    confirmed = _memory(
+        preference_value="开发 AI 平台",
+        status="confirmed",
+        consent_source="user_confirmed",
+        visibility="companion_allowed",
+    )
+    service = AsyncMock()
+    service.list_memories.return_value = ([candidate], 1)
+    service.confirm.return_value = confirmed
+    monkeypatch.setattr(girl_module, "CompanionMemoryService", MagicMock(return_value=service))
+
+    page = await girl_module.get_companion_memories(
+        token={"sub": "7"}, db=db, limit=20, offset=0, memory_status=None
+    )
+    response = await girl_module.confirm_companion_memory(
+        "memory-1",
+        CompanionMemoryConfirmRequest(value="开发 AI 平台"),
+        token={"sub": "7"},
+        db=db,
+    )
+
+    assert page.total == 1
+    assert page.memories[0].status == "candidate"
+    assert response.status == "confirmed"
+    assert response.value == "开发 AI 平台"
+    service.confirm.assert_awaited_once_with(
+        7,
+        "memory-1",
+        key=None,
+        value="开发 AI 平台",
+        visibility="companion_allowed",
+    )
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_memory_api_returns_not_found_for_other_user(monkeypatch):
+    db = AsyncMock()
+    service = AsyncMock()
+    service.soft_delete.side_effect = girl_module.CompanionMemoryNotFoundError("memory-1")
+    monkeypatch.setattr(girl_module, "CompanionMemoryService", MagicMock(return_value=service))
+
+    with pytest.raises(HTTPException) as error:
+        await girl_module.delete_companion_memory("memory-1", token={"sub": "8"}, db=db)
+
+    assert error.value.status_code == 404
+    db.rollback.assert_awaited_once()

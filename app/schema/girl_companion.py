@@ -1,6 +1,7 @@
 """Structured contracts for the GirlAI companion turn."""
 
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -33,10 +34,44 @@ class IntentState(BaseModel):
 class MemoryCandidate(BaseModel):
     """A memory suggestion awaiting explicit user confirmation."""
 
-    key: str = Field(..., min_length=1, max_length=128)
+    id: Optional[str] = Field(default=None, max_length=36)
+    key: str = Field(..., min_length=1, max_length=50)
     value: str = Field(..., min_length=1, max_length=2000)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     source: str = Field(default="conversation", min_length=1, max_length=64)
+
+
+class CompanionMemoryConfirmRequest(BaseModel):
+    """User confirmation and optional revision for a memory candidate."""
+
+    key: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    value: Optional[str] = Field(default=None, min_length=1, max_length=2000)
+    visibility: Literal["conversation_only", "companion_allowed"] = "companion_allowed"
+
+
+class CompanionMemoryResponse(BaseModel):
+    """User-owned memory record exposed by the management API."""
+
+    id: str
+    key: str
+    value: str
+    confidence: int = Field(ge=0, le=100)
+    source: str
+    status: Literal["candidate", "confirmed", "rejected", "deleted"]
+    consent_source: Literal["user_confirmed", "imported", "system_derived"]
+    visibility: Literal["conversation_only", "companion_allowed"]
+    last_used_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class CompanionMemoryPage(BaseModel):
+    """Paginated memory records for the authenticated user."""
+
+    memories: List[CompanionMemoryResponse]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    offset: int = Field(ge=0)
 
 
 class ToolRequest(BaseModel):

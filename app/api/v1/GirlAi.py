@@ -8,7 +8,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import List, Optional, Dict, Any
+from typing import List, Literal, Optional, Dict, Any
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -20,8 +20,12 @@ from sqlalchemy import and_, or_, select
 from app.db.database import async_session, get_db
 from app.schema.girl_request import GirlRequest, GirlResponse, HistoryRecord, HistoryResponse
 from app.schema.girl_companion import (
+    CompanionMemoryConfirmRequest,
+    CompanionMemoryPage,
+    CompanionMemoryResponse,
     CompanionTurnRequest,
     CompanionTurnResponse,
+    MemoryCandidate,
 )
 from app.db.chat_history_service import ChatHistoryService
 from app.services.girlai_state_adapter import (
@@ -37,6 +41,11 @@ from app.utils.security import verify_token
 from app.utils.aicloud.http_client import call_with_retry
 from app.services.girlai_companion_context import build_companion_context
 from app.services.girlai_companion_service import parse_companion_turn
+from app.services.girlai_companion_memory import (
+    CompanionMemoryNotFoundError,
+    CompanionMemoryService,
+    CompanionMemoryStateError,
+)
 
 # 初始化日志
 logger = logging.getLogger(__name__)
@@ -325,32 +334,15 @@ async def _extract_user_preferences(
         if not extracted:
             return
 
-        # 保存到数据库（upsert 逻辑）
-        from sqlalchemy import select, and_
-
         async with async_session() as db:
-            for key, value in extracted.items():
-                stmt = select(UserPreference).where(
-                    and_(
-                        UserPreference.user_id == int(user_id),
-                        UserPreference.preference_key == key
-                    )
-                )
-                result = await db.execute(stmt)
-                existing = result.scalar_one_or_none()
-
-                if existing:
-                    existing.preference_value = value
-                    existing.updated_at = datetime.now()
-                else:
-                    db.add(UserPreference(
-                        user_id=int(user_id),
-                        preference_key=key,
-                        preference_value=value,
-                        confidence=80,
-                        source="extracted"
-                    ))
-
+            memory_service = CompanionMemoryService(db)
+            await memory_service.create_candidates(
+                int(user_id),
+                [
+                    MemoryCandidate(key=key, value=value, confidence=0.8, source="extracted")
+                    for key, value in extracted.items()
+                ],
+            )
             await db.commit()
         logger.debug(f"用户偏好提取完成 | user_id={user_id} | preferences={list(extracted.keys())}")
 
@@ -501,7 +493,11 @@ async def generate_message(
                 from sqlalchemy import select
                 pref_stmt = (
                     select(UserPreference)
-                    .where(UserPreference.user_id == int(user_id))
+                    .where(
+                        UserPreference.user_id == int(user_id),
+                        UserPreference.status == "confirmed",
+                        UserPreference.visibility == "companion_allowed",
+                    )
                     .order_by(UserPreference.confidence.desc())
                     .limit(10)
                 )
@@ -647,12 +643,8 @@ async def generate_companion_turn(
             recent_messages, history_summary = await history_service.get_lightweight_context(
                 str(user_id), max_messages=MAX_HISTORY_MESSAGES
             )
-            preference_result = await db.execute(
-                select(UserPreference)
-                .where(UserPreference.user_id == int(user_id))
-                .order_by(UserPreference.confidence.desc())
-                .limit(10)
-            )
+            memory_service = CompanionMemoryService(db)
+            authorized_memories = await memory_service.get_authorized(int(user_id), limit=10)
             memories = [
                 {
                     "key": preference.preference_key,
@@ -660,7 +652,7 @@ async def generate_companion_turn(
                     "status": "confirmed",
                     "visibility": "companion_allowed",
                 }
-                for preference in preference_result.scalars().all()
+                for preference in authorized_memories
             ]
             context = build_companion_context(
                 character=character,
@@ -690,6 +682,18 @@ async def generate_companion_turn(
                 call_with_retry(llm_call, max_retries=3), timeout=REQUEST_TIMEOUT
             )
             turn = parse_companion_turn(raw_response, character["name"], model=character["model"])
+            persisted_candidates = await memory_service.create_candidates(
+                int(user_id), turn.memory_candidates
+            )
+            candidate_ids = {
+                (memory.preference_key, memory.preference_value): str(memory.id)
+                for memory in persisted_candidates
+            }
+            for candidate in turn.memory_candidates:
+                candidate.id = candidate_ids.get((candidate.key, candidate.value))
+            turn.memory_candidates = [
+                candidate for candidate in turn.memory_candidates if candidate.id is not None
+            ]
             session = await ensure_session(db, int(user_id), body.character_id)
             turn.turn_id = body.turn_id or f"girlai-turn-{int(time.time() * 1000)}"
             turn.conversation_id = session.id
@@ -946,6 +950,97 @@ async def delete_custom_character(
 # 用户偏好记忆
 # =============================================================================
 
+def _serialize_companion_memory(memory: UserPreference) -> CompanionMemoryResponse:
+    return CompanionMemoryResponse(
+        id=str(memory.id),
+        key=memory.preference_key,
+        value=memory.preference_value,
+        confidence=memory.confidence,
+        source=memory.source,
+        status=memory.status,
+        consent_source=memory.consent_source,
+        visibility=memory.visibility,
+        last_used_at=memory.last_used_at,
+        created_at=memory.created_at,
+        updated_at=memory.updated_at,
+    )
+
+
+@router.get("/GirlAi/memories", response_model=CompanionMemoryPage)
+async def get_companion_memories(
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    memory_status: Optional[Literal["candidate", "confirmed", "rejected"]] = Query(
+        default=None, alias="status"
+    ),
+) -> CompanionMemoryPage:
+    """Return active memories and candidates owned by the current user."""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+    memories, total = await CompanionMemoryService(db).list_memories(
+        int(user_id), limit=limit, offset=offset, status=memory_status
+    )
+    return CompanionMemoryPage(
+        memories=[_serialize_companion_memory(memory) for memory in memories],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/GirlAi/memories/{memory_id}/confirm",
+    response_model=CompanionMemoryResponse,
+)
+async def confirm_companion_memory(
+    memory_id: str,
+    body: CompanionMemoryConfirmRequest,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+) -> CompanionMemoryResponse:
+    """Confirm and optionally revise a user-owned memory candidate."""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+    try:
+        memory = await CompanionMemoryService(db).confirm(
+            int(user_id),
+            memory_id,
+            key=body.key,
+            value=body.value,
+            visibility=body.visibility,
+        )
+        await db.commit()
+        return _serialize_companion_memory(memory)
+    except CompanionMemoryNotFoundError as error:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail="记忆不存在") from error
+    except CompanionMemoryStateError as error:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.delete("/GirlAi/memories/{memory_id}")
+async def delete_companion_memory(
+    memory_id: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft-delete a user-owned memory and revoke companion retrieval."""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+    try:
+        memory = await CompanionMemoryService(db).soft_delete(int(user_id), memory_id)
+        await db.commit()
+        return {"status": memory.status, "id": str(memory.id)}
+    except CompanionMemoryNotFoundError as error:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail="记忆不存在") from error
+
 @router.get("/GirlAi/preferences")
 async def get_user_preferences(
     token: dict = Depends(verify_token),
@@ -959,7 +1054,10 @@ async def get_user_preferences(
     from sqlalchemy import select
     stmt = (
         select(UserPreference)
-        .where(UserPreference.user_id == int(user_id))
+        .where(
+            UserPreference.user_id == int(user_id),
+            UserPreference.status != "deleted",
+        )
         .order_by(UserPreference.updated_at.desc())
     )
     result = await db.execute(stmt)
@@ -1004,7 +1102,9 @@ async def delete_user_preference(
     if not pref:
         raise HTTPException(status_code=404, detail="偏好记录不存在")
 
-    await db.delete(pref)
+    pref.status = "deleted"
+    pref.visibility = "conversation_only"
+    pref.updated_at = datetime.now()
     await db.commit()
 
     return {"status": "deleted", "id": preference_id}
