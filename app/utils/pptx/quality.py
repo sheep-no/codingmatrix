@@ -55,7 +55,12 @@ def check_slide(slide: dict[str, Any], previous_layout: str | None = None, repea
     width, height = slide.get("width", 13.333), slide.get("height", 7.5)
     margin = slide.get("safe_margin", 0.5)
     elements = slide.get("elements", [])
+    capacity = slide.get("capacity", {})
     issues: list[QualityIssue] = []
+    content_count = slide.get("content_block_count", len(slide.get("content_blocks", [])))
+    max_items = capacity.get("max_items")
+    if max_items is not None and content_count > max_items:
+        issues.append(QualityIssue("content_density", slide_id, "high", "页面内容超过容量预算", (), "reduce_content_blocks"))
     for element in elements:
         element_id = str(element.get("id", "unknown"))
         if element.get("text_overflow") or element.get("measured_height", element.get("height", 0)) > element.get("height", 0):
@@ -68,6 +73,10 @@ def check_slide(slide: dict[str, Any], previous_layout: str | None = None, repea
             issues.append(QualityIssue("unsafe_margin", slide_id, "medium", "关键元素超出页面安全区", (element_id,), "move_into_safe_area"))
         if element.get("type") == "text" and contrast_ratio(element.get("foreground", "#000000"), element.get("background", "#FFFFFF")) < (3 if element.get("font_size", 16) >= 24 else 4.5):
             issues.append(QualityIssue("low_contrast", slide_id, "high", "文字对比度低于可读性阈值", (element_id,), "adjust_text_color"))
+        if element.get("type") == "text":
+            minimum = 24 if element.get("role") in {"title", "heading"} or element_id == "title" else 14
+            if element.get("font_size", minimum) < minimum:
+                issues.append(QualityIssue("font_size_floor", slide_id, "high", "文字字号低于令牌下限", (element_id,), "raise_font_size"))
         if element.get("type") == "image" and element.get("source_width") and element.get("source_height"):
             source_ratio = element["source_width"] / element["source_height"]
             display_ratio = element.get("width", 1) / max(element.get("height", 1), 0.001)
@@ -83,7 +92,7 @@ def check_slide(slide: dict[str, Any], previous_layout: str | None = None, repea
             smaller = min(first.get("width", 0) * first.get("height", 0), second.get("width", 0) * second.get("height", 0))
             if smaller and overlap / smaller > 0.02:
                 issues.append(QualityIssue("element_overlap", slide_id, "high", "非装饰元素重叠面积超过阈值", (str(first.get("id")), str(second.get("id"))), "reposition_elements"))
-    if previous_layout and slide.get("layout") == previous_layout and repeated_layouts >= 2:
+    if previous_layout and slide.get("layout") == previous_layout and repeated_layouts > 2:
         issues.append(QualityIssue("layout_repetition", slide_id, "medium", "相同布局连续出现超过两页", fix_action="switch_layout"))
     return issues
 
@@ -92,6 +101,14 @@ class AutoReflowEngine:
     """Apply only deterministic, bounded layout fixes."""
 
     max_attempts = 2
+    _ACTION_PRIORITY = {
+        "reduce_content_blocks": 1,
+        "switch_layout": 2,
+        "move_into_safe_area": 3,
+        "raise_font_size": 4,
+        "adjust_text_color": 5,
+        "preserve_aspect_ratio": 6,
+    }
 
     def reflow(self, slide: dict[str, Any], issues: list[QualityIssue], report: QualityReport) -> dict[str, Any]:
         slide_id = str(slide.get("id", slide.get("slide_id", "unknown")))
@@ -102,7 +119,20 @@ class AutoReflowEngine:
             return slide
         fixed = dict(slide)
         fixed["elements"] = [dict(element) for element in slide.get("elements", [])]
-        for issue in issues:
+        for issue in sorted(issues, key=lambda item: self._ACTION_PRIORITY.get(item.fix_action, 99)):
+            if issue.fix_action == "reduce_content_blocks":
+                fixed["content_blocks"] = list(fixed.get("content_blocks", []))[: fixed.get("capacity", {}).get("max_items", 6)]
+                fixed["content_block_count"] = len(fixed["content_blocks"])
+            elif issue.fix_action == "switch_layout":
+                fixed["layout"] = fixed.get("fallback_layout", "content_only")
+            elif issue.fix_action == "raise_font_size":
+                for element in fixed["elements"]:
+                    if element.get("id") in issue.element_ids:
+                        element["font_size"] = max(24 if element.get("id") == "title" else 14, element.get("font_size", 0))
+            elif issue.fix_action == "adjust_text_color":
+                for element in fixed["elements"]:
+                    if element.get("id") in issue.element_ids:
+                        element["foreground"] = "#000000" if element.get("background", "#FFFFFF").upper() in {"#FFFFFF", "FFFFFF"} else "#FFFFFF"
             if issue.fix_action == "move_into_safe_area":
                 for element in fixed["elements"]:
                     if element.get("id") in issue.element_ids:

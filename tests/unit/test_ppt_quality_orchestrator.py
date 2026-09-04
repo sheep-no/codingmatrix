@@ -48,6 +48,19 @@ async def test_refined_mode_marks_low_confidence_for_manual_review():
 
 
 @pytest.mark.asyncio
+async def test_refined_mode_marks_confidence_below_seventy_percent():
+    async def reviewer(_slide):
+        return [{"issue_type": "visual_balance", "confidence": 0.65}]
+
+    _, report = await run_quality_pipeline(
+        [{"id": "slide-1", "layout": "content_only", "elements": []}],
+        "refined",
+        reviewer,
+    )
+    assert any(issue["issue_type"] == "vision_review_low_confidence" for issue in report.issues)
+
+
+@pytest.mark.asyncio
 async def test_pipeline_returns_reflowed_slide_artifact():
     source_slides = [{
             "id": "slide-1",

@@ -16,7 +16,6 @@ import logging
 import os
 import re
 import uuid
-from dataclasses import asdict
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -34,9 +33,8 @@ from app.utils.task_manager import task_manager
 from app.schema.task_schema import TaskResponse
 from app.services.unified_state_service import (
     StateNotFoundError,
-    create_artifact,
+    StateOwnershipError,
     get_owned_task,
-    save_checkpoint,
     transition_task,
 )
 from app.schema.ppt_outline import (
@@ -49,10 +47,16 @@ from app.schema.ppt_outline import (
 from app.services.ppt_state_service import (
     approve_ppt_outline as persist_approve_ppt_outline,
     create_ppt_outline as persist_create_ppt_outline,
+    delete_ppt_outline as persist_delete_ppt_outline,
     get_ppt_quality_report as persist_get_ppt_quality_report,
     get_ppt_outline as persist_get_ppt_outline,
     update_ppt_outline as persist_update_ppt_outline,
-    save_ppt_quality_report,
+)
+from app.services.ppt_generation_persistence import (
+    build_ppt_trace_context,
+    persist_ppt_generation_result,
+    save_ppt_stage_checkpoint,
+    serialize_quality_report,
 )
 from app.services.ppt_quality_orchestrator import run_quality_pipeline
 from app.utils.pptx.semantic_renderer import build_render_metadata
@@ -101,7 +105,12 @@ async def create_ppt_outline(
     db: AsyncSession = Depends(get_db),
 ):
     """创建用户作用域的 PPT 大纲草稿。"""
-    return await persist_create_ppt_outline(db, str(token.get("sub", "anonymous")), req)
+    try:
+        return await persist_create_ppt_outline(db, str(token.get("sub", "anonymous")), req)
+    except StateNotFoundError:
+        raise HTTPException(status_code=404, detail="素材文件不存在")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.get("/pptx/outlines/{outline_id}", response_model=OutlineDraft)
@@ -113,7 +122,7 @@ async def get_ppt_outline(
 ):
     try:
         return await persist_get_ppt_outline(db, str(token.get("sub", "anonymous")), outline_id, version)
-    except StateNotFoundError:
+    except (StateNotFoundError, StateOwnershipError):
         raise HTTPException(status_code=404, detail="大纲不存在")
 
 
@@ -126,8 +135,21 @@ async def update_ppt_outline(
 ):
     try:
         return await persist_update_ppt_outline(db, str(token.get("sub", "anonymous")), outline_id, req)
-    except StateNotFoundError:
+    except (StateNotFoundError, StateOwnershipError):
         raise HTTPException(status_code=404, detail="大纲不存在")
+
+
+@router.delete("/pptx/outlines/{outline_id}")
+async def delete_ppt_outline(
+    outline_id: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await persist_delete_ppt_outline(db, str(token.get("sub", "anonymous")), outline_id)
+    except (StateNotFoundError, StateOwnershipError):
+        raise HTTPException(status_code=404, detail="大纲不存在")
+    return {"deleted": True}
 
 
 @router.post("/pptx/outlines/{outline_id}/approve", response_model=OutlineDraft)
@@ -138,7 +160,7 @@ async def approve_ppt_outline(
 ):
     try:
         return await persist_approve_ppt_outline(db, str(token.get("sub", "anonymous")), outline_id)
-    except StateNotFoundError:
+    except (StateNotFoundError, StateOwnershipError):
         raise HTTPException(status_code=404, detail="大纲不存在")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -153,13 +175,21 @@ async def generate_ppt_from_approved_outline(
 ):
     """Create a generation task from an approved outline snapshot."""
     try:
-        outline = await persist_get_ppt_outline(db, str(token.get("sub", "anonymous")), outline_id)
-    except StateNotFoundError:
+        outline = await persist_get_ppt_outline(
+            db,
+            str(token.get("sub", "anonymous")),
+            outline_id,
+            req.outline_version,
+        )
+    except (StateNotFoundError, StateOwnershipError):
         raise HTTPException(status_code=404, detail="大纲不存在")
     if outline.status != "approved":
         raise HTTPException(status_code=409, detail="大纲尚未批准")
 
     outline_prompt = {
+        "id": outline.id,
+        "version": outline.version,
+        "status": outline.status,
         "title": outline.title,
         "scenario": outline.scenario,
         "template_id": outline.template_id,
@@ -217,7 +247,7 @@ async def regenerate_ppt_slide(
         raise HTTPException(status_code=422, detail=str(exc))
     return await generate_ppt_from_approved_outline(
         outline_id,
-        OutlineGenerateRequest(quality_mode=req.quality_mode),
+        OutlineGenerateRequest(quality_mode=req.quality_mode, outline_version=updated.version),
         token,
         db,
     )
@@ -311,7 +341,7 @@ class PPTGenerationRequest(BaseModel):
     
     # 增强选项
     template: str = Field(default="modern", description="模板风格")
-    slide_count: int = Field(default=10, ge=5, le=PPT_MAX_SLIDES, description="页数")
+    slide_count: int = Field(default=10, ge=1, le=PPT_MAX_SLIDES, description="页数")
     output_format: OutputFormat = Field(default=OutputFormat.PPTX, description="输出格式")
     language: str = Field(default="zh-CN", description="语言")
     quality: str = Field(default="high", description="内容质量")
@@ -1809,15 +1839,19 @@ async def generate_ppt_task(
             with open(snapshot_path, 'w', encoding='utf-8') as f:
                 json.dump(outline.get('slides', []), f, ensure_ascii=False, indent=2)
             logger.info(f"保存大纲快照 | task_id={task_id} | slides={len(outline.get('slides', []))}")
-            await save_checkpoint(
+            trace = build_ppt_trace_context(
+                req.options,
+                req.template,
+                (req.options or {}).get("quality_mode", "standard"),
+            )
+            await save_ppt_stage_checkpoint(
                 db,
                 task_id,
                 int(user_id),
                 1,
-                "outline",
-                {"slides": outline.get("slides", []), "quality_mode": (req.options or {}).get("quality_mode")},
-                f"{task_id}:outline:1",
-                input_ref=(req.options or {}).get("outline_id"),
+                "planning",
+                trace,
+                {"slides": outline.get("slides", [])},
             )
             await db.commit()
             
@@ -1841,13 +1875,26 @@ async def generate_ppt_task(
                     **slide,
                     "id": slide.get("id", f"slide-{index + 1}"),
                     "elements": slide.get("elements", []),
-                    "render_metadata": build_render_metadata(slide, token_version="1.0"),
+                    "render_metadata": build_render_metadata(
+                        slide,
+                        token_version=str(trace["template_version"]),
+                    ),
                 }
                 for index, slide in enumerate(slides_data)
             ]
             quality_slides, quality_report = await run_quality_pipeline(quality_slides, quality_mode)
             outline = {**outline, "slides": quality_slides}
             slides_data = quality_slides
+            await save_ppt_stage_checkpoint(
+                db,
+                task_id,
+                int(user_id),
+                2,
+                "rule_qa",
+                trace,
+                {"quality": serialize_quality_report(quality_report)},
+            )
+            await db.commit()
 
             if req.output_format == OutputFormat.PDF:
                 pptx_filepath = output_dir / f"{task_id}.pptx"
@@ -1872,58 +1919,17 @@ async def generate_ppt_task(
                 "download_url": f"/api/v1/pptx/download/{task_id}?format={ext}",
                 "preview_url": _preview_url(task_id, req.output_format) if req.output_format in {OutputFormat.PPTX, OutputFormat.HTML, OutputFormat.MARKDOWN} else None
             }
-            artifact = await create_artifact(
-                db,
-                int(user_id),
-                "pptx" if ext == "pptx" else ext,
-                str(filepath),
-                task_id=task_id,
-                metadata={"outline_id": (req.options or {}).get("outline_id")},
-            )
-            if (req.options or {}).get("outline_id"):
-                report = await save_ppt_quality_report(
-                    db,
-                    task_id,
-                    int(user_id),
-                    str(req.options["outline_id"]),
-                    int(req.options["outline_version"]),
-                    quality_mode,
-                    req.template,
-                    "1.0",
-                    int(quality_report.overall_score),
-                    quality_report.slide_scores,
-                    [
-                        asdict(issue) if hasattr(issue, "issue_type") else issue
-                        for issue in quality_report.issues
-                    ],
-                    quality_report.reflow_attempts,
-                    "vision_review_unavailable" if any(
-                        isinstance(issue, dict) and issue.get("issue_type") == "vision_review_unavailable"
-                        for issue in quality_report.issues
-                    ) else None,
-                )
-                quality_artifact = await create_artifact(
-                    db,
-                    int(user_id),
-                    "quality_report",
-                    f"quality://{task_id}/{report.version}",
-                    task_id=task_id,
-                    metadata={"report_id": report.id},
-                )
-                task_row = await db.scalar(select(Task).where(Task.task_id == task_id, Task.user_id == int(user_id)))
-                if task_row:
-                    task_row.quality_report_artifact_id = quality_artifact.id
-            await save_checkpoint(
+            await persist_ppt_generation_result(
                 db,
                 task_id,
                 int(user_id),
-                2,
-                "artifact",
+                filepath,
+                "pptx" if ext == "pptx" else ext,
                 result,
-                f"{task_id}:artifact:1",
-                artifact_ref=artifact.id,
+                trace,
+                slides_data,
+                quality_report,
             )
-            await db.commit()
             await update_progress(
                 progress=100,
                 message="PPT 生成完成",
@@ -2417,9 +2423,18 @@ async def analyze_ppt_endpoint(
 @router.get("/pptx/templates")
 async def list_ppt_templates(
     category: Optional[str] = Query(None, description="按分类筛选"),
+    scenario: Optional[str] = Query(
+        None,
+        pattern="^(business|data_report|product_pitch|academic|education|general)$",
+        description="按演示场景推荐",
+    ),
+    topic: str = Query("", max_length=5000, description="用于场景识别的主题"),
     token: dict = Depends(verify_token)
 ):
     """获取可用 PPT 模板列表"""
+    if scenario or topic:
+        recommendation = TemplateManager().recommend_for_scenario(topic, scenario=scenario)
+        return recommendation
     templates = []
     for tpl_id, tpl_config in PPT_TEMPLATES.items():
         if category and not tpl_id.startswith(category):
@@ -2659,12 +2674,16 @@ class OutlineGenerationResponse(BaseModel):
     title: str
     slides: List[OutlineSlide]
     total_slides: int
+    outline_id: Optional[str] = None
+    outline_version: Optional[int] = None
+    status: Optional[str] = None
 
 
 @router.post("/generate-text", response_model=OutlineGenerationResponse)
 async def generate_ppt_from_text(
     req: OutlineGenerationRequest,
     token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     自然语言生成 PPT 大纲 (仅返回结构化数据，不生成文件)
@@ -2673,31 +2692,36 @@ async def generate_ppt_from_text(
     logger.info("PPT Agent 请求 | user: %s | topic: %s", user_id, req.topic[:50])
 
     try:
-        from app.agent.ppt_agent import PPTAgent
-
-        agent = PPTAgent(model=req.model)
-        outline = await agent.generate_outline(
-            topic=req.topic,
-            description=req.description,
-            num_slides=req.num_slides,
-            api_key_token=req.api_key_token,
+        draft = await persist_create_ppt_outline(
+            db,
+            str(user_id),
+            OutlineCreateRequest(
+                topic=req.topic,
+                description=req.description,
+                num_slides=req.num_slides,
+                model=req.model,
+                api_key_token=req.api_key_token,
+            ),
         )
 
         return OutlineGenerationResponse(
-            title=outline.title,
+            title=draft.title,
             slides=[
                 OutlineSlide(
-                    type=s.type,
-                    title=s.title,
-                    bullets=s.bullets,
-                    image_keywords=s.image_keywords,
-                    notes=s.notes,
-                    narrative_role=s.narrative_role,
-                    content_blocks=s.content_blocks,
+                    type=slide.slide_type,
+                    title=slide.title,
+                    bullets=[block.content for block in slide.content_blocks],
+                    image_keywords=slide.asset_intent.keywords if slide.asset_intent else [],
+                    notes=slide.speaker_notes,
+                    narrative_role=slide.narrative_role,
+                    content_blocks=[block.model_dump(mode="json") for block in slide.content_blocks],
                 )
-                for s in outline.slides
+                for slide in draft.slides
             ],
-            total_slides=len(outline.slides),
+            total_slides=len(draft.slides),
+            outline_id=draft.id,
+            outline_version=draft.version,
+            status=draft.status,
         )
 
     except Exception as exc:
@@ -2709,6 +2733,7 @@ async def generate_ppt_from_text(
 async def generate_ppt_from_text_task(
     req: OutlineGenerationRequest,
     token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     端到端: 自然语言 -> 大纲 -> PPTX 文件 (任务队列)
@@ -2717,96 +2742,23 @@ async def generate_ppt_from_text_task(
     logger.info("PPT Agent 端到端请求 | user: %s | topic: %s", user_id, req.topic[:50])
 
     try:
-        from app.agent.ppt_agent import PPTAgent
-        import uuid
-        from app.schema.task_schema import TaskResponse as SchemaTaskResponse
-
-        agent = PPTAgent(model=req.model)
-        outline = await agent.generate_outline(
-            topic=req.topic,
-            description=req.description,
-            num_slides=req.num_slides,
-            api_key_token=req.api_key_token,
+        draft = await persist_create_ppt_outline(
+            db,
+            str(user_id),
+            OutlineCreateRequest(
+                topic=req.topic,
+                description=req.description,
+                num_slides=req.num_slides,
+                model=req.model,
+                api_key_token=req.api_key_token,
+            ),
         )
-
-        ppt_id = str(uuid.uuid4())
-        outline_dict = PPTAgent.adapt_for_pptx_engine(outline)
-
-        async def run_ppt_gen(task_id: str, **kwargs):
-            _register_ppt_owner(task_id, user_id)
-            async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
-                await task_manager.update_progress(
-                    task_id,
-                    progress,
-                    message,
-                    status=status,
-                    result_data=result_data,
-                    error_message=_kwargs.get("error_message"),
-                )
-
-            try:
-                await update_progress(progress=5, message="正在准备上下文...")
-
-                # 搜图
-                await update_progress(progress=15, message="正在搜索配图...")
-                for i, slide in enumerate(outline_dict['slides']):
-                    if slide.get('image_keywords'):
-                        try:
-                            img_path = await get_image_for_slide(slide['image_keywords'], i)
-                            if img_path:
-                                outline_dict['slides'][i]['local_images'] = [img_path]
-                        except Exception as e:
-                            logger.warning(f"幻灯片 {i+1} 配图失败: {e}")
-
-                # 构建兼容请求
-                compat_req = PPTGenerationRequest(
-                    topic=outline.title,
-                    model=req.model,
-                    template=req.template if hasattr(req, 'template') else "modern",
-                    slide_count=len(outline.slides),
-                )
-
-                output_dir = PPT_OUTPUT_DIR
-                output_dir.mkdir(exist_ok=True)
-                filepath = output_dir / f"{task_id}.pptx"
-
-                await update_progress(progress=20, message="正在生成 PPTX 文件...")
-                await generate_pptx_file_enhanced(filepath, outline_dict, compat_req, update_progress=update_progress)
-
-                result = {
-                    "filename": filepath.name,
-                    "ppt_id": task_id,
-                    "download_url": f"/api/v1/pptx/download/{task_id}?format=pptx",
-                    "preview_url": f"/api/v1/pptx/preview/{task_id}",
-                }
-                await update_progress(
-                    progress=100,
-                    message="PPT 生成完成",
-                    status="completed",
-                    result_data=json.dumps(result)
-                )
-                return result
-
-            except asyncio.CancelledError:
-                await update_progress(status="cancelled", message="任务已取消")
-            except Exception as exc:
-                await update_progress(status="failed", message=f"生成失败: {exc}", error_message=str(exc))
-                logger.error("PPT 生成任务失败 | task_id: %s | error: %s", task_id, exc)
-
-        task_response = await task_manager.create_task(
-            task_type="ppt_generation",
-            user_id=user_id,
-            func=run_ppt_gen,
-            params={},
-        )
-
-        return SchemaTaskResponse(
-            task_id=task_response,
-            task_type="ppt_generation",
-            status="pending",
-            progress=0,
-            progress_message="等待中...",
-            created_at=datetime.now().isoformat()
+        approved = await persist_approve_ppt_outline(db, str(user_id), draft.id)
+        return await generate_ppt_from_approved_outline(
+            approved.id,
+            OutlineGenerateRequest(outline_version=approved.version),
+            token,
+            db,
         )
 
     except Exception as exc:

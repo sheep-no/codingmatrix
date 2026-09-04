@@ -79,13 +79,18 @@ npm --prefix vscode-extension run e2e
 
 ## 最近验收结果（2026-09-02）
 
-- PPT 专项单元测试：`141 passed`。
+- PPT 专项回归：`225 passed`；共享持久化新增测试覆盖 Artifact 父子关联、内容 hash、质量诊断、Checkpoint、归属隔离和重试幂等，Celery Markdown 生产链路通过隔离数据库验收。
+- PPT 任务 3/4 场景、模板、设计令牌和语义规划专项回归：完整 PPT 测试 `231 passed`；规划器覆盖页面类型兼容映射、容量预算、布局评分、令牌/布局版本和连续布局惩罚。
+- PPT 任务 5 编排回归：完整 PPT 测试 `233 passed`；标准模式跳过视觉复审，精修模式保留完整阶段，取消与指定阶段恢复契约通过。
+- PPT 任务 6 渲染与素材回归：完整 PPT 测试 `235 passed`；11 类页面视觉骨架、图片等比适配/回退、图表选择和来源占位规则通过。
 - `elegant` 董事会备忘录主题统一生成测试：`24 passed`；6 页 PPTX、PDF 和 PNG 样稿生成成功，证据页与路线页二轮视觉评分为 `9.0/10` 和 `8.5/10`。
 - 前端全量测试：`36 passed`；PPT 工作流测试覆盖大纲修改、新增、重排、删除、批准禁用，以及逐页质量分、问题、修复动作和人工复核标记展示；前端生产构建成功。
 - VS Code 扩展构建成功，Node 原生测试：`62 passed`。
 - VS Code Extension Development Host E2E 成功，覆盖扩展发现、激活、兼容性校验、Agent Workbench 命令和工作区加载。
 - 已生成 VSIX：`vscode-extension/codingmatrix-local-validation-0.1.0.vsix`。
 - 真实 Agent/PPT 验收已覆盖 HTML 产物生成、PPTX HTTP 下载、WebSocket 进度事件和错误格式请求返回 404。
+- PPT 三步 mock E2E 当前为 `1 passed`；前端 Vitest 当前为 `15 files passed, 48 tests passed`。
+- 种子账户认证版 PPT 页面 E2E 当前为 `6 passed`；认证 fixture 在已完成登录后允许 CSRF 辅助初始化遇到 `429`，避免重复测试触发限流影响只读页面验收。
 
 VS Code 扩展打包仍会提示缺少 `repository`、`LICENSE` 和 `.vscodeignore` 元数据。这些提示不影响当前构建与测试，正式发布前应补齐。
 
@@ -109,6 +114,8 @@ NODE_OPTIONS=--max-old-space-size=1800 npm run build
 ```
 
 根目录的 `npm run test:e2e` 用于 Playwright；前端 `dev`、`build`、`lint` 和 Vitest 命令均位于 `src/package.json`。
+
+PPT 三步流程的供应商无关 E2E 位于 `tests/e2e/ppt-generation-mock.spec.js`，使用 mock HTTP/WebSocket 覆盖大纲草稿、批准、生成进度、质量报告和 PPTX 下载；认证版 PPT E2E 需要设置 `TEST_ADMIN_PASSWORD`。
 
 历史云端验证记录为：排除 Redis、数据库和 FAISS 外部条件的单元测试 1605 passed、2 skipped。当前本地环境已安装 FAISS 并启动 Redis，后端 unit/integration 完整回归结果为 `1784 passed, 2 skipped`；该结果覆盖单元测试与本地基础依赖，生产入口和本地插件验证闭环仍需独立验收。
 

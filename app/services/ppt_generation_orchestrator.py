@@ -57,13 +57,20 @@ class PPTGenerationOrchestrator:
             raise ValueError(f"start_stage must be one of {self.stages!r}")
 
         state = dict(context or {})
+        quality_mode = state.get("quality_mode")
+        stages = tuple(
+            stage for stage in self.stages
+            if stage != "vision_qa" or quality_mode != "standard"
+        )
+        if start_stage not in stages:
+            raise ValueError(f"start_stage is unavailable for quality_mode={quality_mode!r}")
         emit = progress_callback or self.progress_callback
         check_cancel = cancel_check or self.cancel_check
-        first_index = self.stages.index(start_stage)
-        stage_count = len(self.stages)
+        first_index = stages.index(start_stage)
+        stage_count = len(stages)
 
         try:
-            for index, stage in enumerate(self.stages[first_index:], start=first_index):
+            for index, stage in enumerate(stages[first_index:], start=first_index):
                 await self._check_cancel(check_cancel)
                 await self._emit(emit, stage, "started", index / stage_count)
 

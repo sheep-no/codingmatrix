@@ -11,6 +11,20 @@ SLIDE_TYPES = (
     "comparison", "timeline", "process", "summary", "closing",
 )
 
+VISUAL_SKELETONS = {
+    "cover": "title_focus",
+    "agenda": "ordered_list",
+    "section": "section_divider",
+    "key_points": "card_matrix",
+    "image_text": "image_narrative",
+    "data": "data_focus",
+    "comparison": "dual_column",
+    "timeline": "horizontal_timeline",
+    "process": "process_steps",
+    "summary": "center_conclusion",
+    "closing": "decision_close",
+}
+
 
 @dataclass(frozen=True)
 class ImagePlacement:
@@ -31,20 +45,37 @@ def build_render_metadata(slide: dict[str, Any], *, token_version: str = "1.0") 
     """Return stable renderer metadata consumed by rendering and quality checks."""
     slide_type = normalize_slide_type(slide.get("slide_type", slide.get("type")))
     blocks = slide.get("content_blocks") or slide.get("blocks") or []
+    asset_intent = slide.get("asset_intent") or {}
+    data = slide.get("data") if isinstance(slide.get("data"), dict) else {}
     return {
         "slide_id": str(slide.get("id", slide.get("slide_id", "unknown"))),
         "slide_type": slide_type,
         "token_version": token_version,
+        "visual_skeleton": VISUAL_SKELETONS[slide_type],
         "hierarchy": {"title": 32, "key_message": 24, "body": 14},
         "grid": {"margin": 0.5, "gutter": 0.25, "safe_area": 0.5},
         "content_block_count": len(blocks),
         "chart_type": select_chart_type(slide.get("data")) if slide_type == "data" else None,
         "source_placeholder": "数据来源：待补充" if slide_type == "data" else None,
+        "chart_rules": {
+            "relationship": data.get("relationship", "comparison"),
+            "show_source": slide_type == "data",
+            "source_style": "caption",
+        },
+        "asset_rules": {
+            "requested": bool(asset_intent),
+            "keywords": list(asset_intent.get("keywords", [])) if isinstance(asset_intent, dict) else [],
+            "fit": "contain",
+            "crop_focus": "center",
+            "fallback": "template_visual",
+        },
     }
 
 
 def fit_image(original_width: float, original_height: float, box_width: float, box_height: float, *, available: bool = True) -> ImagePlacement:
     """Fit an image into a box while preserving its aspect ratio."""
+    box_width = max(0.0, box_width)
+    box_height = max(0.0, box_height)
     if not available or original_width <= 0 or original_height <= 0:
         return ImagePlacement(box_width, box_height, fallback=True)
     scale = max(box_width / original_width, box_height / original_height)

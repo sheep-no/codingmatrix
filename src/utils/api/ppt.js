@@ -32,6 +32,13 @@ export function createPptClient(client) {
       throw new Error(error.detail || '更新大纲失败')
     },
 
+    async deleteOutline(outlineId) {
+      const response = await client.delete(`/pptx/outlines/${outlineId}`)
+      if (response.ok) return await response.json()
+      const error = await response.json()
+      throw new Error(error.detail || '删除大纲失败')
+    },
+
     async approveOutline(outlineId) {
       const response = await client.post(`/pptx/outlines/${outlineId}/approve`)
       if (response.ok) return await response.json()
@@ -39,9 +46,10 @@ export function createPptClient(client) {
       throw new Error(error.detail || '批准大纲失败')
     },
 
-    async generateFromOutline(outlineId, qualityMode = 'standard') {
+    async generateFromOutline(outlineId, qualityMode = 'standard', outlineVersion = null) {
       const response = await client.post(`/pptx/outlines/${outlineId}/generate`, {
         quality_mode: qualityMode,
+        outline_version: outlineVersion,
       })
       if (response.ok) return await response.json()
       const error = await response.json()

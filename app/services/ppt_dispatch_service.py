@@ -24,6 +24,10 @@ async def dispatch_ppt_to_celery(
         idempotency_key=f"ppt:{task_id}",
         params={"request_data": request_data},
     )
+    options = request_data.get("options") or {}
+    task.outline_id = options.get("outline_id")
+    task.outline_version = options.get("outline_version")
+    task.quality_mode = options.get("quality_mode", "standard")
     # Commit before publishing so a worker can always see the task row.
     await db.commit()
     result = celery_app.send_task(

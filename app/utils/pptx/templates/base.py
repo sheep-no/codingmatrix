@@ -37,6 +37,8 @@ class TemplateConfig:
     name_zh: str
     category: TemplateCategory
     description: str
+    schema_version: int = 2
+    version: str = "1.0"
 
     # 配色方案
     primary_color: str = "1F4E79"      # 主色调
@@ -77,6 +79,12 @@ class TemplateConfig:
 
     # 布局变体
     layouts: Dict[SlideLayout, Dict[str, Any]] = field(default_factory=dict)
+    colors: Dict[str, Any] = field(default_factory=dict)
+    typography: Dict[str, Any] = field(default_factory=dict)
+    spacing: Dict[str, Any] = field(default_factory=dict)
+    shapes: Dict[str, Any] = field(default_factory=dict)
+    image: Dict[str, Any] = field(default_factory=dict)
+    chart: Dict[str, Any] = field(default_factory=dict)
 
     def copy(self) -> "TemplateConfig":
         """复制模板配置"""
@@ -86,6 +94,8 @@ class TemplateConfig:
             name_zh=self.name_zh + " (自定义)",
             category=self.category,
             description=self.description,
+            schema_version=self.schema_version,
+            version=self.version,
             primary_color=self.primary_color,
             secondary_color=self.secondary_color,
             accent_color=self.accent_color,
@@ -114,6 +124,12 @@ class TemplateConfig:
             slide_width=self.slide_width,
             slide_height=self.slide_height,
             layouts=dict(self.layouts),
+            colors=dict(self.colors),
+            typography=dict(self.typography),
+            spacing=dict(self.spacing),
+            shapes=dict(self.shapes),
+            image=dict(self.image),
+            chart=dict(self.chart),
         )
 
 

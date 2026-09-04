@@ -68,6 +68,28 @@ async def test_recovery_starts_at_requested_stage():
 
 
 @pytest.mark.asyncio
+async def test_standard_mode_skips_visual_review_stage():
+    events = []
+    result = await PPTGenerationOrchestrator(progress_callback=events.append).run(
+        {"quality_mode": "standard"}
+    )
+
+    assert result.status == "completed"
+    assert "vision_qa" not in [event["stage"] for event in events]
+
+
+@pytest.mark.asyncio
+async def test_refined_mode_keeps_visual_review_and_supports_recovery():
+    events = []
+    result = await PPTGenerationOrchestrator(progress_callback=events.append).run(
+        {"quality_mode": "refined"}, start_stage="vision_qa"
+    )
+
+    assert result.status == "completed"
+    assert [event["stage"] for event in events if event["status"] == "started"] == ["vision_qa", "completed"]
+
+
+@pytest.mark.asyncio
 async def test_failure_returns_failed_stage_and_error_for_recovery():
     seen = []
 

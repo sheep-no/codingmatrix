@@ -33,8 +33,15 @@ async def _generate_ppt(
         _convert_pptx_to_pdf,
     )
     from app.services.ppt_generation_orchestrator import PPTGenerationOrchestrator
+    from app.services.ppt_generation_persistence import (
+        build_ppt_trace_context,
+        persist_ppt_generation_result,
+        save_ppt_stage_checkpoint,
+        serialize_quality_report,
+    )
     from app.services.ppt_quality_orchestrator import run_quality_pipeline
     from app.utils.pptx.semantic_renderer import build_render_metadata
+    from app.db.database import async_session
 
     request = PPTGenerationRequest.model_validate(request_data)
     output_dir = Path(PPT_OUTPUT_DIR)
@@ -46,7 +53,9 @@ async def _generate_ppt(
         OutputFormat.PDF: "pdf",
     }.get(request.output_format, "pptx")
     filepath = output_dir / f"{task_id}.{extension}"
-    state: dict[str, Any] = {"request": request, "quality_mode": (request.options or {}).get("quality_mode", "standard")}
+    quality_mode = (request.options or {}).get("quality_mode", "standard")
+    trace = build_ppt_trace_context(request.options, request.template, quality_mode)
+    state: dict[str, Any] = {"request": request, "quality_mode": quality_mode, "trace": trace}
 
     async def planning(context):
         await progress.update(20, "正在生成 PPT 大纲...")
@@ -62,6 +71,17 @@ async def _generate_ppt(
             json.dumps(context["outline"].get("slides", []), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        async with async_session() as db:
+            await save_ppt_stage_checkpoint(
+                db,
+                task_id,
+                int(user_id),
+                1,
+                "planning",
+                trace,
+                {"slides": context["outline"].get("slides", [])},
+            )
+            await db.commit()
         return context
 
     async def render_current_outline(context):
@@ -89,13 +109,24 @@ async def _generate_ppt(
                 **slide,
                 "id": slide.get("id", f"slide-{index + 1}"),
                 "elements": slide.get("elements", []),
-                "render_metadata": build_render_metadata(slide, token_version="1.0"),
+                "render_metadata": build_render_metadata(slide, token_version=str(trace["template_version"])),
             }
             for index, slide in enumerate(context["outline"].get("slides", []))
         ]
         context["quality_slides"], context["quality_report"] = await run_quality_pipeline(
             quality_slides, context["quality_mode"]
         )
+        async with async_session() as db:
+            await save_ppt_stage_checkpoint(
+                db,
+                task_id,
+                int(user_id),
+                2,
+                "rule_qa",
+                trace,
+                {"quality": serialize_quality_report(context["quality_report"])},
+            )
+            await db.commit()
         return context
 
     async def reflow(context):
@@ -117,12 +148,25 @@ async def _generate_ppt(
     orchestration = await PPTGenerationOrchestrator(handlers).run(state)
     if orchestration.status != "completed":
         raise RuntimeError(orchestration.error or f"PPT 编排失败：{orchestration.stage}")
-    return {
+    result = {
         "filename": filepath.name,
         "ppt_id": task_id,
         "download_url": f"/api/v1/pptx/download/{task_id}?format={extension}",
         "preview_url": f"/api/v1/pptx/preview/{task_id}" if extension == "pptx" else None,
     }
+    async with async_session() as db:
+        await persist_ppt_generation_result(
+            db,
+            task_id,
+            int(user_id),
+            filepath,
+            extension,
+            result,
+            trace,
+            orchestration.context["quality_slides"],
+            orchestration.context["quality_report"],
+        )
+    return result
 
 
 @celery_app.task(

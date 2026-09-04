@@ -37,10 +37,9 @@ def classify_scenario(text: str) -> ScenarioResult:
         key=lambda item: (len(item[1]), item[0]),
         default=("general", ()),
     )
-    if len(matched) < 1:
-        scenario = "general"
-        matched = ()
     confidence = min(1.0, len(matched) / 3.0)
+    if confidence < 0.6:
+        scenario = "general"
     category = SCENARIO_PROFILES[scenario][0]
     return ScenarioResult(scenario, category, confidence, tuple(matched))
 

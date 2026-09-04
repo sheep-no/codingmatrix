@@ -11,6 +11,8 @@ def test_all_supported_slide_types_have_stable_render_metadata(slide_type):
     assert metadata["slide_type"] == slide_type
     assert metadata["token_version"] == "1.0"
     assert metadata["grid"]["safe_area"] == 0.5
+    assert metadata["visual_skeleton"]
+    assert metadata["asset_rules"]["fallback"] == "template_visual"
 
 
 def test_render_metadata_normalizes_types_and_includes_source_placeholder():
@@ -19,6 +21,23 @@ def test_render_metadata_normalizes_types_and_includes_source_placeholder():
     assert metadata["chart_type"] == "line"
     assert metadata["source_placeholder"] == "数据来源：待补充"
     assert metadata["hierarchy"]["body"] == 14
+    assert metadata["chart_rules"] == {
+        "relationship": "trend", "show_source": True, "source_style": "caption"
+    }
+
+
+def test_render_metadata_preserves_asset_intent_for_fallback_rules():
+    metadata = build_render_metadata(
+        {
+            "id": "s2",
+            "slide_type": "image_text",
+            "asset_intent": {"keywords": ["产品", "用户"]},
+        },
+        token_version="2.0",
+    )
+    assert metadata["token_version"] == "2.0"
+    assert metadata["asset_rules"]["requested"] is True
+    assert metadata["asset_rules"]["keywords"] == ["产品", "用户"]
 
 
 def test_image_fit_preserves_ratio_and_centers_crop():
@@ -32,6 +51,11 @@ def test_missing_image_uses_box_fallback():
     placement = fit_image(0, 0, 4, 3, available=False)
     assert placement.fallback is True
     assert (placement.width, placement.height) == (4, 3)
+
+
+def test_invalid_image_box_is_clamped_to_safe_dimensions():
+    placement = fit_image(16, 9, -1, 0, available=False)
+    assert (placement.width, placement.height) == (0.0, 0.0)
 
 
 def test_type_and_chart_fallbacks_are_stable():

@@ -190,10 +190,10 @@
         <button
           v-if="!generating && workflowStep === 1"
           class="generate-btn"
-          :disabled="!canGenerate"
+          :disabled="outlineSaving || !canGenerate"
           @click="handleGenerate"
         >
-          {{ uploadedFile ? '根据文件生成 PPT' : '一键生成 PPT' }}
+          {{ outlineSaving ? '正在生成大纲...' : uploadedFile ? '根据文件生成 PPT' : '一键生成 PPT' }}
         </button>
         <button
           v-else-if="generating"
@@ -377,6 +377,7 @@ const progressState = ref(null)
 
 // 文件上传相关
 const uploadedFile = ref(null)
+const uploadedMaterialId = ref(null)
 const fileInputRef = ref(null)
 
 // 历史记录相关
@@ -573,10 +574,12 @@ function setUploadedFile(file) {
     return
   }
   uploadedFile.value = file
+  uploadedMaterialId.value = null
 }
 
 function removeFile() {
   uploadedFile.value = null
+  uploadedMaterialId.value = null
   if (fileInputRef.value) fileInputRef.value.value = ''
 }
 
@@ -685,12 +688,19 @@ async function handleGenerate() {
   }
 
   if (workflowStep.value === 1) {
+    outlineSaving.value = true
     try {
+      if (uploadedFile.value && !uploadedMaterialId.value) {
+        const uploaded = await api.uploadFile(uploadedFile.value)
+        uploadedMaterialId.value = uploaded.id
+      }
       const draft = await api.ppt.createOutline({
         topic: topic.value.trim() || uploadedFile.value?.name || '未命名演示',
+        description: topic.value.trim(),
         num_slides: parseInt(slideCount.value),
         template_id: selectedTemplate.value,
-        material_file_ids: [],
+        api_key_token: apiKeyStore.siliconflowKey?.token || null,
+        material_file_ids: uploadedMaterialId.value ? [uploadedMaterialId.value] : [],
       })
       outlineDraft.value = draft
       outlineSlides.value = normalizeOutlineSlides(draft.slides)
@@ -698,6 +708,8 @@ async function handleGenerate() {
       ElMessage.success('大纲已生成，请审阅页面结构')
     } catch (e) {
       ElMessage.error('大纲生成失败: ' + e.message)
+    } finally {
+      outlineSaving.value = false
     }
     return
   }
@@ -732,7 +744,11 @@ async function generateApprovedOutline() {
     let result
 
     if (outlineDraft.value) {
-      result = await api.ppt.generateFromOutline(outlineDraft.value.id, qualityMode.value)
+      result = await api.ppt.generateFromOutline(
+        outlineDraft.value.id,
+        qualityMode.value,
+        outlineDraft.value.version,
+      )
     } else {
 
     if (uploadedFile.value) {

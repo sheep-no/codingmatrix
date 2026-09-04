@@ -18,6 +18,7 @@ from app.schema.ppt_outline import (
     OutlineUpdateRequest,
 )
 from app.utils.pptx.commercial_content import build_commercial_page_blueprint
+from app.utils.pptx.scenario import classify_scenario
 
 
 class OutlineValidationError(ValueError):
@@ -57,7 +58,7 @@ class PPTOutlineService:
             user_id=str(user_id),
             version=1,
             title=topic,
-            scenario=request.scenario,
+            scenario=request.scenario or classify_scenario(f"{topic} {request.description}").scenario,
             template_id=request.template_id,
             slide_limit=request.num_slides,
             slides=slides,

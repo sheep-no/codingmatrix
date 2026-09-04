@@ -61,8 +61,9 @@ VS Code 工作台使用 `POST /api/v1/agent/orchestrate/stream` 接收 SSE Agent
 - `OutlineSlide.content_blocks[].metadata`：商业页面结构化字段，按叙事角色保存指标、目标、成本、周期、风险、依据、交付物、门槛、负责人和时限。
 - `OutlineSlide.narrative_role`：支持 `opportunity_map`、`evidence_story`、`strategic_choice`、`execution_roadmap` 和 `decision_close`，用于选择页面商业构图。
 - `GET /api/v1/pptx/{task_id}/quality-report`：读取当前用户任务的最新质量报告，包括整体分、逐页分、问题及其 `fix_action` 和重排记录；前端根据高严重度问题和两次重排记录推导人工复核页，同时兼容显式 `manual_review_slides` 标记。
+- `PPTGenerate.vue` 的三步前端链路由大纲创建、版本更新、审批和按版本生成组成；生成完成后通过 WebSocket 结果中的 `ppt_id` 跳转 `PPTPreview.vue`，预览页读取质量报告并提供 PPTX 下载。
 
-语义渲染规则位于 `app.utils.pptx.semantic_renderer`：页面类型统一归一到 11 类，图片按比例适配内容框并在素材不可用时返回模板回退标记，数据页根据关系选择柱状图、折线图、环图或散点图并生成来源占位信息。
+语义规划与渲染规则分别位于 `app.utils.pptx.semantic_planner` 和 `app.utils.pptx.semantic_renderer`：规划器保留页面及内容块顺序，输出容量预算、兼容布局候选、布局版本、令牌版本和确定性评分，并限制连续相同布局；渲染器将页面类型统一归一到 11 类并映射稳定视觉骨架，图片按比例适配内容框并记录裁切焦点、素材关键词和模板视觉回退规则，数据页根据关系选择柱状图、折线图、环图或散点图并生成来源占位信息与图表规则 metadata。
 实际 PPTX 生成通过 `layout_type_for_slide_type()` 将语义页面接入旧布局计划；`LayoutDecider.render_slide(..., tokens=...)` 应用同一任务级设计令牌。模板管理器可按 `tech` 模板 ID 解析深色科技主题令牌；`business`、`creative`、`modern`、`minimal`、`tech`、`academic`、`education`、`medical` 和 `elegant` 根据 `narrative_role` 进入独立构图分支。学术主题优先显示 `evidence_sources` 的首个来源，来源缺失时显示明确的待补来源提示；教育主题使用 `Aptos`/`Arial` 回退字体并保持课程卡片的投屏字号；医疗主题提供临床证据来源占位；`elegant` 主题提供 `BOARD RECOMMENDATION` 等董事会决策语义标签。
 PDF 生成采用临时 PPTX 转换链路，调用 `libreoffice --headless --convert-to pdf`；服务器缺少 LibreOffice 时返回 501，并提示安装 `libreoffice-impress`。
 
@@ -166,9 +167,11 @@ AICloud 与 GirlAI 的旧历史读取回归测试覆盖兼容映射复用、缺�
 
 Agent 适配器入口为 `ensure_project_session`、`save_graph_checkpoint` 和 `persist_agent_state`。`generate`、同步 `orchestrate`、增量修改 SSE 和 `orchestrate/stream` 已通过 `run_workflow(..., db=db, user_id=user_id)` 触发统一持久化。Workflow 适配器入口为 `ensure_workflow_task`、`record_workflow_stage` 和 `register_workflow_artifacts`。
 
-PPT WebSocket `GET /ws/ppt/{task_id}?after_sequence=N` 建立连接后按 SQL `task_events.sequence` 重放事件，再发送当前任务状态变化；没有后续事件时返回 `{type: "snapshot_recovery", revision, step, state}`。Celery 任务入口为 `app.tasks.ppt_tasks.generate_ppt(task_id, user_id, request_data)`，其中 `request_data` 必须是 JSON 对象。
+PPT WebSocket `GET /ws/ppt/{task_id}?after_sequence=N` 建立连接后按 SQL `task_events.sequence` 重放事件，再发送当前任务状态变化；没有后续事件时返回 `{type: "snapshot_recovery", revision, step, state}`。Celery 任务入口为 `app.tasks.ppt_tasks.generate_ppt(task_id, user_id, request_data)`，其中 `request_data` 必须是 JSON 对象。编排器按 `quality_mode` 选择阶段：标准模式跳过 `vision_qa`，精修模式执行完整视觉复审，并支持从指定阶段恢复。
 
 PPT Celery worker 使用统一 `heartbeat_task` 写入 90 秒 lease，进度更新会触发续租；过期 lease 的扫描和恢复由后续调度器负责。
+
+PPT Celery worker 与旧异步入口共用 `app.services.ppt_generation_persistence`。任务在规划、规则质检和完成阶段写入版本化 Checkpoint；完成后登记主输出文件、预览、布局元数据和质量报告 Artifact。派生 Artifact 关联主输出 Artifact，主输出 metadata 可解析 `outline_version`、`template_version`、`planner_version` 和 `quality_report_version`，文件 Artifact 保存 SHA-256 内容 hash。重复 worker 执行按任务、Artifact 类型和版本幂等更新。
 
 `app.services.worker_recovery_service.recover_expired_tasks(db, now=None, limit=100)` 执行一次过期 lease 扫描，支持 `project_generate`、`code_generate`、`ppt_generate` 和 `ppt_generation`，成功重投递后记录 `task.recovered` 事件。`app.db.scheduler` 的 `worker_lease_recovery` job 每分钟调用一次。
 

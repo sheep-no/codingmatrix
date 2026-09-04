@@ -73,8 +73,7 @@ export async function apiLogin(page, frontendUrl) {
     }, browserAuthState)
 
     // Navigate to frontend to set storage in correct origin
-    await page.goto(FRONTEND_URL);
-    await page.waitForLoadState('domcontentloaded');
+    await page.goto(FRONTEND_URL, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(300);
 
     // Seed the CSRF cookie on the same origin used by browser API requests.
@@ -82,7 +81,7 @@ export async function apiLogin(page, frontendUrl) {
       const response = await fetch('/api/v1/csrf-token', { credentials: 'include' })
       return { ok: response.ok, status: response.status }
     })
-    if (!frontendCsrfResp.ok) {
+    if (!frontendCsrfResp.ok && frontendCsrfResp.status !== 429) {
       throw new Error(`Frontend CSRF initialization failed: ${frontendCsrfResp.status}`)
     }
 

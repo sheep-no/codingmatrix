@@ -1,6 +1,6 @@
 """PPT outline contracts used by the outline review workflow."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -62,7 +62,9 @@ class OutlineCreateRequest(BaseModel):
     topic: str = Field(..., min_length=1, max_length=5000)
     description: str = Field(default="", max_length=5000)
     num_slides: int = Field(default=10, ge=1, le=50)
-    scenario: str = Field(default="general", min_length=1, max_length=40)
+    scenario: Optional[Literal[
+        "business", "data_report", "product_pitch", "academic", "education", "general"
+    ]] = None
     template_id: str = Field(default="modern", min_length=1, max_length=80)
     model: str = Field(default="", max_length=200)
     api_key_token: Optional[str] = None
@@ -78,6 +80,7 @@ class OutlineUpdateRequest(BaseModel):
 
 class OutlineGenerateRequest(BaseModel):
     quality_mode: str = Field(default="standard", pattern="^(standard|refined)$")
+    outline_version: Optional[int] = Field(default=None, ge=1)
 
 
 class SlideRegenerateRequest(BaseModel):

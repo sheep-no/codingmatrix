@@ -68,6 +68,34 @@ class SlidePlan:
     capacity: CapacityBudget
     content_blocks: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     adjustment_reason: str | None = None
+    layout_id: str = "content_only"
+    layout_version: str = "1.0"
+    token_version: str = "1.0"
+    planning_score: float = 0.0
+
+
+def _layout_score(
+    slide: OutlineSlide,
+    slide_type: str,
+    layout: str,
+    previous_layout: str | None,
+    repeated_layouts: int,
+) -> float:
+    """Score compatible layouts deterministically for stable planning."""
+    score = 1.0
+    if slide.asset_intent and layout == "content_with_image":
+        score += 3.0
+    if slide_type in {"comparison", "timeline", "process"} and layout == "two_column":
+        score += 2.0
+    if slide_type in {"cover", "section", "closing"} and layout == "title_slide":
+        score += 2.0
+    if slide_type in {"summary", "data"} and layout == "center_focus":
+        score += 1.5
+    if len(slide.content_blocks) > 4 and layout == "two_column":
+        score += 1.0
+    if layout == previous_layout:
+        score -= 0.75 * max(1, repeated_layouts)
+    return round(score, 3)
 
 
 def infer_slide_type(slide: OutlineSlide) -> str:
@@ -104,18 +132,28 @@ def _capacity(slide: OutlineSlide, slide_type: str) -> CapacityBudget:
 
 def plan_outline(outline: OutlineDraft, planner_version: str = "1.0") -> list[SlidePlan]:
     """Create a deterministic plan while preserving slide and block order."""
-    del planner_version  # Reserved for persistence and future planner versions.
     plans = []
     previous_layout: str | None = None
     repeated_layouts = 0
     for slide in sorted(outline.slides, key=lambda item: (item.position, item.id)):
         slide_type = infer_slide_type(slide)
         candidates = list(LAYOUTS_BY_TYPE[slide_type])
-        if candidates[0] == previous_layout and repeated_layouts >= 2:
-            candidates.append(candidates.pop(0))
-        selected = candidates[0]
+        scored = sorted(
+            (
+                _layout_score(slide, slide_type, layout, previous_layout, repeated_layouts),
+                -index,
+                layout,
+            )
+            for index, layout in enumerate(candidates)
+        )
+        selected = scored[-1][2]
+        if selected == previous_layout and repeated_layouts >= 2 and len(candidates) > 1:
+            selected = next(layout for layout in candidates if layout != previous_layout)
         repeated_layouts = repeated_layouts + 1 if selected == previous_layout else 1
         previous_layout = selected
+        planning_score = _layout_score(slide, slide_type, selected, None, 0)
+        if slide_type != slide.slide_type:
+            planning_score -= 0.5
         plans.append(SlidePlan(
             slide_id=slide.id,
             position=slide.position,
@@ -125,6 +163,10 @@ def plan_outline(outline: OutlineDraft, planner_version: str = "1.0") -> list[Sl
             capacity=_capacity(slide, slide_type),
             content_blocks=tuple(block.model_dump(mode="json") for block in slide.content_blocks),
             adjustment_reason=("页面类型已兼容映射" if slide_type != slide.slide_type else None),
+            layout_id=selected,
+            layout_version="1.0",
+            token_version=planner_version,
+            planning_score=max(0.0, round(planning_score, 3)),
         ))
     return plans
 

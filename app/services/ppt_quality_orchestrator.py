@@ -5,6 +5,8 @@ from typing import Any
 
 from app.utils.pptx.quality import AutoReflowEngine, QualityReport, check_deck
 
+VISION_CONFIDENCE_THRESHOLD = 0.70
+
 
 async def run_quality_pipeline(
     slides: list[dict[str, Any]],
@@ -27,7 +29,7 @@ async def run_quality_pipeline(
                 visual_issues = await vision_reviewer(slide)
                 report.issues.extend(visual_issues)
                 if any(
-                    issue.get("confidence") is not None and float(issue["confidence"]) < 0.6
+                    issue.get("confidence") is not None and float(issue["confidence"]) < VISION_CONFIDENCE_THRESHOLD
                     for issue in visual_issues
                 ):
                     report.issues.append({

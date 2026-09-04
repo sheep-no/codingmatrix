@@ -28,6 +28,19 @@ def test_planner_reports_capacity_overflow():
     assert plan_outline(make_outline([slide]))[0].capacity.exceeded is True
 
 
+def test_planner_exposes_versioned_layout_score_and_penalizes_repetition():
+    slides = [
+        OutlineSlide(id=str(index), position=index, slide_type="comparison", title="对比", key_message="判断", content_blocks=[ContentBlock(content="内容")])
+        for index in range(3)
+    ]
+    plans = plan_outline(make_outline(slides), planner_version="2.1")
+
+    assert all(plan.layout_id == "two_column" for plan in plans[:2])
+    assert plans[0].token_version == "2.1"
+    assert plans[0].planning_score > 0
+    assert plans[2].layout_id != plans[1].layout_id
+
+
 def test_split_content_blocks_keeps_source_order():
     blocks = [{"content": str(index)} for index in range(7)]
     chunks = split_content_blocks(blocks, 3)
