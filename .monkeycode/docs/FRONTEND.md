@@ -20,6 +20,7 @@
 | `/settings` | `src/views/Settings.vue` | 是 |
 | `/admin`、`/admin/dashboard` | 管理页面 | 管理员 |
 | `/docs` | `src/views/Docs.vue` | 是 |
+| `/chart-editor` | `src/views/ChartEditorPage.vue` | 是 |
 
 `/project-generate` 重定向到 `/agent`。路由守卫根据用户登录状态和 `admin`/`superadmin` 权限控制访问。
 

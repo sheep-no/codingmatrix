@@ -30,6 +30,7 @@ vi.mock('echarts', () => ({
     const instance = {
       setOption: vi.fn(),
       dispose: vi.fn(),
+      resize: vi.fn(),
       getDataURL: vi.fn(() => 'data:image/png;base64,test')
     }
     mocks.instances.push(instance)
@@ -101,7 +102,48 @@ describe('ChartEditorPage', () => {
     expect(wrapper.get('.chart-preview-title').text()).toBe('月度销售')
     const option = mocks.instances[0].setOption.mock.calls.at(-1)[0]
     expect(option.series[0]).toMatchObject({ name: '月度销售', type: 'pie', label: { show: true } })
+    expect(option.title).toMatchObject({ text: '月度销售' })
     expect(option.legend).toMatchObject({ show: true, data: ['Jan', 'Feb'] })
+  })
+
+  it('removes charts bound to a deleted data source', async () => {
+    const wrapper = mount(ChartEditorPage)
+    await uploadJson(wrapper, 'sales.json', [{ month: 'Jan', sales: 10 }])
+    await addChart(wrapper)
+
+    await wrapper.get('.data-remove').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.data-item')).toHaveLength(0)
+    expect(wrapper.findAll('.chart-preview-item')).toHaveLength(0)
+    expect(mocks.instances[0].dispose).toHaveBeenCalledOnce()
+  })
+
+  it('handles special category keys during aggregation', async () => {
+    const wrapper = mount(ChartEditorPage)
+    await uploadJson(wrapper, 'special.json', [
+      { category: 'constructor', value: 2 },
+      { category: '__proto__', value: 3 }
+    ])
+    await addChart(wrapper)
+
+    const option = mocks.instances[0].setOption.mock.calls.at(-1)[0]
+    expect(option.xAxis.data).toEqual(['constructor', '__proto__'])
+  })
+
+  it('rejects changing an existing chart to a non-numeric measure', async () => {
+    const wrapper = mount(ChartEditorPage)
+    await uploadJson(wrapper, 'labels.json', [
+      { category: 'A', value: 1, status: 'ready' }
+    ])
+    await addChart(wrapper)
+
+    const yAxis = wrapper.findAll('.field-group select')[1]
+    await yAxis.setValue('status')
+    await flushPromises()
+
+    expect(yAxis.element.value).toBe('value')
+    expect(mocks.warning).toHaveBeenCalledWith('字段“status”没有可绘制的数值')
   })
 
   it('keeps charts bound to their original data and preserves instances after removal', async () => {

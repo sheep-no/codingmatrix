@@ -1,7 +1,7 @@
 <template>
   <div class="chart-editor-page">
     <!-- 头部 -->
-    <div class="editor-header">
+    <div class="editor-header" :class="{ 'dark-theme': isDarkTheme }">
       <div class="header-left">
         <button class="back-btn" aria-label="返回" @click="goBack">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -47,7 +47,7 @@
             <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
           </svg>
         </button>
-        <button class="header-btn" :disabled="charts.length === 0" aria-label="导出当前图表" @click="exportChart">
+        <button class="header-btn" :disabled="selectedChartIndex === null" aria-label="导出当前图表" @click="exportChart">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
@@ -435,6 +435,13 @@ const selectDataSource = index => {
 
 const removeDataSource = index => {
   flushPendingHistory()
+  const source = dataSources.value[index]
+  charts.value = charts.value.filter(chart => {
+    if (chart.dataSourceId !== source?.id) return true
+    chartInstances[chart.id]?.dispose()
+    delete chartInstances[chart.id]
+    return false
+  })
   dataSources.value.splice(index, 1)
   if (dataSources.value.length === 0) {
     selectedDataSourceIndex.value = null
@@ -444,6 +451,11 @@ const removeDataSource = index => {
     selectedDataSourceIndex.value -= 1
   }
 
+  if (selectedChartIndex.value !== null) {
+    selectedChartIndex.value = charts.value.length > 0
+      ? Math.min(selectedChartIndex.value, charts.value.length - 1)
+      : null
+  }
   if (!selectedChart.value && currentDataSource.value) {
     config.value.xAxis = currentDataSource.value.fields[0] || ''
     config.value.yAxis = currentDataSource.value.fields[1] || currentDataSource.value.fields[0] || ''
@@ -613,9 +625,21 @@ const clearAllCharts = async () => {
   ElMessage.success('已清空全部图表')
 }
 
-const updateChart = () => {
+const updateChart = event => {
   const chart = selectedChart.value
   if (!chart) return
+
+  if (config.value.aggregate !== 'count') {
+    const source = dataSources.value.find(item => item.id === chart.dataSourceId)
+    const hasNumericValue = source?.data
+      .some(row => toFiniteNumber(row[config.value.yAxis]) !== null)
+    if (!hasNumericValue) {
+      ElMessage.warning(`字段“${config.value.yAxis}”没有可绘制的数值`)
+      config.value.yAxis = chart.yAxis
+      if (event?.target?.tagName === 'SELECT') event.target.value = chart.yAxis
+      return
+    }
+  }
 
   Object.assign(chart, {
     chartType: config.value.chartType,
@@ -649,6 +673,10 @@ const renderChart = index => {
   instance.setOption(option, true)
 }
 
+const handleResize = () => {
+  Object.values(chartInstances).forEach(instance => instance.resize())
+}
+
 const aggregateData = (data, chart) => {
   if (!chart.xAxis || !chart.yAxis || chart.aggregate === 'none') {
     return data.map(d => {
@@ -657,14 +685,14 @@ const aggregateData = (data, chart) => {
     })
   }
 
-  const groups = {}
+  const groups = new Map()
   data.forEach(d => {
     const key = d[chart.xAxis]
-    if (!groups[key]) groups[key] = []
-    groups[key].push(d[chart.yAxis])
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(d[chart.yAxis])
   })
 
-  return Object.entries(groups).map(([name, values]) => {
+  return [...groups.entries()].map(([name, values]) => {
     const numericValues = values.map(toFiniteNumber).filter(value => value !== null)
     let value
     switch (chart.aggregate) {
@@ -684,14 +712,18 @@ const buildChartOption = (chart, data) => {
   const values = data.map(d => d.value)
   const seriesName = chart.title || '数据'
   const label = { show: chart.showLabel }
+  const textColor = isDarkTheme.value ? '#e0e0e0' : '#303133'
+  const mutedColor = isDarkTheme.value ? '#a0a0b0' : '#909399'
 
   const baseOption = {
     animation: chart.animation?.enabled ?? true,
     animationDuration: chart.animation?.duration ?? 1000,
+    animationEasing: chart.animation?.easing ?? 'cubicOut',
+    title: { text: seriesName, left: 'center', textStyle: { color: textColor } },
     tooltip: { trigger: 'axis' },
     grid: { left: '12%', right: '8%', bottom: '12%', top: '18%', containLabel: true },
-    xAxis: { type: 'category', data: names, axisTick: { alignWithLabel: true } },
-    yAxis: { type: 'value' },
+    xAxis: { type: 'category', data: names, axisTick: { alignWithLabel: true }, axisLabel: { color: mutedColor }, axisLine: { lineStyle: { color: mutedColor } } },
+    yAxis: { type: 'value', axisLabel: { color: mutedColor }, axisLine: { lineStyle: { color: mutedColor } }, splitLine: { lineStyle: { color: isDarkTheme.value ? '#2a2a4a' : '#ebeef5' } } },
   }
 
   let series
@@ -728,7 +760,7 @@ const buildChartOption = (chart, data) => {
         type: 'pie',
         data: data.map(d => ({ name: d.name, value: d.value })),
         label,
-        itemStyle: { color: chart.color }
+        itemStyle: { color: names.map((_, index) => index === 0 ? chart.color : ['#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'][index % 5]) }
       }]
       break
     case 'radar':
@@ -785,6 +817,7 @@ const exportAllCharts = async () => {
 const toggleTheme = () => {
   flushPendingHistory()
   isDarkTheme.value = !isDarkTheme.value
+  nextTick(() => charts.value.forEach((_, index) => renderChart(index)))
 }
 
 const createSerializableState = () => ({
@@ -957,6 +990,7 @@ onMounted(() => {
   restoreDraft()
   resetHistory()
   window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('resize', handleResize)
 })
 
 onBeforeUnmount(() => {
@@ -964,6 +998,7 @@ onBeforeUnmount(() => {
   clearTimeout(historySaveTimer)
   saveDraft()
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('resize', handleResize)
   Object.values(chartInstances).forEach(c => c.dispose())
   chartInstances = {}
 })
@@ -1589,5 +1624,6 @@ onBeforeUnmount(() => {
   .subtitle { display: none; }
   .header-stats { display: none; }
   .toolbar-btn span:not(.toolbar-kbd) { display: none; }
+  .data-remove { opacity: 1; width: 32px; height: 32px; }
 }
 </style>

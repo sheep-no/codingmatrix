@@ -604,10 +604,10 @@ dependencies.get_affected_files(['models/user.py'])
 | `/admin` | `components/AdminPanel.vue` | requiresAuth + requiresSuper | 旧版管理面板 |
 | `/admin/dashboard` | `views/AdminDashboard.vue` | requiresAuth + requiresSuper | 1870 行管理控制台 |
 | `/docs` | `views/Docs.vue` | requiresAuth | 文档中心 (1140 行) |
-| `/chart-editor` | `views/ChartEditorPage.vue` | requiresAuth | ECharts 数据可视化 (1304 行) |
+| `/chart-editor` | `views/ChartEditorPage.vue` | requiresAuth | ECharts 数据可视化 (1593 行) |
 | `/:pathMatch(.*)*` | → `/` | - | 通配 |
 
-> 守卫逻辑：`requiresAuth` 不阻断未登录请求 (首页会弹登录框), `requiresSuper` 检查 `permissionLevel` 为 `admin` 或 `superadmin`
+> 守卫逻辑：`requiresAuth` 未满足时重定向到首页并携带原始路径, `requiresSuper` 检查 `permissionLevel` 为 `admin` 或 `superadmin`
 
 ### Pinia Stores (src/stores/) - 10 stores
 
@@ -647,7 +647,7 @@ dependencies.get_affected_files(['models/user.py'])
 |------|------|------|
 | `AgentDashboard.vue` | 384 | **核心页面**: 编排 6 个 composable, 渲染 5 个子组件 + 6 个 modal |
 | `AdminDashboard.vue` | **1,870** | 管理控制台: 用户/会话/限制统计、并发限制、模型分配、缓存、学习反馈 |
-| `ChartEditorPage.vue` | 1,304 | 图表编辑器: xlsx/csv/json 导入、ECharts 配置、字段映射、导出 |
+| `ChartEditorPage.vue` | 1,593 | 图表编辑器: xlsx/xls/csv/json 导入、ECharts 配置、字段映射、导出 |
 | `Docs.vue` | 1,140 | 文档中心: 搜索 + 分类导航 + 卡片展开 |
 | `ImageGenerate.vue` | 792 | Kolors 绘画: text2img/img2img 双模式、风格、分辨率、参考图 |
 | `PPTGenerate.vue` | 586 | PPT 生成: 主题输入 + 6 个模板 + 幻灯片数 + 进度流式 |
