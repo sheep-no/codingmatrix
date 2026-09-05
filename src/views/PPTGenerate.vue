@@ -106,7 +106,7 @@
           <div class="advanced-options">
             <div class="option-item">
               <label class="option-label">
-                <span>幻灯片数量</span>
+                <span>最终总页数（含封面）</span>
                 <select v-model="slideCount" class="option-select">
                   <option value="5">5 页 (简洁)</option>
                   <option value="10">10 页 (标准)</option>
@@ -146,8 +146,9 @@
           <div class="workflow-heading">
             <span>第 2 步：审阅大纲</span>
             <div class="workflow-heading-actions">
+              <span class="outline-total">预计最终 {{ outlineSlides.length + 1 }} 页（含封面）</span>
               <span class="workflow-version">v{{ outlineDraft?.version || 1 }}</span>
-              <button class="outline-add-btn" type="button" @click="addOutlineSlide">新增页面</button>
+              <button class="outline-add-btn" type="button" :disabled="outlineSlides.length >= 49" @click="addOutlineSlide">新增页面</button>
             </div>
           </div>
           <div v-for="(slide, index) in outlineSlides" :key="slide.id" class="outline-slide-editor">
@@ -477,6 +478,7 @@ function reindexOutlineSlides() {
 }
 
 function addOutlineSlide() {
+  if (outlineSlides.value.length >= 49) return
   outlineSlides.value.push({
     id: `draft-slide-${Date.now()}-${localSlideSequence++}`,
     position: outlineSlides.value.length,
@@ -1066,7 +1068,8 @@ onUnmounted(() => {
   gap: 6px;
 }
 
-.workflow-version {
+.workflow-version,
+.outline-total {
   color: var(--text-secondary);
   font-size: 12px;
 }
@@ -1082,6 +1085,7 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
+.outline-add-btn:disabled,
 .outline-slide-actions button:disabled {
   opacity: 0.4;
   cursor: not-allowed;

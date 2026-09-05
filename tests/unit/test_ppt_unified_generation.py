@@ -13,10 +13,12 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 from pptx import Presentation
+from pptx.enum.dml import MSO_FILL_TYPE
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.api.v1.aiGeneratorPptx import (
+    _content_slides_for_total,
     _normalize_approved_outline,
     generate_pptx_file_enhanced,
     PPT_TEMPLATES,
@@ -120,7 +122,67 @@ class TestUnifiedGeneration:
             assert json_path.exists(), "JSON snapshot should be created"
             with open(json_path, "r", encoding="utf-8") as f:
                 slides_data = json.load(f)
-            assert len(slides_data) == 6, f"Expected 6 slides in JSON, got {len(slides_data)}"
+            assert len(slides_data) == 5, f"Expected 5 content slides, got {len(slides_data)}"
+            assert len(Presentation(filepath).slides) == 6
+
+    def test_total_slide_budget_removes_input_cover(self, sample_outline):
+        slides = _content_slides_for_total(sample_outline["slides"], 5)
+
+        assert len(slides) == 4
+        assert slides[0]["slide_type"] == "toc"
+
+    @pytest.mark.asyncio
+    async def test_requested_total_is_final_pptx_slide_count(self):
+        outline = {
+            "title": "五页演示",
+            "slides": [
+                {
+                    "slide_type": "key_points",
+                    "title": f"内容页 {index}",
+                    "content": ["论点", "证据", "行动"],
+                }
+                for index in range(1, 6)
+            ],
+        }
+        req = MagicMock(template="modern", api_key_token=None, slide_count=5)
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "app.api.v1.aiGeneratorPptx.visual_analyzer.analyze_ppt_content",
+            new=AsyncMock(return_value=None),
+        ):
+            filepath = Path(tmpdir) / "five-slides.pptx"
+            await generate_pptx_file_enhanced(filepath, outline, req)
+            presentation = Presentation(filepath)
+
+        assert len(presentation.slides) == 5
+
+    @pytest.mark.asyncio
+    async def test_design_tokens_are_applied_to_generated_pptx(self):
+        outline = {
+            "title": "令牌渲染",
+            "slides": [{
+                "slide_type": "key_points",
+                "title": "内容页",
+                "content": ["论点", "证据", "行动"],
+            }],
+        }
+        req = MagicMock(template="business_report", api_key_token=None, slide_count=2)
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "app.api.v1.aiGeneratorPptx.visual_analyzer.analyze_ppt_content",
+            new=AsyncMock(return_value=None),
+        ):
+            filepath = Path(tmpdir) / "token-style.pptx"
+            await generate_pptx_file_enhanced(filepath, outline, req)
+            presentation = Presentation(filepath)
+
+        solid_colors = {
+            str(shape.fill.fore_color.rgb)
+            for slide in presentation.slides
+            for shape in slide.shapes
+            if shape.fill.type == MSO_FILL_TYPE.SOLID
+        }
+        assert "1F4E79" in solid_colors
 
     @pytest.mark.asyncio
     async def test_generate_with_different_templates(self, sample_outline):
@@ -228,8 +290,8 @@ class TestUnifiedGeneration:
             with open(json_path, "r", encoding="utf-8") as f:
                 saved_slides = json.load(f)
 
-            # 比较原始大纲的 slides
-            original_slides = sample_outline["slides"]
+            # 系统封面由渲染器统一生成，快照只保存内容页。
+            original_slides = sample_outline["slides"][1:]
             assert len(saved_slides) == len(original_slides)
             for orig, saved in zip(original_slides, saved_slides):
                 assert orig["title"] == saved["title"]
@@ -482,7 +544,7 @@ class TestEndToEndGeneration:
             assert json_path.exists()
             with open(json_path, "r", encoding="utf-8") as f:
                 saved = json.load(f)
-            assert len(saved) == 6
+            assert len(saved) == 5
 
 
 if __name__ == "__main__":

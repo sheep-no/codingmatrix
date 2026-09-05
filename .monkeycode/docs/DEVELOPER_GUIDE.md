@@ -77,9 +77,10 @@ npm --prefix vscode-extension test
 npm --prefix vscode-extension run e2e
 ```
 
-## 最近验收结果（2026-09-02）
+## 最近验收结果（2026-09-05）
 
 - PPT 专项回归：`225 passed`；共享持久化新增测试覆盖 Artifact 父子关联、内容 hash、质量诊断、Checkpoint、归属隔离和重试幂等，Celery Markdown 生产链路通过隔离数据库验收。
+- PPT 最终页数与模板令牌回归：后端单元测试 `1947 passed, 2 skipped`，其中 PPT 相关测试 `236 passed`；大纲 API 集成测试 `5 passed`，前端全量 `51 passed`，Vite 生产构建通过；实际 PPTX 断言覆盖 5 页最终总数、重复封面归一化和模板主色写入。
 - PPT 任务 3/4 场景、模板、设计令牌和语义规划专项回归：完整 PPT 测试 `231 passed`；规划器覆盖页面类型兼容映射、容量预算、布局评分、令牌/布局版本和连续布局惩罚。
 - PPT 任务 5 编排回归：完整 PPT 测试 `233 passed`；标准模式跳过视觉复审，精修模式保留完整阶段，取消与指定阶段恢复契约通过。
 - PPT 任务 6 渲染与素材回归：完整 PPT 测试 `235 passed`；11 类页面视觉骨架、图片等比适配/回退、图表选择和来源占位规则通过。

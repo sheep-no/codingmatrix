@@ -228,6 +228,72 @@ class PitchDeckTemplate(TemplateBase):
         )
 
 
+class ModernTemplate(TemplateBase):
+    """现代简约模板的版本化设计令牌。"""
+
+    @property
+    def config(self) -> TemplateConfig:
+        return TemplateConfig(
+            template_id="modern",
+            name="Modern",
+            name_zh="现代简约",
+            category=TemplateCategory.MINIMAL,
+            description="适用于通用商业演示的现代蓝色主题。",
+            primary_color="2563EB",
+            secondary_color="3B82F6",
+            accent_color="F97316",
+            background_color="FFFFFF",
+            text_color="1E293B",
+            light_text_color="64748B",
+            title_font="Arial",
+            body_font="Arial",
+        )
+
+
+class MedicalTemplate(TemplateBase):
+    """医疗健康模板的版本化设计令牌。"""
+
+    @property
+    def config(self) -> TemplateConfig:
+        return TemplateConfig(
+            template_id="medical",
+            name="Medical",
+            name_zh="医疗健康",
+            category=TemplateCategory.BUSINESS,
+            description="适用于临床简报和医疗健康主题的绿色视觉体系。",
+            primary_color="059669",
+            secondary_color="047857",
+            accent_color="0EA5E9",
+            background_color="ECFDF5",
+            text_color="134E4A",
+            light_text_color="5F7470",
+            title_font="Arial",
+            body_font="Arial",
+        )
+
+
+class ElegantTemplate(TemplateBase):
+    """优雅商务模板的版本化设计令牌。"""
+
+    @property
+    def config(self) -> TemplateConfig:
+        return TemplateConfig(
+            template_id="elegant",
+            name="Elegant Business",
+            name_zh="优雅商务",
+            category=TemplateCategory.BUSINESS,
+            description="适用于董事会备忘录和高层决策汇报的紫色编辑风格。",
+            primary_color="7C3AED",
+            secondary_color="6D28D9",
+            accent_color="C4B5FD",
+            background_color="F5F3FF",
+            text_color="2E1065",
+            light_text_color="6B5A78",
+            title_font="Georgia",
+            body_font="Georgia",
+        )
+
+
 class EducationTemplate(TemplateBase):
     """教育培训模板"""
 

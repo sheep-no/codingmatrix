@@ -78,7 +78,7 @@ Skills 使用 `system:`, `user:` 和 `workspace:<folder-name>:` 命名空间。U
 
 统一状态层复用既有 `tasks` 表，并新增 `sessions`、`messages`、`task_events`、`checkpoints` 和 `artifacts`。`TaskManager` 在 Redis/内存状态变更时双写 SQL 任务快照和事件，Redis Pub/Sub 仅负责低延迟通知，SQL 事件表负责恢复和重放。启动迁移运行器会为旧 `tasks` 表补齐 session、revision、幂等键、stage、lease、结构化错误/结果和时间字段。
 
-PPT 大纲使用 `ppt_outlines` 保存版本化草稿和批准快照。生成任务记录 `outline_id`、`outline_version` 和 `quality_mode`；Celery 与旧异步生成入口通过 `ppt_generation_persistence` 保存 `planning`、`rule_qa` 和 `completed` Checkpoint。最终文件、预览、布局元数据和质量报告登记为任务 Artifact，派生产物通过 `parent_artifact_id` 指向主文件；主文件 metadata 保存大纲、模板、规划器和质量报告版本，质量报告保留问题、修复动作、重排次数、人工复核页面和降级阶段。
+PPT 大纲使用 `ppt_outlines` 保存版本化草稿和批准快照。页数请求表示包含封面的最终总页数，初始草稿创建 `N-1` 个内容页；批准后的任务以当前内容页数量加 1 计算总页数，直接生成入口在渲染边界移除输入封面并限制内容页预算。生成任务记录 `outline_id`、`outline_version` 和 `quality_mode`；Celery 与旧异步生成入口通过 `ppt_generation_persistence` 保存 `planning`、`rule_qa` 和 `completed` Checkpoint。最终文件、预览、布局元数据和质量报告登记为任务 Artifact，派生产物通过 `parent_artifact_id` 指向主文件；主文件 metadata 保存大纲、模板、规划器和质量报告版本，质量报告保留问题、修复动作、重排次数、人工复核页面和降级阶段。
 
 PPT 模板管理器通过 `recommend_for_scenario()` 返回场景置信度、命中关键词和至少三个候选模板。内置模板包含商业报告、学术答辩、产品路演、教育培训、医疗健康、极简和科技蓝调；`resolve_design_tokens()` 将 `TemplateConfig` 字段解析为版本化颜色、字体、间距、形状、图片和图表令牌，供后续语义规划和渲染阶段复用。
 
@@ -88,7 +88,7 @@ PPT 模板管理器通过 `recommend_for_scenario()` 返回场景置信度、命
 
 `PPTGenerationOrchestrator` 提供可恢复的异步阶段契约，按 `planning -> assets -> rendering -> rule_qa -> reflow -> vision_qa -> completed` 发出结构化进度事件，并在阶段边界执行取消检查。显式 `quality_mode=standard` 会跳过 `vision_qa`，`refined` 会保留完整视觉复审阶段；两种模式均支持从指定阶段恢复。Celery PPT 任务已通过阶段处理器接入该编排器；发生自动重排时，`reflow` 阶段会重新渲染最终产物。
 
-增强 PPTX 路径为每个内容页归一化语义类型，映射到兼容的 `LayoutType`，并为整次生成解析一次不可变 `DesignTokens`。`LayoutDecider.render_slide()` 使用 token-aware style adapter 应用颜色、字体和背景令牌，同时保留旧 `PPTStyle` 作为安全回退。最终 PPTX 渲染优先消费结构化 `content_blocks`，旧 `content` 和 `bullets` 继续经过归一层兼容。`business`、`creative`、`modern`、`minimal`、`tech`、`academic`、`education`、`medical` 和 `elegant` 分别实现独立封面、几何构图、信息层级和视觉动线；五类叙事角色直接选择各主题的专属页面结构。`academic` 使用研究问题、证据注释、假设对照、研究协议和来源脚注表达研究简报语境；`education` 使用学习目标、课堂证据、练习卡、课程路径和课后行动表达教学工作坊语境；`medical` 使用临床信号、证据评估、方案取舍、照护路径和行动结论表达临床简报语境；`elegant` 使用主信号、证据注释、路径取舍、纵向里程碑和董事会决议表达高端备忘录语境。
+增强 PPTX 路径为每个内容页归一化语义类型，映射到兼容的 `LayoutType`，并为整次生成解析一次不可变 `DesignTokens`。共享 `apply_design_tokens()` 生成任务级样式快照，将颜色、字体和背景令牌同时应用到系统封面、旧版主题构图和 `LayoutDecider` 页面。规范模板 ID `business_report`、`pitch_deck` 分别映射到 `business`、`creative` 构图；`modern`、`medical` 和 `elegant` 具有独立令牌预设。最终 PPTX 渲染优先消费结构化 `content_blocks`，旧 `content` 和 `bullets` 继续经过归一层兼容。`business`、`creative`、`modern`、`minimal`、`tech`、`academic`、`education`、`medical` 和 `elegant` 分别实现独立封面、几何构图、信息层级和视觉动线；五类叙事角色直接选择各主题的专属页面结构。`academic` 使用研究问题、证据注释、假设对照、研究协议和来源脚注表达研究简报语境；`education` 使用学习目标、课堂证据、练习卡、课程路径和课后行动表达教学工作坊语境；`medical` 使用临床信号、证据评估、方案取舍、照护路径和行动结论表达临床简报语境；`elegant` 使用主信号、证据注释、路径取舍、纵向里程碑和董事会决议表达高端备忘录语境。
 
 后续模块迁移新增 `state_compatibility_mappings` 和 `state_retention_records`。前者关联旧模块标识与统一资源，后者记录归档、清理、重试和外部文件保留状态。对应模型位于 `app.models.unified_state`，数据库迁移位于 `migrations/versions/20260829_add_state_migration_tables.py`。
 

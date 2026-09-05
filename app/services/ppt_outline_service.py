@@ -51,7 +51,7 @@ class PPTOutlineService:
                 content_blocks=[ContentBlock.model_validate(block) for block in page_blueprint[index % len(page_blueprint)]["blocks"]],
                 asset_intent=page_blueprint[index % len(page_blueprint)]["asset_intent"],
             )
-            for index in range(request.num_slides)
+            for index in range(max(0, request.num_slides - 1))
         ]
         draft = OutlineDraft(
             id=str(uuid4()),

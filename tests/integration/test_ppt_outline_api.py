@@ -53,8 +53,8 @@ async def test_text_and_material_outline_inputs_share_approval_flow(db, tmp_path
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             for payload in (
-                {"topic": "季度业务汇报", "num_slides": 1},
-                {"topic": "产品材料汇报", "material_file_ids": [material.id], "num_slides": 1},
+                {"topic": "季度业务汇报", "num_slides": 2},
+                {"topic": "产品材料汇报", "material_file_ids": [material.id], "num_slides": 2},
             ):
                 response = await client.post("/api/v1/pptx/outlines", json=payload)
                 assert response.status_code == 201
@@ -73,7 +73,7 @@ async def test_text_and_material_outline_inputs_share_approval_flow(db, tmp_path
 
             material_outline = await client.post(
                 "/api/v1/pptx/outlines",
-                json={"topic": "材料复盘", "material_file_ids": [material.id], "num_slides": 1},
+                json={"topic": "材料复盘", "material_file_ids": [material.id], "num_slides": 2},
             )
             assert material_outline.status_code == 201
             material_slide = material_outline.json()["slides"][0]
@@ -91,6 +91,7 @@ async def test_generate_uses_requested_approved_outline_version(db, monkeypatch)
 
     async def fake_generate_task(req, token, db):
         captured.update(req.options)
+        captured["slide_count"] = req.slide_count
         return TaskResponse(
             task_id="task-versioned",
             task_type="ppt_generation",
@@ -121,6 +122,7 @@ async def test_generate_uses_requested_approved_outline_version(db, monkeypatch)
             assert generated.status_code == 200
             assert captured["outline_version"] == 1
             assert captured["approved_outline"]["title"] == "版本化汇报"
+            assert captured["slide_count"] == 1
     finally:
         app.dependency_overrides.clear()
 
@@ -144,6 +146,7 @@ async def test_generate_text_compatibility_endpoint_persists_editable_draft(db):
             assert payload["outline_id"]
             assert payload["outline_version"] == 1
             assert payload["status"] == "draft"
+            assert payload["total_slides"] == 2
 
             persisted = await client.get(f"/api/v1/pptx/outlines/{payload['outline_id']}")
             assert persisted.status_code == 200

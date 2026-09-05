@@ -131,6 +131,14 @@ def _agent_slides(outline: PresentationOutline) -> list[dict[str, Any]]:
     return slides
 
 
+def _editable_agent_slides(outline: PresentationOutline) -> list[dict[str, Any]]:
+    """Keep editable pages while the renderer owns the presentation cover."""
+    slides = _agent_slides(outline)
+    if slides and slides[0]["slide_type"] == "cover":
+        return slides[1:]
+    return slides
+
+
 def _blueprint_slides(topic: str, count: int) -> list[dict[str, Any]]:
     blueprint = build_commercial_page_blueprint(topic)
     return [
@@ -151,6 +159,8 @@ def _blueprint_slides(topic: str, count: int) -> list[dict[str, Any]]:
 
 
 def _apply_material_evidence(slides: list[dict[str, Any]], materials: list[dict[str, Any]]) -> None:
+    if not slides:
+        return
     content_slides = [slide for slide in slides if slide["slide_type"] not in {"cover", "closing"}] or slides
     for index, material in enumerate(materials):
         slide = content_slides[index % len(content_slides)]
@@ -174,7 +184,7 @@ async def _build_outline_slides(
     materials: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
     topic = request.topic.strip()
-    slides = _blueprint_slides(topic, request.num_slides)
+    slides = _blueprint_slides(topic, max(0, request.num_slides - 1))
     title = topic
     if request.api_key_token:
         material_context = "\n\n".join(
@@ -188,7 +198,7 @@ async def _build_outline_slides(
             api_key_token=request.api_key_token,
         )
         title = outline.title or topic
-        slides = _agent_slides(outline)
+        slides = _editable_agent_slides(outline)
     _apply_material_evidence(slides, materials)
     return title, slides
 

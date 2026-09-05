@@ -3,7 +3,7 @@ from app.services.ppt_outline_service import PPTOutlineService, OutlineValidatio
 
 
 def _request():
-    return OutlineCreateRequest(topic="季度业务汇报", num_slides=2)
+    return OutlineCreateRequest(topic="季度业务汇报", num_slides=3)
 
 
 def test_create_returns_version_one_draft_with_editable_slides():
@@ -16,14 +16,14 @@ def test_create_returns_version_one_draft_with_editable_slides():
 
 
 def test_outline_slide_accepts_narrative_role():
-    draft = PPTOutlineService().create("user-1", OutlineCreateRequest(topic="季度业务汇报", num_slides=2))
+    draft = PPTOutlineService().create("user-1", OutlineCreateRequest(topic="季度业务汇报", num_slides=3))
 
     assert draft.slides[0].narrative_role == "opportunity_map"
 
 
 def test_default_outline_contains_role_specific_commercial_metadata():
     draft = PPTOutlineService().create(
-        "user-1", OutlineCreateRequest(topic="季度业务汇报", num_slides=5)
+        "user-1", OutlineCreateRequest(topic="季度业务汇报", num_slides=6)
     )
 
     assert draft.slides[0].content_blocks[3].metadata == {
@@ -38,7 +38,7 @@ def test_default_outline_contains_role_specific_commercial_metadata():
 
 def test_default_outline_cycles_distinct_roles_for_long_decks():
     draft = PPTOutlineService().create(
-        "user-1", OutlineCreateRequest(topic="季度业务汇报", num_slides=7)
+        "user-1", OutlineCreateRequest(topic="季度业务汇报", num_slides=8)
     )
 
     assert [slide.narrative_role for slide in draft.slides] == [

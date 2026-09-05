@@ -4,6 +4,8 @@ PPT 样式配置 - 共享模块
 从 aiGeneratorPptx.py 提取，供 layout_decider.py 和其他模块使用，消除循环依赖。
 """
 
+from copy import copy
+
 from pptx.dml.color import RGBColor
 
 
@@ -74,6 +76,11 @@ PPT_TEMPLATES = {
     },
 }
 
+STYLE_TEMPLATE_ALIASES = {
+    "business_report": "business",
+    "pitch_deck": "creative",
+}
+
 
 def hex_to_rgb(hex_color: str) -> tuple:
     """将 hex 颜色字符串转为 (r, g, b) 元组"""
@@ -84,8 +91,9 @@ def hex_to_rgb(hex_color: str) -> tuple:
 class PPTStyle:
     """PPT 样式配置"""
     def __init__(self, template_name="modern"):
-        tpl = PPT_TEMPLATES.get(template_name, PPT_TEMPLATES["modern"])
-        self.template_name = template_name if template_name in PPT_TEMPLATES else "modern"
+        resolved_name = STYLE_TEMPLATE_ALIASES.get(template_name, template_name)
+        tpl = PPT_TEMPLATES.get(resolved_name, PPT_TEMPLATES["modern"])
+        self.template_name = resolved_name if resolved_name in PPT_TEMPLATES else "modern"
 
         pc = hex_to_rgb(tpl['primary_color'])
         sc = hex_to_rgb(tpl['secondary_color'])
@@ -108,3 +116,26 @@ class PPTStyle:
 
         self.FONT_MAIN = tpl['font_family'].split(',')[0].strip()
         self.FONT_TITLE = 'Arial'
+
+
+def apply_design_tokens(style, tokens):
+    """Overlay immutable design tokens onto the legacy renderer style."""
+    def color(value, fallback):
+        if not isinstance(value, str):
+            return fallback
+        value = value.lstrip("#")
+        if len(value) != 6:
+            return fallback
+        return RGBColor.from_string(value.upper())
+
+    token_style = copy(style)
+    token_style.PRIMARY_COLOR = color(tokens.colors.get("primary"), style.PRIMARY_COLOR)
+    token_style.PRIMARY_LIGHT = color(tokens.colors.get("secondary"), style.PRIMARY_LIGHT)
+    token_style.PRIMARY_DARK = color(tokens.colors.get("secondary"), style.PRIMARY_DARK)
+    token_style.ACCENT_COLOR = color(tokens.colors.get("accent"), style.ACCENT_COLOR)
+    token_style.BG_WHITE = color(tokens.colors.get("background"), style.BG_WHITE)
+    token_style.TEXT_DARK = color(tokens.colors.get("text"), style.TEXT_DARK)
+    token_style.TEXT_GRAY = color(tokens.colors.get("muted_text"), style.TEXT_GRAY)
+    token_style.FONT_MAIN = tokens.typography.get("body_font", style.FONT_MAIN)
+    token_style.FONT_TITLE = tokens.typography.get("title_font", style.FONT_TITLE)
+    return token_style

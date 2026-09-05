@@ -565,30 +565,9 @@ class LayoutDecider:
     @staticmethod
     def _style_with_tokens(style, tokens):
         """Overlay immutable design tokens onto the existing style contract."""
-        from copy import copy
+        from app.utils.pptx.ppt_style import apply_design_tokens
 
-        def color(value, fallback):
-            if not isinstance(value, str):
-                return fallback
-            value = value.lstrip("#")
-            if len(value) != 6:
-                return fallback
-            return RGBColor.from_string(value.upper())
-
-        token_style = copy(style)
-        primary = color(tokens.colors.get("primary"), style.PRIMARY_COLOR)
-        background = color(tokens.colors.get("background"), style.BG_WHITE)
-        accent = color(tokens.colors.get("accent"), style.ACCENT_COLOR)
-        token_style.PRIMARY_COLOR = primary
-        token_style.PRIMARY_LIGHT = color(tokens.colors.get("secondary"), style.PRIMARY_LIGHT)
-        token_style.PRIMARY_DARK = color(tokens.colors.get("secondary"), style.PRIMARY_DARK)
-        token_style.ACCENT_COLOR = accent
-        token_style.BG_WHITE = background
-        token_style.TEXT_DARK = color(tokens.colors.get("text"), style.TEXT_DARK)
-        token_style.TEXT_GRAY = color(tokens.colors.get("muted_text"), style.TEXT_GRAY)
-        token_style.FONT_MAIN = tokens.typography.get("body_font", style.FONT_MAIN)
-        token_style.FONT_TITLE = tokens.typography.get("title_font", style.FONT_TITLE)
-        return token_style
+        return apply_design_tokens(style, tokens)
     
     def _add_background(
         self,

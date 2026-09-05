@@ -188,13 +188,13 @@ class TestTemplateManager:
         """测试管理器初始化"""
         assert manager is not None
         templates = manager.list_templates()
-        assert len(templates) == 6
+        assert len(templates) == 9
 
     def test_list_templates(self, manager):
         """测试列出模板"""
         templates = manager.list_templates()
 
-        assert len(templates) == 6
+        assert len(templates) == 9
         for template in templates:
             assert "id" in template
             assert "name" in template
@@ -265,7 +265,7 @@ class TestTemplateManager:
         manager.register(template)
 
         templates = manager.list_templates()
-        assert len(templates) == 7
+        assert len(templates) == 10
 
         saved = manager.get_template("custom_test")
         assert saved is not None

@@ -52,11 +52,11 @@ VS Code 工作台使用 `POST /api/v1/agent/orchestrate/stream` 接收 SSE Agent
 
 ## PPT API
 
-- `POST /api/v1/pptx/outlines`：创建可编辑 PPT 大纲草稿；支持主题和素材文件 ID 输入。
+- `POST /api/v1/pptx/outlines`：创建可编辑 PPT 大纲草稿；支持主题和素材文件 ID 输入。`num_slides=N` 表示包含系统封面的最终总页数，响应包含 `N-1` 个可编辑内容页。
 - `GET /api/v1/pptx/outlines/{outline_id}?version=N`：读取指定或最新大纲版本。
 - `PATCH /api/v1/pptx/outlines/{outline_id}`：创建修改后的大纲版本。
 - `POST /api/v1/pptx/outlines/{outline_id}/approve`：校验并批准当前大纲版本。
-- `POST /api/v1/pptx/outlines/{outline_id}/generate`：基于批准的大纲版本创建带质量模式的生成任务。
+- `POST /api/v1/pptx/outlines/{outline_id}/generate`：基于批准的大纲版本创建带质量模式的生成任务，任务总页数为批准快照的内容页数量加 1。
 - `OutlineCreateRequest.material_file_ids`：可选素材文件 ID 列表，与主题输入共用大纲审批流程。
 - `OutlineSlide.content_blocks[].metadata`：商业页面结构化字段，按叙事角色保存指标、目标、成本、周期、风险、依据、交付物、门槛、负责人和时限。
 - `OutlineSlide.narrative_role`：支持 `opportunity_map`、`evidence_story`、`strategic_choice`、`execution_roadmap` 和 `decision_close`，用于选择页面商业构图。
@@ -64,11 +64,11 @@ VS Code 工作台使用 `POST /api/v1/agent/orchestrate/stream` 接收 SSE Agent
 - `PPTGenerate.vue` 的三步前端链路由大纲创建、版本更新、审批和按版本生成组成；生成完成后通过 WebSocket 结果中的 `ppt_id` 跳转 `PPTPreview.vue`，预览页读取质量报告并提供 PPTX 下载。
 
 语义规划与渲染规则分别位于 `app.utils.pptx.semantic_planner` 和 `app.utils.pptx.semantic_renderer`：规划器保留页面及内容块顺序，输出容量预算、兼容布局候选、布局版本、令牌版本和确定性评分，并限制连续相同布局；渲染器将页面类型统一归一到 11 类并映射稳定视觉骨架，图片按比例适配内容框并记录裁切焦点、素材关键词和模板视觉回退规则，数据页根据关系选择柱状图、折线图、环图或散点图并生成来源占位信息与图表规则 metadata。
-实际 PPTX 生成通过 `layout_type_for_slide_type()` 将语义页面接入旧布局计划；`LayoutDecider.render_slide(..., tokens=...)` 应用同一任务级设计令牌。模板管理器可按 `tech` 模板 ID 解析深色科技主题令牌；`business`、`creative`、`modern`、`minimal`、`tech`、`academic`、`education`、`medical` 和 `elegant` 根据 `narrative_role` 进入独立构图分支。学术主题优先显示 `evidence_sources` 的首个来源，来源缺失时显示明确的待补来源提示；教育主题使用 `Aptos`/`Arial` 回退字体并保持课程卡片的投屏字号；医疗主题提供临床证据来源占位；`elegant` 主题提供 `BOARD RECOMMENDATION` 等董事会决策语义标签。
+实际 PPTX 生成通过 `layout_type_for_slide_type()` 将语义页面接入旧布局计划；共享样式适配器把同一任务级设计令牌应用到封面和全部内容页。模板管理器注册九套独立令牌预设，规范模板 ID `business_report`、`pitch_deck` 分别进入 `business`、`creative` 构图；`business`、`creative`、`modern`、`minimal`、`tech`、`academic`、`education`、`medical` 和 `elegant` 根据 `narrative_role` 进入独立构图分支。学术主题优先显示 `evidence_sources` 的首个来源，来源缺失时显示明确的待补来源提示；教育主题使用 `Aptos`/`Arial` 回退字体并保持课程卡片的投屏字号；医疗主题提供临床证据来源占位；`elegant` 主题提供 `BOARD RECOMMENDATION` 等董事会决策语义标签。
 PDF 生成采用临时 PPTX 转换链路，调用 `libreoffice --headless --convert-to pdf`；服务器缺少 LibreOffice 时返回 501，并提示安装 `libreoffice-impress`。
 
 视觉回归工具位于 `app.utils.pptx.visual_regression`，用于生成稳定的语义布局 manifest、比较页面差异和计算 PNG 像素变化比例。服务器通过 LibreOffice 生成 PDF，再由 `pdftoppm` 生成 PNG 页面。
-当前验收基线：后端全量 `1892 passed, 2 skipped`，前端全量 `36 passed`，Vite 生产构建通过；固定大纲真实生成了 6 页 PPTX、PDF 和 6 张 `1280x720` PNG 预览图。最新主题专项回归为 `88 passed`，教育主题增量定向回归 `7 passed`，医疗主题增量定向回归 `8 passed`，`elegant` 统一生成测试 `24 passed`；视觉复审评分为 `business 8.0/10`、`creative 8.8/10`、`modern 8.3/10`、`minimal 8.6/10`、`tech 8.0/10`，`academic` 路线页二轮评分为 `8.2/10`，`education` 代表页评分约 `7.0-7.6/10`；医疗与 `elegant` 主题 6 页真实样稿均无元素越界，`elegant` 证据页与路线页二轮评分为 `9.0/10` 和 `8.5/10`。
+当前页数与模板专项验收：后端单元测试 `1947 passed, 2 skipped`，其中 PPT 相关测试 `236 passed`；大纲 API 集成测试 `5 passed`，前端全量 `51 passed`，Vite 生产构建通过；真实 PPTX 测试确认请求最终总页数 5 时输出 5 页，并验证模板主色写入生成文件。固定大纲真实生成了 PPTX、PDF 和 `1280x720` PNG 预览图。视觉复审评分为 `business 8.0/10`、`creative 8.8/10`、`modern 8.3/10`、`minimal 8.6/10`、`tech 8.0/10`，`academic` 路线页二轮评分为 `8.2/10`，`education` 代表页评分约 `7.0-7.6/10`；医疗与 `elegant` 主题 6 页真实样稿均无元素越界，`elegant` 证据页与路线页二轮评分为 `9.0/10` 和 `8.5/10`。
 - `POST /api/v1/pptx/generate_task`：创建异步 PPT 任务。文本请求使用 `prompt`、`template`、`slide_count`、`output_format` 和 `options`；`options` 支持 `auto_images` 与 `enable_animation`。
 - `GET /api/v1/pptx/history`：返回 `{records, total}`，前端按 `records` 消费历史列表。
 - `GET /api/v1/pptx/download/{ppt_id}?format=pptx`：下载生成文件。

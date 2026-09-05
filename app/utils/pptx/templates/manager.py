@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 TEMPLATE_ALIASES = {
     "business": "business_report",
     "creative": "pitch_deck",
-    "modern": "minimal",
 }
 
 SCENARIO_TEMPLATE_RANKINGS = {
@@ -172,7 +171,10 @@ class TemplateManager:
                 AcademicPresetTemplate,
                 PitchDeckTemplate,
                 EducationTemplate,
+                ElegantTemplate,
+                MedicalTemplate,
                 MinimalTemplate,
+                ModernTemplate,
                 TechTemplate,
             )
 
@@ -181,7 +183,10 @@ class TemplateManager:
                 AcademicPresetTemplate(),
                 PitchDeckTemplate(),
                 EducationTemplate(),
+                ElegantTemplate(),
+                MedicalTemplate(),
                 MinimalTemplate(),
+                ModernTemplate(),
                 TechTemplate(),
             ]
 

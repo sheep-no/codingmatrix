@@ -93,7 +93,7 @@ async def test_persisted_outline_keeps_commercial_metadata(db, monkeypatch):
 
     monkeypatch.setattr("app.services.ppt_state_service.FreeWebSearch.search", no_sources)
     draft = await create_ppt_outline(
-        db, "1", OutlineCreateRequest(topic="业务汇报", num_slides=5)
+        db, "1", OutlineCreateRequest(topic="业务汇报", num_slides=6)
     )
 
     assert draft.slides[0].content_blocks[3].metadata["roi"] == "≥3.0"
@@ -124,7 +124,7 @@ async def test_material_content_is_parsed_into_owned_outline(db, tmp_path, monke
     draft = await create_ppt_outline(
         db,
         "1",
-        OutlineCreateRequest(topic="客户经营复盘", num_slides=2, material_file_ids=[material.id]),
+        OutlineCreateRequest(topic="客户经营复盘", num_slides=3, material_file_ids=[material.id]),
     )
 
     sourced_slide = next(slide for slide in draft.slides if slide.evidence_sources)
@@ -158,7 +158,7 @@ async def test_material_ids_are_scoped_to_outline_owner(db, tmp_path):
 
 @pytest.mark.asyncio
 async def test_approval_rejects_blank_content_blocks(db):
-    draft = await create_ppt_outline(db, "1", OutlineCreateRequest(topic="业务汇报", num_slides=1))
+    draft = await create_ppt_outline(db, "1", OutlineCreateRequest(topic="业务汇报", num_slides=2))
     invalid_slide = draft.slides[0].model_copy(
         update={"content_blocks": [{"type": "text", "content": "   ", "metadata": {}}]}
     )
@@ -175,7 +175,7 @@ async def test_approval_rejects_blank_content_blocks(db):
 
 @pytest.mark.asyncio
 async def test_approved_outline_can_be_used_for_quality_report_traceability(db):
-    draft = await create_ppt_outline(db, "1", OutlineCreateRequest(topic="业务汇报", num_slides=1))
+    draft = await create_ppt_outline(db, "1", OutlineCreateRequest(topic="业务汇报", num_slides=2))
     approved = await approve_ppt_outline(db, "1", draft.id)
     task = await create_task(db, 1, "ppt_generation")
     await save_checkpoint(

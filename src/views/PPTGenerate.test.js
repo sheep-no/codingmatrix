@@ -85,6 +85,7 @@ describe('PPTGenerate workflow', () => {
     await wrapper.find('.outline-add-btn').trigger('click')
     let editors = wrapper.findAll('.outline-slide-editor')
     expect(editors).toHaveLength(3)
+    expect(wrapper.text()).toContain('预计最终 4 页（含封面）')
 
     await editors[2].find('.outline-title-input').setValue('新增页面')
     await editors[2].find('.outline-message-input').setValue('新增页面核心结论')
@@ -95,6 +96,7 @@ describe('PPTGenerate workflow', () => {
     expect(editors[1].find('.outline-title-input').element.value).toBe('新增页面')
     await editors[2].find('.outline-remove').trigger('click')
     expect(wrapper.findAll('.outline-slide-editor')).toHaveLength(2)
+    expect(wrapper.text()).toContain('预计最终 3 页（含封面）')
 
     await wrapper.find('.outline-approve-btn').trigger('click')
     await flushPromises()
@@ -143,7 +145,9 @@ describe('PPTGenerate workflow', () => {
     expect(createOutline).toHaveBeenCalledWith(expect.objectContaining({
       material_file_ids: [42],
       api_key_token: 'test-token',
+      num_slides: 10,
     }))
+    expect(wrapper.text()).toContain('最终总页数（含封面）')
   })
 
   it('generates from the approved outline version', async () => {

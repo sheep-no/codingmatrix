@@ -53,7 +53,7 @@ class OutlineDraft(BaseModel):
     scenario: str = Field(default="general", min_length=1, max_length=40)
     template_id: str = Field(default="modern", min_length=1, max_length=80)
     slide_limit: int = Field(..., ge=1, le=50)
-    slides: List[OutlineSlide] = Field(..., min_length=1, max_length=50)
+    slides: List[OutlineSlide] = Field(..., max_length=49)
     created_at: str
     approved_at: Optional[str] = None
 
@@ -75,7 +75,7 @@ class OutlineUpdateRequest(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=300)
     scenario: Optional[str] = Field(default=None, min_length=1, max_length=40)
     template_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
-    slides: Optional[List[OutlineSlide]] = Field(default=None, min_length=1, max_length=50)
+    slides: Optional[List[OutlineSlide]] = Field(default=None, max_length=49)
 
 
 class OutlineGenerateRequest(BaseModel):

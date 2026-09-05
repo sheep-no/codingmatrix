@@ -85,7 +85,7 @@ from app.utils.pptx.text_processor import (
     prevent_text_overflow as prevent_text_overflow_v2,
 )
 from app.utils.pptx.image_search import ImageSearchManager
-from app.utils.pptx.ppt_style import PPTStyle, PPT_TEMPLATES
+from app.utils.pptx.ppt_style import PPTStyle, PPT_TEMPLATES, apply_design_tokens
 from app.agent.models import DEFAULT_PPT_MODEL
 
 from pptx import Presentation
@@ -198,7 +198,7 @@ async def generate_ppt_from_approved_outline(
     generation_request = PPTGenerationRequest(
         topic=outline.title,
         template=outline.template_id,
-        slide_count=len(outline.slides),
+        slide_count=1 + len(outline.slides),
         quality="high",
         api_key_token=None,
         options={
@@ -1249,6 +1249,7 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
         content_context += f"\n\n参考素材 ID: {req.material_file_ids}"
     
     role_schema = " | ".join(NARRATIVE_ROLES)
+    content_slide_count = max(0, req.slide_count - 1)
     prompt = f"""
 请根据以下要求生成一个专业的 PPT 大纲，返回 JSON 格式：
 
@@ -1276,7 +1277,7 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
 
 要求：
 - 主题：{content_context}
-- 页数：{req.slide_count}页
+- 内容页数：{content_slide_count}页，封面由系统单独生成
 - 语言：{req.language}
 - 质量：{req.quality}
 - 模板风格：{req.template}
@@ -1323,7 +1324,7 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
         logger.warning(f"AI 大纲生成失败，使用默认大纲：{e}")
         page_blueprint = build_commercial_page_blueprint(req.topic)
         slides = []
-        for index in range(req.slide_count):
+        for index in range(content_slide_count):
             page = page_blueprint[index % len(page_blueprint)]
             slides.append({
                 "slide_number": index + 1,
@@ -1370,18 +1371,38 @@ def _normalize_approved_outline(outline: Dict[str, Any]) -> Dict[str, Any]:
         "slides": normalized_slides,
     }
 
+
+def _content_slides_for_total(
+    slides: List[Dict[str, Any]],
+    total_slides: Optional[int],
+) -> List[Dict[str, Any]]:
+    """Fit editable pages beside the single cover owned by the renderer."""
+    content_slides = list(slides)
+    if content_slides:
+        first_type = content_slides[0].get("slide_type", content_slides[0].get("type", ""))
+        if first_type in {"cover", "title"}:
+            content_slides = content_slides[1:]
+    if isinstance(total_slides, int):
+        content_slides = content_slides[:max(0, total_slides - 1)]
+    return content_slides
+
 async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], req: PPTGenerationRequest, update_progress=None):
     """生成 PPTX 文件 (增强版：包含视觉决策和模板支持)"""
     outline = _normalize_approved_outline(outline)
+    outline["slides"] = _content_slides_for_total(
+        outline.get("slides", []),
+        getattr(req, "slide_count", None),
+    )
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
     
     style = PPTStyle(template_name=req.template)
     template_manager = TemplateManager()
-    token_template_id = {"modern": "minimal", "business": "business_report", "creative": "pitch_deck"}.get(req.template, req.template)
+    token_template_id = {"business": "business_report", "creative": "pitch_deck"}.get(req.template, req.template)
     try:
         tokens = template_manager.resolve_design_tokens(token_template_id)
+        style = apply_design_tokens(style, tokens)
     except KeyError:
         tokens = None
         logger.warning("设计令牌模板不存在，沿用 PPTStyle: %s", req.template)
@@ -1553,6 +1574,10 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
 async def generate_html_ppt(filepath: Path, outline: Dict[str, Any], req: PPTGenerationRequest):
     """生成 HTML 格式 PPT"""
     template = PPT_TEMPLATES.get(req.template, PPT_TEMPLATES["modern"])
+    content_slides = _content_slides_for_total(
+        outline.get("slides", []),
+        getattr(req, "slide_count", None),
+    )
     
     title = html.escape(str(outline.get('title', 'PPT')))
     language = html.escape(req.language, quote=True)
@@ -1596,10 +1621,7 @@ async def generate_html_ppt(filepath: Path, outline: Dict[str, Any], req: PPTGen
     </div>
 """
     
-    for slide_data in outline.get('slides', []):
-        if slide_data.get('slide_type') == 'cover':
-            continue
-            
+    for slide_data in content_slides:
         slide_title = html.escape(str(slide_data.get('title', '幻灯片标题')))
         slide_content = html.escape(str(slide_data.get('content', ''))).replace('\n', '<br>')
         slide_number = html.escape(str(slide_data.get('slide_number', 0)))
@@ -1623,7 +1645,11 @@ async def generate_markdown_ppt(filepath: Path, outline: Dict[str, Any], req: PP
     md_content = f"# {outline.get('title', 'PPT 标题')}\n\n"
     md_content += f"*生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}*\n\n---\n\n"
     
-    for slide_data in outline.get('slides', []):
+    content_slides = _content_slides_for_total(
+        outline.get("slides", []),
+        getattr(req, "slide_count", None),
+    )
+    for slide_data in content_slides:
         md_content += f"## {slide_data.get('title', '幻灯片标题')}\n\n"
         md_content += f"{slide_data.get('content', '')}\n\n"
         
@@ -2718,7 +2744,7 @@ async def generate_ppt_from_text(
                 )
                 for slide in draft.slides
             ],
-            total_slides=len(draft.slides),
+            total_slides=1 + len(draft.slides),
             outline_id=draft.id,
             outline_version=draft.version,
             status=draft.status,
