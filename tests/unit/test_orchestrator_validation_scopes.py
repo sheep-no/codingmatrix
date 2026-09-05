@@ -23,6 +23,18 @@ def test_orchestrator_request_rejects_unknown_validation_scope() -> None:
         )
 
 
+def test_orchestrator_request_validates_and_deduplicates_allowed_files() -> None:
+    request = OrchestratorRequest(
+        requirement="修复项目",
+        allowed_files=["pom.xml", "src/main/java/App.java", "pom.xml"],
+    )
+
+    assert request.allowed_files == ["pom.xml", "src/main/java/App.java"]
+
+    with pytest.raises(ValidationError, match="allowed_files"):
+        OrchestratorRequest(requirement="修复项目", allowed_files=["../outside.py"])
+
+
 @pytest.mark.asyncio
 async def test_completed_legacy_workflow_queues_local_validation() -> None:
     async def complete(_state):

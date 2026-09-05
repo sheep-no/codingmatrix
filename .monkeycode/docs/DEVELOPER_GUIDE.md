@@ -84,6 +84,8 @@ npm --prefix vscode-extension run e2e
 
 ## StateGraph 开发约定
 
+- 增量计划使用 `ProjectSnapshot` 和 `ChangePlan` 管理动态文件集合。`planned_files` 表示本次处理范围，未受影响文件通过 SHA-256 门禁保护；删除和重命名使用 `IncrementalFileTransaction` 暂存旧路径并在成功门禁后提交，删除-only 计划使用空生成计划。
+
 - 节点只读取快照并返回 StateDelta。
 - 文件状态使用路径、hash、摘要和诊断字段。
 - 云端状态不能把本地构建、依赖安装或 E2E 标记为完成。
@@ -98,12 +100,28 @@ npm --prefix vscode-extension run e2e
 - 新内核文件调度使用 `GenerationScheduler`；生成器只接收 `FileGenerationContext`，完成内容交给 `ArtifactCommitter`，下游只在所有上游节点完成后释放。阶段或用户取消后等待 `TaskGroup` 子任务回收，并将所有未完成节点收敛到对应终态。
 - 云端校验结果使用 `ValidationReport`；新增修复类别先通过 `RepairRouter` 分类，再由 `RepairBudget` 控制单类 3 次、任务累计 5 次的自动修复额度。错误诊断应携带文件路径、scope、上下文 hash 和候选版本 hash，业务逻辑、测试断言及未知错误进入用户确认。
 - 生成前上下文通过 `ContextAssembler` 装配；输入条目必须声明 `source`、`source_id`、`content`、优先级和作用域，Memory、Retrieval 与 MCP/Skill 内容由装配器统一脱敏、去重并生成 `context_hash`。
-- 新增语言能力时优先通过 `app.agent.languages` 暴露 Adapter 和能力元数据；框架 Profile 的工作区命令必须使用参数数组，并同时维护命令白名单与依赖白名单。
+- 新增语言能力时通过 `app.agent.languages` 暴露 Adapter 和能力元数据，并为导入、模块解析、符号与签名边界增加测试；当前专用 Adapter 覆盖 Python、JavaScript/TypeScript、Java、Go 和 Rust。
+- 框架 Profile 通过 `ValidationStage` 声明 install、lint、typecheck、build、test 和 smoke 阶段，每个声明阶段必须存在对应命令。命令使用参数数组与 `shell=false`；工作区 Profile 同时维护命令白名单、依赖白名单和 owner scope。
+- 官方脚手架通过 `official_scaffold_request()` 获取固定版本 CLI，通过 `execute_official_scaffold()` 执行并导入计划。目标目录必须是规范化工作区相对路径；导入文件受数量、大小、UTF-8 和符号链接边界约束，产物通过 `import_scaffold_plan()` 冻结为 strict `GenerationPlan`。
+- 工作区 Profile 使用 `WorkspaceProfileDocument.build()` 生成带 digest 的 schema v1 文档，通过 `load_workspace_profile()` 校验 owner/workspace 隔离。自定义命令避免解释器内联代码与路径越界参数，并同时出现在 `command_allowlist`；依赖同时出现在 `dependency_allowlist`。
+- 自定义 Profile 先运行 `probe_workspace_profile()` 的 syntax、install、startup、crud 和 persistence 有限探针，再调用 `promote_workspace_profile()` 从 `custom_pending` 晋级到 `experimental`；形成第二轮完整 conformance 证据后晋级到 `supported`。
+- 数据库能力通过 `app.agent.database_profiles.DEFAULT_DATABASE_PROFILES` 解析；生成前应读取 driver、ORM、迁移工具和测试数据库策略，未知数据库必须保留 `unsupported` 状态与诊断。
+- 生成上下文通过 `profile_context(workspace)["database"]` 获取数据库契约；项目 manifest 的 PostgreSQL/MySQL 线索会覆盖 Web 默认 SQLite，未知技术栈继续返回 `unsupported`。
 - 语言接口提取优先调用 `LanguageAdapter.extract_signatures()`；需要外部语言工具时使用 `ToolchainRunner` 和 `CommandSpec(action=ToolchainAction.INSPECT, command=(...))`，保持 `shell=false`、超时和输出上限，工具失败后回退内置解析器。
-- 未声明技术栈通过 `app.agent.profile_discovery.discover_profile()` 生成候选画像，再用 `build_probe_plan()` 产生参数数组探针；探针执行结果决定 `custom_pending`、`experimental` 和 `supported` 状态流转。
+- 技术栈通过 `app.agent.profile_discovery.discover_profile()` 从标准 manifest 生成画像，再用 `build_probe_plan()` 产生参数数组探针；内置 Profile 直接映射注册状态，自定义画像按探针结果执行 `custom_pending`、`experimental` 和 `supported` 状态流转。
+- Profile 与 Core 门禁相关修改执行 `python3 -m pytest tests/unit/test_profile_discovery.py tests/unit/test_framework_profiles.py tests/unit/test_languages.py tests/unit/test_java_language_adapter.py tests/unit/test_toolchain.py tests/unit/test_generation_contracts.py -q`，并运行相关 Core 编排回归。
+- 脚手架、Toolchain 和工作区 Profile 修改还需加入 `tests/unit/test_scaffolding.py`，验证真实文件导入、manifest 依赖、脚本探测、输出上限、owner/workspace 隔离、恶意命令拒绝和逐级晋级。
+- 受约束代码合成的策略选择通过 `SynthesisCapabilityRegistry` 查询现有语言 Adapter 和固定版本脚手架能力。新增语言或脚手架后，运行 `python3 -m pytest tests/unit/test_code_synthesis_contracts.py tests/unit/test_scaffolding.py tests/unit/test_languages.py tests/unit/test_generation_contracts.py tests/unit/test_framework_profiles.py -q`，并执行 Core Adapter、计划和调度回归。
+- 新增技术栈通过 `app.agent.stack_adapters.StackAdapterRegistry` 注册语言/框架别名，并实现工作区探测、能力声明、动态 `ChangePlanIR`、符号提取、脚手架结果和验证画像。Artifact 集合由 `StackChangeRequest` 提供；验证 Stack Adapter 时运行 `python3 -m pytest tests/unit/test_stack_adapters.py tests/unit/test_code_synthesis_contracts.py tests/unit/test_profile_discovery.py tests/unit/test_framework_profiles.py tests/unit/test_languages.py tests/unit/test_java_language_adapter.py tests/unit/test_scaffolding.py tests/unit/test_generation_contracts.py tests/unit/test_orchestration_adapters.py tests/unit/test_orchestration_generation_scheduler.py -q`。
+- 分层候选验证通过 `CandidateValidationRouter` 形成 V0-V6 连续前缀，层处理器必须返回其注册层级并在首个非通过结果短路。V2、V3 和 V5 的 Toolchain 命令必须先经 `validation_plan_for_level()` 隔离；V4 契约差异由独立处理器提供，领域语义保留在 Stack Adapter 或契约实现中。候选修复使用 `build_repair_feedback()` 保留原生成策略并限制诊断及上下文预算。相关修改运行 `python3 -m pytest tests/unit/test_synthesis_validation.py tests/unit/test_validation_report.py tests/unit/test_generation_contracts.py tests/unit/test_stack_adapters.py tests/unit/test_code_synthesis_contracts.py tests/unit/test_orchestration_artifact_committer.py -q`。
+- `ChangePlanIR` 投影只接受 Core 已具备内容生成语义的 create/modify Artifact。新增 delete/rename 支持时需要先接入事务生命周期，再扩展 `project_change_plan()`；能力缺失必须保留 `degraded` 和证据字段。
+- 任务 18 的真实脚手架基线使用固定版本 `express-generator@4.16.1` 验证：导入结果包含 7 个运行所需文本文件和 4 个运行时依赖，Toolchain 从 `package.json` 识别安装与启动命令，3 个 JavaScript 源文件通过受控 `node --check`。固定依赖加载后，`GET /` 与 `GET /users` 均返回 HTTP 200，受控停止后端口释放；超时探针返回 124 和稳定诊断，并回收派生子进程组。工作区 Profile 的五阶段探针连续通过两轮并晋级到 `supported`。
 - 工作区 Profile 通过 `ProfileCache` 读写 `.monkeycode/profiles.json`；画像缓存属于运行时元数据，读取时必须校验 schema version，写入时使用原子替换。
-- 传统生成迁移使用 `TraditionalAdapter` 和 `route_generation()`；设置 `AGENT_ORCHESTRATION_ENGINE=core` 可选择 Core 实验路由，默认保持 legacy。影子对比只记录成功状态与文件路径集合，checkpoint metadata 保存 `engine_version`。
+- 生成模式适配器包括 `TraditionalAdapter`、`SpecFirstAdapter` 和 `IncrementalAdapter`；设置 `AGENT_ORCHESTRATION_ENGINE=core` 后，Spec-First 编排与增量修改通过 `execute_core_generation()` 进入 `OrchestratorCore.execute()`，默认保持 legacy。影子对比只记录成功状态与文件路径集合，checkpoint metadata 保存 `engine_version`。
+- Core adapter 只生成内容，正常文件落盘统一交给 `ArtifactCommitter`。增量 adapter 以受影响文件冻结 strict 计划，将外部依赖作为只读上下文，并通过 `preserved_paths` 声明未改动业务文件；删除动作等待事务提交协议后开放。
+- Core 恢复当前支持 `planning` checkpoint 重新执行；其他活动阶段以 `orchestration.resume_stage_unsupported` 收敛。规划异常统一使用 `orchestration.planning_failed`，规划前取消统一进入 `cancelled`。
 - 传统生成的模型活动超时由传入 Specialist/ReAct 的 `HeartbeatTracker` 判断，默认 120 秒；流式 chunk 必须调用 `touch()`。SSE heartbeat 只用于 HTTP 连接保活，排查生成停滞时应查看最近模型数据时间和 `react_timeout` 事件。
+- Core 模型调用通过 `ModelGateway.telemetry_for(call_id)` 查询单次遥测；重点检查 `finish_reason`、prompt/completion/total tokens、输入字符数、`max_tokens` 和 `elapsed_seconds`，结合 `model_timeout` 判断输出受限与墙钟预算耗尽。
 - GirlAI 相关修改后执行 `python3 -m pytest tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py tests/unit/test_database_services.py -q`，并在 `/workspace/src` 执行 `npm run test:run -- utils/api/girl.test.js`。
 - 验证节点通过 `State.metadata.required_validation_scopes` 声明 `local_runtime` 或 `local_e2e`；云端验证保持 `cloud_syntax`，本地结果按 scope 回传。
 - 本地结果协议使用 `validation_scope`、`status` 和 `source=local`；`local_result_to_delta()` 负责映射为内部字段并执行 task/session/revision/schema 校验。StateReducer 按验证结果 `event_id` 去重，重复回传保持状态和 revision 不变。
@@ -133,11 +151,11 @@ npm --prefix vscode-extension run e2e
 - 健康检查覆盖数据库和 Redis，当前不能代表 Celery worker 已在线。
 - `verify-integration.sh` 主要执行静态文件、源码文本和语法检查；ASGI 健康测试使用进程内传输，Celery 测试主要验证配置和任务注册。
 - 真实端口、worker、broker、数据库迁移、Nginx upstream、Nginx 权限和多 worker scheduler 行为需要本地运行环境验证；RC1-RC2 已完成代码配置修复。
-- StateGraph 当前通过单节点 legacy wrapper 接入生产入口；RAG、checkpoint 自动恢复、统一事件出口和 VS Code 本地验证回传仍属于迁移中的能力。验证节点和会话 replay 已完成云端契约层实现，真实插件 E2E 已在 VS Code `1.135.0` Extension Host 中通过。
+- 生产入口默认通过单节点 legacy wrapper 运行；Core 开关已覆盖 Spec-First 同步与流式编排以及增量修改。RAG、Core 跨活动阶段自动恢复和统一事件出口仍属于迁移中的能力；VS Code 本地验证回传、验证节点和会话 replay 已完成契约与真实插件 E2E 验证。
 - 当前本地验证已确认 Redis 返回 `PONG`，PPT worker 在线、监听 `ppt` 队列并注册 `app.tasks.ppt_tasks.generate_ppt`；真实 HTTP Markdown 任务已完成 `success` 并生成产物；后端健康接口返回 `healthy`，Redis 缓存往返成功。
 - 使用 `deepseek-ai/DeepSeek-R1-0528-Qwen3-8B` 重跑 PPT 真实调用时，SiliconFlow 返回 HTTP 402 余额不足；任务沿用默认大纲回退并完成 `success`，该结果表明余额问题属于当前供应商账户状态。
 - 重启 PPT worker 后再次调用 DeepSeek R1，SiliconFlow 返回 HTTP `200 OK`；响应 JSON 不完整触发大纲解析回退，任务完成 `success`。当前验证重点转为模型响应解析的容错处理。
 - Agent 能力 Playwright E2E 已通过 `23 passed`；无认证综合诊断 E2E 已通过 `6 passed`。相关测试使用 `API_BASE`，页面检查使用 `domcontentloaded`，未认证端点按 5xx 服务错误判定。
 - 认证 Agent API、会话生命周期和历史会话 E2E 初次执行结果为 `10 failed`，失败集中在测试账号登录，后端返回“邮箱或密码错误”，连续重试后出现登录端点限流。更新被 Git 忽略的 `.env.test` 后，种子账号认证成功，Agent API 验收为 `2 passed`。
 - 会话 UI 已迁移到当前 `AgentSidebar` 的 `.session-item` 和 `button[title="新建会话"]` 选择器；历史会话整组 E2E 为 `5 passed`，生命周期创建、切换、删除主流程、并发限制 API 和取消状态均已通过。前端单元测试为 `3 passed`，在 `/workspace/src` 执行 `npm run build` 返回 `0`。真实模型 Agent E2E 执行为 `2 skipped`，原因是运行环境当前未提供 `TEST_API_KEY`。
-- StateGraph 当前通过单节点 legacy wrapper 接入生产入口；RAG、checkpoint 自动恢复、统一事件出口和 VS Code 本地验证回传仍属于迁移中的能力。验证节点和会话 replay 已完成云端契约层实现，真实插件 E2E 已在 VS Code `1.135.0` Extension Host 中通过。
+- Core 固定评测入口为 `python3 -m app.agent.evaluation_runner records.json`；该报告聚合 24 个固定 case 的最终成功率、首次/候选/修复后三阶段成功率、`model_call_count` 平均值、P95 耗时、缺失样例、非法指标和失败分类，并按 deterministic/llm 策略拆分结果。90% 端到端门槛以真实评测记录为准。固定评测记录可附带 `database_status` 和 `database_diagnostics`；未知数据库记录为 `unsupported` 并归入 `database` 失败分类。

@@ -306,11 +306,11 @@ class ModelRouter:
             logger.warning(f"角色路由失败，回退到默认模型: {e}")
 
         role_fallbacks = {
-            AgentRole.ARCHITECT: "glm-z1-9b",
-            AgentRole.FRONTEND: "qwen3-8b",
-            AgentRole.BACKEND: "qwen2.5-7b",
-            AgentRole.REVIEWER: "deepseek-r1-qwen3-8b",
-            AgentRole.FALLBACK: "qwen3-8b",
+            AgentRole.ARCHITECT: "qwen3-8b",
+            AgentRole.FRONTEND: "qwen2.5-7b",
+            AgentRole.BACKEND: "qwen3.5-4b",
+            AgentRole.REVIEWER: "glm-z1-9b",
+            AgentRole.FALLBACK: "glm-z1-9b",
         }
         fallback_key = role_fallbacks.get(role, "deepseek-r1-qwen3-8b")
         return ModelRegistry.get(fallback_key) or ModelRegistry.get("deepseek-r1-qwen3-8b")

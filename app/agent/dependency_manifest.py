@@ -43,8 +43,9 @@ class DependencyManifest(BaseModel):
         return self
 
     @classmethod
-    def build(cls, dependencies: Iterable[Mapping[str, object] | Dependency], version: int = 1) -> "DependencyManifest":
-        values = tuple(sorted((_coerce_dependency(item) for item in dependencies), key=lambda item: (item.kind.value, item.name)))
+    def build(cls, dependencies: Iterable[Mapping[str, object] | Dependency | str] | Mapping[str, object], version: int = 1) -> "DependencyManifest":
+        entries = _normalize_dependencies(dependencies)
+        values = tuple(sorted((_coerce_dependency(item) for item in entries), key=lambda item: (item.kind.value, item.name)))
         names = set()
         for item in values:
             if item.name in names:
@@ -65,7 +66,43 @@ class DependencyManifest(BaseModel):
         return any(item.name == name and item.kind is not DependencyKind.FORBIDDEN for item in self.dependencies)
 
 
-def _coerce_dependency(item: Mapping[str, object] | Dependency) -> Dependency:
+def _normalize_dependencies(
+    dependencies: Iterable[Mapping[str, object] | Dependency | str] | Mapping[str, object],
+) -> Tuple[Mapping[str, object] | Dependency | str, ...]:
+    if not isinstance(dependencies, Mapping):
+        return tuple(dependencies)
+    if "name" in dependencies or "package" in dependencies:
+        return (dependencies,)
+    if "dependencies" in dependencies:
+        nested = dependencies.get("dependencies", ())
+        return tuple(nested) if not isinstance(nested, str) else (nested,)
+
+    entries = []
+    valid_kinds = {kind.value for kind in DependencyKind}
+    if dependencies and all(
+        isinstance(version, str) and name not in valid_kinds
+        for name, version in dependencies.items()
+    ):
+        return tuple(
+            {"name": name, "version": version, "kind": DependencyKind.RUNTIME.value}
+            for name, version in dependencies.items()
+        )
+    for category, raw_items in dependencies.items():
+        items = (raw_items,) if isinstance(raw_items, (str, Mapping, Dependency)) else tuple(raw_items or ())
+        for item in items:
+            if isinstance(item, str):
+                entries.append({
+                    "name": item,
+                    "kind": category if category in valid_kinds else DependencyKind.RUNTIME.value,
+                })
+            else:
+                entries.append(item)
+    return tuple(entries)
+
+
+def _coerce_dependency(item: Mapping[str, object] | Dependency | str) -> Dependency:
     if isinstance(item, Dependency):
         return item
+    if isinstance(item, str):
+        return Dependency(name=item, kind=DependencyKind.RUNTIME)
     return Dependency(name=str(item.get("name", item.get("package", ""))), kind=item.get("kind", item.get("category", DependencyKind.RUNTIME.value)), version=str(item.get("version", "")), source=str(item.get("source", "plan")))

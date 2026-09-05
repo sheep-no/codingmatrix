@@ -78,6 +78,33 @@ async def test_scheduler_generates_dependencies_in_topological_order(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_scheduler_drains_fast_completion_events_before_deadlock(tmp_path: Path) -> None:
+    scheduler = make_scheduler(tmp_path, max_concurrent=4)
+    paths = [f"step-{index}.py" for index in range(20)]
+    plan = build_file_plan(
+        [
+            {"path": path, "dependencies": [paths[index - 1]] if index else []}
+            for index, path in enumerate(paths)
+        ],
+        requested_paths=paths,
+    )
+
+    async def generator(context):
+        return GeneratedContent(content=f"# {context.file_path}\n", model_name="model")
+
+    result = await scheduler.run(
+        plan,
+        generator,
+        make_budget(),
+        task_id="task-fast-chain",
+        stage_id="stage-fast-chain",
+    )
+
+    assert result.status is GenerationScheduleStatus.COMPLETED
+    assert all(node.status is GenerationNodeStatus.COMPLETED for node in result.nodes.values())
+
+
+@pytest.mark.asyncio
 async def test_scheduler_runs_independent_files_concurrently(tmp_path: Path) -> None:
     scheduler = make_scheduler(tmp_path, max_concurrent=2)
     plan = build_file_plan(
@@ -145,6 +172,8 @@ async def test_failed_upstream_blocks_all_descendants(tmp_path: Path) -> None:
     assert result.nodes["child.py"].status is GenerationNodeStatus.BLOCKED
     assert result.nodes["grandchild.py"].status is GenerationNodeStatus.BLOCKED
     assert result.stats.blocked_files == 2
+    assert result.blocked_nodes == ("child.py", "grandchild.py")
+    assert [diagnostic.code for diagnostic in result.root_causes] == ["generation_failed"]
     assert scheduler.active_task_count == 0
 
 
@@ -176,6 +205,8 @@ async def test_file_timeout_cancels_file_and_blocks_downstream(tmp_path: Path) -
     assert result.status is GenerationScheduleStatus.TIMED_OUT
     assert result.nodes["slow.py"].status is GenerationNodeStatus.TIMED_OUT
     assert result.nodes["dependent.py"].status is GenerationNodeStatus.BLOCKED
+    assert [diagnostic.code for diagnostic in result.timeouts] == ["file_timeout"]
+    assert result.blocked_nodes == ("dependent.py",)
     assert cancelled.is_set()
     assert scheduler.active_task_count == 0
 
@@ -270,6 +301,36 @@ async def test_transient_generation_failure_uses_retry_budget(tmp_path: Path) ->
     assert result.status is GenerationScheduleStatus.COMPLETED
     assert result.nodes["main.py"].attempts == 2
     assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_validation_failure_retries_with_diagnostic_feedback(tmp_path: Path) -> None:
+    scheduler = make_scheduler(tmp_path, max_retries=1)
+    plan = build_file_plan([{"path": "main.py"}], requested_paths=["main.py"])
+    observed_feedback = []
+
+    async def generator(context):
+        observed_feedback.append(context.previous_diagnostics)
+        if context.attempt == 1:
+            return GeneratedContent(
+                content="invalid\n",
+                model_name="model",
+                validation_passed=False,
+                diagnostics=("missing required route",),
+            )
+        return GeneratedContent(content="print('ok')\n", model_name="model")
+
+    result = await scheduler.run(
+        plan,
+        generator,
+        make_budget(),
+        task_id="task-1",
+        stage_id="stage-1",
+    )
+
+    assert result.status is GenerationScheduleStatus.COMPLETED
+    assert result.nodes["main.py"].attempts == 2
+    assert observed_feedback == [(), ("missing required route",)]
 
 
 @pytest.mark.asyncio

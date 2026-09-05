@@ -579,6 +579,40 @@ language 字段要求：
     ) -> Dict:
         """架构输出异常时保留需求中明确列出的项目文件。"""
         architecture = self._get_default_architecture(complexity, language, frontend_language)
+        requirement_lower = requirement.lower()
+        default_spec = architecture["project_spec"]["default"]
+        if "sqlite" in requirement_lower:
+            default_spec["storage"] = {"type": "sqlite", "filename": "todos.db"}
+        framework_hints = (
+            ("fastapi", "FastAPI"),
+            ("flask", "Flask"),
+            ("nestjs", "NestJS"),
+            ("express", "Express.js"),
+            ("net/http", "net/http"),
+            ("spring boot", "Spring Boot"),
+            ("spring-boot", "Spring Boot"),
+        )
+        for hint, framework in framework_hints:
+            if hint in requirement_lower:
+                default_spec["framework"] = framework
+                break
+        if re.search(r"\btodos?\b|待办", requirement_lower):
+            default_spec["terminology"] = {
+                "todo": "Todo",
+                "title": "Title",
+                "description": "Description",
+                "completed": "Completed",
+            }
+            architecture["db_schema"] = {
+                "todos": {
+                    "columns": {
+                        "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+                        "title": "TEXT NOT NULL",
+                        "description": "TEXT",
+                        "completed": "BOOLEAN NOT NULL DEFAULT 0",
+                    }
+                }
+            }
         planned_paths = {item["path"] for item in architecture["file_plan"]}
         extensions = {"python": "py", "javascript": "js", "typescript": "ts", "go": "go"}
         extension = extensions.get(language, language)
@@ -739,8 +773,14 @@ language 字段要求：
                 re.IGNORECASE,
             )
         if not match:
+            match = re.search(
+                r"generate\s+exactly\s+(?:these|the following)\s+files(?:\s+and\s+no\s+others)?\s*:\s*(.{1,500}?)(?=\.\s+(?-i:[A-Z])|$)",
+                requirement,
+                re.IGNORECASE,
+            )
+        if not match:
             return None
-        paths = set(re.findall(r"[\w./-]+\.(?:py|js|ts|jsx|tsx|vue|html|css|scss|json|yaml|yml|toml|go|java|rs)", match.group(1)))
+        paths = set(re.findall(r"[\w./-]+\.(?:py|js|ts|jsx|tsx|vue|html|css|scss|json|yaml|yml|toml|xml|go|java|rs)", match.group(1)))
         return paths or None
 
     def _ensure_file_plan_completeness(

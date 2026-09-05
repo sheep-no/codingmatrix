@@ -308,8 +308,14 @@ class CrossValidator:
         issues.extend(import_issues)
 
         # 2. 符号验证（函数/类名一致性）
-        symbol_issues = self._validate_symbols(generated_files)
-        issues.extend(symbol_issues)
+        supports_symbol_validation = not self.language_adapter or getattr(
+            self.language_adapter,
+            "supports_cross_file_symbol_validation",
+            True,
+        )
+        if supports_symbol_validation:
+            symbol_issues = self._validate_symbols(generated_files)
+            issues.extend(symbol_issues)
 
         # 3. API 契约验证
         api_issues = self._validate_api_contracts(generated_files, architecture)
@@ -320,8 +326,9 @@ class CrossValidator:
         issues.extend(model_issues)
 
         # 5. 函数签名验证
-        signature_issues = self._validate_function_signatures(generated_files)
-        issues.extend(signature_issues)
+        if supports_symbol_validation:
+            signature_issues = self._validate_function_signatures(generated_files)
+            issues.extend(signature_issues)
 
         return issues
 

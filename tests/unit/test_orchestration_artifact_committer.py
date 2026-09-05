@@ -179,6 +179,24 @@ def test_success_gate_accepts_matching_valid_artifacts_and_hidden_metadata(tmp_p
     assert result.planned_paths == result.manifest_paths == result.completed_paths == result.disk_paths
 
 
+def test_success_gate_accepts_preserved_incremental_files(tmp_path: Path) -> None:
+    plan = build_file_plan([{"path": "changed.py"}], requested_paths=["changed.py"])
+    committer, context = make_committer(tmp_path)
+    event = commit_valid_file(committer, context, "changed.py", "VALUE = 2\n")
+    (tmp_path / "unchanged.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+    result = check_artifact_success_gate(
+        plan,
+        context.get_artifact_manifest(),
+        [event],
+        tmp_path,
+        preserved_paths=["unchanged.py"],
+    )
+
+    assert result.success is True
+    assert result.disk_paths == ("changed.py", "unchanged.py")
+
+
 def test_success_gate_accepts_project_generation_plan(tmp_path: Path) -> None:
     plan = ProjectGenerationPlan.build(
         [{"path": "model.py"}, {"path": "service.py", "dependencies": ["model.py"]}],

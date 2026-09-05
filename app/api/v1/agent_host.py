@@ -73,7 +73,13 @@ def enqueue_state_actions(session_id: str, state: Any) -> int:
     task_id = str(state_data.get("task_id", ""))
     revision = int(state_data.get("revision", 0))
     workspace_id = str(session["workspace_id"])
-    existing = {action.get("payload", {}).get("action_id") for action in session["pending_actions"]}
+    existing = {
+        action.get("payload", {}).get("action_id")
+        for action in [
+            *session.get("pending_actions", []),
+            *session.get("in_flight_actions", []),
+        ]
+    }
     added = 0
     for pending in state_data.get("pending_actions", []):
         if not isinstance(pending, dict):
@@ -190,6 +196,10 @@ class AgentHostActionsResponse(BaseModel):
     actions: list[dict[str, Any]]
 
 
+class AgentHostActionAckRequest(BaseModel):
+    action_id: str = Field(min_length=1, max_length=256)
+
+
 class AgentHostEventResponse(BaseModel):
     accepted: bool
     duplicate: bool = False
@@ -249,6 +259,7 @@ async def agent_host_handshake(
         "policy_version": 1,
         "policy": policy,
         "pending_actions": [],
+        "in_flight_actions": [],
         "events": {},
         "skills": {},
         "control_status": "active",
@@ -275,7 +286,9 @@ async def agent_host_handshake(
 
 
 def _get_session(session_id: str, token: dict) -> dict[str, Any]:
-    session = _sessions.get(session_id) or _session_store.load(session_id)
+    session = _sessions.get(session_id)
+    restored = session is None
+    session = session or _session_store.load(session_id)
     if session is None or session["user_id"] != str(token.get("sub", "")):
         raise HTTPException(status_code=404, detail="agent host session not found")
     if datetime.now(timezone.utc) >= session["expires_at"]:
@@ -283,6 +296,12 @@ def _get_session(session_id: str, token: dict) -> dict[str, Any]:
         raise HTTPException(status_code=410, detail="agent host session expired")
     session.setdefault("skills", {})
     session.setdefault("control_status", "active")
+    session.setdefault("in_flight_actions", [])
+    if restored and session["in_flight_actions"]:
+        session["pending_actions"] = [
+            *session.get("pending_actions", []),
+            *session.pop("in_flight_actions"),
+        ]
     _sessions[session_id] = session
     return session
 
@@ -291,11 +310,17 @@ def _get_session(session_id: str, token: dict) -> dict[str, Any]:
 async def list_agent_host_sessions(token: dict = Depends(verify_token)) -> list[AgentHostSessionSummary]:
     user_id = str(token.get("sub", ""))
     summaries = []
-    for session_id, session in list(_sessions.items()):
+    session_ids = set(_sessions)
+    session_ids.update(path.stem for path in _session_store.directory.glob("*.json"))
+    for session_id in session_ids:
+        session = _sessions.get(session_id) or _session_store.load(session_id)
+        if session is None:
+            continue
         if session.get("user_id") != user_id:
             continue
         if datetime.now(timezone.utc) >= session["expires_at"]:
             continue
+        _sessions[session_id] = session
         summaries.append(AgentHostSessionSummary(
             session_id=session_id,
             workspace_id=session["workspace_id"],
@@ -310,12 +335,29 @@ async def list_agent_host_sessions(token: dict = Depends(verify_token)) -> list[
 async def get_agent_host_actions(session_id: str, token: dict = Depends(verify_token)) -> AgentHostActionsResponse:
     session = _get_session(session_id, token)
     actions = list(session["pending_actions"])
-    session["pending_actions"] = [
-        action for action in session["pending_actions"]
-        if action.get("kind") != "policy_update"
-    ]
+    session.setdefault("in_flight_actions", [])
+    session["pending_actions"] = []
+    session["in_flight_actions"].extend(actions)
     _session_store.save(session_id, session)
     return AgentHostActionsResponse(actions=actions)
+
+
+@router.post("/agent/host/sessions/{session_id}/actions/ack")
+async def acknowledge_agent_host_action(
+    session_id: str,
+    request: AgentHostActionAckRequest,
+    token: dict = Depends(verify_token),
+) -> dict[str, Any]:
+    session = _get_session(session_id, token)
+    session.setdefault("in_flight_actions", [])
+    before = len(session["in_flight_actions"])
+    session["in_flight_actions"] = [
+        action for action in session["in_flight_actions"]
+        if action.get("payload", {}).get("action_id") != request.action_id
+        and action.get("message_id") != request.action_id
+    ]
+    _session_store.save(session_id, session)
+    return {"acknowledged": len(session["in_flight_actions"]) < before, "action_id": request.action_id}
 
 
 @router.post("/agent/host/sessions/{session_id}/events", response_model=AgentHostEventResponse)
@@ -362,6 +404,10 @@ async def post_agent_host_event(
         source_message_id = event.message_id.removesuffix(":result")
         session["pending_actions"] = [
             action for action in session["pending_actions"]
+            if action.get("message_id") != source_message_id
+        ]
+        session["in_flight_actions"] = [
+            action for action in session.get("in_flight_actions", [])
             if action.get("message_id") != source_message_id
         ]
     _session_store.save(session_id, session)

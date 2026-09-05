@@ -1,6 +1,8 @@
 """Checkpoint and recovery tests for Orchestrator Core."""
 
+import asyncio
 import json
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -18,12 +20,15 @@ from app.agent.orchestration import (
     StageResult,
 )
 from app.agent.orchestration.generation_scheduler import (
+    GeneratedContent,
     GenerationNodeResult,
     GenerationScheduleResult,
     GenerationScheduleStats,
     GenerationScheduleStatus,
     GenerationNodeStatus,
 )
+from app.agent.orchestration.plan import build_file_plan
+from app.agent.shared_context import SharedContext
 
 
 def make_command() -> OrchestrationCommand:
@@ -67,6 +72,118 @@ async def test_run_creates_planning_checkpoint_and_resume_restores_it(tmp_path) 
     assert started.state.resume_cursor == "planning"
     assert restored.resumed is True
     assert restored.state == started.state
+
+
+@pytest.mark.asyncio
+async def test_execute_runs_adapter_through_artifact_success_gate(tmp_path) -> None:
+    class Adapter:
+        async def create_plan(self, request):
+            return build_file_plan([
+                {"path": "main.py", "description": "entry point"},
+                {"path": "tests/test_main.py", "description": "test", "depends_on": ["main.py"]},
+            ])
+
+        async def generate_file(self, context):
+            content = "def main():\n    return 1\n" if context.file_path == "main.py" else "def test_main():\n    assert True\n"
+            return GeneratedContent(content=content, model_name="test-model")
+
+    output_dir = Path(tmp_path) / "generated"
+    shared_context = SharedContext("create an app", output_dir)
+    core = OrchestratorCore(OrchestrationCheckpointStore(Path(tmp_path) / "checkpoints"))
+    result = await core.execute(
+        OrchestrationCommand(
+            task_id="execute-task",
+            session_id="execute-session",
+            mode="traditional",
+            request={"requirement": "create an app"},
+        ),
+        Adapter(),
+        output_dir=output_dir,
+        shared_context=shared_context,
+    )
+
+    assert result.state.status is OrchestrationStatus.COMPLETED, result.state.model_dump()
+    assert result.state.stage is OrchestrationStage.FINALIZING
+    assert (output_dir / "main.py").exists()
+    assert (output_dir / "tests/test_main.py").exists()
+
+
+@pytest.mark.asyncio
+async def test_execute_converges_planning_failure_to_terminal_state(tmp_path) -> None:
+    class Adapter:
+        async def create_plan(self, request):
+            raise ValueError("invalid frozen plan")
+
+    core = OrchestratorCore(OrchestrationCheckpointStore(Path(tmp_path) / "checkpoints"))
+    result = await core.execute(
+        OrchestrationCommand(
+            task_id="planning-failure",
+            session_id="execute-session",
+            mode="incremental",
+            request={"requirement": "change a file"},
+        ),
+        Adapter(),
+        output_dir=Path(tmp_path) / "generated",
+        shared_context=SharedContext("change a file", Path(tmp_path) / "generated"),
+    )
+
+    assert result.state.status is OrchestrationStatus.FAILED
+    assert result.state.diagnostics[-1]["code"] == "orchestration.planning_failed"
+
+
+@pytest.mark.asyncio
+async def test_execute_resumes_from_planning_checkpoint(tmp_path) -> None:
+    class Adapter:
+        async def create_plan(self, request):
+            return build_file_plan([{"path": "main.py"}])
+
+        async def generate_file(self, context):
+            return GeneratedContent(content="VALUE = 1\n", model_name="test-model")
+
+    output_dir = Path(tmp_path) / "generated"
+    core = OrchestratorCore(OrchestrationCheckpointStore(Path(tmp_path) / "checkpoints"))
+    command = OrchestrationCommand(
+        task_id="resume-planning",
+        session_id="resume-session",
+        mode="spec_first",
+        request={"requirement": "build an app"},
+    )
+    await core.run(command)
+
+    result = await core.execute(
+        command,
+        Adapter(),
+        output_dir=output_dir,
+        shared_context=SharedContext("build an app", output_dir),
+    )
+
+    assert result.state.status is OrchestrationStatus.COMPLETED
+    assert (output_dir / "main.py").exists()
+
+
+@pytest.mark.asyncio
+async def test_execute_honors_cancellation_before_planning(tmp_path) -> None:
+    class Adapter:
+        async def create_plan(self, request):
+            raise AssertionError("planning must not run after cancellation")
+
+    cancel_event = asyncio.Event()
+    cancel_event.set()
+    core = OrchestratorCore(OrchestrationCheckpointStore(Path(tmp_path) / "checkpoints"))
+    result = await core.execute(
+        OrchestrationCommand(
+            task_id="cancel-before-planning",
+            session_id="cancel-session",
+            mode="incremental",
+            request={"requirement": "change an app"},
+        ),
+        Adapter(),
+        output_dir=Path(tmp_path) / "generated",
+        shared_context=SharedContext("change an app", Path(tmp_path) / "generated"),
+        cancel_event=cancel_event,
+    )
+
+    assert result.state.status is OrchestrationStatus.CANCELLED
 
 
 @pytest.mark.asyncio
@@ -216,7 +333,18 @@ async def test_finish_schedule_maps_timeout_to_single_terminal_state(tmp_path) -
     started = await core.run(make_command())
     schedule = GenerationScheduleResult(
         status=GenerationScheduleStatus.TIMED_OUT,
-        nodes={"main.py": GenerationNodeResult(path="main.py", status=GenerationNodeStatus.TIMED_OUT)},
+        nodes={
+            "main.py": GenerationNodeResult(
+                path="main.py",
+                status=GenerationNodeStatus.TIMED_OUT,
+                attempts=2,
+                diagnostics=(ArtifactDiagnostic(
+                    code="file_timeout",
+                    message="file generation wall-clock budget exceeded",
+                    path="main.py",
+                ),),
+            )
+        },
         stats=GenerationScheduleStats(
             total_files=1,
             completed_files=0,
@@ -234,6 +362,10 @@ async def test_finish_schedule_maps_timeout_to_single_terminal_state(tmp_path) -
 
     assert result.state.status is OrchestrationStatus.TIMED_OUT
     assert result.state.diagnostics[-1]["code"] == "generation_schedule.timed_out"
+    node_details = result.state.diagnostics[-1]["details"]["nodes"]["main.py"]
+    assert node_details["status"] == "timed_out"
+    assert node_details["attempts"] == 2
+    assert node_details["diagnostics"][0]["code"] == "file_timeout"
 
 
 @pytest.mark.asyncio

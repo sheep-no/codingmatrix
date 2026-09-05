@@ -105,5 +105,22 @@ async def test_graph_stops_when_max_steps_is_exceeded() -> None:
         .compile()
     )
 
-    with pytest.raises(GraphExecutionError, match="graph exceeded max_steps"):
-        await graph.run(State("s1", "t1"), "loop")
+    result = await graph.run(State("s1", "t1"), "loop")
+
+    assert result.status == "failed"
+    assert result.errors[0]["code"] == "graph.max_steps_exceeded"
+
+
+@pytest.mark.asyncio
+async def test_graph_persists_unknown_conditional_route_as_failure() -> None:
+    graph = (
+        StateGraphBuilder()
+        .add_node("start", lambda state: delta(state, "generated"))
+        .add_conditional_edges("start", lambda _state: "missing", {"done": "start"})
+        .compile()
+    )
+
+    result = await graph.run(State("s1", "t1"), "start")
+
+    assert result.status == "failed"
+    assert result.errors[0]["code"] == "graph.routing_failed"

@@ -64,6 +64,7 @@ class FileGenerationContext:
     upstream_contents: Mapping[str, str]
     attempt: int
     cancel_event: Optional[asyncio.Event]
+    previous_diagnostics: Tuple[str, ...] = ()
 
     @property
     def file_path(self) -> str:
@@ -99,6 +100,10 @@ class GenerationScheduleResult(BaseModel):
     nodes: Dict[str, GenerationNodeResult]
     completion_events: Tuple[ArtifactCompletionEvent, ...] = ()
     stats: GenerationScheduleStats
+    root_causes: Tuple[ArtifactDiagnostic, ...] = ()
+    blocked_nodes: Tuple[str, ...] = ()
+    timeouts: Tuple[ArtifactDiagnostic, ...] = ()
+    truncations: Tuple[ArtifactDiagnostic, ...] = ()
 
     @property
     def success(self) -> bool:
@@ -278,7 +283,10 @@ class GenerationScheduler:
                     task.add_done_callback(self._active_tasks.discard)
                     self._max_parallelism = max(self._max_parallelism, self.active_task_count)
 
-                if self.active_task_count == 0:
+                # A fast task may finish and leave the active set before its
+                # completion event is consumed. Drain that event first so its
+                # downstream nodes can become ready.
+                if self.active_task_count == 0 and completion_queue.empty():
                     unresolved = [
                         path for path, node in self.nodes.items() if not node.status.is_terminal
                     ]
@@ -321,6 +329,7 @@ class GenerationScheduler:
     ) -> None:
         file_deadline = loop.time() + budget.file_seconds
         path = node.planned_file.path
+        validation_feedback: Tuple[str, ...] = ()
         try:
             for attempt in range(1, self.max_retries + 2):
                 node.attempts = attempt
@@ -344,11 +353,31 @@ class GenerationScheduler:
                         }),
                         attempt=attempt,
                         cancel_event=cancel_event,
+                        previous_diagnostics=validation_feedback,
                     )
                     async with asyncio.timeout(remaining):
                         generated = await generator(context)
                     if not isinstance(generated, GeneratedContent):
                         raise TypeError("generator must return GeneratedContent")
+
+                    if not generated.validation_passed:
+                        validation_feedback = generated.diagnostics or (
+                            "generated artifact failed required validation",
+                        )
+                        self.committer.shared_context.update_file_validation(
+                            path,
+                            False,
+                            list(validation_feedback),
+                        )
+                        if attempt > self.max_retries:
+                            self._fail_node(
+                                node,
+                                GenerationNodeStatus.FAILED,
+                                "generation_validation_failed",
+                                "; ".join(validation_feedback),
+                            )
+                            break
+                        continue
 
                     commit_result = self.committer.commit(
                         path,
@@ -364,18 +393,10 @@ class GenerationScheduler:
                     node.completion_event = commit_result.completion_event
                     self.committer.shared_context.update_file_validation(
                         path,
-                        generated.validation_passed,
+                        True,
                         list(generated.diagnostics),
                     )
-                    if generated.validation_passed:
-                        node.status = GenerationNodeStatus.COMPLETED
-                    else:
-                        self._fail_node(
-                            node,
-                            GenerationNodeStatus.FAILED,
-                            "generation_validation_failed",
-                            "generated artifact failed required validation",
-                        )
+                    node.status = GenerationNodeStatus.COMPLETED
                     break
                 except TimeoutError:
                     self._fail_node(
@@ -395,6 +416,13 @@ class GenerationScheduler:
                     )
                     break
                 except Exception as exc:
+                    model_diagnostic = getattr(exc, "diagnostic", None)
+                    if isinstance(model_diagnostic, dict):
+                        code = str(model_diagnostic.get("code") or "generation_failed")
+                        message = str(model_diagnostic.get("message") or exc)
+                        if code == "model_timeout":
+                            self._fail_node(node, GenerationNodeStatus.TIMED_OUT, code, message)
+                            break
                     node.diagnostics = (
                         *node.diagnostics,
                         ArtifactDiagnostic(
@@ -461,6 +489,8 @@ class GenerationScheduler:
 
     def _derive_status(self) -> GenerationScheduleStatus:
         statuses = {node.status for node in self.nodes.values()}
+        if not statuses:
+            return GenerationScheduleStatus.COMPLETED
         if statuses == {GenerationNodeStatus.COMPLETED}:
             return GenerationScheduleStatus.COMPLETED
         if GenerationNodeStatus.CANCELLED in statuses:
@@ -488,6 +518,35 @@ class GenerationScheduler:
         counts = {status: 0 for status in GenerationNodeStatus}
         for node in self.nodes.values():
             counts[node.status] += 1
+        diagnostics = tuple(
+            diagnostic
+            for node in self.nodes.values()
+            for diagnostic in node.diagnostics
+        )
+        blocked_nodes = tuple(
+            path for path, node in sorted(self.nodes.items())
+            if node.status is GenerationNodeStatus.BLOCKED
+        )
+        root_causes = tuple(
+            diagnostic
+            for path, node in sorted(self.nodes.items())
+            if node.status in {
+                GenerationNodeStatus.FAILED,
+                GenerationNodeStatus.TIMED_OUT,
+                GenerationNodeStatus.CANCELLED,
+            }
+            for diagnostic in node.diagnostics
+            if path not in blocked_nodes
+        )
+        timeouts = tuple(
+            diagnostic for diagnostic in diagnostics
+            if diagnostic.code in {"file_timeout", "model_timeout", "timed_out"}
+        )
+        truncations = tuple(
+            diagnostic for diagnostic in diagnostics
+            if "truncat" in diagnostic.code.lower()
+            or "truncat" in diagnostic.message.lower()
+        )
         return GenerationScheduleResult(
             status=status,
             nodes=node_results,
@@ -501,4 +560,8 @@ class GenerationScheduler:
                 blocked_files=counts[GenerationNodeStatus.BLOCKED],
                 max_parallelism=self._max_parallelism,
             ),
+            root_causes=root_causes,
+            blocked_nodes=blocked_nodes,
+            timeouts=timeouts,
+            truncations=truncations,
         )

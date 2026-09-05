@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # 扫描已有项目时跳过的目录
 SKIP_DIRS: Set[str] = {
     '__pycache__', 'node_modules', '.git', 'venv', '.venv',
-    'dist', 'build', '.next', 'coverage', '.pytest_cache',
+    'dist', 'build', 'target', '.next', 'coverage', '.pytest_cache',
     'playwright-report', 'test-results', '.turbo'
 }
 

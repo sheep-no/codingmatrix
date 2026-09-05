@@ -8,6 +8,7 @@ Specialist 内置工具实现
 import re
 import json
 import glob
+import shlex
 import logging
 from pathlib import Path
 from typing import Dict, Optional
@@ -162,7 +163,7 @@ def _tool_read_file(project_path: str, file_path: str, offset: int = 0,
                     limit: int = 100) -> Dict:
     """读取文件内容（支持分页）"""
     try:
-        full_path = Path(project_path) / file_path
+        full_path = _safe_join(project_path, file_path)
         if not full_path.exists():
             return {"error": f"文件不存在: {file_path}"}
         if not full_path.is_file():
@@ -185,7 +186,7 @@ def _tool_list_files(project_path: str, directory: str = ".",
                      max_depth: int = 2) -> Dict:
     """列出目录结构"""
     try:
-        target = Path(project_path) / directory
+        target = _safe_join(project_path, directory)
         if not target.exists():
             return {"error": f"目录不存在: {directory}"}
         entries = []
@@ -219,7 +220,7 @@ def _scan_dir(path: Path, entries: list, depth: int, max_depth: int, base: Path)
 def _tool_read_symbols(project_path: str, file_path: str) -> Dict:
     """提取文件中的函数和类签名（不读取函数体）"""
     try:
-        full_path = Path(project_path) / file_path
+        full_path = _safe_join(project_path, file_path)
         if not full_path.exists():
             return {"error": f"文件不存在: {file_path}"}
         if not full_path.is_file():
@@ -274,7 +275,7 @@ def _tool_read_symbols(project_path: str, file_path: str) -> Dict:
 def _tool_read_imports(project_path: str, file_path: str) -> Dict:
     """提取文件中的 import 语句，分析依赖关系"""
     try:
-        full_path = Path(project_path) / file_path
+        full_path = _safe_join(project_path, file_path)
         if not full_path.exists():
             return {"error": f"文件不存在: {file_path}"}
 
@@ -308,7 +309,7 @@ def _tool_read_imports(project_path: str, file_path: str) -> Dict:
 def _tool_summarize_file(project_path: str, file_path: str) -> Dict:
     """返回文件摘要：导出的符号、行数、语言、依赖数"""
     try:
-        full_path = Path(project_path) / file_path
+        full_path = _safe_join(project_path, file_path)
         if not full_path.exists():
             return {"error": f"文件不存在: {file_path}"}
         if not full_path.is_file():
@@ -655,22 +656,42 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
     import os
 
     try:
+        if not isinstance(command, str) or not command.strip():
+            return {"success": False, "error": "安全限制: 命令不能为空"}
+
+        if any(operator in command for operator in (";", "&&", "||", "|", ">", "<", "`", "$(")):
+            return {"success": False, "error": "安全限制: 禁止使用 Shell 操作符"}
+
         for pattern in _DANGEROUS_COMMANDS:
             if re.search(pattern, command, re.IGNORECASE):
                 return {"success": False, "error": "安全限制: 检测到危险命令操作"}
 
-        cmd_lower = command.strip().lower()
-        allowed = any(cmd_lower.startswith(prefix.lower()) for prefix in _ALLOWED_COMMAND_PREFIXES)
+        try:
+            command_parts = shlex.split(command, posix=True)
+        except ValueError as exc:
+            return {"success": False, "error": f"安全限制: 命令解析失败: {exc}"}
+        if not command_parts:
+            return {"success": False, "error": "安全限制: 命令不能为空"}
+
+        executable = Path(command_parts[0]).name.lower()
+        shell_interpreters = {"sh", "bash", "zsh", "dash", "ksh", "cmd", "powershell", "pwsh"}
+        if executable in shell_interpreters:
+            return {"success": False, "error": "安全限制: 禁止执行 Shell 解释器"}
+
+        allowed = any(
+            len(command_parts) >= len(prefix.split())
+            and [part.lower() for part in command_parts[:len(prefix.split())]] == [
+                part.lower() for part in prefix.split()
+            ]
+            for prefix in _ALLOWED_COMMAND_PREFIXES
+        )
         if not allowed:
             return {"success": False, "error": f"安全限制: 命令不在允许列表中。允许的命令前缀: {', '.join(_ALLOWED_COMMAND_PREFIXES[:10])}..."}
 
-        work_dir = Path(project_path)
-        if cwd:
-            work_dir = (work_dir / cwd).resolve()
-            try:
-                work_dir.relative_to(Path(project_path).resolve())
-            except ValueError:
-                return {"success": False, "error": "安全限制: 工作目录必须在项目路径内"}
+        try:
+            work_dir = _safe_join(project_path, cwd or ".")
+        except PermissionError:
+            return {"success": False, "error": "安全限制: 工作目录必须在项目路径内"}
 
         if not work_dir.exists():
             return {"success": False, "error": f"工作目录不存在: {work_dir}"}
@@ -682,8 +703,8 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
         stdout_file = tempfile.TemporaryFile()
         stderr_file = tempfile.TemporaryFile()
         proc = subprocess.Popen(
-            command,
-            shell=True,
+            command_parts,
+            shell=False,
             stdout=stdout_file,
             stderr=stderr_file,
             cwd=str(work_dir),
@@ -1166,13 +1187,18 @@ def _tool_delete_files_by_pattern(project_path: str, path: str, pattern: str,
     """按 glob 模式批量删除文件"""
     import os
     try:
-        target_dir = Path(project_path) / path if not Path(path).is_absolute() else Path(path)
+        target_dir = _safe_join(project_path, path)
         if not target_dir.exists():
             return {"success": False, "error": f"目录不存在: {path}"}
 
         search_pattern = str(target_dir / pattern)
         files = glob.glob(search_pattern, recursive=recursive)
-        files = [f for f in files if Path(f).is_file()]
+        root = Path(project_path).resolve()
+        files = [
+            f for f in files
+            if Path(f).is_file()
+            and Path(f).resolve().is_relative_to(root)
+        ]
 
         if not files:
             return {"success": True, "deleted": 0, "files": []}

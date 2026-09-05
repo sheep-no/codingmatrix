@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from typing import Any, Dict, Optional
 
-from .artifact_committer import ArtifactConsistencyResult
-from .generation_scheduler import GenerationScheduleResult, GenerationScheduleStatus
+from app.agent.shared_context import SharedContext
+
+from .artifact_committer import (
+    ArtifactConsistencyResult,
+    ArtifactDiagnostic,
+    ArtifactCommitter,
+    ArtifactConsistencyResult,
+    check_artifact_success_gate,
+)
+from .adapters import GenerationRequest
+from .generation_scheduler import GenerationScheduleResult, GenerationScheduleStatus, GenerationScheduler
 from .models import (
     OrchestrationCommand,
     OrchestrationResult,
@@ -45,6 +56,189 @@ class OrchestratorCore:
         )
         await self.store.save(state)
         return OrchestrationResult(state=state)
+
+    async def execute(
+        self,
+        command: OrchestrationCommand,
+        adapter: Any,
+        *,
+        output_dir: Path,
+        shared_context: SharedContext,
+        cancel_event: Optional[asyncio.Event] = None,
+        max_concurrent: int = 5,
+    ) -> OrchestrationResult:
+        """Run an adapter through the complete Core lifecycle and success gate."""
+        started = await self.run(command)
+        if started.resumed and started.state.status.is_terminal:
+            return started
+        if started.resumed and started.state.stage is not OrchestrationStage.PLANNING:
+            return await self.finish(
+                command.task_id,
+                OrchestrationStatus.FAILED,
+                event_id=f"{command.task_id}:{started.state.revision + 1}:resume_failed",
+                expected_revision=started.state.revision,
+                diagnostic={
+                    "code": "orchestration.resume_stage_unsupported",
+                    "message": f"cannot resume execution from stage {started.state.stage.value}",
+                },
+            )
+        if cancel_event is not None and cancel_event.is_set():
+            return await self.cancel(
+                command.task_id,
+                "generation was cancelled before planning",
+                event_id=f"{command.task_id}:{started.state.revision + 1}:cancelled",
+                expected_revision=started.state.revision,
+            )
+
+        request = command.request
+        try:
+            plan = await adapter.create_plan(GenerationRequest(
+                requirement=str(request.get("requirement", "")),
+                task_id=command.task_id,
+                session_id=command.session_id,
+                metadata=request,
+            ))
+        except asyncio.CancelledError:
+            return await self.cancel(
+                command.task_id,
+                "planning was cancelled",
+                event_id=f"{command.task_id}:2:cancelled",
+                expected_revision=started.state.revision,
+            )
+        except Exception as exc:
+            return await self.finish(
+                command.task_id,
+                OrchestrationStatus.FAILED,
+                event_id=f"{command.task_id}:2:planning_failed",
+                expected_revision=started.state.revision,
+                diagnostic={
+                    "code": "orchestration.planning_failed",
+                    "message": str(exc),
+                },
+            )
+        state = (await self.advance(
+            command.task_id,
+            OrchestrationStage.SCHEDULING,
+            event_id=f"{command.task_id}:2:scheduling",
+            expected_revision=started.state.revision,
+            metadata={"plan_paths": [item.path for item in plan.files]},
+        )).state
+        state = (await self.advance(
+            command.task_id,
+            OrchestrationStage.GENERATING,
+            event_id=f"{command.task_id}:3:generating",
+            expected_revision=state.revision,
+        )).state
+
+        committer = ArtifactCommitter(
+            output_dir,
+            shared_context,
+            task_id=command.task_id,
+        )
+        schedule = await GenerationScheduler(
+            committer,
+            max_concurrent=max_concurrent,
+        ).run(
+            plan,
+            adapter.generate_file,
+            command.budgets,
+            task_id=command.task_id,
+            stage_id=f"{command.task_id}:generating",
+            cancel_event=cancel_event,
+        )
+        state = (await self.advance(
+            command.task_id,
+            OrchestrationStage.PERSISTING,
+            event_id=f"{command.task_id}:4:persisting",
+            expected_revision=state.revision,
+            metadata={"schedule": schedule.model_dump(mode="json")},
+        )).state
+        state = (await self.advance(
+            command.task_id,
+            OrchestrationStage.VALIDATING,
+            event_id=f"{command.task_id}:5:validating",
+            expected_revision=state.revision,
+        )).state
+        transaction = None
+        change_plan = getattr(adapter, "change_plan", None)
+        if schedule.status is GenerationScheduleStatus.COMPLETED and change_plan is not None:
+            from .file_transaction import IncrementalFileTransaction
+
+            transaction = IncrementalFileTransaction(
+                output_dir,
+                change_plan,
+                transaction_id=command.task_id,
+            )
+            transaction.stage()
+        consistency = check_artifact_success_gate(
+            plan,
+            shared_context.get_artifact_manifest(),
+            [event for event in schedule.completion_events if event is not None],
+            output_dir,
+            preserved_paths=getattr(adapter, "preserved_paths", ()),
+        ) if schedule.status is GenerationScheduleStatus.COMPLETED else None
+        if consistency is not None:
+            architecture = getattr(adapter, "_project_context", {}).get("architecture", {})
+            language = str(architecture.get("language", "")).lower()
+            from app.agent.framework_profiles import DEFAULT_PROFILES
+            from app.agent.framework_profiles.validation import validate_project_profile
+
+            framework = str(architecture.get("framework", ""))
+            profile = DEFAULT_PROFILES.validation_profile(language, framework)
+            if profile is not None:
+                validation = await validate_project_profile(output_dir, profile)
+                if not validation["passed"]:
+                    consistency = ArtifactConsistencyResult(
+                        success=False,
+                        planned_paths=consistency.planned_paths,
+                        manifest_paths=consistency.manifest_paths,
+                        completed_paths=consistency.completed_paths,
+                        disk_paths=consistency.disk_paths,
+                        diagnostic=ArtifactDiagnostic(
+                            code="project.validation_failed",
+                            message="project profile validation failed",
+                            details=validation,
+                        ),
+                    )
+        snapshot = getattr(adapter, "_project_context", {}).get("base_snapshot")
+        if consistency is not None and change_plan is not None and snapshot is not None:
+            from app.agent.project_snapshot import ProjectSnapshot
+
+            untouched = change_plan.verify_untouched(
+                ProjectSnapshot.model_validate(snapshot),
+                ProjectSnapshot.scan(output_dir, revision="after-generation"),
+            )
+            if untouched:
+                consistency = ArtifactConsistencyResult(
+                    success=False,
+                    planned_paths=consistency.planned_paths,
+                    manifest_paths=consistency.manifest_paths,
+                    completed_paths=consistency.completed_paths,
+                    disk_paths=consistency.disk_paths,
+                    diagnostic=ArtifactDiagnostic(
+                        code="incremental.untouched_file_changed",
+                        message="files outside the incremental change plan changed",
+                        details={"paths": list(untouched)},
+                    ),
+                )
+        if transaction is not None:
+            if consistency is not None and consistency.success:
+                transaction.commit()
+            else:
+                transaction.rollback()
+        state = (await self.advance(
+            command.task_id,
+            OrchestrationStage.FINALIZING,
+            event_id=f"{command.task_id}:6:finalizing",
+            expected_revision=state.revision,
+        )).state
+        return await self.finish_schedule(
+            command.task_id,
+            schedule,
+            event_id=f"{command.task_id}:7:{schedule.status.value}",
+            expected_revision=state.revision,
+            artifact_consistency=consistency,
+        )
 
     async def advance(
         self,
@@ -139,7 +333,18 @@ class OrchestratorCore:
         diagnostic = {
             "code": f"generation_schedule.{schedule.status.value}",
             "message": f"generation schedule ended with status {schedule.status.value}",
-            "details": {"nodes": {path: node.status.value for path, node in schedule.nodes.items()}},
+            "details": {
+                "nodes": {
+                    path: {
+                        "status": node.status.value,
+                        "attempts": node.attempts,
+                        "diagnostics": [
+                            item.model_dump(mode="json") for item in node.diagnostics
+                        ],
+                    }
+                    for path, node in schedule.nodes.items()
+                }
+            },
         }
         return await self.finish(
             task_id,

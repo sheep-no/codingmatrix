@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -18,6 +18,9 @@ from app.api.v1.agent_host import (
     control_agent_host_session,
     SkillSyncRequest,
     SessionControlRequest,
+    list_agent_host_sessions,
+    AgentHostActionAckRequest,
+    acknowledge_agent_host_action,
 )
 from app.agent.state import StateDelta, StateGraphBuilder
 import app.agent.workflow_registry as workflow_registry
@@ -150,6 +153,13 @@ async def test_enqueue_state_actions_binds_session_context_and_deduplicates() ->
     assert queued[0]["task_id"] == "task-3"
     assert queued[0]["revision"] == 7
     assert queued[0]["payload"]["workspace_id"] == "workspace-3"
+    assert (await get_agent_host_actions(handshake.session_id, {"sub": "user-3"})).actions == []
+    ack = await acknowledge_agent_host_action(
+        handshake.session_id,
+        AgentHostActionAckRequest(action_id="pending-1"),
+        {"sub": "user-3"},
+    )
+    assert ack["acknowledged"] is True
 
 
 @pytest.mark.asyncio
@@ -193,6 +203,52 @@ def test_agent_host_session_store_round_trips_expiry_and_queue(tmp_path) -> None
     restored = store.load("session-4")
     assert restored["user_id"] == "user-4"
     assert restored["expires_at"].tzinfo is not None
+
+
+@pytest.mark.asyncio
+async def test_agent_host_session_list_loads_persisted_sessions(monkeypatch, tmp_path) -> None:
+    store = AgentHostSessionStore(tmp_path)
+    session_id = "persisted-session"
+    store.save(session_id, {
+        "user_id": "user-persisted",
+        "workspace_id": "workspace-persisted",
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=30),
+        "policy_version": 1,
+        "policy": {},
+        "pending_actions": [],
+        "events": {},
+    })
+    monkeypatch.setattr("app.api.v1.agent_host._session_store", store)
+    monkeypatch.setattr("app.api.v1.agent_host._sessions", {})
+
+    summaries = await list_agent_host_sessions({"sub": "user-persisted"})
+
+    assert [summary.session_id for summary in summaries] == [session_id]
+
+
+@pytest.mark.asyncio
+async def test_agent_host_requeues_in_flight_actions_after_restart(monkeypatch, tmp_path) -> None:
+    store = AgentHostSessionStore(tmp_path)
+    session_id = "restart-session"
+    store.save(session_id, {
+        "user_id": "user-restart",
+        "workspace_id": "workspace-restart",
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=30),
+        "policy_version": 1,
+        "policy": {},
+        "pending_actions": [],
+        "in_flight_actions": [{
+            "message_id": "action-message",
+            "payload": {"action_id": "action-retry"},
+        }],
+        "events": {},
+    })
+    monkeypatch.setattr("app.api.v1.agent_host._session_store", store)
+    monkeypatch.setattr("app.api.v1.agent_host._sessions", {})
+
+    actions = await get_agent_host_actions(session_id, {"sub": "user-restart"})
+
+    assert [item["payload"]["action_id"] for item in actions.actions] == ["action-retry"]
 
 
 @pytest.mark.asyncio

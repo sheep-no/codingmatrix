@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
 
 from app.agent.adapters import legacy_result_to_delta
-from app.agent.state import CheckpointStore, State, StateGraph, StateGraphBuilder, StateReducer
+from app.agent.state import CheckpointStore, State, StateDelta, StateGraph, StateGraphBuilder, StateReducer
 from app.agent.state.graph import END, NEXT_NODE_METADATA_KEY
 from app.agent.orchestration.routing import engine_metadata
 
@@ -18,6 +18,26 @@ _checkpoint_store = CheckpointStore(
     Path(os.getenv("AGENT_STATE_CHECKPOINT_DIR", "data/agent_state_checkpoints"))
 )
 _recoverable_workflow_factories: Dict[str, Callable[[], WorkflowDefinition]] = {}
+
+
+def _build_recoverable_legacy_workflow(name: str, endpoint: str) -> WorkflowDefinition:
+    """Build a restart-safe wrapper that reports missing runtime configuration."""
+    async def recover(state: State):
+        raise RuntimeError(
+            f"workflow {name} was recovered from checkpoint; resume requires its original runtime handler"
+        )
+
+    return build_legacy_workflow(name, endpoint, recover)
+
+
+for _workflow_name, _workflow_endpoint in (
+    ("generate", "/generate"),
+    ("orchestrate", "/orchestrate"),
+    ("orchestrate_stream", "/orchestrate/stream"),
+):
+    _recoverable_workflow_factories[_workflow_name] = (
+        lambda name=_workflow_name, endpoint=_workflow_endpoint: _build_recoverable_legacy_workflow(name, endpoint)
+    )
 
 
 def _checkpoint_id(session_id: str, task_id: str) -> str:
@@ -39,6 +59,7 @@ class WorkflowDefinition:
     entry_node: str
     graph: StateGraph
     legacy_endpoint: str
+    core_handler: Optional[LegacyHandler] = None
 
 
 class WorkflowRegistry:
@@ -86,11 +107,17 @@ def build_legacy_workflow(
     handler: LegacyHandler,
     *,
     node_name: str = "legacy_agent",
+    core_handler: Optional[LegacyHandler] = None,
 ) -> WorkflowDefinition:
-    """Wrap one legacy endpoint in a graph while preserving its result payload."""
+    """Wrap an endpoint with an explicit legacy/core handler boundary."""
 
     async def run_legacy(state: State):
-        result = handler(state)
+        selected_handler = (
+            core_handler
+            if state.metadata.get("engine") == "core" and core_handler is not None
+            else handler
+        )
+        result = selected_handler(state)
         if hasattr(result, "__await__"):
             result = await result
         delta = legacy_result_to_delta(
@@ -104,7 +131,7 @@ def build_legacy_workflow(
         return delta
 
     graph = StateGraphBuilder().add_node(node_name, run_legacy).compile()
-    return WorkflowDefinition(name, node_name, graph, legacy_endpoint)
+    return WorkflowDefinition(name, node_name, graph, legacy_endpoint, core_handler)
 
 
 async def run_workflow(
@@ -125,6 +152,7 @@ async def run_workflow(
             **engine_metadata((metadata or {}).get("engine")),
             **dict(metadata or {}),
             "_workflow_name": definition.name,
+            "_workflow_endpoint": definition.legacy_endpoint,
         },
     )
     state = await definition.graph.run(state, start_at=definition.entry_node)
@@ -194,3 +222,42 @@ async def resume_workflow_from_local_result(
         except KeyError:
             pass
     return state
+
+
+async def cancel_workflows_for_session(
+    session_id: str,
+    *,
+    reason: str = "用户停止",
+    db: Any = None,
+    user_id: Optional[int] = None,
+) -> int:
+    """Persist cancellation for every active graph belonging to a session."""
+    cancelled = 0
+    for key, execution in list(_active_workflows.items()):
+        if key[0] != session_id:
+            continue
+        definition, state = execution
+        if state.status in {"completed", "failed", "cancelled", "timed_out"}:
+            continue
+        state = StateReducer().apply(
+            state,
+            StateDelta(
+                expected_revision=state.revision,
+                status="cancelled",
+                replace_pending_actions=[],
+                errors=[{
+                    "code": "orchestration.cancelled",
+                    "message": reason,
+                    "retryable": False,
+                }],
+                metadata={"cancel_reason": reason},
+            ),
+        )
+        _active_workflows[key] = (definition, state)
+        _checkpoint_store.save(state, _checkpoint_id(*key))
+        if db is not None and user_id is not None:
+            from app.services.agent_state_adapter import persist_agent_state
+
+            await persist_agent_state(db, user_id, state)
+        cancelled += 1
+    return cancelled

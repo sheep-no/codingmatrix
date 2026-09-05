@@ -56,6 +56,10 @@ class PlannedFile(BaseModel):
     origin: PlanFileOrigin = PlanFileOrigin.PLANNED
     source: Optional[str] = None
     reason: Optional[str] = None
+    strategy: Optional[str] = None
+    strategy_reason: Optional[str] = None
+    capability_evidence: Tuple[str, ...] = ()
+    degraded: bool = False
 
     @model_validator(mode="after")
     def validate_extension_provenance(self) -> "PlannedFile":
@@ -72,7 +76,7 @@ class GenerationPlan(BaseModel):
     version: int = Field(ge=1)
     policy: PlanPolicy
     requested_paths: Tuple[str, ...] = ()
-    files: Tuple[PlannedFile, ...] = Field(min_length=1)
+    files: Tuple[PlannedFile, ...] = ()
     digest: str = Field(min_length=64, max_length=64)
     frozen_at: datetime = Field(default_factory=utc_now)
 
@@ -99,6 +103,15 @@ class GenerationPlan(BaseModel):
         if self.digest != expected_digest:
             raise ValueError("generation plan digest does not match its contents")
         return self
+
+
+def _normalize_priority(value: object) -> int:
+    """Keep model-supplied scheduling hints inside the supported range."""
+    try:
+        priority = int(value)
+    except (TypeError, ValueError):
+        return 3
+    return min(max(priority, 1), 5)
 
 
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
@@ -143,10 +156,11 @@ def build_file_plan(
     *,
     requested_paths: Optional[Iterable[str]] = None,
     version: int = 1,
+    allow_empty: bool = False,
 ) -> GenerationPlan:
     """Validate and freeze a strict or extensible file plan."""
     issues = []
-    normalized_requested = _normalize_requested_paths(requested_paths, issues)
+    normalized_requested = _normalize_requested_paths(requested_paths, issues, allow_empty=allow_empty)
     policy = PlanPolicy.STRICT if requested_paths is not None else PlanPolicy.EXTENSIBLE
     files = []
     seen_paths = set()
@@ -194,12 +208,16 @@ def build_file_plan(
                 role=str(entry.get("role") or entry.get("description") or ""),
                 language=str(entry.get("language") or ""),
                 file_type=str(entry.get("file_type") or ""),
-                priority=entry.get("priority", 3),
+                priority=_normalize_priority(entry.get("priority", 3)),
                 dependencies=dependencies,
                 imports=tuple(str(value) for value in raw_imports),
                 origin=origin,
                 source=entry.get("source"),
                 reason=entry.get("reason"),
+                strategy=str(entry["strategy"]) if entry.get("strategy") is not None else None,
+                strategy_reason=str(entry["strategy_reason"]) if entry.get("strategy_reason") is not None else None,
+                capability_evidence=tuple(str(value) for value in (entry.get("capability_evidence") or ())),
+                degraded=bool(entry.get("degraded", False)),
             ))
         except (TypeError, ValidationError, ValueError) as exc:
             issues.append(PlanIssue(
@@ -232,7 +250,7 @@ def build_file_plan(
                     path=item.path,
                 ))
 
-    if not files:
+    if not files and not allow_empty:
         issues.append(PlanIssue(
             code="plan.empty",
             message="file plan must contain at least one valid file",
@@ -255,6 +273,8 @@ def build_file_plan(
 def _normalize_requested_paths(
     requested_paths: Optional[Iterable[str]],
     issues: list[PlanIssue],
+    *,
+    allow_empty: bool = False,
 ) -> set[str]:
     if requested_paths is None:
         return set()
@@ -276,7 +296,7 @@ def _normalize_requested_paths(
                 path=path,
             ))
         normalized.add(path)
-    if not normalized:
+    if not normalized and not allow_empty:
         issues.append(PlanIssue(
             code="plan.empty_requested_scope",
             message="strict plan requires at least one requested file",

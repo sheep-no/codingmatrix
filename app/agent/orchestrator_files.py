@@ -206,6 +206,16 @@ def _repair_python_sqlalchemy_text_execute(content: str, file_path: str) -> str:
     return content
 
 
+def _repair_python_sqlalchemy_datetime_defaults(content: str, file_path: str) -> str:
+    """Replace calls to nonexistent SQLAlchemy DateTime clock methods."""
+    if not file_path.endswith(".py") or not re.search(r"\bDateTime\.(?:now|utcnow)\(\)", content):
+        return content
+    content = re.sub(r"\bDateTime\.(?:now|utcnow)\(\)", "func.now()", content)
+    if not re.search(r"^from\s+sqlalchemy\s+import\s+.*\bfunc\b", content, re.MULTILINE):
+        content = "from sqlalchemy import func\n" + content.lstrip("\n")
+    return content
+
+
 def _repair_python_sqlalchemy_get_db(
     content: str,
     file_path: str,
@@ -218,6 +228,30 @@ def _repair_python_sqlalchemy_get_db(
         tree = ast.parse(content, filename=file_path)
     except SyntaxError:
         return content
+    session_local_is_none = any(
+        isinstance(node, (ast.Assign, ast.AnnAssign))
+        and any(
+            isinstance(target, ast.Name) and target.id == "SessionLocal"
+            for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+        )
+        and isinstance(node.value, ast.Constant)
+        and node.value.value is None
+        for node in tree.body
+    )
+    if session_local_is_none:
+        content = re.sub(
+            r"^SessionLocal(?:\s*:[^=]+)?\s*=\s*None\s*$",
+            "SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)",
+            content,
+            flags=re.MULTILINE,
+        )
+        if not re.search(
+            r"^(?:from\s+sqlalchemy\.orm\s+import\s+.*\bsessionmaker\b|import\s+sqlalchemy\.orm)",
+            content,
+            re.MULTILINE,
+        ):
+            content = "from sqlalchemy.orm import sessionmaker\n" + content.lstrip("\n")
+        tree = ast.parse(content, filename=file_path)
     if any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "get_db" for node in tree.body):
         return content
     return content.rstrip() + (
@@ -628,6 +662,7 @@ def _repair_python_sqlalchemy_table_initialization(
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "create_all"
     ]
+    create_tables = ast.parse("Base.metadata.create_all(bind=engine)").body[0]
     if create_all_calls:
         changed = False
         for call in create_all_calls:
@@ -647,15 +682,34 @@ def _repair_python_sqlalchemy_table_initialization(
             if isinstance(node, ast.ImportFrom) and node.module == database_module
             for alias in node.names
         }
-        if "engine" not in imported_names:
+        missing_imports = [name for name in ("Base", "engine") if name not in imported_names]
+        if missing_imports:
             tree.body.insert(
                 0,
                 ast.ImportFrom(
                     module=database_module,
-                    names=[ast.alias(name="engine")],
+                    names=[ast.alias(name=name) for name in missing_imports],
                     level=0,
                 ),
             )
+            changed = True
+        has_top_level_create_all = any(
+            isinstance(statement, ast.Expr)
+            and isinstance(statement.value, ast.Call)
+            and isinstance(statement.value.func, ast.Attribute)
+            and statement.value.func.attr == "create_all"
+            for statement in tree.body
+        )
+        if not has_top_level_create_all:
+            last_import = max(
+                (
+                    index
+                    for index, statement in enumerate(tree.body)
+                    if isinstance(statement, (ast.Import, ast.ImportFrom))
+                ),
+                default=-1,
+            )
+            tree.body.insert(last_import + 1, create_tables)
             changed = True
         if not changed:
             return content
@@ -667,7 +721,6 @@ def _repair_python_sqlalchemy_table_initialization(
         names=[ast.alias(name="Base"), ast.alias(name="engine")],
         level=0,
     )
-    create_tables = ast.parse("Base.metadata.create_all(bind=engine)").body[0]
     insertion_index = 0
     if (
         tree.body
@@ -730,6 +783,83 @@ def _repair_python_test_database_fixtures(
 
     changed = False
     setup_fixture_names = set(setup_fixtures)
+    unstable_engine_fixture = any(
+        isinstance(child, (ast.Assign, ast.AnnAssign))
+        and any(
+            isinstance(target, ast.Name) and target.id == "engine"
+            for target in (child.targets if isinstance(child, ast.Assign) else [child.target])
+        )
+        for node, _ in fixture_functions
+        if node.name in setup_fixture_names
+        for child in ast.walk(node)
+    )
+    stale_storage_fixture = any(
+        isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Attribute)
+        and child.func.attr == "setattr"
+        and any(
+            isinstance(argument, ast.Constant)
+            and isinstance(argument.value, str)
+            and argument.value in {"_get_storage_path", "get_storage_path"}
+            for argument in child.args
+        )
+        for node, _ in fixture_functions
+        if node.name in setup_fixture_names
+        for child in ast.walk(node)
+    )
+
+    if unstable_engine_fixture or stale_storage_fixture:
+        for node, _ in fixture_functions:
+            if node.name in setup_fixture_names:
+                test_client_app = "app"
+                for child in ast.walk(node):
+                    if (
+                        isinstance(child, ast.Call)
+                        and isinstance(child.func, ast.Name)
+                        and child.func.id == "TestClient"
+                        and child.args
+                    ):
+                        test_client_app = ast.unparse(child.args[0])
+                        break
+                node.body = ast.parse(
+                    "Base.metadata.drop_all(bind=engine)\n"
+                    "Base.metadata.create_all(bind=engine)\n"
+                    f"with TestClient({test_client_app}) as test_client:\n"
+                    "    yield test_client\n"
+                    "Base.metadata.drop_all(bind=engine)\n"
+                ).body
+                changed = True
+            elif any(
+                isinstance(child, ast.Attribute)
+                and isinstance(child.value, ast.Name)
+                and child.value.id == "client"
+                and child.attr == "engine"
+                for child in ast.walk(node)
+            ):
+                node.body = ast.parse(
+                    "db = SessionLocal()\n"
+                    "try:\n"
+                    "    yield db\n"
+                    "finally:\n"
+                    "    db.close()\n"
+                ).body
+                changed = True
+
+        class TestClientCallRepair(ast.NodeTransformer):
+            def visit_Call(self, node: ast.Call):
+                nonlocal changed
+                self.generic_visit(node)
+                if (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr in {"get", "post", "put", "patch", "delete"}
+                ):
+                    retained = [keyword for keyword in node.keywords if keyword.arg != "status_code"]
+                    if len(retained) != len(node.keywords):
+                        node.keywords = retained
+                        changed = True
+                return node
+
+        tree = TestClientCallRepair().visit(tree)
 
     class FixtureContextRepair(ast.NodeTransformer):
         def visit_With(self, node: ast.With):
@@ -879,7 +1009,59 @@ def _validate_python_contract(content: str, file_path: str, architecture: Option
         marker = abstraction_markers.get(abstraction)
         if marker and marker not in imported_roots:
             errors.append(f"{file_path} 未遵守架构契约声明的数据库抽象 {abstraction}")
+    role = str(contract.get("role", "")).lower()
+    if (
+        "fastapi" in _declared_python_framework_roots(architecture)
+        and (file_type in {"schema", "types", "dto"} or role in {"schema", "types", "dto"})
+    ):
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef) or node.name.startswith("_"):
+                continue
+            inherits_base_model = any(
+                (isinstance(base, ast.Name) and base.id == "BaseModel")
+                or (isinstance(base, ast.Attribute) and base.attr == "BaseModel")
+                for base in node.bases
+            )
+            if not inherits_base_model:
+                errors.append(
+                    f"{file_path} 的 FastAPI Schema 类 {node.name} 必须继承 Pydantic BaseModel"
+                )
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        function_name = (
+            node.func.id
+            if isinstance(node.func, ast.Name)
+            else node.func.attr
+            if isinstance(node.func, ast.Attribute)
+            else ""
+        )
+        if function_name != "sessionmaker":
+            continue
+        if any(
+            keyword.arg == "class_"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value is None
+            for keyword in node.keywords
+        ):
+            errors.append(f"{file_path} 的 sessionmaker 不能使用 class_=None")
+    if file_type == "test" or str(contract.get("role", "")).lower() == "test":
+        test_functions = [
+            node for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test_")
+        ]
+        if not test_functions:
+            errors.append(f"{file_path} 必须声明至少一个可收集的 test_ 测试函数")
     return errors
+
+
+def _repair_python_sessionmaker_class_none(content: str, file_path: str) -> str:
+    """Remove SQLAlchemy's invalid explicit null session class override."""
+    if not file_path.endswith(".py") or "class_" not in content:
+        return content
+    repaired = re.sub(r"\bclass_\s*=\s*None\s*,\s*", "", content)
+    return re.sub(r",\s*class_\s*=\s*None\b", "", repaired)
 
 
 def _repair_python_shared_base(
@@ -1789,6 +1971,8 @@ class FilesMixin:
                 content, file_path, generated_contents or {}, architecture
             )
             content = _repair_python_sqlalchemy_text_execute(content, file_path)
+            content = _repair_python_sqlalchemy_datetime_defaults(content, file_path)
+            content = _repair_python_sessionmaker_class_none(content, file_path)
             content = _repair_python_sqlalchemy_get_db(content, file_path, architecture)
             content = _repair_python_sqlalchemy_table_initialization(
                 content,
@@ -1960,6 +2144,8 @@ class FilesMixin:
                     content, file_path, generated_contents or {}, architecture
                 )
                 content = _repair_python_sqlalchemy_text_execute(content, file_path)
+                content = _repair_python_sqlalchemy_datetime_defaults(content, file_path)
+                content = _repair_python_sessionmaker_class_none(content, file_path)
                 content = _repair_python_sqlalchemy_get_db(content, file_path, architecture)
                 content = _repair_python_sqlalchemy_table_initialization(
                     content,
@@ -2245,6 +2431,11 @@ class FilesMixin:
 
     def _select_model_for_file(self, file_path: str) -> str:
         ext = Path(file_path).suffix.lower()
+        file_name = Path(file_path).name.lower()
+        if file_name in {"pom.xml", "build.gradle", "build.gradle.kts", "dockerfile"}:
+            return self.model_assignment.reviewer_model if self.model_assignment else "glm-z1-9b"
+        if "/test/" in file_path.lower() or file_name.startswith("test_") or file_name.endswith("_test.py"):
+            return self.model_assignment.reviewer_model if self.model_assignment else "glm-z1-9b"
         if ext in {'.vue', '.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.scss', '.sass', '.less'}:
             return self.model_assignment.frontend_model if self.model_assignment else DEFAULT_CODE_MODEL
         elif ext in {'.py', '.go', '.java', '.rs', '.rb', '.php'}:

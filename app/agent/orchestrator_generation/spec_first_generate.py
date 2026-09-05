@@ -1478,28 +1478,6 @@ class SpecFirstGenerateMixin:
                         self._report_file_event(missing_file, default_content, "自动补充的模块文件", lang_for_report)
                         files_generated += 1
 
-        # 3. CrossValidator 跨文件一致性验证
-        if hasattr(self, 'model_assignment') and self.model_assignment:
-            cross_validator = CrossValidator(ctx, language_adapter=language_adapter, api_key_token=self.api_key_token)
-            fix_model = self.model_assignment.reviewer_model
-
-            generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
-
-            fixed_files, cross_issues = await cross_validator.validate_and_fix(
-                generated_files_dict, architecture, fix_model
-            )
-
-            if cross_issues:
-                logger.warning(f"跨文件一致性验证发现 {len(cross_issues)} 个问题")
-                warnings_list.extend([issue.get("message", "") for issue in cross_issues])
-
-                from app.agent.utils import write_file_atomic as _wf_atomic
-                for fix_path, fix_content in fixed_files.items():
-                    if fix_content != generated_files_dict.get(fix_path):
-                        _wf_atomic(self.output_dir, fix_path, fix_content)
-                        ctx.save_file_content(fix_path, fix_content, "cross_validator_fix")
-                        logger.info(f"跨文件一致性修复: {fix_path}")
-
         self._report_progress("integrity_validated", total_files + 4, total_files + 5, callback=callback)
 
         # 4. 项目级沙箱验证
@@ -1596,7 +1574,40 @@ class SpecFirstGenerateMixin:
             except SyntaxError:
                 return False
 
-        elif ext in ('.js', '.ts', '.vue'):
+        elif ext == '.ts':
+            # TypeScript syntax (including decorators and annotations) cannot be
+            # parsed by `node -c`; use the installed compiler's parser only.
+            import shutil
+            import tempfile
+            import subprocess
+            tsc_path = shutil.which('tsc')
+            if not tsc_path:
+                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
+            typescript_module = Path(tsc_path).resolve().parent.parent / 'lib' / 'typescript.js'
+            if not typescript_module.is_file():
+                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
+            try:
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.ts', delete=False) as f:
+                    f.write(content)
+                    tmp_path = f.name
+                script = (
+                    "const ts=require(process.argv[1]);const fs=require('fs');"
+                    "const source=fs.readFileSync(process.argv[2],'utf8');"
+                    "const result=ts.transpileModule(source,{reportDiagnostics:true,compilerOptions:{"
+                    "target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,"
+                    "experimentalDecorators:true,emitDecoratorMetadata:true}});"
+                    "process.exit(result.diagnostics?.some(d=>d.category===ts.DiagnosticCategory.Error)?1:0);"
+                )
+                result = subprocess.run(
+                    ['node', '-e', script, str(typescript_module), tmp_path],
+                    capture_output=True, text=True, timeout=5
+                )
+                Path(tmp_path).unlink(missing_ok=True)
+                return result.returncode == 0
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
+
+        elif ext in ('.js', '.vue'):
             # 检测 Python 代码混入 JS 文件
             python_indicators = ['def ', 'import ', 'from ', 'class ', 'self.', 'print(']
             python_count = sum(1 for ind in python_indicators if ind in content)
@@ -2093,6 +2104,7 @@ class SpecFirstGenerateMixin:
         dep_context: str = "",
         callback=None,
         heartbeat_tracker=None,
+        persist: bool = True,
     ) -> Optional[str]:
         """恢复无效内容：直接调用 LLM 生成代码（不走 ReAct，节省 token）
 
@@ -2153,11 +2165,21 @@ class SpecFirstGenerateMixin:
             content = clean_code_block(content)
 
             # 验证
-            from app.agent.utils import get_expected_language_for_file, is_valid_code_content, validate_language_with_llm
+            from app.agent.utils import (
+                get_expected_language_for_file,
+                is_placeholder_content,
+                is_valid_code_content,
+                validate_language_with_llm,
+            )
             target_language = project_context.get("architecture", {}).get("language", "")
             file_expected_language = get_expected_language_for_file(file_path, target_language)
 
             is_valid, new_reason = is_valid_code_content(file_path, content)
+            if is_valid:
+                is_placeholder, placeholder_reason = is_placeholder_content(content, file_path)
+                if is_placeholder:
+                    is_valid = False
+                    new_reason = placeholder_reason
             if is_valid:
                 # 语言检测
                 if file_expected_language and self._quick_llm_check:
@@ -2168,9 +2190,11 @@ class SpecFirstGenerateMixin:
                         logger.warning(f"内容恢复语言检测失败: {file_path} - {lang_reason} (第 {attempt + 1} 次)")
                         continue
                 logger.info(f"内容恢复成功: {file_path} (第 {attempt + 1} 次)")
-                # 写入文件（使用原子写入）
-                from app.agent.utils import write_file_atomic as _wf_atomic
-                _wf_atomic(self.output_dir, file_path, content)
+                if persist:
+                    from app.agent.utils import write_file_atomic as _wf_atomic
+                    if not _wf_atomic(self.output_dir, file_path, content):
+                        logger.warning(f"内容恢复写入失败: {file_path} (第 {attempt + 1} 次)")
+                        continue
                 return content
             logger.warning(f"内容恢复失败: {file_path} - {new_reason} (第 {attempt + 1} 次)")
 

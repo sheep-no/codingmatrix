@@ -16,6 +16,7 @@ from .model_gateway import (
     ModelCallActivity,
     ModelCallCancelled,
     ModelCallContext,
+    ModelCallTelemetry,
     ModelCallTimeout,
     ModelGateway,
     ModelGatewayError,
@@ -59,7 +60,14 @@ from .state_machine import (
     terminate_state,
 )
 from .store import OrchestrationCheckpointStore, OrchestrationStore
-from .adapters import AdapterResult, GenerationModeAdapter, GenerationRequest, TraditionalAdapter
+from .adapters import (
+    AdapterResult,
+    GenerationModeAdapter,
+    GenerationRequest,
+    IncrementalAdapter,
+    SpecFirstAdapter,
+    TraditionalAdapter,
+)
 from .routing import (
     CORE_ENGINE,
     CORE_ENGINE_VERSION,
@@ -69,6 +77,7 @@ from .routing import (
     select_engine,
 )
 from .engine_router import EngineRouteResult, compare_shadow_results, route_generation
+from .runtime import execute_core_generation
 
 __all__ = [
     "ARTIFACT_COMMIT_FAILED",
@@ -94,6 +103,7 @@ __all__ = [
     "ModelCallActivity",
     "ModelCallCancelled",
     "ModelCallContext",
+    "ModelCallTelemetry",
     "ModelCallTimeout",
     "ModelGateway",
     "ModelGatewayError",
@@ -120,6 +130,8 @@ __all__ = [
     "AdapterResult",
     "GenerationModeAdapter",
     "GenerationRequest",
+    "IncrementalAdapter",
+    "SpecFirstAdapter",
     "TraditionalAdapter",
     "Dependency",
     "DependencyKind",
@@ -139,4 +151,5 @@ __all__ = [
     "EngineRouteResult",
     "compare_shadow_results",
     "route_generation",
+    "execute_core_generation",
 ]

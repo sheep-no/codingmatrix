@@ -130,6 +130,58 @@ async def test_non_streaming_call_times_out_with_structured_diagnostic() -> None
 
 
 @pytest.mark.asyncio
+async def test_non_streaming_call_records_finish_reason_usage_and_input_budget() -> None:
+    async def caller(**_: Any) -> dict[str, Any]:
+        return {
+            "choices": [{"finish_reason": "length"}],
+            "usage": {"prompt_tokens": 12, "completion_tokens": 34, "total_tokens": 46},
+        }
+
+    gateway = ModelGateway(caller)
+    await gateway.call(
+        make_context(1.0), model="test", prompt="hello", max_tokens=128
+    )
+
+    telemetry = gateway.telemetry_for("call-1")
+    assert telemetry is not None
+    assert telemetry.finish_reason == "length"
+    assert telemetry.prompt_tokens == 12
+    assert telemetry.completion_tokens == 34
+    assert telemetry.total_tokens == 46
+    assert telemetry.input_chars == 5
+    assert telemetry.max_tokens == 128
+    assert telemetry.elapsed_seconds is not None
+
+
+@pytest.mark.asyncio
+async def test_stream_records_usage_and_finish_reason_from_sse_chunks() -> None:
+    stream = ControlledStream([
+        'data: {"choices":[{"delta":{"content":"hello"}}]}',
+        'data: {"choices":[{"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}',
+    ])
+
+    async def caller(**_: Any) -> ControlledStream:
+        return stream
+
+    gateway = ModelGateway(caller)
+    gateway_stream = gateway.stream(make_context(1.0), model="test", prompt="hello")
+    received = []
+    try:
+        async for chunk in gateway_stream:
+            received.append(chunk)
+            if len(received) == 2:
+                break
+    finally:
+        await gateway_stream.aclose()
+
+    telemetry = gateway.telemetry_for("call-1")
+    assert telemetry is not None
+    assert telemetry.finish_reason == "stop"
+    assert telemetry.total_tokens == 4
+    assert telemetry.completed_at is not None
+
+
+@pytest.mark.asyncio
 async def test_keepalive_activity_does_not_extend_stream_deadline() -> None:
     stream = ControlledStream([": heartbeat"] * 100, interval=0.004)
 

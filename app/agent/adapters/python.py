@@ -74,6 +74,11 @@ class PythonLanguageAdapter(LanguageAdapter):
         ("setup.py", "config"),
         ("Makefile", "config"),
 
+        # 应用入口
+        ("main.py", "entry"),
+        ("app.py", "entry"),
+        ("server.py", "entry"),
+
         # 服务连接配置
         ("redis_config.py", "service_config"),
         ("redis_connection.py", "service_config"),

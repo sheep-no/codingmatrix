@@ -15,6 +15,8 @@ class Capability(str, Enum):
     DEPENDENCY_INJECTION = "dependency_injection"
     TEST_CLIENT = "test_client"
     MIGRATIONS = "migrations"
+    COMMAND_LINE = "command_line"
+    FRONTEND_UI = "frontend_ui"
 
 
 class CapabilitySet(BaseModel):

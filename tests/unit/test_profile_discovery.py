@@ -1,4 +1,7 @@
+import json
+
 from app.agent.evaluation_matrix import ApplicationDomain
+from app.agent.framework_profiles import ProfileStatus
 from app.agent.profile_discovery import ProfileCache, build_probe_plan, discover_or_load_profile, discover_profile, probe_profile, profile_context
 
 
@@ -10,6 +13,7 @@ def test_discovery_identifies_pygame_game_workspace(tmp_path):
     assert profile.language == "python"
     assert profile.framework == "pygame"
     assert profile.domain is ApplicationDomain.GAME
+    assert profile.status == ProfileStatus.EXPERIMENTAL.value
     assert "2d_rendering" in profile.capabilities
     assert probe_profile(profile, checks=("syntax", "startup")).passed
     assert all(step.command and step.action.value for step in build_probe_plan(profile))
@@ -71,6 +75,25 @@ def test_discovery_reuses_cached_profile(tmp_path):
     assert discover_or_load_profile(tmp_path).status == "experimental"
 
 
+def test_profile_cache_invalidates_previous_schema_version(tmp_path):
+    (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    metadata_dir = tmp_path / ".monkeycode"
+    metadata_dir.mkdir()
+    (metadata_dir / "profiles.json").write_text(json.dumps({
+        "schema_version": 1,
+        "profiles": {
+            "python:fastapi": {
+                "language": "python",
+                "framework": "fastapi",
+                "domain": "web",
+                "status": "custom_pending",
+            }
+        },
+    }), encoding="utf-8")
+
+    assert discover_or_load_profile(tmp_path).status == ProfileStatus.SUPPORTED.value
+
+
 def test_probe_result_drives_profile_status_and_promotion(tmp_path):
     (tmp_path / "requirements.txt").write_text("pygame\n", encoding="utf-8")
     cache = ProfileCache(tmp_path)
@@ -97,3 +120,74 @@ def test_profile_context_is_serializable_for_generation(tmp_path):
     assert context["capability_policy"]["ready"]
     assert "renderer" in context["capability_policy"]["required_components"]
     assert any(item["path"] == "game/renderer.py" for item in context["capability_policy"]["component_file_plan"])
+
+
+def test_profile_context_includes_database_contract_and_defaults_web_to_sqlite(tmp_path):
+    (tmp_path / "requirements.txt").write_text("fastapi\nsqlalchemy\n", encoding="utf-8")
+
+    context = profile_context(tmp_path)
+
+    assert context["database"]["name"] == "sqlite"
+    assert context["database"]["status"] == "supported"
+    assert "restart_persistence" in context["database"]["capabilities"]
+
+
+def test_profile_context_marks_unknown_database_unsupported(tmp_path):
+    (tmp_path / "pyproject.toml").write_text("custom_db_driver = true\n", encoding="utf-8")
+
+    context = profile_context(tmp_path)
+
+    assert context["database"]["status"] == "unsupported"
+    assert context["database"]["test_database"] == "unsupported"
+
+
+def test_discovery_identifies_high_frequency_web_profiles(tmp_path):
+    cases = (
+        ("next", "nextjs"),
+        ("react_vite", "react-vite"),
+        ("nestjs", "nestjs"),
+    )
+    dependencies = {
+        "next": {"next": "latest", "react": "latest"},
+        "react_vite": {"react": "latest", "vite": "latest"},
+        "nestjs": {"@nestjs/core": "latest"},
+    }
+    for directory, expected in cases:
+        workspace = tmp_path / directory
+        workspace.mkdir()
+        (workspace / "package.json").write_text(
+            json.dumps({"dependencies": dependencies[directory]}), encoding="utf-8"
+        )
+        profile = discover_profile(workspace)
+        assert profile.framework == expected
+        assert profile.status == ProfileStatus.SUPPORTED.value
+
+
+def test_discovery_identifies_go_and_rust_profiles(tmp_path):
+    gin_workspace = tmp_path / "gin"
+    gin_workspace.mkdir()
+    (gin_workspace / "go.mod").write_text(
+        "module demo\nrequire github.com/gin-gonic/gin v1.10.0\n", encoding="utf-8"
+    )
+    axum_workspace = tmp_path / "axum"
+    axum_workspace.mkdir()
+    (axum_workspace / "Cargo.toml").write_text(
+        '[dependencies]\naxum = "0.8"\n', encoding="utf-8"
+    )
+
+    assert discover_profile(gin_workspace).framework == "gin"
+    assert discover_profile(axum_workspace).framework == "axum"
+    assert build_probe_plan(discover_profile(gin_workspace))[0].command == (
+        "go", "vet", "./..."
+    )
+
+
+def test_discovery_identifies_spring_gradle_profile(tmp_path):
+    (tmp_path / "build.gradle").write_text(
+        "plugins { id 'org.springframework.boot' version '3.3.0' }\n", encoding="utf-8"
+    )
+
+    profile = discover_profile(tmp_path)
+
+    assert profile.language == "java"
+    assert profile.framework == "spring-boot-gradle"

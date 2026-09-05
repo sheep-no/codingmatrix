@@ -2,7 +2,9 @@
 
 from app.agent.adapters import replay_messages, replay_session, state_to_session_summary
 from app.agent.state import MessageEnvelope, State, StateGraphBuilder
+import app.agent.workflow_registry as workflow_registry
 import pytest
+from uuid import uuid4
 
 from app.agent.workflow_registry import (
     WorkflowDefinition,
@@ -10,6 +12,7 @@ from app.agent.workflow_registry import (
     build_legacy_workflow,
     get_legacy_result,
     run_workflow,
+    cancel_workflows_for_session,
 )
 
 
@@ -77,6 +80,26 @@ async def test_legacy_workflow_supports_async_stream_handler() -> None:
 
 
 @pytest.mark.asyncio
+async def test_workflow_selects_core_handler_when_feature_flag_is_enabled() -> None:
+    definition = build_legacy_workflow(
+        "generate",
+        "/generate",
+        lambda _state: {"success": True, "engine": "legacy"},
+        core_handler=lambda _state: {"success": True, "engine": "core"},
+    )
+
+    state = await run_workflow(
+        definition,
+        session_id="core-session",
+        task_id="core-task",
+        metadata={"engine": "core"},
+    )
+
+    assert state.metadata["legacy_result"]["engine"] == "core"
+    assert state.metadata["engine"] == "core"
+
+
+@pytest.mark.asyncio
 async def test_legacy_workflow_exposes_original_handler_error() -> None:
     async def generate(_state):
         raise RuntimeError("provider is not configured")
@@ -87,3 +110,67 @@ async def test_legacy_workflow_exposes_original_handler_error() -> None:
     assert state.status == "failed"
     with pytest.raises(RuntimeError, match="provider is not configured"):
         get_legacy_result(state)
+
+
+@pytest.mark.asyncio
+async def test_cancel_workflow_persists_terminal_state_and_clears_actions() -> None:
+    definition = WorkflowDefinition(
+        "cancel", "wait", StateGraphBuilder().add_node("wait", lambda _state: None).compile(), "/cancel"
+    )
+    workflow_registry._active_workflows[("cancel-session", "cancel-task")] = (
+        definition,
+        State(
+            "cancel-session",
+            "cancel-task",
+            status="waiting_local_validation",
+            pending_actions=[{"type": "local_validation", "action_id": "cancel-action"}],
+        ),
+    )
+
+    assert await cancel_workflows_for_session("cancel-session") == 1
+    state = workflow_registry._active_workflows[("cancel-session", "cancel-task")][1]
+
+    assert state.status == "cancelled"
+    assert state.pending_actions == []
+    assert state.errors[-1]["code"] == "orchestration.cancelled"
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_recovery_has_registered_factory_for_production_workflows() -> None:
+    session_id = f"recover-session-{uuid4().hex}"
+    task_id = f"recover-task-{uuid4().hex}"
+    definition = build_legacy_workflow(
+        "orchestrate",
+        "/orchestrate",
+        lambda _state: {"success": True},
+    )
+    state = await run_workflow(
+        definition,
+        session_id=session_id,
+        task_id=task_id,
+        metadata={
+            "requirement": "build an app",
+            "output_dir": "projects/recover",
+            "required_validation_scopes": ["local_runtime"],
+        },
+    )
+    workflow_registry._active_workflows.pop((session_id, task_id), None)
+
+    resumed = await workflow_registry.resume_workflow_from_local_result(
+        session_id=session_id,
+        task_id=task_id,
+        result={
+            "task_id": task_id,
+            "session_id": session_id,
+            "revision": state.revision,
+            "scope": "local_runtime",
+            "status": "passed",
+            "event_id": "recover-result",
+            "schema_version": 1,
+            "source": "local",
+        },
+    )
+
+    assert "orchestrate" in workflow_registry._recoverable_workflow_factories
+    assert resumed.status == "completed"
+    assert resumed.validation_results[-1]["passed"] is True

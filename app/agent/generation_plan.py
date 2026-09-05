@@ -38,7 +38,7 @@ class GenerationPlan(BaseModel):
     framework: str = ""
     runtime: str = ""
     requested_paths: Tuple[str, ...] = ()
-    files: Tuple[PlanFile, ...] = Field(min_length=1)
+    files: Tuple[PlanFile, ...] = ()
     interfaces: InterfaceRegistry = Field(default_factory=InterfaceRegistry.build)
     dependencies: DependencyManifest = Field(default_factory=DependencyManifest.build)
     digest: str = Field(min_length=64, max_length=64)
@@ -79,7 +79,12 @@ class GenerationPlan(BaseModel):
         dependency_data = architecture.get("dependencies", architecture.get("dependency_manifest", ()))
         interfaces = interface_data if isinstance(interface_data, InterfaceRegistry) else InterfaceRegistry.build(interface_data or ())
         dependencies = dependency_data if isinstance(dependency_data, DependencyManifest) else DependencyManifest.build(dependency_data or ())
-        return cls.build(files, language=str(project.get("language", architecture.get("language", ""))), framework=str(project.get("framework", architecture.get("framework", ""))), runtime=str(project.get("runtime", architecture.get("runtime", ""))), interfaces=interfaces, dependencies=dependencies, **kwargs)
+        strict_paths = architecture.get("strict_file_paths")
+        build_options = dict(kwargs)
+        if strict_paths and "policy" not in build_options:
+            build_options["policy"] = "strict"
+            build_options["requested_paths"] = strict_paths
+        return cls.build(files, language=str(project.get("language", architecture.get("language", ""))), framework=str(project.get("framework", architecture.get("framework", ""))), runtime=str(project.get("runtime", architecture.get("runtime", ""))), interfaces=interfaces, dependencies=dependencies, **build_options)
 
     def file_entries(self) -> Tuple[Mapping[str, object], ...]:
         """Return a compatibility projection with mutable collection fields."""
@@ -141,7 +146,16 @@ def _coerce_file(item: Mapping[str, object] | PlanFile) -> PlanFile:
     contract = item.get("contract", {})
     if not isinstance(contract, Mapping):
         raise ValueError("file contract must be an object")
-    return PlanFile(path=_normalize_path(str(item.get("path", ""))), role=str(item.get("role", item.get("description", ""))), language=str(item.get("language", "")), file_type=str(item.get("file_type", "")), priority=item.get("priority", 3), dependencies=tuple(_normalize_path(str(value)) for value in raw or ()), imports=tuple(str(value) for value in imports or ()), contract=dict(contract))
+    return PlanFile(path=_normalize_path(str(item.get("path", ""))), role=str(item.get("role", item.get("description", ""))), language=str(item.get("language", "")), file_type=str(item.get("file_type", "")), priority=_normalize_priority(item.get("priority", 3)), dependencies=tuple(_normalize_path(str(value)) for value in raw or ()), imports=tuple(str(value) for value in imports or ()), contract=dict(contract))
+
+
+def _normalize_priority(value: object) -> int:
+    """Keep model-supplied scheduling hints inside the supported range."""
+    try:
+        priority = int(value)
+    except (TypeError, ValueError):
+        return 3
+    return min(max(priority, 1), 5)
 
 
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")

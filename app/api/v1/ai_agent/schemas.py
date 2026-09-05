@@ -247,6 +247,16 @@ class OrchestratorRequest(BaseModel):
         description="需要由 Agent Host 执行的本地验证范围",
         max_length=2,
     )
+    allowed_files: List[str] = Field(
+        default_factory=list,
+        description="增量生成允许修改的项目相对路径集合",
+        max_length=100,
+    )
+    change_plan: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="增量生成的显式文件变更计划",
+        max_length=100,
+    )
 
     @field_validator('required_validation_scopes')
     @classmethod
@@ -255,6 +265,13 @@ class OrchestratorRequest(BaseModel):
         if any(scope not in allowed for scope in v):
             raise ValueError("required_validation_scopes 仅支持 local_runtime 和 local_e2e")
         return list(dict.fromkeys(v))
+
+    @field_validator('allowed_files')
+    @classmethod
+    def validate_allowed_files(cls, v):
+        return list(dict.fromkeys(
+            validate_path_safety(path, "allowed_files") for path in v
+        ))
 
     @field_validator('session_id')
     @classmethod

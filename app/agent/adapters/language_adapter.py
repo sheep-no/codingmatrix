@@ -46,6 +46,9 @@ class LanguageAdapter(ABC):
     # 包入口文件名 (Python: __init__.py, JS: index.js)
     package_init_filename: str = "__init__.py"
 
+    # Generic reference extraction is only safe for adapters with compatible syntax.
+    supports_cross_file_symbol_validation: bool = True
+
     @abstractmethod
     def parse_imports(self, content: str, file_path: str = "") -> List[ImportInfo]:
         """
