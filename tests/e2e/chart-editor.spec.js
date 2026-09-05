@@ -30,7 +30,7 @@ async function openEditor(page) {
 }
 
 async function uploadSalesData(page) {
-  await page.locator('input[type="file"]').setInputFiles({
+  await page.locator('input[type="file"]').first().setInputFiles({
     name: 'sales.json',
     mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(salesData))

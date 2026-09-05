@@ -85,7 +85,8 @@
               <div class="data-item-info">
                 <span class="data-name">{{ source.name }}</span>
                 <span class="data-meta">
-                  {{ source.data.length }} 行 · {{ source.fields.length }} 字段
+                  <template v-if="source.needsRelink">需要重新选择文件 · </template>
+                  <template v-else>{{ source.data.length }} 行 · </template>{{ source.fields.length }} 字段
                   <template v-if="source.missingValues"> · {{ source.missingValues }} 处缺失</template>
                 </span>
               </div>
@@ -284,6 +285,18 @@
         </button>
         <button
           class="toolbar-btn"
+          :disabled="dataSources.length === 0"
+          aria-label="导出项目配置"
+          @click="exportProject"
+        >
+          <span>导出项目</span>
+        </button>
+        <button class="toolbar-btn" aria-label="导入项目配置" @click="projectFileInput?.click()">
+          <input ref="projectFileInput" type="file" accept="application/json,.json" style="display: none" @change="handleProjectImport" />
+          <span>导入项目</span>
+        </button>
+        <button
+          class="toolbar-btn"
           :disabled="charts.length === 0"
           aria-label="清空所有图表"
           @click="clearAllCharts"
@@ -332,6 +345,7 @@ echarts.use([
 
 const router = useRouter()
 const fileInput = ref(null)
+const projectFileInput = ref(null)
 const isDarkTheme = ref(false)
 const dataSources = ref([])
 const selectedDataSourceIndex = ref(null)
@@ -353,6 +367,8 @@ const historyIndex = ref(-1)
 const MAX_FILE_SIZE = 2 * 1024 * 1024
 const SUPPORTED_FILE_TYPES = new Set(['xlsx', 'xls', 'csv', 'json'])
 const DRAFT_VERSION = 1
+const DRAFT_TTL_MS = 2 * 24 * 60 * 60 * 1000
+const PROJECT_VERSION = 1
 const getDraftStorageKey = () => {
   try {
     return `chart-editor-draft-v${DRAFT_VERSION}:${localStorage.getItem('username') || 'anonymous'}`
@@ -473,6 +489,62 @@ const handleFileDrop = e => {
   for (const file of e.dataTransfer.files) processFile(file)
 }
 
+const downloadJson = (payload, fileName) => {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+const exportProject = () => {
+  if (dataSources.value.length === 0) return
+  const state = createSerializableState({ includeData: false })
+  downloadJson({
+    type: 'chart-editor-project',
+    version: PROJECT_VERSION,
+    exportedAt: Date.now(),
+    ...state
+  }, 'chart-editor-project.json')
+  ElMessage.success('项目配置已导出')
+}
+
+const handleProjectImport = e => {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onerror = () => ElMessage.error('项目配置读取失败')
+  reader.onload = event => {
+    try {
+      const project = JSON.parse(event.target.result)
+      if (
+        project.type !== 'chart-editor-project' ||
+        project.version !== PROJECT_VERSION ||
+        !Array.isArray(project.dataSources) ||
+        !Array.isArray(project.charts)
+      ) {
+        throw new Error('项目配置格式不兼容')
+      }
+
+      flushPendingHistory()
+      applySerializableState({
+        ...project,
+        dataSources: project.dataSources.map(source => ({ ...source, data: [], needsRelink: true }))
+      })
+      resetHistory()
+      saveDraft()
+      ElMessage.success('项目配置已导入，请重新选择原始数据文件')
+    } catch (error) {
+      ElMessage.error(error instanceof SyntaxError ? '项目配置 JSON 解析失败' : error.message)
+    }
+  }
+  reader.readAsText(file)
+}
+
 const processFile = async file => {
   const ext = file.name.split('.').pop().toLowerCase()
   if (!SUPPORTED_FILE_TYPES.has(ext)) {
@@ -525,8 +597,35 @@ const addDataSource = (name, data) => {
     0
   )
 
+  const pendingIndex = dataSources.value.findIndex(source => source.needsRelink && source.name === name)
+  if (pendingIndex >= 0) {
+    const pendingSource = dataSources.value[pendingIndex]
+    if (JSON.stringify(pendingSource.fields) !== JSON.stringify(fields)) {
+      ElMessage.warning(`${name} 的字段头已变化，请选择原始文件`)
+      return
+    }
+    flushPendingHistory()
+    dataSources.value[pendingIndex] = {
+      ...pendingSource,
+      data,
+      fields,
+      missingValues,
+      needsRelink: false
+    }
+    charts.value.forEach(chart => {
+      if (chart.dataSourceId === pendingSource.id) {
+        chart.sourceData = data
+      }
+    })
+    selectedDataSourceIndex.value = pendingIndex
+    if (selectedChartIndex.value === null) selectDataSource(pendingIndex)
+    else updateChart()
+    ElMessage.success(`已重新关联 ${name}（${data.length} 行，${fields.length} 字段）`)
+    return
+  }
+
   flushPendingHistory()
-  dataSources.value.push({ id: ++dataSourceIdCounter, name, data, fields, missingValues })
+  dataSources.value.push({ id: ++dataSourceIdCounter, name, data, fields, missingValues, needsRelink: false })
   if (selectedDataSourceIndex.value === null) {
     selectedDataSourceIndex.value = dataSources.value.length - 1
     selectDataSource(selectedDataSourceIndex.value)
@@ -820,9 +919,15 @@ const toggleTheme = () => {
   nextTick(() => charts.value.forEach((_, index) => renderChart(index)))
 }
 
-const createSerializableState = () => ({
+const createSerializableState = ({ includeData = true } = {}) => ({
   version: DRAFT_VERSION,
-  dataSources: dataSources.value,
+  savedAt: Date.now(),
+  expiresAt: Date.now() + DRAFT_TTL_MS,
+  dataSources: dataSources.value.map(source => ({
+    ...source,
+    data: includeData ? source.data : [],
+    needsRelink: includeData ? Boolean(source.needsRelink) : true
+  })),
   charts: charts.value.map(chart => ({ ...chart, sourceData: undefined })),
   selectedDataSourceIndex: selectedDataSourceIndex.value,
   selectedChartIndex: selectedChartIndex.value,
@@ -855,7 +960,7 @@ const applySerializableState = state => {
 
 const saveDraft = () => {
   try {
-    localStorage.setItem(draftStorageKey, JSON.stringify(createSerializableState()))
+    localStorage.setItem(draftStorageKey, JSON.stringify(createSerializableState({ includeData: false })))
   } catch {
     if (!draftStorageWarningShown) {
       draftStorageWarningShown = true
@@ -928,8 +1033,18 @@ const restoreDraft = () => {
     if (!stored) return
     const draft = JSON.parse(stored)
     if (draft.version !== DRAFT_VERSION || !Array.isArray(draft.dataSources) || !Array.isArray(draft.charts)) return
+    if (!Number.isFinite(draft.expiresAt) || draft.expiresAt <= Date.now()) {
+      localStorage.removeItem(draftStorageKey)
+      return
+    }
 
-    applySerializableState(draft)
+    applySerializableState({
+      ...draft,
+      dataSources: draft.dataSources.map(source => ({ ...source, data: [], needsRelink: true }))
+    })
+    if (draft.dataSources.length > 0) {
+      ElMessage.warning('图表配置已恢复，请重新选择原始数据文件')
+    }
   } catch {
     ElMessage.warning('本地草稿读取失败，新修改仍可正常保存')
   }

@@ -257,13 +257,98 @@ describe('ChartEditorPage', () => {
     await addChart(firstWrapper)
     firstWrapper.unmount()
 
+    const storedDraft = JSON.parse(localStorage.getItem('chart-editor-draft-v1:anonymous'))
+    expect(storedDraft.dataSources[0].data).toEqual([])
+    expect(storedDraft.dataSources[0].needsRelink).toBe(true)
+
     const restoredWrapper = mount(ChartEditorPage)
     await flushPromises()
 
     expect(restoredWrapper.findAll('.data-item')).toHaveLength(1)
     expect(restoredWrapper.findAll('.chart-preview-item')).toHaveLength(1)
     expect(restoredWrapper.get('.data-name').text()).toBe('sales.json')
+    expect(restoredWrapper.get('.data-meta').text()).toContain('需要重新选择文件')
     expect(mocks.instances.at(-1).setOption).toHaveBeenCalled()
+
+    await uploadJson(restoredWrapper, 'sales.json', [{ month: 'Jan', sales: 10 }])
+    await vi.waitFor(() => expect(restoredWrapper.get('.data-meta').text()).not.toContain('需要重新选择文件'))
+    expect(restoredWrapper.get('.data-meta').text()).toContain('1 行')
+  })
+
+  it('ignores drafts after the two-day expiration window', async () => {
+    const expiredDraftKey = 'chart-editor-draft-v1:anonymous'
+    localStorage.setItem(expiredDraftKey, JSON.stringify({
+      version: 1,
+      savedAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
+      expiresAt: Date.now() - 1,
+      dataSources: [{ id: 1, name: 'expired.json', data: [{ label: 'A', value: 1 }], fields: ['label', 'value'] }],
+      charts: [],
+      selectedDataSourceIndex: 0,
+      selectedChartIndex: null,
+      config: {},
+      isDarkTheme: false
+    }))
+
+    const wrapper = mount(ChartEditorPage)
+    await flushPromises()
+
+    expect(wrapper.findAll('.data-item')).toHaveLength(0)
+    expect(localStorage.getItem(expiredDraftKey)).toBeNull()
+  })
+
+  it('exports and imports project configuration without row data', async () => {
+    const wrapper = mount(ChartEditorPage)
+    await uploadJson(wrapper, 'sales.json', [{ month: 'Jan', sales: 10 }])
+    await addChart(wrapper)
+
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test')
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    await wrapper.get('[aria-label="导出项目配置"]').trigger('click')
+
+    const exportedPayload = JSON.parse(createObjectURL.mock.calls[0][0].size ? await createObjectURL.mock.calls[0][0].text() : '{}')
+    expect(exportedPayload.type).toBe('chart-editor-project')
+    expect(exportedPayload.dataSources[0].data).toEqual([])
+    expect(exportedPayload.charts[0].xAxis).toBe('month')
+    expect(click).toHaveBeenCalled()
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:test')
+
+    createObjectURL.mockRestore()
+    revokeObjectURL.mockRestore()
+    click.mockRestore()
+  })
+
+  it('restores chart configuration from an imported project file', async () => {
+    const wrapper = mount(ChartEditorPage)
+    const project = {
+      type: 'chart-editor-project',
+      version: 1,
+      exportedAt: Date.now(),
+      dataSources: [{ id: 4, name: 'imported.json', fields: ['month', 'sales'], data: [] }],
+      charts: [{
+        id: 8,
+        dataSourceId: 4,
+        dataSourceName: 'imported.json',
+        fields: ['month', 'sales'],
+        chartType: 'line',
+        title: '导入的图表',
+        xAxis: 'month',
+        yAxis: 'sales',
+        color: '#22c55e',
+        showLegend: true,
+        showLabel: false,
+        smooth: true,
+        aggregate: 'sum'
+      }]
+    }
+    const input = wrapper.get('[aria-label="导入项目配置"] input')
+    const file = new File([JSON.stringify(project)], 'chart-editor-project.json', { type: 'application/json' })
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [file] })
+    await input.trigger('change')
+    await vi.waitFor(() => expect(wrapper.findAll('.data-item')).toHaveLength(1))
+
+    expect(wrapper.get('.data-meta').text()).toContain('需要重新选择文件')
+    expect(wrapper.get('.chart-preview-title').text()).toBe('导入的图表')
   })
 
   it('rejects files larger than the import limit', async () => {
