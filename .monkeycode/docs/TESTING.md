@@ -31,6 +31,10 @@ npm --prefix src run build
 # 根目录 Playwright E2E
 npm run test:e2e
 
+# 游戏 AI PPT 真实生成 E2E
+cd /workspace
+npx --no-install playwright test tests/e2e/test_ppt_game_ai.e2e.spec.js --config=playwright.config.js --project=chromium
+
 # VS Code 扩展测试
 npm --prefix vscode-extension test
 
@@ -47,6 +51,7 @@ npm --prefix vscode-extension run e2e
 - Playwright 默认使用 `http://127.0.0.1:3000`，浏览器项目为 Chromium。
 - CI Playwright 使用单 worker，并在失败时重试 2 次。
 - 浏览器测试需要先启动前端，涉及真实 API 的用例还需要后端、Redis、数据库和测试账号。
+- `tests/e2e/test_ppt_game_ai.e2e.spec.js` 在浏览器上下文中动态注册一次性用户，调用真实 `/api/v1/pptx/generate`，验证领域化回退内容和 PPTX 下载；该用例使用根目录 `playwright.config.js` 与 Chromium 项目。
 
 ## Agent 重点回归
 
@@ -68,12 +73,14 @@ Agent Host 和本地验证修改后运行 `npm --prefix vscode-extension test`�
 - 进程内 ASGI 测试不能证明真实端口、Nginx、worker 和 broker 链路。
 - `verify-integration.sh` 主要提供静态、语法和配置级证据。
 - 真实 PPT Celery、VS Code Extension Host、供应商调用和多 worker 行为需要单独验收。
+- 游戏 AI PPT 用例验证了 16 页最终文件、15 个内容页、`NPC`/`UGC` 领域语义和 200 下载响应；模型凭据不可用时，日志应显示领域化大纲回退或跳过视觉分析，本地布局继续完成生成。
 - 修改后至少执行 `git diff --check`、相关测试和生产构建。
 
-## 最近结果（2026-09-02）
+## 最近结果（2026-09-05）
 
 - VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `62 passed`。
 - VS Code Extension Development Host：E2E 通过，已验证扩展激活、Agent Workbench 打开、兼容性握手和工作区能力。
 - 前端相关回归：`23 passed`，生产构建成功。
 - PPT 专项回归：`141 passed`；真实 HTTP/WebSocket 验收覆盖 HTML 生成、PPTX 下载、进度事件和格式错误隔离。
 - 原始 `npm --prefix vscode-extension run e2e` 在当前无头环境会受到 `xauth` 缺失影响；使用已启动的 `Xvfb` 直接运行 E2E 入口后完成验收。
+- 游戏 AI PPT 真实生成 E2E 当前结果为 `1 passed`；运行时曾发现根目录与 `src/node_modules` 的 Playwright 依赖冲突，固定使用根目录 CLI、配置和 Chromium 项目后通过。

@@ -37,6 +37,8 @@ PYTHONPATH=/workspace REDIS_URL=redis://127.0.0.1:6379/0 celery -A app.celery_ap
 
 配置 `PPT_USE_CELERY=true` 后，PPT 异步生成入口提交到 `ppt` 队列。
 
+PPT 同步真实生成 E2E 需要前端监听 `3000`、后端监听 `8000`，并准备 Redis、数据库和可用的临时注册接口。测试会在浏览器上下文中获取 CSRF token、注册一次性用户，调用 `/api/v1/pptx/generate` 并下载返回的 PPTX；测试使用内置占位密码，不读取项目密钥。
+
 统一状态保留任务每天执行一次：默认资源在 7 天后进入归档窗口，归档后 30 天进入外部 artifact 清理窗口。活动任务、有效会话和恢复中的任务会阻止处理；外部存储清理失败会保留 `retryable` 记录并等待下次调度重试。
 
 读切换前调用 `build_reconciliation_report` 检查六类统一资源覆盖和开放差异，再使用 `ReadCutoverController.enable` 按模块顺序推进；发现一致性或权限异常时调用 `rollback` 恢复该模块的 legacy 读源。
@@ -90,6 +92,7 @@ npm --prefix vscode-extension run e2e
 - VS Code Extension Development Host E2E 成功，覆盖扩展发现、激活、兼容性校验、Agent Workbench 命令和工作区加载。
 - 已生成 VSIX：`vscode-extension/codingmatrix-local-validation-0.1.0.vsix`。
 - 真实 Agent/PPT 验收已覆盖 HTML 产物生成、PPTX HTTP 下载、WebSocket 进度事件和错误格式请求返回 404。
+- 游戏 AI PPT 真实生成 E2E：`1 passed`；请求 `slide_count=16` 返回 15 个内容页并下载生成的 16 页 PPTX，内容断言覆盖 `NPC`、`UGC` 和 AI 游戏领域语义。
 - PPT 三步 mock E2E 当前为 `1 passed`；前端 Vitest 当前为 `15 files passed, 48 tests passed`。
 - 种子账户认证版 PPT 页面 E2E 当前为 `6 passed`；认证 fixture 在已完成登录后允许 CSRF 辅助初始化遇到 `429`，避免重复测试触发限流影响只读页面验收。
 
@@ -117,6 +120,16 @@ NODE_OPTIONS=--max-old-space-size=1800 npm run build
 根目录的 `npm run test:e2e` 用于 Playwright；前端 `dev`、`build`、`lint` 和 Vitest 命令均位于 `src/package.json`。
 
 PPT 三步流程的供应商无关 E2E 位于 `tests/e2e/ppt-generation-mock.spec.js`，使用 mock HTTP/WebSocket 覆盖大纲草稿、批准、生成进度、质量报告和 PPTX 下载；认证版 PPT E2E 需要设置 `TEST_ADMIN_PASSWORD`。
+
+游戏 AI 真实生成 E2E 位于 `tests/e2e/test_ppt_game_ai.e2e.spec.js`。根目录 Playwright 配置必须与根目录依赖一起使用，避免根目录和 `src/node_modules` 的 Playwright 重复加载：
+
+```bash
+# 运行游戏 AI PPT 真实生成 E2E
+cd /workspace
+npx --no-install playwright test tests/e2e/test_ppt_game_ai.e2e.spec.js --config=playwright.config.js --project=chromium
+```
+
+该用例可能因供应商模型不可用进入领域化大纲回退，但 PPTX 内容和下载链路仍应完成；视觉分析在请求没有用户 `api_key_token` 时会被跳过并使用本地布局。
 
 历史云端验证记录为：排除 Redis、数据库和 FAISS 外部条件的单元测试 1605 passed、2 skipped。当前本地环境已安装 FAISS 并启动 Redis，后端 unit/integration 完整回归结果为 `1784 passed, 2 skipped`；该结果覆盖单元测试与本地基础依赖，生产入口和本地插件验证闭环仍需独立验收。
 

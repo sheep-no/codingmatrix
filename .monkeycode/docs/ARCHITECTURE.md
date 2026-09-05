@@ -86,6 +86,10 @@ PPT 模板管理器通过 `recommend_for_scenario()` 返回场景置信度、命
 
 `run_quality_pipeline()` 先执行确定性规则质检和最多两轮自动重排，再按 `quality_mode` 选择视觉复审。精修服务异常时质量报告保存降级问题，产物仍可继续交付。
 
+主题化商业回退位于 `app.utils.pptx.commercial_content`。当主题同时包含游戏语义和 AI 语义时，`build_expanded_commercial_page_blueprint()` 选择游戏行业专属 15 页叙事，覆盖 AI 原生玩法、NPC、程序化内容、研发管线、UGC、实时运营、治理和路线图；其他主题继续使用通用商业回退序列。大纲模型调用失败时保留该领域化序列，避免错误回退到与主题无关的 SaaS 话术。
+
+增强渲染路径在 `req.api_key_token` 存在时调用视觉分析器；缺少用户模型凭据时跳过视觉分析并使用本地布局决策。有凭据但视觉分析失败时记录降级警告，继续完成 PPTX 生成。视觉分析属于增强能力，内容大纲和本地布局具备独立可交付路径。
+
 `PPTGenerationOrchestrator` 提供可恢复的异步阶段契约，按 `planning -> assets -> rendering -> rule_qa -> reflow -> vision_qa -> completed` 发出结构化进度事件，并在阶段边界执行取消检查。显式 `quality_mode=standard` 会跳过 `vision_qa`，`refined` 会保留完整视觉复审阶段；两种模式均支持从指定阶段恢复。Celery PPT 任务已通过阶段处理器接入该编排器；发生自动重排时，`reflow` 阶段会重新渲染最终产物。
 
 增强 PPTX 路径为每个内容页归一化语义类型，映射到兼容的 `LayoutType`，并为整次生成解析一次不可变 `DesignTokens`。共享 `apply_design_tokens()` 生成任务级样式快照，将颜色、字体和背景令牌同时应用到系统封面、旧版主题构图和 `LayoutDecider` 页面。规范模板 ID `business_report`、`pitch_deck` 分别映射到 `business`、`creative` 构图；`modern`、`medical` 和 `elegant` 具有独立令牌预设。最终 PPTX 渲染优先消费结构化 `content_blocks`，旧 `content` 和 `bullets` 继续经过归一层兼容。`business`、`creative`、`modern`、`minimal`、`tech`、`academic`、`education`、`medical` 和 `elegant` 分别实现独立封面、几何构图、信息层级和视觉动线；五类叙事角色直接选择各主题的专属页面结构。`academic` 使用研究问题、证据注释、假设对照、研究协议和来源脚注表达研究简报语境；`education` 使用学习目标、课堂证据、练习卡、课程路径和课后行动表达教学工作坊语境；`medical` 使用临床信号、证据评估、方案取舍、照护路径和行动结论表达临床简报语境；`elegant` 使用主信号、证据注释、路径取舍、纵向里程碑和董事会决议表达高端备忘录语境。
