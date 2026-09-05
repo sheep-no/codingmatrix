@@ -79,6 +79,21 @@ npm --prefix vscode-extension test
 npm --prefix vscode-extension run e2e
 ```
 
+### 图表编辑器验证
+
+```bash
+# 运行图表编辑器单元测试
+npm --prefix src run test:run -- views/ChartEditorPage.test.js
+
+# 运行图表编辑器桌面和移动端 E2E
+./node_modules/.bin/playwright test tests/e2e/chart-editor.spec.js --reporter=line --timeout=60000
+
+# 构建前端生产资源
+npm --prefix src run build
+```
+
+图表编辑器的单元测试覆盖数据导入、字段识别、聚合、图表编辑、撤销重做、草稿两天过期、项目 JSON 导入导出和文件重新关联。E2E 覆盖桌面端导入与恢复流程、PNG 导出、移动端操作和横向溢出检查。项目配置草稿使用 `localStorage` 保存元数据，浏览器清理站点数据后应通过项目 JSON 或原始数据文件恢复。
+
 ## 最近验收结果（2026-09-05）
 
 - PPT 专项回归：`225 passed`；共享持久化新增测试覆盖 Artifact 父子关联、内容 hash、质量诊断、Checkpoint、归属隔离和重试幂等，Celery Markdown 生产链路通过隔离数据库验收。
@@ -96,6 +111,8 @@ npm --prefix vscode-extension run e2e
 - PPT 三步 mock E2E 当前为 `1 passed`；前端 Vitest 当前为 `15 files passed, 48 tests passed`。
 - 种子账户认证版 PPT 页面 E2E 当前为 `6 passed`；认证 fixture 在已完成登录后允许 CSRF 辅助初始化遇到 `429`，避免重复测试触发限流影响只读页面验收。
 
+
+- 图表编辑器专项验收：前端单元测试 `19 passed`；桌面和移动端 Playwright `2 passed`；元数据草稿、两天过期、项目 JSON 导入导出和同名文件重新关联通过；Vite 生产构建通过。
 VS Code 扩展打包仍会提示缺少 `repository`、`LICENSE` 和 `.vscodeignore` 元数据。这些提示不影响当前构建与测试，正式发布前应补齐。
 
 ## 前端开发

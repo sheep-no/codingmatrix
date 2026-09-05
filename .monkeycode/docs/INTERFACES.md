@@ -79,6 +79,17 @@ PDF 生成采用临时 PPTX 转换链路，调用 `libreoffice --headless --conv
 
 PPT 生成支持 `pptx`、`html` 和 `markdown` 格式的严格产物分流。下载或预览请求的格式必须对应实际产物；API 与 Celery 使用共享 `ppt-artifacts` 产物卷时可以跨容器读取同一文件。HTML 标题和内容经过服务端转义，上传链路采用分块写盘。
 
+## 图表编辑器本地契约
+
+图表编辑器当前使用浏览器本地状态，不新增后端 API：
+
+- 数据文件支持 `xlsx`、`xls`、`csv` 和 `json`，单文件大小上限为 2 MB。
+- 自动草稿 key 为 `chart-editor-draft-v1:{username}`；草稿保存数据源 `id`、文件名、字段头、缺失值统计、图表配置和选择状态，并带有 `savedAt`、`expiresAt`。原始行数据只保留在当前页面会话内。
+- 项目导出文件类型为 `chart-editor-project`，当前 `version` 为 `1`，文件名为 `chart-editor-project.json`；配置包含数据源元数据和图表配置，导入后数据源的 `data` 为空并标记为 `needsRelink`。
+- 文件重新关联按数据源文件名和字段头匹配；匹配成功后重新解析原始文件并恢复关联图表，字段头变化时保留配置并提示重新选择原始文件。
+
+该契约支持浏览器间迁移图表配置，文件内容需要由用户在目标浏览器重新选择。`localStorage` 草稿过期后由页面加载流程清理，当前会话中的撤销和重做历史使用内存快照维护。
+
 同步生成接口 `POST /api/v1/pptx/generate` 适用于需要即时结果的场景。请求体使用 `prompt`、`template`、`slide_count` 和 `output_format` 等字段；认证依赖 access token，接口生成任务级 PPTX 并返回 `download_url`、`preview_url` 和可编辑内容页 `slides`。响应中的 `slide_count` 与 `slides` 长度表示内容页数量，系统封面由渲染器额外生成，因此请求 `slide_count=16` 时响应包含 15 个内容页并输出 16 页 PPTX。
 
 同步生成的大纲优先使用模型结果。模型调用失败时，游戏 AI 主题选择 `app.utils.pptx.commercial_content.build_game_ai_page_blueprint()` 作为领域化回退；其他主题使用通用商业回退。请求未提供 `api_key_token` 时跳过视觉分析并使用本地布局，视觉分析异常也会保留内容和本地布局结果。生成成功后通过同一用户归属校验下载文件。

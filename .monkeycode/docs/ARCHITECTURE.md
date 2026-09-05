@@ -51,6 +51,8 @@ flowchart LR
 
 Web 前端通过 Vue Router 组织页面，通过 Pinia 保存认证、Agent 会话、生成文件和模型上下文。Agent Dashboard 将会话、生成、文件、工作区、流式处理和后端管理拆分到 composables。桌面端使用三栏布局；手机端使用单列工作区和两侧抽屉，相关样式集中在 `src/styles/agent-layout.css`。PPT Web 流程按输入、大纲审阅和质量模式选择三步推进；大纲编辑器维护页面位置并在标题、核心结论或内容缺失时阻止批准，预览页消费质量报告展示整体分、逐页分、问题类型、修复动作和人工复核页。前端通过同源 `/api` 前缀访问后端，开发环境由 Vite proxy 处理跨服务转发。
 
+图表编辑器位于 `src/views/ChartEditorPage.vue`，属于浏览器端独立编辑流程。SheetJS 在当前会话解析 XLSX、XLS、CSV 和 JSON，ECharts 负责图表实例和 PNG 导出；图表配置、数据源字段元数据和选择状态通过 `localStorage` 的用户作用域草稿恢复。草稿按 `savedAt`/`expiresAt` 实现两天滑动有效期，只保存可重新关联文件所需的元数据，不保存原始行数据；项目 JSON 导入导出复用同一可序列化状态模型，导入后将数据源置为待重新关联状态。
+
 VS Code 工作台由 `vscode-extension/src/agent-workbench.ts` 提供原生 Webview，由 `extension.ts` 创建 Agent Host 运行时。工作台支持需求输入、流式事件展示、暂停、恢复、取消、动作批准和拒绝；Host 通过 `CloudConnection` 与 `/api/v1/agent/host/*` 交互，并通过 `/api/v1/agent/orchestrate/stream` 发起 Agent 流式请求。VS Code 工作台当前采用轻量面板形态，Web 端的完整历史会话、模型选择、文件版本历史、性能和学习面板仍保留在 Web 工作台。
 
 ## StateGraph 边界

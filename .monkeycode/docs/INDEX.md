@@ -7,9 +7,11 @@
 - PPT 生成链路已完成共享产物卷、格式严格分流、HTML 输出转义、分块上传，以及五类叙事角色和九套独立主题构图；页数统一表示包含系统封面的最终总页数，初始大纲生成 `N-1` 个内容页，渲染边界归一重复封面并限制内容页预算；版本化设计令牌已覆盖实际 PPTX 颜色、字体和背景样式；Web 三步流程支持大纲新增、删除、重排、编辑、预计总页数和批准校验，预览页展示逐页质量分、问题和修复动作；游戏 AI 主题拥有领域化回退大纲，模型凭据缺失时跳过视觉分析并继续本地布局；后端单元测试为 `1947 passed, 2 skipped`，PPT 单元回归为 `236 passed`，前端全量测试为 `51 passed`。
 - GirlAI 伙伴回合已接入标准化情绪与工作意图分类、低置信度中性策略、关怀工作选项和统一 `session_events` 恢复；回合预留使用 `turn_id` 幂等约束、90 秒租约和 attempt fencing，支持完成回放、并发冲突和中断后的过期接管。
 - 当前 Web 工作台的完整会话历史、模型选择、文件版本、性能面板等 UI 尚未完整迁移到 VS Code 原生 Webview。
+- 图表编辑器已支持 XLSX、XLS、CSV、JSON 导入，六类基础图表、字段聚合、PNG 导出、撤销重做和移动端操作；草稿使用用户作用域 `localStorage` 保存元数据并在两天后过期，项目 JSON 支持配置迁移，恢复后通过重新选择同名且字段一致的文件关联数据。
 
 - [架构文档](ARCHITECTURE.md)：FastAPI、Vue、StateGraph、统一状态和部署拓扑。
 - [接口文档](INTERFACES.md)：认证、Agent、任务、Agent Host、State 和验证契约。
+- `FRONTEND.md` 的“图表编辑器”章节：数据导入、浏览器缓存、项目 JSON 迁移和文件重新关联流程。
 - [前端架构](FRONTEND.md)：Vue 路由、Pinia 状态、Agent 页面和 Vite 代理。
 - [测试指南](TESTING.md)：Python、Vitest、Playwright 和 VS Code 扩展测试。
 - [开发者指南](DEVELOPER_GUIDE.md)：环境初始化、启动、构建、迁移和排障流程。
