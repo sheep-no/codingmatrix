@@ -17,6 +17,25 @@ def test_local_result_requires_supported_scope_and_identity() -> None:
         local_result_to_delta(state, {"scope": "cloud_syntax", "passed": True})
 
 
+def test_local_result_preserves_unsupported_contract_diagnostic() -> None:
+    state = State("s1", "t1", revision=2, metadata={"required_validation_scopes": ["local_runtime"]})
+
+    delta = local_result_to_delta(
+        state,
+        {
+            "task_id": "t1",
+            "revision": 2,
+            "scope": "local_runtime",
+            "status": "unsupported",
+            "reason": "validation command is unavailable",
+        },
+    )
+
+    assert delta.status == "unsupported"
+    assert delta.validation_results[0]["unsupported"] is True
+    assert delta.validation_results[0]["reason"] == "validation command is unavailable"
+
+
 def test_local_result_keeps_state_waiting_until_all_required_scopes_pass() -> None:
     state = State(
         "s1",

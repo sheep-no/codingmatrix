@@ -139,6 +139,27 @@ class TopologyScheduler:
         self.stats.total_files = len(self.nodes)
         logger.info(f"TopologyScheduler 构建完成: {self.stats.total_files} 个文件节点")
 
+    def build_from_generation_plan(self, plan: Any) -> None:
+        """Build scheduling state directly from a frozen project plan."""
+        self.nodes.clear()
+        self.adjacency.clear()
+        self.reverse_adjacency.clear()
+        planned_paths = {item.path for item in plan.files}
+        for item in plan.files:
+            dependencies = set(item.dependencies)
+            if not dependencies.issubset(planned_paths):
+                raise ValueError(f"plan dependency is outside the frozen node set: {item.path}")
+            self.nodes[item.path] = ScheduleNode(
+                file_path=item.path,
+                dependency_count=len(dependencies),
+                status=FileStatus.PENDING,
+            )
+            self.adjacency[item.path] = dependencies
+            for dependency in dependencies:
+                self.reverse_adjacency.setdefault(dependency, set()).add(item.path)
+        self.stats.total_files = len(self.nodes)
+        logger.info("TopologyScheduler 从冻结 GenerationPlan 构建完成: %s 个文件节点", self.stats.total_files)
+
     async def initialize_ready_queue(self) -> List[str]:
         """初始化就绪队列，返回初始就绪文件列表"""
         ready_files = []
@@ -261,6 +282,14 @@ class TopologyScheduler:
                 for task in self._running_tasks:
                     task.cancel()
                 await asyncio.gather(*self._running_tasks, return_exceptions=True)
+
+            # 取消后统一收敛节点状态，防止工作流留下 GENERATING/PENDING 节点并持续等待。
+            async with self._lock:
+                for node in self.nodes.values():
+                    if node.status in (FileStatus.PENDING, FileStatus.READY, FileStatus.GENERATING):
+                        node.status = FileStatus.FAILED
+                        node.error = node.error or "调度器在任务完成前停止"
+                        self.stats.failed_files += 1
         finally:
             if cancel_watcher and not cancel_watcher.done():
                 cancel_watcher.cancel()
@@ -274,11 +303,15 @@ class TopologyScheduler:
 
         failed_files = [
             path for path, node in self.nodes.items()
-            if node.status == FileStatus.FAILED
+            if node.status in (FileStatus.FAILED, FileStatus.BLOCKED)
         ]
+        terminal = all(
+            node.status in (FileStatus.COMPLETED, FileStatus.FAILED, FileStatus.BLOCKED)
+            for node in self.nodes.values()
+        )
 
         return {
-            "success": len(failed_files) == 0,
+            "success": terminal and len(failed_files) == 0,
             "generated_files": self.completed_files,
             "failed_files": failed_files,
             "stats": self.stats
@@ -302,10 +335,13 @@ class TopologyScheduler:
                 if progress_callback:
                     progress_callback("start", file_path, self.stats.completed_files, self.stats.total_files)
 
-                content = await self._run_with_heartbeat(
-                    generator(file_path, upstream_context, tracker),
-                    file_path,
-                    tracker
+                content = await asyncio.wait_for(
+                    self._run_with_heartbeat(
+                        generator(file_path, upstream_context, tracker),
+                        file_path,
+                        tracker
+                    ),
+                    timeout=self.timeout_per_file,
                 )
 
                 async with self._lock:
@@ -368,27 +404,31 @@ class TopologyScheduler:
         task = asyncio.create_task(coro)
         check_interval = 10.0  # 每 10 秒检查一次
 
-        while not task.done():
-            try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=check_interval)
-                # 任务完成，返回结果
-                return task.result()
-            except asyncio.TimeoutError:
-                # shield 超时，但任务还在运行
-                if not tracker.is_alive():
-                    # 心跳超时，取消任务
-                    task.cancel()
-                    try:
-                        await task
-                    except (asyncio.CancelledError, Exception):
-                        pass
-                    raise asyncio.TimeoutError(
-                        f"心跳超时: {self.heartbeat_timeout}s 内无 LLM 调用活动"
-                    )
-                # else: 继续等待
+        try:
+            while not task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=check_interval)
+                    # 任务完成，返回结果
+                    return task.result()
+                except asyncio.TimeoutError:
+                    # shield 超时，但任务还在运行
+                    if not tracker.is_alive():
+                        # 心跳超时，取消任务
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+                        raise asyncio.TimeoutError(
+                            f"心跳超时: {self.heartbeat_timeout}s 内无 LLM 调用活动"
+                        )
+                    # else: 继续等待
 
-        # 任务已完成（可能被取消或异常）
-        return task.result()
+            # 任务已完成（可能被取消或异常）
+            return task.result()
+        except asyncio.CancelledError:
+            # 外层单文件超时或调度器停止时，回收内部生成任务。
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise
 
     async def _trigger_downstream(self, completed_file: str) -> None:
         """触发下游文件就绪检查"""

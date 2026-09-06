@@ -17,9 +17,10 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
-from app.agent.dependency_graph import DependencyGraph
+from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
+from app.agent.generation_plan import GenerationPlan, add_profile_components
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +126,34 @@ class IncrementalModifyMixin:
             "output_dir": str(self.output_dir),
             "is_incremental": True,
         }
+        from app.agent.profile_discovery import profile_context
+        project_context["profile"] = profile_context(self.output_dir)
+        from app.agent.toolchain import detect_toolchain
+        from app.agent.validation_coordinator import ValidationCoordinator
+        validation_plan = ValidationCoordinator().build_plan(
+            project_context["profile"], detect_toolchain(self.output_dir)
+        )
+        project_context["validation_plan"] = {
+            "commands": [command.model_dump(mode="json") for command in validation_plan.commands],
+            "unsupported_steps": list(validation_plan.unsupported_steps),
+        }
+        incremental_plan = add_profile_components(
+            [change for change in change_plan if change.get("action") != "delete"],
+            project_context["profile"],
+            policy="extensible",
+        )
+        planned_paths = {change.get("path") for change in change_plan}
+        for item in incremental_plan.files:
+            if item.path not in planned_paths and item.path not in dep_graph.nodes:
+                change_plan.append({
+                    "action": "add",
+                    "path": item.path,
+                    "description": item.role,
+                    "file_type": item.file_type,
+                    "priority": item.priority,
+                    "depends_on": list(item.dependencies),
+                })
+        project_context["generation_plan"] = incremental_plan.model_dump(mode="json")
 
         generated_contents = {}
         files_generated = 0
@@ -238,6 +267,23 @@ class IncrementalModifyMixin:
                 "original_content": fi.get("original_content", ""),
                 "reason": fi.get("reason", ""),
             })
+
+        incremental_project_plan = GenerationPlan.build(
+            file_plan,
+            language=detected_language,
+            requested_paths=[item["path"] for item in file_plan],
+            policy="strict",
+        )
+        project_context["generation_plan"] = incremental_project_plan.model_dump(mode="json")
+        from app.agent.context_assembler import ContextAssembler
+        project_context["context_envelope"] = ContextAssembler().assemble(
+            task_id=getattr(self, "session_id", None) or "legacy-incremental",
+            stage="planning",
+            items=[
+                {"source": "requirement", "source_id": "request", "content": requirement, "priority": 100},
+                {"source": "generation_plan", "source_id": "generation_plan", "content": str(project_context["generation_plan"]), "priority": 95},
+            ],
+        ).model_dump(mode="json")
 
         # 使用动态拓扑调度生成
         from app.agent.spec_first_generator import SpecFirstGenerator
@@ -624,7 +670,7 @@ class IncrementalModifyMixin:
             cost_tracker=cost_tracker, cancel_event=self.cancel_event
         )
         self.backend_engineer = BackendEngineer(
-            "后端工程师", _get_model("backend_model", DEFAULT_REASONING_MODEL),
+            "后端工程师", _get_model("backend_model", DEFAULT_CODE_MODEL),
             task_type="generate", api_key_token=self.api_key_token,
             provider_id=self.provider_id, semaphore=semaphore,
             cost_tracker=cost_tracker, cancel_event=self.cancel_event
@@ -752,6 +798,13 @@ class IncrementalModifyMixin:
                         generated_contents,
                         model_context_length=self._get_context_length(model_name),
                         project_spec=project_context.get("architecture", {}).get("project_spec"),
+                    )
+                    logger.info(
+                        "依赖上下文审计: target=%s model=%s generated_count=%d dep=%s",
+                        file_path,
+                        model_name,
+                        len(generated_contents),
+                        summarize_dependency_context(dep_context),
                     )
 
                     # 生成文件
@@ -963,6 +1016,13 @@ class IncrementalModifyMixin:
             upstream_context,
             model_context_length=self._get_context_length(model_name),
             project_spec=project_context.get("architecture", {}).get("project_spec"),
+        )
+        logger.info(
+            "依赖上下文审计: target=%s model=%s upstream_count=%d dep=%s",
+            file_path,
+            model_name,
+            len(upstream_context),
+            summarize_dependency_context(dep_context),
         )
 
         # 根据 action 决定生成策略

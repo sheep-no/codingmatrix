@@ -54,6 +54,32 @@ Web 前端通过 Vue Router 组织页面，通过 Pinia 保存认证、Agent 会
 图表编辑器位于 `src/views/ChartEditorPage.vue`，属于浏览器端独立编辑流程。SheetJS 在当前会话解析 XLSX、XLS、CSV 和 JSON，ECharts 负责图表实例和 PNG 导出；图表配置、数据源字段元数据和选择状态通过 `localStorage` 的用户作用域草稿恢复。草稿按 `savedAt`/`expiresAt` 实现两天滑动有效期，只保存可重新关联文件所需的元数据，不保存原始行数据；项目 JSON 导入导出复用同一可序列化状态模型，导入后将数据源置为待重新关联状态。
 
 VS Code 工作台由 `vscode-extension/src/agent-workbench.ts` 提供原生 Webview，由 `extension.ts` 创建 Agent Host 运行时。工作台支持需求输入、流式事件展示、暂停、恢复、取消、动作批准和拒绝；Host 通过 `CloudConnection` 与 `/api/v1/agent/host/*` 交互，并通过 `/api/v1/agent/orchestrate/stream` 发起 Agent 流式请求。VS Code 工作台当前采用轻量面板形态，Web 端的完整历史会话、模型选择、文件版本历史、性能和学习面板仍保留在 Web 工作台。
+## Orchestrator Core 目标架构
+
+多语言代码生成主规格规划使用 `OrchestratorCore` 收敛传统生成、Spec-First 和增量修改的任务生命周期。现有 `OrchestratorAgent` 将保留入口兼容职责，三类生成模式通过适配器提供计划和单文件生成能力。目标生命周期为 `planning`、`scheduling`、`generating`、`persisting`、`validating`、`finalizing`，并统一收敛到完成、失败、超时或取消终态。
+
+```mermaid
+flowchart LR
+    API["现有 Agent API 和 SSE"] --> Compatibility["OrchestratorAgent 兼容层"]
+    Compatibility --> Core["OrchestratorCore 目标状态机"]
+    Adapter["生成模式适配器"] --> Core
+    Core --> Scheduler["统一拓扑调度器"]
+    Scheduler --> Model["模型网关与墙钟预算"]
+    Scheduler --> Committer["产物提交器"]
+    Committer --> Manifest["磁盘产物清单"]
+    Core --> Validation["云端语法与本地验证协调"]
+    Core --> Store["Checkpoint 和事件存储"]
+```
+
+目标设计采用四级执行预算：单次模型调用、单文件、阶段和任务。流式保活数据不改变墙钟 deadline；超时和用户取消需要传播到活动模型调用及文件任务，并在终态前完成子任务回收。
+
+文件计划分为 `strict` 和 `extensible`。需求明确指定文件集合时使用 `strict`，冻结计划外的业务文件形成结构化计划错误；允许架构补全时使用 `extensible`，新增文件需要记录来源和理由。文件生成成功由原子写入、磁盘回读、非空、大小和 hash 校验共同决定，文件完成事件只能引用已登记产物。
+
+迁移顺序为传统生成、Spec-First、增量修改。每个入口保留 legacy/core 路由和原有 HTTP、SSE、会话契约，checkpoint 记录引擎版本，恢复任务继续使用创建时的引擎版本。
+
+`app.agent.orchestration` 已实现第一阶段内核原语：严格 Pydantic 契约、单向阶段转换、revision 校验、持久化事件幂等、唯一终态、原子 JSON checkpoint，以及任务创建、推进、终止、取消和恢复协调。文件计划层已实现统一安全路径规范化、`strict/extensible` 自动策略、结构化计划错误、依赖集合校验、扩展来源记录，以及带稳定 digest 的不可变计划版本。执行层已实现不可变的任务、阶段、文件和模型调用四级预算，预算随 command 写入 checkpoint；`ModelGateway` 使用绝对墙钟 deadline 包住模型调用和完整流消费，区分保活、普通流数据与业务模型数据，并在超时、用户取消或外部任务取消后关闭活动流。`ArtifactCommitter` 统一执行安全路径校验、大小限制、原子写入、磁盘回读和 SHA-256 一致性验证，验证成功后才登记 `SharedContext` 清单并返回幂等的 `file_completed` 事件。成功门禁比较冻结计划、完成事件、清单和磁盘业务文件集合，忽略隐藏元数据，并要求每个计划文件 hash 一致且验证状态有效；Core 进入 `completed` 前必须携带通过的门禁结果，失败结果收敛为带 `artifact_consistency_failed` 诊断的失败终态。`GenerationScheduler` 以冻结计划为输入，按依赖就绪队列调度独立文件，使用 `TaskGroup` 管理子任务，执行并发上限、重试预算、文件/阶段超时、取消传播、上游失败阻断和循环依赖死锁收敛，并保证活动任务最终归零。传统入口已具备 `TraditionalAdapter`、legacy/core 引擎选择、无源码影子状态对比和 checkpoint 引擎版本元数据；传统单文件生成还将 120 秒活动 tracker 传递到 Specialist 和 simple ReAct，模型流 chunk 更新活动时间，无活动调用取消后进入内容恢复重试。Core 生产生成入口等待任务 11.1 的契约与真实生成验收后切换。实施进度和验收门禁记录在 `../specs/2026-08-31-multilanguage-generation-orchestration/`。
+
+云端文件校验通过 `app.agent.validation_report.ValidationReport` 统一表达。报告为不可变、可序列化结构，记录 `cloud_syntax` scope、错误类别、文件路径、诊断上下文 hash、修复候选 hash 和修复证据；`RepairRouter` 对 syntax、dependency、export、signature、async、fixture、schema 和 type 类错误使用受控自动修复，对 business、test 和 unknown 类错误进入用户确认流程。`RepairBudget` 限制单类错误最多 3 次、任务累计最多 5 次，预算耗尽后保留可定位诊断并停止自动修复。
 
 ## StateGraph 边界
 
@@ -62,6 +88,15 @@ VS Code 工作台由 `vscode-extension/src/agent-workbench.ts` 提供原生 Webv
 ## 检索与运行时边界
 
 `RetrievalService` 已实现请求范围过滤、内容 hash 去重、排序和降级结果，但当前未接入生产 Agent 主链路。检索 chunk 的实际字段为 `source_type`、`source_id`、`content_hash`、`metadata` 和 `retrieved_at`；`project_scope` 与 `session_scope` 通过请求和 metadata 参与过滤。
+
+`ContextAssembler` 将需求、计划、检索结果、Memory 和 MCP/Skill 描述转换为带来源、优先级、作用域和内容 hash 的 `ContextEnvelope`，执行字符预算和敏感字段脱敏。`app.agent.languages` 复用已注册的 Python 与 JavaScript Adapter，统一提供解析、符号和编译/测试能力元数据。Toolchain 命令使用参数数组，并通过 Profile 的命令与依赖白名单约束工作区扩展。
+
+`app.agent.profile_discovery` 根据工作区 manifest 和依赖线索创建 `DiscoveredProfile`，应用域覆盖 Web、Windows、Android、爬虫、游戏和 CLI。未知技术栈进入 `custom_pending` 并输出 `CapabilityGap`，通过 Toolchain 探针结果后再升级为实验或正式 Profile。
+已验证的工作区画像由 `ProfileCache` 保存到 `.monkeycode/profiles.json`，后续任务可复用画像并通过 schema version 触发安全失效。探针结果将画像从 `custom_pending` 推进到 `experimental`；完整 conformance checks 通过后才升级到 `supported`。
+传统、Spec-First 和增量修改入口在规划阶段读取 `profile_context()`，将画像状态和能力缺口传递给生成与验证流程。
+`CapabilityResolver` 将应用域映射为必需能力、生成约束和验证步骤；Pygame、Scrapy、Android 和 Windows 等应用类型可以复用同一生成生命周期。
+解析结果还包含 `required_components`，为生成计划提供领域级组件提示，保持领域策略与具体框架 Profile 解耦。
+`add_profile_components()` 将组件提示投影为 `GenerationPlan` 节点和顺序依赖；`strict` 计划保持用户冻结集合，`extensible` 计划记录受控领域扩展。
 
 Skills 使用 `system:`, `user:` 和 `workspace:<folder-name>:` 命名空间。User Skills 通过认证用户 ID 隔离；Workspace Skills 由 VS Code 的所有 workspace folders 递归发现，并在 Agent Host session 内保存和同步。Web 端读取当前用户 Skills 与用户拥有的 Agent Host sessions，用于展示当前会话上下文。VS Code activation 会为所有 workspace folders 建立独立授权，`workspace` capability 的 `inspect` 和 `list_roots` 操作返回当前已授权根目录。
 

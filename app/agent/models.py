@@ -109,7 +109,7 @@ class ModelRegistry:
             key="qwen3.5-4b",
             name="Qwen/Qwen3.5-4B",
             display_name="Qwen 3.5 4B",
-            capabilities=[ModelCapability.FAST, ModelCapability.VISION],
+            capabilities=[ModelCapability.CODE, ModelCapability.FAST, ModelCapability.VISION],
             max_tokens=4096,
             thinking_budget=4096,
             temperature=0.7,
@@ -213,7 +213,7 @@ class ModelRouter:
 
     TASK_MODEL_MAP = {
         TaskType.GENERAL: ["qwen3-8b", "deepseek-r1-qwen3-8b"],
-        TaskType.CODE_GENERATION: ["qwen2.5-7b", "deepseek-r1-qwen3-8b"],
+        TaskType.CODE_GENERATION: ["qwen3.5-4b", "qwen2.5-7b"],
         TaskType.CODE_REVIEW: ["deepseek-r1-qwen3-8b", "glm-z1-9b"],
         TaskType.FILE_OPERATION: ["glm-4-9b", "qwen3.5-4b"],
         TaskType.VISUAL_UNDERSTANDING: ["qwen3.5-4b", "paddleocr-vl-1.5", "deepseek-ocr"],
@@ -318,7 +318,7 @@ class ModelRouter:
         role_fallbacks = {
             AgentRole.ARCHITECT: "glm-z1-9b",
             AgentRole.FRONTEND: "qwen3-8b",
-            AgentRole.BACKEND: "deepseek-r1-qwen3-8b",
+            AgentRole.BACKEND: "qwen2.5-7b",
             AgentRole.REVIEWER: "deepseek-r1-qwen3-8b",
             AgentRole.FALLBACK: "qwen3-8b",
         }

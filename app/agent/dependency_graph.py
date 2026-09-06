@@ -22,8 +22,24 @@ from collections import defaultdict
 from app.agent.signature_extractor import extract_signatures, get_context_budget
 from app.agent.shadow_scanner import scan_shadow_dependencies, SKIP_DIRS
 from app.agent.dependency_rules import DEPENDENCY_RULES, PATH_TYPE_RULES, EXTENSION_TYPE_MAP
+from app.agent.generation_plan import GenerationPlan
 
 logger = logging.getLogger(__name__)
+
+
+def summarize_dependency_context(context: str) -> Dict[str, Any]:
+    """返回依赖上下文的可审计摘要，避免日志记录完整源码。"""
+    context = context or ""
+    dependency_files = re.findall(r"^## 依赖文件: ([^\n]+)", context, re.MULTILINE)
+    signature_lines = re.findall(r"(?:^|\n)(?:def |async def |class |function )", context)
+    return {
+        "present": bool(context.strip()),
+        "chars": len(context),
+        "dependency_files": dependency_files,
+        "dependency_file_count": len(dependency_files),
+        "signature_marker_count": len(signature_lines),
+        "preview": "; ".join(dependency_files)[:240],
+    }
 
 
 @dataclass
@@ -56,6 +72,7 @@ class DependencyGraph:
         self.adjacency: Dict[str, Set[str]] = defaultdict(set)  # file -> set of files it depends on
         self.reverse_adjacency: Dict[str, Set[str]] = defaultdict(set)  # file -> set of files that depend on it
         self.language_adapter = language_adapter  # 语言适配器（可选）
+        self.generation_plan = None
 
     def add_file(self, path: str, file_type: Optional[str] = None, priority: int = 3, description: str = ""):
         """添加文件节点"""
@@ -175,6 +192,15 @@ class DependencyGraph:
     def build_from_architecture(self, architecture: Dict[str, Any]):
         """从架构设计结果构建依赖图（优先使用 LLM 声明的依赖）"""
         file_plan = architecture.get("file_plan", [])
+        if file_plan:
+            try:
+                self.generation_plan = GenerationPlan.from_architecture(architecture)
+                file_plan = list(self.generation_plan.file_entries())
+            except ValueError as exc:
+                # Legacy graph rules still resolve inferred and external imports.
+                # Preserve that migration behavior while exposing the failed plan.
+                self.generation_plan = None
+                logger.warning("项目级生成计划暂未冻结，沿用依赖图兼容规则: %s", exc)
 
         # 0. 自动设置 GenericLanguageAdapter 的 file_plan_data
         # 这样 _import_to_file_path 就可以正确解析任何语言的 import
@@ -184,7 +210,13 @@ class DependencyGraph:
         # 0.5 过滤和规范化 file_plan
         cleaned_file_plan = []
         seen_paths = set()
-        for file_info in file_plan:
+        # 先处理基础文件的声明，使互相冲突的 LLM imports 按架构优先级
+        # 确定稳定方向，后续反向边会被环检测拒绝。
+        dependency_plan = sorted(
+            file_plan,
+            key=lambda item: (item.get("priority", 3), item.get("path", "")),
+        )
+        for file_info in dependency_plan:
             path = file_info.get("path", "")
             if not path:
                 continue
@@ -244,15 +276,52 @@ class DependencyGraph:
             path = file_info.get("path", "")
             description = file_info.get("description", "")
             priority = file_info.get("priority", 3)
-            file_type = file_info.get("file_type")  # 优先使用 file_plan 中的 file_type
+            file_type = file_info.get("file_type")
+            if not file_type or file_type in {"unknown", "other", "utils"}:
+                file_type = self._infer_file_type(path)
 
             if not path:
                 continue
 
             self.add_file(path, priority=priority, description=description, file_type=file_type)
 
+        database_paths = {
+            path for path, node in self.nodes.items()
+            if node.file_type == "database"
+        }
+        model_paths = {
+            path for path, node in self.nodes.items()
+            if node.file_type == "model"
+        }
+        for file_info in file_plan:
+            if file_info.get("path") not in database_paths:
+                continue
+
+            def references_model(value: Any) -> bool:
+                return (
+                    isinstance(value, str)
+                    and (
+                        value in model_paths
+                        or self._import_to_file_path(value) in model_paths
+                    )
+                )
+
+            for field in ("imports", "dependencies"):
+                values = file_info.get(field)
+                if isinstance(values, list):
+                    file_info[field] = [
+                        value for value in values
+                        if not references_model(value)
+                    ]
+            contract = file_info.get("contract")
+            if isinstance(contract, dict) and isinstance(contract.get("required_imports"), list):
+                contract["required_imports"] = [
+                    value for value in contract["required_imports"]
+                    if not references_model(value)
+                ]
+
         # 2. 再处理依赖关系（此时所有文件都在图中）
-        files_with_imports = set()
+        files_with_resolved_imports = set()
         for file_info in file_plan:
             path = file_info.get("path", "")
             if not path:
@@ -268,16 +337,86 @@ class DependencyGraph:
             # 使用 imports 字段构建依赖关系
             imports = file_info.get("imports", [])
             if isinstance(imports, list) and imports:
-                files_with_imports.add(path)
                 for imp in imports:
                     if imp and imp != path:
                         # 转换 import 路径为文件路径
                         dep_path = self._import_to_file_path(imp)
                         if dep_path:
                             self.add_dependency(path, dep_path)
+                            files_with_resolved_imports.add(path)
 
-        # 3. 硬编码规则作为兜底（仅对 LLM 未声明 imports 的文件使用）
-        self._auto_add_dependencies(files_with_imports)
+        # 3. 类型规则补齐已解析 imports 尚未覆盖的依赖类型
+        contract_driven = any(
+            isinstance(item, dict) and isinstance(item.get("contract"), dict) and item.get("contract")
+            for item in file_plan
+        )
+        self._auto_add_dependencies(files_with_resolved_imports, use_legacy_rules=not contract_driven)
+        if contract_driven:
+            # Contracts define exact edges; preserve the invariant that an entry
+            # module can consume the repository layer when the plan omits it.
+            entry_paths = [
+                path for path, node in self.nodes.items()
+                if node.file_type == "entry"
+            ]
+            repository_paths = [
+                path for path, node in self.nodes.items()
+                if node.file_type == "repository"
+            ]
+            for entry_path in entry_paths:
+                for repository_path in repository_paths:
+                    if repository_path not in self.adjacency.get(entry_path, set()):
+                        self.add_dependency(entry_path, repository_path)
+
+            # Keep persistence infrastructure below application models. LLM
+            # plans occasionally emit both directions; the database module
+            # must remain generatable before model declarations.
+            for database_path in database_paths:
+                for model_path in model_paths & self.adjacency.get(database_path, set()):
+                    self.adjacency[database_path].discard(model_path)
+                    self.reverse_adjacency[model_path].discard(database_path)
+                    if model_path in self.nodes[database_path].dependencies:
+                        self.nodes[database_path].dependencies.remove(model_path)
+                for model_path in model_paths:
+                    if database_path not in self.adjacency.get(model_path, set()):
+                        self.add_dependency(model_path, database_path)
+
+            # Python validation schemas describe the public shape of ORM
+            # entities, so generate them with the real model declarations in
+            # context instead of asking two independent layers to guess types.
+            python_schema_paths = {
+                path for path, node in self.nodes.items()
+                if path.endswith(".py") and node.file_type in {"schema", "types"}
+            }
+            python_model_paths = {path for path in model_paths if path.endswith(".py")}
+            for schema_path in python_schema_paths:
+                for model_path in python_model_paths:
+                    if model_path not in self.adjacency.get(schema_path, set()):
+                        self.add_dependency(schema_path, model_path)
+
+            # Python repositories consume validated request/response schemas.
+            # Normalize an accidental reverse edge before enforcing that layer.
+            python_repository_paths = {
+                path for path in repository_paths if path.endswith(".py")
+            }
+            for repository_path in python_repository_paths:
+                for schema_path in python_schema_paths:
+                    self.adjacency[schema_path].discard(repository_path)
+                    self.reverse_adjacency[repository_path].discard(schema_path)
+                    if repository_path in self.nodes[schema_path].dependencies:
+                        self.nodes[schema_path].dependencies.remove(repository_path)
+                    if schema_path not in self.adjacency.get(repository_path, set()):
+                        self.add_dependency(repository_path, schema_path)
+
+            # Tests execute against the completed runtime graph. Keep them in a
+            # final generation layer even when a contract omits explicit imports.
+            test_paths = {
+                path for path, node in self.nodes.items()
+                if node.file_type == "test"
+            }
+            runtime_paths = set(self.nodes) - test_paths
+            for test_path in test_paths:
+                for runtime_path in runtime_paths:
+                    self.add_dependency(test_path, runtime_path)
 
         # 3.5 去重：基于图结构消除功能重复文件
         self.deduplicate()
@@ -489,6 +628,17 @@ class DependencyGraph:
                 if candidate in self.nodes:
                     return candidate
 
+            # 严格文件集合可能将 app/models.py 等路径扁平化为 models.py。
+            # 当文件名在图中唯一时，允许按模块末段匹配扁平化后的节点。
+            module_name = import_path.lstrip('.').replace('\\', '/').split('/')[-1].split('.')[-1]
+            basename_matches = [
+                path
+                for path in self.nodes
+                if Path(path).stem == module_name
+            ]
+            if len(basename_matches) == 1:
+                return basename_matches[0]
+
             # 不返回不存在的候选路径（避免创建垃圾文件）
             return None
 
@@ -540,32 +690,60 @@ class DependencyGraph:
                 model_path = f"app/models/{self._camel_to_snake(schema_name)}.py"
                 self.add_file(model_path, file_type="model", priority=2)
 
-    def _auto_add_dependencies(self, files_with_imports: set):
-        """根据文件类型自动添加依赖（仅对 LLM 未声明 imports 的文件使用硬编码规则）"""
+    def _auto_add_dependencies(self, files_with_imports: set, use_legacy_rules: bool = True):
+        """按文件类型补齐 imports 尚未覆盖的依赖类型。"""
+        if not use_legacy_rules:
+            logger.info("架构契约已提供依赖边界，跳过基于文件类型的兼容规则")
+            return
         type_to_files: Dict[str, List[str]] = defaultdict(list)
         for path, node in self.nodes.items():
             type_to_files[node.file_type].append(path)
 
         logger.info(f"_auto_add_dependencies: 文件类型分布 = {dict(type_to_files)}")
-        logger.info(f"_auto_add_dependencies: 已有 imports 的文件 ({len(files_with_imports)}): {sorted(files_with_imports)}")
+        logger.info(
+            "_auto_add_dependencies: 已解析 imports 的文件 (%d): %s",
+            len(files_with_imports),
+            sorted(files_with_imports),
+        )
 
         added_by_rules = 0
-        skipped_has_imports = 0
+        replaced_reverse_edges = 0
         for path, node in self.nodes.items():
-            # 跳过已有 LLM 声明 imports 的文件（LLM 声明优先）
-            if path in files_with_imports:
-                skipped_has_imports += 1
-                continue
             dep_types = self.DEPENDENCY_RULES.get(node.file_type, [])
             for dep_type in dep_types:
-                # 只为实际存在的文件类型添加依赖
-                if dep_type in type_to_files:
-                    for other_path in type_to_files.get(dep_type, []):
-                        if other_path != path:
-                            self.add_dependency(path, other_path)
-                            added_by_rules += 1
+                existing_dep_types = {
+                    self.nodes[dependency].file_type
+                    for dependency in self.adjacency.get(path, set())
+                    if dependency in self.nodes
+                }
+                if dep_type in existing_dep_types:
+                    continue
 
-        logger.info(f"_auto_add_dependencies: 硬编码规则添加了 {added_by_rules} 条依赖, 跳过 {skipped_has_imports} 个已有 imports 的文件")
+                for other_path in type_to_files.get(dep_type, []):
+                    if other_path == path:
+                        continue
+
+                    # 类型规则是架构层级的最终裁决，覆盖 LLM 同时声明的直接反向边。
+                    if path in self.adjacency.get(other_path, set()):
+                        self.adjacency[other_path].discard(path)
+                        self.reverse_adjacency[path].discard(other_path)
+                        self.nodes[other_path].dependencies = [
+                            dependency
+                            for dependency in self.nodes[other_path].dependencies
+                            if dependency != path
+                        ]
+                        replaced_reverse_edges += 1
+
+                    before = other_path in self.adjacency.get(path, set())
+                    self.add_dependency(path, other_path)
+                    if not before and other_path in self.adjacency.get(path, set()):
+                        added_by_rules += 1
+
+        logger.info(
+            "_auto_add_dependencies: 类型规则添加了 %d 条依赖, 覆盖 %d 条直接反向边",
+            added_by_rules,
+            replaced_reverse_edges,
+        )
 
     def ensure_package_files(self) -> List[str]:
         """
@@ -772,29 +950,28 @@ class DependencyGraph:
     # 向后兼容：保留类方法引用
     get_context_budget = staticmethod(get_context_budget)
 
-    def get_context_for_file(self, file_path: str, generated_files: Dict[str, str], max_context_bytes: int = 0, model_context_length: int = 0, project_spec: Optional[Dict] = None) -> str:
-        """
-        获取某个文件生成时应该注入的上下文
-
-        动态分配上下文预算：
-        - 核心依赖（models, config）分配更多字节
-        - 次要依赖分配较少字节
-        - 总上下文不超过 max_context_bytes
-        - max_context_bytes=0 时根据 model_context_length 自动计算
-        """
+    def get_context_package_for_file(
+        self,
+        file_path: str,
+        generated_files: Dict[str, str],
+        max_context_bytes: int = 0,
+        model_context_length: int = 0,
+        project_spec: Optional[Dict] = None,
+    ) -> Dict[str, Any]:
+        """构建目标文件的可序列化依赖上下文包。"""
         if max_context_bytes <= 0:
             ctx_len = model_context_length if model_context_length > 0 else 32768
             max_context_bytes = get_context_budget(ctx_len)
 
-        parts = []
+        package: Dict[str, Any] = {
+            "target_file": file_path,
+            "dependencies": [],
+            "budget_chars": max_context_bytes,
+        }
 
-        # 注入 project_spec（如果提供）
         if project_spec:
-            # 获取当前文件的 file_type
             node = self.nodes.get(file_path)
             file_type = node.file_type if node else "unknown"
-
-            # 查找精确匹配的 spec，fallback 到 default
             file_spec = project_spec.get(file_type, project_spec.get("default", {}))
             if file_spec:
                 spec_lines = []
@@ -808,46 +985,82 @@ class DependencyGraph:
                     terms = ", ".join(f"{k}={v}" for k, v in terminology.items())
                     spec_lines.append(f"- 术语表: {terms}")
                 if spec_lines:
-                    parts.append(f"## 项目规范 (file_type={file_type})\n" + "\n".join(spec_lines) + "\n")
+                    package["project_spec"] = "\n".join(spec_lines)
 
         dependencies = self.adjacency.get(file_path, set())
-        if not dependencies:
-            return "\n".join(parts) if parts else ""
-
-        # 按依赖重要性排序（优先级低的 = 更基础 = 更重要）
         sorted_deps = sorted(
             [d for d in dependencies if d in generated_files],
             key=lambda d: self.nodes[d].priority if d in self.nodes else 99
         )
-        if not sorted_deps:
-            return "\n".join(parts) if parts else ""
 
-        # 动态分配预算：核心依赖获得更多字节
-        total_deps = len(sorted_deps)
         remaining_budget = max_context_bytes
-
-        for i, dep_path in enumerate(sorted_deps):
+        for index, dep_path in enumerate(sorted_deps):
             content = generated_files[dep_path]
             node = self.nodes.get(dep_path)
             is_core = node and node.priority <= 2 if node else False
 
-            # 核心依赖分配 60% 剩余预算，非核心分配均分剩余
-            if is_core and total_deps > 1:
+            remaining_deps = len(sorted_deps) - index
+            if is_core and remaining_deps > 1:
                 budget = int(remaining_budget * 0.6)
             else:
-                budget = max(200, remaining_budget // max(1, total_deps - i))
+                budget = max(200, remaining_budget // max(1, remaining_deps))
 
-            signatures = extract_signatures(dep_path, content)
-            preview = signatures if signatures else content[:budget]
-            truncated = not signatures and len(content) > budget
-            parts.append(
-                f"## 依赖文件: {dep_path}\n```{preview}{'...' if truncated else ''}```\n"
-            )
-            remaining_budget -= len(preview) + 50  # 50 for formatting overhead
+            if self.language_adapter and hasattr(self.language_adapter, "extract_signatures"):
+                signatures = self.language_adapter.extract_signatures(content, dep_path)
+            else:
+                signatures = extract_signatures(dep_path, content)
+            signature_budget = max(0, int(budget * 0.4))
+            code_budget = max(0, budget - signature_budget)
+            signature_text = (signatures or "")[:signature_budget]
+            code_text = content[:code_budget]
+            package["dependencies"].append({
+                "path": dep_path,
+                "relation": "imports",
+                "symbols": re.findall(r"(?:class|def|async def|function)\s+([A-Za-z_]\w*)", signature_text),
+                "signatures": signature_text,
+                "relevant_code": code_text,
+                "content_chars": len(content),
+                "signature_chars": len(signature_text),
+                "relevant_code_chars": len(code_text),
+                "truncated": len(content) > code_budget,
+            })
+            remaining_budget -= len(signature_text) + len(code_text) + 80
             if remaining_budget <= 0:
                 break
 
-        return "\n".join(parts) if parts else ""
+        return package
+
+    def get_context_for_file(
+        self,
+        file_path: str,
+        generated_files: Dict[str, str],
+        max_context_bytes: int = 0,
+        model_context_length: int = 0,
+        project_spec: Optional[Dict] = None,
+    ) -> str:
+        """渲染上下文包，保持现有工程师 prompt 接口兼容。"""
+        package = self.get_context_package_for_file(
+            file_path,
+            generated_files,
+            max_context_bytes=max_context_bytes,
+            model_context_length=model_context_length,
+            project_spec=project_spec,
+        )
+        parts = []
+        if package.get("project_spec"):
+            node = self.nodes.get(file_path)
+            file_type = node.file_type if node else "unknown"
+            parts.append(f"## 项目规范 (file_type={file_type})\n{package['project_spec']}\n")
+        for dependency in package["dependencies"]:
+            sections = []
+            if dependency["signatures"]:
+                sections.append(dependency["signatures"])
+            if dependency["relevant_code"]:
+                sections.append(dependency["relevant_code"])
+            preview = "\n".join(sections)
+            suffix = "..." if dependency["truncated"] else ""
+            parts.append(f"## 依赖文件: {dependency['path']}\n```\n{preview}{suffix}\n```\n")
+        return "\n".join(parts)
 
     def get_dependency_summary(self) -> Dict[str, List[str]]:
         """获取依赖关系摘要"""

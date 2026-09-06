@@ -203,7 +203,7 @@ models:
 roles:
   architect: qwen3-8b
   frontend: deepseek-r1
-  backend: deepseek-r1
+  backend: qwen3.5-4b
   reviewer: glm-z1-9b
   fallback: qwen3-8b
 fallback_chain:

@@ -16,6 +16,7 @@ from app.utils.system_load import system_load_monitor
 from app.utils.model_config_io import load_model_config, save_model_config
 from app.agent.models import (
     DEFAULT_ARCHITECT_MODEL,
+    DEFAULT_CODE_MODEL,
     DEFAULT_FAST_MODEL,
     DEFAULT_REASONING_MODEL,
 )
@@ -28,6 +29,8 @@ AGENT_MODEL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../data/ag
 # 备选模型 ID → Key 映射（配置文件不可用时的兜底）
 _FALLBACK_MODEL_ID_TO_KEY: Dict[str, str] = {
     "deepseek-r1": DEFAULT_REASONING_MODEL,
+    "qwen2.5-7b": "Qwen/Qwen2.5-7B-Instruct",
+    "qwen3.5-4b": DEFAULT_CODE_MODEL,
     "qwen3-8b": DEFAULT_FAST_MODEL,
     "glm-z1-9b": DEFAULT_ARCHITECT_MODEL,
     "glm-4-9b": "THUDM/GLM-4-9B-0414",
@@ -726,7 +729,7 @@ class _LayeredModelRouterCompat:
             defaults = ModelAssignment(
                 architect_model=DEFAULT_ARCHITECT_MODEL,
                 frontend_model=DEFAULT_FAST_MODEL,
-                backend_model=DEFAULT_REASONING_MODEL,
+                backend_model=DEFAULT_CODE_MODEL,
                 reviewer_model=DEFAULT_ARCHITECT_MODEL,
                 fallback_model=DEFAULT_FAST_MODEL,
             )
@@ -770,7 +773,7 @@ class RoutingConfig:
 _DEFAULT_ROLES = {
     "architect": DEFAULT_ARCHITECT_MODEL,
     "frontend": DEFAULT_FAST_MODEL,
-    "backend": DEFAULT_REASONING_MODEL,
+    "backend": DEFAULT_CODE_MODEL,
     "reviewer": "THUDM/GLM-4-9B-0414",
     "fallback": DEFAULT_FAST_MODEL,
 }

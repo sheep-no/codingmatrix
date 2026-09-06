@@ -47,7 +47,15 @@ class CodeValidator:
     }
 
     def __init__(self, project_path):
-        self.project_path = project_path
+        self.project_path = Path(project_path).resolve()
+
+    def _import_search_paths(self, file_path: Path) -> List[str]:
+        """Return the candidate directory and configured project roots for imports."""
+        paths = [file_path.parent.resolve(), self.project_path]
+        src_dir = self.project_path / "src"
+        if src_dir.is_dir():
+            paths.append(src_dir.resolve())
+        return list(dict.fromkeys(str(path) for path in paths if path.is_dir()))
 
     @classmethod
     def _compute_content_hash(cls, file_content: str) -> str:
@@ -171,32 +179,13 @@ class CodeValidator:
             errors = []
             standard_libs = {'os', 'sys', 'json', 're', 'datetime', 'pathlib', 'typing', 'asyncio', 'logging', 'collections', 'functools', 'itertools', 'math', 'string', 'io', 'copy', 'time', 'enum', 'dataclasses', 'abc', 'contextlib', 'urllib', 'http', 'email', 'hashlib', 'hmac', 'secrets', 'base64', 'struct', 'textwrap', 'difflib', 'unittest', 'doctest', 'pdb', 'traceback', 'warnings', 'weakref', 'types', 'importlib'}
 
-            # Add project source directories to sys.path for import resolution
+            # Include the project root even when a generated project has no src/tests directory.
             added_paths = []
             try:
-                current = file_path.parent
-                project_root = None
-                for _ in range(10):
-                    if (current / 'src').is_dir() or (current / 'tests').is_dir():
-                        project_root = current
-                        break
-                    parent = current.parent
-                    if parent == current:
-                        break
-                    current = parent
-
-                if project_root:
-                    root_str = str(project_root)
-                    if root_str not in sys.path:
-                        sys.path.insert(0, root_str)
-                        added_paths.append(root_str)
-
-                    src_dir = project_root / 'src'
-                    if src_dir.is_dir():
-                        src_str = str(src_dir)
-                        if src_str not in sys.path:
-                            sys.path.insert(0, src_str)
-                            added_paths.append(src_str)
+                for import_path in reversed(self._import_search_paths(file_path)):
+                    if import_path not in sys.path:
+                        sys.path.insert(0, import_path)
+                        added_paths.append(import_path)
             except Exception as e:
                 logger.debug(f"sys.path 操作失败：{e}")
 
@@ -245,35 +234,13 @@ class CodeValidator:
             if spec is None or spec.loader is None:
                 return True, []  # 无法加载 spec，跳过
 
-            # Add project source directories to sys.path for import resolution
+            # Include the project root even when a generated project has no src/tests directory.
             added_paths = []
             try:
-                # Walk up from file to find project root (contains src/, tests/, etc.)
-                current = file_path.parent
-                project_root = None
-                for _ in range(10):  # limit traversal
-                    if (current / 'src').is_dir() or (current / 'tests').is_dir():
-                        project_root = current
-                        break
-                    parent = current.parent
-                    if parent == current:
-                        break
-                    current = parent
-
-                if project_root:
-                    # Add project root (for `from src.xxx import ...`)
-                    root_str = str(project_root)
-                    if root_str not in sys.path:
-                        sys.path.insert(0, root_str)
-                        added_paths.append(root_str)
-
-                    # Add src/ directory (for `from utils.xxx import ...` when file is in src/)
-                    src_dir = project_root / 'src'
-                    if src_dir.is_dir():
-                        src_str = str(src_dir)
-                        if src_str not in sys.path:
-                            sys.path.insert(0, src_str)
-                            added_paths.append(src_str)
+                for import_path in reversed(self._import_search_paths(file_path)):
+                    if import_path not in sys.path:
+                        sys.path.insert(0, import_path)
+                        added_paths.append(import_path)
             except Exception as e:
                 logger.debug(f"模块路径设置失败：{e}")
                 pass  # best effort

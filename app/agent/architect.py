@@ -1,5 +1,6 @@
 import logging
 import re
+from pathlib import Path
 from typing import Optional, Dict, List
 
 from app.utils import call_llm
@@ -157,7 +158,7 @@ class Architect(Specialist):
 - 必须包含以下字段：project_type, frontend_structure, backend_structure, api_spec, db_schema, file_plan, project_spec
 - 所有文件必须使用正确的文件扩展名和语法
 
-file_plan 格式要求（每个文件必须包含 imports、file_type 和 language 字段）：
+file_plan 格式要求（每个文件必须包含 imports、file_type、language 和 contract 字段）：
 ```json
 {{{{"file_plan": [
     {{"path": "<入口文件>", "description": "主程序入口", "priority": 1, "file_type": "entry", "language": "{target_language}", "imports": [...]}},
@@ -168,6 +169,8 @@ file_plan 格式要求（每个文件必须包含 imports、file_type 和 langua
 ```
 
 file_type 可选值（每个文件必须选择一个，不得留空或使用其他值）：entry, model, api, service, repository, types, database, config, middleware, frontend_component, frontend_page, frontend_style, template, test, utils, docs
+
+每个 file_plan 项目还必须包含 contract 对象。contract 描述该文件的职责边界和跨文件接口，字段可包括 role、exports、forbidden_imports、required_imports、shared_symbols、database_abstraction、runtime 和 notes。依赖方向使用 imports 或 dependencies 声明，公共符号使用 exports 声明；这些契约必须根据实际职责填写，不能根据固定文件名推断。同一模块禁止同时出现在 required_imports 和 forbidden_imports 中；入口和 API 文件必须允许导入 project_spec 声明的框架。
 
 file_type 选择指南：
 - entry: 程序入口文件（如 main.py, app.py, index.js）
@@ -256,11 +259,21 @@ language 字段要求：
         else:
             response = await self.call_llm(prompt, self.SYSTEM_PROMPT)
 
+        logger.info(
+            "架构响应审计: model=%s response_type=%s response_chars=%d has_json_marker=%s",
+            self.model_name,
+            type(response).__name__,
+            len(response or ""),
+            bool(response and ("{" in response or "[" in response)),
+        )
+
         # 解析 JSON
         try:
             if not response or not response.strip():
                 logger.warning("架构师输出为空，返回默认架构")
-                return self._get_default_architecture(complexity, target_language, frontend_language)
+                return self._get_requirement_aware_default_architecture(
+                    requirement, complexity, target_language, frontend_language
+                )
 
             architecture = self._safe_parse_json(response)
             
@@ -282,13 +295,17 @@ language 字段要求：
                 }
             elif not isinstance(architecture, dict):
                 logger.warning(f"架构师输出类型不正确: {type(architecture).__name__}，返回默认架构")
-                return self._get_default_architecture(complexity, target_language, frontend_language)
+                return self._get_requirement_aware_default_architecture(
+                    requirement, complexity, target_language, frontend_language
+                )
         except ValueError:
             logger.warning("架构师输出解析失败，尝试 LLM 辅助提取")
             architecture = await self._extract_json_with_llm(response, complexity)
             if not architecture:
                 logger.warning("LLM 辅助提取失败，返回默认架构")
-                return self._get_default_architecture(complexity, target_language, frontend_language)
+                return self._get_requirement_aware_default_architecture(
+                    requirement, complexity, target_language, frontend_language
+                )
 
         if architecture:
             # 确保 language 字段存在
@@ -314,7 +331,9 @@ language 字段要求：
             # 确保 file_plan 存在
             if not architecture.get("file_plan"):
                 logger.warning("架构师未返回 file_plan，使用默认架构")
-                architecture = self._get_default_architecture(complexity, target_language, frontend_language)
+                architecture = self._get_requirement_aware_default_architecture(
+                    requirement, complexity, target_language, frontend_language
+                )
 
             # 确保 project_spec 存在
             if not architecture.get("project_spec"):
@@ -333,12 +352,17 @@ language 字段要求：
                     else:
                         f["language"] = backend_language or target_language
 
-            # 补充完整性：确保所有被引用的模块都在 file_plan 中
-            architecture = self._ensure_file_plan_completeness(architecture, target_language)
+            # 显式文件范围要求优先于通用完整性补全规则。
+            strict_paths = self._extract_strict_file_paths(requirement)
+            architecture = self._ensure_file_plan_completeness(
+                architecture, target_language, strict_paths=strict_paths
+            )
 
             return architecture
         else:
-            return self._get_default_architecture(complexity, target_language, frontend_language)
+            return self._get_requirement_aware_default_architecture(
+                requirement, complexity, target_language, frontend_language
+            )
 
     async def _extract_json_with_llm(self, raw_text: str, complexity: ComplexityAnalysis) -> Optional[Dict]:
         """使用 LLM 从非标准输出中提取 JSON"""
@@ -546,6 +570,59 @@ language 字段要求：
             "risks": complexity.risk_factors
         }
 
+    def _get_requirement_aware_default_architecture(
+        self,
+        requirement: str,
+        complexity: ComplexityAnalysis,
+        language: str = "python",
+        frontend_language: Optional[str] = None,
+    ) -> Dict:
+        """架构输出异常时保留需求中明确列出的项目文件。"""
+        architecture = self._get_default_architecture(complexity, language, frontend_language)
+        planned_paths = {item["path"] for item in architecture["file_plan"]}
+        extensions = {"python": "py", "javascript": "js", "typescript": "ts", "go": "go"}
+        extension = extensions.get(language, language)
+        explicit_paths = re.findall(
+            rf"(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.{re.escape(extension)}\b",
+            requirement,
+        )
+
+        for path in explicit_paths:
+            if path in planned_paths:
+                continue
+            lower_path = path.lower()
+            if "/models/" in f"/{lower_path}":
+                file_type, description, priority = "model", "数据模型", 2
+            elif "/services/" in f"/{lower_path}":
+                file_type, description, priority = "service", "业务逻辑服务", 3
+            elif "/routes/" in f"/{lower_path}" or "/api/" in f"/{lower_path}":
+                file_type, description, priority = "api", "API 路由", 3
+            else:
+                file_type, description, priority = "utils", "需求指定模块", 3
+
+            imports = []
+            if "/services/" in f"/{lower_path}":
+                imports = [candidate for candidate in planned_paths if "/models/" in f"/{candidate.lower()}" and candidate.endswith(f".{extension}")]
+            elif path == "main.py" or path == "main.js" or path == "main.ts":
+                imports = [candidate for candidate in planned_paths if "/services/" in f"/{candidate.lower()}" and candidate.endswith(f".{extension}")]
+
+            architecture["file_plan"].append({
+                "path": path,
+                "description": description,
+                "priority": priority,
+                "file_type": file_type,
+                "language": language,
+                "imports": imports,
+            })
+            planned_paths.add(path)
+
+        strict_paths = self._extract_strict_file_paths(requirement)
+        return self._ensure_file_plan_completeness(
+            architecture,
+            language,
+            strict_paths=strict_paths,
+        )
+
     def _build_default_project_spec(self, language: str, frontend_language: Optional[str], complexity: ComplexityAnalysis) -> Dict:
         """构建默认的 project_spec（向后兼容）"""
         # 根据语言确定存储类型和默认框架
@@ -649,7 +726,29 @@ language 字段要求：
 
         return None
 
-    def _ensure_file_plan_completeness(self, architecture: Dict, target_language: Optional[str] = None) -> Dict:
+    @staticmethod
+    def _extract_strict_file_paths(requirement: str) -> Optional[set]:
+        """识别需求中明确限定的文件集合。"""
+        if not requirement:
+            return None
+        match = re.search(r"(?:只需要|仅需要|only)\s*(.{1,300}?)(?:个|份)?\s*文件", requirement, re.IGNORECASE)
+        if not match:
+            match = re.search(
+                r"(?:只生成|仅生成)\s*(?:以下\s*)?(?:\d+\s*个\s*)?(.{1,300}?)(?:。|$)",
+                requirement,
+                re.IGNORECASE,
+            )
+        if not match:
+            return None
+        paths = set(re.findall(r"[\w./-]+\.(?:py|js|ts|jsx|tsx|vue|html|css|scss|json|yaml|yml|toml|go|java|rs)", match.group(1)))
+        return paths or None
+
+    def _ensure_file_plan_completeness(
+        self,
+        architecture: Dict,
+        target_language: Optional[str] = None,
+        strict_paths: Optional[set] = None,
+    ) -> Dict:
         """确保 file_plan 完整性：补充 imports 中明确引用但 file_plan 中缺失的文件，以及缺失的前端文件
 
         注意：不再补充 index.js barrel export，不再遍历目录。
@@ -671,6 +770,42 @@ language 字段要求：
                 f["imports"] = []
             if "language" not in f:
                 f["language"] = target_language or "python"
+
+        if strict_paths:
+            original_count = len(file_plan)
+            strict_file_plan = []
+            for strict_path in sorted(strict_paths):
+                exact_match = next(
+                    (f for f in file_plan if f.get("path") == strict_path),
+                    None,
+                )
+                basename_matches = [
+                    f
+                    for f in file_plan
+                    if Path(f.get("path", "")).name == Path(strict_path).name
+                ]
+                source = exact_match or (
+                    min(basename_matches, key=lambda f: len(f.get("path", "")))
+                    if basename_matches
+                    else None
+                )
+                normalized = dict(source) if source else {
+                    "description": f"实现 {strict_path}",
+                    "file_type": "unknown",
+                    "priority": 3,
+                    "imports": [],
+                    "language": target_language or "python",
+                }
+                normalized["path"] = strict_path
+                strict_file_plan.append(normalized)
+            architecture["file_plan"] = strict_file_plan
+            architecture["strict_file_paths"] = sorted(strict_paths)
+            logger.info(
+                "严格文件集合生效: %d -> %d 个文件",
+                original_count,
+                len(architecture["file_plan"]),
+            )
+            return architecture
 
         # 检测语言（优先使用传入的语言，避免重复检测导致翻转）
         from app.agent.adapters import LanguageAdapterRegistry
@@ -812,6 +947,10 @@ language 字段要求：
             扩展后的架构设计
         """
         existing_plan = architecture.get("file_plan", [])
+        strict_paths = architecture.get("strict_file_paths")
+        if strict_paths:
+            logger.info("严格文件集合已冻结，跳过 file_plan 扩展: %s", strict_paths)
+            return architecture
         existing_paths = {f["path"] for f in existing_plan}
 
         if len(existing_plan) >= target_file_count:

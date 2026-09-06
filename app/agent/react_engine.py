@@ -84,6 +84,9 @@ class ReActEngine:
         stream_callback: Optional[Callable] = None,  # 流式输出回调（full 模式用）
         cancel_event: Optional[asyncio.Event] = None,  # 取消信号
         heartbeat_timeout: float = 600.0,  # 心跳超时：600 秒无 LLM 调用活动视为超时（推理模型需要更长时间）
+        heartbeat_tracker: Optional[HeartbeatTracker] = None,
+        required_tool_names: Optional[set[str]] = None,
+        preverified_tool_names: Optional[set[str]] = None,
     ):
         """
         初始化 ReAct 引擎
@@ -113,14 +116,17 @@ class ReActEngine:
         self.stream_callback = stream_callback
         self.cancel_event = cancel_event
         self.heartbeat_timeout = heartbeat_timeout
+        self.required_tool_names = set(required_tool_names or set())
+        self.preverified_tool_names = set(preverified_tool_names or set())
 
         self.tool_names = list(tools.keys())
         self.json_parser = ArchitectJsonParser()
         self.steps: List[ReActStep] = []
         self.tool_history: List[str] = []
+        self.used_tool_names: set[str] = set()
 
         # 心跳跟踪器（用于写入活动超时检测）
-        self._heartbeat_tracker: Optional[HeartbeatTracker] = None
+        self._heartbeat_tracker = heartbeat_tracker
         self._enhanced_system: str = ""
 
     def _build_tools_description(self) -> str:
@@ -343,20 +349,48 @@ class ReActEngine:
         Returns:
             LLM 最终输出的文本
         """
+        tracker = self._heartbeat_tracker or HeartbeatTracker(timeout=self.heartbeat_timeout)
+        self._heartbeat_tracker = tracker
+        tracker.touch()
+
         if not self.project_path or not self.tools:
             logger.info(f"{self.role_name} ReAct: 无项目路径或无工具，直接调用 LLM")
-            return await self.call_llm_fn(prompt, system_prompt)
+            try:
+                return await self._run_with_heartbeat(
+                    self.call_llm_fn(prompt, system_prompt), tracker
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "%s ReAct LLM 心跳超时 (%ss 无活动)",
+                    self.role_name,
+                    self.heartbeat_timeout,
+                )
+                return ""
 
         logger.info(f"{self.role_name} ReAct: 使用 {self.mode} 模式 (project_path={self.project_path}, tools={self.tool_names})")
 
         enhanced_system = self._build_system_prompt(system_prompt)
         self.steps = []
         self.tool_history = []
+        self.used_tool_names = set(self.preverified_tool_names)
 
         if self.mode == "full":
             return await self._run_full(prompt, enhanced_system)
-        else:
-            return await self._run_simple(prompt, enhanced_system)
+
+        try:
+            return await self._run_with_heartbeat(
+                self._run_simple(prompt, enhanced_system), tracker
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "%s ReAct 简单模式心跳超时 (%ss 无活动)",
+                self.role_name,
+                self.heartbeat_timeout,
+            )
+            await self._emit_event("react_timeout", {
+                "message": f"执行超时（{self.heartbeat_timeout}s 无模型活动）",
+            })
+            return ""
 
     def _build_history_text(self) -> str:
         """构建工具历史文本（滑动窗口：最近 N 条完整，更早的摘要）
@@ -462,6 +496,19 @@ class ReActEngine:
 
             tool_call = self._parse_tool_call(response)
             if not tool_call:
+                missing_required_tools = self.required_tool_names - self.used_tool_names
+                if missing_required_tools and round_num < self.max_rounds:
+                    missing = ", ".join(sorted(missing_required_tools))
+                    self.tool_history.append(
+                        f"系统门禁：尚未完成依赖核对，必须先调用以下工具之一: {missing}"
+                    )
+                    logger.warning(
+                        "%s ReAct 未完成强制工具核对: missing=%s round=%d",
+                        self.role_name,
+                        missing,
+                        round_num,
+                    )
+                    continue
                 logger.info(f"{self.role_name} ReAct 自然终止: 第 {round_num} 轮, 工具调用 {len(self.tool_history)} 次")
                 self._add_step(ReActStep("final", response))
                 return response
@@ -496,6 +543,7 @@ class ReActEngine:
 
             self.steps[-1].tool_result = tool_result
             self.steps[-1].success = success
+            self.used_tool_names.add(tool_name)
 
             result_str = json.dumps(tool_result, ensure_ascii=False)[:1500]
             self.tool_history.append(
@@ -540,8 +588,9 @@ class ReActEngine:
 
             # 心跳监控超时保护（替代固定 300s 超时）
             # 只要 LLM 调用有活动，就不会超时
-            tracker = HeartbeatTracker(timeout=self.heartbeat_timeout)
+            tracker = self._heartbeat_tracker or HeartbeatTracker(timeout=self.heartbeat_timeout)
             self._heartbeat_tracker = tracker
+            tracker.touch()
             task_coro = self._run_full_iteration(task, iteration)
 
             try:
@@ -572,7 +621,7 @@ class ReActEngine:
             协程的返回值
         """
         task = asyncio.create_task(coro)
-        check_interval = 10.0  # 每 10 秒检查一次
+        check_interval = min(10.0, max(0.01, self.heartbeat_timeout / 10))
 
         while not task.done():
             try:

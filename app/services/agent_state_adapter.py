@@ -18,6 +18,7 @@ from app.services.artifact_service import create_artifact
 
 
 MODULE = "agent"
+_ARTIFACT_VERSION_STRIDE = 100_000
 
 
 async def ensure_project_session(
@@ -105,7 +106,7 @@ async def persist_agent_state(db: AsyncSession, user_id: int, state: State) -> s
             status=state.status,
             progress=None,
         )
-    for generated_file in state.generated_files:
+    for index, generated_file in enumerate(state.generated_files, start=1):
         await create_artifact(
             db,
             user_id,
@@ -113,6 +114,9 @@ async def persist_agent_state(db: AsyncSession, user_id: int, state: State) -> s
             storage_uri=str(generated_file.get("path") or generated_file.get("name") or "unknown"),
             task_id=task_id,
             session_id=session.id,
+            # The schema keys artifacts by task/type/version; encode the
+            # graph revision and file ordinal to keep each generated file unique.
+            version=state.revision * _ARTIFACT_VERSION_STRIDE + index,
             content_hash=generated_file.get("content_hash"),
             metadata={"source": MODULE, "state_revision": state.revision},
         )

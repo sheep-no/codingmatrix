@@ -188,6 +188,31 @@ class TestCallLLMWithTools:
         assert isinstance(result, str)
 
     @pytest.mark.asyncio
+    @patch("app.agent.specialist_base.ReActEngine")
+    @patch("app.agent.specialist_base.LayeredModelRouter")
+    @patch("app.agent.specialist_base.LLMClient")
+    async def test_call_llm_with_tools_accepts_mode_override(
+        self, mock_llm_cls, mock_router, mock_engine_cls
+    ):
+        mock_router.get_model_config.return_value = {}
+        mock_llm_cls.return_value = AsyncMock()
+        mock_engine = AsyncMock()
+        mock_engine.run.return_value = "final code"
+        mock_engine_cls.return_value = mock_engine
+
+        specialist = Specialist(
+            role_name="coder", model_name="test", complexity="medium"
+        )
+        result = await specialist.call_llm_with_tools(
+            prompt="write code",
+            project_path="/tmp",
+            react_mode="simple",
+        )
+
+        assert result == "final code"
+        assert mock_engine_cls.call_args.kwargs["mode"] == "simple"
+
+    @pytest.mark.asyncio
     @patch("app.agent.specialist_base.LayeredModelRouter")
     @patch("app.agent.specialist_base.LLMClient")
     @patch("app.agent.specialist_base.SPECIALIST_TOOLS", {})

@@ -101,7 +101,59 @@ PPT 生成支持 `pptx`、`html` 和 `markdown` 格式的严格产物分流。�
 
 `app.agent.state.models` 定义 `State`、`StateDelta` 和 `MessageEnvelope`。State 包含 session/task 标识、revision、status、消息、计划变更、生成文件、验证结果、待执行动作、错误和 metadata。该模型已实现为可序列化契约，完整多阶段生产编排仍在迁移中。
 
+云端生成编排使用 `app.agent.shared_context.SharedContext` 保存单文件 `FileArtifact`。产物清单通过 `get_artifact_manifest()` 输出路径、内容 hash、导入、导出、语言、依赖、状态和诊断，`is_file_ready()` 与 `are_dependencies_ready()` 用于阻止无效上游释放下游生成。
+
+修复编排使用 `app.agent.repair_router.RepairRouter` 和 `RepairBudget`。基础语法、导入、名称和类型错误进入自动修复；业务逻辑、测试断言和未知错误进入用户确认；默认单类错误最多 3 次、任务累计最多 5 次。
+
 `StateReducer.apply()` 要求 delta 的 `expected_revision` 等于当前 revision。成功合并后 revision 递增；具有相同 `event_id` 的消息和验证结果只应用一次，纯重复验证结果保持 revision 不变。
+
+### Orchestrator Core Contracts
+
+`app.agent.orchestration` 定义下一代生成编排的独立内部契约。`OrchestrationCommand` 保存 task、session、生成模式、请求和 `engine_version`；`OrchestrationState` 保存 stage、status、revision、恢复游标、已应用事件、唯一终态事件和结构化诊断；`StageResult` 与 `OrchestrationResult` 用于阶段和任务返回。所有模型使用 Pydantic 严格字段校验，checkpoint 通过 JSON round-trip 恢复。
+
+`advance_state()` 只接受 `created -> planning -> scheduling -> generating -> persisting -> validating -> finalizing` 的相邻转换。`terminate_state()` 允许活动阶段进入 `failed`、`timed_out` 或 `cancelled`，`completed` 仅从 `finalizing` 进入。转换要求 `expected_revision`，首次应用的 `event_id` 递增 revision，已持久化的重复 `event_id` 返回原状态。
+
+`OrchestrationStore` 是异步 checkpoint 协议，`OrchestrationCheckpointStore` 提供原子 JSON 文件实现。`OrchestratorCore` 当前提供 `run()`、`advance()`、`finish()`、`cancel()` 和 `resume()`；生产 Agent API 尚未路由到该 Core。
+
+`build_file_plan()` 将现有文件字典列表转换为不可变 `GenerationPlan`。传入 `requested_paths` 时产生 `strict` 策略，计划文件集合必须与规范化请求集合一致；省略该参数时产生 `extensible` 策略，`origin=extension` 的新增文件必须携带 `source` 和 `reason`。`normalize_plan_path()` 统一 POSIX 相对路径表示并拒绝绝对路径、父目录遍历、受保护项目文件和不受支持的分隔符。
+
+`GenerationPlan` 保存 `version`、策略、请求路径、不可变 `PlannedFile` 元组、SHA-256 digest 和冻结时间。构建过程以结构化 `PlanIssue` 返回重复文件、缺失请求文件、范围外文件、缺失依赖、自依赖和扩展来源错误；计划模型在 JSON 恢复时重新验证文件集合、依赖集合和 digest。
+
+`ExecutionBudget` 定义 `task_seconds`、`stage_seconds`、`file_seconds` 和 `model_call_seconds`，要求模型预算不超过文件预算、文件预算不超过阶段预算、阶段预算不超过任务预算。`OrchestrationCommand.budgets` 在任务创建时复制到 `OrchestrationState.budgets`，checkpoint 恢复保持原任务预算。
+
+`ModelCallContext` 保存 `task_id`、`stage_id`、`file_path`、`call_id`、`react_round`、`started_at` 和绝对 `deadline_at`。`ModelGateway.call()` 约束非流式调用，`ModelGateway.stream()` 将流创建和完整迭代纳入同一墙钟 deadline；保活数据只更新 `last_keepalive_at`，业务 token 更新 `last_model_data_at`，两者均不会延长 deadline。预算到期抛出带 `model_timeout` 诊断的 `ModelCallTimeout`，取消事件抛出带 `model_cancelled` 诊断的 `ModelCallCancelled`，外部 asyncio 任务取消保持 `CancelledError` 传播并关闭底层流。
+`ModelCallContext` 可选携带 `context_hash`，模型错误诊断在该字段存在时回传同一 hash，用于关联生成上下文与验证证据。
+
+`ArtifactCommitter.commit()` 接收计划内相对路径、生成内容和模型名称，执行非空、UTF-8 大小、原子写入、磁盘回读和 SHA-256 校验。首次成功返回带稳定 `event_id` 的 `ArtifactCompletionEvent` 并登记 `SharedContext` 产物清单；相同路径和内容的重复提交返回 `idempotent=true` 且不产生第二个完成事件。写入、路径、大小或回读失败返回 `artifact_commit_failed`，磁盘与内存或清单 hash 不一致返回 `artifact_consistency_failed`。
+
+`check_artifact_success_gate()` 比较 `GenerationPlan`、ArtifactManifest、`ArtifactCompletionEvent` 和输出目录中的业务文件集合，并校验事件、清单与磁盘 hash 以及清单验证终态。隐藏路径作为编排元数据豁免。`OrchestratorCore.finish(..., status=completed)` 要求传入成功的 `ArtifactConsistencyResult`；失败的门禁结果将任务收敛到 `failed` 并保存一致性诊断。
+
+`ValidationReport` 位于 `app.agent.validation_report`，由 `ValidationFinding` 和 `RepairEvidence` 组成。每条 finding 包含 `category`、`message`、`file_path`、`scope`、可选错误码和 `context_hash`；报告包含稳定 `report_hash`，`passed` 表示 finding 集合为空。`authorize_repair()` 根据 finding 类别调用 `RepairRouter`，仅自动路由允许的代码/依赖修复，并通过 `RepairBudget` 记录 attempt、candidate hash 和是否应用；业务、测试与未知错误保留人工确认路径。
+
+框架能力模型位于 `app.agent.capabilities`，内置 `http_api`、`orm`、`database`、`authentication`、`websocket`、`dependency_injection`、`test_client` 和 `migrations` 能力。`app.agent.framework_profiles` 提供 FastAPI、Flask、Express 和 NestJS 的版本化 Profile；JavaScript 与 JS 别名统一解析到 TypeScript Profile，未知框架通过 `LookupError` 暴露待配置状态。
+
+`GenerationScheduler.run()` 接收冻结的 `GenerationPlan`、`GeneratedContent` 异步生成器和 `ExecutionBudget`。`FileGenerationContext` 为生成器提供计划文件、已完成上游内容、尝试次数和取消事件；文件提交统一经过 `ArtifactCommitter`。`GenerationNodeStatus` 支持 `pending`、`ready`、`running`、`completed`、`failed`、`timed_out`、`cancelled` 和 `blocked`，`GenerationScheduleResult` 返回每个节点状态、完成事件、调度终态和并发统计。无效上游阻断所有后代；无就绪节点且仍存在未完成节点时记录死锁并将其收敛为 `blocked`。
+
+`TraditionalAdapter` 实现 `GenerationModeAdapter`，将现有 `OrchestratorAgent` 的架构规划和单文件生成转换为 `GenerationPlan` 与 `GeneratedContent`。`route_generation()` 按 `AGENT_ORCHESTRATION_ENGINE` 或显式请求选择 `legacy`/`core`，默认选择 `legacy`；可选 shadow 执行只比较成功状态和文件路径集合，不保存源码内容。legacy workflow checkpoint 会记录 `engine`、`engine_version` 和 `engine_route`，恢复时可识别创建任务时的引擎版本。
+
+`app.agent.context_assembler` 提供 `ContextItem`、`ContextEnvelope`、`SkillPolicy` 和 `MCPToolDescriptor`。`ContextAssembler.assemble()` 按优先级排序并去重需求、计划、Retrieval、Memory 和 MCP/Skill 输入，输出稳定 `context_hash`；MCP 描述通过读写 scope、项目 scope、依赖、超时和审计字段表达权限边界。`app.agent.languages` 的 `get_language_adapter()` 和 `get_language_capabilities()` 为生成与验证提供统一语言入口。
+
+语言适配器还提供 `extract_signatures(content, file_path)` 接口。依赖图优先通过目标语言适配器提取接口，适配器可以接入语言专用解析器或受控工具链，失败时回退到内置解析器。
+
+`app.agent.toolchain.ToolchainRunner` 只执行 `CommandSpec` 参数数组，固定使用 `shell=false`，并施加工作目录、超时和输出大小限制。接口探针可以使用 `ToolchainAction.INSPECT`，Shell 解释器和 Shell 操作符会在 `CommandSpec` 校验阶段被拒绝。
+
+`app.agent.evaluation_matrix` 提供六种技术栈的固定 CRUD 评测样例，以及 `EvaluationRecord`、`summarize()` 和 `build_report()`。评测记录覆盖计划、接口、依赖闭包、文件、编译、测试、启动和持久化门禁，并聚合最终成功率、Token 数、P95 耗时、缺失样例、非法指标和失败分类。
+
+`app.agent.profile_discovery` 提供 `discover_profile()` 和 `probe_profile()`。发现结果包含语言、框架、应用域、证据、能力和能力缺口；探针结果包含检查项、失败原因和是否通过，允许 Pygame、Scrapy、Electron、React Native 及 Android Gradle 等候选栈进入统一生命周期。
+`ProfileCache.record_probe()` 持久化探针状态，`promote_supported()` 要求画像处于 `experimental` 且完整 conformance checks 通过后才升级为 `supported`。
+`profile_context()` 输出适合嵌入项目上下文的 JSON 结构，生成入口可据此读取应用域、能力集合和待处理能力缺口。
+`app.agent.capability_resolver.resolve_capabilities()` 返回 `ResolvedCapabilities`，包含 required、available、missing、generation_constraints、validation_steps 和 ready 字段。
+`ResolvedCapabilities.required_components` 为领域生成计划提供组件角色提示，例如游戏的 rules/renderer/input_loop、爬虫的 fetcher/parser/pipeline 和桌面应用的 window/event_handler。
+`ResolvedCapabilities.component_file_plan()` 将组件角色映射为相对文件路径和组件类型，供 GenerationPlan 生成文件节点。
+`add_profile_components()` 接收 Profile 上下文和现有文件计划，在 `extensible` 策略下追加领域组件及依赖，在 `strict` 策略下保持请求文件集合不变。
+`ValidationCoordinator` 将 Profile 的 `validation_steps` 转换为安全 Toolchain 命令；`execute()` 返回命令结果，`to_report()` 生成统一 `ValidationReport`。
+
+传统单文件生成创建 `HeartbeatTracker` 并传递给 Specialist 与 `ReActEngine`。simple ReAct 和 full ReAct 均监控模型活动；流式 content/reasoning chunk 更新活动时间，超过无活动阈值会取消当前调用并返回空结果，由现有内容恢复链路执行有限重试。API SSE 的 5 秒 heartbeat 仅承担客户端连接保活，不参与模型活动判断。
 
 ## Workflow Contracts
 
@@ -113,7 +165,7 @@ PPT 生成支持 `pptx`、`html` 和 `markdown` 格式的严格产物分流。�
 
 ## Validation Contracts
 
-云端验证使用 `source=cloud`、`scope=cloud_syntax`，并根据 `State.metadata.required_validation_scopes` 创建本地验证动作。本地结果适配器只接受 `local_runtime` 或 `local_e2e`，校验 task、session、revision、schema version、scope 和 `source=local`，并将协议字段映射到内部 `scope`、`passed`、`source=vscode` 契约。`passed`、`skipped`、`failed`、`timeout`、`rejected` 和 `cancelled` 进入终态推导，其中 `skipped` 视为已完成阶段，`waiting_for_confirmation` 保持未完成；适配器按已完成 scope 更新待执行动作，所有必需 scope 通过或跳过后才产生 `completed` 状态。VS Code 插件本地 E2E、Agent Host 真实 HTTP session 控制闭环和用户模型 Key 流程均已验收，模型驱动的跨工作台续跑仍属于独立场景验收。
+云端验证使用 `source=cloud`、`scope=cloud_syntax`，并根据 `State.metadata.required_validation_scopes` 创建本地验证动作。本地结果适配器只接受 `local_runtime` 或 `local_e2e`，校验 task、session、revision、schema version、scope 和 `source=local`，并将协议字段映射到内部 `scope`、`passed`、`source=vscode` 契约。`passed`、`skipped`、`failed`、`timeout`、`rejected`、`cancelled` 和 `unsupported` 进入状态推导，其中 `skipped` 视为已完成阶段，`waiting_for_confirmation` 保持未完成；当语言能力、验证命令或契约版本不可用时使用 `unsupported`，保留 `reason` 等诊断并停止创建后续本地验证动作。适配器按已完成 scope 更新待执行动作，所有必需 scope 通过或跳过后才产生 `completed` 状态。VS Code 插件本地 E2E、Agent Host 真实 HTTP session 控制闭环和用户模型 Key 流程均已验收，模型驱动的跨工作台续跑仍属于独立场景验收。
 
 `vscode-extension/src/protocol.ts` 提供 VS Code 端的 `PendingAction` 和 `LocalValidationResult` 类型及运行时解析器。插件端使用 `validation_scope`、`source=local` 和参数数组命令；连接层接入云端时需将 Envelope 字段映射到现有本地结果适配器的 `scope` 和 `source` 契约。
 

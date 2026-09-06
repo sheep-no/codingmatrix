@@ -12,7 +12,7 @@ _CONFIG_PATH = Path(__file__).resolve().parents[2] / "data" / "unified_model_con
 
 # YAML 不可用时的最小安全兜底，正常运行时以 unified_model_config.yaml 为准。
 _FALLBACK_DEFAULTS = {
-    "code": "Qwen/Qwen2.5-7B-Instruct",
+    "code": "Qwen/Qwen3.5-4B",
     "reasoning": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
     "architect": "THUDM/GLM-Z1-9B-0414",
     "fast": "Qwen/Qwen3-8B",

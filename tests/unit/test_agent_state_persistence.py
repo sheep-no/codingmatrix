@@ -31,4 +31,5 @@ async def test_persist_agent_state_writes_checkpoint_events_and_artifacts(monkey
     assert agent_state_adapter.save_graph_checkpoint.await_args.args[2].session_id == "unified-session"
     append.assert_awaited_once()
     artifact.assert_awaited_once()
+    assert artifact.await_args.kwargs["version"] == 200001
     db.commit.assert_awaited_once()

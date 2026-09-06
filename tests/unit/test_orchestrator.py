@@ -7,6 +7,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.agent.complexity import ComplexityAnalyzer, ProjectComplexity
+from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL
 from app.agent.dependency_graph import DependencyGraph
 from app.agent.code_validator import CodeValidator
 from app.agent.architect_json_parser import ArchitectJsonParser
@@ -185,7 +186,8 @@ class TestDynamicModelRouter:
     """动态模型路由测试"""
 
     def test_get_assignment_simple(self):
-        """SIMPLE 级别返回正确分配"""
+        """SIMPLE 级别使用运行时角色配置"""
+        _LayeredModelRouterCompat.reload_config()
         assignment = _LayeredModelRouterCompat.get_assignment(ProjectComplexity.SIMPLE)
         assert isinstance(assignment, ModelAssignment)
         assert assignment.architect_model == DEFAULT_ARCHITECT_MODEL
