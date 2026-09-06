@@ -17,6 +17,18 @@ const MAX_REQUESTS = 5 // 最大并发请求数
 const DEBUG = import.meta?.env?.DEV ?? false
 const log = (...args) => { if (DEBUG) console.log(...args) }
 const logError = (...args) => console.error(...args)
+const SENSITIVE_KEYS = new Set(['api_key', 'api_key_token', 'access_token', 'authorization', 'password', 'secret'])
+
+const sanitizePersistedValue = value => {
+  if (Array.isArray(value)) return value.map(sanitizePersistedValue)
+  if (!value || typeof value !== 'object') return value
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !SENSITIVE_KEYS.has(key.toLowerCase()))
+      .map(([key, nestedValue]) => [key, sanitizePersistedValue(nestedValue)])
+  )
+}
 
 /**
  * 请求优先级枚举
@@ -52,8 +64,8 @@ class StreamManager {
   saveStreamRequestState(requestData, messageData, conversationId) {
     const state = {
       requestId: this.currentRequestId,
-      requestData,
-      messageData,
+      requestData: sanitizePersistedValue(requestData),
+      messageData: sanitizePersistedValue(messageData),
       conversationId,
       timestamp: Date.now(),
       isStreaming: true

@@ -29,16 +29,16 @@ from app.utils.web_search import FreeWebSearch
 from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from fastapi.responses import StreamingResponse
 from app.utils.security import verify_token
-from app.db.add_history import save_history_to_db
+from app.db.add_history import invalidate_history_caches, save_history_to_db
 from app.utils.vision import analyze_image
 from app.models.file import File
 from app.models.history import History
-from sqlalchemy import select, delete, and_
+from sqlalchemy import select, delete, and_, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.utils.json_parser import RobustJSONParser
 from app.services.chat_context import fit_context, is_context_length_error
-from app.models.unified_state import Session
+from app.models.unified_state import Message, Session, SessionEvent
 from app.services.unified_state_service import append_message, create_session
 
 # 初始化日志
@@ -71,6 +71,27 @@ async def _append_shared_chat_messages(
     await append_message(db, session.id, user_id, "user", prompt)
     await append_message(db, session.id, user_id, "assistant", response)
     await db.commit()
+    await invalidate_history_caches()
+
+
+async def _delete_shared_chat_data(db: AsyncSession, user_id: int, conversation_ids: Optional[List[int]] = None, delete_all: bool = False) -> int:
+    session_query = select(Session.id).where(Session.user_id == user_id, Session.module == "chat")
+    if not delete_all:
+        session_query = session_query.where(Session.external_id.in_([str(value) for value in conversation_ids or []]))
+    session_ids = list((await db.scalars(session_query)).all())
+
+    if session_ids:
+        await db.execute(delete(Message).where(Message.session_id.in_(session_ids)))
+        await db.execute(delete(SessionEvent).where(SessionEvent.session_id.in_(session_ids)))
+        await db.execute(delete(Session).where(Session.id.in_(session_ids)))
+
+    file_query = update(File).where(File.user_id == user_id, File.is_deleted == 0)
+    if delete_all:
+        file_query = file_query.where(File.conversation_id.is_not(None))
+    else:
+        file_query = file_query.where(File.conversation_id.in_(conversation_ids or []))
+    await db.execute(file_query.values(is_deleted=1))
+    return len(session_ids)
 
 
 def _cleanup_partial_cache():
@@ -651,7 +672,8 @@ async def stream_response(
             conversation_id=conversation_id,
             prompt=prompt,
             response=full_response,
-            thinking=None
+            thinking=None,
+            commit=False
         )
         await _append_shared_chat_messages(db, int(user_id), new_conv_id, prompt, full_response)
         logger.info(f"历史记录保存成功 | conversation_id={new_conv_id}")
@@ -750,7 +772,8 @@ async def generate_response(
         conversation_id=conversation_id,
         prompt=prompt,
         response=response,
-        thinking=None
+        thinking=None,
+        commit=False
     )
     await _append_shared_chat_messages(db, int(user_id), new_conv_id, prompt, response)
     
@@ -893,10 +916,12 @@ async def delete_code_history(
         if all:
             stmt = delete(History).where(History.user_id == user_id)
             result = await db.execute(stmt)
+            shared_deleted = await _delete_shared_chat_data(db, int(user_id), delete_all=True)
             await db.commit()
+            await invalidate_history_caches()
             deleted_count = result.rowcount
-            logger.info(f"清除全部历史记录 | user_id={user_id} | deleted={deleted_count}")
-            return {"status": "deleted", "count": deleted_count}
+            logger.info(f"清除全部历史记录 | user_id={user_id} | deleted={deleted_count} | shared={shared_deleted}")
+            return {"status": "deleted", "count": deleted_count, "shared_count": shared_deleted}
         else:
             stmt = delete(History).where(
                 and_(
@@ -905,10 +930,12 @@ async def delete_code_history(
                 )
             )
             result = await db.execute(stmt)
+            shared_deleted = await _delete_shared_chat_data(db, int(user_id), conversation_ids=conversation_ids)
             await db.commit()
+            await invalidate_history_caches()
             deleted_count = result.rowcount
-            logger.info(f"删除历史记录 | user_id={user_id} | deleted={deleted_count}")
-            return {"status": "deleted", "count": deleted_count, "conversation_ids": conversation_ids}
+            logger.info(f"删除历史记录 | user_id={user_id} | deleted={deleted_count} | shared={shared_deleted}")
+            return {"status": "deleted", "count": deleted_count, "shared_count": shared_deleted, "conversation_ids": conversation_ids}
 
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"删除历史记录异常 | user_id={user_id} | error={str(e)}", exc_info=True)

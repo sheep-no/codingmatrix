@@ -7,6 +7,7 @@
           role="navigation"
           aria-label="主导航"
           @select-history="handleSelectHistory"
+          @delete-history="handleDeleteHistory"
           @new-conversation="handleNewConversation"
           @use-tool="handleUseTool"
         />
@@ -132,6 +133,7 @@
   import { useRouter } from 'vue-router'
   import { api } from '@/utils/api/index'
   import { streamManager } from '@/utils/streamManager'
+  import { consumeJsonStream } from '@/utils/streamParser'
   import { useNavigationStore } from '@/stores/navigation'
   import { useUserStore } from '@/stores/user'
   import { useApiKeyStore } from '@/stores/apikey'
@@ -516,124 +518,17 @@
         throw new Error(errorMessage)
       }
 
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-
-      const readWithAbort = (reader, signal) => {
-        if (signal.aborted) {
-          return Promise.reject(new DOMException('Aborted', 'AbortError'))
-        }
-
-        return new Promise((resolve, reject) => {
-          const onAbort = () => {
-            reader
-              .cancel()
-              .then(() => reject(new DOMException('Aborted', 'AbortError')))
-              .catch(reject)
+      await consumeJsonStream(
+        response,
+        data => {
+          if (currentMessageData.is_project_generator) {
+            handleProjectGeneratorStream(data, lastMessageIndex)
+          } else {
+            handleChatStream(data, streamConversationId, lastMessageIndex, currentMessageData)
           }
-
-          signal.addEventListener('abort', onAbort)
-
-          reader.read().then(
-            result => {
-              signal.removeEventListener('abort', onAbort)
-              resolve(result)
-            },
-            error => {
-              signal.removeEventListener('abort', onAbort)
-              reject(error)
-            }
-          )
-        })
-      }
-
-      while (true) {
-        if (abortController.signal.aborted) {
-          break
-        }
-
-        let readResult
-        try {
-          readResult = await readWithAbort(reader, abortController.signal)
-        } catch (e) {
-          break
-        }
-
-        const { done, value } = readResult
-        if (done) break
-
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n').filter(line => line.trim())
-
-        for (const line of lines) {
-          try {
-            if (line.startsWith('data: ')) {
-              const data = JSON.parse(line.substring(6))
-
-              if (currentMessageData.is_project_generator) {
-                handleProjectGeneratorStream(data, lastMessageIndex)
-              } else {
-                handleChatStream(data, streamConversationId, lastMessageIndex, currentMessageData)
-              }
-            } else {
-              const data = JSON.parse(line)
-
-              if (currentMessageData.is_project_generator) {
-                handleProjectGeneratorStream(data, lastMessageIndex)
-              } else {
-                handleChatStream(data, streamConversationId, lastMessageIndex, currentMessageData)
-              }
-            }
-          } catch (e) {
-            const conversationIdMatch = line.match(/conversation_id\s*[:\s]+\s*(\d+)/)
-            if (conversationIdMatch) {
-              const newConversationId = String(conversationIdMatch[1])
-              const oldConversationId = currentConversationId.value
-              currentConversationId.value = newConversationId
-
-              if (oldConversationId && String(oldConversationId).startsWith('temp_')) {
-                const cachedHistory = conversationHistoryMap.value.get(oldConversationId)
-                if (cachedHistory) {
-                  conversationHistoryMap.value.set(
-                    newConversationId,
-                    JSON.parse(JSON.stringify(cachedHistory))
-                  )
-                  conversationHistoryMap.value.delete(oldConversationId)
-
-                }
-              }
-
-              if (tempConversationId.value) {
-                tempConversationId.value = null
-              }
-
-              setTimeout(() => {
-                if (leftlistRef.value && leftlistRef.value.addNewHistoryItem) {
-                  const newItem = {
-                    id: Number(conversationIdMatch[1]),
-                    conversation_id: newConversationId,
-                    title: messageData.prompt.slice(0, 50) + '...',
-                    prompt: messageData.prompt,
-                    created_at: new Date().toISOString()
-                  }
-
-                  if (oldConversationId && String(oldConversationId).startsWith('temp_')) {
-                    if (leftlistRef.value.updateHistoryItem) {
-                      leftlistRef.value.updateHistoryItem(oldConversationId, newItem)
-                    }
-                  } else {
-                    leftlistRef.value.addNewHistoryItem(newItem)
-                  }
-                }
-
-                if (leftlistRef.value && leftlistRef.value.fetchHistory) {
-                  leftlistRef.value.fetchHistory()
-                }
-              }, 500)
-            }
-          }
-        }
-      }
+        },
+        { signal: abortController.signal }
+      )
 
       if (currentMessageData.is_project_generator) {
         if (conversationHistory.value[lastMessageIndex]) {
@@ -985,7 +880,30 @@
     }
   }
 
+  const handleDeleteHistory = conversationId => {
+    const key = String(conversationId)
+    conversationHistoryMap.value.delete(key)
+
+    if (String(currentConversationId.value) !== key) return
+
+    selectedHistoryItem.value = null
+    currentConversationId.value = null
+    tempConversationId.value = null
+    conversationHistory.value = []
+    localStorage.removeItem('chatState')
+    streamManager.clearStreamRequestState()
+  }
+
   const handleSelectHistory = async item => {
+    if (!item) {
+      selectedHistoryItem.value = null
+      currentConversationId.value = null
+      tempConversationId.value = null
+      conversationHistory.value = []
+      localStorage.removeItem('chatState')
+      return
+    }
+
     if (currentConversationId.value) {
       saveConversationToMap(currentConversationId.value)
     }

@@ -430,7 +430,7 @@
   import VirtualHistoryList from './VirtualHistoryList.vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
 
-  const emit = defineEmits(['newConversation', 'selectHistory', 'login', 'logout', 'useTool'])
+  const emit = defineEmits(['newConversation', 'selectHistory', 'deleteHistory', 'login', 'logout', 'useTool'])
 
   const userStore = useUserStore()
 
@@ -662,6 +662,8 @@
         } catch (dbError) {
           console.error('删除本地缓存失败:', dbError)
         }
+
+        emit('deleteHistory', item.conversation_id)
       } else {
         const errorData = await response.json().catch(() => null)
         console.error('[ERR] 删除失败详情:', response.status, errorData)
