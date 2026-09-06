@@ -16,6 +16,10 @@ from typing import List, Optional, Dict, Any
 
 from app.utils import call_llm
 from app.agent.architect_json_parser import ArchitectJsonParser
+from app.utils.pptx.commercial_content import (
+    NARRATIVE_ROLES,
+    build_expanded_commercial_page_blueprint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +48,8 @@ class SlideOutline:
     bullets: List[str] = field(default_factory=list)
     image_keywords: List[str] = field(default_factory=list)
     notes: str = ""
+    narrative_role: str = ""
+    content_blocks: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -138,6 +144,10 @@ class PPTAgent:
 3. 最后一页必须是 "end" 类型 (结束页)
 4. 总页数必须等于 {num_slides}
 5. 每页 bullets 数量不超过 6 条，每条不超过 40 字
+6. 封面和结束页之外的页面按 opportunity_map、evidence_story、strategic_choice、execution_roadmap、decision_close 组织商业叙事
+7. 每个内容页输出 4 个 content_blocks，bullets 与 content_blocks 的 content 保持一致
+8. opportunity_map 提供 ROI、优先级和验证周期；strategic_choice 提供成本、周期、风险和推荐依据
+9. execution_roadmap 提供阶段交付物、指标和门槛；decision_close 提供负责人、时限和优先级
 
 JSON Schema:
 {{
@@ -148,7 +158,9 @@ JSON Schema:
       "title": "页面标题",
       "bullets": ["要点1", "要点2"],
       "image_keywords": ["关键词1", "关键词2"],
-      "notes": "备注 (可选)"
+      "notes": "备注 (可选)",
+      "narrative_role": "{'|'.join(NARRATIVE_ROLES)}",
+      "content_blocks": [{{"type": "语义类型", "content": "展示内容", "metadata": {{"metric": "指标", "target": "目标"}}}}]
     }}
   ]
 }}
@@ -221,6 +233,7 @@ JSON Schema:
 3. 必须包含 title 和 slides 字段
 4. slides 数组中的每个对象必须包含 type 和 title 字段
 5. type 只能是：title, chapter, content, bullet, image, chart, end
+6. 保留 narrative_role 和 content_blocks 字段及其中的 metadata
 
 JSON Schema：
 {{
@@ -231,7 +244,9 @@ JSON Schema：
       "title": "页面标题",
       "bullets": ["要点1", "要点2"],
       "image_keywords": ["关键词1"],
-      "notes": "备注"
+      "notes": "备注",
+      "narrative_role": "{'|'.join(NARRATIVE_ROLES)}",
+      "content_blocks": [{{"type": "语义类型", "content": "展示内容", "metadata": {{}}}}]
     }}
   ]
 }}"""
@@ -263,17 +278,38 @@ JSON Schema：
     def _validate_outline(self, data: Dict, topic: str, num_slides: int) -> Optional[PresentationOutline]:
         """验证并转换 JSON 数据为 PresentationOutline"""
         try:
+            if num_slides <= 1:
+                return PresentationOutline(
+                    title=data.get("title", topic),
+                    slides=[SlideOutline(type="title", title=data.get("title", topic))],
+                )
             slides_data = data.get("slides", [])
             slides = []
             valid_types = {e.value for e in SlideType}
+            narrative_index = 0
 
             for s in slides_data:
+                bullets = s.get("bullets", [])[:6]
+                content_blocks = s.get("content_blocks", [])[:6]
+                if not content_blocks and bullets:
+                    content_blocks = [
+                        {"type": "text", "content": bullet, "metadata": {}}
+                        for bullet in bullets
+                    ]
+                slide_type = s.get("type", "content")
+                narrative_role = s.get("narrative_role", "")
+                if slide_type not in {"title", "end"}:
+                    if narrative_role not in NARRATIVE_ROLES:
+                        narrative_role = NARRATIVE_ROLES[narrative_index % len(NARRATIVE_ROLES)]
+                    narrative_index += 1
                 slide = SlideOutline(
-                    type=s.get("type", "content"),
+                    type=slide_type,
                     title=s.get("title", ""),
-                    bullets=s.get("bullets", [])[:6],
+                    bullets=bullets,
                     image_keywords=s.get("image_keywords", [])[:3],
                     notes=s.get("notes", ""),
+                    narrative_role=narrative_role,
+                    content_blocks=content_blocks,
                 )
                 if slide.type not in valid_types:
                     slide.type = "content"
@@ -291,22 +327,48 @@ JSON Schema：
             while len(slides) > num_slides:
                 slides.pop(-2)
 
+            blueprint = build_expanded_commercial_page_blueprint(
+                topic, max(1, num_slides - 2)
+            )
+            while len(slides) < num_slides:
+                content_count = sum(slide.type not in {"title", "end"} for slide in slides)
+                page = blueprint[content_count % len(blueprint)]
+                slides.insert(-1, SlideOutline(
+                    type=page["slide_type"],
+                    title=page["title"],
+                    bullets=[block["content"] for block in page["blocks"]],
+                    image_keywords=page["asset_intent"]["keywords"],
+                    narrative_role=page["role"],
+                    content_blocks=page["blocks"],
+                ))
+
             return PresentationOutline(title=data.get("title", topic), slides=slides)
         except Exception as e:
             logger.warning(f"大纲验证失败: {e}")
             return None
 
     def _fallback_outline(self, topic: str, num_slides: int) -> PresentationOutline:
+        blueprint = build_expanded_commercial_page_blueprint(
+            topic, max(1, num_slides - 2)
+        )
+        if num_slides <= 1:
+            return PresentationOutline(
+                title=topic,
+                slides=[SlideOutline(type="title", title=topic, bullets=[])],
+            )
         slides = [
             SlideOutline(type="title", title=topic, bullets=[]),
-            SlideOutline(type="chapter", title="目录", bullets=["引言", "主体", "总结"])
         ]
 
-        for i in range(2, num_slides - 1):
+        for i in range(1, num_slides - 1):
+            page = blueprint[(i - 1) % len(blueprint)]
             slides.append(SlideOutline(
-                type="content",
-                title=f"第 {i} 章",
-                bullets=[f"要点 {i}-1", f"要点 {i}-2"]
+                type=page["slide_type"],
+                title=page["title"],
+                bullets=[block["content"] for block in page["blocks"]],
+                image_keywords=page["asset_intent"]["keywords"],
+                narrative_role=page["role"],
+                content_blocks=page["blocks"],
             ))
 
         slides.append(SlideOutline(type="end", title="谢谢", bullets=[]))
@@ -325,6 +387,8 @@ JSON Schema：
                 "bullets": slide.bullets,
                 "image_keywords": slide.image_keywords,
                 "notes": slide.notes,
+                "narrative_role": slide.narrative_role,
+                "content_blocks": slide.content_blocks,
             })
         return {"title": outline.title, "slides": slides}
 
@@ -369,7 +433,9 @@ JSON Schema:
       "title": "页面标题",
       "bullets": ["要点1", "要点2"],
       "image_keywords": ["关键词1"],
-      "notes": "备注"
+      "notes": "备注",
+      "narrative_role": "{'|'.join(NARRATIVE_ROLES)}",
+      "content_blocks": [{{"type": "语义类型", "content": "展示内容", "metadata": {{}}}}]
     }}
   ]
 }}

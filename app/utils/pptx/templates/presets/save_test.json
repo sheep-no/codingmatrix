@@ -4,6 +4,8 @@
   "name_zh": "保存测试",
   "category": "education",
   "description": "保存测试模板",
+  "schema_version": 2,
+  "version": "1.0",
   "primary_color": "ABC123",
   "secondary_color": "2E75B6",
   "accent_color": "70AD47",
@@ -28,5 +30,69 @@
   "has_header_bar": true,
   "has_footer_bar": true,
   "has_corner_decor": false,
-  "has_page_number": true
+  "has_page_number": true,
+  "colors": {
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF",
+    "primary": "#ABC123",
+    "secondary": "#2E75B6",
+    "accent": "#70AD47",
+    "text": "#333333",
+    "muted_text": "#666666",
+    "success": "#16A34A",
+    "warning": "#D97706",
+    "error": "#DC2626",
+    "chart_series": [
+      "#ABC123",
+      "#2E75B6",
+      "#70AD47"
+    ]
+  },
+  "typography": {
+    "title_font": "微软雅黑",
+    "body_font": "微软雅黑",
+    "title_font_en": "Arial",
+    "body_font_en": "Calibri",
+    "title_size": 32,
+    "heading_size": 24,
+    "body_size": 16,
+    "caption_size": 12,
+    "title_weight": 700,
+    "body_weight": 400,
+    "line_spacing": 1.3
+  },
+  "spacing": {
+    "safe_margin": 0.8,
+    "grid_columns": 12,
+    "grid_gutter": 0.2,
+    "block_gap": 0.15,
+    "title_margin_bottom": 0.4,
+    "paragraph": 0.15,
+    "bullet_indent": 0.3
+  },
+  "shapes": {
+    "corner_radius": 0.12,
+    "border_width": 1,
+    "shadow": "subtle",
+    "divider_width": 1,
+    "icon_size": 0.3,
+    "header_bar": true,
+    "footer_bar": true
+  },
+  "image": {
+    "fit": "contain",
+    "crop_focus": "center",
+    "corner_radius": 0.12,
+    "mask": "none",
+    "tone": "natural",
+    "credit_position": "bottom_right"
+  },
+  "chart": {
+    "axis_color": "#666666",
+    "grid_color": "#666666",
+    "legend_position": "bottom",
+    "show_labels": true,
+    "show_source": true,
+    "source_style": "caption"
+  }
 }

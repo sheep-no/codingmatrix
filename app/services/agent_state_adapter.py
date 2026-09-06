@@ -79,6 +79,22 @@ async def persist_agent_state(db: AsyncSession, user_id: int, state: State) -> s
     unified_state = State.from_dict(state.to_dict())
     unified_state.session_id = session.id
     task_id = await save_graph_checkpoint(db, user_id, unified_state)
+    model_context = state.metadata.get("model_context")
+    if isinstance(model_context, dict):
+        from app.services.model_context_service import get_model_context, save_model_context
+
+        runtime_config = {
+            key: model_context[key]
+            for key in ("config_version", "roles")
+            if key in model_context
+        }
+        current_context = await get_model_context(db, user_id, session.id)
+        config_changed = current_context is None or any(
+            current_context.get(key) != value
+            for key, value in runtime_config.items()
+        )
+        if config_changed:
+            await save_model_context(db, user_id, session.id, runtime_config)
     for message in state.messages:
         await append_task_event(
             db,

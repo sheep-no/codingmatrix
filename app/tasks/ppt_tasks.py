@@ -21,7 +21,7 @@ async def _generate_ppt(
     request_data: dict[str, Any],
     progress,
 ) -> dict[str, Any]:
-    """Run the PPT pipeline with only worker-local, reconstructable state."""
+    """Run the PPT pipeline through the recoverable stage orchestrator."""
     from app.api.v1.aiGeneratorPptx import (
         OutputFormat,
         PPTGenerationRequest,
@@ -30,45 +30,142 @@ async def _generate_ppt(
         generate_markdown_ppt,
         generate_ppt_outline,
         generate_pptx_file_enhanced,
+        _convert_pptx_to_pdf,
     )
+    from app.services.ppt_generation_orchestrator import PPTGenerationOrchestrator
+    from app.services.ppt_generation_persistence import (
+        build_ppt_trace_context,
+        persist_ppt_generation_result,
+        save_ppt_stage_checkpoint,
+        serialize_quality_report,
+    )
+    from app.services.ppt_quality_orchestrator import run_quality_pipeline
+    from app.utils.pptx.semantic_renderer import build_render_metadata
+    from app.db.database import async_session
 
     request = PPTGenerationRequest.model_validate(request_data)
-    await progress.update(5, "正在准备上下文...")
-    await progress.update(20, "正在生成 PPT 大纲...")
-    outline = await generate_ppt_outline(request, user_id=str(user_id))
-
     output_dir = Path(PPT_OUTPUT_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
-    snapshot_path = output_dir / f"{task_id}_slides.json"
-    snapshot_path.write_text(
-        json.dumps(outline.get("slides", []), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
     extension = {
         OutputFormat.PPTX: "pptx",
         OutputFormat.HTML: "html",
         OutputFormat.MARKDOWN: "md",
-        OutputFormat.PDF: "pptx",
+        OutputFormat.PDF: "pdf",
     }.get(request.output_format, "pptx")
     filepath = output_dir / f"{task_id}.{extension}"
+    quality_mode = (request.options or {}).get("quality_mode", "standard")
+    trace = build_ppt_trace_context(request.options, request.template, quality_mode)
+    state: dict[str, Any] = {"request": request, "quality_mode": quality_mode, "trace": trace}
 
-    if request.output_format == OutputFormat.HTML:
-        await progress.update(60, "正在生成 HTML 格式...")
-        await generate_html_ppt(filepath, outline, request)
-    elif request.output_format == OutputFormat.MARKDOWN:
-        await progress.update(60, "正在生成 Markdown 格式...")
-        await generate_markdown_ppt(filepath, outline, request)
-    else:
-        await generate_pptx_file_enhanced(filepath, outline, request, update_progress=progress.update)
+    async def planning(context):
+        await progress.update(20, "正在生成 PPT 大纲...")
+        approved_outline = (request.options or {}).get("approved_outline")
+        if approved_outline:
+            from app.api.v1.aiGeneratorPptx import _normalize_approved_outline
 
+            context["outline"] = _normalize_approved_outline(approved_outline)
+        else:
+            context["outline"] = await generate_ppt_outline(request, user_id=str(user_id))
+        snapshot_path = output_dir / f"{task_id}_slides.json"
+        snapshot_path.write_text(
+            json.dumps(context["outline"].get("slides", []), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        async with async_session() as db:
+            await save_ppt_stage_checkpoint(
+                db,
+                task_id,
+                int(user_id),
+                1,
+                "planning",
+                trace,
+                {"slides": context["outline"].get("slides", [])},
+            )
+            await db.commit()
+        return context
+
+    async def render_current_outline(context):
+        outline = context["outline"]
+        if request.output_format == OutputFormat.PDF:
+            pptx_filepath = output_dir / f"{task_id}.pptx"
+            await generate_pptx_file_enhanced(pptx_filepath, outline, request, update_progress=progress.update)
+            await _convert_pptx_to_pdf(pptx_filepath, filepath)
+        elif request.output_format == OutputFormat.HTML:
+            await progress.update(60, "正在生成 HTML 格式...")
+            await generate_html_ppt(filepath, outline, request)
+        elif request.output_format == OutputFormat.MARKDOWN:
+            await progress.update(60, "正在生成 Markdown 格式...")
+            await generate_markdown_ppt(filepath, outline, request)
+        else:
+            await generate_pptx_file_enhanced(filepath, outline, request, update_progress=progress.update)
+        return context
+
+    async def rendering(context):
+        return await render_current_outline(context)
+
+    async def rule_qa(context):
+        quality_slides = [
+            {
+                **slide,
+                "id": slide.get("id", f"slide-{index + 1}"),
+                "elements": slide.get("elements", []),
+                "render_metadata": build_render_metadata(slide, token_version=str(trace["template_version"])),
+            }
+            for index, slide in enumerate(context["outline"].get("slides", []))
+        ]
+        context["quality_slides"], context["quality_report"] = await run_quality_pipeline(
+            quality_slides, context["quality_mode"]
+        )
+        async with async_session() as db:
+            await save_ppt_stage_checkpoint(
+                db,
+                task_id,
+                int(user_id),
+                2,
+                "rule_qa",
+                trace,
+                {"quality": serialize_quality_report(context["quality_report"])},
+            )
+            await db.commit()
+        return context
+
+    async def reflow(context):
+        context["outline"] = {**context["outline"], "slides": context["quality_slides"]}
+        if context["quality_report"].reflow_attempts:
+            await render_current_outline(context)
+        return context
+
+    handlers = {
+        "planning": planning,
+        "assets": lambda context: context,
+        "rendering": rendering,
+        "rule_qa": rule_qa,
+        "reflow": reflow,
+        "vision_qa": lambda context: context,
+        "completed": lambda context: context,
+    }
+    await progress.update(5, "正在准备上下文...")
+    orchestration = await PPTGenerationOrchestrator(handlers).run(state)
+    if orchestration.status != "completed":
+        raise RuntimeError(orchestration.error or f"PPT 编排失败：{orchestration.stage}")
     result = {
         "filename": filepath.name,
         "ppt_id": task_id,
         "download_url": f"/api/v1/pptx/download/{task_id}?format={extension}",
         "preview_url": f"/api/v1/pptx/preview/{task_id}" if extension == "pptx" else None,
     }
-    await progress.update(100, "PPT 生成完成")
+    async with async_session() as db:
+        await persist_ppt_generation_result(
+            db,
+            task_id,
+            int(user_id),
+            filepath,
+            extension,
+            result,
+            trace,
+            orchestration.context["quality_slides"],
+            orchestration.context["quality_report"],
+        )
     return result
 
 
@@ -164,6 +261,9 @@ def generate_ppt(self, task_id: str, user_id: int, request_data: dict[str, Any],
     except SoftTimeLimitExceeded:
         logger.error("PPT task timed out | task_id=%s", task_id)
         raise RuntimeError("PPT 任务执行超时")
+    except Exception as exc:
+        logger.exception("PPT task failed | task_id=%s", task_id)
+        raise self.retry(exc=exc, countdown=60)
 
 
 __all__ = ["generate_ppt"]

@@ -6,7 +6,7 @@
 
 本地默认环境使用 SQLite `app.db` 和 Redis `redis://127.0.0.1:6379/0`。硅基流动配置使用 `SILICONFLOW_API_KEY` 和 `SILICONFLOW_BASE_URL`，默认地址为 `https://api.siliconflow.cn/v1`；真实 API Key 只放在本地 `.env`，使用占位符维护示例。启动时 `.env` 采用 `override=False`，已有进程环境变量优先。
 
-前端 Vite 默认监听 3000 端口，并将 `/api/v1`、`/api/v2` 代理到后端 8000 端口。后端构建产物由 FastAPI 提供时使用 8000 端口。
+前端 Vite 默认监听 3000 端口，并将 `/api/v1`、`/api/v2` 和 WebSocket 请求代理到后端 8000 端口。后端 Docker 运行时使用 8080，Nginx 对外提供 80 端口。前端构建产物输出到仓库根目录 `dist/`。
 
 ## 初始化数据库
 
@@ -37,17 +37,19 @@ PYTHONPATH=/workspace REDIS_URL=redis://127.0.0.1:6379/0 celery -A app.celery_ap
 
 配置 `PPT_USE_CELERY=true` 后，PPT 异步生成入口提交到 `ppt` 队列。
 
+PPT 同步真实生成 E2E 需要前端监听 `3000`、后端监听 `8000`，并准备 Redis、数据库和可用的临时注册接口。测试会在浏览器上下文中获取 CSRF token、注册一次性用户，调用 `/api/v1/pptx/generate` 并下载返回的 PPTX；测试使用内置占位密码，不读取项目密钥。
+
 统一状态保留任务每天执行一次：默认资源在 7 天后进入归档窗口，归档后 30 天进入外部 artifact 清理窗口。活动任务、有效会话和恢复中的任务会阻止处理；外部存储清理失败会保留 `retryable` 记录并等待下次调度重试。
 
 读切换前调用 `build_reconciliation_report` 检查六类统一资源覆盖和开放差异，再使用 `ReadCutoverController.enable` 按模块顺序推进；发现一致性或权限异常时调用 `rollback` 恢复该模块的 legacy 读源。
 
 四模块批量切换使用 `activate_modules_in_order`，通过 `rollout_percentage` 控制用户 cohort 比例。灰度验证应按 AICloud、GirlAI、Agent、Workflow 顺序执行，每个模块完成核对后再进入下一个模块。
 
-P4.4 当前验收：状态迁移、核对、切换、worker recovery、SQL replay、快照恢复和跨用户所有权测试为 `16 passed`；认证、核心导航、Workflow、PPT 浏览器验收为 `34 passed`；API 路由契约测试为 `3 passed`、`2 skipped`；前端单元测试为 `3 passed`。8000、8080、3000 端口健康检查返回 200，Redis 返回 `PONG`。PPT Celery worker 重启后重新注册 `app.tasks.ppt_tasks.generate_ppt` 并进入 ready 状态，真实 HTTP Markdown 任务已由 worker 消费并完成 `success`。WebSearch 外部网络流程为 `14 passed`，PPT 状态与恢复专项为 `12 passed`。浏览器测试使用系统 Chromium；供应商 401 响应类型错误和过时系统信息端点引用已修复。
+历史 P4.4 验收记录：状态迁移、核对、切换、worker recovery、SQL replay、快照恢复和跨用户所有权测试为 `16 passed`；认证、核心导航、Workflow、PPT 浏览器验收为 `34 passed`；API 路由契约测试为 `3 passed`、`2 skipped`。该批次记录用于追溯，实时结果以当前命令执行输出为准。浏览器测试使用系统 Chromium；供应商 401 响应类型错误和过时系统信息端点引用已修复。
 
 API 路由契约 E2E 已完成静态路径校准，当前结果为 `3 passed`、`2 skipped`。认证 E2E 使用 `TEST_ADMIN_EMAIL` 和 `TEST_ADMIN_PASSWORD`，默认测试邮箱为 `admin_test@example.com`；固定账号未设置密码时认证用例会明确跳过。完整浏览器验收已通过一次性本地测试账号完成。
 
-GirlAI 本轮验证结果：后端专项回归 `40 passed`，前端 GirlAI API 测试 `2 passed`；使用现有注册账户的真实登录、角色列表、GirlAI 对话、历史查询和双写保存均通过。真实对话响应耗时约 4.6 秒并返回 HTTP 200。模型供应商鉴权失败时返回通用 HTTP 502，失败请求不会写入历史。
+GirlAI 情绪与意图增强专项回归覆盖结构化回合、分类阈值、关怀策略、记忆、上下文、幂等预留、过期租约接管、owner fencing、首次会话唯一性、失败事件、统一状态和数据库服务，当前结果为 `82 passed`。Alembic head 为 `20260904_girlai_turn_fencing`。真实 HTTP 已验证主模型与分类模型调用、状态恢复和同一 `turn_id` 幂等回放成功；分类模型使用正数 `thinking_budget` 直接完成识别，推理文本过滤生效。嵌入 JSON 提取、512 token 最低结构化输出预算、温度限制和 60 秒伙伴请求超时已通过真实供应商复验：主回合、状态读取和幂等回放均返回 `200`，`structured_output` 降级标记消失，回放响应与原响应一致，状态版本保持一致。
 
 ## 验证命令
 
@@ -60,6 +62,9 @@ python3 -m pytest tests/unit/test_workflow_registry.py tests/unit/test_agent_sta
 
 # 运行 AICloud 和 GirlAI 历史迁移回归测试
 python3 -m pytest tests/unit/test_aicloud_state_adapter.py tests/unit/test_girlai_state_adapter.py -q
+
+# 运行 Agent 模型上下文持久化回归测试
+python3 -m pytest tests/unit/test_model_context_service.py tests/unit/test_agent_state_persistence.py tests/unit/test_workflow_state_persistence_hook.py -q
 
 # 运行统一状态 Redis、SQL replay 和快照恢复集成测试
 python3 -m pytest tests/integration/test_state_recovery.py -q
@@ -74,6 +79,74 @@ npm --prefix vscode-extension test
 npm --prefix vscode-extension run e2e
 ```
 
+### 图表编辑器验证
+
+```bash
+# 运行图表编辑器单元测试
+npm --prefix src run test:run -- views/ChartEditorPage.test.js
+
+# 运行图表编辑器桌面和移动端 E2E
+./node_modules/.bin/playwright test tests/e2e/chart-editor.spec.js --reporter=line --timeout=60000
+
+# 构建前端生产资源
+npm --prefix src run build
+```
+
+图表编辑器的单元测试覆盖数据导入、字段识别、聚合、图表编辑、撤销重做、草稿两天过期、项目 JSON 导入导出和文件重新关联。E2E 覆盖桌面端导入与恢复流程、PNG 导出、移动端操作和横向溢出检查。项目配置草稿使用 `localStorage` 保存元数据，浏览器清理站点数据后应通过项目 JSON 或原始数据文件恢复。
+
+## 最近验收结果（2026-09-05）
+
+- PPT 专项回归：`225 passed`；共享持久化新增测试覆盖 Artifact 父子关联、内容 hash、质量诊断、Checkpoint、归属隔离和重试幂等，Celery Markdown 生产链路通过隔离数据库验收。
+- PPT 最终页数与模板令牌回归：后端单元测试 `1947 passed, 2 skipped`，其中 PPT 相关测试 `236 passed`；大纲 API 集成测试 `5 passed`，前端全量 `51 passed`，Vite 生产构建通过；实际 PPTX 断言覆盖 5 页最终总数、重复封面归一化和模板主色写入。
+- PPT 任务 3/4 场景、模板、设计令牌和语义规划专项回归：完整 PPT 测试 `231 passed`；规划器覆盖页面类型兼容映射、容量预算、布局评分、令牌/布局版本和连续布局惩罚。
+- PPT 任务 5 编排回归：完整 PPT 测试 `233 passed`；标准模式跳过视觉复审，精修模式保留完整阶段，取消与指定阶段恢复契约通过。
+- PPT 任务 6 渲染与素材回归：完整 PPT 测试 `235 passed`；11 类页面视觉骨架、图片等比适配/回退、图表选择和来源占位规则通过。
+- `elegant` 董事会备忘录主题统一生成测试：`24 passed`；6 页 PPTX、PDF 和 PNG 样稿生成成功，证据页与路线页二轮视觉评分为 `9.0/10` 和 `8.5/10`。
+- 前端全量测试：`36 passed`；PPT 工作流测试覆盖大纲修改、新增、重排、删除、批准禁用，以及逐页质量分、问题、修复动作和人工复核标记展示；前端生产构建成功。
+- VS Code 扩展构建成功，Node 原生测试：`62 passed`。
+- VS Code Extension Development Host E2E 成功，覆盖扩展发现、激活、兼容性校验、Agent Workbench 命令和工作区加载。
+- 已生成 VSIX：`vscode-extension/codingmatrix-local-validation-0.1.0.vsix`。
+- 真实 Agent/PPT 验收已覆盖 HTML 产物生成、PPTX HTTP 下载、WebSocket 进度事件和错误格式请求返回 404。
+- 游戏 AI PPT 真实生成 E2E：`1 passed`；请求 `slide_count=16` 返回 15 个内容页并下载生成的 16 页 PPTX，内容断言覆盖 `NPC`、`UGC` 和 AI 游戏领域语义。
+- PPT 三步 mock E2E 当前为 `1 passed`；前端 Vitest 当前为 `15 files passed, 48 tests passed`。
+- 种子账户认证版 PPT 页面 E2E 当前为 `6 passed`；认证 fixture 在已完成登录后允许 CSRF 辅助初始化遇到 `429`，避免重复测试触发限流影响只读页面验收。
+- 图表编辑器专项验收：前端单元测试 `19 passed`；桌面和移动端 Playwright `2 passed`；元数据草稿、两天过期、项目 JSON 导入导出和同名文件重新关联通过；Vite 生产构建通过。
+
+VS Code 扩展打包仍会提示缺少 `repository`、`LICENSE` 和 `.vscodeignore` 元数据。这些提示不影响当前构建与测试，正式发布前应补齐。
+
+## 前端开发
+
+```bash
+# 进入前端目录
+cd /workspace/src
+
+# 启动开发服务
+npm run dev
+
+# 单次运行测试
+npm run test:run
+
+# 执行 lint
+npm run lint
+
+# 构建生产资源
+NODE_OPTIONS=--max-old-space-size=1800 npm run build
+```
+
+根目录的 `npm run test:e2e` 用于 Playwright；前端 `dev`、`build`、`lint` 和 Vitest 命令均位于 `src/package.json`。
+
+PPT 三步流程的供应商无关 E2E 位于 `tests/e2e/ppt-generation-mock.spec.js`，使用 mock HTTP/WebSocket 覆盖大纲草稿、批准、生成进度、质量报告和 PPTX 下载；认证版 PPT E2E 需要设置 `TEST_ADMIN_PASSWORD`。
+
+游戏 AI 真实生成 E2E 位于 `tests/e2e/test_ppt_game_ai.e2e.spec.js`。根目录 Playwright 配置必须与根目录依赖一起使用，避免根目录和 `src/node_modules` 的 Playwright 重复加载：
+
+```bash
+# 运行游戏 AI PPT 真实生成 E2E
+cd /workspace
+npx --no-install playwright test tests/e2e/test_ppt_game_ai.e2e.spec.js --config=playwright.config.js --project=chromium
+```
+
+该用例可能因供应商模型不可用进入领域化大纲回退，但 PPTX 内容和下载链路仍应完成；视觉分析在请求没有用户 `api_key_token` 时会被跳过并使用本地布局。
+
 历史云端验证记录为：排除 Redis、数据库和 FAISS 外部条件的单元测试 1605 passed、2 skipped。当前本地环境已安装 FAISS 并启动 Redis，后端 unit/integration 完整回归结果为 `1784 passed, 2 skipped`；该结果覆盖单元测试与本地基础依赖，生产入口和本地插件验证闭环仍需独立验收。
 
 ## StateGraph 开发约定
@@ -84,6 +157,13 @@ npm --prefix vscode-extension run e2e
 - legacy endpoint 迁移保留原响应和事件结构，便于渐进式回归。
 - 修改后执行 `git diff --check` 和相关测试。
 - GirlAI 相关修改后执行 `python3 -m pytest tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py tests/unit/test_database_services.py -q`，并在 `/workspace/src` 执行 `npm run test:run -- utils/api/girl.test.js`。
+- GirlAI 结构化伙伴契约修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py -q`。
+- GirlAI 伙伴上下文和模型选择修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_companion_model.py -q`。
+- GirlAI 伙伴 API 修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_api.py tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_companion_model.py tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py -q`。
+- GirlAI 伙伴记忆修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_memory.py tests/unit/test_girlai_companion_api.py tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_companion_model.py tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py -q`。
+ - GirlAI 情绪、意图和统一回合事件修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_api.py tests/unit/test_girlai_state_adapter.py tests/unit/test_girlai_companion_classifier.py tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_memory.py tests/unit/test_girlai_companion_model.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_refactor.py tests/unit/test_unified_state_models.py tests/unit/test_unified_state_service.py tests/unit/test_database_services.py -q`。
+ - GirlAI 语音适配修改后执行 `python3 -m pytest tests/unit/test_girlai_voice.py tests/unit/test_girlai_companion_api.py -q`，并在 `/workspace/src` 执行 `npm run test:run -- utils/api/girl.test.js composables/useGirlAiCompanion.test.js`。
+- Agent 模型上下文只保存模型 ID、配置版本、调用统计和降级记录；模型 Key 对应的供应商凭据继续由现有 Key Store 管理。修改模型上下文契约后同时运行后端 `test_model_context_service.py` 与前端 `agentSession.test.js`、`project.test.js`。
 - 验证节点通过 `State.metadata.required_validation_scopes` 声明 `local_runtime` 或 `local_e2e`；云端验证保持 `cloud_syntax`，本地结果按 scope 回传。
 - 本地结果协议使用 `validation_scope`、`status` 和 `source=local`；`local_result_to_delta()` 负责映射为内部字段并执行 task/session/revision/schema 校验。StateReducer 按验证结果 `event_id` 去重，重复回传保持状态和 revision 不变。
 - 会话回放使用 `replay_session()`；发现 sequence 缺口时，调用方应执行返回的 `snapshot_recovery` action。
@@ -101,6 +181,7 @@ npm --prefix vscode-extension run e2e
 - 终端 Agent Host 动作沿用 `PendingAction` 的操作白名单和工作区目录约束，并通过 `ValidationRunner` 执行；新增终端能力时保持参数数组和 `shell=false`。
 - `webview-bridge.ts` 和 `agent-host-runtime.ts` 组成 Webview 消息层与 Agent Host 动作运行层；两者保持 VS Code API 解耦，使用 `npm --prefix vscode-extension test` 验证请求关联、超时、会话门禁和结果事件。
 - `agent-workbench.ts` 和 `extension.ts` 提供原生 Webview 面板及 `codingmatrix.openAgentWorkbench` activation 命令；真实 Extension Host E2E 通过 `npm --prefix vscode-extension run e2e` 验证命令注册和面板打开。
+- `CloudConnection.streamAgentPrompt()` 调用 `/api/v1/agent/orchestrate/stream`；修改连接路径或流式协议时必须同步更新 `vscode-extension/test/connection.test.mjs`。
 - `approval-bridge.ts` 管理 Host 动作的审批请求和决定；`AgentHostRuntime` 通过会话策略的 `auto_approve` 开关控制动作暂停、批准继续和拒绝结果。
 - `AgentWorkbenchController` 通过 `onMessage` 回调接收已验证的 Webview 控制消息；审批请求在工作台中展示批准和拒绝操作，并按原 Envelope 回传决定。
 - `extension.ts` activation 会为当前工作区创建本地 Agent Host；真实进程执行使用 `node:child_process.spawn`，工作区授权和审批桥接由 Host 组件统一管理。
@@ -118,5 +199,5 @@ npm --prefix vscode-extension run e2e
 - 重启 PPT worker 后再次调用 DeepSeek R1，SiliconFlow 返回 HTTP `200 OK`；响应 JSON 不完整触发大纲解析回退，任务完成 `success`。当前验证重点转为模型响应解析的容错处理。
 - Agent 能力 Playwright E2E 已通过 `23 passed`；无认证综合诊断 E2E 已通过 `6 passed`。相关测试使用 `API_BASE`，页面检查使用 `domcontentloaded`，未认证端点按 5xx 服务错误判定。
 - 认证 Agent API、会话生命周期和历史会话 E2E 初次执行结果为 `10 failed`，失败集中在测试账号登录，后端返回“邮箱或密码错误”，连续重试后出现登录端点限流。更新被 Git 忽略的 `.env.test` 后，种子账号认证成功，Agent API 验收为 `2 passed`。
-- 会话 UI 已迁移到当前 `AgentSidebar` 的 `.session-item` 和 `button[title="新建会话"]` 选择器；历史会话整组 E2E 为 `5 passed`，生命周期创建、切换、删除主流程、并发限制 API 和取消状态均已通过。前端单元测试为 `3 passed`，在 `/workspace/src` 执行 `npm run build` 返回 `0`。真实模型 Agent E2E 执行为 `2 skipped`，原因是运行环境当前未提供 `TEST_API_KEY`。
+- 会话 UI 使用当前 `AgentSidebar` 的 `.session-item` 和 `button[title="新建会话"]` 选择器；历史会话整组 E2E 曾为 `5 passed`，生命周期创建、切换、删除主流程、并发限制 API 和取消状态均已通过。真实模型 Agent E2E 曾有 `2 skipped`，原因是测试环境缺少 `TEST_API_KEY`。本轮手机端改动的前端单元测试为 `23 passed`，生产构建返回 `0`。
 - StateGraph 当前通过单节点 legacy wrapper 接入生产入口；RAG、checkpoint 自动恢复、统一事件出口和 VS Code 本地验证回传仍属于迁移中的能力。验证节点和会话 replay 已完成云端契约层实现，真实插件 E2E 已在 VS Code `1.135.0` Extension Host 中通过。

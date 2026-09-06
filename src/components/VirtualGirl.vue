@@ -146,6 +146,34 @@
               </span>
             </div>
 
+            <div class="companion-status" aria-live="polite">
+              <span class="companion-status-label">当前状态</span>
+              <span class="companion-emotion">{{ companionState.emotion.label }}</span>
+              <span v-if="companionState.degradedCapabilities.length" class="companion-degraded">
+                文字模式
+              </span>
+              <span v-else-if="companionState.capabilities.voice_input" class="companion-voice-ready">
+                可接收转写
+              </span>
+            </div>
+
+            <div v-if="companionState.memories.length" class="memory-consent-panel">
+              <div class="memory-panel-header">
+                <span>虚拟姬想记住</span>
+                <button class="memory-refresh" @click="loadCompanionMemories()">刷新</button>
+              </div>
+              <div v-for="memory in companionState.memories" :key="memory.id || memory.key" class="memory-candidate">
+                <div class="memory-content">
+                  <strong>{{ memory.key }}</strong>
+                  <span>{{ memory.value }}</span>
+                </div>
+                <div class="memory-actions">
+                  <button @click="confirmMemory(memory)">记住</button>
+                  <button @click="forgetMemory(memory)">忽略</button>
+                </div>
+              </div>
+            </div>
+
             <div ref="chatMessages" class="chat-messages" @scroll="handleScroll">
               <div
                 v-for="(message, index) in chatHistory"
@@ -283,6 +311,7 @@
   import { api } from '@/utils/api/index'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { useUserStore } from '@/stores/user'
+  import { useGirlAiCompanion } from '@/composables/useGirlAiCompanion'
 
   const props = defineProps({
     visible: { type: Boolean, default: false }
@@ -293,6 +322,14 @@
   // 模式选择
   const usePiPMode = ref(false)
   const userStore = useUserStore()
+  const {
+    state: companionState,
+    loadState: loadCompanionState,
+    loadMemories: loadCompanionMemories,
+    sendTurn: sendCompanionTurn,
+    confirmMemory: confirmCompanionMemory,
+    deleteMemory: deleteCompanionMemory
+  } = useGirlAiCompanion(api)
   const storageKey = computed(() => `virtualGirlChatHistory:${userStore.email || userStore.username || 'anonymous'}`)
 
   // 本地窗口显示状态
@@ -1112,13 +1149,13 @@ window.opener.postMessage({type:'girlai-ready'},'*');
     scrollToBottom()
 
     try {
-      const data = await api.sendGirlAiMessage(message, selectedCharacter.value)
+      const data = await sendCompanionTurn(message, selectedCharacter.value)
       if (requestVersion !== historyRequestVersion) return
 
       const assistantTimestamp = Date.now()
       chatHistory.value.push({
         role: 'assistant',
-        content: data.message,
+        content: data.assistant_text || data.message,
         timestamp: assistantTimestamp
       })
       messageTimestamps.value.push(assistantTimestamp)
@@ -1141,6 +1178,24 @@ window.opener.postMessage({type:'girlai-ready'},'*');
 
       await nextTick()
       scrollToBottom()
+    }
+  }
+
+  const confirmMemory = async memory => {
+    try {
+      await confirmCompanionMemory(memory.id, { visibility: 'companion_allowed' })
+      ElMessage.success('已记住这条信息')
+    } catch (error) {
+      ElMessage.error('保存记忆失败：' + error.message)
+    }
+  }
+
+  const forgetMemory = async memory => {
+    try {
+      await deleteCompanionMemory(memory.id)
+      ElMessage.success('已忽略这条信息')
+    } catch (error) {
+      ElMessage.error('忽略记忆失败：' + error.message)
     }
   }
 
@@ -1206,6 +1261,8 @@ window.opener.postMessage({type:'girlai-ready'},'*');
   onMounted(() => {
     loadChatHistory()
     loadCustomCharacters()
+    loadCompanionState().catch(() => {})
+    loadCompanionMemories().catch(() => {})
 
     const screenWidth = window.innerWidth
     const screenHeight = window.innerHeight
@@ -1560,6 +1617,95 @@ window.opener.postMessage({type:'girlai-ready'},'*');
   }
   .character-indicator.companion {
     background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+  }
+
+  .companion-status,
+  .memory-consent-panel {
+    margin: 10px 16px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  .companion-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .companion-status-label {
+    color: var(--text-tertiary);
+  }
+
+  .companion-emotion {
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  .companion-degraded {
+    margin-left: auto;
+    color: var(--warning);
+  }
+
+  .memory-panel-header,
+  .memory-candidate,
+  .memory-actions {
+    display: flex;
+    align-items: center;
+  }
+
+  .memory-panel-header,
+  .memory-candidate {
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .memory-panel-header {
+    margin-bottom: 8px;
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .memory-refresh,
+  .memory-actions button {
+    border: 0;
+    border-radius: 6px;
+    padding: 4px 8px;
+    color: var(--primary);
+    background: var(--primary-100);
+    cursor: pointer;
+    font-size: 11px;
+  }
+
+  .memory-candidate + .memory-candidate {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+  }
+
+  .memory-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .memory-content strong {
+    color: var(--text-primary);
+  }
+
+  .memory-content span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .memory-actions {
+    flex-shrink: 0;
+    gap: 4px;
   }
 
   .chat-messages {

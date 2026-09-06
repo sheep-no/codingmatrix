@@ -228,6 +228,72 @@ class PitchDeckTemplate(TemplateBase):
         )
 
 
+class ModernTemplate(TemplateBase):
+    """现代简约模板的版本化设计令牌。"""
+
+    @property
+    def config(self) -> TemplateConfig:
+        return TemplateConfig(
+            template_id="modern",
+            name="Modern",
+            name_zh="现代简约",
+            category=TemplateCategory.MINIMAL,
+            description="适用于通用商业演示的现代蓝色主题。",
+            primary_color="2563EB",
+            secondary_color="3B82F6",
+            accent_color="F97316",
+            background_color="FFFFFF",
+            text_color="1E293B",
+            light_text_color="64748B",
+            title_font="Arial",
+            body_font="Arial",
+        )
+
+
+class MedicalTemplate(TemplateBase):
+    """医疗健康模板的版本化设计令牌。"""
+
+    @property
+    def config(self) -> TemplateConfig:
+        return TemplateConfig(
+            template_id="medical",
+            name="Medical",
+            name_zh="医疗健康",
+            category=TemplateCategory.BUSINESS,
+            description="适用于临床简报和医疗健康主题的绿色视觉体系。",
+            primary_color="059669",
+            secondary_color="047857",
+            accent_color="0EA5E9",
+            background_color="ECFDF5",
+            text_color="134E4A",
+            light_text_color="5F7470",
+            title_font="Arial",
+            body_font="Arial",
+        )
+
+
+class ElegantTemplate(TemplateBase):
+    """优雅商务模板的版本化设计令牌。"""
+
+    @property
+    def config(self) -> TemplateConfig:
+        return TemplateConfig(
+            template_id="elegant",
+            name="Elegant Business",
+            name_zh="优雅商务",
+            category=TemplateCategory.BUSINESS,
+            description="适用于董事会备忘录和高层决策汇报的紫色编辑风格。",
+            primary_color="7C3AED",
+            secondary_color="6D28D9",
+            accent_color="C4B5FD",
+            background_color="F5F3FF",
+            text_color="2E1065",
+            light_text_color="6B5A78",
+            title_font="Georgia",
+            body_font="Georgia",
+        )
+
+
 class EducationTemplate(TemplateBase):
     """教育培训模板"""
 
@@ -366,4 +432,59 @@ class MinimalTemplate(TemplateBase):
                     "minimal": True,
                 },
             }
+        )
+
+
+class TechTemplate(TemplateBase):
+    """深色科技演示模板。"""
+
+    @property
+    def config(self) -> TemplateConfig:
+        return TemplateConfig(
+            template_id="tech",
+            name="Technology",
+            name_zh="科技蓝调",
+            category=TemplateCategory.TECH,
+            description="适用于技术方案、系统架构和 AI 产品汇报，采用深色界面与高对比数据强调。",
+            primary_color="3B82F6",
+            secondary_color="1D4ED8",
+            accent_color="F97316",
+            background_color="0F172A",
+            text_color="FFFFFF",
+            light_text_color="93C5FD",
+            title_font="微软雅黑",
+            body_font="微软雅黑",
+            title_font_en="Consolas",
+            body_font_en="Arial",
+            title_size=36,
+            subtitle_size=20,
+            heading_size=25,
+            body_size=16,
+            bullet_size=14,
+            caption_size=10,
+            slide_margin=0.7,
+            title_margin_bottom=0.45,
+            paragraph_spacing=0.16,
+            bullet_indent=0.3,
+            line_spacing=1.35,
+            has_header_bar=True,
+            has_footer_bar=False,
+            has_corner_decor=False,
+            has_page_number=True,
+            layouts={
+                SlideLayout.TITLE_ONLY: {
+                    "title_top": 1.7,
+                    "title_left": 0.8,
+                    "title_width": 10.2,
+                    "subtitle_top": 3.65,
+                    "use_full_background": True,
+                },
+                SlideLayout.TITLE_CONTENT: {
+                    "title_top": 0.7,
+                    "content_top": 1.75,
+                    "content_left": 0.7,
+                    "content_width": 11.9,
+                    "content_height": 4.9,
+                },
+            },
         )

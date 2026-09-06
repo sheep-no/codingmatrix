@@ -8,7 +8,8 @@ import asyncio
 import json
 import logging
 import time
-from typing import List, Optional, Dict, Any
+import uuid
+from typing import List, Literal, Optional, Dict, Any
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -19,17 +20,42 @@ from sqlalchemy import and_, or_, select
 
 from app.db.database import async_session, get_db
 from app.schema.girl_request import GirlRequest, GirlResponse, HistoryRecord, HistoryResponse
+from app.schema.girl_companion import (
+    CompanionMemoryConfirmRequest,
+    CompanionMemoryPage,
+    CompanionMemoryResponse,
+    CompanionTurnRequest,
+    CompanionTurnResponse,
+    MemoryCandidate,
+    VoiceTranscriptionRequest,
+)
 from app.db.chat_history_service import ChatHistoryService
 from app.services.girlai_state_adapter import (
+    append_companion_turn_state,
     append_conversation_turn,
     clear_messages_for_user,
     delete_messages_for_legacy_ids,
+    ensure_session,
+    fail_companion_turn_state,
+    get_latest_companion_turn_state,
+    reserve_companion_turn_state,
 )
 from app.models.chat_history import CustomCharacter, UserPreference
 from app.utils import call_llm
 from app.agent.models import DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from app.utils.security import verify_token
 from app.utils.aicloud.http_client import call_with_retry
+from app.services.girlai_companion_context import build_companion_context
+from app.services.girlai_companion_classifier import (
+    apply_companion_policy,
+    classify_companion_input,
+)
+from app.services.girlai_companion_service import parse_companion_turn
+from app.services.girlai_companion_memory import (
+    CompanionMemoryNotFoundError,
+    CompanionMemoryService,
+    CompanionMemoryStateError,
+)
 
 # 初始化日志
 logger = logging.getLogger(__name__)
@@ -37,6 +63,35 @@ router = APIRouter()
 
 # 并发限制
 _max_concurrent_calls = asyncio.Semaphore(10)
+
+
+async def _record_companion_turn_failure(
+    db: AsyncSession,
+    user_id: int,
+    session_id: Optional[str],
+    turn_id: str,
+    error_type: str,
+    reservation_token: Optional[str],
+) -> None:
+    if session_id is None:
+        return
+    try:
+        await fail_companion_turn_state(
+            db,
+            user_id,
+            session_id,
+            turn_id,
+            error_type,
+            reservation_token,
+        )
+        await db.commit()
+    except Exception as persistence_error:
+        await db.rollback()
+        logger.warning(
+            "GirlAI 失败事件写入异常 | user_id=%s | error_type=%s",
+            user_id,
+            type(persistence_error).__name__,
+        )
 
 # 角色配置
 
@@ -130,6 +185,12 @@ DEFAULT_TEMPERATURE = 0.8
 DEFAULT_MAX_TOKENS = 180
 REQUEST_TIMEOUT = 30.0
 MAX_HISTORY_MESSAGES = 10
+COMPANION_STRUCTURED_MIN_TOKENS = 512
+COMPANION_STRUCTURED_MAX_TEMPERATURE = 0.3
+COMPANION_REQUEST_TIMEOUT = 60.0
+COMPANION_STRUCTURED_SYSTEM_PROMPT = """你负责生成 GirlAI 纯对话陪伴回合。仅输出一个合法 JSON 对象，不要输出 Markdown、解释或思考过程。严格使用以下结构：
+{"assistant_text":"给用户的回复","emotion":{"label":"neutral","intensity":0.0,"confidence":0.0},"intent":{"label":"unknown","confidence":0.0},"memory_candidates":[],"schema_version":1}
+assistant_text 必须是非空字符串。emotion、intent 必须是对象。memory_candidates 每项仅包含 key、value、confidence、source。回复可以提供文字建议，系统不会创建任务、调用工具或触发提醒。"""
 
 # 角色 SVG 头像（内联，无需外部文件）
 CHARACTER_AVATARS: Dict[str, str] = {
@@ -318,32 +379,15 @@ async def _extract_user_preferences(
         if not extracted:
             return
 
-        # 保存到数据库（upsert 逻辑）
-        from sqlalchemy import select, and_
-
         async with async_session() as db:
-            for key, value in extracted.items():
-                stmt = select(UserPreference).where(
-                    and_(
-                        UserPreference.user_id == int(user_id),
-                        UserPreference.preference_key == key
-                    )
-                )
-                result = await db.execute(stmt)
-                existing = result.scalar_one_or_none()
-
-                if existing:
-                    existing.preference_value = value
-                    existing.updated_at = datetime.now()
-                else:
-                    db.add(UserPreference(
-                        user_id=int(user_id),
-                        preference_key=key,
-                        preference_value=value,
-                        confidence=80,
-                        source="extracted"
-                    ))
-
+            memory_service = CompanionMemoryService(db)
+            await memory_service.create_candidates(
+                int(user_id),
+                [
+                    MemoryCandidate(key=key, value=value, confidence=0.8, source="extracted")
+                    for key, value in extracted.items()
+                ],
+            )
             await db.commit()
         logger.debug(f"用户偏好提取完成 | user_id={user_id} | preferences={list(extracted.keys())}")
 
@@ -494,7 +538,11 @@ async def generate_message(
                 from sqlalchemy import select
                 pref_stmt = (
                     select(UserPreference)
-                    .where(UserPreference.user_id == int(user_id))
+                    .where(
+                        UserPreference.user_id == int(user_id),
+                        UserPreference.status == "confirmed",
+                        UserPreference.visibility == "companion_allowed",
+                    )
                     .order_by(UserPreference.confidence.desc())
                     .limit(10)
                 )
@@ -614,6 +662,254 @@ async def generate_message(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="AI 回复生成失败，请稍后重试"
             )
+
+
+@router.post(
+    "/GirlAi/companion/turn",
+    response_model=CompanionTurnResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def generate_companion_turn(
+    body: CompanionTurnRequest,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+) -> CompanionTurnResponse:
+    """Generate a structured GirlAI turn while preserving legacy history."""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+
+    character = await _get_character(body.character_id, int(user_id), db)
+    history_service = ChatHistoryService(db)
+    start_time = time.time()
+    session_id = None
+    reserved_turn_id = body.turn_id or f"girlai-turn-{uuid.uuid4()}"
+    reservation_created = False
+    reservation_token = None
+
+    async with _max_concurrent_calls:
+        try:
+            session = await ensure_session(db, int(user_id), body.character_id)
+            session_id = session.id
+            reservation, reservation_created = await reserve_companion_turn_state(
+                db,
+                int(user_id),
+                session_id,
+                reserved_turn_id,
+            )
+            if not reservation_created:
+                if reservation.event_type in {
+                    "companion.turn.completed",
+                    "companion.turn.degraded",
+                }:
+                    replay = dict(reservation.payload_json)
+                    replay["turn_id"] = reserved_turn_id
+                    replay["conversation_id"] = session_id
+                    replay["model"] = replay.get("model") or character["model"]
+                    replay["tokens_used"] = int(replay.get("tokens_used") or 0)
+                    replay["state_revision"] = reservation.sequence
+                    return CompanionTurnResponse(**replay)
+                raise HTTPException(status_code=409, detail="该对话回合正在处理或已失败")
+            reservation_token = reservation.reservation_token
+            await db.commit()
+
+            recent_messages, history_summary = await history_service.get_lightweight_context(
+                str(user_id), max_messages=MAX_HISTORY_MESSAGES
+            )
+            memory_service = CompanionMemoryService(db)
+            authorized_memories = await memory_service.get_authorized(int(user_id), limit=10)
+            memories = [
+                {
+                    "key": preference.preference_key,
+                    "value": preference.preference_value,
+                    "status": "confirmed",
+                    "visibility": "companion_allowed",
+                }
+                for preference in authorized_memories
+            ]
+            context = build_companion_context(
+                character=character,
+                user_prompt=body.prompt,
+                recent_messages=recent_messages,
+                history_summary=history_summary,
+                memories=memories,
+            )
+            async def llm_call():
+                requested_temperature = (
+                    body.temperature if body.temperature is not None else character["temperature"]
+                )
+                return await call_llm(
+                    model=character["model"],
+                    prompt=context.prompt,
+                    system_prompt=COMPANION_STRUCTURED_SYSTEM_PROMPT,
+                    stream=False,
+                    max_tokens=max(
+                        body.max_tokens or character["max_tokens"],
+                        COMPANION_STRUCTURED_MIN_TOKENS,
+                    ),
+                    thinking_budget=64,
+                    temperature=min(
+                        requested_temperature,
+                        COMPANION_STRUCTURED_MAX_TEMPERATURE,
+                    ),
+                )
+
+            raw_response = await asyncio.wait_for(
+                call_with_retry(llm_call, max_retries=3), timeout=COMPANION_REQUEST_TIMEOUT
+            )
+            turn = parse_companion_turn(raw_response, character["name"], model=character["model"])
+            classification = await classify_companion_input(body.prompt)
+            turn = apply_companion_policy(turn, classification)
+            if body.voice_output:
+                turn.voice_output.requested = True
+                turn.voice_output.status = "unavailable"
+                turn.degraded_capabilities.append("voice_output")
+            persisted_candidates = await memory_service.create_candidates(
+                int(user_id), turn.memory_candidates
+            )
+            candidate_ids = {
+                (memory.preference_key, memory.preference_value): str(memory.id)
+                for memory in persisted_candidates
+            }
+            for candidate in turn.memory_candidates:
+                candidate.id = candidate_ids.get((candidate.key, candidate.value))
+            turn.memory_candidates = [
+                candidate for candidate in turn.memory_candidates if candidate.id is not None
+            ]
+            turn.turn_id = reserved_turn_id
+            turn.conversation_id = session_id
+            turn.model_context.current_model = character["model"]
+
+            legacy_messages = await history_service.save_conversation_turn(
+                user_id=str(user_id),
+                user_content=body.prompt,
+                assistant_content=turn.assistant_text,
+                model=character["model"],
+                tokens_used=int((raw_response.get("usage") or {}).get("total_tokens") or 0),
+            )
+            await append_conversation_turn(
+                db,
+                int(user_id),
+                body.prompt,
+                turn.assistant_text,
+                model=character["model"],
+                character_id=body.character_id,
+                legacy_message_ids=tuple(str(message.id) for message in legacy_messages),
+            )
+            state_event = await append_companion_turn_state(
+                db,
+                int(user_id),
+                session_id,
+                turn,
+                model=character["model"],
+                tokens_used=int((raw_response.get("usage") or {}).get("total_tokens") or 0),
+                reservation_token=reservation_token,
+            )
+            await db.commit()
+            tokens_used = int((raw_response.get("usage") or {}).get("total_tokens") or 0)
+            return CompanionTurnResponse(
+                **turn.model_dump() if hasattr(turn, "model_dump") else turn.dict(),
+                model=character["model"],
+                tokens_used=tokens_used,
+                state_revision=state_event.sequence,
+            )
+        except asyncio.TimeoutError as error:
+            await db.rollback()
+            await _record_companion_turn_failure(
+                db, int(user_id), session_id, reserved_turn_id, type(error).__name__, reservation_token
+            )
+            raise HTTPException(status_code=504, detail="AI 响应超时，请稍后重试") from error
+        except HTTPException as error:
+            await db.rollback()
+            if reservation_created:
+                await _record_companion_turn_failure(
+                    db, int(user_id), session_id, reserved_turn_id, type(error).__name__, reservation_token
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail="AI 服务暂时不可用，请稍后重试",
+                ) from error
+            raise
+        except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as error:
+            await db.rollback()
+            await _record_companion_turn_failure(
+                db, int(user_id), session_id, reserved_turn_id, type(error).__name__, reservation_token
+            )
+            logger.error(
+                "结构化虚拟姬请求异常 | user_id=%s | error_type=%s",
+                user_id,
+                type(error).__name__,
+            )
+            raise HTTPException(status_code=502, detail="AI 服务暂时不可用，请稍后重试") from error
+
+
+@router.post(
+    "/GirlAi/voice/transcriptions",
+    response_model=CompanionTurnResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def create_voice_transcription_turn(
+    body: VoiceTranscriptionRequest,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+) -> CompanionTurnResponse:
+    """Convert a normalized transcription into the regular companion turn flow."""
+    if not token.get("sub"):
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+
+    response = await generate_companion_turn(
+        CompanionTurnRequest(
+            prompt=body.transcript,
+            character_id=body.character_id,
+            turn_id=body.turn_id,
+            voice_output=body.voice_output,
+        ),
+        token=token,
+        db=db,
+    )
+    response.voice_input.received = True
+    response.voice_input.status = "received"
+    response.voice_input.provider = body.provider
+    response.voice_input.confidence = body.confidence
+    response.voice_input.duration_ms = body.duration_ms
+    return response
+
+
+@router.get("/GirlAi/companion/state")
+async def get_companion_state(
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the authenticated user's baseline companion state."""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+    session = await ensure_session(db, int(user_id))
+    state_event = await get_latest_companion_turn_state(db, int(user_id), session.id)
+    await db.commit()
+    payload = state_event.payload_json if state_event else {}
+    return {
+        "conversation_id": session.id,
+        "character_id": "gentle",
+        "emotion": payload.get(
+            "emotion",
+            {"label": "neutral", "intensity": 0.0, "confidence": 0.0},
+        ),
+        "intent": payload.get("intent", {"label": "unknown", "confidence": 0.0}),
+        "care_required": payload.get("care_required", False),
+        "response_style": payload.get("response_style", "standard"),
+        "work_options": payload.get("work_options", []),
+        "memory_authorization": {"enabled": True, "visibility": ["companion_allowed"]},
+        "capabilities": {
+            "text": True,
+            "voice_input": True,
+            "voice_output": False,
+            "voice_input_mode": "standardized_transcription",
+            "voice_output_mode": "text_fallback",
+        },
+        "state_revision": state_event.sequence if state_event else 0,
+        "degraded_capabilities": payload.get("degraded_capabilities", []),
+    }
 
 
 @router.get("/GirlAi/history")
@@ -809,6 +1105,97 @@ async def delete_custom_character(
 # 用户偏好记忆
 # =============================================================================
 
+def _serialize_companion_memory(memory: UserPreference) -> CompanionMemoryResponse:
+    return CompanionMemoryResponse(
+        id=str(memory.id),
+        key=memory.preference_key,
+        value=memory.preference_value,
+        confidence=memory.confidence,
+        source=memory.source,
+        status=memory.status,
+        consent_source=memory.consent_source,
+        visibility=memory.visibility,
+        last_used_at=memory.last_used_at,
+        created_at=memory.created_at,
+        updated_at=memory.updated_at,
+    )
+
+
+@router.get("/GirlAi/memories", response_model=CompanionMemoryPage)
+async def get_companion_memories(
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    memory_status: Optional[Literal["candidate", "confirmed", "rejected"]] = Query(
+        default=None, alias="status"
+    ),
+) -> CompanionMemoryPage:
+    """Return active memories and candidates owned by the current user."""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+    memories, total = await CompanionMemoryService(db).list_memories(
+        int(user_id), limit=limit, offset=offset, status=memory_status
+    )
+    return CompanionMemoryPage(
+        memories=[_serialize_companion_memory(memory) for memory in memories],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/GirlAi/memories/{memory_id}/confirm",
+    response_model=CompanionMemoryResponse,
+)
+async def confirm_companion_memory(
+    memory_id: str,
+    body: CompanionMemoryConfirmRequest,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+) -> CompanionMemoryResponse:
+    """Confirm and optionally revise a user-owned memory candidate."""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+    try:
+        memory = await CompanionMemoryService(db).confirm(
+            int(user_id),
+            memory_id,
+            key=body.key,
+            value=body.value,
+            visibility=body.visibility,
+        )
+        await db.commit()
+        return _serialize_companion_memory(memory)
+    except CompanionMemoryNotFoundError as error:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail="记忆不存在") from error
+    except CompanionMemoryStateError as error:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.delete("/GirlAi/memories/{memory_id}")
+async def delete_companion_memory(
+    memory_id: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft-delete a user-owned memory and revoke companion retrieval."""
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+    try:
+        memory = await CompanionMemoryService(db).soft_delete(int(user_id), memory_id)
+        await db.commit()
+        return {"status": memory.status, "id": str(memory.id)}
+    except CompanionMemoryNotFoundError as error:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail="记忆不存在") from error
+
 @router.get("/GirlAi/preferences")
 async def get_user_preferences(
     token: dict = Depends(verify_token),
@@ -822,7 +1209,10 @@ async def get_user_preferences(
     from sqlalchemy import select
     stmt = (
         select(UserPreference)
-        .where(UserPreference.user_id == int(user_id))
+        .where(
+            UserPreference.user_id == int(user_id),
+            UserPreference.status != "deleted",
+        )
         .order_by(UserPreference.updated_at.desc())
     )
     result = await db.execute(stmt)
@@ -867,7 +1257,9 @@ async def delete_user_preference(
     if not pref:
         raise HTTPException(status_code=404, detail="偏好记录不存在")
 
-    await db.delete(pref)
+    pref.status = "deleted"
+    pref.visibility = "conversation_only"
+    pref.updated_at = datetime.now()
     await db.commit()
 
     return {"status": "deleted", "id": preference_id}

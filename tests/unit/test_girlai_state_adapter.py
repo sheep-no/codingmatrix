@@ -4,11 +4,29 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.models.unified_state import Message, Session
+from app.schema.girl_companion import CompanionTurn
 from app.services import girlai_state_adapter
 
 
 def test_user_session_id_is_stable():
     assert girlai_state_adapter.user_session_id("7") == "user:7"
+
+
+@pytest.mark.asyncio
+async def test_reserve_companion_turn_state_uses_configured_lease(monkeypatch):
+    db = AsyncMock()
+    event = object()
+    reserve = AsyncMock(return_value=(event, True))
+    monkeypatch.setattr(girlai_state_adapter, "reserve_session_event", reserve)
+
+    result = await girlai_state_adapter.reserve_companion_turn_state(
+        db, 7, "session-1", "turn-1"
+    )
+
+    assert result == (event, True)
+    assert reserve.await_args.kwargs["reclaim_after_seconds"] == (
+        girlai_state_adapter.settings.GIRLAI_TURN_RESERVATION_TIMEOUT_SECONDS
+    )
 
 
 @pytest.mark.asyncio
@@ -84,6 +102,39 @@ async def test_append_conversation_turn_links_legacy_message_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_append_companion_turn_state_persists_degraded_event(monkeypatch):
+    db = AsyncMock()
+    event = object()
+    append = AsyncMock(return_value=event)
+    monkeypatch.setattr(girlai_state_adapter, "update_session_event", append)
+    turn = CompanionTurn(
+        turn_id="turn-1",
+        conversation_id="session-1",
+        assistant_text="继续处理。",
+        degraded_capabilities=["emotion_classification"],
+    )
+
+    result = await girlai_state_adapter.append_companion_turn_state(
+        db,
+        7,
+        "session-1",
+        turn,
+    )
+
+    assert result is event
+    assert append.await_args.args[:5] == (
+        db,
+        "session-1",
+        7,
+        "turn-1",
+        "companion.turn.degraded",
+    )
+    assert append.await_args.args[5]["emotion"]["label"] == "neutral"
+    assert append.await_args.kwargs["schema_version"] == "1"
+    assert append.await_args.kwargs["expected_reservation_token"] is None
+
+
+@pytest.mark.asyncio
 async def test_delete_messages_for_legacy_ids_uses_existing_mapping(monkeypatch):
     db = AsyncMock()
     mapping = type("Mapping", (), {"unified_id": "girlai-session"})()
@@ -135,6 +186,33 @@ async def test_ensure_session_reuses_legacy_user_history_mapping(monkeypatch):
     assert result is session
     resolve.assert_awaited_once_with(db, 7, "girlai", "girlai_history", "user:7")
     db.get.assert_awaited_once_with(Session, "girlai-session")
+
+
+@pytest.mark.asyncio
+async def test_ensure_session_reuses_scoped_session_when_mapping_is_missing(monkeypatch):
+    db = AsyncMock()
+    session = Session(
+        id="girlai-session",
+        user_id=7,
+        module="girlai",
+        external_id="user:7",
+    )
+    monkeypatch.setattr(
+        girlai_state_adapter,
+        "resolve_compatibility_mapping",
+        AsyncMock(return_value=None),
+    )
+    db.scalar.return_value = session
+    upsert = AsyncMock()
+    monkeypatch.setattr(girlai_state_adapter, "upsert_compatibility_mapping", upsert)
+    create = AsyncMock()
+    monkeypatch.setattr(girlai_state_adapter, "create_session", create)
+
+    result = await girlai_state_adapter.ensure_session(db, 7, character_id="gentle")
+
+    assert result is session
+    create.assert_not_awaited()
+    upsert.assert_awaited_once()
 
 
 @pytest.mark.asyncio

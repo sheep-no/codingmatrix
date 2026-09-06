@@ -496,7 +496,7 @@ async def verify_session_ownership(db: AsyncSession, session_id: str, user_id: s
             select(ProjectSession).where(
                 and_(
                     ProjectSession.session_id == session_id,
-                    ProjectSession.user_id == int(user_id)
+                    ProjectSession.user_id == str(user_id)
                 )
             )
         )

@@ -413,7 +413,7 @@ def _get_user_api_key_from_token(token: str) -> Optional[str]:
     Returns:
         API Key 或 None
     """
-    if not token or len(token) < 30:
+    if len(token) < 30:
         return None
     
     try:

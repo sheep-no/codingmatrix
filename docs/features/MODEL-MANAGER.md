@@ -1,196 +1,116 @@
 # 模型管理接口
 
-> 最后更新：2026-06-25 | 版本：v5.13.0+
+> 最后更新：2026-09-03
 
-## 概述
+模型管理分为用户只读浏览、旧版管理员接口和统一模型配置三组 API。新管理功能应使用 `/api/v2/model-config`。
 
-模型管理接口提供 AI 模型的配置、查看和管理能力。
+## 接口分组
 
-## v5.13.0+ 统一模型配置
+### 用户模型浏览
 
-### 新接口 (推荐)
+前缀：`/api/v1/models`
 
-新的统一模型配置接口更简单直观，支持任意供应商模型。
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/api/v1/models/` | 从 `MODEL_REGISTRY` 列出模型，可按能力和免费标记筛选 | 公开 |
+| GET | `/api/v1/models/default` | 获取当前运行时默认模型 | 公开 |
+| GET | `/api/v1/models/capabilities/list` | 列出能力枚举 | 公开 |
+| GET | `/api/v1/models/agent-config` | 读取 Agent 运行时配置 | JWT |
+| GET | `/api/v1/models/{model_id}` | 获取注册表模型详情 | 公开 |
 
-**配置文件**: `data/unified_model_config.yaml`
+该接口读取 `app/utils/aicloud/model_registry.py` 的注册表。默认模型可由旧版管理员 API 在当前进程内切换。
 
-**API 前缀**: `/api/v2/model-config`
+### 统一模型配置
+
+前缀：`/api/v2/model-config`，全部端点要求 superadmin。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/v2/model-config/models` | 获取所有模型 |
+| GET | `/api/v2/model-config/models` | 获取模型，可按类型或启用状态筛选 |
 | POST | `/api/v2/model-config/models` | 添加模型 |
 | PUT | `/api/v2/model-config/models/{id}` | 更新模型 |
 | DELETE | `/api/v2/model-config/models/{id}` | 删除模型 |
 | PUT | `/api/v2/model-config/models/{id}/toggle` | 切换启用状态 |
-| GET | `/api/v2/model-config/providers` | 获取供应商列表 |
+| GET | `/api/v2/model-config/providers` | 获取供应商 |
 | POST | `/api/v2/model-config/providers` | 添加供应商 |
 | DELETE | `/api/v2/model-config/providers/{id}` | 删除供应商 |
-| GET | `/api/v2/model-config/agent` | 获取 Agent 配置 |
+| GET | `/api/v2/model-config/agent` | 获取角色和降级链 |
 | PUT | `/api/v2/model-config/agent/role` | 更新角色模型 |
 | PUT | `/api/v2/model-config/agent/fallback` | 更新降级链 |
-| POST | `/api/v2/model-config/reload` | 重新加载配置 |
+| POST | `/api/v2/model-config/reload` | 从 YAML 重新加载 |
 
-### 添加新模型
+模型字段包括 ID、API 名称、显示名称、供应商、类型、上下文长度、最大输出、温度、超时、推理标记、思考比例、速度、启用状态和标签。支持的类型约定为 `chat`、`embedding`、`image`、`vision`、`audio`。
 
-只需在配置文件中添加一行：
+添加模型时必须引用已存在的供应商。更新角色和降级链时必须引用已存在的模型；角色限于 architect、frontend、backend、reviewer、fallback。
 
-```json
-{
-  "models": {
-    "gpt-4o": {
-      "name": "gpt-4o",
-      "display_name": "GPT-4o",
-      "provider": "openai",
-      "type": "chat",
-      "context_length": 128000,
-      "max_output": 16384
-    }
-  }
-}
-```
+### 旧版管理员接口
 
-或使用 API：
+前缀：`/api/v2/models`，全部端点要求 superadmin。模块已在源码中标记为废弃并保留兼容性：
 
-```bash
-curl -X POST http://localhost:8000/api/v2/model-config/models \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "gpt-4o",
-    "name": "gpt-4o",
-    "display_name": "GPT-4o",
-    "provider": "openai",
-    "model_type": "chat",
-    "context_length": 128000
-  }'
-```
+- `POST /api/v2/models/default`：切换当前进程默认模型。
+- `PUT /api/v2/models/agent-config`：更新角色模型。
+- `POST /api/v2/models/agent-config/reload`：重新加载角色配置。
+- `PUT /api/v2/models/agent-config/fallback-chain`：更新降级链。
+- `PUT /api/v2/models/agent-config/error-type-model`：更新错误类型映射。
+- `GET /api/v2/models/context-lengths`：读取上下文长度。
+- `PUT /api/v2/models/context-length`：写入上下文长度覆盖。
+- `DELETE /api/v2/models/context-length/{model_key}`：删除覆盖并恢复代码默认值。
 
-### 模型类型
+旧接口直接修改 `data/agent_model_config.yaml` 的部分字段；统一接口以管理面配置为源，因此混用两组写接口可能导致后续同步覆盖旧接口改动。
 
-| 类型 | 说明 | 示例 |
-|------|------|------|
-| `chat` | 对话模型 | Qwen3, DeepSeek R1 |
-| `embedding` | 嵌入模型 | BGE M3, BCE Embedding |
-| `vision` | 视觉理解 | GLM 4.1V, DeepSeek OCR |
-| `image` | 图像生成 | Kolors |
-| `audio` | 音频处理 | SenseVoice |
+## 配置生命周期
 
-### Agent 角色配置
+`ModelConfigManager` 的保存流程：
 
-```bash
-# 更新角色模型
-curl -X PUT http://localhost:8000/api/v2/model-config/agent/role \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"role": "architect", "model_id": "qwen3-8b"}'
+1. 将 providers、models 和 agent 写入 `data/unified_model_config.yaml`。
+2. 将模型、角色和降级链同步到 `data/agent_model_config.yaml`。
+3. 保留运行时文件中的 `error_type_models`、`settings`、`cross_validation` 和 `model_context_lengths`。
+4. 失效动态模型映射缓存并重新加载角色配置，同时尝试刷新已创建路由实例的降级链。
 
-# 更新降级链
-curl -X PUT http://localhost:8000/api/v2/model-config/agent/fallback \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"chain": ["qwen3-8b", "glm-z1-9b"]}'
-```
+YAML 通过 `yaml.safe_load` 和 `yaml.safe_dump` 读写。加载失败时管理器回退到代码中的默认供应商和模型配置。
 
-## 旧接口 (已废弃)
+当前保存实现会重建 `version`、`description`、`last_updated`、`providers`、`models` 和 `agent` 顶层字段；现有 `defaults` 顶层映射会在首次管理写入后被移除。`_refresh_runtime_config()` 以同步方式调用异步 `get_dynamic_router()`，因此已创建路由实例的 fallback 链刷新会进入异常处理分支，进程重启或后续代码修复后才会完整应用该部分。
 
-> ⚠️ 以下接口保留用于向后兼容，将在未来版本中移除。请使用新的 `/api/v2/model-config/*` 接口。
+## 当前统一配置
 
-### 用户端接口
+`data/unified_model_config.yaml` 当前只声明 `siliconflow` 供应商，模型覆盖聊天、视觉、图像、嵌入、音频和翻译等类型。默认用途映射包括 code、reasoning、architect、fast、visual、ocr、embedding 和 ppt。
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/models/` | 获取模型列表 |
-| GET | `/api/v1/models/default` | 获取默认模型 |
-| GET | `/api/v1/models/{id}` | 获取模型详情 |
-| GET | `/api/v1/models/capabilities/list` | 获取能力列表 |
-| GET | `/api/v1/models/agent-config` | 获取 Agent 配置 |
+当前 Agent 角色：
 
-### 管理端接口
+| 角色 | 模型 ID |
+|------|---------|
+| architect | `qwen3-8b` |
+| frontend | `deepseek-r1` |
+| backend | `deepseek-r1` |
+| reviewer | `glm-z1-9b` |
+| fallback | `qwen3-8b` |
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v2/models/default` | 切换默认模型 |
-| PUT | `/api/v2/models/agent-config` | 更新角色配置 |
-| PUT | `/api/v2/models/agent-config/fallback-chain` | 更新降级链 |
-| PUT | `/api/v2/models/agent-config/error-type-model` | 更新错误类型映射 |
-| POST | `/api/v2/models/agent-config/reload` | 重新加载配置 |
-| GET | `/api/v2/models/context-lengths` | 获取上下文长度 |
-| PUT | `/api/v2/models/context-length` | 更新上下文长度 |
-| DELETE | `/api/v2/models/context-length/{key}` | 删除上下文长度 |
+降级链为 `qwen3-8b -> glm-z1-9b`。
 
-## 内置模型列表
+## 三类供应商配置
 
-共 17 个内置模型。
+| 入口 | 存储 | 作用域 | 用途 |
+|------|------|--------|------|
+| `/api/v2/model-config/providers` | `unified_model_config.yaml` | superadmin 全局 | 模型管理和 Agent 派生配置 |
+| `/api/v1/providers` | 后端进程内存 | 已认证调用者共享 | 任意 OpenAI/Anthropic 动态聊天服务 |
+| 用户 API Key 接口 | Redis，加进程内恢复对象 | 用户 Token | 使用用户自己的内置供应商密钥 |
 
-| 模型 ID | 显示名称 | 类型 | 上下文 |
-|---------|----------|------|--------|
-| qwen3-8b | Qwen3 8B | chat | 128k |
-| deepseek-r1 | DeepSeek R1 | chat | 128k |
-| nex-n2-pro | Nex N2 Pro | chat | 256k |
-| glm-z1-9b | GLM Z1 9B | chat | 128k |
-| glm-4-9b | GLM 4 9B | chat | 32k |
-| qwen2.5-7b | Qwen2.5 7B | chat | 32k |
-| qwen3.5-4b | Qwen3.5 4B | chat | 256k |
-| deepseek-ocr | DeepSeek OCR | vision | 8k |
-| glm-4.1v-9b | GLM 4.1V 9B | vision | 32k |
-| kolors | Kolors | image | 4k |
-| bge-m3 | BGE M3 | embedding | 8k |
-| bce-embedding | BCE Embedding | embedding | 512 |
-| bge-reranker | BGE Reranker | embedding | 8k |
-| hunyuan-mt | Hunyuan MT | chat | 32k |
-| sense-voice | SenseVoice | audio | 4k |
+这三类入口拥有独立的数据结构和生命周期。统一模型供应商记录仅包含 ID、名称、API Key、Base URL 和启用状态；模型发现和连接测试由 `/api/v1/providers` 的独立实现负责。统一配置中的 API Key 会写入 YAML，列表响应仅返回 `has_api_key` 布尔值。
 
-## 配置文件
+## 前端
 
-### unified_model_config.yaml
-
-```json
-{
-  "version": "5.0",
-  "providers": {
-    "siliconflow": {
-      "name": "SiliconFlow",
-      "base_url": "https://api.siliconflow.cn/v1"
-    }
-  },
-  "models": {
-    "qwen3-8b": {
-      "name": "Qwen/Qwen3-8B",
-      "display_name": "Qwen3 8B",
-      "provider": "siliconflow",
-      "type": "chat",
-      "context_length": 131072,
-      "max_output": 8192,
-      "temperature": 0.7,
-      "timeout": 300,
-      "enabled": true
-    }
-  },
-  "agent": {
-    "roles": {
-      "architect": "qwen3-8b",
-      "frontend": "deepseek-r1",
-      "backend": "nex-n2-pro",
-      "reviewer": "glm-z1-9b",
-      "fallback": "qwen3-8b"
-    },
-    "fallback_chain": ["qwen3-8b", "glm-z1-9b"]
-  }
-}
-```
-
-### agent_model_config.yaml (运行时派生)
-
-由管理面 YAML 配置同步生成，供 Agent 运行时读取。
+- `UnifiedModelConfig.vue` 管理统一模型、供应商和角色配置。
+- `AgentModelConfig.vue` 管理角色与降级链。
+- `DynamicProviderManager.vue` 管理独立的进程内动态供应商。
 
 ## 相关文件
 
-- `app/services/model_config_manager.py` - **新**: 统一配置管理器
-- `app/api/v2/model_config_api.py` - **新**: 统一配置 API
-- `data/unified_model_config.yaml` - 管理面统一配置文件
-- `data/agent_model_config.yaml` - Agent 运行时派生配置
-- `app/api/v1/model_manager.py` - 旧: 用户端接口
-- `app/api/v2/model_admin.py` - 旧: 管理端接口 (已废弃)
-- `app/utils/aicloud/model_registry.py` - 模型注册表
-- `app/agent/dynamic_model_router.py` - 动态路由
+- `app/api/v1/model_manager.py`
+- `app/api/v2/model_admin.py`
+- `app/api/v2/model_config_api.py`
+- `app/services/model_config_manager.py`
+- `app/utils/model_config_io.py`
+- `app/utils/aicloud/model_registry.py`
+- `app/agent/dynamic_model_router.py`
+- `data/unified_model_config.yaml`
+- `data/agent_model_config.yaml`

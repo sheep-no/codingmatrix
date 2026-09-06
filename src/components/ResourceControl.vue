@@ -861,11 +861,13 @@
 <script setup>
   import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
   import { api } from '../utils/api/index'
+  import { createAdminClient } from '../utils/api/admin'
 
   const loading = ref(false)
   const saving = ref(false)
   const saveMessage = ref('')
   const saveMessageType = ref('success')
+  const adminApi = createAdminClient(api)
 
   const configs = reactive({
     docker_max_memory: '512m',
@@ -948,7 +950,7 @@
 
   const loadMemoryStats = async () => {
     try {
-      const response = await api.getMemoryStats()
+      const response = await adminApi.getMemoryStats()
       if (response) {
         memoryStats.value = response
       }
@@ -966,7 +968,7 @@
 
   const setLogLevel = async level => {
     try {
-      const result = await api.updateGlobalLogLevel(level)
+      const result = await adminApi.updateGlobalLogLevel(level)
       if (result && result.status === 'success') {
         logConfig.log_level = level
         showMessage(`日志级别已设置为 ${level}`, 'success')
@@ -982,11 +984,20 @@
   }
 
   const handleLogToFileChange = async () => {
+    const enabled = logConfig.log_to_file
+    try {
+      const result = await adminApi.updateAdminConfigByKey('log_to_file', enabled ? 'true' : 'false')
+      if (!result || result.status !== 'success') throw new Error('保存日志输出配置失败')
+      showMessage(`文件日志已${enabled ? '启用' : '禁用'}`, 'success')
+    } catch (error) {
+      logConfig.log_to_file = !enabled
+      showMessage(error.message, 'error')
+    }
   }
 
   const loadRateLimitConfig = async () => {
     try {
-      const response = await api.getRateLimitStats()
+      const response = await adminApi.getRateLimitStats()
       if (response) {
         rateLimitConfig.enabled = response.enabled !== false
         rateLimitStats.current_stats = response.current_stats || null
@@ -1010,7 +1021,7 @@
 
   const updateGlobalRateLimit = async () => {
     try {
-      const result = await api.updateGlobalRateLimit(
+      const result = await adminApi.updateGlobalRateLimit(
         rateLimitConfig.global_limit,
         rateLimitConfig.global_window
       )
@@ -1027,7 +1038,7 @@
 
   const updateIpRateLimit = async () => {
     try {
-      const result = await api.updateIpRateLimit(
+      const result = await adminApi.updateIpRateLimit(
         rateLimitConfig.ip_limit,
         rateLimitConfig.ip_window
       )
@@ -1044,7 +1055,7 @@
 
   const updateUserRateLimit = async () => {
     try {
-      const result = await api.updateUserRateLimit(
+      const result = await adminApi.updateUserRateLimit(
         rateLimitConfig.user_limit,
         rateLimitConfig.user_window
       )
@@ -1061,7 +1072,7 @@
 
   const handleRateLimitToggle = async () => {
     try {
-      const result = await api.toggleRateLimit(rateLimitConfig.enabled)
+      const result = await adminApi.toggleRateLimit(rateLimitConfig.enabled)
       if (result && result.status === 'success') {
         showMessage(`限流已${rateLimitConfig.enabled ? '启用' : '禁用'}`, 'success')
       } else {
@@ -1077,12 +1088,12 @@
 
   const loadFuseStates = async () => {
     try {
-      const services = await api.getServices()
+      const services = await adminApi.getServices()
       if (services && services.services) {
         const states = []
         for (const service of services.services) {
           if (service.name) {
-            const state = await api.getFuseStatus(service.name)
+            const state = await adminApi.getFuseStatus(service.name)
             if (state) {
               states.push(state)
             }
@@ -1115,9 +1126,9 @@
     loading.value = true
     try {
       const [configResponse, logConfigResponse, rateLimitResponse] = await Promise.all([
-        api.get('/api/v2/admin/config'),
-        api.getLogConfig(),
-        api.getRateLimitStats()
+        adminApi.getAdminConfig(),
+        adminApi.getLogConfig(),
+        adminApi.getRateLimitStats()
       ])
       const data = configResponse
 
@@ -1167,9 +1178,9 @@
   const loadStats = async () => {
     try {
       const [statsResponse, wsResponse, memoryResponse] = await Promise.all([
-        api.get('/api/v2/admin/stats'),
-        api.getWebSocketStats(),
-        api.getMemoryStats()
+        adminApi.getSystemStatus(),
+        adminApi.getWebSocketStats(),
+        adminApi.getMemoryStats()
       ])
       serverStats.value = statsResponse
       if (wsResponse) {
@@ -1204,16 +1215,19 @@
         log_to_file: logConfig.log_to_file ? 'true' : 'false'
       }
 
-      await api.put('/api/v2/admin/config/batch', {
-        configs: updateConfigs
-      })
+      const batchResult = await adminApi.batchUpdateAdminConfig(updateConfigs)
+      if (!batchResult || batchResult.status !== 'success') {
+        throw new Error('批量配置保存失败')
+      }
 
       for (const key of Object.keys(featureSwitches)) {
         const configKey = featureKeys[key]
         if (configs[configKey] !== featureSwitches[key].enabled) {
-          await api.put(`/api/v2/admin/config/${configKey}`, {
-            value: featureSwitches[key].enabled ? 'true' : 'false'
-          })
+          const result = await adminApi.updateAdminConfigByKey(
+            configKey,
+            featureSwitches[key].enabled ? 'true' : 'false'
+          )
+          if (!result || result.status !== 'success') throw new Error(`保存功能开关失败: ${configKey}`)
         }
       }
 
@@ -1226,7 +1240,19 @@
     }
   }
 
-  const handleFeatureToggle = (feature, enabled) => {
+  const handleFeatureToggle = async (feature, enabled) => {
+    try {
+      const result = await adminApi.updateAdminConfigByKey(
+        featureKeys[feature],
+        enabled ? 'true' : 'false'
+      )
+      if (!result || result.status !== 'success') throw new Error(`保存功能开关失败: ${feature}`)
+      configs[featureKeys[feature]] = enabled
+      showMessage(`功能已${enabled ? '启用' : '禁用'}`, 'success')
+    } catch (error) {
+      featureSwitches[feature].enabled = !enabled
+      showMessage(error.message, 'error')
+    }
   }
 
   const getStatusClass = value => {
@@ -1269,7 +1295,7 @@
   const createBackup = async () => {
     backingUp.value = true
     try {
-      const result = await api.createBackup()
+      const result = await adminApi.createBackup()
       if (result && result.status === 'success') {
         showBackupMessage(`备份创建成功: ${result.config_count} 项配置`, 'success')
         await loadBackupList()
@@ -1286,7 +1312,7 @@
 
   const loadBackupList = async () => {
     try {
-      const result = await api.listBackups()
+      const result = await adminApi.listBackups()
       if (result && result.backups) {
         backups.value = result.backups
       }
@@ -1298,7 +1324,7 @@
   const downloadBackupItem = async backup => {
     try {
       const timestamp = backup.filename.replace('config_backup_', '').replace('.json', '')
-      const data = await api.downloadBackup(timestamp)
+      const data = await adminApi.downloadBackup(timestamp)
       if (data) {
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
         const url = URL.createObjectURL(blob)
@@ -1326,9 +1352,9 @@
       const timestamp = restoreConfirmBackup.value.filename
         .replace('config_backup_', '')
         .replace('.json', '')
-      const data = await api.downloadBackup(timestamp)
+      const data = await adminApi.downloadBackup(timestamp)
       if (data) {
-        const result = await api.restoreBackup(data)
+        const result = await adminApi.restoreBackup(data)
         if (result && result.status === 'success') {
           showBackupMessage(`恢复成功: ${result.restored_count} 项配置`, 'success')
           await loadConfig()
@@ -1346,7 +1372,7 @@
 
   const deleteBackupItem = async backup => {
     try {
-      const result = await api.deleteBackup(backup.filename)
+      const result = await adminApi.deleteBackup(backup.filename)
       if (result && result.status === 'success') {
         showBackupMessage('备份已删除', 'success')
         await loadBackupList()

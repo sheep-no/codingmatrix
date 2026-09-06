@@ -25,7 +25,7 @@
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
           </svg>
-          下载 PPTX
+          下载 PDF
         </button>
         <button v-if="pptId" class="btn btn-primary" @click="downloadPPTX">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -33,7 +33,7 @@
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
-          下载 PPT
+          下载 PPTX
         </button>
       </div>
     </header>
@@ -47,6 +47,32 @@
         frameborder="0"
       ></iframe>
     </div>
+
+    <section v-if="qualityReport" class="quality-report-card">
+      <div class="quality-report-heading">
+        <strong>生成质量 {{ qualityReport.overall_score }}</strong>
+        <span>{{ qualityReport.quality_mode === 'refined' ? '精修模式' : '标准模式' }}</span>
+      </div>
+      <div class="quality-report-meta">
+        大纲版本 v{{ qualityReport.outline_version }} · {{ qualityReport.issues?.length || 0 }} 个问题 ·
+        {{ Object.keys(qualityReport.reflow_attempts || {}).length }} 页执行过重排
+      </div>
+      <div v-if="Object.keys(qualityReport.slide_scores || {}).length" class="quality-slide-scores">
+        <span v-for="(score, slideId) in qualityReport.slide_scores" :key="slideId">{{ slideId }} {{ score }} 分</span>
+      </div>
+      <div v-if="manualReviewSlides.length" class="quality-manual-review">
+        需人工复核：{{ manualReviewSlides.join('、') }}
+      </div>
+      <div v-if="qualityReport.degraded_stage" class="quality-report-warning">视觉复审已降级：{{ qualityReport.degraded_stage }}</div>
+      <ul v-if="qualityReport.issues?.length" class="quality-report-issues">
+        <li v-for="(issue, index) in qualityReport.issues.slice(0, 5)" :key="`${issue.slide_id || 'deck'}-${index}`">
+          <strong>{{ formatIssueType(issue.issue_type) }}</strong>
+          <span>{{ issue.slide_id ? `${issue.slide_id}: ` : '' }}{{ issue.message || issue.issue_type }}</span>
+          <span v-if="issue.fix_action" class="quality-fix-action">修复动作：{{ formatFixAction(issue.fix_action) }}</span>
+          <button v-if="issue.slide_id && qualityReport.outline_id" class="quality-regenerate-btn" @click="regenerateSlide(issue.slide_id)">重新生成此页</button>
+        </li>
+      </ul>
+    </section>
 
     <!-- 传统幻灯片预览（回退） -->
     <div v-else-if="slides.length > 0" class="page-content">
@@ -93,7 +119,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/utils/api/index'
 import { ElMessage } from 'element-plus'
@@ -106,6 +132,43 @@ const slides = ref([])
 const htmlPreview = ref('')
 const showPDFDownload = ref(false)
 const isLoading = ref(true)
+const qualityReport = ref(null)
+
+const manualReviewSlides = computed(() => {
+  if (qualityReport.value?.manual_review_slides?.length) {
+    return qualityReport.value.manual_review_slides
+  }
+  const attempts = qualityReport.value?.reflow_attempts || {}
+  return [...new Set((qualityReport.value?.issues || [])
+    .filter(issue => issue.slide_id && issue.severity === 'high' && attempts[issue.slide_id] >= 2)
+    .map(issue => issue.slide_id))]
+})
+
+const issueTypeLabels = {
+  text_overflow: '文本溢出',
+  element_overlap: '元素重叠',
+  low_contrast: '对比度不足',
+  unsafe_margin: '超出安全区',
+  image_distortion: '图片变形',
+  layout_repetition: '布局重复',
+}
+
+const fixActionLabels = {
+  reduce_text_or_switch_layout: '缩减文本或切换布局',
+  reposition_elements: '重新定位元素',
+  adjust_text_color: '调整文字或背景颜色',
+  move_into_safe_area: '移入页面安全区',
+  preserve_aspect_ratio: '保持图片宽高比',
+  switch_layout: '切换页面布局',
+}
+
+function formatIssueType(issueType) {
+  return issueTypeLabels[issueType] || issueType || '质量问题'
+}
+
+function formatFixAction(action) {
+  return fixActionLabels[action] || action
+}
 
 // 从路由状态获取幻灯片数据（如果存在）
 if (route.query.slides) {
@@ -149,6 +212,28 @@ async function loadSlides() {
   }
 }
 
+async function loadQualityReport() {
+  try {
+    qualityReport.value = await api.ppt.getQualityReport(pptId)
+  } catch {
+    qualityReport.value = null
+  }
+}
+
+async function regenerateSlide(slideId) {
+  try {
+    const task = await api.ppt.regenerateOutlineSlide(
+      qualityReport.value.outline_id,
+      slideId,
+      qualityReport.value.quality_mode
+    )
+    ElMessage.success('页面再生成任务已创建')
+    router.push(`/ppt/generate?task_id=${task.task_id}`)
+  } catch (error) {
+    ElMessage.error('页面再生成失败：' + error.message)
+  }
+}
+
 // 下载 PPTX
 async function downloadPPTX() {
   try {
@@ -167,7 +252,7 @@ async function downloadPPTX() {
   }
 }
 
-// 下载 PDF（当前回退为 PPTX）
+// 下载 PDF
 async function downloadPDF() {
   try {
     const blob = await api.ppt.downloadPDF(pptId)
@@ -197,10 +282,84 @@ onMounted(async () => {
   if (!hasHtmlPreview) {
     await loadSlides()
   }
+  await loadQualityReport()
 })
 </script>
 
 <style scoped>
+.quality-report-card {
+  margin: 16px 24px 0;
+  padding: 16px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+}
+
+.quality-report-heading,
+.quality-report-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quality-report-meta {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.quality-report-warning {
+  margin-top: 8px;
+  color: #b45309;
+  font-size: 13px;
+}
+
+.quality-slide-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.quality-slide-scores span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.quality-manual-review {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid #dc2626;
+  background: rgba(220, 38, 38, 0.08);
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.quality-report-issues li {
+  margin-top: 8px;
+}
+
+.quality-report-issues li > span {
+  margin-left: 8px;
+}
+
+.quality-fix-action {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.quality-regenerate-btn {
+  margin-left: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--primary-color, #2563eb);
+  cursor: pointer;
+}
+
 .ppt-preview-page {
   height: 100vh;
   display: flex;

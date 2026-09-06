@@ -14,6 +14,7 @@ async def save_history_to_db(
         prompt: str,
         response: str,
         thinking: Optional[str] = None,
+        commit: bool = True,
 ) -> int:
     """
     保存历史记录到数据库
@@ -50,14 +51,22 @@ async def save_history_to_db(
         title=prompt[:100],
     )
     db.add(history)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     await db.refresh(history)
 
+    if commit:
+        await invalidate_history_caches()
+
+    return new_conv_id
+
+
+async def invalidate_history_caches():
     try:
         from app.utils.cache_decorator import invalidate_cache_by_prefix
         await invalidate_cache_by_prefix("history")
         await invalidate_cache_by_prefix("conversations")
     except Exception as e:
         logger.warning(f"缓存失效失败: {e}")
-
-    return new_conv_id

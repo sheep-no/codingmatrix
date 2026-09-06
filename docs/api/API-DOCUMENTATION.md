@@ -1,8 +1,31 @@
 # API 文档
 
-> 最后更新: 2026-06-05 | 版本：v1 (19 模块) + v2 (8 模块) | 测试基线：1622 passed / 2 skipped
+> 代码同步日期：2026-09-03 | 挂载：v1 20 个 Router + v2 8 个 Router | 可达业务路由：275 条
 
-## v5.13.0+ 更新
+## 统计口径与挂载现状
+
+- 统计对象为 `app/main.py` 通过 `include_router()` 实际挂载后，以 `/api/v1/` 或 `/api/v2/` 开头的 FastAPI Route。
+- 共 275 条业务路由记录，其中 HTTP 271 条、WebSocket 4 条；v1 201 条、v2 74 条。
+- 计数排除 `/api/docs`、`/api/redoc`、`/api/openapi.json`、Vue 根路由、静态资源挂载和前端 history catch-all。
+- “Router 数”按 `app/main.py` 的挂载调用计数；“路由数”按 FastAPI 展开嵌套路由后的 Route 记录计数。
+
+| 版本 | Router 挂载数 | 路由记录数 | 当前职责 |
+|------|---------------|------------|----------|
+| v1 | 20 | 201 | 认证、聊天、Agent、PPT、任务、文件、GirlAI、模型浏览等产品 API |
+| v2 | 8 | 74 | Nginx、系统控制、用户管理、守护、管理配置、模型配置和 MCP 管理 API |
+
+4 条 WebSocket 路由为 `/api/v1/ws/ppt/{task_id}`、`/api/v1/tasks/ws/{user_id}`、`/api/v2/Controller/sys-status` 和 `/api/v2/Controller/logs`。
+
+## 2026-09-03 端点变化
+
+- 主聊天入口为 `POST /api/v1/chat`；`POST /api/v1/code` 作为兼容别名保留且不进入 OpenAPI schema。
+- Agent 项目生成保留 `POST /api/v1/agent/generate`，异步任务状态统一通过 `/api/v1/tasks` 查询、重放和恢复；旧路径 `/api/v1/agent/generate_stream`、`/api/v1/agent/generate_task`、`/api/v1/agent/generate/status/{task_id}` 当前未挂载。
+- PPT 大纲工作流新增创建、版本读取、编辑、批准、生成、单页重生成和质量报告端点。
+- Agent Host 新增 8 条会话协议端点。Mobile Agent 复用 Web Agent 的 `/api/v1/agent/*` 与 `/api/v1/tasks/*`，没有独立后端前缀。
+- 统一任务状态新增事件重放、worker lease 心跳和失败/取消任务恢复端点。
+- GirlAI 保持 11 条端点，并在成功对话和历史删除时同步维护 legacy 历史与统一 session/message 状态。
+
+## 历史更新：v5.13.0+
 
 ### LLM 调用路径统一
 
@@ -27,29 +50,23 @@
 
 | 端点 | 方法 | 描述 | 权限 |
 |------|------|------|------|
-| `GET /api/v2/mcp/servers` | GET | 获取所有 MCP Server 配置 | admin |
-| `POST /api/v2/mcp/servers` | POST | 添加 MCP Server | admin |
-| `PUT /api/v2/mcp/servers/{name}` | PUT | 更新 MCP Server | admin |
-| `DELETE /api/v2/mcp/servers/{name}` | DELETE | 删除 MCP Server | admin |
-| `POST /api/v2/mcp/servers/{name}/toggle` | POST | 切换启用/禁用 | admin |
-| `POST /api/v2/mcp/servers/{name}/test` | POST | 测试连接（返回工具列表） | admin |
+| `GET /api/v2/mcp/servers` | GET | 获取所有 MCP Server 配置 | superadmin |
+| `POST /api/v2/mcp/servers` | POST | 添加 MCP Server | superadmin |
+| `PUT /api/v2/mcp/servers/{name}` | PUT | 更新 MCP Server | superadmin |
+| `DELETE /api/v2/mcp/servers/{name}` | DELETE | 删除 MCP Server | superadmin |
+| `POST /api/v2/mcp/servers/{name}/toggle` | POST | 切换启用/禁用 | superadmin |
+| `POST /api/v2/mcp/servers/{name}/test` | POST | 测试连接（返回工具列表） | superadmin |
 
 ### 模型与沙箱管理
 
 | 端点 | 方法 | 描述 | 权限 |
 |------|------|------|------|
-| `POST /api/v1/agent/apikey/{token}/context-lengths` | POST | 设置用户 API Key context_length | normal |
+| `PUT /api/v1/agent/apikey/{token}/context-lengths` | PUT | 设置用户 API Key context_length | normal |
 | `GET /api/v2/admin/sandbox-config` | GET | 查看代码沙箱配置 | superadmin |
 | `PUT /api/v2/admin/sandbox-config` | PUT | 修改代码沙箱配置 | superadmin |
-| `GET /api/v2/models/assignments` | GET | 查看角色模型分配 | superadmin |
-| `PUT /api/v2/models/assignments` | PUT | 修改角色模型分配 | superadmin |
-| `GET /api/v2/models/health` | GET | 查看模型健康度 | superadmin |
-| `POST /api/v2/models/reset-health` | POST | 重置模型健康分 | superadmin |
-| `GET /api/v2/models/context-length` | GET | 查看模型 context_length | superadmin |
+| `GET /api/v2/models/context-lengths` | GET | 查看模型 context_length | superadmin |
 | `PUT /api/v2/models/context-length` | PUT | 修改模型 context_length | superadmin |
-| `DELETE /api/v2/models/context-length/{model_id}` | DELETE | 删除模型 context_length | superadmin |
-| `POST /api/v1/agent/react` | POST | 直接调用 ReAct Agent | normal |
-| `GET /api/v1/agent/model-health` | GET | 模型健康状态查询 | normal |
+| `DELETE /api/v2/models/context-length/{model_key}` | DELETE | 删除模型 context_length | superadmin |
 
 ## 认证
 
@@ -87,7 +104,8 @@
 
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
-| POST | `/api/v1/code` | 生成代码 (SSE 流式) | normal |
+| POST | `/api/v1/chat` | 主聊天入口，支持文件/图片理解 | normal |
+| POST | `/api/v1/code` | 主聊天兼容入口，不进入 OpenAPI schema | normal |
 | POST | `/api/v1/code/resume` | 断点续传 | normal |
 | GET | `/api/v1/code/resume/{resume_id}` | 获取部分响应 | normal |
 | DELETE | `/api/v1/code/history` | 删除代码历史 | normal |
@@ -97,9 +115,6 @@
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
 | POST | `/api/v1/agent/generate` | 生成项目 | normal |
-| POST | `/api/v1/agent/generate_stream` | 流式生成 (SSE) | normal |
-| POST | `/api/v1/agent/generate_task` | 异步任务 | normal |
-| GET | `/api/v1/agent/generate/status/{task_id}` | 任务状态 | normal |
 | GET | `/api/v1/agent/generate/files` | 文件列表 | normal |
 | GET | `/api/v1/agent/generate/read` | 读取文件 | normal |
 | DELETE | `/api/v1/agent/generate/file` | 删除文件 | normal |
@@ -115,24 +130,41 @@
 |------|------|------|------|
 | POST | `/api/v1/github/config` | 保存 GitHub 配置 | normal |
 | GET | `/api/v1/github/config` | 获取 GitHub 配置 | normal |
-| POST | `/api/v1/github/save-project` | 保存项目至 GitHub | normal |
-| GET | `/api/v1/github/verify-token` | 验证 Token 有效性 | normal |
+| POST | `/api/v1/github/save` | 保存项目至 GitHub | normal |
 
 ## AI Agent (`/api/v1/agent`)
 
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
-| POST | `/api/v1/agent/process` | 处理任务 | normal |
-| POST | `/api/v1/agent/chat` | Agent 对话 | normal |
-| POST | `/api/v1/agent/chat/stream` | 流式对话 (SSE) | normal |
+| POST | `/api/v1/agent/modify` | 修改项目或执行分析请求 | normal |
+| POST | `/api/v1/agent/orchestrate` | 同步编排项目生成 | normal |
+| POST | `/api/v1/agent/orchestrate/stream` | SSE 流式编排 | normal |
+| POST | `/api/v1/agent/stop/{session_id}` | 停止会话 | normal |
+| POST | `/api/v1/agent/complete/{session_id}` | 完成会话 | normal |
 | POST | `/api/v1/agent/search_sessions` | 语义搜索历史 session | normal |
-| GET | `/api/v1/agent/sessions` | 会话列表 | normal |
-| GET | `/api/v1/agent/sessions/{session_id}` | 会话详情 | normal |
 | DELETE | `/api/v1/agent/sessions/{session_id}` | 删除会话 | normal |
 | GET | `/api/v1/agent/knowledge` | 知识列表 | normal |
 | POST | `/api/v1/agent/knowledge` | 添加知识 | normal |
-| DELETE | `/api/v1/agent/knowledge/{id}` | 删除知识 | normal |
-| GET | `/api/v1/agent/stats` | 统计信息 | normal |
+| GET | `/api/v1/agent/knowledge/search` | 搜索知识 | normal |
+| GET | `/api/v1/agent/sessions/{session_id}/model-context` | 读取模型上下文快照 | normal |
+| PUT | `/api/v1/agent/sessions/{session_id}/model-context` | 按 revision 更新模型上下文 | normal |
+
+`modify`、同步编排和流式编排路径已通过 `run_workflow(..., db=db, user_id=user_id)` 接入统一状态持久化。当前生产图包装 legacy handler；统一 Session、Task、Checkpoint、Event、Artifact 与 legacy 会话在迁移期共同存在。
+
+### Agent Host 与 Mobile Agent
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/api/v1/agent/host/handshake` | 协商协议版本、workspace 和能力，创建 30 分钟会话 |
+| GET | `/api/v1/agent/host/sessions` | 列出当前用户的 Host 会话 |
+| GET | `/api/v1/agent/host/sessions/{session_id}/actions` | 拉取待执行动作 |
+| POST | `/api/v1/agent/host/sessions/{session_id}/events` | 幂等接收 Host 事件和工具结果 |
+| PUT | `/api/v1/agent/host/sessions/{session_id}/policy` | 使用期望版本更新策略 |
+| PUT | `/api/v1/agent/host/sessions/{session_id}/skills` | 同步会话 Skills |
+| DELETE | `/api/v1/agent/host/sessions/{session_id}/skills/{skill_name}` | 撤销会话 Skill |
+| POST | `/api/v1/agent/host/sessions/{session_id}/control` | `pause`、`resume` 或 `cancel` |
+
+Host 协议版本为 1，能力集合为 `workspace`、`file`、`terminal`、`diagnostics`、`validation` 和 `skill_runtime`。会话按用户隔离，并通过 `data/agent_host_sessions/` 原子 JSON 持久化。Mobile Agent 是同一 Web Agent 工作台的响应式形态，后端继续使用 Agent、任务和模型上下文端点。
 
 ## 虚拟 AI (`/api/v1/GirlAi`)
 
@@ -149,6 +181,8 @@
 | DELETE | `/api/v1/GirlAi/characters/custom/{id}` | 删除自定义角色 | normal |
 | GET | `/api/v1/GirlAi/preferences` | 获取用户偏好 | normal |
 | DELETE | `/api/v1/GirlAi/preferences/{id}` | 删除用户偏好 | normal |
+
+GirlAI 预设角色为 `gentle`、`lively`、`tsundere`、`intellectual` 和 `companion`，自定义角色使用 `custom_<id>`。成功对话先写 legacy `chat_histories`，再通过 `append_conversation_turn()` 写入统一 session/message，并在同一事务提交；删除指定历史或清空历史时同步清理统一消息。历史查询支持 `limit` 1-100 与 `offset`，所有私有资源均按 JWT 用户归属隔离。
 
 ## 图像生成 (`/api/v1/kolors`)
 
@@ -178,14 +212,28 @@
 | DELETE | `/api/v1/pptx/{task_id}/cancel` | 取消任务 | normal |
 | POST | `/api/v1/pptx/{task_id}/update` | 更新任务 | normal |
 
-### PPT Agent 端点 (新增 v5.11.0)
+### 大纲审批与质量端点
 
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
-| POST | `/api/v1/ppt/generate-text` | 生成大纲（仅返回结构化数据） | normal |
-| POST | `/api/v1/ppt/generate-from-text` | 端到端生成（大纲 -> 搜图 -> PPTX） | normal |
+| POST | `/api/v1/pptx/outlines` | 创建用户作用域的大纲草稿 | normal |
+| GET | `/api/v1/pptx/outlines/{outline_id}?version=N` | 读取最新或指定大纲版本 | normal |
+| PATCH | `/api/v1/pptx/outlines/{outline_id}` | 创建编辑后的新版本 | normal |
+| POST | `/api/v1/pptx/outlines/{outline_id}/approve` | 校验并批准当前版本 | normal |
+| POST | `/api/v1/pptx/outlines/{outline_id}/generate` | 从已批准快照创建高质量生成任务 | normal |
+| POST | `/api/v1/pptx/outlines/{outline_id}/slides/{slide_id}/regenerate` | 保留其他页面并重生成目标页 | normal |
+| GET | `/api/v1/pptx/{task_id}/quality-report` | 获取总分、逐页分、问题、重排和降级阶段 | normal |
 
-**POST /api/v1/ppt/generate-text**
+生成端点要求大纲状态为 `approved`，否则返回 409。`quality_mode` 写入任务 options；质量报告返回 `outline_id`、`outline_version`、`quality_mode`、`overall_score`、`slide_scores`、`issues`、`reflow_attempts`、`degraded_stage` 和 `status`。
+
+### 兼容文本生成端点
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| POST | `/api/v1/generate-text` | 生成结构化大纲 | normal |
+| POST | `/api/v1/generate-from-text` | 端到端生成 PPTX | normal |
+
+**POST /api/v1/generate-text**
 
 请求体：
 ```json
@@ -214,7 +262,7 @@
 }
 ```
 
-**POST /api/v1/ppt/generate-from-text**
+**POST /api/v1/generate-from-text**
 
 请求体：同上
 
@@ -251,9 +299,15 @@
 |------|------|------|------|
 | POST | `/api/v1/tasks` | 创建任务 | normal |
 | GET | `/api/v1/tasks/{task_id}` | 任务状态 | normal |
+| GET | `/api/v1/tasks/{task_id}/events?after_sequence=0` | 从 SQL 日志增量重放事件 | normal |
+| POST | `/api/v1/tasks/{task_id}/heartbeat` | 更新 worker lease | normal |
 | GET | `/api/v1/tasks` | 任务列表 | normal |
 | DELETE | `/api/v1/tasks/{task_id}` | 取消任务 | normal |
 | POST | `/api/v1/tasks/{task_id}/retry` | 重试任务 | normal |
+| POST | `/api/v1/tasks/{task_id}/recover` | 将失败或取消任务恢复为 pending | normal |
+| WS | `/api/v1/tasks/ws/{user_id}` | 实时接收用户任务状态 | path user_id |
+
+统一任务服务以 SQL `tasks` 和 `task_events` 为持久化事实源，并继续合并 Celery 运行信息。基础状态为 `pending`、`running`、`success`、`failed`、`cancelled`，响应 schema 兼容 `retrying`；`success`、`failed`、`cancelled` 为终态，恢复接口仅接受 `failed` 或 `cancelled`。
 
 ## 视觉分析 (`/api/v1/vision`)
 
@@ -286,10 +340,13 @@
 
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
-| GET | `/api/v1/models` | 获取所有免费模型列表 | normal |
+| GET | `/api/v1/models/` | 获取所有免费模型列表 | normal |
 | GET | `/api/v1/models/default` | 获取当前默认模型 | normal |
-| POST | `/api/v1/models/switch` | 切换默认模型 | superadmin |
-| GET | `/api/v1/models/capability/{capability}` | 按能力筛选模型 | normal |
+| GET | `/api/v1/models/capabilities/list` | 列出模型能力 | normal |
+| GET | `/api/v1/models/agent-config` | 获取 Agent 模型配置 | normal |
+| GET | `/api/v1/models/{model_id}` | 获取模型详情 | normal |
+
+默认模型切换位于 `POST /api/v2/models/default`；v2 模型管理还提供 Agent 配置、降级链和 context length 写接口。
 
 **能力类型**: CODE, FAST, REASONING, VISION, OCR, EMBEDDING, CREATIVE
 
@@ -411,16 +468,16 @@
 }
 ```
 
-### MCP Server 管理 (新增, admin)
+### MCP Server 管理 (新增, superadmin)
 
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
-| GET | `/api/v2/mcp/servers` | 获取所有 MCP Server 配置 | admin |
-| POST | `/api/v2/mcp/servers` | 添加 MCP Server | admin |
-| PUT | `/api/v2/mcp/servers/{name}` | 更新 MCP Server | admin |
-| DELETE | `/api/v2/mcp/servers/{name}` | 删除 MCP Server | admin |
-| POST | `/api/v2/mcp/servers/{name}/toggle` | 切换启用/禁用 | admin |
-| POST | `/api/v2/mcp/servers/{name}/test` | 测试连接 | admin |
+| GET | `/api/v2/mcp/servers` | 获取所有 MCP Server 配置 | superadmin |
+| POST | `/api/v2/mcp/servers` | 添加 MCP Server | superadmin |
+| PUT | `/api/v2/mcp/servers/{name}` | 更新 MCP Server | superadmin |
+| DELETE | `/api/v2/mcp/servers/{name}` | 删除 MCP Server | superadmin |
+| POST | `/api/v2/mcp/servers/{name}/toggle` | 切换启用/禁用 | superadmin |
+| POST | `/api/v2/mcp/servers/{name}/test` | 测试连接 | superadmin |
 
 **POST /api/v2/mcp/servers 请求体**:
 ```json
@@ -454,20 +511,15 @@
 
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
-| GET | `/api/v2/models/context-length` | 列出所有模型 context_length | superadmin |
+| GET | `/api/v2/models/context-lengths` | 列出所有模型 context_length | superadmin |
 | PUT | `/api/v2/models/context-length` | 设置/更新模型 context_length | superadmin |
-| DELETE | `/api/v2/models/context-length/{model_id}` | 删除模型 context_length | superadmin |
-| GET | `/api/v2/models/assignments` | 查看 5×5 模型分配 | superadmin |
-| PUT | `/api/v2/models/assignments` | 修改模型分配 | superadmin |
-| GET | `/api/v2/models/health` | 查看模型健康度 | superadmin |
-| POST | `/api/v2/models/reset-health` | 重置健康分 | superadmin |
+| DELETE | `/api/v2/models/context-length/{model_key}` | 删除模型 context_length | superadmin |
 
 ### API Key context_length 管理 (v5.12.0+ 新增, normal)
 
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
-| POST | `/api/v1/agent/apikey/{token}/context-lengths` | 设置 API Key 模型 context_length | normal |
-| GET | `/api/v1/agent/apikey/{token}/context-lengths` | 获取 API Key context_length | normal |
+| PUT | `/api/v1/agent/apikey/{token}/context-lengths` | 设置 API Key 模型 context_length | normal |
 
 ## 健康检查 (`/api/v1/health`)
 
@@ -480,9 +532,9 @@
 | GET | `/api/v1/health/metrics` | Prometheus 指标 | public |
 | GET | `/api/v1/health/models` | 模型健康状态 | public |
 
-## API 集成状态
+## API 覆盖索引
 
-> 端点总数: 240+ | 状态: 全部集成完成
+> 当前基线为 275 条可达业务路由。以下按业务展示重点端点，公开 HTTP schema 以 `/api/openapi.json` 为准；兼容隐藏端点和 4 条 WebSocket 需结合源码查看。
 
 ### 认证相关 (6/6)
 - [x] POST /api/v1/login - 用户登录 (RSA 加密密码)
@@ -492,17 +544,15 @@
 - [x] GET /api/v1/csrf-token - 获取 CSRF Token
 - [x] GET /api/v1/user/profile - 用户资料
 
-### AI 代码生成 (4/4)
-- [x] POST /api/v1/code - 生成代码 (SSE 流式)
+### 主聊天与兼容入口 (5/5)
+- [x] POST /api/v1/chat - 主聊天入口
+- [x] POST /api/v1/code - 兼容入口（不进入 OpenAPI schema）
 - [x] POST /api/v1/code/resume - 断点续传
 - [x] GET /api/v1/code/resume/{resume_id} - 获取部分响应
 - [x] DELETE /api/v1/code/history - 删除历史
 
-### AI 项目生成 (13/13)
+### AI 项目生成 (9/9)
 - [x] POST /api/v1/agent/generate - 生成项目
-- [x] POST /api/v1/agent/generate_stream - 流式生成
-- [x] POST /api/v1/agent/generate_task - 异步任务生成
-- [x] GET /api/v1/agent/generate/status/{task_id} - 任务状态
 - [x] GET /api/v1/agent/generate/files - 文件列表
 - [x] GET /api/v1/agent/generate/read - 读取文件
 - [x] DELETE /api/v1/agent/generate/file - 删除文件
@@ -512,29 +562,25 @@
 - [x] GET /api/v1/agent/saved/{project_id} - 加载项目
 - [x] DELETE /api/v1/agent/saved/{project_id} - 删除项目
 
-### AI Agent (23/23)
-- [x] POST /api/v1/agent/process - 处理任务
-- [x] POST /api/v1/agent/process_stream - 流式处理
-- [x] POST /api/v1/agent/react/process - ReAct 处理
-- [x] POST /api/v1/agent/react/stream - ReAct 流式
-- [x] GET /api/v1/agent/models - 可用模型列表
-- [x] POST /api/v1/agent/review - 内容审查
-- [x] POST /api/v1/agent/sessions - 创建会话
-- [x] GET /api/v1/agent/sessions - 会话列表
-- [x] GET /api/v1/agent/sessions/{session_id} - 会话详情
+### AI Agent（43 条）
+- [x] POST /api/v1/agent/generate - 生成项目
+- [x] POST /api/v1/agent/modify - 增量修改或分析
+- [x] POST /api/v1/agent/orchestrate - 同步编排
+- [x] POST /api/v1/agent/orchestrate/stream - SSE 编排
+- [x] POST /api/v1/agent/stop/{session_id} - 停止会话
+- [x] POST /api/v1/agent/complete/{session_id} - 完成会话
 - [x] DELETE /api/v1/agent/sessions/{session_id} - 删除会话
 - [x] POST /api/v1/agent/knowledge - 添加知识
 - [x] GET /api/v1/agent/knowledge - 知识列表
 - [x] GET /api/v1/agent/knowledge/search - 知识搜索
-- [x] GET /api/v1/agent/stats/models - 模型统计
-- [x] POST /api/v1/agent/orchestrate - 项目编排
-- [x] POST /api/v1/agent/orchestrate/stream - 编排流式
 - [x] POST /api/v1/agent/analyze_complexity - 复杂度分析
 - [x] GET /api/v1/agent/cache/stats - 缓存统计
 - [x] POST /api/v1/agent/cache/clear - 清空缓存
 - [x] GET /api/v1/agent/learning/stats - 学习统计
 - [x] GET /api/v1/agent/learning/common-errors/{file_type} - 常见错误
 - [x] POST /api/v1/agent/search_sessions - 语义搜索历史 session
+- [x] GET /api/v1/agent/sessions/{session_id}/model-context - 模型上下文
+- [x] PUT /api/v1/agent/sessions/{session_id}/model-context - 更新模型上下文
 
 ### 虚拟 AI (GirlAi) (11/11)
 - [x] GET /api/v1/GirlAi/characters - 角色列表
@@ -572,7 +618,14 @@
 - [x] DELETE /api/v1/kolors/history/{image_id} - 删除历史
 - [x] DELETE /api/v1/kolors/history - 删除全部历史
 
-### PPT 生成 (7/7)
+### PPT 生成（重点端点 14 条）
+- [x] POST /api/v1/pptx/outlines - 创建大纲草稿
+- [x] GET /api/v1/pptx/outlines/{outline_id} - 读取大纲版本
+- [x] PATCH /api/v1/pptx/outlines/{outline_id} - 编辑大纲
+- [x] POST /api/v1/pptx/outlines/{outline_id}/approve - 批准大纲
+- [x] POST /api/v1/pptx/outlines/{outline_id}/generate - 从批准版本生成
+- [x] POST /api/v1/pptx/outlines/{outline_id}/slides/{slide_id}/regenerate - 单页重生成
+- [x] GET /api/v1/pptx/{task_id}/quality-report - 质量报告
 - [x] POST /api/v1/pptx/generate_task - 异步生成任务
 - [x] POST /api/v1/pptx/generate - 同步生成
 - [x] GET /api/v1/pptx/download/{ppt_id} - 下载
@@ -588,12 +641,16 @@
 - [x] POST /api/v1/files/upload/chunk/{file_id}/{chunk_index} - 上传分片
 - [x] POST /api/v1/files/upload/merge/{file_id} - 合并分片
 
-### 任务队列 (5/5)
+### 统一任务队列（8 条 HTTP + 1 条 WebSocket）
 - [x] POST /api/v1/tasks - 创建任务
 - [x] GET /api/v1/tasks/{task_id} - 任务状态
+- [x] GET /api/v1/tasks/{task_id}/events - 事件重放
+- [x] POST /api/v1/tasks/{task_id}/heartbeat - worker lease 心跳
 - [x] GET /api/v1/tasks - 任务列表
 - [x] DELETE /api/v1/tasks/{task_id} - 取消任务
 - [x] POST /api/v1/tasks/{task_id}/retry - 重试任务
+- [x] POST /api/v1/tasks/{task_id}/recover - 恢复任务
+- [x] WS /api/v1/tasks/ws/{user_id} - 状态推送
 
 ### 视觉分析 (4/4)
 - [x] POST /api/v1/vision/analyze - 图像分析
@@ -710,8 +767,7 @@
 |------|------|------|------|
 | POST | `/api/v1/github/config` | 保存 GitHub 配置 | normal |
 | GET | `/api/v1/github/config` | 获取 GitHub 配置 | normal |
-| POST | `/api/v1/github/save-project` | 保存项目至 GitHub | normal |
-| GET | `/api/v1/github/verify-token` | 验证 Token 有效性 | normal |
+| POST | `/api/v1/github/save` | 保存项目至 GitHub | normal |
 
 ### 提供商管理 (`/api/v1/providers`)
 
@@ -736,4 +792,3 @@
 | DELETE | `/api/v1/skills/{name}` | 删除 Skill | normal |
 | POST | `/api/v1/skills/upload-file` | 文件方式上传 Skill | normal |
 | POST | `/api/v1/skills/reload` | 热重载所有 Skill | normal |
-

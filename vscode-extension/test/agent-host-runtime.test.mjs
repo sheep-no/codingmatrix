@@ -139,3 +139,29 @@ test("polls cloud validation actions and submits local results", async () => {
   assert.equal(await runtime.poll(), 1);
   assert.deepEqual(submitted, [result]);
 });
+
+test("limits skill_runtime to metadata synchronization", async () => {
+  const synced = [];
+  const runtime = new AgentHostRuntime({
+    session: createSession(),
+    dispatcher: createDispatcher(),
+    onSkillSync: async (skills) => synced.push(skills),
+  });
+  await runtime.process({
+    message_id: "skill-sync",
+    schema_version: 1,
+    session_id: "session-1",
+    kind: "tool_action",
+    capability: "skill_runtime",
+    payload: { operation: "sync", skills: { lint: { description: "Lint" } } },
+  });
+  assert.deepEqual(synced, [{ lint: { description: "Lint" } }]);
+  await assert.rejects(runtime.process({
+    message_id: "skill-execute",
+    schema_version: 1,
+    session_id: "session-1",
+    kind: "tool_action",
+    capability: "skill_runtime",
+    payload: { operation: "execute", skill_name: "lint" },
+  }), /skill sync requires a skills object/);
+});

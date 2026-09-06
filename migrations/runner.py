@@ -23,8 +23,9 @@ from app.models.server_config import ServerConfig
 from app.models.user import User
 from app.models.history import History
 from app.models.task import Task
+from app.models.chat_history import ChatHistory, ChatSummary, CustomCharacter, UserPreference
 from app.models.unified_state import (
-    Session, Message, TaskEvent, Checkpoint, Artifact,
+    Session, Message, SessionEvent, TaskEvent, Checkpoint, Artifact,
     StateCompatibilityMapping, StateRetentionRecord,
     StateReconciliationRecord,
 )
@@ -97,5 +98,32 @@ async def run_async_migrations():
                 if column_name not in task_columns:
                     await conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {column_name} {column_type}"))
                     print(f"已升级 tasks 表字段: {column_name}")
+
+        if "user_preferences" in existing_tables:
+            if db_type == "sqlite":
+                columns_result = await conn.execute(text("PRAGMA table_info(user_preferences)"))
+                preference_columns = {row[1] for row in columns_result}
+            else:
+                columns_result = await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = :db_name AND table_name = 'user_preferences'"
+                    ),
+                    {"db_name": parsed.path.strip("/")},
+                )
+                preference_columns = {row[0] for row in columns_result}
+
+            additions = {
+                "status": "VARCHAR(20) NOT NULL DEFAULT 'confirmed'",
+                "consent_source": "VARCHAR(30) NOT NULL DEFAULT 'system_derived'",
+                "visibility": "VARCHAR(30) NOT NULL DEFAULT 'companion_allowed'",
+                "last_used_at": "DATETIME",
+            }
+            for column_name, column_type in additions.items():
+                if column_name not in preference_columns:
+                    await conn.execute(
+                        text(f"ALTER TABLE user_preferences ADD COLUMN {column_name} {column_type}")
+                    )
+                    print(f"已升级 user_preferences 表字段: {column_name}")
 
     await engine.dispose()

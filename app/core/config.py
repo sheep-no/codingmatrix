@@ -98,6 +98,11 @@ class Settings(BaseSettings):
 
     WS_MAX_CONNECTIONS: int = 50
 
+    GIRLAI_EMOTION_CONFIDENCE_THRESHOLD: float = Field(default=0.6, ge=0.0, le=1.0)
+    GIRLAI_INTENT_CONFIDENCE_THRESHOLD: float = Field(default=0.6, ge=0.0, le=1.0)
+    GIRLAI_CLASSIFICATION_TIMEOUT_SECONDS: float = Field(default=12.0, gt=0.0, le=60.0)
+    GIRLAI_TURN_RESERVATION_TIMEOUT_SECONDS: float = Field(default=90.0, gt=0.0, le=600.0)
+
     # 项目生成会话限制（默认 2 = 允许 2 个并发会话，管理员可通过环境变量调整）
     MAX_PROJECT_SESSIONS_PER_USER: int = 2
 

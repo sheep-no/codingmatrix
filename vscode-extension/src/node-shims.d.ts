@@ -15,8 +15,11 @@ declare module "node:fs/promises" {
 }
 
 declare module "node:path" {
+  export const sep: string;
+  export function isAbsolute(path: string): boolean;
   export function join(...parts: string[]): string;
   export function relative(from: string, to: string): string;
+  export function resolve(...parts: string[]): string;
 }
 
 declare module "node:child_process" {

@@ -700,14 +700,28 @@ class IncrementalModifyMixin:
             description = file_info.get("description", f"生成 {file_path}")
             original_content = file_info.get("original_content", "")
             action = file_info.get("action", "add")
+            is_frontend = "frontend" in file_path or file_path.endswith(('.html', '.css', '.js', '.vue'))
+            agent_role = "frontend" if is_frontend else "backend"
+            previous_model = (
+                self.model_assignment.frontend_model if is_frontend and self.model_assignment
+                else self.model_assignment.backend_model if self.model_assignment
+                else None
+            )
 
             # 尝试每个降级模型
             for model_name in fallback_models:
                 try:
                     logger.info(f"尝试用 {model_name} 重试: {file_path}")
+                    self._report_model_info(
+                        agent_role,
+                        model_name,
+                        fallback_from=previous_model,
+                        reason="retry_failed_file",
+                    )
+                    previous_model = model_name
 
                     # 选择工程师
-                    if "frontend" in file_path or file_path.endswith(('.html', '.css', '.js', '.vue')):
+                    if is_frontend:
                         from app.agent.specialists import FrontendEngineer
                         engineer = FrontendEngineer("前端工程师", model_name, task_type="generate",
                                                    api_key_token=self.api_key_token, cancel_event=self.cancel_event)

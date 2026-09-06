@@ -1,15 +1,40 @@
 """
 PPT 模板管理器 - 注册、加载、推荐模板
 """
-import os
 import json
 import logging
-from typing import Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 
 from app.utils.pptx.templates.base import TemplateBase, TemplateConfig, TemplateCategory
+from app.utils.pptx.design_tokens import DesignTokens, resolve_design_tokens
+from app.utils.pptx.scenario import SCENARIO_PROFILES, ScenarioResult, classify_scenario
 
 logger = logging.getLogger(__name__)
+
+TEMPLATE_ALIASES = {
+    "business": "business_report",
+    "creative": "pitch_deck",
+}
+
+SCENARIO_TEMPLATE_RANKINGS = {
+    "business": ("business_report", "minimal", "tech"),
+    "data_report": ("tech", "business_report", "minimal"),
+    "product_pitch": ("pitch_deck", "tech", "minimal"),
+    "academic": ("academic", "minimal", "tech"),
+    "education": ("education", "minimal", "business_report"),
+    "general": ("minimal", "business_report", "education"),
+}
+
+
+def migrate_legacy_template_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Add versioned token containers to legacy custom-template JSON."""
+    migrated = dict(data)
+    migrated.setdefault("schema_version", 2)
+    migrated.setdefault("version", "1.0")
+    for group in ("colors", "typography", "spacing", "shapes", "image", "chart"):
+        migrated.setdefault(group, {})
+    return migrated
 
 
 class TemplateManager:
@@ -38,11 +63,18 @@ class TemplateManager:
 
     def get_template(self, template_id: str) -> Optional[TemplateBase]:
         """根据 ID 获取模板"""
-        return self._templates.get(template_id)
+        return self._templates.get(TEMPLATE_ALIASES.get(template_id, template_id))
 
     def get_config(self, template_id: str) -> Optional[TemplateConfig]:
         """根据 ID 获取模板配置"""
-        return self._template_configs.get(template_id)
+        return self._template_configs.get(TEMPLATE_ALIASES.get(template_id, template_id))
+
+    def resolve_design_tokens(self, template_id: str, version: Optional[str] = None) -> DesignTokens:
+        """Resolve one token bundle for every page in a generation task."""
+        config = self.get_config(template_id)
+        if config is None:
+            raise KeyError(f"模板不存在：{template_id}")
+        return resolve_design_tokens(config, version)
 
     def list_templates(self) -> List[Dict]:
         """列出所有可用模板"""
@@ -54,7 +86,10 @@ class TemplateManager:
                 "name_zh": config.name_zh,
                 "category": config.category.value,
                 "description": config.description,
+                "version": config.version,
                 "primary_color": f"#{config.primary_color}",
+                "secondary_color": f"#{config.secondary_color}",
+                "background": f"#{config.background_color}",
                 "has_header_bar": config.has_header_bar,
                 "has_page_number": config.has_page_number,
             })
@@ -91,6 +126,43 @@ class TemplateManager:
 
         return candidates[:5]  # 最多推荐 5 个
 
+    def recommend_for_scenario(
+        self,
+        text: str = "",
+        limit: int = 3,
+        scenario: Optional[str] = None,
+    ) -> Dict[str, object]:
+        """Return a scenario result and stable ranked template candidates."""
+        if scenario in SCENARIO_PROFILES:
+            result = ScenarioResult(scenario, SCENARIO_PROFILES[scenario][0], 1.0, ())
+        else:
+            result = classify_scenario(text)
+        preferred = list(SCENARIO_TEMPLATE_RANKINGS[result.scenario])
+        ranked_ids = preferred + [template_id for template_id in self._template_configs if template_id not in preferred]
+        ranked_ids = ranked_ids[:max(3, min(limit, len(ranked_ids)))]
+        candidates = []
+        for rank, template_id in enumerate(ranked_ids):
+            config = self._template_configs[template_id]
+            candidates.append({
+                "id": template_id,
+                "name": config.name_zh,
+                "category": config.category.value,
+                "version": config.version,
+                "score": max(0, 100 - rank * 10),
+                "preview": {
+                    "primary_color": f"#{config.primary_color.lstrip('#')}",
+                    "secondary_color": f"#{config.secondary_color.lstrip('#')}",
+                    "background": f"#{config.background_color.lstrip('#')}",
+                },
+            })
+        return {
+            "scenario": result.scenario,
+            "confidence": result.confidence,
+            "matched_keywords": list(result.matched_keywords),
+            "templates": [candidate["id"] for candidate in candidates],
+            "candidates": candidates,
+        }
+
     def _register_builtin_templates(self):
         """注册内置模板"""
         try:
@@ -99,7 +171,11 @@ class TemplateManager:
                 AcademicPresetTemplate,
                 PitchDeckTemplate,
                 EducationTemplate,
+                ElegantTemplate,
+                MedicalTemplate,
                 MinimalTemplate,
+                ModernTemplate,
+                TechTemplate,
             )
 
             presets = [
@@ -107,7 +183,11 @@ class TemplateManager:
                 AcademicPresetTemplate(),
                 PitchDeckTemplate(),
                 EducationTemplate(),
+                ElegantTemplate(),
+                MedicalTemplate(),
                 MinimalTemplate(),
+                ModernTemplate(),
+                TechTemplate(),
             ]
 
             for preset in presets:
@@ -125,12 +205,15 @@ class TemplateManager:
         # 确保目录存在
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
+        tokens = resolve_design_tokens(config)
         data = {
             "template_id": config.template_id,
             "name": config.name,
             "name_zh": config.name_zh,
             "category": config.category.value,
             "description": config.description,
+            "schema_version": config.schema_version,
+            "version": config.version,
             "primary_color": config.primary_color,
             "secondary_color": config.secondary_color,
             "accent_color": config.accent_color,
@@ -156,6 +239,12 @@ class TemplateManager:
             "has_footer_bar": config.has_footer_bar,
             "has_corner_decor": config.has_corner_decor,
             "has_page_number": config.has_page_number,
+            "colors": tokens.colors,
+            "typography": tokens.typography,
+            "spacing": tokens.spacing,
+            "shapes": tokens.shapes,
+            "image": tokens.image,
+            "chart": tokens.chart,
         }
 
         with open(config_path, "w", encoding="utf-8") as f:
@@ -168,7 +257,7 @@ class TemplateManager:
         """从文件加载自定义模板配置"""
         try:
             with open(config_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+                data = migrate_legacy_template_data(json.load(f))
 
             return TemplateConfig(
                 template_id=data["template_id"],
@@ -176,6 +265,8 @@ class TemplateManager:
                 name_zh=data["name_zh"],
                 category=TemplateCategory(data["category"]),
                 description=data["description"],
+                schema_version=data["schema_version"],
+                version=data["version"],
                 primary_color=data.get("primary_color", "1F4E79"),
                 secondary_color=data.get("secondary_color", "2E75B6"),
                 accent_color=data.get("accent_color", "70AD47"),
@@ -201,6 +292,12 @@ class TemplateManager:
                 has_footer_bar=data.get("has_footer_bar", True),
                 has_corner_decor=data.get("has_corner_decor", False),
                 has_page_number=data.get("has_page_number", True),
+                colors=data["colors"],
+                typography=data["typography"],
+                spacing=data["spacing"],
+                shapes=data["shapes"],
+                image=data["image"],
+                chart=data["chart"],
             )
         except Exception as e:
             logger.error(f"加载自定义模板失败：{e}")

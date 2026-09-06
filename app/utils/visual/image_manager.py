@@ -209,7 +209,7 @@ class ImageManager:
         """从 Unsplash 搜索免费图片"""
         try:
             # 使用 Unsplash Source API（无需 API key）
-            keyword = keywords[0] if keywords else "business"
+            keyword = " ".join(keywords[:3]) if keywords else "business strategy"
             url = f"https://source.unsplash.com/800x600/?{keyword}"
             
             # 尝试下载
@@ -242,7 +242,7 @@ class ImageManager:
     ) -> Optional[ImageAsset]:
         """从高品图像搜索图片"""
         try:
-            keyword = keywords[0] if keywords else "safety"
+            keyword = " ".join(keywords[:3]) if keywords else "business strategy"
             
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",

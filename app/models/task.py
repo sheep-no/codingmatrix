@@ -73,6 +73,12 @@ class Task(Base):
     error_json = Column(JSON, default=dict)
     result_json = Column(JSON, default=dict)
 
+    # PPT generation traceability
+    outline_id = Column(String(64), nullable=True, index=True)
+    outline_version = Column(Integer, nullable=True)
+    quality_mode = Column(String(20), nullable=True)
+    quality_report_artifact_id = Column(String(64), nullable=True)
+
     # 进度信息
     progress = Column(Integer, default=0)
     progress_message = Column(String(255))

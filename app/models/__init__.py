@@ -24,10 +24,11 @@ from app.models.agent_memory import (
     ModelUsageStats,
 )
 from app.models.unified_state import (
-    Session, Message, TaskEvent, Checkpoint, Artifact,
+    Session, Message, SessionEvent, TaskEvent, Checkpoint, Artifact,
     StateCompatibilityMapping, StateRetentionRecord,
     StateReconciliationRecord,
 )
+from app.models.ppt_state import PPTOutline, PPTQualityReport
 
 __all__ = [
     "Base",
@@ -56,10 +57,13 @@ __all__ = [
     "ModelUsageStats",
     "Session",
     "Message",
+    "SessionEvent",
     "TaskEvent",
     "Checkpoint",
     "Artifact",
     "StateCompatibilityMapping",
     "StateRetentionRecord",
     "StateReconciliationRecord",
+    "PPTOutline",
+    "PPTQualityReport",
 ]

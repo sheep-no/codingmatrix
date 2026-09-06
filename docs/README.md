@@ -1,269 +1,161 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-06-22 | 后端代码：356 文件 / 99,618 行 | 前端代码：~58,000 行 | Agent 模块：76 + 3 子包 | 端点：240+ | E2E 用例：409
+> 最后更新：2026-09-03 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：34 张表 | Alembic：15 个有效迁移文件
+
+CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，覆盖智能对话、项目生成、多 Agent 协作、模型与供应商配置、PPT 生成、AI Cloud、GirlAI，以及 Web、Mobile 和 VS Code 多端 Agent 工作流。
+
+## 文档时效范围
+
+- 本首页及 `architecture/`、`api/`、`features/`、`guides/`、`security/`、`testing/`、`observability/`、`prompts/`、`skills/` 和顶层结构文档描述 2026-09-03 当前项目状态。
+- `evolution/`、`.monkeycode/specs/` 和 `versions/` 保存历史规划、功能规格与版本快照，按形成时的历史语义保留；其中的规模、接口和验收数字不代表当前基线。
+- 当前 API 数量采用实际挂载后的路由记录口径；测试数量采用静态测试定义口径。运行结果、依赖条件和验收日期以对应测试文档为准。
 
 ## 快速导航
 
-- [项目结构](PROJECT-STRUCTURE.md) - 目录职责、入口关系和配置边界
-- [根目录文件说明](ROOT-FILES.md) - 根目录文件分类和使用说明
+### 项目结构
 
-### 入门
-- [快速开始](guides/GETTING-STARTED.md) - 环境配置、快速启动
-- [多供应商配置](guides/MULTI-PROVIDER-SETUP.md) - 7 个 LLM 供应商配置
-- [API Key 指南](guides/API-KEY-GUIDE.md) - API Key 管理和使用
+- [项目结构](PROJECT-STRUCTURE.md) - 目录职责、代码分层、统一状态、PPT 与 VS Code Host 结构
+- [根目录文件说明](ROOT-FILES.md) - 根目录文件、运行数据和脚本分类
+- [技术债务](TECH-DEBT.md) - 当前技术债务跟踪
+
+### 入门与运维
+
+- [快速开始](guides/GETTING-STARTED.md) - 环境配置、数据库初始化、开发启动和验证
+- [多供应商配置](guides/MULTI-PROVIDER-SETUP.md) - 内置与动态 LLM 供应商配置
+- [API Key 指南](guides/API-KEY-GUIDE.md) - 用户 Key 加密、存储和使用
+- [服务与端口](guides/SERVICES.md) - 服务启停、端口、代理和健康检查
+- [生产部署](guides/PRODUCTION.md) - Docker Compose、Nginx 和生产运行
 
 ### 架构
-- [系统架构](architecture/ARCHITECTURE.md) - 完整架构设计（含 9 大子系统）
-- [模块说明](architecture/MODULES.md) - 后端 356 文件 + 前端 58,000 行详细清单
-- [模型系统](architecture/MODELS.md) - 多供应商 LLM 适配器
-- [API 职责矩阵](architecture/API-RESPONSIBILITY-MATRIX.md) - v1/v2 路由职责
+
+- [系统架构](architecture/ARCHITECTURE.md) - 系统分层、统一状态、PPT 编排和多端 Agent
+- [模块说明](architecture/MODULES.md) - 后端、前端、测试和关键模块清单
+- [数据模型与 LLM](architecture/MODELS.md) - 34 张 ORM 表、模型配置和供应商适配器
+- [API 职责矩阵](architecture/API-RESPONSIBILITY-MATRIX.md) - v1/v2 Router 职责和关键执行链
 
 ### API
-- [API 文档](api/API-DOCUMENTATION.md) - 240+ 个端点完整文档
-- [API 版本管理](api/API-VERSIONS.md) - 版本策略和迁移指南
 
-### 核心功能模块
-- [Agent 系统](features/AGENT.md) - 多角色协作、项目生成、ReAct 工具调用
-- [动态模型路由](features/DYNAMIC-MODEL-ROUTER.md) - 健康感知路由、熔断、模型分配
-- [ReAct 工具调用](features/REACT-TOOL-CALLING.md) - 自主循环、阶段化模型、ToolRegistry
-- [会话生命周期](features/SESSION-LIFECYCLE.md) - 会话创建/恢复/暂停/取消/清理
-- [AI 云管理](features/AICLOUD.md) - 模型切换、故障转移
-- [工作流引擎](features/WORKFLOW.md) - DAG 编排、9 种节点类型
-- [免费模型管理](features/MODEL-MANAGER.md) - 内置模型查看、切换
-- [动态供应商](features/DYNAMIC-PROVIDERS.md) - 自定义 API 接入
-- [Web 搜索增强](features/WEB-SEARCH-ENHANCEMENTS.md) - 查询优化、结果去重
-- [多语言依赖解析](features/MULTI-LANGUAGE-DEPENDENCY-PARSER.md) - 14 种语言依赖分析
-- [SSE 展示优化](features/SSE-DISPLAY-OPTIMIZATION.md) - 流式响应展示
-- [PPT Agent](features/PPT-AGENT.md) - PPT 智能生成
-- [自定义 Skill](features/CUSTOM-SKILLS.md) - 自定义提示词管理、热重载
-- [虚拟姬](features/GIRLAI.md) - AI 情感陪伴角色
-- [项目介绍](features/PROJECT-INTRODUCTION.md) - 平台功能总览
+- [API 文档](api/API-DOCUMENTATION.md) - 275 条可达业务路由的口径、重点端点和能力索引
+- [API 版本管理](api/API-VERSIONS.md) - URL 版本策略、当前挂载基线和迁移约定
 
-### 部署运维
-- [生产部署](guides/PRODUCTION.md) - Docker Compose、服务管理
-- [服务管理](guides/SERVICES.md) - 服务启停、健康检查
+### Agent 与模型
 
-### 安全
-- [安全架构](security/SECURITY-OVERVIEW.md) - 安全概览（含 API Key 加密、并发限制）
-- [加密登录](security/ENCRYPTED-LOGIN.md) - RSA 加密登录
-- [CSRF 防护](security/CSRF-IMPLEMENTATION.md) - CSRF 实现
-- [权限规范](security/PERMISSION-SPEC.md) - RBAC 权限模型
+- [Agent 系统](features/AGENT.md) - Web/Mobile Agent、StateGraph 迁移层、模型上下文和 VS Code Host
+- [动态模型路由](features/DYNAMIC-MODEL-ROUTER.md) - 健康感知、熔断、角色分配和学习路由
+- [ReAct 工具调用](features/REACT-TOOL-CALLING.md) - 编排内自主循环、工具注册和事件输出
+- [会话生命周期](features/SESSION-LIFECYCLE.md) - 会话、任务、事件、checkpoint 和恢复
+- [模型管理](features/MODEL-MANAGER.md) - 用户模型浏览与管理面配置边界
+- [动态供应商](features/DYNAMIC-PROVIDERS.md) - OpenAI 兼容与 Anthropic 协议供应商
+- [自定义 Skill](features/CUSTOM-SKILLS.md) - 用户 Skill 管理、热重载和 Host 同步
+- [SSE 展示](features/SSE-DISPLAY-OPTIMIZATION.md) - Agent 流式事件与前端展示
 
-### 演化路径
-- [演化路径索引](evolution/README.md) - 各核心子系统未来演化规划
-- [Agent 引擎演化路径](evolution/AGENT-ENGINE.md) - 编排核心、角色、路由、验证闭环的拆分与演进
-- [前端 Agent 界面演化路径](evolution/AGENT-FRONTEND.md) - 布局修正、对话流重构、行级 diff、多文件标签、目录树
+### 业务能力
 
-### 其他
+- [项目功能介绍](features/PROJECT-INTRODUCTION.md) - 平台当前能力总览
+- [PPT Agent](features/PPT-AGENT.md) - 版本化大纲、审批、质量检查和单页重生成
+- [GirlAI](features/GIRLAI.md) - 角色对话、自定义角色、偏好和统一状态
+- [AI Cloud](features/AICLOUD.md) - 沙箱、审查、知识库和统一会话状态
+- [工作流引擎](features/WORKFLOW.md) - DAG 执行、节点类型和状态接入边界
+- [Web 搜索增强](features/WEB-SEARCH-ENHANCEMENTS.md) - 查询优化模块及当前接入状态
+- [多语言依赖解析](features/MULTI-LANGUAGE-DEPENDENCY-PARSER.md) - 独立解析器能力及生产接入边界
+
+### 安全与测试
+
+- [安全概览](security/SECURITY-OVERVIEW.md) - 认证、密钥、RBAC、中间件和工作区边界
+- [加密登录](security/ENCRYPTED-LOGIN.md) - AES/RSA 登录载荷流程
+- [CSRF 防护](security/CSRF-IMPLEMENTATION.md) - Double-submit Cookie 实现与边界
+- [权限规范](security/PERMISSION-SPEC.md) - normal、admin、superadmin 权限模型
+- [测试索引](testing/README.md) - 测试文档入口和运行条件
+- [测试指南](testing/TESTING.md) - pytest、Vitest、Playwright 与 VS Code Extension Host 测试
+
+### 可观测性与提示资源
+
 - [分布式追踪](observability/TRACING.md) - OpenTelemetry 集成
-- [AI 提示词](prompts/PROMPTS.md) - 22 个提示词模板
-- [Skills](skills/HISTORY.md) - Skills 历史和列表
-- [技术债务](TECH-DEBT.md) - 技术债务跟踪
+- [AI 提示词](prompts/PROMPTS.md) - 提示词模板与索引
+- [Skills](skills/HISTORY.md) - Skills 历史和清单
 
----
+### 历史资料
 
-## 项目概览
+- [演化路径](evolution/README.md) - 子系统规划与演进记录
+- [版本快照](versions/README.md) - 历史版本说明和迁移记录
 
-CodingMatrix 是 AI 驱动的全栈代码生成与开发平台，基于 FastAPI (Python 3.11) + Vue 3 + SQLite + Playwright 构建。核心能力是**多角色 AI Agent 系统**：从需求理解、架构设计到代码生成、验证、修复全自动完成。
+## 当前项目基线
 
-### 项目规模 (2026-06-09)
+### 代码与数据规模
 
-| 维度 | 数量 | 说明 |
-|------|------|------|
-| **Python 文件** | 356 | 后端核心逻辑，99,618 行 |
-| **Vue 组件** | 69 | 前端 UI 组件 (+ 13 Agent 子组件) |
-| **JS 文件** | ~80 | 前端逻辑和工具 (含 16 API 客户端) |
-| **TS 文件** | 1 | 类型定义 |
-| **代码文件总计** | ~520 | |
-| **Agent 模块** | 76 + 3 子包 | 多角色协作系统 (34,166 行) |
-| **Orchestrator Mixins** | 25 | 生成流程协调 |
-| **API 路由模块** | 25 | 19 v1 用户 + 8 v2 管理 |
-| **API 端点** | 240+ | 前后端接口 |
-| **E2E 测试** | 77 spec / 409 用例 | 端到端测试 |
-| **单元测试** | 88 文件 / 1376 用例 | 测试覆盖 |
-| **集成测试** | 2 文件 | 多数已归档到 archive/ |
+| 维度 | 当前数量 | 口径 |
+|------|---------:|------|
+| 后端 Python | 423 个文件 / 117,655 行 | `app/**/*.py` |
+| FastAPI Router | 28 个挂载 | `app/main.py` 中 20 个 v1 + 8 个 v2 Router |
+| 业务路由 | 275 条 | 271 条 HTTP + 4 条 WebSocket，排除框架文档、静态资源和前端 catch-all |
+| ORM | 34 张表 | `app/models/` 中的有效 `__tablename__` 声明 |
+| Alembic | 15 个有效迁移文件 | `migrations/versions/` |
+| 前端 Vue | 71 个文件 | `src/**/*.vue` |
+| 前端视图 | 9 个 | `src/views/` |
+| Pinia Stores | 10 个 | `src/stores/` |
+| Composables | 14 个 | `src/composables/` |
+| API Client JS | 19 个 | 前端 API client JavaScript 文件 |
+| 前端源码 | 约 62,953 行 | `src/` 源码静态清点 |
+
+### 测试规模
+
+| 层级 | 当前数量 | 说明 |
+|------|---------:|------|
+| 后端单元测试 | 144 个文件 / 1,848 个定义 | `tests/unit/test_*.py` 中的 `test_*` 定义 |
+| 后端集成测试 | 4 个文件 / 31 个定义 | 认证、健康、PPT 大纲和统一状态恢复 |
+| 前端 Vitest | 15 个文件 | `src/**/*.test.js` |
+| 浏览器 E2E | 77 个 spec / 433 个直接定义 | `tests/e2e/*.spec.js` 中的直接 `test(...)` 定义 |
+
+参数化、动态生成、skip、收集失败和运行依赖会影响实际执行数量。已记录的测试结果及适用范围见[测试指南](testing/TESTING.md)。
 
 ### 技术栈
 
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| 后端 | FastAPI + Python 3.11 | 异步 Web 框架 |
-| 数据库 | SQLAlchemy + SQLite + Alembic | 异步 ORM + 11 个迁移版本 |
-| 缓存 | Redis | 会话、API Key 存储 (可降级内存) |
-| 任务队列 | Celery + APScheduler | 异步任务 + 定时任务 |
-| 前端 | Vue 3 + Vite + Pinia | 响应式 SPA (9 stores) |
-| 测试 | Playwright + pytest | E2E (77) + 单元 (1376) |
-| 部署 | Docker + Nginx | 容器化部署, 3 阶段 Dockerfile |
+| 层级 | 技术 | 当前用途 |
+|------|------|----------|
+| 后端 | FastAPI + Python 3.11 | 异步 API、Agent 与业务服务 |
+| 前端 | Vue 3 + Vite 5 + Pinia + Element Plus | 单页应用与响应式 Agent 工作台 |
+| 数据 | SQLAlchemy 2.0 + SQLite + Alembic | 业务、统一状态与迁移 |
+| 缓存与任务 | Redis + Celery + APScheduler | Key、缓存、任务队列和定时任务 |
+| 流式通信 | SSE + WebSocket | Agent 事件、任务进度和系统状态 |
+| 测试 | pytest + Vitest + Playwright + VS Code Extension Host | 后端、前端、浏览器和扩展验证 |
+| 部署 | Docker Compose + Nginx | API、Worker、Redis 和前端入口 |
 
-### 核心子系统 (2026-06-09)
+## 最新能力状态
 
-| 子系统 | 模块路径 | 描述 |
-|--------|----------|------|
-| **AI Agent 引擎** | `app/agent/` | **76 模块 + 3 子包, 34,166 行, 25 mixin, 5 角色专家, ReAct 引擎** |
-| **统一 LLM 层** | `app/agent/llm_client.py` (191 行) | 并发信号量 6, 超时保护, 成本追踪, 自动上报 DynamicModelRouter |
-| **动态模型路由** | `app/agent/dynamic_model_router.py` (996 行) | 健康度 0-100 评分, 熔断, 角色模型分配, 降级链, epsilon-greedy 学习路由 |
-| **ReAct 引擎** | `app/agent/react_engine.py` (684 行) | simple + full 双模式, 滑动窗口历史, 300s 单轮超时 |
-| **MCP Client** | `app/agent/mcp_client.py` (513 行) | stdio/HTTP 双传输, JSON-RPC 2.0, 4 集成点 (executor/specialist/agent/orchestrator) |
-| **依赖图** | `app/agent/dependency_graph.py` (1,007 行) | 4 模块拆分, 14 语言解析, 拓扑排序 + BFS 影响分析 |
-| **会话管理** | `app/agent/session_manager.py` (582 行) | 5 状态机, 30 天 TTL + 500 上限, DB 写透缓存, 429 限流 |
-| **错误恢复** | `app/agent/error_recovery.py` (797 行) | 8 种错误分类, 3 次重试, 4 级降级链 + 供应商感知 |
-| **统一 JSON 层** | `app/agent/json_parser.py` (345 行) | 5 层解析链, 工具调用 3 种策略 |
-| **工具系统** | `app/agent/tools.py` (1,079 行) | 21 个内置工具 (唯一实现源) + MCP 扩展, SPECIALIST_TOOLS 注册表 |
-| **多供应商 LLM** | `app/adapter/` | 7 供应商 + 动态供应商 + context_length 4 级 fallback |
+| 能力 | 当前状态 |
+|------|----------|
+| 统一状态 | `sessions`、`messages`、`tasks`、`task_events`、`checkpoints` 和 `artifacts` 形成统一持久化层；legacy 业务通过适配器、双写核对和模块级切换渐进迁移 |
+| Agent 编排 | Web 主入口继续运行成熟的 legacy Orchestrator，并通过单节点 StateGraph wrapper 保存 checkpoint、事件和产物；细粒度多节点图处于渐进接入阶段 |
+| 模型上下文 | 按 Agent 会话持久化 schema version 1 的角色分配、调用统计和最多 50 条 fallback history；独立 revision 支持乐观并发与恢复，凭据不进入上下文 |
+| GirlAI | 5 个预设角色与用户自定义角色支持对话、历史、搜索、导出和偏好；legacy 历史与统一 session/message 同事务维护，归档摘要进入 checkpoint |
+| PPT 大纲与质量 | 大纲支持版本化编辑和批准门禁；生成按 `planning -> assets -> rendering -> rule_qa -> reflow -> vision_qa -> completed` 编排，提供质量报告、最多 2 次自动重排和单页重生成 |
+| Mobile Agent | 与 Web Agent 共用 `/agent`、API 和 Store；768px 以下提供单列布局、会话/文件抽屉、遮罩、焦点管理和移动工具栏 |
+| VS Code Agent Host | 协议版本 1 支持 workspace、file、terminal、diagnostics、validation 和 skill runtime，包含握手、动作队列、审批策略、Skill 同步及 pause/resume/cancel |
+| 任务恢复 | SQL Task/Event 为持久化事实源，支持事件重放、worker lease 心跳、retry、recover、取消检查和 checkpoint 恢复 |
 
-### 端点模块 (27 个 include_router, 240+ 端点)
+## API 基线
 
-| 模块 | 端点 | 功能 |
-|------|------|------|
-| Agent 系统 | `/api/v1/agent/*` | 5 子路由聚合 (orchestrate/generate/association/knowledge/performance), 项目生成/代码审查/快照/会话/ReAct |
-| AI 聊天 | `/api/v1/chat`（`/api/v1/code` 兼容） | 通用问答、代码生成、流式输出 |
-| PPT 生成 | `/api/v1/pptx/*` | 异步任务、多格式输出 |
-| 图像生成 | `/api/v1/kolors/*` | 文生图、图生图 |
-| AI Cloud | `/api/v1/aicloud/*` + `/aicloud-knowledge` | 沙箱执行、审查队列、知识库 |
-| 文件上传 | `/api/v1/files/*` | 单文件/分片上传 (5MB)、断点续传、hash 去重 |
-| 工作流 | `/api/v1/workflow/*` | DAG 编排、9 种节点、重试机制 |
-| 任务队列 | `/api/v1/tasks` | Celery 驱动, WebSocket 进度推送 |
-| 视觉 | `/api/v1/vision` | 图像理解、OCR、代码从图像、安全检查 |
-| 免费模型 | `/api/v1/models` | 内置模型查看、切换 |
-| 动态供应商 | `/api/v1/providers` | 自定义 API 接入、context_length |
-| 用户管理 | `/api/v2/Controller/*` | CRUD、权限管理 |
-| API Key | `/api/v1/apikey` | 用户 API Key 管理、RSA-2048 加密、context_length |
-| 模型管理 | `/api/v2/models` | 管理员配置 context_length、fallback chain |
-| MCP 管理 | `/api/v2/mcp` | MCP Server CRUD + test + toggle |
-| 沙箱管理 | `/api/v2/admin/sandbox-config` | 管理员配置代码沙箱 |
-| Skills API | `/api/v2/skills/*` | 自定义 Skill CRUD + 热重载 |
-| Nginx | `/api/v2/nginx/*` | Nginx 配置检查/生成/部署 |
-| 守护路由 | `/api/v2/guardian` | 服务守护 (最大 v2 模块 858 行) |
-| 健康检查 | `/api/v1/health` | Prometheus 指标 |
+| 版本 | 挂载 Router | HTTP | WebSocket | 合计 | 主要职责 |
+|------|------------:|-----:|----------:|-----:|----------|
+| v1 | 20 | 199 | 2 | 201 | 认证、聊天、Agent、PPT、任务、GirlAI、AI Cloud 和模型浏览 |
+| v2 | 8 | 72 | 2 | 74 | 用户与系统管理、Nginx、模型配置、MCP 和守护能力 |
+| 总计 | 28 | 271 | 4 | 275 | 当前实际可达业务路由 |
 
----
+HTTP schema 以运行时 `/api/openapi.json` 为准；兼容隐藏端点和 WebSocket 路径需结合 [API 文档](api/API-DOCUMENTATION.md) 与源码核对。
 
 ## 快速开始
 
-### 启动服务
-
 ```bash
-# 启动后端 (端口 8000，包含前端 dist)
-PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+# 启动后端
+PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-# 访问前端
-open http://localhost:8000
+# 启动前端
+cd /workspace/src
+npm run dev
 ```
 
-### 运行测试
-
-```bash
-# E2E 冒烟测试 (推荐，18 秒)
-npx playwright test tests/e2e/smoke-test-simple.spec.js
-
-# 所有 E2E 测试
-npx playwright test tests/e2e/
-
-# 单元测试
-pytest tests/unit/ -v
-```
+开发环境访问前端 `http://localhost:3000`，后端健康检查位于 `http://localhost:8000/api/v1/health`，Swagger UI 位于 `http://localhost:8000/api/docs`。数据库初始化、迁移和完整验证命令见[快速开始](guides/GETTING-STARTED.md)。
 
 ---
 
-## 文档结构
-
-```
-docs/
-├── README.md                    # 本文件（主入口）
-├── TECH-DEBT.md                 # 技术债务跟踪
-├── architecture/                # 架构设计
-│   ├── ARCHITECTURE.md          # 系统架构（9 大子系统）
-│   ├── MODULES.md               # 模块说明（76 Agent 模块）
-│   ├── MODELS.md               # 模型系统
-│   └── API-RESPONSIBILITY-MATRIX.md
-├── api/                         # API 文档
-│   ├── API-DOCUMENTATION.md    # API 完整文档
-│   └── API-VERSIONS.md         # API 版本管理
-├── features/                   # 功能模块
-│   ├── AGENT.md                # Agent 系统（1557 行）
-│   ├── DYNAMIC-MODEL-ROUTER.md # 动态模型路由
-│   ├── REACT-TOOL-CALLING.md  # ReAct 工具调用
-│   ├── SESSION-LIFECYCLE.md   # 会话生命周期
-│   ├── AICLOUD.md             # AI 云
-│   ├── WORKFLOW.md            # 工作流
-│   ├── MODEL-MANAGER.md       # 免费模型管理
-│   ├── DYNAMIC-PROVIDERS.md   # 动态供应商
-│   ├── MULTI-LANGUAGE-DEPENDENCY-PARSER.md
-│   ├── SSE-DISPLAY-OPTIMIZATION.md
-│   ├── WEB-SEARCH-ENHANCEMENTS.md
-│   ├── PPT-AGENT.md           # PPT 智能生成
-│   ├── CUSTOM-SKILLS.md       # 自定义 Skill 系统
-│   ├── GIRLAI.md              # 虚拟姬
-│   └── PROJECT-INTRODUCTION.md # 项目介绍
-├── guides/                      # 开发指南
-│   ├── GETTING-STARTED.md       # 快速开始
-│   ├── MULTI-PROVIDER-SETUP.md  # 多供应商配置
-│   ├── PRODUCTION.md            # 生产部署
-│   ├── SERVICES.md              # 服务管理
-│   └── API-KEY-GUIDE.md         # API Key 指南
-├── security/                    # 安全文档
-│   ├── SECURITY-OVERVIEW.md     # 安全概览
-│   ├── ENCRYPTED-LOGIN.md       # 加密登录
-│   ├── CSRF-IMPLEMENTATION.md   # CSRF 防护
-│   └── PERMISSION-SPEC.md       # 权限规范
-├── observability/               # 可观测性
-│   └── TRACING.md               # 分布式追踪
-├── prompts/                     # AI 提示词
-│   └── PROMPTS.md               # 提示词模板
-├── skills/                      # Skills 文档
-│   └── HISTORY.md               # Skills 历史
-├── testing/                     # 测试
-│   ├── README.md
-│   ├── TESTING.md
-│   └── test_agent_core_selfcheck.py
-└── specs/                       # 规格设计
-```
-
----
-
-## 版本历史
-
-| 版本 | 日期 | 主要更新 |
-|------|------|----------|
-| **v5.15.0** | **2026-06-22** | **模型配置 v4.0 + 自定义 Skill 系统 + 虚拟姬增强 + API Key 降级偏好** |
-| **v5.14.0** | **2026-06-06** | **项目规模扩展：76 Agent 模块 + 25 Orchestrator Mixins + 69 Vue 组件 + 26 API 路由** |
-| **v5.13.0** | **2026-06-05** | **LLM 调用路径统一 + 多模态兼容 + 供应商感知降级链** |
-| v5.12.0+ | 2026-06-02 | ReAct 工具调用深度集成 + 动态批处理规划 + 模型 context_length 多级管理 + API Key 修复 + 前端消息处理完善 + 代码沙箱 admin 配置 |
-| v5.12.0 | 2026-06-01 | 模型 context_length 管理（4 级 fallback）+ 用户自定义 context_length + 用户 API Key 模型同步 + API Key 查找修复 + 前端消息处理完善 |
-| v5.11.0 | 2026-05-30 | 智能会话恢复系统 + SSE 响应解析修复 + API Key 管理增强 + 检查点恢复优化 |
-| v5.10.0 | 2026-05-27 | 工作流节点扩展（9种） + 重试机制 + 条件分支 |
-| v5.9.0 | 2026-05-26 | API Key 全局化 + Token 统计 + Orchestrator 端点 |
-| v5.8.1 | 2026-05-23 | KV Cache 优化 + 多角度审查系统 |
-
-### v5.15.0 (2026-06-22)
-
-- **模型配置 v4.0**: 新增 nex-n2-pro 模型，角色分配调整
-- **FileModelRouter**: 改为从 agent_model_config.yaml 读取配置
-- **自定义 Skill 系统**: 完整的 CRUD API + 热重载 + Agent 提示词覆盖
-- **虚拟姬增强**: 自定义角色、用户偏好、历史搜索
-- **API Key 降级偏好**: fallback_preference (disabled/custom/admin_default)
-- **Bug 修复**: 验证禁用时 validation_report 缺少 runnable 键
-
-### v5.14.0 项目规模扩展
-
-- **Agent 模块扩展**：从 38 个扩展到 76 个模块
-- **Orchestrator Mixins**：新增 25 个 Mixin 协调生成流程
-- **前端组件**：69 个 Vue 组件，完整功能覆盖
-- **API 路由**：26 个路由模块
-- **测试覆盖**：76 个 E2E spec + 1622 单元测试
-
-### v5.12.0+ 最新更新要点
-
-- **MCP 协议集成**: MCP Client 支持 stdio/HTTP 双传输，用户可接入任意外部工具（数据库、浏览器、搜索等）
-- **工具系统统一**: tools.py 作为唯一实现源 (21 工具)，executor.py 适配后注册
-- **ReAct 引擎统一**: react_engine.py 统一 simple + full 双模式，滑动窗口历史管理
-- **统一 LLM/JSON 层**: llm_client.py 并发信号量 + 超时保护; json_parser.py 5 层解析链
-- **依赖图拆分**: 4 模块 (rules/extractor/scanner/graph) + 外部化规则
-- **交叉验证优化**: priority <= 2 且命中关键模式才触发，节省 token
-- **26 个 bare except 修复** + **22 个重复 import 清除** + **39 处硬编码模型名统一**
-
-详细版本历史见 [versions/](../versions/) 目录
-
----
-
-最后更新：2026-06-22
+最后更新：2026-09-03

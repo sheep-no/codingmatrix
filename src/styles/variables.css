@@ -65,6 +65,8 @@
   /* 主色别名 */
   --primary: var(--color-primary-500);
   --primary-hover: var(--color-primary-600);
+  --color-primary: var(--color-primary-500);
+  --color-primary-dark: var(--color-primary-600);
   --success: var(--color-success-500);
   --success-hover: var(--color-success-600);
   --warning: var(--color-warning-500);
@@ -159,6 +161,8 @@
   /* 主色别名 */
   --primary: var(--color-primary-500);
   --primary-hover: var(--color-primary-600);
+  --color-primary: var(--color-primary-500);
+  --color-primary-dark: var(--color-primary-600);
   --success: var(--color-success-500);
   --success-hover: var(--color-success-600);
   --warning: var(--color-warning-500);
@@ -253,6 +257,8 @@
   /* 主色别名 */
   --primary: var(--color-primary-500);
   --primary-hover: var(--color-primary-600);
+  --color-primary: var(--color-primary-500);
+  --color-primary-dark: var(--color-primary-600);
   --success: var(--color-success-500);
   --success-hover: var(--color-success-600);
   --warning: var(--color-warning-500);
@@ -378,12 +384,18 @@ html:not(.theme-light):not(.theme-default):not(.theme-dark):not(.theme-auto) {
   /* 功能色别名 */
   --primary: var(--color-primary-500);
   --primary-hover: var(--color-primary-600);
+  --color-primary: var(--color-primary-500);
+  --color-primary-dark: var(--color-primary-600);
   --success: var(--color-success-500);
   --success-hover: var(--color-success-600);
   --warning: var(--color-warning-500);
   --warning-hover: var(--color-warning-600);
   --danger: var(--color-danger-500);
   --danger-hover: var(--color-danger-600);
+
+}
+
+:root {
 
   /* ========================================
      尺寸系统
@@ -457,6 +469,10 @@ html:not(.theme-light):not(.theme-default):not(.theme-dark):not(.theme-auto) {
   --sidebar-collapsed-width: 76px;
   --max-content-width: 900px;
   --header-height: 60px;
+
+}
+
+html:not(.theme-light):not(.theme-default):not(.theme-dark):not(.theme-auto) {
 
   /* ========================================
      渐变效果 (默认使用主色)

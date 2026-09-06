@@ -1,4 +1,4 @@
-import { AgentHostEnvelope, AgentHostSession } from "./agent-host.js";
+import { AgentHostEnvelope, AgentHostSession, SKILL_RUNTIME_OPERATIONS } from "./agent-host.js";
 import { ApprovalBridge } from "./approval-bridge.js";
 import type { CloudConnection } from "./connection.js";
 import { ToolDispatcher } from "./tool-dispatcher.js";
@@ -154,7 +154,7 @@ export class AgentHostRuntime {
   }
 
   private async applySkillSync(action: AgentHostEnvelope): Promise<boolean> {
-    if (!isRecord(action.payload) || !["sync", "sync_user"].includes(String(action.payload.operation)) || !isRecord(action.payload.skills)) {
+    if (!isRecord(action.payload) || !SKILL_RUNTIME_OPERATIONS.includes(String(action.payload.operation) as typeof SKILL_RUNTIME_OPERATIONS[number]) || !isRecord(action.payload.skills)) {
       throw new AgentHostRuntimeError("policy_mismatch", "skill sync requires a skills object");
     }
     await this.onSkillSync?.(action.payload.skills);
