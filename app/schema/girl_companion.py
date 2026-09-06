@@ -1,9 +1,9 @@
 """Structured contracts for the GirlAI companion turn."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 EmotionLabel = Literal[
@@ -39,6 +39,27 @@ class CompanionTurnRequest(BaseModel):
     turn_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
     temperature: Optional[float] = Field(default=None, ge=0.0, le=1.5)
     max_tokens: Optional[int] = Field(default=None, ge=50, le=1000)
+    voice_output: bool = False
+
+
+class VoiceTranscriptionRequest(BaseModel):
+    """Standardized transcription result accepted by the voice adapter API."""
+
+    transcript: str = Field(..., min_length=1, max_length=2000)
+    character_id: str = Field(default="gentle", min_length=1, max_length=128)
+    turn_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    provider: Optional[str] = Field(default=None, max_length=128)
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    duration_ms: Optional[int] = Field(default=None, ge=0, le=3_600_000)
+    voice_output: bool = False
+
+    @field_validator("transcript")
+    @classmethod
+    def validate_transcript(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("transcript must contain visible text")
+        return value
 
 
 class EmotionState(BaseModel):
@@ -103,14 +124,6 @@ class CompanionMemoryPage(BaseModel):
     offset: int = Field(ge=0)
 
 
-class ToolRequest(BaseModel):
-    """A proposed tool call before policy and authorization checks."""
-
-    name: str = Field(..., min_length=1, max_length=128)
-    arguments: Dict[str, Any] = Field(default_factory=dict)
-    reason: Optional[str] = Field(default=None, max_length=500)
-
-
 class ModelContext(BaseModel):
     """Safe model execution metadata; credentials are excluded by contract."""
 
@@ -120,6 +133,25 @@ class ModelContext(BaseModel):
     calls: int = Field(default=0, ge=0)
     fallback_used: bool = False
     fallback_history: List[str] = Field(default_factory=list)
+
+
+class VoiceOutputState(BaseModel):
+    """Voice output status associated with the same companion turn."""
+
+    requested: bool = False
+    status: Literal["disabled", "unavailable", "ready", "failed"] = "disabled"
+    provider: Optional[str] = Field(default=None, max_length=128)
+    error: Optional[str] = Field(default=None, max_length=256)
+
+
+class VoiceInputState(BaseModel):
+    """Normalized transcription metadata associated with a companion turn."""
+
+    received: bool = False
+    status: Literal["disabled", "received", "failed"] = "disabled"
+    provider: Optional[str] = Field(default=None, max_length=128)
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    duration_ms: Optional[int] = Field(default=None, ge=0, le=3_600_000)
 
 
 class CompanionTurn(BaseModel):
@@ -134,9 +166,9 @@ class CompanionTurn(BaseModel):
     response_style: Literal["standard", "neutral", "care"] = "standard"
     work_options: List[str] = Field(default_factory=list, max_length=3)
     memory_candidates: List[MemoryCandidate] = Field(default_factory=list)
-    tool_requests: List[ToolRequest] = Field(default_factory=list)
-    task_suggestion: Optional[Dict[str, Any]] = None
     model_context: ModelContext = Field(default_factory=ModelContext)
+    voice_input: VoiceInputState = Field(default_factory=VoiceInputState)
+    voice_output: VoiceOutputState = Field(default_factory=VoiceOutputState)
     degraded_capabilities: List[str] = Field(default_factory=list)
     schema_version: int = Field(default=1, ge=1)
 

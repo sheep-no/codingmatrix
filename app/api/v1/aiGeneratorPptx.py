@@ -13,6 +13,7 @@ import asyncio
 import html
 import json
 import logging
+import math
 import os
 import re
 import uuid
@@ -65,8 +66,11 @@ from app.utils.pptx.templates.manager import TemplateManager
 from app.utils.pptx.commercial_content import (
     NARRATIVE_ROLES,
     build_commercial_page_blueprint,
+    build_expanded_commercial_page_blueprint,
     format_commercial_metadata,
+    resolve_topic_template,
 )
+from app.utils.pptx.composition_pool import select_cover_variant, select_layout_variants
 from app.celery_app import celery_app
 
 # 视觉决策模块
@@ -511,7 +515,37 @@ def add_decorative_corner(slide, prs, style: PPTStyle):
     corner.line.fill.background()
 
 
+def _fit_editorial_text(text, width, height, size):
+    """Fit text to a fixed box with a conservative estimate for CJK wrapping."""
+    value = str(text or "")
+    min_size = 8
+    for candidate in range(int(size), min_size - 1, -1):
+        chars_per_line = max(1, int(width * 72 / (candidate * 0.95)))
+        line_units = 0
+        lines = 1
+        for char in value:
+            if char == "\n":
+                lines += 1
+                line_units = 0
+                continue
+            line_units += 1 if ord(char) > 255 else 0.58
+            if line_units > chars_per_line:
+                lines += 1
+                line_units = 1 if ord(char) > 255 else 0.58
+        required_height = lines * candidate * 1.25
+        if required_height <= height * 72 * 0.95:
+            return value, candidate
+
+    chars_per_line = max(1, int(width * 72 / (min_size * 0.95)))
+    max_lines = max(1, int(height * 72 / (min_size * 1.25) * 0.95))
+    capacity = chars_per_line * max_lines
+    if len(value) > capacity:
+        value = value[:max(1, capacity - 1)].rstrip() + "…"
+    return value, min_size
+
+
 def _add_editorial_text(slide, text, left, top, width, height, style, size=18, color=None, bold=False, align=None):
+    fitted_text, fitted_size = _fit_editorial_text(text, width, height, size)
     box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     box.text_frame.word_wrap = True
     box.text_frame.margin_left = 0
@@ -520,9 +554,9 @@ def _add_editorial_text(slide, text, left, top, width, height, style, size=18, c
     box.text_frame.margin_bottom = 0
     box.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
     paragraph = box.text_frame.paragraphs[0]
-    paragraph.text = str(text)
+    paragraph.text = fitted_text
     paragraph.font.name = style.FONT_MAIN
-    paragraph.font.size = Pt(size)
+    paragraph.font.size = Pt(fitted_size)
     paragraph.font.bold = bold
     paragraph.font.color.rgb = color or style.TEXT_DARK
     if align:
@@ -908,6 +942,8 @@ def _add_modern_tile(slide, label, body, left, top, width, height, style, featur
 
 def _render_slide_modern(prs, blank_layout, style, slide_data, idx, total_slides):
     """Render a modular product-story layout with strong metric tiles."""
+    if style.template_name == "modern" and slide_data.get("layout_variant", 0) > 0:
+        return _render_slide_modern_variant(prs, blank_layout, style, slide_data, idx, total_slides)
     slide = prs.slides.add_slide(blank_layout)
     add_slide_background(slide, prs, style, light=True)
     role = _slide_role(slide_data)
@@ -943,6 +979,189 @@ def _render_slide_modern(prs, blank_layout, style, slide_data, idx, total_slides
         _add_modern_tile(slide, "SIGNAL / 02", _item_at(items, 1), 8.1, 1.58, 4.5, 2.1, style)
         _add_modern_tile(slide, "SIGNAL / 03", _item_at(items, 2), 8.1, 4.02, 4.5, 2.38, style)
         _add_editorial_text(slide, _item_at(items, 3), 1.08, 5.65, 6.35, 0.38, style, 11, style.TEXT_WHITE, True)
+    return slide
+
+
+def _render_slide_modern_variant(prs, blank_layout, style, slide_data, idx, total_slides):
+    """Render stable composition families for long decks."""
+    variant = slide_data.get("layout_variant", 1)
+    if variant == 7:
+        return _render_modern_full_bleed_variant(prs, blank_layout, style, slide_data, idx, total_slides)
+    if variant == 8:
+        return _render_modern_timeline_variant(prs, blank_layout, style, slide_data, idx, total_slides)
+    if variant == 9:
+        return _render_modern_metric_variant(prs, blank_layout, style, slide_data, idx, total_slides)
+    if variant == 10:
+        return _render_modern_split_variant(prs, blank_layout, style, slide_data, idx, total_slides)
+    if variant == 2:
+        return _render_modern_grid_variant(prs, blank_layout, style, slide_data, idx, total_slides)
+    if variant == 3:
+        return _render_modern_statement_variant(prs, blank_layout, style, slide_data, idx, total_slides)
+    if variant == 4:
+        return _render_modern_rail_variant(prs, blank_layout, style, slide_data, idx, total_slides)
+    if variant == 5:
+        return _render_modern_matrix_variant(prs, blank_layout, style, slide_data, idx, total_slides)
+    if variant == 6 or variant == 0:
+        return _render_modern_quote_variant(prs, blank_layout, style, slide_data, idx, total_slides)
+    slide = prs.slides.add_slide(blank_layout)
+    add_slide_background(slide, prs, style, light=True)
+    role = _slide_role(slide_data)
+    items = _commercial_slide_items(slide_data)
+    title = slide_data.get("title", f"第 {idx} 页")
+    key_message = slide_data.get("key_message") or "把价值判断落到可参与的行动"
+    add_page_number(slide, prs, idx + 1, total_slides, style)
+    band = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(1.45))
+    band.fill.solid(); band.fill.fore_color.rgb = style.PRIMARY_COLOR; band.line.fill.background()
+    _add_editorial_text(slide, f"{idx:02d}  /  {role.replace('_', ' ').upper()}", 0.72, 0.34, 4.4, 0.28, style, 10, style.ACCENT_LIGHT, True)
+    _add_editorial_text(slide, title, 0.72, 0.7, 7.8, 0.52, style, 27, style.TEXT_WHITE, True)
+    _add_editorial_text(slide, key_message, 9.0, 0.65, 3.55, 0.62, style, 12, style.TEXT_WHITE, False, PP_ALIGN.RIGHT)
+    _add_editorial_text(slide, "核心判断", 0.82, 1.95, 1.55, 0.3, style, 11, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, _item_at(items, 0), 0.82, 2.38, 4.0, 1.9, style, 25, style.TEXT_DARK, True)
+    _add_editorial_text(slide, "从理解到参与，每一步都应留下可观察的结果。", 0.82, 5.35, 4.25, 0.5, style, 12, style.TEXT_GRAY)
+    for number in range(1, 4):
+        top = 1.9 + (number - 1) * 1.45
+        marker = slide.shapes.add_shape(9, Inches(5.35), Inches(top + 0.05), Inches(0.48), Inches(0.48))
+        marker.fill.solid(); marker.fill.fore_color.rgb = style.ACCENT_COLOR; marker.line.fill.background()
+        _add_editorial_text(slide, str(number), 5.35, top + 0.14, 0.48, 0.2, style, 11, style.TEXT_WHITE, True, PP_ALIGN.CENTER)
+        _add_editorial_text(slide, ["事实", "选择", "行动"][number - 1], 6.05, top, 1.2, 0.28, style, 11, style.PRIMARY_COLOR, True)
+        _add_editorial_text(slide, _item_at(items, number), 7.35, top - 0.02, 5.0, 0.72, style, 15, style.TEXT_DARK)
+        if number < 3:
+            rule = slide.shapes.add_shape(1, Inches(5.58), Inches(top + 0.62), Inches(0.03), Inches(0.7))
+            rule.fill.solid(); rule.fill.fore_color.rgb = style.PRIMARY_LIGHT; rule.line.fill.background()
+    _add_editorial_text(slide, _item_at(items, 3), 5.35, 6.25, 7.0, 0.35, style, 11, style.PRIMARY_COLOR, True)
+    return slide
+
+
+def _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides):
+    slide = prs.slides.add_slide(blank_layout)
+    add_slide_background(slide, prs, style, light=True)
+    items = _commercial_slide_items(slide_data)
+    title = slide_data.get("title", f"第 {idx} 页")
+    key_message = slide_data.get("key_message") or "把价值判断落到可参与的行动"
+    add_page_number(slide, prs, idx + 1, total_slides, style)
+    return slide, items, title, key_message
+
+
+def _render_modern_grid_variant(prs, blank_layout, style, slide_data, idx, total_slides):
+    slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
+    _add_editorial_text(slide, f"{idx:02d} / FOUR LENSES", 0.72, 0.42, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, title, 0.72, 0.85, 8.5, 0.65, style, 30, style.TEXT_DARK, True)
+    _add_editorial_text(slide, key_message, 0.75, 1.58, 11.5, 0.35, style, 13, style.TEXT_GRAY)
+    labels = ("理解", "参与", "协作", "结果")
+    for i in range(4):
+        left = 0.72 + (i % 2) * 6.15
+        top = 2.35 + (i // 2) * 1.95
+        _add_modern_tile(slide, f"0{i + 1} / {labels[i]}", _item_at(items, i), left, top, 5.55, 1.5, style, i == 3)
+    return slide
+
+
+def _render_modern_statement_variant(prs, blank_layout, style, slide_data, idx, total_slides):
+    slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
+    _add_editorial_text(slide, f"{idx:02d} / STATEMENT", 0.78, 0.5, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, title, 0.78, 0.95, 11.4, 0.65, style, 30, style.TEXT_DARK, True)
+    panel = slide.shapes.add_shape(5, Inches(0.78), Inches(2.05), Inches(11.75), Inches(2.05))
+    panel.fill.solid(); panel.fill.fore_color.rgb = style.PRIMARY_COLOR; panel.line.fill.background()
+    _add_editorial_text(slide, items[0], 1.2, 2.55, 10.9, 0.9, style, 26, style.TEXT_WHITE, True, PP_ALIGN.CENTER)
+    _add_editorial_text(slide, key_message, 1.2, 4.55, 10.9, 0.4, style, 14, style.TEXT_GRAY, False, PP_ALIGN.CENTER)
+    for i in range(1, 4):
+        _add_editorial_card(slide, ("依据", "方法", "衡量")[i - 1], _item_at(items, i), 0.78 + (i - 1) * 4.0, 5.35, 3.65, 1.0, style, style.ACCENT_COLOR)
+    return slide
+
+
+def _render_modern_rail_variant(prs, blank_layout, style, slide_data, idx, total_slides):
+    slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
+    rail = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(2.2), Inches(7.5))
+    rail.fill.solid(); rail.fill.fore_color.rgb = style.PRIMARY_COLOR; rail.line.fill.background()
+    _add_editorial_text(slide, f"{idx:02d}", 0.55, 0.62, 1.1, 0.7, style, 32, style.TEXT_WHITE, True)
+    _add_editorial_text(slide, "ACTION\nPATH", 0.58, 1.65, 1.1, 0.8, style, 15, style.ACCENT_LIGHT, True)
+    _add_editorial_text(slide, title, 2.85, 0.75, 8.7, 0.65, style, 30, style.TEXT_DARK, True)
+    _add_editorial_text(slide, key_message, 2.88, 1.55, 9.5, 0.4, style, 13, style.TEXT_GRAY)
+    for i in range(4):
+        top = 2.3 + i * 1.05
+        _add_editorial_text(slide, f"0{i + 1}", 2.9, top, 0.5, 0.3, style, 12, style.PRIMARY_COLOR, True)
+        _add_editorial_text(slide, _item_at(items, i), 3.8, top - 0.03, 8.2, 0.62, style, 16, style.TEXT_DARK)
+        if i < 3:
+            _add_minimal_rule(slide, 3.8, top + 0.75, 8.2, style)
+    return slide
+
+
+def _render_modern_matrix_variant(prs, blank_layout, style, slide_data, idx, total_slides):
+    slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
+    _add_editorial_text(slide, f"{idx:02d} / FIELD NOTES", 0.75, 0.45, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, title, 0.75, 0.9, 7.8, 0.62, style, 29, style.TEXT_DARK, True)
+    _add_editorial_text(slide, key_message, 8.95, 0.92, 3.55, 0.55, style, 12, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
+    for i in range(4):
+        left = 0.75 + (i % 2) * 6.05
+        top = 2.0 + (i // 2) * 2.15
+        tile = slide.shapes.add_shape(5, Inches(left), Inches(top), Inches(5.45), Inches(1.7))
+        tile.fill.solid(); tile.fill.fore_color.rgb = style.TEXT_WHITE; tile.line.color.rgb = style.PRIMARY_LIGHT
+        _add_editorial_text(slide, f"{i + 1:02d}", left + 0.28, top + 0.25, 0.5, 0.3, style, 14, style.ACCENT_COLOR, True)
+        _add_editorial_text(slide, _item_at(items, i), left + 1.0, top + 0.25, 4.05, 1.05, style, 15, style.TEXT_DARK, i == 0)
+    return slide
+
+
+def _render_modern_quote_variant(prs, blank_layout, style, slide_data, idx, total_slides):
+    slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
+    _add_editorial_text(slide, f"{idx:02d} / TAKEAWAY", 0.82, 0.55, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, "“", 0.8, 1.55, 1.0, 1.0, style, 72, style.ACCENT_COLOR, True)
+    _add_editorial_text(slide, items[0], 1.65, 1.85, 10.3, 1.35, style, 31, style.TEXT_DARK, True)
+    _add_editorial_text(slide, title, 1.68, 3.65, 9.5, 0.5, style, 17, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, key_message, 1.68, 4.35, 8.7, 0.6, style, 14, style.TEXT_GRAY)
+    _add_editorial_card(slide, "下一步", "；".join(items[1:]), 1.68, 5.55, 10.3, 0.85, style, style.ACCENT_COLOR, filled=True)
+    return slide
+
+
+def _render_modern_full_bleed_variant(prs, blank_layout, style, slide_data, idx, total_slides):
+    slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
+    hero = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(7.5))
+    hero.fill.solid(); hero.fill.fore_color.rgb = style.PRIMARY_COLOR; hero.line.fill.background()
+    _add_editorial_text(slide, f"{idx:02d} / POINT OF VIEW", 0.82, 0.62, 4.8, 0.3, style, 10, style.ACCENT_LIGHT, True)
+    _add_editorial_text(slide, items[0], 1.0, 2.05, 11.2, 1.45, style, 34, style.TEXT_WHITE, True, PP_ALIGN.CENTER)
+    _add_editorial_text(slide, title, 1.1, 4.05, 11.0, 0.55, style, 19, style.ACCENT_LIGHT, True, PP_ALIGN.CENTER)
+    _add_editorial_text(slide, key_message, 2.0, 5.05, 9.3, 0.7, style, 14, style.TEXT_WHITE, False, PP_ALIGN.CENTER)
+    return slide
+
+
+def _render_modern_timeline_variant(prs, blank_layout, style, slide_data, idx, total_slides):
+    slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
+    _add_editorial_text(slide, f"{idx:02d} / SEQUENCE", 0.75, 0.45, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, title, 0.75, 0.9, 8.4, 0.6, style, 29, style.TEXT_DARK, True)
+    _add_editorial_text(slide, key_message, 9.3, 0.93, 3.2, 0.5, style, 12, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
+    rail = slide.shapes.add_shape(1, Inches(1.1), Inches(3.35), Inches(11.1), Inches(0.06))
+    rail.fill.solid(); rail.fill.fore_color.rgb = style.PRIMARY_LIGHT; rail.line.fill.background()
+    labels = ("起点", "转折", "放大", "结果")
+    for number in range(4):
+        left = 0.72 + number * 3.05
+        marker = slide.shapes.add_shape(9, Inches(left + 0.7), Inches(3.05), Inches(0.65), Inches(0.65))
+        marker.fill.solid(); marker.fill.fore_color.rgb = style.ACCENT_COLOR if number == 3 else style.PRIMARY_COLOR; marker.line.fill.background()
+        _add_editorial_text(slide, str(number + 1), left + 0.7, 3.22, 0.65, 0.22, style, 13, style.TEXT_WHITE, True, PP_ALIGN.CENTER)
+        _add_editorial_text(slide, labels[number], left, 2.35, 2.05, 0.3, style, 11, style.PRIMARY_COLOR, True, PP_ALIGN.CENTER)
+        _add_editorial_text(slide, _item_at(items, number), left, 4.05, 2.25, 1.35, style, 14, style.TEXT_DARK, number == 3, PP_ALIGN.CENTER)
+    return slide
+
+
+def _render_modern_metric_variant(prs, blank_layout, style, slide_data, idx, total_slides):
+    slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
+    _add_editorial_text(slide, f"{idx:02d} / SIGNALS", 0.75, 0.45, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, title, 0.75, 0.9, 8.3, 0.6, style, 29, style.TEXT_DARK, True)
+    _add_editorial_text(slide, key_message, 9.25, 0.93, 3.25, 0.5, style, 12, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
+    _add_editorial_text(slide, items[0], 0.85, 2.0, 7.05, 2.0, style, 33, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, "核心信号", 0.9, 4.55, 2.1, 0.3, style, 11, style.TEXT_GRAY, True)
+    for number in range(1, 4):
+        top = 1.82 + (number - 1) * 1.45
+        _add_modern_tile(slide, f"METRIC 0{number}", _item_at(items, number), 8.25, top, 4.25, 1.12, style, number == 3)
+    return slide
+
+
+def _render_modern_split_variant(prs, blank_layout, style, slide_data, idx, total_slides):
+    slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
+    _add_editorial_text(slide, f"{idx:02d} / TWO LENSES", 0.75, 0.45, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, title, 0.75, 0.9, 8.2, 0.6, style, 29, style.TEXT_DARK, True)
+    _add_editorial_text(slide, key_message, 9.2, 0.93, 3.3, 0.5, style, 12, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
+    _add_modern_tile(slide, "LENS A", items[0], 0.75, 2.0, 5.7, 3.9, style, True)
+    _add_modern_tile(slide, "LENS B", _item_at(items, 1), 6.9, 2.0, 5.7, 3.9, style)
+    _add_editorial_text(slide, "共同结论", 1.0, 6.25, 1.6, 0.25, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, "；".join(items[2:]), 2.3, 6.2, 9.6, 0.35, style, 12, style.TEXT_GRAY)
     return slide
 
 
@@ -1159,6 +1378,8 @@ def _render_slide_default(prs, blank_layout, style, slide_data, idx, total_slide
         "tech": _render_slide_tech,
     }
     theme_renderer = theme_renderers.get(style.template_name)
+    if style.template_name == "modern" and slide_data.get("layout_variant", 0) > 0:
+        return _render_slide_modern_variant(prs, blank_layout, style, slide_data, idx, total_slides)
     if theme_renderer:
         return theme_renderer(prs, blank_layout, style, slide_data, idx, total_slides)
     slide = prs.slides.add_slide(blank_layout)
@@ -1250,6 +1471,13 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
     
     role_schema = " | ".join(NARRATIVE_ROLES)
     content_slide_count = max(0, req.slide_count - 1)
+    domain_guidance = ""
+    if "游戏" in req.topic and any(signal in req.topic.lower() for signal in ("ai", "人工智能", "智能")):
+        domain_guidance = """
+- 这是游戏行业主题。必须围绕玩家体验、AI NPC 与智能体、程序化内容、研发管线、UGC、实时运营、商业模式、版权安全和组织能力展开。
+- 每页至少出现一个游戏行业概念或可验证的游戏业务判断，禁止使用泛化的企业流程、重复录入、端到端工具、试点闭环等 SaaS 话术替代主题分析。
+- 论点需要体现游戏与 AI 的因果关系，并区分辅助生产、增强体验、AI 原生玩法三个阶段。
+"""
     prompt = f"""
 请根据以下要求生成一个专业的 PPT 大纲，返回 JSON 格式：
 
@@ -1289,6 +1517,7 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
 - execution_roadmap 的三个 stage 提供 deliverable、metric、target、gate
 - decision_close 的 decision、action、request 提供 owner、deadline、priority，success_metric 提供 metric、target
 - 每页输出 4 个 content_blocks，并让 content 与 content_blocks 的 content 保持一致
+{domain_guidance}
 
 请直接返回 JSON 格式，不要有多余解释。
 """
@@ -1318,11 +1547,22 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
             json_str = content
 
         outline = json.loads(json_str)
+        if isinstance(outline, dict) and isinstance(outline.get("slides"), list):
+            _ensure_commercial_role_diversity(outline["slides"])
+            _ensure_content_diversity(outline["slides"], req.topic)
         return outline
         
     except Exception as e:
-        logger.warning(f"AI 大纲生成失败，使用默认大纲：{e}")
-        page_blueprint = build_commercial_page_blueprint(req.topic)
+        logger.warning("AI 大纲生成失败，使用领域化回退大纲：%s", e)
+        page_blueprint = build_expanded_commercial_page_blueprint(
+            req.topic, content_slide_count
+        )
+        first_pass = min(5, content_slide_count)
+        layout_variants = [0] * first_pass + select_layout_variants(
+            req.topic,
+            max(0, content_slide_count - first_pass),
+            recent_variants=(0,),
+        )
         slides = []
         for index in range(content_slide_count):
             page = page_blueprint[index % len(page_blueprint)]
@@ -1335,6 +1575,7 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
                 "slide_type": page["slide_type"],
                 "narrative_role": page["role"],
                 "asset_intent": page["asset_intent"],
+                "layout_variant": layout_variants[index],
                 "notes": "",
             })
         return {
@@ -1346,6 +1587,16 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
 def _normalize_approved_outline(outline: Dict[str, Any]) -> Dict[str, Any]:
     """Convert reviewed semantic slides into the legacy renderer contract."""
     normalized_slides = []
+    source_slides = outline.get("slides", [])
+    roles = [slide.get("narrative_role") for slide in source_slides if isinstance(slide, dict)]
+    has_repeated_roles = len(roles) != len(set(roles))
+    first_pass = min(5, len(source_slides)) if has_repeated_roles else len(source_slides)
+    layout_variants = [0] * first_pass + select_layout_variants(
+        str(outline.get("title", "PPT")),
+        max(0, len(source_slides) - first_pass),
+        recent_variants=(0,),
+    )
+    source_slides = outline.get("slides", [])
     for index, slide in enumerate(outline.get("slides", []), 1):
         content = slide.get("content", "")
         if not content and slide.get("content_blocks"):
@@ -1364,12 +1615,75 @@ def _normalize_approved_outline(outline: Dict[str, Any]) -> Dict[str, Any]:
             "notes": slide.get("notes", slide.get("speaker_notes", "")),
             "asset_intent": slide.get("asset_intent"),
             "narrative_role": slide.get("narrative_role", "opportunity_map"),
+            "layout_variant": slide.get("layout_variant", layout_variants[index - 1]),
             "evidence_sources": slide.get("evidence_sources", outline.get("evidence_sources", [])),
         })
+    if normalized_slides and all(
+        isinstance(slide, dict) and slide.get("narrative_role") for slide in source_slides
+    ):
+        _ensure_commercial_role_diversity(normalized_slides)
+        _ensure_content_diversity(normalized_slides, outline.get("title", "PPT"))
     return {
         "title": outline.get("title", "PPT 标题"),
         "slides": normalized_slides,
     }
+
+
+def _ensure_commercial_role_diversity(slides: List[Dict[str, Any]]) -> None:
+    """Repair generic AI output that assigns one commercial role to every page."""
+    if len(slides) < 2:
+        return
+
+    roles = [slide.get("narrative_role") for slide in slides]
+    if len(set(roles)) != 1 or roles[0] not in NARRATIVE_ROLES:
+        return
+
+    role_sequence = NARRATIVE_ROLES
+    type_by_role = {
+        "opportunity_map": "key_points",
+        "evidence_story": "data",
+        "strategic_choice": "comparison",
+        "execution_roadmap": "timeline",
+        "decision_close": "summary",
+    }
+    for index, slide in enumerate(slides):
+        role = role_sequence[index % len(role_sequence)]
+        slide["narrative_role"] = role
+        if slide.get("slide_type") in {None, "", "content", "key_points"}:
+            slide["slide_type"] = type_by_role[role]
+
+
+def _ensure_content_diversity(slides: List[Dict[str, Any]], topic: str) -> None:
+    """Replace exact duplicate content pages with topic-specific fallback pages."""
+    if len(slides) < 2:
+        return
+
+    blueprint = build_expanded_commercial_page_blueprint(topic, len(slides))
+    seen = set()
+    for index, slide in enumerate(slides):
+        signature = (
+            slide.get("title", "").strip(),
+            tuple(slide.get("content", []) or []),
+            tuple(block.get("content", "") for block in slide.get("content_blocks", []) or []),
+        )
+        if signature not in seen:
+            seen.add(signature)
+            continue
+        page = blueprint[index % len(blueprint)]
+        slide.update({
+            "title": page["title"],
+            "key_message": page["key_message"],
+            "content": [block["content"] for block in page["blocks"]],
+            "content_blocks": page["blocks"],
+            "slide_type": page["slide_type"],
+            "narrative_role": page["role"],
+            "asset_intent": page["asset_intent"],
+        })
+        seen.add((
+            page["title"],
+            tuple(slide["content"]),
+            tuple(block["content"] for block in page["blocks"]),
+        ))
 
 
 def _content_slides_for_total(
@@ -1397,9 +1711,14 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
     
-    style = PPTStyle(template_name=req.template)
+    requested_template = req.template
+    fields_set = getattr(req, "model_fields_set", set())
+    if isinstance(fields_set, set) and req.template == "modern" and "template" not in fields_set:
+        requested_template = "auto"
+    resolved_template = resolve_topic_template(req.topic, requested_template)
+    style = PPTStyle(template_name=resolved_template)
     template_manager = TemplateManager()
-    token_template_id = {"business": "business_report", "creative": "pitch_deck"}.get(req.template, req.template)
+    token_template_id = {"business": "business_report", "creative": "pitch_deck"}.get(resolved_template, resolved_template)
     try:
         tokens = template_manager.resolve_design_tokens(token_template_id)
         style = apply_design_tokens(style, tokens)
@@ -1414,7 +1733,18 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
     # === 1. 标题页（封面）===
     slide = prs.slides.add_slide(blank_layout)
     add_slide_background(slide, prs, style, light=True)
-    
+    cover_variant = select_cover_variant(outline.get("title", "PPT"))
+    if style.template_name != "modern":
+        if cover_variant == 1:
+            accent = slide.shapes.add_shape(1, Inches(0.42), Inches(0.65), Inches(0.08), Inches(6.2))
+            accent.fill.solid(); accent.fill.fore_color.rgb = style.ACCENT_COLOR; accent.line.fill.background()
+        elif cover_variant == 2:
+            accent = slide.shapes.add_shape(1, Inches(0.75), Inches(0.48), Inches(11.85), Inches(0.06))
+            accent.fill.solid(); accent.fill.fore_color.rgb = style.ACCENT_COLOR; accent.line.fill.background()
+        elif cover_variant == 3:
+            accent = slide.shapes.add_shape(9, Inches(10.85), Inches(0.55), Inches(1.15), Inches(1.15))
+            accent.fill.solid(); accent.fill.fore_color.rgb = style.ACCENT_LIGHT; accent.line.fill.background()
+
     if style.template_name == "education":
         _add_editorial_text(slide, "LEARNING LAB / 2026", 0.78, 0.68, 3.8, 0.32, style, 10, style.PRIMARY_COLOR, True)
         _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 0.78, 1.55, 9.7, 1.62, style, 42, style.TEXT_DARK, True)
@@ -1468,13 +1798,41 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
         _add_editorial_text(slide, "01  洞察\n02  选择\n03  行动", 8.65, 5.12, 3.0, 1.35, style, 17, style.TEXT_WHITE, True)
         _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 11.15, 6.6, 1.45, 0.3, style, 10, style.ACCENT_LIGHT, True, PP_ALIGN.RIGHT)
     elif style.template_name == "modern":
-        _add_editorial_text(slide, "STRATEGY / BRIEF", 0.78, 0.72, 3.5, 0.35, style, 11, style.PRIMARY_COLOR, True)
-        _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 0.78, 1.55, 9.4, 1.55, style, 42, style.TEXT_DARK, True)
-        _add_editorial_text(slide, "从洞察到行动，建立可验证的增长路径", 0.82, 3.48, 7.2, 0.45, style, 15, style.TEXT_GRAY)
-        for number, label in enumerate(("洞察", "选择", "行动"), 1):
-            left = 0.78 + (number - 1) * 4.15
-            _add_modern_tile(slide, f"0{number}", label, left, 5.15, 3.65, 1.25, style, number == 1)
-        _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 11.0, 0.72, 1.55, 0.3, style, 10, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
+        if cover_variant == 0:
+            _add_editorial_text(slide, "STRATEGY / BRIEF", 0.78, 0.72, 3.5, 0.35, style, 11, style.PRIMARY_COLOR, True)
+            _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 0.78, 1.55, 9.4, 1.55, style, 42, style.TEXT_DARK, True)
+            _add_editorial_text(slide, "从洞察到行动，建立可验证的增长路径", 0.82, 3.48, 7.2, 0.45, style, 15, style.TEXT_GRAY)
+            for number, label in enumerate(("洞察", "选择", "行动"), 1):
+                left = 0.78 + (number - 1) * 4.15
+                _add_modern_tile(slide, f"0{number}", label, left, 5.15, 3.65, 1.25, style, number == 1)
+        elif cover_variant == 1:
+            panel = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(4.25), prs.slide_height)
+            panel.fill.solid(); panel.fill.fore_color.rgb = style.PRIMARY_COLOR; panel.line.fill.background()
+            _add_editorial_text(slide, "FIELD NOTE / 2026", 0.78, 0.82, 2.8, 0.32, style, 10, style.TEXT_WHITE, True)
+            _add_editorial_text(slide, "01", 0.78, 5.62, 1.2, 0.7, style, 34, style.ACCENT_LIGHT, True)
+            _add_editorial_text(slide, "INSIGHT", 0.82, 6.38, 2.0, 0.28, style, 10, style.TEXT_WHITE, True)
+            _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 5.15, 1.72, 7.3, 1.9, style, 42, style.TEXT_DARK, True)
+            _add_editorial_text(slide, "从洞察到行动，建立可验证的增长路径", 5.18, 4.18, 6.5, 0.45, style, 15, style.TEXT_GRAY)
+            _add_minimal_rule(slide, 5.18, 5.2, 6.8, style)
+        elif cover_variant == 2:
+            band = slide.shapes.add_shape(1, Inches(0), Inches(0), prs.slide_width, Inches(1.05))
+            band.fill.solid(); band.fill.fore_color.rgb = style.PRIMARY_COLOR; band.line.fill.background()
+            _add_editorial_text(slide, "STRATEGY / BRIEF", 0.78, 0.38, 3.5, 0.3, style, 10, style.TEXT_WHITE, True)
+            _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 1.05, 2.05, 11.2, 1.65, style, 44, style.TEXT_DARK, True, PP_ALIGN.CENTER)
+            _add_editorial_text(slide, "INSIGHT   /   CHOICE   /   ACTION", 2.7, 4.35, 7.95, 0.38, style, 13, style.PRIMARY_COLOR, True, PP_ALIGN.CENTER)
+            _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 10.8, 6.55, 1.7, 0.3, style, 10, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
+        else:
+            hero = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(8.6), prs.slide_height)
+            hero.fill.solid(); hero.fill.fore_color.rgb = style.PRIMARY_COLOR; hero.line.fill.background()
+            _add_editorial_text(slide, "STRATEGY / BRIEF", 0.82, 0.82, 3.8, 0.3, style, 11, style.TEXT_WHITE, True)
+            _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 0.82, 2.0, 7.0, 1.9, style, 40, style.TEXT_WHITE, True)
+            _add_editorial_text(slide, "从洞察到行动，建立可验证的增长路径", 0.85, 5.55, 6.4, 0.42, style, 14, style.TEXT_WHITE)
+            _add_editorial_text(slide, "01", 9.65, 1.7, 2.0, 0.75, style, 38, style.PRIMARY_COLOR, True)
+            _add_editorial_text(slide, "洞察", 9.65, 2.55, 2.0, 0.3, style, 14, style.TEXT_GRAY, True)
+            _add_editorial_text(slide, "02", 9.65, 3.45, 2.0, 0.75, style, 38, style.PRIMARY_COLOR, True)
+            _add_editorial_text(slide, "选择", 9.65, 4.3, 2.0, 0.3, style, 14, style.TEXT_GRAY, True)
+            _add_editorial_text(slide, "03", 9.65, 5.2, 2.0, 0.75, style, 38, style.PRIMARY_COLOR, True)
+            _add_editorial_text(slide, "行动", 9.65, 6.05, 2.0, 0.3, style, 14, style.TEXT_GRAY, True)
     elif style.template_name == "minimal":
         _add_editorial_text(slide, "PRESENTATION", 0.72, 0.68, 2.2, 0.3, style, 10, style.TEXT_GRAY, True)
         _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 10.85, 0.68, 1.75, 0.3, style, 10, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
@@ -1511,15 +1869,18 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
     # === 2. 视觉决策阶段 ===
     visual_plan = None
     if update_progress: await update_progress(message="正在分析视觉需求...")
-    try:
-        visual_plan = await visual_analyzer.analyze_ppt_content(
-            title=outline.get("title", "PPT"),
-            slides_content=outline.get("slides", []),
-            theme=req.template,
-            api_key_token=req.api_key_token,
-        )
-    except Exception as e:
-        logger.warning(f"视觉分析失败，使用默认布局: {e}")
+    if req.api_key_token:
+        try:
+            visual_plan = await visual_analyzer.analyze_ppt_content(
+                title=outline.get("title", "PPT"),
+                slides_content=outline.get("slides", []),
+                theme=req.template,
+                api_key_token=req.api_key_token,
+            )
+        except Exception as e:
+            logger.warning("视觉分析失败，使用本地布局: %s", e)
+    else:
+        logger.info("未提供用户模型凭据，跳过视觉分析并使用本地布局")
 
     # === 3. 内容幻灯片 ===
     for idx, slide_data in enumerate(outline.get('slides', []), 1):
@@ -2818,7 +3179,7 @@ async def _stream_upload_to_path(file: UploadFile, destination: Path, max_size: 
 @router.post("/pptx/generate_from_file", response_model=TaskResponse)
 async def generate_ppt_from_file(
     file: UploadFile = FastAPIFile(..., description="上传文件 (PDF/Word/TXT/MD 等)"),
-    template: str = Form(default="modern", description="模板风格"),
+    template: str = Form(default="auto", description="模板风格"),
     slide_count: int = Form(default=10, ge=5, le=PPT_MAX_SLIDES, description="页数"),
     output_format: str = Form(default="pptx", description="输出格式 (pptx/html/markdown)"),
     extra_prompt: str = Form(default="", description="额外提示词"),

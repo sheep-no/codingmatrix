@@ -110,9 +110,8 @@ npm --prefix src run build
 - 游戏 AI PPT 真实生成 E2E：`1 passed`；请求 `slide_count=16` 返回 15 个内容页并下载生成的 16 页 PPTX，内容断言覆盖 `NPC`、`UGC` 和 AI 游戏领域语义。
 - PPT 三步 mock E2E 当前为 `1 passed`；前端 Vitest 当前为 `15 files passed, 48 tests passed`。
 - 种子账户认证版 PPT 页面 E2E 当前为 `6 passed`；认证 fixture 在已完成登录后允许 CSRF 辅助初始化遇到 `429`，避免重复测试触发限流影响只读页面验收。
-
-
 - 图表编辑器专项验收：前端单元测试 `19 passed`；桌面和移动端 Playwright `2 passed`；元数据草稿、两天过期、项目 JSON 导入导出和同名文件重新关联通过；Vite 生产构建通过。
+
 VS Code 扩展打包仍会提示缺少 `repository`、`LICENSE` 和 `.vscodeignore` 元数据。这些提示不影响当前构建与测试，正式发布前应补齐。
 
 ## 前端开发
@@ -162,7 +161,8 @@ npx --no-install playwright test tests/e2e/test_ppt_game_ai.e2e.spec.js --config
 - GirlAI 伙伴上下文和模型选择修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_companion_model.py -q`。
 - GirlAI 伙伴 API 修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_api.py tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_companion_model.py tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py -q`。
 - GirlAI 伙伴记忆修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_memory.py tests/unit/test_girlai_companion_api.py tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_companion_model.py tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py -q`。
-- GirlAI 情绪、意图和统一回合事件修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_api.py tests/unit/test_girlai_state_adapter.py tests/unit/test_girlai_companion_classifier.py tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_memory.py tests/unit/test_girlai_companion_model.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_refactor.py tests/unit/test_unified_state_models.py tests/unit/test_unified_state_service.py tests/unit/test_database_services.py -q`。
+ - GirlAI 情绪、意图和统一回合事件修改后执行 `python3 -m pytest tests/unit/test_girlai_companion_api.py tests/unit/test_girlai_state_adapter.py tests/unit/test_girlai_companion_classifier.py tests/unit/test_girlai_companion_service.py tests/unit/test_girlai_companion_memory.py tests/unit/test_girlai_companion_model.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_refactor.py tests/unit/test_unified_state_models.py tests/unit/test_unified_state_service.py tests/unit/test_database_services.py -q`。
+ - GirlAI 语音适配修改后执行 `python3 -m pytest tests/unit/test_girlai_voice.py tests/unit/test_girlai_companion_api.py -q`，并在 `/workspace/src` 执行 `npm run test:run -- utils/api/girl.test.js composables/useGirlAiCompanion.test.js`。
 - Agent 模型上下文只保存模型 ID、配置版本、调用统计和降级记录；模型 Key 对应的供应商凭据继续由现有 Key Store 管理。修改模型上下文契约后同时运行后端 `test_model_context_service.py` 与前端 `agentSession.test.js`、`project.test.js`。
 - 验证节点通过 `State.metadata.required_validation_scopes` 声明 `local_runtime` 或 `local_e2e`；云端验证保持 `cloud_syntax`，本地结果按 scope 回传。
 - 本地结果协议使用 `validation_scope`、`status` 和 `source=local`；`local_result_to_delta()` 负责映射为内部字段并执行 task/session/revision/schema 校验。StateReducer 按验证结果 `event_id` 去重，重复回传保持状态和 revision 不变。

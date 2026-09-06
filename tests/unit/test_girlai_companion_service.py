@@ -1,4 +1,94 @@
+import json
+from itertools import product
+
 from app.services.girlai_companion_service import parse_companion_turn
+
+
+def _structured_turn_payloads():
+    """Generate a deterministic property matrix for structured turn fields."""
+    for index, (emotion_label, intent_label, include_memory, include_options, include_context) in enumerate(
+        product(
+            ("focused", "anxious"),
+            ("task_planning", "help_request"),
+            (False, True),
+            (False, True),
+            (False, True),
+        ),
+        start=1,
+    ):
+        payload = {
+            "assistant_text": f"第 {index} 个结构化回合。",
+            "emotion": {
+                "label": emotion_label,
+                "intensity": 0.25 if emotion_label == "anxious" else 0.8,
+                "confidence": 0.95,
+            },
+            "intent": {"label": intent_label, "confidence": 0.95},
+            "care_required": emotion_label == "anxious",
+            "response_style": "care" if emotion_label == "anxious" else "standard",
+            "work_options": ["拆解任务", "安排下一步"] if include_options else [],
+            "memory_candidates": (
+                [{"key": "工作节奏", "value": "上午适合深度工作", "confidence": 0.9}]
+                if include_memory
+                else []
+            ),
+            "degraded_capabilities": ["memory_selection"] if include_memory else [],
+            "schema_version": 1,
+        }
+        if include_context:
+            payload["model_context"] = {
+                "current_model": "companion-test-model",
+                "classification_model": "classifier-test-model",
+                "calls": 2,
+                "fallback_used": False,
+                "fallback_history": [],
+            }
+        yield payload
+
+
+def test_structured_turn_field_completeness_property():
+    """Every valid structured payload produces a complete versioned turn contract."""
+    for payload in _structured_turn_payloads():
+        turn = parse_companion_turn(
+            {
+                "choices": [{"message": {"content": json.dumps(payload, ensure_ascii=False)}}],
+                "usage": {"total_tokens": 24},
+            },
+            model="fallback-test-model",
+        )
+
+        assert turn.assistant_text.strip()
+        assert turn.emotion.label in {
+            "neutral",
+            "happy",
+            "sad",
+            "anxious",
+            "stressed",
+            "tired",
+            "angry",
+            "overwhelmed",
+            "focused",
+        }
+        assert 0.0 <= turn.emotion.intensity <= 1.0
+        assert 0.0 <= turn.emotion.confidence <= 1.0
+        assert turn.intent.label in {
+            "unknown",
+            "chat",
+            "acknowledge",
+            "task_planning",
+            "task_execution",
+            "task_review",
+            "task_blocked",
+            "rest_request",
+            "help_request",
+            "remember_preference",
+        }
+        assert 0.0 <= turn.intent.confidence <= 1.0
+        assert len(turn.work_options) <= 3
+        assert isinstance(turn.memory_candidates, list)
+        assert isinstance(turn.degraded_capabilities, list)
+        assert turn.model_context.calls >= 1
+        assert turn.schema_version >= 1
 
 
 def test_parse_structured_companion_turn_with_defaults():

@@ -216,4 +216,13 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 调用方必须传 `language` 参数（或用 `detect_project_language()` 自动检测），否则默认 python
   - `_profile_project()` in `app/agent/orchestrator_utils.py:103` 现在接受可选 language 参数
   - 语言检测优先级：manifest 文件 > 扩展名计数（Cargo.toml/pom.xml/go.mod/package.json）
-  - JS init_file 支持多个变体：index.{js,ts,jsx,tsx,mjs,cjs}
+ - JS init_file 支持多个变体：index.{js,ts,jsx,tsx,mjs,cjs}
+
+### 生图 Provider Key 加密链路
+- Date: 2026-09-06
+- Context: Agent 在验证 Kolors 生图资源缓存和 API Key 流程时发现
+- Category: 环境配置
+- Instructions:
+  - 真实 Provider Key 流程为：获取 `/api/v1/agent/apikey/public-key`，使用 RSA OAEP SHA-256 加密原始 Key，提交 `/api/v1/agent/apikey`，再将返回的 `api_key_token` 传给生图接口。
+  - 直接设置 `SILICONFLOW_API_KEY` 只验证原始 Provider Key 配置路径，不能证明前端加密提交和 Redis token 解析流程正常。
+  - 生图端到端测试可使用 `512x512`、20 步、1 张图片；相同 fingerprint 的第二次请求应返回 `cached=true`，并在约毫秒级完成。

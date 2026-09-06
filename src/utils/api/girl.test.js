@@ -64,4 +64,28 @@ describe('GirlAI client', () => {
       characters: []
     })
   })
+
+  it('sends normalized voice transcription metadata', async () => {
+    const baseClient = {
+      post: vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ turn_id: 'voice-turn-1' })
+      })
+    }
+
+    await expect(createGirlClient(baseClient).sendVoiceTranscription(
+      '继续刚才的计划',
+      'gentle',
+      { turnId: 'voice-turn-1', provider: 'sense-voice', confidence: 0.9, durationMs: 800 }
+    )).resolves.toEqual({ turn_id: 'voice-turn-1' })
+
+    expect(baseClient.post).toHaveBeenCalledWith('/GirlAi/voice/transcriptions', {
+      transcript: '继续刚才的计划',
+      character_id: 'gentle',
+      turn_id: 'voice-turn-1',
+      provider: 'sense-voice',
+      confidence: 0.9,
+      duration_ms: 800
+    })
+  })
 })

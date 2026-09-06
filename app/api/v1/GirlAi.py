@@ -27,6 +27,7 @@ from app.schema.girl_companion import (
     CompanionTurnRequest,
     CompanionTurnResponse,
     MemoryCandidate,
+    VoiceTranscriptionRequest,
 )
 from app.db.chat_history_service import ChatHistoryService
 from app.services.girlai_state_adapter import (
@@ -187,9 +188,9 @@ MAX_HISTORY_MESSAGES = 10
 COMPANION_STRUCTURED_MIN_TOKENS = 512
 COMPANION_STRUCTURED_MAX_TEMPERATURE = 0.3
 COMPANION_REQUEST_TIMEOUT = 60.0
-COMPANION_STRUCTURED_SYSTEM_PROMPT = """你负责生成 GirlAI 伙伴回合。仅输出一个合法 JSON 对象，不要输出 Markdown、解释或思考过程。严格使用以下结构：
-{"assistant_text":"给用户的回复","emotion":{"label":"neutral","intensity":0.0,"confidence":0.0},"intent":{"label":"unknown","confidence":0.0},"memory_candidates":[],"tool_requests":[],"task_suggestion":null,"schema_version":1}
-assistant_text 必须是非空字符串。emotion、intent 必须是对象。memory_candidates 每项仅包含 key、value、confidence、source。tool_requests 每项仅包含 name、arguments、reason。"""
+COMPANION_STRUCTURED_SYSTEM_PROMPT = """你负责生成 GirlAI 纯对话陪伴回合。仅输出一个合法 JSON 对象，不要输出 Markdown、解释或思考过程。严格使用以下结构：
+{"assistant_text":"给用户的回复","emotion":{"label":"neutral","intensity":0.0,"confidence":0.0},"intent":{"label":"unknown","confidence":0.0},"memory_candidates":[],"schema_version":1}
+assistant_text 必须是非空字符串。emotion、intent 必须是对象。memory_candidates 每项仅包含 key、value、confidence、source。回复可以提供文字建议，系统不会创建任务、调用工具或触发提醒。"""
 
 # 角色 SVG 头像（内联，无需外部文件）
 CHARACTER_AVATARS: Dict[str, str] = {
@@ -759,6 +760,10 @@ async def generate_companion_turn(
             turn = parse_companion_turn(raw_response, character["name"], model=character["model"])
             classification = await classify_companion_input(body.prompt)
             turn = apply_companion_policy(turn, classification)
+            if body.voice_output:
+                turn.voice_output.requested = True
+                turn.voice_output.status = "unavailable"
+                turn.degraded_capabilities.append("voice_output")
             persisted_candidates = await memory_service.create_candidates(
                 int(user_id), turn.memory_candidates
             )
@@ -838,6 +843,38 @@ async def generate_companion_turn(
             raise HTTPException(status_code=502, detail="AI 服务暂时不可用，请稍后重试") from error
 
 
+@router.post(
+    "/GirlAi/voice/transcriptions",
+    response_model=CompanionTurnResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def create_voice_transcription_turn(
+    body: VoiceTranscriptionRequest,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+) -> CompanionTurnResponse:
+    """Convert a normalized transcription into the regular companion turn flow."""
+    if not token.get("sub"):
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+
+    response = await generate_companion_turn(
+        CompanionTurnRequest(
+            prompt=body.transcript,
+            character_id=body.character_id,
+            turn_id=body.turn_id,
+            voice_output=body.voice_output,
+        ),
+        token=token,
+        db=db,
+    )
+    response.voice_input.received = True
+    response.voice_input.status = "received"
+    response.voice_input.provider = body.provider
+    response.voice_input.confidence = body.confidence
+    response.voice_input.duration_ms = body.duration_ms
+    return response
+
+
 @router.get("/GirlAi/companion/state")
 async def get_companion_state(
     token: dict = Depends(verify_token),
@@ -863,7 +900,13 @@ async def get_companion_state(
         "response_style": payload.get("response_style", "standard"),
         "work_options": payload.get("work_options", []),
         "memory_authorization": {"enabled": True, "visibility": ["companion_allowed"]},
-        "capabilities": {"text": True, "voice_input": False, "voice_output": False},
+        "capabilities": {
+            "text": True,
+            "voice_input": True,
+            "voice_output": False,
+            "voice_input_mode": "standardized_transcription",
+            "voice_output_mode": "text_fallback",
+        },
         "state_revision": state_event.sequence if state_event else 0,
         "degraded_capabilities": payload.get("degraded_capabilities", []),
     }

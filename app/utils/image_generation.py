@@ -19,6 +19,7 @@ from httpx import Timeout
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.services.image_resource_service import generation_concurrency
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +42,6 @@ DEFAULT_CONFIG = {
 
 OUTPUT_DIR = Path("./generated_images")
 OUTPUT_DIR.mkdir(exist_ok=True)
-
-# 并发限制
-_max_concurrent_generations = asyncio.Semaphore(4)
 
 # 连接池（复用 HTTP 客户端）
 _http_client: Optional[httpx.AsyncClient] = None
@@ -369,7 +367,7 @@ async def inpaint_image(
 
 async def _call_kolors_api(data: dict, timeout: Timeout, api_key_token: str = None, max_retries: int = 3) -> dict:
     """Kolors API 调用公共逻辑（带重试机制和并发限制）"""
-    async with _max_concurrent_generations:
+    async with generation_concurrency.global_slot():
         last_error = None
         
         for attempt in range(max_retries):

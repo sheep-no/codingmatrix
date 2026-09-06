@@ -77,7 +77,7 @@ export function createPptClient(client) {
         prompt,
         conversation_id: conversationId,
         api_key_token,
-         template: options.template || options.template_id || 'modern',
+         template: options.template || options.template_id || 'auto',
          slide_count: options.slide_count || 10,
          options: {
            auto_images: options.auto_images !== false,

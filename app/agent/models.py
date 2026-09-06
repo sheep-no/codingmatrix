@@ -115,6 +115,16 @@ class ModelRegistry:
             temperature=0.7,
             speed=2.0
         ),
+        "paddleocr-vl-1.5": ModelInfo(
+            key="paddleocr-vl-1.5",
+            name="PaddlePaddle/PaddleOCR-VL-1.5",
+            display_name="PaddleOCR VL 1.5",
+            capabilities=[ModelCapability.VISION, ModelCapability.OCR],
+            max_tokens=4096,
+            thinking_budget=4096,
+            temperature=0.5,
+            speed=0.8
+        ),
         "qwen3-8b": ModelInfo(
             key="qwen3-8b",
             name="Qwen/Qwen3-8B",
@@ -206,7 +216,7 @@ class ModelRouter:
         TaskType.CODE_GENERATION: ["qwen2.5-7b", "deepseek-r1-qwen3-8b"],
         TaskType.CODE_REVIEW: ["deepseek-r1-qwen3-8b", "glm-z1-9b"],
         TaskType.FILE_OPERATION: ["glm-4-9b", "qwen3.5-4b"],
-        TaskType.VISUAL_UNDERSTANDING: ["qwen3.5-4b", "deepseek-ocr"],
+        TaskType.VISUAL_UNDERSTANDING: ["qwen3.5-4b", "paddleocr-vl-1.5", "deepseek-ocr"],
         TaskType.IMAGE_GENERATION: ["kolors"],
         TaskType.REASONING: ["deepseek-r1-qwen3-8b", "glm-z1-9b"],
         TaskType.FAST_RESPONSE: ["qwen3.5-4b", "glm-4-9b"],

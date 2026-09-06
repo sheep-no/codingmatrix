@@ -29,7 +29,15 @@ from app.utils.image_generation import (
     generate_landscape,
     generate_icon,
     SUPPORTED_FORMATS,
-    DEFAULT_CONFIG
+    DEFAULT_CONFIG,
+    KOLORS_MODEL,
+)
+from app.services.image_resource_service import (
+    build_image_resource_fingerprint,
+    build_generation_response,
+    cleanup_file,
+    generation_concurrency,
+    get_or_create_generation,
 )
 from app.db.database import get_db
 from app.models.history import History
@@ -65,7 +73,8 @@ async def get_cached_image(
     prompt: str,
     seed: Optional[int],
     conversation_id: Optional[int],
-    max_age_hours: int = 24
+    max_age_hours: int = 24,
+    fingerprint: Optional[str] = None,
 ) -> Optional[str]:
     """
     获取缓存的图片（如果存在）
@@ -89,6 +98,9 @@ async def get_cached_image(
         
         if conversation_id:
             query_conditions.append(History.conversation_id == conversation_id)
+
+        if fingerprint:
+            query_conditions.append(History.metadata_json.contains(fingerprint))
         
         result = await db.execute(
             select(History).where(*query_conditions).order_by(History.id.desc()).limit(1)
@@ -98,7 +110,8 @@ async def get_cached_image(
         
         if history and history.metadata_json:
             metadata = json.loads(history.metadata_json)
-            if metadata.get("type") == "image" and metadata.get("path"):
+            fingerprint_matches = not fingerprint or metadata.get("fingerprint") == fingerprint
+            if metadata.get("type") == "image" and metadata.get("path") and fingerprint_matches:
                 logger.info(f"使用缓存的图片 | cache_key={cache_key}")
                 return metadata["path"]
         
@@ -115,7 +128,8 @@ async def cache_image_to_history(
     conversation_id: Optional[int],
     prompt: str,
     image_path: str,
-    seed: Optional[int]
+    seed: Optional[int],
+    fingerprint: Optional[str] = None,
 ) -> None:
     """
     缓存图片到 history.metadata_json
@@ -145,6 +159,8 @@ async def cache_image_to_history(
             "cache_key": f"image:{prompt}:{seed}",
             "created_at": datetime.utcnow().isoformat()
         }
+        if fingerprint:
+            metadata["fingerprint"] = fingerprint
         
         # 创建历史记录
         history = History(
@@ -369,51 +385,84 @@ async def text_to_image_api(
             if history_context:
                 full_prompt = f"{full_prompt}\n\n[参考历史]\n{history_context}"
 
-        # Step 4: 调用模型生成
-        result = await text_to_image(
+        fingerprint = build_image_resource_fingerprint(
+            user_id=user_id,
+            model=KOLORS_MODEL,
+            generation_type="text-to-image",
             prompt=full_prompt,
             negative_prompt=request.negative_prompt,
+            style=request.style,
+            reference_hash=None,
             width=request.width,
             height=request.height,
-            num_inferences=request.get_num_inferences(),
+            steps=request.get_num_inferences(),
             guidance_scale=request.get_guidance_scale(),
+            strength=None,
             num_images=request.num_images,
             seed=request.seed,
-            api_key_token=request.api_key_token
+        )
+
+        # Step 4: 使用精确资源指纹查询缓存
+        cached_path = await get_cached_image(
+            db,
+            user_id,
+            request.prompt,
+            request.seed,
+            request.conversation_id,
+            fingerprint=fingerprint,
+        )
+        if cached_path:
+            return build_generation_response(
+                {"success": True, "images": [], "paths": [cached_path]},
+                cached=True,
+            )
+
+        async def generate_and_persist():
+            async with generation_concurrency.user_slot(user_id):
+                result = await text_to_image(
+                    prompt=full_prompt,
+                    negative_prompt=request.negative_prompt,
+                    width=request.width,
+                    height=request.height,
+                    num_inferences=request.get_num_inferences(),
+                    guidance_scale=request.get_guidance_scale(),
+                    num_images=request.num_images,
+                    seed=request.seed,
+                    api_key_token=request.api_key_token
+                )
+
+            if result["success"] and result["paths"]:
+                await cache_image_to_history(
+                    db, user_id, request.conversation_id,
+                    request.prompt, result["paths"][0], request.seed, fingerprint
+                )
+
+                await save_image_generation_history(
+                    db=db,
+                    user_id=user_id,
+                    prompt=request.prompt,
+                    negative_prompt=request.negative_prompt,
+                    image_paths=result.get("images", result["paths"]),
+                    generation_type="text-to-image",
+                    params={
+                        "width": request.width,
+                        "height": request.height,
+                        "num_inferences": request.get_num_inferences(),
+                        "guidance_scale": request.get_guidance_scale(),
+                        "num_images": request.num_images,
+                        "style": request.style,
+                    },
+                    seed=request.seed,
+                )
+            return result
+
+        # Step 5: 合并相同资源指纹的并发生成任务
+        result = await get_or_create_generation(
+            fingerprint=fingerprint,
+            owner=generate_and_persist,
         )
         
-        # Step 5: 缓存结果
-        if result["success"] and result["paths"]:
-            await cache_image_to_history(
-                db, user_id, request.conversation_id,
-                request.prompt, result["paths"][0], request.seed
-            )
-            
-            await save_image_generation_history(
-                db=db,
-                user_id=user_id,
-                prompt=request.prompt,
-                negative_prompt=request.negative_prompt,
-                image_paths=result.get("images", result["paths"]),
-                generation_type="text-to-image",
-                params={
-                    "width": request.width,
-                    "height": request.height,
-                    "num_inferences": request.get_num_inferences(),
-                    "guidance_scale": request.get_guidance_scale(),
-                    "num_images": request.num_images,
-                    "style": request.style,
-                },
-                seed=request.seed,
-            )
-        
-        return {
-            "success": result["success"],
-            "cached": False,
-            "images": result.get("images", []),
-            "paths": result["paths"],
-            "paths_hash": [p.split("/")[-1] for p in result["paths"]]
-        }
+        return build_generation_response(result, cached=False)
         
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"文生图失败 | error={str(e)}", exc_info=True)
@@ -594,10 +643,7 @@ async def image_to_image_api(
     finally:
         # 清理上传的临时文件
         if uploaded_temp_path:
-            try:
-                Path(uploaded_temp_path).unlink(missing_ok=True)
-            except OSError:
-                pass
+            cleanup_file(uploaded_temp_path)
 
 
 @router.post("/inpaint", summary="图像修复")
@@ -766,10 +812,7 @@ async def inpaint_api(
         raise HTTPException(status_code=500, detail=f"修复失败：{str(e)}")
     finally:
         for tmp in uploaded_temp_paths:
-            try:
-                Path(tmp).unlink(missing_ok=True)
-            except OSError:
-                pass
+            cleanup_file(tmp)
 
 
 @router.post("/avatar", summary="生成头像")

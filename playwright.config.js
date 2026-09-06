@@ -22,6 +22,7 @@ module.exports = defineConfig({
           executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH || (
             fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined
           ),
+          args: ['--no-sandbox', '--disable-dev-shm-usage'],
         },
       },
     },

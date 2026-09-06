@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
+from app.agent.models import DEFAULT_VISUAL_MODEL
 from app.utils.pptx.slide_renderer import SlideRenderer, render_slide_preview, get_slide_metadata
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,13 @@ class PPTAnalysisResult:
 class PPTVisualAnalyzer:
     """PPT 视觉分析器"""
 
-    def __init__(self, pptx_path: str, api_key_token: Optional[str] = None, user_id: Optional[str] = None):
+    def __init__(
+        self,
+        pptx_path: str,
+        api_key_token: Optional[str] = None,
+        user_id: Optional[str] = None,
+        model: Optional[str] = None,
+    ):
         """
         初始化分析器
 
@@ -63,6 +70,7 @@ class PPTVisualAnalyzer:
 
         self.api_key_token = api_key_token
         self.user_id = user_id
+        self.model = model or DEFAULT_VISUAL_MODEL
         self.renderer = SlideRenderer(str(self.pptx_path))
 
     async def analyze_slide(self, slide_number: int) -> Optional[SlideStyleInfo]:
@@ -170,7 +178,7 @@ class PPTVisualAnalyzer:
             response = await _call_vision_model(
                 image_base64=image_data_uri,
                 prompt=prompt,
-                model="deepseek-ai/DeepSeek-OCR",
+                model=getattr(self, "model", DEFAULT_VISUAL_MODEL),
                 timeout=Timeout(30.0, connect=10.0),
                 api_key_token=self.api_key_token,
                 user_id=self.user_id
@@ -227,7 +235,8 @@ class PPTVisualAnalyzer:
 async def analyze_ppt_visual(
     pptx_path: str,
     slide_number: Optional[int] = None,
-    api_key_token: Optional[str] = None
+    api_key_token: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     分析 PPT 视觉样式
@@ -240,7 +249,7 @@ async def analyze_ppt_visual(
     Returns:
         分析结果字典
     """
-    analyzer = PPTVisualAnalyzer(pptx_path, api_key_token)
+    analyzer = PPTVisualAnalyzer(pptx_path, api_key_token, model=model)
 
     if slide_number:
         style_info = await analyzer.analyze_slide(slide_number)

@@ -103,7 +103,6 @@ def parse_companion_turn(
     payload["emotion"] = normalize_emotion(payload.get("emotion"))
     payload["intent"] = normalize_intent(payload.get("intent"))
     payload["memory_candidates"] = payload.get("memory_candidates") or []
-    payload["tool_requests"] = payload.get("tool_requests") or []
     payload["model_context"] = model_context
     payload["schema_version"] = payload.get("schema_version", 1)
 

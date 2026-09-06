@@ -16,7 +16,10 @@ from typing import List, Optional, Dict, Any
 
 from app.utils import call_llm
 from app.agent.architect_json_parser import ArchitectJsonParser
-from app.utils.pptx.commercial_content import NARRATIVE_ROLES, build_commercial_page_blueprint
+from app.utils.pptx.commercial_content import (
+    NARRATIVE_ROLES,
+    build_expanded_commercial_page_blueprint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -324,7 +327,9 @@ JSON Schema：
             while len(slides) > num_slides:
                 slides.pop(-2)
 
-            blueprint = build_commercial_page_blueprint(topic)
+            blueprint = build_expanded_commercial_page_blueprint(
+                topic, max(1, num_slides - 2)
+            )
             while len(slides) < num_slides:
                 content_count = sum(slide.type not in {"title", "end"} for slide in slides)
                 page = blueprint[content_count % len(blueprint)]
@@ -343,7 +348,9 @@ JSON Schema：
             return None
 
     def _fallback_outline(self, topic: str, num_slides: int) -> PresentationOutline:
-        blueprint = build_commercial_page_blueprint(topic)
+        blueprint = build_expanded_commercial_page_blueprint(
+            topic, max(1, num_slides - 2)
+        )
         if num_slides <= 1:
             return PresentationOutline(
                 title=topic,

@@ -11,6 +11,7 @@ PPT 幻灯片预览图渲染器
 """
 
 import logging
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
@@ -37,6 +38,28 @@ COLORS = {
     "footer": (240, 240, 240),
 }
 
+PREVIEW_FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "C:/Windows/Fonts/msyh.ttc",
+    "/System/Library/Fonts/PingFang.ttc",
+)
+
+
+@lru_cache(maxsize=16)
+def _load_preview_font(size: int):
+    """加载支持中文的预览字体，并在缺失时回退到 Pillow 默认字体。"""
+    from PIL import ImageFont
+
+    for font_path in PREVIEW_FONT_CANDIDATES:
+        if Path(font_path).is_file():
+            try:
+                return ImageFont.truetype(font_path, size=size)
+            except OSError:
+                continue
+    return ImageFont.load_default()
+
 
 @dataclass
 class SlideElement:
@@ -48,6 +71,11 @@ class SlideElement:
     height: int
     text: str = ""
     level: int = 0  # bullet level
+    font_size: int = 20
+    is_bullet: bool = False
+    text_color: Optional[Tuple[int, int, int]] = None
+    fill_color: Optional[Tuple[int, int, int]] = None
+    outline_color: Optional[Tuple[int, int, int]] = None
 
 
 @dataclass
@@ -74,9 +102,8 @@ class SlideRenderer:
             raise FileNotFoundError(f"PPTX 文件不存在：{pptx_path}")
 
         self.prs = Presentation(str(self.pptx_path))
-        # 标准化到 16:9
-        self.slide_width = PREVIEW_WIDTH
-        self.slide_height = PREVIEW_HEIGHT
+        self.slide_width = self.prs.slide_width
+        self.slide_height = self.prs.slide_height
 
     def render_slide(self, slide_number: int) -> Optional[bytes]:
         """
@@ -188,22 +215,31 @@ class SlideRenderer:
         # 坐标转换：EMU -> 预览图坐标
         def emu_to_preview(emu_value, is_width=True):
             """将 EMU 转换为预览图坐标"""
-            # 标准 PPT 宽度：13.333 英寸 = 9144000 EMU
-            # 标准 PPT 高度：7.5 英寸 = 6858000 EMU
-            standard_width = 9144000
-            standard_height = 6858000
-
             if is_width:
-                return int(emu_value / standard_width * PREVIEW_WIDTH)
-            else:
-                return int(emu_value / standard_height * PREVIEW_HEIGHT)
+                return int(emu_value / self.slide_width * PREVIEW_WIDTH)
+            return int(emu_value / self.slide_height * PREVIEW_HEIGHT)
 
         x = emu_to_preview(shape.left, is_width=True)
         y = emu_to_preview(shape.top, is_width=False)
         w = emu_to_preview(shape.width, is_width=True)
         h = emu_to_preview(shape.height, is_width=False)
 
-        # 检查是否有文本
+        if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+            elements.append(SlideElement(
+                type="image",
+                x=x, y=y, width=w, height=h
+            ))
+            return elements
+
+        if shape.shape_type in [MSO_SHAPE_TYPE.AUTO_SHAPE, MSO_SHAPE_TYPE.FREEFORM]:
+            elements.append(SlideElement(
+                type="shape",
+                x=x, y=y, width=w, height=h,
+                fill_color=self._get_shape_color(shape, "fill"),
+                outline_color=self._get_shape_color(shape, "line")
+            ))
+
+        # 形状背景和内部文字需要同时保留
         if shape.has_text_frame:
             for para in shape.text_frame.paragraphs:
                 text = para.text.strip()
@@ -213,25 +249,56 @@ class SlideRenderer:
                     elements.append(SlideElement(
                         type="title" if is_title else "text",
                         x=x, y=y, width=w, height=min(h, 60),
-                        text=text
+                        text=text,
+                        font_size=self._get_paragraph_font_size(para, is_title),
+                        is_bullet=self._has_bullet(para),
+                        text_color=self._get_paragraph_color(para)
                     ))
                     y += 40  # 下移
 
-        # 检查是否是图片
-        elif shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-            elements.append(SlideElement(
-                type="image",
-                x=x, y=y, width=w, height=h
-            ))
-
-        # 检查是否是形状
-        elif shape.shape_type in [MSO_SHAPE_TYPE.AUTO_SHAPE, MSO_SHAPE_TYPE.FREEFORM]:
-            elements.append(SlideElement(
-                type="shape",
-                x=x, y=y, width=w, height=h
-            ))
-
         return elements
+
+    @staticmethod
+    def _get_paragraph_font_size(para, is_title: bool) -> int:
+        size = para.font.size
+        if size is None:
+            size = next((run.font.size for run in para.runs if run.font.size), None)
+        if size is not None:
+            return max(10, min(48, round(size.pt * 4 / 3)))
+        return 32 if is_title else 20
+
+    @staticmethod
+    def _has_bullet(para) -> bool:
+        paragraph_properties = para._p.pPr
+        if paragraph_properties is None:
+            return False
+        return any(
+            child.tag.rsplit("}", 1)[-1] in {"buChar", "buAutoNum", "buBlip"}
+            for child in paragraph_properties
+        )
+
+    @staticmethod
+    def _get_paragraph_color(para) -> Optional[Tuple[int, int, int]]:
+        fonts = [para.font, *(run.font for run in para.runs)]
+        for font in fonts:
+            try:
+                rgb = font.color.rgb
+                if rgb is not None:
+                    return tuple(rgb)
+            except (AttributeError, TypeError, ValueError):
+                continue
+        return None
+
+    @staticmethod
+    def _get_shape_color(shape, source: str) -> Optional[Tuple[int, int, int]]:
+        try:
+            color = shape.fill.fore_color if source == "fill" else shape.line.color
+            rgb = color.rgb
+            if rgb is not None:
+                return tuple(rgb)
+        except (AttributeError, TypeError, ValueError):
+            pass
+        return None
 
     def _is_title_shape(self, shape) -> bool:
         """判断是否是标题形状"""
@@ -295,40 +362,37 @@ class SlideRenderer:
 
     def _draw_title(self, draw, element: SlideElement):
         """绘制标题"""
-        # 标题背景
-        draw.rectangle(
-            [element.x, element.y, element.x + element.width, element.y + element.height],
-            fill=COLORS["title_bg"]
-        )
-        # 标题文本
         draw.text(
-            (element.x + 10, element.y + 10),
+            (element.x, element.y + 5),
             element.text[:30] + ("..." if len(element.text) > 30 else ""),
-            fill=COLORS["title_text"]
+            fill=element.text_color or COLORS["text"],
+            font=_load_preview_font(element.font_size)
         )
 
     def _draw_text(self, draw, element: SlideElement):
         """绘制文本"""
-        # bullet 符号
-        bullet_x = element.x
-        bullet_y = element.y + 15
-        draw.ellipse(
-            [bullet_x, bullet_y, bullet_x + 8, bullet_y + 8],
-            fill=COLORS["bullet"]
-        )
+        text_x = element.x
+        if element.is_bullet:
+            bullet_y = element.y + max(6, element.font_size // 2)
+            draw.ellipse(
+                [element.x, bullet_y, element.x + 8, bullet_y + 8],
+                fill=COLORS["bullet"]
+            )
+            text_x += 20
         # 文本内容
         draw.text(
-            (element.x + 20, element.y + 5),
+            (text_x, element.y + 5),
             element.text[:40] + ("..." if len(element.text) > 40 else ""),
-            fill=COLORS["text"]
+            fill=element.text_color or COLORS["text"],
+            font=_load_preview_font(element.font_size)
         )
 
     def _draw_image_placeholder(self, draw, element: SlideElement):
         """绘制图片占位符"""
         draw.rectangle(
             [element.x, element.y, element.x + element.width, element.y + element.height],
-            fill=COLORS["image_placeholder"],
-            outline=COLORS["shape_outline"]
+            fill=element.fill_color,
+            outline=element.outline_color
         )
         # 图片图标
         center_x = element.x + element.width // 2
@@ -336,7 +400,8 @@ class SlideRenderer:
         draw.text(
             (center_x - 20, center_y - 10),
             "[图片]",
-            fill=COLORS["text"]
+            fill=COLORS["text"],
+            font=_load_preview_font(18)
         )
 
     def _draw_shape(self, draw, element: SlideElement):

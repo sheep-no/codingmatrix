@@ -55,6 +55,39 @@ npm --prefix vscode-extension run e2e
 
 ## Agent 重点回归
 
+GirlAI 结构化伙伴回合解析和字段完整性测试位于 `tests/unit/test_girlai_companion_service.py`，覆盖默认字段、降级字段、模型上下文和记忆候选组合。当前伙伴回合保持纯对话契约，不包含工具请求、任务记录或提醒字段。
+
+前端伙伴状态、结构化回合和记忆确认测试位于 `src/composables/useGirlAiCompanion.test.js` 与 `src/utils/api/girl.test.js`，覆盖状态合并、候选记忆确认/忽略和 API 错误传播。
+
+```bash
+# 运行 GirlAI 结构化回合测试
+python3 -m pytest tests/unit/test_girlai_companion_service.py -q
+```
+
+跨会话上下文隔离和模型上下文恢复集成测试位于 `tests/integration/test_girlai_companion_context_recovery.py`，覆盖用户消息、授权记忆、伙伴事件归属，以及恢复后的模型配置、fallback 历史和 token 统计。
+
+```bash
+# 运行 GirlAI 上下文恢复测试
+python3 -m pytest tests/integration/test_girlai_companion_context_recovery.py tests/unit/test_girlai_companion_context.py tests/unit/test_girlai_companion_model.py -q
+```
+
+分类模型故障时文字主链路属性测试位于 `tests/unit/test_girlai_companion_classifier.py`，覆盖模型选择失败、主备分类模型失败、纯文本/JSON/code fence 回复和既有降级能力组合；测试确认助手文本保留，情绪与意图安全回落，并返回分类降级标记。
+
+```bash
+# 运行 GirlAI 分类降级测试
+python3 -m pytest tests/unit/test_girlai_companion_classifier.py tests/unit/test_girlai_companion_api.py -q
+```
+
+legacy 历史与统一状态事务一致性集成测试位于 `tests/integration/test_girlai_legacy_unified_consistency.py`，覆盖成功回合的 legacy/unified 双写关联，以及统一写入失败时两套历史同时回滚并保留脱敏失败事件。
+
+```bash
+# 运行 GirlAI 双写事务一致性测试
+python3 -m pytest tests/integration/test_girlai_legacy_unified_consistency.py -q
+
+# 运行 GirlAI 前端伙伴测试
+npm --prefix src run test:run -- utils/api/girl.test.js composables/useGirlAiCompanion.test.js
+```
+
 Agent 模型上下文修改后运行：
 
 ```bash

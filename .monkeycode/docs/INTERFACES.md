@@ -18,8 +18,9 @@
 - `GET /api/v1/GirlAi/characters/custom/list`：返回当前认证用户拥有的自定义角色。
 - `POST /api/v1/GirlAi/characters/custom`：创建用户自定义角色；角色通过 `custom_<id>` 作为对话请求的 `character_id`。
 - `POST /api/v1/GirlAi`：生成一轮虚拟姬对话。自定义角色按角色 ID 和用户 ID 校验归属；模型调用成功后，legacy `chat_histories` 与 unified `sessions/messages` 在同一事务中写入。
-- `POST /api/v1/GirlAi/companion/turn`：生成结构化虚拟姬伙伴回合，返回助手文本、标准化情绪和工作意图、关怀策略、最多三个工作选项、带持久化 ID 的待确认记忆候选、工具请求、模型上下文、`conversation_id`、`turn_id`、`state_revision` 和能力降级信息；成功回合同步写入 legacy 与 unified 历史。同一 `turn_id` 的完成请求直接回放，活跃或失败请求返回 `409`，超过租约的 processing 请求可恢复执行。
-- `GET /api/v1/GirlAi/companion/state`：返回当前认证用户的伙伴会话、最近完成回合的情绪、意图、关怀策略、工作选项、记忆授权、`state_revision` 和文字/语音能力状态。
+- `POST /api/v1/GirlAi/companion/turn`：生成结构化虚拟姬伙伴回合，返回助手文本、标准化情绪和对话意图、关怀策略、最多三个文字建议、带持久化 ID 的待确认记忆候选、模型上下文、`conversation_id`、`turn_id`、`state_revision` 和能力降级信息；成功回合同步写入 legacy 与 unified 历史。同一 `turn_id` 的完成请求直接回放，活跃或失败请求返回 `409`，超过租约的 processing 请求可恢复执行。伙伴回合保持纯对话，不创建任务、不调用工具和不触发提醒。
+- `GET /api/v1/GirlAi/companion/state`：返回当前认证用户的伙伴会话、最近完成回合的情绪、意图、关怀策略、文字建议、记忆授权、`state_revision` 和文字/语音能力状态。
+- `POST /api/v1/GirlAi/voice/transcriptions`：接收供应商无关的标准化转写文本、置信度和时长，并使用同一 `turn_id` 进入伙伴回合；当前语音输出返回 `unavailable` 状态并保留文字回复。
 - `GET /api/v1/GirlAi/memories?limit=20&offset=0&status=candidate`：分页返回当前用户的活跃记忆，可按 `candidate`、`confirmed` 或 `rejected` 状态筛选。
 - `POST /api/v1/GirlAi/memories/{memory_id}/confirm`：确认并可修订当前用户的候选记忆，设置 `conversation_only` 或 `companion_allowed` 可见性。
 - `DELETE /api/v1/GirlAi/memories/{memory_id}`：软删除当前用户的记忆并立即撤销后续伙伴上下文检索；跨用户资源统一返回 `404`。

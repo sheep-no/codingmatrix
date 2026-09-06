@@ -19,10 +19,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from app.api.v1.aiGeneratorPptx import (
     _content_slides_for_total,
+    _fit_editorial_text,
     _normalize_approved_outline,
     generate_pptx_file_enhanced,
     PPT_TEMPLATES,
 )
+
+
+def test_editorial_text_fits_long_copy_into_fixed_box():
+    text, size = _fit_editorial_text("这是一段需要在有限空间内自动适配的长文本。" * 8, 2.8, 0.8, 16)
+
+    assert size < 16
+    assert text.endswith("…") or len(text) < 64
 
 
 class TestTemplateMapping:
@@ -462,6 +470,35 @@ class TestUnifiedGeneration:
 
         assert normalized["slides"][0]["content_blocks"][0]["metadata"]["roi"] == "≥3.0"
         assert normalized["slides"][0]["key_message"] == "两周内验证"
+
+    def test_normalization_repairs_repeated_commercial_roles(self):
+        outline = {
+            "title": "重复角色修复",
+            "slides": [
+                {
+                    "title": f"页面 {index}",
+                    "slide_type": "key_points",
+                    "narrative_role": "opportunity_map",
+                    "content": ["内容"],
+                }
+                for index in range(1, 5)
+            ],
+        }
+
+        normalized = _normalize_approved_outline(outline)
+
+        assert [slide["narrative_role"] for slide in normalized["slides"]] == [
+            "opportunity_map",
+            "evidence_story",
+            "strategic_choice",
+            "execution_roadmap",
+        ]
+        assert [slide["slide_type"] for slide in normalized["slides"]] == [
+            "key_points",
+            "data",
+            "comparison",
+            "timeline",
+        ]
 
     @pytest.mark.asyncio
     async def test_renderer_displays_commercial_metadata(self):

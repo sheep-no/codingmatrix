@@ -11,6 +11,7 @@ from app.services.girlai_companion_classifier import (
     normalize_intent,
     parse_classification_response,
 )
+from app.services.girlai_companion_service import parse_companion_turn
 
 
 def test_standardizes_labels_and_preserves_low_confidence():
@@ -111,6 +112,38 @@ async def test_classifier_failure_keeps_neutral_state():
     ]
 
 
+@pytest.mark.asyncio
+async def test_classifier_failure_modes_keep_text_mainline_available():
+    failure_cases = ("model_selection", "provider_calls")
+    for failure_case in failure_cases:
+        model_service = AsyncMock()
+        if failure_case == "model_selection":
+            model_service.select_models.side_effect = RuntimeError("router unavailable")
+            caller = AsyncMock()
+        else:
+            model_service.select_models.return_value = {
+                "classification": "primary-model",
+                "fallback": "fallback-model",
+            }
+            caller = AsyncMock(side_effect=RuntimeError("provider unavailable"))
+
+        result = await classify_companion_input(
+            "继续处理当前工作",
+            model_service=model_service,
+            llm_caller=caller,
+        )
+        turn = CompanionTurn(assistant_text="文字主链路仍然可用。")
+        updated = apply_companion_policy(turn, result)
+
+        assert updated.assistant_text == "文字主链路仍然可用。"
+        assert updated.emotion.label == "neutral"
+        assert updated.intent.label == "unknown"
+        assert updated.response_style == "neutral"
+        assert set(("emotion_classification", "intent_classification")).issubset(
+            updated.degraded_capabilities
+        )
+
+
 def test_care_policy_keeps_text_and_adds_work_options():
     turn = CompanionTurn(
         assistant_text="我来陪你处理。",
@@ -132,3 +165,40 @@ def test_care_policy_keeps_text_and_adds_work_options():
     assert "你可以选择" in updated.assistant_text
     assert updated.model_context.classification_model == "classifier"
     assert updated.degraded_capabilities == ["structured_output"]
+
+
+@pytest.mark.parametrize(
+    "provider_content",
+    [
+        "继续处理当前工作。",
+        '{"assistant_text":"先整理最小步骤。","intent":{"label":"task_planning"}}',
+        "```json\n{\"assistant_text\":\"我会陪你继续。\"}\n```",
+    ],
+)
+@pytest.mark.parametrize(
+    "initial_degraded",
+    [[], ["structured_output"], ["memory_retrieval"]],
+)
+def test_classifier_failure_preserves_text_across_turn_shapes(
+    provider_content, initial_degraded
+):
+    turn = parse_companion_turn(
+        {"choices": [{"message": {"content": provider_content}}]},
+        character_name="虚拟姬",
+        model="conversation-model",
+    )
+    turn.degraded_capabilities = list(initial_degraded)
+    result = ClassificationResult(
+        degraded_capabilities=["emotion_classification", "intent_classification"],
+        parse_failed=True,
+    )
+
+    updated = apply_companion_policy(turn, result)
+
+    assert updated.assistant_text.strip()
+    assert updated.emotion.label == "neutral"
+    assert updated.intent.label == "unknown"
+    assert updated.response_style == "neutral"
+    assert updated.work_options
+    assert "emotion_classification" in updated.degraded_capabilities
+    assert "intent_classification" in updated.degraded_capabilities
