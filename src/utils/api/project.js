@@ -184,6 +184,30 @@ export function createProjectClient(baseClient) {
       }
     },
 
+    async uploadProjectZip(file, projectName = '') {
+      const formData = new FormData()
+      formData.append('file', file)
+      const query = projectName ? `?project_name=${encodeURIComponent(projectName)}` : ''
+      const response = await client.request(`/agent/projects/upload-zip${query}`, {
+        method: 'POST',
+        body: formData
+      })
+      if (!response.ok) throw new Error(`上传项目失败 (${response.status})`)
+      return response.json()
+    },
+
+    async listUploadedProjects() {
+      const response = await client.get('/agent/projects/user-uploads')
+      if (!response.ok) throw new Error(`获取上传项目失败 (${response.status})`)
+      return response.json()
+    },
+
+    async deleteUploadedProject(projectName) {
+      const response = await client.delete(`/agent/projects/user-uploads/${encodeURIComponent(projectName)}`)
+      if (!response.ok) throw new Error(`删除上传项目失败 (${response.status})`)
+      return response.json()
+    },
+
     async evaluateRequirement(requirement, api_key_token) {
       const response = await client.post('/agent/evaluate', {
         requirement: requirement,

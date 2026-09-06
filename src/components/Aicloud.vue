@@ -98,9 +98,7 @@
             @keydown.enter.ctrl="sendMessage"
           ></textarea>
           <div class="input-actions">
-            <Button variant="secondary" size="sm" @click="toggleReview">
-              {{ reviewEnabled ? '关闭人工审查' : '开启人工审查' }}
-            </Button>
+            <span class="review-policy-hint">人工审查由服务端策略控制</span>
             <Button variant="ghost" size="sm" @click="newSession"> 新会话 </Button>
             <Button
               variant="primary"
@@ -644,21 +642,6 @@
       }
     } catch (error) {
       console.error('检查待审查项失败:', error)
-    }
-  }
-
-  const toggleReview = async () => {
-    const newState = !reviewEnabled.value
-    try {
-      const result = await api.toggleReview(newState)
-      if (result.success || result.enabled !== undefined) {
-        reviewEnabled.value = result.enabled ?? newState
-      } else {
-        reviewEnabled.value = newState
-      }
-    } catch (error) {
-      // API 调用失败时仍更新本地状态
-      reviewEnabled.value = newState
     }
   }
 
