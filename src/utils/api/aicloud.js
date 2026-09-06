@@ -194,14 +194,10 @@ export function createAiCloudClient(client) {
         formData.append(key, metadata[key])
       })
 
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE || '/api/v1'}/aicloud/knowledge/upload`,
-        {
-          method: 'POST',
-          body: formData,
-          credentials: 'include'
-        }
-      )
+      const response = await client.request('/aicloud/knowledge/upload', {
+        method: 'POST',
+        body: formData
+      })
       if (response.ok) {
         return await response.json()
       }

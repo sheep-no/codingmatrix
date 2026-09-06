@@ -37,6 +37,7 @@ import { createFileClient } from './file'
 import { createTaskClient } from './task'
 import { createPptClient } from './ppt'
 import { createKolorsClient } from './kolors'
+import { createVisionClient } from './vision'
 import { createAiCloudClient } from './aicloud'
 import { createAdminClient } from './admin'
 import { createGithubClient } from './github'
@@ -57,6 +58,7 @@ export {
   createTaskClient,
   createPptClient,
   createKolorsClient,
+  createVisionClient,
   createAiCloudClient,
   createAdminClient,
   createGithubClient,
@@ -82,6 +84,7 @@ function createDefaultClient(store) {
     ...createTaskClient(baseClient),
     ppt: createPptClient(baseClient),
     ...createKolorsClient(baseClient),
+    ...createVisionClient(baseClient),
     ...createAiCloudClient(baseClient),
     ...createAdminClient(baseClient),
     ...createGithubClient(baseClient),

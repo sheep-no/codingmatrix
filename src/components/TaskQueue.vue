@@ -169,7 +169,8 @@
   const loadTasks = async () => {
     loading.value = true
     try {
-      const data = await api.request('/tasks?status=&page=1&page_size=50', { method: 'GET' })
+      const response = await api.request('/tasks?status=&page=1&page_size=50', { method: 'GET' })
+      const data = response.ok ? await response.json() : { tasks: [] }
       if (data && data.tasks) {
         tasks.value = data.tasks
       }
@@ -202,8 +203,12 @@
   // 重试任务
   const retryTask = async taskId => {
     try {
-      // 需要实现重试 API 调用
-      await loadTasks()
+      const result = await api.retryTask(taskId)
+      if (result?.success !== false) {
+        await loadTasks()
+      } else {
+        throw new Error('服务器拒绝重试任务')
+      }
     } catch (error) {
       console.error('重试任务失败:', error)
     }

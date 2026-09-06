@@ -37,6 +37,7 @@ export function createTaskClient(client) {
       try {
         const response = await client.delete(`/tasks/${taskId}`)
         if (response.ok) {
+          if (response.status === 204) return true
           return await response.json()
         }
         return { success: false }

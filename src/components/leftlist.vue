@@ -207,29 +207,6 @@
         <span>AI 绘画</span>
       </div>
       <div
-        v-if="userStore.isAdmin"
-        role="menuitem"
-        tabindex="0"
-        class="toolkit-item"
-        @click.stop="useTool('aicloud')"
-        @keydown.enter="useTool('aicloud')"
-        @keydown.space.prevent="useTool('aicloud')"
-      >
-        <svg
-          class="tool-icon-svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
-          <path d="M2 17l10 5 10-5"></path>
-          <path d="M2 12l10 5 10-5"></path>
-        </svg>
-        <span>AI 云助手</span>
-      </div>
-      <div
         role="menuitem"
         tabindex="0"
         class="toolkit-item"
@@ -272,6 +249,20 @@
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
         </svg>
         <span>临时工作流</span>
+      </div>
+      <div
+        role="menuitem"
+        tabindex="0"
+        class="toolkit-item"
+        @click.stop="openCapabilities"
+        @keydown.enter="openCapabilities"
+        @keydown.space.prevent="openCapabilities"
+      >
+        <svg class="tool-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.4 1.4-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-2v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L9 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H7v-2h.8a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L9 9l1.4-1.4.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6v-.2h2v.2a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 9l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v2H21a1.7 1.7 0 0 0-1.6 1z"></path>
+        </svg>
+        <span>能力中心</span>
       </div>
       <div
         role="menuitem"
@@ -513,6 +504,15 @@
   const openWorkflow = () => {
     showToolkitMenu.value = false
     window.open('/workflow', '_blank')
+  }
+
+  const openCapabilities = () => {
+    showToolkitMenu.value = false
+    if (!userStore.isLoggedIn) {
+      showLoginDialog.value = true
+      return
+    }
+    window.open('/capabilities', '_blank')
   }
 
   const navigateToAdmin = () => {

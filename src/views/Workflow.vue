@@ -14,6 +14,8 @@
         <span>AI 工作流编排</span>
       </div>
       <div class="header-actions">
+        <input ref="importInput" type="file" accept=".json" hidden @change="importWorkflow" />
+        <button class="export-btn" @click="importInput?.click()">导入</button>
         <button class="export-btn" :disabled="!workflowNodes.length" @click="exportWorkflow">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -61,6 +63,12 @@
             <p class="node-desc">{{ node.description }}</p>
           </div>
         </div>
+        <div v-if="history.length" class="history-list">
+          <h4>最近工作流</h4>
+          <button v-for="item in history" :key="item.workflow_id" class="history-item" @click="loadHistory(item.workflow_id)">
+            {{ item.workflow_id }} · {{ item.status }}
+          </button>
+        </div>
       </aside>
 
       <main class="preview-panel">
@@ -91,17 +99,19 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useUserStore } from '@/stores/user'
+import { api } from '@/utils/api/index'
 
 const router = useRouter()
-const userStore = useUserStore()
 const prompt = ref('')
 const executing = ref(false)
 const workflowNodes = ref([])
 const sessionId = ref(null)
+const workflowId = ref(null)
+const history = ref([])
+const importInput = ref(null)
 
 const canExecute = computed(() => prompt.value.trim().length > 0)
 
@@ -115,27 +125,12 @@ async function handleExecute() {
   workflowNodes.value = []
 
   try {
-    const token = userStore.getAccessToken() || localStorage.getItem('access_token')
-    const res = await fetch('/api/v1/workflow/execute', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token ? `Bearer ${token}` : ''
-      },
-      body: JSON.stringify({
-        natural_language_request: prompt.value.trim(),
-        export_workflow: true,
-        session_id: sessionId.value || undefined
-      })
-    })
-
-    if (!res.ok) {
-      throw new Error(`执行失败 (${res.status})`)
-    }
-
+    const res = await api.executeWorkflow(prompt.value.trim(), sessionId.value)
+    if (!res.ok) throw new Error(`执行失败 (${res.status})`)
     const data = await res.json()
     workflowNodes.value = data.workflow_nodes || []
     if (data.session_id) sessionId.value = data.session_id
+    if (data.workflow_id) workflowId.value = data.workflow_id
   } catch (e) {
     console.error('工作流执行失败:', e)
     ElMessage.error('执行失败: ' + e.message)
@@ -144,18 +139,50 @@ async function handleExecute() {
   }
 }
 
-function exportWorkflow() {
+async function exportWorkflow() {
+  if (workflowId.value) {
+    const data = await api.exportWorkflow(workflowId.value)
+    downloadJson(data.export_data, `workflow_${workflowId.value}.json`)
+    return
+  }
+  downloadJson(workflowNodes.value, 'workflow.json')
+}
+
+function downloadJson(data, filename) {
   const blob = new Blob(
-    [JSON.stringify(workflowNodes.value, null, 2)],
+    [JSON.stringify(data, null, 2)],
     { type: 'application/json' }
   )
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'workflow.json'
+  a.download = filename
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 100)
 }
+
+async function importWorkflow(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  try {
+    const data = JSON.parse(await file.text())
+    const imported = await api.importWorkflow(data)
+    workflowId.value = imported.workflow_id
+    workflowNodes.value = data.nodes || []
+    ElMessage.success('工作流导入成功')
+  } catch (error) { ElMessage.error(`导入失败: ${error.message}`) }
+  event.target.value = ''
+}
+
+async function loadHistory(workflowIdValue) {
+  const item = await api.getWorkflowHistoryDetail(workflowIdValue)
+  workflowId.value = workflowIdValue
+  workflowNodes.value = item.task_graph?.nodes || []
+}
+
+onMounted(async () => {
+  try { history.value = (await api.listWorkflowHistory()).items || [] } catch { history.value = [] }
+})
 </script>
 
 <style scoped>

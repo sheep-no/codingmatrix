@@ -83,7 +83,40 @@ npm --prefix vscode-extension test
 
 # 在真实 VS Code Extension Host 中运行插件 E2E
 npm --prefix vscode-extension run e2e
+
+# 检查 Flutter 桌面客户端
+cd /workspace/flutter_client
+FLUTTER_ALLOW_ROOT=1 flutter analyze
+FLUTTER_ALLOW_ROOT=1 flutter test
 ```
+
+### Flutter 桌面客户端
+
+Flutter SDK 使用 3.35.7 stable。当前环境从 `/tmp/opencode/flutter` 执行 Flutter 命令，并在 `/workspace/flutter_client` 内运行客户端检查：
+
+```bash
+# 安装 Flutter 依赖
+FLUTTER_ALLOW_ROOT=1 PATH=/tmp/opencode/flutter/bin:$PATH flutter pub get
+
+# 检查 Dart 静态分析
+FLUTTER_ALLOW_ROOT=1 PATH=/tmp/opencode/flutter/bin:$PATH flutter analyze
+
+# 运行 Flutter 单元和 Widget 测试
+FLUTTER_ALLOW_ROOT=1 PATH=/tmp/opencode/flutter/bin:$PATH flutter test
+
+# 构建 Linux 桌面调试包
+# 需要系统已安装 CMake 和 Linux desktop toolchain
+FLUTTER_ALLOW_ROOT=1 PATH=/tmp/opencode/flutter/bin:$PATH flutter build linux --debug
+
+# 在无图形显示环境中检查应用启动
+xvfb-run -a -s '-screen 0 1440x900x24 -nolisten tcp' timeout 15s ./build/linux/x64/debug/bundle/flutter_client
+
+# 构建 Android 调试 APK
+# 需要 Android SDK、Platform Tools 和可用的 Android SDK license
+FLUTTER_ALLOW_ROOT=1 PATH=/tmp/opencode/flutter/bin:$PATH flutter build apk --debug
+```
+
+认证基础层使用 `CloudAuthClient` 调用 `/api/v1/auth/csrf-token` 和 `/api/v1/auth/login`。访问令牌只进入 `CredentialStore`，领域层使用 `AuthSession.accessTokenRef`；统一领域模型位于 `lib/domain/models/unified_models.dart`，字段兼容后端 `*_json` 契约。Windows Credential Manager 的真实平台接入仍需 Windows runner 验证。
 
 ### 图表编辑器验证
 
