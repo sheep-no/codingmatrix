@@ -320,6 +320,7 @@
   const VIRTUAL_SCROLL_BUFFER = 5
   const VIRTUAL_SCROLL_THRESHOLD = 50
   const measuredMessageHeights = new Map()
+  let conversationRevision = 0
   const measurementRevision = ref(0)
 
   const visibleStartIndex = ref(0)
@@ -372,11 +373,18 @@
     visibleEndIndex.value = end
   }
 
-  const handleMessageResize = ({ key, height }) => {
+  const handleMessageResize = async ({ key, height }) => {
+    const revision = conversationRevision
+    const container = messagesContainer.value
+    const scrollTop = container?.scrollTop
     const previousHeight = measuredMessageHeights.get(key)
     if (previousHeight !== undefined && Math.abs(previousHeight - height) < 0.5) return
     measuredMessageHeights.set(key, height)
     measurementRevision.value++
+    const keepBottom = shouldAutoScroll.value && !isUserScrolling.value
+    await nextTick()
+    if (revision !== conversationRevision || container !== messagesContainer.value) return
+    if (keepBottom && shouldAutoScroll.value && !isUserScrolling.value && container?.scrollTop === scrollTop) scrollToBottom()
     updateVisibleRange()
   }
 
@@ -595,21 +603,25 @@
     }
   )
 
-  // 切换会话时重置窗口，避免复用上一段长会话的索引和实测高度。
   watch(
     [() => props.conversationId, isHistoryLoaded],
     async ([, loaded], [, oldLoaded] = []) => {
-      measuredMessageHeights.clear()
-      measurementRevision.value++
-      visibleStartIndex.value = 0
-      visibleEndIndex.value = VIRTUAL_SCROLL_THRESHOLD
-
+      const revision = conversationRevision
       if (loaded && !oldLoaded && props.conversationHistory.length > 0 && shouldAutoScroll.value) {
         await nextTick()
-        scrollToBottom()
+        if (revision === conversationRevision && shouldAutoScroll.value && !isUserScrolling.value) scrollToBottom()
       }
     }
   )
+
+  // 实测高度只在切换会话时失效，loaded 变化保留当前窗口。
+  watch(() => props.conversationId, () => {
+    conversationRevision++
+    measuredMessageHeights.clear()
+    measurementRevision.value++
+    visibleStartIndex.value = 0
+    visibleEndIndex.value = VIRTUAL_SCROLL_THRESHOLD
+  }, { flush: 'sync' })
 
   const streamContentSignature = computed(() => {
     const lastMessage = props.conversationHistory.at(-1)
@@ -695,12 +707,24 @@
 
     const container = messagesContainer.value
     const scrollTop = container.scrollTop
-    const scrollHeight = container.scrollHeight
-    const clientHeight = container.clientHeight
 
     updateVisibleRange()
 
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 50
+    if (scrollTop === 0 && props.hasMoreHistory) {
+      const scrollState = saveScrollState()
+      await loadMoreHistory()
+
+      setTimeout(async () => {
+        await restoreScrollPosition(scrollState)
+      }, 100)
+    }
+  }
+
+  // 滚动意图立即更新，窗口计算合并到下一帧。
+  const handleScroll = () => {
+    const container = messagesContainer.value
+    if (!container) return
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50
 
     if (!isNearBottom && shouldAutoScroll.value) {
       isUserScrolling.value = true
@@ -718,18 +742,6 @@
       isUserScrolling.value = false
     }
 
-    if (scrollTop === 0 && props.hasMoreHistory) {
-      const scrollState = saveScrollState()
-      await loadMoreHistory()
-
-      setTimeout(async () => {
-        await restoreScrollPosition(scrollState)
-      }, 100)
-    }
-  }
-
-  // 原生 scroll 可能一帧触发多次，窗口和布局读取统一合并到下一帧。
-  const handleScroll = () => {
     if (scrollFrame !== null) return
     scrollFrame = requestAnimationFrame(async () => {
       scrollFrame = null
@@ -1013,6 +1025,7 @@
   })
 
   onUnmounted(() => {
+    conversationRevision++
     if (autoSaveTimer) clearTimeout(autoSaveTimer)
     if (copyButtonsTimer) clearTimeout(copyButtonsTimer)
     if (userScrollTimer) clearTimeout(userScrollTimer)
@@ -2217,7 +2230,7 @@
 
     .messages-container {
       padding: 16px;
-      gap: 18px;
+      gap: 0;
     }
 
     .message-user {
