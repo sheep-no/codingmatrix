@@ -66,4 +66,40 @@ void main() {
     expect(find.textContaining('sess-1'), findsOneWidget);
     expect(find.textContaining('log:'), findsOneWidget);
   });
+
+  testWidgets('compact workbench handles short windows and long usernames', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(520, 360);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith((ref) {
+            return AuthController(
+              CloudAuthClient(
+                baseUrl: 'http://127.0.0.1:8080',
+                httpClient: MockClient((_) async => http.Response('', 500)),
+                credentialStore: CredentialStore(),
+              ),
+              CredentialStore(),
+              session: const AuthSession(
+                username: 'a-very-long-windows-desktop-username@example.com',
+                permissionLevel: 'admin',
+                accessTokenRef: 'token-1',
+              ),
+            );
+          }),
+        ],
+        child: const CodingMatrixApp(),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('任务概览'), findsOneWidget);
+    expect(find.text('实时事件'), findsOneWidget);
+  });
 }

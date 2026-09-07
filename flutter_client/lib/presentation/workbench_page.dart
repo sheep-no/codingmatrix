@@ -24,7 +24,17 @@ class WorkbenchPage extends ConsumerWidget {
             Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(session.username, overflow: TextOverflow.ellipsis),
+                child: Tooltip(
+                  message: session.username,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 160),
+                    child: Text(
+                      session.username,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
               ),
             ),
           TextButton(
@@ -41,29 +51,41 @@ class WorkbenchPage extends ConsumerWidget {
             final compact = constraints.maxWidth < 720;
             final overview = _OverviewCard(workbench: workbench, task: task);
             final events = _EventsCard(events: workbench.events);
+            final heading = Text(
+              workbench.agent?.name ?? 'CodingMatrix Agent',
+              style: Theme.of(context).textTheme.headlineSmall,
+            );
+
+            if (compact) {
+              return SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    heading,
+                    const SizedBox(height: 16),
+                    overview,
+                    const SizedBox(height: 16),
+                    SizedBox(height: 320, child: events),
+                  ],
+                ),
+              );
+            }
+
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  workbench.agent?.name ?? 'CodingMatrix Agent',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
+                heading,
                 const SizedBox(height: 16),
-                if (compact) ...[
-                  overview,
-                  const SizedBox(height: 16),
-                  Expanded(child: events),
-                ] else
-                  Expanded(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(width: 300, child: overview),
-                        const SizedBox(width: 16),
-                        Expanded(child: events),
-                      ],
-                    ),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(width: 300, child: overview),
+                      const SizedBox(width: 16),
+                      Expanded(child: events),
+                    ],
                   ),
+                ),
               ],
             );
           },
