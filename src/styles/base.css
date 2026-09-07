@@ -31,6 +31,43 @@ body {
   overflow-x: hidden;
 }
 
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+[role='button'] {
+  min-width: var(--control-min-size);
+  min-height: var(--control-min-size);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--control-border-focus) 45%, transparent);
+  outline-offset: 2px;
+}
+
+button {
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* ========================================
    通用工具类
    ======================================== */

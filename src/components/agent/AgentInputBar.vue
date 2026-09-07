@@ -32,6 +32,8 @@
         <button
           v-if="!generating"
           class="btn-send"
+          type="button"
+          aria-label="发送需求"
           :disabled="!prompt.trim()"
           @click="$emit('generate')"
         >
@@ -40,6 +42,8 @@
         <button
           v-else
           class="btn-stop"
+          type="button"
+          aria-label="停止生成"
           @click="$emit('stop')"
         >
           <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
@@ -47,8 +51,8 @@
       </div>
     </div>
     <div class="input-hint">
-      <span v-if="!generating">Ctrl+Enter 发送 | Esc 停止</span>
-      <span v-else class="generating-hint">生成中...</span>
+      <span v-if="!generating">Ctrl+Enter 发送，Esc 停止</span>
+      <span v-else class="generating-hint">正在生成...</span>
       <div v-if="hasFiles" class="input-actions">
         <button class="action-btn" @click="$emit('regenerate')">重新生成</button>
         <button class="action-btn" @click="$emit('clear')">清空</button>
@@ -116,8 +120,8 @@ watch(() => props.prompt, () => autoResize())
 <style scoped>
 .agent-input-bar {
   padding: 12px 16px;
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border-color);
+  background: var(--surface-app);
+  border-top: 1px solid var(--control-border);
 }
 .input-row {
   display: flex;
@@ -129,16 +133,16 @@ watch(() => props.prompt, () => autoResize())
 }
 .model-select {
   padding: 8px 10px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
   font-size: 12px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  background: var(--surface-subtle);
+  color: var(--content-primary);
   cursor: pointer;
   outline: none;
   transition: border-color 0.15s;
 }
-.model-select:focus { border-color: var(--primary); }
+.model-select:focus { border-color: var(--control-border-focus); }
 .input-center {
   flex: 1;
   min-width: 0;
@@ -146,20 +150,20 @@ watch(() => props.prompt, () => autoResize())
 .prompt-textarea {
   width: 100%;
   padding: 10px 14px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--control-border);
   border-radius: 12px;
   font-size: 14px;
   line-height: 1.5;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  background: var(--surface-subtle);
+  color: var(--content-primary);
   resize: none;
   outline: none;
   transition: border-color 0.15s;
   min-height: 42px;
   max-height: 120px;
 }
-.prompt-textarea:focus { border-color: var(--primary); }
-.prompt-textarea::placeholder { color: var(--text-tertiary); }
+.prompt-textarea:focus { border-color: var(--control-border-focus); }
+.prompt-textarea::placeholder { color: var(--content-muted); }
 .input-right {
   flex-shrink: 0;
 }
@@ -172,19 +176,19 @@ watch(() => props.prompt, () => autoResize())
   border: none;
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--motion-fast);
 }
 .btn-send {
-  background: var(--primary);
+  background: var(--accent-primary);
   color: white;
 }
-.btn-send:hover:not(:disabled) { background: var(--primary-hover); }
+.btn-send:hover:not(:disabled) { background: var(--accent-primary-hover); }
 .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-stop {
-  background: var(--danger);
+  background: var(--status-danger);
   color: white;
 }
-.btn-stop:hover { background: var(--danger-hover); }
+.btn-stop:hover { background: color-mix(in srgb, var(--status-danger) 85%, black); }
 .input-hint {
   display: flex;
   justify-content: space-between;
@@ -194,20 +198,20 @@ watch(() => props.prompt, () => autoResize())
   font-size: 11px;
   color: var(--text-tertiary);
 }
-.generating-hint { color: var(--primary); }
+.generating-hint { color: var(--accent-primary); }
 .input-actions {
   display: flex;
   gap: 8px;
 }
 .action-btn {
   padding: 2px 8px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--control-border);
   border-radius: 6px;
   font-size: 11px;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--content-secondary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--motion-fast);
 }
-.action-btn:hover { background: var(--bg-secondary); border-color: var(--primary); color: var(--primary); }
+.action-btn:hover { background: var(--surface-subtle); border-color: var(--control-border-focus); color: var(--accent-primary); }
 </style>

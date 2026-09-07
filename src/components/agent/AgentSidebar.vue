@@ -1,5 +1,7 @@
 <template>
   <div class="agent-sidebar">
+    <WorkbenchNav class="agent-primary-navigation" />
+
     <!-- 会话历史 -->
     <div class="sidebar-section">
       <div class="section-header">
@@ -104,6 +106,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import WorkbenchNav from '@/components/WorkbenchNav.vue'
 
 const props = defineProps({
   sessionId: { type: String, default: '' },
@@ -177,6 +180,10 @@ function getFileName(filePath) {
   height: 100%;
   overflow: hidden;
 }
+.agent-primary-navigation {
+  margin: var(--spacing-3);
+  flex: 0 0 auto;
+}
 .sidebar-section {
   display: flex;
   flex-direction: column;
@@ -202,8 +209,8 @@ function getFileName(filePath) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: var(--control-min-size);
+  height: var(--control-min-size);
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -211,11 +218,11 @@ function getFileName(filePath) {
   cursor: pointer;
   transition: all 0.15s;
 }
-.section-btn:hover { background: var(--bg-secondary); color: var(--primary); }
+.section-btn:hover { background: var(--surface-subtle); color: var(--accent-primary); }
 .file-count {
   font-size: 11px;
-  color: var(--text-tertiary);
-  background: var(--bg-secondary);
+  color: var(--content-muted);
+  background: var(--surface-subtle);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -237,7 +244,7 @@ function getFileName(filePath) {
   transition: background 0.15s;
   gap: 8px;
 }
-.session-item:hover { background: var(--bg-secondary); }
+.session-item:hover { background: var(--surface-subtle); }
 .session-item:focus-visible,
 .category-header:focus-visible,
 .file-item:focus-visible,
@@ -273,8 +280,8 @@ function getFileName(filePath) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: var(--control-min-size);
+  height: var(--control-min-size);
   border: none;
   background: transparent;
   color: var(--text-tertiary);
@@ -333,7 +340,7 @@ function getFileName(filePath) {
   text-align: left;
   cursor: pointer;
 }
-.category-header:hover { background: var(--bg-secondary); }
+.category-header:hover { background: var(--surface-subtle); }
 .category-icon { font-size: 12px; }
 .category-name { flex: 1; }
 .category-count { font-size: 11px; color: var(--text-tertiary); }
@@ -352,7 +359,7 @@ function getFileName(filePath) {
   background: transparent;
   text-align: left;
 }
-.file-item:hover { background: var(--bg-secondary); }
+.file-item:hover { background: var(--surface-subtle); }
 .file-item.selected { background: color-mix(in srgb, var(--primary), transparent 90%); color: var(--primary); }
 .file-icon { font-size: 12px; }
 .file-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

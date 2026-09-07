@@ -1,17 +1,45 @@
   <template>
     <div class="main-layout">
+      <div class="mobile-home-toolbar">
+        <button
+          ref="homeMenuTrigger"
+          class="mobile-home-menu"
+          type="button"
+          aria-label="打开主导航"
+          @click="openHomeDrawer"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
+            <line x1="4" y1="6" x2="20" y2="6" />
+            <line x1="4" y1="12" x2="20" y2="12" />
+            <line x1="4" y1="18" x2="20" y2="18" />
+          </svg>
+          <span>导航</span>
+        </button>
+        <span class="mobile-home-title">CodingMatrix</span>
+      </div>
+
       <ErrorBoundary component-name="左侧边栏">
         <Leftlist
           ref="leftlistRef"
-          :class="{ 'sidebar-visible': true }"
-          role="navigation"
+          :class="{ 'sidebar-visible': true, 'mobile-home-drawer-open': homeDrawerOpen }"
           aria-label="主导航"
+          :role="homeDrawerOpen ? 'dialog' : undefined"
+          :aria-modal="homeDrawerOpen ? 'true' : undefined"
+          :tabindex="homeDrawerOpen ? -1 : undefined"
           @select-history="handleSelectHistory"
           @delete-history="handleDeleteHistory"
           @new-conversation="handleNewConversation"
           @use-tool="handleUseTool"
         />
       </ErrorBoundary>
+
+      <button
+        v-if="homeDrawerOpen"
+        class="mobile-home-scrim"
+        type="button"
+        aria-label="关闭主导航"
+        @click="closeHomeDrawer"
+      ></button>
 
       <!-- 主内容区 -->
       <main class="main-content" role="main">
@@ -51,6 +79,7 @@
 
       <!-- 消息编辑器 -->
       <MessageEditor
+        v-if="showMessageEditor"
         :message="editMessage"
         :visible="showMessageEditor"
         @save="handleSaveEdit"
@@ -116,6 +145,7 @@
 
       <!-- 快捷键帮助弹窗 -->
       <KeyboardShortcutsHelp
+        v-if="showShortcutsHelp"
         :visible="showShortcutsHelp"
         @close="showShortcutsHelp = false"
       />
@@ -128,12 +158,11 @@
   import CenterContent from './centerContent.vue'
   import Leftlist from './leftlist.vue'
   import ErrorBoundary from './ErrorBoundary.vue'
-  import MessageEditor from './MessageEditor.vue'
-  import KeyboardShortcutsHelp from './KeyboardShortcutsHelp.vue'
   import { useRouter } from 'vue-router'
   import { api } from '@/utils/api/index'
   import { streamManager } from '@/utils/streamManager'
   import { consumeJsonStream } from '@/utils/streamParser'
+  import { createStreamUpdateBatcher } from '@/utils/streamUpdateBatcher'
   import { useNavigationStore } from '@/stores/navigation'
   import { useUserStore } from '@/stores/user'
   import { useApiKeyStore } from '@/stores/apikey'
@@ -151,6 +180,8 @@
   const TaskQueue = defineAsyncComponent(() => import('./TaskQueue.vue'))
   const ImageGenerator = defineAsyncComponent(() => import('./ImageGenerator.vue'))
   const Aicloud = defineAsyncComponent(() => import('./Aicloud.vue'))
+  const MessageEditor = defineAsyncComponent(() => import('./MessageEditor.vue'))
+  const KeyboardShortcutsHelp = defineAsyncComponent(() => import('./KeyboardShortcutsHelp.vue'))
 
   const router = useRouter()
   const apiUrl = import.meta.env.VITE_API_BASE || '/api/v1'
@@ -164,6 +195,8 @@
 
   const bottominputRef = ref(null)
   const showShortcutsHelp = ref(false)
+  const homeDrawerOpen = ref(false)
+  const homeMenuTrigger = ref(null)
 
   // 消息编辑状态
   const editMessage = ref('')
@@ -194,6 +227,47 @@
 
   const MAX_CONVERSATION_CACHE = 50
 
+  const openHomeDrawer = async () => {
+    homeDrawerOpen.value = true
+    await nextTick()
+    leftlistRef.value?.$el?.focus()
+  }
+
+  const closeHomeDrawer = async () => {
+    homeDrawerOpen.value = false
+    await nextTick()
+    homeMenuTrigger.value?.focus()
+  }
+
+  const handleHomeDrawerKeydown = event => {
+    if (!homeDrawerOpen.value) return
+    if (event.key === 'Escape') {
+      closeHomeDrawer()
+      return
+    }
+    if (event.key !== 'Tab') return
+
+    const drawer = leftlistRef.value?.$el
+    const focusable = [...(drawer?.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ) || [])]
+    if (focusable.length === 0) {
+      event.preventDefault()
+      drawer?.focus()
+      return
+    }
+
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === drawer)) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
   const saveConversationToMap = (conversationId, customHistory = null) => {
     if (conversationId) {
       const key = String(conversationId)
@@ -210,6 +284,25 @@
       }
     }
   }
+
+  const streamUpdateBatcher = createStreamUpdateBatcher(update => {
+    const history = conversationHistoryMap.value.get(update.conversationId)
+    const message = history?.[update.lastIndex]
+    if (!message) return
+
+    message.response = (message.response || '') + update.responseDelta
+    message.reasoning = (message.reasoning || '') + update.reasoningDelta
+
+    if (String(currentConversationId.value) === String(update.conversationId)) {
+      const visibleMessage = conversationHistory.value[update.lastIndex]
+      if (visibleMessage) {
+        Object.assign(visibleMessage, {
+          response: message.response,
+          reasoning: message.reasoning
+        })
+      }
+    }
+  })
 
   const getConversationFromMap = conversationId => {
     if (conversationId) {
@@ -530,6 +623,8 @@
         { signal: abortController.signal }
       )
 
+      streamUpdateBatcher.flush()
+
       if (currentMessageData.is_project_generator) {
         if (conversationHistory.value[lastMessageIndex]) {
           conversationHistory.value[lastMessageIndex].isStreaming = false
@@ -549,6 +644,7 @@
         }
       }
     } catch (error) {
+      streamUpdateBatcher.flush()
       console.error('发送消息失败:', error)
 
       const streamHistory = conversationHistoryMap.value.get(streamConversationId)
@@ -769,8 +865,6 @@
     }
   }
 
-  let _streamChunkCount = 0
-
   const handleChatStream = (data, streamConversationId, lastIndex, messageData) => {
     const streamHistory = conversationHistoryMap.value.get(streamConversationId)
     if (!streamHistory) {
@@ -782,6 +876,7 @@
 
     // 后端错误
     if (data.error) {
+      streamUpdateBatcher.flush()
       if (history[lastIndex]) {
         history[lastIndex].response = (history[lastIndex].response || '') + `\n\n[ERROR] ${data.error}`
         Object.assign(history[lastIndex], { response: history[lastIndex].response })
@@ -841,36 +936,13 @@
 
     if (data.choices && data.choices[0] && history[lastIndex]) {
       const delta = data.choices[0].delta
-
-      const currentResponse = history[lastIndex].response || ''
-      const currentReasoning = history[lastIndex].reasoning || ''
-
-      if (delta.reasoning_content) {
-        history[lastIndex].reasoning = currentReasoning + delta.reasoning_content
-      } else if (delta.content) {
-        history[lastIndex].response = currentResponse + delta.content
-      }
-
-      Object.assign(history[lastIndex], {
-        reasoning: history[lastIndex].reasoning,
-        response: history[lastIndex].response
+      streamUpdateBatcher.enqueue({
+        key: `${streamConversationId}:${lastIndex}`,
+        conversationId: streamConversationId,
+        lastIndex,
+        reasoningDelta: delta.reasoning_content || '',
+        responseDelta: delta.reasoning_content ? '' : delta.content || ''
       })
-
-      // 节流：每 20 个 chunk 才 deep clone 一次，避免长对话卡顿
-      _streamChunkCount++
-      if (_streamChunkCount % 20 === 0) {
-        saveConversationToMap(streamConversationId, history)
-        _streamChunkCount = 0
-      }
-
-      if (String(currentConversationId.value) === String(streamConversationId)) {
-        if (conversationHistory.value[lastIndex]) {
-          Object.assign(conversationHistory.value[lastIndex], {
-            reasoning: history[lastIndex].reasoning,
-            response: history[lastIndex].response
-          })
-        }
-      }
     }
   }
 
@@ -1078,6 +1150,8 @@
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     _cleanupFns.push(() => window.removeEventListener('beforeunload', onBeforeUnload))
+    window.addEventListener('keydown', handleHomeDrawerKeydown)
+    _cleanupFns.push(() => window.removeEventListener('keydown', handleHomeDrawerKeydown))
 
     _cleanupFns.push(register('mod+k', () => {
       nextTick(() => {
@@ -1140,6 +1214,7 @@
     _cleanupFns.forEach(fn => fn())
     _cleanupFns.length = 0
     streamManager.cleanup()
+    streamUpdateBatcher.dispose()
   })
 </script>
 
@@ -1151,6 +1226,11 @@
     height: 100vh;
     background: var(--bg-primary);
     overflow: hidden;
+  }
+
+  .mobile-home-toolbar,
+  .mobile-home-scrim {
+    display: none;
   }
 
   .main-content {
@@ -1165,5 +1245,72 @@
     z-index: 100;
     flex-shrink: 0;
     flex-basis: auto;
+  }
+
+  @media (max-width: 768px) {
+    .main-layout {
+      position: relative;
+      flex-direction: column;
+      height: 100dvh;
+    }
+
+    .mobile-home-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 48px;
+      padding: 4px 12px;
+      border-bottom: 1px solid var(--control-border);
+      background: var(--surface-app);
+      z-index: 90;
+    }
+
+    .mobile-home-menu {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-width: var(--control-min-size);
+      min-height: var(--control-min-size);
+      border: 1px solid var(--control-border);
+      border-radius: var(--radius-md);
+      background: var(--surface-subtle);
+      color: var(--content-primary);
+      cursor: pointer;
+    }
+
+    .mobile-home-title {
+      color: var(--content-primary);
+      font-size: var(--text-lg);
+      font-weight: 600;
+    }
+
+    .main-layout > :deep(#leftlist) {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 120;
+      width: min(86vw, 340px);
+      transform: translateX(-105%);
+      transition: transform var(--motion-base);
+      box-shadow: var(--shadow-xl);
+    }
+
+    .main-layout > :deep(#leftlist.mobile-home-drawer-open) {
+      transform: translateX(0);
+    }
+
+    .mobile-home-scrim {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 110;
+      border: 0;
+      background: rgb(15 23 42 / 44%);
+    }
+
+    .main-content {
+      flex: 1;
+      min-height: 0;
+    }
   }
 </style>

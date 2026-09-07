@@ -13,6 +13,22 @@ const CSRF_SKIP_ENDPOINTS = [
 
 const MAX_REFRESH_RETRIES = 2
 
+export function normalizeApiError(error, fallbackMessage = '请求失败') {
+  if (error?.name === 'AbortError' || error?.code === 'REQUEST_ABORTED') {
+    const normalized = new Error('请求已取消', { cause: error })
+    normalized.name = 'ApiError'
+    normalized.code = 'REQUEST_ABORTED'
+    normalized.isCanceled = true
+    return normalized
+  }
+
+  const normalized = new Error(error?.message || fallbackMessage, { cause: error })
+  normalized.name = 'ApiError'
+  normalized.code = error?.code || 'API_REQUEST_FAILED'
+  normalized.status = error?.status
+  return normalized
+}
+
 function needsCsrfToken(url) {
   return !CSRF_SKIP_ENDPOINTS.some(endpoint => url.includes(endpoint))
 }
@@ -71,6 +87,10 @@ export function createBaseClient(userStore = null) {
 
   const client = {
     state: clientState,
+
+    createAbortController() {
+      return new AbortController()
+    },
 
     async request(url, options = {}, isRetry = false) {
       let token = getValidToken()
@@ -143,7 +163,8 @@ export function createBaseClient(userStore = null) {
       try {
         response = await fetch(fullUrl, fetchOptions)
       } catch (error) {
-        throw new Error('Network request failed', { cause: error })
+        if (error?.name === 'AbortError') throw normalizeApiError(error)
+        throw normalizeApiError(error, '网络请求失败')
       }
 
       if ((response.status === 401 || response.status === 4001) && token && !isRetry) {

@@ -205,17 +205,13 @@
           取消生成
         </button>
 
-        <div v-if="generating && progressState" class="progress-section">
-          <div class="progress-header">
-            <span class="progress-title">生成进度</span>
-            <span class="progress-percentage">{{ Math.round(progressState.progress * 100) }}%</span>
-          </div>
-          <div class="progress-bar">
-            <div class="progress-fill" :style="{ width: `${progressState.progress * 100}%` }"></div>
-          </div>
-          <div class="progress-step">{{ progressState.step }}</div>
-          <div class="progress-message">{{ progressState.message }}</div>
-        </div>
+        <TaskFeedbackPanel
+          :feedback="taskFeedbackState"
+          :connection-status="taskFeedbackConnection"
+          :visible="hasTaskFeedback"
+          :actions="taskFeedbackActions"
+          @action="handleTaskFeedbackAction"
+        />
       </aside>
 
       <main class="preview-panel">
@@ -351,6 +347,8 @@ import { useApiKeyStore } from '@/stores/apikey'
 import { api } from '@/utils/api/index'
 import { ElMessage } from 'element-plus'
 import { useTokenManager } from '@/utils/tokenManager'
+import { useTaskFeedback } from '@/composables/useTaskFeedback'
+import TaskFeedbackPanel from '@/components/TaskFeedbackPanel.vue'
 
 const router = useRouter()
 const apiKeyStore = useApiKeyStore()
@@ -375,6 +373,27 @@ const generating = ref(false)
 const generatedSlides = ref([])
 const generatedFileUrl = ref('')
 const progressState = ref(null)
+const taskFeedback = useTaskFeedback('ppt')
+const taskFeedbackState = taskFeedback.feedback
+const taskFeedbackConnection = taskFeedback.connectionStatus
+const hasTaskFeedback = taskFeedback.hasFeedback
+const taskFeedbackActions = computed(() => {
+  const status = taskFeedbackState.value.status
+  if (status === 'running') return [{ key: 'cancel', label: '取消生成', variant: 'danger' }]
+  if (status === 'failed' || status === 'paused') return [{ key: 'retry', label: '重新生成', variant: 'primary' }]
+  if (status === 'completed') return [{ key: 'preview', label: '在线预览', variant: 'primary' }, { key: 'download', label: '下载 PPTX' }]
+  return []
+})
+
+function handleTaskFeedbackAction(action) {
+  if (action === 'cancel') handleCancel()
+  if (action === 'retry') {
+    if (workflowStep.value === 3) generateApprovedOutline()
+    else handleGenerate()
+  }
+  if (action === 'preview') goToPreview()
+  if (action === 'download') downloadPpt()
+}
 
 // 文件上传相关
 const uploadedFile = ref(null)
@@ -406,6 +425,10 @@ const templates = ref([
 ])
 
 let ws = null
+let reconnectTimer = null
+let reconnectAttempts = 0
+let intentionalSocketClose = false
+const MAX_RECONNECT_ATTEMPTS = 3
 
 async function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob)
@@ -622,42 +645,105 @@ async function deleteHistory(taskId) {
   }
 }
 
+function clearReconnectTimer() {
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+}
+
+function closeWebSocket() {
+  intentionalSocketClose = true
+  clearReconnectTimer()
+  if (ws) {
+    ws.close(1000)
+    ws = null
+  }
+}
+
+function scheduleWebSocketReconnect(taskId) {
+  if (!generating.value || intentionalSocketClose || reconnectTimer !== null) return
+  reconnectAttempts += 1
+  if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+    generating.value = false
+    taskFeedback.markDisconnected('任务连接恢复失败，生成上下文和已接收进度已保留')
+    return
+  }
+
+  taskFeedback.markReconnecting(`连接中断，正在进行第 ${reconnectAttempts} 次恢复`)
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    connectWebSocket(taskId)
+  }, Math.min(4000, 500 * (2 ** (reconnectAttempts - 1))))
+}
+
+function resultFromPptEvent(data) {
+  return data.result ?? data.payload?.result ?? data.payload ?? data.state?.result ?? null
+}
+
+function applyPptResult(rawResult) {
+  if (!rawResult) return
+  try {
+    const resultData = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult
+    if (resultData.slides) generatedSlides.value = resultData.slides
+    if (resultData.ppt_id || resultData.filename) {
+      const pid = resultData.ppt_id || resultData.filename.replace('.pptx', '')
+      currentTaskId.value = pid
+      generatedFileUrl.value = `/api/v1/pptx/download/${pid}`
+    }
+  } catch (error) {
+    console.warn('解析结果数据失败:', error)
+  }
+}
+
 function connectWebSocket(taskId) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const token = getToken()
-  const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/ppt/${taskId}?token=${encodeURIComponent(token || '')}`
+  const params = new URLSearchParams({ token: token || '' })
+  if (taskFeedback.lastSequence.value !== null) {
+    params.set('after_sequence', String(taskFeedback.lastSequence.value))
+  }
+  const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/ppt/${taskId}?${params}`
 
+  intentionalSocketClose = false
   ws = new WebSocket(wsUrl)
+
+  ws.onopen = () => taskFeedback.markConnected()
 
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)
-      if (data.type === 'progress') {
-        progressState.value = { progress: data.progress, step: data.step, message: data.message }
-      } else if (data.type === 'complete' || data.type === 'completed') {
-        progressState.value = { progress: 1, step: 'completed', message: '任务完成' }
+      const updateResult = taskFeedback.update(data)
+      if (updateResult.gap) {
+        ws?.close(4000, 'event sequence gap')
+        return
+      }
+      if (!updateResult.applied) return
+      reconnectAttempts = 0
+      const normalized = taskFeedback.feedback.value
+      progressState.value = {
+        progress: normalized.progress === null ? 0 : normalized.progress / 100,
+        step: normalized.stage,
+        message: data.message ?? data.payload?.message ?? ''
+      }
+
+      if (normalized.status === 'completed') {
+        taskFeedback.complete({ stage: 'PPT 生成完成', progress: 100, nextAction: '预览或下载演示文稿' })
         generating.value = false
-        // 获取结果
-        if (data.result) {
-          try {
-            const resultData = typeof data.result === 'string' ? JSON.parse(data.result) : data.result
-            if (resultData.slides) {
-              generatedSlides.value = resultData.slides
-            }
-            if (resultData.ppt_id || resultData.filename) {
-              const pid = resultData.ppt_id || resultData.filename.replace('.pptx', '')
-              currentTaskId.value = pid
-              generatedFileUrl.value = `/api/v1/pptx/download/${pid}`
-            }
-          } catch (e) {
-            console.warn('解析结果数据失败:', e)
-          }
-        }
+        applyPptResult(resultFromPptEvent(data))
+        closeWebSocket()
         ElMessage.success('PPT 生成完成!')
-      } else if (data.type === 'error') {
-        progressState.value = { progress: progressState.value?.progress || 0, step: 'error', message: data.error || data.message }
+      } else if (normalized.status === 'failed') {
+        taskFeedback.fail(normalized.error || '生成失败', { stage: 'PPT 生成失败', nextAction: '检查内容后重新生成' })
         generating.value = false
+        closeWebSocket()
         ElMessage.error('生成失败: ' + (data.error || data.message || '未知错误'))
+      } else if (normalized.status === 'paused' && ['cancelled', 'canceled', 'stopped'].includes(
+        String(data.status ?? data.step ?? data.payload?.status ?? data.payload?.step ?? '').toLowerCase()
+      )) {
+        taskFeedback.update({ status: 'cancelled', step: 'cancelled', nextAction: '调整内容后重新生成' })
+        generating.value = false
+        closeWebSocket()
       }
     } catch (error) {
       console.error('WebSocket 消息解析失败:', error)
@@ -665,19 +751,11 @@ function connectWebSocket(taskId) {
   }
 
   ws.onerror = () => {
-    ws = null
-    if (generating.value) {
-      ElMessage.warning('连接中断，请刷新页面查看结果')
-      generating.value = false
-    }
+    if (generating.value && !intentionalSocketClose) taskFeedback.markReconnecting('PPT 进度连接中断，正在恢复')
   }
   ws.onclose = (event) => {
     ws = null
-    // 非正常关闭且仍在生成中
-    if (event.code !== 1000 && generating.value) {
-      ElMessage.warning('连接已断开，请刷新页面查看结果')
-      generating.value = false
-    }
+    if (event.code !== 1000 && generating.value && !intentionalSocketClose) scheduleWebSocketReconnect(taskId)
   }
 }
 
@@ -741,6 +819,10 @@ async function generateApprovedOutline() {
   generatedSlides.value = []
   generatedFileUrl.value = ''
   progressState.value = { progress: 0, step: 'starting', message: '正在创建任务...' }
+  reconnectAttempts = 0
+  intentionalSocketClose = false
+  taskFeedback.reset()
+  taskFeedback.start({ status: 'running', step: '正在创建 PPT 任务', progress: 0 })
 
   try {
     let result
@@ -790,11 +872,13 @@ async function generateApprovedOutline() {
       ElMessage.success('任务已创建，正在生成中...')
     } else {
       ElMessage.error('创建 PPT 任务失败，请稍后重试')
+      taskFeedback.fail('创建 PPT 任务失败，请稍后重试', { stage: '任务创建失败', nextAction: '检查内容后重新生成' })
       generating.value = false
     }
   } catch (e) {
     console.error('PPT 生成失败:', e)
     ElMessage.error('生成失败: ' + e.message)
+    taskFeedback.fail(e, { stage: '任务创建失败', nextAction: '检查内容后重新生成' })
     progressState.value = null
     generating.value = false
   }
@@ -804,12 +888,10 @@ async function handleCancel() {
   if (!generating.value) return
   try {
     await api.ppt.cancelPptTask(currentTaskId.value)
-    if (ws) {
-      ws.close()
-      ws = null
-    }
+    closeWebSocket()
     generating.value = false
     progressState.value = null
+    taskFeedback.update({ status: 'cancelled', step: 'cancelled', nextAction: '调整内容后重新生成' })
     ElMessage.info('已取消生成')
   } catch {
     generating.value = false
@@ -889,7 +971,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (ws) { ws.close(); ws = null }
+  closeWebSocket()
 })
 </script>
 

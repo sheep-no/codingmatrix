@@ -49,6 +49,14 @@
           {{ executing ? '执行中...' : '执行工作流' }}
         </button>
 
+        <TaskFeedbackPanel
+          :feedback="taskFeedbackState"
+          :connection-status="taskFeedbackConnection"
+          :visible="hasTaskFeedback"
+          :actions="taskFeedbackActions"
+          @action="handleTaskFeedbackAction"
+        />
+
         <div v-if="workflowNodes.length" class="node-list">
           <h4>工作流节点</h4>
           <div
@@ -103,6 +111,9 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/utils/api/index'
+import { consumeJsonStream } from '@/utils/streamParser'
+import { useTaskFeedback } from '@/composables/useTaskFeedback'
+import TaskFeedbackPanel from '@/components/TaskFeedbackPanel.vue'
 
 const router = useRouter()
 const prompt = ref('')
@@ -112,6 +123,18 @@ const sessionId = ref(null)
 const workflowId = ref(null)
 const history = ref([])
 const importInput = ref(null)
+const taskFeedback = useTaskFeedback('workflow')
+const taskFeedbackState = taskFeedback.feedback
+const taskFeedbackConnection = taskFeedback.connectionStatus
+const hasTaskFeedback = taskFeedback.hasFeedback
+const taskFeedbackActions = computed(() => {
+  const status = taskFeedbackState.value.status
+  if (status === 'running') return [{ key: 'cancel', label: '取消执行', variant: 'danger' }]
+  if (status === 'failed' || status === 'paused') return [{ key: 'retry', label: '重新执行', variant: 'primary' }]
+  if (status === 'completed') return [{ key: 'export', label: '导出工作流', variant: 'primary' }]
+  return []
+})
+let abortController = null
 
 const canExecute = computed(() => prompt.value.trim().length > 0)
 
@@ -123,20 +146,77 @@ async function handleExecute() {
   if (!canExecute.value || executing.value) return
   executing.value = true
   workflowNodes.value = []
+  let terminalEventReceived = false
+  taskFeedback.start({ event: 'workflow_started', progress: 0 })
 
   try {
-    const res = await api.executeWorkflow(prompt.value.trim(), sessionId.value)
-    if (!res.ok) throw new Error(`执行失败 (${res.status})`)
-    const data = await res.json()
-    workflowNodes.value = data.workflow_nodes || []
-    if (data.session_id) sessionId.value = data.session_id
-    if (data.workflow_id) workflowId.value = data.workflow_id
+    abortController = new AbortController()
+    const response = await api.executeWorkflowStream(prompt.value.trim(), sessionId.value, abortController.signal)
+    await consumeJsonStream(response, data => {
+      if (['workflow_completed', 'workflow_error'].includes(data.event)) terminalEventReceived = true
+      handleWorkflowEvent(data)
+    })
+    if (!terminalEventReceived) {
+      taskFeedback.markDisconnected('工作流连接意外结束，输入和节点状态已保留')
+    }
   } catch (e) {
     console.error('工作流执行失败:', e)
-    ElMessage.error('执行失败: ' + e.message)
+    if (e.name === 'AbortError') {
+      taskFeedback.update({ event: 'workflow_paused', stage: '工作流已取消', nextAction: '调整输入后重新执行' })
+    } else if (e.name === 'TypeError' || e.name === 'NetworkError') {
+      taskFeedback.markDisconnected('工作流连接中断，输入和节点状态已保留')
+    } else {
+      taskFeedback.fail(e, { event: 'workflow_error', nextAction: '检查输入后重新执行' })
+    }
+    if (e.name !== 'AbortError') ElMessage.error('执行失败: ' + e.message)
   } finally {
+    abortController = null
     executing.value = false
   }
+}
+
+function handleTaskFeedbackAction(action) {
+  if (action === 'cancel' && abortController) {
+    abortController.abort()
+  } else if (action === 'retry') {
+    handleExecute()
+  } else if (action === 'export') {
+    exportWorkflow()
+  }
+}
+
+function handleWorkflowEvent(data) {
+  if (data.event === 'workflow_started') {
+    if (data.session_id) sessionId.value = data.session_id
+  } else if (data.event === 'task_graph_generated') {
+    workflowId.value = data.workflow_id || workflowId.value
+    workflowNodes.value = (data.nodes || []).map(node => ({
+      ...node,
+      name: node.name || node.type,
+      description: node.description || '等待执行',
+      status: 'pending'
+    }))
+  } else if (data.event === 'node_started') {
+    const node = workflowNodes.value.find(item => item.id === data.node_id)
+    if (node) node.status = 'running'
+  } else if (data.event === 'node_completed') {
+    const node = workflowNodes.value.find(item => item.id === data.node_id)
+    if (node) {
+      node.status = data.success ? 'completed' : 'failed'
+      node.output = data.data || ''
+      node.error = data.error || null
+    }
+  } else if (data.event === 'workflow_completed') {
+    if (data.workflow_id) workflowId.value = data.workflow_id
+    if (data.session_id) sessionId.value = data.session_id
+  }
+
+  const feedbackEvent = data.event === 'workflow_completed'
+    ? { ...data, progress: 100, nextAction: '查看节点结果或导出工作流' }
+    : data.event === 'workflow_error'
+      ? { ...data, error: data.message || data.error, nextAction: '检查输入后重新执行' }
+      : data
+  taskFeedback.update(feedbackEvent, { nodes: workflowNodes.value })
 }
 
 async function exportWorkflow() {
@@ -178,6 +258,12 @@ async function loadHistory(workflowIdValue) {
   const item = await api.getWorkflowHistoryDetail(workflowIdValue)
   workflowId.value = workflowIdValue
   workflowNodes.value = item.task_graph?.nodes || []
+  taskFeedback.reset({
+    status: item.status === 'failed' ? 'failed' : 'completed',
+    stage: '已恢复历史工作流',
+    progress: 100,
+    nextAction: '查看节点结果或导出工作流'
+  })
 }
 
 onMounted(async () => {

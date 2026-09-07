@@ -112,12 +112,12 @@
               : props.editMessage
                 ? '编辑消息... (Ctrl+Enter 保存，Esc 取消)'
                 : props.isStreaming
-                  ? '[LOADING] AI thinking...'
+                   ? '正在生成，请稍候...'
                   : useReasoning
                     ? useHybrid
-                      ? '[FIND] Hybrid mode - Enter your request...'
-                      : '[FIND] Deep thinking mode - Enter your request...'
-                    : 'Enter message, press Ctrl+Enter to send...'
+                       ? '混合思考模式，请输入需求...'
+                       : '深度思考模式，请输入需求...'
+                    : '输入消息，按 Ctrl+Enter 发送...'
           "
           :disabled="props.isStreaming"
           :aria-label="props.editMessage ? '编辑消息输入框' : '消息输入框'"
@@ -151,7 +151,10 @@
             "
             @click="sendMessage"
           >
-            <span class="send-icon" aria-hidden="true">{{ props.editMessage ? '✓' : '➤' }}</span>
+            <span class="send-icon" aria-hidden="true">
+              <svg v-if="props.editMessage" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6" /></svg>
+              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 11 18-9-9 18-2-7-7-2Z" /></svg>
+            </span>
           </button>
         </template>
         <!-- 停止按钮：仅在流式输出时显示 -->
@@ -162,7 +165,7 @@
           title="停止输出"
           @click="stopStream"
         >
-          <span class="stop-icon" aria-hidden="true">⏹</span>
+          <span class="stop-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg></span>
         </button>
 
         <!-- 配置面板开关 -->
@@ -226,6 +229,7 @@
   import FileDropZone from './FileDropZone.vue'
   import FilePreview from './FilePreview.vue'
   import { useToast } from '@/composables/useToast'
+  import { createImageThumbnail } from '@/utils/imageThumbnail'
 
   const navigationStore = useNavigationStore()
   const userStore = useUserStore()
@@ -379,6 +383,12 @@
     }
 
     if (imageTypes.includes(file.type)) {
+      let thumbnail = ''
+      try {
+        thumbnail = await createImageThumbnail(file)
+      } catch (error) {
+        console.warn('[WARN] Image thumbnail generation failed:', error)
+      }
       const fileObj = {
         id: ++fileCounter,
         name: file.name,
@@ -387,7 +397,8 @@
         file: file,
         category: 'image',
         uploading: true,
-        preview: URL.createObjectURL(file)
+        preview: URL.createObjectURL(file),
+        thumbnail
       }
       attachedFiles.value.push(fileObj)
 
@@ -395,6 +406,7 @@
         const result = await api.uploadFile(file)
         fileObj.serverId = result.id
         fileObj.serverPath = result.file_path
+        fileObj.downloadUrl = result.download_url
         fileObj.uploading = false
         success(`图片上传成功: ${file.name}`)
       } catch (err) {
@@ -489,7 +501,9 @@
         size: f.size,
         type: f.type,
         category: f.category,
-        serverPath: f.serverPath || null
+        serverPath: f.serverPath || null,
+        thumbnail: f.thumbnail || null,
+        originalUrl: f.downloadUrl || null
       }))
     }
 
@@ -898,22 +912,22 @@
     right: 130px;
     top: 50%;
     transform: translateY(-50%);
-    width: 38px;
-    height: 38px;
-    background: linear-gradient(135deg, #2563eb, #3b82f6);
+     width: 40px;
+     height: 40px;
+     background: var(--accent-primary);
     border: none;
     border-radius: 10px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s ease;
+     transition: all var(--motion-fast);
     flex-shrink: 0;
     box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);
   }
 
   .send-btn:hover:not(:disabled) {
-    background: linear-gradient(135deg, #1d4ed8, #2563eb);
+     background: var(--accent-primary-hover);
     transform: translateY(-50%) scale(1.06);
     box-shadow: 0 4px 8px rgba(37, 99, 235, 0.4);
   }
@@ -924,10 +938,17 @@
     box-shadow: none;
   }
 
-  .send-icon {
-    color: white;
-    font-size: 16px;
-    transform: rotate(-90deg);
+   .send-icon {
+     color: white;
+     display: inline-flex;
+     width: 18px;
+     height: 18px;
+   }
+
+   .send-icon svg,
+   .stop-icon svg {
+     width: 100%;
+     height: 100%;
   }
 
   /* 停止按钮 */
@@ -936,16 +957,16 @@
     right: 130px;
     top: 50%;
     transform: translateY(-50%);
-    width: 38px;
-    height: 38px;
-    background: linear-gradient(135deg, #ef4444, #dc2626);
+     width: 40px;
+     height: 40px;
+     background: var(--status-danger);
     border: none;
     border-radius: 10px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s ease;
+     transition: all var(--motion-fast);
     animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     flex-shrink: 0;
     box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
@@ -962,14 +983,16 @@
   }
 
   .stop-btn:hover {
-    background: linear-gradient(135deg, #f87171, #ef4444);
+     background: color-mix(in srgb, var(--status-danger) 85%, black);
     transform: translateY(-50%) scale(1.06);
     box-shadow: 0 4px 8px rgba(239, 68, 68, 0.4);
   }
 
-  .stop-btn .stop-icon {
-    font-size: 20px;
-    color: white;
+   .stop-btn .stop-icon {
+     color: white;
+     display: inline-flex;
+     width: 18px;
+     height: 18px;
   }
 
   /* 配置开关按钮 */
@@ -1081,7 +1104,7 @@
   @media (max-width: 768px) {
     .bottom-input-container {
       max-width: 95vw;
-      padding: 12px 16px 16px;
+      padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
       border-top-left-radius: 16px;
       border-top-right-radius: 16px;
     }
@@ -1100,7 +1123,7 @@
 
     .chat-input {
       padding: 10px 110px 10px 12px;
-      font-size: 14px;
+      font-size: 16px;
     }
 
     .send-btn,

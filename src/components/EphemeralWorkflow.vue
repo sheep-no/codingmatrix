@@ -37,6 +37,14 @@
         </div>
       </div>
 
+      <TaskFeedbackPanel
+        :feedback="taskFeedbackState"
+        :connection-status="taskFeedbackConnection"
+        :visible="hasTaskFeedback"
+        :actions="taskFeedbackActions"
+        @action="handleTaskFeedbackAction"
+      />
+
       <!-- 工作流图显示 -->
       <div v-if="workflowGraph" class="workflow-graph-section">
         <div class="section-header">
@@ -146,6 +154,8 @@
   import { api } from '@/utils/api/index'
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { consumeJsonStream } from '@/utils/streamParser'
+  import { useTaskFeedback } from '@/composables/useTaskFeedback'
+  import TaskFeedbackPanel from './TaskFeedbackPanel.vue'
 
   const props = defineProps({
     visible: { type: Boolean, default: false }
@@ -164,8 +174,20 @@
   const importJson = ref('')
   const history = ref([])
   const workflowStatus = ref('idle')
+  const taskFeedback = useTaskFeedback('workflow')
+  const taskFeedbackState = taskFeedback.feedback
+  const taskFeedbackConnection = taskFeedback.connectionStatus
+  const hasTaskFeedback = taskFeedback.hasFeedback
+  const taskFeedbackActions = computed(() => {
+    const status = taskFeedbackState.value.status
+    if (status === 'running') return [{ key: 'cancel', label: '停止执行', variant: 'danger' }]
+    if (status === 'failed' || status === 'paused') return [{ key: 'retry', label: '继续执行', variant: 'primary' }]
+    if (status === 'completed') return [{ key: 'export', label: '导出工作流', variant: 'primary' }]
+    return []
+  })
 
   let abortController = null
+  let terminalEventReceived = false
 
   const executeWorkflow = async () => {
     if (!userRequest.value.trim()) return
@@ -174,6 +196,8 @@
     hasStopped.value = false
     workflowGraph.value = null
     workflowStatus.value = 'running'
+    terminalEventReceived = false
+    taskFeedback.start({ event: 'workflow_started', progress: 0 })
     abortController = new AbortController()
 
     try {
@@ -186,9 +210,17 @@
       await consumeJsonStream(response, handleStreamData, {
         onParseError: (error, line) => console.warn('JSON parse error:', error, line)
       })
+      if (!terminalEventReceived) {
+        taskFeedback.markDisconnected('工作流连接意外结束，输入和节点状态已保留')
+      }
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.error('工作流执行失败:', error)
+        if (error.name === 'TypeError' || error.name === 'NetworkError') {
+          taskFeedback.markDisconnected('工作流连接中断，输入和节点状态已保留')
+        } else {
+          taskFeedback.fail(error, { event: 'workflow_error', nextAction: '检查输入后重新执行' })
+        }
         ElMessage.error('工作流执行失败: ' + error.message)
       }
     } finally {
@@ -210,6 +242,13 @@
     isExecuting.value = false
     hasStopped.value = true
     workflowStatus.value = 'stopped'
+    taskFeedback.update({ event: 'workflow_paused', stage: '工作流已停止', nextAction: '继续生成或新建工作流' })
+  }
+
+  const handleTaskFeedbackAction = action => {
+    if (action === 'cancel') stopWorkflow()
+    if (action === 'retry') continueWorkflow()
+    if (action === 'export') exportWorkflow()
   }
 
   const resetWorkflow = () => {
@@ -218,6 +257,7 @@
     workflowGraph.value = null
     workflowStatus.value = 'idle'
     userRequest.value = ''
+    taskFeedback.reset()
   }
 
   const explainWorkflow = async () => {
@@ -302,6 +342,7 @@
   }
 
   const handleStreamData = data => {
+    if (['workflow_completed', 'workflow_error'].includes(data.event)) terminalEventReceived = true
     if (data.event === 'workflow_started') {
       if (data.session_id) {
         sessionId.value = data.session_id
@@ -327,6 +368,9 @@
       }
     } else if (data.event === 'workflow_exported') {
       // TODO: Handle workflow exported
+    } else if (data.event === 'node_started') {
+      const node = workflowGraph.value?.nodes.find(n => n.id === data.node_id)
+      if (node) node.status = 'running'
     } else if (data.event === 'node_completed') {
       const node = workflowGraph.value?.nodes.find(n => n.id === data.node_id)
       if (node) {
@@ -345,6 +389,12 @@
       ElMessage.error('工作流执行失败: ' + (data.message || data.error))
       workflowStatus.value = 'error'
     }
+    const feedbackEvent = data.event === 'workflow_completed'
+      ? { ...data, progress: 100, nextAction: '查看结果或导出工作流' }
+      : data.event === 'workflow_error'
+        ? { ...data, error: data.message || data.error, nextAction: '检查输入后重新执行' }
+        : data
+    taskFeedback.update(feedbackEvent, { nodes: workflowGraph.value?.nodes || [] })
   }
 
   const addToHistory = graph => {
@@ -366,6 +416,12 @@
       sessionId.value = item.session_id
       hasStopped.value = true
     }
+    taskFeedback.reset({
+      status: 'completed',
+      stage: '已恢复历史工作流',
+      progress: 100,
+      nextAction: '查看结果或继续生成'
+    })
   }
 
   const getNodeTypeLabel = type => {

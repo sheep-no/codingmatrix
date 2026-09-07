@@ -87,12 +87,11 @@
         ></div>
 
         <!-- 消息列表 -->
-        <div
-          v-for="(message, index) in visibleMessages"
-          :key="message.id || `${visibleStartIndex + index}`"
-          class="message-wrapper"
-          role="article"
-          :aria-label="message.isStreaming ? 'AI 正在回复中' : (message.prompt ? '用户消息' : 'AI 回复')"
+        <MessageList
+          v-slot="{ message }"
+          :messages="visibleMessages"
+          :start-index="visibleStartIndex"
+          @item-resize="handleMessageResize"
         >
           <!-- 用户消息 -->
           <div class="message message-user" :class="{ highlight: message.isNew }">
@@ -120,20 +119,7 @@
               </div>
               <div class="message-text user-text">
                 <p>{{ message.prompt }}</p>
-                <div v-if="message.files && message.files.length > 0" class="message-attachments">
-                  <div
-                    v-for="(file, idx) in message.files"
-                    :key="idx"
-                    class="attachment-image"
-                  >
-                    <img
-                      :src="file.preview || file.localUrl"
-                      :alt="file.name"
-                      class="attachment-img"
-                    />
-                    <span class="attachment-name">{{ file.name }}</span>
-                  </div>
-                </div>
+                <MessageAttachments :files="message.files" />
               </div>
             </div>
           </div>
@@ -184,74 +170,7 @@
               </div>
 
               <!-- 思考过程 -->
-              <div v-if="message.reasoning && message.reasoning.trim()" class="thinking-section">
-                <!-- 按 agent 分组展示 thinking -->
-                <template v-if="message.thinkingGroups && Object.keys(message.thinkingGroups).length > 0">
-                  <details
-                    v-for="(data, agent) in message.thinkingGroups"
-                    :key="agent"
-                    class="thinking-details"
-                    :open="message.isStreaming || message.thinkingOpen !== false"
-                  >
-                    <summary class="thinking-summary" :aria-label="`${agent} 思考过程，点击展开/收起`">
-                      <div class="thinking-indicator">
-                        <div v-if="message.isStreaming" class="thinking-pulse" aria-hidden="true"></div>
-                        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                          <circle cx="12" cy="12" r="10" />
-                          <path d="M12 16v-4" />
-                          <path d="M12 8h.01" />
-                        </svg>
-                        <span>{{ agent }} 思考过程</span>
-                        <span v-if="data.model" class="thinking-model">({{ data.model }})</span>
-                      </div>
-                      <svg
-                        class="chevron"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        aria-hidden="true"
-                      >
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                    </summary>
-                    <div
-                      class="thinking-content markdown-body"
-                      v-html="renderMarkdown(data.content)"
-                    ></div>
-                  </details>
-                </template>
-                <!-- 兼容旧格式：单个 thinking 块 -->
-                <template v-else>
-                  <details class="thinking-details" :open="message.isStreaming || message.thinkingOpen !== false">
-                    <summary class="thinking-summary" aria-label="深度思考过程，点击展开/收起">
-                      <div class="thinking-indicator">
-                        <div v-if="message.isStreaming" class="thinking-pulse" aria-hidden="true"></div>
-                        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                          <circle cx="12" cy="12" r="10" />
-                          <path d="M12 16v-4" />
-                          <path d="M12 8h.01" />
-                        </svg>
-                        <span>{{ message.isStreaming ? '正在思考...' : '深度思考过程' }}</span>
-                      </div>
-                      <svg
-                        class="chevron"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        aria-hidden="true"
-                      >
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                    </summary>
-                    <div
-                      class="thinking-content markdown-body"
-                      v-html="renderMarkdown(message.reasoning)"
-                    ></div>
-                  </details>
-                </template>
-              </div>
+              <MessageThinking :message="message" :render-markdown="renderMarkdown" />
 
               <!-- AI 响应内容 -->
               <div v-if="message.response || message.isStreaming" class="ai-response-content">
@@ -294,18 +213,16 @@
               </div>
             </div>
           </div>
-        </div>
-      </main>
+        </MessageList>
 
-      <!-- 虚拟滚动底部占位 -->
-      <div
-        v-if="conversationHistory.length > VIRTUAL_SCROLL_THRESHOLD"
-        class="virtual-spacer"
-        :style="{
-          height: `${totalMessageHeight - offsetY - (visibleEndIndex - visibleStartIndex) * 200}px`
-        }"
-        aria-hidden="true"
-      ></div>
+        <!-- 虚拟滚动底部占位 -->
+        <div
+          v-if="conversationHistory.length > VIRTUAL_SCROLL_THRESHOLD"
+          class="virtual-spacer"
+          :style="{ height: `${bottomSpacerHeight}px` }"
+          aria-hidden="true"
+        ></div>
+      </main>
     </div>
 
     <!-- 空状态 -->
@@ -315,6 +232,9 @@
 
 <script setup>
   import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue'
+  import MessageAttachments from './chat/MessageAttachments.vue'
+  import MessageList from './chat/MessageList.vue'
+  import MessageThinking from './chat/MessageThinking.vue'
   import DOMPurify from 'dompurify'
   import { marked } from 'marked'
   import hljs from 'highlight.js/lib/core'
@@ -333,6 +253,11 @@
   import EmptyState from './EmptyState.vue'
   import SkeletonLoader from './SkeletonLoader.vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import {
+    calculateVisibleRange,
+    getMessageOffset,
+    getTotalMessageHeight
+  } from '@/utils/messageVirtualizer'
 
   hljs.registerLanguage('python', python)
   hljs.registerLanguage('javascript', javascript)
@@ -390,9 +315,12 @@
   let userScrollTimer = null
   let copyButtonsTimer = null
   let autoSaveTimer = null
+  let scrollFrame = null
 
   const VIRTUAL_SCROLL_BUFFER = 5
-  const VIRTUAL_SCROLL_THRESHOLD = 20
+  const VIRTUAL_SCROLL_THRESHOLD = 50
+  const measuredMessageHeights = new Map()
+  const measurementRevision = ref(0)
 
   const visibleStartIndex = ref(0)
   const visibleEndIndex = ref(VIRTUAL_SCROLL_THRESHOLD)
@@ -406,30 +334,50 @@
   })
 
   const totalMessageHeight = computed(() => {
-    return props.conversationHistory.length * 200
+    measurementRevision.value
+    return getTotalMessageHeight(props.conversationHistory, measuredMessageHeights)
   })
 
   const offsetY = computed(() => {
-    return visibleStartIndex.value * 200
+    measurementRevision.value
+    return getMessageOffset(
+      props.conversationHistory,
+      visibleStartIndex.value,
+      measuredMessageHeights
+    )
   })
+
+  const bottomSpacerHeight = computed(() =>
+    Math.max(
+      0,
+      totalMessageHeight.value -
+        getMessageOffset(props.conversationHistory, visibleEndIndex.value, measuredMessageHeights)
+    )
+  )
 
   const updateVisibleRange = () => {
     if (!messagesContainer.value || props.conversationHistory.length <= VIRTUAL_SCROLL_THRESHOLD)
       return
 
     const container = messagesContainer.value
-    const scrollTop = container.scrollTop
-    const containerHeight = container.clientHeight
-    const avgMessageHeight = 200
-
-    const start = Math.max(0, Math.floor(scrollTop / avgMessageHeight) - VIRTUAL_SCROLL_BUFFER)
-    const end = Math.min(
-      props.conversationHistory.length,
-      Math.ceil((scrollTop + containerHeight) / avgMessageHeight) + VIRTUAL_SCROLL_BUFFER
-    )
+    const { start, end } = calculateVisibleRange({
+      messages: props.conversationHistory,
+      measuredHeights: measuredMessageHeights,
+      scrollTop: container.scrollTop,
+      viewportHeight: container.clientHeight,
+      buffer: VIRTUAL_SCROLL_BUFFER
+    })
 
     visibleStartIndex.value = start
     visibleEndIndex.value = end
+  }
+
+  const handleMessageResize = ({ key, height }) => {
+    const previousHeight = measuredMessageHeights.get(key)
+    if (previousHeight !== undefined && Math.abs(previousHeight - height) < 0.5) return
+    measuredMessageHeights.set(key, height)
+    measurementRevision.value++
+    updateVisibleRange()
   }
 
   const FULL_TITLE = '欢迎使用 AI 助手'
@@ -647,60 +595,61 @@
     }
   )
 
-  // 监听历史数据变化，自动滚动
+  // 切换会话时重置窗口，避免复用上一段长会话的索引和实测高度。
   watch(
-    [() => props.conversationHistory, isHistoryLoaded],
-    async (newValues, oldValues) => {
-      const [newHistory, loaded] = newValues
-      const [oldHistory, oldLoaded] = oldValues || [null, false]
+    [() => props.conversationId, isHistoryLoaded],
+    async ([, loaded], [, oldLoaded] = []) => {
+      measuredMessageHeights.clear()
+      measurementRevision.value++
+      visibleStartIndex.value = 0
+      visibleEndIndex.value = VIRTUAL_SCROLL_THRESHOLD
 
-      if (loaded && !oldLoaded && newHistory && newHistory.length > 0 && shouldAutoScroll.value) {
+      if (loaded && !oldLoaded && props.conversationHistory.length > 0 && shouldAutoScroll.value) {
         await nextTick()
         scrollToBottom()
       }
-    },
-    { deep: true }
+    }
   )
 
-  // 监听历史数据深度变化（流式输出）
+  const streamContentSignature = computed(() => {
+    const lastMessage = props.conversationHistory.at(-1)
+    return [
+      props.conversationHistory.length,
+      lastMessage?.id,
+      lastMessage?.response?.length || 0,
+      lastMessage?.reasoning?.length || 0,
+      Boolean(lastMessage?.isStreaming)
+    ].join(':')
+  })
+
+  // 流式内容只监听最后一条消息的轻量签名，避免深度比较整段会话。
   watch(
-    () => props.conversationHistory,
-    async (newHistory, oldHistory) => {
-      if (!oldHistory || newHistory.length !== oldHistory.length) return
+    streamContentSignature,
+    async () => {
+      const lastMessage = props.conversationHistory.at(-1)
+      const isNearBottom = messagesContainer.value
+        ? messagesContainer.value.scrollHeight -
+            messagesContainer.value.scrollTop -
+            messagesContainer.value.clientHeight <
+          50
+        : true
 
-      const hasChange = newHistory.some(
-        (msg, idx) =>
-          oldHistory[idx] &&
-          (msg.response !== oldHistory[idx].response || msg.reasoning !== oldHistory[idx].reasoning)
-      )
-
-      if (hasChange) {
-        const lastMessage = newHistory[newHistory.length - 1]
-
-        const isNearBottom = messagesContainer.value
-          ? messagesContainer.value.scrollHeight -
-              messagesContainer.value.scrollTop -
-              messagesContainer.value.clientHeight <
-            50
-          : true
-
-        if (lastMessage?.isStreaming && !isUserScrolling.value && isNearBottom) {
-          await nextTick()
-          scrollToBottom()
-        }
-
-        // 更新代码块复制按钮
-        if (copyButtonsTimer) {
-          clearTimeout(copyButtonsTimer)
-        }
-
-        copyButtonsTimer = setTimeout(async () => {
-          await nextTick()
-          addCopyButtons()
-        }, 500)
+      if (lastMessage?.isStreaming && !isUserScrolling.value && isNearBottom) {
+        await nextTick()
+        scrollToBottom()
       }
 
-      // 自动保存到 IndexedDB
+      if (copyButtonsTimer) clearTimeout(copyButtonsTimer)
+      copyButtonsTimer = setTimeout(async () => {
+        await nextTick()
+        addCopyButtons()
+      }, 500)
+    }
+  )
+
+  watch(
+    () => props.conversationHistory,
+    () => {
       if (props.conversationId) {
         if (autoSaveTimer) clearTimeout(autoSaveTimer)
         autoSaveTimer = setTimeout(() => {
@@ -741,8 +690,7 @@
     container.scrollTop = scrollState.scrollTop + heightDiff
   }
 
-  // 处理滚动
-  const handleScroll = async () => {
+  const processScroll = async () => {
     if (!messagesContainer.value || isLoadingMore.value) return
 
     const container = messagesContainer.value
@@ -778,6 +726,15 @@
         await restoreScrollPosition(scrollState)
       }, 100)
     }
+  }
+
+  // 原生 scroll 可能一帧触发多次，窗口和布局读取统一合并到下一帧。
+  const handleScroll = () => {
+    if (scrollFrame !== null) return
+    scrollFrame = requestAnimationFrame(async () => {
+      scrollFrame = null
+      await processScroll()
+    })
   }
 
   // 加载更多历史
@@ -1061,6 +1018,7 @@
     if (userScrollTimer) clearTimeout(userScrollTimer)
     if (titleTimer) clearInterval(titleTimer)
     if (subtitleTimer) clearInterval(subtitleTimer)
+    if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
   })
 
   defineExpose({
@@ -1269,8 +1227,7 @@
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 24px;
-    scroll-behavior: smooth;
+    gap: 0;
     background: transparent;
   }
 
@@ -1551,10 +1508,6 @@
   /* ========================================
    思考区域
    ======================================== */
-  .thinking-section {
-    margin-bottom: 14px;
-  }
-
   .step-progress-bar {
     margin-bottom: 12px;
     display: flex;
@@ -1581,92 +1534,6 @@
     font-size: 12px;
     color: #6b7280;
     white-space: nowrap;
-  }
-
-  .thinking-details {
-    background: var(--bg-secondary, #f8fafc);
-    border: 1px solid var(--border-color, #e2e8f0);
-    border-radius: 8px;
-    overflow: hidden;
-    transition: all var(--transition-base);
-  }
-
-  .thinking-details:hover {
-    border-color: var(--primary-300, #5eead4);
-  }
-
-  .thinking-pulse {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: #d97706;
-    animation: thinkingPulse 1.4s ease-in-out infinite;
-  }
-
-  @keyframes thinkingPulse {
-    0%, 100% { transform: scale(1); opacity: 0.8; }
-    50% { transform: scale(1.2); opacity: 1; }
-  }
-
-  .thinking-summary {
-    padding: 10px 14px;
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 12px;
-    color: var(--text-secondary, #64748b);
-    background: transparent;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    list-style: none;
-    transition: all var(--transition-base);
-  }
-
-  .thinking-summary::marker {
-    display: none;
-  }
-
-  .thinking-summary:hover {
-    background: rgba(254, 243, 199, 0.9);
-  }
-
-  .thinking-indicator {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .thinking-indicator svg {
-    width: 18px;
-    height: 18px;
-    opacity: 0.8;
-  }
-
-  .thinking-model {
-    font-size: 11px;
-    font-weight: normal;
-    color: var(--text-tertiary, #94a3b8);
-    margin-left: 4px;
-  }
-
-  .chevron {
-    width: 18px;
-    height: 18px;
-    transition: transform var(--transition-base);
-  }
-
-  .thinking-details[open] .chevron {
-    transform: rotate(180deg);
-  }
-
-  .thinking-content {
-    padding: 14px;
-    color: var(--text-secondary, #64748b);
-    font-size: 13px;
-    line-height: 1.7;
-    background: var(--bg-primary, #fff);
-    border-top: 1px solid var(--border-color, #e2e8f0);
   }
 
   /* ========================================
@@ -2405,40 +2272,6 @@
       width: 38px;
       height: 38px;
     }
-  }
-
-  /* 消息图片附件 */
-  .message-attachments {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 10px;
-  }
-
-  .attachment-image {
-    position: relative;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 1px solid var(--border-color);
-    max-width: 200px;
-  }
-
-  .attachment-img {
-    display: block;
-    max-width: 200px;
-    max-height: 150px;
-    object-fit: cover;
-  }
-
-  .attachment-name {
-    display: block;
-    padding: 4px 8px;
-    font-size: 11px;
-    color: var(--text-tertiary);
-    background: var(--bg-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   @media (max-width: 480px) {

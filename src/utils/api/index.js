@@ -26,7 +26,7 @@
  * 3. 刷新失败时自动清除
  */
 import { API_CONFIG } from './config'
-import { createBaseClient, apiUrl } from './base'
+import { createBaseClient, apiUrl, normalizeApiError } from './base'
 import { createAuthClient } from './auth'
 import { createProjectClient } from './project'
 import { createAgentClient } from './agent'
@@ -47,6 +47,7 @@ import { WebSocketManager } from './websocket'
 export {
   API_CONFIG,
   createBaseClient as createApiClient,
+  normalizeApiError,
   apiUrl,
   createAuthClient,
   createProjectClient,
@@ -109,6 +110,7 @@ export default {
   API_CONFIG,
   createBaseClient,
   createApiClient: createBaseClient,
+  normalizeApiError,
   createAuthClient,
   createProjectClient,
   createAgentClient,

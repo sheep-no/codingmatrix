@@ -162,11 +162,28 @@ npm run test:run
 # 执行 lint
 npm run lint
 
-# 构建生产资源
-NODE_OPTIONS=--max-old-space-size=1800 npm run build
+# 构建生产资源并验证性能预算
+NODE_OPTIONS=--max-old-space-size=1800 npm run build:budget
+
+# 复查已有 dist 产物的性能预算
+npm run budget:check
+
+# 验证首页与 Agent Dashboard 三档响应式布局
+cd /workspace
+npx --no-install playwright test tests/e2e/workbench-responsive.spec.js --config=playwright.config.js --project=chromium --reporter=line --timeout=60000
+
+# 验证任务反馈归一化、操作反馈、增量合并和断线恢复
+cd /workspace/src
+npm run test:run -- utils/taskFeedback.test.js composables/useTaskFeedback.test.js components/shared-state.test.js views/AgentDashboard.test.js views/PPTGenerate.test.js
+
+# 验证消息窗口、流式批处理和图片缩略图
+npm run test:run -- utils/messageVirtualizer.test.js utils/streamUpdateBatcher.test.js utils/imageThumbnail.test.js components/chat/message-parts.test.js
 ```
 
 根目录的 `npm run test:e2e` 用于 Playwright；前端 `dev`、`build`、`lint` 和 Vitest 命令均位于 `src/package.json`。
+
+Web 工作台响应式专项使用 1440px、768px 和 390px 视口，覆盖首页与 Agent Dashboard 的桌面栏位、移动抽屉、焦点恢复、16px 移动输入字号和横向溢出。任务反馈专项覆盖四类领域归一化、操作事件派发、增量合并、计时、重复事件过滤、序列缺口、恢复快照、过期快照拒绝、终态断线保护和游标重置。消息性能专项覆盖实测高度窗口化、帧级 token 合并、尾部强制冲刷、320px 图片缩略图和低频覆盖层动态 chunk。当前前端完整 Vitest 为 `30 files passed, 126 tests passed`；生产构建转换 `2482` 个模块，性能预算基线为首屏 JavaScript `356.1 KiB gzip`、首屏 CSS `55.0 KiB gzip`、最大图片 `124.6 KiB`、最大路由 chunk `47.4 KiB gzip`，四项检查均通过。浏览器性能快照通过 `window.__performanceSnapshot` 或 `codingmatrix:performance-snapshot` 事件读取。专项 ESLint 为 `0 errors`，仓库既有未使用变量与 `console` 规则产生 warning。
+Lighthouse 使用生产预览服务器完成优化后复测：移动模拟性能分数 `30`，LCP `8.7s`、FCP `4.5s`、TBT `2,260ms`、CLS `0.062`；桌面模拟性能分数 `27`，LCP `8.2s`、FCP `4.3s`、TBT `970ms`、CLS `0.047`。两种视口均提示约 `21 KiB` 未使用 JavaScript，结果作为后续首屏初始化优化基线。移除首屏完整 Element Plus 插件注册后，首屏 JavaScript gzip 从 `356.1 KiB` 降至 `86.5 KiB`。
 
 PPT 三步流程的供应商无关 E2E 位于 `tests/e2e/ppt-generation-mock.spec.js`，使用 mock HTTP/WebSocket 覆盖大纲草稿、批准、生成进度、质量报告和 PPTX 下载；认证版 PPT E2E 需要设置 `TEST_ADMIN_PASSWORD`。
 

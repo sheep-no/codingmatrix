@@ -74,6 +74,7 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     assetsDir: 'static',
+    manifest: true,
     sourcemap: process.env.VITE_BUILD_SOURCEMAP === 'true',
     chunkSizeWarningLimit: 500,
     cssCodeSplit: true,

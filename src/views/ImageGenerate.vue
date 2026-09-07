@@ -161,13 +161,13 @@
           <span>清除参考图片，重新文生图</span>
         </button>
 
-        <!-- 错误提示 -->
-        <div v-if="error" class="error-message">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-          </svg>
-          <span>{{ error }}</span>
-        </div>
+        <TaskFeedbackPanel
+          :feedback="taskFeedbackState"
+          :connection-status="taskFeedbackConnection"
+          :visible="hasTaskFeedback"
+          :actions="taskFeedbackActions"
+          @action="handleTaskFeedbackAction"
+        />
       </aside>
 
       <!-- 右侧结果展示 -->
@@ -234,6 +234,8 @@
   import { useRouter } from 'vue-router'
   import { useApiKeyStore } from '@/stores/apikey'
   import { useUserStore } from '@/stores/user'
+  import { useTaskFeedback } from '@/composables/useTaskFeedback'
+  import TaskFeedbackPanel from '@/components/TaskFeedbackPanel.vue'
 
   const router = useRouter()
   const apiKeyStore = useApiKeyStore()
@@ -253,9 +255,22 @@
   const isGenerating = ref(false)
   const error = ref('')
   const generatedImages = ref([])
+  const taskFeedback = useTaskFeedback('image')
+  const taskFeedbackState = taskFeedback.feedback
+  const taskFeedbackConnection = taskFeedback.connectionStatus
+  const hasTaskFeedback = taskFeedback.hasFeedback
   const history = ref([])
   const lastGeneratedImage = ref(null)  // 保存最后一张生成的图片 { url, prompt }
   const originalPrompt = ref('')  // 保存生成图片时的原始 prompt
+  let abortController = null
+
+  const taskFeedbackActions = computed(() => {
+    const status = taskFeedbackState.value.status
+    if (status === 'running') return [{ key: 'cancel', label: '取消生成', variant: 'danger' }]
+    if (status === 'failed' || status === 'paused') return [{ key: 'retry', label: '重新生成', variant: 'primary' }]
+    if (status === 'completed' && generatedImages.value.length) return [{ key: 'download', label: '下载结果', variant: 'primary' }]
+    return []
+  })
 
   const styles = [
     { value: 'realistic', name: '写实', color: 'linear-gradient(135deg, #0d9488, #14b8a6)' },
@@ -292,15 +307,21 @@
     // 检查 API Key 配置
     if (!apiKeyStore.hasSiliconflowKey) {
       error.value = '请先配置 API Key 后再使用'
+      taskFeedback.fail(error.value, { stage: mode.value === 'img2img' ? '图生图' : '文生图', nextAction: '配置 API Key 后重新生成' })
       return
     }
     
     isGenerating.value = true
     error.value = ''
     generatedImages.value = []
+    taskFeedback.start({
+      stage: mode.value === 'img2img' ? '正在执行图生图' : '正在执行文生图',
+      progress: null
+    }, { mode: mode.value })
 
     const token = userStore.getAccessToken() || localStorage.getItem('access_token') || ''
     const headers = { Authorization: token ? `Bearer ${token}` : '' }
+    abortController = new AbortController()
 
     try {
       if (mode.value === 'text2img') {
@@ -308,7 +329,7 @@
         const res = await fetch(`${API_BASE}/kolors/text-to-image`, {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+            body: JSON.stringify({
             prompt: prompt.value.trim(),
             style: style.value,
             width: w,
@@ -317,7 +338,8 @@
             cfg_scale: cfgScale.value,
             seed: seed.value === -1 ? undefined : seed.value,
             api_key_token: apiKeyStore.siliconflowKey?.token
-          })
+          }),
+          signal: abortController.signal
         })
         if (!res.ok) {
           const err = await res.json().catch(() => ({ detail: '请求失败' }))
@@ -353,7 +375,8 @@
         const res = await fetch(`${API_BASE}/kolors/image-to-image`, {
           method: 'POST',
           headers,
-          body: formData
+          body: formData,
+          signal: abortController.signal
         })
         if (!res.ok) {
           const err = await res.json().catch(() => ({ detail: '请求失败' }))
@@ -374,11 +397,31 @@
           throw new Error('返回数据格式异常')
         }
       }
+      taskFeedback.complete({
+        stage: mode.value === 'img2img' ? '图生图已完成' : '文生图已完成',
+        progress: 100,
+        nextAction: '下载图片或基于结果继续修改'
+      }, { mode: mode.value, images: generatedImages.value })
     } catch (e) {
+      if (e.name === 'AbortError') {
+        taskFeedback.update({ status: 'paused', stage: '生成已取消', nextAction: '调整参数后重新生成' })
+        return
+      }
       error.value = e.message || '生成失败'
+      taskFeedback.fail(error.value, {
+        stage: mode.value === 'img2img' ? '图生图失败' : '文生图失败',
+        nextAction: '检查输入后重新生成'
+      }, { mode: mode.value })
     } finally {
+      abortController = null
       isGenerating.value = false
     }
+  }
+
+  function handleTaskFeedbackAction(action) {
+    if (action === 'cancel' && abortController) abortController.abort()
+    if (action === 'retry') handleSmartGenerate()
+    if (action === 'download' && generatedImages.value[0]) downloadImage(generatedImages.value[0])
   }
 
   function downloadImage(img) {
@@ -415,6 +458,7 @@
     // 检查 API Key 配置
     if (!apiKeyStore.hasSiliconflowKey) {
       error.value = '请先配置 API Key 后再使用'
+      taskFeedback.fail(error.value, { stage: '等待生成配置', nextAction: '配置 API Key 后重新生成' })
       return
     }
     
@@ -438,6 +482,7 @@
         uploadedFile.value = new File([blob], 'reference.png', { type: 'image/png' })
       } catch {
         error.value = '无法加载参考图片，请重新上传'
+        taskFeedback.fail(error.value, { stage: '加载参考图片失败', nextAction: '重新上传参考图片' })
         return
       }
       

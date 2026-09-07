@@ -2,7 +2,9 @@
 
 ## 技术栈
 
-前端位于 `src/`，使用 Vue 3、Vite、Vue Router、Pinia、Element Plus 和 Vitest。入口 `src/main.js` 创建 Vue 应用，注册 Pinia 持久化插件、路由、Element Plus 和全局样式，然后恢复用户认证状态。
+前端位于 `src/`，使用 Vue 3、Vite、Vue Router、Pinia、Element Plus 和 Vitest。入口 `src/main.js` 创建 Vue 应用，注册 Pinia 持久化插件、路由、Element Plus 和全局样式，然后通过 `window.__appInitialization` 暴露用户状态恢复 Promise，供 `AppLoading` 管理首屏状态。
+
+共享 Web 工作台基础位于 `src/styles/variables.css`、`src/styles/base.css` 和 `src/components/`：语义令牌覆盖 surface、content、accent、status、control 与 motion；`LoadingState`、`ErrorState`、`TaskStatus` 和 `NextAction` 统一反馈契约；全局焦点态、40px 最小交互尺寸和 reduced-motion 规则由基础样式提供。`src/utils/taskFeedback.js` 将 Agent、Workflow、PPT 和绘图的异构事件归一为 `status`、`stage`、`progress`、`elapsedMs`、`error` 和 `nextAction` 六字段模型，并兼容 PPT 事件回放与 `snapshot_recovery` 快照。`WorkbenchNav` 定义会话、项目、能力、文档和设置五个一级入口，首页侧栏与 Agent 会话侧栏复用同一导航顺序、活动态和折叠态可访问名称。
 
 ## 路由
 
@@ -35,12 +37,20 @@
 - `useAgentStreaming`：SSE 事件解析、生成生命周期和模型上下文同步。
 - `useAgentBackend`：设置、性能、学习、快照和后端管理操作。
 - `AgentTopBar`：桌面端状态、费用、导入、设置和更多操作。
-- `AgentSidebar`：会话历史、搜索和文件树。
+- `AgentSidebar`：共享一级导航、会话历史、搜索、文件树和 Skills。
 - `AgentWorkspace`：进度、思考过程、执行日志、验证和审批内容。
 - `AgentInputBar`：需求输入、模型选择、生成和停止操作。
+
+首页 `bottominput` 与 `AgentInputBar` 共享输入状态语义、发送/停止操作反馈、键盘提示和可访问名称。发送与停止图标使用内联 SVG，按钮保留至少 40px 的触控尺寸，生成中状态统一显示为“正在生成”。
+
+首页消息区域拆分为 `chat/MessageList`、`chat/MessageItem`、`chat/MessageAttachments` 与 `chat/MessageThinking`。消息列表负责可见消息迭代和虚拟索引，消息项负责 article 语义、状态标签与高度观测；附件和思考组件继续接收原消息对象字段，思考组件复用 `centerContent` 提供的净化 Markdown 渲染函数，兼容按 Agent 分组和旧版单块 reasoning 数据。
+
+消息数超过 50 条后，`centerContent` 使用 `src/utils/messageVirtualizer.js` 计算窗口。未渲染消息先采用高度估算，已渲染消息由 `ResizeObserver` 提供实测高度；顶部和底部占位均位于滚动容器内，滚动事件通过 animation frame 合并。流式消息使用 `src/utils/streamUpdateBatcher.js` 聚合同一帧内的 response、reasoning 和 Agent thinking 增量，终止事件会立即冲刷尾部文本。
+
+图片上传通过 `src/utils/imageThumbnail.js` 将预览限制在 320px 边界内，消息列表优先加载缩略图，并在用户打开原图时使用上传接口返回的 `download_url`。图片元素声明固定尺寸、原生懒加载和异步解码；缺失或加载失败的资源显示稳定占位。`MessageEditor` 与 `KeyboardShortcutsHelp` 和其他低频工具一样使用 async component，并在首次显示时挂载。
 - `AgentFilePanel`：文件预览、diff、版本历史和下载。
 
-桌面端使用 `src/styles/agent-layout.css` 的三栏布局。视口宽度小于等于 768px 时，工作区切换为单列视图，会话历史从左侧抽屉打开，文件预览从右侧抽屉打开，输入区保留底部安全区域。手机端状态和抽屉状态仍由 `AgentDashboard` 管理。
+桌面端使用 `src/styles/agent-layout.css` 的三栏布局。视口宽度小于等于 768px 时，工作区切换为单列视图，会话历史从左侧抽屉打开，文件预览从右侧抽屉打开，输入区保留底部安全区域。手机端状态和抽屉状态由 `AgentDashboard` 管理；Escape、遮罩关闭和触发按钮焦点恢复遵循同一抽屉协议。
 
 ## VS Code Agent 工作台
 
@@ -91,6 +101,43 @@ VS Code 工作台与 Web 工作台共享 Agent Host 协议和云端 Agent API。
 - SSE 代理关闭缓存和 Nginx 缓冲影响。
 - `allowedHosts` 包含 `localhost`、`127.0.0.1` 和 `.monkeycode-ai.online`。
 - 生产构建输出到仓库根目录 `dist/`，静态资源目录为 `dist/static/`。
+- 生产构建生成 `dist/.vite/manifest.json`；`src/scripts/check-performance-budget.js` 根据本次 manifest 计算首屏静态依赖和入口直接动态导入的路由 chunk，避免历史 hash 产物影响统计。
+- 性能预算为首屏 JavaScript gzip 450 KiB、首屏 CSS gzip 100 KiB、最大图片原始体积 200 KiB、最大路由 chunk gzip 150 KiB；图片检查同时覆盖 manifest 资源和 `src/public/`。
+- 首页低频编辑器与快捷键帮助分别生成独立动态 chunk，保持在入口静态依赖闭包之外。
+
+## 性能采集
+
+`src/utils/performanceMetrics.js` 由 `src/main.js` 在 Router 安装前启动。采集器使用 Vue Router 的 `beforeEach` 与 `afterEach` 记录成功导航耗时，并通过浏览器 `PerformanceObserver` 采集 LCP、INP 和 CLS。CLS 使用最大 session window，INP 按 `interactionId` 合并事件并计算近似第 98 百分位。
+
+当前快照位于 `window.__performanceSnapshot`，同时通过 `codingmatrix:performance-snapshot` 自定义事件发布。快照包含 schema 和构建版本、当前路由、最近成功导航耗时、LCP、INP、CLS 与测量时间；未受浏览器支持的指标保持空值。采集器在 HMR dispose 时移除路由守卫、页面监听器和性能观察器。
+
+## Capability Center
+
+`src/views/CapabilityCenter.vue` 默认只渲染视觉工具面板。Skills、Agent Host、知识库和上传项目在用户首次进入对应 Tab 时请求数据，并在当前页面会话中缓存；面板上的刷新操作显式绕过缓存。Tab 请求相互隔离，单个面板的刷新不会清空其他面板数据。
+
+各面板维护独立的加载与错误状态。列表面板提供空状态和失败重试，视觉工具与代码沙箱保留最近一次操作参数用于重试，单个面板失败不会覆盖其他面板结果。
+
+视觉工具、知识库和上传项目使用统一拖拽区，同时支持点击选择文件。资源删除操作要求确认，列表刷新显式绕过面板缓存，结果内容通过独立结果区展示。
+
+基础 API 客户端通过 `createAbortController` 提供取消入口，并将取消和网络失败归一化为带稳定 `code` 的 `ApiError`，领域 API 继续复用基础请求客户端。
+
+Capability Center 组件测试覆盖 Tab 延迟加载与缓存、错误重试和删除确认；Playwright 用例覆盖移动端 Tab 切换、请求隔离与横向溢出。
+
+首页 `src/components/index.vue` 在 768px 以下使用与 Agent Dashboard 一致的会话抽屉协议：顶部菜单打开左侧导航，遮罩或 Escape 关闭抽屉并恢复菜单按钮焦点。移动输入框保持至少 16px 字号，并通过 `safe-area-inset-bottom` 避让设备安全区。
+
+首页与 Agent Dashboard 的组件测试分别位于 `src/components/index.test.js` 和 `src/views/AgentDashboard.test.js`，覆盖工作区结构、抽屉语义和焦点恢复。`tests/e2e/workbench-responsive.spec.js` 在 1440px、768px 和 390px 三档视口验证桌面栏位、移动抽屉、单列工作区、输入字号与横向溢出。
+
+任务反馈归一化测试位于 `src/utils/taskFeedback.test.js`，覆盖四个任务领域、状态别名、零值与边界进度、工作流节点汇总、PPT 事件包装和恢复快照、错误提取及耗时计算。
+
+## 任务反馈与恢复
+
+`src/composables/useTaskFeedback.js` 管理任务反馈生命周期、运行耗时、连接状态和事件序列。`src/components/TaskFeedbackPanel.vue` 组合 `TaskStatus` 与 `NextAction`，在 Agent、Workflow、PPT 和绘图工作区统一展示当前阶段、状态、进度、耗时、错误、下一动作及连接恢复提示。
+
+反馈面板通过 `actions` 接收 `{ key, label, variant }` 操作列表，并通过统一 `action` 事件回传操作键。页面层负责映射领域能力：Agent 支持停止、重试和下载项目；Workflow 与临时工作流支持取消、继续或重试和导出；PPT 支持取消、重试、在线预览和下载；绘图支持取消、重试和下载结果。Workflow 与绘图的进行中请求使用 `AbortController` 取消，取消后进入可重新执行的暂停状态。
+
+普通流式事件通过 `mergeTaskFeedback` 局部合并，只更新事件携带的字段并保留工作区上下文。带序列号的事件会过滤重复或过期数据；发现序列缺口时进入恢复状态。PPT WebSocket 使用 `after_sequence` 请求服务端续传，连接中断后最多自动重连三次，并使用 `snapshot_recovery` 全量覆盖反馈快照和恢复结果；Agent 与 Workflow SSE 在协议没有事件重放能力时保留当前输入、消息和节点状态，同时明确展示连接中断状态。
+
+对应单元与组件测试位于 `src/utils/taskFeedback.test.js`、`src/composables/useTaskFeedback.test.js` 和 `src/components/shared-state.test.js`，覆盖四领域状态归一化、局部合并、重复事件过滤、序列缺口、恢复快照、过期快照拒绝、终态断线保护、游标重置、终态计时停止、反馈面板增量渲染和多操作事件派发。
 
 ## 前端命令
 
@@ -108,4 +155,10 @@ npm run lint
 
 # 构建生产资源
 npm run build
+
+# 构建并执行性能预算检查
+npm run build:budget
+
+# 检查已有生产产物的性能预算
+npm run budget:check
 ```
