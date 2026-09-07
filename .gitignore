@@ -181,6 +181,16 @@ data/agent_host_sessions/
 test/
 src/test-results/
 
+# Flutter client source and tests
+!flutter_client/lib/
+!flutter_client/lib/**
+!flutter_client/test/
+!flutter_client/test/**
+
+# Active Flutter client specification
+!.monkeycode/specs/2026-09-06-flutter-client-ui-polish/
+!.monkeycode/specs/2026-09-06-flutter-client-ui-polish/**
+
 # =============================================================================
 # 其他
 # =============================================================================
