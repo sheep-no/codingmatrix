@@ -10,7 +10,8 @@ void main() {
     final seen = <http.Request>[];
     final client = MockClient((request) async {
       seen.add(request);
-      if (request.method == 'GET' && request.url.path == '/api/v1/csrf-token') {
+      if (request.method == 'GET' &&
+          request.url.path == '/api/v1/auth/csrf-token') {
         return http.Response(
           '{"csrf_token":"csrf-abc","expires_in":3600}',
           200,
@@ -20,7 +21,8 @@ void main() {
           },
         );
       }
-      if (request.method == 'POST' && request.url.path == '/api/v1/login') {
+      if (request.method == 'POST' &&
+          request.url.path == '/api/v1/auth/login') {
         expect(request.headers['x-csrf-token'], 'csrf-abc');
         expect(request.headers['cookie'], contains('csrf_token=csrf-abc'));
         expect(request.body, contains('"email":"user@example.com"'));
