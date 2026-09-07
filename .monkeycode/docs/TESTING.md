@@ -111,9 +111,9 @@ Agent Host 和本地验证修改后运行 `npm --prefix vscode-extension test`�
 
 ## 最近结果（2026-09-05）
 
-- VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `62 passed`。
-- VS Code Extension Development Host：E2E 通过，已验证扩展激活、Agent Workbench 打开、兼容性握手和工作区能力。
+- VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `75 passed`。
+- VS Code Extension Development Host：VS Code `1.136.1` E2E 通过，已验证扩展激活、Agent Workbench 打开、兼容性握手和工作区能力。
 - 前端相关回归：`23 passed`，生产构建成功。
 - PPT 专项回归：`141 passed`；真实 HTTP/WebSocket 验收覆盖 HTML 生成、PPTX 下载、进度事件和格式错误隔离。
-- 原始 `npm --prefix vscode-extension run e2e` 在当前无头环境会受到 `xauth` 缺失影响；使用已启动的 `Xvfb` 直接运行 E2E 入口后完成验收。
+- 无头 Linux 环境安装 `xvfb`、`xauth`、`libgtk-3-0`、`libgbm1` 和 `libxkbcommon0` 后，可直接运行 `npm --prefix vscode-extension run e2e` 完成验收。
 - 游戏 AI PPT 真实生成 E2E 当前结果为 `1 passed`；运行时曾发现根目录与 `src/node_modules` 的 Playwright 依赖冲突，固定使用根目录 CLI、配置和 Chromium 项目后通过。

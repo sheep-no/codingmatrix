@@ -142,8 +142,8 @@ npm --prefix src run build
 - PPT 任务 6 渲染与素材回归：完整 PPT 测试 `235 passed`；11 类页面视觉骨架、图片等比适配/回退、图表选择和来源占位规则通过。
 - `elegant` 董事会备忘录主题统一生成测试：`24 passed`；6 页 PPTX、PDF 和 PNG 样稿生成成功，证据页与路线页二轮视觉评分为 `9.0/10` 和 `8.5/10`。
 - 前端全量测试：`36 passed`；PPT 工作流测试覆盖大纲修改、新增、重排、删除、批准禁用，以及逐页质量分、问题、修复动作和人工复核标记展示；前端生产构建成功。
-- VS Code 扩展构建成功，Node 原生测试：`62 passed`。
-- VS Code Extension Development Host E2E 成功，覆盖扩展发现、激活、兼容性校验、Agent Workbench 命令和工作区加载。
+- VS Code 扩展构建成功，Node 原生测试：`75 passed`。
+- VS Code Extension Development Host E2E 成功，使用 VS Code `1.136.1` 覆盖扩展发现、激活、兼容性校验、Agent Workbench 命令和工作区加载。
 - 已生成 VSIX：`vscode-extension/codingmatrix-local-validation-0.1.0.vsix`。
 - 真实 Agent/PPT 验收已覆盖 HTML 产物生成、PPTX HTTP 下载、WebSocket 进度事件和错误格式请求返回 404。
 - 游戏 AI PPT 真实生成 E2E：`1 passed`；请求 `slide_count=16` 返回 15 个内容页并下载生成的 16 页 PPTX，内容断言覆盖 `NPC`、`UGC` 和 AI 游戏领域语义。
@@ -239,7 +239,7 @@ npx --no-install playwright test tests/e2e/test_ppt_game_ai.e2e.spec.js --config
 - `approval-bridge.ts` 管理 Host 动作的审批请求和决定；`AgentHostRuntime` 通过会话策略的 `auto_approve` 开关控制动作暂停、批准继续和拒绝结果。
 - `AgentWorkbenchController` 通过 `onMessage` 回调接收已验证的 Webview 控制消息；审批请求在工作台中展示批准和拒绝操作，并按原 Envelope 回传决定。
 - `extension.ts` activation 会为当前工作区创建本地 Agent Host；真实进程执行使用 `node:child_process.spawn`，工作区授权和审批桥接由 Host 组件统一管理。
-- 真实插件 E2E 位于 `vscode-extension/e2e/`，由 `@vscode/test-electron` 启动 VS Code `1.135.0` 和 `fixtures` 临时工作区；无头 Linux 环境需要 `xvfb`，脚本已通过 `xvfb-run` 提供 DISPLAY。测试覆盖工作区打开、manifest 发现、扩展激活和兼容性握手。
+- 真实插件 E2E 位于 `vscode-extension/e2e/`，由直接开发依赖 `@vscode/test-electron` 启动 VS Code 和 `fixtures` 临时工作区；无头 Linux 环境需要 `xvfb`、`xauth` 与 Electron GTK 运行库，脚本通过 `xvfb-run` 提供 DISPLAY。测试覆盖工作区打开、manifest 发现、扩展激活和兼容性握手；最近验收版本为 VS Code `1.136.1`。
 
 ## 运行时验证边界
 

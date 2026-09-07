@@ -15,7 +15,7 @@ import { ResultStore, ResultStorage } from "./result-store.js";
 declare const process: { env: Record<string, string | undefined> };
 
 let runtime: AgentHostRuntime | undefined;
-let pollTimer: ReturnType<typeof setInterval> | undefined;
+let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let connectionStartId = 0;
 let cloudConnection: CloudConnection | undefined;
 let agentConversationId = `vscode-agent-${Date.now()}`;
@@ -24,6 +24,10 @@ let connectionFolders: WorkspaceSkillRoot[] = [];
 let connectionWorkspaceId = "";
 let extensionContext: vscode.ExtensionContext | undefined;
 let resultStore: ResultStore | undefined;
+let connectionDisposables: vscode.Disposable[] = [];
+let skillSyncTimer: ReturnType<typeof setTimeout> | undefined;
+let promptAbortController: AbortController | undefined;
+let extensionLifecycleId = 0;
 const controller = new AgentWorkbenchController({
   onMessage: async (message) => {
     if (runtime) await runtime.process(message);
@@ -33,16 +37,23 @@ const controller = new AgentWorkbenchController({
       await controller.publishWorkbenchEvent({ type: "error", data: { error: "云端 Agent 尚未连接" } });
       return;
     }
+    promptAbortController?.abort();
+    const requestController = new AbortController();
+    promptAbortController = requestController;
     try {
       await cloudConnection.streamAgentPrompt(
         { requirement: prompt, session_id: agentConversationId },
         (event) => controller.publishWorkbenchEvent(event),
+        requestController.signal,
       );
     } catch (error) {
+      if (requestController.signal.aborted) return;
       await controller.publishWorkbenchEvent({
         type: "error",
         data: { error: error instanceof Error ? error.message : "Agent 请求失败" },
       });
+    } finally {
+      if (promptAbortController === requestController) promptAbortController = undefined;
     }
   },
   onControl: async (action) => {
@@ -51,6 +62,10 @@ const controller = new AgentWorkbenchController({
       return;
     }
     try {
+      if (action === "cancel") {
+        promptAbortController?.abort();
+        runtime?.cancelActiveActions();
+      }
       const result = await cloudConnection.controlSession(action);
       await vscode.commands.executeCommand("setContext", "codingmatrix.agentSessionStatus", result.status);
       await controller.publishWorkbenchEvent({ type: "progress", data: { message: `会话状态：${result.status}` } });
@@ -61,6 +76,7 @@ const controller = new AgentWorkbenchController({
 });
 
 export function activate(context: vscode.ExtensionContext): void {
+  const lifecycleId = ++extensionLifecycleId;
   resultStore = new ResultStore(new VscodeResultStorage(context.globalState));
   const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
   const workspace = workspaceFolders[0];
@@ -76,6 +92,7 @@ export function activate(context: vscode.ExtensionContext): void {
       require_confirmation_on_failure: true,
     };
     void Promise.all(workspaceFolders.map((folder) => authorization.grant(folder.name, folder.uri.fsPath))).then(() => {
+      if (lifecycleId !== extensionLifecycleId) return;
       session.acceptHandshake({
         session_id: "vscode-local-session",
         workspace_id: workspace.name,
@@ -127,6 +144,13 @@ export function activate(context: vscode.ExtensionContext): void {
             await vscode.commands.executeCommand("setContext", "codingmatrix.agentConnectionStatus", "offline");
           });
       }
+    }).catch(async (error) => {
+      if (lifecycleId !== extensionLifecycleId) return;
+      await vscode.commands.executeCommand("setContext", "codingmatrix.agentConnectionStatus", "offline");
+      await controller.publishWorkbenchEvent({
+        type: "error",
+        data: { error: error instanceof Error ? error.message : "工作区授权初始化失败" },
+      });
     });
   }
   context.subscriptions.push(vscode.commands.registerCommand(AGENT_WORKBENCH_COMMAND, () => controller.open(() => vscode.window.createWebviewPanel(AGENT_WORKBENCH_VIEW_TYPE, "CodingMatrix Agent", vscode.ViewColumn.One, { enableScripts: true }))));
@@ -141,6 +165,10 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       try {
+        if (action === "cancel") {
+          promptAbortController?.abort();
+          runtime?.cancelActiveActions();
+        }
         const result = await cloudConnection.controlSession(action);
         await vscode.commands.executeCommand("setContext", "codingmatrix.agentSessionStatus", result.status);
         await controller.publishWorkbenchEvent({ type: "progress", data: { message: `会话状态：${result.status}` } });
@@ -153,8 +181,11 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = undefined;
+  extensionLifecycleId += 1;
+  disposeConnectionResources();
+  runtime?.cancelActiveActions();
+  promptAbortController?.abort();
+  promptAbortController = undefined;
   cloudConnection = undefined;
   runtime = undefined;
   hostSession = undefined;
@@ -230,8 +261,7 @@ async function startCloudConnection(
   pollIntervalMs: number,
   context: vscode.ExtensionContext,
 ): Promise<void> {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = undefined;
+  disposeConnectionResources();
   const startId = ++connectionStartId;
   const handshake = await connection.handshake({
     workspace_id: workspaceId,
@@ -239,26 +269,58 @@ async function startCloudConnection(
     protocol_versions: [1],
     capabilities: ["workspace", "file", "terminal", "diagnostics", "validation", "skill_runtime"],
   });
+  if (startId !== connectionStartId) return;
   session.acceptHandshake(handshake);
+  hostRuntime.resetForHandshake();
   const syncSkills = async (): Promise<void> => {
     const skills = await discoverWorkspaceSkills(workspaceFolders);
     await connection.syncSkills(skills);
   };
   await syncSkills();
+  if (startId !== connectionStartId) return;
   const watchers = workspaceFolders.flatMap((folder) => [
     vscode.workspace.createFileSystemWatcher(`${folder.path}/.claude/skills/**`),
     vscode.workspace.createFileSystemWatcher(`${folder.path}/skills/**`),
     vscode.workspace.createFileSystemWatcher(`${folder.path}/data/custom_skills/**/*.md`),
   ]);
-  let syncTimer: ReturnType<typeof setTimeout> | undefined;
   const scheduleSync = (): void => {
-    if (syncTimer) clearTimeout(syncTimer);
-    syncTimer = setTimeout(() => { void syncSkills(); }, 200);
+    if (skillSyncTimer) clearTimeout(skillSyncTimer);
+    skillSyncTimer = setTimeout(() => {
+      void syncSkills().catch(async () => {
+        await vscode.commands.executeCommand("setContext", "codingmatrix.agentConnectionStatus", "offline");
+      });
+    }, 200);
   };
   for (const watcher of watchers) {
-    context.subscriptions.push(watcher, watcher.onDidCreate(scheduleSync), watcher.onDidChange(scheduleSync), watcher.onDidDelete(scheduleSync));
+    connectionDisposables.push(watcher, watcher.onDidCreate(scheduleSync), watcher.onDidChange(scheduleSync), watcher.onDidDelete(scheduleSync));
   }
-  await hostRuntime.poll();
-  if (startId !== connectionStartId) return;
-  pollTimer = setInterval(() => { void hostRuntime.poll(); }, Math.max(250, pollIntervalMs));
+  context.subscriptions.push(...connectionDisposables);
+  const interval = Math.max(250, pollIntervalMs);
+  const poll = async (): Promise<void> => {
+    try {
+      await hostRuntime.poll();
+      if (startId === connectionStartId) {
+        await vscode.commands.executeCommand("setContext", "codingmatrix.agentConnectionStatus", "online");
+      }
+    } catch {
+      if (startId === connectionStartId) {
+        await vscode.commands.executeCommand("setContext", "codingmatrix.agentConnectionStatus", "offline");
+      }
+    } finally {
+      if (startId === connectionStartId) {
+        pollTimer = setTimeout(() => { void poll(); }, interval);
+      }
+    }
+  };
+  await poll();
+}
+
+function disposeConnectionResources(): void {
+  connectionStartId += 1;
+  if (pollTimer) clearTimeout(pollTimer);
+  pollTimer = undefined;
+  if (skillSyncTimer) clearTimeout(skillSyncTimer);
+  skillSyncTimer = undefined;
+  for (const disposable of connectionDisposables) disposable.dispose();
+  connectionDisposables = [];
 }
