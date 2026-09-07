@@ -10,6 +10,7 @@
     "vscode": ">=1.90.0"
   },
   "main": "./dist/extension.js",
+  "files": ["dist/**"],
   "activationEvents": ["onStartupFinished"],
   "contributes": {
     "configuration": {
