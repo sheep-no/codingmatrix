@@ -54,4 +54,25 @@ void main() {
       throwsA(isA<AgentStreamException>()),
     );
   });
+
+  test('stops the authenticated backend session', () async {
+    final store = CredentialStore();
+    final tokenRef = store.storeAccessToken('secret-token');
+    final client = MockClient((request) async {
+      expect(request.method, 'POST');
+      expect(request.url.path, '/api/v1/agent/stop/desktop-session');
+      expect(request.headers['authorization'], 'Bearer secret-token');
+      return http.Response('{}', 200);
+    });
+    final streamClient = AgentStreamClient(
+      baseUrl: 'http://127.0.0.1:8080',
+      httpClient: client,
+      credentialStore: store,
+    );
+
+    await streamClient.stop(
+      accessTokenRef: tokenRef,
+      sessionId: 'desktop-session',
+    );
+  });
 }

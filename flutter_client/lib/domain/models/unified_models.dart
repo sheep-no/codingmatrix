@@ -135,6 +135,7 @@ class Task {
   }
 
   Task copyWith({
+    String? sessionId,
     String? status,
     String? stage,
     int? progress,
@@ -144,7 +145,7 @@ class Task {
   }) {
     return Task(
       taskId: taskId,
-      sessionId: sessionId,
+      sessionId: sessionId ?? this.sessionId,
       revision: revision ?? this.revision,
       taskType: taskType,
       status: status ?? this.status,
@@ -273,11 +274,7 @@ class RoleAssignment {
   final double successRate;
 
   Map<String, dynamic> toJson() {
-    return {
-      'model': model,
-      'calls': calls,
-      'success_rate': successRate,
-    };
+    return {'model': model, 'calls': calls, 'success_rate': successRate};
   }
 
   factory RoleAssignment.fromJson(Map<String, dynamic> json) {
@@ -317,7 +314,9 @@ class ModelContext {
       'roles': roles,
       'current_model': currentModel,
       'current_agent': currentAgent,
-      'assignments': assignments.map((key, value) => MapEntry(key, value.toJson())),
+      'assignments': assignments.map(
+        (key, value) => MapEntry(key, value.toJson()),
+      ),
       'fallback_history': fallbackHistory,
       'updated_at': updatedAt?.toIso8601String(),
     };

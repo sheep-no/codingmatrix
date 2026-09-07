@@ -60,6 +60,7 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
   final SseParser _parser;
   final AgentStreamClient? _streamClient;
   StreamSubscription<String>? _streamSubscription;
+  String? _activeAccessTokenRef;
 
   List<SseEvent> ingestSseChunk(String chunk) {
     final parsed = _parser.push(chunk);
@@ -119,14 +120,22 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
     await stopGeneration(markCancelled: false);
     resetStream();
     final taskId = 'local-${DateTime.now().millisecondsSinceEpoch}';
+    final sessionId = 'desktop-${DateTime.now().millisecondsSinceEpoch}';
+    _activeAccessTokenRef = accessTokenRef;
     state = state.copyWith(
-      task: Task(taskId: taskId, status: 'running', stage: 'connecting'),
+      task: Task(
+        taskId: taskId,
+        sessionId: sessionId,
+        status: 'running',
+        stage: 'connecting',
+      ),
     );
     _streamSubscription = client
         .generate(
           accessTokenRef: accessTokenRef,
           requirement: requirement,
           projectName: projectName,
+          sessionId: sessionId,
         )
         .listen(
           ingestSseChunk,
@@ -152,8 +161,20 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
   }
 
   Future<void> stopGeneration({bool markCancelled = true}) async {
+    final activeTask = state.task;
+    final accessTokenRef = _activeAccessTokenRef;
+    final sessionId = activeTask?.sessionId;
     await _streamSubscription?.cancel();
     _streamSubscription = null;
+    if (activeTask?.status == 'running' &&
+        accessTokenRef != null &&
+        sessionId != null &&
+        _streamClient != null) {
+      await _streamClient.stop(
+        accessTokenRef: accessTokenRef,
+        sessionId: sessionId,
+      );
+    }
     if (markCancelled && state.task?.status == 'running') {
       state = state.copyWith(task: state.task?.copyWith(status: 'cancelled'));
     }
@@ -181,6 +202,7 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
     switch (event.type) {
       case 'progress':
         return task.copyWith(
+          sessionId: event.data?['session_id'] as String? ?? task.sessionId,
           status: 'running',
           progress: (event.data?['progress'] as num?)?.toInt() ?? task.progress,
           stage: event.data?['stage'] as String? ?? task.stage,

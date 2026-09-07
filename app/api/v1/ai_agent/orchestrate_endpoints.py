@@ -154,6 +154,24 @@ def _generation_http_exception(error: Exception) -> HTTPException:
 _active_tasks: Dict[str, dict] = {}
 _user_creation_locks: Dict[str, asyncio.Lock] = {}
 
+
+async def _cancel_active_generation(session_id: str) -> bool:
+    """Cancel an in-process generation task and wait for its cleanup."""
+    active_task = _active_tasks.pop(session_id, None)
+    if not active_task:
+        return False
+    gen_task = active_task.get("gen_task")
+    if not gen_task or gen_task.done():
+        return True
+    gen_task.cancel()
+    try:
+        await asyncio.wait_for(gen_task, timeout=5.0)
+    except asyncio.CancelledError:
+        pass
+    except asyncio.TimeoutError:
+        logger.warning("生成任务取消等待超时 | session=%s", session_id)
+    return True
+
 logger = logging.getLogger(__name__)
 
 
@@ -825,6 +843,16 @@ async def orchestrate_project_stream(
     cache = await get_spec_cache()
     learner = await get_feedback_learner()
 
+    session_state = None
+    if is_resume or request.incremental:
+        session_state = await sm.resume_session(session_id)
+    if session_state is None:
+        await sm.create_session(
+            requirement=request.requirement,
+            output_dir=output_dir,
+            session_id=session_id,
+        )
+
     async def event_generator() -> AsyncIterator[str]:
         logger.info(f"[SSE] event_generator 开始 | session={session_id}")
         try:
@@ -987,18 +1015,16 @@ async def orchestrate_project_stream(
                 # 关键：判定"是否真正成功"必须看 gen_task 状态，而不是 generation_completed
                 # generation_completed 可能在客户端断开的瞬间还没被置为 True
                 # 但 gen_task 已完成且无异常 → 生成实际上已成功 → 不可标 cancelled
-                gen_succeeded = (
-                    not generation_completed
-                    and gen_task.done()
-                    and gen_task.exception() is None
-                )
-                if generation_completed or gen_succeeded:
-                    logger.info(f"[SSE] 生成已成功完成 | session={session_id}")
+                gen_finished = gen_task.done()
+                if generation_completed or gen_finished:
+                    if cancel_event.is_set() or gen_task.cancelled():
+                        logger.info(f"[SSE] 生成已停止 | session={session_id}")
+                    else:
+                        logger.info(f"[SSE] 生成已成功完成 | session={session_id}")
                     # 清理活跃任务
                     _active_tasks.pop(session_id, None)
                 else:
                     logger.info(f"[SSE] 生成未完成，任务继续在后台运行 | session={session_id}")
-                    concurrent_mgr.unregister_session(user_role)
                     # 注册完成回调，任务结束后清理 _active_tasks
                     def _on_task_done(t):
                         _active_tasks.pop(session_id, None)
@@ -1063,8 +1089,8 @@ async def stop_project(
     if cancel_ev:
         cancel_ev.set()
     
-    # 2. 清理活跃任务
-    _active_tasks.pop(session_id, None)
+    # 2. 取消活跃任务并等待其 finally 清理资源
+    await _cancel_active_generation(session_id)
     
     # 3. 删除项目文件（用户已确认停止，保护隐私）
     files_deleted = False
@@ -1485,8 +1511,8 @@ async def session_action_endpoint(
         if cancel_ev:
             cancel_ev.set()
         
-        # 清理活跃任务
-        _active_tasks.pop(session_id, None)
+        # 取消活跃任务并等待其 finally 清理资源
+        await _cancel_active_generation(session_id)
         
         # 删除项目文件（用户已确认取消，释放资源）
         result = await db.execute(

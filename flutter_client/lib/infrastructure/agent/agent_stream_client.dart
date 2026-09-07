@@ -76,6 +76,30 @@ class AgentStreamClient {
     yield* response.stream.transform(utf8.decoder);
   }
 
+  Future<void> stop({
+    required String accessTokenRef,
+    required String sessionId,
+  }) async {
+    final token = credentialStore.read(accessTokenRef);
+    if (token == null || token.isEmpty) {
+      throw AgentStreamException('登录凭据已失效，请重新登录');
+    }
+
+    final response = await httpClient.post(
+      _join('/api/v1/agent/stop/$sessionId'),
+      headers: <String, String>{
+        'Authorization': 'Bearer $token',
+        'Accept': 'application/json',
+      },
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AgentStreamException(
+        _extractDetail(response.body, fallback: 'Agent 停止失败'),
+        statusCode: response.statusCode,
+      );
+    }
+  }
+
   Uri _join(String path) {
     final normalizedBase = baseUrl.endsWith('/')
         ? baseUrl.substring(0, baseUrl.length - 1)

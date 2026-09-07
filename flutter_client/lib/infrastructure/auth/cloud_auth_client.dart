@@ -21,8 +21,8 @@ class CloudAuthClient {
     required this.baseUrl,
     required this.httpClient,
     required this.credentialStore,
-    this.csrfPath = '/api/v1/auth/csrf-token',
-    this.loginPath = '/api/v1/auth/login',
+    this.csrfPath = '/api/v1/csrf-token',
+    this.loginPath = '/api/v1/login',
   });
 
   final String baseUrl;
