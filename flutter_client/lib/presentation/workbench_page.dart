@@ -6,11 +6,35 @@ import '../application/workbench_controller.dart';
 import '../domain/models/unified_models.dart';
 import '../infrastructure/sse/sse_parser.dart';
 
-class WorkbenchPage extends ConsumerWidget {
+class WorkbenchPage extends ConsumerStatefulWidget {
   const WorkbenchPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<WorkbenchPage> createState() => _WorkbenchPageState();
+}
+
+class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
+  final _requirementController = TextEditingController();
+
+  @override
+  void dispose() {
+    _requirementController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _startGeneration(AuthState auth) async {
+    final requirement = _requirementController.text.trim();
+    final tokenRef = auth.session?.accessTokenRef;
+    if (requirement.isEmpty || tokenRef == null) {
+      return;
+    }
+    await ref
+        .read(workbenchControllerProvider.notifier)
+        .startGeneration(accessTokenRef: tokenRef, requirement: requirement);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
     final workbench = ref.watch(workbenchControllerProvider);
     final session = auth.session;
@@ -39,7 +63,14 @@ class WorkbenchPage extends ConsumerWidget {
             ),
           TextButton(
             key: const Key('logoutButton'),
-            onPressed: () => ref.read(authControllerProvider.notifier).logout(),
+            onPressed: () async {
+              await ref
+                  .read(workbenchControllerProvider.notifier)
+                  .stopGeneration();
+              if (mounted) {
+                ref.read(authControllerProvider.notifier).logout();
+              }
+            },
             child: const Text('退出'),
           ),
         ],
@@ -51,6 +82,7 @@ class WorkbenchPage extends ConsumerWidget {
             final compact = constraints.maxWidth < 720;
             final overview = _OverviewCard(workbench: workbench, task: task);
             final events = _EventsCard(events: workbench.events);
+            final isRunning = task?.status == 'running';
             final heading = Text(
               workbench.agent?.name ?? 'CodingMatrix Agent',
               style: Theme.of(context).textTheme.headlineSmall,
@@ -62,6 +94,15 @@ class WorkbenchPage extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     heading,
+                    const SizedBox(height: 16),
+                    _PromptCard(
+                      controller: _requirementController,
+                      isRunning: isRunning,
+                      onStart: () => _startGeneration(auth),
+                      onStop: () => ref
+                          .read(workbenchControllerProvider.notifier)
+                          .stopGeneration(),
+                    ),
                     const SizedBox(height: 16),
                     overview,
                     const SizedBox(height: 16),
@@ -76,6 +117,15 @@ class WorkbenchPage extends ConsumerWidget {
               children: [
                 heading,
                 const SizedBox(height: 16),
+                _PromptCard(
+                  controller: _requirementController,
+                  isRunning: isRunning,
+                  onStart: () => _startGeneration(auth),
+                  onStop: () => ref
+                      .read(workbenchControllerProvider.notifier)
+                      .stopGeneration(),
+                ),
+                const SizedBox(height: 16),
                 Expanded(
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -89,6 +139,61 @@ class WorkbenchPage extends ConsumerWidget {
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _PromptCard extends StatelessWidget {
+  const _PromptCard({
+    required this.controller,
+    required this.isRunning,
+    required this.onStart,
+    required this.onStop,
+  });
+
+  final TextEditingController controller;
+  final bool isRunning;
+  final VoidCallback onStart;
+  final VoidCallback onStop;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: TextField(
+                key: const Key('requirementField'),
+                controller: controller,
+                minLines: 1,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: '告诉 Agent 你要完成什么',
+                  hintText: '例如：创建一个带登录页的 Flutter 应用',
+                  prefixIcon: Icon(Icons.edit_note_outlined),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            isRunning
+                ? OutlinedButton.icon(
+                    key: const Key('stopGenerationButton'),
+                    onPressed: onStop,
+                    icon: const Icon(Icons.stop_circle_outlined),
+                    label: const Text('停止'),
+                  )
+                : FilledButton.icon(
+                    key: const Key('startGenerationButton'),
+                    onPressed: onStart,
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: const Text('开始'),
+                  ),
+          ],
         ),
       ),
     );

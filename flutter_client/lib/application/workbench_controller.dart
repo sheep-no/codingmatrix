@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'auth_controller.dart';
+import '../infrastructure/agent/agent_stream_client.dart';
 import '../domain/models/unified_models.dart';
 import '../infrastructure/sse/sse_parser.dart';
 
@@ -40,19 +44,22 @@ class WorkbenchState {
 }
 
 class WorkbenchController extends StateNotifier<WorkbenchState> {
-  WorkbenchController({SseParser? parser})
-      : _parser = parser ?? SseParser(),
-        super(
-          WorkbenchState(
-            agent: const Agent(
-              id: 'desktop-agent',
-              name: 'CodingMatrix Agent',
-              status: 'idle',
-            ),
+  WorkbenchController({SseParser? parser, AgentStreamClient? streamClient})
+    : _parser = parser ?? SseParser(),
+      _streamClient = streamClient,
+      super(
+        WorkbenchState(
+          agent: const Agent(
+            id: 'desktop-agent',
+            name: 'CodingMatrix Agent',
+            status: 'idle',
           ),
-        );
+        ),
+      );
 
   final SseParser _parser;
+  final AgentStreamClient? _streamClient;
+  StreamSubscription<String>? _streamSubscription;
 
   List<SseEvent> ingestSseChunk(String chunk) {
     final parsed = _parser.push(chunk);
@@ -68,7 +75,9 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
       if (artifactPayload is Map<String, dynamic>) {
         artifacts.add(Artifact.fromJson(artifactPayload));
       } else if (artifactPayload is Map) {
-        artifacts.add(Artifact.fromJson(Map<String, dynamic>.from(artifactPayload)));
+        artifacts.add(
+          Artifact.fromJson(Map<String, dynamic>.from(artifactPayload)),
+        );
       }
     }
 
@@ -91,17 +100,78 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
   void bindModelContext(ModelContext context) {
     state = state.copyWith(
       modelContext: context,
-      agent: (state.agent ??
-              const Agent(id: 'desktop-agent', name: 'CodingMatrix Agent'))
-          .copyWithStatus(
-        currentModel: context.currentModel,
-      ),
+      agent:
+          (state.agent ??
+                  const Agent(id: 'desktop-agent', name: 'CodingMatrix Agent'))
+              .copyWithStatus(currentModel: context.currentModel),
     );
+  }
+
+  Future<void> startGeneration({
+    required String accessTokenRef,
+    required String requirement,
+    String? projectName,
+  }) async {
+    final client = _streamClient;
+    if (client == null) {
+      throw StateError('Agent stream client is not configured');
+    }
+    await stopGeneration(markCancelled: false);
+    resetStream();
+    final taskId = 'local-${DateTime.now().millisecondsSinceEpoch}';
+    state = state.copyWith(
+      task: Task(taskId: taskId, status: 'running', stage: 'connecting'),
+    );
+    _streamSubscription = client
+        .generate(
+          accessTokenRef: accessTokenRef,
+          requirement: requirement,
+          projectName: projectName,
+        )
+        .listen(
+          ingestSseChunk,
+          onError: (Object error) {
+            state = state.copyWith(
+              task: state.task?.copyWith(
+                status: 'failed',
+                errorJson: <String, dynamic>{'error': error.toString()},
+              ),
+            );
+          },
+          onDone: () {
+            if (state.task?.status == 'running') {
+              state = state.copyWith(
+                task: state.task?.copyWith(
+                  status: 'failed',
+                  errorJson: const <String, dynamic>{'error': 'Agent 事件流提前结束'},
+                ),
+              );
+            }
+          },
+        );
+  }
+
+  Future<void> stopGeneration({bool markCancelled = true}) async {
+    await _streamSubscription?.cancel();
+    _streamSubscription = null;
+    if (markCancelled && state.task?.status == 'running') {
+      state = state.copyWith(task: state.task?.copyWith(status: 'cancelled'));
+    }
   }
 
   void resetStream() {
     _parser.reset();
     state = state.copyWith(events: const <SseEvent>[]);
+  }
+
+  @override
+  void dispose() {
+    final subscription = _streamSubscription;
+    _streamSubscription = null;
+    if (subscription != null) {
+      unawaited(subscription.cancel());
+    }
+    super.dispose();
   }
 
   Task? _applyEvent(Task? task, SseEvent event) {
@@ -147,5 +217,11 @@ extension on Agent {
 
 final workbenchControllerProvider =
     StateNotifierProvider<WorkbenchController, WorkbenchState>((ref) {
-  return WorkbenchController();
-});
+      return WorkbenchController(
+        streamClient: AgentStreamClient(
+          baseUrl: ref.watch(apiBaseUrlProvider),
+          httpClient: ref.watch(httpClientProvider),
+          credentialStore: ref.watch(credentialStoreProvider),
+        ),
+      );
+    });
