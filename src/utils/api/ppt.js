@@ -32,6 +32,12 @@ export function createPptClient(client) {
       throw new Error(error.detail || '更新大纲失败')
     },
 
+    async getOutline(outlineId, version) {
+      const response = await client.get(`/pptx/outlines/${outlineId}?version=${version}`)
+      if (response.ok) return await response.json()
+      throw new Error('加载对应版本的大纲失败')
+    },
+
     async deleteOutline(outlineId) {
       const response = await client.delete(`/pptx/outlines/${outlineId}`)
       if (response.ok) return await response.json()
@@ -46,14 +52,18 @@ export function createPptClient(client) {
       throw new Error(error.detail || '批准大纲失败')
     },
 
-    async generateFromOutline(outlineId, qualityMode = 'standard', outlineVersion = null) {
+    async generateFromOutline(outlineId, qualityMode = 'standard', outlineVersion = null, options = {}) {
       const response = await client.post(`/pptx/outlines/${outlineId}/generate`, {
         quality_mode: qualityMode,
         outline_version: outlineVersion,
+        output_format: options.output_format || 'pptx',
+        auto_images: options.auto_images !== false,
+        enable_animation: options.enable_animation !== false,
+        api_key_token: options.api_key_token || null,
       })
       if (response.ok) return await response.json()
       const error = await response.json()
-      throw new Error(error.detail || '创建 PPT 任务失败')
+      throw new Error(error.message || error.detail || '创建 PPT 任务失败')
     },
 
     async getQualityReport(taskId) {
@@ -62,14 +72,27 @@ export function createPptClient(client) {
       return null
     },
 
-    async regenerateOutlineSlide(outlineId, slideId, qualityMode = 'standard', slide = null) {
+    async getTemplatePreview(templateId, page = 1) {
+      const response = await client.get(`/pptx/templates/${templateId}/preview/${page}`)
+      if (response.ok) return response
+      return null
+    },
+
+    async regenerateOutlineSlide(outlineId, slideId, qualityMode, slide, outlineVersion, options = {}) {
       const response = await client.post(`/pptx/outlines/${outlineId}/slides/${slideId}/regenerate`, {
         quality_mode: qualityMode,
         slide,
+        outline_version: outlineVersion,
+        output_format: options.output_format || 'pptx',
+        auto_images: options.auto_images !== false,
+        enable_animation: options.enable_animation !== false,
+        api_key_token: options.api_key_token || null,
       })
       if (response.ok) return await response.json()
       const error = await response.json()
-      throw new Error(error.detail || '页面再生成失败')
+      const failure = new Error(error.message || (typeof error.detail === 'string' ? error.detail : '页面修改失败'))
+      if (error.details?.outline_version) failure.savedVersion = error.details.outline_version
+      throw failure
     },
 
     async createPptTask(prompt, conversationId = null, api_key_token = null, options = {}) {
@@ -194,11 +217,13 @@ export function createPptClient(client) {
       }
     },
 
-    async getTemplates(category = null) {
+    async getTemplates(category = null, { topic, scenario } = {}) {
       try {
-        const url = category
-          ? `/pptx/templates?category=${category}`
-          : '/pptx/templates'
+        const params = new URLSearchParams()
+        if (category) params.set('category', category)
+        if (topic) params.set('topic', topic)
+        if (scenario) params.set('scenario', scenario)
+        const url = `/pptx/templates${params.size ? `?${params}` : ''}`
         const response = await client.get(url)
         if (response.ok) {
           return await response.json()

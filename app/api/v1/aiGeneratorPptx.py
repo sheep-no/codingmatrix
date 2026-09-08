@@ -23,8 +23,9 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File as FastAPIFile, Form, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, Field
 
 from app.db.database import get_db
@@ -52,6 +53,7 @@ from app.services.ppt_state_service import (
     get_ppt_quality_report as persist_get_ppt_quality_report,
     get_ppt_outline as persist_get_ppt_outline,
     update_ppt_outline as persist_update_ppt_outline,
+    revise_ppt_slide,
 )
 from app.services.ppt_generation_persistence import (
     build_ppt_trace_context,
@@ -204,8 +206,11 @@ async def generate_ppt_from_approved_outline(
         template=outline.template_id,
         slide_count=1 + len(outline.slides),
         quality="high",
-        api_key_token=None,
+        api_key_token=req.api_key_token,
+        output_format=req.output_format,
         options={
+            "auto_images": req.auto_images,
+            "enable_animation": req.enable_animation,
             "quality_mode": req.quality_mode,
             "outline_id": outline.id,
             "outline_version": outline.version,
@@ -223,38 +228,33 @@ async def regenerate_ppt_slide(
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new approved outline version while preserving non-target slides."""
+    """Save a targeted revision and export the entire deck as a new artifact."""
     user_id = str(token.get("sub", "anonymous"))
     try:
-        current = await persist_get_ppt_outline(db, user_id, outline_id)
-    except StateNotFoundError:
-        raise HTTPException(status_code=404, detail="大纲不存在")
-
-    target_index = next((index for index, slide in enumerate(current.slides) if slide.id == slide_id), None)
-    if target_index is None:
-        raise HTTPException(status_code=404, detail="目标页面不存在")
-
-    slides = list(current.slides)
-    if req.slide is not None:
-        slides[target_index] = req.slide.model_copy(
-            update={"id": slide_id, "position": current.slides[target_index].position}
+        revised = await revise_ppt_slide(
+            db, user_id, outline_id, req.outline_version, slide_id, req.slide
         )
-    updated = await persist_update_ppt_outline(
-        db,
-        user_id,
-        outline_id,
-        OutlineUpdateRequest(slides=slides),
-    )
-    try:
-        await persist_approve_ppt_outline(db, user_id, outline_id)
+    except (StateNotFoundError, StateOwnershipError):
+        raise HTTPException(status_code=404, detail="大纲版本或目标页面不存在")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    return await generate_ppt_from_approved_outline(
-        outline_id,
-        OutlineGenerateRequest(quality_mode=req.quality_mode, outline_version=updated.version),
-        token,
-        db,
-    )
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="大纲版本保存冲突，请重试")
+
+    generation = OutlineGenerateRequest.model_validate({
+        **req.model_dump(exclude={"slide"}), "outline_version": revised.version,
+    })
+    try:
+        return await generate_ppt_from_approved_outline(outline_id, generation, token=token, db=db)
+    except Exception:
+        await db.rollback()
+        logger.exception("创建定向修改导出任务失败")
+        return JSONResponse(status_code=503, content={
+            "code": "SERVICE_UNAVAILABLE",
+            "message": f"修改已保存为 v{revised.version}，导出任务创建失败，可重试导出。",
+            "details": {"outline_id": outline_id, "outline_version": revised.version},
+        })
 
 
 @router.get("/pptx/{task_id}/quality-report")
@@ -1586,6 +1586,7 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
 
 def _normalize_approved_outline(outline: Dict[str, Any]) -> Dict[str, Any]:
     """Convert reviewed semantic slides into the legacy renderer contract."""
+    preserve_content = outline.get("status") == "approved" or outline.get("preserve_content", False)
     normalized_slides = []
     source_slides = outline.get("slides", [])
     roles = [slide.get("narrative_role") for slide in source_slides if isinstance(slide, dict)]
@@ -1606,6 +1607,9 @@ def _normalize_approved_outline(outline: Dict[str, Any]) -> Dict[str, Any]:
                 if block.get("content", "")
             ]
         normalized_slides.append({
+            "id": slide.get("id", f"slide-{index}"),
+            "position": slide.get("position", index - 1),
+            "preserve_content": preserve_content,
             "slide_number": slide.get("slide_number", index),
             "title": slide.get("title", f"第 {index} 页"),
             "content": content,
@@ -1618,7 +1622,7 @@ def _normalize_approved_outline(outline: Dict[str, Any]) -> Dict[str, Any]:
             "layout_variant": slide.get("layout_variant", layout_variants[index - 1]),
             "evidence_sources": slide.get("evidence_sources", outline.get("evidence_sources", [])),
         })
-    if normalized_slides and all(
+    if not preserve_content and normalized_slides and all(
         isinstance(slide, dict) and slide.get("narrative_role") for slide in source_slides
     ):
         _ensure_commercial_role_diversity(normalized_slides)
@@ -1626,6 +1630,7 @@ def _normalize_approved_outline(outline: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "title": outline.get("title", "PPT 标题"),
         "slides": normalized_slides,
+        "preserve_content": preserve_content,
     }
 
 
@@ -1869,7 +1874,7 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
     # === 2. 视觉决策阶段 ===
     visual_plan = None
     if update_progress: await update_progress(message="正在分析视觉需求...")
-    if req.api_key_token:
+    if req.api_key_token and req.options.get("auto_images", True):
         try:
             visual_plan = await visual_analyzer.analyze_ppt_content(
                 title=outline.get("title", "PPT"),
@@ -1890,7 +1895,7 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
         # 如果视觉决策启用，尝试使用
         image_asset = None
         role = slide_data.get("narrative_role", "opportunity_map")
-        needs_editorial_image = role == "opportunity_map"
+        needs_editorial_image = req.options.get("auto_images", True) and role == "opportunity_map"
 
         if needs_editorial_image and slide_data.get("asset_intent"):
             try:
@@ -1924,6 +1929,10 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
             slide_data = {**slide_data, "local_images": [image_asset.local_path]}
         _render_slide_default(prs, blank_layout, style, slide_data, idx, total_slides)
     
+    if req.options.get("enable_animation", False):
+        from app.utils.pptx.animation_engine import AnimationEngine, TransitionEffect
+
+        AnimationEngine().set_default_transition(prs, TransitionEffect.FADE)
     prs.save(str(filepath))
     logger.info(f"PPTX 文件保存成功 | file: {filepath}")
     
@@ -2269,7 +2278,7 @@ async def generate_ppt_task(
                 }
                 for index, slide in enumerate(slides_data)
             ]
-            quality_slides, quality_report = await run_quality_pipeline(quality_slides, quality_mode)
+            quality_slides, quality_report = await run_quality_pipeline(quality_slides, "standard")
             outline = {**outline, "slides": quality_slides}
             slides_data = quality_slides
             await save_ppt_stage_checkpoint(
@@ -2299,6 +2308,14 @@ async def generate_ppt_task(
             else:
                 # 默认回退到 PPTX
                 await generate_pptx_file_enhanced(filepath, outline, req, update_progress=update_progress)
+
+            if quality_mode == "refined":
+                from app.services.ppt_quality_orchestrator import review_rendered_deck
+
+                await review_rendered_deck(
+                    output_dir / f"{task_id}.pptx", quality_slides, quality_report,
+                    req.api_key_token, str(user_id), req.slide_count,
+                )
 
             result = {
                 "filename": filepath.name,
@@ -2822,17 +2839,29 @@ async def list_ppt_templates(
     if scenario or topic:
         recommendation = TemplateManager().recommend_for_scenario(topic, scenario=scenario)
         return recommendation
-    templates = []
-    for tpl_id, tpl_config in PPT_TEMPLATES.items():
-        if category and not tpl_id.startswith(category):
-            continue
-        templates.append({
-            "id": tpl_id,
-            "name": tpl_config["name"],
-            "primary_color": tpl_config["primary_color"],
-            "background": tpl_config["background"],
-        })
+    templates = TemplateManager().list_templates()
+    from app.services.ppt_template_samples import ensure_template_sample
+    for template in templates:
+        try:
+            template["sample"] = await ensure_template_sample(template["id"])
+        except Exception as exc:
+            logger.warning("模板样张不可用 %s: %s", template["id"], exc)
+            template["sample"] = {"version": "v1", "status": "unavailable", "reason": "render_failed"}
+    if category:
+        templates = [tpl for tpl in templates if tpl["category"] == category]
     return {"templates": templates}
+
+
+@router.get("/pptx/templates/{template_id}/preview/{page}")
+async def get_template_sample(template_id: str, page: int):
+    if page < 1 or page > 3:
+        raise HTTPException(status_code=422, detail="样张页码必须为 1 到 3")
+    from app.services.ppt_template_samples import ensure_template_sample, _paths
+    await ensure_template_sample(template_id)
+    path = _paths(template_id)["png_dir"] / f"slide-{page}.png"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="模板样张暂不可用")
+    return FileResponse(path, media_type="image/png")
 
 
 @router.get("/pptx/history")
@@ -3476,6 +3505,9 @@ async def _convert_pptx_to_pdf(pptx_path: Path, pdf_path: Path) -> None:
     """Convert a generated PPTX using the server's LibreOffice installation."""
     import asyncio
     import subprocess
+
+    if pdf_path.is_file() and pdf_path.stat().st_mtime_ns >= pptx_path.stat().st_mtime_ns:
+        return
 
     def convert() -> None:
         result = subprocess.run(

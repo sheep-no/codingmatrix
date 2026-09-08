@@ -69,6 +69,16 @@ class TemplateManager:
         """根据 ID 获取模板配置"""
         return self._template_configs.get(TEMPLATE_ALIASES.get(template_id, template_id))
 
+    def select_template(self, template_id: Optional[str] = None, *, text: str = "", scenario: Optional[str] = None) -> str:
+        """选择可用模板；显式模板优先，缺省时使用场景推荐首项。"""
+        if template_id:
+            resolved = TEMPLATE_ALIASES.get(template_id, template_id)
+            if resolved not in self._template_configs:
+                raise KeyError(f"模板不存在：{template_id}")
+            return resolved
+        recommendation = self.recommend_for_scenario(text=text, scenario=scenario, limit=1)
+        return recommendation["templates"][0]
+
     def resolve_design_tokens(self, template_id: str, version: Optional[str] = None) -> DesignTokens:
         """Resolve one token bundle for every page in a generation task."""
         config = self.get_config(template_id)
@@ -86,6 +96,7 @@ class TemplateManager:
                 "name_zh": config.name_zh,
                 "category": config.category.value,
                 "description": config.description,
+                "scenarios": [scenario for scenario, templates in SCENARIO_TEMPLATE_RANKINGS.items() if tid in templates],
                 "version": config.version,
                 "primary_color": f"#{config.primary_color}",
                 "secondary_color": f"#{config.secondary_color}",

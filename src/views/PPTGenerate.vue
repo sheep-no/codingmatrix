@@ -80,15 +80,24 @@
 
         <div class="form-group">
           <label>选择模板</label>
+          <button type="button" class="template-card template-auto" :class="{ selected: selectedTemplate === 'auto' }"
+            :disabled="outlineSaving || workflowStep !== 1" :aria-pressed="selectedTemplate === 'auto'" @click="selectedTemplate = 'auto'">
+            自动推荐 · 根据主题与场景选择
+          </button>
+           <p class="template-hint">样张来自固定 PPTX 的真实 PDF/PNG 渲染；样张生成中或不可用时显示色彩示意。</p>
           <div class="template-grid">
-            <div
+            <button
               v-for="tpl in templates"
               :key="tpl.id"
+              type="button"
               class="template-card"
+              :disabled="outlineSaving || workflowStep !== 1"
+              :aria-pressed="selectedTemplate === tpl.id"
               :class="{ selected: selectedTemplate === tpl.id }"
               @click="selectedTemplate = tpl.id"
             >
-              <div class="template-preview" :style="{ background: tpl.color }">
+               <div class="template-preview" :style="{ background: tpl.color }">
+                 <img v-if="tpl.sample?.status === 'available'" :src="tpl.sample.slides[0]" :alt="`${tpl.name} 封面样张`" loading="lazy">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                   <rect x="3" y="3" width="18" height="18" rx="2"/>
                   <line x1="8" y1="8" x2="16" y2="8"/>
@@ -97,7 +106,19 @@
                 </svg>
               </div>
               <div class="template-name">{{ tpl.name }}</div>
-            </div>
+              <p class="template-description">{{ tpl.description || '模板描述暂缺' }}</p>
+              <p class="template-description">场景：{{ tpl.scenarios?.length ? tpl.scenarios.map(scenarioLabel).join('、') : '场景信息暂缺' }}</p>
+            </button>
+          </div>
+          <p v-if="templateListError" class="template-hint" role="status">模板注册表暂不可用，当前显示备用配色。
+            <button type="button" @click="loadTemplates">重新加载模板</button>
+          </p>
+          <div v-if="outlineDraft?.template_id" class="template-result" role="status">
+            <strong>{{ automaticSelection ? '自动选择结果' : '已采用模板' }}：{{ templateName(outlineDraft.template_id) }}</strong>
+            <p>模板 ID：{{ outlineDraft.template_id }}</p>
+            <p v-if="templateRecommendation">场景：{{ scenarioLabel(templateRecommendation.scenario) }}；推荐模板：{{ templateRecommendation.templates.map(templateName).join('、') }}</p>
+            <p v-else-if="recommendationLoading">正在加载场景推荐...</p>
+            <p v-else>推荐信息暂不可用，已采用模板保持有效。<button type="button" @click="loadRecommendation">重试推荐</button></p>
           </div>
         </div>
 
@@ -130,13 +151,13 @@
             <div class="option-item">
               <label class="option-label">
                 <input v-model="autoImages" type="checkbox" class="option-checkbox" />
-                <span>自动配图</span>
+                <span>自动配图（PPTX 成品）</span>
               </label>
             </div>
             <div class="option-item">
               <label class="option-label">
                 <input v-model="enableAnimation" type="checkbox" class="option-checkbox" />
-                <span>启用动画</span>
+                <span>页面切换动画（PPTX 播放时生效）</span>
               </label>
             </div>
           </div>
@@ -215,7 +236,7 @@
       </aside>
 
       <main class="preview-panel">
-        <div v-if="!generatedSlides.length && !generating" class="preview-placeholder">
+        <div v-if="!generatedSlides.length && !generating && !generatedFileUrl" class="preview-placeholder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
           </svg>
@@ -342,7 +363,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useApiKeyStore } from '@/stores/apikey'
 import { api } from '@/utils/api/index'
 import { ElMessage } from 'element-plus'
@@ -351,11 +372,20 @@ import { useTaskFeedback } from '@/composables/useTaskFeedback'
 import TaskFeedbackPanel from '@/components/TaskFeedbackPanel.vue'
 
 const router = useRouter()
+const route = useRoute()
 const apiKeyStore = useApiKeyStore()
 const { getToken } = useTokenManager()
 
 const topic = ref('')
 const selectedTemplate = ref('modern')
+const automaticSelection = ref(false)
+const templateRecommendation = ref(null)
+const recommendationLoading = ref(false)
+const recommendationTopic = ref('')
+const templateListError = ref(false)
+const scenarioNames = { business: '商务汇报', data_report: '数据报告', product_pitch: '产品路演', academic: '学术研究', education: '教育培训', general: '通用' }
+const scenarioLabel = scenario => scenarioNames[scenario] || scenario
+const templateName = id => templates.value.find(template => template.id === id)?.name || id
 const slideCount = ref('10')
 const outputFormat = ref('pptx')
 const autoImages = ref(true)
@@ -563,17 +593,34 @@ async function downloadPdf() {
 }
 
 async function loadTemplates() {
+  templateListError.value = false
   try {
     const result = await api.ppt.getTemplates()
     if (result.templates && result.templates.length > 0) {
       templates.value = result.templates.map(t => ({
         id: t.id,
-        name: t.name,
+        name: t.name_zh || t.name,
+        description: t.description,
+        scenarios: t.scenarios,
         color: `linear-gradient(135deg, ${t.primary_color || '#667eea'} 0%, ${t.primary_color || '#764ba2'}80 100%)`
       }))
-    }
+    } else templateListError.value = true
   } catch {
-    // 静默使用硬编码模板列表，不打扰用户
+    templateListError.value = true
+  }
+}
+
+async function loadRecommendation() {
+  if (recommendationLoading.value) return
+  recommendationLoading.value = true
+  try {
+    const result = await api.ppt.getTemplates(null, { topic: recommendationTopic.value, scenario: outlineDraft.value?.scenario })
+    templateRecommendation.value = result.scenario && Array.isArray(result.templates) && result.templates.length
+      ? result : null
+  } catch {
+    templateRecommendation.value = null
+  } finally {
+    recommendationLoading.value = false
   }
 }
 
@@ -783,6 +830,11 @@ async function handleGenerate() {
         material_file_ids: uploadedMaterialId.value ? [uploadedMaterialId.value] : [],
       })
       outlineDraft.value = draft
+      automaticSelection.value = selectedTemplate.value === 'auto'
+      if (draft.template_id) selectedTemplate.value = draft.template_id
+      recommendationTopic.value = topic.value.trim() || uploadedFile.value?.name || '未命名演示'
+      templateRecommendation.value = null
+      loadRecommendation()
       outlineSlides.value = normalizeOutlineSlides(draft.slides)
       workflowStep.value = 2
       ElMessage.success('大纲已生成，请审阅页面结构')
@@ -832,6 +884,12 @@ async function generateApprovedOutline() {
         outlineDraft.value.id,
         qualityMode.value,
         outlineDraft.value.version,
+        {
+          output_format: outputFormat.value,
+          auto_images: autoImages.value,
+          enable_animation: enableAnimation.value,
+          api_key_token: apiKeyStore.siliconflowKey?.token || null,
+        },
       )
     } else {
 
@@ -968,6 +1026,13 @@ function formatTime(date) {
 onMounted(() => {
   loadTemplates()
   loadHistory()
+  if (typeof route.query.task_id === 'string' && route.query.task_id) {
+    currentTaskId.value = route.query.task_id
+    generating.value = true
+    taskFeedback.reset()
+    taskFeedback.start({ status: 'running', step: '正在恢复 PPT 导出进度', progress: 0 })
+    connectWebSocket(currentTaskId.value)
+  }
 })
 
 onUnmounted(() => {
@@ -1057,6 +1122,11 @@ onUnmounted(() => {
 }
 
 .template-card {
+  padding: 0;
+  min-width: 0;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  font: inherit;
   border: 2px solid var(--border-color);
   border-radius: 8px;
   overflow: hidden;
@@ -1066,6 +1136,11 @@ onUnmounted(() => {
 
 .template-card:hover { border-color: var(--color-primary); transform: translateY(-1px); }
 .template-card.selected { border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2); }
+.template-card:disabled { cursor: default; }
+.template-auto { width: 100%; padding: 10px; }
+.template-description, .template-hint, .template-result { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.template-description { margin: 6px 8px; text-align: left; }
+.template-result { margin-top: 12px; padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; }
 
 .template-preview {
   height: 60px;

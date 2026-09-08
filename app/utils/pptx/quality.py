@@ -121,6 +121,10 @@ class AutoReflowEngine:
         fixed["elements"] = [dict(element) for element in slide.get("elements", [])]
         for issue in sorted(issues, key=lambda item: self._ACTION_PRIORITY.get(item.fix_action, 99)):
             if issue.fix_action == "reduce_content_blocks":
+                if slide.get("preserve_content"):
+                    if slide_id not in report.manual_review_slides:
+                        report.manual_review_slides.append(slide_id)
+                    continue
                 fixed["content_blocks"] = list(fixed.get("content_blocks", []))[: fixed.get("capacity", {}).get("max_items", 6)]
                 fixed["content_block_count"] = len(fixed["content_blocks"])
             elif issue.fix_action == "switch_layout":

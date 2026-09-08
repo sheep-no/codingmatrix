@@ -38,8 +38,12 @@
       </div>
     </header>
 
-    <!-- 真实 HTML 预览 -->
-    <div v-if="htmlPreview" class="html-preview-container">
+    <div v-if="pdfPreview" class="html-preview-container">
+      <p>成品 PDF 预览（静态页面，动画请下载 PPTX 查看）</p>
+      <iframe :src="pdfPreview" title="成品 PDF 预览" class="preview-iframe"></iframe>
+    </div>
+    <div v-else-if="htmlPreview" class="html-preview-container">
+      <p>结构预览：用于核对内容，成品排版请下载文件查看。</p>
       <iframe
         :srcdoc="htmlPreview"
         class="preview-iframe"
@@ -50,7 +54,7 @@
 
     <section v-if="qualityReport" class="quality-report-card">
       <div class="quality-report-heading">
-        <strong>生成质量 {{ qualityReport.overall_score }}</strong>
+        <strong>生成质量 {{ qualityReport.overall_score }}（规则评分）</strong>
         <span>{{ qualityReport.quality_mode === 'refined' ? '精修模式' : '标准模式' }}</span>
       </div>
       <div class="quality-report-meta">
@@ -63,19 +67,52 @@
       <div v-if="manualReviewSlides.length" class="quality-manual-review">
         需人工复核：{{ manualReviewSlides.join('、') }}
       </div>
-      <div v-if="qualityReport.degraded_stage" class="quality-report-warning">视觉复审已降级：{{ qualityReport.degraded_stage }}</div>
+      <div v-if="visualReviewDegraded" class="quality-report-warning" role="alert">
+        <p>视觉复审未完成，当前保留规则检查结果。请下载成品人工复核排版、文字和图片。</p>
+        <p>请在设置中检查用户模型凭据与服务可用性；渲染失败请联系管理员检查 PDF 渲染依赖。修复后可重新生成并选择精修模式。</p>
+        <button class="btn btn-secondary" type="button" @click="router.push('/settings')">检查模型设置</button>
+        <button class="btn btn-secondary" type="button" @click="downloadPPTX">下载成品人工复核</button>
+      </div>
       <ul v-if="qualityReport.issues?.length" class="quality-report-issues">
         <li v-for="(issue, index) in qualityReport.issues.slice(0, 5)" :key="`${issue.slide_id || 'deck'}-${index}`">
           <strong>{{ formatIssueType(issue.issue_type) }}</strong>
-          <span>{{ issue.slide_id ? `${issue.slide_id}: ` : '' }}{{ issue.message || issue.issue_type }}</span>
-          <span v-if="issue.fix_action" class="quality-fix-action">修复动作：{{ formatFixAction(issue.fix_action) }}</span>
-          <button v-if="issue.slide_id && qualityReport.outline_id" class="quality-regenerate-btn" @click="regenerateSlide(issue.slide_id)">重新生成此页</button>
+          <span>{{ issue.issue_type === 'vision_review_unavailable' ? '视觉复审未完成，请按上方提示处理。' : `${issue.slide_id ? `${issue.slide_id}: ` : ''}${issue.message || issue.issue_type}` }}</span>
+          <span v-if="issue.fix_action && issue.issue_type !== 'vision_review_unavailable'" class="quality-fix-action">修复动作：{{ formatFixAction(issue.fix_action) }}</span>
         </li>
       </ul>
     </section>
 
+    <section v-if="qualityReport?.outline_id" class="quality-report-card slide-edit-panel">
+      <strong>修改指定页面</strong>
+      <p>基于当前预览的大纲 v{{ qualityReport.outline_version }}，仅修改所选页面内容，保留其他页面内容和顺序。保存为新版本并重新导出整份 PPTX，旧文件仍可下载；配图和排版可能重新计算。</p>
+      <p v-if="outlineError" role="alert">{{ outlineError }} <button class="btn btn-secondary" @click="loadEditableOutline">重新加载</button></p>
+      <p v-else-if="!editableOutline">正在加载对应版本的大纲...</p>
+      <template v-else>
+        <label>目标页面
+          <select v-model="selectedSlideId" :disabled="savingSlide || !!savedVersion" @change="selectSlide">
+            <option v-for="page in editableOutline.slides" :key="page.id" :value="page.id">第 {{ page.position + 2 }} 页：{{ page.title }}</option>
+          </select>
+        </label>
+        <form v-if="editedSlide" @submit.prevent="saveSlide">
+          <fieldset :disabled="savingSlide || !!savedVersion">
+            <label>标题<input v-model="editedSlide.title" class="slide-title-input" maxlength="300" required></label>
+            <label>核心结论<textarea v-model="editedSlide.key_message" class="slide-message-input" maxlength="1000" required></textarea></label>
+            <label v-for="(block, index) in editedSlide.content_blocks" :key="index">正文 {{ index + 1 }}
+              <textarea v-model="block.content" class="slide-block-input" maxlength="5000"></textarea>
+            </label>
+            <label>演讲备注<textarea v-model="editedSlide.speaker_notes" maxlength="5000"></textarea></label>
+            <label><input v-model="editOptions.auto_images" type="checkbox">自动配图</label>
+            <label><input v-model="editOptions.enable_animation" type="checkbox">页面切换动画</label>
+          </fieldset>
+          <p v-if="editError" role="alert">{{ editError }}</p>
+          <button class="btn btn-primary quality-regenerate-btn" :disabled="savingSlide" type="submit">{{ savingSlide ? '正在创建导出任务...' : savedVersion ? '重试导出已保存版本' : '保存修改并导出整份新文件' }}</button>
+        </form>
+      </template>
+    </section>
+
     <!-- 传统幻灯片预览（回退） -->
-    <div v-else-if="slides.length > 0" class="page-content">
+    <div v-if="!pdfPreview && !htmlPreview && slides.length > 0" class="page-content">
+      <p>结构预览：用于核对内容，成品排版请下载文件查看。</p>
       <div class="slides-container">
         <div 
           v-for="(slide, index) in slides" 
@@ -88,14 +125,14 @@
           </div>
           <div class="slide-body">
             <div class="slide-title">{{ slide.title }}</div>
-            <div class="slide-content">{{ slide.content }}</div>
+            <div class="slide-content">{{ slideContent(slide) }}</div>
           </div>
         </div>
       </div>
     </div>
 
     <!-- 加载中 -->
-    <div v-else-if="isLoading" class="page-content">
+    <div v-else-if="!pdfPreview && !htmlPreview && isLoading" class="page-content">
       <div class="loading-state">
         <div class="loading-spinner"></div>
         <p>正在加载预览...</p>
@@ -103,7 +140,7 @@
     </div>
 
     <!-- 空状态 -->
-    <div v-else class="page-content">
+    <div v-else-if="!pdfPreview && !htmlPreview && !slides.length" class="page-content">
       <div class="empty-state">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -119,20 +156,94 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/utils/api/index'
 import { ElMessage } from 'element-plus'
+import { useApiKeyStore } from '@/stores/apikey'
 
 const route = useRoute()
 const router = useRouter()
+const apiKeyStore = useApiKeyStore()
 
 const pptId = route.params.id
 const slides = ref([])
 const htmlPreview = ref('')
+const pdfPreview = ref('')
+let disposed = false
 const showPDFDownload = ref(false)
 const isLoading = ref(true)
 const qualityReport = ref(null)
+const visualReviewDegraded = computed(() => !!qualityReport.value?.degraded_stage ||
+  qualityReport.value?.issues?.some(issue => issue.issue_type === 'vision_review_unavailable'))
+const editableOutline = ref(null)
+const outlineError = ref('')
+const selectedSlideId = ref('')
+const editedSlide = ref(null)
+const savingSlide = ref(false)
+const savedVersion = ref(null)
+const editError = ref('')
+const editOptions = ref({ auto_images: true, enable_animation: true })
+
+function selectSlide() {
+  const slide = editableOutline.value?.slides.find(page => page.id === selectedSlideId.value)
+  editedSlide.value = slide ? JSON.parse(JSON.stringify(slide)) : null
+  editError.value = ''
+}
+
+async function loadEditableOutline() {
+  outlineError.value = ''
+  try {
+    const report = qualityReport.value
+    editableOutline.value = await api.ppt.getOutline(report.outline_id, report.outline_version)
+    selectedSlideId.value = editableOutline.value.slides[0]?.id || ''
+    selectSlide()
+  } catch (error) {
+    outlineError.value = error.message
+  }
+}
+
+async function saveSlide() {
+  if (savingSlide.value || !editedSlide.value) return
+  const slide = editedSlide.value
+  if (!slide.title.trim() || !slide.key_message.trim() || !slide.content_blocks.some(block => block.content.trim())) {
+    editError.value = '请填写页面标题、核心结论和正文'
+    return
+  }
+  savingSlide.value = true
+  editError.value = ''
+  try {
+    const report = qualityReport.value
+    const options = { ...editOptions.value, api_key_token: apiKeyStore.siliconflowKey?.token || null }
+    const task = savedVersion.value
+      ? await api.ppt.generateFromOutline(report.outline_id, report.quality_mode, savedVersion.value, options)
+      : await api.ppt.regenerateOutlineSlide(report.outline_id, slide.id, report.quality_mode, slide, report.outline_version, options)
+    await router.push({ path: '/ppt-generate', query: { task_id: task.task_id } })
+  } catch (error) {
+    if (error.savedVersion) savedVersion.value = error.savedVersion
+    editError.value = error.message
+  } finally {
+    savingSlide.value = false
+  }
+}
+
+function slideContent(slide) {
+  if (slide.content_blocks?.length) return slide.content_blocks.map(block => block.content).join('\n')
+  return Array.isArray(slide.content) ? slide.content.join('\n') : slide.content
+}
+
+async function loadPdfPreview() {
+  try {
+    const blob = await api.ppt.downloadPDF(pptId)
+    if (disposed || blob.type !== 'application/pdf') return false
+    pdfPreview.value = URL.createObjectURL(blob)
+    showPDFDownload.value = true
+    isLoading.value = false
+    return true
+  } catch {
+    return false
+  }
+}
 
 const manualReviewSlides = computed(() => {
   if (qualityReport.value?.manual_review_slides?.length) {
@@ -145,6 +256,8 @@ const manualReviewSlides = computed(() => {
 })
 
 const issueTypeLabels = {
+  vision_review_unavailable: '视觉复审未完成',
+  vision_review_low_confidence: '视觉复审需人工确认',
   text_overflow: '文本溢出',
   element_overlap: '元素重叠',
   low_contrast: '对比度不足',
@@ -186,7 +299,6 @@ async function loadHtmlPreview() {
     const html = await api.ppt.previewPPTHtml(pptId)
     if (html) {
       htmlPreview.value = html
-      showPDFDownload.value = true
       isLoading.value = false
       return true
     }
@@ -215,22 +327,9 @@ async function loadSlides() {
 async function loadQualityReport() {
   try {
     qualityReport.value = await api.ppt.getQualityReport(pptId)
+    if (qualityReport.value?.outline_id) await loadEditableOutline()
   } catch {
     qualityReport.value = null
-  }
-}
-
-async function regenerateSlide(slideId) {
-  try {
-    const task = await api.ppt.regenerateOutlineSlide(
-      qualityReport.value.outline_id,
-      slideId,
-      qualityReport.value.quality_mode
-    )
-    ElMessage.success('页面再生成任务已创建')
-    router.push(`/ppt/generate?task_id=${task.task_id}`)
-  } catch (error) {
-    ElMessage.error('页面再生成失败：' + error.message)
   }
 }
 
@@ -247,8 +346,7 @@ async function downloadPPTX() {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   } catch (error) {
-    console.error('下载失败:', error)
-    ElMessage.error('下载失败：' + error.message)
+    ElMessage.error('成品下载失败，请稍后重试或检查登录状态。')
   }
 }
 
@@ -275,18 +373,29 @@ function goBack() {
 }
 
 onMounted(async () => {
-  // 优先尝试加载 HTML 预览
-  const hasHtmlPreview = await loadHtmlPreview()
-  
-  // 如果 HTML 预览加载失败，回退到传统方式
-  if (!hasHtmlPreview) {
+  const quality = loadQualityReport()
+  const hasPreview = await loadPdfPreview() || await loadHtmlPreview()
+  if (!hasPreview) {
     await loadSlides()
   }
-  await loadQualityReport()
+  await quality
+})
+
+onBeforeUnmount(() => {
+  disposed = true
+  if (pdfPreview.value) URL.revokeObjectURL(pdfPreview.value)
 })
 </script>
 
 <style scoped>
+.slide-edit-panel label { display: block; margin: 10px 0; }
+.slide-edit-panel fieldset { padding: 0; border: 0; min-width: 0; }
+.slide-edit-panel input:not([type="checkbox"]),
+.slide-edit-panel textarea,
+.slide-edit-panel select { display: block; box-sizing: border-box; width: 100%; padding: 8px; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; }
+.slide-edit-panel textarea { min-height: 70px; resize: vertical; }
+.slide-edit-panel p { line-height: 1.6; overflow-wrap: anywhere; }
+
 .quality-report-card {
   margin: 16px 24px 0;
   padding: 16px 20px;
@@ -364,6 +473,7 @@ onMounted(async () => {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
   background: var(--bg-primary);
 }
 
@@ -449,13 +559,24 @@ onMounted(async () => {
 /* HTML 预览容器 */
 .html-preview-container {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
   background: #1a1a1a;
   overflow: hidden;
 }
 
+.html-preview-container > p {
+  margin: 0;
+  padding: 10px 16px;
+  color: #f3f4f6;
+  font-size: 13px;
+}
+
 .preview-iframe {
   width: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   border: none;
 }
 
@@ -467,7 +588,7 @@ onMounted(async () => {
 
 .slides-container {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(500px, 100%), 1fr));
   gap: 24px;
 }
 
@@ -515,6 +636,19 @@ onMounted(async () => {
   color: var(--text-secondary);
   line-height: 1.6;
   white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 600px) {
+  .page-header {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .quality-report-heading,
+  .quality-report-meta {
+    flex-wrap: wrap;
+  }
 }
 
 /* 加载状态 */
