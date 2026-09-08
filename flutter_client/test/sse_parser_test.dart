@@ -5,10 +5,7 @@ void main() {
   test('parses incremental SSE frames split across chunks', () {
     final parser = SseParser();
 
-    expect(
-      parser.push('data: {"type":"log","data":{"message":"he'),
-      isEmpty,
-    );
+    expect(parser.push('data: {"type":"log","data":{"message":"he'), isEmpty);
 
     final events = parser.push('llo"}}\n\ndata: {"type":"heartbeat"}\n\n');
     expect(events, hasLength(2));

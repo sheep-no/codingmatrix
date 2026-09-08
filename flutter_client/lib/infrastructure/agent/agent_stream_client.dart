@@ -33,6 +33,7 @@ class AgentStreamClient {
     required String requirement,
     String? projectName,
     String? sessionId,
+    bool isResume = false,
     bool enableReview = true,
     bool enableValidation = true,
     bool enableErrorRecovery = true,
@@ -40,6 +41,8 @@ class AgentStreamClient {
     bool specFirst = true,
     bool dependencyGraph = true,
     bool incremental = false,
+    String? apiKeyToken,
+    String? providerId,
   }) async* {
     final token = credentialStore.read(accessTokenRef);
     if (token == null || token.isEmpty) {
@@ -55,6 +58,7 @@ class AgentStreamClient {
         'requirement': requirement,
         'project_name': projectName,
         'session_id': sessionId,
+        'is_resume': isResume,
         'enable_review': enableReview,
         'enable_validation': enableValidation,
         'enable_error_recovery': enableErrorRecovery,
@@ -62,13 +66,15 @@ class AgentStreamClient {
         'spec_first': specFirst,
         'dependency_graph': dependencyGraph,
         'incremental': incremental,
+        if (apiKeyToken != null) 'api_key_token': apiKeyToken,
+        if (providerId != null) 'provider_id': providerId,
       });
 
     final response = await httpClient.send(request);
     if (response.statusCode != 200) {
-      final body = await response.stream.bytesToString();
+      await response.stream.drain<void>();
       throw AgentStreamException(
-        _extractDetail(body, fallback: 'Agent 请求失败'),
+        'Agent 请求失败（HTTP ${response.statusCode}），请确认任务状态后手动恢复',
         statusCode: response.statusCode,
       );
     }
@@ -94,7 +100,7 @@ class AgentStreamClient {
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AgentStreamException(
-        _extractDetail(response.body, fallback: 'Agent 停止失败'),
+        'Agent 停止失败（HTTP ${response.statusCode}）',
         statusCode: response.statusCode,
       );
     }
@@ -106,19 +112,4 @@ class AgentStreamClient {
         : baseUrl;
     return Uri.parse('$normalizedBase$path');
   }
-}
-
-String _extractDetail(String body, {required String fallback}) {
-  if (body.isEmpty) {
-    return fallback;
-  }
-  try {
-    final decoded = jsonDecode(body);
-    if (decoded is Map && decoded['detail'] != null) {
-      return decoded['detail'].toString();
-    }
-  } on FormatException {
-    // Keep the plain response body.
-  }
-  return body;
 }

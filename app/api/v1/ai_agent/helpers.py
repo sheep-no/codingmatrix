@@ -47,7 +47,7 @@ _feedback_learner_lock = asyncio.Lock()
 def _validate_project_path(project_path: str, user_id: str) -> Path:
     base_dir = Path(PROJECTS_BASE_DIR).resolve()
     project_dir = (base_dir / project_path).resolve()
-    if not str(project_dir).startswith(str(base_dir)):
+    if not project_dir.is_relative_to(base_dir):
         logger.warning(f"路径越界 | 用户: {user_id} | 尝试访问: {project_dir}")
         raise HTTPException(status_code=403, detail="无权访问该路径")
     if not project_dir.exists():
@@ -63,7 +63,10 @@ def _validate_project_path(project_path: str, user_id: str) -> Path:
     if user_id and user_id != "anonymous":
         # 新格式：{timestamp}_{unique_id}_{user_id} — 取最后一段精确匹配
         parts = dir_name.rsplit("_", 1)
-        if len(parts) == 2 and parts[1] == user_id:
+        relative_parts = project_dir.relative_to(base_dir).parts
+        if len(relative_parts) >= 2 and relative_parts[0] == user_id:
+            pass
+        elif len(parts) == 2 and parts[1] == user_id:
             pass  # 校验通过
         elif user_id == parts[-1]:
             pass  # 兼容旧格式

@@ -19,6 +19,8 @@ void main() {
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         expect(body['requirement'], 'build a dashboard');
         expect(body['enable_validation'], true);
+        expect(body['api_key_token'], 'provider-token');
+        expect(body['provider_id'], 'siliconflow');
         return http.Response(
           'data: {"type":"progress","data":{"progress":10}}\n\n'
           'data: {"type":"done","data":{}}\n\n',
@@ -33,7 +35,12 @@ void main() {
       );
 
       final chunks = await streamClient
-          .generate(accessTokenRef: tokenRef, requirement: 'build a dashboard')
+          .generate(
+            accessTokenRef: tokenRef,
+            requirement: 'build a dashboard',
+            apiKeyToken: 'provider-token',
+            providerId: 'siliconflow',
+          )
           .toList();
 
       expect(chunks.join(), contains('"type":"done"'));

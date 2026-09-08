@@ -1,9 +1,41 @@
 # Interfaces
 
+## Flutter 会话历史与重连
+
+- `GET /api/v1/agent/sessions`：返回当前账号最近会话，`limit` 限制为 1 至 50，按最近活动时间降序排列。
+- `GET /api/v1/agent/sessions/{session_id}`：返回当前账号会话详情，包含 `output_dir`、文件计数、错误信息和 `reconnectable`。
+- `POST /api/v1/agent/orchestrate/stream`：显式重连传递原 `session_id`、`is_resume: true` 及必填 `requirement`；恢复路径仅订阅既有任务队列。任务已结束、进程内无任务或已有订阅返回 409，缺少会话 ID 返回 422。
+
+`reconnectable` 表示会话处于 running、当前进程任务存活且订阅已断开。当前恢复能力覆盖未消费及后续事件，已消费事件、决策重放与进程重启续跑待实现。
+
+## GitHub 配置
+
+- `GET /api/v1/github/config`：返回 `username`、`token` 和 `use_github`；当前后端返回默认空配置。
+- `POST /api/v1/github/config`：接收 `username`、`token`、`use_github`，返回 `success`、`message`、`username`、`use_github`；当前仅返回确认信息。
+
+## Flutter 候选业务模块盘点
+
+- 聊天：`POST /api/v1/chat`、`POST /api/v1/chat/stream`，另有 `/api/v1/aicloud/chat` 和 `/api/v1/aicloud/chat/stream` 双轨实现；主契约、会话字段和错误格式待确定。
+- PPT：`/api/v1/pptx/outlines`、生成、质量报告、预览、下载和历史端点已挂载；涉及大纲、异步任务、质量报告和文件下载。
+- 绘图：Kolors 路由已挂载，但 Flutter 所需的输入、历史、进度和结果字段尚未完成契约核对。
+- 工作流：`/api/v1/workflow/import`、`/{workflow_id}/execute`、`/status/{workflow_id}`、`/history/{workflow_id}` 和 `export`；执行流使用 NDJSON，状态包含 task_graph 和 summary。
+- 文件上传：`POST /api/v1/upload` 支持 100MB 单文件和 SHA256 去重；另有 `/upload/init`、`/upload/chunk/{file_id}/{chunk_index}`、`/upload/merge/{file_id}` 分片流程。
+
+Flutter 当前未接入这些候选模块。D4 需要确定优先级、主聊天实现以及绘图输入输出后再实施页面和客户端。
+
+聊天第一阶段已采用网页端同步接口 `POST /api/v1/chat`。Flutter 发送 `prompt`、`stream: false` 和可选 `conversation_id`，读取 `response` 与返回的 `conversation_id`。当前页面未开放模型、联网搜索、推理和文件附件选项。
+
+聊天历史使用 `POST /api/v1/history` 获取会话列表，使用 `POST /api/v1/conversation/history` 获取详情；Flutter 页面支持选择历史会话并恢复消息。
+
+Flutter 页面对 Token 执行密码输入和提交后清理，并显示“尚未验证绑定”。仓库/分支、持久化绑定和连接验证没有已核实的后端契约。
+
 ## 认证与公共 API
 
-- `POST /api/v1/auth/login`：登录并建立认证会话。
-- `POST /api/v1/auth/register`：注册用户。
+- `GET /api/v1/csrf-token`：返回 csrf_token 并设置同名 Cookie（Path=/、Max-Age=3600）。
+- `POST /api/v1/login`：接收 email/password，要求 CSRF Cookie 和 X-CSRF-Token 一致且在服务端有效；返回 access_token、username、permission_level，设置 refresh_token（HttpOnly、Path=/api/v1、Max-Age=604800）并轮换 csrf_token Cookie。
+- `POST /api/v1/refresh`：使用 refresh_token Cookie 和有效 CSRF 双提交；返回新访问令牌和用户信息，只轮换 csrf_token Cookie，原 refresh_token Cookie 继续保留。生产环境两种 Cookie 均为 Secure，SameSite=lax。
+- `POST /api/v1/register`：注册用户。
+- 服务端 logout 接口尚未找到；Flutter 退出为本地凭据与缓存清理，不发送撤销接口或 Agent stop。
 - `GET /api/v1/health`：检查数据库和 Redis 状态。
 - `GET /api/v1/public-key`：读取前端加密所需的公开密钥。
 

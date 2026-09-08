@@ -235,9 +235,11 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 生图端到端测试可使用 `512x512`、20 步、1 张图片；相同 fingerprint 的第二次请求应返回 `cached=true`，并在约毫秒级完成。
 
 ### Flutter 桌面客户端验证
-- Date: 2026-09-06
-- Context: Agent 在验证新增 Flutter 客户端时发现
+- Date: 2026-09-08
+- Context: 用户要求保留既有修改，并明确 Flutter 开发验证流程
 - Category: 测试方法
 - Instructions:
   - 客户端位于 `flutter_client/`，验证命令为 `FLUTTER_ALLOW_ROOT=1 flutter analyze` 和 `FLUTTER_ALLOW_ROOT=1 flutter test`。
-  - 当前客户端测试覆盖 Widget workbench、SSE 分帧解析、认证客户端和统一模型序列化；静态分析与测试均已通过。
+  - 修改前读取项目记忆和 Git 状态，保留已有改动；所有手动编辑使用 apply_patch。
+  - 测试前调用 background_terminal_list，测试和构建通过受控后台终端执行，命令先进入 `/workspace/flutter_client`。
+  - 修改后执行 dart format、flutter analyze、定向测试和全量 flutter test，修复失败后再返回；未经用户明确要求不提交或推送。

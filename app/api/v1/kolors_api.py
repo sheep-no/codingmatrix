@@ -15,6 +15,7 @@ from typing import Optional, List
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -31,6 +32,7 @@ from app.utils.image_generation import (
     SUPPORTED_FORMATS,
     DEFAULT_CONFIG,
     KOLORS_MODEL,
+    OUTPUT_DIR,
 )
 from app.services.image_resource_service import (
     build_image_resource_fingerprint,
@@ -352,6 +354,34 @@ class ImageToImageRequest(BaseModel):
 
 # API 端点
 # -----------------------------
+
+@router.get("/resources/{filename}", summary="读取当前用户的生成图片")
+async def get_generated_resource(
+    filename: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    root = OUTPUT_DIR.resolve()
+    target = (root / filename).resolve()
+    if target.parent != root or target.suffix.lower() not in SUPPORTED_FORMATS:
+        raise HTTPException(status_code=404, detail="图片不存在")
+    records = await db.execute(select(History.metadata_json).where(
+        History.user_id == int(token["sub"]),
+        History.metadata_json.contains(filename),
+    ))
+    owned = False
+    for raw in records.scalars():
+        try:
+            metadata = json.loads(raw)
+            if metadata.get("type") == "image" and Path(metadata.get("path", "")).resolve() == target:
+                owned = True
+                break
+        except (ValueError, TypeError):
+            continue
+    if not owned or not target.is_file():
+        raise HTTPException(status_code=404, detail="图片不存在")
+    return FileResponse(target, headers={"Cache-Control": "private, no-store"})
+
 
 @router.post("/text-to-image", summary="文生图")
 async def text_to_image_api(

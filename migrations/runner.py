@@ -21,6 +21,7 @@ from app.models.base import Base
 # 导入所有模型以注册到 Base.metadata
 from app.models.server_config import ServerConfig
 from app.models.user import User
+from app.models.github_config import GithubUserConfig
 from app.models.history import History
 from app.models.task import Task
 from app.models.chat_history import ChatHistory, ChatSummary, CustomCharacter, UserPreference

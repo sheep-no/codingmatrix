@@ -114,9 +114,25 @@ xvfb-run -a -s '-screen 0 1440x900x24 -nolisten tcp' timeout 15s ./build/linux/x
 # 构建 Android 调试 APK
 # 需要 Android SDK、Platform Tools 和可用的 Android SDK license
 FLUTTER_ALLOW_ROOT=1 PATH=/tmp/opencode/flutter/bin:$PATH flutter build apk --debug
+
+# 当前会话环境构建 release 测试包
+# 在受控 background terminal 中执行，显式指定已安装的 SDK
+ANDROID_HOME=/tmp/opencode/android-sdk /tmp/opencode/flutter/bin/flutter build apk --release --no-pub
 ```
 
-认证基础层使用 `CloudAuthClient` 调用 `/api/v1/auth/csrf-token` 和 `/api/v1/auth/login`。访问令牌只进入 `CredentialStore`，领域层使用 `AuthSession.accessTokenRef`；统一领域模型位于 `lib/domain/models/unified_models.dart`，字段兼容后端 `*_json` 契约。Windows Credential Manager 的真实平台接入仍需 Windows runner 验证。
+Android release 当前使用 debug 签名，产物路径为 `flutter_client/build/app/outputs/flutter-apk/app-release.apk`。当前环境 Gradle 采用单 worker；构建前检查磁盘余量，避免并行运行多个打包任务。真机使用可访问的 HTTPS 服务地址，默认 `127.0.0.1` 指向设备自身。
+
+设备验收步骤：
+
+1. 安装测试 APK，填写 HTTPS 服务地址并登录，关闭应用后重新启动，验证会话恢复。
+2. 退出并切换账号或服务地址，确认工作台、Provider 和历史数据随认证上下文更新。
+3. 使用自行配置的 Provider 授权完成任务，验证关键决策、文件预览与 ZIP 保存。
+4. 对运行任务断开本地连接，从历史详情恢复订阅；任务结束后确认恢复按钮禁用。
+5. 仅在明确接受项目文件清理时确认停止，检查服务端任务状态与设备提示。
+
+认证层使用 `CloudAuthClient` 调用 `/api/v1/csrf-token`、`/api/v1/login` 和 `/api/v1/refresh`，路径由 `app/main.py` 的 `/api/v1` 挂载决定。访问令牌和 Cookie 写入 `CredentialStore` 注入的设备安全存储，领域层使用 `AuthSession.accessTokenRef`。`AuthenticatedClient` 负责后续业务请求；生成等副作用请求遇到失败后需要用户核对状态，自动重发被禁用。单一活动会话记录包含服务 origin 和账号，切换登录会清除旧凭据；服务地址只接受不含路径、用户信息、查询或片段的 HTTP(S) origin。生产环境 Cookie 带 Secure，客户端应使用 HTTPS。
+
+测试通过 `SessionStorage` 注入隔离内存实现，并单独验证设备存储适配器的插件 mock。真实 Android KeyStore、Windows Credential Manager 和 Linux Secret Service 尚未验收；Linux 构建需要 `libsecret-1-dev`、`libjsoncpp-dev` 及运行时 Secret Service。应用启动恢复需要网络验证 refresh，失败会清理本地会话并提示重新登录。存储清除失败时，登录页提供“清除本地会话”重试入口。当前静态分析、52 项 Flutter 测试及 Android release APK 构建已通过；APK 签名和 ZIP 校验通过，设备运行与桌面平台验收仍待完成，详见 `TESTING.md`。
 
 ### 图表编辑器验证
 
