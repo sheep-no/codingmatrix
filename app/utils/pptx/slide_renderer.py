@@ -195,7 +195,7 @@ class SlideRenderer:
             if slide.background.fill.type is not None:
                 color = slide.background.fill.fore_color.rgb
                 preview.background_color = (color[0], color[1], color[2])
-        except:
+        except Exception:
             pass
 
         # 解析元素
@@ -309,7 +309,7 @@ class SlideRenderer:
                     if para.font.size and para.font.size >= Pt(24):
                         return True
             return False
-        except:
+        except Exception:
             return False
 
     def _detect_layout_type(self, elements: List[SlideElement]) -> str:

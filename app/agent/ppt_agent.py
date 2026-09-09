@@ -119,7 +119,11 @@ class PPTAgent:
 
                 # 从响应中提取文本
                 if isinstance(raw, dict):
-                    content = raw.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    choices = raw.get("choices", [])
+                    if choices:
+                        content = choices[0].get("message", {}).get("content", "")
+                    else:
+                        content = ""
                 else:
                     content = str(raw)
 
@@ -264,7 +268,11 @@ JSON Schema：
 
             # 从响应中提取文本
             if isinstance(response, dict):
-                content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+                choices = response.get("choices", [])
+                if choices:
+                    content = choices[0].get("message", {}).get("content", "")
+                else:
+                    content = ""
             else:
                 content = str(response)
 
@@ -277,6 +285,8 @@ JSON Schema：
 
     def _validate_outline(self, data: Dict, topic: str, num_slides: int) -> Optional[PresentationOutline]:
         """验证并转换 JSON 数据为 PresentationOutline"""
+        if data is None:
+            return None
         try:
             if num_slides <= 1:
                 return PresentationOutline(
@@ -324,7 +334,10 @@ JSON Schema：
             if slides[-1].type != "end":
                 slides.append(SlideOutline(type="end", title="谢谢", bullets=[]))
 
-            while len(slides) > num_slides:
+            while len(slides) > max(num_slides, 2):
+                # 保护：至少保留 title + end 两页
+                if len(slides) <= 2:
+                    break
                 slides.pop(-2)
 
             blueprint = build_expanded_commercial_page_blueprint(
@@ -453,7 +466,11 @@ JSON Schema:
                 )
 
                 if isinstance(raw, dict):
-                    content = raw.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    choices = raw.get("choices", [])
+                    if choices:
+                        content = choices[0].get("message", {}).get("content", "")
+                    else:
+                        content = ""
                 else:
                     content = str(raw)
 

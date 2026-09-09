@@ -2374,7 +2374,7 @@ async def generate_ppt_task(
         except Exception as e:
             await update_progress(
                 status="failed",
-                message=f"PPT 生成失败：{str(e)}",
+                message="PPT 生成失败，请稍后重试",
                 error_message=str(e)
             )
             logger.error(f"PPT 生成任务失败 | task_id: {task_id} | error: {str(e)}")
@@ -2453,9 +2453,11 @@ async def generate_ppt(
             preview_url=_preview_url(ppt_id, req.output_format) if req.output_format in {OutputFormat.PPTX, OutputFormat.HTML, OutputFormat.MARKDOWN} else None,
             slides=outline.get('slides', [])
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"PPT 同步生成失败 | error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="PPT 生成失败，请稍后重试")
 
 
 @router.get("/pptx/download/{ppt_id}")
@@ -2714,7 +2716,7 @@ async def update_ppt_task(
         except Exception as e:
             await update_progress(
                 status="failed",
-                message=f"PPT 更新失败：{str(e)}",
+                message="PPT 更新失败，请稍后重试",
                 error_message=str(e)
             )
             logger.error(f"PPT 更新任务失败 | task_id: {task_id} | error: {str(e)}")
@@ -2811,7 +2813,7 @@ async def modify_ppt_visual_endpoint(
 
     except Exception as exc:
         logger.error("PPT 视觉修改失败 | task_id: %s | error: %s", task_id, exc)
-        raise HTTPException(status_code=500, detail=f"修改失败: {exc}")
+        raise HTTPException(status_code=500, detail="修改失败，请稍后重试")
 
 
 @router.get("/pptx/{task_id}/analyze")
@@ -2846,7 +2848,7 @@ async def analyze_ppt_endpoint(
 
     except Exception as exc:
         logger.error("PPT 分析失败 | task_id: %s | error: %s", task_id, exc)
-        raise HTTPException(status_code=500, detail=f"分析失败: {exc}")
+        raise HTTPException(status_code=500, detail="分析失败，请稍后重试")
 
 
 # =============================================================================
@@ -3178,6 +3180,9 @@ async def generate_ppt_from_text(
             ),
         )
 
+        if not outline or not outline.slides:
+            raise HTTPException(status_code=500, detail="大纲生成失败：无法生成有效大纲")
+
         return OutlineGenerationResponse(
             title=draft.title,
             slides=[
@@ -3198,9 +3203,11 @@ async def generate_ppt_from_text(
             status=draft.status,
         )
 
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("PPT Agent 大纲生成失败 | error: %s", exc)
-        raise HTTPException(status_code=500, detail=f"大纲生成失败: {exc}")
+        raise HTTPException(status_code=500, detail="大纲生成失败，请稍后重试")
 
 
 @router.post("/generate-from-text", response_model=TaskResponse)
