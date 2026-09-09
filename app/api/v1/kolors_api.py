@@ -64,6 +64,8 @@ async def _save_upload_file(upload_file: UploadFile) -> str:
     filename = f"upload_{uuid.uuid4().hex[:12]}{ext}"
     file_path = TEMP_DIR / filename
     content = await upload_file.read()
+    if len(content) > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=413, detail=f"上传文件过大，最大允许 {MAX_IMAGE_SIZE // 1024 // 1024}MB")
     with open(file_path, "wb") as f:
         f.write(content)
     return str(file_path)
@@ -407,6 +409,19 @@ async def text_to_image_api(
         if request.style and request.style in style_prompts:
             full_prompt = f"{style_prompts[request.style]}，{full_prompt}"
 
+        # Step 2: 检查缓存（避免重复生成）
+        cached_path = await get_cached_image(
+            db, user_id, request.prompt, request.seed, request.conversation_id
+        )
+        if cached_path:
+            return {
+                "success": True,
+                "cached": True,
+                "images": [],
+                "paths": [cached_path],
+                "message": "使用缓存的图片"
+            }
+
         # Step 3: 携带会话历史（构建增强 prompt）
         if request.conversation_id:
             history_context = await compress_conversation_history(
@@ -496,7 +511,7 @@ async def text_to_image_api(
         
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"文生图失败 | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"生成失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="图像生成失败，请稍后重试")
 
 
 @router.post("/image-to-image", summary="图生图")
@@ -669,7 +684,7 @@ async def image_to_image_api(
         raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"图生图失败 | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"生成失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="图像生成失败，请稍后重试")
     finally:
         # 清理上传的临时文件
         if uploaded_temp_path:
@@ -839,7 +854,7 @@ async def inpaint_api(
         raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"图像修复失败 | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"修复失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="图像修复失败，请稍后重试")
     finally:
         for tmp in uploaded_temp_paths:
             cleanup_file(tmp)
@@ -849,7 +864,8 @@ async def inpaint_api(
 async def generate_avatar_api(
     prompt: str,
     style: str = "anime",
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
 ):
     """生成头像（快捷方式）"""
     user_id = int(token.get("sub"))
@@ -857,6 +873,19 @@ async def generate_avatar_api(
     
     try:
         result = await generate_avatar(prompt, style)
+        
+        if result["success"] and result.get("paths"):
+            await save_image_generation_history(
+                db=db,
+                user_id=user_id,
+                prompt=prompt,
+                negative_prompt="",
+                image_paths=result.get("images", result["paths"]),
+                generation_type="avatar",
+                params={"style": style},
+                seed=None,
+            )
+        
         return {
             "success": result["success"],
             "images": result.get("images", []),
@@ -864,14 +893,15 @@ async def generate_avatar_api(
         }
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"生成头像失败 | error={str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="头像生成失败，请稍后重试")
 
 
 @router.post("/landscape", summary="生成风景图")
 async def generate_landscape_api(
     prompt: str,
     style: str = "realistic",
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
 ):
     """生成风景图（快捷方式）"""
     user_id = int(token.get("sub"))
@@ -879,6 +909,19 @@ async def generate_landscape_api(
     
     try:
         result = await generate_landscape(prompt, style)
+        
+        if result["success"] and result.get("paths"):
+            await save_image_generation_history(
+                db=db,
+                user_id=user_id,
+                prompt=prompt,
+                negative_prompt="",
+                image_paths=result.get("images", result["paths"]),
+                generation_type="landscape",
+                params={"style": style},
+                seed=None,
+            )
+        
         return {
             "success": result["success"],
             "images": result.get("images", []),
@@ -886,21 +929,35 @@ async def generate_landscape_api(
         }
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"生成风景图失败 | error={str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="风景图生成失败，请稍后重试")
 
 
 @router.post("/icon", summary="生成图标")
 async def generate_icon_api(
     prompt: str,
     style: str = "flat",
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
 ):
     """生成图标（快捷方式）"""
     user_id = int(token.get("sub"))
     logger.info(f"生成图标 | user_id={user_id} | style={style}")
     
     try:
-        result = await generate_icon(prompt, style)
+        result = await generate_icon(prompt)
+        
+        if result["success"] and result.get("paths"):
+            await save_image_generation_history(
+                db=db,
+                user_id=user_id,
+                prompt=prompt,
+                negative_prompt="",
+                image_paths=result.get("images", result["paths"]),
+                generation_type="icon",
+                params={"style": style},
+                seed=None,
+            )
+        
         return {
             "success": result["success"],
             "images": result.get("images", []),
@@ -908,7 +965,7 @@ async def generate_icon_api(
         }
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"生成图标失败 | error={str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="图标生成失败，请稍后重试")
 
 
 @router.get("/config", summary="获取配置信息")
