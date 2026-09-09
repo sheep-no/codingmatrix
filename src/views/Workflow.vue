@@ -118,6 +118,7 @@ import { useTaskFeedback } from '@/composables/useTaskFeedback'
 import TaskFeedbackPanel from '@/components/TaskFeedbackPanel.vue'
 
 const router = useRouter()
+const userStore = useUserStore()
 const prompt = ref('')
 const executing = ref(false)
 const workflowNodes = ref([])
