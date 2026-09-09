@@ -16,11 +16,14 @@ import logging
 import math
 import os
 import re
+import socket
 import uuid
 from datetime import datetime
 from enum import Enum
+from html import escape as html_escape
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File as FastAPIFile, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse, JSONResponse
@@ -321,6 +324,78 @@ VALID_TEMPLATE_IDS = [
     "modern", "business", "creative", "minimal",
     "academic", "tech", "education", "medical", "elegant",
 ]
+
+
+# =============================================================================
+# 安全校验函数
+# =============================================================================
+
+# 合法的 task_id/ppt_id 格式：UUID 或 UUID 前缀
+_ID_PATTERN = re.compile(r'^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$', re.IGNORECASE)
+
+
+def _validate_ppt_id(ppt_id: str) -> str:
+    """校验 ppt_id/task_id，防止路径穿越。
+
+    只允许 UUID 格式的 ID，拒绝包含 /、.. 等特殊字符的输入。
+    """
+    if not ppt_id or not _ID_PATTERN.match(ppt_id):
+        raise HTTPException(status_code=400, detail="无效的 PPT ID 格式")
+    return ppt_id
+
+
+# 最大下载大小：20MB
+_MAX_IMAGE_DOWNLOAD_BYTES = 20 * 1024 * 1024
+
+
+async def _safe_download_image(url: str, save_path: Path, max_bytes: int = _MAX_IMAGE_DOWNLOAD_BYTES) -> bool:
+    """安全下载图片：SSRF 防护 + 大小限制。
+
+    检查 URL 解析后的主机是否为内网地址，拒绝访问私有/回环/链路本地地址。
+    """
+    import aiohttp
+
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        # DNS 解析检查内网地址
+        try:
+            addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
+            for family, _, _, _, sockaddr in addr_info:
+                ip = ipaddress.ip_address(sockaddr[0])
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    logger.warning("SSRF 阻止：内网地址 %s (%s)", hostname, ip)
+                    return False
+        except (socket.gaierror, ValueError):
+            pass
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    return False
+                # 检查 Content-Length
+                content_length = resp.headers.get("Content-Length")
+                if content_length and int(content_length) > max_bytes:
+                    logger.warning("图片过大，跳过下载：%s (%s bytes)", url, content_length)
+                    return False
+                # 流式读取，限制大小
+                data = b""
+                async for chunk in resp.content.iter_chunked(8192):
+                    data += chunk
+                    if len(data) > max_bytes:
+                        logger.warning("图片下载超过大小限制：%s", url)
+                        return False
+                save_path.write_bytes(data)
+                return True
+    except Exception as e:
+        logger.warning("图片下载失败 %s: %s", url, e)
+        return False
 
 # =============================================================================
 # 模型定义
@@ -1924,7 +1999,8 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
                         slide_index=idx,
                         style=f"{req.template} 风格"
                     )
-                except Exception: pass
+                except Exception as e:
+                    logger.warning(f"幻灯片 {idx} 配图获取失败: {e}")
 
         if image_asset and image_asset.local_path:
             slide_data = {**slide_data, "local_images": [image_asset.local_path]}
@@ -2041,6 +2117,7 @@ async def generate_markdown_ppt(filepath: Path, outline: Dict[str, Any], req: PP
 
 def generate_preview_html(ppt_id: str) -> str:
     """生成预览 HTML 页面"""
+    safe_id = html_escape(ppt_id, quote=True)
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -2075,7 +2152,7 @@ def generate_preview_html(ppt_id: str) -> str:
         
         <div class="download-section">
             <h2 style="margin-bottom: 16px;">下载 PPT</h2>
-            <a href="/api/v1/pptx/download/{ppt_id}?format=pptx" class="download-btn">下载 PowerPoint</a>
+            <a href="/api/v1/pptx/download/{safe_id}?format=pptx" class="download-btn">下载 PowerPoint</a>
         </div>
         
         <div id="slides-container" class="slides-container">
@@ -2238,12 +2315,17 @@ async def generate_ppt_task(
                 else await generate_ppt_outline(req, user_id=user_id)
             )
 
-            # 立即保存大纲快照（用于恢复/增量生成）
+            # 立即保存大纲快照（用于恢复/增量生成/历史查询）
             output_dir = PPT_OUTPUT_DIR
             output_dir.mkdir(exist_ok=True)
             snapshot_path = output_dir / f"{task_id}_slides.json"
+            snapshot_data = {
+                "user_id": str(user_id),
+                "title": outline.get("title", ""),
+                "slides": outline.get("slides", []),
+            }
             with open(snapshot_path, 'w', encoding='utf-8') as f:
-                json.dump(outline.get('slides', []), f, ensure_ascii=False, indent=2)
+                json.dump(snapshot_data, f, ensure_ascii=False, indent=2)
             logger.info(f"保存大纲快照 | task_id={task_id} | slides={len(outline.get('slides', []))}")
             trace = build_ppt_trace_context(
                 req.options,
@@ -2484,7 +2566,7 @@ async def download_ppt(
         if test_path.exists():
             filepath = test_path
             break
-    
+
     if not filepath:
         raise HTTPException(status_code=404, detail="PPT 文件不存在")
     
@@ -2502,12 +2584,15 @@ async def download_ppt(
         "md": "text/markdown",
         "pdf": "application/pdf"
     }
-    
+
+    # 转义文件名，防止 Content-Disposition 头注入
+    safe_name = filepath.name.replace('"', '\\"').replace('\r', '').replace('\n', '')
+
     return StreamingResponse(
         file_stream(),
         media_type=mime_types.get(actual_format, "application/octet-stream"),
         headers={
-            "Content-Disposition": f'attachment; filename="{filepath.name}"'
+            "Content-Disposition": f'attachment; filename="{safe_name}"'
         }
     )
 
@@ -2519,6 +2604,7 @@ async def preview_ppt(
     token: dict = Depends(verify_token)
 ):
     """在线预览 PPT"""
+    _validate_ppt_id(ppt_id)
     user_id = token.get("sub", "anonymous")
     _verify_ppt_owner(ppt_id, user_id)
     output_dir = PPT_OUTPUT_DIR
@@ -2565,6 +2651,7 @@ async def cancel_ppt_task(
     db: AsyncSession = Depends(get_db),
 ):
     """取消正在进行的 PPT 生成任务，并保存中间状态"""
+    _validate_ppt_id(task_id)
     user_id = token.get("sub")
 
     task_info = await task_manager.get_task_info_async(task_id)
@@ -2607,6 +2694,7 @@ async def update_ppt_task(
     db: AsyncSession = Depends(get_db)
 ):
     """基于已有的大纲/中间状态增量生成 PPT"""
+    _validate_ppt_id(task_id)
     user_id = token.get("sub")
     _verify_ppt_owner(task_id, user_id)
     output_dir = PPT_OUTPUT_DIR
@@ -2762,6 +2850,7 @@ async def modify_ppt_visual_endpoint(
     3. 应用修改
     4. 返回修改结果和预览图
     """
+    _validate_ppt_id(task_id)
     user_id = token.get("sub", "anonymous")
     output_dir = PPT_OUTPUT_DIR
     _verify_ppt_owner(task_id, user_id)
@@ -2902,7 +2991,7 @@ async def list_ppt_history(
     page_size: int = Query(20, ge=1, le=100),
     token: dict = Depends(verify_token)
 ):
-    """获取用户的 PPT 生成历史"""
+    """获取当前用户的 PPT 生成历史"""
     user_id = token.get("sub", "anonymous")
     output_dir = PPT_OUTPUT_DIR
 
@@ -2939,6 +3028,10 @@ async def list_ppt_history(
                 continue
 
             pptx_path = output_dir / f"{ppt_id}.pptx"
+            first_title = "未命名"
+            if slides_list and isinstance(slides_list, list) and len(slides_list) > 0:
+                first_title = slides_list[0].get("title", "未命名") if isinstance(slides_list[0], dict) else "未命名"
+
             records.append({
                 "task_id": ppt_id,
                 "title": record_title,
@@ -3055,17 +3148,20 @@ def prevent_text_overflow(
 
 # 图片搜索管理器 (延迟初始化)
 _image_search_manager: Optional[ImageSearchManager] = None
+_image_manager_lock: asyncio.Lock = asyncio.Lock()
 
 
-def get_image_search_manager() -> ImageSearchManager:
-    """获取图片搜索管理器单例"""
+async def get_image_search_manager() -> ImageSearchManager:
+    """获取图片搜索管理器单例（异步安全）"""
     global _image_search_manager
     if _image_search_manager is None:
-        _image_search_manager = ImageSearchManager(
-            bing_key=os.environ.get("BING_IMAGE_SEARCH_KEY"),
-            unsplash_key=os.environ.get("UNSPLASH_ACCESS_KEY"),
-            pexels_key=os.environ.get("PEXELS_API_KEY"),
-        )
+        async with _image_manager_lock:
+            if _image_search_manager is None:
+                _image_search_manager = ImageSearchManager(
+                    bing_key=os.environ.get("BING_IMAGE_SEARCH_KEY"),
+                    unsplash_key=os.environ.get("UNSPLASH_ACCESS_KEY"),
+                    pexels_key=os.environ.get("PEXELS_API_KEY"),
+                )
     return _image_search_manager
 
 
@@ -3079,25 +3175,13 @@ async def search_image_url(keyword: str) -> Optional[str]:
     3. Pexels (需要 API Key)
     4. 占位图降级
     """
-    manager = get_image_search_manager()
+    manager = await get_image_search_manager()
     return await manager.search_image(keyword)
 
 
 async def download_image(url: str, save_path: Path) -> bool:
-    """下载图片到本地"""
-    import aiohttp
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=10) as resp:
-                if resp.status == 200:
-                    data = await resp.read()
-                    save_path.write_bytes(data)
-                    return True
-    except Exception as e:
-        logger.warning(f"图片下载失败 {url}: {e}")
-    
-    return False
+    """下载图片到本地（SSRF 防护 + 大小限制）"""
+    return await _safe_download_image(url, save_path)
 
 
 IMAGE_CACHE_DIR = Path("./static/images/cache")
@@ -3105,7 +3189,7 @@ IMAGE_CACHE_DIR = Path("./static/images/cache")
 
 async def get_image_for_slide(keywords: List[str], slide_index: int) -> Optional[str]:
     """获取幻灯片配图 (缓存优先)"""
-    manager = get_image_search_manager()
+    manager = await get_image_search_manager()
     
     for kw in keywords[:2]:
         # 检查缓存

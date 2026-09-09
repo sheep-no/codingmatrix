@@ -192,6 +192,8 @@ class PPTModifier:
 
     def _apply_color(self, para, color_str: str):
         """应用颜色"""
+        if not color_str:
+            return
         try:
             color = COLOR_MAP.get(color_str.lower())
             if color:
