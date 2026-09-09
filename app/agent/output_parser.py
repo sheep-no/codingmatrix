@@ -70,6 +70,10 @@ class GenericTextParser:
     def parse(self, raw_output: str) -> ParsedTestResult:
         result = ParsedTestResult()
 
+        if not raw_output or not raw_output.strip():
+            result.errors.append("测试输出为空")
+            return result
+
         passed_match = re.search(r"(\d+)\s+passed", raw_output, re.IGNORECASE)
         if passed_match:
             result.passed = int(passed_match.group(1))

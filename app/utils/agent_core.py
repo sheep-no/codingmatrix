@@ -106,7 +106,7 @@ class ConversationHistoryManager:
             # 按最后更新时间排序，移除最旧的
             sorted_sessions = sorted(
                 self._data.items(),
-                key=lambda x: x[1].get("messages", [{}])[-1].get("timestamp", "") if x[1].get("messages") else "",
+                key=lambda x: x[1].get("messages", [{}])[-1].get("timestamp", 0) if x[1].get("messages") else 0,
                 reverse=True
             )
             # 保留最新的 MAX_ACTIVE_SESSIONS 个

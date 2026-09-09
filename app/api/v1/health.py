@@ -14,12 +14,13 @@
 import logging
 import os
 from datetime import datetime, timezone
-from fastapi import APIRouter, Response, HTTPException
+from fastapi import APIRouter, Response, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.services.health_checker import health_checker
 from app.services.prometheus_metrics import generate_metrics_text
+from app.utils.security import verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["健康检查"])
@@ -129,9 +130,9 @@ async def _check_redis_quick() -> bool:
 
 
 @router.get("/detailed", summary="详细健康信息")
-async def detailed_health_check():
+async def detailed_health_check(token: dict = Depends(verify_token)):
     """
-    详细健康信息
+    详细健康信息（需要认证）
 
     返回完整的健康检查报告，包含所有组件的详细信息
     """
@@ -139,7 +140,7 @@ async def detailed_health_check():
 
 
 @router.get("/metrics", include_in_schema=False)
-async def prometheus_metrics():
+async def prometheus_metrics(token: dict = Depends(verify_token)):
     """
     Prometheus 指标端点
 
