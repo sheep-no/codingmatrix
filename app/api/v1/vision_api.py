@@ -31,6 +31,7 @@ class AnalyzeImageRequest(BaseModel):
     """图片分析请求"""
     prompt: str = Field(default="请详细描述这张图片的内容", description="分析提示词")
     image_url: Optional[str] = Field(default=None, description="图片 URL（可选，与 file 二选一）")
+    model: Optional[str] = Field(default=None, description="指定视觉模型")
 
 
 class AnalyzeImageResponse(BaseModel):
@@ -74,6 +75,7 @@ async def api_analyze_image(
     file: Optional[UploadFile] = FastAPIFile(None),
     prompt: Optional[str] = "请详细描述这张图片的内容",
     image_url: Optional[str] = None,
+    model: Optional[str] = None,
     token: dict = Depends(verify_token),
 ):
     """
@@ -137,7 +139,7 @@ async def api_analyze_image(
                 raise HTTPException(status_code=400, detail="image_url 仅支持 base64 data URI 格式")
 
         # 调用视觉分析
-        result = await analyze_image(image_path, prompt=prompt)
+        result = await analyze_image(image_path, prompt=prompt, model=model)
 
         return AnalyzeImageResponse(
             description=result["description"],

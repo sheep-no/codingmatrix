@@ -13,10 +13,12 @@
 - 只输出文本/代码给用户
 """
 import asyncio
+import re
+import inspect
 import json
 import logging
 import uuid
-from typing import Any, AsyncGenerator, Dict, Tuple, Optional, List
+from typing import Any, AsyncGenerator, Dict, Tuple, Optional, List, Callable, Awaitable
 from pathlib import Path
 from datetime import datetime
 
@@ -29,17 +31,18 @@ from app.utils.web_search import FreeWebSearch
 from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from fastapi.responses import StreamingResponse
 from app.utils.security import verify_token
-from app.db.add_history import save_history_to_db
+from app.db.add_history import invalidate_history_caches, save_history_to_db
 from app.utils.vision import analyze_image
 from app.models.file import File
 from app.models.history import History
-from sqlalchemy import select, delete, and_
+from sqlalchemy import select, delete, and_, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.utils.json_parser import RobustJSONParser
 from app.services.chat_context import fit_context, is_context_length_error
-from app.models.unified_state import Session
+from app.models.unified_state import Message, Session, SessionEvent
 from app.services.unified_state_service import append_message, create_session
+from app.utils.aicloud.knowledge_processor import parse_document
 
 # 初始化日志
 logger = logging.getLogger(__name__)
@@ -49,6 +52,7 @@ _parser = RobustJSONParser(strict_mode=False)
 # 部分响应缓存 {task_id: {"prompt": ..., "partial_response": ..., "model": ..., "timestamp": ...}}
 _partial_response_cache: Dict[str, dict] = {}
 _PARTIAL_TTL = 300  # 5 分钟过期
+_PARTIAL_CACHE_MAX_SIZE = 100  # 最大缓存条目数
 
 
 async def _append_shared_chat_messages(
@@ -71,6 +75,27 @@ async def _append_shared_chat_messages(
     await append_message(db, session.id, user_id, "user", prompt)
     await append_message(db, session.id, user_id, "assistant", response)
     await db.commit()
+    await invalidate_history_caches()
+
+
+async def _delete_shared_chat_data(db: AsyncSession, user_id: int, conversation_ids: Optional[List[int]] = None, delete_all: bool = False) -> int:
+    session_query = select(Session.id).where(Session.user_id == user_id, Session.module == "chat")
+    if not delete_all:
+        session_query = session_query.where(Session.external_id.in_([str(value) for value in conversation_ids or []]))
+    session_ids = list((await db.scalars(session_query)).all())
+
+    if session_ids:
+        await db.execute(delete(Message).where(Message.session_id.in_(session_ids)))
+        await db.execute(delete(SessionEvent).where(SessionEvent.session_id.in_(session_ids)))
+        await db.execute(delete(Session).where(Session.id.in_(session_ids)))
+
+    file_query = update(File).where(File.user_id == user_id, File.is_deleted == 0)
+    if delete_all:
+        file_query = file_query.where(File.conversation_id.is_not(None))
+    else:
+        file_query = file_query.where(File.conversation_id.in_(conversation_ids or []))
+    await db.execute(file_query.values(is_deleted=1))
+    return len(session_ids)
 
 
 def _cleanup_partial_cache():
@@ -82,11 +107,20 @@ def _cleanup_partial_cache():
             cached_time = datetime.fromisoformat(data.get("timestamp", ""))
             if (now - cached_time).total_seconds() > _PARTIAL_TTL:
                 expired_keys.append(task_id)
-        except Exception:
+        except (ValueError, TypeError):
             expired_keys.append(task_id)
     
     for task_id in expired_keys:
         _partial_response_cache.pop(task_id, None)
+    
+    # 如果缓存仍然过大，删除最旧的条目
+    if len(_partial_response_cache) > _PARTIAL_CACHE_MAX_SIZE:
+        sorted_keys = sorted(
+            _partial_response_cache.keys(),
+            key=lambda k: _partial_response_cache[k].get("timestamp", "")
+        )
+        for k in sorted_keys[:len(_partial_response_cache) - _PARTIAL_CACHE_MAX_SIZE]:
+            _partial_response_cache.pop(k, None)
     
     return len(expired_keys)
 
@@ -147,6 +181,8 @@ def ai_decide_search(prompt: str) -> bool:
         True=需要搜索，False=不需要搜索
     """
     prompt_lower = prompt.lower()
+    if any(term in prompt_lower for term in ("联网搜索", "网上搜索", "在线核查", "核查附件最新", "搜索最新")):
+        return True
     
     # 需要搜索的关键词（时效性、动态信息）
     search_triggers = [
@@ -199,28 +235,59 @@ def ai_decide_search(prompt: str) -> bool:
     return False
 
 
+def build_bounded_search_query(prompt: str, attachment_names: Optional[List[str]] = None) -> str:
+    """构造只含问题摘要和附件实体的有限搜索词。"""
+    query = " ".join(prompt.split())[:260]
+    names = []
+    for name in attachment_names or []:
+        entity = Path(name).stem.replace("_", " ").replace("-", " ").strip()
+        if entity:
+            names.append(entity[:80])
+    entity_prefix = " ".join(names)[:140].strip()
+    return " ".join(part for part in (entity_prefix, query) if part)[:400]
+
+
+def build_followup_search_query(query: str, sources: List[Dict[str, str]]) -> Optional[str]:
+    """Refine the original topic with bounded text from actual search results."""
+    query_terms = set(re.findall(r"\w+", query.casefold()))
+    ranked_sources = sorted(
+        sources[:3],
+        key=lambda source: len(query_terms.intersection(re.findall(
+            r"\w+", f"{source.get('title', '')} {source.get('snippet', '')}".casefold()
+        ))),
+        reverse=True,
+    )
+    for source in ranked_sources:
+        fragments = []
+        for field, limit in (("title", 70), ("snippet", 100)):
+            text = " ".join(source.get(field, "").split())
+            if text and text.casefold() not in query.casefold():
+                fragments.append(text[:limit])
+        if fragments:
+            return " ".join([query[:220], *fragments])[:400]
+    return None
+
+
 def extract_stream_content(chunk: str) -> Tuple[bool, str]:
     """
     从 SSE chunk 中提取内容（增强容错）
     """
     try:
-        # 尝试直接解析
         data = json.loads(chunk)
-        content = (
-            data.get("choices", [{}])[0]
-            .get("delta", {})
-            .get("content", "")
-        )
+        choices = data.get("choices") or []
+        if not choices:
+            return False, ""
+        delta = choices[0].get("delta") or {}
+        content = delta.get("content", "")
         return True, content if content else ""
     except (json.JSONDecodeError, KeyError, IndexError):
-        # 尝试容错解析
         try:
             data = _parser.parse(chunk)
-            content = (
-                data.get("choices", [{}])[0]
-                .get("delta", {})
-                .get("content", "")
-            )
+            choices = data.get("choices") or []
+            if not choices:
+                return False, ""
+            delta = choices[0].get("delta") or {}
+            content = delta.get("content", "")
             return True, content if content else ""
         except (ValueError, TypeError, RuntimeError, OSError) as e:
             logger.debug(f"SSE chunk 解析失败：{str(e)[:50]} | chunk: {chunk[:100]}")
@@ -293,10 +360,18 @@ async def compress_conversation_history(
         
         # 压缩格式：只保留 prompt 和 response 的关键部分
         compressed = []
+        total_length = 0
+        max_total_length = 6000  # 限制历史上下文总长度
         for h in histories:
             prompt_short = h.prompt[:100] + "..." if len(h.prompt) > 100 else h.prompt
-            response_short = h.response[:150] + "..." if len(h.response) > 150 else h.response
-            compressed.append(f"用户：{prompt_short}\n助手：{response_short}")
+            response_text = h.response or ""
+            response_short = response_text[:150] + "..." if len(response_text) > 150 else response_text
+            entry = f"用户：{prompt_short}\n助手：{response_short}"
+            total_length += len(entry)
+            if total_length > max_total_length:
+                compressed.append("...（历史记录过长，已截断）")
+                break
+            compressed.append(entry)
         
         context = "\n\n--- 对话历史 ---\n" + "\n\n".join(compressed) + "\n---\n\n"
         
@@ -383,14 +458,23 @@ async def get_or_parse_file(
             return parsed_content, metadata
             
         else:
-            # 其他文件：返回文件路径（由主模型处理）
+            if ext not in {".txt", ".md", ".py", ".js", ".ts", ".json", ".yaml", ".yml", ".csv", ".log", ".pdf", ".docx"}:
+                raise HTTPException(status_code=422, detail=f"附件格式暂不支持：{file_record.filename}，请转换为 PDF、DOCX 或文本文件。")
+            try:
+                parsed_content = await asyncio.to_thread(parse_document, str(verified_path))
+            except Exception as e:
+                logger.error(f"普通文档解析失败 | file={file_path} | error={str(e)}")
+                raise HTTPException(status_code=422, detail=f"附件解析失败：{file_record.filename}")
+            if not parsed_content or not parsed_content.strip():
+                raise HTTPException(status_code=422, detail=f"附件无可读取正文：{file_record.filename}")
+            file_record.update_parse_cache(parsed_content, ttl_seconds=3600)
+            await db.commit()
             metadata = {
-                "type": "file",
+                "type": "parsed",
                 "filename": file_record.filename,
-                "path": str(verified_path)
+                "path": str(verified_path),
             }
-            
-            return f"[文件：{file_record.filename}]", metadata
+            return parsed_content, metadata
             
     except HTTPException:
         raise
@@ -399,7 +483,7 @@ async def get_or_parse_file(
         raise HTTPException(status_code=404, detail=f"文件未找到：{file_path}")
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"文件解析失败 | file={file_path} | error={str(e)}")
-        raise HTTPException(status_code=500, detail=f"文件解析失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="文件解析失败，请稍后重试")
 
 
 async def verify_file_access(
@@ -460,13 +544,26 @@ async def _build_context(
     conversation_id: Optional[int],
     enable_search: Optional[bool],
     search_count: int,
+    search_mode: str = "auto",
     files_to_parse: Optional[List[str]] = None,
-    include_history: bool = True
-) -> str:
+    include_history: bool = True,
+    on_stage: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+    search_depth: str = "shallow",
+) -> Tuple[str, List[Dict[str, str]], bool, bool, List[Dict[str, str]]]:
     """
     构建上下文：会话历史 + 文件解析 + 联网搜索
     """
     context_parts = []
+    sources = []
+    attachment_terms = []
+    had_files = bool(files_to_parse)
+    stage_errors = []
+
+    async def stage(event: Dict[str, Any]) -> None:
+        if on_stage:
+            result = on_stage(event)
+            if inspect.isawaitable(result):
+                await result
     
     if include_history and conversation_id:
         history_context = await compress_conversation_history(db, user_id, conversation_id)
@@ -475,42 +572,85 @@ async def _build_context(
     
     if files_to_parse:
         for file_path in files_to_parse:
+            await stage({"stage": "parsing", "status": "started", "filename": Path(file_path).name})
             try:
                 parsed_content, metadata = await get_or_parse_file(
                     file_path, user_id, conversation_id, db
                 )
                 context_parts.append(f"\n[参考文件：{metadata['filename']}]\n{parsed_content}\n")
+                sources.append({"kind": "file", "title": metadata["filename"]})
+                attachment_terms.append(metadata["filename"])
+                # Only explicit short identity fields are eligible for a web query.
+                for line in parsed_content[:2000].splitlines()[:30]:
+                    match = re.match(r"^\s*(?:公司(?:名称)?|产品(?:名称)?|标题|company|product|title)\s*[:：]\s*(.{2,60})$", line, re.IGNORECASE)
+                    if match:
+                        attachment_terms.append(match.group(1))
+                        break
+                await stage({"stage": "parsing", "status": "completed", "filename": metadata["filename"]})
             except HTTPException as e:
-                logger.warning(f"文件访问被拒绝，跳过 | file={file_path} | status={e.status_code} | detail={e.detail}")
+                context_parts.append(f"\n[附件处理失败：{Path(file_path).name}]\n{e.detail}\n")
+                stage_errors.append({"stage": "parsing", "error": str(e.detail)})
+                await stage({"stage": "parsing", "status": "failed", "error": str(e.detail)})
+                logger.warning(f"文件访问被拒绝 | file={file_path} | status={e.status_code} | detail={e.detail}")
             except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-                logger.warning(f"文件解析失败，跳过 | file={file_path} | error={str(e)}")
+                context_parts.append(f"\n[附件处理失败：{Path(file_path).name}]\n附件解析失败，请检查文件格式或内容。\n")
+                stage_errors.append({"stage": "parsing", "error": "附件解析失败，请检查文件格式或内容。"})
+                await stage({"stage": "parsing", "status": "failed", "error": "附件解析失败，请检查文件格式或内容。"})
+                logger.warning(f"文件解析失败 | file={file_path} | error={str(e)}")
     
     should_search = False
     
-    if enable_search is False:
+    effective_mode = search_mode
+    if search_mode == "auto" and enable_search is not None:
+        effective_mode = "on" if enable_search else "off"
+    if effective_mode == "off":
         logger.info(f"用户禁止搜索 | prompt={prompt[:50]}...")
+        await stage({"stage": "searching", "status": "skipped", "reason": "disabled"})
     else:
-        ai_needs_search = ai_decide_search(prompt)
+        ai_needs_search = ai_decide_search(prompt) or (
+            bool(attachment_terms) and any(term in prompt for term in ("核查", "核对", "检索", "搜索"))
+        )
         
-        if enable_search is True:
-            should_search = ai_needs_search
-            log_msg = "执行搜索" if should_search else "跳过搜索"
-            logger.info(f"用户允许 + AI 判断{log_msg} | prompt={prompt[:50]}...")
-        else:
-            should_search = ai_needs_search
-            log_msg = "执行搜索" if should_search else "跳过搜索"
-            logger.info(f"用户未指定 + AI 判断{log_msg} | prompt={prompt[:50]}...")
+        should_search = effective_mode == "on" or ai_needs_search
+        logger.info(f"联网模式={effective_mode} | {'执行搜索' if should_search else '跳过搜索'}")
     
     if should_search:
-        try:
-            search = FreeWebSearch()
-            search_text = await search.search_and_format(query=prompt, count=search_count)
+        search = FreeWebSearch()
+        query = build_bounded_search_query(prompt, attachment_terms)
+        total_rounds = 2 if search_depth == "multi" else 1
+        seen_urls = set()
+        for round_number in range(1, total_rounds + 1):
+            event = {"stage": "searching", "round": round_number, "total_rounds": total_rounds}
+            await stage({**event, "status": "started"})
+            try:
+                search_text, web_sources = await search.search_with_sources(query=query, count=search_count)
+                if not web_sources:
+                    raise ValueError("未获得网页来源")
+            except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
+                warning = {**event, "error": f"第 {round_number} 轮搜索未获得有效结果，将使用已有资料回答。"}
+                stage_errors.append(warning)
+                context_parts.append(f"\n[网络搜索失败]\n{warning['error']}\n")
+                await stage({**warning, "status": "failed"})
+                logger.warning("第 %s 轮搜索失败 | error=%s", round_number, e)
+                break
+            for source in web_sources:
+                if source["url"] not in seen_urls:
+                    sources.append(source)
+                    seen_urls.add(source["url"])
             if search_text:
-                context_parts.append(f"\n[网络搜索结果]\n{search_text}\n")
-        except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-            logger.warning(f"搜索失败，继续执行 | error={str(e)}")
+                context_parts.append(f"\n[第 {round_number} 轮网络搜索结果]\n{search_text}\n")
+            await stage({**event, "status": "completed", "sources": list(sources)})
+            if round_number < total_rounds:
+                next_query = build_followup_search_query(query, web_sources)
+                if not next_query:
+                    warning = {"stage": "searching", "round": 2, "total_rounds": total_rounds,
+                               "error": "首轮结果缺少可用于追问的新文本，多轮搜索已提前结束。"}
+                    stage_errors.append(warning)
+                    await stage({**warning, "status": "skipped"})
+                    break
+                query = next_query
     
-    return "\n".join(context_parts) if context_parts else ""
+    return "\n".join(context_parts) if context_parts else "", sources, should_search, had_files, stage_errors
 
 
 def _select_prompt_template(prompt: str, use_reasoning: bool) -> str:
@@ -557,7 +697,9 @@ async def stream_response(
     files_to_parse: List[str] = None,
     include_history: bool = True,
     resume_from: Optional[str] = None,
-    api_key_token: str = None
+    api_key_token: str = None,
+    search_mode: str = "auto",
+    search_depth: str = "shallow",
 ) -> AsyncGenerator[str, None]:
     """
     通用流式响应（支持文件解析、历史上下文、联网搜索、SSE 断开检测）
@@ -571,17 +713,41 @@ async def stream_response(
         prefix_text = cache.get("partial_response", "")
         logger.info(f"从部分响应恢复 | task_id={resume_from} | prefix_len={len(prefix_text)}")
 
-    full_context = await _build_context(
-        user_id=int(user_id),
-        prompt=prompt,
-        db=db,
-        conversation_id=int(conversation_id) if conversation_id else None,
-        enable_search=enable_search,
-        search_count=search_count,
-        files_to_parse=files_to_parse,
-        include_history=include_history
-    )
+    stage_events = asyncio.Queue()
 
+    async def prepare_context():
+        try:
+            return await _build_context(
+                user_id=int(user_id),
+                prompt=prompt,
+                db=db,
+                conversation_id=int(conversation_id) if conversation_id else None,
+                enable_search=enable_search,
+                search_mode=search_mode,
+                search_depth=search_depth,
+                search_count=search_count,
+                files_to_parse=files_to_parse,
+                include_history=include_history,
+                on_stage=stage_events.put,
+            )
+        finally:
+            await stage_events.put(None)
+
+    context_task = asyncio.create_task(prepare_context())
+    try:
+        while True:
+            event = await stage_events.get()
+            if event is None:
+                break
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+        full_context, sources, _, _, stage_errors = await context_task
+    finally:
+        if not context_task.done():
+            context_task.cancel()
+        try:
+            await context_task
+        except asyncio.CancelledError:
+            pass
     system_prompt = _select_prompt_template(prompt, use_reasoning)
     fitted_context, context_budget = fit_context(prompt, full_context, model, api_key_token)
     final_prompt = system_prompt.format(prompt=prompt, context=fitted_context or "（无额外上下文）")
@@ -594,6 +760,7 @@ async def stream_response(
 
     response_parts = []
 
+    yield json.dumps({"stage": "answering", "status": "started", "model": model, "sources": sources, "search_depth": search_depth}, ensure_ascii=False) + "\n"
     try:
         try:
             result_gen = await call_llm(model=model, prompt=final_prompt, stream=True,
@@ -651,7 +818,9 @@ async def stream_response(
             conversation_id=conversation_id,
             prompt=prompt,
             response=full_response,
-            thinking=None
+            thinking=None,
+            metadata={"sources": sources, "warnings": stage_errors, "model": model, "stage": "completed", "search_depth": search_depth},
+            commit=False
         )
         await _append_shared_chat_messages(db, int(user_id), new_conv_id, prompt, full_response)
         logger.info(f"历史记录保存成功 | conversation_id={new_conv_id}")
@@ -689,17 +858,21 @@ async def generate_response(
     search_count: int = 5,
     files_to_parse: List[str] = None,
     include_history: bool = True,
-    api_key_token: str = None
+    api_key_token: str = None,
+    search_mode: str = "auto",
+    search_depth: str = "shallow",
 ) -> Dict:
     """
     通用非流式响应
     """
-    full_context = await _build_context(
+    full_context, sources, did_search, had_files, stage_errors = await _build_context(
         user_id=int(user_id),
         prompt=prompt,
         db=db,
         conversation_id=int(conversation_id) if conversation_id else None,
         enable_search=enable_search,
+        search_mode=search_mode,
+        search_depth=search_depth,
         search_count=search_count,
         files_to_parse=files_to_parse,
         include_history=include_history
@@ -750,7 +923,9 @@ async def generate_response(
         conversation_id=conversation_id,
         prompt=prompt,
         response=response,
-        thinking=None
+        thinking=None,
+        metadata={"sources": sources, "warnings": stage_errors, "model": model, "search_depth": search_depth, "stages": {"search": did_search, "files": had_files}},
+        commit=False
     )
     await _append_shared_chat_messages(db, int(user_id), new_conv_id, prompt, response)
     
@@ -766,6 +941,9 @@ async def generate_response(
             "max_output_tokens": context_budget.max_output_tokens,
             "truncated": context_budget.truncated,
         },
+        "sources": sources,
+        "search_depth": search_depth,
+        "warnings": stage_errors,
     }
 
 
@@ -836,6 +1014,8 @@ async def generate_code(
                     request=request,
                     use_reasoning=body.use_reasoning,
                     enable_search=body.enable_search,
+                    search_mode=body.search_mode,
+                    search_depth=body.search_depth,
                     search_count=body.search_count or 5,
                     files_to_parse=files_to_parse if files_to_parse else None,
                     include_history=True,
@@ -853,6 +1033,8 @@ async def generate_code(
                 db=db,
                 use_reasoning=body.use_reasoning,
                 enable_search=body.enable_search,
+                search_mode=body.search_mode,
+                search_depth=body.search_depth,
                 search_count=body.search_count or 5,
                 files_to_parse=files_to_parse if files_to_parse else None,
                 include_history=True,
@@ -863,7 +1045,7 @@ async def generate_code(
         raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"请求失败 | user_id={user_id} | error={str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="服务内部错误，请稍后重试")
 
 
 @router.delete("/code/history")
@@ -893,10 +1075,12 @@ async def delete_code_history(
         if all:
             stmt = delete(History).where(History.user_id == user_id)
             result = await db.execute(stmt)
+            shared_deleted = await _delete_shared_chat_data(db, int(user_id), delete_all=True)
             await db.commit()
+            await invalidate_history_caches()
             deleted_count = result.rowcount
-            logger.info(f"清除全部历史记录 | user_id={user_id} | deleted={deleted_count}")
-            return {"status": "deleted", "count": deleted_count}
+            logger.info(f"清除全部历史记录 | user_id={user_id} | deleted={deleted_count} | shared={shared_deleted}")
+            return {"status": "deleted", "count": deleted_count, "shared_count": shared_deleted}
         else:
             stmt = delete(History).where(
                 and_(
@@ -905,10 +1089,12 @@ async def delete_code_history(
                 )
             )
             result = await db.execute(stmt)
+            shared_deleted = await _delete_shared_chat_data(db, int(user_id), conversation_ids=conversation_ids)
             await db.commit()
+            await invalidate_history_caches()
             deleted_count = result.rowcount
-            logger.info(f"删除历史记录 | user_id={user_id} | deleted={deleted_count}")
-            return {"status": "deleted", "count": deleted_count, "conversation_ids": conversation_ids}
+            logger.info(f"删除历史记录 | user_id={user_id} | deleted={deleted_count} | shared={shared_deleted}")
+            return {"status": "deleted", "count": deleted_count, "shared_count": shared_deleted, "conversation_ids": conversation_ids}
 
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"删除历史记录异常 | user_id={user_id} | error={str(e)}", exc_info=True)

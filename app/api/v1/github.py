@@ -21,6 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.utils.security import verify_token
 from app.db.database import get_db
 from app.models.user import User
+from app.models.github_config import GithubUserConfig
+from app.services.github_config_service import config_summary, save_config
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,7 @@ router = APIRouter(prefix="/github", tags=["github"])
 class GithubConfig(BaseModel):
     """GitHub 配置模型"""
     username: str = Field(..., description="GitHub 用户名")
-    token: str = Field(..., description="GitHub Personal Access Token")
+    token: str = Field(..., description="GitHub Personal Access Token", repr=False)
     use_github: bool = Field(default=False, description="是否使用 GitHub")
 
 class GithubSaveRequest(BaseModel):
@@ -49,7 +51,8 @@ class GithubSaveResponse(BaseModel):
 @router.post("/config", response_model=Dict[str, Any])
 async def set_github_config(
     config: GithubConfig,
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     设置用户的 GitHub 配置
@@ -60,14 +63,14 @@ async def set_github_config(
     if not user_id:
         raise HTTPException(status_code=401, detail="无效的用户令牌")
     
-    # 这里可以将配置存储到数据库或会话中
-    # 目前我们只返回确认信息
-    return {
-        "success": True,
-        "message": "GitHub 配置已保存",
-        "username": config.username,
-        "use_github": config.use_github
-    }
+    try:
+        return await save_config(db, int(user_id), config.username, config.token, config.use_github)
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=503, detail="GitHub 配置保存失败，请重新读取配置确认状态") from None
 
 @router.post("/save", response_model=GithubSaveResponse)
 async def save_project_to_github(
@@ -239,9 +242,10 @@ async def _save_to_local_git(request: GithubSaveRequest, user_id: str) -> Github
         logger.error(f"本地 Git 操作失败: {e}")
         raise HTTPException(status_code=500, detail=f"本地 Git 操作失败: {str(e)}")
 
-@router.get("/config", response_model=GithubConfig)
+@router.get("/config", response_model=Dict[str, Any])
 async def get_github_config(
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     获取用户的 GitHub 配置
@@ -252,10 +256,7 @@ async def get_github_config(
     if not user_id:
         raise HTTPException(status_code=401, detail="无效的用户令牌")
     
-    # 这里应该从数据库或会话中获取配置
-    # 目前返回默认配置
-    return GithubConfig(
-        username="",
-        token="",
-        use_github=False
-    )
+    try:
+        return config_summary(await db.get(GithubUserConfig, int(user_id)))
+    except Exception:
+        raise HTTPException(status_code=503, detail="GitHub 配置读取失败") from None

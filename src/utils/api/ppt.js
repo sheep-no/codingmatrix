@@ -18,15 +18,94 @@
  */
 export function createPptClient(client) {
   return {
+    async createOutline(payload) {
+      const response = await client.post('/pptx/outlines', payload)
+      if (response.ok) return await response.json()
+      const error = await response.json()
+      throw new Error(error.detail || '创建大纲失败')
+    },
+
+    async updateOutline(outlineId, payload) {
+      const response = await client.patch(`/pptx/outlines/${outlineId}`, payload)
+      if (response.ok) return await response.json()
+      const error = await response.json()
+      throw new Error(error.detail || '更新大纲失败')
+    },
+
+    async getOutline(outlineId, version) {
+      const response = await client.get(`/pptx/outlines/${outlineId}?version=${version}`)
+      if (response.ok) return await response.json()
+      throw new Error('加载对应版本的大纲失败')
+    },
+
+    async deleteOutline(outlineId) {
+      const response = await client.delete(`/pptx/outlines/${outlineId}`)
+      if (response.ok) return await response.json()
+      const error = await response.json()
+      throw new Error(error.detail || '删除大纲失败')
+    },
+
+    async approveOutline(outlineId) {
+      const response = await client.post(`/pptx/outlines/${outlineId}/approve`)
+      if (response.ok) return await response.json()
+      const error = await response.json()
+      throw new Error(error.detail || '批准大纲失败')
+    },
+
+    async generateFromOutline(outlineId, qualityMode = 'standard', outlineVersion = null, options = {}) {
+      const response = await client.post(`/pptx/outlines/${outlineId}/generate`, {
+        quality_mode: qualityMode,
+        outline_version: outlineVersion,
+        output_format: options.output_format || 'pptx',
+        auto_images: options.auto_images !== false,
+        enable_animation: options.enable_animation !== false,
+        api_key_token: options.api_key_token || null,
+      })
+      if (response.ok) return await response.json()
+      const error = await response.json()
+      throw new Error(error.message || error.detail || '创建 PPT 任务失败')
+    },
+
+    async getQualityReport(taskId) {
+      const response = await client.get(`/pptx/${taskId}/quality-report`)
+      if (response.ok) return await response.json()
+      return null
+    },
+
+    async getTemplatePreview(templateId, page = 1) {
+      const response = await client.get(`/pptx/templates/${templateId}/preview/${page}`)
+      if (response.ok) return response
+      return null
+    },
+
+    async regenerateOutlineSlide(outlineId, slideId, qualityMode, slide, outlineVersion, options = {}) {
+      const response = await client.post(`/pptx/outlines/${outlineId}/slides/${slideId}/regenerate`, {
+        quality_mode: qualityMode,
+        slide,
+        outline_version: outlineVersion,
+        output_format: options.output_format || 'pptx',
+        auto_images: options.auto_images !== false,
+        enable_animation: options.enable_animation !== false,
+        api_key_token: options.api_key_token || null,
+      })
+      if (response.ok) return await response.json()
+      const error = await response.json()
+      const failure = new Error(error.message || (typeof error.detail === 'string' ? error.detail : '页面修改失败'))
+      if (error.details?.outline_version) failure.savedVersion = error.details.outline_version
+      throw failure
+    },
+
     async createPptTask(prompt, conversationId = null, api_key_token = null, options = {}) {
       const response = await client.post('/pptx/generate_task', {
         prompt,
         conversation_id: conversationId,
         api_key_token,
-        template_id: options.template_id || 'modern',
-        slide_count: options.slide_count || 10,
-        auto_images: options.auto_images !== false,
-        enable_animation: options.enable_animation !== false,
+         template: options.template || options.template_id || 'auto',
+         slide_count: options.slide_count || 10,
+         options: {
+           auto_images: options.auto_images !== false,
+           enable_animation: options.enable_animation !== false,
+         },
         output_format: options.output_format || 'pptx',
       })
       if (response.ok) {
@@ -64,6 +143,7 @@ export function createPptClient(client) {
 
     async downloadPPT(pptId, format = 'pptx') {
       try {
+        if (format === 'pdf') return await this.downloadPDF(pptId)
         const response = await client.get(`/pptx/download/${pptId}?format=${format}`)
         if (response.ok) {
           return await response.blob()
@@ -72,6 +152,13 @@ export function createPptClient(client) {
       } catch (error) {
         throw new Error(error.message || 'Download failed', { cause: error })
       }
+    },
+
+    async downloadPDF(pptId) {
+      const response = await client.get(`/pptx/download/${pptId}/pdf`)
+      if (response.ok) return await response.blob()
+      const error = await response.json().catch(() => ({}))
+      throw new Error(error.detail || 'PDF 下载失败')
     },
 
     async cancelPptTask(taskId) {
@@ -130,11 +217,13 @@ export function createPptClient(client) {
       }
     },
 
-    async getTemplates(category = null) {
+    async getTemplates(category = null, { topic, scenario } = {}) {
       try {
-        const url = category
-          ? `/pptx/templates?category=${category}`
-          : '/pptx/templates'
+        const params = new URLSearchParams()
+        if (category) params.set('category', category)
+        if (topic) params.set('topic', topic)
+        if (scenario) params.set('scenario', scenario)
+        const url = `/pptx/templates${params.size ? `?${params}` : ''}`
         const response = await client.get(url)
         if (response.ok) {
           return await response.json()
@@ -180,18 +269,6 @@ export function createPptClient(client) {
         return { total: 0, completed: 0, failed: 0 }
       } catch {
         return { total: 0, completed: 0, failed: 0 }
-      }
-    },
-
-    async downloadPDF(pptId) {
-      try {
-        const response = await client.get(`/pptx/download/${pptId}/pdf`)
-        if (response.ok) {
-          return await response.blob()
-        }
-        throw new Error('PDF 导出需要服务器安装 LibreOffice')
-      } catch (error) {
-        throw new Error(error.message || 'PDF 导出失败', { cause: error })
       }
     }
   }

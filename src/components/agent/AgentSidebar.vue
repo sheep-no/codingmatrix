@@ -1,5 +1,7 @@
 <template>
   <div class="agent-sidebar">
+    <WorkbenchNav class="agent-primary-navigation" />
+
     <!-- 会话历史 -->
     <div class="sidebar-section">
       <div class="section-header">
@@ -14,14 +16,20 @@
           :key="session.id"
           class="session-item"
           :class="{ active: sessionId === session.id }"
+          role="button"
+          tabindex="0"
+          :aria-current="sessionId === session.id ? 'true' : undefined"
+          :aria-label="`切换到${getModeLabel(session.mode)}会话`"
           @click="$emit('switch-session', session.id)"
+          @keydown.enter="$emit('switch-session', session.id)"
+          @keydown.space.prevent="$emit('switch-session', session.id)"
         >
           <div class="session-info">
             <span class="session-mode">{{ getModeLabel(session.mode) }}</span>
             <span class="session-meta">{{ session.filesCount }} 文件</span>
           </div>
           <div class="session-time">{{ formatTime(session.timestamp) }}</div>
-          <button class="session-delete" title="删除" @click.stop="$emit('delete-session', session.id)">
+          <button class="session-delete" title="删除" aria-label="删除会话" @click.stop="$emit('delete-session', session.id)" @keydown.stop>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
@@ -51,16 +59,29 @@
           class="tree-item"
           :class="{ selected: selectedPath === item.path, 'is-category': item.isCategory }"
         >
-          <div v-if="item.isCategory" class="category-header" @click="$emit('toggle-category', item.categoryName)">
+          <button
+            v-if="item.isCategory"
+            class="category-header"
+            type="button"
+            :aria-expanded="item.expanded"
+            @click="$emit('toggle-category', item.categoryName)"
+          >
             <span class="category-icon">{{ item.icon }}</span>
             <span class="category-name">{{ item.name }}</span>
             <span class="category-count">({{ item.count }})</span>
             <span class="expand-icon">{{ item.expanded ? '▼' : '▶' }}</span>
-          </div>
-          <div v-else v-show="item.visible" class="file-item" @click="$emit('select-file', { path: item.path })">
+          </button>
+          <button
+            v-else
+            v-show="item.visible"
+            class="file-item"
+            type="button"
+            :aria-pressed="selectedPath === item.path"
+            @click="$emit('select-file', { path: item.path })"
+          >
             <span class="file-icon">{{ getFileIcon(item.path) }}</span>
             <span class="file-name">{{ getFileName(item.path) }}</span>
-          </div>
+          </button>
         </div>
       </div>
     </div>
@@ -85,6 +106,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import WorkbenchNav from '@/components/WorkbenchNav.vue'
 
 const props = defineProps({
   sessionId: { type: String, default: '' },
@@ -158,6 +180,10 @@ function getFileName(filePath) {
   height: 100%;
   overflow: hidden;
 }
+.agent-primary-navigation {
+  margin: var(--spacing-3);
+  flex: 0 0 auto;
+}
 .sidebar-section {
   display: flex;
   flex-direction: column;
@@ -183,8 +209,8 @@ function getFileName(filePath) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: var(--control-min-size);
+  height: var(--control-min-size);
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -192,11 +218,11 @@ function getFileName(filePath) {
   cursor: pointer;
   transition: all 0.15s;
 }
-.section-btn:hover { background: var(--bg-secondary); color: var(--primary); }
+.section-btn:hover { background: var(--surface-subtle); color: var(--accent-primary); }
 .file-count {
   font-size: 11px;
-  color: var(--text-tertiary);
-  background: var(--bg-secondary);
+  color: var(--content-muted);
+  background: var(--surface-subtle);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -218,7 +244,15 @@ function getFileName(filePath) {
   transition: background 0.15s;
   gap: 8px;
 }
-.session-item:hover { background: var(--bg-secondary); }
+.session-item:hover { background: var(--surface-subtle); }
+.session-item:focus-visible,
+.category-header:focus-visible,
+.file-item:focus-visible,
+.section-btn:focus-visible,
+.session-delete:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
 .session-item.active { background: color-mix(in srgb, var(--primary), transparent 90%); }
 .session-info {
   flex: 1;
@@ -246,8 +280,8 @@ function getFileName(filePath) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: var(--control-min-size);
+  height: var(--control-min-size);
   border: none;
   background: transparent;
   color: var(--text-tertiary);
@@ -301,8 +335,12 @@ function getFileName(filePath) {
   width: 100%;
   font-size: 12px;
   color: var(--text-secondary);
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
 }
-.category-header:hover { background: var(--bg-secondary); }
+.category-header:hover { background: var(--surface-subtle); }
 .category-icon { font-size: 12px; }
 .category-name { flex: 1; }
 .category-count { font-size: 11px; color: var(--text-tertiary); }
@@ -317,8 +355,11 @@ function getFileName(filePath) {
   font-size: 12px;
   color: var(--text-secondary);
   transition: background 0.15s;
+  border: none;
+  background: transparent;
+  text-align: left;
 }
-.file-item:hover { background: var(--bg-secondary); }
+.file-item:hover { background: var(--surface-subtle); }
 .file-item.selected { background: color-mix(in srgb, var(--primary), transparent 90%); color: var(--primary); }
 .file-icon { font-size: 12px; }
 .file-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

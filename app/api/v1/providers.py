@@ -24,6 +24,7 @@ from app.utils.aicloud.dynamic_provider import (
 from app.utils.aicloud.adapters.dynamic import DynamicAdapter
 from app.utils.rate_limiter import limiter
 from app.utils.security import verify_token
+from app.utils.crypto import get_rsa_key_manager
 import time
 import httpx
 
@@ -36,7 +37,7 @@ class AddProviderRequest(BaseModel):
     name: str = Field(..., description="供应商名称")
     base_url: str = Field(..., description="API Base URL")
     protocol: str = Field(..., description="协议类型: openai / anthropic")
-    api_key: str = Field(..., description="API Key")
+    encrypted_api_key: str = Field(..., description="RSA 加密的 API Key")
 
 
 class ProviderResponse(BaseModel):
@@ -70,19 +71,27 @@ class TestResponse(BaseModel):
 @router.post("", summary="添加动态供应商")
 @limiter.limit("10/minute")
 async def add_provider(request: Request, body: AddProviderRequest, token: dict = Depends(verify_token)):
+    # 权限检查：需要管理员权限
+    if token.get("permission_level") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
     manager = get_dynamic_provider_manager()
     
     if body.protocol not in ("openai", "anthropic"):
         raise HTTPException(status_code=400, detail="protocol 必须是 openai 或 anthropic")
     
-    if not body.api_key or len(body.api_key) < 10:
+    try:
+        api_key = get_rsa_key_manager().decrypt(body.encrypted_api_key).strip()
+    except Exception:
+        raise HTTPException(status_code=400, detail="API Key 解密失败")
+    if len(api_key) < 10:
         raise HTTPException(status_code=400, detail="API Key 格式无效")
     
     provider = manager.add(
         name=body.name,
         base_url=body.base_url,
         protocol=body.protocol,
-        api_key=body.api_key,
+        api_key=api_key,
+        owner_id=str(token.get("sub", "default_user")),
     )
     
     return AddProviderResponse(
@@ -96,7 +105,8 @@ async def add_provider(request: Request, body: AddProviderRequest, token: dict =
 @limiter.limit("30/minute")
 async def list_providers(request: Request, token: dict = Depends(verify_token)):
     manager = get_dynamic_provider_manager()
-    providers = manager.list()
+    owner_id = str(token.get("sub", "default_user"))
+    providers = manager.list(owner_id)
     
     return [
         ProviderResponse(
@@ -117,7 +127,7 @@ async def list_providers(request: Request, token: dict = Depends(verify_token)):
 @limiter.limit("30/minute")
 async def get_provider(request: Request, pid: str, token: dict = Depends(verify_token)):
     manager = get_dynamic_provider_manager()
-    p = manager.get(pid)
+    p = manager.get(pid, str(token.get("sub", "default_user")))
     if not p:
         raise HTTPException(status_code=404, detail="供应商不存在")
     
@@ -132,8 +142,10 @@ async def get_provider(request: Request, pid: str, token: dict = Depends(verify_
 @router.delete("/{pid}", summary="删除供应商")
 @limiter.limit("10/minute")
 async def delete_provider(request: Request, pid: str, token: dict = Depends(verify_token)):
+    if token.get("permission_level") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
     manager = get_dynamic_provider_manager()
-    if not manager.delete(pid):
+    if not manager.delete(pid, str(token.get("sub", "default_user"))):
         raise HTTPException(status_code=404, detail="供应商不存在")
     return {"message": "供应商已删除"}
 
@@ -141,8 +153,10 @@ async def delete_provider(request: Request, pid: str, token: dict = Depends(veri
 @router.put("/{pid}/toggle", summary="启用/禁用供应商")
 @limiter.limit("20/minute")
 async def toggle_provider(request: Request, pid: str, token: dict = Depends(verify_token)):
+    if token.get("permission_level") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
     manager = get_dynamic_provider_manager()
-    if not manager.toggle(pid):
+    if not manager.toggle(pid, str(token.get("sub", "default_user"))):
         raise HTTPException(status_code=404, detail="供应商不存在")
     p = manager.get(pid)
     return {"message": f"供应商已{'启用' if p.enabled else '禁用'}", "enabled": p.enabled}
@@ -151,8 +165,10 @@ async def toggle_provider(request: Request, pid: str, token: dict = Depends(veri
 @router.post("/{pid}/sync", summary="同步模型列表")
 @limiter.limit("10/minute")
 async def sync_models(request: Request, pid: str, token: dict = Depends(verify_token), force: bool = False):
+    if token.get("permission_level") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="需要管理员权限")
     manager = get_dynamic_provider_manager()
-    provider = manager.get(pid)
+    provider = manager.get(pid, str(token.get("sub", "default_user")))
     if not provider:
         raise HTTPException(status_code=404, detail="供应商不存在")
     
@@ -190,7 +206,7 @@ async def sync_models(request: Request, pid: str, token: dict = Depends(verify_t
 @limiter.limit("20/minute")
 async def test_connection(request: Request, pid: str, token: dict = Depends(verify_token)):
     manager = get_dynamic_provider_manager()
-    provider = manager.get(pid)
+    provider = manager.get(pid, str(token.get("sub", "default_user")))
     if not provider:
         raise HTTPException(status_code=404, detail="供应商不存在")
     

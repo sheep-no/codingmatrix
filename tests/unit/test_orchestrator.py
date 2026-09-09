@@ -17,6 +17,7 @@ from app.agent.dynamic_model_router import (
     _LayeredModelRouterCompat,
     load_agent_model_config,
 )
+from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL
 from app.agent.memory import (
     ConversationMemory,
     KnowledgeMemory,

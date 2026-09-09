@@ -15,6 +15,7 @@ from typing import Optional, List
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -29,7 +30,16 @@ from app.utils.image_generation import (
     generate_landscape,
     generate_icon,
     SUPPORTED_FORMATS,
-    DEFAULT_CONFIG
+    DEFAULT_CONFIG,
+    KOLORS_MODEL,
+    OUTPUT_DIR,
+)
+from app.services.image_resource_service import (
+    build_image_resource_fingerprint,
+    build_generation_response,
+    cleanup_file,
+    generation_concurrency,
+    get_or_create_generation,
 )
 from app.db.database import get_db
 from app.models.history import History
@@ -54,6 +64,8 @@ async def _save_upload_file(upload_file: UploadFile) -> str:
     filename = f"upload_{uuid.uuid4().hex[:12]}{ext}"
     file_path = TEMP_DIR / filename
     content = await upload_file.read()
+    if len(content) > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=413, detail=f"上传文件过大，最大允许 {MAX_IMAGE_SIZE // 1024 // 1024}MB")
     with open(file_path, "wb") as f:
         f.write(content)
     return str(file_path)
@@ -65,7 +77,8 @@ async def get_cached_image(
     prompt: str,
     seed: Optional[int],
     conversation_id: Optional[int],
-    max_age_hours: int = 24
+    max_age_hours: int = 24,
+    fingerprint: Optional[str] = None,
 ) -> Optional[str]:
     """
     获取缓存的图片（如果存在）
@@ -89,6 +102,9 @@ async def get_cached_image(
         
         if conversation_id:
             query_conditions.append(History.conversation_id == conversation_id)
+
+        if fingerprint:
+            query_conditions.append(History.metadata_json.contains(fingerprint))
         
         result = await db.execute(
             select(History).where(*query_conditions).order_by(History.id.desc()).limit(1)
@@ -98,7 +114,8 @@ async def get_cached_image(
         
         if history and history.metadata_json:
             metadata = json.loads(history.metadata_json)
-            if metadata.get("type") == "image" and metadata.get("path"):
+            fingerprint_matches = not fingerprint or metadata.get("fingerprint") == fingerprint
+            if metadata.get("type") == "image" and metadata.get("path") and fingerprint_matches:
                 logger.info(f"使用缓存的图片 | cache_key={cache_key}")
                 return metadata["path"]
         
@@ -115,7 +132,8 @@ async def cache_image_to_history(
     conversation_id: Optional[int],
     prompt: str,
     image_path: str,
-    seed: Optional[int]
+    seed: Optional[int],
+    fingerprint: Optional[str] = None,
 ) -> None:
     """
     缓存图片到 history.metadata_json
@@ -145,6 +163,8 @@ async def cache_image_to_history(
             "cache_key": f"image:{prompt}:{seed}",
             "created_at": datetime.utcnow().isoformat()
         }
+        if fingerprint:
+            metadata["fingerprint"] = fingerprint
         
         # 创建历史记录
         history = History(
@@ -337,6 +357,34 @@ class ImageToImageRequest(BaseModel):
 # API 端点
 # -----------------------------
 
+@router.get("/resources/{filename}", summary="读取当前用户的生成图片")
+async def get_generated_resource(
+    filename: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    root = OUTPUT_DIR.resolve()
+    target = (root / filename).resolve()
+    if target.parent != root or target.suffix.lower() not in SUPPORTED_FORMATS:
+        raise HTTPException(status_code=404, detail="图片不存在")
+    records = await db.execute(select(History.metadata_json).where(
+        History.user_id == int(token["sub"]),
+        History.metadata_json.contains(filename),
+    ))
+    owned = False
+    for raw in records.scalars():
+        try:
+            metadata = json.loads(raw)
+            if metadata.get("type") == "image" and Path(metadata.get("path", "")).resolve() == target:
+                owned = True
+                break
+        except (ValueError, TypeError):
+            continue
+    if not owned or not target.is_file():
+        raise HTTPException(status_code=404, detail="图片不存在")
+    return FileResponse(target, headers={"Cache-Control": "private, no-store"})
+
+
 @router.post("/text-to-image", summary="文生图")
 async def text_to_image_api(
     request: TextToImageRequest,
@@ -361,6 +409,19 @@ async def text_to_image_api(
         if request.style and request.style in style_prompts:
             full_prompt = f"{style_prompts[request.style]}，{full_prompt}"
 
+        # Step 2: 检查缓存（避免重复生成）
+        cached_path = await get_cached_image(
+            db, user_id, request.prompt, request.seed, request.conversation_id
+        )
+        if cached_path:
+            return {
+                "success": True,
+                "cached": True,
+                "images": [],
+                "paths": [cached_path],
+                "message": "使用缓存的图片"
+            }
+
         # Step 3: 携带会话历史（构建增强 prompt）
         if request.conversation_id:
             history_context = await compress_conversation_history(
@@ -369,55 +430,88 @@ async def text_to_image_api(
             if history_context:
                 full_prompt = f"{full_prompt}\n\n[参考历史]\n{history_context}"
 
-        # Step 4: 调用模型生成
-        result = await text_to_image(
+        fingerprint = build_image_resource_fingerprint(
+            user_id=user_id,
+            model=KOLORS_MODEL,
+            generation_type="text-to-image",
             prompt=full_prompt,
             negative_prompt=request.negative_prompt,
+            style=request.style,
+            reference_hash=None,
             width=request.width,
             height=request.height,
-            num_inferences=request.get_num_inferences(),
+            steps=request.get_num_inferences(),
             guidance_scale=request.get_guidance_scale(),
+            strength=None,
             num_images=request.num_images,
             seed=request.seed,
-            api_key_token=request.api_key_token
+        )
+
+        # Step 4: 使用精确资源指纹查询缓存
+        cached_path = await get_cached_image(
+            db,
+            user_id,
+            request.prompt,
+            request.seed,
+            request.conversation_id,
+            fingerprint=fingerprint,
+        )
+        if cached_path:
+            return build_generation_response(
+                {"success": True, "images": [], "paths": [cached_path]},
+                cached=True,
+            )
+
+        async def generate_and_persist():
+            async with generation_concurrency.user_slot(user_id):
+                result = await text_to_image(
+                    prompt=full_prompt,
+                    negative_prompt=request.negative_prompt,
+                    width=request.width,
+                    height=request.height,
+                    num_inferences=request.get_num_inferences(),
+                    guidance_scale=request.get_guidance_scale(),
+                    num_images=request.num_images,
+                    seed=request.seed,
+                    api_key_token=request.api_key_token
+                )
+
+            if result["success"] and result["paths"]:
+                await cache_image_to_history(
+                    db, user_id, request.conversation_id,
+                    request.prompt, result["paths"][0], request.seed, fingerprint
+                )
+
+                await save_image_generation_history(
+                    db=db,
+                    user_id=user_id,
+                    prompt=request.prompt,
+                    negative_prompt=request.negative_prompt,
+                    image_paths=result.get("images", result["paths"]),
+                    generation_type="text-to-image",
+                    params={
+                        "width": request.width,
+                        "height": request.height,
+                        "num_inferences": request.get_num_inferences(),
+                        "guidance_scale": request.get_guidance_scale(),
+                        "num_images": request.num_images,
+                        "style": request.style,
+                    },
+                    seed=request.seed,
+                )
+            return result
+
+        # Step 5: 合并相同资源指纹的并发生成任务
+        result = await get_or_create_generation(
+            fingerprint=fingerprint,
+            owner=generate_and_persist,
         )
         
-        # Step 5: 缓存结果
-        if result["success"] and result["paths"]:
-            await cache_image_to_history(
-                db, user_id, request.conversation_id,
-                request.prompt, result["paths"][0], request.seed
-            )
-            
-            await save_image_generation_history(
-                db=db,
-                user_id=user_id,
-                prompt=request.prompt,
-                negative_prompt=request.negative_prompt,
-                image_paths=result.get("images", result["paths"]),
-                generation_type="text-to-image",
-                params={
-                    "width": request.width,
-                    "height": request.height,
-                    "num_inferences": request.get_num_inferences(),
-                    "guidance_scale": request.get_guidance_scale(),
-                    "num_images": request.num_images,
-                    "style": request.style,
-                },
-                seed=request.seed,
-            )
-        
-        return {
-            "success": result["success"],
-            "cached": False,
-            "images": result.get("images", []),
-            "paths": result["paths"],
-            "paths_hash": [p.split("/")[-1] for p in result["paths"]]
-        }
+        return build_generation_response(result, cached=False)
         
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"文生图失败 | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"生成失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="图像生成失败，请稍后重试")
 
 
 @router.post("/image-to-image", summary="图生图")
@@ -590,14 +684,11 @@ async def image_to_image_api(
         raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"图生图失败 | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"生成失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="图像生成失败，请稍后重试")
     finally:
         # 清理上传的临时文件
         if uploaded_temp_path:
-            try:
-                Path(uploaded_temp_path).unlink(missing_ok=True)
-            except OSError:
-                pass
+            cleanup_file(uploaded_temp_path)
 
 
 @router.post("/inpaint", summary="图像修复")
@@ -763,20 +854,18 @@ async def inpaint_api(
         raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"图像修复失败 | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"修复失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="图像修复失败，请稍后重试")
     finally:
         for tmp in uploaded_temp_paths:
-            try:
-                Path(tmp).unlink(missing_ok=True)
-            except OSError:
-                pass
+            cleanup_file(tmp)
 
 
 @router.post("/avatar", summary="生成头像")
 async def generate_avatar_api(
     prompt: str,
     style: str = "anime",
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
 ):
     """生成头像（快捷方式）"""
     user_id = int(token.get("sub"))
@@ -784,6 +873,19 @@ async def generate_avatar_api(
     
     try:
         result = await generate_avatar(prompt, style)
+        
+        if result["success"] and result.get("paths"):
+            await save_image_generation_history(
+                db=db,
+                user_id=user_id,
+                prompt=prompt,
+                negative_prompt="",
+                image_paths=result.get("images", result["paths"]),
+                generation_type="avatar",
+                params={"style": style},
+                seed=None,
+            )
+        
         return {
             "success": result["success"],
             "images": result.get("images", []),
@@ -791,14 +893,15 @@ async def generate_avatar_api(
         }
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"生成头像失败 | error={str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="头像生成失败，请稍后重试")
 
 
 @router.post("/landscape", summary="生成风景图")
 async def generate_landscape_api(
     prompt: str,
     style: str = "realistic",
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
 ):
     """生成风景图（快捷方式）"""
     user_id = int(token.get("sub"))
@@ -806,6 +909,19 @@ async def generate_landscape_api(
     
     try:
         result = await generate_landscape(prompt, style)
+        
+        if result["success"] and result.get("paths"):
+            await save_image_generation_history(
+                db=db,
+                user_id=user_id,
+                prompt=prompt,
+                negative_prompt="",
+                image_paths=result.get("images", result["paths"]),
+                generation_type="landscape",
+                params={"style": style},
+                seed=None,
+            )
+        
         return {
             "success": result["success"],
             "images": result.get("images", []),
@@ -813,21 +929,35 @@ async def generate_landscape_api(
         }
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"生成风景图失败 | error={str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="风景图生成失败，请稍后重试")
 
 
 @router.post("/icon", summary="生成图标")
 async def generate_icon_api(
     prompt: str,
     style: str = "flat",
-    token: dict = Depends(verify_token)
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
 ):
     """生成图标（快捷方式）"""
     user_id = int(token.get("sub"))
     logger.info(f"生成图标 | user_id={user_id} | style={style}")
     
     try:
-        result = await generate_icon(prompt, style)
+        result = await generate_icon(prompt)
+        
+        if result["success"] and result.get("paths"):
+            await save_image_generation_history(
+                db=db,
+                user_id=user_id,
+                prompt=prompt,
+                negative_prompt="",
+                image_paths=result.get("images", result["paths"]),
+                generation_type="icon",
+                params={"style": style},
+                seed=None,
+            )
+        
         return {
             "success": result["success"],
             "images": result.get("images", []),
@@ -835,7 +965,7 @@ async def generate_icon_api(
         }
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"生成图标失败 | error={str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="图标生成失败，请稍后重试")
 
 
 @router.get("/config", summary="获取配置信息")

@@ -402,6 +402,15 @@ class FreeWebSearch:
         results = await self.search(query, count=count, lang=lang)
         return self.format_results_for_llm(results, max_results=count)
 
+    async def search_with_sources(self, query: str, count: int = 5, lang: str = "zh-CN") -> tuple[str, list[dict]]:
+        """Return bounded model context and displayable source metadata together."""
+        results = await self.search(query, count=count, lang=lang)
+        sources = [
+            {"title": item.title[:200], "url": item.url, "snippet": item.snippet[:500]}
+            for item in results[:count] if item.url
+        ]
+        return self.format_results_for_llm(results, max_results=count), sources
+
 
 # 便捷函数
 async def web_search(

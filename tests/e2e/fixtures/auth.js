@@ -12,7 +12,7 @@ let cachedLoginData = null
 /**
  * API 登录 - 使用 page.request API
  * @param {Page} page - Playwright page object
- * @param {string} frontendUrl - Optional frontend URL (defaults to localhost:3000)
+ * @param {string} frontendUrl - Optional frontend URL (defaults to 127.0.0.1:3000)
  * @returns {Promise<{token: string, username: string}>}
  */
 export async function apiLogin(page, frontendUrl) {
@@ -20,7 +20,11 @@ export async function apiLogin(page, frontendUrl) {
   if (!TEST_PASSWORD) {
     throw new Error('请设置 TEST_ADMIN_PASSWORD 后再执行认证 E2E')
   }
-  const FRONTEND_URL = frontendUrl || 'http://localhost:3000';
+  // Tests often pass the API URL here. Use the frontend origin for browser state.
+  const configuredFrontendUrl = process.env.FRONTEND_URL || 'http://127.0.0.1:3000'
+  const FRONTEND_URL = frontendUrl && !/:(?:8000)(?:\/|$)/.test(frontendUrl)
+    ? frontendUrl
+    : configuredFrontendUrl
   try {
     let data = cachedLoginData
     if (!data) {
@@ -43,10 +47,43 @@ export async function apiLogin(page, frontendUrl) {
       cachedLoginData = data
     }
 
+    const browserAuthState = {
+      token: data.access_token,
+      username: data.username || TEST_EMAIL,
+      email: TEST_EMAIL,
+      permission_level: data.permission_level || 'superadmin'
+    }
+
+    // Install auth state before the app boots so route guards see the session.
+    await page.addInitScript((obj) => {
+      const expiry = Date.now() + 3600000
+      sessionStorage.setItem('_token', obj.token)
+      sessionStorage.setItem('_token_expiry', String(expiry))
+      localStorage.setItem('_token_expiry', String(expiry))
+      localStorage.setItem('username', obj.username)
+      localStorage.setItem('email', obj.email)
+      localStorage.setItem('permission_level', obj.permission_level)
+      localStorage.setItem('access_token', obj.token)
+      localStorage.setItem('user-store', JSON.stringify({
+        isLoggedIn: true,
+        username: obj.username,
+        email: obj.email,
+        permissionLevel: obj.permission_level
+      }))
+    }, browserAuthState)
+
     // Navigate to frontend to set storage in correct origin
-    await page.goto(FRONTEND_URL);
-    await page.waitForLoadState('domcontentloaded');
+    await page.goto(FRONTEND_URL, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(300);
+
+    // Seed the CSRF cookie on the same origin used by browser API requests.
+    const frontendCsrfResp = await page.evaluate(async () => {
+      const response = await fetch('/api/v1/csrf-token', { credentials: 'include' })
+      return { ok: response.ok, status: response.status }
+    })
+    if (!frontendCsrfResp.ok && frontendCsrfResp.status !== 429) {
+      throw new Error(`Frontend CSRF initialization failed: ${frontendCsrfResp.status}`)
+    }
 
     // Store in sessionStorage (where tokenManager stores it)
     await page.evaluate((obj) => {
@@ -71,12 +108,7 @@ export async function apiLogin(page, frontendUrl) {
       }
       localStorage.setItem('user-store', JSON.stringify(userStoreState))
       console.log('[sessionStorage] Done')
-    }, {
-      token: data.access_token,
-      username: data.username || TEST_EMAIL,
-      email: TEST_EMAIL,
-      permission_level: data.permission_level || 'superadmin'
-    })
+    }, browserAuthState)
     console.log('[apiLogin] Storage set, permission_level:', data.permission_level || 'user')
     
     // Wait for storage to persist

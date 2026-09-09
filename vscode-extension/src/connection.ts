@@ -57,8 +57,11 @@ export class CloudConnectionError extends Error {
 
 type QueuedResult = {
   result: LocalValidationResult;
-  resolve: (value: unknown) => void;
-  reject: (reason: unknown) => void;
+};
+
+export type QueuedResultResponse = {
+  status: "queued";
+  event_id: string;
 };
 
 const DEFAULT_ACTIONS_PATH = "/api/v1/agent/local-validation/actions";
@@ -77,7 +80,6 @@ export class CloudConnection {
   private readonly resultStore?: ResultStore;
   private sessionId?: string;
   private readonly queuedResults: QueuedResult[] = [];
-  private readonly queuedResolvers = new Map<string, QueuedResult>();
 
   constructor(options: CloudConnectionOptions) {
     if (!options.baseUrl.trim()) {
@@ -110,6 +112,7 @@ export class CloudConnection {
     const session = new AgentHostSession();
     const handshake = session.acceptHandshake(await this.readJson(response));
     this.sessionId = handshake.session_id;
+    await this.flushPendingResults();
     return handshake;
   }
 
@@ -162,7 +165,7 @@ export class CloudConnection {
     onEvent: (event: AgentStreamEvent) => void | Promise<void>,
     signal?: AbortSignal,
   ): Promise<void> {
-    const response = await this.request("/api/v1/ai-agent/orchestrate/stream", {
+    const response = await this.request("/api/v1/agent/orchestrate/stream", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(request),
@@ -208,19 +211,9 @@ export class CloudConnection {
       return await this.submitParsedResult(result);
     } catch (error) {
       if (this.isNetworkError(error)) {
-        return new Promise(async (resolve, reject) => {
-          const queued = { result, resolve, reject };
-          if (this.resultStore) {
-            try {
-              await this.resultStore.enqueue(result);
-              this.queuedResolvers.set(result.event_id, queued);
-            } catch (enqueueError) {
-              reject(enqueueError);
-            }
-            return;
-          }
-          this.queuedResults.push(queued);
-        });
+        if (this.resultStore) await this.resultStore.enqueue(result);
+        else this.queuedResults.push({ result });
+        return { status: "queued", event_id: result.event_id } satisfies QueuedResultResponse;
       }
       throw error;
     }
@@ -236,14 +229,12 @@ export class CloudConnection {
       try {
         const response = await this.submitParsedResult(queued.result);
         this.queuedResults.shift();
-        queued.resolve(response);
         flushed += 1;
       } catch (error) {
         if (this.isNetworkError(error)) {
           break;
         }
         this.queuedResults.shift();
-        queued.reject(error);
       }
     }
     return flushed;
@@ -256,14 +247,10 @@ export class CloudConnection {
       try {
         const response = await this.submitParsedResult(record.result);
         await this.resultStore!.acknowledge(record.result.event_id);
-        this.queuedResolvers.get(record.result.event_id)?.resolve(response);
-        this.queuedResolvers.delete(record.result.event_id);
         flushed += 1;
       } catch (error) {
         if (this.isNetworkError(error)) break;
         await this.resultStore!.acknowledge(record.result.event_id);
-        this.queuedResolvers.get(record.result.event_id)?.reject(error);
-        this.queuedResolvers.delete(record.result.event_id);
       }
     }
     return flushed;

@@ -248,7 +248,11 @@ class ChatArchiver:
                         thinking_budget=256
                     )
                     
-                    summary = response["choices"][0]["message"]["content"].strip()
+                    choices = response.get("choices") or []
+                    if not choices:
+                        raise ValueError("LLM 返回空 choices")
+                    message = choices[0].get("message") or {}
+                    summary = (message.get("content") or "").strip()
                     
                     # 验证并限制摘要长度
                     if len(summary) > 800:

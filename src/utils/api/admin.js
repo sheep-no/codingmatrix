@@ -63,7 +63,7 @@ export function createAdminClient(client) {
     // ========== 服务管理 ==========
     async getServices() {
       try {
-        const response = await client.get('/api/v2/services')
+        const response = await client.get('/api/v2/Controller/services')
         if (response.ok) {
           return await response.json()
         }
@@ -74,7 +74,7 @@ export function createAdminClient(client) {
     },
 
     async startGuard(guardData) {
-      const response = await client.post('/api/v2/guard/start', guardData)
+      const response = await client.post('/api/v2/Controller/guard/start', guardData)
       if (response.ok) {
         return await response.json()
       } else {
@@ -83,37 +83,35 @@ export function createAdminClient(client) {
       }
     },
 
-    async renameService(port, newName) {
-      try {
-        const response = await client.put(`/api/v2/service/${port}/rename`, {
-          new_name: newName
-        })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
+    async renameService(port, processSignature, newName) {
+      const params = new URLSearchParams({
+        process_signature: processSignature,
+        new_name: newName
+      })
+      const response = await client.put(`/api/v2/Controller/service/${port}/rename?${params}`)
+      if (!response.ok) {
+        throw new Error(`Rename service failed (${response.status})`)
       }
+      return await response.json()
     },
 
-    async updateFuseConfig(port, fuseConfig) {
-      try {
-        const response = await client.put(`/api/v2/service/${port}/fuse-config`, {
-          fuse_config: fuseConfig
-        })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
+    async updateFuseConfig(port, processSignature, fuseConfig) {
+      const params = new URLSearchParams({
+        process_signature: processSignature,
+        fuse_enabled: String(fuseConfig.fuse_enabled),
+        fuse_cooldown: String(fuseConfig.fuse_cooldown),
+        fuse_retry_times: String(fuseConfig.fuse_retry_times)
+      })
+      const response = await client.put(`/api/v2/Controller/service/${port}/fuse-config?${params}`)
+      if (!response.ok) {
+        throw new Error(`Update fuse config failed (${response.status})`)
       }
+      return await response.json()
     },
 
     async getFuseStatus(serviceName) {
       try {
-        const response = await client.get(`/api/v2/service/${serviceName}/fuse-status`)
+        const response = await client.get(`/api/v2/Controller/service/${encodeURIComponent(serviceName)}/fuse-status`)
         if (response.ok) {
           return await response.json()
         }
@@ -125,7 +123,7 @@ export function createAdminClient(client) {
 
     async checkHealth(port) {
       try {
-        const response = await client.get(`/api/v2/health/${port}`)
+        const response = await client.get(`/api/v2/Controller/health/${port}`)
         if (response.ok) {
           return await response.json()
         }
@@ -146,7 +144,7 @@ export function createAdminClient(client) {
         const healthChecks = await Promise.all(
           services.map(async service => {
             try {
-              const response = await client.get(`/api/v2/health/${service.port}`)
+              const response = await client.get(`/api/v2/Controller/health/${service.port}`)
               if (response.ok) {
                 const health = await response.json()
                 return { ...service, ...health }
@@ -167,7 +165,7 @@ export function createAdminClient(client) {
     // ========== 系统状态 ==========
     async getSystemStatus() {
       try {
-        const response = await client.get('/api/v2/admin/stats')
+        const response = await client.get('/api/v2/Controller/admin/stats')
         if (response.ok) {
           return await response.json()
         }
@@ -179,7 +177,7 @@ export function createAdminClient(client) {
 
     async getSystemInfo() {
       try {
-        const response = await client.get('/api/v2/admin/config')
+        const response = await client.get('/api/v2/Controller/admin/config')
         if (response.ok) {
           return await response.json()
         }
@@ -191,7 +189,7 @@ export function createAdminClient(client) {
 
     async getDockerContainers() {
       try {
-        const response = await client.get('/api/v2/admin/docker/containers')
+        const response = await client.get('/api/v2/Controller/admin/docker/containers')
         if (response.ok) {
           return await response.json()
         }
@@ -275,9 +273,17 @@ export function createAdminClient(client) {
     },
 
     // ========== 配置管理 ==========
+    async getSystemConfig() {
+      const response = await client.get('/api/v2/admin/config')
+      if (!response.ok) {
+        throw new Error(`Get system config failed (${response.status})`)
+      }
+      return await response.json()
+    },
+
     async getAdminConfig() {
       try {
-        const response = await client.get('/api/v2/admin/config')
+        const response = await client.get('/api/v2/Controller/admin/config')
         if (response.ok) {
           return await response.json()
         }
@@ -289,7 +295,7 @@ export function createAdminClient(client) {
 
     async getAdminConfigByKey(key) {
       try {
-        const response = await client.get(`/api/v2/admin/config/${key}`)
+        const response = await client.get(`/api/v2/Controller/admin/config/${key}`)
         if (response.ok) {
           return await response.json()
         }
@@ -313,7 +319,7 @@ export function createAdminClient(client) {
 
     async updateAdminConfigByKey(key, value) {
       try {
-        const response = await client.put(`/api/v2/admin/config/${key}`, { value })
+        const response = await client.put(`/api/v2/Controller/admin/config/${key}`, { value: String(value) })
         if (response.ok) {
           return await response.json()
         }
@@ -325,7 +331,7 @@ export function createAdminClient(client) {
 
     async batchUpdateAdminConfig(configs) {
       try {
-        const response = await client.put('/api/v2/admin/config/batch', { configs })
+        const response = await client.put('/api/v2/Controller/admin/config/batch', { configs })
         if (response.ok) {
           return await response.json()
         }
@@ -338,7 +344,7 @@ export function createAdminClient(client) {
     // ========== 系统日志 ==========
     async getSystemLogs(params = {}) {
       try {
-        const response = await client.get('/api/v2/admin/log-config', params)
+        const response = await client.get('/api/v2/Controller/admin/log-config', params)
         if (response.ok) {
           return await response.json()
         }
@@ -351,7 +357,7 @@ export function createAdminClient(client) {
     // ========== WebSocket 统计 ==========
     async getWebSocketStats() {
       try {
-        const response = await client.get('/api/v2/admin/ws-stats')
+        const response = await client.get('/api/v2/Controller/admin/ws-stats')
         if (response.ok) {
           return await response.json()
         }
@@ -364,7 +370,7 @@ export function createAdminClient(client) {
     // ========== 日志配置 ==========
     async getLogConfig() {
       try {
-        const response = await client.get('/api/v2/admin/log-config')
+        const response = await client.get('/api/v2/Controller/admin/log-config')
         if (response.ok) {
           return await response.json()
         }
@@ -374,9 +380,10 @@ export function createAdminClient(client) {
       }
     },
 
-    async updateLogLevel(level, key) {
+    async updateLogLevel(level, loggerName = 'app') {
       try {
-        const response = await client.put(`/api/v2/admin/log-config/${key}`, { level })
+        const params = new URLSearchParams({ level, logger_name: loggerName })
+        const response = await client.put(`/api/v2/Controller/admin/log-config/level?${params}`)
         if (response.ok) {
           return await response.json()
         }
@@ -388,7 +395,8 @@ export function createAdminClient(client) {
 
     async updateGlobalLogLevel(level) {
       try {
-        const response = await client.put('/api/v2/admin/log-config/global-level', { level })
+        const params = new URLSearchParams({ level })
+        const response = await client.put(`/api/v2/Controller/admin/log-config/global-level?${params}`)
         if (response.ok) {
           return await response.json()
         }
@@ -401,7 +409,7 @@ export function createAdminClient(client) {
     // ========== 内存统计 ==========
     async getMemoryStats() {
       try {
-        const response = await client.get('/api/v2/admin/memory')
+        const response = await client.get('/api/v2/Controller/admin/memory')
         if (response.ok) {
           return await response.json()
         }
@@ -414,7 +422,7 @@ export function createAdminClient(client) {
     // ========== 备份管理 ==========
     async createBackup() {
       try {
-        const response = await client.get('/api/v2/admin/backup')
+        const response = await client.get('/api/v2/Controller/admin/backup')
         if (response.ok) {
           return await response.json()
         }
@@ -426,7 +434,7 @@ export function createAdminClient(client) {
 
     async listBackups() {
       try {
-        const response = await client.get('/api/v2/admin/backup/list')
+        const response = await client.get('/api/v2/Controller/admin/backup/list')
         if (response.ok) {
           return await response.json()
         }
@@ -438,28 +446,19 @@ export function createAdminClient(client) {
 
     async downloadBackup(timestamp) {
       try {
-        const response = await client.get(`/api/v2/admin/backup/${timestamp}`)
+        const response = await client.get(`/api/v2/Controller/admin/backup/${timestamp}`)
         if (response.ok) {
-          const blob = await response.blob()
-          const url = window.URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `backup_${timestamp}.zip`
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          window.URL.revokeObjectURL(url)
-          return true
+          return await response.json()
         }
-        return false
+        return null
       } catch (error) {
-        return false
+        return null
       }
     },
 
     async restoreBackup(backupData) {
       try {
-        const response = await client.post('/api/v2/admin/backup/restore', backupData)
+        const response = await client.post('/api/v2/Controller/admin/backup/restore', backupData)
         if (response.ok) {
           return await response.json()
         }
@@ -471,7 +470,7 @@ export function createAdminClient(client) {
 
     async deleteBackup(filename) {
       try {
-        const response = await client.delete(`/api/v2/admin/backup/${filename}`)
+        const response = await client.delete(`/api/v2/Controller/admin/backup/${filename}`)
         if (response.ok) {
           return await response.json()
         }
@@ -484,7 +483,7 @@ export function createAdminClient(client) {
     // ========== 限流配置 ==========
     async getRateLimitStats() {
       try {
-        const response = await client.get('/api/v2/admin/rate-limit')
+        const response = await client.get('/api/v2/Controller/admin/rate-limit')
         if (response.ok) {
           return await response.json()
         }
@@ -496,7 +495,7 @@ export function createAdminClient(client) {
 
     async updateGlobalRateLimit(limit, window) {
       try {
-        const response = await client.put('/api/v2/admin/rate-limit/global', { limit, window })
+        const response = await client.put('/api/v2/Controller/admin/rate-limit/global', { limit, window })
         if (response.ok) {
           return await response.json()
         }
@@ -508,7 +507,7 @@ export function createAdminClient(client) {
 
     async updateIpRateLimit(limit, window) {
       try {
-        const response = await client.put('/api/v2/admin/rate-limit/ip', { limit, window })
+        const response = await client.put('/api/v2/Controller/admin/rate-limit/ip', { limit, window })
         if (response.ok) {
           return await response.json()
         }
@@ -520,7 +519,7 @@ export function createAdminClient(client) {
 
     async updateUserRateLimit(limit, window) {
       try {
-        const response = await client.put('/api/v2/admin/rate-limit/user', { limit, window })
+        const response = await client.put('/api/v2/Controller/admin/rate-limit/user', { limit, window })
         if (response.ok) {
           return await response.json()
         }
@@ -532,7 +531,7 @@ export function createAdminClient(client) {
 
     async updateEndpointRateLimit(endpoint, limit, window) {
       try {
-        const response = await client.put('/api/v2/admin/rate-limit/endpoint', {
+        const response = await client.put('/api/v2/Controller/admin/rate-limit/endpoint', {
           endpoint,
           limit,
           window
@@ -548,7 +547,7 @@ export function createAdminClient(client) {
 
     async deleteEndpointRateLimit(endpoint) {
       try {
-        const response = await client.delete(`/api/v2/admin/rate-limit/endpoint/${endpoint}`)
+        const response = await client.delete(`/api/v2/Controller/admin/rate-limit/endpoint/${endpoint}`)
         if (response.ok) {
           return await response.json()
         }
@@ -560,7 +559,8 @@ export function createAdminClient(client) {
 
     async toggleRateLimit(enabled) {
       try {
-        const response = await client.put('/api/v2/admin/rate-limit/enabled', { enabled })
+        const params = new URLSearchParams({ enabled: String(enabled) })
+        const response = await client.put(`/api/v2/Controller/admin/rate-limit/enabled?${params}`)
         if (response.ok) {
           return await response.json()
         }
@@ -620,20 +620,19 @@ export function createAdminClient(client) {
     },
 
     async saveRoleLimits(roleLimits) {
-      try {
-        const response = await client.put('/api/v2/admin/config/batch', {
-          configs: Object.entries(roleLimits).map(([role, limit]) => ({
+      const updates = await Promise.all(
+        Object.entries(roleLimits).map(async ([role, limit]) => {
+          const response = await client.post('/api/v2/admin/config', {
             path: `system_config.user_concurrent_limits.default_tiers.${role}`,
             value: limit
-          }))
+          })
+          if (!response.ok) {
+            throw new Error(`Save role limit failed (${response.status})`)
+          }
+          return response.json()
         })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
-      }
+      )
+      return { success: true, updates }
     }
   }
 }

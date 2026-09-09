@@ -21,6 +21,11 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
   const startTime = ref(null)
   const roles = ref(['architect', 'frontend', 'backend', 'reviewer', 'fallback'])
   const modelAssignments = ref({})
+  const modelConfigVersion = ref('')
+  const modelContextRevision = ref(null)
+  const currentModel = ref(null)
+  const currentAgent = ref(null)
+  const fallbackHistory = ref([])
   const recoveryAttempts = ref([])
 
   // ========== Computed ==========
@@ -62,7 +67,8 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
       filesCount: 0, files: [], logs: [], thinking: [], steps: [],
       workflowStages: [], pendingDecisions: [], decisionHistory: [],
       currentPhase: '', currentStep: 0, totalSteps: 0,
-      startTime: null, modelAssignments: {}, recoveryAttempts: [],
+      startTime: null, modelAssignments: {}, modelConfigVersion: '', modelContextRevision: null,
+      currentModel: null, currentAgent: null, fallbackHistory: [], recoveryAttempts: [],
       ...persistedSnapshot
     }
     sessionHistory.value = [newSession, ...sessionHistory.value].slice(0, MAX_HISTORY_ENTRIES)
@@ -86,7 +92,12 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
       totalSteps.value = 0
       startTime.value = null
       modelAssignments.value = {}
-      recoveryAttempts.value = 0
+      modelConfigVersion.value = ''
+      modelContextRevision.value = null
+      currentModel.value = null
+      currentAgent.value = null
+      fallbackHistory.value = []
+      recoveryAttempts.value = []
     }
   }
 
@@ -105,6 +116,11 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
         totalSteps.value = session.totalSteps || 0
         startTime.value = session.startTime || null
         modelAssignments.value = session.modelAssignments || {}
+        modelConfigVersion.value = session.modelConfigVersion || ''
+        modelContextRevision.value = session.modelContextRevision ?? null
+        currentModel.value = session.currentModel || null
+        currentAgent.value = session.currentAgent || null
+        fallbackHistory.value = session.fallbackHistory || []
         recoveryAttempts.value = session.recoveryAttempts || []
         context._generation.workflowStages = workflowStages.value
         context._generation.currentPhase = currentPhase.value
@@ -112,6 +128,11 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
         context._generation.totalSteps = totalSteps.value
         context._generation.startTime = startTime.value
         context._generation.modelAssignments = modelAssignments.value
+        context._generation.modelConfigVersion = modelConfigVersion.value
+        context._generation.modelContextRevision = modelContextRevision.value
+        context._generation.currentModel = currentModel.value
+        context._generation.currentAgent = currentAgent.value
+        context._generation.fallbackHistory = fallbackHistory.value
         context._generation.recoveryAttempts = recoveryAttempts.value
         context._workspace.pendingDecisions = pendingDecisions.value
         context._workspace.decisionHistory = decisionHistory.value
@@ -191,6 +212,10 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
 
   function resetState() {
     isGenerating.value = false
+    currentModel.value = null
+    currentAgent.value = null
+    modelContextRevision.value = null
+    fallbackHistory.value = []
     recoveryAttempts.value = []
     _buildAssignments()
   }
@@ -203,11 +228,51 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
     modelAssignments.value = assignments
   }
 
+  function getModelContextSnapshot() {
+    const snapshot = {
+      config_version: modelConfigVersion.value,
+      roles: Object.fromEntries(
+        Object.entries(modelAssignments.value).map(([role, assignment]) => [role, assignment.model || ''])
+      ),
+      current_model: currentModel.value,
+      current_agent: currentAgent.value,
+      assignments: Object.fromEntries(
+        Object.entries(modelAssignments.value).map(([role, assignment]) => [role, {
+          model: assignment.model || '',
+          calls: assignment.calls || 0,
+          success_rate: assignment.successRate ?? 100
+        }])
+      ),
+      fallback_history: fallbackHistory.value
+    }
+    snapshot.expected_revision = modelContextRevision.value ?? 0
+    return snapshot
+  }
+
+  function applyModelContext(context = {}, revision = null) {
+    modelContextRevision.value = revision
+    modelConfigVersion.value = context.config_version || ''
+    currentModel.value = context.current_model || null
+    currentAgent.value = context.current_agent || null
+    fallbackHistory.value = context.fallback_history || []
+    if (context.assignments) {
+      modelAssignments.value = Object.fromEntries(
+        Object.entries(context.assignments).map(([role, assignment]) => [role, {
+          model: assignment.model || context.roles?.[role] || '',
+          calls: assignment.calls || 0,
+          successRate: assignment.success_rate ?? 100
+        }])
+      )
+      roles.value = Object.keys(modelAssignments.value)
+    }
+  }
+
   async function fetchRoles() {
     try {
       const { api } = await import('@/utils/api')
       const response = await api.get('/api/v1/models/agent-config')
       const data = response.data || response
+      modelConfigVersion.value = data.version || ''
       // v3.0: roles is an object {role: model_id}, keys are role names
       if (data.roles && typeof data.roles === 'object' && !Array.isArray(data.roles)) {
         const roleNames = Object.keys(data.roles)
@@ -216,7 +281,11 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
           const existing = modelAssignments.value || {}
           const updated = {}
           for (const role of roleNames) {
-            updated[role] = existing[role] || { model: data.roles[role] || '', calls: 0, successRate: 100 }
+            updated[role] = {
+              model: existing[role]?.model || data.roles[role] || '',
+              calls: existing[role]?.calls || 0,
+              successRate: existing[role]?.successRate ?? 100
+            }
           }
           modelAssignments.value = updated
         }
@@ -256,7 +325,8 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
     // State
     currentSessionId, projectPrompt, sessionHistory,
     isGenerating, workflowStages, currentPhase, currentStep, totalSteps, startTime,
-    roles, modelAssignments, recoveryAttempts,
+    roles, modelAssignments, modelConfigVersion, modelContextRevision, currentModel, currentAgent,
+    fallbackHistory, recoveryAttempts,
     // Computed
     sessionId, overallProgress,
     // Session methods
@@ -264,6 +334,7 @@ export const useAgentSessionStore = defineStore('agentSession', () => {
     saveSessionState, restoreSessionState, startAutoSave, stopAutoSave,
     // Generation methods
     ensureStage, updateStageStatus, addThinkingToStage,
-    resetStages, resetState, fetchRoles, getETA, getOverallProgress, getPlaceholder
+    resetStages, resetState, fetchRoles, getETA, getOverallProgress, getPlaceholder,
+    getModelContextSnapshot, applyModelContext
   }
 })

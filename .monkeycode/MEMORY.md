@@ -197,6 +197,13 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 对当前任务范围内的明确后续步骤持续推进。
   - 遇到会改变任务方向或结果的真实歧义时，再向用户请求澄清。
 
+### 既有数据库接入 Alembic
+- Date: 2026-09-03
+- Context: Agent 在完成 PPT 状态迁移收尾时发现
+- Category: 构建方法
+- Instructions:
+  - 应用已初始化过的既有数据库首次接入 Alembic 时，先执行 `alembic stamp 20260902_ppt_quality_state` 登记当前基线。
+  - 基线登记后执行 `alembic upgrade head` 验证迁移可幂等通过。
 ### Core RAG 验证与全量测试
 - Date: 2026-09-03
 - Context: Agent 在推进多语言代码生成编排和 RAG 接入时发现
@@ -242,6 +249,32 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 语言检测优先级：manifest 文件 > 扩展名计数（Cargo.toml/pom.xml/go.mod/package.json）
   - JS init_file 支持多个变体：index.{js,ts,jsx,tsx,mjs,cjs}
 
+### 生图 Provider Key 加密链路
+- Date: 2026-09-06
+- Context: Agent 在验证 Kolors 生图资源缓存和 API Key 流程时发现
+- Category: 环境配置
+- Instructions:
+  - 真实 Provider Key 流程为：获取 `/api/v1/agent/apikey/public-key`，使用 RSA OAEP SHA-256 加密原始 Key，提交 `/api/v1/agent/apikey`，再将返回的 `api_key_token` 传给生图接口。
+  - 直接设置 `SILICONFLOW_API_KEY` 只验证原始 Provider Key 配置路径，不能证明前端加密提交和 Redis token 解析流程正常。
+  - 生图端到端测试可使用 `512x512`、20 步、1 张图片；相同 fingerprint 的第二次请求应返回 `cached=true`，并在约毫秒级完成。
+
+### Flutter 桌面客户端验证
+- Date: 2026-09-08
+- Context: 用户要求保留既有修改，并明确 Flutter 开发验证流程
+- Category: 测试方法
+- Instructions:
+  - 客户端位于 `flutter_client/`，验证命令为 `FLUTTER_ALLOW_ROOT=1 flutter analyze` 和 `FLUTTER_ALLOW_ROOT=1 flutter test`。
+  - 当前客户端测试覆盖 Widget workbench、SSE 分帧解析、认证客户端和统一模型序列化；静态分析与测试均已通过。
+
+### 前端优先协作范围
+- Date: 2026-09-09
+- Context: 用户明确后续工作重点
+- Instructions:
+  - 后续功能分析和实现以前端为主，重点关注设置页、供应商与 API Key 状态、模型选择、流式展示、错误反馈、响应式布局和前端测试。
+  - 后端改动控制在前端链路必需的最小范围。
+  - 修改前读取项目记忆和 Git 状态，保留已有改动；所有手动编辑使用 apply_patch。
+  - 测试前调用 background_terminal_list，测试和构建通过受控后台终端执行，命令先进入 `/workspace/flutter_client`。
+  - 修改后执行 dart format、flutter analyze、定向测试和全量 flutter test，修复失败后再返回；未经用户明确要求不提交或推送。
 ### 多语言 Profile 项目验证
 - Date: 2026-09-04
 - Context: Agent 在补齐 Core 多语言生成成功门禁时发现

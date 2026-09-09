@@ -1,7 +1,7 @@
 /**
  * 项目生成 API 客户端 (v5.0.2 全量补全)
  */
-import { createBaseClient, apiUrl } from './base'
+import { createBaseClient } from './base'
 
 export function createProjectClient(baseClient) {
   const client = baseClient || createBaseClient()
@@ -55,6 +55,19 @@ export function createProjectClient(baseClient) {
         return await response.json()
       }
       throw new Error('删除会话失败')
+    },
+
+    async getAgentModelContext(sessionId) {
+      const response = await client.get(`/agent/sessions/${sessionId}/model-context`)
+      if (response.ok) return await response.json()
+      throw new Error('获取模型上下文失败')
+    },
+
+    async updateAgentModelContext(sessionId, context) {
+      const response = await client.put(`/agent/sessions/${sessionId}/model-context`, context)
+      if (response.ok) return await response.json()
+      if (response.status === 409) return { conflict: true }
+      throw new Error('更新模型上下文失败')
     },
 
     async submitDecision(sessionId, decisions) {
@@ -169,6 +182,30 @@ export function createProjectClient(baseClient) {
       } else {
         throw new Error('下载项目失败')
       }
+    },
+
+    async uploadProjectZip(file, projectName = '') {
+      const formData = new FormData()
+      formData.append('file', file)
+      const query = projectName ? `?project_name=${encodeURIComponent(projectName)}` : ''
+      const response = await client.request(`/agent/projects/upload-zip${query}`, {
+        method: 'POST',
+        body: formData
+      })
+      if (!response.ok) throw new Error(`上传项目失败 (${response.status})`)
+      return response.json()
+    },
+
+    async listUploadedProjects() {
+      const response = await client.get('/agent/projects/user-uploads')
+      if (!response.ok) throw new Error(`获取上传项目失败 (${response.status})`)
+      return response.json()
+    },
+
+    async deleteUploadedProject(projectName) {
+      const response = await client.delete(`/agent/projects/user-uploads/${encodeURIComponent(projectName)}`)
+      if (!response.ok) throw new Error(`删除上传项目失败 (${response.status})`)
+      return response.json()
     },
 
     async evaluateRequirement(requirement, api_key_token) {

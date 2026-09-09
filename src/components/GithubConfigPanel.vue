@@ -102,7 +102,7 @@ onMounted(() => {
   useGithub.value = githubStore.useGithub
   githubUsername.value = githubStore.githubUsername
   githubToken.value = githubStore.githubToken
-  
+
   // 如果已配置，自动测试连接
   if (isConfigured.value) {
     autoTestConnection()

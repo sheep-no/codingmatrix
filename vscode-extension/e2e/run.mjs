@@ -5,9 +5,16 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const globalNodeModules = resolve(dirname(process.execPath), "..", "lib", "node_modules");
-const { runTests } = await import(pathToFileURL(
-  join(globalNodeModules, "@vscode", "test-electron", "out", "index.js"),
-).href);
+let testElectron;
+try {
+  testElectron = await import("@vscode/test-electron");
+} catch (error) {
+  if (error?.code !== "ERR_MODULE_NOT_FOUND") throw error;
+  testElectron = await import(pathToFileURL(
+    join(globalNodeModules, "@vscode", "test-electron", "out", "index.js"),
+  ).href);
+}
+const { runTests } = testElectron;
 
 const userDataDir = mkdtempSync(join(tmpdir(), "codingmatrix-vscode-e2e-"));
 const localNoProxy = ["127.0.0.1", "localhost", "::1"];

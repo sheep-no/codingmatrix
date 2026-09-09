@@ -1,83 +1,77 @@
 # CodingMatrix 项目功能介绍
 
-> 最后更新：2026-05-27 | 版本：v5.10.0
+> 最后更新：2026-09-03
 
-CodingMatrix 是一个基于 AI 的智能代码生成平台，支持多供应商集成、智能项目生成、Agent 协作开发等功能。
+CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，覆盖智能对话、项目生成、多 Agent 协作、模型配置、演示文稿生成、AI Cloud 沙箱和知识库等能力。
 
-## 核心功能
+## 核心能力
 
-### 1. 智能对话与代码生成
+### 智能开发与 Agent 协作
 
-- **AI 对话助手**：支持多轮对话，自动理解需求生成代码
-- **多语言支持**：Python、JavaScript、TypeScript、Go、Rust 等主流语言
-- **在线测试验证**：支持 Python 和 JavaScript 代码在线执行（基于 AI Cloud 沙箱）
-- **流式输出**：实时展示生成进度，支持中途取消
+- 支持流式 AI 对话、代码生成、任务取消和会话管理。
+- 多 Agent 流程按 architect、frontend、backend、reviewer、fallback 五类角色分配模型。
+- 动态模型路由可依据调用成功率、近期延迟和活动请求数选择候选模型，并在连续失败时使用配置的降级模型。
+- 项目生成流程包含任务状态、检查点和产物记录；具体能力以对应 API 和 Agent 实现为准。
 
-### 2. 项目生成与开发
+### 模型与供应商
 
-- **一键项目生成**：输入需求自动生成完整项目结构
-- **Agent 协作开发**：多 Agent 分工合作（决策、执行、审查、修复、反思）
-- **Git 集成**：支持 GitHub 推送、分支管理、PR 创建
-- **工作流管理**：可视化 DAG 工作流，支持审批和执行
+- 用户端模型浏览接口位于 `/api/v1/models`。
+- 超级管理员统一配置接口位于 `/api/v2/model-config`，管理模型、供应商、Agent 角色和降级链。
+- 管理面配置保存在 `data/unified_model_config.yaml`，保存后派生 `data/agent_model_config.yaml` 并刷新运行时映射。
+- `/api/v1/providers` 支持添加 OpenAI 兼容或 Anthropic 原生动态供应商、同步模型、测试连接和启停。该接口使用进程内存储，服务重启后配置需要重新添加。
 
-### 3. 多供应商支持
+### PPT Agent
 
-- **内置供应商**：硅基流动 (SiliconFlow)、阿里百炼 (DashScope)、智谱 GLM、DeepSeek、OpenAI、Anthropic 等
-- **动态供应商**：支持自定义 base_url + 协议类型（OpenAI 兼容 / Anthropic 原生）
-- **自动模型拉取**：添加供应商后自动获取可用模型列表
-- **故障转移机制**：主供应商不可用时自动切换到备用供应商
-- **供应商健康检查**：实时监控供应商可用性和响应速度
+- 支持创建、版本化编辑和批准用户作用域的大纲，再从已批准快照创建生成任务。
+- 生成任务按 planning、assets、rendering、rule_qa、reflow、vision_qa、completed 阶段编排。
+- 提供规则质量检查、自动 reflow、可选视觉复审、质量报告和单页重生成。
+- 语义页面描述包含页面类型、叙事角色、核心信息、内容块、素材意图和证据来源。
+- 代码提供 9 种渲染主题；模板预设与渲染主题属于两个独立层次。
 
-### 4. API Key 管理
+详见 [PPT Agent](PPT-AGENT.md)。
 
-- **RSA 加密传输**：API Key 使用 RSA-2048 加密，确保传输安全
-- **Redis 内存存储**：不落数据库，TTL 自动过期
-- **多 Key 管理**：支持多个供应商 Key 同时配置
-- **Token 使用统计**：展示今日、本月、总计 Token 使用量
-- **按需选择模型**：设置页面可选择不同环节使用的模型和 Key
+### GirlAI
 
-### 5. 特色功能
+- 提供 5 个预设角色和用户自定义角色。
+- 支持对话、分页历史、搜索、导出、历史清理、偏好提取和偏好删除。
+- 对话同时维护旧版聊天记录与统一会话状态，归档任务会生成摘要检查点并清理已归档消息。
+- 前端支持角色管理、历史搜索、拖拽缩放、最小化、自动隐藏和 Document Picture-in-Picture。
 
-- **PPT 自动生成**：基于内容智能生成演示文稿
-  - 自然语言输入：输入主题描述自动生成结构化大纲
-  - 文本防溢出：自动拆分长文本、调整字号、截断处理
-  - 自动搜图配图：根据关键词搜索图片并自动插入
-  - 智能排版布局：根据内容类型自动选择最佳版式
-  - 支持 8 种模板风格（现代、商务、创意、极简、学术、科技、教育、医疗）
-  - 详见 [PPT Agent 文档](PPT-AGENT.md)
-- **图像生成 (Kolors)**：文生图、图生图、智能修复
-- **GirlAI 虚拟助手**：个性化 AI 伴侣
-- **知识库管理**：上传文档构建项目知识库
-- **文件管理与预览**：支持多种文件格式在线预览
-- **任务队列**：异步任务处理，支持重试和状态监控
-- **系统监控**：服务器资源监控、日志查看、服务管理
-- **管理面板**：用户管理、速率限制、系统配置
+详见 [GirlAI](GIRLAI.md)。
+
+### AI Cloud
+
+- 管理员可使用同步或流式聊天、沙箱文件读写、历史搜索与导出、审查队列、审计日志、模型浏览和代码执行。
+- 知识库支持文档上传、解析、分块、向量化、检索、列表和删除，并按用户隔离数据。
+- 聊天数据同时写入 AI Cloud 旧版表与统一会话/消息状态。
+
+详见 [AI Cloud](AICLOUD.md)。
 
 ## 技术架构
 
-### 后端技术栈
+### 后端
 
-- **框架**：FastAPI + Python 3.11+
-- **数据库**：SQLite + SQLAlchemy ORM + Alembic 迁移
-- **缓存**：Redis（API Key 存储、会话缓存、速率限制）
-- **异步任务**：Celery + Redis Broker
-- **安全**：JWT 认证、RSA 加密、CSRF Token、速率限制
-- **监控**：OpenTelemetry 链路追踪、Prometheus 指标
+- FastAPI、SQLAlchemy 异步会话和 Alembic 迁移。
+- SQLite 为默认关系型存储；Redis 用于 API Key、缓存、限流及 Celery Broker 等运行时能力。
+- Celery 处理异步任务，PPT API 与 Worker 通过共享产物目录交换生成文件。
+- JWT、角色权限、CSRF 组件、路径保护和速率限制组成安全边界。
+- 健康检查和 Prometheus 文本指标位于 `/api/v1/health`；OpenTelemetry 追踪由运行时配置决定是否启用。
 
-### 前端技术栈
+### 前端
 
-- **框架**：Vue 3 + Composition API
-- **构建工具**：Vite 5
-- **状态管理**：Pinia + pinia-plugin-persistedstate
-- **UI 组件库**：Element Plus
-- **路由**：Vue Router 4
-- **图表**：ECharts 6
-- **测试**：Vitest + Playwright (E2E)
-- **实时通信**：WebSocket + SSE
+- Vue 3、Vite 5、Vue Router、Pinia 和 Element Plus。
+- ECharts 用于图表，Vitest 与 Playwright 用于测试。
+- SSE 和 WebSocket 用于流式响应与任务进度。
+
+## 当前边界
+
+- 动态供应商、统一模型供应商和用户 API Key 供应商是三条独立配置链，生命周期和持久化方式不同。
+- 模型健康路由的实时指标保存在进程内；学习路由的历史统计保存在 `/tmp/model_performance.db`。
+- PPT 的 PDF 转换接口直接调用 LibreOffice，缺失时返回 HTTP 501；Poppler 不能替代该转换命令。当前容器定义未安装 LibreOffice。
 
 ## 相关文档
 
-- [快速开始](../guides/GETTING-STARTED.md) - 环境配置和开发流程
-- [架构设计](../architecture/ARCHITECTURE.md) - 系统架构和各组件职责
-- [API 文档](../api/API-DOCUMENTATION.md) - 完整的 API 端点文档
-- [安全说明](../security/SECURITY-OVERVIEW.md) - 安全机制和数据保护措施
+- [快速开始](../guides/GETTING-STARTED.md)
+- [架构设计](../architecture/ARCHITECTURE.md)
+- [API 文档](../api/API-DOCUMENTATION.md)
+- [安全说明](../security/SECURITY-OVERVIEW.md)

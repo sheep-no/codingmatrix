@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, readFile, realpath } from "node:fs/promises";
 import { AgentHostEnvelope, AgentHostPolicy } from "./agent-host.js";
 import { parsePendingAction } from "./protocol.js";
 import { ValidationRunner } from "./validation-runner.js";
@@ -44,6 +45,10 @@ export interface ToolDispatcherOptions {
   policy?: AgentHostPolicy;
 }
 
+export interface ToolDispatchOptions {
+  signal?: AbortSignal;
+}
+
 export class ToolDispatcherError extends Error {
   constructor(
     public readonly code:
@@ -81,7 +86,7 @@ export class ToolDispatcher {
     };
   }
 
-  async dispatch(envelope: AgentHostEnvelope): Promise<unknown> {
+  async dispatch(envelope: AgentHostEnvelope, options: ToolDispatchOptions = {}): Promise<unknown> {
     if (!envelope.capability) {
       throw new ToolDispatcherError("unsupported_capability", "tool action capability is required");
     }
@@ -92,9 +97,9 @@ export class ToolDispatcher {
       case "file":
         return this.dispatchFile(envelope);
       case "validation":
-        return this.dispatchValidation(envelope);
+        return this.dispatchValidation(envelope, options);
       case "terminal":
-        return this.dispatchTerminal(envelope);
+        return this.dispatchTerminal(envelope, options);
       case "diagnostics":
         return this.dispatchDiagnostics(envelope);
       case "workspace":
@@ -111,18 +116,29 @@ export class ToolDispatcher {
     const payload = envelope.payload;
     const workspaceId = requiredString(payload, "workspace_id");
     const path = requiredString(payload, "path");
-    const resolvedPath = await this.authorization.resolve(workspaceId, path);
+    const resolvedPath = await this.authorization.resolve(workspaceId, path, {
+      allowMissingLeaf: typeof payload.content === "string",
+    });
     if (typeof payload.content === "string") {
       const expectedHash = payload.expected_hash;
       if (expectedHash !== undefined && typeof expectedHash !== "string") {
         throw new ToolDispatcherError("invalid_action", "expected_hash must be a string");
       }
-      const currentHash = await hashFileIfPresent(resolvedPath);
-      if (expectedHash !== undefined && currentHash !== expectedHash) {
-        throw new ToolDispatcherError("file_conflict", "file changed since the expected hash was captured");
+      const { handle, existed } = await openWritableFile(resolvedPath, expectedHash !== undefined);
+      try {
+        const descriptorPath = await resolveDescriptorPath(handle.fd, resolvedPath);
+        this.authorization.assertResolvedPath(workspaceId, descriptorPath);
+        const currentHash = existed ? hash(await handle.readFile("utf8")) : undefined;
+        if (expectedHash !== undefined && currentHash !== expectedHash) {
+          throw new ToolDispatcherError("file_conflict", "file changed since the expected hash was captured");
+        }
+        const content = payload.content;
+        await handle.truncate(0);
+        await writeAll(handle, Buffer.from(content, "utf8"));
+      } finally {
+        await handle.close();
       }
       const content = payload.content;
-      await writeFile(resolvedPath, content, "utf8");
       return { workspace_id: workspaceId, path, hash: hash(content), size_bytes: Buffer.byteLength(content, "utf8") };
     }
     const maxBytes = payload.max_bytes === undefined ? DEFAULT_MAX_BYTES : payload.max_bytes;
@@ -135,7 +151,7 @@ export class ToolDispatcher {
     return { workspace_id: workspaceId, path, content: visible, hash: hash(content), size_bytes: encoded.byteLength };
   }
 
-  private async dispatchValidation(envelope: AgentHostEnvelope): Promise<unknown> {
+  private async dispatchValidation(envelope: AgentHostEnvelope, options: ToolDispatchOptions): Promise<unknown> {
     if (envelope.kind !== "tool_action") {
       throw new ToolDispatcherError("invalid_action", "validation actions must be tool_action envelopes");
     }
@@ -144,15 +160,16 @@ export class ToolDispatcher {
     if (enabled === false) {
       throw new ToolDispatcherError("execution_disabled", `${action.operation} is disabled by policy`);
     }
-    return this.validationRunner.run(action);
+    const workingDirectory = await this.authorization.resolve(action.workspace_id, action.working_directory);
+    return this.validationRunner.run({ ...action, working_directory: workingDirectory }, options);
   }
 
-  private async dispatchTerminal(envelope: AgentHostEnvelope): Promise<unknown> {
+  private async dispatchTerminal(envelope: AgentHostEnvelope, options: ToolDispatchOptions): Promise<unknown> {
     if (envelope.kind !== "tool_action") {
       throw new ToolDispatcherError("invalid_action", "terminal actions must be tool_action envelopes");
     }
     // Terminal actions use the same constrained command contract as validation.
-    return this.dispatchValidation(envelope);
+    return this.dispatchValidation(envelope, options);
   }
 
   private async dispatchDiagnostics(envelope: AgentHostEnvelope): Promise<Array<Record<string, unknown>>> {
@@ -194,17 +211,55 @@ function hash(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-async function hashFileIfPresent(path: string): Promise<string | undefined> {
+async function openWritableFile(
+  path: string,
+  requireExisting: boolean,
+): Promise<{ handle: Awaited<ReturnType<typeof open>>; existed: boolean }> {
+  if (constants.O_NOFOLLOW === undefined) {
+    throw new ToolDispatcherError("invalid_action", "secure file writes are unavailable on this platform");
+  }
+  const noFollow = constants.O_NOFOLLOW;
   try {
-    const [content, fileStat] = await Promise.all([readFile(path, "utf8"), stat(path)]);
-    if (!fileStat.isFile()) return undefined;
-    return hash(content);
+    return { handle: await open(path, constants.O_RDWR | noFollow), existed: true };
   } catch (error) {
-    if (isFileMissing(error)) return undefined;
-    throw error;
+    if (!isFileMissing(error)) throw error;
+  }
+  if (requireExisting) {
+    throw new ToolDispatcherError("file_conflict", "file changed since the expected hash was captured");
+  }
+  try {
+    return {
+      handle: await open(path, constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | noFollow, 0o600),
+      existed: false,
+    };
+  } catch (error) {
+    if (!isFileExists(error)) throw error;
+    return { handle: await open(path, constants.O_RDWR | noFollow), existed: true };
+  }
+}
+
+async function resolveDescriptorPath(fileDescriptor: number, fallbackPath: string): Promise<string> {
+  try {
+    return await realpath(`/proc/self/fd/${fileDescriptor}`);
+  } catch (error) {
+    if (!isFileMissing(error)) throw error;
+    return realpath(fallbackPath);
+  }
+}
+
+async function writeAll(handle: Awaited<ReturnType<typeof open>>, content: Buffer): Promise<void> {
+  let offset = 0;
+  while (offset < content.byteLength) {
+    const { bytesWritten } = await handle.write(content, offset, content.byteLength - offset, offset);
+    if (bytesWritten <= 0) throw new Error("file write made no progress");
+    offset += bytesWritten;
   }
 }
 
 function isFileMissing(error: unknown): boolean {
   return isRecord(error) && error.code === "ENOENT";
+}
+
+function isFileExists(error: unknown): boolean {
+  return isRecord(error) && error.code === "EEXIST";
 }

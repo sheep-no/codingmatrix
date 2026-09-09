@@ -267,7 +267,7 @@ class DataTransformNode(TaskNodeBase):
         """安全的表达式求值"""
         ALLOWED_NODES = (
             ast.Expression, ast.Compare, ast.BoolOp, ast.UnaryOp,
-            ast.Name, ast.Constant, ast.Attribute,
+            ast.Name, ast.Constant,
             ast.And, ast.Or, ast.Not,
             ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
             ast.In, ast.NotIn, ast.Is, ast.IsNot,

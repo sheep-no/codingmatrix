@@ -71,7 +71,15 @@ class UserPreference(Base):
     preference_value = Column(Text, nullable=False)
     confidence = Column(Integer, default=80)  # 0-100
     source = Column(String(20), default="extracted")  # "extracted" or "manual"
+    status = Column(String(20), nullable=False, default="confirmed", index=True)
+    consent_source = Column(String(30), nullable=False, default="system_derived")
+    visibility = Column(String(30), nullable=False, default="companion_allowed", index=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User")
+
+    __table_args__ = (
+        Index("idx_user_preferences_user_status_visibility", "user_id", "status", "visibility"),
+    )

@@ -93,6 +93,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/capabilities',
+      name: 'capabilities',
+      component: () => import('../views/CapabilityCenter.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'NotFound',
       redirect: '/'

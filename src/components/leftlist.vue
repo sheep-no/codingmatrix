@@ -31,6 +31,8 @@
       <span v-if="!isCollapsed">新建会话</span>
     </button>
 
+    <WorkbenchNav class="primary-navigation" :collapsed="isCollapsed" />
+
     <!-- 工具集按钮 -->
     <button
       id="toolkit"
@@ -56,28 +58,6 @@
       class="toolkit-menu"
       @click.stop
     >
-      <div
-        role="menuitem"
-        tabindex="0"
-        class="toolkit-item highlight"
-        @click.stop="navigateToAgent"
-        @keydown.enter="navigateToAgent"
-        @keydown.space.prevent="navigateToAgent"
-      >
-        <svg
-          class="tool-icon-svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <path d="M12 2L2 7l10 5 10-5-10-5z" />
-          <path d="M2 17l10 5 10-5" />
-          <path d="M2 12l10 5 10-5" />
-        </svg>
-        <span>Agent</span>
-      </div>
       <div
         role="menuitem"
         tabindex="0"
@@ -207,53 +187,6 @@
         <span>AI 绘画</span>
       </div>
       <div
-        v-if="userStore.isAdmin"
-        role="menuitem"
-        tabindex="0"
-        class="toolkit-item"
-        @click.stop="useTool('aicloud')"
-        @keydown.enter="useTool('aicloud')"
-        @keydown.space.prevent="useTool('aicloud')"
-      >
-        <svg
-          class="tool-icon-svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
-          <path d="M2 17l10 5 10-5"></path>
-          <path d="M2 12l10 5 10-5"></path>
-        </svg>
-        <span>AI 云助手</span>
-      </div>
-      <div
-        role="menuitem"
-        tabindex="0"
-        class="toolkit-item"
-        @click.stop="navigateToDocs"
-        @keydown.enter="navigateToDocs"
-        @keydown.space.prevent="navigateToDocs"
-      >
-        <svg
-          class="tool-icon-svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-          <line x1="16" y1="13" x2="8" y2="13"></line>
-          <line x1="16" y1="17" x2="8" y2="17"></line>
-          <polyline points="10 9 9 9 8 9"></polyline>
-        </svg>
-        <span>文档中心</span>
-      </div>
-      <div
         role="menuitem"
         tabindex="0"
         class="toolkit-item"
@@ -293,27 +226,6 @@
           <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
         <span>搜索历史</span>
-      </div>
-      <div
-        role="menuitem"
-        tabindex="0"
-        class="toolkit-item"
-        @click.stop="navigateToSettings"
-        @keydown.enter="navigateToSettings"
-        @keydown.space.prevent="navigateToSettings"
-      >
-        <svg
-          class="tool-icon-svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <circle cx="12" cy="12" r="3"></circle>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-        </svg>
-        <span>设置</span>
       </div>
     </div>
 
@@ -428,9 +340,10 @@
   import ThemeSwitcher from './ui/ThemeSwitcher.vue'
   import LoginDialog from './LoginDialog.vue'
   import VirtualHistoryList from './VirtualHistoryList.vue'
+  import WorkbenchNav from './WorkbenchNav.vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
 
-  const emit = defineEmits(['newConversation', 'selectHistory', 'login', 'logout', 'useTool'])
+  const emit = defineEmits(['newConversation', 'selectHistory', 'deleteHistory', 'login', 'logout', 'useTool'])
 
   const userStore = useUserStore()
 
@@ -500,11 +413,6 @@
     window.open('/chart-editor', '_blank')
   }
 
-  const navigateToAgent = () => {
-    showToolkitMenu.value = false
-    window.open('/agent', '_blank')
-  }
-
   const openImageGenerator = () => {
     showToolkitMenu.value = false
     window.open('/image-generate', '_blank')
@@ -518,16 +426,6 @@
   const navigateToAdmin = () => {
     showToolkitMenu.value = false
     window.open('/admin', '_blank')
-  }
-
-  const navigateToSettings = () => {
-    showToolkitMenu.value = false
-    window.open('/settings', '_blank')
-  }
-
-  const navigateToDocs = () => {
-    showToolkitMenu.value = false
-    window.open('/docs', '_blank')
   }
 
   const closeSearchBox = () => {
@@ -662,6 +560,8 @@
         } catch (dbError) {
           console.error('删除本地缓存失败:', dbError)
         }
+
+        emit('deleteHistory', item.conversation_id)
       } else {
         const errorData = await response.json().catch(() => null)
         console.error('[ERR] 删除失败详情:', response.status, errorData)
@@ -862,8 +762,8 @@
   #leftlist {
     flex-shrink: 0;
     width: var(--sidebar-width);
-    background: var(--bg-primary);
-    border-right: 1px solid var(--border-color);
+    background: var(--surface-app);
+    border-right: 1px solid var(--control-border);
     display: flex;
     flex-direction: column;
     padding: var(--spacing-md);
@@ -905,9 +805,9 @@
     align-items: center;
     margin-bottom: var(--spacing-lg);
     padding: var(--spacing-md);
-    background: var(--bg-secondary);
+    background: var(--surface-subtle);
     border-radius: var(--radius-lg);
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--control-border);
     transition: all var(--transition-slow);
     position: relative;
     z-index: 1;
@@ -993,7 +893,7 @@
     cursor: pointer;
     border-radius: var(--radius-md);
     transition: all var(--transition-base);
-    color: var(--text-secondary);
+    color: var(--content-secondary);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1114,6 +1014,12 @@
     background: rgba(255, 255, 255, 0.2);
     border-radius: 5px;
     transition: all 0.3s;
+  }
+
+  .primary-navigation {
+    margin-bottom: var(--spacing-md);
+    position: relative;
+    z-index: 1;
   }
 
   #newSpeak:hover .icon {

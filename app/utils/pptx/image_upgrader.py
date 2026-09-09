@@ -727,6 +727,7 @@ class UnsplashImageSearch:
                 params["orientation"] = orientation
 
             try:
+                photo = None
                 for attempt in range(self._MAX_RETRIES):
                     try:
                         with httpx.Client(timeout=10.0) as client:
@@ -750,7 +751,8 @@ class UnsplashImageSearch:
                             time.sleep(self._RETRY_DELAY)
                             continue
                         break
-                else:
+
+                if photo is None:
                     continue
 
                 results.append({
@@ -1347,17 +1349,17 @@ class ImageStrategy:
                 loop = None
 
             if loop and loop.is_running():
-                # 已有运行中的事件循环，降级为串行搜索
-                logger.warning("检测到已有事件循环，降级为串行搜索")
+                # 已有运行中的事件循环，使用 to_thread 避免阻塞
+                logger.warning("检测到已有事件循环，使用线程池搜索")
                 source_results_list = []
                 for source in order:
                     try:
                         if source == "unsplash":
-                            results = self._unsplash.search_images(query, max_results=5, min_quality_score=0.3)
+                            results = await asyncio.to_thread(self._unsplash.search_images, query, 5, 0.3)
                         elif source == "pexels":
-                            results = self._pexels.search_images(query, max_results=5, min_quality_score=0.3)
+                            results = await asyncio.to_thread(self._pexels.search_images, query, 5, 0.3)
                         elif source == "pixabay":
-                            results = self._pixabay.search_images(query, max_results=5, min_quality_score=0.3)
+                            results = await asyncio.to_thread(self._pixabay.search_images, query, 5, 0.3)
                         else:
                             results = []
                         source_results_list.append([{"source": source, **r} for r in results])
@@ -1367,16 +1369,16 @@ class ImageStrategy:
             else:
                 source_results_list = asyncio.run(_run_all())
         except Exception as e:
-            logger.warning("搜索失败，降级为串行搜索: %s", e)
+            logger.warning("搜索失败，降级为线程池搜索: %s", e)
             source_results_list = []
             for source in order:
                 try:
                     if source == "unsplash":
-                        results = self._unsplash.search_images(query, max_results=5, min_quality_score=0.3)
+                        results = await asyncio.to_thread(self._unsplash.search_images, query, 5, 0.3)
                     elif source == "pexels":
-                        results = self._pexels.search_images(query, max_results=5, min_quality_score=0.3)
+                        results = await asyncio.to_thread(self._pexels.search_images, query, 5, 0.3)
                     elif source == "pixabay":
-                        results = self._pixabay.search_images(query, max_results=5, min_quality_score=0.3)
+                        results = await asyncio.to_thread(self._pixabay.search_images, query, 5, 0.3)
                     else:
                         results = []
                     source_results_list.append([{"source": source, **r} for r in results])

@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
 
 from app.utils.pptx.ppt_modifier import PPTModifier, modify_ppt, COLOR_MAP
 from app.utils.pptx.modify_intent_parser import ModifyIntent, ModifyTarget
@@ -268,3 +269,43 @@ class TestSlideRenderer:
         assert "fonts" in metadata
         assert "colors" in metadata
         assert "elements" in metadata
+
+    def test_widescreen_coordinates_use_presentation_dimensions(self):
+        from app.utils.pptx.slide_renderer import PREVIEW_WIDTH, SlideRenderer
+
+        prs = Presentation()
+        prs.slide_width = Inches(13.333)
+        prs.slide_height = Inches(7.5)
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.shapes.add_textbox(Inches(12), Inches(1), Inches(1), Inches(1)).text = "右侧文本"
+        prs.save(self.pptx_path)
+
+        renderer = SlideRenderer(self.pptx_path)
+        preview = renderer._parse_slide(renderer.prs.slides[0], 1)
+        text_element = next(element for element in preview.elements if element.text == "右侧文本")
+
+        assert text_element.x + text_element.width <= PREVIEW_WIDTH
+        assert text_element.x >= 1100
+
+    def test_text_shape_keeps_background_and_chinese_text(self):
+        from app.utils.pptx.slide_renderer import SlideRenderer, _load_preview_font
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        shape = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE,
+            Inches(1), Inches(1), Inches(4), Inches(2),
+        )
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = RGBColor(0x1F, 0x4E, 0x79)
+        shape.text = "策略验证"
+        prs.save(self.pptx_path)
+
+        renderer = SlideRenderer(self.pptx_path)
+        elements = renderer._parse_shape(renderer.prs.slides[0].shapes[0])
+
+        assert [element.type for element in elements] == ["shape", "text"]
+        assert elements[0].fill_color == (0x1F, 0x4E, 0x79)
+        assert elements[1].text == "策略验证"
+        assert elements[1].is_bullet is False
+        assert _load_preview_font(20).getmask("策略验证").getbbox() is not None

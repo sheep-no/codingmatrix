@@ -1887,12 +1887,22 @@ class FilesMixin:
         # git stash 备份已有文件
         stashed = _git_stash_push(str(self.output_dir), existing_files, "agent-backup-batch")
 
-        # 直接并发生成，由 LLMClient 内部信号量控制并发度
+        # 分批并发生成，避免大量协程同时存在
         if self.cancel_event and self.cancel_event.is_set():
             logger.info("[生成] 检测到取消信号，跳过小项目生成")
             return
-        tasks = [self._generate_single_file(fi, project_context, total_files) for fi in file_plan]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        BATCH_SIZE = 20
+        results = []
+        for i in range(0, len(file_plan), BATCH_SIZE):
+            if self.cancel_event and self.cancel_event.is_set():
+                logger.info("[生成] 检测到取消信号，中断批次生成")
+                return
+            batch = file_plan[i:i + BATCH_SIZE]
+            batch_results = await asyncio.gather(
+                *[self._generate_single_file(fi, project_context, total_files) for fi in batch],
+                return_exceptions=True
+            )
+            results.extend(batch_results)
 
         # 检查是否全部成功
         all_success = True
@@ -2105,6 +2115,11 @@ class FilesMixin:
         )
         if asyncio.iscoroutine(content):
             logger.warning(f"generate_file 返回协程，自动 await: {file_path}")
+            content = await content
+
+        # 防御性检查：确保返回值是字符串而非协程
+        if asyncio.iscoroutine(content):
+            logger.warning(f"generate_file 返回协程而非字符串，自动 await: {file_path}")
             content = await content
 
         # 统一提取工程师生成的内容
@@ -2767,8 +2782,12 @@ router = APIRouter()
                 callback=self.callback
             )
             if success:
-                with open(full_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
+                try:
+                    with open(full_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                except OSError as e:
+                    logger.error(f"文件写入失败（错误恢复后）: {file_path} - {e}")
+                    validation_success = False
                 content_hash = CodeValidator._compute_content_hash(content)
                 cache_key = f"{file_path}:{content_hash}"
             else:

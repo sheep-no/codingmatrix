@@ -5,7 +5,7 @@
       <div class="editor-header">
         <div class="editor-info">
           <span class="editor-filename">{{ selectedFile.name }}</span>
-          <span class="editor-path">{{ selectedFile.path }}</span>
+          <span class="editor-path" :title="selectedFile.path">{{ selectedFile.path }}</span>
           <span class="editor-lang">{{ language }}</span>
         </div>
         <div class="editor-actions">
@@ -36,7 +36,8 @@
           <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
       </div>
-      <p class="empty-text">选择文件查看预览</p>
+      <h2 class="empty-title">项目产物</h2>
+      <p class="empty-text">从左侧文件列表选择文件<br>在这里查看代码与版本变更</p>
     </div>
   </div>
 </template>
@@ -83,13 +84,18 @@ defineEmits(['show-diff', 'save-version', 'version-history', 'copy', 'download',
   align-items: center;
   gap: 8px;
   min-width: 0;
+  flex-wrap: wrap;
+  width: 100%;
 }
 .editor-filename {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+  overflow-wrap: anywhere;
 }
 .editor-path {
+  order: 3;
+  width: 100%;
   font-size: 11px;
   color: var(--text-tertiary);
   white-space: nowrap;
@@ -110,7 +116,8 @@ defineEmits(['show-diff', 'save-version', 'version-history', 'copy', 'download',
   flex-wrap: wrap;
 }
 .editor-btn {
-  padding: 4px 8px;
+  padding: 6px 10px;
+  min-height: 32px;
   border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 11px;
@@ -129,7 +136,9 @@ defineEmits(['show-diff', 'save-version', 'version-history', 'copy', 'download',
   font-size: 13px;
   line-height: 1.6;
   background: var(--bg-primary);
+  min-height: 0;
 }
+.code-block :deep(pre) { margin: 0; }
 .editor-footer {
   display: flex;
   gap: 16px;
@@ -138,6 +147,7 @@ defineEmits(['show-diff', 'save-version', 'version-history', 'copy', 'download',
   font-size: 11px;
   color: var(--text-tertiary);
   background: var(--bg-secondary);
+  flex-wrap: wrap;
 }
 .complexity-badge {
   padding: 1px 6px;
@@ -156,7 +166,10 @@ defineEmits(['show-diff', 'save-version', 'version-history', 'copy', 'download',
   justify-content: center;
   height: 100%;
   color: var(--text-tertiary);
+  padding: 24px;
+  text-align: center;
 }
 .empty-icon { margin-bottom: 12px; opacity: 0.5; }
-.empty-text { font-size: 14px; }
+.empty-title { font-size: 15px; color: var(--text-primary); font-weight: 500; margin: 0 0 10px; }
+.empty-text { font-size: 13px; line-height: 1.8; color: var(--text-secondary); }
 </style>

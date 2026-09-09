@@ -1,15 +1,15 @@
 """SQL-backed services for unified sessions, tasks, events and artifacts."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.task import Task
-from app.models.unified_state import Artifact, Checkpoint, Message, Session, TaskEvent
+from app.models.unified_state import Artifact, Checkpoint, Message, Session, SessionEvent, TaskEvent
 
 
 TERMINAL_TASK_STATUSES = {"success", "failed", "cancelled"}
@@ -100,6 +100,201 @@ async def list_messages(
     messages = list((await db.scalars(query)).all())
     messages.reverse()
     return messages
+
+
+async def append_session_event(
+    db: AsyncSession,
+    session_id: str,
+    user_id: int,
+    event_type: str,
+    turn_id: str,
+    payload: Optional[dict[str, Any]] = None,
+    schema_version: str = "1",
+) -> SessionEvent:
+    event, _ = await reserve_session_event(
+        db,
+        session_id,
+        user_id,
+        event_type,
+        turn_id,
+        payload,
+        schema_version,
+    )
+    return event
+
+
+async def reserve_session_event(
+    db: AsyncSession,
+    session_id: str,
+    user_id: int,
+    event_type: str,
+    turn_id: str,
+    payload: Optional[dict[str, Any]] = None,
+    schema_version: str = "1",
+    reclaim_after_seconds: Optional[float] = None,
+    reservation_token: Optional[str] = None,
+) -> tuple[SessionEvent, bool]:
+    """Reserve a user-owned event and report whether this call created it."""
+    session = await get_owned_session(db, session_id, user_id)
+    existing = await get_session_event_by_turn_id(db, session_id, user_id, turn_id)
+    if existing:
+        if reclaim_after_seconds is not None and existing.event_type == event_type:
+            reservation_time = datetime.utcnow()
+            stale_before = reservation_time - timedelta(
+                seconds=max(0.0, float(reclaim_after_seconds))
+            )
+            claim = await db.execute(
+                update(SessionEvent)
+                .where(
+                    SessionEvent.id == existing.id,
+                    SessionEvent.event_type == event_type,
+                    SessionEvent.created_at <= stale_before,
+                )
+                .values(
+                    payload_json=payload or {},
+                    schema_version=str(schema_version),
+                    reservation_token=reservation_token,
+                    created_at=reservation_time,
+                )
+            )
+            if claim.rowcount == 1:
+                await db.flush()
+                await db.refresh(existing)
+                session.updated_at = reservation_time
+                return existing, True
+        return existing, False
+
+    for _ in range(3):
+        try:
+            async with db.begin_nested():
+                sequence = await db.scalar(
+                    select(func.coalesce(func.max(SessionEvent.sequence), 0) + 1).where(
+                        SessionEvent.session_id == session_id
+                    )
+                )
+                event = SessionEvent(
+                    session_id=session.id,
+                    user_id=int(user_id),
+                    sequence=int(sequence or 1),
+                    event_type=event_type,
+                    turn_id=turn_id,
+                    payload_json=payload or {},
+                    schema_version=str(schema_version),
+                    reservation_token=reservation_token,
+                )
+                db.add(event)
+                await db.flush()
+            session.updated_at = datetime.utcnow()
+            return event, True
+        except IntegrityError as error:
+            message = str(error.orig).lower()
+            is_expected_conflict = (
+                "uq_session_events_session_sequence" in message
+                or "uq_session_events_session_turn" in message
+                or "session_events.session_id, session_events.sequence" in message
+                or "session_events.session_id, session_events.turn_id" in message
+            )
+            if not is_expected_conflict:
+                raise
+            existing = await get_session_event_by_turn_id(
+                db, session_id, user_id, turn_id
+            )
+            if existing:
+                return existing, False
+    raise StateConflictError("会话事件版本冲突")
+
+
+async def get_session_event_by_turn_id(
+    db: AsyncSession,
+    session_id: str,
+    user_id: int,
+    turn_id: str,
+) -> Optional[SessionEvent]:
+    await get_owned_session(db, session_id, user_id)
+    return await db.scalar(
+        select(SessionEvent).where(
+            SessionEvent.session_id == session_id,
+            SessionEvent.turn_id == turn_id,
+        )
+    )
+
+
+async def update_session_event(
+    db: AsyncSession,
+    session_id: str,
+    user_id: int,
+    turn_id: str,
+    event_type: str,
+    payload: Optional[dict[str, Any]] = None,
+    schema_version: str = "1",
+    expected_reservation_token: Optional[str] = None,
+) -> SessionEvent:
+    await get_owned_session(db, session_id, user_id)
+    conditions = [
+        SessionEvent.session_id == session_id,
+        SessionEvent.user_id == int(user_id),
+        SessionEvent.turn_id == turn_id,
+    ]
+    if expected_reservation_token is not None:
+        conditions.extend(
+            [
+                SessionEvent.event_type == "companion.turn.processing",
+                SessionEvent.reservation_token == expected_reservation_token,
+            ]
+        )
+    result = await db.execute(
+        update(SessionEvent)
+        .where(*conditions)
+        .values(
+            event_type=event_type,
+            payload_json=payload or {},
+            schema_version=str(schema_version),
+            reservation_token=None,
+        )
+    )
+    if result.rowcount != 1:
+        existing = await get_session_event_by_turn_id(db, session_id, user_id, turn_id)
+        if existing is None:
+            raise StateNotFoundError("会话事件不存在")
+        raise StateConflictError("会话事件预留已失效")
+    event = await get_session_event_by_turn_id(db, session_id, user_id, turn_id)
+    if event is None:
+        raise StateNotFoundError("会话事件不存在")
+    await db.refresh(event)
+    return event
+
+
+async def replay_session_events(
+    db: AsyncSession,
+    session_id: str,
+    user_id: int,
+    after_sequence: int = 0,
+    limit: int = 500,
+) -> list[SessionEvent]:
+    await get_owned_session(db, session_id, user_id)
+    query = (
+        select(SessionEvent)
+        .where(
+            SessionEvent.session_id == session_id,
+            SessionEvent.sequence > max(0, after_sequence),
+        )
+        .order_by(SessionEvent.sequence.asc())
+        .limit(max(1, min(limit, 1000)))
+    )
+    return list((await db.scalars(query)).all())
+
+
+async def get_latest_session_event(
+    db: AsyncSession,
+    session_id: str,
+    user_id: int,
+    event_types: Optional[tuple[str, ...]] = None,
+) -> Optional[SessionEvent]:
+    await get_owned_session(db, session_id, user_id)
+    query = select(SessionEvent).where(SessionEvent.session_id == session_id)
+    if event_types:
+        query = query.where(SessionEvent.event_type.in_(event_types))
+    return await db.scalar(query.order_by(SessionEvent.sequence.desc()).limit(1))
 
 
 async def create_task(

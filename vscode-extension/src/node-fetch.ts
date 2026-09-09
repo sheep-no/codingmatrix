@@ -9,15 +9,9 @@ export const nodeFetch: FetchLike = (input, init = {}) => new Promise((resolve, 
     method: init.method ?? "GET",
     headers: init.headers,
   }, (response) => {
-    const chunks: Uint8Array[] = [];
-    const bodyReady = new Promise<void>((resolveBody, rejectBody) => {
-      response.on("end", resolveBody);
-      response.on("error", rejectBody);
-    });
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         response.on("data", (chunk: Uint8Array) => {
-          chunks.push(chunk);
           controller.enqueue(new Uint8Array(chunk));
         });
         response.on("end", () => controller.close());
@@ -29,12 +23,10 @@ export const nodeFetch: FetchLike = (input, init = {}) => new Promise((resolve, 
       status: response.statusCode ?? 500,
       body: stream,
       async json() {
-        await bodyReady;
-        return JSON.parse(toText(chunks)) as unknown;
+        return JSON.parse(await readText(stream)) as unknown;
       },
       async text() {
-        await bodyReady;
-        return toText(chunks);
+        return readText(stream);
       },
     });
   });
@@ -46,6 +38,17 @@ export const nodeFetch: FetchLike = (input, init = {}) => new Promise((resolve, 
   if (init.body) request.write(init.body);
   request.end();
 });
+
+async function readText(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    if (chunk.value) chunks.push(chunk.value);
+  }
+  return toText(chunks);
+}
 
 function toText(chunks: Uint8Array[]): string {
   const size = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);

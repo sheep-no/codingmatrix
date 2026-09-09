@@ -39,23 +39,23 @@
           <div class="hero-card">
             <div class="hero-kicker">Platform Overview</div>
             <h1 class="hero-heading">CodingMatrix 智能代码生成平台</h1>
-            <p class="hero-desc">基于多 Agent 协作的 AI 开发助手。集成 8+ AI 供应商，支持智能对话、项目生成、代码审查、工作流编排，覆盖 15+ 编程语言。</p>
+            <p class="hero-desc">基于多 Agent 协作的 AI 开发助手，支持多模型接入、智能对话、项目生成、代码审查和工作流编排。</p>
             <div class="hero-stats">
               <div class="stat">
-                <div class="stat-num">6</div>
-                <div class="stat-text">核心模块</div>
+                <div class="stat-num">Agent</div>
+                <div class="stat-text">协作编排</div>
               </div>
               <div class="stat">
-                <div class="stat-num">8+</div>
-                <div class="stat-text">AI 供应商</div>
+                <div class="stat-num">多模型</div>
+                <div class="stat-text">统一接入</div>
               </div>
               <div class="stat">
-                <div class="stat-num">20+</div>
-                <div class="stat-text">API 端点</div>
+                <div class="stat-num">API</div>
+                <div class="stat-text">服务集成</div>
               </div>
               <div class="stat">
-                <div class="stat-num">15+</div>
-                <div class="stat-text">生成语言</div>
+                <div class="stat-num">多语言</div>
+                <div class="stat-text">代码生成</div>
               </div>
             </div>
           </div>
@@ -435,7 +435,7 @@ const features = [
       { title: '交叉验证', text: '每个 Agent 的输出会被其他 Agent 交叉验证。后端生成的 API 会被前端验证接口兼容性。' },
       { title: '质量保障', text: 'Reviewer 检查代码规范、安全漏洞、性能问题。Fixer 根据报告自动修复，支持多轮迭代。' },
     ]},
-  { id: 'provider', icon: '☁️', title: '多供应商支持', brief: '内置 8+ 供应商，支持自定义接入',
+  { id: 'provider', icon: '☁️', title: '多供应商支持', brief: '内置主流供应商，支持自定义接入',
     blocks: [
       { title: '内置供应商', text: '硅基流动、阿里百炼、智谱 AI、DeepSeek、OpenAI、Anthropic、Google Gemini、Moonshot。' },
       { title: '自定义接入', text: '通过自定义 base_url + 协议类型接入任意兼容 OpenAI 接口的服务，包括 Ollama、vLLM 等。' },
@@ -497,7 +497,7 @@ const stack = [
 const langs = ['Go', 'Rust', 'Java', 'C/C++', 'PHP', 'Ruby', 'Swift', 'Kotlin', 'C#', 'TypeScript', 'Shell', 'SQL', 'HTML/CSS']
 
 const faqs = [
-  { q: '支持哪些编程语言？', a: ['在线编译仅支持 Python 和 JavaScript。代码生成支持 15+ 种语言，包括 Go、Rust、Java、C/C++、PHP、Ruby、Swift、Kotlin 等。', '其他语言需在本地测试运行。'] },
+  { q: '支持哪些编程语言？', a: ['在线编译支持 Python 和 JavaScript。代码生成覆盖 Go、Rust、Java、C/C++、PHP、Ruby、Swift、Kotlin 等常用语言。', '其他语言需在本地测试运行。'] },
   { q: 'API Key 如何保证安全？', a: ['RSA 公钥加密传输，服务端仅 Redis 内存存储，TTL 自动过期。', '密钥不出现在日志、前端响应或数据库中。'] },
   { q: '生成失败怎么办？', a: ['检查 Key 有效性和余额。查看系统日志了解错误原因。', '尝试更换模型或供应商。复杂项目可简化需求后重试。'] },
   { q: '如何选择合适的模型？', a: ['架构设计推荐 GPT-4o 或 Claude 3.5 Sonnet。代码生成推荐 DeepSeek-Coder 或 Qwen-Plus。', '系统支持自动路由，也可手动指定。'] },

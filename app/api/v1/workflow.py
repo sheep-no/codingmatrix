@@ -32,6 +32,7 @@ from app.schema.workflow import (
     WorkflowStreamEvent,
     WorkflowErrorResponse,
     TaskGraph,
+    TaskStatus,
 )
 from app.utils.security import verify_token
 from app.utils.workflow.task_decomposer import TaskDecomposer, TaskDecomposerError
@@ -47,6 +48,8 @@ _workflows_lock = asyncio.Lock()
 
 _session_workflows = {}
 _session_lock = asyncio.Lock()
+
+_MAX_WORKFLOWS = 500  # 最大缓存工作流数
 
 
 async def _drain_event_queue(event_queue: asyncio.Queue, timeout: float = 0.05):
@@ -143,6 +146,10 @@ async def execute_workflow(
                 return
 
             async with _workflows_lock:
+                # 超过限制时淘汰最旧的工作流
+                if len(_workflows) >= _MAX_WORKFLOWS:
+                    oldest_key = next(iter(_workflows))
+                    _workflows.pop(oldest_key, None)
                 _workflows[task_graph.workflow_id] = {
                     "task_graph": task_graph,
                     "request": request,
@@ -190,10 +197,16 @@ async def execute_workflow(
                 node_timeout=min(300, request.timeout // 2),
                 max_concurrent=3,
             )
+            async with _workflows_lock:
+                _workflows[task_graph.workflow_id]["executor"] = executor
+                _workflows[task_graph.workflow_id]["status"] = "running"
 
             event_queue = asyncio.Queue()
 
             def on_node_start(node_id: str):
+                for node in task_graph.nodes:
+                    if node.id == node_id:
+                        node.status = TaskStatus.RUNNING
                 event_queue.put_nowait(json.dumps({
                     "event": "node_started",
                     "node_id": node_id,
@@ -217,6 +230,16 @@ async def execute_workflow(
                 on_node_start=on_node_start,
                 on_node_complete=on_node_complete,
             ))
+            def record_terminal(task):
+                record = _workflows.get(task_graph.workflow_id)
+                if record is not None and record.get("executor") is executor:
+                    if task.cancelled():
+                        record["status"] = "cancelled"
+                    elif task.exception() is not None:
+                        record["status"] = "failed"
+                    else:
+                        record["status"] = task.result()["status"]
+            executor_task.add_done_callback(record_terminal)
 
             async for event in _drain_event_queue(event_queue):
                 yield event
@@ -230,6 +253,8 @@ async def execute_workflow(
                 yield event
 
             result = await executor_task
+            async with _workflows_lock:
+                _workflows[task_graph.workflow_id]["status"] = result["status"]
 
             yield json.dumps({
                 "event": "workflow_completed",
@@ -278,7 +303,7 @@ async def execute_workflow(
             yield json.dumps({
                 "event": "workflow_error",
                 "error": "decomposition_failed",
-                "message": str(e),
+                "message": "任务分解失败，请检查输入后重试",
                 "timestamp": datetime.now().isoformat(),
             }) + "\n"
         except Exception as e:
@@ -286,7 +311,7 @@ async def execute_workflow(
             yield json.dumps({
                 "event": "workflow_error",
                 "error": "execution_failed",
-                "message": str(e),
+                "message": "工作流执行失败，请稍后重试",
                 "timestamp": datetime.now().isoformat(),
             }) + "\n"
 
@@ -317,23 +342,17 @@ async def get_workflow_status(
             raise HTTPException(status_code=404, detail="Workflow not found")
 
         workflow_data = _workflows[workflow_id]
+        if str(workflow_data.get("user_id")) != str(token.get("sub") or token.get("user_id")):
+            raise HTTPException(status_code=404, detail="Workflow not found")
         task_graph = workflow_data["task_graph"]
 
         aggregator = workflow_data.get("aggregator")
         
-        if aggregator is None:
-            try:
-                from app.utils.workflow.executor import WorkflowExecutor
-                executor = WorkflowExecutor(task_graph=task_graph)
-                aggregator = executor.get_aggregator()
-            except Exception as e:
-                logger.warning(f"创建执行器获取聚合器失败: {e}")
-
-        if aggregator:
-            summary = aggregator.get_workflow_summary()
-            status = "running" if not aggregator.is_complete() else summary.get("status", "unknown")
-        else:
-            status = workflow_data.get("status", "unknown")
+        executor = workflow_data.get("executor")
+        if aggregator is None and executor is not None:
+            aggregator = executor.get_aggregator()
+        status = workflow_data.get("status", "unknown")
+        results = aggregator.get_all_results() if aggregator else {}
 
         return {
             "workflow_id": workflow_id,
@@ -347,6 +366,9 @@ async def get_workflow_status(
                     "type": node.type.value,
                     "params": node.params,
                     "depends_on": node.depends_on,
+                    "status": ("completed" if results[node.id].success else "failed") if node.id in results else node.status.value,
+                    "result": results[node.id].data if node.id in results else None,
+                    "error": results[node.id].error if node.id in results else None,
                 }
                 for node in task_graph.nodes
             ],
@@ -372,9 +394,10 @@ async def import_workflow(
     is_valid, errors = validator.validate(task_graph)
 
     if not is_valid:
+        logger.warning(f"工作流验证失败 | user_id={user_id} | errors={errors}")
         raise HTTPException(
             status_code=400,
-            detail=f"任务图验证失败: {', '.join(errors)}"
+            detail="任务图验证失败，请检查工作流定义"
         )
 
     workflow_id = task_graph.workflow_id
@@ -411,6 +434,8 @@ async def execute_imported_workflow(
         if workflow_id not in _workflows:
             raise HTTPException(status_code=404, detail="Workflow not found")
         workflow_data = _workflows[workflow_id]
+        if workflow_data.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="无权执行此工作流")
         task_graph = workflow_data["task_graph"]
 
     async def generate_events():
@@ -509,7 +534,7 @@ async def execute_imported_workflow(
             yield json.dumps({
                 "event": "workflow_error",
                 "error": "execution_failed",
-                "message": str(e),
+                "message": "工作流执行失败，请稍后重试",
                 "timestamp": datetime.now().isoformat(),
             }) + "\n"
 
@@ -535,11 +560,15 @@ async def export_workflow(
     Args:
         workflow_id: 工作流 ID
     """
+    user_id = token.get("sub") or token.get("user_id")
+
     async with _workflows_lock:
         if workflow_id not in _workflows:
             raise HTTPException(status_code=404, detail="Workflow not found")
 
         workflow_data = _workflows[workflow_id]
+        if workflow_data.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="无权导出此工作流")
         task_graph = workflow_data["task_graph"]
 
         if hasattr(task_graph, 'model_dump'):
@@ -573,14 +602,19 @@ async def delete_workflow(
     token: dict = Depends(verify_token),
 ):
     """
-    导出工作流
+    删除工作流
 
     Args:
         workflow_id: 工作流 ID
     """
+    user_id = token.get("sub") or token.get("user_id")
+
     async with _workflows_lock:
         if workflow_id not in _workflows:
             raise HTTPException(status_code=404, detail="Workflow not found")
+
+        if _workflows[workflow_id].get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="无权删除此工作流")
 
         del _workflows[workflow_id]
 
@@ -607,10 +641,11 @@ async def get_workflow_history(
         .order_by(WorkflowHistory.created_at.desc())
     )
 
+    from sqlalchemy import func
     total_result = await db.execute(
-        select(WorkflowHistory).where(WorkflowHistory.user_id == user_id)
+        select(func.count()).where(WorkflowHistory.user_id == user_id)
     )
-    total = len(total_result.all())
+    total = total_result.scalar() or 0
 
     offset = (page - 1) * page_size
     result = await db.execute(query.offset(offset).limit(page_size))
@@ -673,4 +708,3 @@ async def delete_workflow_history(
         "status": "deleted",
         "message": "工作流历史记录已删除",
     }
-

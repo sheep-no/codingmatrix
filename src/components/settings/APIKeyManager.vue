@@ -1,6 +1,10 @@
 <template>
   <div class="api-key-manager">
     <h2 class="section-title">API Key 管理</h2>
+    <div v-if="loadError" class="load-error" role="alert">
+      <span>{{ loadError }}</span>
+      <button class="action-btn" type="button" @click="loadKeys">重新加载</button>
+    </div>
     
     <!-- 硅基流动 Key (必填) -->
     <div class="key-card required-key">
@@ -40,7 +44,7 @@
           <span class="key-expiry">剩余：{{ getRemainingTime(siliconflowKey) }}</span>
         </div>
         <div class="key-actions">
-          <button class="action-btn test-btn" @click="testKey(siliconflowKey.token)">测试连接</button>
+           <button class="action-btn test-btn" :disabled="testingToken === siliconflowKey.token" @click="testKey(siliconflowKey.token)">{{ testingToken === siliconflowKey.token ? '测试中...' : '测试连接' }}</button>
           <button class="action-btn delete-btn" @click="deleteKey(siliconflowKey.token)">清除</button>
         </div>
       </div>
@@ -92,7 +96,7 @@
               <span class="key-expiry">剩余：{{ getRemainingTime(key) }}</span>
             </div>
             <div class="key-actions">
-              <button class="action-btn test-btn" @click="testKey(key.token)">测试</button>
+               <button class="action-btn test-btn" :disabled="testingToken === key.token" @click="testKey(key.token)">{{ testingToken === key.token ? '测试中...' : '测试' }}</button>
               <button class="action-btn toggle-btn" @click="toggleEnabled(key)">
                 {{ key.enabled ? '禁用' : '启用' }}
               </button>
@@ -251,6 +255,8 @@ import { api } from '@/utils/api/index'
 const store = useApiKeyStore()
 const loading = ref(false)
 const tokenUsage = ref(null)
+const loadError = ref('')
+const testingToken = ref('')
 
 // Forms
 const siliconflowForm = reactive({ key: '', ttl: '24h', customHours: null })
@@ -285,11 +291,17 @@ function getTTLSeconds(form) {
   return ttlMap[form.ttl] || 86400
 }
 
-onMounted(() => {
+async function loadKeys() {
+  loadError.value = ''
   store.loadFromStorage()
-  store.listKeys().catch(() => {})
-  loadTokenUsage()
-})
+  try {
+    await Promise.all([store.listKeys(), loadTokenUsage()])
+  } catch (e) {
+    loadError.value = e.message || 'API Key 列表加载失败，请重试'
+  }
+}
+
+onMounted(loadKeys)
 
 async function loadTokenUsage() {
   try {
@@ -361,6 +373,7 @@ async function submitNewKey() {
 }
 
 async function testKey(token) {
+  testingToken.value = token
   try {
     ElMessage.info('正在测试连接...')
     const result = await store.testKey(token)
@@ -371,6 +384,8 @@ async function testKey(token) {
     }
   } catch (e) {
     ElMessage.error('测试失败：' + (e.message || '未知错误'))
+  } finally {
+    testingToken.value = ''
   }
 }
 
@@ -550,6 +565,19 @@ function getRemainingTime(key) {
   padding: 20px;
   max-width: 800px;
   margin: 0 auto;
+}
+
+.load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid #f3b7b7;
+  border-radius: 8px;
+  background: #fff5f5;
+  color: #b42318;
 }
 
 .section-title {

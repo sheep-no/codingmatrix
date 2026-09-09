@@ -1,7 +1,7 @@
 <template>
   <div class="chart-editor-page">
     <!-- 头部 -->
-    <div class="editor-header">
+    <div class="editor-header" :class="{ 'dark-theme': isDarkTheme }">
       <div class="header-left">
         <button class="back-btn" aria-label="返回" @click="goBack">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -19,6 +19,18 @@
         </div>
       </div>
       <div class="header-right">
+        <button class="header-btn" :disabled="!canUndo" aria-label="撤销" title="撤销 (Ctrl/⌘ + Z)" @click="undo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <polyline points="9 14 4 9 9 4" />
+            <path d="M4 9h9a7 7 0 0 1 7 7v1" />
+          </svg>
+        </button>
+        <button class="header-btn" :disabled="!canRedo" aria-label="重做" title="重做 (Ctrl/⌘ + Shift + Z)" @click="redo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <polyline points="15 14 20 9 15 4" />
+            <path d="M20 9h-9a7 7 0 0 0-7 7v1" />
+          </svg>
+        </button>
         <button class="header-btn" :aria-label="isDarkTheme ? '切换为浅色' : '切换为深色'" @click="toggleTheme">
           <svg v-if="!isDarkTheme" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
@@ -35,7 +47,7 @@
             <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
           </svg>
         </button>
-        <button class="header-btn" :disabled="charts.length === 0" aria-label="导出当前图表" @click="exportChart">
+        <button class="header-btn" :disabled="selectedChartIndex === null" aria-label="导出当前图表" @click="exportChart">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
@@ -60,7 +72,7 @@
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
             <p>拖拽或点击上传</p>
-            <span class="upload-hint">支持 xlsx, csv, json</span>
+            <span class="upload-hint">支持 xlsx, xls, csv, json，单文件不超过 2 MB</span>
           </div>
           <div v-if="dataSources.length > 0" class="data-list">
             <div
@@ -72,7 +84,11 @@
             >
               <div class="data-item-info">
                 <span class="data-name">{{ source.name }}</span>
-                <span class="data-meta">{{ source.data.length }} 行</span>
+                <span class="data-meta">
+                  <template v-if="source.needsRelink">需要重新选择文件 · </template>
+                  <template v-else>{{ source.data.length }} 行 · </template>{{ source.fields.length }} 字段
+                  <template v-if="source.missingValues"> · {{ source.missingValues }} 处缺失</template>
+                </span>
               </div>
               <button class="data-remove" aria-label="删除数据源" @click.stop="removeDataSource(index)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -125,14 +141,14 @@
             <label>X 轴</label>
             <select v-model="config.xAxis" @change="updateChart">
               <option value="">选择字段</option>
-              <option v-for="field in currentDataSource.fields" :key="field" :value="field">{{ field }}</option>
+              <option v-for="field in availableFields" :key="field" :value="field">{{ field }}</option>
             </select>
           </div>
           <div class="field-group">
             <label>Y 轴</label>
             <select v-model="config.yAxis" @change="updateChart">
               <option value="">选择字段</option>
-              <option v-for="field in currentDataSource.fields" :key="field" :value="field">{{ field }}</option>
+              <option v-for="field in availableFields" :key="field" :value="field">{{ field }}</option>
             </select>
           </div>
           <div class="field-group">
@@ -252,7 +268,7 @@
             <line x1="8" y1="12" x2="16" y2="12" />
           </svg>
           <span>添加图表</span>
-          <kbd v-if="currentDataSource" class="toolbar-kbd">Enter</kbd>
+          <kbd v-if="currentDataSource" class="toolbar-kbd">Ctrl/⌘ + Enter</kbd>
         </button>
         <button
           class="toolbar-btn"
@@ -266,6 +282,18 @@
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
           <span>导出全部</span>
+        </button>
+        <button
+          class="toolbar-btn"
+          :disabled="dataSources.length === 0"
+          aria-label="导出项目配置"
+          @click="exportProject"
+        >
+          <span>导出项目</span>
+        </button>
+        <button class="toolbar-btn" aria-label="导入项目配置" @click="projectFileInput?.click()">
+          <input ref="projectFileInput" type="file" accept="application/json,.json" style="display: none" @change="handleProjectImport" />
+          <span>导入项目</span>
         </button>
         <button
           class="toolbar-btn"
@@ -317,14 +345,44 @@ echarts.use([
 
 const router = useRouter()
 const fileInput = ref(null)
+const projectFileInput = ref(null)
 const isDarkTheme = ref(false)
 const dataSources = ref([])
 const selectedDataSourceIndex = ref(null)
-const selectedChartIndex = ref(0)
+const selectedChartIndex = ref(null)
 const charts = ref([])
 const chartRefs = ref([])
 let chartIdCounter = 0
+let dataSourceIdCounter = 0
 let chartInstances = {}
+let draftSaveTimer = null
+let historySaveTimer = null
+let draftStorageWarningShown = false
+let applyingHistory = false
+let historyDirty = false
+
+const historySnapshots = ref([])
+const historyIndex = ref(-1)
+
+const MAX_FILE_SIZE = 2 * 1024 * 1024
+const SUPPORTED_FILE_TYPES = new Set(['xlsx', 'xls', 'csv', 'json'])
+const DRAFT_VERSION = 1
+const DRAFT_TTL_MS = 2 * 24 * 60 * 60 * 1000
+const PROJECT_VERSION = 1
+const getDraftStorageKey = () => {
+  try {
+    return `chart-editor-draft-v${DRAFT_VERSION}:${localStorage.getItem('username') || 'anonymous'}`
+  } catch {
+    return `chart-editor-draft-v${DRAFT_VERSION}:anonymous`
+  }
+}
+const draftStorageKey = getDraftStorageKey()
+
+const toFiniteNumber = value => {
+  if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
 
 const config = ref({
   chartType: 'bar',
@@ -343,6 +401,16 @@ const currentDataSource = computed(() => {
   if (selectedDataSourceIndex.value === null) return null
   return dataSources.value[selectedDataSourceIndex.value]
 })
+
+const selectedChart = computed(() => {
+  if (selectedChartIndex.value === null) return null
+  return charts.value[selectedChartIndex.value] || null
+})
+
+const canUndo = computed(() => historyIndex.value > 0)
+const canRedo = computed(() => historyIndex.value >= 0 && historyIndex.value < historySnapshots.value.length - 1)
+
+const availableFields = computed(() => selectedChart.value?.fields || currentDataSource.value?.fields || [])
 
 const statusText = computed(() => {
   if (dataSources.value.length === 0) return '请先导入数据'
@@ -374,21 +442,40 @@ const goBack = () => {
 const selectDataSource = index => {
   selectedDataSourceIndex.value = index
   const source = dataSources.value[index]
-  if (source && source.fields.length > 0) {
-    if (!config.value.xAxis) config.value.xAxis = source.fields[0]
-    if (config.value.yAxis === '' || !source.fields.includes(config.value.yAxis)) {
-      config.value.yAxis = source.fields[1] || source.fields[0]
-    }
+  if (selectedChart.value?.dataSourceId !== source.id) {
+    selectedChartIndex.value = null
+    config.value.xAxis = source.fields[0] || ''
+    config.value.yAxis = source.fields[1] || source.fields[0] || ''
   }
-  updateChart()
 }
 
 const removeDataSource = index => {
+  flushPendingHistory()
+  const source = dataSources.value[index]
+  charts.value = charts.value.filter(chart => {
+    if (chart.dataSourceId !== source?.id) return true
+    chartInstances[chart.id]?.dispose()
+    delete chartInstances[chart.id]
+    return false
+  })
   dataSources.value.splice(index, 1)
-  if (selectedDataSourceIndex.value === index) {
-    selectedDataSourceIndex.value = dataSources.value.length > 0 ? 0 : null
+  if (dataSources.value.length === 0) {
+    selectedDataSourceIndex.value = null
+  } else if (selectedDataSourceIndex.value === index) {
+    selectedDataSourceIndex.value = Math.min(index, dataSources.value.length - 1)
+  } else if (selectedDataSourceIndex.value > index) {
+    selectedDataSourceIndex.value -= 1
   }
-  updateChart()
+
+  if (selectedChartIndex.value !== null) {
+    selectedChartIndex.value = charts.value.length > 0
+      ? Math.min(selectedChartIndex.value, charts.value.length - 1)
+      : null
+  }
+  if (!selectedChart.value && currentDataSource.value) {
+    config.value.xAxis = currentDataSource.value.fields[0] || ''
+    config.value.yAxis = currentDataSource.value.fields[1] || currentDataSource.value.fields[0] || ''
+  }
 }
 
 const handleUploadClick = () => fileInput.value?.click()
@@ -402,26 +489,83 @@ const handleFileDrop = e => {
   for (const file of e.dataTransfer.files) processFile(file)
 }
 
+const downloadJson = (payload, fileName) => {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+const exportProject = () => {
+  if (dataSources.value.length === 0) return
+  const state = createSerializableState({ includeData: false })
+  downloadJson({
+    type: 'chart-editor-project',
+    version: PROJECT_VERSION,
+    exportedAt: Date.now(),
+    ...state
+  }, 'chart-editor-project.json')
+  ElMessage.success('项目配置已导出')
+}
+
+const handleProjectImport = e => {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onerror = () => ElMessage.error('项目配置读取失败')
+  reader.onload = event => {
+    try {
+      const project = JSON.parse(event.target.result)
+      if (
+        project.type !== 'chart-editor-project' ||
+        project.version !== PROJECT_VERSION ||
+        !Array.isArray(project.dataSources) ||
+        !Array.isArray(project.charts)
+      ) {
+        throw new Error('项目配置格式不兼容')
+      }
+
+      flushPendingHistory()
+      applySerializableState({
+        ...project,
+        dataSources: project.dataSources.map(source => ({ ...source, data: [], needsRelink: true }))
+      })
+      resetHistory()
+      saveDraft()
+      ElMessage.success('项目配置已导入，请重新选择原始数据文件')
+    } catch (error) {
+      ElMessage.error(error instanceof SyntaxError ? '项目配置 JSON 解析失败' : error.message)
+    }
+  }
+  reader.readAsText(file)
+}
+
 const processFile = async file => {
   const ext = file.name.split('.').pop().toLowerCase()
+  if (!SUPPORTED_FILE_TYPES.has(ext)) {
+    ElMessage.error(`不支持的文件格式：.${ext}`)
+    return
+  }
+  if (file.size > MAX_FILE_SIZE) {
+    ElMessage.error(`${file.name} 超过 2 MB，请精简后重试`)
+    return
+  }
+
   const reader = new FileReader()
+  reader.onerror = () => ElMessage.error(`无法读取 ${file.name}`)
 
   if (ext === 'json') {
     reader.onload = e => {
       try {
         const data = JSON.parse(e.target.result)
-        const arr = Array.isArray(data) ? data : [data]
-        const fields = arr.length > 0 ? Object.keys(arr[0]) : []
-        dataSources.value.push({ name: file.name, data: arr, fields })
-        if (selectedDataSourceIndex.value === null) {
-          selectedDataSourceIndex.value = dataSources.value.length - 1
-          selectDataSource(selectedDataSourceIndex.value)
-        } else {
-          updateChart()
-        }
-        ElMessage.success(`已导入 ${file.name}（${arr.length} 行）`)
-      } catch (err) {
-        ElMessage.error('JSON 解析失败')
+        addDataSource(file.name, Array.isArray(data) ? data : [data])
+      } catch (error) {
+        ElMessage.error(error instanceof SyntaxError ? 'JSON 解析失败' : error.message)
       }
     }
     reader.readAsText(file)
@@ -431,20 +575,69 @@ const processFile = async file => {
         const wb = XLSX.read(e.target.result, { type: 'array' })
         const ws = wb.Sheets[wb.SheetNames[0]]
         const data = XLSX.utils.sheet_to_json(ws)
-        const fields = data.length > 0 ? Object.keys(data[0]) : []
-        dataSources.value.push({ name: file.name, data, fields })
-        if (selectedDataSourceIndex.value === null) {
-          selectedDataSourceIndex.value = dataSources.value.length - 1
-          selectDataSource(selectedDataSourceIndex.value)
-        } else {
-          updateChart()
-        }
-        ElMessage.success(`已导入 ${file.name}（${data.length} 行）`)
-      } catch (err) {
-        ElMessage.error('文件解析失败')
+        addDataSource(file.name, data)
+      } catch (error) {
+        ElMessage.error(error.message || '文件解析失败')
       }
     }
     reader.readAsArrayBuffer(file)
+  }
+}
+
+const addDataSource = (name, data) => {
+  if (data.length === 0) throw new Error('文件中没有可用数据')
+  if (data.some(row => !row || typeof row !== 'object' || Array.isArray(row))) {
+    throw new Error('每一行数据都必须是字段对象')
+  }
+
+  const fields = [...new Set(data.flatMap(row => Object.keys(row)))]
+  if (fields.length === 0) throw new Error('文件中没有可用字段')
+  const missingValues = data.reduce(
+    (total, row) => total + fields.filter(field => row[field] === null || row[field] === undefined || row[field] === '').length,
+    0
+  )
+
+  const pendingIndex = dataSources.value.findIndex(source => source.needsRelink && source.name === name)
+  if (pendingIndex >= 0) {
+    const pendingSource = dataSources.value[pendingIndex]
+    if (JSON.stringify(pendingSource.fields) !== JSON.stringify(fields)) {
+      ElMessage.warning(`${name} 的字段头已变化，请选择原始文件`)
+      return
+    }
+    flushPendingHistory()
+    dataSources.value[pendingIndex] = {
+      ...pendingSource,
+      data,
+      fields,
+      missingValues,
+      needsRelink: false
+    }
+    charts.value.forEach(chart => {
+      if (chart.dataSourceId === pendingSource.id) {
+        chart.sourceData = data
+      }
+    })
+    selectedDataSourceIndex.value = pendingIndex
+    if (selectedChartIndex.value === null) selectDataSource(pendingIndex)
+    else updateChart()
+    ElMessage.success(`已重新关联 ${name}（${data.length} 行，${fields.length} 字段）`)
+    return
+  }
+
+  flushPendingHistory()
+  dataSources.value.push({ id: ++dataSourceIdCounter, name, data, fields, missingValues, needsRelink: false })
+  if (selectedDataSourceIndex.value === null) {
+    selectedDataSourceIndex.value = dataSources.value.length - 1
+    selectDataSource(selectedDataSourceIndex.value)
+  } else {
+    updateChart()
+  }
+
+  const summary = `已导入 ${name}（${data.length} 行，${fields.length} 字段）`
+  if (missingValues > 0) {
+    ElMessage.warning(`${summary}，发现 ${missingValues} 处缺失值`)
+  } else {
+    ElMessage.success(summary)
   }
 }
 
@@ -462,8 +655,22 @@ const addChart = () => {
     ElMessage.warning('请先选择 X 轴和 Y 轴字段')
     return
   }
+  if (config.value.aggregate !== 'count') {
+    const numericValues = currentDataSource.value.data
+      .map(row => toFiniteNumber(row[config.value.yAxis]))
+      .filter(value => value !== null)
+    if (numericValues.length === 0) {
+      ElMessage.warning(`字段“${config.value.yAxis}”没有可绘制的数值`)
+      return
+    }
+  }
+  flushPendingHistory()
   const newChart = {
     id: ++chartIdCounter,
+    dataSourceId: currentDataSource.value.id,
+    dataSourceName: currentDataSource.value.name,
+    sourceData: currentDataSource.value.data,
+    fields: [...currentDataSource.value.fields],
     chartType: config.value.chartType,
     title: config.value.title || `图表 ${charts.value.length + 1}`,
     xAxis: config.value.xAxis,
@@ -481,12 +688,17 @@ const addChart = () => {
 }
 
 const removeChart = index => {
-  if (chartInstances[index]) {
-    chartInstances[index].dispose()
-    delete chartInstances[index]
+  flushPendingHistory()
+  const chart = charts.value[index]
+  if (chart && chartInstances[chart.id]) {
+    chartInstances[chart.id].dispose()
+    delete chartInstances[chart.id]
   }
   charts.value.splice(index, 1)
-  if (selectedChartIndex.value >= charts.value.length) {
+  chartRefs.value.splice(index, 1)
+  if (charts.value.length === 0) {
+    selectedChartIndex.value = null
+  } else if (selectedChartIndex.value === index) {
     selectedChartIndex.value = Math.max(0, charts.value.length - 1)
   } else if (selectedChartIndex.value > index) {
     selectedChartIndex.value -= 1
@@ -504,58 +716,91 @@ const clearAllCharts = async () => {
   } catch {
     return
   }
+  flushPendingHistory()
   Object.values(chartInstances).forEach(c => c.dispose())
   chartInstances = {}
   charts.value = []
-  selectedChartIndex.value = 0
+  selectedChartIndex.value = null
   ElMessage.success('已清空全部图表')
 }
 
-const updateChart = () => {
+const updateChart = event => {
+  const chart = selectedChart.value
+  if (!chart) return
+
+  if (config.value.aggregate !== 'count') {
+    const source = dataSources.value.find(item => item.id === chart.dataSourceId)
+    const hasNumericValue = source?.data
+      .some(row => toFiniteNumber(row[config.value.yAxis]) !== null)
+    if (!hasNumericValue) {
+      ElMessage.warning(`字段“${config.value.yAxis}”没有可绘制的数值`)
+      config.value.yAxis = chart.yAxis
+      if (event?.target?.tagName === 'SELECT') event.target.value = chart.yAxis
+      return
+    }
+  }
+
+  Object.assign(chart, {
+    chartType: config.value.chartType,
+    title: config.value.title,
+    xAxis: config.value.xAxis,
+    yAxis: config.value.yAxis,
+    color: config.value.color,
+    showLegend: config.value.showLegend,
+    showLabel: config.value.showLabel,
+    smooth: config.value.smooth,
+    aggregate: config.value.aggregate
+  })
   renderChart(selectedChartIndex.value)
 }
 
 const renderChart = index => {
   if (index === null || index < 0 || index >= charts.value.length) return
-  if (!currentDataSource.value) return
-
   const chart = charts.value[index]
   const el = chartRefs.value[index]
   if (!el) return
 
-  if (!chartInstances[index]) {
-    chartInstances[index] = echarts.init(el)
+  if (!chartInstances[chart.id]) {
+    chartInstances[chart.id] = echarts.init(el)
   }
 
-  const instance = chartInstances[index]
-  const data = currentDataSource.value.data
+  const instance = chartInstances[chart.id]
+  const data = chart.sourceData
 
   const aggregated = aggregateData(data, chart)
   const option = buildChartOption(chart, aggregated)
   instance.setOption(option, true)
 }
 
+const handleResize = () => {
+  Object.values(chartInstances).forEach(instance => instance.resize())
+}
+
 const aggregateData = (data, chart) => {
   if (!chart.xAxis || !chart.yAxis || chart.aggregate === 'none') {
-    return data.map(d => ({ name: d[chart.xAxis], value: Number(d[chart.yAxis]) || 0 }))
+    return data.map(d => {
+      const value = toFiniteNumber(d[chart.yAxis])
+      return { name: d[chart.xAxis], value }
+    })
   }
 
-  const groups = {}
+  const groups = new Map()
   data.forEach(d => {
     const key = d[chart.xAxis]
-    if (!groups[key]) groups[key] = []
-    groups[key].push(Number(d[chart.yAxis]) || 0)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(d[chart.yAxis])
   })
 
-  return Object.entries(groups).map(([name, values]) => {
+  return [...groups.entries()].map(([name, values]) => {
+    const numericValues = values.map(toFiniteNumber).filter(value => value !== null)
     let value
     switch (chart.aggregate) {
-      case 'sum': value = values.reduce((a, b) => a + b, 0); break
-      case 'avg': value = values.reduce((a, b) => a + b, 0) / values.length; break
+      case 'sum': value = numericValues.length ? numericValues.reduce((a, b) => a + b, 0) : null; break
+      case 'avg': value = numericValues.length ? numericValues.reduce((a, b) => a + b, 0) / numericValues.length : null; break
       case 'count': value = values.length; break
-      case 'max': value = Math.max(...values); break
-      case 'min': value = Math.min(...values); break
-      default: value = values[0]
+      case 'max': value = numericValues.length ? Math.max(...numericValues) : null; break
+      case 'min': value = numericValues.length ? Math.min(...numericValues) : null; break
+      default: value = numericValues[0] ?? null
     }
     return { name, value }
   })
@@ -564,49 +809,82 @@ const aggregateData = (data, chart) => {
 const buildChartOption = (chart, data) => {
   const names = data.map(d => d.name)
   const values = data.map(d => d.value)
+  const seriesName = chart.title || '数据'
+  const label = { show: chart.showLabel }
+  const textColor = isDarkTheme.value ? '#e0e0e0' : '#303133'
+  const mutedColor = isDarkTheme.value ? '#a0a0b0' : '#909399'
 
   const baseOption = {
     animation: chart.animation?.enabled ?? true,
     animationDuration: chart.animation?.duration ?? 1000,
+    animationEasing: chart.animation?.easing ?? 'cubicOut',
+    title: { text: seriesName, left: 'center', textStyle: { color: textColor } },
     tooltip: { trigger: 'axis' },
     grid: { left: '12%', right: '8%', bottom: '12%', top: '18%', containLabel: true },
-    xAxis: { type: 'category', data: names, axisTick: { alignWithLabel: true } },
-    yAxis: { type: 'value' },
+    xAxis: { type: 'category', data: names, axisTick: { alignWithLabel: true }, axisLabel: { color: mutedColor }, axisLine: { lineStyle: { color: mutedColor } } },
+    yAxis: { type: 'value', axisLabel: { color: mutedColor }, axisLine: { lineStyle: { color: mutedColor } }, splitLine: { lineStyle: { color: isDarkTheme.value ? '#2a2a4a' : '#ebeef5' } } },
   }
 
   let series
   switch (chart.chartType) {
     case 'bar':
-      series = [{ type: 'bar', data: values, itemStyle: { color: chart.color } }]
+      series = [{ name: seriesName, type: 'bar', data: values, label, itemStyle: { color: chart.color } }]
       break
     case 'line':
-      series = [{ type: 'line', data: values, smooth: chart.smooth, itemStyle: { color: chart.color } }]
+      series = [{ name: seriesName, type: 'line', data: values, smooth: chart.smooth, label, itemStyle: { color: chart.color } }]
       break
     case 'area':
-      series = [{ type: 'line', data: values, smooth: chart.smooth, areaStyle: {}, itemStyle: { color: chart.color } }]
+      series = [{ name: seriesName, type: 'line', data: values, smooth: chart.smooth, areaStyle: {}, label, itemStyle: { color: chart.color } }]
       break
     case 'scatter':
-      series = [{ type: 'scatter', data: values, itemStyle: { color: chart.color } }]
+      {
+        const scatterData = data.map(item => {
+          const numericX = toFiniteNumber(item.name)
+          return [numericX ?? item.name, item.value]
+        })
+        const hasNumericXAxis = scatterData.every(([x]) => typeof x === 'number')
+        baseOption.xAxis = hasNumericXAxis
+          ? { type: 'value' }
+          : { type: 'category', data: names, axisTick: { alignWithLabel: true } }
+        baseOption.tooltip = { trigger: 'item' }
+        series = [{ name: seriesName, type: 'scatter', data: scatterData, label, itemStyle: { color: chart.color } }]
+      }
       break
     case 'pie':
       baseOption.xAxis = null
       baseOption.yAxis = null
-      series = [{ type: 'pie', data: data.map(d => ({ name: d.name, value: d.value })), itemStyle: { color: chart.color } }]
+      baseOption.tooltip = { trigger: 'item' }
+      series = [{
+        name: seriesName,
+        type: 'pie',
+        data: data.map(d => ({ name: d.name, value: d.value })),
+        label,
+        itemStyle: { color: names.map((_, index) => index === 0 ? chart.color : ['#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'][index % 5]) }
+      }]
       break
     case 'radar':
       baseOption.xAxis = null
       baseOption.yAxis = null
-      baseOption.radar = { indicator: names.map(n => ({ name: n, max: Math.max(...values) * 1.2 })) }
-      series = [{ type: 'radar', data: [{ value: values, name: chart.title }] }]
+      baseOption.tooltip = { trigger: 'item' }
+      baseOption.radar = { indicator: names.map(n => ({ name: n, max: Math.max(1, ...values.map(Math.abs)) * 1.2 })) }
+      series = [{
+        name: seriesName,
+        type: 'radar',
+        data: [{ value: values, name: seriesName }],
+        label,
+        itemStyle: { color: chart.color },
+        lineStyle: { color: chart.color }
+      }]
       break
     default:
-      series = [{ type: 'bar', data: values, itemStyle: { color: chart.color } }]
+      series = [{ name: seriesName, type: 'bar', data: values, label, itemStyle: { color: chart.color } }]
   }
 
   baseOption.series = series
 
-  if (chart.showLegend && chart.chartType !== 'pie' && chart.chartType !== 'radar') {
-    baseOption.legend = { data: [chart.title || '数据'] }
+  baseOption.legend = {
+    show: chart.showLegend,
+    data: chart.chartType === 'pie' ? names : [seriesName]
   }
 
   return baseOption
@@ -616,12 +894,13 @@ const exportChart = () => exportSingleChart(selectedChartIndex.value)
 
 const exportSingleChart = index => {
   if (index === null || index < 0 || index >= charts.value.length) return
-  const instance = chartInstances[index]
+  const chart = charts.value[index]
+  const instance = chartInstances[chart.id]
   if (!instance) return
   const url = instance.getDataURL({ type: 'png', pixelRatio: 2 })
   const a = document.createElement('a')
   a.href = url
-  a.download = (charts.value[index]?.title || `chart-${index + 1}`) + '.png'
+  a.download = (chart.title || `chart-${index + 1}`) + '.png'
   a.click()
   ElMessage.success(`已导出：${a.download}`)
 }
@@ -635,19 +914,164 @@ const exportAllCharts = async () => {
 }
 
 const toggleTheme = () => {
+  flushPendingHistory()
   isDarkTheme.value = !isDarkTheme.value
+  nextTick(() => charts.value.forEach((_, index) => renderChart(index)))
+}
+
+const createSerializableState = ({ includeData = true } = {}) => ({
+  version: DRAFT_VERSION,
+  savedAt: Date.now(),
+  expiresAt: Date.now() + DRAFT_TTL_MS,
+  dataSources: dataSources.value.map(source => ({
+    ...source,
+    data: includeData ? source.data : [],
+    needsRelink: includeData ? Boolean(source.needsRelink) : true
+  })),
+  charts: charts.value.map(chart => ({ ...chart, sourceData: undefined })),
+  selectedDataSourceIndex: selectedDataSourceIndex.value,
+  selectedChartIndex: selectedChartIndex.value,
+  config: config.value,
+  isDarkTheme: isDarkTheme.value
+})
+
+const applySerializableState = state => {
+  Object.values(chartInstances).forEach(instance => instance.dispose())
+  chartInstances = {}
+  dataSources.value = state.dataSources
+  charts.value = state.charts
+    .map(chart => {
+      const source = dataSources.value.find(item => item.id === chart.dataSourceId)
+      return source ? { ...chart, sourceData: source.data } : null
+    })
+    .filter(Boolean)
+  selectedDataSourceIndex.value = dataSources.value.length > 0 && Number.isInteger(state.selectedDataSourceIndex)
+    ? Math.min(state.selectedDataSourceIndex, dataSources.value.length - 1)
+    : null
+  selectedChartIndex.value = charts.value.length > 0 && Number.isInteger(state.selectedChartIndex)
+    ? Math.min(state.selectedChartIndex, charts.value.length - 1)
+    : null
+  config.value = { ...config.value, ...state.config }
+  isDarkTheme.value = Boolean(state.isDarkTheme)
+  dataSourceIdCounter = Math.max(0, ...dataSources.value.map(source => Number(source.id) || 0))
+  chartIdCounter = Math.max(0, ...charts.value.map(chart => Number(chart.id) || 0))
+  nextTick(() => charts.value.forEach((_, index) => renderChart(index)))
+}
+
+const saveDraft = () => {
+  try {
+    localStorage.setItem(draftStorageKey, JSON.stringify(createSerializableState({ includeData: false })))
+  } catch {
+    if (!draftStorageWarningShown) {
+      draftStorageWarningShown = true
+      ElMessage.warning('本地草稿空间不足，请减少导入数据量')
+    }
+  }
+}
+
+const scheduleDraftSave = () => {
+  clearTimeout(draftSaveTimer)
+  draftSaveTimer = setTimeout(saveDraft, 250)
+}
+
+const recordHistory = () => {
+  if (applyingHistory || !historyDirty) return
+  const snapshot = JSON.stringify(createSerializableState())
+  historyDirty = false
+  if (historySnapshots.value[historyIndex.value] === snapshot) return
+
+  const nextSnapshots = historySnapshots.value.slice(0, historyIndex.value + 1)
+  nextSnapshots.push(snapshot)
+  if (nextSnapshots.length > 50) nextSnapshots.shift()
+  historySnapshots.value = nextSnapshots
+  historyIndex.value = nextSnapshots.length - 1
+}
+
+const scheduleHistoryRecord = () => {
+  if (applyingHistory) return
+  historyDirty = true
+  clearTimeout(historySaveTimer)
+  historySaveTimer = setTimeout(recordHistory, 250)
+}
+
+const resetHistory = () => {
+  clearTimeout(historySaveTimer)
+  historyDirty = false
+  historySnapshots.value = [JSON.stringify(createSerializableState())]
+  historyIndex.value = 0
+}
+
+const flushPendingHistory = () => {
+  clearTimeout(historySaveTimer)
+  recordHistory()
+}
+
+const applyHistoryAt = index => {
+  const snapshot = historySnapshots.value[index]
+  if (!snapshot) return
+  applyingHistory = true
+  historyDirty = false
+  historyIndex.value = index
+  applySerializableState(JSON.parse(snapshot))
+  saveDraft()
+  nextTick(() => { applyingHistory = false })
+}
+
+const undo = () => {
+  flushPendingHistory()
+  if (canUndo.value) applyHistoryAt(historyIndex.value - 1)
+}
+
+const redo = () => {
+  flushPendingHistory()
+  if (canRedo.value) applyHistoryAt(historyIndex.value + 1)
+}
+
+const restoreDraft = () => {
+  try {
+    const stored = localStorage.getItem(draftStorageKey)
+    if (!stored) return
+    const draft = JSON.parse(stored)
+    if (draft.version !== DRAFT_VERSION || !Array.isArray(draft.dataSources) || !Array.isArray(draft.charts)) return
+    if (!Number.isFinite(draft.expiresAt) || draft.expiresAt <= Date.now()) {
+      localStorage.removeItem(draftStorageKey)
+      return
+    }
+
+    applySerializableState({
+      ...draft,
+      dataSources: draft.dataSources.map(source => ({ ...source, data: [], needsRelink: true }))
+    })
+    if (draft.dataSources.length > 0) {
+      ElMessage.warning('图表配置已恢复，请重新选择原始数据文件')
+    }
+  } catch {
+    ElMessage.warning('本地草稿读取失败，新修改仍可正常保存')
+  }
 }
 
 const handleKeydown = e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault()
+    e.shiftKey ? redo() : undo()
+    return
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+    e.preventDefault()
+    redo()
+    return
+  }
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault()
     addChart()
   }
 }
 
-watch(selectedChartIndex, (newVal, oldVal) => {
-  if (newVal >= 0 && newVal < charts.value.length) {
+watch(selectedChartIndex, newVal => {
+  if (Number.isInteger(newVal) && newVal >= 0 && newVal < charts.value.length) {
     const chart = charts.value[newVal]
+    const sourceIndex = dataSources.value.findIndex(source => source.id === chart.dataSourceId)
+    if (sourceIndex >= 0) selectedDataSourceIndex.value = sourceIndex
     config.value.chartType = chart.chartType
     config.value.title = chart.title
     config.value.xAxis = chart.xAxis
@@ -669,12 +1093,27 @@ watch(() => charts.value.length, (newLen, oldLen) => {
   }
 })
 
+watch(
+  [dataSources, charts, selectedDataSourceIndex, selectedChartIndex, config, isDarkTheme],
+  scheduleDraftSave,
+  { deep: true }
+)
+
+watch([dataSources, charts, isDarkTheme], scheduleHistoryRecord, { deep: true })
+
 onMounted(() => {
+  restoreDraft()
+  resetHistory()
   window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('resize', handleResize)
 })
 
 onBeforeUnmount(() => {
+  clearTimeout(draftSaveTimer)
+  clearTimeout(historySaveTimer)
+  saveDraft()
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('resize', handleResize)
   Object.values(chartInstances).forEach(c => c.dispose())
   chartInstances = {}
 })
@@ -1300,5 +1739,6 @@ onBeforeUnmount(() => {
   .subtitle { display: none; }
   .header-stats { display: none; }
   .toolbar-btn span:not(.toolbar-kbd) { display: none; }
+  .data-remove { opacity: 1; width: 32px; height: 32px; }
 }
 </style>

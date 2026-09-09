@@ -21,6 +21,12 @@ class Session(Base):
 
     __table_args__ = (
         Index("idx_sessions_user_module", "user_id", "module"),
+        UniqueConstraint(
+            "user_id",
+            "module",
+            "external_id",
+            name="uq_sessions_user_module_external",
+        ),
     )
 
 
@@ -39,6 +45,27 @@ class Message(Base):
     __table_args__ = (
         UniqueConstraint("session_id", "sequence", name="uq_messages_session_sequence"),
         Index("idx_messages_session_sequence", "session_id", "sequence"),
+    )
+
+
+class SessionEvent(Base):
+    __tablename__ = "session_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    sequence = Column(Integer, nullable=False)
+    event_type = Column(String(64), nullable=False, index=True)
+    turn_id = Column(String(128), nullable=False)
+    payload_json = Column(JSON, nullable=False, default=dict)
+    schema_version = Column(String(20), nullable=False, default="1")
+    reservation_token = Column(String(64), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "sequence", name="uq_session_events_session_sequence"),
+        UniqueConstraint("session_id", "turn_id", name="uq_session_events_session_turn"),
+        Index("idx_session_events_session_sequence", "session_id", "sequence"),
     )
 
 

@@ -1,112 +1,85 @@
-# 工作流引擎 (Workflow Engine)
+# 工作流引擎
 
-> 最后更新：2026-05-27 | 版本：v5.10.0
+> 最后核对：2026-09-03
+> 状态：API 与执行器活跃；统一状态适配器已实现、生产 API 尚未接入
 
-基于 DAG 的可视化工作流编排引擎，支持自然语言驱动的任务分解与自动化执行。
+## 当前架构
 
-## 架构
+Workflow 接收自然语言请求，通过 `TaskDecomposer` 生成 `TaskGraph`，经 `GraphValidator` 校验后交给 `WorkflowExecutor` 执行。节点开始和结束回调进入异步队列，再以流式 JSON 行返回前端。
 
-```
-自然语言请求 → TaskDecomposer (LLM) → TaskGraph → GraphValidator → WorkflowExecutor → 节点执行
-```
+主要组件：
 
-## 节点类型（9 种）
+- `app/api/v1/workflow.py`：接口、运行时注册表、SSE 和历史记录
+- `app/utils/workflow/task_decomposer.py`：自然语言任务分解
+- `app/utils/workflow/graph_validator.py`：任务图验证
+- `app/utils/workflow/executor.py`：依赖调度、并发执行和结果聚合
+- `app/utils/workflow/node_types/`：节点实现
+- `app/schema/workflow.py`：请求、任务图和事件契约
 
-| 类型 | 说明 | 关键参数 |
-|------|------|----------|
-| `web_search` | 网络搜索 | query, count, lang, with_summary |
-| `code_execution` | 执行代码 | code, language, timeout |
-| `chart_generation` | 生成图表 | chart_type, title, data, x_label, y_label |
-| `file_processing` | 处理文件 | operation, path, content |
-| `llm_call` | LLM 调用 | prompt, model, system_prompt, temperature, max_tokens, input_variable, output_variable |
-| `conditional` | 条件分支 | variable, operator, value, true_branch, false_branch |
-| `human_approval` | 人工审批 | prompt, options, default_option, timeout, input_variable |
-| `http_request` | HTTP 请求 | url, method, headers, body, params, timeout |
-| `data_transform` | 数据转换 | operation, input_variable, output_variable, config |
+## 执行流程
 
-## 状态流转
+1. `POST /api/v1/workflow/execute` 接收自然语言、超时、会话 ID 和导出选项。
+2. 同一 `session_id` 的后续请求读取 `_session_workflows` 中的前序请求，构造继续执行上下文。
+3. `TaskDecomposer` 生成任务图，`GraphValidator` 校验节点和依赖。
+4. 任务图写入进程内 `_workflows`。
+5. `WorkflowExecutor` 以 `max_concurrent=3` 执行节点，单节点超时取 300 秒与总超时一半中的较小值。
+6. 完成结果写入 `WorkflowHistory`，会话续接信息写入 `_session_workflows`。
 
-```
-pending → running → completed
-                  → failed
-                  → waiting_approval → completed
-                                     → failed
-                  → skipped (on_failure=skip)
-```
+## 状态与恢复
 
-| 状态 | 说明 |
-|------|------|
-| `pending` | 等待执行 |
-| `running` | 执行中 |
-| `completed` | 执行完成 |
-| `failed` | 执行失败 |
-| `waiting_approval` | 等待人工审批 |
-| `skipped` | 已跳过（失败策略为 skip 时） |
+当前生产 API 存在两类状态：
 
-## 重试机制
+- 运行态：`_workflows` 和 `_session_workflows`，位于 API 进程内存中。进程重启后该状态消失，`status`、`export`、直接执行导入图和会话续接均依赖该状态。
+- 历史态：`WorkflowHistory` 数据库记录，用于列表和详情查询。
 
-每个节点可配置重试策略：
+`app/services/workflow_state_adapter.py` 已实现将 Workflow 阶段写入统一 Task/Event 状态模型的适配能力，并有单元测试覆盖。截至 2026-09-03，`app/api/v1/workflow.py` 未调用该适配器，因此统一状态恢复尚未成为 Workflow API 的生产恢复路径。
 
-```json
-{
-  "retry": {
-    "max_retries": 3,
-    "retry_delay": 1.0,
-    "backoff_factor": 2.0
-  },
-  "on_failure": "fail"
-}
-```
+## 流式事件
 
-- `max_retries`: 最大重试次数（0-5）
-- `retry_delay`: 初始重试延迟（秒）
-- `backoff_factor`: 退避因子（延迟倍增系数）
-- `on_failure`: 失败策略 - `fail`（中断）/ `skip`（跳过继续）
+`/execute` 和 `/{workflow_id}/execute` 返回 `application/x-ndjson`，每行是一个 JSON 对象。当前事件包括：
 
-## 条件分支
+- `workflow_started`
+- `continuation_context`
+- `task_graph_generated`
+- `workflow_exported`
+- `node_started`
+- `node_completed`
+- `workflow_completed`
+- `workflow_error`
 
-`conditional` 节点支持 12 种运算符：
+事件字段随类型变化，常用字段包括 `workflow_id`、`session_id`、`node_id`、`data`、`error`、`message` 和 `timestamp`。
 
-`==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`, `is_empty`, `is_not_empty`, `starts_with`, `ends_with`
+## API
 
-分支通过 `true_branch` 和 `false_branch` 指定后续节点 ID 列表。
+所有业务端点使用 Token 认证：
 
-## 数据转换
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| `POST` | `/api/v1/workflow/execute` | 分解并执行自然语言工作流 |
+| `GET` | `/api/v1/workflow/status/{workflow_id}` | 查询进程内工作流状态 |
+| `POST` | `/api/v1/workflow/import` | 校验并导入任务图到进程内存 |
+| `POST` | `/api/v1/workflow/{workflow_id}/execute` | 执行已导入任务图 |
+| `GET` | `/api/v1/workflow/export/{workflow_id}` | 导出进程内任务图 |
+| `DELETE` | `/api/v1/workflow/{workflow_id}` | 移除进程内任务图 |
+| `GET` | `/api/v1/workflow/history` | 分页查询当前用户历史 |
+| `GET` | `/api/v1/workflow/history/{workflow_id}` | 查询当前用户历史详情 |
+| `DELETE` | `/api/v1/workflow/history/{workflow_id}` | 删除当前用户历史记录 |
 
-`data_transform` 节点支持 12 种操作：
+## 运行限制
 
-`map`, `filter`, `reduce`, `pick`, `rename`, `merge`, `template`, `sort`, `slice`, `flatten`, `unique`, `jsonpath`
+- 状态查询和导入图执行要求请求命中保存该工作流的同一进程。
+- 会话续接保存的是前序请求和工作流标识，数据库历史不会自动重建 `_session_workflows`。
+- `WorkflowHistory` 提供审计和历史展示，当前不承担断点恢复。
+- 统一状态适配器接入生产 API 后，才可将 Task、Event 与 Checkpoint 用作统一恢复依据。
 
-## 资源限制（8C8G 环境）
+## 前端
 
-| 参数 | 值 |
-|------|-----|
-| 最大并发节点数 | 4 |
-| 单节点超时 | 300s |
-| 工作流超时 | 1800s |
-| 节点内存限制 | 512MB |
+Workflow 页面相关代码位于 `src/views/Workflow.vue` 及其调用链。消费者应按 NDJSON 行解析，不应套用 Agent 的 `data: ...` SSE 帧协议。
 
-## API 端点
+## 代码索引
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/v1/workflow/execute` | POST | 自然语言执行工作流（流式 NDJSON） |
-| `/api/v1/workflow/{id}/execute` | POST | 执行已导入的工作流 |
-| `/api/v1/workflow/status/{id}` | GET | 获取工作流状态 |
-| `/api/v1/workflow/import` | POST | 导入工作流 JSON |
-| `/api/v1/workflow/export/{id}` | GET | 导出工作流 JSON |
-| `/api/v1/workflow/{id}` | DELETE | 删除工作流 |
-| `/api/v1/workflow/history` | GET | 获取历史记录 |
-
-## 提示词管理
-
-工作流分解提示词存放在 `skills/workflow-planner/system_prompt.md`，修改提示词无需改代码。
-
-## 前端组件
-
-| 组件 | 说明 |
-|------|------|
-| `Workflow.vue` | 工作流编排页面 |
-| `EphemeralWorkflow.vue` | 临时工作流弹窗 |
-| `WorkflowDAG.vue` | DAG 图可视化 |
-| `WorkflowLogViewer.vue` | 执行日志查看器 |
+- `app/api/v1/workflow.py`
+- `app/schema/workflow.py`
+- `app/utils/workflow/`
+- `app/services/workflow_state_adapter.py`
+- `app/db/models.py` 中的 `WorkflowHistory`

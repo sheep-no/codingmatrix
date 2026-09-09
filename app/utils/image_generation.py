@@ -19,6 +19,7 @@ from httpx import Timeout
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.services.image_resource_service import generation_concurrency
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +42,6 @@ DEFAULT_CONFIG = {
 
 OUTPUT_DIR = Path("./generated_images")
 OUTPUT_DIR.mkdir(exist_ok=True)
-
-# 并发限制
-_max_concurrent_generations = asyncio.Semaphore(4)
 
 # 连接池（复用 HTTP 客户端）
 _http_client: Optional[httpx.AsyncClient] = None
@@ -205,6 +203,13 @@ async def text_to_image(
             "config": {...}
         }
     """
+    if not prompt or not prompt.strip():
+        raise ValueError("prompt 不能为空")
+    width = max(256, min(1280, width))
+    height = max(256, min(1280, height))
+    num_inferences = max(1, min(100, num_inferences))
+    num_images = max(1, min(4, num_images))
+    
     data = {
         "model": KOLORS_MODEL,
         "prompt": prompt,
@@ -369,7 +374,7 @@ async def inpaint_image(
 
 async def _call_kolors_api(data: dict, timeout: Timeout, api_key_token: str = None, max_retries: int = 3) -> dict:
     """Kolors API 调用公共逻辑（带重试机制和并发限制）"""
-    async with _max_concurrent_generations:
+    async with generation_concurrency.global_slot():
         last_error = None
         
         for attempt in range(max_retries):
@@ -401,7 +406,7 @@ async def _call_kolors_api(data: dict, timeout: Timeout, api_key_token: str = No
                 
                 error_msg = f"status={response.status_code} | {response.text}"
                 logger.warning(f"Kolors API 调用失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
-                last_error = HTTPException(status_code=response.status_code, detail=f"图像生成失败：{response.text}")
+                last_error = HTTPException(status_code=response.status_code, detail="图像生成服务暂时不可用，请稍后重试")
                 
                 if response.status_code >= 500:
                     wait_time = (2 ** attempt) * 1.0

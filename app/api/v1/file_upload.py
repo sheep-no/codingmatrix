@@ -21,7 +21,7 @@ from app.models.file import File
 from app.models.task import Task
 from app.utils.security import verify_token
 from app.schema.file_schema import FileUploadResponse, FileListResponse
-from app.core.file_validator import validate_file_content  # 新增安全验证
+from app.core.file_validator import validate_file_path
 from typing import List
 
 logger = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ ALLOWED_EXTENSIONS = {
 
 
 def calculate_file_hash(content: bytes) -> str:
-    """计算文件 SHA256 哈希"""
+    """计算文件 SHA256 哈希（保留给旧调用方）。"""
     sha256 = hashlib.sha256()
     sha256.update(content)
     return sha256.hexdigest()
@@ -150,20 +150,31 @@ async def upload_file(
     user_id = int(token.get("sub"))
     logger.info(f"文件上传请求 | user_id={user_id} | filename={file.filename} | conversation_id={conversation_id}")
     
+    temp_path = None
     try:
         # 1. 基础验证（大小和扩展名）
         validate_file_upload(file)
         
-        # 2. 读取文件内容
-        content = await file.read()
-        
+        # 2. 流式写入临时文件，避免将整个上传内容放入内存。
+        temp_path = UPLOAD_DIR / ".tmp" / f"{uuid.uuid4().hex}.upload"
+        temp_path.parent.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256()
+        total_size = 0
+        with open(temp_path, "wb") as temp_file:
+            while chunk := await file.read(CHUNK_SIZE):
+                total_size += len(chunk)
+                if total_size > MAX_FILE_SIZE:
+                    raise HTTPException(status_code=413, detail=f"文件大小超过限制 ({MAX_FILE_SIZE // 1024 // 1024}MB)")
+                digest.update(chunk)
+                temp_file.write(chunk)
+
         # 3. 深度验证（MIME 类型、文件内容、安全性检查）
-        detected_mime, safe_filename = validate_file_content(content, file.filename)
+        detected_mime, safe_filename = validate_file_path(temp_path, file.filename)
         
         logger.info(f"文件验证通过 | detected_mime={detected_mime} | safe_filename={safe_filename}")
         
         # 4. 计算哈希
-        file_hash = calculate_file_hash(content)
+        file_hash = digest.hexdigest()
         
         # 检查是否已存在（去重）
         result = await db.execute(
@@ -186,16 +197,13 @@ async def upload_file(
         
         # 创建目录
         storage_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # 保存文件
-        with open(storage_path, 'wb') as f:
-            f.write(content)
+        os.replace(temp_path, storage_path)
         
         # 创建数据库记录
         db_file = File(
             filename=file.filename,
             file_path=str(storage_path),
-            file_size=len(content),
+            file_size=total_size,
             content_type=file.content_type,
             file_hash=file_hash,
             user_id=user_id,
@@ -215,6 +223,9 @@ async def upload_file(
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"文件上传失败 | error={str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"上传失败：{str(e)}")
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink()
 
 
 @router.get("/{file_id}/download", summary="下载文件")
@@ -258,7 +269,7 @@ async def download_file(
         open(file_path, 'rb'),
         media_type=db_file.content_type or "application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{db_file.filename}"'
+            "Content-Disposition": f'attachment; filename="{Path(db_file.filename).name}"'
         }
     )
 
@@ -418,7 +429,9 @@ async def merge_chunks(
         output_dir = UPLOAD_DIR / datetime.now().strftime("%Y%m%d")
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        file_path = output_dir / f"{uuid.uuid4()}_{filename}"
+        # 清理文件名，防止路径穿越
+        safe_filename = Path(filename).name
+        file_path = output_dir / f"{uuid.uuid4()}_{safe_filename}"
 
         with open(file_path, 'wb') as f:
             for i in range(meta.total_chunks):
@@ -427,11 +440,14 @@ async def merge_chunks(
                     raise HTTPException(status_code=500, detail=f"分片 {i} 丢失")
                 f.write(chunk_path.read_bytes())
 
-        # 验证合并后的文件哈希
-        merged_content = file_path.read_bytes()
-        actual_hash = hashlib.sha256(merged_content).hexdigest()
+        # 验证合并后的文件哈希（分块计算，避免大文件 OOM）
+        actual_hash = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            while chunk := f.read(8192):
+                actual_hash.update(chunk)
+        actual_hash_hex = actual_hash.hexdigest()
 
-        if actual_hash != file_hash:
+        if actual_hash_hex != file_hash:
             logger.error(f"哈希不匹配 | expected={file_hash}, actual={actual_hash}")
             file_path.unlink()
             raise HTTPException(
@@ -443,9 +459,9 @@ async def merge_chunks(
         db_file = File(
             filename=filename,
             file_path=str(file_path),
-            file_size=len(merged_content),
+            file_size=file_path.stat().st_size,
             content_type=content_type,
-            file_hash=actual_hash,
+            file_hash=actual_hash_hex,
             user_id=user_id,
             conversation_id=conversation_id
         )

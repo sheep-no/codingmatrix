@@ -1,7 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 from app.models.history import History
-from typing import Optional
+from typing import Optional, Any
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,8 @@ async def save_history_to_db(
         prompt: str,
         response: str,
         thinking: Optional[str] = None,
+        commit: bool = True,
+        metadata: Optional[dict[str, Any]] = None,
 ) -> int:
     """
     保存历史记录到数据库
@@ -48,16 +51,25 @@ async def save_history_to_db(
         response=response,
         thinking=thinking,
         title=prompt[:100],
+        metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else None,
     )
     db.add(history)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     await db.refresh(history)
 
+    if commit:
+        await invalidate_history_caches()
+
+    return new_conv_id
+
+
+async def invalidate_history_caches():
     try:
         from app.utils.cache_decorator import invalidate_cache_by_prefix
         await invalidate_cache_by_prefix("history")
         await invalidate_cache_by_prefix("conversations")
     except Exception as e:
         logger.warning(f"缓存失效失败: {e}")
-
-    return new_conv_id

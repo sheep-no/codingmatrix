@@ -5,6 +5,16 @@ declare module "node:crypto" {
 }
 
 declare module "node:fs/promises" {
+  interface FileHandle {
+    readonly fd: number;
+    close(): Promise<void>;
+    readFile(encoding: "utf8"): Promise<string>;
+    truncate(length?: number): Promise<void>;
+    write(buffer: Buffer, offset: number, length: number, position: number): Promise<{ bytesWritten: number }>;
+  }
+  export function lstat(path: string): Promise<{ isSymbolicLink(): boolean }>;
+  export function open(path: string, flags: number, mode?: number): Promise<FileHandle>;
+  export function realpath(path: string): Promise<string>;
   export function readFile(path: string, encoding: "utf8"): Promise<string>;
   export function readdir(path: string, options: { withFileTypes: true }): Promise<Array<{
     name: string;
@@ -14,9 +24,21 @@ declare module "node:fs/promises" {
   export function writeFile(path: string, content: string, encoding: "utf8"): Promise<void>;
 }
 
+declare module "node:fs" {
+  export const constants: {
+    O_CREAT: number;
+    O_EXCL: number;
+    O_NOFOLLOW: number | undefined;
+    O_RDWR: number;
+  };
+}
+
 declare module "node:path" {
+  export const sep: string;
+  export function isAbsolute(path: string): boolean;
   export function join(...parts: string[]): string;
   export function relative(from: string, to: string): string;
+  export function resolve(...parts: string[]): string;
 }
 
 declare module "node:child_process" {

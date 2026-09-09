@@ -245,6 +245,7 @@ class OrchestratorRequest(BaseModel):
     spec_first: bool = Field(True, description="是否启用 Spec-First 模式")
     dependency_graph: bool = Field(True, description="是否启用依赖图分层生成")
     session_id: Optional[str] = Field(None, description="会话ID（用于增量生成/续传）")
+    is_resume: Optional[bool] = Field(None, description="True 仅重连指定存活任务；False 明确新生成；省略保留旧客户端行为")
     incremental: bool = Field(False, description="是否启用增量生成")
     require_approval: bool = Field(False, description="是否要求关键文件人工审批")
     evaluation_only: bool = Field(False, description="只评价不修改 - 输出分析报告和改进建议，不生成代码文件")
@@ -385,6 +386,35 @@ class ComplexityAnalysisResponse(BaseModel):
     key_technologies: List[str]
     risk_factors: List[str]
     model_assignment: Dict[str, str]
+
+
+class ModelAssignmentContext(BaseModel):
+    model: str = ""
+    calls: int = Field(0, ge=0)
+    success_rate: float = Field(100.0, ge=0, le=100)
+
+
+class ModelFallbackEvent(BaseModel):
+    from_model: Optional[str] = None
+    to_model: str
+    reason: Optional[str] = None
+    timestamp: Optional[str] = None
+
+
+class AgentModelContextUpdate(BaseModel):
+    expected_revision: int = Field(..., ge=0)
+    config_version: Optional[str] = None
+    roles: Optional[Dict[str, str]] = None
+    current_model: Optional[str] = None
+    current_agent: Optional[str] = None
+    assignments: Optional[Dict[str, ModelAssignmentContext]] = None
+    fallback_history: Optional[List[ModelFallbackEvent]] = Field(None, max_length=50)
+
+
+class AgentModelContextResponse(BaseModel):
+    found: bool
+    revision: int = Field(0, ge=0)
+    context: Dict[str, Any]
 
 
 class ProjectSessionConfigRequest(BaseModel):

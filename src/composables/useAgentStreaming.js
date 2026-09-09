@@ -2,8 +2,31 @@ import { reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useApiKeyStore } from '@/stores/apikey'
 import { getPhaseLabel } from '@/constants/agentPhases'
+import { createStreamUpdateBatcher } from '@/utils/streamUpdateBatcher'
 
-export function useAgentStreaming(projectApi, workspace, files, generation, session) {
+const AGENT_ROLE_ALIAS = {
+  'architecture': 'architect',
+  'arch': 'architect',
+  'frontend engineer': 'frontend',
+  'frontend_engineer': 'frontend',
+  'backend engineer': 'backend',
+  'backend_engineer': 'backend',
+  'review': 'reviewer',
+  'code review': 'reviewer',
+  'reviewer_model': 'reviewer',
+  '架构师': 'architect',
+  '前端工程师': 'frontend',
+  '后端工程师': 'backend',
+  '审查员': 'reviewer',
+  '代码审查员': 'reviewer',
+}
+
+export function normalizeAgentRole(agent) {
+  const rawAgent = (agent || '').toString().toLowerCase()
+  return AGENT_ROLE_ALIAS[rawAgent] || rawAgent
+}
+
+export function useAgentStreaming(projectApi, workspace, files, generation, session, taskFeedback = null) {
   // 注意：workspace 和 files 是 reactive() 对象，ref 属性会被自动解包
   // 不能解构后使用 .value，必须通过对象访问（如 workspace.currentAgent）
   const { addLog, addDetail } = workspace
@@ -11,22 +34,58 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
 
   // 获取 API Key Store
   const apiKeyStore = useApiKeyStore()
+  let activeStreamSessionId = null
 
-  // model_info 事件中 data.agent 的可能命名 → 标准化为 modelAssignments 的 key
-  // 解决：前端先用了 5 角色硬编码、后端又用 str(engineer) 传对象 repr 的双重历史遗留
-  const AGENT_ROLE_ALIAS = {
-    'architecture': 'architect',
-    'arch': 'architect',
-    'frontend engineer': 'frontend',
-    'frontend_engineer': 'frontend',
-    'backend engineer': 'backend',
-    'backend_engineer': 'backend',
-    'review': 'reviewer',
-    'code review': 'reviewer',
-    'reviewer_model': 'reviewer',
-  }
+  const thinkingBatcher = createStreamUpdateBatcher(update => {
+    const list = workspace.thinkingMessages
+    let lastSame = null
+    for (let index = list.length - 1; index >= 0; index--) {
+      const message = list[index]
+      if (
+        message.agent === update.agent &&
+        (message.phase || '') === update.phase &&
+        message.streaming === true
+      ) {
+        lastSame = message
+        break
+      }
+    }
+
+    if (lastSame) {
+      lastSame.message = (lastSame.message || '') + update.responseDelta
+      if (update.accumulated) lastSame.accumulated = update.accumulated
+      if (update.model) lastSame.model = update.model
+    } else {
+      list.push({
+        agent: update.agent,
+        message: update.responseDelta,
+        timestamp: update.timestamp,
+        model: update.model || workspace.currentModel,
+        phase: update.phase,
+        streaming: true,
+        accumulated: update.accumulated || update.responseDelta
+      })
+    }
+
+    addLog('thinking', `[${update.agent}] ${update.responseDelta}`)
+    if (update.phase) {
+      addThinkingToStage(update.phase, {
+        agent: update.agent,
+        message: update.responseDelta,
+        timestamp: update.timestamp,
+        model: update.model || workspace.currentModel
+      })
+    }
+  })
 
   const handleSseMessage = (data) => {
+    if (activeStreamSessionId && session.currentSessionId !== activeStreamSessionId) return
+    taskFeedback?.update(data, {
+      currentPhase: generation.currentPhase,
+      progress: generation.getOverallProgress(),
+      hasFailedStage: generation.workflowStages.some(stage => stage.status === 'failed'),
+      hasGeneratedFiles: files.generatedFiles.length > 0
+    })
     const innerData = data.data || data
     if (innerData.phase) {
       const stageId = innerData.phase
@@ -76,33 +135,17 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         const isStreaming = data.streaming === true
 
         if (isStreaming && msg) {
-          // 流式 thinking：找到同 agent+phase 的最后一条，追加 message 形成打字机效果
-          const list = workspace.thinkingMessages
-          let lastSame = null
-          for (let i = list.length - 1; i >= 0; i--) {
-            const m = list[i]
-            if (m.agent === agent && (m.phase || '') === phase && m.streaming === true) {
-              lastSame = m
-              break
-            }
-          }
-          if (lastSame) {
-            lastSame.message = (lastSame.message || '') + msg
-            if (data.accumulated) lastSame.accumulated = data.accumulated
-            if (data.model) lastSame.model = data.model
-          } else {
-            // 新流式会话：推入新条目
-            list.push({
-              agent,
-              message: msg,
-              timestamp: ts,
-              model: data.model || workspace.currentModel,
-              phase,
-              streaming: true,
-              accumulated: data.accumulated || msg,
-            })
-          }
+          thinkingBatcher.enqueue({
+            key: `${agent}:${phase}`,
+            agent,
+            phase,
+            timestamp: ts,
+            model: data.model,
+            accumulated: data.accumulated,
+            responseDelta: msg
+          })
         } else {
+          thinkingBatcher.flush()
           // 非流式 thinking：保持原行为，push 新条目
           workspace.thinkingMessages.push({
             agent,
@@ -115,24 +158,36 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
           })
         }
 
-        addLog('thinking', `[${agent}] ${msg}`)
-        if (data.phase) {
-          addThinkingToStage(data.phase, { agent, message: msg, timestamp: ts, model: data.model || workspace.currentModel })
+        if (!isStreaming) {
+          addLog('thinking', `[${agent}] ${msg}`)
+          if (data.phase) {
+            addThinkingToStage(data.phase, { agent, message: msg, timestamp: ts, model: data.model || workspace.currentModel })
+          }
         }
         break
       }
       case 'model_info': {
         workspace.currentAgent = data.agent
         workspace.currentModel = data.model
+        generation.currentAgent = data.agent
+        generation.currentModel = data.model
         addLog('info', `使用模型: ${data.model} (${data.agent})`)
         addDetail('模型分配', `${data.agent} → ${data.model}`)
         // 兼容后端可能的命名变体（_report_model_info 当前传 str(engineer)，
         // 真实意图应当是 frontend/backend/architect/reviewer/fallback）
-        const rawAgent = (data.agent || '').toString().toLowerCase()
-        const assignmentKey = AGENT_ROLE_ALIAS[rawAgent] || rawAgent
+        const assignmentKey = normalizeAgentRole(data.agent)
         if (generation.modelAssignments[assignmentKey]) {
           generation.modelAssignments[assignmentKey].model = data.model
           generation.modelAssignments[assignmentKey].calls++
+        }
+        if (data.fallback_from) {
+          generation.fallbackHistory.push({
+            from_model: data.fallback_from,
+            to_model: data.model,
+            reason: data.reason || null,
+            timestamp: data.timestamp ? String(data.timestamp) : null
+          })
+          generation.fallbackHistory = generation.fallbackHistory.slice(-50)
         }
         break
       }
@@ -219,6 +274,8 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         addLog('warning', '需要您确认架构决策')
         break
       case 'error':
+        thinkingBatcher.flush()
+        taskFeedback?.fail(data.data?.error || data.message || '任务执行失败', data)
         addLog('error', data.data?.error || data.message || '未知错误')
         break
       case 'warning':
@@ -258,8 +315,9 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         break
       }
       case 'done':
+        thinkingBatcher.flush()
+        taskFeedback?.complete({ ...data, stage: getPhaseLabel('generation_complete'), progress: 100, nextAction: '预览或下载生成文件' })
         addLog('success', '项目生成完成')
-        generation.isGenerating = false
         generation.workflowStages.forEach(stage => {
           if (stage.status !== 'failed') updateStageStatus(stage.id, 'completed', 100)
         })
@@ -285,6 +343,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let terminalEvent = null
     while (true) {
       const { done, value } = await reader.read()
       if (done) {
@@ -298,6 +357,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         if (trimmed.startsWith('data: ')) {
           try {
             const data = JSON.parse(trimmed.slice(6))
+            if (['done', 'error'].includes(data.type)) terminalEvent = data.type
             handleSseMessage(data)
           } catch (e) {
             console.error('Failed to parse SSE:', e)
@@ -308,16 +368,19 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     if (buffer.trim().startsWith('data: ')) {
       try {
         const data = JSON.parse(buffer.trim().slice(6))
+        if (['done', 'error'].includes(data.type)) terminalEvent = data.type
         handleSseMessage(data)
       } catch (e) {
         // ignore trailing incomplete data
       }
     }
+    thinkingBatcher.flush()
+    return terminalEvent
   }
 
   const buildStreamParams = (requirement, sessionId, selectedProviderModel, projectName) => {
-    // 获取用户 SiliconFlow API Key token
-    const siliconflowKey = apiKeyStore.siliconflowKey
+    // 获取用户内置供应商 API Key token
+    const selectedApiKeyToken = apiKeyStore.siliconflowKey
     
     // 解析动态供应商选择 (格式: "provider_id::model_id")
     let providerId = undefined
@@ -340,7 +403,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       dependency_graph: true,
       incremental: isIncremental,
       require_approval: false,
-      api_key_token: siliconflowKey ? siliconflowKey.token : undefined,
+      api_key_token: selectedApiKeyToken ? selectedApiKeyToken.token : undefined,
       provider_id: providerId,
       project_name: projectName || undefined,
       ...(isIncremental ? {
@@ -409,6 +472,10 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
   }
 
   const streamGenerate = async (selectedProviderModel, projectName) => {
+    if (generation.isGenerating) {
+      ElMessage.warning('当前会话正在生成中')
+      return
+    }
     // 检查是否有 SiliconFlow API Key 或动态供应商
     if (!apiKeyStore.hasSiliconflowKey && !selectedProviderModel) {
       ElMessage.warning('请先配置 SiliconFlow API Key 或选择自定义供应商模型')
@@ -426,28 +493,72 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     }
     workspace.logs = []
     generation.isGenerating = true
+    taskFeedback?.start({ stage: isIncremental ? '准备增量更新' : '准备生成项目', progress: 0 })
     addLog('info', `开始${mode}...`)
 
+    let streamSessionId = null
     try {
-      const sessionId = session.currentSessionId || session.createNewSession({})
-      const params = buildStreamParams(session.projectPrompt, sessionId, selectedProviderModel, projectName)
+      streamSessionId = session.currentSessionId || session.createNewSession({})
+      activeStreamSessionId = streamSessionId
+      const params = buildStreamParams(session.projectPrompt, streamSessionId, selectedProviderModel, projectName)
       const response = await projectApi.generateProjectStream(params)
-      await processSseResponse(response)
-      generation.isGenerating = false
-      addLog('success', `${mode}完成`)
-      session.projectPrompt = ''
+      const terminalEvent = await processSseResponse(response)
+      if (!terminalEvent) {
+        taskFeedback?.markDisconnected('任务连接意外结束，当前消息和文件已保留')
+        addLog('warning', '任务连接意外结束，已保留当前状态')
+        return
+      }
+      if (terminalEvent === 'error') return
+      if (session.currentSessionId === streamSessionId) {
+        const observedContext = generation.getModelContextSnapshot()
+        try {
+          let modelContext = await projectApi.updateAgentModelContext(
+            streamSessionId,
+            observedContext
+          )
+          if (modelContext.conflict) {
+            const latest = await projectApi.getAgentModelContext(streamSessionId)
+            modelContext = await projectApi.updateAgentModelContext(streamSessionId, {
+              ...observedContext,
+              expected_revision: latest.revision,
+              config_version: latest.context.config_version,
+              roles: latest.context.roles,
+            })
+          }
+          if (modelContext.conflict) {
+            throw new Error('模型上下文已被其他页面更新')
+          }
+          if (session.currentSessionId === streamSessionId) {
+            generation.applyModelContext(modelContext.context, modelContext.revision)
+          }
+        } catch (syncError) {
+          addLog('warning', `同步模型上下文失败，保留本地状态: ${syncError.message}`)
+        }
+        addLog('success', `${mode}完成`)
+        session.projectPrompt = ''
+      }
     } catch (error) {
-      generation.isGenerating = false
-      
       // 429 并发限制：显示详细提醒和操作选项
       if (error.code === 429) {
+        taskFeedback?.fail(error.message, { stage: '等待可用会话', nextAction: '停止已有项目后重试' })
         addLog('error', `并发会话已满: ${error.message}`)
         showConcurrentLimitDialog(error, projectApi, session)
         return
       }
-      
+
+      if (error.name === 'TypeError' || error.name === 'NetworkError') {
+        taskFeedback?.markDisconnected('网络连接中断，当前消息和文件已保留')
+      } else {
+        taskFeedback?.fail(error, { stage: '项目生成失败', nextAction: '检查配置后重新生成' })
+      }
       addLog('error', `${mode}失败: ${error.message}`)
       ElMessage.error(`${mode}失败`)
+    } finally {
+      thinkingBatcher.flush()
+      if (activeStreamSessionId === streamSessionId) {
+        activeStreamSessionId = null
+        generation.isGenerating = false
+      }
     }
   }
 

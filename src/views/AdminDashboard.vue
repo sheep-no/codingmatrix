@@ -854,7 +854,10 @@ async function removeUserLimit(userId) {
 
 async function saveRoleLimits() {
   try {
-    await adminApi.saveRoleLimits(roleLimits)
+    const result = await adminApi.saveRoleLimits(roleLimits)
+    if (!result || result.success !== true) {
+      throw new Error('角色配置保存失败')
+    }
     showNotification('角色配置已保存')
     roleLimitsOriginal.value = JSON.parse(JSON.stringify(roleLimits))
     roleLimitsDirty.value = false

@@ -3,11 +3,11 @@
     <!-- Progress bar -->
     <div v-if="stages && stages.length > 0" class="progress-bar-section">
       <div class="progress-meta">
-        <span class="progress-label">生成进度</span>
+        <span class="progress-label">项目执行 <small>{{ stages.filter(stage => stage.status === 'completed').length }} / {{ stages.length }} 个阶段完成</small></span>
         <span class="progress-value">{{ Math.round(overallProgress) }}%</span>
         <span v-if="eta" class="progress-eta">{{ eta }}</span>
       </div>
-      <div class="progress-track">
+      <div class="progress-track" role="progressbar" aria-label="项目执行进度" :aria-valuenow="Math.round(overallProgress)" aria-valuemin="0" aria-valuemax="100">
         <div class="progress-fill" :style="{ width: `${overallProgress}%` }"></div>
       </div>
     </div>
@@ -30,8 +30,8 @@
           <div v-if="index < stages.length - 1" class="timeline-line"></div>
         </div>
 
-        <div class="timeline-body" @click="toggleStage(stage.id)">
-          <div class="stage-header">
+        <div class="timeline-body">
+          <button class="stage-header" type="button" :aria-expanded="Boolean(expandedStages[stage.id])" :disabled="!stage.thinking?.length" @click="toggleStage(stage.id)">
             <span class="stage-name">{{ stage.name }}</span>
             <div class="stage-right">
               <span v-if="stage.status === 'running' && stage.progress > 0" class="stage-progress">{{ stage.progress }}%</span>
@@ -46,7 +46,7 @@
                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
               </svg>
             </div>
-          </div>
+          </button>
           <div v-if="stage.status === 'running'" class="stage-progress-bar">
             <div class="stage-progress-fill" :style="{ width: `${stage.progress}%` }"></div>
           </div>
@@ -243,14 +243,21 @@
     </div>
 
     <!-- Empty state -->
-    <div v-if="(!stages || stages.length === 0)" class="empty-state">
+    <div v-if="!stages?.length && !thinkingMessages.length && !executionSteps.length && !logs.length && !decisions.length && !testResults && !validationResults" class="empty-state">
       <div class="empty-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="48" height="48">
           <path d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
           <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
       </div>
-      <p class="empty-text">输入需求后点击生成，Agent 将自动完成项目搭建</p>
+      <span class="empty-eyebrow">AGENT 工作台</span>
+      <h2 class="empty-title">从一个想法，开始构建</h2>
+      <p class="empty-text">描述目标、使用场景和技术偏好，在这里跟进每一步执行。</p>
+      <ol class="empty-guide">
+        <li><span>01</span><strong>描述需求</strong><small>明确想做什么</small></li>
+        <li><span>02</span><strong>跟进执行</strong><small>查看进度与决策</small></li>
+        <li><span>03</span><strong>查看产物</strong><small>预览和下载文件</small></li>
+      </ol>
     </div>
   </div>
 </template>
@@ -318,11 +325,16 @@ watch(() => props.logs?.length, () => {
   gap: 16px;
   overflow-y: auto;
   padding: 16px;
+  min-width: 0;
+  min-height: 0;
+  scrollbar-gutter: stable;
+  overflow-wrap: anywhere;
 }
+.agent-workspace > * { flex-shrink: 0; }
 .progress-bar-section {
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border-radius: 10px;
+  padding: 18px;
+  background: var(--bg-primary);
+  border-radius: 14px;
   border: 1px solid var(--border-color);
 }
 .progress-meta {
@@ -332,8 +344,10 @@ watch(() => props.logs?.length, () => {
   margin-bottom: 8px;
   font-size: 12px;
 }
-.progress-label { color: var(--text-secondary); font-weight: 500; }
-.progress-value { color: var(--primary); font-weight: 600; }
+.progress-label { color: var(--text-primary); font-size: 15px; font-weight: 600; }
+.progress-label small { display: block; margin-top: 5px; font-size: 12px; font-weight: 400; color: var(--text-secondary); }
+.progress-value { color: var(--primary); font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.progress-meta { flex-wrap: wrap; gap: 8px; }
 .progress-eta { color: var(--text-tertiary); }
 .progress-track {
   height: 6px;
@@ -355,8 +369,9 @@ watch(() => props.logs?.length, () => {
   gap: 4px;
 }
 .timeline-item {
-  display: flex;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px 12px;
 }
 .timeline-connector {
   display: flex;
@@ -399,11 +414,11 @@ watch(() => props.logs?.length, () => {
 }
 .timeline-body {
   flex: 1;
-  padding: 8px 12px;
+  padding: 12px 14px;
   background: var(--bg-secondary);
   border-radius: 8px;
   border: 1px solid var(--border-color);
-  cursor: pointer;
+  min-width: 0;
   transition: all 0.15s;
 }
 .timeline-body:hover { border-color: var(--primary); }
@@ -411,8 +426,19 @@ watch(() => props.logs?.length, () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.stage-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.stage-header:disabled { cursor: default; opacity: 1; }
+.stage-header:focus-visible { outline: 2px solid var(--primary); outline-offset: 5px; border-radius: 4px; }
+.status-running .timeline-body { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 5%, var(--bg-primary)); }
+.stage-name { font-size: 14px; font-weight: 500; color: var(--text-primary); }
 .stage-right { display: flex; align-items: center; gap: 8px; }
 .stage-progress { font-size: 11px; color: var(--primary); font-weight: 600; }
 .stage-status-tag {
@@ -420,6 +446,7 @@ watch(() => props.logs?.length, () => {
   padding: 2px 6px;
   border-radius: 4px;
   font-weight: 500;
+  white-space: nowrap;
 }
 .tag-completed { background: color-mix(in srgb, var(--success), transparent 90%); color: var(--success); }
 .tag-running { background: color-mix(in srgb, var(--primary), transparent 90%); color: var(--primary); }
@@ -448,6 +475,8 @@ watch(() => props.logs?.length, () => {
 
 /* Thinking panel */
 .thinking-panel {
+  grid-column: 2;
+  min-width: 0;
   margin-top: 4px;
   padding: 8px 12px;
   background: var(--bg-primary);
@@ -465,7 +494,7 @@ watch(() => props.logs?.length, () => {
 .thinking-agent { font-size: 11px; font-weight: 600; color: var(--primary); }
 .thinking-model { font-size: 10px; color: var(--text-tertiary); background: var(--bg-secondary); padding: 1px 4px; border-radius: 3px; }
 .thinking-time { font-size: 10px; color: var(--text-tertiary); margin-left: auto; }
-.thinking-body { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+.thinking-body { font-size: 13px; color: var(--text-secondary); line-height: 1.7; white-space: pre-wrap; }
 
 /* Decisions */
 .decisions-panel {
@@ -626,7 +655,7 @@ watch(() => props.logs?.length, () => {
 .thinking-streaming-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); animation: thinking-blink 1s ease-in-out infinite; }
 @keyframes thinking-blink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 .thinking-item-time { font-size: 10px; color: var(--text-tertiary); margin-left: auto; }
-.thinking-item-message { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+.thinking-item-message { font-size: 13px; color: var(--text-secondary); line-height: 1.7; white-space: pre-wrap; }
 
 /* Steps list */
 .steps-list-merged {
@@ -654,7 +683,7 @@ watch(() => props.logs?.length, () => {
 }
 .step-item-content { flex: 1; min-width: 0; }
 .step-cat { font-size: 10px; color: var(--text-tertiary); margin-bottom: 1px; }
-.step-desc { font-size: 12px; color: var(--text-secondary); }
+.step-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
 .step-item-time { font-size: 10px; color: var(--text-tertiary); white-space: nowrap; }
 
 /* Logs */
@@ -688,7 +717,7 @@ watch(() => props.logs?.length, () => {
 .log-warning .log-level-badge { background: color-mix(in srgb, var(--warning), transparent 80%); color: var(--warning); }
 .log-error .log-level-badge { background: color-mix(in srgb, var(--danger), transparent 80%); color: var(--danger); }
 .log-time { font-size: 10px; color: var(--text-tertiary); white-space: nowrap; }
-.log-msg { color: var(--text-secondary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-msg { color: var(--text-secondary); flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 
 /* Info sections */
 .info-section {
@@ -771,7 +800,28 @@ watch(() => props.logs?.length, () => {
   justify-content: center;
   padding: 48px 24px;
   color: var(--text-tertiary);
+  flex: 1;
+  text-align: center;
+  max-width: 640px;
+  width: 100%;
+  margin: auto;
 }
-.empty-icon { margin-bottom: 12px; opacity: 0.5; }
-.empty-text { font-size: 14px; }
+.empty-icon { margin-bottom: 20px; color: var(--primary); padding: 16px; border: 1px solid var(--border-color); border-radius: 20px; background: var(--bg-primary); }
+.empty-eyebrow { font-size: 11px; letter-spacing: 0.12em; color: var(--text-secondary); }
+.empty-title { font-size: clamp(22px, 2.4vw, 30px); font-weight: 600; letter-spacing: -0.04em; margin: 12px 0; color: var(--text-primary); }
+.empty-text { font-size: 14px; line-height: 1.8; margin: 0; color: var(--text-secondary); }
+.empty-guide { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; width: 100%; list-style: none; padding: 24px 0 0; margin: 28px 0 0; border-top: 1px solid var(--border-color); text-align: left; }
+.empty-guide li { display: flex; flex-direction: column; gap: 8px; }
+.empty-guide li > span { font-size: 11px; color: var(--primary); font-variant-numeric: tabular-nums; }
+.empty-guide strong { font-size: 13px; color: var(--text-primary); font-weight: 500; }
+.empty-guide small { font-size: 12px; color: var(--text-secondary); }
+@media (max-width: 480px) {
+  .empty-state { padding: 28px 12px; }
+  .empty-guide { gap: 12px; }
+  .stage-header { flex-wrap: wrap; }
+  .thinking-header { flex-wrap: wrap; }
+  .progress-eta { flex-basis: 100%; }
+  .log-item-merged { flex-wrap: wrap; }
+  .log-msg { flex-basis: 100%; }
+}
 </style>

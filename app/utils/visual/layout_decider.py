@@ -8,6 +8,7 @@
 4. 装饰元素的添加
 """
 import logging
+from PIL import Image
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
@@ -25,6 +26,7 @@ from app.utils.visual.visual_analyzer import (
     VisualAnalyzer
 )
 from app.utils.visual.image_manager import ImageManager, ImageAsset
+from app.utils.pptx.semantic_renderer import normalize_slide_type
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,22 @@ class LayoutType(Enum):
     CONTENT_ONLY = "content_only"      # 纯文字内容页
     TWO_COLUMN = "two_column"          # 双栏布局
     CENTER_FOCUS = "center_focus"      # 中心聚焦
+
+
+def layout_type_for_slide_type(slide_type: str | None, *, has_image: bool = False) -> LayoutType:
+    """Map semantic page intent to a compatible legacy layout."""
+    semantic_type = normalize_slide_type(slide_type)
+    if semantic_type == "image_text" and has_image:
+        return LayoutType.CONTENT_WITH_IMAGE
+    return {
+        "cover": LayoutType.TITLE_SLIDE,
+        "section": LayoutType.TITLE_SLIDE,
+        "closing": LayoutType.TITLE_SLIDE,
+        "comparison": LayoutType.TWO_COLUMN,
+        "timeline": LayoutType.TWO_COLUMN,
+        "process": LayoutType.TWO_COLUMN,
+        "summary": LayoutType.CENTER_FOCUS,
+    }.get(semantic_type, LayoutType.CONTENT_ONLY)
 
 
 @dataclass
@@ -116,7 +134,8 @@ class LayoutDecider:
         self,
         slide_decision: SlideVisualDecision,
         page_number: int,
-        total_pages: int
+        total_pages: int,
+        semantic_slide_type: str | None = None,
     ) -> SlideLayoutPlan:
         """
         为单页幻灯片生成布局计划
@@ -133,12 +152,16 @@ class LayoutDecider:
 
         # 根据是否有主图片决定布局类型
         main_image = slide_decision.get_main_image()
-        if main_image and main_image.image_type != ImageType.NONE:
-            layout_type = LayoutType.CONTENT_WITH_IMAGE
+        has_image = bool(main_image and main_image.image_type != ImageType.NONE)
+        if has_image:
             elements = self._plan_with_image(slide_decision, main_image)
         else:
-            layout_type = LayoutType.CONTENT_ONLY
             elements = self._plan_content_only(slide_decision)
+        layout_type = layout_type_for_slide_type(semantic_slide_type, has_image=has_image) if semantic_slide_type else (
+            LayoutType.CONTENT_WITH_IMAGE if has_image else LayoutType.CONTENT_ONLY
+        )
+        if semantic_slide_type:
+            elements = self._apply_semantic_geometry(elements, layout_type)
 
         # 添加装饰图片（如果需要）
         if slide_decision.images:
@@ -157,6 +180,55 @@ class LayoutDecider:
             add_decorations=slide_decision.add_decoration,
             decoration_style=slide_decision.decoration_style if hasattr(slide_decision, 'decoration_style') else 'minimal'
         )
+
+    def _apply_semantic_geometry(self, elements: List[LayoutElement], layout_type: LayoutType) -> List[LayoutElement]:
+        """Apply distinct geometry while retaining the legacy element contract."""
+        title = next((element for element in elements if element.element_type == "title"), None)
+        content = next((element for element in elements if element.element_type == "content"), None)
+        if layout_type == LayoutType.TITLE_SLIDE and title:
+            title.left = Inches(1.2)
+            title.top = Inches(2.0)
+            title.width = Inches(10.9)
+            title.height = Inches(1.6)
+            title.properties["alignment"] = "center"
+            title.properties["font_size"] = max(32, int(title.properties.get("font_size", 32)))
+            if content:
+                content.left = Inches(2.0)
+                content.top = Inches(4.0)
+                content.width = Inches(9.3)
+                content.height = Inches(1.5)
+                content.properties["alignment"] = "center"
+        elif layout_type == LayoutType.CENTER_FOCUS:
+            if title:
+                title.left = Inches(1.6)
+                title.width = Inches(10.1)
+                title.properties["alignment"] = "center"
+            if content:
+                content.left = Inches(2.0)
+                content.top = Inches(2.0)
+                content.width = Inches(9.3)
+                content.height = Inches(3.8)
+                content.properties["alignment"] = "center"
+        elif layout_type == LayoutType.TWO_COLUMN and content:
+            items = content.properties.get("items", [])
+            if isinstance(items, str):
+                items = [items]
+            midpoint = max(1, (len(items) + 1) // 2)
+            content.properties["items"] = list(items[:midpoint])
+            content.left = self.MARGIN_LEFT
+            content.top = Inches(1.6)
+            content.width = Inches(5.7)
+            content.height = Inches(5.2)
+            right = LayoutElement(
+                element_type="content",
+                left=Inches(7.0),
+                top=Inches(1.6),
+                width=Inches(5.7),
+                height=Inches(5.2),
+                properties={**content.properties, "items": list(items[midpoint:])},
+            )
+            elements.append(right)
+        return elements
 
     def _plan_with_image(self, decision: SlideVisualDecision, main_image: 'ImageDecision') -> List[LayoutElement]:
         """规划带图片的布局"""
@@ -448,7 +520,8 @@ class LayoutDecider:
         prs: Presentation,
         layout_plan: SlideLayoutPlan,
         image_asset: Optional[ImageAsset] = None,
-        style=None
+        style=None,
+        tokens=None,
     ) -> None:
         """
         根据布局计划渲染幻灯片
@@ -462,6 +535,8 @@ class LayoutDecider:
         if style is None:
             from app.utils.pptx.ppt_style import PPTStyle
             style = PPTStyle()
+        if tokens is not None:
+            style = self._style_with_tokens(style, tokens)
         
         blank_layout = prs.slide_layouts[6]
         slide = prs.slides.add_slide(blank_layout)
@@ -486,6 +561,13 @@ class LayoutDecider:
         
         # 添加页码
         self._add_page_number(slide, prs, layout_plan.page_number, layout_plan.total_pages, style)
+
+    @staticmethod
+    def _style_with_tokens(style, tokens):
+        """Overlay immutable design tokens onto the existing style contract."""
+        from app.utils.pptx.ppt_style import apply_design_tokens
+
+        return apply_design_tokens(style, tokens)
     
     def _add_background(
         self,
@@ -693,14 +775,20 @@ class LayoutDecider:
             return
         
         try:
-            # 添加图片
-            slide.shapes.add_picture(
+            with Image.open(image_asset.local_path) as image:
+                source_ratio = image.width / image.height
+            box_ratio = element.width / element.height
+            picture = slide.shapes.add_picture(
                 image_asset.local_path,
                 element.left,
                 element.top,
                 element.width,
                 element.height
             )
+            if source_ratio > box_ratio:
+                picture.crop_left = picture.crop_right = (1 - box_ratio / source_ratio) / 2
+            elif source_ratio < box_ratio:
+                picture.crop_top = picture.crop_bottom = (1 - source_ratio / box_ratio) / 2
         except Exception as e:
             logger.error(f"图片渲染失败: {str(e)}")
     

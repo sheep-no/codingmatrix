@@ -1,12 +1,14 @@
 from app.models.base import Base
-from app.models.unified_state import Artifact, Checkpoint, Message, Session, TaskEvent
+from app.models.unified_state import Artifact, Checkpoint, Message, Session, SessionEvent, TaskEvent
 
 
 def test_unified_state_tables_and_constraints_exist():
     tables = Base.metadata.tables
 
-    assert {"sessions", "messages", "task_events", "checkpoints", "artifacts"} <= set(tables)
+    assert {"sessions", "messages", "session_events", "task_events", "checkpoints", "artifacts"} <= set(tables)
+    assert "uq_sessions_user_module_external" in {c.name for c in tables["sessions"].constraints}
     assert "uq_messages_session_sequence" in {c.name for c in tables["messages"].constraints}
+    assert "uq_session_events_session_turn" in {c.name for c in tables["session_events"].constraints}
     assert "uq_task_events_task_sequence" in {c.name for c in tables["task_events"].constraints}
     assert "uq_checkpoints_task_revision" in {c.name for c in tables["checkpoints"].constraints}
     assert "uq_artifacts_task_type_version" in {c.name for c in tables["artifacts"].constraints}
@@ -17,4 +19,5 @@ def test_unified_state_models_use_expected_task_payload_fields():
     assert {"task_id", "revision", "step", "state_json"} <= set(Checkpoint.__table__.columns.keys())
     assert {"user_id", "session_id", "artifact_type", "storage_uri"} <= set(Artifact.__table__.columns.keys())
     assert {"session_id", "sequence", "role", "content"} <= set(Message.__table__.columns.keys())
+    assert {"session_id", "user_id", "sequence", "event_type", "turn_id", "payload_json", "reservation_token"} <= set(SessionEvent.__table__.columns.keys())
     assert {"id", "user_id", "module", "status"} <= set(Session.__table__.columns.keys())

@@ -1,13 +1,25 @@
 """GirlAI legacy chat history adapter for unified state persistence."""
 
+import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.unified_state import Checkpoint, Message, Session
-from app.services.session_state_service import append_message, create_session, list_messages
+from app.core.config import settings
+from app.models.unified_state import Checkpoint, Message, Session, SessionEvent
+from app.schema.girl_companion import CompanionTurn
+from app.services.session_state_service import (
+    append_message,
+    create_session,
+    get_latest_session_event,
+    get_session_event_by_turn_id,
+    list_messages,
+    reserve_session_event,
+    update_session_event,
+)
 from app.services.state_migration_service import (
     resolve_compatibility_mapping,
     upsert_compatibility_mapping,
@@ -34,13 +46,53 @@ async def ensure_session(db: AsyncSession, user_id: int, character_id: Optional[
         if session:
             return session
 
-    session = await create_session(
-        db,
-        user_id,
-        MODULE,
-        external_id=legacy_id,
-        title=f"GirlAI:{character_id}" if character_id else "GirlAI",
+    session = await db.scalar(
+        select(Session).where(
+            Session.user_id == int(user_id),
+            Session.module == MODULE,
+            Session.external_id == legacy_id,
+        )
     )
+    if session is None:
+        try:
+            async with db.begin_nested():
+                session = await create_session(
+                    db,
+                    user_id,
+                    MODULE,
+                    external_id=legacy_id,
+                    title=f"GirlAI:{character_id}" if character_id else "GirlAI",
+                )
+                await upsert_compatibility_mapping(
+                    db, user_id, MODULE, SESSION_TYPE, legacy_id, "session", session.id,
+                    source_table="chat_histories",
+                )
+            return session
+        except IntegrityError as error:
+            message = str(error.orig).lower()
+            is_session_conflict = (
+                "uq_sessions_user_module_external" in message
+                or "sessions.user_id, sessions.module, sessions.external_id" in message
+            )
+            if not is_session_conflict:
+                raise
+            mapping = await resolve_compatibility_mapping(
+                db, user_id, MODULE, SESSION_TYPE, legacy_id
+            )
+            if mapping:
+                existing = await db.get(Session, mapping.unified_id)
+                if existing:
+                    return existing
+            session = await db.scalar(
+                select(Session).where(
+                    Session.user_id == int(user_id),
+                    Session.module == MODULE,
+                    Session.external_id == legacy_id,
+                )
+            )
+            if session is None:
+                raise
+
     await upsert_compatibility_mapping(
         db, user_id, MODULE, SESSION_TYPE, legacy_id, "session", session.id,
         source_table="chat_histories",
@@ -68,6 +120,107 @@ async def append_conversation_turn(
     user_message = await append_message(db, session.id, user_id, "user", user_content, user_metadata)
     assistant_message = await append_message(db, session.id, user_id, "assistant", assistant_content, assistant_metadata)
     return user_message, assistant_message
+
+
+async def append_companion_turn_state(
+    db: AsyncSession,
+    user_id: int,
+    session_id: str,
+    turn: CompanionTurn,
+    *,
+    model: Optional[str] = None,
+    tokens_used: int = 0,
+    reservation_token: Optional[str] = None,
+) -> SessionEvent:
+    """Persist one recoverable companion state event in the message transaction."""
+    if not turn.turn_id:
+        raise ValueError("伙伴回合缺少 turn_id")
+    payload = turn.model_dump(mode="json") if hasattr(turn, "model_dump") else turn.dict()
+    payload["model"] = model or turn.model_context.current_model
+    payload["tokens_used"] = max(0, int(tokens_used))
+    event_type = (
+        "companion.turn.degraded"
+        if turn.degraded_capabilities
+        else "companion.turn.completed"
+    )
+    return await update_session_event(
+        db,
+        session_id,
+        user_id,
+        turn.turn_id,
+        event_type,
+        payload,
+        schema_version=str(turn.schema_version),
+        expected_reservation_token=reservation_token,
+    )
+
+
+async def reserve_companion_turn_state(
+    db: AsyncSession,
+    user_id: int,
+    session_id: str,
+    turn_id: str,
+) -> tuple[SessionEvent, bool]:
+    """Reserve a turn id before model and persistence side effects begin."""
+    return await reserve_session_event(
+        db,
+        session_id,
+        user_id,
+        "companion.turn.processing",
+        turn_id,
+        {"turn_id": turn_id, "conversation_id": session_id},
+        reclaim_after_seconds=settings.GIRLAI_TURN_RESERVATION_TIMEOUT_SECONDS,
+        reservation_token=str(uuid.uuid4()),
+    )
+
+
+async def fail_companion_turn_state(
+    db: AsyncSession,
+    user_id: int,
+    session_id: str,
+    turn_id: str,
+    error_type: str,
+    reservation_token: Optional[str] = None,
+) -> SessionEvent:
+    """Mark a reserved turn as failed without storing provider error details."""
+    return await update_session_event(
+        db,
+        session_id,
+        user_id,
+        turn_id,
+        "companion.turn.failed",
+        {
+            "turn_id": turn_id,
+            "conversation_id": session_id,
+            "error_type": error_type,
+            "degraded_capabilities": ["conversation"],
+        },
+        expected_reservation_token=reservation_token,
+    )
+
+
+async def get_latest_companion_turn_state(
+    db: AsyncSession,
+    user_id: int,
+    session_id: str,
+) -> Optional[SessionEvent]:
+    """Read the most recent user-owned companion event."""
+    return await get_latest_session_event(
+        db,
+        session_id,
+        user_id,
+        event_types=("companion.turn.completed", "companion.turn.degraded"),
+    )
+
+
+async def get_companion_turn_state(
+    db: AsyncSession,
+    user_id: int,
+    session_id: str,
+    turn_id: str,
+) -> Optional[SessionEvent]:
+    """Read a persisted companion event for idempotent request replay."""
+    return await get_session_event_by_turn_id(db, session_id, user_id, turn_id)
 
 
 async def clear_messages_for_user(db: AsyncSession, user_id: int) -> int:
@@ -144,11 +297,16 @@ async def list_messages_for_user(db: AsyncSession, user_id: int, limit: int = 10
 
 
 __all__ = [
+    "append_companion_turn_state",
     "append_conversation_turn",
     "clear_messages_for_user",
     "delete_messages_for_legacy_ids",
     "ensure_session",
+    "fail_companion_turn_state",
+    "get_companion_turn_state",
+    "get_latest_companion_turn_state",
     "list_messages_for_user",
+    "reserve_companion_turn_state",
     "save_summary_checkpoint",
     "user_session_id",
 ]

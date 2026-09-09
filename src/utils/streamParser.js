@@ -1,12 +1,29 @@
 /**
  * Consume newline-delimited JSON or SSE data without losing split chunks.
  */
-export async function consumeJsonStream(response, onData, { onParseError } = {}) {
+export async function consumeJsonStream(response, onData, { onParseError, signal } = {}) {
   if (!response.body) return
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+
+  const readWithAbort = async () => {
+    if (!signal) return reader.read()
+    if (signal.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
+    }
+
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        reader.cancel().catch(() => undefined)
+        reject(new DOMException('Aborted', 'AbortError'))
+      }
+
+      signal.addEventListener('abort', onAbort, { once: true })
+      reader.read().then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+    })
+  }
 
   const processLine = line => {
     const trimmed = line.trim()
@@ -21,7 +38,7 @@ export async function consumeJsonStream(response, onData, { onParseError } = {})
   }
 
   while (true) {
-    const { done, value } = await reader.read()
+    const { done, value } = await readWithAbort()
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
     const lines = buffer.split(/\r?\n/)
     buffer = lines.pop() || ''

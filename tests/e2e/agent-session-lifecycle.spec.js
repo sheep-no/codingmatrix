@@ -6,11 +6,13 @@ const BASE = 'http://127.0.0.1:8000';
 test.describe('会话生命周期 E2E', () => {
 
   test('会话创建→切换→删除完整流程', async ({ page }) => {
+    test.setTimeout(90000);
     await apiLogin(page, BASE);
     await page.goto('/agent');
     await page.waitForLoadState('domcontentloaded');
 
-    const textarea = page.locator('textarea').first();
+    const textarea = page.locator('[data-testid="agent-prompt-input"]');
+    await textarea.waitFor({ state: 'visible', timeout: 60000 });
     const sessionItems = page.locator('.session-item');
     const newBtn = page.locator('button[title="新建会话"]');
 

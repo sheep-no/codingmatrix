@@ -1,5 +1,7 @@
 # Skills 系统文档
 
+> 最后核对：2026-09-03
+
 ## 概述
 
 本项目的 Skill 系统分为两个层面：
@@ -102,6 +104,8 @@ class AgentSkillsManager:
 
 ## 自定义 Skill 系统
 
+当前实现由 `app/api/v1/skills.py`、`app/services/custom_skill_manager.py`、`app/services/skill_registry.py` 和 `app/api/v1/agent_host.py` 共同组成。API 路由前缀为 `/api/v1/skills`，读取、更新、删除和列表按 Token 中的用户 ID 过滤；用户 Skill 文件路径含 `owner_user_id`：`/workspace/data/custom_skills/{category}/{owner_user_id}/{name}.md`，注册表键为 `user:{owner_user_id}:{name}`，用于多租户隔离。上传、更新或删除后，Skills API 会向该用户的活跃 Agent Host 会话广播最新 Skill 集合。
+
 ### 架构组件
 
 | 组件 | 文件 | 职责 |
@@ -142,47 +146,30 @@ class AgentSkillsManager:
 1. **写入触发**：`CustomSkillManager` 执行 CRUD 操作后自动调用 `_notify_registry()`
 2. **注册表更新**：`SkillRegistry.reload_custom_skills()` 清除旧的自定义 Skill 并重新扫描文件系统
 3. **缓存失效**：`invalidate_cache()` / `invalidate_all_cache()` 清除已缓存的 Skill 数据
-4. **存储目录**：自定义 Skill 文件存储于 `/workspace/data/custom_skills/{category}/{name}.md`
+4. **存储目录**：自定义 Skill 文件存储于 `/workspace/data/custom_skills/{category}/{owner_user_id}/{name}.md`
 5. **元数据**：所有自定义 Skill 的元信息记录在 `/workspace/data/custom_skills/_metadata.json`
 
-### Agent 提示词覆盖机制
+### Agent 提示词边界
 
-每个 Agent（Architect、BackendEngineer、FrontendEngineer、CodeReviewer）的 `SYSTEM_PROMPT` 属性采用三级优先级加载：
+固定角色提示词由 legacy 加载函数读取，例如 `architect_prompt`、`backend_engineer_prompt`、`frontend_engineer_prompt` 和 `code_reviewer_prompt`。用户 Skill 使用 `user:{owner_user_id}:{name}` 命名空间注入当前用户上下文；两者属于不同边界。固定角色 prompt 继续由 legacy 角色加载链管理，用户 Skill 通过当前用户命名空间参与运行时上下文注入。
 
-```python
-@property
-def SYSTEM_PROMPT(self) -> str:
-    # 优先级 1：从注册表获取用户自定义版本
-    custom_prompt = get_skill("architect_prompt")
-    if custom_prompt:
-        return custom_prompt
-
-    # 优先级 2：从文件系统加载内置提示词
-    prompt = load_architect_prompt()
-    if prompt:
-        return prompt
-
-    # 优先级 3：硬编码兜底提示词
-    return self._fallback_prompt()
-```
+角色加载链保留内置增强提示词和硬编码兜底；用户命名空间 Skill 通过 Agent 上下文注入，不改变其他用户的角色提示词。
 
 ---
 
 ## Skill 加载优先级
 
 ```
-自定义 Skill（用户上传，SkillRegistry）
-    ↓ 未找到
-内置文件（.claude/skills/orchestrator/*.md，PromptLoader）
-    ↓ 未找到
-硬编码兜底（Agent._fallback_prompt()）
+用户命名空间 Skill（`user:{owner_user_id}:{name}`，当前用户上下文）
+    ↓
+固定角色 legacy 提示词（内置增强文件 / 硬编码兜底）
 ```
 
 | 优先级 | 来源 | 存储位置 | 更新方式 |
 |--------|------|----------|----------|
-| 1（最高） | 用户自定义 Skill | `/workspace/data/custom_skills/` | API 上传 / 文件编辑 |
-| 2 | 内置提示词文件 | `.claude/skills/orchestrator/` | 编辑 Markdown 文件 |
-| 3（最低） | 硬编码兜底 | Agent 源码 `_fallback_prompt()` | 修改代码 |
+| 运行时注入 | 用户自定义 Skill | `/workspace/data/custom_skills/{category}/{owner_user_id}/` | API 上传 / 文件编辑 |
+| legacy 角色加载 | 内置提示词文件 | `.claude/skills/orchestrator/` | 编辑 Markdown 文件 |
+| legacy 角色兜底 | 硬编码兜底 | Agent 源码 `_fallback_prompt()` | 修改代码 |
 
 ---
 

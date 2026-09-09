@@ -1,4 +1,4 @@
-import { AgentHostEnvelope, AgentHostSession } from "./agent-host.js";
+import { AgentHostEnvelope, AgentHostSession, SKILL_RUNTIME_OPERATIONS } from "./agent-host.js";
 import { ApprovalBridge } from "./approval-bridge.js";
 import type { CloudConnection } from "./connection.js";
 import { ToolDispatcher } from "./tool-dispatcher.js";
@@ -32,6 +32,10 @@ export class AgentHostRuntime {
   private readonly onSkillRevoke?: AgentHostRuntimeOptions["onSkillRevoke"];
   private readonly onSkillSync?: AgentHostRuntimeOptions["onSkillSync"];
   private controlStatus: "active" | "paused" | "cancelled" = "active";
+  private readonly actionExecutions = new Map<string, Promise<unknown>>();
+  private readonly activeActions = new Map<string, AbortController>();
+  private connectionGeneration = 0;
+  private activePoll?: { generation: number; promise: Promise<number> };
 
   constructor(options: AgentHostRuntimeOptions) {
     this.session = options.session;
@@ -45,10 +49,32 @@ export class AgentHostRuntime {
   }
 
   setConnection(connection: AgentHostRuntimeOptions["connection"]): void {
+    this.cancelActiveActions();
+    this.connectionGeneration += 1;
+    this.activePoll = undefined;
     this.connection = connection;
   }
 
+  resetForHandshake(): void {
+    this.cancelActiveActions();
+    this.actionExecutions.clear();
+    this.controlStatus = "active";
+  }
+
+  cancelActiveActions(): void {
+    for (const controller of this.activeActions.values()) controller.abort();
+    this.activeActions.clear();
+    this.approvalBridge?.dispose();
+  }
+
   async process(action: AgentHostEnvelope): Promise<unknown> {
+    return this.processWithConnection(action, this.connection);
+  }
+
+  private async processWithConnection(
+    action: AgentHostEnvelope,
+    connection: AgentHostRuntimeOptions["connection"],
+  ): Promise<unknown> {
     if (action.kind === "policy_update") return this.applyPolicyUpdate(action);
     if (action.kind === "approval_decision") return this.applyApprovalDecision(action);
     if (action.kind === "session_control") return this.applySessionControl(action);
@@ -65,49 +91,98 @@ export class AgentHostRuntime {
     if (action.capability === "skill_runtime" && action.kind === "tool_action") {
       return this.applySkillSync(action);
     }
-    if (!snapshot.policy.auto_approve && this.approvalBridge) {
-      const approved = await this.approvalBridge.request(action);
-      if (!approved) return { status: "rejected", action_id: action.message_id };
+    if (action.kind !== "tool_action") {
+      return this.executeToolAction(action, snapshot, connection);
     }
-    const result = await this.dispatcher.dispatch(action);
-    if (isLocalValidationResult(result)) {
-      if (!this.connection) {
-        await this.emitResult({
-          message_id: `${action.message_id}:result`,
-          schema_version: action.schema_version,
-          session_id: action.session_id,
-          task_id: action.task_id,
-          revision: action.revision,
-          kind: "tool_result",
-          capability: action.capability,
-          policy_version: snapshot.policy_version,
-          payload: result,
-        });
-      } else {
-        await this.connection.submitResult(result);
+    const executionKey = `${action.session_id}:${action.message_id}`;
+    const existing = this.actionExecutions.get(executionKey);
+    if (existing) return existing;
+    const execution = this.executeToolAction(action, snapshot, connection, executionKey);
+    this.actionExecutions.set(executionKey, execution);
+    void execution.then(
+      () => this.trimActionExecutions(),
+      () => {
+        if (this.actionExecutions.get(executionKey) === execution) this.actionExecutions.delete(executionKey);
+      },
+    );
+    this.trimActionExecutions();
+    return execution;
+  }
+
+  private trimActionExecutions(): void {
+    while (this.actionExecutions.size > 1000) {
+      let completedKey: string | undefined;
+      for (const key of this.actionExecutions.keys()) {
+        if (!this.activeActions.has(key)) {
+          completedKey = key;
+          break;
+        }
       }
-      return result;
+      if (!completedKey) return;
+      this.actionExecutions.delete(completedKey);
     }
-    const event: AgentHostEnvelope = {
-      message_id: `${action.message_id}:result`,
-      schema_version: action.schema_version,
-      session_id: action.session_id,
-      task_id: action.task_id,
-      revision: action.revision,
-      kind: "tool_result",
-      capability: action.capability,
-      policy_version: snapshot.policy_version,
-      payload: result,
-    };
-    if (this.connection?.submitEvent) await this.connection.submitEvent(event);
-    else await this.emitResult(event);
-    return result;
+  }
+
+  private async executeToolAction(
+    action: AgentHostEnvelope,
+    snapshot: ReturnType<AgentHostSession["snapshot"]>,
+    connection: AgentHostRuntimeOptions["connection"],
+    executionKey?: string,
+  ): Promise<unknown> {
+    const controller = new AbortController();
+    if (executionKey) this.activeActions.set(executionKey, controller);
+    try {
+      if (!snapshot.policy.auto_approve && this.approvalBridge) {
+        const approved = await this.approvalBridge.request(action);
+        if (!approved) return { status: "rejected", action_id: action.message_id };
+      }
+      const result = await this.dispatcher.dispatch(action, { signal: controller.signal });
+      if (isLocalValidationResult(result)) {
+        if (!connection) {
+          await this.emitResult({
+            message_id: `${action.message_id}:result`,
+            schema_version: action.schema_version,
+            session_id: action.session_id,
+            task_id: action.task_id,
+            revision: action.revision,
+            kind: "tool_result",
+            capability: action.capability,
+            policy_version: snapshot.policy_version,
+            payload: result,
+          });
+        } else {
+          await connection.submitResult(result);
+        }
+        return result;
+      }
+      const event: AgentHostEnvelope = {
+        message_id: `${action.message_id}:result`,
+        schema_version: action.schema_version,
+        session_id: action.session_id,
+        task_id: action.task_id,
+        revision: action.revision,
+        kind: "tool_result",
+        capability: action.capability,
+        policy_version: snapshot.policy_version,
+        payload: result,
+      };
+      if (connection?.submitEvent) await connection.submitEvent(event);
+      else await this.emitResult(event);
+      return result;
+    } finally {
+      if (executionKey && this.activeActions.get(executionKey) === controller) {
+        this.activeActions.delete(executionKey);
+      }
+    }
   }
 
   private applyPolicyUpdate(action: AgentHostEnvelope): unknown {
     const payload = action.payload;
     if (!isRecord(payload) || action.policy_version === undefined || !isRecord(payload.policy)) {
       throw new AgentHostRuntimeError("policy_mismatch", "policy update requires a version and policy payload");
+    }
+    if (action.session_id !== this.session.snapshot().session_id) {
+      throw new AgentHostRuntimeError("session_mismatch", "policy update belongs to another session");
     }
     const policy = this.session.applyPolicyUpdate({
       policy_version: action.policy_version,
@@ -138,6 +213,9 @@ export class AgentHostRuntime {
       throw new AgentHostRuntimeError("session_mismatch", "control belongs to another session");
     }
     this.controlStatus = action.payload.action === "cancel" ? "cancelled" : action.payload.action === "pause" ? "paused" : "active";
+    if (action.payload.action === "cancel") {
+      this.cancelActiveActions();
+    }
     await this.onSessionControl?.(action.payload.action);
     return this.controlStatus;
   }
@@ -154,7 +232,7 @@ export class AgentHostRuntime {
   }
 
   private async applySkillSync(action: AgentHostEnvelope): Promise<boolean> {
-    if (!isRecord(action.payload) || !["sync", "sync_user"].includes(String(action.payload.operation)) || !isRecord(action.payload.skills)) {
+    if (!isRecord(action.payload) || !SKILL_RUNTIME_OPERATIONS.includes(String(action.payload.operation) as typeof SKILL_RUNTIME_OPERATIONS[number]) || !isRecord(action.payload.skills)) {
       throw new AgentHostRuntimeError("policy_mismatch", "skill sync requires a skills object");
     }
     await this.onSkillSync?.(action.payload.skills);
@@ -162,16 +240,34 @@ export class AgentHostRuntime {
   }
 
   async poll(): Promise<number> {
-    if (!this.connection) return 0;
-    if (this.connection.fetchAgentHostActions) {
-      const actions = await this.connection.fetchAgentHostActions();
-      for (const action of actions) await this.process(action);
+    const generation = this.connectionGeneration;
+    if (this.activePoll?.generation === generation) return this.activePoll.promise;
+    const connection = this.connection;
+    const poll = this.pollOnce(connection, generation);
+    this.activePoll = { generation, promise: poll };
+    try {
+      return await poll;
+    } finally {
+      if (this.activePoll?.promise === poll) this.activePoll = undefined;
+    }
+  }
+
+  private async pollOnce(connection: AgentHostRuntimeOptions["connection"], generation: number): Promise<number> {
+    if (!connection) return 0;
+    if (connection.fetchAgentHostActions) {
+      const actions = await connection.fetchAgentHostActions();
+      if (generation !== this.connectionGeneration) return 0;
+      for (const action of actions) {
+        await this.processWithConnection(action, connection);
+        if (generation !== this.connectionGeneration) return 0;
+      }
       return actions.length;
     }
     const policyVersion = this.session.snapshot().policy_version;
-    const actions = await this.connection.fetchPendingActions();
+    const actions = await connection.fetchPendingActions();
+    if (generation !== this.connectionGeneration) return 0;
     for (const action of actions) {
-      await this.process({
+      await this.processWithConnection({
         message_id: action.event_id,
         schema_version: action.schema_version,
         session_id: action.session_id,
@@ -181,7 +277,8 @@ export class AgentHostRuntime {
         capability: "validation",
         policy_version: policyVersion,
         payload: action,
-      });
+      }, connection);
+      if (generation !== this.connectionGeneration) return 0;
     }
     return actions.length;
   }

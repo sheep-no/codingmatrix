@@ -204,7 +204,8 @@ class VisualAnalyzer:
         self, 
         title: str, 
         slides_content: List[Dict[str, Any]],
-        theme: str = "education"
+        theme: str = "education",
+        api_key_token: Optional[str] = None,
     ) -> PPTVisualPlan:
         """
         分析 PPT 内容，生成视觉规划
@@ -229,7 +230,8 @@ class VisualAnalyzer:
                 prompt=prompt,
                 stream=False,
                 max_tokens=4096,
-                temperature=0.3
+                temperature=0.3,
+                api_key_token=api_key_token,
             )
             
             # 解析模型返回

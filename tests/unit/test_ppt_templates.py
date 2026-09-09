@@ -21,6 +21,7 @@ from app.utils.pptx.templates.presets import (
     PitchDeckTemplate,
     EducationTemplate,
     MinimalTemplate,
+    TechTemplate,
 )
 
 
@@ -102,6 +103,7 @@ class TestTemplateCategory:
         assert TemplateCategory.BUSINESS.value == "business"
         assert TemplateCategory.ACADEMIC.value == "academic"
         assert TemplateCategory.PITCH.value == "pitch"
+        assert TemplateCategory.TECH.value == "tech"
         assert TemplateCategory.EDUCATION.value == "education"
         assert TemplateCategory.MINIMAL.value == "minimal"
 
@@ -164,6 +166,15 @@ class TestBuiltInTemplates:
         assert config.has_header_bar is False
         assert config.has_footer_bar is False
 
+    def test_tech_template(self):
+        template = TechTemplate()
+        config = template.config
+
+        assert config.template_id == "tech"
+        assert config.category == TemplateCategory.TECH
+        assert config.background_color == "0F172A"
+        assert config.accent_color == "F97316"
+
 
 class TestTemplateManager:
     """测试模板管理器"""
@@ -177,16 +188,22 @@ class TestTemplateManager:
         """测试管理器初始化"""
         assert manager is not None
         templates = manager.list_templates()
-        assert len(templates) == 5
+        assert len(templates) == 9
 
     def test_list_templates(self, manager):
         """测试列出模板"""
         templates = manager.list_templates()
 
-        assert len(templates) == 5
+        assert len(templates) == 9
         for template in templates:
             assert "id" in template
             assert "name" in template
+
+    def test_select_template_prefers_explicit_id_and_supports_alias(self, manager):
+        assert manager.select_template("business") == "business_report"
+        assert manager.select_template(scenario="academic") == "academic"
+        with pytest.raises(KeyError):
+            manager.select_template("missing")
             assert "name_zh" in template
             assert "category" in template
             assert "description" in template
@@ -254,7 +271,7 @@ class TestTemplateManager:
         manager.register(template)
 
         templates = manager.list_templates()
-        assert len(templates) == 6
+        assert len(templates) == 10
 
         saved = manager.get_template("custom_test")
         assert saved is not None

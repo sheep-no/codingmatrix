@@ -25,8 +25,15 @@ import { ElMessage } from 'element-plus'
  */
 export function handleError(error, context = '', options = {}) {
   const { silent = false, toast = !silent, level = 'warn' } = options
-  const message = error?.message || error?.toString() || String(error)
-  const fullMessage = context ? `${context}: ${message}` : message
+  let message
+  if (error == null) {
+    message = ''
+  } else if (typeof error === 'string') {
+    message = error
+  } else {
+    message = error?.message || error?.toString?.() || String(error)
+  }
+  const fullMessage = context && message ? `${context}: ${message}` : (context || message)
 
   // 控制台日志
   if (level === 'debug') console.debug('[Error]', fullMessage)

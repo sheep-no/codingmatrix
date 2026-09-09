@@ -1,167 +1,90 @@
-# AI 云管理 (Aicloud)
+# AI Cloud
 
-AI 云管理是 CodingMatrix 的 superadmin 功能，提供完整的 AI 会话管理、文件操作、审计和知识库能力。
+> 最后更新：2026-09-03
 
-## 功能概览
+AI Cloud 为具有 admin 或更高权限的用户提供受控的 AI 会话、沙箱文件、审查、审计、代码执行和知识库能力。每个端点先通过 JWT 获取用户 ID，再调用 `check_aicloud_permission()` 校验管理员权限。
 
-| 功能 | 端点 | 权限 |
+## API 总览
+
+主路由前缀为 `/api/v1/aicloud`。
+
+| 方法 | 路径 | 说明 |
 |------|------|------|
-| 聊天 | POST /api/v1/aicloud/chat | admin |
-| 流式聊天 | POST /api/v1/aicloud/chat/stream | admin |
-| 文件读取 | POST /api/v1/aicloud/read | admin |
-| 文件写入 | POST /api/v1/aicloud/write | admin |
-| 历史记录 | GET /api/v1/aicloud/history | admin |
-| 审计日志 | GET /api/v1/aicloud/audit-logs | admin |
-| 审查管理 | GET/POST /api/v1/aicloud/reviews | admin |
-| 代码执行 | POST /api/v1/aicloud/execute | admin |
-| 知识管理 | /api/v1/aicloud/knowledge/* | admin |
-| 模型列表 | GET /api/v1/aicloud/models | admin |
+| POST | `/api/v1/aicloud/chat` | 同步聊天 |
+| POST | `/api/v1/aicloud/chat/stream` | SSE 流式聊天 |
+| POST | `/api/v1/aicloud/read` | 读取沙箱文件 |
+| POST | `/api/v1/aicloud/write` | 写入沙箱文件或进入审查流程 |
+| GET | `/api/v1/aicloud/history` | 获取会话历史 |
+| GET | `/api/v1/aicloud/history/search` | 搜索历史 |
+| GET | `/api/v1/aicloud/history/export/{session_id}` | 导出会话 |
+| DELETE | `/api/v1/aicloud/history/{session_id}` | 删除会话 |
+| GET | `/api/v1/aicloud/audit-logs` | 查询审计日志 |
+| GET | `/api/v1/aicloud/reviews` | 查询审查队列 |
+| POST | `/api/v1/aicloud/reviews/approve` | 批准审查项 |
+| POST | `/api/v1/aicloud/reviews/reject` | 拒绝审查项 |
+| GET | `/api/v1/aicloud/models` | 列出可用模型 |
+| POST | `/api/v1/aicloud/execute` | 执行代码任务 |
 
-## API 端点详情
+知识库路由前缀为 `/api/v1/aicloud/knowledge`。
 
-### 聊天
-
-**POST /api/v1/aicloud/chat** — 同步聊天请求。
-
-请求体:
-```json
-{ "message": "string", "model": "string", "session_id": "string" }
-```
-
-响应: `{"content": "string", "tokens": number}`
-
-**POST /api/v1/aicloud/chat/stream** — 流式聊天，SSE 推送。
-
-### 文件操作
-
-**POST /api/v1/aicloud/read** — 读取文件内容。
-
-**POST /api/v1/aicloud/write** — 写入文件内容。
-
-### 会话管理
-
-**GET /api/v1/aicloud/history** — 获取会话历史列表。
-
-**GET /api/v1/aicloud/history/search** — 搜索历史会话。
-
-**GET /api/v1/aicloud/history/export/{session_id}** — 导出会话。
-
-**DELETE /api/v1/aicloud/history/{session_id}** — 删除会话。
-
-### 审计与审查
-
-**GET /api/v1/aicloud/audit-logs** — 获取审计日志。
-
-**GET /api/v1/aicloud/reviews** — 获取审查列表。
-
-**POST /api/v1/aicloud/reviews/approve** — 批准审查。
-
-**POST /api/v1/aicloud/reviews/reject** — 拒绝审查。
-
-### 知识管理
-
-**POST /api/v1/aicloud/knowledge/upload** — 上传文档到知识库。
-
-**GET /api/v1/aicloud/knowledge/docs** — 列出知识库文档。
-
-**DELETE /api/v1/aicloud/knowledge/docs/{doc_id}** — 删除文档。
-
-**POST /api/v1/aicloud/knowledge/search** — 搜索知识库。
-
-### 其他
-
-**GET /api/v1/aicloud/models** — 列出可用模型。
-
-**POST /api/v1/aicloud/execute** — 执行代码。
-
-## 工具函数
-
-工具模块位置: `app/utils/aicloud/`
-
-### 核心工具
-
-| 工具 | 文件 | 描述 |
+| 方法 | 路径 | 说明 |
 |------|------|------|
-| API Client | `api_client.py` | SiliconFlow API 客户端封装 |
-| Session Manager | `session_manager.py` | 会话生命周期管理 |
-| Code Executor | `code_executor.py` | 沙箱代码执行 |
-| File Manager | `file_manager.py` | 文件读写操作 |
-| Audit Logger | `audit_logger.py` | 审计日志记录 |
-| Review Engine | `review_engine.py` | 内容审查 |
+| POST | `/api/v1/aicloud/knowledge/upload` | 上传并处理文档 |
+| GET | `/api/v1/aicloud/knowledge/docs` | 列出当前用户文档 |
+| DELETE | `/api/v1/aicloud/knowledge/docs/{doc_id}` | 删除当前用户文档 |
+| POST | `/api/v1/aicloud/knowledge/search` | 向量检索 |
 
-### 使用示例
+## 会话状态
 
-```python
-from app.utils.aicloud.session_manager import SessionManager
-from app.utils.aicloud.audit_logger import AuditLogger
+同步和流式聊天均维护两套状态：
 
-manager = SessionManager()
-session = manager.create_session(user_id="1", model="qwen2.5-coder")
+- `AicloudSession` 与 `AicloudMessage` 保存 AI Cloud 旧版会话数据。
+- `app/services/aicloud_state_adapter.py` 将同一会话和消息写入统一状态模型。
+- 会话读取、导出和删除按当前用户过滤；删除接口清理旧版会话及其消息并失效相关缓存。
 
-logger = AuditLogger()
-logger.log(session_id=session.id, action="chat", user_id="1")
-```
+模型来自 AI Cloud 模型注册表。请求可指定模型 ID，缺省时使用注册表默认模型。
 
-### 生产级能力
+## 沙箱文件与执行
 
-| 模块 | 能力 |
-|------|------|
-| 会话管理 | 创建、恢复、超时清理；上下文窗口管理；多会话并发控制 |
-| 审计追踪 | 所有操作审计日志；IP/时间戳/操作类型记录；不可篡改日志存储 |
-| 内容审查 | AI 生成内容自动审查；敏感词过滤；人工审查工作流 |
-| 代码执行安全 | Docker 容器沙箱隔离；超时控制；CPU/内存资源限制；网络隔离 |
-| 知识库管理 | 文档解析 (PDF/Markdown/TXT)；向量化索引；语义搜索；版本管理 |
+- `ensure_user_sandbox()` 为用户准备隔离工作区。
+- `SandboxFileOperator` 处理文件读取和写入。
+- `is_protected_path()` 与 `is_protected_file()` 阻止访问受保护目标。
+- 写操作会记录审计信息，并可进入人工审查队列。
+- `execute_with_llm_loop()` 负责代码执行及模型反馈循环，具体隔离强度取决于当前沙箱执行器和部署环境。
 
-### 安全注意事项
+## 审查与审计
 
-1. 所有文件操作在沙箱中进行
-2. 代码执行有严格的超时和资源限制
-3. 审计日志不可删除
-4. 敏感操作需要管理员权限
+- 审查队列支持创建、批准和拒绝。
+- 审计日志记录聊天、文件读取、文件写入等操作。
+- 列表接口按调用者权限和服务查询条件返回数据。
 
-## 需求与设计规格
+## 知识库
 
-### 需求 — 用户故事
+上传流程依次执行文件保存、内容解析、文本分块、嵌入生成和数据库写入。当前允许的扩展名包括：
 
-1. 作为管理员，通过统一的 AI 云界面管理所有 AI 会话
-2. 作为管理员，审计所有 AI 操作记录
-3. 作为管理员，审查 AI 生成的内容
-4. 作为管理员，在沙箱中执行 AI 生成的代码
+`.txt`、`.md`、`.pdf`、`.docx`、`.py`、`.js`、`.ts`、`.json`、`.yaml`、`.yml`、`.csv`、`.log`。
 
-### 数据模型
+知识库文件存放在 `/workspace/data/knowledge`，元数据和文本块分别使用 `AicloudKnowledgeDoc`、`AicloudKnowledgeChunk` 持久化。列表、删除和搜索均校验当前用户及 collection 范围。
 
-**AicloudSession**
+## 权限边界
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | String (PK) | 会话 UUID |
-| user_id | Integer (FK) | 用户 ID |
-| model | String | 使用的模型 |
-| created_at | DateTime | 创建时间 |
+- `AICLOUD_REQUIRED_PERMISSION` 为 `admin`。
+- `is_admin()` 决定 admin 与更高权限级别的访问结果。
+- 普通用户收到 HTTP 403。
+- AI Cloud 权限独立于 `/api/v2/model-config` 的 superadmin 管理权限。
+- 聊天写入会同步统一状态；当前历史删除路由没有调用统一状态删除适配器，因此对应统一 session/message 可能继续保留。
 
-**AicloudKnowledge**
+## 相关文件
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | String (PK) | 文档 UUID |
-| filename | String | 文件名 |
-| content | Text | 文档内容 |
-| user_id | Integer (FK) | 用户 ID |
-| created_at | DateTime | 创建时间 |
-
-### 审计日志结构
-
-```json
-{
- "timestamp": "2026-05-08T00:00:00Z",
- "user_id": "1",
- "session_id": "uuid",
- "action": "chat",
- "model": "qwen2.5-coder",
- "tokens_used": 1500
-}
-```
-
-### 实现状态: 完成
-
-最后更新: 2026-05-13
+- `app/api/v1/aicloud.py`
+- `app/api/v1/aicloud_knowledge.py`
+- `app/utils/aicloud/permission.py`
+- `app/utils/aicloud/sandbox.py`
+- `app/utils/aicloud/sandbox_operator.py`
+- `app/utils/aicloud/review_queue.py`
+- `app/utils/aicloud/audit_logger.py`
+- `app/services/aicloud_state_adapter.py`
+- `app/models/aicloud.py`
+- `app/models/aicloud_knowledge.py`
+- `src/components/Aicloud.vue`
+- `src/utils/api/aicloud.js`

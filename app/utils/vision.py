@@ -4,7 +4,7 @@
 模型分工:
 - Qwen/Qwen3.5-4B: 视觉理解、图像分析和内容描述（主力）
 - deepseek-ai/DeepSeek-OCR: OCR 文字识别（专用）
-- Qwen/Qwen3-8B: 视觉任务降级
+- PaddlePaddle/PaddleOCR-VL-1.5: 文档视觉理解与 OCR
 """
 import base64
 import logging
@@ -72,8 +72,8 @@ def image_to_base64(image_path: str) -> str:
 # 视觉模型降级列表
 VISION_MODEL_FALLBACK = [
     DEFAULT_VISUAL_MODEL,
+    "PaddlePaddle/PaddleOCR-VL-1.5",
     DEFAULT_OCR_MODEL,
-    "Qwen/Qwen3-8B"
 ]
 
 
@@ -83,10 +83,12 @@ async def _call_vision_model(
     model: str,
     timeout: Timeout,
     api_key_token: Optional[str] = None,
-    user_id: Optional[str] = None
+    user_id: Optional[str] = None,
+    llm_caller=None,
 ) -> Dict[str, Any]:
     """调用视觉模型（通过统一 call_llm 路径）"""
-    from app.utils import call_llm
+    if llm_caller is None:
+        from app.utils import call_llm as llm_caller
 
     messages = [{
         "role": "user",
@@ -96,7 +98,7 @@ async def _call_vision_model(
         ]
     }]
 
-    result = await call_llm(
+    result = await llm_caller(
         model=model,
         prompt="",
         messages=messages,
@@ -111,7 +113,7 @@ async def _call_vision_model(
 async def analyze_image(
     image_path: str,
     prompt: str = "请详细描述这张图片的内容",
-    model: str = VISION_MODEL,
+    model: Optional[str] = VISION_MODEL,
     timeout: Timeout = Timeout(60.0, connect=10.0)
 ) -> Dict[str, Any]:
     """
@@ -120,7 +122,7 @@ async def analyze_image(
     降级顺序：
     1. Qwen/Qwen3.5-4B
     2. deepseek-ai/DeepSeek-OCR
-    3. Qwen/Qwen3-8B
+    3. deepseek-ai/DeepSeek-OCR
 
     Args:
         image_path: 图片文件路径
@@ -140,9 +142,10 @@ async def analyze_image(
     # 转换为 base64
     image_base64 = image_to_base64(image_path)
 
-    # 按降级顺序尝试模型
+    # 显式指定模型用于单模型诊断；未指定时才启用自动降级。
+    fallback_models = [model] if model else VISION_MODEL_FALLBACK
     last_error = None
-    for fallback_model in VISION_MODEL_FALLBACK:
+    for fallback_model in fallback_models:
         try:
             logger.info(f"尝试视觉模型: {fallback_model}")
             description = await _call_vision_model(image_base64, prompt, fallback_model, timeout)

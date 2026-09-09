@@ -115,6 +115,57 @@ def validate_file_content(content: bytes, filename: str) -> Tuple[str, str]:
     return detected_mime, safe_filename
 
 
+def validate_file_path(path: str | Path, filename: str) -> Tuple[str, str]:
+    """Validate an uploaded file from disk without loading it into memory."""
+    from app.core.config import settings
+
+    file_path = Path(path)
+    size = file_path.stat().st_size
+    if size == 0:
+        raise ValueError("文件不能为空")
+    if size > settings.max_upload_size_mb * 1024 * 1024:
+        raise ValueError(f"文件大小超过限制 ({settings.max_upload_size_mb}MB)")
+
+    file_ext = Path(filename).suffix.lower()
+    if not file_ext:
+        raise ValueError("文件必须包含扩展名")
+
+    with file_path.open("rb") as uploaded:
+        sample = uploaded.read(2048)
+    detected_mime = detect_mime_type(sample)
+    if detected_mime not in ALLOWED_MIME_TYPES:
+        raise ValueError(f"不允许的文件类型：{detected_mime}")
+    if file_ext in EXTENSION_MIME_MAP and detected_mime not in EXTENSION_MIME_MAP[file_ext]:
+        raise ValueError(f"文件扩展名 ({file_ext}) 与内容类型 ({detected_mime}) 不匹配")
+
+    if file_ext == '.svg':
+        dangerous_patterns = (
+            '<script', 'javascript:', 'vbscript:', 'onerror=', 'onload=',
+            'onclick=', 'onmouseover=', 'onmouseout=', 'onfocus=', 'onblur=',
+            '<!entity', '<!doctype', 'system', 'public', '<iframe',
+            '<object', '<embed'
+        )
+        with file_path.open("rb") as uploaded:
+            while chunk := uploaded.read(1024 * 1024):
+                text = chunk.decode('utf-8', errors='ignore').lower()
+                if any(pattern in text for pattern in dangerous_patterns):
+                    raise ValueError("SVG 文件包含不允许的内容（如脚本、外部实体等）")
+
+    if file_ext in ['.zip', '.tar', '.gz', '.rar', '.7z']:
+        if file_ext == '.zip':
+            try:
+                with zipfile.ZipFile(file_path) as archive:
+                    for name in archive.namelist():
+                        if any(part == '..' or not is_safe_filename(part) for part in Path(name).parts):
+                            raise ValueError("压缩包包含不允许的文件名")
+            except ValueError:
+                raise
+            except Exception as error:
+                raise ValueError(f"压缩包验证失败: {error}") from error
+
+    return detected_mime, generate_safe_filename(filename)
+
+
 def detect_mime_type(content: bytes) -> str:
     """
     通过文件头魔数检测文件类型
@@ -229,10 +280,19 @@ def validate_archive_content(content: bytes, archive_type: str) -> bool:
     Returns:
         bool: 是否安全
     """
+    MAX_UNCOMPRESSED_SIZE = 500 * 1024 * 1024  # 500MB 解压大小上限
+    MAX_COMPRESSION_RATIO = 100  # 最大压缩比
+    
     try:
         if archive_type == '.zip':
             with zipfile.ZipFile(io.BytesIO(content)) as zf:
-                for name in zf.namelist():
+                total_uncompressed = 0
+                for info in zf.infolist():
+                    name = info.filename
+                    # 检查绝对路径
+                    if Path(name).is_absolute():
+                        print(f"[WARNING] 检测到绝对路径：{name}")
+                        return False
                     # 解析为 Path 后检查每个组件
                     parts = Path(name).parts
                     for part in parts:
@@ -243,10 +303,14 @@ def validate_archive_content(content: bytes, archive_type: str) -> bool:
                             print(f"[WARNING] 检测到不安全的文件名组件：{part}（来自 {name}）")
                             return False
                     
-                    # 检查文件扩展名
-                    ext = Path(name).suffix.lower()
-                    # 这里可以根据需要限制压缩包内的文件类型
-                    # 暂时允许所有类型
+                    # Zip Bomb 检测
+                    total_uncompressed += info.file_size
+                    if total_uncompressed > MAX_UNCOMPRESSED_SIZE:
+                        print(f"[WARNING] 解压大小超过限制：{total_uncompressed} > {MAX_UNCOMPRESSED_SIZE}")
+                        return False
+                    if info.compress_size > 0 and info.file_size / info.compress_size > MAX_COMPRESSION_RATIO:
+                        print(f"[WARNING] 压缩比异常：{info.file_size}/{info.compress_size} = {info.file_size / info.compress_size:.0f}")
+                        return False
         return True
     except Exception as e:
         print(f"压缩包验证错误：{e}")

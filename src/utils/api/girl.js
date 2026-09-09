@@ -38,6 +38,52 @@ export function createGirlClient(client) {
       return parseResponse(response, {}, 'Send message failed')
     },
 
+    async sendCompanionTurn(prompt, characterId = 'gentle', options = {}) {
+      const response = await client.post('/GirlAi/companion/turn', {
+        prompt,
+        character_id: characterId,
+        ...(options.turnId ? { turn_id: options.turnId } : {}),
+        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+        ...(options.maxTokens !== undefined ? { max_tokens: options.maxTokens } : {})
+      })
+      return parseResponse(response, {}, 'Send companion turn failed')
+    },
+
+    async getCompanionState() {
+      const response = await client.get('/GirlAi/companion/state')
+      return parseResponse(response, {}, 'Load companion state failed')
+    },
+
+    async sendVoiceTranscription(transcript, characterId = 'gentle', options = {}) {
+      const response = await client.post('/GirlAi/voice/transcriptions', {
+        transcript,
+        character_id: characterId,
+        ...(options.turnId ? { turn_id: options.turnId } : {}),
+        ...(options.provider ? { provider: options.provider } : {}),
+        ...(options.confidence !== undefined ? { confidence: options.confidence } : {}),
+        ...(options.durationMs !== undefined ? { duration_ms: options.durationMs } : {}),
+        ...(options.voiceOutput ? { voice_output: true } : {})
+      })
+      return parseResponse(response, {}, 'Send voice transcription failed')
+    },
+
+    async getCompanionMemories(limit = 20, offset = 0, status) {
+      const params = { limit, offset }
+      if (status) params.status = status
+      const response = await client.get('/GirlAi/memories', params)
+      return parseResponse(response, { memories: [], total: 0, limit, offset }, 'Load companion memories failed')
+    },
+
+    async confirmCompanionMemory(memoryId, data = {}) {
+      const response = await client.post(`/GirlAi/memories/${memoryId}/confirm`, data)
+      return parseResponse(response, {}, 'Confirm companion memory failed')
+    },
+
+    async deleteCompanionMemory(memoryId) {
+      const response = await client.delete(`/GirlAi/memories/${memoryId}`)
+      return parseResponse(response, {}, 'Delete companion memory failed')
+    },
+
     async getGirlAiHistory(limit = 100, offset = 0) {
       const response = await client.get('/GirlAi/history', { limit, offset })
       return parseResponse(response, { records: [], total: 0, has_more: false }, 'Load history failed')

@@ -41,6 +41,7 @@ class DynamicProvider:
     base_url: str
     protocol: Protocol
     api_key: str
+    owner_id: str = ""
     enabled: bool = True
     created_at: float = field(default_factory=time.time)
     models: List[ModelInfo] = field(default_factory=list)
@@ -54,17 +55,18 @@ class DynamicProviderManager:
     def __init__(self):
         self.providers: Dict[str, DynamicProvider] = {}
     
-    def add(self, name: str, base_url: str, protocol: str, api_key: str) -> DynamicProvider:
+    def add(self, name: str, base_url: str, protocol: str, api_key: str, owner_id: str = "") -> DynamicProvider:
         pid = str(uuid.uuid4())[:8]
         p = DynamicProvider(
             id=pid, name=name, base_url=base_url.rstrip("/"),
-            protocol=Protocol(protocol), api_key=api_key,
+            protocol=Protocol(protocol), api_key=api_key, owner_id=owner_id,
         )
         self.providers[pid] = p
         return p
     
-    def get(self, pid: str) -> Optional[DynamicProvider]:
-        return self.providers.get(pid)
+    def get(self, pid: str, owner_id: str = "") -> Optional[DynamicProvider]:
+        provider = self.providers.get(pid)
+        return provider if provider and (not owner_id or provider.owner_id == owner_id) else None
     
     def get_by_model(self, model_id: str) -> Optional[DynamicProvider]:
         """根据模型名查找供应商"""
@@ -76,7 +78,7 @@ class DynamicProviderManager:
                     return p
         return None
     
-    def list(self) -> List[DynamicProvider]:
+    def list(self, owner_id: str = "") -> List[DynamicProvider]:
         """列表（隐藏 API Key）"""
         return [
             DynamicProvider(
@@ -84,17 +86,17 @@ class DynamicProviderManager:
                 protocol=p.protocol, api_key="", enabled=p.enabled,
                 models=p.models, last_sync=p.last_sync, sync_error=p.sync_error,
             )
-            for p in self.providers.values()
+            for p in self.providers.values() if (not owner_id or p.owner_id == owner_id)
         ]
     
-    def delete(self, pid: str) -> bool:
-        if pid not in self.providers:
+    def delete(self, pid: str, owner_id: str = "") -> bool:
+        if not self.get(pid, owner_id):
             return False
         del self.providers[pid]
         return True
     
-    def toggle(self, pid: str) -> bool:
-        if pid not in self.providers:
+    def toggle(self, pid: str, owner_id: str = "") -> bool:
+        if not self.get(pid, owner_id):
             return False
         self.providers[pid].enabled = not self.providers[pid].enabled
         return True

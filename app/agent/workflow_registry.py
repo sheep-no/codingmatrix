@@ -145,12 +145,16 @@ async def run_workflow(
 ) -> State:
     """Execute a workflow and persist the result when database context is provided."""
 
+    from app.services.model_context_service import build_runtime_model_context
+
+    state_metadata = dict(metadata or {})
+    state_metadata.setdefault("model_context", build_runtime_model_context())
     state = State(
         session_id=session_id,
         task_id=task_id,
         metadata={
-            **engine_metadata((metadata or {}).get("engine")),
-            **dict(metadata or {}),
+            **engine_metadata(state_metadata.get("engine")),
+            **state_metadata,
             "_workflow_name": definition.name,
             "_workflow_endpoint": definition.legacy_endpoint,
         },

@@ -1,34 +1,34 @@
 # 系统架构
 
-> 最后更新: 2026-06-09 | 路由总数：240+ | 后端：356 文件 / 99,618 行 | 前端：~58,000 行 | Agent 模块：76 + 3 子包 | E2E 用例：409
+> 最后更新：2026-09-03 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载路由 / 约 279 个路由装饰器 | Agent：125 个 Python 文件 | 数据模型：34 张表 | Alembic：15 个有效迁移文件
 
 ---
 
-## 架构概览 (v5.15.0)
+## 架构概览
 
-v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`）、**多模态兼容**（`messages` 参数）、**4 个架构级 Bug 修复**、**供应商感知降级链**、**ReActWithFallback 死代码清理**。
+当前架构在统一 LLM 调用路径之外，已经形成统一状态层、PPT 阶段编排、模型上下文持久化、Mobile Agent 和 VS Code Agent Host 等运行时能力。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Frontend (Vue 3)                                            │
 │ Vite 5 + Element Plus + Pinia + ECharts                      │
-│ 69 组件 + 13 Agent 子组件 · 9 个视图 · 9 个 Store · 13 composables │
+│ 61 个组件（含 13 个 Agent 组件）· 9 个视图 · 10 stores · 14 composables │
 └──────────────────────────┬──────────────────────────────────┘
                             │ HTTP / SSE / WebSocket
 ┌──────────────────────────┴──────────────────────────────────┐
 │ Backend (FastAPI / Python 3.11)                             │
-│ 356 文件 / 99,618 行 / 27 个 include_router / 240+ 端点      │
+│ 423 个 Python 文件 / 117,655 行 / 28 个 include_router       │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────┐    │
-│ │ Agent 引擎 (76 模块 + 3 子包, 34,166 行)             │    │
+│ │ Agent 引擎 (125 个 Python 文件)                       │    │
 │ │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │    │
 │ │  │ Architect│ │ Frontend │ │ Backend  │ │ Reviewer │ │    │
 │ │  │ +ReAct  │ │ +ReAct   │ │ +ReAct   │ │ +ReAct   │ │    │
 │ │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ │    │
 │ │  ┌──────────────────────────────────────────────┐   │    │
-│ │  │ tools.py (1,079 行, 21 工具) + MCP Client 扩展 │   │    │
-│ │  │ react_engine.py (684 行, 统一 ReAct 引擎)     │   │    │
-│ │  │ llm_client.py (191 行, 并发信号量 6 + 超时)   │   │    │
+│ │  │ tools.py (1,304 行, 20 工具) + MCP Client 扩展 │   │    │
+│ │  │ react_engine.py (772 行, 统一 ReAct 引擎)     │   │    │
+│ │  │ llm_client.py (389 行, 并发信号量 6 + 超时)   │   │    │
 │ │  │ json_parser.py (345 行, 5 层解析链)           │   │    │
 │ │  └──────────────────────────────────────────────┘   │    │
 │ │                                                     │    │
@@ -47,8 +47,8 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 │ └─────────────────────────────────────────────────────┘    │
 │                                                             │
 │ ┌─────────────────────────────────────────────────────┐    │
-│ │ Multi-Provider Model Layer (v5.4.0+, 7 供应商)      │    │
-│ │ 7 内置供应商 + 动态供应商 + context_length 4 级 fallback │    │
+│ │ Multi-Provider Model Layer (6 内置适配器 + 动态适配器)│    │
+│ │ 7 个供应商枚举；Ollama 当前仅声明配置与枚举             │    │
 │ │ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │    │
 │ │ │SiliconFlw│ │ DashScope│ │ Zhipu    │ │DeepSeek  │ │    │
 │ │ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │    │
@@ -99,7 +99,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 ┌──────────────────────────┴──────────────────────────────────┐
 │ Data Layer                                                  │
 │                                                             │
-│ SQLite (Async SQLAlchemy + Alembic, 11 个迁移版本)         │
+│ SQLite (Async SQLAlchemy + Alembic, 15 个有效迁移文件)      │
 │ Redis (Cache/API Key) — 可降级到内存                       │
 │ Celery + APScheduler (异步任务 + 定时任务)                   │
 │ SQLite 性能追踪 (模型调用统计)                              │
@@ -123,13 +123,54 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 | **审查系统** | **多角度并行审查** | **v5.8.1 新增** |
 | **工作流引擎** | **9 种节点 + 重试机制** | **v5.10.0 新增** |
 | **智能会话恢复** | **LLM 语义匹配** | **v5.11.0 新增** |
-| **ReAct 工具调用** | **13 工具 + 阶段化模型** | **v5.12.0+ 新增** |
+| **ReAct 工具调用** | **20 工具 + 阶段化模型** | **v5.12.0+ 新增** |
 | **动态模型路由** | **健康度评分 + 熔断** | **v5.12.0+ 增强** |
 | **代码沙箱** | **Python + JavaScript** | **v5.12.0+ 新增** |
 | **会话生命周期** | **TTL + 限制 + 清理** | **v5.12.0+ 增强** |
 | **编辑原子回滚** | **Git stash** | **v5.12.0+ 新增** |
 | 监控 | OpenTelemetry + Jaeger | 分布式追踪 |
 | 容器 | Docker + Docker Compose | 服务编排 |
+
+---
+
+## 2026-09 状态与执行架构
+
+### 统一状态层
+
+`app/agent/state/` 定义 `State`、`StateDelta`、`StateReducer`、`StateGraph` 与 checkpoint 协议。`StateDelta.expected_revision` 提供乐观并发控制，reducer 对事件和验证结果执行幂等合并。`app/agent/workflow_registry.py` 通过 legacy workflow wrapper 将现有 Agent 生产入口接入该状态层，并提供文件 checkpoint 和进程重启恢复；各历史多阶段实现仍处于渐进迁移期。
+
+SQL 权威状态由 `app/models/unified_state.py` 和 `app/services/unified_state_service.py` 承载：
+
+| 表 | 职责 |
+|----|------|
+| `sessions` / `messages` | 统一会话与消息状态 |
+| `task_events` / `checkpoints` | 可重放事件与恢复点 |
+| `artifacts` | 生成物元数据 |
+| `state_compatibility_mappings` | legacy 与统一状态键映射 |
+| `state_retention_records` | 保留与清理记录 |
+| `state_reconciliation_records` | 双写对账结果 |
+
+`state_cutover_service.py` 按 `aicloud → girlai → agent → workflow` 顺序评估资源覆盖率和未解决差异，再决定模块切换。GirlAI 通过 `girlai_state_adapter.py` 在同一事务内维护 legacy 与统一状态，使用稳定键 `user:<user_id>`，归档摘要也写入 checkpoint。
+
+### PPT 大纲与质量编排
+
+`ppt_outlines` 持久化大纲、审批和生成关联状态，`ppt_quality_reports` 持久化规则 QA、视觉 QA 和修复结果。`PPTGenerationOrchestrator` 执行 `planning → assets → rendering → rule_qa → reflow → vision_qa → completed`，支持大纲审批、单页重生成、任务取消检查和 checkpoint 恢复；`PPTQualityOrchestrator` 在标准模式执行规则 QA，在 `refined` 模式追加视觉审查，自动重排最多尝试 2 次。
+
+### 模型上下文
+
+`model_context_service.py` 以 schema version `1` 持久化角色分配、调用统计和 fallback history，并通过专用 task/checkpoint 与 revision 更新实现恢复。fallback history 最多保留 50 条，API 凭证不会进入持久化上下文。
+
+### 多端 Agent
+
+| 客户端 | 当前实现 |
+|--------|----------|
+| Web Mobile Agent | `AgentDashboard.vue` 与 `agent-layout.css` 在 768px 以下切换单列布局，提供会话抽屉、文件抽屉、遮罩和焦点管理 |
+| VS Code Agent Host | `agent_host.py` 提供协议版本 1 的握手、动作队列、事件、审批、Skill 同步及 pause/resume/cancel；会话以内存为主，并原子持久化到 `data/agent_host_sessions/*.json` |
+| VS Code 扩展 | `vscode-extension/src/` 共 19 个 TypeScript 文件，流式生成使用 `/api/v1/agent/orchestrate/stream`，支持本地结果恢复 |
+
+### 任务取消与恢复
+
+`task_queue.py` 对 `pending`、`running`、`retrying` 任务执行取消，撤销 Celery 后写入 `task.cancelled` 事件，并提供 retry、recover、heartbeat 与事件读取接口。`worker_recovery_service.py` 扫描 lease 过期的运行中任务，在重试预算内重新排队，超限后标记失败；事件重放和 checkpoint 用于恢复客户端与工作流状态。
 
 ---
 
@@ -150,7 +191,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────┴──────────────────────────────────┐
-│ Provider Adapters (含 context_length 4 级 fallback)         │
+│ Provider Registry / Adapters (6 内置工厂 + DynamicProvider) │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
 │  │SiliconFlw│ │DashScope │ │  Zhipu   │ │DeepSeek  │      │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
@@ -173,21 +214,22 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 | DeepSeek | `DEEPSEEK_API_KEY` | deepseek-chat | 128k |
 | OpenAI | `OPENAI_API_KEY` | gpt-3.5-turbo | 16k |
 | Anthropic | `ANTHROPIC_API_KEY` | claude-3-haiku | 200k |
-| Ollama | `OLLAMA_BASE_URL` | llama2 | 4k |
+| Ollama | `OLLAMA_BASE_URL` | llama2 | 已声明枚举与配置，统一调用工厂暂未注册适配器 |
 
 ### context_length 优先级 (v5.12.0+)
 
 ```
-1. 用户自定义 (管理员设置) - 最高优先级
+1. 用户 API Key Token 对应的自定义配置
 2. 配置文件 (data/agent_model_config.yaml)
 3. 代码内置映射 (MODEL_CONTEXT_LENGTHS)
 4. 动态供应商声明
-5. 默认 32k - 兜底
+5. 用户自定义供应商声明
+6. 默认 32k
 ```
 
 ---
 
-## Agent 系统架构 (v5.12.0+, 2026-06-09 校对)
+## Agent 系统架构 (2026-09-03 校对)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -203,7 +245,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 │  └─────────────┘ └─────────────┘                           │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │ tools.py (1,079 行, 21 个内置工具)                    │  │
+│  │ tools.py (1,304 行, 20 个内置工具)                    │  │
 │  │ ┌─────────────────────────────────────────────────┐ │  │
 │  │ │ 代码分析 (6): read_file, list_files,            │ │  │
 │  │ │   read_symbols, read_imports, summarize_file,   │ │  │
@@ -219,7 +261,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 │  └──────────────────────────────────────────────────────┘  │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │ react_engine.py (684 行, 统一 ReAct 引擎)             │  │
+│  │ react_engine.py (772 行, 统一 ReAct 引擎)             │  │
 │  │ • simple 模式: Thought → Tool → Result (Specialist)   │  │
 │  │ • full 模式: Thought → Action → Observation →         │  │
 │  │   Reflection → Final (ReActAgent)                     │  │
@@ -228,7 +270,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 │  └──────────────────────────────────────────────────────┘  │
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │ llm_client.py (191 行, 统一 LLM 调用层)               │  │
+│  │ llm_client.py (389 行, 统一 LLM 调用层)               │  │
 │  │ • 全局并发信号量 MAX_CONCURRENT_LLM_CALLS=6          │  │
 │  │ • 超时保护 + 成本追踪 + 自动记录到 DynamicModelRouter  │  │
 │  └──────────────────────────────────────────────────────┘  │
@@ -316,11 +358,11 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 
 | 复杂度 | 架构师 | 前端 | 后端 | 审查员 | 复杂度分析 |
 |--------|--------|------|------|--------|------------|
-| SIMPLE | glm-z1-9b | deepseek-r1 | nex-n2-pro | glm-z1-9b | 关键词匹配 |
-| SMALL | glm-z1-9b | deepseek-r1 | nex-n2-pro | glm-z1-9b | 关键词匹配 |
-| MEDIUM | glm-z1-9b | deepseek-r1 | nex-n2-pro | glm-z1-9b | LLM 校准 |
-| LARGE | glm-z1-9b | deepseek-r1 | nex-n2-pro | glm-z1-9b | LLM 校准 |
-| XLARGE | glm-z1-9b | deepseek-r1 | nex-n2-pro | glm-z1-9b | LLM 校准 |
+| SIMPLE | qwen3-8b | deepseek-r1 | deepseek-r1 | glm-z1-9b | 关键词匹配 |
+| SMALL | qwen3-8b | deepseek-r1 | deepseek-r1 | glm-z1-9b | 关键词匹配 |
+| MEDIUM | qwen3-8b | deepseek-r1 | deepseek-r1 | glm-z1-9b | LLM 校准 |
+| LARGE | qwen3-8b | deepseek-r1 | deepseek-r1 | glm-z1-9b | LLM 校准 |
+| XLARGE | qwen3-8b | deepseek-r1 | deepseek-r1 | glm-z1-9b | LLM 校准 |
 
 > 复杂度分析模型: qwen3-8b (Qwen/Qwen3-8B)
 
@@ -328,7 +370,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 
 ## 数据库模型
 
-共 22 个表，分布在 13 个模型文件中。
+`app/models/` 当前包含 15 个 Python 文件和 34 个 ORM 表；完整清单见 [模型系统](MODELS.md)。
 
 ### 核心表
 
@@ -367,19 +409,23 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 | aicloud_audit_logs | AI Cloud 审计 |
 | aicloud_knowledge_docs | 知识库文档 |
 | aicloud_knowledge_chunks | 知识库分片 |
+| sessions / messages | 统一会话与消息状态 |
+| task_events / checkpoints / artifacts | 统一事件、恢复点与生成物 |
+| state_compatibility_mappings | legacy 状态兼容映射 |
+| state_retention_records / state_reconciliation_records | 保留策略与双写对账 |
+| ppt_outlines / ppt_quality_reports | PPT 大纲与质量状态 |
 
 ---
 
 ## API 端点分类
 
-### v1 API (用户功能, 19 个模块)
+### v1 API（20 个挂载路由）
 
 | 模块 | 端点前缀 | 功能 |
 |------|----------|------|
 | 认证 | /api/v1/login, /register | 用户认证 |
 | Agent | /api/v1/agent/* | 项目生成、代码审查、ReAct |
 | AI 代码 | /api/v1/code | 代码生成 |
-| AI 项目代码 | /api/v1/AiProjectCode | 项目代码生成 |
 | PPT | /api/v1/pptx/* | PPT 生成 |
 | 图像 | /api/v1/kolors/* | 图像生成 |
 | 图像历史 | /api/v1/kolors-history | 图像生成历史 |
@@ -394,7 +440,8 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 | 模型管理 | /api/v1/models | 免费模型管理 |
 | 供应商 | /api/v1/providers | 动态供应商管理 |
 | 任务队列 | /api/v1/tasks | 任务管理 |
-| skills.py | 自定义 Skill 管理 | /api/v1/skills/* | 241 行 | 8 个端点: upload, list, categories, get, update, delete, upload-file, reload |
+| Agent Host | /api/v1/agent/host/* | VS Code Host 握手、动作、事件、审批与控制 |
+| Skills | /api/v1/skills/* | 自定义 Skill 管理 |
 
 ### v2 API (管理功能, 8 个模块)
 
@@ -407,6 +454,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 | 模型管理 | /api/v2/models | 模型管理 + context_length (v5.12.0+) |
 | MCP 管理 | /api/v2/mcp | MCP Server CRUD + 测试连接 |
 | 守护路由 | /api/v2/guardian | 安全守护 |
+| 模型配置 | /api/v2/model-config | 统一模型配置管理 |
 
 ---
 
@@ -429,7 +477,7 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 
 - 统一引擎：simple 模式 (Specialist) + full 模式 (ReActAgent)
 - 滑动窗口工具历史管理：最近 3 条完整 + 更早摘要
-- 21 个内置工具 (tools.py) + MCP 扩展工具 (动态加载)
+- 20 个内置工具 (tools.py) + MCP 扩展工具 (动态加载)
 - 弱模型自动降级（不调用工具 = 零开销）
 
 ### 3. MCP Client (mcp_client.py)
@@ -473,8 +521,8 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 
 ### 8. 工具系统统一 (tools.py)
 
-- tools.py (996 行): 唯一工具实现源，21 个工具函数
-- executor.py (451 行): ToolRegistry 单例 + EnhancedExecutor，适配后注册 18 个工具
+- tools.py (1,304 行): 唯一工具实现源，20 个工具函数
+- executor.py (461 行): ToolRegistry 单例 + EnhancedExecutor，适配后注册工具
 - ANALYSIS_TOOLS: 6 个只读工具子集
 - SPECIALIST_TOOLS: 18 个工具注册表
 - MCP 工具通过 load_mcp_tools() 动态合并
@@ -509,4 +557,4 @@ v5.13.0+ 完成 **LLM 调用路径统一**（`call_siliconflow` → `call_llm`�
 
 ---
 
-最后更新：2026-06-09
+最后更新：2026-09-03

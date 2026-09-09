@@ -26,6 +26,9 @@ export const AGENT_HOST_CAPABILITIES = [
   "skill_runtime",
 ] as const;
 
+// The protocol exposes this legacy capability name; its supported contract is metadata sync only.
+export const SKILL_RUNTIME_OPERATIONS = ["sync", "sync_user"] as const;
+
 export type AgentHostCapability = (typeof AGENT_HOST_CAPABILITIES)[number];
 
 export interface AgentHostEnvelope<TPayload = unknown> {

@@ -23,7 +23,11 @@
           <div class="app-loading-progress">
             <div class="progress-bar" :style="{ width: progress + '%' }"></div>
           </div>
-          <div class="app-loading-tip">{{ tipText }}</div>
+          <div v-if="status === 'error'" class="app-loading-error" role="alert">
+            <span>{{ error || '应用初始化失败，请重试。' }}</span>
+            <button type="button" @click="emit('retry')">重试</button>
+          </div>
+          <div v-else class="app-loading-tip">{{ tipText }}</div>
         </div>
       </div>
     </Transition>
@@ -31,14 +35,24 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 
 const props = defineProps({
   visible: {
     type: Boolean,
     default: false
+  },
+  status: {
+    type: String,
+    default: 'loading'
+  },
+  error: {
+    type: String,
+    default: ''
   }
 })
+
+const emit = defineEmits(['retry'])
 
 const loadingText = '正在加载'
 const progress = ref(0)
@@ -60,7 +74,15 @@ onMounted(() => {
   }
 })
 
+onBeforeUnmount(() => {
+  if (progressTimer) clearInterval(progressTimer)
+  if (tipTimer) clearInterval(tipTimer)
+  progressTimer = null
+  tipTimer = null
+})
+
 const startProgress = () => {
+  resetTimers()
   progress.value = 0
   let tipIndex = 0
 
@@ -78,12 +100,35 @@ const startProgress = () => {
 }
 
 const reset = () => {
-  if (progressTimer) clearInterval(progressTimer)
-  if (tipTimer) clearInterval(tipTimer)
+  resetTimers()
   progress.value = 0
+  tipText.value = tips[0]
 }
 
-defineExpose({ reset, startProgress })
+const resetTimers = () => {
+  if (progressTimer) clearInterval(progressTimer)
+  if (tipTimer) clearInterval(tipTimer)
+  progressTimer = null
+  tipTimer = null
+}
+
+const complete = () => {
+  progress.value = 100
+  resetTimers()
+}
+
+watch(() => props.visible, visible => {
+  if (visible) startProgress()
+  else complete()
+})
+
+watch(() => props.status, status => {
+  if (status === 'ready') complete()
+})
+
+onBeforeUnmount(resetTimers)
+
+defineExpose({ reset, startProgress, complete })
 </script>
 
 <style scoped>
@@ -185,6 +230,25 @@ defineExpose({ reset, startProgress })
   color: var(--text-tertiary);
   font-weight: 500;
   min-height: 20px;
+}
+
+.app-loading-error {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  max-width: 320px;
+  color: var(--status-danger);
+  text-align: center;
+}
+
+.app-loading-error button {
+  min-height: var(--control-min-size);
+  padding: 0 var(--spacing-3);
+  border: 1px solid var(--status-danger);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--status-danger);
+  cursor: pointer;
 }
 
 @keyframes pulseRing {

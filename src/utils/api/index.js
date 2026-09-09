@@ -26,7 +26,7 @@
  * 3. 刷新失败时自动清除
  */
 import { API_CONFIG } from './config'
-import { createBaseClient, apiUrl } from './base'
+import { createBaseClient, apiUrl, normalizeApiError } from './base'
 import { createAuthClient } from './auth'
 import { createProjectClient } from './project'
 import { createAgentClient } from './agent'
@@ -37,6 +37,7 @@ import { createFileClient } from './file'
 import { createTaskClient } from './task'
 import { createPptClient } from './ppt'
 import { createKolorsClient } from './kolors'
+import { createVisionClient } from './vision'
 import { createAiCloudClient } from './aicloud'
 import { createAdminClient } from './admin'
 import { createGithubClient } from './github'
@@ -46,6 +47,7 @@ import { WebSocketManager } from './websocket'
 export {
   API_CONFIG,
   createBaseClient as createApiClient,
+  normalizeApiError,
   apiUrl,
   createAuthClient,
   createProjectClient,
@@ -57,6 +59,7 @@ export {
   createTaskClient,
   createPptClient,
   createKolorsClient,
+  createVisionClient,
   createAiCloudClient,
   createAdminClient,
   createGithubClient,
@@ -82,6 +85,7 @@ function createDefaultClient(store) {
     ...createTaskClient(baseClient),
     ppt: createPptClient(baseClient),
     ...createKolorsClient(baseClient),
+    ...createVisionClient(baseClient),
     ...createAiCloudClient(baseClient),
     ...createAdminClient(baseClient),
     ...createGithubClient(baseClient),
@@ -106,6 +110,7 @@ export default {
   API_CONFIG,
   createBaseClient,
   createApiClient: createBaseClient,
+  normalizeApiError,
   createAuthClient,
   createProjectClient,
   createAgentClient,

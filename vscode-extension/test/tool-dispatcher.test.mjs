@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -23,7 +23,14 @@ async function createDispatcher() {
   const dispatcher = new ToolDispatcher({
     authorization,
     validationRunner,
-    diagnostics: async () => [{ source: "typescript", message: "unused variable" }],
+    diagnostics: async () => [{
+      file: "src/example.ts",
+      message: "unused variable",
+      severity: 1,
+      source: "typescript",
+      code: 6133,
+      range: { start: { line: 2, character: 4 }, end: { line: 2, character: 10 } },
+    }],
   });
   return { root, dispatcher };
 }
@@ -69,10 +76,63 @@ test("rejects stale file writes and workspace escapes", async () => {
   }
 });
 
+test("does not create a missing file when an expected hash is supplied", async () => {
+  const { root, dispatcher } = await createDispatcher();
+  const target = join(root, "missing.txt");
+  try {
+    await assert.rejects(
+      dispatcher.dispatch(envelope("file", {
+        workspace_id: "workspace-1",
+        path: "missing.txt",
+        content: "after",
+        expected_hash: "stale",
+      })),
+      (error) => error instanceof ToolDispatcherError && error.code === "file_conflict",
+    );
+    await assert.rejects(readFile(target, "utf8"), (error) => error.code === "ENOENT");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("refuses to follow a symlink when opening a file for writing", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "codingmatrix-agent-host-write-"));
+  const root = join(parent, "workspace");
+  const outside = join(parent, "outside");
+  await Promise.all([mkdir(root), mkdir(outside)]);
+  const outsideFile = join(outside, "secret.txt");
+  await writeFile(outsideFile, "safe", "utf8");
+  await symlink(outsideFile, join(root, "linked.txt"));
+  const authorization = new WorkspaceAuthorization(async (path) => path);
+  await authorization.grant("workspace-1", root);
+  const dispatcher = new ToolDispatcher({
+    authorization,
+    validationRunner: { run: async () => ({ status: "passed" }) },
+  });
+  try {
+    await assert.rejects(dispatcher.dispatch(envelope("file", {
+      workspace_id: "workspace-1",
+      path: "linked.txt",
+      content: "escaped",
+    })));
+    assert.equal(await readFile(outsideFile, "utf8"), "safe");
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
 test("dispatches diagnostics and validation through injected adapters", async () => {
   const { root, dispatcher } = await createDispatcher();
   try {
     const diagnostics = await dispatcher.dispatch(envelope("diagnostics", { workspace_id: "workspace-1" }));
+    assert.deepEqual(diagnostics[0], {
+      file: "src/example.ts",
+      message: "unused variable",
+      severity: 1,
+      source: "typescript",
+      code: 6133,
+      range: { start: { line: 2, character: 4 }, end: { line: 2, character: 10 } },
+    });
     assert.equal(diagnostics[0].source, "typescript");
     const result = await dispatcher.dispatch(envelope("validation", {
       action_id: "action-1",
@@ -106,6 +166,42 @@ test("dispatches diagnostics and validation through injected adapters", async ()
       requested_by: "cloud",
     }));
     assert.equal(terminal.status, "passed");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("resolves validation working directories inside the authorized workspace", async () => {
+  const root = await mkdtemp(join(tmpdir(), "codingmatrix-agent-host-cwd-"));
+  const authorization = new WorkspaceAuthorization();
+  await authorization.grant("workspace-1", root);
+  let receivedAction;
+  const dispatcher = new ToolDispatcher({
+    authorization,
+    validationRunner: {
+      run: async (action) => {
+        receivedAction = action;
+        return { status: "passed" };
+      },
+    },
+  });
+  try {
+    await dispatcher.dispatch(envelope("validation", {
+      action_id: "action-cwd",
+      event_id: "event-cwd",
+      schema_version: 1,
+      session_id: "session-1",
+      task_id: "task-1",
+      revision: 0,
+      workspace_id: "workspace-1",
+      validation_scope: "local_runtime",
+      operation: "unit_test",
+      command: ["node", "--version"],
+      working_directory: ".",
+      timeout_seconds: 10,
+      requested_by: "cloud",
+    }));
+    assert.equal(receivedAction.working_directory, root);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

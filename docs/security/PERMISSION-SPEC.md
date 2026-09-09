@@ -1,221 +1,147 @@
-# 权限规范 (RBAC)
+# 权限规范（RBAC）
 
-> 最后更新：2026-05-27 | v5.10.0
+> 最后更新：2026-09-03
 
-## 三级权限模型
+## 权限模型
 
-| 级别 | 名称 | 描述 | 权限范围 |
-|------|------|------|----------|
-| 0 | normal | 普通用户 | 基础 AI 功能、文件管理、个人项目 |
-| 1 | admin | 管理员 | normal 全部 + 用户管理、服务监控、知识管理 |
-| 2 | superadmin | 超级管理员 | admin 全部 + 系统配置、限流管理、部署操作 |
+权限记录存储在 `permission` 表，模型位于 `app/models/Permission.py`。合法值为：
 
-**注意**: 权限级别在代码中使用 `normal`/`admin`/`superadmin` 字符串表示
+| 权限 | 层级值 | JWT role | 范围 |
+|------|--------|----------|------|
+| `normal` | 1 | `user` | 已认证的业务能力与用户自有资源 |
+| `admin` | 2 | `admin` | 用户管理、服务状态、日志和监控读取等管理能力 |
+| `superadmin` | 3 | `superadmin` | 系统配置、模型配置、MCP、Nginx 部署、备份与限流变更等高权限能力 |
 
-## 权限检查机制
+`app/utils/permissions.py` 提供 `has_permission()`、`is_admin()` 和 `is_superadmin()`。`admin` 权限检查按层级比较，因此 `superadmin` 同时满足管理员检查。
 
-### 后端装饰器
+## JWT 声明
 
-```python
-from app.utils.security import require_permission, PermissionLevel
-
-@require_permission(PermissionLevel.ADMIN)
-async def admin_only_endpoint():
-    ...
-
-@require_permission(PermissionLevel.SUPERADMIN)
-async def super_only_endpoint():
-    ...
-```
-
-### 权限常量
-
-```python
-class PermissionLevel:
-    NORMAL = "normal"
-    ADMIN = "admin"
-    SUPERADMIN = "superadmin"
-```
-
-### JWT Token 结构
+access token 由 `create_access_token()` 签发：
 
 ```json
 {
-    "sub": "user_id",
-    "permission_level": "normal",
-    "role": "user",
-    "exp": 1714665600,
-    "type": "access",
-    "refresh_until": 1714752000
+  "sub": "<USER_ID>",
+  "exp": 1780000000,
+  "iat": 1779998200,
+  "type": "access",
+  "refresh_until": 1780430200,
+  "permission_level": "normal",
+  "role": "user"
 }
 ```
 
-**Token 字段说明**:
-- `sub`: 用户ID
-- `permission_level`: 权限级别 (normal/admin/superadmin)
-- `role`: 用户角色 (user/admin/superadmin)，用于并发限制判断
-- `exp`: 过期时间
-- `type`: Token类型 (access/refresh)
-- `refresh_until`: Refresh Token 有效期截止时间
+- `permission_level` 用于 API 权限判断。
+- `role` 是登录时派生的并发与客户端展示字段。
+- `type` 必须为 `access` 才能通过 `verify_token`。
+- access token 默认 30 分钟到期，`refresh_until` 为签发后 5 天。
 
-## 端点权限分配
+refresh token 只包含 `sub`、`exp`、`iat` 和 `type=refresh`，有效期 7 天，存于 HttpOnly Cookie。
 
-### 公开端点 (无需认证)
+## 后端检查方式
 
-| 端点 | 描述 |
-|------|------|
-| POST /api/v1/login | 用户登录 |
-| POST /api/v1/register | 用户注册 |
-| GET /api/v1/public-key | 获取 RSA 公钥 |
-| GET /api/v1/health/* | 健康检查 |
-| GET /, /{path} | 前端静态文件 |
+当前代码使用 FastAPI 依赖和端点内检查：
 
-### 普通用户 (normal, level >= 0)
+```python
+from fastapi import Depends
+from app.utils.security import verify_token, require_superadmin
+from app.api.v2.guardian_router import require_admin
 
-| 端点 | 描述 |
-|------|------|
-| POST /api/v1/code | AI 代码生成 |
-| POST /api/v1/agent/orchestrate | Agent 项目生成 |
-| POST /api/v1/agent/orchestrate/stream | Agent 流式生成 |
-| POST /api/v1/agent/generate | 项目生成 |
-| POST /api/v1/agent/modify | 项目修改 |
-| POST /api/v1/agent/evaluate | 需求评价 |
-| POST /api/v1/agent/analyze_complexity | 复杂度分析 |
-| GET /api/v1/agent/snapshots/{id} | 快照列表 |
-| POST /api/v1/agent/rollback/{id} | 快照回滚 |
-| GET /api/v1/agent/snapshot/diff | 快照对比 |
-| POST /api/v1/agent/session/{id}/action | 会话操作 |
-| POST /api/v1/agent/session/{id}/decision | 提交决策 |
-| DELETE /api/v1/agent/sessions/{id} | 删除会话 |
-| GET /api/v1/agent/saved | 已保存项目 |
-| POST /api/v1/agent/save | 保存项目 |
-| GET /api/v1/agent/generate/files | 项目文件列表 |
-| GET /api/v1/agent/generate/read | 读取文件 |
-| DELETE /api/v1/agent/generate/file | 删除文件 |
-| GET /api/v1/agent/generate/download/{path} | 下载项目 |
-| POST /api/v1/agent/knowledge | 添加知识 |
-| GET /api/v1/agent/knowledge | 知识列表 |
-| GET /api/v1/agent/knowledge/search | 知识搜索 |
-| POST /api/v1/agent/requirement-association | 需求联想 |
-| GET /api/v1/agent/performance | 性能指标 |
-| GET /api/v1/agent/token-usage | Token 统计 |
-| POST /api/v1/agent/apikey | 提交 API Key |
-| POST /api/v1/agent/apikey/test | 测试 API Key |
-| DELETE /api/v1/agent/apikey/{token} | 删除 API Key |
-| GET /api/v1/agent/apikeys | API Key 列表 |
-| PUT /api/v1/agent/apikey/{token}/enabled | 启用/禁用 Key |
-| POST /api/v1/GirlAi | 虚拟 AI 对话 |
-| POST /api/v1/kolors/* | 图像生成 |
-| POST /api/v1/pptx/* | PPT 生成 |
-| POST /api/v1/files/* | 文件管理 |
-| POST /api/v1/vision/* | 视觉分析 |
-| POST /api/v1/workflow/* | 工作流 |
-| POST /api/v1/aicloud/* | AI 云功能 |
-| GET /api/v1/models | 免费模型列表 |
-| GET /api/v1/models/default | 默认模型 |
-| POST /api/v1/models/switch | 切换默认模型 (super) |
-| GET /api/v1/user/profile | 用户资料 |
-| GET /api/v1/conversations | 对话列表 |
+async def user_endpoint(token: dict = Depends(verify_token)):
+    ...
 
-### 管理员 (admin, level >= 1)
+async def admin_endpoint(token: dict = Depends(require_admin)):
+    ...
 
-| 端点 | 描述 |
-|------|------|
-| GET /api/v2/Controller/users | 用户列表 |
-| POST /api/v2/Controller/create_user | 创建用户 |
-| PATCH /api/v2/Controller/update_user/{id} | 更新用户 |
-| DELETE /api/v2/Controller/delete_user/{id} | 删除用户 |
-| POST /api/v2/Controller/{id}/reset-password | 重置密码 |
-| GET /api/v2/Controller/services | 服务列表 |
-| GET /api/v2/Controller/health/{port} | 健康检查 |
-| POST /api/v2/Controller/guard/start | 启动守护 |
-| POST /api/v2/nginx/check | Nginx 配置检查 |
-
-### 超级管理员 (superadmin, level >= 2)
-
-| 端点 | 描述 |
-|------|------|
-| GET /api/v2/Controller/admin/config | 系统配置 |
-| PUT /api/v2/Controller/admin/config/{key} | 更新配置 |
-| GET /api/v2/Controller/admin/stats | 系统统计 |
-| GET /api/v2/Controller/admin/memory | 内存统计 |
-| GET /api/v2/Controller/admin/docker/containers | Docker 容器 |
-| GET /api/v2/Controller/admin/rate-limit | 限流配置 |
-| PUT /api/v2/Controller/admin/rate-limit/* | 更新限流 |
-| GET /api/v2/Controller/admin/backup | 备份管理 |
-| POST /api/v2/nginx/generate | Nginx 配置生成 |
-| POST /api/v2/nginx/deploy | Nginx 部署 |
-| PUT /api/v2/Controller/service/{port}/fuse-config | 熔断配置 |
-| GET /api/v2/admin/config | 获取系统配置 |
-| POST /api/v2/admin/config | 更新系统配置 |
-| POST /api/v2/admin/user-limit | 更新用户并发限制 |
-| DELETE /api/v2/admin/user-limit/{user_id} | 移除用户并发限制 |
-| POST /api/v1/models/switch | 切换默认模型 |
-
-## 前端权限控制
-
-### 路由守卫
-
-```javascript
-router.beforeEach((to) => {
-    const userStore = useUserStore()
-    if (to.meta.permissionLevel && userStore.permissionLevel < to.meta.permissionLevel) {
-        return '/unauthorized'
-    }
-})
+async def superadmin_endpoint(token: dict = Depends(require_superadmin)):
+    ...
 ```
 
-### 组件级控制
+`app/api/v2/guardian_router.py` 也定义同名 `require_superadmin`，并与 `require_admin` 一起供 Guardian 和部分 Nginx 路由使用。项目中没有通用 `@require_permission` 装饰器或 `PermissionLevel` 类。
 
-```vue
-<AdminPanel v-if="userStore.isAdmin" />
-<SuperConfig v-if="userStore.isSuper" />
-```
+## 公共接口
 
-## 权限验证流程
+以下接口未要求 Bearer access token：
 
-```
-请求 -> JWT 验证 -> Token 解析 -> 权限级别检查 -> 端点访问决策
- |
- v
- level >= required?
- |
- yes -> 允许访问
- no -> 403 Forbidden
-```
+- `GET /api/v1/public-key`
+- `GET /api/v1/csrf-token`
+- `POST /api/v1/login`，要求 CSRF
+- `POST /api/v1/register`，要求 CSRF
+- `/api/v1/health` 及其 `ready`、`live`、`detailed`、`metrics`、`models` 子路径
+- `/api/docs`、`/api/redoc`、`/api/openapi.json`
+- 前端静态入口 `/` 与 history fallback
+- `GET /api/v1/skills/categories`
+- `POST /api/v1/skills/reload`；当前会执行 prompts extractor，且未声明认证依赖，属于待加固的匿名运维入口
 
-## JWT Token 角色映射
+`POST /api/v1/refresh` 使用 refresh Cookie 和 CSRF Token，不要求 Bearer access token。
 
-```
-登录时 permission_level -> role 映射:
- permission_level=0 (normal) -> role="user"
- permission_level=1 (admin) -> role="admin"
- permission_level=2 (superadmin) -> role="superadmin"
+## 普通用户接口
 
-Token 结构:
-{
-    "sub": "user_id",
-    "permission_level": "normal", // 用于端点权限检查
-    "role": "user", // 用于并发限制判断
-    "type": "access",
-    "exp": timestamp,
-    "refresh_until": timestamp
-}
-```
+大部分 v1 业务路由直接依赖 `verify_token`，并在涉及资源时继续校验用户 ID 或所有权，包括：
 
-## 已知问题
+- `/api/v1/chat` 与兼容 `/api/v1/code`
+- `/api/v1/agent/*`
+- `/api/v1/GirlAi/*`
+- `/api/v1/pptx/*`
+- `/api/v1/files/*`
+- `/api/v1/tasks/*`
+- `/api/v1/aicloud/*`
+- `/api/v1/workflow/*`
+- `/api/v1/vision/*`
+- `/api/v1/agent/apikey/*`
+- `/api/v1/providers/*`
+- `/api/v1/agent/host/*`
+- `/api/v1/skills/upload`、`/upload-file`、`/list`、`/{name}` 和 `/migrate-legacy`；`categories` 与 `reload` 采用上文所述公共访问现状
 
-详见 [TECH-DEBT.md](TECH-DEBT.md)
+认证只证明调用者身份。每个读取、修改、删除与下载接口还应使用 `token.sub` 校验资源归属。
 
----
+## 管理员接口
+
+管理员及以上权限的代表性接口：
+
+- `GET /api/v2/Controller/users` 及用户管理接口：先 `verify_token`，再在端点内调用 `is_admin()`。
+- `GET /api/v2/Controller/services`
+- `GET /api/v2/Controller/health/{port}`
+- `GET /api/v2/Controller/admin/stats`
+- `GET /api/v2/Controller/admin/memory`
+- Guardian 的配置、日志、备份列表和限流读取接口。
+- `/api/v2/Controller/sys-status` 与 `/api/v2/Controller/logs` WebSocket：验证 WebSocket Token 后检查管理员层级。
+
+## 超级管理员接口
+
+以下模块或操作使用 `require_superadmin`：
+
+- `/api/v2/admin/config`、`/api/v2/admin/user-limit`、`/api/v2/admin/sandbox-config`
+- `/api/v2/models/*` 的模型与 Agent 配置写操作
+- `/api/v2/model-config/*`
+- `/api/v2/mcp/*`
+- `POST /api/v2/nginx/deploy`
+- `DELETE /api/v2/nginx/backup/{backup_name}`
+- Guardian 的启动、重命名、配置修改、备份创建/恢复/删除和限流修改操作
+
+Nginx 的 `check`、`generate`、`config` 与 `backups` 当前只依赖 `verify_token`；它们属于任何已认证用户可调用的现状。涉及配置内容或基础设施信息的接口应在后续代码加固中按风险提升到管理员或超级管理员。
+
+## 权限生命周期
+
+- 注册创建 `normal` 权限记录。
+- 登录发现用户缺少权限记录时创建默认 `normal` 记录。
+- 登录和刷新均从数据库读取当前权限，再签发新的 access token。
+- 已签发 access token 在到期前携带签发时的权限；权限变更通过重新登录或刷新进入新 Token。
+
+## 前端边界
+
+前端可根据 `permission_level` 或 `role` 控制路由和组件展示。所有敏感操作必须由后端依赖或端点内权限检查决定访问结果。
+
+## 核验清单
+
+- 公共接口清单需包含认证引导、健康、文档资源，以及当前匿名的 Skill 分类与 reload 端点；reload 应作为待加固项跟踪。
+- v1 业务接口具有 `verify_token`，资源接口同时验证 `token.sub` 所有权。
+- 管理操作使用 `is_admin()` 或 `require_admin`。
+- 高风险配置和部署操作使用 `require_superadmin`。
+- WebSocket 在握手后验证 Token、权限与资源绑定。
+- 权限变更后重新签发 access token。
 
 ## 相关文档
 
-- [安全架构](SECURITY-OVERVIEW.md)
+- [安全概览](SECURITY-OVERVIEW.md)
 - [加密登录](ENCRYPTED-LOGIN.md)
-- [CSRF 防护](CSRF-IMPLEMENTATION.md)
-- [技术债务](../TECH-DEBT.md)
-
----
-
-最后更新：2026-05-27
+- [CSRF 实现](CSRF-IMPLEMENTATION.md)

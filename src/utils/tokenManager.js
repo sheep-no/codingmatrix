@@ -150,10 +150,20 @@ export const useTokenManager = () => {
 
       const data = await response.json()
       if (data.access_token) {
-        const payload = JSON.parse(atob(data.access_token.split('.')[1]))
-        const expiresIn = Math.floor((payload.exp * 1000 - Date.now()) / 1000)
-        setToken(data.access_token, expiresIn)
-        return true
+        const parts = data.access_token.split('.')
+        if (parts.length !== 3) {
+          console.warn('[WARN] Invalid access_token format from refresh')
+          return false
+        }
+        try {
+          const payload = JSON.parse(atob(parts[1]))
+          const expiresIn = Math.floor((payload.exp * 1000 - Date.now()) / 1000)
+          setToken(data.access_token, expiresIn)
+          return true
+        } catch (e) {
+          console.error('[ERR] Failed to parse refreshed access_token payload:', e)
+          return false
+        }
       }
       return false
     } catch (error) {

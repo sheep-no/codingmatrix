@@ -1,6 +1,6 @@
 # AI 提示词文档
 
-> 最后更新: 2026-05-27 | 版本: v5.10.0
+> 历史内容版本：v5.10.0（2026-05-27） | 最后核对：2026-09-03
 
 **总计**: 22 个提示词
 
@@ -8,21 +8,21 @@
 
 ## 目录
 
-- [系统提示词](#system) - Agent 系统级提示词 (1个)
-- [继续生成提示词](#continue) - 暂停后继续生成的提示词 (1个)
-- [角色提示词](#character) - 虚拟角色配置 (5个)
-- [通用提示词](#general) - 通用问答 (1个)
-- [代码提示词](#code) - 代码生成相关 (1个)
-- [推理提示词](#reasoning) - 深度推理 (1个)
-- [AI Cloud 提示词](#aicloud) - AI Cloud 智能助手相关 (1个)
-- [工作流提示词](#workflow) - 任务分解和工作流控制 (1个)
-- [验证提示词](#validation) - 代码交叉验证和评审 (1个)
-- [迭代提示词](#refinement) - 代码修复和优化循环 (1个)
-- [架构提示词](#architecture) - 项目架构设计 (1个)
-- [前端提示词](#frontend) - 前端代码生成 (1个)
-- [后端提示词](#backend) - 后端代码生成 (1个)
-- [审查提示词](#review) - 代码质量审查 (1个)
-- [规范提示词](#spec) - API/类型/数据库/配置规范生成 (4个)
+- [系统提示词](#系统提示词) - Agent 系统级提示词 (1个)
+- [继续生成提示词](#继续生成提示词) - 暂停后继续生成的提示词 (1个)
+- [角色提示词](#角色提示词) - 虚拟角色配置 (5个)
+- [通用提示词](#通用提示词) - 通用问答 (1个)
+- [代码提示词](#代码提示词) - 代码生成相关 (1个)
+- [推理提示词](#推理提示词) - 深度推理 (1个)
+- [AI Cloud 提示词](#ai-cloud-提示词) - AI Cloud 智能助手相关 (1个)
+- [工作流提示词](#工作流提示词) - 任务分解和工作流控制 (1个)
+- [验证提示词](#验证提示词) - 代码交叉验证和评审 (1个)
+- [迭代提示词](#迭代提示词) - 代码修复和优化循环 (1个)
+- [架构提示词](#架构提示词) - 项目架构设计 (1个)
+- [前端提示词](#前端提示词) - 前端代码生成 (1个)
+- [后端提示词](#后端提示词) - 后端代码生成 (1个)
+- [审查提示词](#审查提示词) - 代码质量审查 (1个)
+- [规范提示词](#规范提示词) - API/类型/数据库/配置规范生成 (4个)
 
 ---
 
@@ -32,7 +32,7 @@ Agent 系统级提示词
 
 ### system_prompt
 
-**来源文件**: `app/utils/agent_core.py`
+**历史来源标注**: `app/utils/agent_core.py`（当前文件模板位于 `.claude/skills/project_generation/enhanced_system_prompt.md`，该 Python 文件保留回退实现）
 **用途**: 项目生成 Agent 系统提示词（f-string，含动态工具描述）
 
 ```
@@ -197,7 +197,7 @@ Agent 系统级提示词
 
 ### resume_prompt
 
-**来源文件**: `app/utils/agent_core.py`
+**历史来源标注**: `app/utils/agent_core.py`（当前文件模板位于 `.claude/skills/project_generation/resume_prompt.md`）
 **用途**: 继续生成提示词（需求变更时使用）
 
 ```
@@ -509,7 +509,7 @@ AI Cloud 智能助手相关
 
 ### Architect.SYSTEM_PROMPT
 
-**来源文件**: `app/agent/orchestrator.py`
+**历史来源标注**: `app/agent/orchestrator.py`（当前角色实现位于 `app/agent/architect.py`，文件提示词位于 `.claude/skills/orchestrator/enhanced_architect_prompt.md`）
 **用途**: 架构师 - 负责技术选型和整体架构设计
 
 ```
@@ -560,7 +560,7 @@ AI Cloud 智能助手相关
 
 ### FrontendEngineer.SYSTEM_PROMPT
 
-**来源文件**: `app/agent/orchestrator.py`
+**历史来源标注**: `app/agent/orchestrator.py`（当前角色实现位于 `app/agent/frontend_engineer.py`，文件提示词位于 `.claude/skills/orchestrator/enhanced_frontend_engineer_prompt.md`）
 **用途**: 前端工程师 - 专注前端代码生成
 
 ```
@@ -585,7 +585,7 @@ AI Cloud 智能助手相关
 
 ### BackendEngineer.SYSTEM_PROMPT
 
-**来源文件**: `app/agent/orchestrator.py`
+**历史来源标注**: `app/agent/orchestrator.py`（当前角色实现位于 `app/agent/backend_engineer.py`，文件提示词位于 `.claude/skills/orchestrator/enhanced_backend_engineer_prompt.md`）
 **用途**: 后端工程师 - 专注后端代码生成
 
 ```
@@ -611,7 +611,7 @@ AI Cloud 智能助手相关
 
 ### CodeReviewer.SYSTEM_PROMPT
 
-**来源文件**: `app/agent/orchestrator.py`
+**历史来源标注**: `app/agent/orchestrator.py`（当前角色实现位于 `app/agent/code_reviewer.py`，文件提示词位于 `.claude/skills/orchestrator/enhanced_code_reviewer_prompt.md`）
 **用途**: 代码审查员 - 负责代码质量和安全审查
 
 ```

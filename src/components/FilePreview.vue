@@ -7,7 +7,14 @@
     </div>
     <template v-else>
       <div v-if="isImage" class="file-thumbnail">
-        <img :src="thumbnailUrl" :alt="file.name" />
+        <img
+          :src="thumbnailUrl"
+          :alt="file.name || '图片附件'"
+          width="40"
+          height="40"
+          loading="lazy"
+          decoding="async"
+        />
       </div>
       <div v-else class="file-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -32,7 +39,7 @@
 </template>
 
 <script setup>
-  import { computed } from 'vue'
+  import { ref, computed, watch, onUnmounted } from 'vue'
 
   const props = defineProps({
     file: { type: Object, required: true }
@@ -45,13 +52,8 @@
   const isImage = computed(() => imageTypes.includes(props.file.type))
 
   const thumbnailUrl = computed(() => {
-    if (isImage.value) {
-      const actualFile = props.file.file || props.file
-      if (actualFile instanceof Blob) {
-        return URL.createObjectURL(actualFile)
-      }
-    }
-    return ''
+    if (!isImage.value) return ''
+    return props.file.thumbnail || props.file.preview || props.file.localUrl || ''
   })
 
   function formatFileSize(bytes) {
