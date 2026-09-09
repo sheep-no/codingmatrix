@@ -299,17 +299,17 @@ def _build_emotion_prompt(
 def _clean_response(content: str, character_name: str) -> str:
     """清理 AI 响应（移除角色名前缀等）"""
     import re
-    
+
+    # 只移除以角色名开头的前缀，保留表情符号
     patterns = [
-        rf"^{character_name}:\s*",
+        rf"^{re.escape(character_name)}:\s*",
         rf"^【[^】]*】\s*",
-        rf"^\([^)]*\)\s*",
         r'^":\s*'
     ]
-    
+
     for pattern in patterns:
         content = re.sub(pattern, "", content, flags=re.IGNORECASE)
-    
+
     return content.strip()
 
 
@@ -522,7 +522,7 @@ async def generate_message(
             history_service = ChatHistoryService(db)
 
             logger.debug(f"加载对话上下文 | user_id={user_id} | max_messages={MAX_HISTORY_MESSAGES}")
-            recent_messages, history_summary = await history_service.get_lightweight_context(
+            recent_messages, _ = await history_service.get_lightweight_context(
                 user_id,
                 max_messages=MAX_HISTORY_MESSAGES
             )
@@ -608,7 +608,9 @@ async def generate_message(
                 user_content=body.prompt,
                 assistant_content=ai_content,
                 model=character['model'],
-                tokens_used=tokens_used
+                tokens_used=tokens_used,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens
             )
             await append_conversation_turn(
                 db,
@@ -1276,7 +1278,7 @@ async def delete_history(
     删除虚拟姬对话历史记录
 
     - **record_ids**: 要删除的记录ID列表
-    - **all**: 是否清除所有历史记录（会忽略 record_ids）
+    - **delete_all**: 是否清除所有历史记录（会忽略 record_ids）
     """
     user_id = token.get("sub")
     record_ids = record_ids or []
@@ -1284,7 +1286,7 @@ async def delete_history(
     if not user_id:
         raise HTTPException(status_code=401, detail="无效的用户令牌")
 
-    logger.info(f"删除虚拟姬历史记录 | user_id={user_id} | all={all} | count={len(record_ids) if not all else 'all'}")
+    logger.info(f"删除虚拟姬历史记录 | user_id={user_id} | all={all} | count={len(record_ids) if record_ids else 0}")
 
     try:
         history_service = ChatHistoryService(db)
@@ -1303,7 +1305,11 @@ async def delete_history(
             await db.commit()
             logger.info(f"删除历史记录 | user_id={user_id} | deleted={deleted_count}")
             return {"status": "deleted", "count": deleted_count, "ids": record_ids}
+        else:
+            raise HTTPException(status_code=400, detail="请提供 record_ids 或 delete_all=true")
 
+    except HTTPException:
+        raise
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"删除历史记录异常 | user_id={user_id} | error={str(e)}", exc_info=True)
         raise HTTPException(
