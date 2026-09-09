@@ -2110,7 +2110,11 @@ def generate_preview_html(ppt_id: str) -> str:
                     }});
                 }}
             }})
-            .catch(err => console.error('加载幻灯片失败:', err));
+            .catch(err => {{
+                console.error('加载幻灯片失败:', err);
+                const container = document.getElementById('slides-container');
+                container.innerHTML = '<div style="text-align:center;padding:40px;color:#ef4444;">加载幻灯片数据失败，请刷新页面重试。</div>';
+            }});
     </script>
 </body>
 </html>"""
@@ -2349,7 +2353,14 @@ async def generate_ppt_task(
             return result
             
         except asyncio.CancelledError:
-            # 取消时保存已有的中间状态
+            # 取消时清理部分写入的 PPTX 文件，保留 JSON 中间状态用于恢复
+            try:
+                partial_pptx = filepath if 'filepath' in dir() else None
+                if partial_pptx and isinstance(partial_pptx, Path) and partial_pptx.exists():
+                    partial_pptx.unlink(missing_ok=True)
+                    logger.info(f"已清理取消任务的部分文件：{partial_pptx}")
+            except Exception:
+                pass
             await update_progress(
                 status="cancelled",
                 message="任务已取消，中间状态已保存",
@@ -2892,6 +2903,9 @@ async def list_ppt_history(
     """获取用户的 PPT 生成历史"""
     user_id = token.get("sub", "anonymous")
     output_dir = PPT_OUTPUT_DIR
+
+    if not output_dir.exists():
+        return {"records": [], "total": 0}
 
     if not output_dir.exists():
         return {"records": [], "total": 0}
