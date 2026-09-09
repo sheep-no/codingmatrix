@@ -165,11 +165,23 @@ class WebSocketManager:
             for conn_list in self._connections.values():
                 all_connections.extend(conn_list)
 
+        failed = []
         for conn_info in all_connections:
             try:
                 await conn_info.websocket.send_json(message)
             except Exception as e:
                 logger.error(f"Error broadcasting to user {conn_info.user_id}: {e}")
+                failed.append(conn_info)
+
+        # 清理失败连接
+        if failed:
+            async with self._lock:
+                for conn_info in failed:
+                    conns = self._connections.get(conn_info.user_id, [])
+                    if conn_info in conns:
+                        conns.remove(conn_info)
+                    if not conns and conn_info.user_id in self._connections:
+                        del self._connections[conn_info.user_id]
 
     def get_connection_count(self) -> int:
         """Get total number of active connections."""

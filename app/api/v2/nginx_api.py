@@ -14,6 +14,7 @@ Nginx 配置管理 API - 增强版（性能优化）
 """
 import logging
 import os
+import re
 import json
 import hashlib
 import shutil
@@ -451,6 +452,9 @@ async def delete_backup(
     
     # 防止路径穿越
     if ".." in backup_name or "/" in backup_name or "\\" in backup_name:
+        raise HTTPException(status_code=400, detail="无效的备份文件名")
+    # 防止 null byte 注入和特殊字符
+    if "\x00" in backup_name or not re.match(r'^[a-zA-Z0-9._\-]+$', backup_name):
         raise HTTPException(status_code=400, detail="无效的备份文件名")
     
     # 路径安全校验
