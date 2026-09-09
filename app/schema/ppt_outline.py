@@ -2,7 +2,9 @@
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.utils.pptx.templates.manager import TemplateManager
 
 
 class ContentBlock(BaseModel):
@@ -70,6 +72,17 @@ class OutlineCreateRequest(BaseModel):
     api_key_token: Optional[str] = None
     material_file_ids: List[int] = Field(default_factory=list, max_length=50)
 
+    @model_validator(mode="after")
+    def resolve_template(self) -> "OutlineCreateRequest":
+        try:
+            self.template_id = TemplateManager().select_template(
+                None if self.template_id == "auto" else self.template_id,
+                text=f"{self.topic} {self.description}", scenario=self.scenario,
+            )
+        except KeyError as error:
+            raise ValueError("所选模板不存在，请刷新模板列表后重新选择") from error
+        return self
+
 
 class OutlineUpdateRequest(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=300)
@@ -77,12 +90,26 @@ class OutlineUpdateRequest(BaseModel):
     template_id: Optional[str] = Field(default=None, min_length=1, max_length=80)
     slides: Optional[List[OutlineSlide]] = Field(default=None, max_length=49)
 
+    @field_validator("template_id")
+    @classmethod
+    def resolve_template(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        try:
+            return TemplateManager().select_template(value)
+        except KeyError as error:
+            raise ValueError("所选模板不存在，请刷新模板列表后重新选择") from error
+
 
 class OutlineGenerateRequest(BaseModel):
     quality_mode: str = Field(default="standard", pattern="^(standard|refined)$")
     outline_version: Optional[int] = Field(default=None, ge=1)
+    output_format: Literal["pptx", "pdf", "html", "markdown"] = "pptx"
+    auto_images: bool = True
+    enable_animation: bool = True
+    api_key_token: Optional[str] = None
 
 
-class SlideRegenerateRequest(BaseModel):
-    quality_mode: str = Field(default="standard", pattern="^(standard|refined)$")
-    slide: Optional[OutlineSlide] = None
+class SlideRegenerateRequest(OutlineGenerateRequest):
+    outline_version: int = Field(..., ge=1)
+    slide: OutlineSlide

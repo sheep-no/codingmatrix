@@ -36,7 +36,7 @@ export const useProviderStore = defineStore('providers', () => {
     try {
       const resp = await api.get('/providers')
       if (!resp.ok) {
-        return []
+        throw new Error(`加载供应商失败 (${resp.status})`)
       }
       const data = await resp.json()
       providers.value = Array.isArray(data) ? data : []
@@ -44,7 +44,7 @@ export const useProviderStore = defineStore('providers', () => {
       return providers.value
     } catch (e) {
       console.error('List providers failed:', e)
-      return []
+      throw e
     }
   }
 
@@ -52,6 +52,9 @@ export const useProviderStore = defineStore('providers', () => {
     loading.value = true
     try {
       const resp = await api.post('/providers', data)
+      if (!resp.ok) {
+        throw new Error(await getResponseError(resp, '添加供应商失败'))
+      }
       const result = await resp.json()
       await listProviders()
       return result
@@ -62,7 +65,10 @@ export const useProviderStore = defineStore('providers', () => {
 
   async function deleteProvider(id) {
     try {
-      await api.delete(`/providers/${id}`)
+      const resp = await api.delete(`/providers/${id}`)
+      if (!resp.ok) {
+        throw new Error(await getResponseError(resp, '删除供应商失败'))
+      }
       providers.value = providers.value.filter(p => p.id !== id)
       saveToStorage()
     } catch (e) {
@@ -74,6 +80,9 @@ export const useProviderStore = defineStore('providers', () => {
   async function toggleProvider(id) {
     try {
       const resp = await api.put(`/providers/${id}/toggle`)
+      if (!resp.ok) {
+        throw new Error(await getResponseError(resp, '更新供应商状态失败'))
+      }
       const result = await resp.json()
       const p = providers.value.find(x => x.id === id)
       if (p) {
@@ -90,6 +99,9 @@ export const useProviderStore = defineStore('providers', () => {
     loading.value = true
     try {
       const resp = await api.post(`/providers/${id}/sync?force=${force}`)
+      if (!resp.ok) {
+        throw new Error(await getResponseError(resp, '同步模型失败'))
+      }
       const result = await resp.json()
       if (result.count > 0 && !result.error) {
         await listProviders()
@@ -104,9 +116,21 @@ export const useProviderStore = defineStore('providers', () => {
     loading.value = true
     try {
       const resp = await api.post(`/providers/${id}/test`)
+      if (!resp.ok) {
+        throw new Error(await getResponseError(resp, '测试供应商失败'))
+      }
       return await resp.json()
     } finally {
       loading.value = false
+    }
+  }
+
+  async function getResponseError(resp, fallback) {
+    try {
+      const payload = await resp.json()
+      return payload.detail || payload.message || fallback
+    } catch {
+      return fallback
     }
   }
 
@@ -116,19 +140,28 @@ export const useProviderStore = defineStore('providers', () => {
    */
   function getAllDynamicModels() {
     const result = []
+    const seen = new Set()
     for (const p of providers.value) {
       if (!p.enabled) continue
       for (const modelObj of (p.models || [])) {
         const modelId = typeof modelObj === 'string' ? modelObj : modelObj.id
+        if (!modelId) continue
+        const key = `${p.id}::${modelId}`
+        if (seen.has(key)) continue
+        seen.add(key)
         result.push({
           provider_name: p.name,
           model_id: modelId,
           protocol: p.protocol,
           provider_id: p.id,
+          context_length: typeof modelObj === 'object' ? modelObj.context_length : undefined,
         })
       }
     }
-    return result
+    return result.sort((a, b) => {
+      const providerOrder = a.provider_name.localeCompare(b.provider_name)
+      return providerOrder || a.model_id.localeCompare(b.model_id)
+    })
   }
 
   return {

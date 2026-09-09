@@ -83,10 +83,12 @@ async def _call_vision_model(
     model: str,
     timeout: Timeout,
     api_key_token: Optional[str] = None,
-    user_id: Optional[str] = None
+    user_id: Optional[str] = None,
+    llm_caller=None,
 ) -> Dict[str, Any]:
     """调用视觉模型（通过统一 call_llm 路径）"""
-    from app.utils import call_llm
+    if llm_caller is None:
+        from app.utils import call_llm as llm_caller
 
     messages = [{
         "role": "user",
@@ -96,7 +98,7 @@ async def _call_vision_model(
         ]
     }]
 
-    result = await call_llm(
+    result = await llm_caller(
         model=model,
         prompt="",
         messages=messages,

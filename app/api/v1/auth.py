@@ -1,4 +1,5 @@
 import logging
+import json
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header
 from fastapi.responses import JSONResponse
@@ -26,6 +27,23 @@ from app.utils.encryption import get_public_key_for_client, decrypt_sensitive_da
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _history_payload(record: History) -> dict:
+    payload = {
+        "id": record.id,
+        "conversation_id": record.conversation_id,
+        "prompt": record.prompt,
+        "response": record.response,
+        "thinking": record.thinking,
+        "title": record.title,
+        "created_at": record.created_at,
+    }
+    try:
+        payload["metadata"] = json.loads(record.metadata_json) if record.metadata_json else {}
+    except (TypeError, ValueError):
+        payload["metadata"] = {}
+    return payload
 
 
 @router.get("/public-key", summary="获取 RSA 公钥")
@@ -314,7 +332,7 @@ async def get_history(
         logger.debug(f"历史记录查询完成 | user_id={user_id} | total={total} | returned={len(histories)}")
 
         return {
-            "items": histories,
+            "items": [_history_payload(item) for item in histories],
             "total": total,
             "limit": request.limit,
             "offset": request.offset
@@ -348,7 +366,7 @@ async def get_conversation_detail(
             f"对话详情查询完成 | user_id={user_id} | conversation_id={request.conversation_id} | returned={len(histories)}")
 
         return {
-            "items": histories,
+            "items": [_history_payload(item) for item in histories],
             "conversation_id": request.conversation_id
         }
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:

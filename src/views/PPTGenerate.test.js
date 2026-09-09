@@ -1,7 +1,11 @@
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { push, uploadFile, createOutline, updateOutline, approveOutline, generateFromOutline } = vi.hoisted(() => ({
+enableAutoUnmount(afterEach)
+afterEach(() => vi.unstubAllGlobals())
+
+const { push, uploadFile, createOutline, updateOutline, approveOutline, generateFromOutline, route } = vi.hoisted(() => ({
+  route: { query: {} },
   push: vi.fn(),
   uploadFile: vi.fn(),
   createOutline: vi.fn(),
@@ -12,6 +16,7 @@ const { push, uploadFile, createOutline, updateOutline, approveOutline, generate
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push, go: vi.fn() }),
+  useRoute: () => route,
 }))
 
 vi.mock('@/stores/apikey', () => ({
@@ -41,6 +46,7 @@ vi.mock('element-plus', () => ({
 }))
 
 import PPTGenerate from './PPTGenerate.vue'
+import { api } from '@/utils/api/index'
 
 const validSlides = [
   {
@@ -73,6 +79,86 @@ async function openOutline(wrapper, slides = validSlides) {
 describe('PPTGenerate workflow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal('WebSocket', vi.fn(function () { return { close: vi.fn() } }))
+    route.query = {}
+    api.ppt.getTemplates.mockResolvedValue({ templates: [] })
+  })
+
+  it('submits auto and displays the canonical selection and scenario recommendations', async () => {
+    api.ppt.getTemplates.mockImplementation(async (category, options) => options ? {
+      scenario: 'business', templates: ['business_report', 'minimal'],
+    } : { templates: [{ id: 'business_report', name: 'Business', name_zh: '商务报告', description: '用于经营复盘', scenarios: ['business'], primary_color: '#123456' }] })
+    createOutline.mockResolvedValue({ id: 'auto-outline', template_id: 'business_report', scenario: 'business', slides: validSlides })
+    const wrapper = mount(PPTGenerate)
+    await flushPromises()
+    expect(wrapper.text()).toContain('用于经营复盘')
+    expect(wrapper.text()).toContain('场景：商务汇报')
+    expect(wrapper.text()).toContain('色彩示意')
+    await wrapper.find('.template-auto').trigger('click')
+    await wrapper.find('.form-group textarea').setValue('季度经营汇报')
+    await wrapper.find('.generate-btn').trigger('click')
+    await flushPromises()
+    expect(createOutline).toHaveBeenCalledWith(expect.objectContaining({ template_id: 'auto' }))
+    expect(wrapper.find('.template-result').text()).toContain('自动选择结果：商务报告')
+    expect(wrapper.find('.template-result').text()).toContain('模板 ID：business_report')
+    expect(wrapper.find('.template-result').text()).toContain('推荐模板：商务报告、minimal')
+    expect(api.ppt.getTemplates).toHaveBeenLastCalledWith(null, { topic: '季度经营汇报', scenario: 'business' })
+    expect(wrapper.find('.template-grid .selected').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('preserves manual alias selection and retries recommendations without recreating the outline', async () => {
+    createOutline.mockResolvedValue({ id: 'manual-outline', template_id: 'business_report', scenario: 'business', slides: validSlides })
+    const wrapper = mount(PPTGenerate)
+    await flushPromises()
+    await wrapper.findAll('.template-grid .template-card')[1].trigger('click')
+    await wrapper.find('.form-group textarea').setValue('手动模板')
+    await wrapper.find('.generate-btn').trigger('click')
+    await flushPromises()
+    expect(createOutline).toHaveBeenCalledWith(expect.objectContaining({ template_id: 'business' }))
+    expect(wrapper.find('.template-result').text()).toContain('已采用模板：business_report')
+    expect(wrapper.text()).toContain('推荐信息暂不可用')
+    api.ppt.getTemplates.mockResolvedValueOnce({ scenario: 'business', templates: ['business_report'] })
+    await wrapper.find('.template-result button').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.template-result').text()).toContain('推荐模板：business_report')
+    expect(createOutline).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('keeps auto available when the template registry fails and allows reloading', async () => {
+    api.ppt.getTemplates.mockRejectedValueOnce(new Error('unavailable'))
+    const wrapper = mount(PPTGenerate)
+    await flushPromises()
+    expect(wrapper.text()).toContain('当前显示备用配色')
+    expect(wrapper.find('.template-auto').exists()).toBe(true)
+    api.ppt.getTemplates.mockResolvedValueOnce({ templates: [{ id: 'education', name_zh: '教育培训', description: '课程教学', scenarios: ['education'] }] })
+    await wrapper.find('.template-hint button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('课程教学')
+    expect(wrapper.text()).not.toContain('当前显示备用配色')
+    wrapper.unmount()
+  })
+
+  it('resumes the exported task from the route without creating another task', async () => {
+    route.query = { task_id: 'revised-task' }
+    const socket = { close: vi.fn() }
+    const WebSocketMock = vi.fn(function () { return socket })
+    vi.stubGlobal('WebSocket', WebSocketMock)
+    const wrapper = mount(PPTGenerate)
+    await flushPromises()
+    expect(WebSocketMock).toHaveBeenCalledWith(expect.stringContaining('/api/v1/ws/ppt/revised-task?'))
+    expect(generateFromOutline).not.toHaveBeenCalled()
+    socket.onmessage({ data: JSON.stringify({
+      type: 'completed', progress: 1, step: 'completed', result: { ppt_id: 'revised-task' },
+    }) })
+    await flushPromises()
+    expect(wrapper.text()).toContain('生成成功!')
+    expect(wrapper.find('.preview-placeholder').exists()).toBe(false)
+    await wrapper.find('.preview-btn').trigger('click')
+    expect(push).toHaveBeenCalledWith('/ppt-preview/revised-task')
+    wrapper.unmount()
+    vi.unstubAllGlobals()
   })
 
   it('edits, adds, reorders and removes outline slides before approval', async () => {
@@ -155,12 +241,16 @@ describe('PPTGenerate workflow', () => {
     approveOutline.mockImplementation(async id => ({ id, version: 2, slides: validSlides }))
     generateFromOutline.mockResolvedValue({ task_id: 'task-1' })
     const wrapper = mount(PPTGenerate, { attachTo: document.body })
+    await wrapper.findAll('.option-select')[1].setValue('markdown')
+    for (const checkbox of wrapper.findAll('.option-checkbox')) await checkbox.setValue(false)
     await openOutline(wrapper)
     await wrapper.find('.outline-approve-btn').trigger('click')
     await flushPromises()
     await wrapper.find('.quality-mode-panel .generate-btn').trigger('click')
     await flushPromises()
 
-    expect(generateFromOutline).toHaveBeenCalledWith('outline-1', 'standard', 2)
+    expect(generateFromOutline).toHaveBeenCalledWith('outline-1', 'standard', 2, {
+      output_format: 'markdown', auto_images: false, enable_animation: false, api_key_token: 'test-token',
+    })
   })
 })

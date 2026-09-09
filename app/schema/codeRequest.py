@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 import re
 from app.agent.models import DEFAULT_REASONING_MODEL
 from app.utils.aicloud.model_registry import MODEL_REGISTRY
@@ -27,7 +27,9 @@ class CodeRequest(BaseModel):
     api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
 
     # 联网搜索的配置
-    enable_search: Optional[bool] = Field(None, description="是否允许联网搜索（True=允许，False=禁止，None=AI 自主决定）")
+    search_mode: Literal["auto", "on", "off"] = Field("auto", description="联网模式")
+    search_depth: Literal["shallow", "multi"] = Field("shallow", description="浅搜索一轮，多轮搜索最多两轮")
+    enable_search: Optional[bool] = Field(None, description="旧版联网开关，映射为 on/off")
     search_count: Optional[int] = Field(5, ge=1, le=20, description="搜索结果数量")
 
     # 文件附件（前端上传后传入 server_path 列表）

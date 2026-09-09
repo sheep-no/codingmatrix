@@ -1,8 +1,8 @@
 <template>
   <div class="agent-topbar">
     <div class="topbar-left">
-      <h1 class="topbar-title">CodingMatrix</h1>
-      <div class="topbar-status" :class="`status-${status}`">
+      <h1 class="topbar-title">CodingMatrix <span>Agent</span></h1>
+      <div class="topbar-status" :class="`status-${status}`" role="status">
         <span class="status-dot"></span>
         <span class="status-text">{{ statusLabel }}</span>
       </div>
@@ -15,14 +15,14 @@
         <span v-if="costData.tokensPerSecond" class="cost-divider">|</span>
         <span v-if="costData.tokensPerSecond" class="cost-speed">{{ costData.tokensPerSecond?.toFixed(0) }} tok/s</span>
       </div>
-      <button class="topbar-btn" title="导入项目" @click="$emit('open-upload')">
+      <button class="topbar-btn" title="导入项目" aria-label="导入项目" @click="$emit('open-upload')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       </button>
-      <button class="topbar-btn" title="设置" @click="$emit('open-settings')">
+      <button class="topbar-btn" title="设置" aria-label="打开 Agent 设置" @click="$emit('open-settings')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
       </button>
       <div ref="moreRef" class="topbar-more">
-        <button class="topbar-btn" title="更多" @click="showMore = !showMore">
+        <button class="topbar-btn" title="更多" aria-label="更多 Agent 操作" :aria-expanded="showMore" @click="showMore = !showMore">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
         </button>
         <div v-if="showMore" class="topbar-dropdown" @click="showMore = false">
@@ -52,7 +52,7 @@ const showMore = ref(false)
 const moreRef = ref(null)
 
 const statusLabel = computed(() => ({
-  idle: '空闲',
+  idle: '准备就绪',
   running: '运行中',
   failed: '失败',
   completed: '已完成'
@@ -81,20 +81,20 @@ onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
   justify-content: space-between;
   align-items: center;
   padding: 12px 24px;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-color);
+  background: var(--surface-app);
+  border-bottom: 1px solid var(--control-border);
   z-index: 100;
+  flex-shrink: 0;
+  gap: 12px;
 }
 .topbar-left { display: flex; align-items: center; gap: 16px; }
 .topbar-title {
   font-size: 18px;
   font-weight: 700;
   margin: 0;
-  background: linear-gradient(135deg, var(--text-primary) 0%, var(--primary) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--text-primary);
 }
+.topbar-title span { font-size: 12px; font-weight: 500; color: var(--primary); margin-left: 8px; }
 .topbar-status {
   display: flex;
   align-items: center;
@@ -109,7 +109,7 @@ onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
   height: 6px;
   border-radius: 50%;
 }
-.status-idle { background: var(--bg-secondary); color: var(--text-secondary); }
+.status-idle { background: var(--surface-subtle); color: var(--content-secondary); }
 .status-idle .status-dot { background: var(--text-tertiary); }
 .status-running { background: color-mix(in srgb, var(--primary), transparent 90%); color: var(--primary); }
 .status-running .status-dot { background: var(--primary); animation: pulse 1.5s infinite; }
@@ -129,9 +129,9 @@ onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--content-secondary);
   padding: 4px 12px;
-  background: var(--bg-secondary);
+  background: var(--surface-subtle);
   border-radius: 8px;
 }
 .cost-divider { color: var(--text-tertiary); }
@@ -139,24 +139,25 @@ onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: var(--control-min-size);
+  height: var(--control-min-size);
   border: none;
   background: transparent;
-  color: var(--text-secondary);
-  border-radius: 8px;
+  color: var(--content-secondary);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.15s;
 }
-.topbar-btn:hover { background: var(--bg-secondary); color: var(--text-primary); }
+.topbar-btn:hover { background: var(--surface-subtle); color: var(--content-primary); }
+.topbar-btn:focus-visible { outline: 3px solid color-mix(in srgb, var(--control-border-focus) 45%, transparent); outline-offset: 2px; }
 .topbar-more { position: relative; }
 .topbar-dropdown {
   position: absolute;
   top: 100%;
   right: 0;
   margin-top: 4px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  background: var(--surface-app);
+  border: 1px solid var(--control-border);
   border-radius: 10px;
   box-shadow: 0 8px 24px var(--shadow-color);
   z-index: 200;
@@ -169,12 +170,23 @@ onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
   padding: 8px 14px;
   border: none;
   background: transparent;
-  color: var(--text-primary);
+  color: var(--content-primary);
   font-size: 13px;
   text-align: left;
   cursor: pointer;
   transition: background 0.15s;
 }
-.topbar-dropdown button:hover { background: var(--bg-secondary); }
+.topbar-dropdown button:hover { background: var(--surface-subtle); }
 .topbar-dropdown button:disabled { opacity: 0.4; cursor: not-allowed; }
+@media (max-width: 768px) {
+  .agent-topbar { padding: 10px 12px; flex-wrap: wrap; }
+  .topbar-left { gap: 10px; flex-wrap: wrap; }
+  .topbar-right { gap: 4px; margin-left: auto; }
+  .topbar-cost { display: none; }
+}
+@media (max-width: 480px) {
+  .topbar-left { flex: 1; }
+  .topbar-title { width: 100%; font-size: 16px; }
+  .topbar-status { padding: 2px 8px; font-size: 11px; }
+}
 </style>

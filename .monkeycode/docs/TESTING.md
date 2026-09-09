@@ -7,6 +7,7 @@
 | 后端单元 | `tests/unit/`、`pyproject.toml` | pytest、pytest-asyncio | 服务、状态、适配器和安全规则 |
 | 后端集成 | `tests/integration/` | pytest、Redis、数据库 | 事件重放、checkpoint、任务恢复 |
 | 前端单元 | `src/**/*.test.js`、`src/vite.config.js` | Vitest、jsdom | Store、composable、路由和 API 客户端 |
+| 前端构建预算 | `src/scripts/check-performance-budget.js` | Vite manifest、Node.js zlib | 首屏 JS/CSS、图片和路由 chunk 体积 |
 | 浏览器 E2E | `tests/e2e/`、`playwright.config.js` | Playwright、Chromium | 登录、导航、Agent 和业务流程 |
 | VS Code 扩展 | `vscode-extension/test/`、`vscode-extension/e2e/` | Node test、VS Code Test Electron | 协议、Host、工作台和真实扩展激活 |
 
@@ -25,8 +26,11 @@ python3 -m compileall -q app/agent app/api
 # 前端单元测试
 npm --prefix src run test:run
 
-# 前端生产构建
-npm --prefix src run build
+# 前端生产构建与性能预算检查
+npm --prefix src run build:budget
+
+# 复查已有 dist 产物的性能预算
+npm --prefix src run budget:check
 
 # 根目录 Playwright E2E
 npm run test:e2e
@@ -48,6 +52,9 @@ npm --prefix vscode-extension run e2e
 
 - Python 测试路径、异步模式和 marker 位于 `pyproject.toml`；`configs/pytest.ini` 是兼容配置。
 - 前端 Vitest 使用 `jsdom`、globals 和 v8 coverage。
+- 性能预算测试位于 `src/scripts/check-performance-budget.test.js`；构建预算使用 `dist/.vite/manifest.json` 聚合首屏静态依赖，以入口的直接动态导入识别路由 chunk，并检查 manifest 与 `src/public/` 中的图片。
+- 性能采集测试位于 `src/utils/performanceMetrics.test.js`，覆盖 CLS session window、INP interaction 聚合、LCP 更新、成功与失败路由导航以及观察器和守卫释放。
+- 消息渲染性能测试位于 `src/utils/messageVirtualizer.test.js`、`src/utils/streamUpdateBatcher.test.js`、`src/utils/imageThumbnail.test.js` 和 `src/components/chat/message-parts.test.js`，覆盖可变高度窗口、帧级增量合并、终止冲刷、图片尺寸限制、懒加载与原图入口。
 - Playwright 默认使用 `http://127.0.0.1:3000`，浏览器项目为 Chromium。
 - CI Playwright 使用单 worker，并在失败时重试 2 次。
 - 浏览器测试需要先启动前端，涉及真实 API 的用例还需要后端、Redis、数据库和测试账号。
@@ -109,11 +116,16 @@ Agent Host 和本地验证修改后运行 `npm --prefix vscode-extension test`�
 - 游戏 AI PPT 用例验证了 16 页最终文件、15 个内容页、`NPC`/`UGC` 领域语义和 200 下载响应；模型凭据不可用时，日志应显示领域化大纲回退或跳过视觉分析，本地布局继续完成生成。
 - 修改后至少执行 `git diff --check`、相关测试和生产构建。
 
-## 最近结果（2026-09-05）
+## 最近结果（2026-09-07）
 
 - VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `62 passed`。
 - VS Code Extension Development Host：E2E 通过，已验证扩展激活、Agent Workbench 打开、兼容性握手和工作区能力。
 - 前端相关回归：`23 passed`，生产构建成功。
+- Web 任务反馈专项：`4 files passed, 36 tests passed`，覆盖归一化、增量合并、断线恢复、过期快照、终态保护、游标重置和组件操作派发；前端完整 Vitest 为 `25 files passed, 108 tests passed`。
+- Web 性能采集与预算：前端完整 Vitest 为 `27 files passed, 115 tests passed`；首屏 JavaScript `356.1 KiB gzip / 450 KiB`、首屏 CSS `55.0 KiB gzip / 100 KiB`、最大图片 `124.6 KiB / 200 KiB`、最大路由 chunk `46.7 KiB gzip / 150 KiB`，生产构建预算检查通过。
+- Web 消息与资源加载优化：前端完整 Vitest 为 `30 files passed, 126 tests passed`；首屏 JavaScript `356.1 KiB gzip / 450 KiB`、首屏 CSS `55.0 KiB gzip / 100 KiB`、最大图片 `124.6 KiB / 200 KiB`、最大路由 chunk `47.4 KiB gzip / 150 KiB`，生产构建预算检查通过。
+- Web 工作台浏览器回归：`workbench-responsive.spec.js` 与 `capability-center.spec.js` 共 `3 passed`，覆盖首页、Agent Dashboard、Capability Center 以及 1440px、768px、390px 视口；移动端 Chromium 快照为导航 `412ms`、LCP `4012ms`、CLS `0.05`，INP 因无交互样本为空，Long Task 条目为空。
+- Lighthouse：使用生产预览服务器完成优化后移动端和桌面端审计。移动端性能分数 `30`，LCP `8.7s`、FCP `4.5s`、TBT `2,260ms`、CLS `0.062`；桌面端性能分数 `27`，LCP `8.2s`、FCP `4.3s`、TBT `970ms`、CLS `0.047`。两种视口均提示约 `21 KiB` 未使用 JavaScript，INP 因无交互样本为空。移除首屏完整 Element Plus 插件注册后，首屏 JavaScript gzip 从 `356.1 KiB` 降至 `86.5 KiB`，Element Plus vendor gzip 从 `275.75 KiB` 降至 `30.77 KiB`。开发服务器模式曾出现 `NO_FCP`，生产预览模式已完成有效审计。
 - PPT 专项回归：`141 passed`；真实 HTTP/WebSocket 验收覆盖 HTML 生成、PPTX 下载、进度事件和格式错误隔离。
 - 原始 `npm --prefix vscode-extension run e2e` 在当前无头环境会受到 `xauth` 缺失影响；使用已启动的 `Xvfb` 直接运行 E2E 入口后完成验收。
 - 游戏 AI PPT 真实生成 E2E 当前结果为 `1 passed`；运行时曾发现根目录与 `src/node_modules` 的 Playwright 依赖冲突，固定使用根目录 CLI、配置和 Chromium 项目后通过。

@@ -1,17 +1,45 @@
   <template>
     <div class="main-layout">
+      <div class="mobile-home-toolbar">
+        <button
+          ref="homeMenuTrigger"
+          class="mobile-home-menu"
+          type="button"
+          aria-label="打开主导航"
+          @click="openHomeDrawer"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
+            <line x1="4" y1="6" x2="20" y2="6" />
+            <line x1="4" y1="12" x2="20" y2="12" />
+            <line x1="4" y1="18" x2="20" y2="18" />
+          </svg>
+          <span>导航</span>
+        </button>
+        <span class="mobile-home-title">CodingMatrix</span>
+      </div>
+
       <ErrorBoundary component-name="左侧边栏">
         <Leftlist
           ref="leftlistRef"
-          :class="{ 'sidebar-visible': true }"
-          role="navigation"
+          :class="{ 'sidebar-visible': true, 'mobile-home-drawer-open': homeDrawerOpen }"
           aria-label="主导航"
+          :role="homeDrawerOpen ? 'dialog' : undefined"
+          :aria-modal="homeDrawerOpen ? 'true' : undefined"
+          :tabindex="homeDrawerOpen ? -1 : undefined"
           @select-history="handleSelectHistory"
           @delete-history="handleDeleteHistory"
           @new-conversation="handleNewConversation"
           @use-tool="handleUseTool"
         />
       </ErrorBoundary>
+
+      <button
+        v-if="homeDrawerOpen"
+        class="mobile-home-scrim"
+        type="button"
+        aria-label="关闭主导航"
+        @click="closeHomeDrawer"
+      ></button>
 
       <!-- 主内容区 -->
       <main class="main-content" role="main">
@@ -28,10 +56,9 @@
             @prepend-history="handlePrependHistory"
             @quick-prompt="handleQuickPrompt"
             @edit-message="handleEditMessage"
+            @retry-message="handleSendMessage"
           />
         </ErrorBoundary>
-      </main>
-
       <!-- 底部输入区 -->
       <div class="bottom-wrapper" role="form" aria-label="消息输入区">
         <Bottominput
@@ -45,12 +72,14 @@
           @cancel-edit="handleCancelEdit"
         />
       </div>
+      </main>
 
       <!-- Toast 通知 -->
       <ToastContainer />
 
       <!-- 消息编辑器 -->
       <MessageEditor
+        v-if="showMessageEditor"
         :message="editMessage"
         :visible="showMessageEditor"
         @save="handleSaveEdit"
@@ -116,6 +145,7 @@
 
       <!-- 快捷键帮助弹窗 -->
       <KeyboardShortcutsHelp
+        v-if="showShortcutsHelp"
         :visible="showShortcutsHelp"
         @close="showShortcutsHelp = false"
       />
@@ -128,18 +158,18 @@
   import CenterContent from './centerContent.vue'
   import Leftlist from './leftlist.vue'
   import ErrorBoundary from './ErrorBoundary.vue'
-  import MessageEditor from './MessageEditor.vue'
-  import KeyboardShortcutsHelp from './KeyboardShortcutsHelp.vue'
   import { useRouter } from 'vue-router'
   import { api } from '@/utils/api/index'
   import { streamManager } from '@/utils/streamManager'
   import { consumeJsonStream } from '@/utils/streamParser'
+  import { createStreamUpdateBatcher } from '@/utils/streamUpdateBatcher'
   import { useNavigationStore } from '@/stores/navigation'
   import { useUserStore } from '@/stores/user'
   import { useApiKeyStore } from '@/stores/apikey'
   import { useToast } from '@/composables/useToast'
   import { useOfflineQueue } from '@/composables/useOfflineQueue'
   import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
+  import { normalizeRequestError, getRequestErrorMessage } from '@/utils/requestError'
 
   // 工具组件延迟加载 - 减少初始包大小
   const NginxConfig = defineAsyncComponent(() => import('./NginxConfig.vue'))
@@ -151,6 +181,8 @@
   const TaskQueue = defineAsyncComponent(() => import('./TaskQueue.vue'))
   const ImageGenerator = defineAsyncComponent(() => import('./ImageGenerator.vue'))
   const Aicloud = defineAsyncComponent(() => import('./Aicloud.vue'))
+  const MessageEditor = defineAsyncComponent(() => import('./MessageEditor.vue'))
+  const KeyboardShortcutsHelp = defineAsyncComponent(() => import('./KeyboardShortcutsHelp.vue'))
 
   const router = useRouter()
   const apiUrl = import.meta.env.VITE_API_BASE || '/api/v1'
@@ -164,6 +196,8 @@
 
   const bottominputRef = ref(null)
   const showShortcutsHelp = ref(false)
+  const homeDrawerOpen = ref(false)
+  const homeMenuTrigger = ref(null)
 
   // 消息编辑状态
   const editMessage = ref('')
@@ -194,6 +228,47 @@
 
   const MAX_CONVERSATION_CACHE = 50
 
+  const openHomeDrawer = async () => {
+    homeDrawerOpen.value = true
+    await nextTick()
+    leftlistRef.value?.$el?.focus()
+  }
+
+  const closeHomeDrawer = async () => {
+    homeDrawerOpen.value = false
+    await nextTick()
+    homeMenuTrigger.value?.focus()
+  }
+
+  const handleHomeDrawerKeydown = event => {
+    if (!homeDrawerOpen.value) return
+    if (event.key === 'Escape') {
+      closeHomeDrawer()
+      return
+    }
+    if (event.key !== 'Tab') return
+
+    const drawer = leftlistRef.value?.$el
+    const focusable = [...(drawer?.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ) || [])]
+    if (focusable.length === 0) {
+      event.preventDefault()
+      drawer?.focus()
+      return
+    }
+
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === drawer)) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
   const saveConversationToMap = (conversationId, customHistory = null) => {
     if (conversationId) {
       const key = String(conversationId)
@@ -211,6 +286,25 @@
     }
   }
 
+  const streamUpdateBatcher = createStreamUpdateBatcher(update => {
+    const history = conversationHistoryMap.value.get(update.conversationId)
+    const message = history?.[update.lastIndex]
+    if (!message) return
+
+    message.response = (message.response || '') + update.responseDelta
+    message.reasoning = (message.reasoning || '') + update.reasoningDelta
+
+    if (String(currentConversationId.value) === String(update.conversationId)) {
+      const visibleMessage = conversationHistory.value[update.lastIndex]
+      if (visibleMessage) {
+        Object.assign(visibleMessage, {
+          response: message.response,
+          reasoning: message.reasoning
+        })
+      }
+    }
+  })
+
   const getConversationFromMap = conversationId => {
     if (conversationId) {
       const key = String(conversationId)
@@ -223,6 +317,32 @@
   }
 
   const SESSION_RESTORE_MAX_AGE = 24 * 60 * 60 * 1000
+
+  const normalizeHistoryMessage = message => {
+    const metadata = message.metadata || {}
+    const warnings = (metadata.warnings || []).map(warning => (
+      typeof warning === 'string'
+        ? warning
+        : warning.error || warning.message || warning.stage || JSON.stringify(warning)
+    ))
+
+    return {
+      id: message.id,
+      conversation_id: parseInt(message.conversation_id, 10),
+      prompt: message.prompt,
+      response: message.response || '',
+      reasoning: message.thinking || '',
+      thinkingOpen: true,
+      createdAt: message.created_at,
+      title: message.title,
+      sources: metadata.sources || [],
+      model: metadata.model || message.model || '',
+      searchDepth: metadata.search_depth || 'shallow',
+      warnings,
+      usage: metadata.usage || message.usage,
+      toolCalls: metadata.tool_calls || message.tool_calls || []
+    }
+  }
 
   const saveStateToStorage = () => {
     const state = {
@@ -280,16 +400,7 @@
         if (response.ok) {
           const data = await response.json()
           if (data.items && data.items.length > 0) {
-            const historyItems = data.items.map(message => ({
-              id: message.id,
-              conversation_id: parseInt(message.conversation_id, 10),
-              prompt: message.prompt,
-              response: message.response || '',
-              reasoning: message.thinking || '',
-              thinkingOpen: true,
-              createdAt: message.created_at,
-              title: message.title
-            }))
+            const historyItems = data.items.map(normalizeHistoryMessage)
             currentConversationId.value = conversationId
             conversationHistory.value = historyItems
             selectedHistoryItem.value = state.selectedHistoryItem
@@ -364,9 +475,26 @@
   const handleQuickPrompt = prompt => {
     handleSendMessage({
       prompt,
-      model: 'Qwen/Qwen3-8B',
+      model: undefined,
       use_reasoning: false
     })
+  }
+
+  const createRetryRequest = messageData => {
+    const retryRequest = {
+      prompt: messageData.prompt,
+      model: messageData.model,
+      stream: messageData.stream,
+      use_reasoning: messageData.use_reasoning,
+      search_mode: messageData.search_mode,
+      search_depth: messageData.search_depth,
+      conversation_id: messageData.conversation_id,
+      files: messageData.files,
+      is_project_generator: messageData.is_project_generator,
+      session_id: messageData.session_id,
+      requirement: messageData.requirement
+    }
+    return Object.fromEntries(Object.entries(retryRequest).filter(([, value]) => value !== undefined))
   }
 
   const handleSendMessage = async messageData => {
@@ -377,7 +505,7 @@
     if (isLoading.value) return
 
     // 检查 API Key 配置
-    if (!apiKeyStore.hasSiliconflowKey) {
+    if (!apiKeyStore.hasSiliconflowKey && !messageData.model) {
       showError('请先配置 API Key 后再使用')
       // 跳转到设置页面
       router.push('/settings')
@@ -472,9 +600,11 @@
         streamManager.saveStreamRequestState(
           {
             prompt: messageData.prompt,
-            model: messageData.model || 'Qwen/Qwen3-8B',
+            model: messageData.model || undefined,
             stream: true,
             use_reasoning: messageData.use_reasoning || false,
+            search_mode: messageData.search_mode || 'auto',
+            search_depth: messageData.search_depth || 'shallow',
             conversation_id: sendConversationId
           },
           messageData,
@@ -483,9 +613,11 @@
 
         const requestData = {
           prompt: messageData.prompt,
-          model: messageData.model || 'Qwen/Qwen3-8B',
+          model: messageData.model || undefined,
           stream: true,
           use_reasoning: messageData.use_reasoning || false,
+          search_mode: messageData.search_mode || 'auto',
+          search_depth: messageData.search_depth || 'shallow',
           conversation_id: sendConversationId,
           api_key_token: apiKeyStore.siliconflowKey?.token
         }
@@ -515,7 +647,9 @@
         } catch (e) {
           console.error('无法解析错误响应:', response.statusText)
         }
-        throw new Error(errorMessage)
+        const requestError = new Error(errorMessage)
+        requestError.status = response.status
+        throw requestError
       }
 
       await consumeJsonStream(
@@ -530,6 +664,8 @@
         { signal: abortController.signal }
       )
 
+      streamUpdateBatcher.flush()
+
       if (currentMessageData.is_project_generator) {
         if (conversationHistory.value[lastMessageIndex]) {
           conversationHistory.value[lastMessageIndex].isStreaming = false
@@ -538,17 +674,20 @@
         const streamHistory = conversationHistoryMap.value.get(streamConversationId)
         if (streamHistory && streamHistory.length > 0) {
           const streamLastIndex = streamHistory.length - 1
-          streamHistory[streamLastIndex].isStreaming = false
+           streamHistory[streamLastIndex].isStreaming = false
+           streamHistory[streamLastIndex].chatStage = ''
           saveConversationToMap(streamConversationId, streamHistory)
 
           if (String(currentConversationId.value) === String(streamConversationId)) {
             if (conversationHistory.value[streamLastIndex]) {
               conversationHistory.value[streamLastIndex].isStreaming = false
+              conversationHistory.value[streamLastIndex].chatStage = ''
             }
           }
         }
       }
     } catch (error) {
+      streamUpdateBatcher.flush()
       console.error('发送消息失败:', error)
 
       const streamHistory = conversationHistoryMap.value.get(streamConversationId)
@@ -576,6 +715,7 @@
               existingReasoning + '\n\n[PAUSE] Reasoning stopped (user interrupted)'
           }
         } else {
+          const requestError = normalizeRequestError(error)
           const hasPartialContent =
             (lastMessage.response && lastMessage.response.length > 0) ||
             (lastMessage.reasoning && lastMessage.reasoning.length > 0)
@@ -590,18 +730,21 @@
             const existingReasoning = lastMessage.reasoning || ''
 
             if (!existingResponse.includes('[ERR] Response error')) {
-              lastMessage.response = existingResponse + `\n\n[ERR] Response error: ${error.message}`
+              lastMessage.response = existingResponse + `\n\n[ERR] Response error: ${getRequestErrorMessage(error)}`
             }
             if (existingReasoning && !existingReasoning.includes('[ERR] Reasoning error')) {
               lastMessage.reasoning =
-                existingReasoning + `\n\n[ERR] Reasoning error: ${error.message}`
-            }
+                existingReasoning + `\n\n[ERR] Reasoning error: ${getRequestErrorMessage(error)}`
+              }
           } else {
-            lastMessage.response = `[ERR] Request failed: ${error.message}`
+            lastMessage.response = `[ERR] Request failed: ${requestError.message}`
           }
+          lastMessage.requestError = requestError
+          lastMessage.retryRequest = requestError.retryable ? createRetryRequest(currentMessageData) : null
         }
 
         lastMessage.isStreaming = false
+        lastMessage.chatStage = ''
         saveConversationToMap(streamConversationId)
 
         if (String(currentConversationId.value) === String(streamConversationId)) {
@@ -769,8 +912,6 @@
     }
   }
 
-  let _streamChunkCount = 0
-
   const handleChatStream = (data, streamConversationId, lastIndex, messageData) => {
     const streamHistory = conversationHistoryMap.value.get(streamConversationId)
     if (!streamHistory) {
@@ -780,8 +921,25 @@
 
     const history = streamHistory
 
+    if (data.stage) {
+      const labels = { parsing: '正在解析附件', searching: '正在搜索资料', answering: '正在生成回答' }
+      if (data.stage === 'searching' && data.round) labels.searching = `正在搜索资料（第 ${data.round}/${data.total_rounds} 轮）`
+      if (history[lastIndex]) {
+        history[lastIndex].chatStage = ['completed', 'skipped', 'failed'].includes(data.status) ? '' : labels[data.stage] || data.stage
+        if (['failed', 'skipped'].includes(data.status) && data.error) history[lastIndex].warnings = [...(history[lastIndex].warnings || []), data.error]
+        if (data.sources) history[lastIndex].sources = data.sources
+        if (data.model) history[lastIndex].model = data.model
+        if (data.search_depth) history[lastIndex].searchDepth = data.search_depth
+        if (String(currentConversationId.value) === String(streamConversationId) && conversationHistory.value[lastIndex]) {
+          Object.assign(conversationHistory.value[lastIndex], { chatStage: history[lastIndex].chatStage, sources: history[lastIndex].sources, warnings: history[lastIndex].warnings, model: history[lastIndex].model, searchDepth: history[lastIndex].searchDepth })
+        }
+      }
+      return
+    }
+
     // 后端错误
     if (data.error) {
+      streamUpdateBatcher.flush()
       if (history[lastIndex]) {
         history[lastIndex].response = (history[lastIndex].response || '') + `\n\n[ERROR] ${data.error}`
         Object.assign(history[lastIndex], { response: history[lastIndex].response })
@@ -790,6 +948,13 @@
         }
       }
       return
+    }
+
+    if (data.usage && history[lastIndex]) {
+      history[lastIndex].usage = data.usage
+      if (String(currentConversationId.value) === String(streamConversationId) && conversationHistory.value[lastIndex]) {
+        conversationHistory.value[lastIndex].usage = data.usage
+      }
     }
 
     if (data.conversation_id !== undefined) {
@@ -841,36 +1006,28 @@
 
     if (data.choices && data.choices[0] && history[lastIndex]) {
       const delta = data.choices[0].delta
-
-      const currentResponse = history[lastIndex].response || ''
-      const currentReasoning = history[lastIndex].reasoning || ''
-
-      if (delta.reasoning_content) {
-        history[lastIndex].reasoning = currentReasoning + delta.reasoning_content
-      } else if (delta.content) {
-        history[lastIndex].response = currentResponse + delta.content
-      }
-
-      Object.assign(history[lastIndex], {
-        reasoning: history[lastIndex].reasoning,
-        response: history[lastIndex].response
-      })
-
-      // 节流：每 20 个 chunk 才 deep clone 一次，避免长对话卡顿
-      _streamChunkCount++
-      if (_streamChunkCount % 20 === 0) {
-        saveConversationToMap(streamConversationId, history)
-        _streamChunkCount = 0
-      }
-
-      if (String(currentConversationId.value) === String(streamConversationId)) {
-        if (conversationHistory.value[lastIndex]) {
-          Object.assign(conversationHistory.value[lastIndex], {
-            reasoning: history[lastIndex].reasoning,
-            response: history[lastIndex].response
-          })
+      if (delta.tool_calls?.length) {
+        const toolCalls = history[lastIndex].toolCalls || []
+        delta.tool_calls.forEach(toolCall => {
+          const index = toolCall.index ?? toolCalls.length
+          const current = toolCalls[index] || { id: toolCall.id || '', name: '', arguments: '' }
+          current.id = current.id || toolCall.id || ''
+          current.name = current.name || toolCall.function?.name || ''
+          current.arguments += toolCall.function?.arguments || ''
+          toolCalls[index] = current
+        })
+        history[lastIndex].toolCalls = toolCalls
+        if (String(currentConversationId.value) === String(streamConversationId) && conversationHistory.value[lastIndex]) {
+          conversationHistory.value[lastIndex].toolCalls = toolCalls
         }
       }
+      streamUpdateBatcher.enqueue({
+        key: `${streamConversationId}:${lastIndex}`,
+        conversationId: streamConversationId,
+        lastIndex,
+        reasoningDelta: delta.reasoning_content || '',
+        responseDelta: delta.reasoning_content ? '' : delta.content || ''
+      })
     }
   }
 
@@ -946,16 +1103,7 @@
         if (response.ok) {
           const data = await response.json()
           if (data.items && data.items.length > 0) {
-            const historyItems = data.items.map(message => ({
-              id: message.id,
-              conversation_id: parseInt(message.conversation_id, 10),
-              prompt: message.prompt,
-              response: message.response || '',
-              reasoning: message.thinking || '',
-              thinkingOpen: true,
-              createdAt: message.created_at,
-              title: message.title
-            }))
+            const historyItems = data.items.map(normalizeHistoryMessage)
             conversationHistory.value = historyItems
             saveConversationToMap(item.conversation_id)
           } else {
@@ -1000,7 +1148,11 @@
   }
 
   const handlePrependHistory = newMessages => {
-    conversationHistory.value = [...newMessages, ...conversationHistory.value]
+    const normalizedMessages = newMessages.map(normalizeHistoryMessage)
+    conversationHistory.value = [...normalizedMessages, ...conversationHistory.value]
+    if (currentConversationId.value) {
+      saveConversationToMap(currentConversationId.value)
+    }
   }
 
   const handleNewConversation = () => {
@@ -1078,6 +1230,8 @@
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     _cleanupFns.push(() => window.removeEventListener('beforeunload', onBeforeUnload))
+    window.addEventListener('keydown', handleHomeDrawerKeydown)
+    _cleanupFns.push(() => window.removeEventListener('keydown', handleHomeDrawerKeydown))
 
     _cleanupFns.push(register('mod+k', () => {
       nextTick(() => {
@@ -1140,6 +1294,7 @@
     _cleanupFns.forEach(fn => fn())
     _cleanupFns.length = 0
     streamManager.cleanup()
+    streamUpdateBatcher.dispose()
   })
 </script>
 
@@ -1153,8 +1308,16 @@
     overflow: hidden;
   }
 
+  .mobile-home-toolbar,
+  .mobile-home-scrim {
+    display: none;
+  }
+
   .main-content {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
     min-height: 0;
     overflow: hidden;
     background: var(--bg-primary);
@@ -1165,5 +1328,78 @@
     z-index: 100;
     flex-shrink: 0;
     flex-basis: auto;
+    padding: 12px 24px max(16px, env(safe-area-inset-bottom));
+    background: var(--bg-primary);
+  }
+
+  @media (max-width: 768px) {
+    .main-layout {
+      position: relative;
+      flex-direction: column;
+      height: 100dvh;
+    }
+
+    .mobile-home-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 48px;
+      padding: 4px 12px;
+      border-bottom: 1px solid var(--control-border);
+      background: var(--surface-app);
+      z-index: 90;
+    }
+
+    .mobile-home-menu {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-width: var(--control-min-size);
+      min-height: var(--control-min-size);
+      border: 1px solid var(--control-border);
+      border-radius: var(--radius-md);
+      background: var(--surface-subtle);
+      color: var(--content-primary);
+      cursor: pointer;
+    }
+
+    .mobile-home-title {
+      color: var(--content-primary);
+      font-size: var(--text-lg);
+      font-weight: 600;
+    }
+
+    .main-layout > :deep(#leftlist) {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 120;
+      width: min(86vw, 340px);
+      transform: translateX(-105%);
+      transition: transform var(--motion-base);
+      box-shadow: var(--shadow-xl);
+    }
+
+    .main-layout > :deep(#leftlist.mobile-home-drawer-open) {
+      transform: translateX(0);
+    }
+
+    .mobile-home-scrim {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 110;
+      border: 0;
+      background: rgb(15 23 42 / 44%);
+    }
+
+    .main-content {
+      flex: 1;
+      min-height: 0;
+    }
+
+    .bottom-wrapper {
+      padding: 8px 10px max(10px, env(safe-area-inset-bottom));
+    }
   }
 </style>

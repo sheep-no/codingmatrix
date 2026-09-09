@@ -56,7 +56,7 @@ class AnimationEngine:
 
     # 切换效果到 XML 标签的映射
     _TRANSITION_MAP = {
-        TransitionEffect.FADE: "fadeIn",
+        TransitionEffect.FADE: "fade",
         TransitionEffect.PUSH: "push",
         TransitionEffect.WIPE: "wipe",
         TransitionEffect.SPLIT: "split",
@@ -125,11 +125,9 @@ class AnimationEngine:
                     transition_elem.remove(child)
 
             # 添加新的切换效果元素
-            duration_ms = int(duration * 1000)
-            effect_elem = etree.SubElement(
+            etree.SubElement(
                 transition_elem, f"{{{p_namespace}}}{transition_tag}"
             )
-            effect_elem.set("advTm", str(duration_ms))
 
             # 添加全局持续时间属性
             transition_elem.set("advClick", "1")

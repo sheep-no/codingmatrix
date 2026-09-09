@@ -87,12 +87,11 @@
         ></div>
 
         <!-- 消息列表 -->
-        <div
-          v-for="(message, index) in visibleMessages"
-          :key="message.id || `${visibleStartIndex + index}`"
-          class="message-wrapper"
-          role="article"
-          :aria-label="message.isStreaming ? 'AI 正在回复中' : (message.prompt ? '用户消息' : 'AI 回复')"
+        <MessageList
+          v-slot="{ message }"
+          :messages="visibleMessages"
+          :start-index="visibleStartIndex"
+          @item-resize="handleMessageResize"
         >
           <!-- 用户消息 -->
           <div class="message message-user" :class="{ highlight: message.isNew }">
@@ -120,20 +119,7 @@
               </div>
               <div class="message-text user-text">
                 <p>{{ message.prompt }}</p>
-                <div v-if="message.files && message.files.length > 0" class="message-attachments">
-                  <div
-                    v-for="(file, idx) in message.files"
-                    :key="idx"
-                    class="attachment-image"
-                  >
-                    <img
-                      :src="file.preview || file.localUrl"
-                      :alt="file.name"
-                      class="attachment-img"
-                    />
-                    <span class="attachment-name">{{ file.name }}</span>
-                  </div>
-                </div>
+                <MessageAttachments :files="message.files" />
               </div>
             </div>
           </div>
@@ -184,74 +170,36 @@
               </div>
 
               <!-- 思考过程 -->
-              <div v-if="message.reasoning && message.reasoning.trim()" class="thinking-section">
-                <!-- 按 agent 分组展示 thinking -->
-                <template v-if="message.thinkingGroups && Object.keys(message.thinkingGroups).length > 0">
-                  <details
-                    v-for="(data, agent) in message.thinkingGroups"
-                    :key="agent"
-                    class="thinking-details"
-                    :open="message.isStreaming || message.thinkingOpen !== false"
-                  >
-                    <summary class="thinking-summary" :aria-label="`${agent} 思考过程，点击展开/收起`">
-                      <div class="thinking-indicator">
-                        <div v-if="message.isStreaming" class="thinking-pulse" aria-hidden="true"></div>
-                        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                          <circle cx="12" cy="12" r="10" />
-                          <path d="M12 16v-4" />
-                          <path d="M12 8h.01" />
-                        </svg>
-                        <span>{{ agent }} 思考过程</span>
-                        <span v-if="data.model" class="thinking-model">({{ data.model }})</span>
-                      </div>
-                      <svg
-                        class="chevron"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        aria-hidden="true"
-                      >
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                    </summary>
-                    <div
-                      class="thinking-content markdown-body"
-                      v-html="renderMarkdown(data.content)"
-                    ></div>
-                  </details>
-                </template>
-                <!-- 兼容旧格式：单个 thinking 块 -->
-                <template v-else>
-                  <details class="thinking-details" :open="message.isStreaming || message.thinkingOpen !== false">
-                    <summary class="thinking-summary" aria-label="深度思考过程，点击展开/收起">
-                      <div class="thinking-indicator">
-                        <div v-if="message.isStreaming" class="thinking-pulse" aria-hidden="true"></div>
-                        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                          <circle cx="12" cy="12" r="10" />
-                          <path d="M12 16v-4" />
-                          <path d="M12 8h.01" />
-                        </svg>
-                        <span>{{ message.isStreaming ? '正在思考...' : '深度思考过程' }}</span>
-                      </div>
-                      <svg
-                        class="chevron"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        aria-hidden="true"
-                      >
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                    </summary>
-                    <div
-                      class="thinking-content markdown-body"
-                      v-html="renderMarkdown(message.reasoning)"
-                    ></div>
-                  </details>
-                </template>
+              <MessageThinking :message="message" :render-markdown="renderMarkdown" />
+              <div v-if="message.model" class="chat-model">回答模型：{{ message.model }}</div>
+              <div v-if="message.usage" class="chat-usage" aria-label="模型用量">
+                Token 用量：{{ message.usage.total_tokens ?? ((message.usage.prompt_tokens || 0) + (message.usage.completion_tokens || 0)) }}
               </div>
+              <details v-if="message.toolCalls?.length" class="chat-tool-calls">
+                <summary>工具调用 <span>{{ message.toolCalls.length }}</span></summary>
+                <div v-for="(toolCall, index) in message.toolCalls" :key="toolCall.id || index" class="chat-tool-call">
+                  <strong>{{ toolCall.name || '未命名工具' }}</strong>
+                  <code v-if="toolCall.arguments">{{ toolCall.arguments }}</code>
+                </div>
+              </details>
+              <div v-if="message.chatStage" class="chat-stage" role="status">{{ message.chatStage }}</div>
+              <div v-if="message.warnings?.length" class="chat-warnings" role="alert">
+                <div v-for="(warning, index) in message.warnings" :key="index">{{ warning }}</div>
+              </div>
+              <details v-if="message.sources?.length" class="chat-sources" aria-label="参考来源">
+                <summary class="chat-sources-title">参考来源 <span>{{ message.sources.length }}</span></summary>
+                <div class="source-list">
+                  <template v-for="(source, index) in message.sources" :key="source.url || source.title || index">
+                    <div v-if="source.kind === 'file'" class="source-item">
+                      <span class="source-kind">附件</span><span class="source-title">{{ source.title }}</span>
+                    </div>
+                    <a v-else class="source-item" :href="source.url" target="_blank" rel="noopener noreferrer">
+                      <span class="source-kind">网页</span>
+                      <span class="source-copy"><span class="source-title">{{ source.title }}</span><span v-if="source.snippet" class="source-snippet">{{ source.snippet }}</span></span>
+                    </a>
+                  </template>
+                </div>
+              </details>
 
               <!-- AI 响应内容 -->
               <div v-if="message.response || message.isStreaming" class="ai-response-content">
@@ -260,6 +208,16 @@
                     class="card-content markdown-body"
                     v-html="renderMarkdown(message.response)"
                   ></div>
+
+                  <div v-if="message.requestError" class="response-error-actions" role="alert">
+                    <span>{{ message.requestError.message }}</span>
+                    <button
+                      v-if="message.retryRequest"
+                      type="button"
+                      class="response-retry-btn"
+                      @click="$emit('retry-message', message.retryRequest)"
+                    >{{ message.requestError.action || '重试' }}</button>
+                  </div>
 
                   <!-- 下载按钮（项目生成模式） -->
                   <div
@@ -294,18 +252,16 @@
               </div>
             </div>
           </div>
-        </div>
-      </main>
+        </MessageList>
 
-      <!-- 虚拟滚动底部占位 -->
-      <div
-        v-if="conversationHistory.length > VIRTUAL_SCROLL_THRESHOLD"
-        class="virtual-spacer"
-        :style="{
-          height: `${totalMessageHeight - offsetY - (visibleEndIndex - visibleStartIndex) * 200}px`
-        }"
-        aria-hidden="true"
-      ></div>
+        <!-- 虚拟滚动底部占位 -->
+        <div
+          v-if="conversationHistory.length > VIRTUAL_SCROLL_THRESHOLD"
+          class="virtual-spacer"
+          :style="{ height: `${bottomSpacerHeight}px` }"
+          aria-hidden="true"
+        ></div>
+      </main>
     </div>
 
     <!-- 空状态 -->
@@ -315,6 +271,9 @@
 
 <script setup>
   import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue'
+  import MessageAttachments from './chat/MessageAttachments.vue'
+  import MessageList from './chat/MessageList.vue'
+  import MessageThinking from './chat/MessageThinking.vue'
   import DOMPurify from 'dompurify'
   import { marked } from 'marked'
   import hljs from 'highlight.js/lib/core'
@@ -333,6 +292,11 @@
   import EmptyState from './EmptyState.vue'
   import SkeletonLoader from './SkeletonLoader.vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
+  import {
+    calculateVisibleRange,
+    getMessageOffset,
+    getTotalMessageHeight
+  } from '@/utils/messageVirtualizer'
 
   hljs.registerLanguage('python', python)
   hljs.registerLanguage('javascript', javascript)
@@ -378,7 +342,8 @@
     'close',
     'syncHistory',
     'quick-prompt',
-    'edit-message'
+    'edit-message',
+    'retry-message'
   ])
 
   const selectedHistory = ref(null)
@@ -390,9 +355,13 @@
   let userScrollTimer = null
   let copyButtonsTimer = null
   let autoSaveTimer = null
+  let scrollFrame = null
 
   const VIRTUAL_SCROLL_BUFFER = 5
-  const VIRTUAL_SCROLL_THRESHOLD = 20
+  const VIRTUAL_SCROLL_THRESHOLD = 50
+  const measuredMessageHeights = new Map()
+  let conversationRevision = 0
+  const measurementRevision = ref(0)
 
   const visibleStartIndex = ref(0)
   const visibleEndIndex = ref(VIRTUAL_SCROLL_THRESHOLD)
@@ -406,30 +375,57 @@
   })
 
   const totalMessageHeight = computed(() => {
-    return props.conversationHistory.length * 200
+    measurementRevision.value
+    return getTotalMessageHeight(props.conversationHistory, measuredMessageHeights)
   })
 
   const offsetY = computed(() => {
-    return visibleStartIndex.value * 200
+    measurementRevision.value
+    return getMessageOffset(
+      props.conversationHistory,
+      visibleStartIndex.value,
+      measuredMessageHeights
+    )
   })
+
+  const bottomSpacerHeight = computed(() =>
+    Math.max(
+      0,
+      totalMessageHeight.value -
+        getMessageOffset(props.conversationHistory, visibleEndIndex.value, measuredMessageHeights)
+    )
+  )
 
   const updateVisibleRange = () => {
     if (!messagesContainer.value || props.conversationHistory.length <= VIRTUAL_SCROLL_THRESHOLD)
       return
 
     const container = messagesContainer.value
-    const scrollTop = container.scrollTop
-    const containerHeight = container.clientHeight
-    const avgMessageHeight = 200
-
-    const start = Math.max(0, Math.floor(scrollTop / avgMessageHeight) - VIRTUAL_SCROLL_BUFFER)
-    const end = Math.min(
-      props.conversationHistory.length,
-      Math.ceil((scrollTop + containerHeight) / avgMessageHeight) + VIRTUAL_SCROLL_BUFFER
-    )
+    const { start, end } = calculateVisibleRange({
+      messages: props.conversationHistory,
+      measuredHeights: measuredMessageHeights,
+      scrollTop: container.scrollTop,
+      viewportHeight: container.clientHeight,
+      buffer: VIRTUAL_SCROLL_BUFFER
+    })
 
     visibleStartIndex.value = start
     visibleEndIndex.value = end
+  }
+
+  const handleMessageResize = async ({ key, height }) => {
+    const revision = conversationRevision
+    const container = messagesContainer.value
+    const scrollTop = container?.scrollTop
+    const previousHeight = measuredMessageHeights.get(key)
+    if (previousHeight !== undefined && Math.abs(previousHeight - height) < 0.5) return
+    measuredMessageHeights.set(key, height)
+    measurementRevision.value++
+    const keepBottom = shouldAutoScroll.value && !isUserScrolling.value
+    await nextTick()
+    if (revision !== conversationRevision || container !== messagesContainer.value) return
+    if (keepBottom && shouldAutoScroll.value && !isUserScrolling.value && container?.scrollTop === scrollTop) scrollToBottom()
+    updateVisibleRange()
   }
 
   const FULL_TITLE = '欢迎使用 AI 助手'
@@ -647,60 +643,65 @@
     }
   )
 
-  // 监听历史数据变化，自动滚动
   watch(
-    [() => props.conversationHistory, isHistoryLoaded],
-    async (newValues, oldValues) => {
-      const [newHistory, loaded] = newValues
-      const [oldHistory, oldLoaded] = oldValues || [null, false]
+    [() => props.conversationId, isHistoryLoaded],
+    async ([, loaded], [, oldLoaded] = []) => {
+      const revision = conversationRevision
+      if (loaded && !oldLoaded && props.conversationHistory.length > 0 && shouldAutoScroll.value) {
+        await nextTick()
+        if (revision === conversationRevision && shouldAutoScroll.value && !isUserScrolling.value) scrollToBottom()
+      }
+    }
+  )
 
-      if (loaded && !oldLoaded && newHistory && newHistory.length > 0 && shouldAutoScroll.value) {
+  // 实测高度只在切换会话时失效，loaded 变化保留当前窗口。
+  watch(() => props.conversationId, () => {
+    conversationRevision++
+    measuredMessageHeights.clear()
+    measurementRevision.value++
+    visibleStartIndex.value = 0
+    visibleEndIndex.value = VIRTUAL_SCROLL_THRESHOLD
+  }, { flush: 'sync' })
+
+  const streamContentSignature = computed(() => {
+    const lastMessage = props.conversationHistory.at(-1)
+    return [
+      props.conversationHistory.length,
+      lastMessage?.id,
+      lastMessage?.response?.length || 0,
+      lastMessage?.reasoning?.length || 0,
+      Boolean(lastMessage?.isStreaming)
+    ].join(':')
+  })
+
+  // 流式内容只监听最后一条消息的轻量签名，避免深度比较整段会话。
+  watch(
+    streamContentSignature,
+    async () => {
+      const lastMessage = props.conversationHistory.at(-1)
+      const isNearBottom = messagesContainer.value
+        ? messagesContainer.value.scrollHeight -
+            messagesContainer.value.scrollTop -
+            messagesContainer.value.clientHeight <
+          50
+        : true
+
+      if (lastMessage?.isStreaming && !isUserScrolling.value && isNearBottom) {
         await nextTick()
         scrollToBottom()
       }
-    },
-    { deep: true }
+
+      if (copyButtonsTimer) clearTimeout(copyButtonsTimer)
+      copyButtonsTimer = setTimeout(async () => {
+        await nextTick()
+        addCopyButtons()
+      }, 500)
+    }
   )
 
-  // 监听历史数据深度变化（流式输出）
   watch(
     () => props.conversationHistory,
-    async (newHistory, oldHistory) => {
-      if (!oldHistory || newHistory.length !== oldHistory.length) return
-
-      const hasChange = newHistory.some(
-        (msg, idx) =>
-          oldHistory[idx] &&
-          (msg.response !== oldHistory[idx].response || msg.reasoning !== oldHistory[idx].reasoning)
-      )
-
-      if (hasChange) {
-        const lastMessage = newHistory[newHistory.length - 1]
-
-        const isNearBottom = messagesContainer.value
-          ? messagesContainer.value.scrollHeight -
-              messagesContainer.value.scrollTop -
-              messagesContainer.value.clientHeight <
-            50
-          : true
-
-        if (lastMessage?.isStreaming && !isUserScrolling.value && isNearBottom) {
-          await nextTick()
-          scrollToBottom()
-        }
-
-        // 更新代码块复制按钮
-        if (copyButtonsTimer) {
-          clearTimeout(copyButtonsTimer)
-        }
-
-        copyButtonsTimer = setTimeout(async () => {
-          await nextTick()
-          addCopyButtons()
-        }, 500)
-      }
-
-      // 自动保存到 IndexedDB
+    () => {
       if (props.conversationId) {
         if (autoSaveTimer) clearTimeout(autoSaveTimer)
         autoSaveTimer = setTimeout(() => {
@@ -741,18 +742,29 @@
     container.scrollTop = scrollState.scrollTop + heightDiff
   }
 
-  // 处理滚动
-  const handleScroll = async () => {
+  const processScroll = async () => {
     if (!messagesContainer.value || isLoadingMore.value) return
 
     const container = messagesContainer.value
     const scrollTop = container.scrollTop
-    const scrollHeight = container.scrollHeight
-    const clientHeight = container.clientHeight
 
     updateVisibleRange()
 
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 50
+    if (scrollTop === 0 && props.hasMoreHistory) {
+      const scrollState = saveScrollState()
+      await loadMoreHistory()
+
+      setTimeout(async () => {
+        await restoreScrollPosition(scrollState)
+      }, 100)
+    }
+  }
+
+  // 滚动意图立即更新，窗口计算合并到下一帧。
+  const handleScroll = () => {
+    const container = messagesContainer.value
+    if (!container) return
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50
 
     if (!isNearBottom && shouldAutoScroll.value) {
       isUserScrolling.value = true
@@ -770,14 +782,11 @@
       isUserScrolling.value = false
     }
 
-    if (scrollTop === 0 && props.hasMoreHistory) {
-      const scrollState = saveScrollState()
-      await loadMoreHistory()
-
-      setTimeout(async () => {
-        await restoreScrollPosition(scrollState)
-      }, 100)
-    }
+    if (scrollFrame !== null) return
+    scrollFrame = requestAnimationFrame(async () => {
+      scrollFrame = null
+      await processScroll()
+    })
   }
 
   // 加载更多历史
@@ -1056,11 +1065,13 @@
   })
 
   onUnmounted(() => {
+    conversationRevision++
     if (autoSaveTimer) clearTimeout(autoSaveTimer)
     if (copyButtonsTimer) clearTimeout(copyButtonsTimer)
     if (userScrollTimer) clearTimeout(userScrollTimer)
     if (titleTimer) clearInterval(titleTimer)
     if (subtitleTimer) clearInterval(subtitleTimer)
+    if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
   })
 
   defineExpose({
@@ -1083,6 +1094,110 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+  }
+
+  .chat-model {
+    margin: 4px 0 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .chat-stage {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    margin: 8px 0;
+    padding: 6px 10px;
+    border-radius: 8px;
+    color: var(--color-primary-600);
+    background: var(--bg-secondary);
+    font-size: 12px;
+  }
+
+  .chat-stage::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .chat-sources {
+    margin: 10px 0 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    font-size: 13px;
+  }
+
+  .chat-sources-title {
+    padding: 10px 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .chat-sources-title span {
+    margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-primary-600);
+  }
+
+  .source-list {
+    display: grid;
+    gap: 4px;
+    padding: 0 6px 6px;
+  }
+
+  .source-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+    padding: 10px;
+    border-radius: 6px;
+    color: var(--text-primary);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+
+  a.source-item:hover {
+    background: var(--bg-primary);
+    color: var(--color-primary-600);
+  }
+
+  .source-kind {
+    flex-shrink: 0;
+    padding: 2px 5px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 10px;
+    color: var(--text-secondary);
+  }
+
+  .source-copy { min-width: 0; }
+  .source-title { font-weight: 500; }
+  .source-snippet {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+  }
+
+  .chat-warnings {
+    margin: 10px 0;
+    padding: 10px 12px;
+    border-left: 3px solid var(--color-warning-500);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    background: var(--warning-bg);
+    overflow-wrap: anywhere;
   }
 
   /* 焦点可见样式 */
@@ -1120,6 +1235,13 @@
 
   .center-content-wrapper.has-messages {
     background: var(--bg-primary);
+  }
+
+  .chat-interface {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
   }
 
   /* ========================================
@@ -1184,6 +1306,7 @@
     display: flex;
     align-items: center;
     gap: 14px;
+    min-width: 0;
   }
 
   .conversation-icon {
@@ -1207,12 +1330,16 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
+    min-width: 0;
   }
 
   .conversation-title {
     font-size: 15px;
     font-weight: 600;
     color: var(--text-primary, #1e293b);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   .message-count {
@@ -1225,6 +1352,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
   }
 
   .action-btn {
@@ -1265,12 +1393,13 @@
    ======================================== */
   .messages-container {
     flex: 1;
-    padding: 24px;
+    padding: 28px max(24px, calc((100% - 900px) / 2));
+    min-height: 0;
+    scrollbar-gutter: stable;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 24px;
-    scroll-behavior: smooth;
+    gap: 0;
     background: transparent;
   }
 
@@ -1386,7 +1515,7 @@
   }
 
   .message.streaming {
-    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    animation: none;
   }
 
   @keyframes pulse {
@@ -1522,6 +1651,14 @@
     opacity: 1;
   }
 
+  .message-user:focus-within .message-action-btn {
+    opacity: 1;
+  }
+
+  @media (hover: none) {
+    .message-action-btn { opacity: 1; }
+  }
+
   .message-action-btn:hover {
     background: var(--slate-100);
     color: var(--slate-700);
@@ -1551,10 +1688,6 @@
   /* ========================================
    思考区域
    ======================================== */
-  .thinking-section {
-    margin-bottom: 14px;
-  }
-
   .step-progress-bar {
     margin-bottom: 12px;
     display: flex;
@@ -1583,92 +1716,6 @@
     white-space: nowrap;
   }
 
-  .thinking-details {
-    background: var(--bg-secondary, #f8fafc);
-    border: 1px solid var(--border-color, #e2e8f0);
-    border-radius: 8px;
-    overflow: hidden;
-    transition: all var(--transition-base);
-  }
-
-  .thinking-details:hover {
-    border-color: var(--primary-300, #5eead4);
-  }
-
-  .thinking-pulse {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: #d97706;
-    animation: thinkingPulse 1.4s ease-in-out infinite;
-  }
-
-  @keyframes thinkingPulse {
-    0%, 100% { transform: scale(1); opacity: 0.8; }
-    50% { transform: scale(1.2); opacity: 1; }
-  }
-
-  .thinking-summary {
-    padding: 10px 14px;
-    cursor: pointer;
-    font-weight: 600;
-    font-size: 12px;
-    color: var(--text-secondary, #64748b);
-    background: transparent;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    list-style: none;
-    transition: all var(--transition-base);
-  }
-
-  .thinking-summary::marker {
-    display: none;
-  }
-
-  .thinking-summary:hover {
-    background: rgba(254, 243, 199, 0.9);
-  }
-
-  .thinking-indicator {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .thinking-indicator svg {
-    width: 18px;
-    height: 18px;
-    opacity: 0.8;
-  }
-
-  .thinking-model {
-    font-size: 11px;
-    font-weight: normal;
-    color: var(--text-tertiary, #94a3b8);
-    margin-left: 4px;
-  }
-
-  .chevron {
-    width: 18px;
-    height: 18px;
-    transition: transform var(--transition-base);
-  }
-
-  .thinking-details[open] .chevron {
-    transform: rotate(180deg);
-  }
-
-  .thinking-content {
-    padding: 14px;
-    color: var(--text-secondary, #64748b);
-    font-size: 13px;
-    line-height: 1.7;
-    background: var(--bg-primary, #fff);
-    border-top: 1px solid var(--border-color, #e2e8f0);
-  }
-
   /* ========================================
    AI 响应区域
    ======================================== */
@@ -1688,19 +1735,74 @@
     border-color: var(--primary-200, #99f6e4);
   }
 
+  .response-error-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 24px;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-secondary, #f8fafc);
+    color: var(--status-danger, #dc2626);
+    font-size: 13px;
+  }
+
+  .response-retry-btn {
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--primary, #14b8a6);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--primary, #0f766e);
+    cursor: pointer;
+  }
+
+  .response-retry-btn:hover {
+    background: var(--primary-50, #f0fdfa);
+  }
+
+  .chat-usage {
+    margin: 8px 24px 0;
+    color: var(--text-secondary, #64748b);
+    font-size: 12px;
+  }
+
+  .chat-tool-calls {
+    margin: 8px 24px 0;
+    color: var(--text-secondary, #64748b);
+    font-size: 12px;
+  }
+
+  .chat-tool-call {
+    display: grid;
+    gap: 4px;
+    margin-top: 6px;
+    padding: 8px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 6px;
+    background: var(--bg-secondary, #f8fafc);
+  }
+
+  .chat-tool-call code {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
   .card-content {
-    padding: 16px 20px;
+    padding: 20px 24px;
     color: var(--text-primary, #1e293b);
     overflow-x: auto;
-    font-size: 14px;
-    line-height: 1.7;
+    font-size: 15px;
+    line-height: 1.8;
+    overflow-wrap: anywhere;
   }
 
   /* Markdown 内容样式 */
   .markdown-body :deep(h1),
   .markdown-body :deep(h2),
   .markdown-body :deep(h3) {
-    margin: 0 0 16px 0;
+    margin: 24px 0 12px;
     color: var(--slate-800);
     font-weight: 700;
     line-height: 1.3;
@@ -1722,6 +1824,9 @@
     color: var(--slate-700);
   }
 
+  .markdown-body :deep(> :first-child) { margin-top: 0; }
+  .markdown-body :deep(> :last-child) { margin-bottom: 0; }
+
   .markdown-body :deep(code) {
     background: var(--bg-secondary, #f1f5f9);
     padding: 2px 6px;
@@ -1733,7 +1838,7 @@
   }
 
   .markdown-body :deep(pre) {
-    background: var(--bg-primary, #1e293b) !important;
+    background: #17212f !important;
     padding: 0;
     border-radius: 8px;
     overflow: hidden;
@@ -2350,7 +2455,7 @@
 
     .messages-container {
       padding: 16px;
-      gap: 18px;
+      gap: 0;
     }
 
     .message-user {
@@ -2369,6 +2474,8 @@
     .message-body {
       max-width: calc(100% - 54px);
     }
+
+    .card-content { padding: 14px; }
 
     .features-grid {
       grid-template-columns: 1fr;
@@ -2405,40 +2512,6 @@
       width: 38px;
       height: 38px;
     }
-  }
-
-  /* 消息图片附件 */
-  .message-attachments {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 10px;
-  }
-
-  .attachment-image {
-    position: relative;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 1px solid var(--border-color);
-    max-width: 200px;
-  }
-
-  .attachment-img {
-    display: block;
-    max-width: 200px;
-    max-height: 150px;
-    object-fit: cover;
-  }
-
-  .attachment-name {
-    display: block;
-    padding: 4px 8px;
-    font-size: 11px;
-    color: var(--text-tertiary);
-    background: var(--bg-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   @media (max-width: 480px) {

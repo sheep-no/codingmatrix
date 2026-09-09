@@ -167,6 +167,8 @@ specs/
 .monkeycode/specs/*
 !.monkeycode/specs/2026-09-01-agent-model-context/
 !.monkeycode/specs/2026-09-01-agent-model-context/**
+!.monkeycode/specs/2026-09-08-chat-answer-quality/
+!.monkeycode/specs/2026-09-08-chat-answer-quality/**
 
 # =============================================================================
 # 依赖图缓存

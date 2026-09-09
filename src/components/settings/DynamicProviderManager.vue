@@ -2,6 +2,11 @@
   <div class="dynamic-provider-manager">
     <h2 class="section-title">自定义供应商管理</h2>
     <p class="section-desc">通过 Base URL 和协议类型添加任意支持的供应商，系统自动拉取模型列表</p>
+
+    <div v-if="loadError" class="load-error" role="alert">
+      <span>{{ loadError }}</span>
+      <button class="action-btn" type="button" @click="loadProviders">重新加载</button>
+    </div>
     
     <!-- 添加供应商表单 -->
     <div class="add-provider-form">
@@ -119,9 +124,12 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useProviderStore } from '@/stores/providers'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useApiKeyStore } from '@/stores/apikey'
 
 const store = useProviderStore()
+const apiKeyStore = useApiKeyStore()
 const submitting = ref(false)
+const loadError = ref('')
 const providers = computed(() => store.providers)
 
 // Per-provider loading tracking: Set of "providerId:action" strings
@@ -147,10 +155,17 @@ const form = reactive({
   api_key: '',
 })
 
-onMounted(() => {
+async function loadProviders() {
+  loadError.value = ''
   store.loadFromStorage()
-  store.listProviders().catch(() => {})
-})
+  try {
+    await store.listProviders()
+  } catch (e) {
+    loadError.value = e.message || '供应商列表加载失败，请重试'
+  }
+}
+
+onMounted(loadProviders)
 
 async function submitForm() {
   if (!form.name || !form.base_url || !form.api_key) {
@@ -159,11 +174,13 @@ async function submitForm() {
   }
   submitting.value = true
   try {
+    const publicKey = await apiKeyStore.fetchPublicKey()
+    const { encryptWithRSAPublicKey } = await import('@/utils/crypto')
     await store.addProvider({
       name: form.name,
       base_url: form.base_url,
       protocol: form.protocol,
-      api_key: form.api_key,
+      encrypted_api_key: await encryptWithRSAPublicKey(form.api_key, publicKey),
     })
     ElMessage.success(`供应商 "${form.name}" 已添加`)
     form.name = ''
@@ -497,6 +514,21 @@ function formatTime(ts) {
   color: var(--danger);
   font-size: 13px;
   margin-bottom: 8px;
+}
+.load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid #f3b7b7;
+  border-radius: 8px;
+  background: #fff5f5;
+  color: #b42318;
+}
+@media (max-width: 600px) {
+  .load-error { align-items: flex-start; flex-direction: column; }
 }
 
 .sync-info {

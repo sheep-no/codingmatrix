@@ -39,7 +39,7 @@ async def _generate_ppt(
         save_ppt_stage_checkpoint,
         serialize_quality_report,
     )
-    from app.services.ppt_quality_orchestrator import run_quality_pipeline
+    from app.services.ppt_quality_orchestrator import run_quality_pipeline, review_rendered_deck
     from app.utils.pptx.semantic_renderer import build_render_metadata
     from app.db.database import async_session
 
@@ -114,7 +114,7 @@ async def _generate_ppt(
             for index, slide in enumerate(context["outline"].get("slides", []))
         ]
         context["quality_slides"], context["quality_report"] = await run_quality_pipeline(
-            quality_slides, context["quality_mode"]
+            quality_slides, "standard"
         )
         async with async_session() as db:
             await save_ppt_stage_checkpoint(
@@ -135,13 +135,21 @@ async def _generate_ppt(
             await render_current_outline(context)
         return context
 
+    async def vision_qa(context):
+        await progress.update(95, "正在复审成品页面...")
+        await review_rendered_deck(
+            output_dir / f"{task_id}.pptx", context["quality_slides"],
+            context["quality_report"], request.api_key_token, str(user_id), request.slide_count,
+        )
+        return context
+
     handlers = {
         "planning": planning,
         "assets": lambda context: context,
         "rendering": rendering,
         "rule_qa": rule_qa,
         "reflow": reflow,
-        "vision_qa": lambda context: context,
+        "vision_qa": vision_qa,
         "completed": lambda context: context,
     }
     await progress.update(5, "正在准备上下文...")

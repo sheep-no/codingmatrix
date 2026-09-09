@@ -102,6 +102,8 @@ class SubmitKeyResponse(BaseModel):
     success: bool
     token: str
     message: str
+    provider: str
+    expires_at: str
 
 class TestKeyRequest(BaseModel):
     """测试 API Key 请求"""
@@ -208,6 +210,8 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest, user_id
             success=True,
             token=token,
             message="API Key 提交成功",
+            provider=meta.provider,
+            expires_at=meta.expires_at,
         )
     except HTTPException:
         raise

@@ -398,6 +398,30 @@ html:not(.theme-light):not(.theme-default):not(.theme-dark):not(.theme-auto) {
 :root {
 
   /* ========================================
+     Web workbench semantic tokens
+     ======================================== */
+  --surface-app: var(--bg-primary);
+  --surface-subtle: var(--bg-secondary);
+  --surface-raised: var(--bg-tertiary);
+  --surface-inverse: var(--text-primary);
+  --content-primary: var(--text-primary);
+  --content-secondary: var(--text-secondary);
+  --content-muted: var(--text-tertiary);
+  --content-inverse: var(--bg-primary);
+  --accent-primary: var(--primary);
+  --accent-primary-hover: var(--primary-hover);
+  --status-success: var(--success);
+  --status-warning: var(--warning);
+  --status-danger: var(--danger);
+  --status-info: var(--accent-primary);
+  --control-border: var(--border-color);
+  --control-border-focus: var(--accent-primary);
+  --control-min-size: 40px;
+  --motion-fast: var(--transition-fast);
+  --motion-base: var(--transition-base);
+  --motion-slow: var(--transition-slow);
+
+  /* ========================================
      尺寸系统
      ======================================== */
   /* 间距 */

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createBaseClient } from './base'
+import { createBaseClient, normalizeApiError } from './base'
 
 describe('base API client', () => {
   beforeEach(() => {
@@ -23,5 +23,25 @@ describe('base API client', () => {
     expect(options.headers.Authorization).toBe(`Bearer ${token}`)
     expect(options.headers['Content-Type']).toBeUndefined()
     fetchMock.mockRestore()
+  })
+
+  it('passes abort signals and normalizes canceled requests', async () => {
+    const controller = createBaseClient().createAbortController()
+    const abortError = new DOMException('Aborted', 'AbortError')
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(abortError)
+
+    await expect(createBaseClient().request('/slow', { signal: controller.signal })).rejects.toMatchObject({
+      name: 'ApiError',
+      code: 'REQUEST_ABORTED',
+      isCanceled: true
+    })
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal)
+    fetchMock.mockRestore()
+  })
+
+  it('normalizes arbitrary request errors with a stable code', () => {
+    const error = normalizeApiError(new Error('服务不可用'))
+
+    expect(error).toMatchObject({ name: 'ApiError', code: 'API_REQUEST_FAILED', message: '服务不可用' })
   })
 })

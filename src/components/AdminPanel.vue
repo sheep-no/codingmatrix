@@ -612,7 +612,7 @@
 
 <script setup>
   import { ref, computed, onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
-  import { ElMessage, ElMessageBox } from 'element-plus'
+  import { ElMessage, ElMessageBox, ElSwitch, ElTag } from 'element-plus'
   import { useRouter } from 'vue-router'
   import { useUserStore } from '@/stores/user'
   import * as echarts from 'echarts'

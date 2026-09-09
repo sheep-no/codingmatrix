@@ -1,7 +1,7 @@
 <template>
   <div class="ppt-generate-page">
     <header class="page-header">
-      <button class="back-btn" @click="goBack">
+      <button class="back-btn" type="button" aria-label="返回首页" @click="goBack">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 12H5M12 19l-7-7 7-7"/>
         </svg>
@@ -18,7 +18,7 @@
         <span>AI PPT 生成</span>
       </div>
       <div class="header-actions">
-        <button class="header-btn" title="生成历史" @click="showHistoryPanel = !showHistoryPanel">
+         <button class="header-btn" type="button" title="生成历史" :aria-expanded="showHistoryPanel" aria-controls="ppt-history-panel" @click="showHistoryPanel = !showHistoryPanel">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
             <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
           </svg>
@@ -80,15 +80,24 @@
 
         <div class="form-group">
           <label>选择模板</label>
+          <button type="button" class="template-card template-auto" :class="{ selected: selectedTemplate === 'auto' }"
+            :disabled="outlineSaving || workflowStep !== 1" :aria-pressed="selectedTemplate === 'auto'" @click="selectedTemplate = 'auto'">
+            自动推荐 · 根据主题与场景选择
+          </button>
+           <p class="template-hint">样张来自固定 PPTX 的真实 PDF/PNG 渲染；样张生成中或不可用时显示色彩示意。</p>
           <div class="template-grid">
-            <div
+            <button
               v-for="tpl in templates"
               :key="tpl.id"
+              type="button"
               class="template-card"
+              :disabled="outlineSaving || workflowStep !== 1"
+              :aria-pressed="selectedTemplate === tpl.id"
               :class="{ selected: selectedTemplate === tpl.id }"
               @click="selectedTemplate = tpl.id"
             >
-              <div class="template-preview" :style="{ background: tpl.color }">
+               <div class="template-preview" :style="{ background: tpl.color }">
+                 <img v-if="tpl.sample?.status === 'available'" :src="tpl.sample.slides[0]" :alt="`${tpl.name} 封面样张`" loading="lazy">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                   <rect x="3" y="3" width="18" height="18" rx="2"/>
                   <line x1="8" y1="8" x2="16" y2="8"/>
@@ -97,7 +106,19 @@
                 </svg>
               </div>
               <div class="template-name">{{ tpl.name }}</div>
-            </div>
+              <p class="template-description">{{ tpl.description || '模板描述暂缺' }}</p>
+              <p class="template-description">场景：{{ tpl.scenarios?.length ? tpl.scenarios.map(scenarioLabel).join('、') : '场景信息暂缺' }}</p>
+            </button>
+          </div>
+          <p v-if="templateListError" class="template-hint" role="status">模板注册表暂不可用，当前显示备用配色。
+            <button type="button" @click="loadTemplates">重新加载模板</button>
+          </p>
+          <div v-if="outlineDraft?.template_id" class="template-result" role="status">
+            <strong>{{ automaticSelection ? '自动选择结果' : '已采用模板' }}：{{ templateName(outlineDraft.template_id) }}</strong>
+            <p>模板 ID：{{ outlineDraft.template_id }}</p>
+            <p v-if="templateRecommendation">场景：{{ scenarioLabel(templateRecommendation.scenario) }}；推荐模板：{{ templateRecommendation.templates.map(templateName).join('、') }}</p>
+            <p v-else-if="recommendationLoading">正在加载场景推荐...</p>
+            <p v-else>推荐信息暂不可用，已采用模板保持有效。<button type="button" @click="loadRecommendation">重试推荐</button></p>
           </div>
         </div>
 
@@ -130,13 +151,13 @@
             <div class="option-item">
               <label class="option-label">
                 <input v-model="autoImages" type="checkbox" class="option-checkbox" />
-                <span>自动配图</span>
+                <span>自动配图（PPTX 成品）</span>
               </label>
             </div>
             <div class="option-item">
               <label class="option-label">
                 <input v-model="enableAnimation" type="checkbox" class="option-checkbox" />
-                <span>启用动画</span>
+                <span>页面切换动画（PPTX 播放时生效）</span>
               </label>
             </div>
           </div>
@@ -205,21 +226,17 @@
           取消生成
         </button>
 
-        <div v-if="generating && progressState" class="progress-section">
-          <div class="progress-header">
-            <span class="progress-title">生成进度</span>
-            <span class="progress-percentage">{{ Math.round(progressState.progress * 100) }}%</span>
-          </div>
-          <div class="progress-bar">
-            <div class="progress-fill" :style="{ width: `${progressState.progress * 100}%` }"></div>
-          </div>
-          <div class="progress-step">{{ progressState.step }}</div>
-          <div class="progress-message">{{ progressState.message }}</div>
-        </div>
+        <TaskFeedbackPanel
+          :feedback="taskFeedbackState"
+          :connection-status="taskFeedbackConnection"
+          :visible="hasTaskFeedback"
+          :actions="taskFeedbackActions"
+          @action="handleTaskFeedbackAction"
+        />
       </aside>
 
       <main class="preview-panel">
-        <div v-if="!generatedSlides.length && !generating" class="preview-placeholder">
+        <div v-if="!generatedSlides.length && !generating && !generatedFileUrl" class="preview-placeholder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
           </svg>
@@ -309,7 +326,7 @@
 
     <!-- 历史记录面板 -->
     <div v-if="showHistoryPanel" class="history-panel-overlay" @click.self="showHistoryPanel = false">
-      <div class="history-panel">
+          <div id="ppt-history-panel" class="history-panel" role="dialog" aria-modal="true" aria-label="生成历史">
         <div class="history-panel-header">
           <h3>生成历史</h3>
           <button class="close-btn" @click="showHistoryPanel = false">
@@ -346,18 +363,29 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useApiKeyStore } from '@/stores/apikey'
 import { api } from '@/utils/api/index'
 import { ElMessage } from 'element-plus'
 import { useTokenManager } from '@/utils/tokenManager'
+import { useTaskFeedback } from '@/composables/useTaskFeedback'
+import TaskFeedbackPanel from '@/components/TaskFeedbackPanel.vue'
 
 const router = useRouter()
+const route = useRoute()
 const apiKeyStore = useApiKeyStore()
 const { getToken } = useTokenManager()
 
 const topic = ref('')
 const selectedTemplate = ref('modern')
+const automaticSelection = ref(false)
+const templateRecommendation = ref(null)
+const recommendationLoading = ref(false)
+const recommendationTopic = ref('')
+const templateListError = ref(false)
+const scenarioNames = { business: '商务汇报', data_report: '数据报告', product_pitch: '产品路演', academic: '学术研究', education: '教育培训', general: '通用' }
+const scenarioLabel = scenario => scenarioNames[scenario] || scenario
+const templateName = id => templates.value.find(template => template.id === id)?.name || id
 const slideCount = ref('10')
 const outputFormat = ref('pptx')
 const autoImages = ref(true)
@@ -375,6 +403,27 @@ const generating = ref(false)
 const generatedSlides = ref([])
 const generatedFileUrl = ref('')
 const progressState = ref(null)
+const taskFeedback = useTaskFeedback('ppt')
+const taskFeedbackState = taskFeedback.feedback
+const taskFeedbackConnection = taskFeedback.connectionStatus
+const hasTaskFeedback = taskFeedback.hasFeedback
+const taskFeedbackActions = computed(() => {
+  const status = taskFeedbackState.value.status
+  if (status === 'running') return [{ key: 'cancel', label: '取消生成', variant: 'danger' }]
+  if (status === 'failed' || status === 'paused') return [{ key: 'retry', label: '重新生成', variant: 'primary' }]
+  if (status === 'completed') return [{ key: 'preview', label: '在线预览', variant: 'primary' }, { key: 'download', label: '下载 PPTX' }]
+  return []
+})
+
+function handleTaskFeedbackAction(action) {
+  if (action === 'cancel') handleCancel()
+  if (action === 'retry') {
+    if (workflowStep.value === 3) generateApprovedOutline()
+    else handleGenerate()
+  }
+  if (action === 'preview') goToPreview()
+  if (action === 'download') downloadPpt()
+}
 
 // 文件上传相关
 const uploadedFile = ref(null)
@@ -406,6 +455,10 @@ const templates = ref([
 ])
 
 let ws = null
+let reconnectTimer = null
+let reconnectAttempts = 0
+let intentionalSocketClose = false
+const MAX_RECONNECT_ATTEMPTS = 3
 
 async function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob)
@@ -540,17 +593,34 @@ async function downloadPdf() {
 }
 
 async function loadTemplates() {
+  templateListError.value = false
   try {
     const result = await api.ppt.getTemplates()
     if (result.templates && result.templates.length > 0) {
       templates.value = result.templates.map(t => ({
         id: t.id,
-        name: t.name,
+        name: t.name_zh || t.name,
+        description: t.description,
+        scenarios: t.scenarios,
         color: `linear-gradient(135deg, ${t.primary_color || '#667eea'} 0%, ${t.primary_color || '#764ba2'}80 100%)`
       }))
-    }
+    } else templateListError.value = true
   } catch {
-    // 静默使用硬编码模板列表，不打扰用户
+    templateListError.value = true
+  }
+}
+
+async function loadRecommendation() {
+  if (recommendationLoading.value) return
+  recommendationLoading.value = true
+  try {
+    const result = await api.ppt.getTemplates(null, { topic: recommendationTopic.value, scenario: outlineDraft.value?.scenario })
+    templateRecommendation.value = result.scenario && Array.isArray(result.templates) && result.templates.length
+      ? result : null
+  } catch {
+    templateRecommendation.value = null
+  } finally {
+    recommendationLoading.value = false
   }
 }
 
@@ -622,42 +692,105 @@ async function deleteHistory(taskId) {
   }
 }
 
+function clearReconnectTimer() {
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+}
+
+function closeWebSocket() {
+  intentionalSocketClose = true
+  clearReconnectTimer()
+  if (ws) {
+    ws.close(1000)
+    ws = null
+  }
+}
+
+function scheduleWebSocketReconnect(taskId) {
+  if (!generating.value || intentionalSocketClose || reconnectTimer !== null) return
+  reconnectAttempts += 1
+  if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+    generating.value = false
+    taskFeedback.markDisconnected('任务连接恢复失败，生成上下文和已接收进度已保留')
+    return
+  }
+
+  taskFeedback.markReconnecting(`连接中断，正在进行第 ${reconnectAttempts} 次恢复`)
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    connectWebSocket(taskId)
+  }, Math.min(4000, 500 * (2 ** (reconnectAttempts - 1))))
+}
+
+function resultFromPptEvent(data) {
+  return data.result ?? data.payload?.result ?? data.payload ?? data.state?.result ?? null
+}
+
+function applyPptResult(rawResult) {
+  if (!rawResult) return
+  try {
+    const resultData = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult
+    if (resultData.slides) generatedSlides.value = resultData.slides
+    if (resultData.ppt_id || resultData.filename) {
+      const pid = resultData.ppt_id || resultData.filename.replace('.pptx', '')
+      currentTaskId.value = pid
+      generatedFileUrl.value = `/api/v1/pptx/download/${pid}`
+    }
+  } catch (error) {
+    console.warn('解析结果数据失败:', error)
+  }
+}
+
 function connectWebSocket(taskId) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const token = getToken()
-  const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/ppt/${taskId}?token=${encodeURIComponent(token || '')}`
+  const params = new URLSearchParams({ token: token || '' })
+  if (taskFeedback.lastSequence.value !== null) {
+    params.set('after_sequence', String(taskFeedback.lastSequence.value))
+  }
+  const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/ppt/${taskId}?${params}`
 
+  intentionalSocketClose = false
   ws = new WebSocket(wsUrl)
+
+  ws.onopen = () => taskFeedback.markConnected()
 
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)
-      if (data.type === 'progress') {
-        progressState.value = { progress: data.progress, step: data.step, message: data.message }
-      } else if (data.type === 'complete' || data.type === 'completed') {
-        progressState.value = { progress: 1, step: 'completed', message: '任务完成' }
+      const updateResult = taskFeedback.update(data)
+      if (updateResult.gap) {
+        ws?.close(4000, 'event sequence gap')
+        return
+      }
+      if (!updateResult.applied) return
+      reconnectAttempts = 0
+      const normalized = taskFeedback.feedback.value
+      progressState.value = {
+        progress: normalized.progress === null ? 0 : normalized.progress / 100,
+        step: normalized.stage,
+        message: data.message ?? data.payload?.message ?? ''
+      }
+
+      if (normalized.status === 'completed') {
+        taskFeedback.complete({ stage: 'PPT 生成完成', progress: 100, nextAction: '预览或下载演示文稿' })
         generating.value = false
-        // 获取结果
-        if (data.result) {
-          try {
-            const resultData = typeof data.result === 'string' ? JSON.parse(data.result) : data.result
-            if (resultData.slides) {
-              generatedSlides.value = resultData.slides
-            }
-            if (resultData.ppt_id || resultData.filename) {
-              const pid = resultData.ppt_id || resultData.filename.replace('.pptx', '')
-              currentTaskId.value = pid
-              generatedFileUrl.value = `/api/v1/pptx/download/${pid}`
-            }
-          } catch (e) {
-            console.warn('解析结果数据失败:', e)
-          }
-        }
+        applyPptResult(resultFromPptEvent(data))
+        closeWebSocket()
         ElMessage.success('PPT 生成完成!')
-      } else if (data.type === 'error') {
-        progressState.value = { progress: progressState.value?.progress || 0, step: 'error', message: data.error || data.message }
+      } else if (normalized.status === 'failed') {
+        taskFeedback.fail(normalized.error || '生成失败', { stage: 'PPT 生成失败', nextAction: '检查内容后重新生成' })
         generating.value = false
+        closeWebSocket()
         ElMessage.error('生成失败: ' + (data.error || data.message || '未知错误'))
+      } else if (normalized.status === 'paused' && ['cancelled', 'canceled', 'stopped'].includes(
+        String(data.status ?? data.step ?? data.payload?.status ?? data.payload?.step ?? '').toLowerCase()
+      )) {
+        taskFeedback.update({ status: 'cancelled', step: 'cancelled', nextAction: '调整内容后重新生成' })
+        generating.value = false
+        closeWebSocket()
       }
     } catch (error) {
       console.error('WebSocket 消息解析失败:', error)
@@ -665,19 +798,11 @@ function connectWebSocket(taskId) {
   }
 
   ws.onerror = () => {
-    ws = null
-    if (generating.value) {
-      ElMessage.warning('连接中断，请刷新页面查看结果')
-      generating.value = false
-    }
+    if (generating.value && !intentionalSocketClose) taskFeedback.markReconnecting('PPT 进度连接中断，正在恢复')
   }
   ws.onclose = (event) => {
     ws = null
-    // 非正常关闭且仍在生成中
-    if (event.code !== 1000 && generating.value) {
-      ElMessage.warning('连接已断开，请刷新页面查看结果')
-      generating.value = false
-    }
+    if (event.code !== 1000 && generating.value && !intentionalSocketClose) scheduleWebSocketReconnect(taskId)
   }
 }
 
@@ -705,6 +830,11 @@ async function handleGenerate() {
         material_file_ids: uploadedMaterialId.value ? [uploadedMaterialId.value] : [],
       })
       outlineDraft.value = draft
+      automaticSelection.value = selectedTemplate.value === 'auto'
+      if (draft.template_id) selectedTemplate.value = draft.template_id
+      recommendationTopic.value = topic.value.trim() || uploadedFile.value?.name || '未命名演示'
+      templateRecommendation.value = null
+      loadRecommendation()
       outlineSlides.value = normalizeOutlineSlides(draft.slides)
       workflowStep.value = 2
       ElMessage.success('大纲已生成，请审阅页面结构')
@@ -741,6 +871,10 @@ async function generateApprovedOutline() {
   generatedSlides.value = []
   generatedFileUrl.value = ''
   progressState.value = { progress: 0, step: 'starting', message: '正在创建任务...' }
+  reconnectAttempts = 0
+  intentionalSocketClose = false
+  taskFeedback.reset()
+  taskFeedback.start({ status: 'running', step: '正在创建 PPT 任务', progress: 0 })
 
   try {
     let result
@@ -750,6 +884,12 @@ async function generateApprovedOutline() {
         outlineDraft.value.id,
         qualityMode.value,
         outlineDraft.value.version,
+        {
+          output_format: outputFormat.value,
+          auto_images: autoImages.value,
+          enable_animation: enableAnimation.value,
+          api_key_token: apiKeyStore.siliconflowKey?.token || null,
+        },
       )
     } else {
 
@@ -790,11 +930,13 @@ async function generateApprovedOutline() {
       ElMessage.success('任务已创建，正在生成中...')
     } else {
       ElMessage.error('创建 PPT 任务失败，请稍后重试')
+      taskFeedback.fail('创建 PPT 任务失败，请稍后重试', { stage: '任务创建失败', nextAction: '检查内容后重新生成' })
       generating.value = false
     }
   } catch (e) {
     console.error('PPT 生成失败:', e)
     ElMessage.error('生成失败: ' + e.message)
+    taskFeedback.fail(e, { stage: '任务创建失败', nextAction: '检查内容后重新生成' })
     progressState.value = null
     generating.value = false
   }
@@ -804,12 +946,10 @@ async function handleCancel() {
   if (!generating.value) return
   try {
     await api.ppt.cancelPptTask(currentTaskId.value)
-    if (ws) {
-      ws.close()
-      ws = null
-    }
+    closeWebSocket()
     generating.value = false
     progressState.value = null
+    taskFeedback.update({ status: 'cancelled', step: 'cancelled', nextAction: '调整内容后重新生成' })
     ElMessage.info('已取消生成')
   } catch {
     generating.value = false
@@ -886,10 +1026,17 @@ function formatTime(date) {
 onMounted(() => {
   loadTemplates()
   loadHistory()
+  if (typeof route.query.task_id === 'string' && route.query.task_id) {
+    currentTaskId.value = route.query.task_id
+    generating.value = true
+    taskFeedback.reset()
+    taskFeedback.start({ status: 'running', step: '正在恢复 PPT 导出进度', progress: 0 })
+    connectWebSocket(currentTaskId.value)
+  }
 })
 
 onUnmounted(() => {
-  if (ws) { ws.close(); ws = null }
+  closeWebSocket()
 })
 </script>
 
@@ -899,6 +1046,7 @@ onUnmounted(() => {
   background: var(--bg-primary);
   display: flex;
   flex-direction: column;
+  color: var(--text-primary);
 }
 
 .page-header {
@@ -938,10 +1086,12 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   overflow: hidden;
+  min-height: 0;
 }
 
 .config-panel {
-  width: 420px;
+  width: min(420px, 36vw);
+  min-width: 320px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   padding: 24px;
@@ -975,6 +1125,11 @@ onUnmounted(() => {
 }
 
 .template-card {
+  padding: 0;
+  min-width: 0;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  font: inherit;
   border: 2px solid var(--border-color);
   border-radius: 8px;
   overflow: hidden;
@@ -984,6 +1139,11 @@ onUnmounted(() => {
 
 .template-card:hover { border-color: var(--color-primary); transform: translateY(-1px); }
 .template-card.selected { border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2); }
+.template-card:disabled { cursor: default; }
+.template-auto { width: 100%; padding: 10px; }
+.template-description, .template-hint, .template-result { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.template-description { margin: 6px 8px; text-align: left; }
+.template-result { margin-top: 12px; padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; }
 
 .template-preview {
   height: 60px;
@@ -1628,4 +1788,21 @@ onUnmounted(() => {
 .history-action-btn:hover { border-color: var(--color-primary); }
 .history-action-btn.delete { color: #ef4444; border-color: #fca5a5; }
 .history-action-btn.delete:hover { background: rgba(239,68,68,0.1); }
+button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+.file-details { min-width: 0; }
+.file-name { overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .page-header { padding: 14px 16px; flex-wrap: wrap; }
+  .header-hint { display: none; }
+  .page-content { display: flex; flex-direction: column; overflow: auto; }
+  .config-panel { width: 100%; min-width: 0; border-right: 0; border-bottom: 1px solid var(--border-color); padding: 20px 16px; overflow: visible; }
+  .result-panel { min-height: 420px; padding: 20px 16px; }
+  .template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .template-grid { grid-template-columns: 1fr; }
+  .workflow-heading { align-items: flex-start; flex-direction: column; }
+  .workflow-heading-actions, .outline-slide-actions, .modify-actions { flex-wrap: wrap; }
+  .history-panel { width: min(400px, 100vw); }
+}
 </style>

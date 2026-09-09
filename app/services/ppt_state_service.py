@@ -300,6 +300,36 @@ async def update_ppt_outline(
     return _to_contract(row)
 
 
+async def revise_ppt_slide(
+    db: AsyncSession, user_id: str, outline_id: str, version: int, slide_id: str, slide: OutlineSlide
+) -> OutlineDraft:
+    """Branch an approved snapshot, retaining all other pages and prior versions."""
+    base = await get_ppt_outline(db, user_id, outline_id, version)
+    if base.status != "approved":
+        raise ValueError("请先批准基准大纲")
+    target = next((index for index, page in enumerate(base.slides) if page.id == slide_id), None)
+    if target is None:
+        raise StateNotFoundError("目标页面不存在")
+    if not slide.title.strip() or not slide.key_message.strip() or not any(
+        block.content.strip() for block in slide.content_blocks
+    ):
+        raise ValueError("请填写页面标题、核心结论和正文")
+    pages = [page.model_dump(mode="json") for page in base.slides]
+    pages[target] = slide.model_dump(mode="json")
+    pages[target].update(id=slide_id, position=base.slides[target].position)
+    latest = await get_ppt_outline(db, user_id, outline_id)
+    row = PPTOutline(
+        record_id=str(uuid4()), outline_id=outline_id, user_id=_user_id(user_id),
+        version=latest.version + 1, status="approved", title=base.title,
+        scenario=base.scenario, template_id=base.template_id, slide_limit=base.slide_limit,
+        slides_json=pages, created_at=datetime.utcnow(), approved_at=datetime.utcnow(),
+    )
+    db.add(row)
+    await db.flush()
+    await db.commit()
+    return _to_contract(row)
+
+
 async def approve_ppt_outline(db: AsyncSession, user_id: str, outline_id: str) -> OutlineDraft:
     current = await get_ppt_outline(db, user_id, outline_id)
     invalid = [

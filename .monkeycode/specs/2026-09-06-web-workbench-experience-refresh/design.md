@@ -144,3 +144,12 @@ const capabilityPanelState = {
 - [Claude](https://www.anthropic.com/claude)：长文本排版与渐进披露参考。
 - [Cursor](https://www.cursor.com/)：任务、文件和结果联动参考。
 - [Replit](https://replit.com/)：生成、预览和修改连续流程参考。
+
+## Verification Status
+
+- 任务清单 1-6 全部完成。
+- 前端 Vitest：30 个测试文件、126 项测试通过。
+- Playwright 响应式与能力中心回归：3 项通过，覆盖 1440px、768px 和 390px 视口。
+- 生产构建预算：首屏 JavaScript 356.1 KiB gzip、首屏 CSS 55.0 KiB gzip、最大图片 124.6 KiB、最大路由 chunk 47.4 KiB，四项均通过。
+- Chromium 移动端快照：导航 412ms、LCP 4012ms、CLS 0.05，INP 因无交互样本为空，Long Task 条目为空。
+- Lighthouse 使用生产预览服务器完成优化后复测：移动端性能分数 30，LCP 8.7s、FCP 4.5s、TBT 2,260ms、CLS 0.062；桌面端性能分数 27，LCP 8.2s、FCP 4.3s、TBT 970ms、CLS 0.047。两种视口均提示约 21 KiB 未使用 JavaScript，INP 因无交互样本为空。移除首屏完整 Element Plus 插件注册后，首屏 JavaScript gzip 从 356.1 KiB 降至 86.5 KiB，Element Plus vendor gzip 从 275.75 KiB 降至 30.77 KiB。浏览器 PerformanceObserver 指标与构建预算检查已完成。

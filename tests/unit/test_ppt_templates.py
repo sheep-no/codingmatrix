@@ -198,6 +198,12 @@ class TestTemplateManager:
         for template in templates:
             assert "id" in template
             assert "name" in template
+
+    def test_select_template_prefers_explicit_id_and_supports_alias(self, manager):
+        assert manager.select_template("business") == "business_report"
+        assert manager.select_template(scenario="academic") == "academic"
+        with pytest.raises(KeyError):
+            manager.select_template("missing")
             assert "name_zh" in template
             assert "category" in template
             assert "description" in template

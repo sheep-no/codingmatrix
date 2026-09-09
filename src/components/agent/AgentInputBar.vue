@@ -1,17 +1,18 @@
 <template>
   <div class="agent-input-bar">
     <div class="input-row">
-      <div class="input-left">
+      <div v-if="dynamicModels?.length" class="input-left">
         <select
           v-if="dynamicModels && dynamicModels.length > 0"
           :value="selectedProviderModel"
           class="model-select"
+          aria-label="选择生成模型"
           @change="$emit('update:selectedProviderModel', $event.target.value)"
         >
           <option value="">默认模型</option>
           <optgroup v-for="group in groupedDynamicModels" :key="group.provider" :label="group.provider">
-            <option v-for="m in group.models" :key="m.provider_id + ':' + m.model_id" :value="m.provider_id + '::' + m.model_id">
-              {{ m.model_id }}
+            <option v-for="m in group.models" :key="m.provider_id + ':' + m.model_id" :value="m.provider_id + '::' + m.model_id" :title="modelTitle(m)">
+              {{ modelLabel(m) }}
             </option>
           </optgroup>
         </select>
@@ -22,6 +23,7 @@
           :value="prompt"
           :placeholder="placeholderText"
           class="prompt-textarea"
+          aria-label="项目需求"
           data-testid="agent-prompt-input"
           rows="1"
           @input="onInput"
@@ -32,6 +34,8 @@
         <button
           v-if="!generating"
           class="btn-send"
+          type="button"
+          aria-label="发送需求"
           :disabled="!prompt.trim()"
           @click="$emit('generate')"
         >
@@ -40,6 +44,8 @@
         <button
           v-else
           class="btn-stop"
+          type="button"
+          aria-label="停止生成"
           @click="$emit('stop')"
         >
           <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
@@ -47,8 +53,8 @@
       </div>
     </div>
     <div class="input-hint">
-      <span v-if="!generating">Ctrl+Enter 发送 | Esc 停止</span>
-      <span v-else class="generating-hint">生成中...</span>
+      <span v-if="!generating">Ctrl+Enter 发送，Esc 停止</span>
+      <span v-else class="generating-hint">正在生成...</span>
       <div v-if="hasFiles" class="input-actions">
         <button class="action-btn" @click="$emit('regenerate')">重新生成</button>
         <button class="action-btn" @click="$emit('clear')">清空</button>
@@ -84,6 +90,22 @@ const groupedDynamicModels = computed(() => {
   return Object.values(groups)
 })
 
+function modelLabel(model) {
+  const protocol = model.protocol ? ` · ${model.protocol}` : ''
+  const context = model.context_length ? ` · ${formatContext(model.context_length)}` : ''
+  return `${model.model_id}${protocol}${context}`
+}
+
+function modelTitle(model) {
+  return `${model.model_id}${model.protocol ? ` (${model.protocol})` : ''}${model.context_length ? `，上下文 ${formatContext(model.context_length)}` : ''}`
+}
+
+function formatContext(value) {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return ''
+  return numericValue >= 1024 ? `${Math.round(numericValue / 1024)}K` : `${numericValue}`
+}
+
 function onInput(event) {
   emit('update:prompt', event.target.value)
   autoResize()
@@ -115,51 +137,60 @@ watch(() => props.prompt, () => autoResize())
 
 <style scoped>
 .agent-input-bar {
-  padding: 12px 16px;
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border-color);
+  padding: 16px 20px;
+  background: var(--surface-app);
+  border-top: 1px solid var(--control-border);
 }
 .input-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-end;
   gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 16px;
+  background: var(--surface-subtle);
 }
+.input-row:focus-within { border-color: var(--control-border-focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 8%, transparent); }
 .input-left {
   flex-shrink: 0;
+  grid-column: 1 / -1;
 }
 .model-select {
+  max-width: 100%;
   padding: 8px 10px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
   font-size: 12px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  background: var(--surface-subtle);
+  color: var(--content-primary);
   cursor: pointer;
   outline: none;
   transition: border-color 0.15s;
 }
-.model-select:focus { border-color: var(--primary); }
+.model-select:focus { border-color: var(--control-border-focus); }
 .input-center {
   flex: 1;
   min-width: 0;
 }
 .prompt-textarea {
   width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--border-color);
+  padding: 8px 2px;
+  border: 0;
   border-radius: 12px;
-  font-size: 14px;
+  font-size: 15px;
+  font-family: inherit;
   line-height: 1.5;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  background: var(--surface-subtle);
+  color: var(--content-primary);
   resize: none;
   outline: none;
   transition: border-color 0.15s;
   min-height: 42px;
   max-height: 120px;
 }
-.prompt-textarea:focus { border-color: var(--primary); }
-.prompt-textarea::placeholder { color: var(--text-tertiary); }
+.prompt-textarea:focus { border-color: var(--control-border-focus); }
+.prompt-textarea::placeholder { color: var(--content-muted); }
 .input-right {
   flex-shrink: 0;
 }
@@ -172,19 +203,19 @@ watch(() => props.prompt, () => autoResize())
   border: none;
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--motion-fast);
 }
 .btn-send {
-  background: var(--primary);
+  background: var(--accent-primary);
   color: white;
 }
-.btn-send:hover:not(:disabled) { background: var(--primary-hover); }
+.btn-send:hover:not(:disabled) { background: var(--accent-primary-hover); }
 .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-stop {
-  background: var(--danger);
+  background: var(--status-danger);
   color: white;
 }
-.btn-stop:hover { background: var(--danger-hover); }
+.btn-stop:hover { background: color-mix(in srgb, var(--status-danger) 85%, black); }
 .input-hint {
   display: flex;
   justify-content: space-between;
@@ -194,20 +225,20 @@ watch(() => props.prompt, () => autoResize())
   font-size: 11px;
   color: var(--text-tertiary);
 }
-.generating-hint { color: var(--primary); }
+.generating-hint { color: var(--accent-primary); }
 .input-actions {
   display: flex;
   gap: 8px;
 }
 .action-btn {
   padding: 2px 8px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--control-border);
   border-radius: 6px;
   font-size: 11px;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--content-secondary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--motion-fast);
 }
-.action-btn:hover { background: var(--bg-secondary); border-color: var(--primary); color: var(--primary); }
+.action-btn:hover { background: var(--surface-subtle); border-color: var(--control-border-focus); color: var(--accent-primary); }
 </style>

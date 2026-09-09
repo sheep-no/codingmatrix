@@ -170,7 +170,8 @@ async def test_generation_result_is_idempotent_and_enforces_task_ownership(db, t
 
 
 @pytest.mark.asyncio
-async def test_celery_pipeline_persists_approved_outline_result(monkeypatch, tmp_path: Path):
+@pytest.mark.parametrize("quality_mode", ["standard", "refined"])
+async def test_celery_pipeline_persists_approved_outline_result(monkeypatch, tmp_path: Path, quality_mode):
     database_path = tmp_path / "celery-ppt.db"
     engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
     async with engine.begin() as connection:
@@ -198,7 +199,7 @@ async def test_celery_pipeline_persists_approved_outline_result(monkeypatch, tmp
             "options": {
                 "outline_id": "outline-celery",
                 "outline_version": 5,
-                "quality_mode": "standard",
+                "quality_mode": quality_mode,
                 "approved_outline": {
                     "title": "季度复盘",
                     "slides": [
@@ -240,5 +241,7 @@ async def test_celery_pipeline_persists_approved_outline_result(monkeypatch, tmp
     assert [checkpoint.step for checkpoint in checkpoints] == ["planning", "rule_qa", "completed"]
     assert report.outline_id == "outline-celery"
     assert report.outline_version == 5
+    assert report.quality_mode == quality_mode
+    assert report.degraded_stage == ("vision_review_unavailable" if quality_mode == "refined" else None)
     assert (tmp_path / "outputs" / result["filename"]).is_file()
     await engine.dispose()

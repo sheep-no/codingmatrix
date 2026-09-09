@@ -34,6 +34,7 @@
       <AgentSidebar
         ref="sessionsDrawer"
         :class="{ 'mobile-drawer-open': mobilePanel === 'sessions' }"
+        aria-label="会话、项目与文件导航"
         :role="mobilePanel === 'sessions' ? 'dialog' : undefined"
         :aria-modal="mobilePanel === 'sessions' ? 'true' : undefined"
         :tabindex="mobilePanel === 'sessions' ? -1 : undefined"
@@ -73,6 +74,14 @@
           @clear-thinking="workspace.thinkingMessages = []"
           @clear-steps="workspace.executionDetails = []"
           @clear-logs="workspace.logs = []"
+        />
+        <TaskFeedbackPanel
+          class="agent-task-feedback"
+          :feedback="taskFeedbackState"
+          :connection-status="taskFeedbackConnection"
+          :visible="hasTaskFeedback"
+          :actions="taskFeedbackActions"
+          @action="handleTaskFeedbackAction"
         />
         <!-- 底部输入框 -->
         <AgentInputBar
@@ -139,6 +148,8 @@ import { useAgentFiles } from '@/composables/useAgentFiles'
 import { useAgentWorkspace } from '@/composables/useAgentWorkspace'
 import { useAgentStreaming } from '@/composables/useAgentStreaming'
 import { useAgentBackend } from '@/composables/useAgentBackend'
+import { useTaskFeedback } from '@/composables/useTaskFeedback'
+import { normalizeTaskFeedback } from '@/utils/taskFeedback'
 
 import AgentTopBar from '@/components/agent/AgentTopBar.vue'
 import AgentSidebar from '@/components/agent/AgentSidebar.vue'
@@ -151,6 +162,7 @@ import LearningModal from '@/components/agent/modals/LearningModal.vue'
 import PerformanceModal from '@/components/agent/modals/PerformanceModal.vue'
 import VersionHistoryModal from '@/components/agent/modals/VersionHistoryModal.vue'
 import DiffModal from '@/components/agent/modals/DiffModal.vue'
+import TaskFeedbackPanel from '@/components/TaskFeedbackPanel.vue'
 
 const userStore = useUserStore()
 const apiKeyStore = useApiKeyStore()
@@ -212,7 +224,24 @@ const session = useAgentSession()
 const generation = useAgentGeneration()
 const files = useAgentFiles()
 const workspace = useAgentWorkspace({ session, files, generation })
-const streaming = useAgentStreaming(projectApi, workspace, files, generation, session)
+const taskFeedback = useTaskFeedback('agent')
+const taskFeedbackState = taskFeedback.feedback
+const taskFeedbackConnection = taskFeedback.connectionStatus
+const hasTaskFeedback = taskFeedback.hasFeedback
+const taskFeedbackActions = computed(() => {
+  const status = taskFeedbackState.value.status
+  if (status === 'running') return [{ key: 'cancel', label: '停止生成', variant: 'danger' }]
+  if (status === 'failed' || status === 'paused') return [{ key: 'retry', label: '重新生成', variant: 'primary' }]
+  if (status === 'completed' && generatedFiles.value.length) return [{ key: 'download', label: '下载项目', variant: 'primary' }]
+  return []
+})
+
+function handleTaskFeedbackAction(action) {
+  if (action === 'cancel') doStopSession()
+  if (action === 'retry') regenerateProject()
+  if (action === 'download') downloadProject()
+}
+const streaming = useAgentStreaming(projectApi, workspace, files, generation, session, taskFeedback)
 const backend = useAgentBackend(projectApi, workspace, files, generation)
 
 const goToApiKeySettings = () => {
@@ -299,6 +328,7 @@ const doStopSession = async () => {
   }
   await backend.stopSession(session.currentSessionId)
   generation.isGenerating = false
+  taskFeedback.update({ status: 'stopped', stage: '会话已停止', nextAction: '输入新需求后继续' })
   session.currentSessionId = null
 }
 const doSubmitDecision = async () => {
@@ -315,6 +345,7 @@ const clearAllState = () => {
   session.clearSessionState()
   generation.resetStages()
   generation.resetState()
+  taskFeedback.reset()
   ElMessage.success('已清空所有状态')
 }
 
@@ -379,6 +410,15 @@ const doSwitchSession = async (id) => {
     recoveryAttempts: generation.recoveryAttempts
   })
   if (!switched) return false
+  taskFeedback.reset(normalizeTaskFeedback('agent', {}, {
+    isGenerating: generation.isGenerating,
+    hasFailedStage: generation.workflowStages.some(stage => stage.status === 'failed'),
+    hasGeneratedFiles: files.generatedFiles.length > 0,
+    currentPhase: generation.currentPhase,
+    progress: generation.getOverallProgress(),
+    startedAt: generation.startTime,
+    nextAction: files.generatedFiles.length > 0 ? '预览或下载生成文件' : null
+  }))
   await closeMobilePanel()
   workspace.currentModel = generation.currentModel
   workspace.currentAgent = generation.currentAgent
