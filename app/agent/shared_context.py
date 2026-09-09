@@ -32,6 +32,8 @@ class FileArtifact:
     generation_order: int
     depends_on: List[str] = field(default_factory=list)  # 依赖的其他文件路径
     validation_passed: bool = True
+    validation_revision: int = -1
+    validation_content_hash: str = ""
     validation_errors: List[str] = field(default_factory=list)
     review_issues: List[str] = field(default_factory=list)
     fix_attempts: int = 0
@@ -82,6 +84,7 @@ class SharedContext:
         self.requirement = requirement
         self.output_dir = output_dir
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.revision: int = 0
 
         # 复杂度分析
         self.complexity: Optional[Dict[str, Any]] = None
@@ -198,14 +201,22 @@ class SharedContext:
         content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         imports, exports = self._extract_file_symbols(file_path, content)
         if file_path in self.files:
-            self.files[file_path].content = content
-            self.files[file_path].generated_by = model_name
-            self.files[file_path].content_hash = content_hash
-            self.files[file_path].imports = imports
-            self.files[file_path].exports = exports
-            self.files[file_path].language = Path(file_path).suffix.lstrip(".")
-            self.files[file_path].status = "generated"
-            self.files[file_path].diagnostics = []
+            artifact = self.files[file_path]
+            content_changed = artifact.content_hash != content_hash
+            artifact.content = content
+            artifact.generated_by = model_name
+            artifact.content_hash = content_hash
+            artifact.imports = imports
+            artifact.exports = exports
+            artifact.language = Path(file_path).suffix.lstrip(".")
+            artifact.status = "generated"
+            artifact.diagnostics = []
+            if content_changed:
+                # Validation evidence belongs to the exact candidate hash.
+                artifact.validation_passed = False
+                artifact.validation_revision = -1
+                artifact.validation_content_hash = ""
+                artifact.validation_errors = []
         else:
             self.file_generation_order += 1
             self.files[file_path] = FileArtifact(
@@ -223,16 +234,25 @@ class SharedContext:
     def update_file_validation(self, file_path: str, passed: bool, errors: Optional[List[str]] = None):
         """更新文件验证状态"""
         if file_path in self.files:
-            self.files[file_path].validation_passed = passed
-            self.files[file_path].status = "valid" if passed else "invalid"
+            artifact = self.files[file_path]
+            artifact.validation_passed = passed
+            artifact.validation_revision = self.revision
+            artifact.validation_content_hash = artifact.content_hash if artifact.content else ""
+            artifact.status = "valid" if passed else "invalid"
             if errors:
-                self.files[file_path].validation_errors.extend(errors)
-                self.files[file_path].diagnostics.extend(errors)
+                artifact.validation_errors.extend(errors)
+                artifact.diagnostics.extend(errors)
 
     def is_file_ready(self, file_path: str) -> bool:
         """判断文件及其上游依赖是否可以供下游生成使用。"""
         artifact = self.files.get(file_path)
-        if artifact is None or not artifact.content.strip() or not artifact.validation_passed:
+        if (
+            artifact is None
+            or not artifact.content.strip()
+            or not artifact.validation_passed
+            or artifact.validation_revision != self.revision
+            or artifact.validation_content_hash != artifact.content_hash
+        ):
             return False
         return self.are_dependencies_ready(file_path)
 
@@ -257,6 +277,8 @@ class SharedContext:
                 "depends_on": list(artifact.depends_on),
                 "status": artifact.status,
                 "validation_passed": artifact.validation_passed,
+                "validation_revision": artifact.validation_revision,
+                "validation_content_hash": artifact.validation_content_hash,
                 "diagnostics": list(artifact.diagnostics),
             }
             for path, artifact in self.files.items()
@@ -292,6 +314,16 @@ class SharedContext:
         """获取已生成的文件内容"""
         artifact = self.files.get(file_path)
         return artifact.content if artifact else None
+
+    def advance_revision(self) -> int:
+        """开始新的候选版本并使之前的验证证据失效。"""
+        self.revision += 1
+        for artifact in self.files.values():
+            artifact.validation_passed = False
+            artifact.validation_revision = -1
+            artifact.validation_content_hash = ""
+            artifact.validation_errors = []
+        return self.revision
 
     def get_generated_files_summary(self) -> str:
         """获取已生成文件的摘要（用于注入到后续文件的 prompt 中）"""
@@ -371,6 +403,7 @@ class SharedContext:
         """导出完整的上下文字典（用于保存或调试）"""
         return {
             "session_id": self.session_id,
+            "revision": self.revision,
             "requirement": self.requirement,
             "output_dir": str(self.output_dir),
             "project_type": self.project_type,
@@ -390,6 +423,8 @@ class SharedContext:
                 "language": v.language,
                 "status": v.status,
                 "validation_passed": v.validation_passed,
+                "validation_revision": v.validation_revision,
+                "validation_content_hash": v.validation_content_hash,
                 "validation_errors": v.validation_errors,
                 "diagnostics": v.diagnostics,
                 "review_issues": v.review_issues,

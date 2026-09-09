@@ -8,7 +8,11 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.database import get_db
+from app.db.models import ProjectSession
 from app.utils.security import verify_token
 
 router = APIRouter()
@@ -412,6 +416,30 @@ async def post_agent_host_event(
         ]
     _session_store.save(session_id, session)
     return AgentHostEventResponse(accepted=True, state_status=state_status)
+
+
+@router.post("/agent/host/sessions/{session_id}/heartbeat")
+async def agent_host_heartbeat(
+    session_id: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    session = _get_session(session_id, token)
+    user_id = token.get("sub")
+    if not isinstance(user_id, str) or not user_id.isdigit():
+        raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+    project = await db.scalar(
+        select(ProjectSession).where(
+            ProjectSession.session_id == session.get("workspace_id"),
+            ProjectSession.user_id == int(user_id),
+        )
+    )
+    if project is None:
+        raise HTTPException(status_code=404, detail="关联项目不存在")
+    project.last_activity_at = datetime.now(timezone.utc)
+    project.lifecycle_status = "active"
+    await db.commit()
+    return {"session_id": session_id, "project_session_id": project.session_id, "status": "active"}
 
 
 @router.put("/agent/host/sessions/{session_id}/policy", response_model=PolicyUpdateResponse)

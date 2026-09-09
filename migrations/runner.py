@@ -23,6 +23,7 @@ from app.models.server_config import ServerConfig
 from app.models.user import User
 from app.models.history import History
 from app.models.task import Task
+from app.db.models import ProjectSession
 from app.models.unified_state import (
     Session, Message, TaskEvent, Checkpoint, Artifact,
     StateCompatibilityMapping, StateRetentionRecord,
@@ -97,5 +98,52 @@ async def run_async_migrations():
                 if column_name not in task_columns:
                     await conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {column_name} {column_type}"))
                     print(f"已升级 tasks 表字段: {column_name}")
+
+        if "project_sessions" in existing_tables:
+            if db_type == "sqlite":
+                columns_result = await conn.execute(text("PRAGMA table_info(project_sessions)"))
+                project_columns = {row[1] for row in columns_result}
+                indexes_result = await conn.execute(text("PRAGMA index_list(project_sessions)"))
+                project_indexes = {row[1] for row in indexes_result}
+            else:
+                columns_result = await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = :db_name AND table_name = 'project_sessions'"
+                    ),
+                    {"db_name": parsed.path.strip("/")},
+                )
+                project_columns = {row[0] for row in columns_result}
+                indexes_result = await conn.execute(
+                    text(
+                        "SELECT DISTINCT index_name FROM information_schema.statistics "
+                        "WHERE table_schema = :db_name AND table_name = 'project_sessions'"
+                    ),
+                    {"db_name": parsed.path.strip("/")},
+                )
+                project_indexes = {row[0] for row in indexes_result}
+
+            project_additions = {
+                "lifecycle_status": "VARCHAR(30) NOT NULL DEFAULT 'active'",
+                "retention_class": "VARCHAR(30) NOT NULL DEFAULT 'standard'",
+                "pinned": "BOOLEAN NOT NULL DEFAULT FALSE",
+                "archived_at": "DATETIME",
+                "purge_after": "DATETIME",
+            }
+            for column_name, column_type in project_additions.items():
+                if column_name not in project_columns:
+                    await conn.execute(
+                        text(f"ALTER TABLE project_sessions ADD COLUMN {column_name} {column_type}")
+                    )
+                    print(f"已升级 project_sessions 表字段: {column_name}")
+
+            if "ix_project_sessions_lifecycle_status" not in project_indexes:
+                await conn.execute(
+                    text(
+                        "CREATE INDEX ix_project_sessions_lifecycle_status "
+                        "ON project_sessions (lifecycle_status)"
+                    )
+                )
+                print("已升级 project_sessions 索引: ix_project_sessions_lifecycle_status")
 
     await engine.dispose()

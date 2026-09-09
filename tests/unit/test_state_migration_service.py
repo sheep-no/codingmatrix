@@ -1,16 +1,25 @@
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models.base import Base
-from app.models.unified_state import Artifact, Session
+from app.db.models import ProjectSession
+from app.models.task import Task
+from app.models.unified_state import Artifact, Session, StateRetentionRecord
 from app.services.state_migration_service import (
+    LocalProjectStorageAdapter,
     RetentionPolicy,
     advance_retention_record,
+    archive_project,
     create_retention_record,
+    evaluate_project_lifecycle,
     process_retention_records,
     resolve_compatibility_mapping,
+    restore_project,
+    set_project_pinned,
+    sweep_project_retention,
     upsert_compatibility_mapping,
 )
 
@@ -128,3 +137,218 @@ async def test_retention_processor_blocks_active_session_artifact(db):
     assert result["archived"] == 0
     assert result["blocked"] == 1
     assert record.status == "blocked"
+
+
+@pytest.mark.asyncio
+async def test_project_lifecycle_uses_activity_and_preserves_archive(db):
+    now = datetime.utcnow()
+    project = ProjectSession(
+        session_id="project-lifecycle",
+        user_id="1",
+        requirement="create an app",
+        status="completed",
+        last_activity_at=now - timedelta(days=10),
+    )
+    db.add(project)
+    await db.flush()
+
+    result = await evaluate_project_lifecycle(
+        db,
+        project.session_id,
+        now=now,
+        idle_after=timedelta(days=7),
+        abandoned_after=timedelta(days=30),
+    )
+
+    assert result.lifecycle_status == "idle"
+
+    project.lifecycle_status = "archived"
+    result = await evaluate_project_lifecycle(db, project.session_id, now=now)
+    assert result.lifecycle_status == "archived"
+
+
+@pytest.mark.asyncio
+async def test_project_retention_is_blocked_while_project_is_active(db):
+    project = ProjectSession(
+        session_id="active-project",
+        user_id="1",
+        requirement="create an app",
+        status="completed",
+        lifecycle_status="active",
+    )
+    db.add(project)
+    record = await create_retention_record(
+        db,
+        "project",
+        project.session_id,
+        "short",
+        eligible_at=datetime.utcnow() - timedelta(days=10),
+    )
+
+    result = await process_retention_records(
+        db,
+        RetentionPolicy("short", archive_after_seconds=0, cleanup_after_seconds=0),
+    )
+
+    assert result["blocked"] == 1
+    assert record.status == "blocked"
+
+
+@pytest.mark.asyncio
+async def test_project_sweeper_creates_one_record_for_abandoned_project(db):
+    now = datetime.utcnow()
+    project = ProjectSession(
+        session_id="abandoned-project",
+        user_id="1",
+        requirement="create an app",
+        status="completed",
+        last_activity_at=now - timedelta(days=31),
+    )
+    db.add(project)
+    await db.flush()
+
+    first = await sweep_project_retention(db, now=now)
+    second = await sweep_project_retention(db, now=now)
+    records = list((await db.scalars(
+        select(StateRetentionRecord).where(
+            StateRetentionRecord.resource_type == "project",
+            StateRetentionRecord.resource_id == project.session_id,
+        )
+    )).all())
+
+    assert first["abandoned"] == 1
+    assert first["records_created"] == 1
+    assert second["records_created"] == 0
+    assert project.lifecycle_status == "abandoned"
+    assert len(records) == 1
+
+
+@pytest.mark.asyncio
+async def test_project_cleanup_removes_only_managed_directory(db, tmp_path):
+    project_dir = tmp_path / "1" / "managed-project"
+    project_dir.mkdir(parents=True)
+    (project_dir / "main.py").write_text("print('ok')\n", encoding="utf-8")
+    project = ProjectSession(
+        session_id="purge-project",
+        user_id="1",
+        requirement="create an app",
+        output_dir="1/managed-project",
+        status="completed",
+        lifecycle_status="archived",
+    )
+    db.add(project)
+    record = await create_retention_record(
+        db,
+        "project",
+        project.session_id,
+        "project_standard",
+        eligible_at=datetime.utcnow() - timedelta(days=1),
+    )
+    record.archive_at = datetime.utcnow() - timedelta(days=1)
+    record.status = "archived"
+
+    result = await process_retention_records(
+        db,
+        RetentionPolicy("project_standard", archive_after_seconds=0, cleanup_after_seconds=0),
+        project_storage=LocalProjectStorageAdapter(tmp_path),
+    )
+
+    assert result["cleaned"] == 1
+    assert project.lifecycle_status == "purged"
+    assert not project_dir.exists()
+
+
+def test_project_storage_rejects_protected_and_root_paths(tmp_path):
+    adapter = LocalProjectStorageAdapter(tmp_path)
+    user_project = ProjectSession(
+        session_id="user-project",
+        user_id="1",
+        requirement="keep it",
+        output_dir="1/user-project",
+        retention_class="user_owned",
+    )
+    root_project = ProjectSession(
+        session_id="root-project",
+        user_id="1",
+        requirement="keep it",
+        output_dir=".",
+    )
+
+    with pytest.raises(PermissionError):
+        adapter.resolve_project_path(user_project)
+    with pytest.raises(PermissionError):
+        adapter.resolve_project_path(root_project)
+
+
+@pytest.mark.asyncio
+async def test_project_retention_is_blocked_by_active_task(db, tmp_path):
+    project = ProjectSession(
+        session_id="task-protected-project",
+        user_id="1",
+        requirement="keep it",
+        output_dir="1/task-protected-project",
+        status="completed",
+        lifecycle_status="archived",
+    )
+    task = Task(
+        task_id="active-project-task",
+        session_id=project.session_id,
+        task_type="code_generate",
+        status="running",
+        user_id=1,
+    )
+    db.add_all([project, task])
+    record = await create_retention_record(
+        db,
+        "project",
+        project.session_id,
+        "project_standard",
+        eligible_at=datetime.utcnow() - timedelta(days=100),
+    )
+    record.status = "archived"
+    record.archive_at = datetime.utcnow() - timedelta(days=100)
+
+    result = await process_retention_records(
+        db,
+        RetentionPolicy("project_standard", archive_after_seconds=0, cleanup_after_seconds=0),
+        project_storage=LocalProjectStorageAdapter(tmp_path),
+    )
+
+    assert result["blocked"] == 1
+    assert record.status == "blocked"
+
+
+@pytest.mark.asyncio
+async def test_project_archive_restore_and_pin_are_idempotent(db):
+    project = ProjectSession(
+        session_id="lifecycle-api-project",
+        user_id="1",
+        requirement="lifecycle",
+        output_dir="1/lifecycle-api-project",
+        status="completed",
+    )
+    db.add(project)
+    await db.flush()
+
+    archived = await archive_project(db, project.session_id, now=datetime.utcnow())
+    assert archived.lifecycle_status == "archived"
+    assert archived.archived_at is not None
+    record = await db.scalar(
+        select(StateRetentionRecord).where(
+            StateRetentionRecord.resource_type == "project",
+            StateRetentionRecord.resource_id == project.session_id,
+        )
+    )
+    assert record.status == "archived"
+
+    pinned = await set_project_pinned(db, project.session_id, True)
+    assert pinned.pinned is True
+    restored = await restore_project(db, project.session_id)
+    assert restored.lifecycle_status == "active"
+    assert restored.archived_at is None
+    assert record.status == "eligible"
+    assert record.eligible_at == restored.last_activity_at
+
+    unpinned = await set_project_pinned(db, project.session_id, False)
+    assert unpinned.pinned is False
+    assert record.eligible_at == unpinned.last_activity_at

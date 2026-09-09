@@ -4,7 +4,7 @@ import asyncio
 import time
 import re
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Dict, Any, List, FrozenSet
 
@@ -468,6 +468,8 @@ async def modify_project(
     existing_session = result.scalar_one_or_none()
     if existing_session:
         existing_session.status = "running"
+        existing_session.lifecycle_status = "active"
+        existing_session.last_activity_at = datetime.now(timezone.utc)
         existing_session.requirement = request.requirement
         await db.commit()
     else:

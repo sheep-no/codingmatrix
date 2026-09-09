@@ -1,6 +1,6 @@
 """工作流历史记录数据库模型"""
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, BigInteger, Index, UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, JSON, BigInteger, Index, UniqueConstraint
 from app.models.base import Base
 
 
@@ -14,6 +14,11 @@ class ProjectSession(Base):
     requirement = Column(Text, nullable=False)
     output_dir = Column(String(500), nullable=True)  # 相对路径: {user_id}/{project_name}
     status = Column(String(50), default="running")  # running, completed, failed, cancelled
+    lifecycle_status = Column(String(30), default="active", nullable=False, index=True)
+    retention_class = Column(String(30), default="standard", nullable=False)
+    pinned = Column(Boolean, default=False, nullable=False)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
+    purge_after = Column(DateTime(timezone=True), nullable=True)
     memory_usage_mb = Column(Integer, default=0)  # 预估内存占用（MB）
     files_generated = Column(Integer, default=0)
     files_total = Column(Integer, default=0)
@@ -35,6 +40,11 @@ class ProjectSession(Base):
             "requirement": self.requirement,
             "output_dir": self.output_dir,
             "status": self.status,
+            "lifecycle_status": self.lifecycle_status,
+            "retention_class": self.retention_class,
+            "pinned": self.pinned,
+            "archived_at": self.archived_at.isoformat() if self.archived_at else None,
+            "purge_after": self.purge_after.isoformat() if self.purge_after else None,
             "memory_usage_mb": self.memory_usage_mb,
             "files_generated": self.files_generated,
             "files_total": self.files_total,

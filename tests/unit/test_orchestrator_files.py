@@ -1058,7 +1058,7 @@ async def test_single_file_generation_persists_without_review_or_validation(tmp_
 
 
 @pytest.mark.asyncio
-async def test_single_file_generation_records_verified_artifact_event(tmp_path, monkeypatch):
+async def test_single_file_generation_records_artifact_event_pending_validation(tmp_path, monkeypatch):
     async def extract_content(content, *_args, **_kwargs):
         return content
 
@@ -1085,7 +1085,8 @@ async def test_single_file_generation_records_verified_artifact_event(tmp_path, 
     assert [event.path for event in orchestrator.artifact_completion_events] == ["main.py"]
     manifest = context.get_artifact_manifest()
     assert manifest["main.py"]["status"] == "generated"
-    assert manifest["main.py"]["validation_passed"] is True
+    assert manifest["main.py"]["validation_passed"] is False
+    assert manifest["main.py"]["validation_revision"] == -1
 
 
 @pytest.mark.asyncio

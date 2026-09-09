@@ -1,8 +1,9 @@
 """Compatibility mapping and retention lifecycle services."""
 
 import hashlib
+import shutil
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
@@ -10,10 +11,12 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.task import Task
+from app.db.models import ProjectSession
 from app.models.unified_state import Artifact, Checkpoint, Session, StateCompatibilityMapping, StateRetentionRecord
 
 
 ACTIVE_TASK_STATUSES = {"pending", "running", "recovering"}
+PROJECT_LIFECYCLE_STATUSES = {"active", "idle", "abandoned", "archived", "purge_candidate", "purged"}
 
 
 @dataclass(frozen=True)
@@ -21,6 +24,12 @@ class RetentionPolicy:
     name: str
     archive_after_seconds: int
     cleanup_after_seconds: int
+
+
+PROJECT_RETENTION_POLICIES = {
+    "temporary": RetentionPolicy("project_temporary", 7 * 24 * 60 * 60, 30 * 24 * 60 * 60),
+    "standard": RetentionPolicy("project_standard", 30 * 24 * 60 * 60, 90 * 24 * 60 * 60),
+}
 
 
 class ExternalStorageAdapter(Protocol):
@@ -44,12 +53,57 @@ class LocalFileStorageAdapter:
         return {"status": "deleted", "path": str(path)}
 
 
+class LocalProjectStorageAdapter:
+    """Remove only managed project directories below an explicit project root."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = Path(root).resolve()
+
+    def resolve_project_path(self, project: ProjectSession) -> Path:
+        if project.retention_class in {"user_owned", "external", "pinned"}:
+            raise PermissionError("用户项目不允许自动物理清理")
+        if not project.output_dir:
+            raise ValueError("项目没有输出目录")
+        candidate = Path(project.output_dir)
+        path = candidate.resolve() if candidate.is_absolute() else (self.root / candidate).resolve()
+        if path == self.root or not path.is_relative_to(self.root):
+            raise PermissionError("项目目录超出托管根目录")
+        return path
+
+    async def delete_project(self, project: ProjectSession, idempotency_key: str) -> dict[str, Any]:
+        del idempotency_key
+        path = self.resolve_project_path(project)
+        if not path.exists():
+            return {"status": "already_deleted", "path": str(path)}
+        if not path.is_dir():
+            raise ValueError("项目输出路径不是目录")
+        shutil.rmtree(path)
+        return {"status": "deleted", "path": str(path)}
+
+
 def _cleanup_key(record: StateRetentionRecord) -> str:
     value = f"{record.resource_type}:{record.resource_id}:{record.policy_name}"
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 async def _resource_is_blocked(db: AsyncSession, record: StateRetentionRecord) -> bool:
+    if record.resource_type == "project":
+        project = await db.scalar(
+            select(ProjectSession).where(ProjectSession.session_id == record.resource_id)
+        )
+        if project is None:
+            return False
+        if project.pinned or project.status == "running":
+            return True
+        active_task = await db.scalar(
+            select(Task).where(
+                Task.session_id == record.resource_id,
+                Task.status.in_(ACTIVE_TASK_STATUSES),
+            )
+        )
+        if active_task is not None:
+            return True
+        return project.lifecycle_status in {"active", "idle"}
     if record.resource_type == "artifact":
         artifact = await db.get(Artifact, record.resource_id)
         if artifact is None:
@@ -78,10 +132,12 @@ async def process_retention_records(
     now: Optional[datetime] = None,
     limit: int = 100,
     storage: Optional[ExternalStorageAdapter] = None,
+    project_storage: Optional[LocalProjectStorageAdapter] = None,
 ) -> dict[str, int]:
     """Archive eligible resources and clean external artifacts safely and repeatably."""
     now = now or datetime.utcnow()
     storage = storage or LocalFileStorageAdapter()
+    project_storage = project_storage
     counters = {"archived": 0, "blocked": 0, "cleaned": 0, "retryable": 0}
     records = list((await db.scalars(
         select(StateRetentionRecord)
@@ -119,6 +175,8 @@ async def process_retention_records(
             resource = await _load_resource(db, record)
             if resource is not None and hasattr(resource, "archived_at"):
                 resource.archived_at = now
+                if isinstance(resource, ProjectSession):
+                    resource.lifecycle_status = "archived"
             record.status = "archived"
             record.archive_at = now
             counters["archived"] += 1
@@ -147,6 +205,11 @@ async def process_retention_records(
             resource = await _load_resource(db, record)
             if isinstance(resource, Artifact):
                 result = await storage.delete(resource.storage_uri, record.cleanup_idempotency_key)
+            elif isinstance(resource, ProjectSession):
+                if project_storage is None:
+                    raise RuntimeError("项目存储适配器未配置")
+                result = await project_storage.delete_project(resource, record.cleanup_idempotency_key)
+                resource.lifecycle_status = "purged"
             else:
                 result = {"status": "retained", "reason": "no_external_artifact"}
             record.cleanup_result_json = {**record.cleanup_result_json, "result": result}
@@ -163,6 +226,10 @@ async def process_retention_records(
 
 
 async def _load_resource(db: AsyncSession, record: StateRetentionRecord) -> Any:
+    if record.resource_type == "project":
+        return await db.scalar(
+            select(ProjectSession).where(ProjectSession.session_id == record.resource_id)
+        )
     if record.resource_type == "artifact":
         return await db.get(Artifact, record.resource_id)
     if record.resource_type == "task":
@@ -176,6 +243,92 @@ async def _load_resource(db: AsyncSession, record: StateRetentionRecord) -> Any:
 
 def _resource_version(resource: Any) -> Optional[int]:
     return getattr(resource, "version", None) if resource is not None else None
+
+
+async def evaluate_project_lifecycle(
+    db: AsyncSession,
+    session_id: str,
+    now: Optional[datetime] = None,
+    idle_after: timedelta = timedelta(days=7),
+    abandoned_after: timedelta = timedelta(days=30),
+) -> ProjectSession:
+    """Classify a project from user activity while preserving explicit archive state."""
+    project = await db.scalar(
+        select(ProjectSession).where(ProjectSession.session_id == session_id)
+    )
+    if project is None:
+        raise ValueError("项目不存在")
+    if project.pinned or project.lifecycle_status in {"archived", "purge_candidate", "purged"}:
+        return project
+    if project.status == "running":
+        project.lifecycle_status = "active"
+        return project
+    now = now or datetime.utcnow()
+    last_activity = project.last_activity_at.replace(tzinfo=None)
+    age = now - last_activity
+    if age >= abandoned_after:
+        project.lifecycle_status = "abandoned"
+    elif age >= idle_after:
+        project.lifecycle_status = "idle"
+    else:
+        project.lifecycle_status = "active"
+    await db.flush()
+    return project
+
+
+async def sweep_project_retention(
+    db: AsyncSession,
+    now: Optional[datetime] = None,
+    limit: int = 100,
+) -> dict[str, int]:
+    """Create idempotent retention records for inactive managed projects."""
+    now = now or datetime.utcnow()
+    projects = list((await db.scalars(
+        select(ProjectSession)
+        .where(ProjectSession.lifecycle_status.in_(("active", "idle", "abandoned")))
+        .order_by(ProjectSession.last_activity_at.asc())
+        .limit(max(1, min(limit, 1000)))
+    )).all())
+    counters = {"scanned": 0, "abandoned": 0, "records_created": 0, "protected": 0}
+    for project in projects:
+        counters["scanned"] += 1
+        if project.pinned or project.status == "running":
+            counters["protected"] += 1
+            continue
+        policy = PROJECT_RETENTION_POLICIES.get(
+            project.retention_class,
+            PROJECT_RETENTION_POLICIES["standard"],
+        )
+        await evaluate_project_lifecycle(
+            db,
+            project.session_id,
+            now=now,
+            abandoned_after=timedelta(seconds=policy.archive_after_seconds),
+        )
+        if project.lifecycle_status != "abandoned":
+            continue
+        counters["abandoned"] += 1
+        eligible_at = project.last_activity_at.replace(tzinfo=None) + timedelta(
+            seconds=policy.archive_after_seconds
+        )
+        existing = await db.scalar(
+            select(StateRetentionRecord).where(
+                StateRetentionRecord.resource_type == "project",
+                StateRetentionRecord.resource_id == project.session_id,
+                StateRetentionRecord.policy_name == policy.name,
+            )
+        )
+        if existing is None:
+            await create_retention_record(
+                db,
+                "project",
+                project.session_id,
+                policy.name,
+                eligible_at=eligible_at,
+            )
+            counters["records_created"] += 1
+    await db.flush()
+    return counters
 
 
 async def upsert_compatibility_mapping(
@@ -292,3 +445,95 @@ async def advance_retention_record(
         record.cleanup_at = now
     await db.flush()
     return record
+
+
+async def archive_project(db: AsyncSession, session_id: str, now: Optional[datetime] = None) -> ProjectSession:
+    now = now or datetime.utcnow()
+    project = await db.scalar(
+        select(ProjectSession).where(ProjectSession.session_id == session_id)
+    )
+    if project is None:
+        raise ValueError("项目不存在")
+    active_task = await db.scalar(
+        select(Task).where(
+            Task.session_id == session_id,
+            Task.status.in_(ACTIVE_TASK_STATUSES),
+        )
+    )
+    if project.status == "running" or active_task is not None:
+        raise ValueError("项目仍有活动任务，无法归档")
+    policy = PROJECT_RETENTION_POLICIES.get(
+        project.retention_class,
+        PROJECT_RETENTION_POLICIES["standard"],
+    )
+    record = await create_retention_record(
+        db,
+        "project",
+        session_id,
+        policy.name,
+        eligible_at=now,
+    )
+    project.lifecycle_status = "archived"
+    project.archived_at = now
+    project.purge_after = now + timedelta(seconds=policy.cleanup_after_seconds)
+    record.status = "archived"
+    record.archive_at = now
+    record.last_error = None
+    await db.flush()
+    return project
+
+
+async def restore_project(db: AsyncSession, session_id: str) -> ProjectSession:
+    project = await db.scalar(
+        select(ProjectSession).where(ProjectSession.session_id == session_id)
+    )
+    if project is None:
+        raise ValueError("项目不存在")
+    if project.lifecycle_status == "purged":
+        raise ValueError("项目已清理，无法恢复")
+    records = list((await db.scalars(
+        select(StateRetentionRecord).where(
+            StateRetentionRecord.resource_type == "project",
+            StateRetentionRecord.resource_id == session_id,
+        )
+    )).all())
+    for record in records:
+        if record.status in {"cleaning", "cleaned"}:
+            raise ValueError("项目正在清理，无法恢复")
+        record.status = "eligible"
+        record.archive_at = None
+        record.cleanup_at = None
+        record.last_error = None
+    project.lifecycle_status = "active"
+    project.archived_at = None
+    project.purge_after = None
+    project.last_activity_at = datetime.utcnow()
+    for record in records:
+        record.eligible_at = project.last_activity_at
+    await db.flush()
+    return project
+
+
+async def set_project_pinned(db: AsyncSession, session_id: str, pinned: bool) -> ProjectSession:
+    project = await db.scalar(
+        select(ProjectSession).where(ProjectSession.session_id == session_id)
+    )
+    if project is None:
+        raise ValueError("项目不存在")
+    project.pinned = pinned
+    if pinned and project.lifecycle_status in {"archived", "purge_candidate"}:
+        project.lifecycle_status = "active"
+        project.archived_at = None
+        project.purge_after = None
+    project.last_activity_at = datetime.utcnow()
+    if not pinned:
+        records = list((await db.scalars(
+            select(StateRetentionRecord).where(
+                StateRetentionRecord.resource_type == "project",
+                StateRetentionRecord.resource_id == session_id,
+            )
+        )).all())
+        for record in records:
+            record.eligible_at = project.last_activity_at
+    await db.flush()
+    return project

@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 from datetime import datetime, timedelta
+from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -13,7 +14,14 @@ from app.models.file import File
 from app.models.task import Task
 from app.utils.task_manager import task_manager
 from app.services.worker_recovery_service import recover_expired_tasks
-from app.services.state_migration_service import RetentionPolicy, process_retention_records
+from app.api.v1.ai_agent.project_config import PROJECTS_BASE_DIR
+from app.services.state_migration_service import (
+    RetentionPolicy,
+    LocalProjectStorageAdapter,
+    PROJECT_RETENTION_POLICIES,
+    process_retention_records,
+    sweep_project_retention,
+)
 
 scheduler = AsyncIOScheduler()
 logger = logging.getLogger(__name__)
@@ -171,19 +179,40 @@ async def unified_retention_task():
     """按统一状态策略推进归档和外部产物清理。"""
     async with async_session() as db:
         try:
-            result = await process_retention_records(
-                db,
+            policies = [
                 RetentionPolicy(
                     name="default",
                     archive_after_seconds=7 * 24 * 60 * 60,
                     cleanup_after_seconds=30 * 24 * 60 * 60,
                 ),
-            )
+                *PROJECT_RETENTION_POLICIES.values(),
+            ]
+            result = {}
+            for policy in policies:
+                current = await process_retention_records(
+                    db,
+                    policy,
+                    project_storage=LocalProjectStorageAdapter(Path(PROJECTS_BASE_DIR)),
+                )
+                for key, value in current.items():
+                    result[key] = result.get(key, 0) + value
             await db.commit()
             logger.info("统一状态保留任务完成 | result=%s", result)
         except Exception as e:
             await db.rollback()
             logger.error(f"统一状态保留任务失败：{str(e)}", exc_info=True)
+
+
+async def project_retention_sweep_task():
+    """每日扫描项目活动时间并创建幂等保留记录。"""
+    async with async_session() as db:
+        try:
+            result = await sweep_project_retention(db)
+            await db.commit()
+            logger.info("项目保留扫描完成 | result=%s", result)
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"项目保留扫描失败：{str(e)}", exc_info=True)
 
 
 # 配置定时任务
@@ -222,6 +251,16 @@ scheduler.add_job(
     cleanup_logs_task,
     trigger=IntervalTrigger(days=7),
     id="log_cleanup",
+    replace_existing=True,
+    max_instances=1,
+    coalesce=True,
+)
+
+# 5. 项目保留扫描 - 每天执行一次
+scheduler.add_job(
+    project_retention_sweep_task,
+    trigger=IntervalTrigger(days=1),
+    id="project_retention_sweep",
     replace_existing=True,
     max_instances=1,
     coalesce=True,

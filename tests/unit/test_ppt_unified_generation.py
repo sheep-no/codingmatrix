@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from app.api.v1.aiGeneratorPptx import (
     generate_pptx_file_enhanced,
     PPT_TEMPLATES,
+    visual_analyzer,
 )
 
 
@@ -120,8 +121,15 @@ class TestUnifiedGeneration:
             assert len(slides_data) == 6, f"Expected 6 slides in JSON, got {len(slides_data)}"
 
     @pytest.mark.asyncio
-    async def test_generate_with_different_templates(self, sample_outline):
+    async def test_generate_with_different_templates(self, sample_outline, monkeypatch):
         """测试不同模板的生成"""
+        async def default_visual_plan(title, slides_content, theme="education"):
+            return visual_analyzer._create_default_plan(title, slides_content, theme)
+
+        monkeypatch.setattr(
+            "app.api.v1.aiGeneratorPptx.visual_analyzer.analyze_ppt_content",
+            default_visual_plan,
+        )
         for template_name in PPT_TEMPLATES.keys():
             req = MagicMock()
             req.template = template_name
