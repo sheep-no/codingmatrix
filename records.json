@@ -1,0 +1,80 @@
+[
+  {
+    "case_id": "python-fastapi-crud",
+    "plan_consistent": true,
+    "interfaces_consistent": true,
+    "dependency_closure": true,
+    "files_complete": true,
+    "compile_passed": true,
+    "tests_passed": true,
+    "startup_passed": true,
+    "persistence_passed": true,
+    "token_count": 0,
+    "elapsed_seconds": 0.0
+  },
+  {
+    "case_id": "python-flask-crud",
+    "plan_consistent": true,
+    "interfaces_consistent": true,
+    "dependency_closure": true,
+    "files_complete": true,
+    "compile_passed": true,
+    "tests_passed": true,
+    "startup_passed": true,
+    "persistence_passed": true,
+    "token_count": 0,
+    "elapsed_seconds": 0.0
+  },
+  {
+    "case_id": "typescript-express-crud",
+    "plan_consistent": true,
+    "interfaces_consistent": true,
+    "dependency_closure": true,
+    "files_complete": true,
+    "compile_passed": true,
+    "tests_passed": true,
+    "startup_passed": true,
+    "persistence_passed": true,
+    "token_count": 0,
+    "elapsed_seconds": 0.0
+  },
+  {
+    "case_id": "typescript-nestjs-crud",
+    "plan_consistent": true,
+    "interfaces_consistent": true,
+    "dependency_closure": true,
+    "files_complete": true,
+    "compile_passed": true,
+    "tests_passed": true,
+    "startup_passed": true,
+    "persistence_passed": true,
+    "token_count": 0,
+    "elapsed_seconds": 0.0
+  },
+  {
+    "case_id": "go-http-crud",
+    "plan_consistent": true,
+    "interfaces_consistent": true,
+    "dependency_closure": true,
+    "files_complete": true,
+    "compile_passed": true,
+    "tests_passed": true,
+    "startup_passed": true,
+    "persistence_passed": true,
+    "token_count": 0,
+    "elapsed_seconds": 203.702
+  },
+  {
+    "case_id": "java-spring-boot-crud",
+    "plan_consistent": true,
+    "interfaces_consistent": true,
+    "dependency_closure": true,
+    "files_complete": true,
+    "compile_passed": true,
+    "tests_passed": true,
+    "startup_passed": true,
+    "persistence_passed": true,
+    "token_count": 0,
+    "elapsed_seconds": 275.626
+  }
+]

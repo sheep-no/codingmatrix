@@ -72,8 +72,13 @@ SKIP_PATHS = {
 
 # 跳过 SQL/XSS 检查的路径（AI 项目生成需要包含代码描述）
 SKIP_SECURITY_CHECK_PATHS = {
-    "/api/v1/agent/orchestrate/stream",
+    "/api/v1/agent/orchestrate",
     "/api/v1/agent/generate",
+    "/api/v1/agent/modify",
+    "/api/v1/ai-agent/orchestrate",
+    "/api/v1/ai-agent/generate",
+    "/api/v1/ai-agent/modify",
+    "/api/v1/ai-agent/orchestrate/stream",
     "/api/v1/ai_agent/process",
     "/api/v1/ai_agent/process/stream",
     "/api/v1/ai_agent/react/process",

@@ -1,7 +1,9 @@
 import pytest
 from pydantic import ValidationError
 
+from app.api.v1.ai_agent.orchestrate_endpoints import _legacy_requirement_with_allowed_files
 from app.api.v1.ai_agent.schemas import OrchestratorRequest
+from app.agent.architect import Architect
 from app.agent.state import StateDelta, StateGraphBuilder
 from app.agent.workflow_registry import WorkflowDefinition, run_workflow
 
@@ -21,6 +23,40 @@ def test_orchestrator_request_rejects_unknown_validation_scope() -> None:
             requirement="创建一个可测试项目",
             required_validation_scopes=["cloud_runtime"],
         )
+
+
+def test_orchestrator_request_validates_and_deduplicates_allowed_files() -> None:
+    request = OrchestratorRequest(
+        requirement="修复项目",
+        allowed_files=["pom.xml", "src/main/java/App.java", "pom.xml"],
+    )
+
+    assert request.allowed_files == ["pom.xml", "src/main/java/App.java"]
+
+    with pytest.raises(ValidationError, match="allowed_files"):
+        OrchestratorRequest(requirement="修复项目", allowed_files=["../outside.py"])
+
+
+def test_legacy_requirement_preserves_structured_allowed_file_boundary() -> None:
+    allowed_files = [
+        "app/main.py",
+        "app/models.py",
+        "app/schemas.py",
+        "tests/test_crud.py",
+    ]
+
+    requirement = _legacy_requirement_with_allowed_files(
+        "Repair the existing FastAPI project.",
+        allowed_files,
+    )
+
+    assert Architect._extract_strict_file_paths(requirement) == set(allowed_files)
+
+
+def test_legacy_requirement_is_unchanged_without_allowed_files() -> None:
+    requirement = "Create a project."
+
+    assert _legacy_requirement_with_allowed_files(requirement, []) == requirement
 
 
 @pytest.mark.asyncio

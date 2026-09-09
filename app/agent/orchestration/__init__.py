@@ -16,6 +16,7 @@ from .model_gateway import (
     ModelCallActivity,
     ModelCallCancelled,
     ModelCallContext,
+    ModelCallTelemetry,
     ModelCallTimeout,
     ModelGateway,
     ModelGatewayError,
@@ -30,6 +31,7 @@ from .generation_scheduler import (
     GenerationScheduleStats,
     GenerationScheduleStatus,
     GenerationScheduler,
+    TestGenerationContract,
 )
 from .models import (
     OrchestrationCommand,
@@ -59,7 +61,15 @@ from .state_machine import (
     terminate_state,
 )
 from .store import OrchestrationCheckpointStore, OrchestrationStore
-from .adapters import AdapterResult, GenerationModeAdapter, GenerationRequest, TraditionalAdapter
+from .adapters import (
+    AdapterResult,
+    GenerationModeAdapter,
+    GenerationRequest,
+    IncrementalAdapter,
+    SpecFirstAdapter,
+    StackRepairCandidate,
+    TraditionalAdapter,
+)
 from .routing import (
     CORE_ENGINE,
     CORE_ENGINE_VERSION,
@@ -69,6 +79,17 @@ from .routing import (
     select_engine,
 )
 from .engine_router import EngineRouteResult, compare_shadow_results, route_generation
+from .runtime import execute_core_generation
+from app.agent.workflow_ir import (
+    ContextPolicy,
+    ModelPolicy,
+    ScopeRef,
+    TechnologyProfile,
+    ToolGrant,
+    WorkflowIR,
+    WorkflowNode,
+    WorkflowNodeKind,
+)
 
 __all__ = [
     "ARTIFACT_COMMIT_FAILED",
@@ -91,9 +112,11 @@ __all__ = [
     "GenerationScheduleStats",
     "GenerationScheduleStatus",
     "GenerationScheduler",
+    "TestGenerationContract",
     "ModelCallActivity",
     "ModelCallCancelled",
     "ModelCallContext",
+    "ModelCallTelemetry",
     "ModelCallTimeout",
     "ModelGateway",
     "ModelGatewayError",
@@ -120,6 +143,9 @@ __all__ = [
     "AdapterResult",
     "GenerationModeAdapter",
     "GenerationRequest",
+    "IncrementalAdapter",
+    "SpecFirstAdapter",
+    "StackRepairCandidate",
     "TraditionalAdapter",
     "Dependency",
     "DependencyKind",
@@ -139,4 +165,13 @@ __all__ = [
     "EngineRouteResult",
     "compare_shadow_results",
     "route_generation",
+    "execute_core_generation",
+    "ContextPolicy",
+    "ModelPolicy",
+    "ScopeRef",
+    "TechnologyProfile",
+    "ToolGrant",
+    "WorkflowIR",
+    "WorkflowNode",
+    "WorkflowNodeKind",
 ]

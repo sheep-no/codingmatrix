@@ -17,6 +17,7 @@ from app.agent.orchestration import (
     ModelStreamDataKind,
 )
 from app.agent.orchestration.models import utc_now
+from app.agent.code_synthesis_contracts import ModelCapabilityProfile
 from app.utils.aicloud.llm_caller import _SemaphoreWrappedAsyncIterator
 
 
@@ -127,6 +128,86 @@ async def test_non_streaming_call_times_out_with_structured_diagnostic() -> None
         "call_id": "call-1",
         "react_round": 2,
     }
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_call_records_finish_reason_usage_and_input_budget() -> None:
+    async def caller(**_: Any) -> dict[str, Any]:
+        return {
+            "choices": [{"finish_reason": "length"}],
+            "usage": {"prompt_tokens": 12, "completion_tokens": 34, "total_tokens": 46},
+        }
+
+    gateway = ModelGateway(caller)
+    await gateway.call(
+        make_context(1.0), model="test", prompt="hello", max_tokens=128
+    )
+
+    telemetry = gateway.telemetry_for("call-1")
+    assert telemetry is not None
+    assert telemetry.finish_reason == "length"
+    assert telemetry.prompt_tokens == 12
+    assert telemetry.completion_tokens == 34
+    assert telemetry.total_tokens == 46
+    assert telemetry.input_chars == 5
+    assert telemetry.max_tokens == 128
+    assert telemetry.elapsed_seconds is not None
+
+
+@pytest.mark.asyncio
+async def test_model_profile_selects_protocol_and_records_degradation() -> None:
+    received: dict[str, Any] = {}
+
+    async def caller(**kwargs: Any) -> dict[str, Any]:
+        received.update(kwargs)
+        return {}
+
+    gateway = ModelGateway(
+        caller,
+        model_profile=ModelCapabilityProfile(
+            name="tool-model",
+            supports_structured_output=True,
+            supports_tool_calls=True,
+            max_output_tokens=512,
+        ),
+    )
+    await gateway.call(make_context(1.0), model="test", prompt="hello")
+
+    assert received["synthesis_protocol"] == "tool_call"
+    assert received["capability_degraded"] is True
+    assert received["max_tokens"] == 512
+    telemetry = gateway.telemetry_for("call-1")
+    assert telemetry is not None
+    assert telemetry.synthesis_protocol == "tool_call"
+    assert telemetry.capability_degraded is True
+
+
+@pytest.mark.asyncio
+async def test_stream_records_usage_and_finish_reason_from_sse_chunks() -> None:
+    stream = ControlledStream([
+        'data: {"choices":[{"delta":{"content":"hello"}}]}',
+        'data: {"choices":[{"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}',
+    ])
+
+    async def caller(**_: Any) -> ControlledStream:
+        return stream
+
+    gateway = ModelGateway(caller)
+    gateway_stream = gateway.stream(make_context(1.0), model="test", prompt="hello")
+    received = []
+    try:
+        async for chunk in gateway_stream:
+            received.append(chunk)
+            if len(received) == 2:
+                break
+    finally:
+        await gateway_stream.aclose()
+
+    telemetry = gateway.telemetry_for("call-1")
+    assert telemetry is not None
+    assert telemetry.finish_reason == "stop"
+    assert telemetry.total_tokens == 4
+    assert telemetry.completed_at is not None
 
 
 @pytest.mark.asyncio

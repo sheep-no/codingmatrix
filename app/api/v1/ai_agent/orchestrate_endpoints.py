@@ -2,12 +2,13 @@ import logging
 import json
 import asyncio
 import time
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator, Dict, Any, List, FrozenSet
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,12 @@ from app.db.database import get_db, async_session
 from app.db.models import ProjectSession
 from app.agent import OrchestratorAgent
 from app.agent.workflow_registry import build_legacy_workflow, get_legacy_result, run_workflow
+from app.agent.orchestration import (
+    IncrementalAdapter,
+    SpecFirstAdapter,
+    TraditionalAdapter,
+    execute_core_generation,
+)
 from app.agent.multi_model_agent import MultiModelAgent
 from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 
@@ -36,6 +43,41 @@ PASSTHROUGH_SSE_EVENTS: FrozenSet[str] = frozenset({
     # ReAct 反思事件
     "react_tool_call", "react_tool_result", "react_generating",
 })
+
+
+def _select_core_adapter(orchestrator, *, incremental: bool, spec_first: bool):
+    if incremental:
+        return IncrementalAdapter(orchestrator), "incremental"
+    if spec_first:
+        return SpecFirstAdapter(orchestrator), "spec_first"
+    return TraditionalAdapter(orchestrator), "traditional"
+
+
+def _core_request_metadata(request) -> Dict[str, Any]:
+    metadata = request.model_dump(
+        include={
+            "contracts", "framework", "runtime", "required_validation_scopes",
+            "allowed_files", "change_plan",
+        },
+        exclude_none=True,
+    )
+    metadata["requested_paths"] = list(request.allowed_files)
+    metadata["user_requirement"] = request.requirement
+    return metadata
+
+
+def _legacy_requirement_with_allowed_files(
+    requirement: str,
+    allowed_files: List[str],
+) -> str:
+    """Project the structured file boundary onto the legacy text contract."""
+    if not allowed_files:
+        return requirement
+    frozen_paths = ", ".join(allowed_files)
+    return (
+        f"{requirement.rstrip()}\n\n"
+        f"Generate exactly these files and no others: {frozen_paths}"
+    )
 
 
 def resolve_sync_output_dir(
@@ -175,23 +217,83 @@ async def _cancel_active_generation(session_id: str) -> bool:
 logger = logging.getLogger(__name__)
 
 
-def _skill_context_for_user(user_id: str) -> str:
+async def _cancel_stream_generation(
+    session_id: str,
+    cancel_event: asyncio.Event,
+    generation_task: asyncio.Task,
+    *,
+    grace_seconds: float = 1.0,
+) -> None:
+    """Propagate an SSE disconnect and reclaim the generation task."""
+    cancel_event.set()
+    if not generation_task.done():
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(generation_task),
+                timeout=grace_seconds,
+            )
+        except asyncio.TimeoutError:
+            generation_task.cancel()
+    await asyncio.gather(generation_task, return_exceptions=True)
+    active = _active_tasks.get(session_id)
+    if active is not None and active.get("gen_task") is generation_task:
+        _active_tasks.pop(session_id, None)
+
+
+async def _watch_stream_disconnect(
+    http_request: Request,
+    session_id: str,
+    cancel_event: asyncio.Event,
+    generation_task: asyncio.Task,
+) -> None:
+    """Observe the ASGI disconnect signal while generation is active."""
+    while not cancel_event.is_set() and not generation_task.done():
+        if await http_request.is_disconnected():
+            logger.info("[SSE] 检测到客户端断开，取消生成 | session=%s", session_id)
+            await _cancel_stream_generation(session_id, cancel_event, generation_task)
+            return
+        await asyncio.sleep(0.25)
+
+
+def _skill_context_for_user(user_id: str, requirement: str = "") -> str:
     """Build a bounded, namespaced Skill context for the Web Agent."""
     from app.api.v1.agent_host import get_latest_session_skills
     from app.services.custom_skill_manager import get_skill_manager
+    from app.services.skill_registry import get_registry
+    from app.agent.skill_catalog import discovery_terms
 
     sections = []
+
+    def matches_skill(name: str, description: str = "") -> bool:
+        query_terms = discovery_terms(requirement)
+        skill_terms = {
+            term
+            for value in (name, description)
+            for term in discovery_terms(value)
+        }
+        return len(query_terms & skill_terms) >= 2
+
+    workspace_skills = get_registry().discover_skills(requirement)
+    for skill in workspace_skills:
+        sections.append(f"[{skill.name}]\n{skill.content}")
     manager = get_skill_manager()
     for skill in manager.list_skills(owner_user_id=str(user_id)):
+        if not matches_skill(skill.get("name", ""), skill.get("description", "")):
+            continue
         detail = manager.get_skill(skill["name"], owner_user_id=str(user_id))
         if detail:
             sections.append(f"[user:{skill['name']}]\n{detail['content']}")
     for name, skill in get_latest_session_skills(str(user_id)).items():
         content = skill.get("content") if isinstance(skill, dict) else None
-        if isinstance(content, str):
+        description = skill.get("description", "") if isinstance(skill, dict) else ""
+        if isinstance(content, str) and matches_skill(name, description):
             sections.append(f"[{name}]\n{content}")
     if not sections:
         return ""
+    logger.info(
+        "Skill context assembled | user=%s | workspace_selected=%d | total=%d",
+        user_id, len(workspace_skills), len(sections),
+    )
     return "\n\n[Available Skills]\n" + "\n\n".join(sections)[:200_000]
 router = APIRouter()
 
@@ -427,12 +529,27 @@ async def modify_project(
             async def run_generation():
                 try:
                     logger.info(f"[SSE] 开始增量修改 | session={session_id}")
+                    core_task_id = f"{session_id}-{time.time_ns()}"
+
+                    async def run_incremental_core(state):
+                        return await execute_core_generation(
+                            IncrementalAdapter(orchestrator),
+                            requirement=enhanced_requirement,
+                            task_id=core_task_id,
+                            session_id=session_id,
+                            mode="incremental",
+                            output_dir=project_dir,
+                            metadata={"project_path": str(project_dir)},
+                            cancel_event=cancel_event,
+                        )
+
                     workflow = build_legacy_workflow(
                         "modify",
                         "/modify",
                         lambda _state: orchestrator.generate_incremental(
                             requirement=enhanced_requirement
                         ),
+                        core_handler=run_incremental_core,
                     )
                     graph_state = await run_workflow(
                         workflow,
@@ -535,18 +652,43 @@ async def orchestrate_project(
         db, int(user_id), "orchestrator", request.requirement
     )
     session_id = session.id if session else None
+    from app.utils.aicloud.llm_caller import begin_llm_call_metrics, finish_llm_call_metrics
 
-    single_file_result = await generate_single_file(
-        requirement=request.requirement,
-        project_name=request.project_name,
-        api_key_token=request.api_key_token,
-        provider_id=request.provider_id,
-    )
+    metrics_token = begin_llm_call_metrics()
+    metrics_active = True
+
+    def close_generation_metrics() -> Dict[str, int]:
+        nonlocal metrics_active
+        if not metrics_active:
+            return {}
+        metrics_active = False
+        return finish_llm_call_metrics(metrics_token)
+
+    try:
+        single_file_result = None if request.engine == "core" else await generate_single_file(
+            requirement=request.requirement,
+            project_name=request.project_name,
+            api_key_token=request.api_key_token,
+            provider_id=request.provider_id,
+        )
+    except Exception:
+        close_generation_metrics()
+        raise
     if single_file_result is not None:
         single_file_result["session_id"] = session_id
+        single_file_result["generation_metrics"] = close_generation_metrics()
         return OrchestratorResponse(**single_file_result)
 
-    skill_context = _skill_context_for_user(user_id)
+    skill_context = (
+        _skill_context_for_user(user_id, request.requirement)
+        if request.enable_skills
+        else ""
+    )
+    generation_requirement = request.requirement + skill_context
+    legacy_requirement = _legacy_requirement_with_allowed_files(
+        generation_requirement,
+        request.allowed_files,
+    )
 
     start_time = time.time()
 
@@ -567,16 +709,36 @@ async def orchestrate_project(
             provider_id=request.provider_id,
         )
         
+        core_task_id = f"{session_id or Path(output_dir).name}-{time.time_ns()}"
+
+        async def run_orchestrate_core(state):
+            adapter, mode = _select_core_adapter(
+                orchestrator,
+                incremental=request.incremental,
+                spec_first=request.spec_first,
+            )
+            return await execute_core_generation(
+                adapter,
+                requirement=generation_requirement,
+                task_id=core_task_id,
+                session_id=str(session_id or output_dir),
+                mode=mode,
+                output_dir=orchestrator.output_dir,
+                metadata=_core_request_metadata(request),
+            )
+
         workflow = build_legacy_workflow(
             "orchestrate",
             "/orchestrate",
-            lambda _state: orchestrator.generate(requirement=request.requirement + skill_context),
+            lambda _state: orchestrator.generate(requirement=legacy_requirement),
+            core_handler=run_orchestrate_core,
         )
         graph_state = await run_workflow(
             workflow,
             session_id=str(session_id or output_dir),
             task_id=str(session_id or output_dir),
             metadata={
+                **({"engine": request.engine} if request.engine is not None else {}),
                 "requirement": request.requirement,
                 "output_dir": output_dir,
                 "required_validation_scopes": request.required_validation_scopes,
@@ -603,11 +765,19 @@ async def orchestrate_project(
                 execution_time=execution_time
             )
 
+        result["generation_metrics"] = {
+            **result.get("generation_metrics", {}),
+            **close_generation_metrics(),
+        }
+        # Verification clients must inspect the same directory used by the agent.
+        result["output_dir"] = str(Path(orchestrator.output_dir).resolve())
         return OrchestratorResponse(**result)
 
     except HTTPException:
+        close_generation_metrics()
         raise
     except Exception as e:
+        close_generation_metrics()
         logger.error(f"Orchestrator 生成失败: {e}", exc_info=True)
         raise _generation_http_exception(e) from e
 
@@ -615,6 +785,7 @@ async def orchestrate_project(
 @router.post("/orchestrate/stream")
 async def orchestrate_project_stream(
     request: OrchestratorRequest,
+    http_request: Request,
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db)
 ):
@@ -650,7 +821,12 @@ async def orchestrate_project_stream(
 
         return StreamingResponse(resume_events(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-    skill_context = _skill_context_for_user(user_id)
+    skill_context = _skill_context_for_user(user_id, request.requirement)
+    generation_requirement = request.requirement + skill_context
+    legacy_requirement = _legacy_requirement_with_allowed_files(
+        generation_requirement,
+        request.allowed_files,
+    )
 
     # 防护：检查速率限制
     rate_ok, rate_msg = check_rate_limit(f"stream:{user_id}")
@@ -953,20 +1129,44 @@ async def orchestrate_project_stream(
             async def run_generation():
                 try:
                     logger.info(f"[SSE] 开始生成任务 | session={session_id}")
+                    core_task_id = f"{session_id}-{time.time_ns()}"
+
+                    async def run_stream_core(state):
+                        adapter, mode = _select_core_adapter(
+                            orchestrator,
+                            incremental=request.incremental,
+                            spec_first=request.spec_first,
+                        )
+                        return await execute_core_generation(
+                            adapter,
+                            requirement=generation_requirement,
+                            task_id=core_task_id,
+                            session_id=session_id,
+                            mode=mode,
+                            output_dir=orchestrator.output_dir,
+                            metadata=_core_request_metadata(request),
+                            cancel_event=cancel_event,
+                        )
+
                     workflow = build_legacy_workflow(
                         "orchestrate_stream",
                         "/orchestrate/stream",
                         lambda _state: orchestrator.generate(
-                            requirement=request.requirement + skill_context
+                            requirement=legacy_requirement
                         ),
+                        core_handler=run_stream_core,
                     )
                     graph_state = await run_workflow(
                         workflow,
                         session_id=session_id,
                         task_id=session_id,
                         metadata={
+                            **({"engine": request.engine} if request.engine is not None else {}),
+                            "requirement": request.requirement,
                             "output_dir": output_dir,
+                            "provider_id": request.provider_id,
                             "required_validation_scopes": request.required_validation_scopes,
+                            "allowed_files": request.allowed_files,
                         },
                         db=db,
                         user_id=int(user_id),
@@ -1021,6 +1221,14 @@ async def orchestrate_project_stream(
                         break
 
             heartbeat_task = asyncio.create_task(heartbeat_sender())
+            disconnect_task = asyncio.create_task(
+                _watch_stream_disconnect(
+                    http_request,
+                    session_id,
+                    cancel_event,
+                    gen_task,
+                )
+            )
 
             try:
                 logger.info(f"[SSE] 开始等待队列消息 | session={session_id}")
@@ -1042,7 +1250,7 @@ async def orchestrate_project_stream(
                         continue
                 logger.info(f"[SSE] 队列消息处理完成 | session={session_id}")
             except asyncio.CancelledError:
-                logger.info(f"[SSE] 客户端断开连接，生成任务继续在后台运行 | session={session_id}")
+                logger.info(f"[SSE] 客户端断开连接，取消生成任务 | session={session_id}")
             finally:
                 heartbeat_task.cancel()
                 active = _active_tasks.get(session_id)
@@ -1128,6 +1336,14 @@ async def stop_project(
     cancel_ev = _cancel_events.get(session_id)
     if cancel_ev:
         cancel_ev.set()
+
+    from app.agent.workflow_registry import cancel_workflows_for_session
+    await cancel_workflows_for_session(
+        session_id,
+        reason="用户停止",
+        db=db,
+        user_id=int(user_id),
+    )
     
     # 2. 取消活跃任务并等待其 finally 清理资源
     await _cancel_active_generation(session_id)

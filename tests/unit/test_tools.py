@@ -35,6 +35,7 @@ from app.agent.tools import (
     _EXT_BY_LANG,
     _execute_python_sandbox,
     _tool_run_command,
+    _tool_delete_files_by_pattern,
 )
 
 
@@ -107,6 +108,12 @@ class TestReadFile:
         result = _tool_read_file(project_dir, "utils")
         assert "error" in result
 
+    @pytest.mark.parametrize("file_path", ["../outside.py", "/etc/hosts"])
+    def test_read_rejects_path_outside_project(self, project_dir, file_path):
+        result = _tool_read_file(project_dir, file_path)
+        assert "error" in result
+        assert "越界" in result["error"]
+
 
 class TestSandboxAndCommand:
     def test_python_sandbox_executes_and_cleans_up(self):
@@ -119,6 +126,29 @@ class TestSandboxAndCommand:
         result = _tool_run_command(project_dir, "pwd", cwd=f"../{Path(sibling).name}")
         assert result["success"] is False
         assert "项目路径内" in result["error"]
+
+    def test_command_uses_argument_array_without_shell_operators(self, project_dir):
+        result = _tool_run_command(
+            project_dir,
+            "python3 -c \"print('ok')\"",
+        )
+        assert result["success"] is True
+        assert result["output"].strip() == "ok"
+
+    def test_command_requires_exact_allowed_subcommand(self, project_dir):
+        result = _tool_run_command(project_dir, "npm installevil")
+        assert result["success"] is False
+        assert "不在允许列表" in result["error"]
+
+    @pytest.mark.parametrize("command", [
+        "python3 -c \"print('ok')\"; pwd",
+        "python3 -c \"print('ok')\" | cat",
+        "bash -c 'pwd'",
+    ])
+    def test_command_rejects_shell_composition(self, project_dir, command):
+        result = _tool_run_command(project_dir, command)
+        assert result["success"] is False
+        assert "安全限制" in result["error"]
 
 
 class TestListFiles:
@@ -143,6 +173,19 @@ class TestListFiles:
     def test_list_max_entries(self, project_dir):
         result = _tool_list_files(project_dir, ".", max_depth=10)
         assert len(result["entries"]) <= 200
+
+    @pytest.mark.parametrize("directory", ["..", "/tmp"])
+    def test_list_rejects_path_outside_project(self, project_dir, directory):
+        result = _tool_list_files(project_dir, directory)
+        assert "error" in result
+        assert "越界" in result["error"]
+
+
+class TestDeleteFiles:
+    def test_delete_rejects_path_outside_project(self, project_dir):
+        result = _tool_delete_files_by_pattern(project_dir, "..", "*.py")
+        assert result["success"] is False
+        assert "越界" in result["error"]
 
 
 class TestReadSymbols:

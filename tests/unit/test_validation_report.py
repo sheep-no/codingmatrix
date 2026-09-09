@@ -20,6 +20,20 @@ def test_validation_report_classifies_findings_and_is_reproducible():
 @pytest.mark.parametrize(
     ("message", "category"),
     [
+        ("schemas.py 的 TodoCreate 未定义字段 title", ValidationCategory.TYPE),
+        ("fixture 生命周期错误", ValidationCategory.TEST),
+        ("名称 Todo 在模块全局作用域中未定义", ValidationCategory.IMPORT),
+    ],
+)
+def test_validation_report_normalizes_repair_router_categories(message, category):
+    report = ValidationReport.create().with_finding(message, file_path="main.py")
+
+    assert report.findings[0].category is category
+
+
+@pytest.mark.parametrize(
+    ("message", "category"),
+    [
         ("unknown dependency sqlalchemy_utils", "dependency"),
         ("调用 update_todo 缺少必需参数 todo_update", "signature"),
         ("fixture 生命周期错误", "fixture"),

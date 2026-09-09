@@ -1,5 +1,8 @@
 import asyncio
 
+import httpx
+import pytest
+
 from app.utils.aicloud import http_client
 
 
@@ -23,3 +26,14 @@ def test_shared_client_is_recreated_for_a_new_event_loop():
         http_client._http_client_loop = None
         second_loop.close()
         first_loop.close()
+
+
+@pytest.mark.asyncio
+async def test_call_with_retry_raises_http_status_error_after_response_retries():
+    request = httpx.Request("POST", "https://example.test/v1/chat")
+    response = httpx.Response(429, request=request)
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        await http_client.call_with_retry(lambda: asyncio.sleep(0, result=response), max_retries=1)
+
+    assert exc_info.value.response.status_code == 429

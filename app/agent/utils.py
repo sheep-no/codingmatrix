@@ -39,6 +39,17 @@ def clean_code_block(content: str) -> str:
     return content.strip()
 
 
+def strip_leading_file_label(content: str, file_path: str) -> str:
+    """Remove a model-emitted file label preceding the actual file content."""
+    lines = content.splitlines(keepends=True)
+    if not lines:
+        return content
+    label = lines[0].strip()
+    if label in {file_path, f"File: {file_path}", f"file: {file_path}"}:
+        return "".join(lines[1:]).lstrip("\r\n")
+    return content
+
+
 async def extract_engineer_content(
     content: Optional[str],
     engineer,
@@ -148,11 +159,17 @@ async def extract_engineer_content(
             content = extracted
 
         content = clean_code_block(content)
+        content = strip_leading_file_label(content, file_path)
 
         # 内容有效性验证：检测 JSON 元数据、Markdown 等无效内容
         is_valid, reason = is_valid_code_content(file_path, content)
         if not is_valid:
             logger.warning(f"内容验证失败: {file_path} - {reason}")
+            return None  # 返回 None 触发调用方的恢复流程
+
+        is_placeholder, placeholder_reason = is_placeholder_content(content, file_path)
+        if is_placeholder:
+            logger.warning(f"内容验证失败: {file_path} - {placeholder_reason}")
             return None  # 返回 None 触发调用方的恢复流程
 
         # 沙箱验证：在 bubblewrap 中检查语法和基本正确性
@@ -327,6 +344,19 @@ def validate_syntax_for_extension(file_path: str, content: str) -> tuple:
             return True, ""
         except json.JSONDecodeError as e:
             return False, f"JSON 格式错误: {e}"
+
+    # Maven accepts XML syntax but requires selected project-level elements to be unique.
+    if Path(file_path).name.lower() == 'pom.xml':
+        import xml.etree.ElementTree as ET
+        try:
+            root = ET.fromstring(content)
+        except ET.ParseError as e:
+            return False, f"POM XML 格式错误: {e}"
+        child_names = [child.tag.rsplit('}', 1)[-1] for child in root]
+        for unique_name in ('properties', 'dependencies', 'build'):
+            if child_names.count(unique_name) > 1:
+                return False, f"POM 包含重复的 <{unique_name}> 元素"
+        return True, ""
 
     # Python 文件：用 ast.parse 验证语法
     if ext in ('.py', '.pyw', '.pyi'):

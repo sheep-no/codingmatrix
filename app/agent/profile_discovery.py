@@ -13,6 +13,7 @@ from typing import Tuple
 from app.agent.evaluation_matrix import ApplicationDomain
 from app.agent.toolchain import CommandSpec, ToolchainAction
 from app.agent.capability_resolver import resolve_capabilities
+from app.agent.database_profiles import DEFAULT_DATABASE_PROFILES
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,7 @@ class ProfileProbeResult:
 class ProfileCache:
     """Persist discovered profiles as workspace-scoped, versioned metadata."""
 
-    schema_version = 1
+    schema_version = 2
 
     def __init__(self, workspace: Path) -> None:
         self.workspace = workspace
@@ -138,6 +139,28 @@ class ProfileProbeStep:
 
 def build_probe_plan(profile: DiscoveredProfile) -> Tuple[ProfileProbeStep, ...]:
     """Create safe, non-shell probe commands for a discovered profile."""
+    from app.agent.framework_profiles import DEFAULT_PROFILES, ValidationStage
+
+    builtin = DEFAULT_PROFILES.get(profile.language, profile.framework)
+    if builtin is not None:
+        actions = {
+            ValidationStage.LINT: ToolchainAction.LINT,
+            ValidationStage.TYPECHECK: ToolchainAction.TYPECHECK,
+            ValidationStage.BUILD: ToolchainAction.BUILD,
+            ValidationStage.TEST: ToolchainAction.TEST,
+            ValidationStage.SMOKE: ToolchainAction.SMOKE,
+        }
+        steps = []
+        for raw_step in builtin.validation_steps:
+            try:
+                stage = ValidationStage(raw_step)
+            except ValueError as exc:
+                raise ValueError(f"unsupported profile validation step: {raw_step}") from exc
+            command = builtin.command_for_stage(stage)
+            if command and stage in actions:
+                steps.append(ProfileProbeStep(stage.value, command, actions[stage]))
+        if steps:
+            return tuple(steps)
     steps = [ProfileProbeStep("syntax", ("python3", "-m", "py_compile", "main.py"), ToolchainAction.BUILD)]
     if profile.language in {"typescript", "javascript"}:
         steps = [ProfileProbeStep("build", ("npm", "run", "build"), ToolchainAction.BUILD)]
@@ -172,6 +195,15 @@ def discover_profile(workspace: Path) -> DiscoveredProfile:
         elif "react-native" in dependencies or "@react-native" in " ".join(dependencies):
             domain, framework = ApplicationDomain.ANDROID, "react-native"
             capabilities.extend(("mobile_ui", "navigation"))
+        elif "next" in dependencies:
+            domain, framework = ApplicationDomain.WEB, "nextjs"
+            capabilities.extend(("frontend_ui", "http_api", "test_client"))
+        elif "react" in dependencies and "vite" in dependencies:
+            domain, framework = ApplicationDomain.WEB, "react-vite"
+            capabilities.extend(("frontend_ui", "test_client"))
+        elif "@nestjs/core" in dependencies:
+            domain, framework = ApplicationDomain.WEB, "nestjs"
+            capabilities.extend(("http_api", "database", "test_client"))
         elif "express" in dependencies:
             domain, framework = ApplicationDomain.WEB, "express"
             capabilities.extend(("http_api", "test_client"))
@@ -192,19 +224,77 @@ def discover_profile(workspace: Path) -> DiscoveredProfile:
         elif "scrapy" in manifest:
             domain, framework = ApplicationDomain.SCRAPER, "scrapy"
             capabilities.extend(("http_client", "selectors", "pipelines"))
+        elif "django" in manifest:
+            domain, framework = ApplicationDomain.WEB, "django"
+            capabilities.extend(("http_api", "database", "test_client"))
         elif "fastapi" in manifest:
             domain, framework = ApplicationDomain.WEB, "fastapi"
             capabilities.extend(("http_api", "test_client"))
+        elif "flask" in manifest:
+            domain, framework = ApplicationDomain.WEB, "flask"
+            capabilities.extend(("http_api", "test_client"))
+        elif "[project.scripts]" in manifest:
+            domain, framework = ApplicationDomain.CLI, "stdlib-cli"
+            capabilities.extend(("command_line", "test_client"))
         else:
             gaps.append(CapabilityGap("framework", "Python manifest contains no recognized framework"))
-    elif (workspace / "build.gradle").exists() or (workspace / "settings.gradle").exists():
-        language, domain, framework = "kotlin", ApplicationDomain.ANDROID, "android-gradle"
+    elif (workspace / "go.mod").exists():
+        language = "go"
+        manifest = (workspace / "go.mod").read_text(encoding="utf-8").lower()
+        evidence.append("go.mod")
+        if "github.com/gin-gonic/gin" in manifest:
+            domain, framework = ApplicationDomain.WEB, "gin"
+            capabilities.extend(("http_api", "database", "test_client"))
+        elif "github.com/labstack/echo" in manifest:
+            domain, framework = ApplicationDomain.WEB, "echo"
+            capabilities.extend(("http_api", "database", "test_client"))
+        else:
+            domain, framework = ApplicationDomain.CLI, "stdlib"
+            capabilities.extend(("command_line", "test_client"))
+    elif (workspace / "Cargo.toml").exists():
+        language = "rust"
+        manifest = (workspace / "Cargo.toml").read_text(encoding="utf-8").lower()
+        evidence.append("Cargo.toml")
+        if "actix-web" in manifest:
+            domain, framework = ApplicationDomain.WEB, "actix-web"
+            capabilities.extend(("http_api", "test_client"))
+        elif "axum" in manifest:
+            domain, framework = ApplicationDomain.WEB, "axum"
+            capabilities.extend(("http_api", "test_client"))
+        else:
+            domain, framework = ApplicationDomain.CLI, "rust-cli"
+            capabilities.extend(("command_line", "test_client"))
+    elif (workspace / "pom.xml").exists():
+        manifest = (workspace / "pom.xml").read_text(encoding="utf-8").lower()
+        language = "java"
+        evidence.append("pom.xml")
+        if "spring-boot" in manifest:
+            domain, framework = ApplicationDomain.WEB, "spring-boot"
+            capabilities.extend(("http_api", "database", "test_client"))
+        else:
+            gaps.append(CapabilityGap("framework", "pom.xml contains no recognized framework"))
+    elif (workspace / "build.gradle").exists() or (workspace / "build.gradle.kts").exists() or (workspace / "settings.gradle").exists():
+        gradle_file = workspace / "build.gradle"
+        if not gradle_file.exists():
+            gradle_file = workspace / "build.gradle.kts"
+        manifest = gradle_file.read_text(encoding="utf-8").lower() if gradle_file.exists() else ""
         evidence.append("Gradle manifest")
-        capabilities.extend(("mobile_ui", "build"))
+        if "spring-boot" in manifest or "org.springframework.boot" in manifest:
+            language, domain, framework = "java", ApplicationDomain.WEB, "spring-boot-gradle"
+            capabilities.extend(("http_api", "database", "test_client"))
+        else:
+            language, domain, framework = "kotlin", ApplicationDomain.ANDROID, "android-gradle"
+            capabilities.extend(("mobile_ui", "build"))
     else:
         gaps.append(CapabilityGap("language", "no supported project manifest was found"))
 
-    return DiscoveredProfile(language, framework, domain, tuple(evidence), tuple(capabilities), tuple(gaps))
+    from app.agent.framework_profiles import DEFAULT_PROFILES
+
+    builtin = DEFAULT_PROFILES.get(language, framework)
+    status = builtin.status.value if builtin is not None else "custom_pending"
+    return DiscoveredProfile(
+        language, framework, domain, tuple(evidence), tuple(capabilities), tuple(gaps), status
+    )
 
 
 def discover_or_load_profile(workspace: Path) -> DiscoveredProfile:
@@ -230,6 +320,9 @@ def profile_context(workspace: Path) -> dict:
         "status": profile.status,
         "evidence": list(profile.evidence),
     }
+    database_name = _discover_database(workspace, profile)
+    database = DEFAULT_DATABASE_PROFILES.resolve(database_name)
+    context["database"] = database.model_dump(mode="json")
     resolved = resolve_capabilities(context)
     context["capability_policy"] = {
         "required": list(resolved.required),
@@ -244,6 +337,23 @@ def profile_context(workspace: Path) -> dict:
         "ready": resolved.ready,
     }
     return context
+
+
+def _discover_database(workspace: Path, profile: DiscoveredProfile) -> str:
+    """Infer a database dialect from project manifests with SQLite as the CRUD default."""
+    manifests = []
+    for name in ("requirements.txt", "pyproject.toml", "package.json", "go.mod", "Cargo.toml", "pom.xml", "build.gradle", "build.gradle.kts"):
+        path = workspace / name
+        if path.exists():
+            manifests.append(path.read_text(encoding="utf-8").lower())
+    combined = "\n".join(manifests)
+    if any(token in combined for token in ("postgres", "psycopg", "pgx", "postgresql")):
+        return "postgresql"
+    if any(token in combined for token in ("mysql", "pymysql", "mysql2")):
+        return "mysql"
+    if "sqlite" in combined or profile.domain is ApplicationDomain.WEB:
+        return "sqlite"
+    return "unknown"
 
 
 def probe_profile(profile: DiscoveredProfile, *, checks: Tuple[str, ...]) -> ProfileProbeResult:

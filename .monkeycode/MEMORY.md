@@ -204,6 +204,30 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
 - Instructions:
   - 应用已初始化过的既有数据库首次接入 Alembic 时，先执行 `alembic stamp 20260902_ppt_quality_state` 登记当前基线。
   - 基线登记后执行 `alembic upgrade head` 验证迁移可幂等通过。
+### Core RAG 验证与全量测试
+- Date: 2026-09-03
+- Context: Agent 在推进多语言代码生成编排和 RAG 接入时发现
+- Category: 测试方法
+- Instructions:
+  - Core 适配器在每个文件生成前通过本地 `RetrievalService` 装配需求、生成契约和架构上下文，并把来源数量、来源 ID 和降级状态写入 `retrieval_status`。
+  - 外部 MCP Server 当前全部未启用；验证 Core RAG 时可使用本地 Retriever 独立确认上下文注入路径。
+  - 全量测试命令为 `python3 -m pytest -q`；既有 `tests/unit/test_ppt_unified_generation.py` 的多模板生成用例可能超过 90 秒，排除该文件后全量集可在约 76 秒内完成。
+
+### 技能与 RAG 按需求匹配
+- Date: 2026-09-04
+- Context: 用户指出生成任务不应加载无关 Skill，RAG 查询应绑定当前需求
+- Category: 工作流与协作
+- Instructions:
+  - Skill 必须依据用户当前需求的明确匹配结果按需加载，禁止批量注入无关 Skill 正文。
+  - RAG 查询必须使用用户原始需求，并结合目标文件、文件职责和当前生成阶段构造。
+
+### Agent 模型路由限流约束
+- Date: 2026-09-03
+- Context: 用户审查 Agent 多阶段模型调整方案时强调
+- Category: 环境配置
+- Instructions:
+  - Spec-First 已连续使用 `Qwen/Qwen3-8B` 生成多份规范并执行架构设计，其他阶段避免继续集中路由到该模型，以降低限流风险。
+  - 调整模型分工时同时考虑模型质量、跨模型负载分散和供应商限流。
 - Date: 2026-05-29
 - Context: Agent 在执行 PPT 增强功能开发时发现
 - Category: 代码模式
@@ -223,7 +247,7 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 调用方必须传 `language` 参数（或用 `detect_project_language()` 自动检测），否则默认 python
   - `_profile_project()` in `app/agent/orchestrator_utils.py:103` 现在接受可选 language 参数
   - 语言检测优先级：manifest 文件 > 扩展名计数（Cargo.toml/pom.xml/go.mod/package.json）
- - JS init_file 支持多个变体：index.{js,ts,jsx,tsx,mjs,cjs}
+  - JS init_file 支持多个变体：index.{js,ts,jsx,tsx,mjs,cjs}
 
 ### 生图 Provider Key 加密链路
 - Date: 2026-09-06
@@ -251,3 +275,11 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 修改前读取项目记忆和 Git 状态，保留已有改动；所有手动编辑使用 apply_patch。
   - 测试前调用 background_terminal_list，测试和构建通过受控后台终端执行，命令先进入 `/workspace/flutter_client`。
   - 修改后执行 dart format、flutter analyze、定向测试和全量 flutter test，修复失败后再返回；未经用户明确要求不提交或推送。
+### 多语言 Profile 项目验证
+- Date: 2026-09-04
+- Context: Agent 在补齐 Core 多语言生成成功门禁时发现
+- Category: 构建与编译
+- Instructions:
+  - 声明式 `FrameworkProfile` 的 `build_command`、`test_command` 和 `validation_steps` 是项目级验证的统一来源。
+  - Go `stdlib` Profile 使用 `go build ./...` 与 `go test ./...` 作为生成成功门禁。
+  - 运行 Profile 验证前需确认生成目录可作为命令工作目录，并保留命令输出用于诊断。

@@ -14,11 +14,14 @@ from typing import Any, Callable, Dict, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from app.agent.skill_catalog import SkillCatalog
+
 logger = logging.getLogger(__name__)
 
 # 自定义 Skill 存储目录
 CUSTOM_SKILLS_DIR = Path("/workspace/data/custom_skills")
 METADATA_FILE = CUSTOM_SKILLS_DIR / "_metadata.json"
+WORKSPACE_SKILLS_DIR = Path("/workspace/.claude/skills")
 
 
 @dataclass
@@ -59,7 +62,8 @@ class SkillRegistry:
         if self._initialized:
             return
         
-        # 加载用户自定义 Skill
+        # 加载项目内置 Skill 和用户自定义 Skill
+        self._load_workspace_skills()
         self._load_custom_skills()
         
         self._initialized = True
@@ -180,6 +184,25 @@ class SkillRegistry:
             skills = [s for s in skills if s.author == author]
         
         return skills
+
+    def discover_skills(
+        self, requirement: str, *, limit: int = 5
+    ) -> List[SkillInfo]:
+        """按需求关键词发现项目内置 Skill，返回有限的相关结果。"""
+        manifests = SkillCatalog.from_directory(WORKSPACE_SKILLS_DIR).discover(
+            requirement, limit=limit
+        )
+        selected = [
+            self._skills[f"workspace:{manifest.name}"]
+            for manifest in manifests
+            if f"workspace:{manifest.name}" in self._skills
+        ]
+        logger.info(
+            "Skill discovery: candidates=%d selected=%s",
+            len([skill for skill in self._skills.values() if skill.author == "workspace"]),
+            [skill.name for skill in selected],
+        )
+        return selected
     
     def get_by_category(self, category: str) -> List[SkillInfo]:
         """获取指定分类的所有 Skill"""
@@ -247,11 +270,29 @@ class SkillRegistry:
             logger.info(f"从自定义 Skill 目录加载了 {len(skills)} 个 Skill")
         except Exception as e:
             logger.error(f"加载自定义 Skill 失败: {e}")
+
+    def _load_workspace_skills(self):
+        """扫描项目 `.claude/skills` 下的 SKILL.md 文件。"""
+        catalog = SkillCatalog.from_directory(WORKSPACE_SKILLS_DIR)
+        loaded = 0
+        for manifest in catalog.all():
+            self.register(
+                name=f"workspace:{manifest.name}",
+                category="workspace",
+                description=manifest.description,
+                content=manifest.content,
+                author="workspace",
+            )
+            loaded += 1
+        logger.info("从 workspace Skill 目录加载了 %d 个 Skill", loaded)
     
     def reload_custom_skills(self):
         """重新加载所有自定义 Skill"""
         # 移除所有用户自定义 Skill
-        custom_names = [name for name, skill in self._skills.items() if skill.author != "system"]
+        custom_names = [
+            name for name, skill in self._skills.items()
+            if skill.author not in {"system", "workspace"}
+        ]
         for name in custom_names:
             del self._skills[name]
         

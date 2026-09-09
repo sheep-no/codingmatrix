@@ -4,8 +4,8 @@ last_updated: '2026-07-16T12:40:59.591008'
 defaults:
   code: qwen3.5-4b
   reasoning: deepseek-r1
-  architect: glm-z1-9b
-  fast: qwen3-8b
+  architect: qwen3-8b
+  fast: qwen2.5-7b
   visual: qwen3.5-4b
   ocr: deepseek-ocr
   embedding: bge-m3

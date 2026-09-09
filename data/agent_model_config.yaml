@@ -202,21 +202,21 @@ models:
     speed: 1.0
 roles:
   architect: qwen3-8b
-  frontend: deepseek-r1
+  frontend: qwen2.5-7b
   backend: qwen3.5-4b
   reviewer: glm-z1-9b
-  fallback: qwen3-8b
+  fallback: glm-z1-9b
 fallback_chain:
-- qwen3-8b
 - glm-z1-9b
+- qwen3-8b
 error_type_models:
-  NameError: deepseek-r1
-  AttributeError: deepseek-r1
-  ImportError: deepseek-r1
-  SyntaxError: qwen3-8b
-  TypeError: deepseek-r1
-  KeyError: deepseek-r1
-  IndexError: deepseek-r1
+  NameError: glm-z1-9b
+  AttributeError: glm-z1-9b
+  ImportError: glm-z1-9b
+  SyntaxError: glm-z1-9b
+  TypeError: glm-z1-9b
+  KeyError: glm-z1-9b
+  IndexError: glm-z1-9b
   LogicError: deepseek-r1
   timeout: glm-z1-9b
 settings:

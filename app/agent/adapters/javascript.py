@@ -71,16 +71,16 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
         (".env.development", "env"),
 
         # 入口文件
-        ("index.ts", "entrypoint"),
-        ("index.js", "entrypoint"),
-        ("index.tsx", "entrypoint"),
-        ("index.jsx", "entrypoint"),
-        ("main.ts", "entrypoint"),
-        ("main.js", "entrypoint"),
-        ("app.ts", "config"),
-        ("app.js", "config"),
-        ("server.ts", "config"),
-        ("server.js", "config"),
+        ("index.ts", "entry"),
+        ("index.js", "entry"),
+        ("index.tsx", "entry"),
+        ("index.jsx", "entry"),
+        ("main.ts", "entry"),
+        ("main.js", "entry"),
+        ("app.ts", "entry"),
+        ("app.js", "entry"),
+        ("server.ts", "entry"),
+        ("server.js", "entry"),
 
         # 数据库
         ("database", "database"),

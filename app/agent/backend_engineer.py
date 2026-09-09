@@ -167,6 +167,11 @@ class BackendEngineer(Specialist):
             return ""
 
         framework = str(architecture.get("framework", "")).lower()
+        test_framework = str(
+            LanguageDetector.get_language_specific_rules(project_language).get(
+                "test_framework", ""
+            )
+        ).lower()
         project_spec = architecture.get("project_spec", {})
         if isinstance(project_spec, dict):
             framework = framework or str(project_spec.get("framework", "")).lower()
@@ -285,7 +290,7 @@ class BackendEngineer(Specialist):
                 lines.append(
                     "- 同一资源集合的所有方法必须使用需求指定的同一个规范路径；需求为 /api/v1/todos 时，GET、POST 均使用 /api/v1/todos，禁止单独添加尾斜杠。"
                 )
-        if file_type == "test" or "test" in file_path.lower():
+        if (file_type == "test" or "test" in file_path.lower()) and "pytest" in test_framework:
             lines.extend([
                 "- pytest fixture、测试函数和客户端调用的同步/异步风格必须一致。",
                 "- 文件持久化测试必须使用 tmp_path 创建真实临时文件，并用 pytest monkeypatch 替换存储路径解析函数或路径常量。",
@@ -396,11 +401,41 @@ class BackendEngineer(Specialist):
         spec_constraints = self._build_spec_constraints(file_type, file_spec)
         contract_constraints = self._build_contract_constraints(file_path, architecture)
         file_scope_constraints = self._build_file_scope_constraints(file_path, architecture)
+        framework_constraint = ""
+        if not architecture.get("framework") and not project_spec.get("framework"):
+            framework_constraint = (
+                "【框架选择约束 - 必须遵守】\n"
+                "- 用户未指定 Web 框架；请根据业务需求选择标准库或轻量实现。\n"
+                "- 禁止仅因文件名为 main.py 或角色为后端工程师而引入 FastAPI、Flask 或其他 Web 框架。\n"
+            )
         runtime_consistency_constraints = self._build_runtime_consistency_constraints(
             file_path, file_type, project_language, architecture
         )
         dependency_import_constraints = self._build_dependency_import_constraints(dep_context)
         interface_constraints = self._build_interface_constraints(dep_context)
+        has_frozen_generation_context = isinstance(
+            project_context.get("generation_contract"), dict
+        )
+        exploration_rule = (
+            "- 冻结生成契约和已生成依赖已经包含在上下文中，直接依据这些事实生成完整文件"
+            if has_frozen_generation_context
+            else "- 先用 read_file / list_files / search_files 等工具探索项目结构和已有代码，了解上下文"
+        )
+        import_validation_rules = (
+            """【跨文件导入验证 - 必须执行】
+生成代码前，依据冻结文件集合、接口契约和已生成依赖源码核对每个项目内导入。只导入上下文中已声明的文件与公共符号。"""
+            if has_frozen_generation_context
+            else """【跨文件导入验证 - 必须执行】
+在生成代码前，你必须验证所有跨文件导入的正确性：
+1. 用 read_symbols 或 read_file 查看目标模块实际导出了哪些符号（函数、类、变量）
+2. 用 search_files 搜索你要导入的符号名是否在目标文件中正确定义
+   示例：search_files(pattern="def FastAPI|class FastAPI", file_pattern="*.py")
+3. 如果目标文件中不存在该符号，你必须：
+   a) 修正导入路径（找到真正定义该符号的文件），或
+   b) 在目标文件中添加该符号的定义
+4. 确认所有跨文件导入正确后再返回代码
+不要凭猜测导入不存在的符号。每次导入项目内模块前，先验证再使用。"""
+        )
         if file_type == "model" and re.search(
             r"^\s*(?:import\s+sqlite3|from\s+sqlite3\s+import\s+)",
             dep_context,
@@ -431,7 +466,9 @@ class BackendEngineer(Specialist):
 
 【任务约束 - 最高优先级】
 - 你本次任务只创建 {file_path} 这一个文件
-- 先用 read_file / list_files / search_files 等工具探索项目结构和已有代码，了解上下文
+- 以下用户业务需求是最高优先级，文件内容必须直接实现其中的领域对象、行为和运行方式：
+  {project_context.get("requirement", "")}
+{exploration_rule}
 - 探索完成后，直接以纯文本形式返回 {file_path} 的完整内容
 - 不要尝试创建或修改其他文件
 
@@ -442,6 +479,8 @@ class BackendEngineer(Specialist):
 {file_scope_constraints}
 
 {runtime_consistency_constraints}
+
+{framework_constraint}
 
 {dependency_import_constraints}
 
@@ -467,16 +506,7 @@ class BackendEngineer(Specialist):
 - 严格采用“项目文件集合”指定的导入风格
 - 第三方库使用绝对导入
 
-【跨文件导入验证 - 必须执行】
-在生成代码前，你必须验证所有跨文件导入的正确性：
-1. 用 read_symbols 或 read_file 查看目标模块实际导出了哪些符号（函数、类、变量）
-2. 用 search_files 搜索你要导入的符号名是否在目标文件中正确定义
-   示例：search_files(pattern="def FastAPI|class FastAPI", file_pattern="*.py")
-3. 如果目标文件中不存在该符号，你必须：
-   a) 修正导入路径（找到真正定义该符号的文件），或
-   b) 在目标文件中添加该符号的定义
-4. 确认所有跨文件导入正确后再返回代码
-不要凭猜测导入不存在的符号。每次导入项目内模块前，先验证再使用。
+{import_validation_rules}
 
 项目上下文：{json.dumps(project_context, ensure_ascii=False, indent=2)}
 """
@@ -543,7 +573,7 @@ from .utils import greet, farewell
         logger.info(f"BackendEngineer.generate_file: project_path={project_path}, callback={callback is not None}")
         if heartbeat_tracker:
             heartbeat_tracker.touch()
-        if project_path:
+        if project_path and not has_frozen_generation_context:
             # 只给只读工具：LLM 用它们探索项目上下文，然后直接返回文件内容
             # 禁止 write_file/create_file：避免 LLM 写入其他文件（如 requirements.txt）而非目标文件
             from app.agent.tools import SPECIALIST_TOOLS

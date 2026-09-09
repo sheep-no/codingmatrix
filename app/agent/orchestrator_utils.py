@@ -74,7 +74,7 @@ class UtilsMixin:
 
             ext = Path(path).suffix.lower()
             valid_extensions = {
-                '.py', '.js', '.ts', '.jsx', '.tsx', '.vue', '.html', '.css', '.scss', '.sass',
+                '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.vue', '.html', '.css', '.scss', '.sass',
                 '.less', '.md', '.txt', '.json', '.yaml', '.yml', '.toml', '.env', '.sql',
                 '.sh', '.bat', '.ps1', '.dockerfile', '.gitignore', '.editorconfig',
                 '.graphql', '.proto', '.xml', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.ico',

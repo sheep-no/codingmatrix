@@ -260,12 +260,16 @@ class CrossValidator:
         )
 
         # Step 2: 对选中版本进行迭代修复
+        # A merged label is telemetry, not a provider model identifier.  Keep
+        # refinement on the configured judge model so the gateway receives a
+        # model name that the provider can resolve.
+        refinement_model = judge_model if "+" in winner_model else winner_model
         result = await refinement_loop.refine(
             file_path=file_path,
             file_type=file_type,
             description=description,
             initial_content=selected_code,
-            model_name=winner_model,
+            model_name=refinement_model,
             project_context=project_context,
             callback=callback
         )
@@ -308,8 +312,14 @@ class CrossValidator:
         issues.extend(import_issues)
 
         # 2. 符号验证（函数/类名一致性）
-        symbol_issues = self._validate_symbols(generated_files)
-        issues.extend(symbol_issues)
+        supports_symbol_validation = not self.language_adapter or getattr(
+            self.language_adapter,
+            "supports_cross_file_symbol_validation",
+            True,
+        )
+        if supports_symbol_validation:
+            symbol_issues = self._validate_symbols(generated_files)
+            issues.extend(symbol_issues)
 
         # 3. API 契约验证
         api_issues = self._validate_api_contracts(generated_files, architecture)
@@ -320,8 +330,9 @@ class CrossValidator:
         issues.extend(model_issues)
 
         # 5. 函数签名验证
-        signature_issues = self._validate_function_signatures(generated_files)
-        issues.extend(signature_issues)
+        if supports_symbol_validation:
+            signature_issues = self._validate_function_signatures(generated_files)
+            issues.extend(signature_issues)
 
         return issues
 

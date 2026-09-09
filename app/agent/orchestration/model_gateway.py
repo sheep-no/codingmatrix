@@ -16,6 +16,8 @@ from app.utils.aicloud.llm_caller import call_llm
 
 from .budget import ExecutionBudget
 from .models import utc_now
+from ..code_synthesis_contracts import ModelCapabilityProfile
+from ..synthesis_protocol import select_response_protocol
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +97,25 @@ class ModelCallActivity(BaseModel):
     last_model_data_at: Optional[datetime] = None
 
 
+class ModelCallTelemetry(BaseModel):
+    """Bounded observability data for one model call."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    call_id: str
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    elapsed_seconds: Optional[float] = None
+    finish_reason: Optional[str] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    input_chars: int = 0
+    max_tokens: Optional[int] = None
+    synthesis_protocol: Optional[str] = None
+    capability_degraded: bool = False
+
+
 class ModelGatewayError(RuntimeError):
     """Structured model failure carrying correlation-safe diagnostics."""
 
@@ -138,13 +159,23 @@ class ModelGateway:
         activity_callback: Optional[
             Callable[[ModelCallContext, ModelStreamDataKind, datetime], None]
         ] = None,
+        model_profile: Optional[ModelCapabilityProfile] = None,
     ) -> None:
         self._caller = caller
         self._activity_callback = activity_callback
         self._activity: Dict[str, ModelCallActivity] = {}
+        self._telemetry: Dict[str, ModelCallTelemetry] = {}
+        self._model_profile = model_profile
+
+    @property
+    def model_profile(self) -> Optional[ModelCapabilityProfile]:
+        return self._model_profile
 
     def activity_for(self, call_id: str) -> ModelCallActivity:
         return self._activity.get(call_id, ModelCallActivity(call_id=call_id))
+
+    def telemetry_for(self, call_id: str) -> Optional[ModelCallTelemetry]:
+        return self._telemetry.get(call_id)
 
     async def call(
         self,
@@ -153,6 +184,8 @@ class ModelGateway:
         cancel_event: Optional[asyncio.Event] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
+        kwargs = self._adapt_request(kwargs)
+        self._start_telemetry(context, kwargs)
         try:
             result = await self._await_with_controls(
                 self._caller(
@@ -170,6 +203,7 @@ class ModelGateway:
         if hasattr(result, "__aiter__"):
             await self._close_stream(result)
             raise ModelGatewayError("non-streaming model call returned a stream", context)
+        self._finish_telemetry(context, result)
         return result
 
     async def stream(
@@ -179,6 +213,8 @@ class ModelGateway:
         cancel_event: Optional[asyncio.Event] = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
+        kwargs = self._adapt_request(kwargs)
+        self._start_telemetry(context, kwargs)
         stream_result: Optional[AsyncIterator[str]] = None
         try:
             async with asyncio.timeout(self._remaining_seconds(context)):
@@ -204,12 +240,88 @@ class ModelGateway:
                     except StopAsyncIteration:
                         break
                     self._record_activity(context, chunk)
+                    self._record_telemetry_chunk(context, chunk)
                     yield chunk
         except TimeoutError as exc:
             raise ModelCallTimeout("model stream wall-clock deadline exceeded", context) from exc
         finally:
             if stream_result is not None:
                 await self._close_stream(stream_result)
+            self._finish_telemetry(context)
+
+    def _start_telemetry(self, context: ModelCallContext, kwargs: Dict[str, Any]) -> None:
+        prompt = kwargs.get("prompt") or ""
+        messages = kwargs.get("messages")
+        input_chars = len(prompt)
+        if messages:
+            input_chars = sum(len(str(message.get("content", ""))) for message in messages)
+        self._telemetry[context.call_id] = ModelCallTelemetry(
+            call_id=context.call_id,
+            started_at=context.started_at,
+            input_chars=input_chars,
+            max_tokens=kwargs.get("max_tokens"),
+            synthesis_protocol=kwargs.get("synthesis_protocol"),
+            capability_degraded=kwargs.get("capability_degraded", False),
+        )
+
+    def _adapt_request(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        if self._model_profile is None or "synthesis_protocol" in kwargs:
+            return kwargs
+        profile = self._model_profile
+        adapted = dict(kwargs)
+        adapted["synthesis_protocol"] = select_response_protocol(profile).value
+        adapted["capability_degraded"] = not profile.supports_json_schema
+        adapted.setdefault("max_tokens", profile.max_output_tokens)
+        return adapted
+
+    def _finish_telemetry(self, context: ModelCallContext, result: Any = None) -> None:
+        current = self._telemetry.get(context.call_id)
+        if current is None:
+            return
+        if isinstance(result, dict):
+            self._merge_response_metadata(context.call_id, result)
+        current = self._telemetry.get(context.call_id)
+        if current is None:
+            return
+        completed_at = utc_now()
+        self._telemetry[context.call_id] = current.model_copy(
+            update={
+                "completed_at": completed_at,
+                "elapsed_seconds": max(0.0, (completed_at - current.started_at).total_seconds()),
+            }
+        )
+
+    def _record_telemetry_chunk(self, context: ModelCallContext, chunk: Any) -> None:
+        if not isinstance(chunk, str):
+            return
+        payload = chunk.strip()
+        if payload.startswith("data: "):
+            payload = payload[6:]
+        try:
+            parsed = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            return
+        if isinstance(parsed, dict):
+            self._merge_response_metadata(context.call_id, parsed)
+
+    def _merge_response_metadata(self, call_id: str, response: Dict[str, Any]) -> None:
+        current = self._telemetry.get(call_id)
+        if current is None:
+            return
+        usage = response.get("usage") or {}
+        finish_reason = next(
+            (choice.get("finish_reason") for choice in response.get("choices") or ()
+             if choice.get("finish_reason")),
+            None,
+        )
+        updates: Dict[str, Any] = {}
+        for field in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            if usage.get(field) is not None:
+                updates[field] = int(usage[field])
+        if finish_reason is not None:
+            updates["finish_reason"] = str(finish_reason)
+        if updates:
+            self._telemetry[call_id] = current.model_copy(update=updates)
 
     async def _await_with_controls(
         self,

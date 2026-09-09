@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Awaitable, Callable, Dict, Mapping, Optional, Set, Tuple
+from typing import Any, Awaitable, Callable, Dict, Literal, Mapping, Optional, Set, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,6 +17,9 @@ from .artifact_committer import (
 )
 from .budget import ExecutionBudget
 from .plan import GenerationPlan, PlannedFile
+from ..contract_index import ContractEntry, ContractIndex
+from ..synthesis_protocol import ModelOperation, ModelOperationKind
+from ..workflow_ir import TechnologyProfile
 
 
 class GenerationNodeStatus(str, Enum):
@@ -54,6 +57,41 @@ class GeneratedContent(BaseModel):
     model_name: str = Field(min_length=1)
     validation_passed: bool = True
     diagnostics: Tuple[str, ...] = ()
+    contract_refs: Tuple[str, ...] = ()
+
+
+class TestGenerationContract(BaseModel):
+    """Technology-neutral invariants for generated tests."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    discovery: Literal["declared_test_files"] = "declared_test_files"
+    execution: Literal["profile_command"] = "profile_command"
+    dependencies: Literal["declared_contracts"] = "declared_contracts"
+    serialization: Literal["framework_defined"] = "framework_defined"
+    stack_rules: Mapping[str, Any] = Field(default_factory=dict)
+
+
+def test_contract_for_technology(technology: TechnologyProfile) -> TestGenerationContract:
+    """Build the generic test contract and isolate stack-specific rules."""
+    rules: dict[str, Any] = {}
+    language = technology.language.lower()
+    framework = technology.framework.lower()
+    if language == "python":
+        rules["runner"] = "pytest"
+        if framework == "fastapi":
+            rules["client"] = "framework_test_client"
+        if framework == "flask":
+            rules["client"] = "application_test_client"
+    elif language in {"typescript", "javascript"}:
+        rules["runner"] = "jest_or_vitest"
+    elif language == "go":
+        rules["runner"] = "go_test"
+    elif language == "java":
+        rules["runner"] = "junit"
+    elif language == "rust":
+        rules["runner"] = "cargo_test"
+    return TestGenerationContract(stack_rules=rules)
 
 
 @dataclass(frozen=True)
@@ -64,6 +102,12 @@ class FileGenerationContext:
     upstream_contents: Mapping[str, str]
     attempt: int
     cancel_event: Optional[asyncio.Event]
+    contract_index: ContractIndex
+    http_contracts: Tuple[ContractEntry, ...]
+    cross_file_contracts: Tuple[ContractEntry, ...]
+    test_generation_contract: TestGenerationContract
+    technology: TechnologyProfile
+    previous_diagnostics: Tuple[str, ...] = ()
 
     @property
     def file_path(self) -> str:
@@ -99,6 +143,10 @@ class GenerationScheduleResult(BaseModel):
     nodes: Dict[str, GenerationNodeResult]
     completion_events: Tuple[ArtifactCompletionEvent, ...] = ()
     stats: GenerationScheduleStats
+    root_causes: Tuple[ArtifactDiagnostic, ...] = ()
+    blocked_nodes: Tuple[str, ...] = ()
+    timeouts: Tuple[ArtifactDiagnostic, ...] = ()
+    truncations: Tuple[ArtifactDiagnostic, ...] = ()
 
     @property
     def success(self) -> bool:
@@ -152,9 +200,11 @@ class GenerationScheduler:
         task_id: str,
         stage_id: str,
         cancel_event: Optional[asyncio.Event] = None,
+        contract_index: Optional[ContractIndex] = None,
         task_elapsed_seconds: float = 0.0,
     ) -> GenerationScheduleResult:
         self._initialize(plan)
+        frozen_contracts = contract_index or ContractIndex.build(())
         remaining_stage_seconds = min(
             budget.stage_seconds,
             budget.task_seconds - task_elapsed_seconds,
@@ -171,6 +221,7 @@ class GenerationScheduler:
                 task_id=task_id,
                 stage_id=stage_id,
                 cancel_event=cancel_event,
+                contract_index=frozen_contracts,
             ),
             name=f"generation-scheduler:{task_id}:{stage_id}",
         )
@@ -239,6 +290,7 @@ class GenerationScheduler:
         task_id: str,
         stage_id: str,
         cancel_event: Optional[asyncio.Event],
+        contract_index: ContractIndex,
     ) -> None:
         reverse_dependencies: Dict[str, Set[str]] = {path: set() for path in self.nodes}
         for item in plan.files:
@@ -269,6 +321,7 @@ class GenerationScheduler:
                             task_id=task_id,
                             stage_id=stage_id,
                             cancel_event=cancel_event,
+                            contract_index=contract_index,
                             completion_queue=completion_queue,
                             loop=loop,
                         ),
@@ -278,7 +331,10 @@ class GenerationScheduler:
                     task.add_done_callback(self._active_tasks.discard)
                     self._max_parallelism = max(self._max_parallelism, self.active_task_count)
 
-                if self.active_task_count == 0:
+                # A fast task may finish and leave the active set before its
+                # completion event is consumed. Drain that event first so its
+                # downstream nodes can become ready.
+                if self.active_task_count == 0 and completion_queue.empty():
                     unresolved = [
                         path for path, node in self.nodes.items() if not node.status.is_terminal
                     ]
@@ -316,11 +372,13 @@ class GenerationScheduler:
         task_id: str,
         stage_id: str,
         cancel_event: Optional[asyncio.Event],
+        contract_index: ContractIndex,
         completion_queue: asyncio.Queue[str],
         loop: asyncio.AbstractEventLoop,
     ) -> None:
         file_deadline = loop.time() + budget.file_seconds
         path = node.planned_file.path
+        validation_feedback: Tuple[str, ...] = ()
         try:
             for attempt in range(1, self.max_retries + 2):
                 node.attempts = attempt
@@ -334,6 +392,7 @@ class GenerationScheduler:
                     )
                     break
                 try:
+                    contract = node.planned_file.contract
                     context = FileGenerationContext(
                         task_id=task_id,
                         stage_id=stage_id,
@@ -344,11 +403,77 @@ class GenerationScheduler:
                         }),
                         attempt=attempt,
                         cancel_event=cancel_event,
+                        contract_index=contract_index,
+                        http_contracts=tuple(
+                            entry for entry in contract_index.entries if entry.kind == "api"
+                        ),
+                        cross_file_contracts=tuple(
+                            entry for entry in contract_index.entries if entry.kind != "api"
+                        ),
+                        technology=TechnologyProfile(
+                            language=node.planned_file.language,
+                            framework=str(contract.get("framework", "")),
+                            runtime=str(contract.get("runtime", "")),
+                        ),
+                        test_generation_contract=test_contract_for_technology(TechnologyProfile(
+                            language=node.planned_file.language,
+                            framework=str(contract.get("framework", "")),
+                            runtime=str(contract.get("runtime", "")),
+                        )),
+                        previous_diagnostics=validation_feedback,
                     )
                     async with asyncio.timeout(remaining):
                         generated = await generator(context)
                     if not isinstance(generated, GeneratedContent):
                         raise TypeError("generator must return GeneratedContent")
+
+                    if not generated.validation_passed:
+                        validation_feedback = generated.diagnostics or (
+                            "generated artifact failed required validation",
+                        )
+                        self.committer.shared_context.update_file_validation(
+                            path,
+                            False,
+                            list(validation_feedback),
+                        )
+                        if attempt > self.max_retries:
+                            self._fail_node(
+                                node,
+                                GenerationNodeStatus.FAILED,
+                                "generation_validation_failed",
+                                "; ".join(validation_feedback),
+                            )
+                            break
+                        continue
+
+                    try:
+                        contract_refs = generated.contract_refs or node.planned_file.contract_refs
+                        operation = ModelOperation(
+                            operation=ModelOperationKind.FILE_SLOT,
+                            target_path=path,
+                            allowed_paths=tuple(sorted(self.nodes)),
+                            depends_on=tuple(node.planned_file.dependencies),
+                            contract_refs=contract_refs,
+                            content=generated.content,
+                        )
+                    except ValueError as exc:
+                        self._fail_node(
+                            node,
+                            GenerationNodeStatus.FAILED,
+                            "protocol_validation_failed",
+                            str(exc),
+                        )
+                        break
+
+                    missing_contracts = contract_index.missing(operation.contract_refs)
+                    if missing_contracts:
+                        self._fail_node(
+                            node,
+                            GenerationNodeStatus.FAILED,
+                            "operation_contract_missing",
+                            f"model operation references unknown contracts: {list(missing_contracts)}",
+                        )
+                        break
 
                     commit_result = self.committer.commit(
                         path,
@@ -364,18 +489,10 @@ class GenerationScheduler:
                     node.completion_event = commit_result.completion_event
                     self.committer.shared_context.update_file_validation(
                         path,
-                        generated.validation_passed,
+                        True,
                         list(generated.diagnostics),
                     )
-                    if generated.validation_passed:
-                        node.status = GenerationNodeStatus.COMPLETED
-                    else:
-                        self._fail_node(
-                            node,
-                            GenerationNodeStatus.FAILED,
-                            "generation_validation_failed",
-                            "generated artifact failed required validation",
-                        )
+                    node.status = GenerationNodeStatus.COMPLETED
                     break
                 except TimeoutError:
                     self._fail_node(
@@ -395,6 +512,13 @@ class GenerationScheduler:
                     )
                     break
                 except Exception as exc:
+                    model_diagnostic = getattr(exc, "diagnostic", None)
+                    if isinstance(model_diagnostic, dict):
+                        code = str(model_diagnostic.get("code") or "generation_failed")
+                        message = str(model_diagnostic.get("message") or exc)
+                        if code == "model_timeout":
+                            self._fail_node(node, GenerationNodeStatus.TIMED_OUT, code, message)
+                            break
                     node.diagnostics = (
                         *node.diagnostics,
                         ArtifactDiagnostic(
@@ -461,6 +585,8 @@ class GenerationScheduler:
 
     def _derive_status(self) -> GenerationScheduleStatus:
         statuses = {node.status for node in self.nodes.values()}
+        if not statuses:
+            return GenerationScheduleStatus.COMPLETED
         if statuses == {GenerationNodeStatus.COMPLETED}:
             return GenerationScheduleStatus.COMPLETED
         if GenerationNodeStatus.CANCELLED in statuses:
@@ -488,6 +614,35 @@ class GenerationScheduler:
         counts = {status: 0 for status in GenerationNodeStatus}
         for node in self.nodes.values():
             counts[node.status] += 1
+        diagnostics = tuple(
+            diagnostic
+            for node in self.nodes.values()
+            for diagnostic in node.diagnostics
+        )
+        blocked_nodes = tuple(
+            path for path, node in sorted(self.nodes.items())
+            if node.status is GenerationNodeStatus.BLOCKED
+        )
+        root_causes = tuple(
+            diagnostic
+            for path, node in sorted(self.nodes.items())
+            if node.status in {
+                GenerationNodeStatus.FAILED,
+                GenerationNodeStatus.TIMED_OUT,
+                GenerationNodeStatus.CANCELLED,
+            }
+            for diagnostic in node.diagnostics
+            if path not in blocked_nodes
+        )
+        timeouts = tuple(
+            diagnostic for diagnostic in diagnostics
+            if diagnostic.code in {"file_timeout", "model_timeout", "timed_out"}
+        )
+        truncations = tuple(
+            diagnostic for diagnostic in diagnostics
+            if "truncat" in diagnostic.code.lower()
+            or "truncat" in diagnostic.message.lower()
+        )
         return GenerationScheduleResult(
             status=status,
             nodes=node_results,
@@ -501,4 +656,8 @@ class GenerationScheduler:
                 blocked_files=counts[GenerationNodeStatus.BLOCKED],
                 max_parallelism=self._max_parallelism,
             ),
+            root_causes=root_causes,
+            blocked_nodes=blocked_nodes,
+            timeouts=timeouts,
+            truncations=truncations,
         )

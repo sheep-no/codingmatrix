@@ -86,6 +86,12 @@ src/main/java/com/example/
 - **路径决定语言**：根据路径的扩展名决定文件语言（`.py`→Python、`.json`→JSON、`.toml`→TOML、`.md`→Markdown、`.yml`→YAML），不要被项目主语言干扰
 - **配置文件/文档处理**：如果路径是 `.json`、`.toml`、`.md`、`.yml`、`.txt` 等配置文件或文档文件，不要写 Python 代码，而是返回对应格式的内容
 
+### 构建与测试约束
+- Python 项目必须保持 `python3 -m compileall .` 和 `python3 -m pytest` 可执行。
+- TypeScript 项目必须提供 `npm run build` 和 `npm test` 可执行脚本。
+- Java 项目必须保持 Maven 或 Gradle 的构建与测试入口可执行。
+- Go 标准库项目使用 `go build ./...` 和 `go test ./...`，依赖必须写入 `go.mod`。
+
 ### 📝 文件创建规则
 - **单文件创建**：每次只创建一个文件
 - **完整内容**：文件必须包含完整的可运行代码

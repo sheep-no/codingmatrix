@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Tuple
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.agent.shared_context import SharedContext
+from app.agent.project_snapshot import is_runtime_artifact
 from app.agent.utils import write_file_atomic
 
 from .plan import GenerationPlan, normalize_plan_path
@@ -233,6 +234,7 @@ def check_artifact_success_gate(
     output_dir: Path,
     *,
     allowed_validation_statuses: Iterable[str] = ("valid",),
+    preserved_paths: Iterable[str] = (),
 ) -> ArtifactConsistencyResult:
     """Verify plan, completion events, manifest, validation, and disk agree."""
     planned_paths = tuple(sorted(item.path for item in plan.files))
@@ -252,19 +254,20 @@ def check_artifact_success_gate(
         )
 
     expected = set(planned_paths)
+    expected_disk = expected | set(preserved_paths)
     sets = {
         "manifest": set(manifest_paths),
         "completed_events": set(completed_paths),
         "disk": set(disk_paths),
     }
-    differences = {
-        name: {
-            "missing": sorted(expected - paths),
-            "extra": sorted(paths - expected),
-        }
-        for name, paths in sets.items()
-        if paths != expected
-    }
+    differences = {}
+    for name, paths in sets.items():
+        target_paths = expected_disk if name == "disk" else expected
+        if paths != target_paths:
+            differences[name] = {
+                "missing": sorted(target_paths - paths),
+                "extra": sorted(paths - target_paths),
+            }
     duplicate_events = sorted({path for path in completed_paths if completed_paths.count(path) > 1})
     if differences or duplicate_events:
         return _gate_failure(
@@ -344,6 +347,8 @@ def _business_disk_paths(output_dir: Path) -> Tuple[str, ...]:
     for path in output_dir.rglob("*"):
         relative = path.relative_to(output_dir)
         if any(part.startswith(".") for part in relative.parts):
+            continue
+        if is_runtime_artifact(relative):
             continue
         if path.is_file():
             paths.append(relative.as_posix())

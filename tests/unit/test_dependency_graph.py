@@ -226,6 +226,27 @@ class TestDependencyGraph:
         assert graph.adjacency["models.py"] == {"database.py"}
         assert graph.adjacency["database.py"] == set()
 
+    def test_python_entry_file_type_is_inferred_from_path(self):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": "app/main.py", "file_type": "unknown"},
+            {"path": "app/crud.py", "file_type": "repository"},
+        ]})
+
+        assert graph.nodes["app/main.py"].file_type == "entry"
+        assert graph.adjacency["app/main.py"] == {"app/crud.py"}
+
+    def test_javascript_entry_file_type_matches_dependency_rules(self):
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+
+        adapter = JavaScriptLanguageAdapter()
+
+        assert adapter.infer_file_type("src/index.ts") == "entry"
+        assert adapter.infer_file_type("src/server.js") == "entry"
+
     def test_generic_utils_file_types_are_inferred_from_paths(self, graph):
         architecture = {
             "file_plan": [
@@ -546,3 +567,34 @@ import UserCard from '../components/User.vue';
         test_layer = next(index for index, layer in enumerate(layers) if "test_main.py" in layer)
         main_layer = next(index for index, layer in enumerate(layers) if "main.py" in layer)
         assert test_layer > main_layer
+
+    @pytest.mark.asyncio
+    async def test_existing_project_skips_maven_build_outputs(self, graph, tmp_path):
+        source_file = tmp_path / "src/main/java/com/example/Application.java"
+        target_file = tmp_path / "target/maven-status/compiler/inputFiles.lst"
+        source_file.parent.mkdir(parents=True)
+        target_file.parent.mkdir(parents=True)
+        source_file.write_text("public class Application {}", encoding="utf-8")
+        target_file.write_text(str(source_file), encoding="utf-8")
+
+        await graph.build_from_existing_project(tmp_path)
+
+        assert "src/main/java/com/example/Application.java" in graph.nodes
+        assert "target/maven-status/compiler/inputFiles.lst" not in graph.nodes
+
+    @pytest.mark.asyncio
+    async def test_existing_java_project_maps_class_references_to_file_paths(self, graph, tmp_path):
+        todo_file = tmp_path / "src/main/java/com/example/Todo.java"
+        controller_file = tmp_path / "src/main/java/com/example/TodoController.java"
+        todo_file.parent.mkdir(parents=True)
+        todo_file.write_text("package com.example; public class Todo {}", encoding="utf-8")
+        controller_file.write_text(
+            "package com.example; public class TodoController { private Todo todo; }",
+            encoding="utf-8",
+        )
+
+        await graph.build_from_existing_project(tmp_path)
+
+        assert graph.adjacency["src/main/java/com/example/TodoController.java"] == {
+            "src/main/java/com/example/Todo.java"
+        }

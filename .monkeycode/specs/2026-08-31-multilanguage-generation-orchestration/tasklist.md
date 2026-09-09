@@ -24,7 +24,7 @@
   - 主规格相关测试已通过：`49/49`；`python3 -m compileall -q app` 和 `git diff --check` 已通过。
   - Redis 启动后全量 Python 回归结果：`1842 passed, 2 skipped`；`tests/unit/test_orchestrator.py::TestDynamicModelRouter` 已改为校验兼容层默认角色分配并通过。
   - `python3 -m compileall -q app` 和 `git diff --check` 已通过；仓库归档测试目录仍包含历史语法不完整文件，未纳入 `pyproject.toml` 测试路径。
-  - 仓库当前没有固定多文件评测样例，90% 最终成功率尚未形成可计算的评测证据。
+  - 仓库当前没有固定多文件评测样例；旧记录中的 90% 最终成功率表述已由分层指标定义替代，模型质量集合的统计口径仍待形成真实证据。
   - 最小真实 SSE 生成链路已触发：认证、API 路由、任务创建、SSE 进度和模型调用均可用；Provider 凭据已生效，部分文件完成生成和语言校验。
   - 本次真实任务在 `tests/test_database.py` 的后续处理阶段持续发送 heartbeat 超过 3 分钟，未产生 `done` 事件，也未形成可用输出目录，已终止后台任务；实际生成结果仍不可判定。
   - 已修复调度器单文件超时、取消后的内部任务回收、未完成节点终态收敛和成功判定；新增专项回归测试，相关测试 `21/21` 通过。
@@ -67,24 +67,36 @@
   - 已实现 `TraditionalAdapter`、`GenerationRequest` 和 `AdapterResult`，将现有架构规划和单文件生成转换为内核接口；对应需求 11.3-11.5。
   - 保持 `OrchestratorAgent` 构造参数、HTTP、SSE、会话和错误契约；对应设计正确性属性 14。
   - 已增加入口级 legacy/core 路由、无源码影子状态对比和 checkpoint `engine_version` 元数据；Core 生产生成入口仍等待 11.1 契约与真实生成验收后切换。
+  - 已将 Core handler 注入 `generate`、同步 `orchestrate`、流式 `orchestrate/stream` 和增量 `modify` workflow；Legacy 继续默认，Core flag 已能选择兼容 handler。独立 Core 生成 adapter 仍待 11.1 验收。
+  - 已实现 `OrchestratorCore.execute()`，串联计划创建、阶段转换、GenerationScheduler、ArtifactCommitter、磁盘一致性门禁和唯一终态；Core 内核回归 `39/39` 通过，入口仍需接入真实独立 adapter。
   - [ ] 11.1 运行传统生成契约测试、严格 6 文件真实生成、落盘 hash、语法、服务启动、CRUD 和 SQLite 持久化验证。
     - 2026-08-31 首次执行已确认 HTTP/SSE 入口可达（HTTP 200），模型阶段因服务进程未加载 `siliconflow` provider 配置失败，未生成产物；需补充用户项目供应商配置后重试。
     - 第 4 轮真实验收完成 6 个文件生成：HTTP 200、单一 `done`、零 SSE error、磁盘严格文件集合、SHA-256 和 AST 语法均通过；CRUD 收集因 `main.py` 导入严格集合外的 `.routers` 失败。已增加架构文件集合和顶层导入约束。
     - 第 5 轮真实验收再次完成严格 6 文件生成：HTTP 200、单一 `done`、零 SSE error、磁盘文件集合、SHA-256 和 AST 语法均通过，耗时 275.7 秒；CRUD 收集因顶层 `from . import crud` 失败，SQLite 持久化门禁因此未执行。
     - 已确定性修复第 5 轮暴露的两项问题：顶层 `from . import module` 归一化为直接导入；架构返回 `unknown/other` 类型时改用路径规则推断，并补充 `crud.py` repository 类型规则。相关专项测试 `29/29`、最终编排回归 `160/160` 和 `git diff --check` 通过。
     - 已达到任务累计 5 轮限制，本轮停止新增真实生成。11.1 保持未完成，下一验收窗口仅需复验 CRUD 和 SQLite 门禁；默认路由继续保持 legacy。
-    - 最新真实验收于 145.6 秒返回结构化 `error`：`database.py` 连续生成混用 `sqlite3` 与 SQLAlchemy 的实现，重复静态错误指纹终止修复，下游文件按依赖门禁阻断；该轮没有发生网络超时。
-    - 已将传统单文件生成的 120 秒活动 tracker 贯通到 Specialist 和 simple ReAct；流式模型 chunk 刷新活动时间，无活动调用会被取消并进入既有内容恢复重试，静态修复重试复用同一 tracker。心跳、模型预算和调度相关回归 `111/111` 通过。
+     - 最新真实验收于 145.6 秒返回结构化 `error`：`database.py` 连续生成混用 `sqlite3` 与 SQLAlchemy 的实现，重复静态错误指纹终止修复，下游文件按依赖门禁阻断；该轮没有发生网络超时。
+     - 已将传统单文件生成的 120 秒活动 tracker 贯通到 Specialist 和 simple ReAct；流式模型 chunk 刷新活动时间，无活动调用会被取消并进入既有内容恢复重试，静态修复重试复用同一 tracker。心跳、模型预算和调度相关回归 `111/111` 通过。
+      - 2026-09-02 重测生成严格 5 文件集合，HTTP 200、AST 和 `compileall` 通过；测试收集因 `TodoResponse` 继承 SQLAlchemy 模型触发 Pydantic schema 构建错误，CRUD、启动和 SQLite 持久化未通过。
+      - 2026-09-02 已在 Core 适配器增加 Python 本地导入冻结集合门禁，越界导入会使文件验证失败；适配器专项 `13/13`、编排契约 `153/153` 通过。
+     - 2026-09-02 已增加 FastAPI ORM/Pydantic 独立 DTO、入口实例和符号导入契约校验，并补充适配器回归；专项测试 `15/15` 通过。重测时首个 `app/models.py` 返回工具调用 JSON，被占位符门禁拒绝，评测以 `generation schedule ended with status failed` 结束，未产生可验收产物。
+      - 2026-09-02 评测脚本已增加冻结文件、编译、生成测试、启动和 CRUD 持久化门禁。FastAPI 重测生成完整 5 文件并通过 `compileall`，运行时探针在 `app/main.py:18` 暴露 `MetaData.bind` 不存在，CRUD 未通过；随附 `tests/test_crud.py` 的 fixture 也因 `auth_client` 未调用而全部失败。
+      - 2026-09-04 严格六文件重测通过 HTTP 200、单一 `done`、零 SSE error、冻结文件集合、SHA-256 和 AST 语法门禁，耗时 165.7 秒；CRUD 运行暴露数据库模块以 `SessionLocal = None` 延迟初始化，而入口通过值导入捕获空会话工厂。已将数据库会话工厂确定性改为模块加载时初始化。
+      - 已修复测试 fixture 的局部 `engine` 重绑定、过期存储路径 monkeypatch 和请求方法非法 `status_code` 参数，并修复 TraditionalAdapter 保留旧 architecture metadata 导致文件角色与调度图分叉的问题。最终相关回归 `166 passed`，目标模块 `py_compile` 和 `git diff --check` 通过；11.1 继续等待一次完整 CRUD、404 和跨进程 SQLite 持久化复验。
 
-- [ ] 12. 迁移 Spec-First 和增量修改入口
+- [x] 12. 迁移 Spec-First 和增量修改入口
   - 实现 `SpecFirstAdapter`，将规范文件计划作为冻结计划输入；对应需求 11.5。
   - 实现 `IncrementalAdapter`，将影响文件集合转换为 strict 变更计划；对应需求 8.1-8.4、11.5。
-  - [ ] 12.1 为两类入口运行 legacy/core 契约、恢复、取消和产物一致性测试。
+  - [x] 12.1 为两类入口运行 legacy/core 契约、恢复、取消和产物一致性测试。新增生产级 `SpecFirstAdapter`、`IncrementalAdapter` 和 Core 运行时接线；专项回归 `46/46` 通过，全量可执行单元集 `2118 passed, 2 skipped`，历史 `test_ppt_unified_generation.py` 因长耗时从本轮全量集隔离。
 
 - [ ] 13. 完成评测、切换和重复逻辑收敛
-  - 建立固定多语言评测集，统计计划一致性、产物一致性、终态收敛、P95 耗时和 90% 端到端成功率；对应需求 6.3、11.2。
-  - 传统生成、Spec-First 和增量修改依次通过门禁后切换默认路由；对应需求 11.4-11.5。
+  - 建立分层评测集，分别统计 Core 编排契约、Stack/Profile 工程能力和模型生成质量；90% 目标仅作用于声明的模型质量集合，对应需求 6.3、11.2、16.5-16.7。
+  - 为每个评测 Fixture 声明文件集合、接口、健康检查、状态码、数据库和持久化验证步骤，对应需求 16.6。
+  - 将基础设施失败、unsupported、模型超时、契约失败、产物失败和项目验证失败分别记录，对应需求 16.7。
+  - 传统生成、Spec-First 和增量修改按 Core 契约、行为等价、Stack/Profile 工程能力和模型质量顺序推进入口灰度与默认路由决策，对应需求 11.4-11.6。
   - 清理已迁移 Mixin 中的重复生命周期、调度、写盘和终态逻辑，保留兼容适配器；对应设计实施阶段 7.3。
+  - [x] 13.1 将评测报告拆分为 Core 编排、Stack/Profile 工程和模型生成质量三层，并为基础设施失败提供独立状态；分层报告回归 `27 passed`。
+  - [x] 13.2 让真实评测 runner 写入基础设施失败状态，并避免该类记录重复计入计划、接口、编译等质量失败分类；相关回归 `27 passed`。
 
 - [x] 14. 建立统一 GenerationPlan 和接口注册表
   - 新建 `app/agent/generation_plan.py`，统一保存项目语言、框架、运行时、文件角色、依赖闭包、计划策略和版本；对应设计 3.1、3.7 和正确性属性 1、9。
@@ -107,19 +119,30 @@
   - 为每类错误建立一次计划修订、一次接口修订或一次文件修复的重试预算，并记录候选版本、诊断版本和上下文 hash；对应需求 5.3-5.4、9.1-9.5。
   - [x] 16.1 为未知依赖、错误导出、async/sync、fixture 生命周期和业务字段缺失编写回归与属性测试；对应设计正确性属性 6、10。专项测试 `tests/unit/test_validation_report.py tests/unit/test_repair_router.py tests/unit/test_orchestrator_files.py` 已通过。
 
-- [ ] 17. 实现语言 Adapter、能力模型和框架 Profile
+ - [x] 17. 实现语言 Adapter、能力模型和框架 Profile
   - 新建 `app/agent/languages/`，将 Python、TypeScript/JavaScript、Go、Java 和 Rust 的 AST、模块、签名、编译和测试能力统一为 LanguageAdapter 接口；对应需求 1.1-1.4、6.1-6.4。
   - 新建 `app/agent/capabilities/`，抽象 HTTP API、ORM、数据库、认证、WebSocket、依赖注入、测试客户端和迁移能力；对应设计 3.1、3.2。
   - 新建 `app/agent/framework_profiles/`，以版本化 YAML/JSON 描述框架依赖、能力映射、文件模板、安装、构建、测试、启动和健康检查命令；对应需求 6.1-6.4。
   - 实现 ProfileRegistry，根据语言、框架版本和能力选择 Profile，并标记正式、实验和待验证状态；对应需求 6.2、8.1-8.4。
-  - [x] 17.1 为 Python/FastAPI、Python/Flask、TypeScript/Express 和 TypeScript/NestJS 建立语言解析、Profile 加载和最小 CRUD 验收测试；对应需求 6.1-6.4、设计正确性属性 10。专项回归 `tests/unit/test_languages.py tests/unit/test_framework_profiles.py` 已通过。
+ - [x] 17.1 为 Python/FastAPI、Python/Flask、TypeScript/Express 和 TypeScript/NestJS 建立语言解析、Profile 加载和最小 CRUD 验收测试；对应需求 6.1-6.4、设计正确性属性 10。专项回归 `tests/unit/test_languages.py tests/unit/test_framework_profiles.py` 已通过。
+ - [x] 17.2 增加结构化 `SkillManifest`、`SkillCatalog`，扫描工作区 `SKILL.md` 并按需求匹配有限 Skill 集合；补充 manifest 解析、排序、未命中和注册表回归测试。
+  - [x] 17.3 增加文件响应分类器，识别结构化文件、代码块、工具调用 JSON、元数据和路径不匹配；调度器在产物提交前执行验证并保留首因诊断。
+  - [x] 17.4 增加统一 `DatabaseContract` 与数据库 Profile Registry，覆盖 SQLite、PostgreSQL、MySQL 和未知数据库的 `unsupported` 降级；补充驱动、迁移、事务和持久化测试契约。
+  - [x] 17.5 将数据库契约接入 `profile_context()`，从项目 manifest 识别 PostgreSQL/MySQL，Web CRUD 默认注入 SQLite，并补充未知数据库降级测试。
+  - [x] 17.6 增加 Java 专用 LanguageAdapter，支持 Java import、类和方法符号提取、Maven 标准源码路径解析及常用 JDK/Spring/JUnit 外部包识别；Java 适配与完整性专项回归通过。
+  - [x] 17.7 增加 Go、Rust 专用 LanguageAdapter 和高频框架 Profile，统一 lint、typecheck、build、test、smoke 阶段及安全 Toolchain 执行；Profile discovery 覆盖 Python、TypeScript、Java、Go、Rust manifest，并将内置状态映射为 `supported` 或 `experimental`。任务 17 专项回归 `99 passed`，相关 Core 编排回归 `199 passed`，目标模块 `compileall` 和 `git diff --check` 通过。
 
-- [ ] 18. 接入官方脚手架、Toolchain 探测和自定义框架 Profile
+- [x] 18. 接入官方脚手架、Toolchain 探测和自定义框架 Profile
   - 新建 `app/agent/scaffolding/`，通过官方 CLI 或模板创建框架基线，再将真实文件、依赖和符号导入 GenerationPlan；对应需求 6.1、8.1-8.4。
   - 新建 `app/agent/toolchain/`，自动探测安装、编译、格式检查、静态检查、测试、启动和健康检查命令，并输出统一执行契约；对应需求 3.3-3.4、6.3。
   - 增加用户工作区 Profile 的 schema、版本、作用域、命令白名单、依赖白名单和沙箱校验；对应需求 6.2、6.4、8.2。
   - 将用户新增框架先标记为 `custom_pending`，通过语法、安装、启动、CRUD 和持久化探针后再升级为 `experimental` 或 `supported`；对应需求 6.3、6.4。
   - [x] 18.1 编写内置 Profile、用户 Profile 隔离、恶意命令拒绝、版本兼容和 Toolchain 探针测试；对应需求 6.2-6.4、设计正确性属性 10、11。专项回归 `tests/unit/test_framework_profiles.py tests/unit/test_toolchain.py tests/unit/test_scaffolding.py` 已通过（16/16）。
+  - [x] 18.2 官方脚手架使用固定版本参数数组执行，生成文件经路径、数量、大小、UTF-8、依赖和符号校验后导入不可变 `GenerationPlan`；Toolchain 已覆盖 Node、Python、Go、Rust、Maven 和 Gradle 的 manifest、script 与 wrapper 探测。
+  - [x] 18.3 工作区 Profile 文档已实现 schema version、内容 digest、owner/workspace 双重隔离、命令与依赖 allowlist，以及 `custom_pending -> experimental -> supported` 的真实探针门禁。任务 18 完整相关回归 `227 passed`，目标模块 `compileall` 与 `git diff --check` 通过。
+  - [x] 18.4 真实执行固定版本 `express-generator@4.16.1`，成功导入 7 个运行所需文本文件、4 个运行时依赖和稳定计划 digest；Toolchain 自动识别 `package.json`、`npm install` 与 `npm run start`，受控 `node --check` 对 3 个 JavaScript 源文件均返回 0。运行时使用声明的固定依赖版本启动 Express，`GET /` 与 `GET /users` 均返回 HTTP 200，停止后端口释放。
+  - [x] 18.5 Toolchain 超时实测返回 124 和稳定诊断 `toolchain command timed out`，派生子进程组完成回收；工作区 Profile 的 syntax、install、startup、CRUD、persistence 两轮真实命令探针均通过，状态逐级晋级到 `supported`。
+  - [x] 18.6 真实执行固定版本 React Vite 与 NestJS 官方脚手架：React Vite 成功导入 14 个文件和 13 项依赖，NestJS 成功导入 10 个文件和 28 项依赖；Toolchain 均识别安装、构建和启动命令。NestJS 脚手架固定使用 `--skip-install`，生成目录未创建 `node_modules`，依赖安装继续由受控 Toolchain 独立执行。
 
 - [ ] 19. 统一 ContextEnvelope、MCP、RAG、Skills 和 Memory
   - 新建 `app/agent/context_assembler.py`，将需求、GenerationPlan、接口注册表、依赖地图、框架 Profile、检索结果、Memory 和反馈提示按来源、优先级和作用域组装；对应需求 2.1-2.4、9.1-9.5。
@@ -128,14 +151,17 @@
   - 将 MCP 工具描述扩展为能力、读写范围、项目作用域、依赖、超时和审计字段，并接入 Toolchain 和 ValidationCoordinator；对应设计 3.8、3.10-3.12。
   - 统一 `ModelGateway`、动态路由、LearningRouter 和反馈事件，记录模型、阶段、文件、计划版本、上下文 hash 和验证结果；对应需求 9.1-9.5、11.1-11.2。
   - 已将 ContextEnvelope 接入传统、Spec-First 和增量修改入口；ModelCallContext 与结构化模型诊断支持可选 context hash，并保持旧诊断字段兼容。
+  - 2026-09-03 已将 Core 文件生成前的本地 `RetrievalService` 接入适配器，检索需求、生成契约和架构上下文，并通过 `ContextEnvelope` 注入模型请求；新增检索来源、数量和降级状态遥测，相关专项测试通过。
+  - 当前外部 MCP Server 均未启用，Core 本地检索路径可独立运行；完整 MCP/RAG 服务接入仍依赖合法的服务配置。
   - [x] 19.1 编写 ContextEnvelope 来源优先级、敏感信息过滤、MCP 权限、RAG 注入和 Memory 检索测试；对应需求 9.1-9.5、设计正确性属性 5、11。专项回归 `tests/unit/test_context_assembler.py` 已通过（3/3）。
 
 - [ ] 20. 完成多语言评测矩阵和迁移收口
   - 已建立 `app.agent.evaluation_matrix.FIXED_CRUD_CASES` 和 `build_report()`，覆盖 Python/FastAPI、Python/Flask、TypeScript/Express、TypeScript/NestJS、Go HTTP 和 Java Spring Boot，并提供成功率、P95、缺失样例、非法指标和失败分类；真实运行数据和入口迁移仍待完成。
+   - 已增加 `python -m app.agent.evaluation_runner <records.json>` 报告入口，统一读取结构化评测记录并输出固定矩阵 JSON 报告；六语言真实记录仍待生成。评测样例默认声明 SQLite 数据库；`EvaluationRecord` 记录 `database_status` 和数据库诊断，`unsupported`/非 supported 状态进入 `database` 失败分类并阻止样例成功。
   - 已增加 `app.agent.profile_discovery`，按项目清单发现 Web、Windows、Android、爬虫、游戏和 CLI 应用域，输出候选 Profile、能力缺口和探针结果；`build_probe_plan()` 已输出经 `CommandSpec` 校验的参数数组探针步骤，`ProfileCache` 已支持工作区画像持久化、复用和 `custom_pending -> experimental -> supported` 状态门禁。
   - 已将 `profile_context()` 接入传统、Spec-First 和增量修改入口，规划阶段会把应用域、框架、能力、缺口和画像状态传入生成上下文。
   - 已增加 `app.agent.capability_resolver`，根据应用域输出必需能力、能力缺口、生成约束和验证步骤，并将能力策略加入 `profile_context()`。
-  - 能力策略已增加 `required_components`，为 Web、游戏、爬虫、Android 和 Windows 生成 handler/service、rules/renderer、fetcher/parser/pipeline、screen/navigation 和 window/event_handler 等组件提示。
+   - 能力策略已增加 `required_components`，为 Web、游戏、爬虫、Android 和 Windows 生成 handler/service、rules/renderer、fetcher/parser/pipeline、screen/navigation 和 window/event_handler 等组件提示。
   - `ResolvedCapabilities.component_file_plan()` 已将领域组件映射为可投影到 GenerationPlan 的文件节点，并通过 `profile_context()` 传入三类生成入口。
   - `add_profile_components()` 已将组件节点和顺序依赖投影到 `GenerationPlan`；strict 计划保持冻结文件集合，extensible 计划允许受控扩展。
   - 新增 `ValidationCoordinator`，将 Profile 验证步骤转换为安全 `CommandSpec`，执行结果统一映射为 `ValidationReport`；不支持步骤、超时和非零退出码均形成结构化诊断。
@@ -145,4 +171,82 @@
   - 为每个样例记录计划一致性、接口一致性、依赖闭包、文件完整性、编译、测试、启动、持久化、Token、P95 耗时和最终成功率；对应需求 6.3、9.1-9.5、11.2。
   - Traditional、Spec-First 和 Incremental 入口依次迁移到统一执行器，完成 legacy/core 影子对比后切换默认路由；对应需求 11.3-11.5。
   - 清理重复生命周期、重复模型调用、重复终态发布和已被 ValidationReport 替代的局部修复逻辑；对应设计实施阶段 7.3。
-  - [ ] 20.1 运行全量单元、属性、框架烟囱和端到端评测，形成多语言支持矩阵和失败分类报告；对应需求 6.3、11.2、11.4。
+    - [x] 20.1 运行全量单元、属性、框架烟囱和端到端评测，形成多语言支持矩阵和失败分类报告；对应需求 6.3、11.2、11.4。2026-09-03 已验证排除既有耗时 PPT 多模板测试后的全量集：`2206 passed, 2 skipped`；Go HTTP 固定样例最终目录 `projects/1/evaluation_go-http-crud_1788459751` 完成六文件生成，`go test ./...`、生成测试、启动、CRUD 和第二独立进程 SQLite 持久化均通过，CRUD 状态为 `201/200/200/200/200/204`，`persistence_passed: true`，总耗时 `203.702` 秒。五个既有样例的完整成功证据已保留；结构化记录位于工作区 `records.json`，评测报告由 `python3 -m app.agent.evaluation_runner records.json` 生成。Go 评测过程中修复了快速完成事件导致的调度器误报死锁，并将 `go.sum` 纳入 Go 自包含固定文件契约。
+    - [x] 20.2 为 `ModelGateway` 增加单次调用遥测，记录 `finish_reason`、prompt/completion/total tokens、输入字符数、最大输出 token 和耗时；补充非流式响应与 SSE chunk 回归测试。
+    - [x] 20.3 为 `GenerationScheduleResult` 增加首因、阻断节点、超时和截断分类字段，并将模型调用超时映射为 `timed_out` 节点；补充失败级联回归测试。
+     - [x] 20.4 Java 固定样例已纳入 `pom.xml` 和 `Todo.java`，评测器使用 Maven 执行编译与测试，并通过创建、列表、更新、重启读取和删除验证 Spring Boot CRUD 持久化。2026-09-03 真实评测目录 `projects/1/evaluation_java-spring-boot-crud_1788442738` 完成六文件生成，Maven compile 和 tests 均通过，Spring Boot 启动成功；CRUD 状态码为创建 201、列表 200、更新 200、重启读取 200、删除 204，`persistence_passed: true`，总耗时 275.626 秒。
+     - [x] 20.5 增加独立 Pygame Snake 评测：Core 生成固定 5 文件集合，HTTP 200、文件完整、`compileall`、5 项游戏测试、无窗口 3 帧运行和截图均通过；截图包含网格、蛇、食物和分数。真实产物位于 `projects/projects/1/evaluation_pygame-snake_1788463341`，结构化结果位于工作区 `pygame_evaluation_report.json`。
+      - [x] 20.6 建立动态项目快照和增量 ChangePlan：记录基线 revision 与 SHA-256，支持 add/modify/delete/rename 变更，并在 Core 收尾阶段阻止计划外文件发生内容变化；Pygame Profile 增加声明式文件角色、契约规则和验证步骤，相关回归 `77 passed`。
+      - [x] 20.7 接入增量重命名事务：旧路径先暂存到 `.orchestration-txn/<task_id>`，成功门禁后提交清理，门禁失败时恢复；删除动作继续保留明确的事务能力保护。相关编排回归 `78 passed`。
+       - [x] 20.8 接入增量删除事务：删除项从生成节点中剔除，由 `IncrementalFileTransaction` 暂存并在成功门禁后提交；删除-only 计划使用空生成计划并通过 Core 成功门禁。相关回归 `105 passed`。
+
+- [ ] 21. 建立技术栈无关的受约束代码合成控制面
+  - [x] 21.1 定义 `ProjectModel`、`CapabilityRegistry`、`ChangePlanIR`、`ArtifactSpec`、`StrategyDecision` 和 `ValidationProfile` 的严格契约；验证动态文件集合、策略枚举、依赖闭包和版本化 digest。新增 `app/agent/code_synthesis_contracts.py` 与 `tests/unit/test_code_synthesis_contracts.py`，专项测试 `4 passed`。
+  - [x] 21.2 实现 `StrategyRouter`，根据项目能力、Artifact 角色、源码状态和契约选择 scaffold、schema_codegen、template、patch 或 llm 策略，并记录理由和能力证据。新增 `app/agent/strategy_router.py`，IR 与路由专项测试 `7 passed`。
+  - [x] 21.3 将 `ChangePlanIR` 投影为现有 strict/extensible `GenerationPlan`，复用现有 Core 计划模型并保留策略溯源信息，覆盖任意文件数量。新增 `app/agent/orchestration/ir_projection.py`；IR、路由与 Core 计划测试 `33 passed`。删除/重命名在 Core 生命周期语义接入前会显式阻断。
+  - [x] 21.4 将现有 Profile、官方脚手架、语言 Adapter 和 ValidationCoordinator 接入控制面，保持 Core 生命周期与旧入口契约不变。新增 `SynthesisCapabilityRegistry` 统一发现语言解析、结构编辑、签名、编译、测试和固定版本脚手架能力；专项测试 `102 passed`，Core Adapter、计划与调度回归 `97 passed`。
+    - [x] 21.4a 完成 FrameworkProfile 到 ProjectModel、ValidationProfile 和 ValidationCoordinator 计划的桥接，新增 `app/agent/orchestration/profile_bridge.py`，相关测试 `77 passed`。
+  - [x] 21.5 提取 FastAPI、Express、Go 和 Spring 的独立 Stack Adapter；FastAPI 六文件仅作为一个评测夹具，支持不同布局和 Artifact 数量。新增严格 Stack 请求、符号索引、脚手架结果、别名注册和工作区探测契约；动态计划覆盖 1、2、6、9 个 Artifact，四类技术栈均复用现有 Profile、Language Adapter、脚手架、Validation bridge 和 Core 计划投影。专项及相关回归 `215 passed`，目标模块 `compileall` 和 `git diff --check` 通过。
+  - [x] 21.6 建立 V0-V6 分层验证路由、候选重排和最小诊断反馈，禁止领域特例继续堆积到统一 AST 修复器。新增严格候选、层结果、任务/策略候选预算和失败分类契约；V0 校验产物集合、安全路径、前置条件和非空内容，V1 复用 Stack Adapter，V2/V3/V5 按 Toolchain action 隔离，V4 保留契约处理器扩展点，V6 复用 Artifact 成功门禁。候选按完整通过、最高通过层级、硬失败、诊断、变更范围和模型调用数确定性排序，修复反馈保留原生成策略并限制诊断及上下文预算。相关回归 `256 passed`，目标模块 `compileall` 和补丁格式检查通过；同时规范化 CapabilitySet digest 输入，消除 ChangePlanIR JSON round-trip 的无序集合摘要波动。
+   - [x] 21.7 扩展固定评测矩阵，覆盖 Python、TypeScript、Go、Java 四种语言、单文件/小型多文件/模块化多文件三档规模和 deterministic/llm 两种策略，共 24 个固定 case；`EvaluationRecord` 支持首次、候选、修复后三阶段结果，`evaluation_runner` 按策略输出三阶段成功率、平均模型调用数、P95 耗时和结构化失败分类。评测专项与合成控制面回归共 `74 passed`，目标模块 compileall 通过；真实矩阵生成记录仍待后续独立运行。
+
+- [ ] 22. 建立模型无关的受约束生成协议
+  - [x] 22.1 在 `app/agent/code_synthesis_contracts.py` 增加严格 `ModelCapabilityProfile`，声明结构化输出、JSON Schema、tool call、流式响应和 token 容量，并验证能力组合约束；新增契约往返和非法配置测试。
+  - [x] 22.2 定义计划提议、文件槽位、结构化 Patch 和修复解释的版本化 Schema，统一允许路径、依赖前置条件、契约引用和变更范围；新增 `app/agent/synthesis_protocol.py`。
+  - [x] 22.3 建立不可变公共接口/数据契约索引，按名称唯一化并生成稳定 digest，使跨文件生成具备共享契约快照；新增 `app/agent/contract_index.py`。
+  - [x] 22.4 将 `ModelCapabilityProfile` 接入 `ModelGateway` 请求适配，按能力选择 JSON Schema、tool call 或受限 JSON 文本协议，并记录降级状态；补充 `synthesis_protocol` 请求信号和网关遥测字段。
+  - [x] 22.5 将协议校验接入 V0，拒绝 Schema 外字段、计划外路径、未声明依赖和超范围 Patch；新增 `validate_model_operation_v0()` 及结构化诊断测试。模型替换的固定输入可比较测试保留在后续网关适配验收中。
+  - [x] 22.6 建立 `ComparableSynthesisInput` 固定输入身份，验证模型替换时计划 digest、契约 digest、上下文 hash 和文件集合保持一致；单文件和三文件跨模块协议样例测试通过。六文件 CRUD 的真实模型评测与完整 24-case 矩阵仍待独立运行。
+  - [x] 22.7 将文件槽位协议接入 `GenerationScheduler`，所有生成内容在 `ArtifactCommitter` 前经过目标路径、计划范围、依赖范围和非空内容校验；保留 Legacy 默认路由。
+  - [x] 22.8 将 `ContractIndex` 从冻结生成计划接线到所有文件上下文和写盘前校验，保证同一任务内跨文件共享不可变契约快照；相关调度器、适配器、Core 和提交器回归 `297 passed`，`compileall` 与 `git diff --check` 通过。完整 24-case 真实模型评测仍待独立运行。
+
+- [ ] 23. 收敛 Stack Adapter 契约边界
+  - [x] 23.1 建立 `StackContractValidator` 聚合边界，将 Core 适配器中的 Python/Java 契约规则通过统一接口执行，保持现有诊断和修复行为。
+  - [x] 23.2 将 FastAPI、Spring、Express 和 Go 规则分别迁移到 Stack Adapter，实现按技术栈注册和按文件角色筛选；新增 `StackContractRule`、四类 Adapter 契约作用域声明和 Core 兼容路由，专项回归 `103 passed`。
+  - [x] 23.3 将确定性修复 fallback 改为明确的 Stack Strategy，并记录触发原因、输入契约和候选版本；新增不可变 `StackRepairCandidate`，兼容保留原字符串 fallback 入口。
+  - [ ] 23.4 删除主生成路径中已迁移的技术栈分支，并用跨语言回归和固定评测验证行为等价性。
+    - [x] 23.4a 将确定性 fallback 的顺序选择迁移到 `StackRepairStrategyRegistry`，保留原策略顺序并增加行为等价测试；完整旧分支清理和固定评测仍待完成。
+    - [x] 23.4b 将 OpenAPI `paths` 到 Stack-neutral HTTP contract 的投影迁移到 `stack_adapters/contract_validation.py`，主编排器仅负责提供上下文；相关 Stack 和 Core 回归通过。
+    - [x] 23.4c 将不可变 `StackRepairCandidate` 移入 `stack_adapters/repair_strategies.py`，主编排器保留兼容导出；修复策略专项回归通过。
+    - [x] 23.4d 将修复输入 contract digest 计算迁移到 `stack_adapters/repair_strategies.py`，主编排器仅消费稳定摘要；专项回归通过。
+    - [x] 23.4e 为 `StackRepairStrategyRegistry` 增加不可变 `RepairContext` 和显式适用性谓词，Core 通过上下文调用策略选择；兼容旧单参数策略。
+    - [x] 23.4f 将 FastAPI CRUD 修复的需求和冻结文件判断提取为 `fastapi_crud_repair_applies` Stack predicate，并接入策略注册；专项回归通过。
+    - [x] 23.4g 将 Spring、Flask、Express、NestJS、Go、Pygame 修复策略的适用性判断提取为 Stack predicates，并接入策略注册；专项回归通过。
+    - [x] 23.4h 移除 Core 文件生成主路径对具体技术栈 `_is_*_repair()` 的重复选择判断，改由策略注册表结果驱动；完整非 PPT 回归 `2394 passed, 2 skipped`。
+    - [x] 23.4i 将门禁收敛为声明驱动的通用比较层，移出技术栈、路径、文件名、符号、签名和内容常量，并验证首次候选与修复候选经过相同门禁。
+      - 新增不可变 `ContractDeclaration`、`ContractAssertion`、`ArtifactFacts` 和通用比较算子；声明门禁只消费版本化契约、解析事实、冻结文件集合和依赖闭包。
+      - `LanguageAdapter` 提供技术中立事实提取、语言诊断和最小修复扩展点；Python Adapter 使用 AST/symtable 诊断未定义全局名和 eager annotation 前向引用。
+      - Core `_PlannedAgentAdapter.generate_file()` 对首次内容和语言修复候选调用同一 `validate_candidate()`；旧技术栈私有校验方法保留为兼容测试入口，未接入生产候选路径。
+       - Python Adapter 已增加静态外部导出校验、未引用无效导入移除、唯一静态提供者导入补全和本地普通类构造一致性诊断；动态导出、星号导入、继承类、装饰类和多提供者歧义保持保守处理。
+       - 最新门禁与适配器专项回归 `129 passed, 1 warning`，`git diff --check` 通过。
+       - 已完成三轮 `python-small-spec_first` 代表性真实评测。三轮分别暴露本地类构造不一致、缺失导入与固定文件预算耗尽、生成测试异步 fixture 运行时错误；第三轮四个计划文件齐全且编译通过，但 5 个测试均在 setup 阶段失败。
+       - 第四轮 `python-small-spec_first` 已在统一 `SECRET_KEY` 环境下真实进入 Core 生成与修复链路；`models.py`、`schemas.py` 完成，`main.py` 语法恢复耗尽固定 180 秒文件预算，`tests/test_crud.py` 因上游不可用被阻断。HTTP 200、`model_call_count=14`、`elapsed_seconds=426.529`，最终状态为 `timed_out`，未达到代表性通过条件。
+       - 已将评测修复计划改为优先选择缺失文件和结构化诊断明确指向的文件；无诊断输入保留全量修复兼容行为。新增回归验证该筛选逻辑，评测 runner 测试 `17 passed`。
+       - 代表性四文件运行时验收仍未通过，固定 24-case 真实模型矩阵继续保持阻断状态；当前证据包含生成测试运行时语义错误和模型恢复超时，通用声明门禁不引入 FastAPI 或 pytest 专用源码特例。
+    - [x] 23.4j 将增量 `modify`、`add`、`delete` 和 `rename` 纳入同一文件事务，调度前保存基线，Core 成功终态后提交，其余终态与异常统一回滚；部分调度失败回归验证已提交文件和新增文件全部恢复。适配器及 Core 专项回归 `130 passed`，目标模块 `compileall` 和 `git diff --check` 通过。
+    - [x] 23.4k 移除 `orchestration/adapters.py` 的固定样例源码 fallback 和默认策略注册，保留空通用策略注册表、候选类型、声明门禁和语言修复后二次校验。23.3、23.4a–h 为历史迁移记录，当前活动路径以此项为准；Stack 模块适用性谓词仍保留，23.4 的行为等价与固定评测门禁继续待验收。
+    - [x] 23.4l 核对 `contracts/framework/runtime` 经请求 Schema、`_core_request_metadata()`、Core runtime 和三类 adapter 结构化传递；请求可显式选择 Core，省略时沿用服务端配置，配置默认值保持 legacy。
+    - [x] 23.4m 核对评测 `project_files` 为过滤依赖、缓存、构建目录与运行产物后的完整业务磁盘集合，`record_from_summary()` 与 fixture 文件集合严格比较。
+    - [x] 23.4n repair HTTP 请求映射实际响应目录：将实际 `output_dir` 解析后映射为 `PROJECTS_BASE_DIR` 下的相对路径，同时传入 `project_path/output_dir`；测试覆盖绝对/相对响应目录经 Schema、端点与 Orchestrator 后落点一致，以及基目录和越界路径在 HTTP 前拒绝。真实 repair 后完整运行时验收仍待完成。
+    - [x] 23.4o ToolchainRunner 子进程导入隔离：解析后的项目绝对路径同时作为 `cwd` 和环境副本中的 `PYTHONPATH`，保留父进程环境；通过 ValidationCoordinator 运行真实 pytest 子进程，覆盖普通包和 namespace package。
+    - [ ] 23.4p 通过代表性 Core 运行时与 repair 后验收：2026-09-07 首次候选 `python-small-spec_first` 实测 `92.272s`，HTTP 200、8 次模型调用、四个必需文件齐全且编译通过，最终 `success=false`。宿主导入污染已修复，生成测试 `client=None` 导致 9 项失败、runtime 数据库无表仍未通过；额外磁盘文件使 `plan_consistent=false`。该次 `MAX_REPAIR_ATTEMPTS=0`，CRUD、SQLite 持久化及真实 repair 后复验保持待完成，23.4 和完整 24-case 矩阵门禁继续未通过。
+
+### 2026-09-07 本轮文档同步与单元回归
+
+- [x] 23.4q 修复增量候选遗漏保留依赖：依赖可见集合纳入授权、真实存在的基线快照保留文件，并读取导出事实；可写计划仍限定变更文件。额外、缺失和快照后新增文件继续拒绝。
+- [x] 23.4r 评测严格集合精确豁免根 `.dep_graph.json`；额外隐藏文件和嵌套同名文件仍被检查。
+- [x] 23.4s 真实重测发现验证刷新 `.pyc` 导致增量事务误回滚；快照和产物门禁共用精确字节码缓存过滤，缓存目录内的源码仍受门禁约束。扩大相关回归 `300 passed`，见 `../../docs/CORE_REPAIR_EVALUATION_2026-09-07.md`。
+- [ ] 23.4p 最新复验仍未通过：本次两轮完整生成与自动 repair 分别耗时 141.993s、151.066s，均 HTTP 200、18 次模型调用、四文件齐全、编译和严格集合通过。首轮暴露并修复缓存误报；第二轮保留 schemas 依赖正常，三文件 repair 调度 completed，项目 pytest 因 SQLAlchemy `default_factory` 缺少 dataclass 配置失败，事务回滚后复验仍为初始 `DateTime(default=...)` 错误。最终 success=false，CRUD/持久化未通过，保持真实失败并停止增加样例例外。逐阶段 token、日志和检查点见上述报告。
+
+- 已核对最新 ToolchainRunner PYTHONPATH 隔离与 repair 目录映射，再同步 ARCHITECTURE、INTERFACES 和 DEVELOPER_GUIDE；保留既有改动及历史验收记录，补录另一代理的真实 Core 首次候选失败证据（92.272 秒），端到端验收保持未通过。
+- 最终相关单元回归：`608 passed, 3 warnings`，耗时 12.41 秒。前次 575 项同范围在最新代码下为 579 项（新增 4 项 repair 目录映射测试），另加 Toolchain 18 项和脚手架 11 项。覆盖全部 `test_orchestration_*.py`（含 core/adapters/endpoint/scheduler/committer）、`test_evaluation_*.py`、declarative、合成/生成契约、Stack/语言/Profile、文件生成、验证 scope、目录解析和输入校验；完整命令见 DEVELOPER_GUIDE 的本轮单元验证章节。
+- 后台 `python3 -m compileall -q app tests/unit tests/manual` 通过（退出码 0），`git diff --check` 通过。本轮单元结果不推进真实模型矩阵、运行时验收或默认路由切换门禁。
+
+### 2026-09-08 通用运行诊断与有界重试
+
+- [x] 23.4t Core 回滚前保存候选内容摘要和 Profile 运行诊断，并经 runtime、同步响应 Schema 输出 `repair_feedback`；stdout/stderr 分别保留有界输出。
+- [x] 23.4u 自动 repair 优先消费最新失败候选，诊断变化可在既有三轮预算内继续，重复诊断、历史循环或重复完整候选明确无进展终止；成功同时要求 Core 与磁盘复验通过。
+- [x] 23.4v 补充回滚后检查点及 API 诊断保留、新诊断实际请求、不同诊断继续、重复诊断/候选停止、历史循环、预算上限和 Core 失败成功门禁测试。最终相关回归 `351 passed, 3 warnings`，7.17 秒，日志 `/tmp/terminal_term_1788829244492_796.log`。
+- [x] 23.4w 增加通用 `HttpContract` 可选请求/响应 body schema 和 serialization guidance；评测 case 结构化合同经共用首次/repair 请求、端点 metadata、Core 索引送到文件生成器。保留旧合同省略字段和扩展字段，验证索引摘要、三类 adapter、retry、实际提示词和自定义库存 case 请求。相关单元回归 `361 passed, 3 warnings`，5.13 秒，`git diff --check` 通过。
+- [ ] 23.4x HTTP JSON body 序列化真实复验：用户报告的模型实例直接传 `json=` 已补充合同表达和传递；本轮未执行真实模型重生成、自动 repair 或生成项目 CRUD/SQLite 验收，保持待完成，详见 `../../docs/CORE_REPAIR_EVALUATION_2026-09-08.md` 的 HTTP body 合同修复章节。
+- [ ] 23.4p 2026-09-08 两次默认自动 repair 实测仍未通过交付验收：A 运行两轮后以重复历史诊断停止（293.902 秒、39 次调用）；B 运行三轮后预算耗尽（359.178 秒、36 次调用）。B 中真实 Profile 异常经 rollback 后传入下一轮，最终模型生成仍有 NoneType 调用及缺少 get_test_db_path 错误。详见 `../../docs/CORE_REPAIR_EVALUATION_2026-09-08.md`。

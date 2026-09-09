@@ -54,7 +54,12 @@ class StateGraph:
         steps = 0
         while current != END:
             if steps >= self.max_steps:
-                raise GraphExecutionError("graph exceeded max_steps")
+                return self._failure_state(
+                    state,
+                    current,
+                    "graph exceeded max_steps",
+                    "graph.max_steps_exceeded",
+                )
             handler = self.nodes[current]
             snapshot = copy.deepcopy(state)
             try:
@@ -83,12 +88,42 @@ class StateGraph:
                     continue
                 return state
 
-            current = await self._next_node(current, state)
+            try:
+                current = await self._next_node(current, state)
+            except Exception as exc:
+                return self._failure_state(
+                    state,
+                    current,
+                    str(exc),
+                    "graph.routing_failed",
+                )
             if state.pending_actions:
                 state.metadata[NEXT_NODE_METADATA_KEY] = current
                 return state
             steps += 1
         return state
+
+    def _failure_state(
+        self,
+        state: State,
+        node: str,
+        message: str,
+        code: str,
+    ) -> State:
+        return self.reducer.apply(
+            state,
+            StateDelta(
+                expected_revision=state.revision,
+                status="failed",
+                errors=[{
+                    "code": code,
+                    "message": message,
+                    "retryable": False,
+                    "details": {"node": node},
+                }],
+                metadata={"failed_node": node},
+            ),
+        )
 
     async def _next_node(self, current: str, state: State) -> str:
         if current in self.conditional_edges:

@@ -1,0 +1,2454 @@
+{
+  "go-modular-spec_first": {
+    "candidate_passed": false,
+    "case_id": "go-modular-spec_first",
+    "elapsed_seconds": 0.028,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "modular",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_go-modular-spec_first__1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "go-modular-spec_first",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: go.mod, go.sum, cmd/server/main.go, internal/todos/store.go, internal/todos/service.go, internal/todos/handler.go, internal/todos/handler_test.go"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.028,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "modular",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "spec_first",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "go.mod",
+      "go.sum",
+      "cmd/server/main.go",
+      "internal/todos/store.go",
+      "internal/todos/service.go",
+      "internal/todos/handler.go",
+      "internal/todos/handler_test.go"
+    ],
+    "strategy": "spec_first",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "go",
+          "test",
+          "./..."
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_go-modular-spec_first__1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "go.mod",
+          "go.sum",
+          "cmd/server/main.go",
+          "internal/todos/store.go",
+          "internal/todos/service.go",
+          "internal/todos/handler.go",
+          "internal/todos/handler_test.go"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: go.mod, go.sum, cmd/server/main.go, internal/todos/store.go, internal/todos/service.go, internal/todos/handler.go, internal/todos/handler_test.go",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: go.mod, go.sum, cmd/server/main.go, internal/todos/store.go, internal/todos/service.go, internal/todos/handler.go, internal/todos/handler_test.go",
+        "supported": true
+      }
+    }
+  },
+  "go-modular-traditional": {
+    "candidate_passed": false,
+    "case_id": "go-modular-traditional",
+    "elapsed_seconds": 0.027,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "modular",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_go-modular-traditional__1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "go-modular-traditional",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: go.mod, go.sum, cmd/server/main.go, internal/todos/store.go, internal/todos/service.go, internal/todos/handler.go, internal/todos/handler_test.go"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.027,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "modular",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "traditional",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "go.mod",
+      "go.sum",
+      "cmd/server/main.go",
+      "internal/todos/store.go",
+      "internal/todos/service.go",
+      "internal/todos/handler.go",
+      "internal/todos/handler_test.go"
+    ],
+    "strategy": "traditional",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "go",
+          "test",
+          "./..."
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_go-modular-traditional__1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "go.mod",
+          "go.sum",
+          "cmd/server/main.go",
+          "internal/todos/store.go",
+          "internal/todos/service.go",
+          "internal/todos/handler.go",
+          "internal/todos/handler_test.go"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: go.mod, go.sum, cmd/server/main.go, internal/todos/store.go, internal/todos/service.go, internal/todos/handler.go, internal/todos/handler_test.go",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: go.mod, go.sum, cmd/server/main.go, internal/todos/store.go, internal/todos/service.go, internal/todos/handler.go, internal/todos/handler_test.go",
+        "supported": true
+      }
+    }
+  },
+  "go-single-spec_first": {
+    "candidate_passed": false,
+    "case_id": "go-single-spec_first",
+    "elapsed_seconds": 0.028,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "single",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_go-single-spec_first__1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "go-single-spec_first",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: main.go"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.028,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "single",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "spec_first",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "main.go"
+    ],
+    "strategy": "spec_first",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "go",
+          "test",
+          "main.go"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_go-single-spec_first__1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "main.go"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: main.go",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: main.go",
+        "supported": true
+      }
+    }
+  },
+  "go-single-traditional": {
+    "candidate_passed": false,
+    "case_id": "go-single-traditional",
+    "elapsed_seconds": 0.035,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "single",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_go-single-traditional__1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "go-single-traditional",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: main.go"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.035,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "single",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "traditional",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "main.go"
+    ],
+    "strategy": "traditional",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "go",
+          "test",
+          "main.go"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_go-single-traditional__1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "main.go"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: main.go",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: main.go",
+        "supported": true
+      }
+    }
+  },
+  "go-small-spec_first": {
+    "candidate_passed": false,
+    "case_id": "go-small-spec_first",
+    "elapsed_seconds": 0.028,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "small",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_go-small-spec_first__1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "go-small-spec_first",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: cmd/server/main.go, internal/todos/store.go, internal/todos/handler_test.go"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.028,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "small",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "spec_first",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "cmd/server/main.go",
+      "internal/todos/store.go",
+      "internal/todos/handler_test.go"
+    ],
+    "strategy": "spec_first",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "go",
+          "test",
+          "cmd/server/main.go",
+          "internal/todos/store.go",
+          "internal/todos/handler_test.go"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_go-small-spec_first__1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "cmd/server/main.go",
+          "internal/todos/store.go",
+          "internal/todos/handler_test.go"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: cmd/server/main.go, internal/todos/store.go, internal/todos/handler_test.go",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: cmd/server/main.go, internal/todos/store.go, internal/todos/handler_test.go",
+        "supported": true
+      }
+    }
+  },
+  "go-small-traditional": {
+    "candidate_passed": false,
+    "case_id": "go-small-traditional",
+    "elapsed_seconds": 0.027,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "small",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_go-small-traditional__1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "go-small-traditional",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: cmd/server/main.go, internal/todos/store.go, internal/todos/handler_test.go"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.027,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "small",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "traditional",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "cmd/server/main.go",
+      "internal/todos/store.go",
+      "internal/todos/handler_test.go"
+    ],
+    "strategy": "traditional",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "go",
+          "test",
+          "cmd/server/main.go",
+          "internal/todos/store.go",
+          "internal/todos/handler_test.go"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_go-small-traditional__1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "cmd/server/main.go",
+          "internal/todos/store.go",
+          "internal/todos/handler_test.go"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: cmd/server/main.go, internal/todos/store.go, internal/todos/handler_test.go",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: cmd/server/main.go, internal/todos/store.go, internal/todos/handler_test.go",
+        "supported": true
+      }
+    }
+  },
+  "java-modular-spec_first": {
+    "candidate_passed": false,
+    "case_id": "java-modular-spec_first",
+    "elapsed_seconds": 0.027,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "modular",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_java-modular-spec_first__1788709551",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "java-modular-spec_first",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: pom.xml, src/main/java/com/example/Application.java, src/main/java/com/example/Todo.java, src/main/java/com/example/TodoRepository.java, src/main/java/com/example/TodoService.java, src/test/java/com/example/TodoControllerTest.java"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.027,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "modular",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "spec_first",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "pom.xml",
+      "src/main/java/com/example/Application.java",
+      "src/main/java/com/example/Todo.java",
+      "src/main/java/com/example/TodoRepository.java",
+      "src/main/java/com/example/TodoService.java",
+      "src/test/java/com/example/TodoControllerTest.java"
+    ],
+    "strategy": "spec_first",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "mvn",
+          "-q",
+          "-DskipTests",
+          "compile"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_java-modular-spec_first__1788709551')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "pom.xml",
+          "src/main/java/com/example/Application.java",
+          "src/main/java/com/example/Todo.java",
+          "src/main/java/com/example/TodoRepository.java",
+          "src/main/java/com/example/TodoService.java",
+          "src/test/java/com/example/TodoControllerTest.java"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: pom.xml, src/main/java/com/example/Application.java, src/main/java/com/example/Todo.java, src/main/java/com/example/TodoRepository.java, src/main/java/com/example/TodoService.java, src/test/java/com/example/TodoControllerTest.java",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: pom.xml, src/main/java/com/example/Application.java, src/main/java/com/example/Todo.java, src/main/java/com/example/TodoRepository.java, src/main/java/com/example/TodoService.java, src/test/java/com/example/TodoControllerTest.java",
+        "supported": true
+      }
+    }
+  },
+  "java-modular-traditional": {
+    "candidate_passed": false,
+    "case_id": "java-modular-traditional",
+    "elapsed_seconds": 0.027,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "modular",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_java-modular-traditional__1788709551",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "java-modular-traditional",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: pom.xml, src/main/java/com/example/Application.java, src/main/java/com/example/Todo.java, src/main/java/com/example/TodoRepository.java, src/main/java/com/example/TodoService.java, src/test/java/com/example/TodoControllerTest.java"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.027,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "modular",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "traditional",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "pom.xml",
+      "src/main/java/com/example/Application.java",
+      "src/main/java/com/example/Todo.java",
+      "src/main/java/com/example/TodoRepository.java",
+      "src/main/java/com/example/TodoService.java",
+      "src/test/java/com/example/TodoControllerTest.java"
+    ],
+    "strategy": "traditional",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "mvn",
+          "-q",
+          "-DskipTests",
+          "compile"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_java-modular-traditional__1788709551')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "pom.xml",
+          "src/main/java/com/example/Application.java",
+          "src/main/java/com/example/Todo.java",
+          "src/main/java/com/example/TodoRepository.java",
+          "src/main/java/com/example/TodoService.java",
+          "src/test/java/com/example/TodoControllerTest.java"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: pom.xml, src/main/java/com/example/Application.java, src/main/java/com/example/Todo.java, src/main/java/com/example/TodoRepository.java, src/main/java/com/example/TodoService.java, src/test/java/com/example/TodoControllerTest.java",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: pom.xml, src/main/java/com/example/Application.java, src/main/java/com/example/Todo.java, src/main/java/com/example/TodoRepository.java, src/main/java/com/example/TodoService.java, src/test/java/com/example/TodoControllerTest.java",
+        "supported": true
+      }
+    }
+  },
+  "java-single-spec_first": {
+    "candidate_passed": false,
+    "case_id": "java-single-spec_first",
+    "elapsed_seconds": 0.027,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "single",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_java-single-spec_first__1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "java-single-spec_first",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: src/main/java/com/example/Application.java"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.027,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "single",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "spec_first",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "src/main/java/com/example/Application.java"
+    ],
+    "strategy": "spec_first",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "javac",
+          "src/main/java/com/example/Application.java"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_java-single-spec_first__1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "src/main/java/com/example/Application.java"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: src/main/java/com/example/Application.java",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: src/main/java/com/example/Application.java",
+        "supported": true
+      }
+    }
+  },
+  "java-single-traditional": {
+    "candidate_passed": false,
+    "case_id": "java-single-traditional",
+    "elapsed_seconds": 0.042,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "single",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_java-single-traditional__1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "java-single-traditional",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: src/main/java/com/example/Application.java"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.042,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "single",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "traditional",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "src/main/java/com/example/Application.java"
+    ],
+    "strategy": "traditional",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "javac",
+          "src/main/java/com/example/Application.java"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_java-single-traditional__1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "src/main/java/com/example/Application.java"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: src/main/java/com/example/Application.java",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: src/main/java/com/example/Application.java",
+        "supported": true
+      }
+    }
+  },
+  "java-small-spec_first": {
+    "candidate_passed": false,
+    "case_id": "java-small-spec_first",
+    "elapsed_seconds": 0.028,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "small",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_java-small-spec_first__1788709551",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "java-small-spec_first",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: pom.xml, src/main/java/com/example/Application.java, src/test/java/com/example/TodoControllerTest.java"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.028,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "small",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "spec_first",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "pom.xml",
+      "src/main/java/com/example/Application.java",
+      "src/test/java/com/example/TodoControllerTest.java"
+    ],
+    "strategy": "spec_first",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "mvn",
+          "-q",
+          "-DskipTests",
+          "compile"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_java-small-spec_first__1788709551')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "pom.xml",
+          "src/main/java/com/example/Application.java",
+          "src/test/java/com/example/TodoControllerTest.java"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: pom.xml, src/main/java/com/example/Application.java, src/test/java/com/example/TodoControllerTest.java",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: pom.xml, src/main/java/com/example/Application.java, src/test/java/com/example/TodoControllerTest.java",
+        "supported": true
+      }
+    }
+  },
+  "java-small-traditional": {
+    "candidate_passed": false,
+    "case_id": "java-small-traditional",
+    "elapsed_seconds": 0.028,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "small",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_java-small-traditional__1788709551",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "java-small-traditional",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: pom.xml, src/main/java/com/example/Application.java, src/test/java/com/example/TodoControllerTest.java"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.028,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "small",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "traditional",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "pom.xml",
+      "src/main/java/com/example/Application.java",
+      "src/test/java/com/example/TodoControllerTest.java"
+    ],
+    "strategy": "traditional",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "mvn",
+          "-q",
+          "-DskipTests",
+          "compile"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_java-small-traditional__1788709551')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "pom.xml",
+          "src/main/java/com/example/Application.java",
+          "src/test/java/com/example/TodoControllerTest.java"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: pom.xml, src/main/java/com/example/Application.java, src/test/java/com/example/TodoControllerTest.java",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: pom.xml, src/main/java/com/example/Application.java, src/test/java/com/example/TodoControllerTest.java",
+        "supported": true
+      }
+    }
+  },
+  "python-modular-spec_first": {
+    "candidate_passed": false,
+    "case_id": "python-modular-spec_first",
+    "elapsed_seconds": 0.032,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "modular",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_python-modular-spec_first__1788709549",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "python-modular-spec_first",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: app/main.py, app/models.py, app/schemas.py, app/crud.py, app/repository.py, tests/test_crud.py"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.032,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "modular",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "spec_first",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "app/main.py",
+      "app/models.py",
+      "app/schemas.py",
+      "app/crud.py",
+      "app/repository.py",
+      "tests/test_crud.py"
+    ],
+    "strategy": "spec_first",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "/usr/bin/python3",
+          "-m",
+          "compileall",
+          "-q",
+          "."
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_python-modular-spec_first__1788709549')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "app/main.py",
+          "app/models.py",
+          "app/schemas.py",
+          "app/crud.py",
+          "app/repository.py",
+          "tests/test_crud.py"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: app/main.py, app/models.py, app/schemas.py, app/crud.py, app/repository.py, tests/test_crud.py",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: app/main.py, app/models.py, app/schemas.py, app/crud.py, app/repository.py, tests/test_crud.py",
+        "supported": true
+      }
+    }
+  },
+  "python-modular-traditional": {
+    "candidate_passed": false,
+    "case_id": "python-modular-traditional",
+    "elapsed_seconds": 0.102,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "modular",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_python-modular-traditional__1788709549",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "python-modular-traditional",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: app/main.py, app/models.py, app/schemas.py, app/crud.py, app/repository.py, tests/test_crud.py"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.102,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "modular",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "traditional",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "app/main.py",
+      "app/models.py",
+      "app/schemas.py",
+      "app/crud.py",
+      "app/repository.py",
+      "tests/test_crud.py"
+    ],
+    "strategy": "traditional",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "/usr/bin/python3",
+          "-m",
+          "compileall",
+          "-q",
+          "."
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_python-modular-traditional__1788709549')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "app/main.py",
+          "app/models.py",
+          "app/schemas.py",
+          "app/crud.py",
+          "app/repository.py",
+          "tests/test_crud.py"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: app/main.py, app/models.py, app/schemas.py, app/crud.py, app/repository.py, tests/test_crud.py",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: app/main.py, app/models.py, app/schemas.py, app/crud.py, app/repository.py, tests/test_crud.py",
+        "supported": true
+      }
+    }
+  },
+  "python-single-spec_first": {
+    "candidate_passed": false,
+    "case_id": "python-single-spec_first",
+    "elapsed_seconds": 421.652,
+    "errors": [
+      {
+        "code": "INTERNAL_ERROR",
+        "message": "项目生成失败: 2 validation errors for OrchestratorResponse\ncontext_summary\n  Input should be a valid string [type=string_type, input_value={'session_id': '20260906_... 0, 'suggestions': []}}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nfix_attempts\n  Field required [type=missing, input_value={'success': True, 'output..., 'token_count': 39569}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing"
+      }
+    ],
+    "file_scale": "single",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 500,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_python-single-spec_first__1788710882",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "python-single-spec_first",
+      "compile_passed": true,
+      "database_diagnostics": [
+        "required files missing: main.py"
+      ],
+      "database_status": "supported",
+      "dependency_closure": true,
+      "elapsed_seconds": 421.652,
+      "evaluation_status": "completed",
+      "file_scale": "single",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "spec_first",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "main.py"
+    ],
+    "strategy": "spec_first",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "/usr/bin/python3",
+          "-m",
+          "compileall",
+          "-q",
+          "."
+        ],
+        "passed": true,
+        "stderr": "",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "main.py"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: main.py",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: main.py",
+        "supported": true
+      }
+    }
+  },
+  "python-single-traditional": {
+    "candidate_passed": false,
+    "case_id": "python-single-traditional",
+    "elapsed_seconds": 516.318,
+    "errors": [],
+    "file_scale": "single",
+    "files": [
+      "main.py"
+    ],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 5,
+      "node_attempts": {},
+      "token_count": 16797
+    },
+    "http_status": 200,
+    "model_call_count": 77,
+    "output_dir": "/workspace/projects/1/evaluation_python-single-traditional__1788710364",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "python-single-traditional",
+      "compile_passed": true,
+      "database_diagnostics": [
+        "r_awaitable\n             ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/applications.py\", line 1159, in __call__\n    await super().__call__(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/applications.py\", line 90, in __call__\n    await self.middleware_stack(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/errors.py\", line 186, in __call__\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/errors.py\", line 164, in __call__\n    await self.app(scope, receive, _send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/exceptions.py\", line 63, in __call__\n    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 53, in wrapped_app\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 42, in wrapped_app\n    await app(scope, receive, sender)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/middleware/asyncexitstack.py\", line 18, in __call__\n    await self.app(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 660, in __call__\n    await self.middleware_stack(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 680, in app\n    await route.handle(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 276, in handle\n    await self.app(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 134, in app\n    await wrap_app_handling_exceptions(app, request)(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 53, in wrapped_app\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 42, in wrapped_app\n    await app(scope, receive, sender)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 120, in app\n    response = await f(request)\n               ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 674, in app\n    raw_response = await run_endpoint_function(\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 330, in run_endpoint_function\n    return await run_in_threadpool(dependant.call, **values)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/concurrency.py\", line 32, in run_in_threadpool\n    return await anyio.to_thread.run_sync(func)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/to_thread.py\", line 63, in run_sync\n    return await get_async_backend().run_sync_in_worker_thread(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py\", line 2518, in run_sync_in_worker_thread\n    return await future\n           ^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py\", line 1002, in run\n    result = context.run(func, *args)\n             ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 141, in create_todo_endpoint\n    result, status_code = create_todo(todo)\n                          ^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 87, in create_todo\n    conn = get_db_connection()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 47, in get_db_connection\n    conn = sqlite3.connect(DATABASE_URL)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsqlite3.OperationalError: unable to open database file\n"
+      ],
+      "database_status": "supported",
+      "dependency_closure": true,
+      "elapsed_seconds": 516.318,
+      "evaluation_status": "completed",
+      "file_scale": "single",
+      "files_complete": true,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 77,
+      "persistence_passed": false,
+      "plan_consistent": true,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "traditional",
+      "tests_passed": false,
+      "token_count": 471364
+    },
+    "repair_attempts": [
+      {
+        "generation_metrics": {
+          "model_call_count": 72,
+          "node_attempts": {},
+          "token_count": 454567
+        },
+        "repair": {
+          "http_status": 200,
+          "response": {
+            "complexity": "small",
+            "context_full": null,
+            "context_summary": null,
+            "elapsed_time": 285.08566665649414,
+            "errors": [
+              "文件验证失败，禁止落盘: app/database.py",
+              "文件生成失败: app/models.py（跨文件导入不一致: 项目模块 app/database.py 尚未生成，当前拓扑层禁止导入）",
+              "文件生成失败: app/__init__.py（跨文件导入不一致: 项目模块 app/database.py 尚未生成，当前拓扑层禁止导入；项目模块 app/models.py 尚未生成，当前拓扑层禁止导入；项目模块 app/routers.py 尚未生成，当前拓扑层禁止导入）",
+              "文件生成失败: 11/dist-packages/starlette/concurrency.py（跨文件导入不一致: 项目模块 11/dist-packages/anyio/to_thread.py 尚未生成，当前拓扑层禁止导入）",
+              "文件验证失败，禁止落盘: 11/dist-packages/anyio/_backends/_asyncio.py",
+              "文件生成失败: app/routers.py（跨文件导入不一致: 名称 app 在模块全局作用域中未定义或导入；项目模块 11/dist-packages/fastapi/routing.py 尚未生成，当前拓扑层禁止导入；项目模块 app/database.py 尚未生成，当前拓扑层禁止导入；项目模块 app/models.py 尚未生成，当前拓扑层禁止导入；项目模块 app/services.py 尚未生成，当前拓扑层禁止导入）",
+              "文件生成失败: tests/test_app.py（跨文件导入不一致: 项目模块 app/routers.py 尚未生成，当前拓扑层禁止导入；项目模块 app/models.py 尚未生成，当前拓扑层禁止导入；项目模块 app/services.py 尚未生成，当前拓扑层禁止导入；项目模块 app/database.py 尚未生成，当前拓扑层禁止导入；项目模块 app/config.py 尚未生成，当前拓扑层禁止导入）",
+              "文件生成失败: app/services.py（跨文件导入不一致: 名称 os 在模块全局作用域中未定义或导入；名称 sqlite3 在模块全局作用域中未定义或导入；项目模块 app/models.py 尚未生成，当前拓扑层禁止导入）",
+              "文件生成失败: main.py（跨文件导入不一致: 修复响应无效: 内容为空）",
+              "文件验证失败，禁止落盘: 11/dist-packages/fastapi/routing.py",
+              "文件生成失败: 内部异常 - `BaseSettings` has been moved to the `pydantic-settings` package. See https://docs.pydantic.dev/2.13...",
+              "项目文件不完整: 缺失 ['11/dist-packages/anyio/_backends/_asyncio.py', '11/dist-packages/anyio/to_thread.py', '11/dist-packages/fastapi/routing.py', '11/dist-packages/starlette/_exception_handler.py', '11/dist-packages/starlette/concurrency.py', 'README.md', 'app/__init__.py', 'app/config.py', 'app/database.py', 'app/models.py', 'app/routers.py', 'app/services.py', 'app/utils.py', 'b/python3.11/dist-packages/starlette/_exception_handler.py', 'main.py', 'requirements.txt', 'single-traditional__1788710364/main.py', 'tests/test_app.py']，无效 []"
+            ],
+            "files": [],
+            "fix_attempts": [
+              {
+                "attempts": 1,
+                "file": "projects/1/evaluation_python-single-traditional__1788710364/app/database.py",
+                "model_used": null,
+                "success": false
+              },
+              {
+                "attempts": 0,
+                "file": "projects/1/evaluation_python-single-traditional__1788710364/11/dist-packages/anyio/_backends/_asyncio.py",
+                "model_used": null,
+                "success": false
+              },
+              {
+                "attempts": 2,
+                "file": "projects/1/evaluation_python-single-traditional__1788710364/11/dist-packages/fastapi/routing.py",
+                "model_used": null,
+                "success": false
+              }
+            ],
+            "generation_metrics": {
+              "model_call_count": 72,
+              "token_count": 454567
+            },
+            "models_used": {
+              "architect": "Qwen/Qwen3-8B",
+              "backend": "Qwen/Qwen3.5-4B",
+              "frontend": "Qwen/Qwen2.5-7B-Instruct",
+              "reviewer": "THUDM/GLM-Z1-9B-0414"
+            },
+            "output_dir": "/workspace/projects/1/evaluation_python-single-traditional__1788710364",
+            "session_id": "6cb5b071-97d9-4bc9-9090-3f35faebfefc",
+            "specs_generated": null,
+            "success": false,
+            "test_results": {
+              "message": "未运行动态测试",
+              "success": true
+            },
+            "total_files_created": 0,
+            "total_files_failed": 0,
+            "validation": {
+              "api_errors": [],
+              "cache_hit": false,
+              "cross_file_errors": [
+                "跨文件引用: main.py 导入了不存在的模块 'datetime'"
+              ],
+              "dependency_errors": [
+                "缺少 requirements.txt / pyproject.toml / Pipfile"
+              ],
+              "frontend_errors": [],
+              "import_errors": [],
+              "is_valid": false,
+              "runtime_errors": [],
+              "syntax_errors": [],
+              "validated_files": 1
+            },
+            "warnings": [
+              "文件验证未完全通过: app/database.py",
+              "文件验证未完全通过: 11/dist-packages/anyio/_backends/_asyncio.py",
+              "文件验证未完全通过: 11/dist-packages/fastapi/routing.py",
+              "小项目生成失败，已回滚"
+            ]
+          }
+        },
+        "verification": {
+          "compile": {
+            "command": [
+              "/usr/bin/python3",
+              "-m",
+              "compileall",
+              "-q",
+              "."
+            ],
+            "passed": true,
+            "stderr": "",
+            "stdout": "",
+            "supported": true
+          },
+          "files_complete": {
+            "missing": [],
+            "passed": true
+          },
+          "passed": false,
+          "runtime": {
+            "passed": false,
+            "stderr": "r_awaitable\n             ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/applications.py\", line 1159, in __call__\n    await super().__call__(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/applications.py\", line 90, in __call__\n    await self.middleware_stack(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/errors.py\", line 186, in __call__\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/errors.py\", line 164, in __call__\n    await self.app(scope, receive, _send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/exceptions.py\", line 63, in __call__\n    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 53, in wrapped_app\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 42, in wrapped_app\n    await app(scope, receive, sender)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/middleware/asyncexitstack.py\", line 18, in __call__\n    await self.app(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 660, in __call__\n    await self.middleware_stack(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 680, in app\n    await route.handle(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 276, in handle\n    await self.app(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 134, in app\n    await wrap_app_handling_exceptions(app, request)(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 53, in wrapped_app\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 42, in wrapped_app\n    await app(scope, receive, sender)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 120, in app\n    response = await f(request)\n               ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 674, in app\n    raw_response = await run_endpoint_function(\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 330, in run_endpoint_function\n    return await run_in_threadpool(dependant.call, **values)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/concurrency.py\", line 32, in run_in_threadpool\n    return await anyio.to_thread.run_sync(func)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/to_thread.py\", line 63, in run_sync\n    return await get_async_backend().run_sync_in_worker_thread(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py\", line 2518, in run_sync_in_worker_thread\n    return await future\n           ^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py\", line 1002, in run\n    result = context.run(func, *args)\n             ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 141, in create_todo_endpoint\n    result, status_code = create_todo(todo)\n                          ^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 87, in create_todo\n    conn = get_db_connection()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 47, in get_db_connection\n    conn = sqlite3.connect(DATABASE_URL)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsqlite3.OperationalError: unable to open database file\n",
+            "stdout": "",
+            "supported": true
+          },
+          "tests": {
+            "passed": false,
+            "stderr": "r_awaitable\n             ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/applications.py\", line 1159, in __call__\n    await super().__call__(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/applications.py\", line 90, in __call__\n    await self.middleware_stack(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/errors.py\", line 186, in __call__\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/errors.py\", line 164, in __call__\n    await self.app(scope, receive, _send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/exceptions.py\", line 63, in __call__\n    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 53, in wrapped_app\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 42, in wrapped_app\n    await app(scope, receive, sender)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/middleware/asyncexitstack.py\", line 18, in __call__\n    await self.app(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 660, in __call__\n    await self.middleware_stack(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 680, in app\n    await route.handle(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 276, in handle\n    await self.app(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 134, in app\n    await wrap_app_handling_exceptions(app, request)(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 53, in wrapped_app\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 42, in wrapped_app\n    await app(scope, receive, sender)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 120, in app\n    response = await f(request)\n               ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 674, in app\n    raw_response = await run_endpoint_function(\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 330, in run_endpoint_function\n    return await run_in_threadpool(dependant.call, **values)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/concurrency.py\", line 32, in run_in_threadpool\n    return await anyio.to_thread.run_sync(func)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/to_thread.py\", line 63, in run_sync\n    return await get_async_backend().run_sync_in_worker_thread(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py\", line 2518, in run_sync_in_worker_thread\n    return await future\n           ^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py\", line 1002, in run\n    result = context.run(func, *args)\n             ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 141, in create_todo_endpoint\n    result, status_code = create_todo(todo)\n                          ^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 87, in create_todo\n    conn = get_db_connection()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 47, in get_db_connection\n    conn = sqlite3.connect(DATABASE_URL)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsqlite3.OperationalError: unable to open database file\n",
+            "stdout": "",
+            "supported": true
+          }
+        }
+      }
+    ],
+    "repaired_passed": false,
+    "required_files": [
+      "main.py"
+    ],
+    "strategy": "traditional",
+    "success": false,
+    "token_count": 471364,
+    "verification": {
+      "compile": {
+        "command": [
+          "/usr/bin/python3",
+          "-m",
+          "compileall",
+          "-q",
+          "."
+        ],
+        "passed": true,
+        "stderr": "",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [],
+        "passed": true
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "r_awaitable\n             ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/applications.py\", line 1159, in __call__\n    await super().__call__(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/applications.py\", line 90, in __call__\n    await self.middleware_stack(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/errors.py\", line 186, in __call__\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/errors.py\", line 164, in __call__\n    await self.app(scope, receive, _send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/exceptions.py\", line 63, in __call__\n    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 53, in wrapped_app\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 42, in wrapped_app\n    await app(scope, receive, sender)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/middleware/asyncexitstack.py\", line 18, in __call__\n    await self.app(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 660, in __call__\n    await self.middleware_stack(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 680, in app\n    await route.handle(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 276, in handle\n    await self.app(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 134, in app\n    await wrap_app_handling_exceptions(app, request)(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 53, in wrapped_app\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 42, in wrapped_app\n    await app(scope, receive, sender)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 120, in app\n    response = await f(request)\n               ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 674, in app\n    raw_response = await run_endpoint_function(\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 330, in run_endpoint_function\n    return await run_in_threadpool(dependant.call, **values)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/concurrency.py\", line 32, in run_in_threadpool\n    return await anyio.to_thread.run_sync(func)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/to_thread.py\", line 63, in run_sync\n    return await get_async_backend().run_sync_in_worker_thread(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py\", line 2518, in run_sync_in_worker_thread\n    return await future\n           ^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py\", line 1002, in run\n    result = context.run(func, *args)\n             ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 141, in create_todo_endpoint\n    result, status_code = create_todo(todo)\n                          ^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 87, in create_todo\n    conn = get_db_connection()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 47, in get_db_connection\n    conn = sqlite3.connect(DATABASE_URL)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsqlite3.OperationalError: unable to open database file\n",
+        "stdout": "",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "r_awaitable\n             ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/applications.py\", line 1159, in __call__\n    await super().__call__(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/applications.py\", line 90, in __call__\n    await self.middleware_stack(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/errors.py\", line 186, in __call__\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/errors.py\", line 164, in __call__\n    await self.app(scope, receive, _send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/middleware/exceptions.py\", line 63, in __call__\n    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 53, in wrapped_app\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 42, in wrapped_app\n    await app(scope, receive, sender)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/middleware/asyncexitstack.py\", line 18, in __call__\n    await self.app(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 660, in __call__\n    await self.middleware_stack(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 680, in app\n    await route.handle(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/routing.py\", line 276, in handle\n    await self.app(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 134, in app\n    await wrap_app_handling_exceptions(app, request)(scope, receive, send)\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 53, in wrapped_app\n    raise exc\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/_exception_handler.py\", line 42, in wrapped_app\n    await app(scope, receive, sender)\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 120, in app\n    response = await f(request)\n               ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 674, in app\n    raw_response = await run_endpoint_function(\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/fastapi/routing.py\", line 330, in run_endpoint_function\n    return await run_in_threadpool(dependant.call, **values)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/starlette/concurrency.py\", line 32, in run_in_threadpool\n    return await anyio.to_thread.run_sync(func)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/to_thread.py\", line 63, in run_sync\n    return await get_async_backend().run_sync_in_worker_thread(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py\", line 2518, in run_sync_in_worker_thread\n    return await future\n           ^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/dist-packages/anyio/_backends/_asyncio.py\", line 1002, in run\n    result = context.run(func, *args)\n             ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 141, in create_todo_endpoint\n    result, status_code = create_todo(todo)\n                          ^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 87, in create_todo\n    conn = get_db_connection()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/projects/1/evaluation_python-single-traditional__1788710364/main.py\", line 47, in get_db_connection\n    conn = sqlite3.connect(DATABASE_URL)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nsqlite3.OperationalError: unable to open database file\n",
+        "stdout": "",
+        "supported": true
+      }
+    }
+  },
+  "python-small-spec_first": {
+    "candidate_passed": false,
+    "case_id": "python-small-spec_first",
+    "elapsed_seconds": 519.431,
+    "errors": [
+      {
+        "code": "INTERNAL_ERROR",
+        "message": "项目生成失败: 2 validation errors for OrchestratorResponse\ncontext_summary\n  Input should be a valid string [type=string_type, input_value={'session_id': '20260906_... 0, 'suggestions': []}}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nfix_attempts\n  Field required [type=missing, input_value={'success': True, 'output..., 'token_count': 70868}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing"
+      }
+    ],
+    "file_scale": "small",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 500,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_python-small-spec_first__1788711872",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "python-small-spec_first",
+      "compile_passed": true,
+      "database_diagnostics": [
+        "Traceback (most recent call last):\n  File \"<string>\", line 4, in <module>\n  File \"/workspace/projects/1/evaluation_python-small-spec_first__1788711872/app/__init__.py\", line 3, in <module>\n    from .models import Todo\n  File \"/workspace/projects/1/evaluation_python-small-spec_first__1788711872/app/models.py\", line 7, in <module>\n    from app.database import Base\nModuleNotFoundError: No module named 'app.database'\n"
+      ],
+      "database_status": "supported",
+      "dependency_closure": true,
+      "elapsed_seconds": 519.431,
+      "evaluation_status": "completed",
+      "file_scale": "small",
+      "files_complete": true,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "spec_first",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "app/main.py",
+      "app/models.py",
+      "app/schemas.py",
+      "tests/test_crud.py"
+    ],
+    "strategy": "spec_first",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "/usr/bin/python3",
+          "-m",
+          "compileall",
+          "-q",
+          "."
+        ],
+        "passed": true,
+        "stderr": "",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [],
+        "passed": true
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 4, in <module>\n  File \"/workspace/projects/1/evaluation_python-small-spec_first__1788711872/app/__init__.py\", line 3, in <module>\n    from .models import Todo\n  File \"/workspace/projects/1/evaluation_python-small-spec_first__1788711872/app/models.py\", line 7, in <module>\n    from app.database import Base\nModuleNotFoundError: No module named 'app.database'\n",
+        "stdout": "",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "",
+        "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.2, pytest-9.0.3, pluggy-1.6.0\nrootdir: /workspace\nconfigfile: pyproject.toml\nplugins: asyncio-1.3.0, anyio-4.13.0\nasyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function\ncollected 0 items / 1 error\n\n==================================== ERRORS ====================================\n_ ERROR collecting projects/1/evaluation_python-small-spec_first__1788711872/tests/test_crud.py _\nImportError while importing test module '/workspace/projects/1/evaluation_python-small-spec_first__1788711872/tests/test_crud.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n/usr/lib/python3.11/importlib/__init__.py:126: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntests/__init__.py:3: in <module>\n    from .test_crud import client, test_health_endpoint, setup_database_for_tests, test_create_todo, test_list_todos, test_get_todo, test_update_todo, test_delete_todo, test_get_nonexistent_todo, test_create_todo_with_invalid_title, test_update_nonexistent_todo, test_delete_nonexistent_todo, test_persistence_after_list, test_delete_removes_from_list\ntests/test_crud.py:6: in <module>\n    from app.main import app, initialize_db, get_db\napp/__init__.py:3: in <module>\n    from .models import Todo\napp/models.py:7: in <module>\n    from app.database import Base\nE   ModuleNotFoundError: No module named 'app.database'\n=========================== short test summary info ============================\nERROR tests/test_crud.py\n!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n=============================== 1 error in 2.02s ===============================\n",
+        "supported": true
+      }
+    }
+  },
+  "python-small-traditional": {
+    "candidate_passed": false,
+    "case_id": "python-small-traditional",
+    "elapsed_seconds": 567.249,
+    "errors": [
+      "文件生成失败: app/models.py（跨文件导入不一致: 模块 app.database 当前运行时不可导入）",
+      "文件生成失败: app/main.py（跨文件导入不一致: app/main.py 未导出架构契约要求的公共符号 app）",
+      "项目文件不完整: 缺失 ['app/main.py', 'app/models.py', 'app/schemas.py', 'tests/test_crud.py']，无效 []"
+    ],
+    "file_scale": "small",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 19,
+      "node_attempts": {},
+      "token_count": 113519
+    },
+    "http_status": 200,
+    "model_call_count": 104,
+    "output_dir": "/workspace/projects/1/evaluation_python-small-traditional__1788711304",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "python-small-traditional",
+      "compile_passed": true,
+      "database_diagnostics": [
+        "required files missing: app/main.py, app/models.py, app/schemas.py, tests/test_crud.py"
+      ],
+      "database_status": "supported",
+      "dependency_closure": true,
+      "elapsed_seconds": 567.249,
+      "evaluation_status": "completed",
+      "file_scale": "small",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 104,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "traditional",
+      "tests_passed": false,
+      "token_count": 628331
+    },
+    "repair_attempts": [
+      {
+        "generation_metrics": {
+          "model_call_count": 85,
+          "node_attempts": {},
+          "token_count": 514812
+        },
+        "repair": {
+          "http_status": 200,
+          "response": {
+            "complexity": "medium",
+            "context_full": null,
+            "context_summary": null,
+            "elapsed_time": 277.0051329135895,
+            "errors": [
+              "文件生成失败: app/validators.py（跨文件导入不一致: 修复响应无效: 内容为空）",
+              "文件生成失败: app/services.py（跨文件导入不一致: 修复响应无效: 内容为空）",
+              "文件生成失败: app/utils.py（跨文件导入不一致: 修复响应无效: 内容为空）",
+              "文件生成失败: app/middleware.py（跨文件导入不一致: 修复响应无效: 内容为空）",
+              "文件生成失败: sqlalchemy/orm/sessionmaker.py（跨文件导入不一致: 修复响应无效: 内容为空）",
+              "文件生成失败: app/schemas.py（跨文件导入不一致: 修复响应无效: 内容为空）",
+              "文件生成失败: app/repositories.py（跨文件导入不一致: 修复响应无效: 内容为空）",
+              "文件生成失败: app/docs.py（跨文件导入不一致: 项目模块 fastapi.py 尚未生成，当前拓扑层禁止导入；项目模块 app/routers.py 尚未生成，当前拓扑层禁止导入）",
+              "文件生成失败: app/dependencies.py（跨文件导入不一致: 项目模块 sqlalchemy/orm.py 尚未生成，当前拓扑层禁止导入；项目模块 app/database.py 尚未生成，当前拓扑层禁止导入）",
+              "文件生成失败: app/models.py（跨文件导入不一致: 项目模块 sqlalchemy/orm.py 尚未生成，当前拓扑层禁止导入；项目模块 sqlalchemy.py 尚未生成，当前拓扑层禁止导入；项目模块 app/database.py 尚未生成，当前拓扑层禁止导入）",
+              "文件生成失败: sqlalchemy.py（跨文件导入不一致: 项目模块 sqlalchemy/orm.py 尚未生成，当前拓扑层禁止导入）",
+              "文件生成失败: app/main.py（跨文件导入不一致: 项目模块 fastapi.py 尚未生成，当前拓扑层禁止导入；项目模块 app/database.py 尚未生成，当前拓扑层禁止导入；项目模块 app/models.py 尚未生成，当前拓扑层禁止导入；项目模块 app/routers.py 尚未生成，当前拓扑层禁止导入；项目模块 app/services.py 尚未生成，当前拓扑层禁止导入；项目模块 app/schemas.py 尚未生成，当前拓扑层禁止导入；项目模块 app/dependencies.py 尚未生成，当前拓扑层禁止导入）",
+              "文件生成失败: httpx.py（跨文件导入不一致: 名称 app 在模块全局作用域中未定义或导入；名称 request 在模块全局作用域中未定义或导入）",
+              "文件生成失败: app/routers.py（跨文件导入不一致: app/routers.py 未导出架构契约要求的公共符号 todo_router；项目模块 fastapi.py 尚未生成，当前拓扑层禁止导入；项目模块 sqlalchemy/orm.py 尚未生成，当前拓扑层禁止导入；项目模块 app/models.py 尚未生成，当前拓扑层禁止导入；项目模块 app/schemas.py 尚未生成，当前拓扑层禁止导入）",
+              "文件生成失败: app/database.py（跨文件导入不一致: 项目模块 sqlalchemy.py 尚未生成，当前拓扑层禁止导入；项目模块 sqlalchemy/orm.py 尚未生成，当前拓扑层禁止导入）",
+              "文件生成失败: tests/test_crud.py（跨文件导入不一致: 修复响应无效: 内容为空）",
+              "项目文件不完整: 缺失 ['README.md', 'app/config.py', 'app/database.py', 'app/dependencies.py', 'app/docs.py', 'app/main.py', 'app/middleware.py', 'app/models.py', 'app/repositories.py', 'app/routers.py', 'app/schemas.py', 'app/services.py', 'app/utils.py', 'app/validators.py', 'fastapi.py', 'httpx.py', 'pytest.py', 'requirements.txt', 'sqlalchemy.py', 'sqlalchemy/orm.py', 'sqlalchemy/orm/sessionmaker.py', 'tests/test_crud.py']，无效 []"
+            ],
+            "files": [],
+            "fix_attempts": [
+              {
+                "attempts": 2,
+                "file": "projects/1/evaluation_python-small-traditional__1788711304/app/config.py",
+                "model_used": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+                "success": true
+              },
+              {
+                "attempts": 2,
+                "file": "projects/1/evaluation_python-small-traditional__1788711304/sqlalchemy/orm.py",
+                "model_used": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+                "success": true
+              }
+            ],
+            "generation_metrics": {
+              "model_call_count": 85,
+              "token_count": 514812
+            },
+            "models_used": {
+              "architect": "Qwen/Qwen3-8B",
+              "backend": "Qwen/Qwen3.5-4B",
+              "frontend": "Qwen/Qwen2.5-7B-Instruct",
+              "reviewer": "THUDM/GLM-Z1-9B-0414"
+            },
+            "output_dir": "/workspace/projects/1/evaluation_python-small-traditional__1788711304",
+            "session_id": "19ad105d-b3cd-4f83-8716-ae10a5fedd20",
+            "specs_generated": null,
+            "success": false,
+            "test_results": {
+              "message": "未运行动态测试",
+              "success": true
+            },
+            "total_files_created": 0,
+            "total_files_failed": 0,
+            "validation": {
+              "api_errors": [],
+              "cache_hit": false,
+              "cross_file_errors": [],
+              "dependency_errors": [
+                "缺少 requirements.txt / pyproject.toml / Pipfile"
+              ],
+              "frontend_errors": [],
+              "import_errors": [],
+              "is_valid": false,
+              "runtime_errors": [],
+              "syntax_errors": [],
+              "validated_files": 0
+            },
+            "warnings": [
+              "小项目生成失败，已回滚"
+            ]
+          }
+        },
+        "verification": {
+          "compile": {
+            "command": [
+              "/usr/bin/python3",
+              "-m",
+              "compileall",
+              "-q",
+              "."
+            ],
+            "passed": true,
+            "stderr": "",
+            "stdout": "",
+            "supported": true
+          },
+          "files_complete": {
+            "missing": [
+              "app/main.py",
+              "app/models.py",
+              "app/schemas.py",
+              "tests/test_crud.py"
+            ],
+            "passed": false
+          },
+          "passed": false,
+          "runtime": {
+            "passed": false,
+            "stderr": "required files missing: app/main.py, app/models.py, app/schemas.py, tests/test_crud.py",
+            "supported": true
+          },
+          "tests": {
+            "passed": false,
+            "stderr": "required files missing: app/main.py, app/models.py, app/schemas.py, tests/test_crud.py",
+            "supported": true
+          }
+        }
+      }
+    ],
+    "repaired_passed": false,
+    "required_files": [
+      "app/main.py",
+      "app/models.py",
+      "app/schemas.py",
+      "tests/test_crud.py"
+    ],
+    "strategy": "traditional",
+    "success": false,
+    "token_count": 628331,
+    "verification": {
+      "compile": {
+        "command": [
+          "/usr/bin/python3",
+          "-m",
+          "compileall",
+          "-q",
+          "."
+        ],
+        "passed": true,
+        "stderr": "",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "app/main.py",
+          "app/models.py",
+          "app/schemas.py",
+          "tests/test_crud.py"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: app/main.py, app/models.py, app/schemas.py, tests/test_crud.py",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: app/main.py, app/models.py, app/schemas.py, tests/test_crud.py",
+        "supported": true
+      }
+    }
+  },
+  "typescript-modular-spec_first": {
+    "candidate_passed": false,
+    "case_id": "typescript-modular-spec_first",
+    "elapsed_seconds": 0.027,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "modular",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_typescript-modular-spec_firs_1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "typescript-modular-spec_first",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: src/app.ts, src/routes/todos.ts, src/services/todos.ts, src/repositories/todos.ts, tests/todos.test.ts"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.027,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "modular",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "spec_first",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "src/app.ts",
+      "src/routes/todos.ts",
+      "src/services/todos.ts",
+      "src/repositories/todos.ts",
+      "tests/todos.test.ts"
+    ],
+    "strategy": "spec_first",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "tsc",
+          "--noEmit",
+          "--target",
+          "ES2022",
+          "--module",
+          "NodeNext",
+          "--moduleResolution",
+          "NodeNext",
+          "--experimentalDecorators",
+          "--skipLibCheck",
+          "src/app.ts",
+          "src/routes/todos.ts",
+          "src/services/todos.ts",
+          "src/repositories/todos.ts",
+          "tests/todos.test.ts"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_typescript-modular-spec_firs_1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "src/app.ts",
+          "src/routes/todos.ts",
+          "src/services/todos.ts",
+          "src/repositories/todos.ts",
+          "tests/todos.test.ts"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: src/app.ts, src/routes/todos.ts, src/services/todos.ts, src/repositories/todos.ts, tests/todos.test.ts",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: src/app.ts, src/routes/todos.ts, src/services/todos.ts, src/repositories/todos.ts, tests/todos.test.ts",
+        "supported": true
+      }
+    }
+  },
+  "typescript-modular-traditional": {
+    "candidate_passed": false,
+    "case_id": "typescript-modular-traditional",
+    "elapsed_seconds": 0.027,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "modular",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_typescript-modular-tradition_1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "typescript-modular-traditional",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: src/app.ts, src/routes/todos.ts, src/services/todos.ts, src/repositories/todos.ts, tests/todos.test.ts"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.027,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "modular",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "traditional",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "src/app.ts",
+      "src/routes/todos.ts",
+      "src/services/todos.ts",
+      "src/repositories/todos.ts",
+      "tests/todos.test.ts"
+    ],
+    "strategy": "traditional",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "tsc",
+          "--noEmit",
+          "--target",
+          "ES2022",
+          "--module",
+          "NodeNext",
+          "--moduleResolution",
+          "NodeNext",
+          "--experimentalDecorators",
+          "--skipLibCheck",
+          "src/app.ts",
+          "src/routes/todos.ts",
+          "src/services/todos.ts",
+          "src/repositories/todos.ts",
+          "tests/todos.test.ts"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_typescript-modular-tradition_1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "src/app.ts",
+          "src/routes/todos.ts",
+          "src/services/todos.ts",
+          "src/repositories/todos.ts",
+          "tests/todos.test.ts"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: src/app.ts, src/routes/todos.ts, src/services/todos.ts, src/repositories/todos.ts, tests/todos.test.ts",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: src/app.ts, src/routes/todos.ts, src/services/todos.ts, src/repositories/todos.ts, tests/todos.test.ts",
+        "supported": true
+      }
+    }
+  },
+  "typescript-single-spec_first": {
+    "candidate_passed": false,
+    "case_id": "typescript-single-spec_first",
+    "elapsed_seconds": 0.028,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "single",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_typescript-single-spec_first_1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "typescript-single-spec_first",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: src/index.ts"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.028,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "single",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "spec_first",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "src/index.ts"
+    ],
+    "strategy": "spec_first",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "tsc",
+          "--noEmit",
+          "--target",
+          "ES2022",
+          "--module",
+          "NodeNext",
+          "--moduleResolution",
+          "NodeNext",
+          "--experimentalDecorators",
+          "--skipLibCheck",
+          "src/index.ts"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_typescript-single-spec_first_1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "src/index.ts"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: src/index.ts",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: src/index.ts",
+        "supported": true
+      }
+    }
+  },
+  "typescript-single-traditional": {
+    "candidate_passed": false,
+    "case_id": "typescript-single-traditional",
+    "elapsed_seconds": 0.028,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "single",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_typescript-single-traditiona_1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "typescript-single-traditional",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: src/index.ts"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.028,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "single",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "traditional",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "src/index.ts"
+    ],
+    "strategy": "traditional",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "tsc",
+          "--noEmit",
+          "--target",
+          "ES2022",
+          "--module",
+          "NodeNext",
+          "--moduleResolution",
+          "NodeNext",
+          "--experimentalDecorators",
+          "--skipLibCheck",
+          "src/index.ts"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_typescript-single-traditiona_1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "src/index.ts"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: src/index.ts",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: src/index.ts",
+        "supported": true
+      }
+    }
+  },
+  "typescript-small-spec_first": {
+    "candidate_passed": false,
+    "case_id": "typescript-small-spec_first",
+    "elapsed_seconds": 0.032,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "small",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_typescript-small-spec_first__1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "typescript-small-spec_first",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: src/app.ts, src/routes/todos.ts, tests/todos.test.ts"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.032,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "small",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "spec_first",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "src/app.ts",
+      "src/routes/todos.ts",
+      "tests/todos.test.ts"
+    ],
+    "strategy": "spec_first",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "tsc",
+          "--noEmit",
+          "--target",
+          "ES2022",
+          "--module",
+          "NodeNext",
+          "--moduleResolution",
+          "NodeNext",
+          "--experimentalDecorators",
+          "--skipLibCheck",
+          "src/app.ts",
+          "src/routes/todos.ts",
+          "tests/todos.test.ts"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_typescript-small-spec_first__1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "src/app.ts",
+          "src/routes/todos.ts",
+          "tests/todos.test.ts"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: src/app.ts, src/routes/todos.ts, tests/todos.test.ts",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: src/app.ts, src/routes/todos.ts, tests/todos.test.ts",
+        "supported": true
+      }
+    }
+  },
+  "typescript-small-traditional": {
+    "candidate_passed": false,
+    "case_id": "typescript-small-traditional",
+    "elapsed_seconds": 0.028,
+    "errors": [
+      {
+        "code": "UNAUTHORIZED",
+        "message": "Token 无效"
+      }
+    ],
+    "file_scale": "small",
+    "files": [],
+    "first_passed": false,
+    "generation_metrics": {
+      "model_call_count": 0,
+      "node_attempts": {},
+      "token_count": 0
+    },
+    "http_status": 401,
+    "model_call_count": 0,
+    "output_dir": "projects/1/evaluation_typescript-small-traditional_1788709550",
+    "record": {
+      "candidate_passed": false,
+      "case_id": "typescript-small-traditional",
+      "compile_passed": false,
+      "database_diagnostics": [
+        "required files missing: src/app.ts, src/routes/todos.ts, tests/todos.test.ts"
+      ],
+      "database_status": "supported",
+      "dependency_closure": false,
+      "elapsed_seconds": 0.028,
+      "evaluation_status": "evaluation_infrastructure_failure",
+      "file_scale": "small",
+      "files_complete": false,
+      "first_passed": false,
+      "interfaces_consistent": false,
+      "model_call_count": 0,
+      "persistence_passed": false,
+      "plan_consistent": false,
+      "repaired_passed": false,
+      "startup_passed": false,
+      "strategy": "traditional",
+      "tests_passed": false,
+      "token_count": 0
+    },
+    "repair_attempts": [],
+    "repaired_passed": false,
+    "required_files": [
+      "src/app.ts",
+      "src/routes/todos.ts",
+      "tests/todos.test.ts"
+    ],
+    "strategy": "traditional",
+    "success": false,
+    "token_count": 0,
+    "verification": {
+      "compile": {
+        "command": [
+          "tsc",
+          "--noEmit",
+          "--target",
+          "ES2022",
+          "--module",
+          "NodeNext",
+          "--moduleResolution",
+          "NodeNext",
+          "--experimentalDecorators",
+          "--skipLibCheck",
+          "src/app.ts",
+          "src/routes/todos.ts",
+          "tests/todos.test.ts"
+        ],
+        "passed": false,
+        "stderr": "[Errno 2] No such file or directory: PosixPath('projects/1/evaluation_typescript-small-traditional_1788709550')",
+        "stdout": "",
+        "supported": true
+      },
+      "files_complete": {
+        "missing": [
+          "src/app.ts",
+          "src/routes/todos.ts",
+          "tests/todos.test.ts"
+        ],
+        "passed": false
+      },
+      "passed": false,
+      "runtime": {
+        "passed": false,
+        "stderr": "required files missing: src/app.ts, src/routes/todos.ts, tests/todos.test.ts",
+        "supported": true
+      },
+      "tests": {
+        "passed": false,
+        "stderr": "required files missing: src/app.ts, src/routes/todos.ts, tests/todos.test.ts",
+        "supported": true
+      }
+    }
+  }
+}

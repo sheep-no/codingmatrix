@@ -772,10 +772,10 @@ class RoutingConfig:
 # 默认角色分配（硬编码兜底）
 _DEFAULT_ROLES = {
     "architect": DEFAULT_ARCHITECT_MODEL,
-    "frontend": DEFAULT_FAST_MODEL,
+    "frontend": "qwen2.5-7b",
     "backend": DEFAULT_CODE_MODEL,
-    "reviewer": "THUDM/GLM-4-9B-0414",
-    "fallback": DEFAULT_FAST_MODEL,
+    "reviewer": "glm-z1-9b",
+    "fallback": "glm-z1-9b",
 }
 
 _roles_cache: Optional[Dict[str, str]] = None

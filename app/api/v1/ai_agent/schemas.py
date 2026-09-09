@@ -1,8 +1,9 @@
 from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 from pathlib import Path
 import re
+import json
 
 
 # ============================================================================
@@ -222,6 +223,17 @@ class LoadProjectResponse(BaseModel):
 
 
 class OrchestratorRequest(BaseModel):
+    engine: Optional[Literal["legacy", "core"]] = Field(None, description="编排引擎；省略时沿用服务端配置")
+    contracts: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "结构化项目契约；routes/endpoints 可选 request_body_schema、"
+            "response_body_schema（JSON Schema 对象或布尔值）与 serialization_guidance"
+            "（HTTP body 序列化指导），首次生成与 repair 均应传入同一合同"
+        ),
+    )
+    framework: Optional[str] = Field(None, description="目标框架", min_length=1, max_length=100)
+    runtime: Optional[str] = Field(None, description="目标运行时", min_length=1, max_length=100)
     requirement: str = Field(..., description="项目需求描述", min_length=1, max_length=MAX_PROMPT_LENGTH)
     project_name: Optional[str] = Field(None, description="项目名称（可选，自动生成）", max_length=50)
     output_dir: Optional[str] = Field(None, description="输出目录（可选）", max_length=500)
@@ -229,6 +241,7 @@ class OrchestratorRequest(BaseModel):
     enable_validation: bool = Field(True, description="是否启用代码验证")
     enable_error_recovery: bool = Field(True, description="是否启用错误恢复")
     enable_memory: bool = Field(True, description="是否启用记忆系统")
+    enable_skills: bool = Field(True, description="是否注入按需求匹配的 Skill 上下文")
     spec_first: bool = Field(True, description="是否启用 Spec-First 模式")
     dependency_graph: bool = Field(True, description="是否启用依赖图分层生成")
     session_id: Optional[str] = Field(None, description="会话ID（用于增量生成/续传）")
@@ -248,6 +261,16 @@ class OrchestratorRequest(BaseModel):
         description="需要由 Agent Host 执行的本地验证范围",
         max_length=2,
     )
+    allowed_files: List[str] = Field(
+        default_factory=list,
+        description="增量生成允许修改的项目相对路径集合",
+        max_length=100,
+    )
+    change_plan: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="增量生成的显式文件变更计划",
+        max_length=100,
+    )
 
     @field_validator('required_validation_scopes')
     @classmethod
@@ -256,6 +279,13 @@ class OrchestratorRequest(BaseModel):
         if any(scope not in allowed for scope in v):
             raise ValueError("required_validation_scopes 仅支持 local_runtime 和 local_e2e")
         return list(dict.fromkeys(v))
+
+    @field_validator('allowed_files')
+    @classmethod
+    def validate_allowed_files(cls, v):
+        return list(dict.fromkeys(
+            validate_path_safety(path, "allowed_files") for path in v
+        ))
 
     @field_validator('session_id')
     @classmethod
@@ -303,8 +333,8 @@ class OrchestratorResponse(BaseModel):
     output_dir: str
     total_files_created: int
     total_files_failed: Optional[int] = 0
-    complexity: str
-    models_used: Dict[str, str]
+    complexity: str = "unknown"
+    models_used: Dict[str, str] = Field(default_factory=dict)
     files: List[Dict[str, Any]]
     validation: Dict[str, Any]
     test_results: Optional[Dict[str, Any]] = None
@@ -314,8 +344,17 @@ class OrchestratorResponse(BaseModel):
     errors: List[str]
     warnings: List[str]
     elapsed_time: float
-    fix_attempts: List[Dict[str, Any]]
+    fix_attempts: List[Dict[str, Any]] = Field(default_factory=list)
     session_id: Optional[str] = None
+    generation_metrics: Dict[str, Any] = Field(default_factory=dict)
+    repair_feedback: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("context_summary", mode="before")
+    @classmethod
+    def normalize_context_summary(cls, value: Any) -> Optional[str]:
+        if value is None or isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
 
 class ModifyRequest(BaseModel):

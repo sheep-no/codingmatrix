@@ -1,3 +1,4 @@
+import ast
 import types
 
 import pytest
@@ -12,6 +13,12 @@ from app.agent.orchestrator_files import _validate_python_contract
 from app.agent.orchestrator_files import _repair_python_shared_base
 from app.agent.orchestrator_files import _repair_python_sqlalchemy_metadata_owner
 from app.agent.orchestrator_files import _repair_python_sqlalchemy_text_execute
+from app.agent.orchestrator_files import _repair_python_fastapi_class_route_registration
+from app.agent.orchestrator_files import _repair_python_sqlite_connection_url
+from app.agent.orchestrator_files import _repair_python_invalid_code_marker
+from app.agent.orchestrator_files import _repair_python_unmounted_fastapi_router
+from app.agent.orchestrator_files import _repair_python_sqlalchemy_datetime_defaults
+from app.agent.orchestrator_files import _repair_python_sessionmaker_class_none
 from app.agent.orchestrator_files import _repair_python_sqlalchemy_get_db
 from app.agent.orchestrator_files import _repair_python_sqlalchemy_table_initialization
 from app.agent.orchestrator_files import _repair_python_test_database_fixtures
@@ -241,6 +248,88 @@ def test_sqlalchemy_table_initialization_replaces_session_bind_with_engine():
 
     assert "from persistence import engine" in repaired
     assert "Base.metadata.create_all(bind=engine)" in repaired
+    tree = ast.parse(repaired)
+    assert any(
+        isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Call)
+        and isinstance(statement.value.func, ast.Attribute)
+        and statement.value.func.attr == "create_all"
+        for statement in tree.body
+    )
+
+
+def test_sqlalchemy_table_initialization_runs_after_all_model_imports():
+    architecture = {
+        "file_plan": [
+            {"path": "database.py", "file_type": "database"},
+            {"path": "models.py", "file_type": "model"},
+            {"path": "main.py", "file_type": "entry"},
+        ]
+    }
+    generated = {
+        "database.py": (
+            "from sqlalchemy import create_engine\n"
+            "engine = create_engine('sqlite:///todos.db')\n"
+            "Base = object()\n"
+        ),
+        "models.py": "class Todo:\n    pass\n",
+    }
+    content = (
+        "from database import Base, engine\n"
+        "\"\"\"Application entrypoint.\"\"\"\n"
+        "from models import Todo\n"
+        "def startup():\n"
+        "    Base.metadata.create_all(bind=engine)\n"
+    )
+
+    repaired = _repair_python_sqlalchemy_table_initialization(
+        content, "main.py", generated, architecture
+    )
+
+    assert repaired.index("from models import Todo") < repaired.index(
+        "Base.metadata.create_all(bind=engine)"
+    )
+
+
+def test_sqlalchemy_table_initialization_supports_single_file_projects():
+    architecture = {
+        "file_plan": [
+            {"path": "main.py", "file_type": "entry"},
+        ]
+    }
+    content = (
+        "from sqlalchemy import create_engine\n"
+        "from sqlalchemy.orm import declarative_base\n"
+        "engine = create_engine('sqlite:///todos.db')\n"
+        "Base = declarative_base()\n"
+        "class Todo(Base):\n"
+        "    __tablename__ = 'todos'\n"
+        "    id = Column(Integer, primary_key=True)\n"
+    )
+
+    repaired = _repair_python_sqlalchemy_table_initialization(
+        content, "main.py", {}, architecture
+    )
+
+    assert "Base.metadata.create_all(bind=engine)" in repaired
+    assert repaired.index("Base.metadata.create_all(bind=engine)") > repaired.index(
+        "Base = declarative_base()"
+    )
+
+
+def test_sqlalchemy_text_repair_preserves_sqlite_cursor_execute():
+    content = (
+        "from sqlalchemy import text\n"
+        "import sqlite3\n"
+        "conn = sqlite3.connect('todos.db')\n"
+        "cursor = conn.cursor()\n"
+        "cursor.execute('SELECT 1')\n"
+    )
+
+    repaired = _repair_python_sqlalchemy_text_execute(content, "main.py")
+
+    assert "cursor.execute('SELECT 1')" in repaired
+    assert "cursor.execute(text('SELECT 1'))" not in repaired
 
 
 def test_database_test_fixture_repair_adds_setup_dependency_and_isolation():
@@ -267,6 +356,68 @@ def test_database_test_fixture_repair_adds_setup_dependency_and_isolation():
     assert "def client(test_db):" in repaired
 
 
+def test_database_test_fixture_repair_reuses_project_engine():
+    content = (
+        "import pytest\n"
+        "from fastapi.testclient import TestClient\n"
+        "from sqlalchemy import create_engine\n"
+        "from database import Base, engine, SessionLocal\n"
+        "from main import app\n\n"
+        "@pytest.fixture\n"
+        "def client():\n"
+        "    engine.dispose()\n"
+        "    engine = create_engine('sqlite:///temporary.db')\n"
+        "    Base.metadata.create_all(bind=engine)\n"
+        "    yield app.test_client(app=app)\n\n"
+        "@pytest.fixture\n"
+        "def db_session(client):\n"
+        "    Session = sessionmaker(bind=client.engine)\n"
+        "    yield Session()\n\n"
+        "def test_create(client, db_session):\n"
+        "    response = client.post('/todos', json={}, status_code=201)\n"
+    )
+
+    repaired = _repair_python_test_database_fixtures(
+        content,
+        "test_main.py",
+        {"file_plan": [{"path": "test_main.py", "file_type": "test"}]},
+    )
+    compile(repaired, "test_main.py", "exec")
+
+    assert "engine = create_engine" not in repaired
+    assert "with TestClient(app) as test_client:" in repaired
+    assert "db = SessionLocal()" in repaired
+    assert "status_code=201" not in repaired
+
+
+def test_database_test_fixture_repair_removes_stale_storage_monkeypatch():
+    content = (
+        "import pytest\n"
+        "from fastapi.testclient import TestClient\n"
+        "import main\n"
+        "from database import Base, engine\n\n"
+        "@pytest.fixture\n"
+        "def client(tmp_path, monkeypatch):\n"
+        "    db_path = str(tmp_path / 'todos.db')\n"
+        "    monkeypatch.setattr(main, '_get_storage_path', lambda: db_path)\n"
+        "    Base.metadata.create_all(bind=engine)\n"
+        "    yield TestClient(main.app)\n\n"
+        "def test_list(client):\n"
+        "    assert client.get('/todos').status_code == 200\n"
+    )
+
+    repaired = _repair_python_test_database_fixtures(
+        content,
+        "test_main.py",
+        {"file_plan": [{"path": "test_main.py", "file_type": "test"}]},
+    )
+    compile(repaired, "test_main.py", "exec")
+
+    assert "_get_storage_path" not in repaired
+    assert "with TestClient(main.app) as test_client:" in repaired
+    assert "Base.metadata.drop_all(bind=engine)" in repaired
+
+
 def test_sqlalchemy_text_execute_repair_wraps_raw_sql_literals():
     content = (
         "from sqlalchemy import create_engine\n\n"
@@ -283,6 +434,20 @@ def test_sqlalchemy_text_execute_repair_wraps_raw_sql_literals():
     assert repaired.count('connection.execute(text("SELECT 1"))') == 1
 
 
+def test_sqlalchemy_datetime_default_repair_uses_sql_function():
+    content = (
+        "from sqlalchemy import Column, DateTime\n"
+        "created_at = Column(DateTime, server_default=DateTime.now(), onupdate=DateTime.utcnow())\n"
+    )
+
+    repaired = _repair_python_sqlalchemy_datetime_defaults(content, "models.py")
+    namespace = {}
+    exec(repaired, namespace)
+
+    assert repaired.count("func.now()") == 2
+    assert "from sqlalchemy import func" in repaired
+
+
 def test_sqlalchemy_get_db_repair_completes_session_dependency():
     content = (
         "from sqlalchemy.orm import sessionmaker\n"
@@ -294,6 +459,27 @@ def test_sqlalchemy_get_db_repair_completes_session_dependency():
     assert "def get_db():" in repaired
     assert "db = SessionLocal()" in repaired
     assert "finally:\n        db.close()" in repaired
+
+
+def test_sqlalchemy_get_db_repair_eagerly_initializes_session_factory():
+    content = (
+        "from sqlalchemy import create_engine\n"
+        "engine = create_engine('sqlite:///todos.db')\n"
+        "SessionLocal = None\n\n"
+        "def get_db():\n"
+        "    global SessionLocal\n"
+        "    if SessionLocal is None:\n"
+        "        from sqlalchemy.orm import sessionmaker\n"
+        "        SessionLocal = sessionmaker(bind=engine)\n"
+        "    yield SessionLocal()\n"
+    )
+
+    repaired = _repair_python_sqlalchemy_get_db(content, "database.py")
+    compile(repaired, "database.py", "exec")
+
+    assert "SessionLocal = None" not in repaired
+    assert "SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)" in repaired
+    assert "from sqlalchemy.orm import sessionmaker" in repaired
 
 
 def test_sqlalchemy_get_db_repair_uses_renamed_database_role():
@@ -418,7 +604,10 @@ def test_test_contract_allows_pytest_and_fastapi_client_imports():
             },
         }],
     }
-    content = "import pytest\nfrom fastapi.testclient import TestClient\nimport requests\n"
+    content = (
+        "import pytest\nfrom fastapi.testclient import TestClient\nimport requests\n\n"
+        "def test_client_contract():\n    assert TestClient is not None\n"
+    )
 
     errors = _validate_python_contract(content, "test_main.py", architecture)
 
@@ -440,7 +629,8 @@ def test_test_contract_allows_standard_library_isolation_helpers():
     }
     content = (
         "import json\nimport os\nfrom pathlib import Path\n"
-        "import sys\nimport tempfile\nimport requests\n"
+        "import sys\nimport tempfile\nimport requests\n\n"
+        "def test_isolation_helpers():\n    assert Path is not None\n"
     )
 
     errors = _validate_python_contract(content, "test_main.py", architecture)
@@ -627,6 +817,103 @@ def test_python_contract_gate_accepts_declared_function_export():
     )
 
     assert errors == []
+
+
+def test_python_contract_gate_rejects_null_sqlalchemy_session_class():
+    architecture = {
+        "file_plan": [{
+            "path": "persistence.py",
+            "file_type": "database",
+            "contract": {
+                "role": "database",
+                "database_abstraction": "sqlalchemy",
+            },
+        }]
+    }
+
+    errors = _validate_python_contract(
+        "from sqlalchemy.orm import sessionmaker\n"
+        "SessionLocal = sessionmaker(bind=engine, class_=None)\n",
+        "persistence.py",
+        architecture,
+    )
+
+    assert "persistence.py 的 sessionmaker 不能使用 class_=None" in errors
+
+
+def test_python_contract_gate_requires_collectable_test_function():
+    architecture = {
+        "file_plan": [{
+            "path": "api_check.py",
+            "file_type": "test",
+            "contract": {"role": "test"},
+        }]
+    }
+
+    errors = _validate_python_contract(
+        "import pytest\n\n@pytest.fixture\ndef client():\n    yield object()\n",
+        "api_check.py",
+        architecture,
+    )
+
+    assert "api_check.py 必须声明至少一个可收集的 test_ 测试函数" in errors
+
+
+def test_python_contract_gate_requires_pydantic_fastapi_schemas():
+    architecture = {
+        "framework": "FastAPI",
+        "file_plan": [{
+            "path": "schemas.py",
+            "file_type": "types",
+            "contract": {"role": "schema"},
+        }],
+    }
+
+    errors = _validate_python_contract(
+        "class TodoCreate:\n"
+        "    def __init__(self, title: str):\n"
+        "        self.title = title\n",
+        "schemas.py",
+        architecture,
+    )
+
+    assert errors == [
+        "schemas.py 的 FastAPI Schema 类 TodoCreate 必须继承 Pydantic BaseModel"
+    ]
+
+
+def test_python_contract_gate_accepts_pydantic_fastapi_schemas():
+    architecture = {
+        "project_spec": {"default": {"framework": "FastAPI"}},
+        "file_plan": [{
+            "path": "dto.py",
+            "file_type": "schema",
+            "contract": {"role": "schema"},
+        }],
+    }
+
+    errors = _validate_python_contract(
+        "from pydantic import BaseModel\n\n"
+        "class TodoCreate(BaseModel):\n"
+        "    title: str\n",
+        "dto.py",
+        architecture,
+    )
+
+    assert errors == []
+
+
+def test_sessionmaker_class_none_repair_preserves_other_options():
+    repaired = _repair_python_sessionmaker_class_none(
+        "SessionLocal = sessionmaker(\n"
+        "    autocommit=False, bind=engine, class_=None\n"
+        ")\n",
+        "persistence.py",
+    )
+
+    assert "class_=None" not in repaired
+    assert "autocommit=False, bind=engine" in repaired
+    compile(repaired, "persistence.py", "exec")
 
 
 def test_shared_sqlalchemy_base_repair_reuses_database_base():
@@ -1390,6 +1677,67 @@ async def test_backend_model_prompt_requires_reusing_sqlalchemy_database_base(tm
     assert "禁止导入或调用 declarative_base()" in prompts[0]
 
 
+@pytest.mark.asyncio
+async def test_backend_generation_uses_frozen_core_context_without_react_tools(tmp_path, monkeypatch):
+    direct_prompts = []
+
+    async def call_llm(prompt, *_args, **_kwargs):
+        direct_prompts.append(prompt)
+        return "package com.example; public class Application {}\n"
+
+    async def reject_react(*_args, **_kwargs):
+        raise AssertionError("Core generation must not enter the ReAct tool loop")
+
+    engineer = BackendEngineer("测试工程师", "test-model")
+    monkeypatch.setattr(engineer, "call_llm", call_llm)
+    monkeypatch.setattr(engineer, "call_llm_with_tools", reject_react)
+
+    result = await engineer.generate_file(
+        "src/main/java/com/example/Application.java",
+        "Spring Boot entry point",
+        {
+            "architecture": {"language": "java"},
+            "generation_contract": {
+                "frozen_file_set": ["src/main/java/com/example/Application.java"],
+                "test_generation_contract": {
+                    "discovery": "declared_test_files",
+                    "execution": "profile_command",
+                    "dependencies": "declared_contracts",
+                    "serialization": "framework_defined",
+                    "stack_rules": {"pytest": {"fixture_scope": ["test_file", "conftest"]}},
+                },
+                "cross_file_contracts": [{
+                    "name": "application.entry",
+                    "kind": "file",
+                    "owner": "src/main/java/com/example/Application.java",
+                    "schema": {"exports": ["Application"]},
+                }],
+                "contract_index": {"entries": [{
+                    "name": "PATCH /inventory", "kind": "api", "owner": "inventory",
+                    "schema": {
+                        "request_body_schema": {"type": "object"},
+                        "response_body_schema": {"type": "array"},
+                        "serialization_guidance": "Convert domain instances using the configured JSON encoder.",
+                    },
+                }]},
+            },
+        },
+        project_path=str(tmp_path),
+    )
+
+    assert result.startswith("package com.example")
+    assert "冻结生成契约和已生成依赖已经包含在上下文中" in direct_prompts[0]
+    assert '"request_body_schema"' in direct_prompts[0]
+    assert '"response_body_schema"' in direct_prompts[0]
+    assert "Convert domain instances using the configured JSON encoder." in direct_prompts[0]
+    assert '"discovery": "declared_test_files"' in direct_prompts[0]
+    assert '"serialization": "framework_defined"' in direct_prompts[0]
+    assert '"pytest"' in direct_prompts[0]
+    assert '"exports": [' in direct_prompts[0]
+    assert '"Application"' in direct_prompts[0]
+    assert "先用 read_file / list_files / search_files" not in direct_prompts[0]
+
+
 def test_backend_runtime_constraints_are_empty_for_non_python_projects():
     constraints = BackendEngineer._build_runtime_consistency_constraints(
         "main.go",
@@ -1609,6 +1957,7 @@ def test_extract_strict_paths_from_only_generate_following_expression():
         "main.py", "todo.py", "test_main.py"
     }
 
+
     architect = object.__new__(Architect)
     architecture = {
         "language": "python",
@@ -1625,6 +1974,53 @@ def test_extract_strict_paths_from_only_generate_following_expression():
 
     assert [item["path"] for item in result["file_plan"]] == ["main.py", "models.py"]
     assert result["strict_file_paths"] == ["main.py", "models.py"]
+
+
+def test_extract_strict_paths_from_english_exact_files_expression():
+    requirement = (
+        "Create a CRUD API. Generate exactly these files and no others: "
+        "app/main.py, app/models.py, tests/test_crud.py. Keep imports local."
+    )
+
+    assert Architect._extract_strict_file_paths(requirement) == {
+        "app/main.py", "app/models.py", "tests/test_crud.py"
+    }
+
+
+def test_extract_strict_paths_preserves_java_maven_manifest():
+    requirement = (
+        "Generate exactly these files and no others: pom.xml, "
+        "src/main/java/com/example/Application.java, src/main/java/com/example/Todo.java. "
+        "Keep imports local."
+    )
+
+    assert Architect._extract_strict_file_paths(requirement) == {
+        "pom.xml",
+        "src/main/java/com/example/Application.java",
+        "src/main/java/com/example/Todo.java",
+    }
+
+
+def test_requirement_aware_default_architecture_preserves_todo_sqlite_contract():
+    architect = object.__new__(Architect)
+    complexity = types.SimpleNamespace(
+        has_frontend=False,
+        has_backend=True,
+        key_technologies=[],
+        risk_factors=[],
+    )
+
+    result = architect._get_requirement_aware_default_architecture(
+        "Create a Todo CRUD API using Flask and SQLite.",
+        complexity,
+        language="python",
+    )
+
+    default_spec = result["project_spec"]["default"]
+    assert default_spec["framework"] == "Flask"
+    assert default_spec["storage"] == {"type": "sqlite", "filename": "todos.db"}
+    assert default_spec["terminology"]["todo"] == "Todo"
+    assert "todos" in result["db_schema"]
 
 
 @pytest.mark.asyncio
@@ -1673,3 +2069,42 @@ def test_explicit_file_scope_normalizes_prefixed_paths_and_fills_omissions():
     ]
     assert result["file_plan"][0]["description"] == "实现 crud.py"
     assert result["file_plan"][1]["description"] == "entry"
+
+
+def test_fastapi_class_route_registration_repair_uses_existing_handlers():
+    content = (
+        "from fastapi import FastAPI\n"
+        "app = FastAPI()\n"
+        "def create_todo(): pass\n"
+        "def list_todos(): pass\n"
+        "def get_todo(todo_id): pass\n"
+        "app.include_router(FastAPI(prefix='/api/v1', routes=[\n"
+        "    FastAPI.post('/todos', response_model=TodoResponse),\n"
+        "    FastAPI.get('/todos', response_model=TodoListResponse),\n"
+        "    FastAPI.get('/todos/{todo_id}', response_model=TodoResponse),\n"
+        "]))\n"
+    )
+
+    repaired = _repair_python_fastapi_class_route_registration(content, "main.py")
+
+    assert "FastAPI.post" not in repaired
+    assert "app.add_api_route('/api/v1/todos', create_todo, methods=[\"POST\"]" in repaired
+    assert "app.add_api_route('/api/v1/todos/{todo_id}', get_todo, methods=[\"GET\"]" in repaired
+
+
+def test_sqlite_connection_repair_converts_sqlalchemy_url():
+    assert _repair_python_sqlite_connection_url(
+        "import sqlite3\nconn = sqlite3.connect('sqlite:///./todos.db')\n", "main.py"
+    ) == "import sqlite3\nconn = sqlite3.connect('./todos.db')\n"
+
+
+def test_invalid_code_marker_repair_removes_none_assignment():
+    content = "def get_db(): pass\nget_db.__code__ = None  # debug marker\n"
+    assert _repair_python_invalid_code_marker(content, "main.py") == "def get_db(): pass\n"
+
+
+def test_unmounted_fastapi_router_repair_adds_include_call():
+    content = "from fastapi import APIRouter\nrouter = APIRouter(prefix='/api/v1')\n"
+    assert _repair_python_unmounted_fastapi_router(content, "main.py").endswith(
+        "app.include_router(router)\n"
+    )

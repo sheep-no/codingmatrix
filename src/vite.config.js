@@ -25,7 +25,9 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('.', import.meta.url))
+      '@': fileURLToPath(new URL('.', import.meta.url)),
+      tslib: fileURLToPath(new URL('./node_modules/tslib/tslib.es6.mjs', import.meta.url)),
+      'memoize-one': fileURLToPath(new URL('./node_modules/memoize-one/dist/memoize-one.esm.js', import.meta.url))
     }
   },
   css: {

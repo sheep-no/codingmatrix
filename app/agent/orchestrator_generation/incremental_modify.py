@@ -732,11 +732,10 @@ class IncrementalModifyMixin:
         from app.agent.utils import extract_engineer_content, is_valid_code_content, write_file_atomic
         from app.agent.spec_first_generator import SpecFirstGenerator
 
-        # 降级模型链：GLM-4-9B → DeepSeek-R1 → Qwen3-8B
+        # 降级模型链：先使用稳定审查模型，再使用通用模型。
         fallback_models = [
-            DEFAULT_ARCHITECT_MODEL,
-            DEFAULT_REASONING_MODEL,
-            DEFAULT_FAST_MODEL
+            "glm-z1-9b",
+            DEFAULT_FAST_MODEL,
         ]
 
         results = {}
@@ -981,7 +980,8 @@ class IncrementalModifyMixin:
         spec_generator,
         dep_graph: DependencyGraph,
         callback=None,
-        tracker=None
+        tracker=None,
+        persist: bool = True,
     ) -> Optional[str]:
         """使用指定模型生成单个文件"""
         from app.agent.utils import extract_engineer_content, is_valid_code_content, write_file_atomic
@@ -1066,11 +1066,19 @@ class IncrementalModifyMixin:
         if initial_content is None or not initial_content.strip():
             _, invalid_reason = is_valid_code_content(file_path, raw_content or "")
             if not invalid_reason:
+                from app.agent.utils import is_placeholder_content
+                is_placeholder, placeholder_reason = is_placeholder_content(
+                    raw_content or "", file_path
+                )
+                if is_placeholder:
+                    invalid_reason = placeholder_reason
+            if not invalid_reason:
                 invalid_reason = "内容提取失败或语言不匹配"
             recovered = await self._recover_invalid_content(
                 file_path, description, combined_context, invalid_reason,
                 engineer, spec_context, dep_context, callback,
-                heartbeat_tracker=tracker
+                heartbeat_tracker=tracker,
+                persist=persist,
             )
             if recovered:
                 initial_content = recovered
@@ -1082,12 +1090,12 @@ class IncrementalModifyMixin:
                 if not initial_content:
                     raise ValueError(f"文件生成失败: {file_path}")
 
-        # 写入文件
-        normalized = self._strip_output_dir_prefix(file_path)
-        full_path = self.output_dir / normalized
-        logger.info(f"写入文件: {normalized} ({len(initial_content)} 字节)")
-        write_file_atomic(self.output_dir, normalized, initial_content)
-        logger.info(f"文件已写入: {full_path}")
+        if persist:
+            normalized = self._strip_output_dir_prefix(file_path)
+            full_path = self.output_dir / normalized
+            logger.info(f"写入文件: {normalized} ({len(initial_content)} 字节)")
+            write_file_atomic(self.output_dir, normalized, initial_content)
+            logger.info(f"文件已写入: {full_path}")
 
         return initial_content
 

@@ -1,6 +1,5 @@
 from pathlib import Path
 import os
-import secrets
 
 from pydantic import Field, ConfigDict, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -42,10 +41,10 @@ class Settings(BaseSettings):
     @classmethod
     def validate_secret_key(cls, v):
         if not v:
-            # 开发环境自动生成临时密钥，生产环境必须设置
+            # 开发环境使用跨进程稳定的本地密钥，生产环境必须显式设置。
             if os.getenv("ENV", "development") == "production":
                 raise ValueError("生产环境必须设置 SECRET_KEY")
-            return secrets.token_hex(32)
+            return "development-only-secret-key-change-me"
         if len(v) < 16:
             raise ValueError("SECRET_KEY 长度不能小于 16 字符")
         return v

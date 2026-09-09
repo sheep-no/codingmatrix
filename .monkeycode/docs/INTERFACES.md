@@ -148,7 +148,17 @@ PPT 生成支持 `pptx`、`html` 和 `markdown` 格式的严格产物分流。�
 
 模型上下文包含 `schema_version`、`config_version`、`roles`、`current_model`、`current_agent`、`assignments`、`fallback_history` 和 `updated_at`。接口仅接收模型标识和运行统计，不接收供应商凭据。
 
+同步与流式编排共用 `OrchestratorRequest`：`engine` 为可选 `legacy|core`，省略时沿用服务端配置（缺省 `legacy`）；`contracts` 为可选对象，`framework` 和 `runtime` 为可选的 1–100 字符字符串。`_core_request_metadata()` 结构化传递这些字段及 `required_validation_scopes`、`allowed_files`、`change_plan`，同时派生 `requested_paths` 和 `user_requirement`。同步显式 Core 请求跳过单文件快捷路径。
+
+HTTP body 合同由 `code_synthesis_contracts.HttpContract` 描述，`contracts.routes[]` / `contracts.endpoints[]` 可提供 `request_body_schema`、`response_body_schema`（JSON Schema 对象或布尔值）和 `serialization_guidance`（字符串），三项均可省略。索引保留旧合同的额外字段，使用 `exclude_unset=True` 保持省略字段的原有形状和摘要；body schema 或指导变化会改变索引摘要。`contracts` 请求字段继续接受旧字典结构；端点透传至 Core，索引构造时校验新增字段类型。
+
+序列化指导应明确 HTTP JSON body 必须是 JSON 可序列化值，领域模型应按项目实际框架和版本编码。Pydantic v2 可使用 `model_dump(mode="json")`；v1 的 `dict()` 适用于 JSON 原生字段，日期、UUID 等类型还需 JSON 编码。此内容通过合同数据提供给调用方、服务端和测试生成器。`EvaluationCase.http_contracts` 默认为空，评测 runner 按 method/path 合并到旧 routes；首次与 repair 共用 `build_case_contract()`，结构化合同独立于有长度限制的需求文本。
+
+同步响应 `output_dir` 返回 agent 实际输出目录的绝对路径；`generation_metrics` 合并 Core 的 `node_attempts/schedule_status` 与请求级 `model_call_count/token_count`。`context_summary` 对象经 JSON 序列化为字符串。评测首次请求及 repair 均显式发送 `engine="core"`；repair 将响应实际目录映射为 `PROJECTS_BASE_DIR` 下的相对路径，同时写入 `project_path/output_dir`，经端点解析和 Orchestrator 构造后落到同一目录。本地变更计划与复验使用响应实际目录，基目录本身和基目录外路径在 HTTP 请求前抛出 `ValueError`。
+
 ## State Contracts
+
+Core 同步响应增加 `repair_feedback`：`task_id` 关联检查点，`status` 为 Core 终态，`diagnostics` 保留结构化失败原因和运行输出，`candidate_fingerprint` 为完整调度候选的内容摘要（未形成完整候选时为 null），`rolled_back` 标记具有候选文件的增量失败已回滚。该字段由 `execute_core_generation()` 投影并由 `OrchestratorResponse` 保留，旧 `errors` 字符串列表继续提供摘要。Profile 非零退出保留各最多 4000 字符的 stdout/stderr。客户端后续修复应优先使用最新候选证据，并继续以磁盘复验判断最终交付状态。
 
 `app.agent.state.models` 定义 `State`、`StateDelta` 和 `MessageEnvelope`。State 包含 session/task 标识、revision、status、消息、计划变更、生成文件、验证结果、待执行动作、错误和 metadata。该模型已实现为可序列化契约，完整多阶段生产编排仍在迁移中。
 
@@ -164,7 +174,7 @@ PPT 生成支持 `pptx`、`html` 和 `markdown` 格式的严格产物分流。�
 
 `advance_state()` 只接受 `created -> planning -> scheduling -> generating -> persisting -> validating -> finalizing` 的相邻转换。`terminate_state()` 允许活动阶段进入 `failed`、`timed_out` 或 `cancelled`，`completed` 仅从 `finalizing` 进入。转换要求 `expected_revision`，首次应用的 `event_id` 递增 revision，已持久化的重复 `event_id` 返回原状态。
 
-`OrchestrationStore` 是异步 checkpoint 协议，`OrchestrationCheckpointStore` 提供原子 JSON 文件实现。`OrchestratorCore` 当前提供 `run()`、`advance()`、`finish()`、`cancel()` 和 `resume()`；生产 Agent API 尚未路由到该 Core。
+`OrchestrationStore` 是异步 checkpoint 协议，`OrchestrationCheckpointStore` 提供原子 JSON 文件实现。`OrchestratorCore` 提供 `run()`、`execute()`、`advance()`、`finish()`、`cancel()` 和 `resume()`；`execute()` 负责规划、调度、提交、成功门禁和终态收敛。`planning` checkpoint 可重新进入完整执行，其他活动阶段返回 `orchestration.resume_stage_unsupported`，已有终态 checkpoint 直接返回幂等结果。
 
 `build_file_plan()` 将现有文件字典列表转换为不可变 `GenerationPlan`。传入 `requested_paths` 时产生 `strict` 策略，计划文件集合必须与规范化请求集合一致；省略该参数时产生 `extensible` 策略，`origin=extension` 的新增文件必须携带 `source` 和 `reason`。`normalize_plan_path()` 统一 POSIX 相对路径表示并拒绝绝对路径、父目录遍历、受保护项目文件和不受支持的分隔符。
 
@@ -174,35 +184,64 @@ PPT 生成支持 `pptx`、`html` 和 `markdown` 格式的严格产物分流。�
 
 `ModelCallContext` 保存 `task_id`、`stage_id`、`file_path`、`call_id`、`react_round`、`started_at` 和绝对 `deadline_at`。`ModelGateway.call()` 约束非流式调用，`ModelGateway.stream()` 将流创建和完整迭代纳入同一墙钟 deadline；保活数据只更新 `last_keepalive_at`，业务 token 更新 `last_model_data_at`，两者均不会延长 deadline。预算到期抛出带 `model_timeout` 诊断的 `ModelCallTimeout`，取消事件抛出带 `model_cancelled` 诊断的 `ModelCallCancelled`，外部 asyncio 任务取消保持 `CancelledError` 传播并关闭底层流。
 `ModelCallContext` 可选携带 `context_hash`，模型错误诊断在该字段存在时回传同一 hash，用于关联生成上下文与验证证据。
+`ModelCallTelemetry` 由 `ModelGateway.telemetry_for(call_id)` 查询，保存调用起止时间、耗时、`finish_reason`、prompt/completion/total tokens、输入字符数和 `max_tokens`。非流式 OpenAI 兼容响应和流式 SSE JSON chunk 都会合并可用的 usage 与终止原因；纯文本 chunk 继续参与内容和活动追踪。
 
 `ArtifactCommitter.commit()` 接收计划内相对路径、生成内容和模型名称，执行非空、UTF-8 大小、原子写入、磁盘回读和 SHA-256 校验。首次成功返回带稳定 `event_id` 的 `ArtifactCompletionEvent` 并登记 `SharedContext` 产物清单；相同路径和内容的重复提交返回 `idempotent=true` 且不产生第二个完成事件。写入、路径、大小或回读失败返回 `artifact_commit_failed`，磁盘与内存或清单 hash 不一致返回 `artifact_consistency_failed`。
 
-`check_artifact_success_gate()` 比较 `GenerationPlan`、ArtifactManifest、`ArtifactCompletionEvent` 和输出目录中的业务文件集合，并校验事件、清单与磁盘 hash 以及清单验证终态。隐藏路径作为编排元数据豁免。`OrchestratorCore.finish(..., status=completed)` 要求传入成功的 `ArtifactConsistencyResult`；失败的门禁结果将任务收敛到 `failed` 并保存一致性诊断。
+`check_artifact_success_gate()` 比较 `GenerationPlan`、ArtifactManifest、`ArtifactCompletionEvent` 和输出目录中的业务文件集合，并校验事件、清单与磁盘 hash 以及清单验证终态。隐藏路径作为编排元数据豁免；增量模式可通过 `preserved_paths` 声明未受影响的既有业务文件，事件和清单仍严格等于冻结计划。`OrchestratorCore.finish(..., status=completed)` 要求传入成功的 `ArtifactConsistencyResult`；失败的门禁结果将任务收敛到 `failed` 并保存一致性诊断。
 
 `ValidationReport` 位于 `app.agent.validation_report`，由 `ValidationFinding` 和 `RepairEvidence` 组成。每条 finding 包含 `category`、`message`、`file_path`、`scope`、可选错误码和 `context_hash`；报告包含稳定 `report_hash`，`passed` 表示 finding 集合为空。`authorize_repair()` 根据 finding 类别调用 `RepairRouter`，仅自动路由允许的代码/依赖修复，并通过 `RepairBudget` 记录 attempt、candidate hash 和是否应用；业务、测试与未知错误保留人工确认路径。
 
-框架能力模型位于 `app.agent.capabilities`，内置 `http_api`、`orm`、`database`、`authentication`、`websocket`、`dependency_injection`、`test_client` 和 `migrations` 能力。`app.agent.framework_profiles` 提供 FastAPI、Flask、Express 和 NestJS 的版本化 Profile；JavaScript 与 JS 别名统一解析到 TypeScript Profile，未知框架通过 `LookupError` 暴露待配置状态。
+框架能力模型位于 `app.agent.capabilities`，内置 `http_api`、`orm`、`database`、`authentication`、`websocket`、`dependency_injection`、`test_client`、`migrations`、`command_line` 和 `frontend_ui` 能力。`app.agent.framework_profiles` 提供 Python、TypeScript、Java、Go 和 Rust 的版本化 Profile；JavaScript 与 JS 别名统一解析到 TypeScript Profile，未知框架通过 `LookupError` 暴露待配置状态。`validation_profile()` 优先选择明确框架，Go 和 Rust 可回退到唯一语言默认 Profile。
+`app.agent.database_profiles` 提供 `DatabaseContract` 和 `DatabaseProfileRegistry`。内置 Profile 覆盖 SQLite、PostgreSQL 和 MySQL，记录 dialect、driver、ORM、迁移工具、事务/测试能力和测试数据库策略；未知数据库返回 `status=unsupported` 及结构化诊断，供生成和验证阶段安全降级。
+`profile_context(workspace)` 将解析到的数据库契约序列化为 `database` 字段。它从项目 manifest 识别 PostgreSQL 和 MySQL，Web 项目在没有明确数据库线索时使用 SQLite CRUD 默认契约，其他未知数据库保留 `unsupported` 状态。
 
-`GenerationScheduler.run()` 接收冻结的 `GenerationPlan`、`GeneratedContent` 异步生成器和 `ExecutionBudget`。`FileGenerationContext` 为生成器提供计划文件、已完成上游内容、尝试次数和取消事件；文件提交统一经过 `ArtifactCommitter`。`GenerationNodeStatus` 支持 `pending`、`ready`、`running`、`completed`、`failed`、`timed_out`、`cancelled` 和 `blocked`，`GenerationScheduleResult` 返回每个节点状态、完成事件、调度终态和并发统计。无效上游阻断所有后代；无就绪节点且仍存在未完成节点时记录死锁并将其收敛为 `blocked`。
+`GenerationScheduler.run()` 接收冻结的 `GenerationPlan`、`GeneratedContent` 异步生成器和 `ExecutionBudget`。`FileGenerationContext` 为生成器提供计划文件、已完成上游内容、尝试次数和取消事件；文件提交统一经过 `ArtifactCommitter`。`GenerationNodeStatus` 支持 `pending`、`ready`、`running`、`completed`、`failed`、`timed_out`、`cancelled` 和 `blocked`，`GenerationScheduleResult` 返回每个节点状态、完成事件、调度终态、并发统计，以及 `root_causes`、`blocked_nodes`、`timeouts` 和 `truncations` 分类结果。无效上游阻断所有后代；无就绪节点且仍存在未完成节点时记录死锁并将其收敛为 `blocked`。
 
-`TraditionalAdapter` 实现 `GenerationModeAdapter`，将现有 `OrchestratorAgent` 的架构规划和单文件生成转换为 `GenerationPlan` 与 `GeneratedContent`。`route_generation()` 按 `AGENT_ORCHESTRATION_ENGINE` 或显式请求选择 `legacy`/`core`，默认选择 `legacy`；可选 shadow 执行只比较成功状态和文件路径集合，不保存源码内容。legacy workflow checkpoint 会记录 `engine`、`engine_version` 和 `engine_route`，恢复时可识别创建任务时的引擎版本。
+`ContractIndex.from_generation_plan()` 从冻结计划的接口、文件和 HTTP contracts 创建不可变共享索引，并生成稳定 `digest`。`GenerationScheduler` 向同一任务的所有文件生成器传递同一个索引快照；`GeneratedContent.contract_refs` 声明使用的契约名称，提交前会校验这些名称已登记，缺失项返回 `operation_contract_missing`。
 
-`app.agent.context_assembler` 提供 `ContextItem`、`ContextEnvelope`、`SkillPolicy` 和 `MCPToolDescriptor`。`ContextAssembler.assemble()` 按优先级排序并去重需求、计划、Retrieval、Memory 和 MCP/Skill 输入，输出稳定 `context_hash`；MCP 描述通过读写 scope、项目 scope、依赖、超时和审计字段表达权限边界。`app.agent.languages` 的 `get_language_adapter()` 和 `get_language_capabilities()` 为生成与验证提供统一语言入口。
+增量 `generation_contract.frozen_file_set` 包含变更文件和经快照、磁盘及显式授权校验的保留文件；`writable_file_set` 仅包含调度计划文件。`validate_candidate()` 的 `planned_contents` 同时包含当前候选与真实保留依赖内容，保留模块的导出符号仍需匹配导入。评测 runner 的 `project_files` 精确排除根目录 `.dep_graph.json` 编排元数据，其他隐藏文件及嵌套同名文件仍参与严格集合比较。
+
+`ProjectSnapshot.scan()` 和 `check_artifact_success_gate()` 共用字节码缓存路径规则：仅直接位于 `__pycache__` 下的 `.pyc` 文件豁免；缓存目录中的其他新增文件仍触发计划外变化或集合差异。
+
+`TraditionalAdapter`、`SpecFirstAdapter` 和 `IncrementalAdapter` 实现 `GenerationModeAdapter`。Spec-First 从规范或架构的 `file_plan` 冻结 strict 计划；增量模式只计划受影响文件、加载计划外依赖内容并声明 `preserved_paths`，add/modify/delete/rename 统一由 `IncrementalFileTransaction` 管理，删除-only 请求使用空生成计划。Core 内容生成返回 `GeneratedContent`，正常文件提交统一由 `ArtifactCommitter` 完成。`execute_core_generation()` 构造独立 `SharedContext` 和 checkpoint store，调用 `OrchestratorCore.execute()`，再把 adapter 终态投影为现有 API 响应。`route_generation()` 按 `AGENT_ORCHESTRATION_ENGINE` 或显式请求选择 `legacy`/`core`，默认选择 `legacy`；可选 shadow 执行只比较成功状态和文件路径集合。legacy workflow checkpoint 会记录 `engine`、`engine_version` 和 `engine_route`。
+
+`app.agent.context_assembler` 提供 `ContextItem`、`ContextEnvelope`、`SkillPolicy` 和 `MCPToolDescriptor`。`ContextAssembler.assemble()` 按优先级排序并去重需求、计划、Retrieval、Memory 和 MCP/Skill 输入，输出稳定 `context_hash`；MCP 描述通过读写 scope、项目 scope、依赖、超时和审计字段表达权限边界。`app.agent.languages` 的 `get_language_adapter()` 和 `get_language_capabilities()` 为 Python、JavaScript/TypeScript、Java、Go 和 Rust 提供统一语言入口。
 
 语言适配器还提供 `extract_signatures(content, file_path)` 接口。依赖图优先通过目标语言适配器提取接口，适配器可以接入语言专用解析器或受控工具链，失败时回退到内置解析器。
 
-`app.agent.toolchain.ToolchainRunner` 只执行 `CommandSpec` 参数数组，固定使用 `shell=false`，并施加工作目录、超时和输出大小限制。接口探针可以使用 `ToolchainAction.INSPECT`，Shell 解释器和 Shell 操作符会在 `CommandSpec` 校验阶段被拒绝。
+`app.agent.toolchain.ToolchainRunner` 只执行 `CommandSpec` 参数数组，固定使用 `shell=false`，并施加工作目录、超时和输出大小限制。子进程 `cwd` 和覆盖后的 `PYTHONPATH` 均为解析后的工作区绝对路径，其他环境从宿主复制，父进程环境保持原值；该行为防止宿主同名包遮蔽生成项目的普通包或 namespace package。`ToolchainAction` 覆盖 inspect、install、build、format、lint、typecheck、test、start、smoke 和 health；Shell 解释器和 Shell 操作符会在 `CommandSpec` 校验阶段被拒绝，Gradle/Maven wrapper 必须解析到工作区内的真实文件。
+`detect_toolchain(workspace)` 返回 `ToolchainProbePlan`，包含 `status`、manifest `evidence` 和按 action 唯一的 `CommandSpec`。Node 项目只投影实际存在的 package scripts，Python 项目读取 `pyproject.toml` 工具配置，Go、Cargo、Maven 与 Gradle 项目提供各自的安装、检查、构建和测试命令；未知工作区返回 `status=unsupported`。
+`official_scaffold_request(language, framework, target_dir)` 返回固定版本、参数化的 `ScaffoldRequest`；`execute_official_scaffold()` 通过安全 Toolchain 执行后调用 `import_scaffold_plan()`。导入结果包含真实文件集合、Language Adapter 解析的文件依赖和 import、`InterfaceRegistry` 公共符号以及 `DependencyManifest` manifest 依赖，并以 strict `GenerationPlan` 返回。
 
-`app.agent.evaluation_matrix` 提供六种技术栈的固定 CRUD 评测样例，以及 `EvaluationRecord`、`summarize()` 和 `build_report()`。评测记录覆盖计划、接口、依赖闭包、文件、编译、测试、启动和持久化门禁，并聚合最终成功率、Token 数、P95 耗时、缺失样例、非法指标和失败分类。
+`app.agent.evaluation_matrix` 提供六种历史 CRUD 技术栈样例和 24 个固定评测矩阵 case，覆盖 Python、TypeScript、Go、Java、单文件/小型多文件/模块化多文件及 deterministic/llm 策略。`EvaluationRecord` 兼容旧字段，并支持首次、候选、修复后三阶段结果、独立的 `model_call_count` 和 `token_count`；`build_report()` 聚合最终成功率、Token 数、P95、缺失样例、非法指标、失败分类和按策略阶段指标。`evaluation_runner` 通过 `python3 -m app.agent.evaluation_runner <records.json>` 输出稳定 JSON 报告。旧记录缺少数据库字段时默认使用 `supported`；数据库状态为 `unsupported` 或 `experimental` 时进入 `database` 失败分类。
 
-`app.agent.profile_discovery` 提供 `discover_profile()` 和 `probe_profile()`。发现结果包含语言、框架、应用域、证据、能力和能力缺口；探针结果包含检查项、失败原因和是否通过，允许 Pygame、Scrapy、Electron、React Native 及 Android Gradle 等候选栈进入统一生命周期。
+`app.agent.profile_discovery` 提供 `discover_profile()` 和 `probe_profile()`。发现结果包含语言、框架、应用域、证据、能力、能力缺口和 Profile 状态；manifest 识别覆盖 Pygame、Scrapy、FastAPI、Flask、Django、Python CLI、Electron、React Native、Express、NestJS、React Vite、Next.js、Go stdlib/Gin/Echo、Rust CLI/Axum/Actix Web、Spring Boot Maven/Gradle 和 Android Gradle。`build_probe_plan()` 将内置 Profile 的 lint、typecheck、build、test 和 smoke 阶段投影为安全参数数组。
 `ProfileCache.record_probe()` 持久化探针状态，`promote_supported()` 要求画像处于 `experimental` 且完整 conformance checks 通过后才升级为 `supported`。
+`WorkspaceProfileDocument` 是工作区 Profile 的版本化 JSON 契约，字段包含 `schema_version`、`workspace_id`、`owner_id`、`profile` 和内容 `digest`。`load_workspace_profile()` 校验文件位于授权工作区且作用域匹配；`probe_workspace_profile()` 执行 allowlist 内的有限探针并返回 `WorkspaceProfileProbeResult`；`promote_workspace_profile()` 只接受完整成功证据，并强制逐级晋级。
 `profile_context()` 输出适合嵌入项目上下文的 JSON 结构，生成入口可据此读取应用域、能力集合和待处理能力缺口。
 `app.agent.capability_resolver.resolve_capabilities()` 返回 `ResolvedCapabilities`，包含 required、available、missing、generation_constraints、validation_steps 和 ready 字段。
 `ResolvedCapabilities.required_components` 为领域生成计划提供组件角色提示，例如游戏的 rules/renderer/input_loop、爬虫的 fetcher/parser/pipeline 和桌面应用的 window/event_handler。
 `ResolvedCapabilities.component_file_plan()` 将组件角色映射为相对文件路径和组件类型，供 GenerationPlan 生成文件节点。
 `add_profile_components()` 接收 Profile 上下文和现有文件计划，在 `extensible` 策略下追加领域组件及依赖，在 `strict` 策略下保持请求文件集合不变。
 `ValidationCoordinator` 将 Profile 的 `validation_steps` 转换为安全 Toolchain 命令；`execute()` 返回命令结果，`to_report()` 生成统一 `ValidationReport`。
+
+`validation_targets_for_workflow()` 从 Workflow IR 的节点技术栈解析验证 Profile，并按 `(language, profile)` 稳定去重；该结果用于生成 Agent Host 本地验证计划。Core 不直接执行这些 Profile 命令，产物完成后保存 `waiting_local_validation`，由本地结果适配器接收验证状态。
+
+`app.agent.code_synthesis_contracts` 定义受约束合成协议：`ProjectModel` 保存语言、框架、运行时、模块、目标、入口、生成区和领域能力；`ArtifactSpec` 保存路径、角色、owner、操作、策略、依赖、验证 Profile、来源和前置条件；`ChangePlanIR` 对动态 Artifact 集合执行唯一路径、依赖闭包、DAG 和 SHA-256 digest 校验。`StrategyDecision` 返回 `scaffold`、`schema_codegen`、`template`、`patch` 或 `llm` 策略，并携带理由、能力证据和显式降级状态。
+
+`SynthesisCapabilityRegistry.inspect()` 将现有语言 Adapter 与官方脚手架注册转换为 `SynthesisCapabilitySnapshot`。`StrategyRouter.route_plan()` 为每个 Artifact 生成决策；`project_change_plan()` 将 create/modify Artifact 投影为 Core `GenerationPlan`，并保留策略溯源字段。Core 生命周期语义尚未接入的 delete/rename 操作通过 `UnsupportedArtifactOperation` 阻断。`project_model_from_profile()`、`validation_profile_from_framework()` 和 `validation_plan_from_framework()` 将 `FrameworkProfile` 接入同一控制面及 `ValidationCoordinator`。
+
+`app.agent.stack_adapters` 定义 `StackAdapter`、`StackChangeRequest`、`StackArtifactRequest`、`SymbolIndex` 和 `ScaffoldResult`。所有 Adapter 接受同一严格 Artifact 请求并输出 `ChangePlanIR`；`DEFAULT_STACK_ADAPTERS` 按语言/框架别名解析 FastAPI、Express、Go stdlib/net-http 和 Spring Boot Maven/Gradle。`detect()` 从 manifest 与源码入口构造 `ProjectModel`，`capabilities()` 返回框架 `CapabilitySet`，`synthesis_capabilities()` 返回解析、编辑、编译、测试与脚手架能力，`extract_symbols()` 委托 Language Adapter，`validation_profile()` 委托 Framework Profile bridge。官方脚手架缺失时 `scaffold()` 返回显式 unsupported 结果。
+
+`app.agent.synthesis_validation` 定义候选验证控制面。`SynthesisCandidate` 保存候选 ID、生成策略、动态 Artifact 内容、变更行数、模型调用数和上下文 hash；`CandidateBudgetTracker` 分别限制任务总候选数和单策略候选数。`CandidateValidationRouter.validate()` 固定从 `ValidationLevel.V0` 顺序运行到 `V6`，结果必须形成从 V0 开始的连续前缀，并在首次 `failed`、`unsupported` 或 `budget_exhausted` 状态停止。
+
+`app.agent.declarative_contracts` 定义不可变 `ContractDeclaration`、`ContractAssertion`、`ArtifactFacts`、`ContractGateResult` 和 `CandidateValidation`。声明断言引用命名事实集并选择 `equals`、`contains_all` 或 `excludes_all`；`compare_contract()` 只比较声明操作数，缺少事实解析能力时返回 `status=unsupported` 和 `contract.fact_unsupported`。`validate_candidate()` 组合声明比较、语言诊断和冻结依赖闭包检查。`LanguageAdapter.extract_contract_facts()`、`source_diagnostics()` 和 `repair_source()` 分别负责源码事实、语言语义诊断和最小修复候选；修复候选重新调用同一门禁。Python 实现仅在源码可静态确定时校验外部模块导出，并诊断无构造能力的本地普通类带参调用；最小修复可移除未引用的无效导入，或从当前文件唯一可确认的提供模块补全未定义名称。`GenerationPlan.files[].contract` 负责在冻结计划和兼容投影之间保留版本化声明。
+
+`app.agent.orchestration.StackRepairCandidate` 兼容导出 Stack 模块的候选类型，记录 `strategy`、`file_path`、`content`、`trigger_reason`、`input_contract_digest` 和 `candidate_version`。`_contract_retry_candidate()` 保留候选构造面；固定样例源码 fallback 及 `_contract_retry_fallback()` 已从 Core adapter 移除。
+`app.agent.stack_adapters.StackRepairStrategyRegistry` 按注册顺序选择首个适用策略，并拒绝重复策略名称；Core adapter 默认构造空注册表。当前活动生成路径调用语言 `repair_source()`，将候选重新送入 `validate_candidate()`，证据策略名为 `language-source-repair`。
+
+`stack_file_handler()` 将 Stack Adapter 文件解析结果接入 V1；`validation_plan_for_level()` 和 `coordinator_handler()` 将 install/lint/typecheck/build、test、start/smoke/health 分别约束到 V2、V3、V5；V4 接受技术栈无关的契约处理器；`delivery_gate_handler()` 将既有 Artifact 一致性结果接入 V6。`rank_candidates()` 只把完整通过 V0-V6 的候选作为 winner，并使用稳定 tie-break；`build_repair_feedback()` 将失败候选路由回其原始 `GenerationStrategy`，限制诊断数量和相关上下文字符数。稳定失败分类包括 `validation_failed`、`validation_unsupported`、`task_candidate_budget_exhausted` 和 `strategy_candidate_budget_exhausted`。
 
 传统单文件生成创建 `HeartbeatTracker` 并传递给 Specialist 与 `ReActEngine`。simple ReAct 和 full ReAct 均监控模型活动；流式 content/reasoning chunk 更新活动时间，超过无活动阈值会取消当前调用并返回空结果，由现有内容恢复链路执行有限重试。API SSE 的 5 秒 heartbeat 仅承担客户端连接保活，不参与模型活动判断。
 
@@ -215,6 +254,8 @@ PPT 生成支持 `pptx`、`html` 和 `markdown` 格式的严格产物分流。�
 统一检索使用 `RetrievalRequest`、`RetrievalChunk` 和 `RetrievalResult`。chunk 实际携带 `source_type`、`source_id`、`content_hash`、`metadata` 和 `retrieved_at`；项目/会话范围通过请求字段和 metadata 过滤，来源信息由来源字段和 metadata 表达。服务支持排序、去重和降级结果，当前尚未接入生产 Agent 主链路。
 
 ## Validation Contracts
+
+`app.agent.project_snapshot.ProjectSnapshot` 保存项目基线 revision、文件路径、大小和 SHA-256。`app.agent.change_plan.ChangePlan` 保存基于快照的动态 `FileChange`，支持新增、修改、删除和重命名，并通过 `verify_untouched()` 检查计划外文件变化。`IncrementalFileTransaction.stage()` 在调度前备份 modify 原文件、暂存 delete/rename 源文件并登记 add/rename 新目标；`commit()` 清除事务暂存区，`rollback()` 恢复备份并移除本轮新增目标。
 
 云端验证使用 `source=cloud`、`scope=cloud_syntax`，并根据 `State.metadata.required_validation_scopes` 创建本地验证动作。本地结果适配器只接受 `local_runtime` 或 `local_e2e`，校验 task、session、revision、schema version、scope 和 `source=local`，并将协议字段映射到内部 `scope`、`passed`、`source=vscode` 契约。`passed`、`skipped`、`failed`、`timeout`、`rejected`、`cancelled` 和 `unsupported` 进入状态推导，其中 `skipped` 视为已完成阶段，`waiting_for_confirmation` 保持未完成；当语言能力、验证命令或契约版本不可用时使用 `unsupported`，保留 `reason` 等诊断并停止创建后续本地验证动作。适配器按已完成 scope 更新待执行动作，所有必需 scope 通过或跳过后才产生 `completed` 状态。VS Code 插件本地 E2E、Agent Host 真实 HTTP session 控制闭环和用户模型 Key 流程均已验收，模型驱动的跨工作台续跑仍属于独立场景验收。
 

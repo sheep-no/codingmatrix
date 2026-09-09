@@ -1232,7 +1232,23 @@ class DependencyGraph:
                 except Exception as read_err:
                     logger.warning(f"读取文件内容失败用于依赖分析：{read_err}")
 
-        self._auto_add_dependencies()
+        # Generic languages need all nodes available before resolving class names.
+        for file_path in project_path.rglob("*"):
+            if any(part in SKIP_DIRS for part in file_path.parts) or not file_path.is_file():
+                continue
+            if file_path.suffix.lower() in {'.py', '.js', '.ts', '.jsx', '.tsx', '.vue'}:
+                continue
+            rel_path = str(file_path.relative_to(project_path))
+            try:
+                content = file_path.read_text(encoding='utf-8', errors='ignore')
+                deps = self.extract_dependencies_from_content(rel_path, content)
+                if deps:
+                    generic_imports[rel_path] = deps
+            except Exception as read_err:
+                logger.warning(f"读取文件内容失败用于依赖分析：{read_err}")
+
+        files_with_imports = set(py_imports) | set(js_requires) | set(generic_imports)
+        self._auto_add_dependencies(files_with_imports)
 
         for file_path, dep_paths in py_imports.items():
             for dep in dep_paths:
@@ -1373,7 +1389,9 @@ class DependencyGraph:
             for name in possible_names:
                 # 使用边界匹配避免子串误杀
                 if re.search(r'\b' + re.escape(name) + r'\b', content):
-                    deps.append(name)
+                    for node_path in self.nodes:
+                        if node_path != file_path and name in {Path(node_path).stem, Path(node_path).name}:
+                            deps.append(node_path)
             return list(set(deps))
 
         # 执行具体语言的解析

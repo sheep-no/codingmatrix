@@ -238,6 +238,7 @@ class SpecFirstGenerateMixin:
             logger.warning("Spec-First 项目计划暂未冻结，保留兼容生成流程: %s", exc)
         if project_plan is not None:
             project_context["generation_plan"] = project_plan.model_dump(mode="json")
+        allow_plan_expansion = project_plan is None or project_plan.policy != "strict"
         validation_plan = ValidationCoordinator().build_plan(
             project_context["profile"], detect_toolchain(self.output_dir)
         )
@@ -352,7 +353,8 @@ class SpecFirstGenerateMixin:
             try:
                 result = await self._generate_with_dynamic_topology(
                     ctx, dep_graph, spec_generator, architecture, requirement,
-                    project_context, generated_contents, callback, language_adapter
+                    project_context, generated_contents, callback, language_adapter,
+                    allow_plan_expansion
                 )
             finally:
                 # 清除依赖图白名单（延迟到此处，确保被取消的 ReAct 协程也被阻止写入）
@@ -718,7 +720,10 @@ class SpecFirstGenerateMixin:
             self.warnings.extend([issue.message for issue in integrity_result.issues if issue.severity == "error"])
 
             # 自动生成修复文件（如 __init__.py）
-            fixes = integrity_validator.generate_fixes(integrity_result, generated_files_dict)
+            fixes = (
+                integrity_validator.generate_fixes(integrity_result, generated_files_dict)
+                if allow_plan_expansion else {}
+            )
             if fixes:
                 from app.agent.utils import write_file_atomic as _wf_atomic
                 for fix_path, fix_content in fixes.items():
@@ -732,7 +737,7 @@ class SpecFirstGenerateMixin:
         if dep_graph_issues:
             logger.warning(f"依赖图完整性验证发现 {len(dep_graph_issues)} 个问题")
             missing_files = dep_graph.get_missing_files()
-            if missing_files:
+            if missing_files and allow_plan_expansion:
                 architecture = dep_graph.add_missing_files(architecture)
                 # 为新发现的文件生成内容
                 from app.agent.utils import write_file_atomic as _wf_atomic
@@ -934,7 +939,8 @@ class SpecFirstGenerateMixin:
         project_context: Dict,
         generated_contents: Dict[str, str],
         callback: Optional[Callable] = None,
-        language_adapter=None
+        language_adapter=None,
+        allow_plan_expansion: bool = True,
     ) -> Dict[str, Any]:
         """使用动态拓扑调度生成文件"""
         # 免费模型速率限制：并行度降为 2，避免 429 错误
@@ -1434,7 +1440,10 @@ class SpecFirstGenerateMixin:
             warnings_list.extend([issue.message for issue in integrity_result.issues if issue.severity == "error"])
 
             # 自动生成修复文件（如 __init__.py）
-            fixes = integrity_validator.generate_fixes(integrity_result, generated_files_dict)
+            fixes = (
+                integrity_validator.generate_fixes(integrity_result, generated_files_dict)
+                if allow_plan_expansion else {}
+            )
             if fixes:
                 from app.agent.utils import write_file_atomic as _wf_atomic
                 for fix_path, fix_content in fixes.items():
@@ -1450,7 +1459,7 @@ class SpecFirstGenerateMixin:
         if dep_graph_issues:
             logger.warning(f"依赖图完整性验证发现 {len(dep_graph_issues)} 个问题")
             missing_files = dep_graph.get_missing_files()
-            if missing_files:
+            if missing_files and allow_plan_expansion:
                 architecture = dep_graph.add_missing_files(architecture)
                 from app.agent.utils import write_file_atomic as _wf_atomic
                 for missing_file in missing_files:
@@ -1477,28 +1486,6 @@ class SpecFirstGenerateMixin:
                         lang_for_report = language_adapter.language if language_adapter else "python"
                         self._report_file_event(missing_file, default_content, "自动补充的模块文件", lang_for_report)
                         files_generated += 1
-
-        # 3. CrossValidator 跨文件一致性验证
-        if hasattr(self, 'model_assignment') and self.model_assignment:
-            cross_validator = CrossValidator(ctx, language_adapter=language_adapter, api_key_token=self.api_key_token)
-            fix_model = self.model_assignment.reviewer_model
-
-            generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
-
-            fixed_files, cross_issues = await cross_validator.validate_and_fix(
-                generated_files_dict, architecture, fix_model
-            )
-
-            if cross_issues:
-                logger.warning(f"跨文件一致性验证发现 {len(cross_issues)} 个问题")
-                warnings_list.extend([issue.get("message", "") for issue in cross_issues])
-
-                from app.agent.utils import write_file_atomic as _wf_atomic
-                for fix_path, fix_content in fixed_files.items():
-                    if fix_content != generated_files_dict.get(fix_path):
-                        _wf_atomic(self.output_dir, fix_path, fix_content)
-                        ctx.save_file_content(fix_path, fix_content, "cross_validator_fix")
-                        logger.info(f"跨文件一致性修复: {fix_path}")
 
         self._report_progress("integrity_validated", total_files + 4, total_files + 5, callback=callback)
 
@@ -1542,7 +1529,7 @@ class SpecFirstGenerateMixin:
         final_generated_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
         completeness = await self._validate_project_completeness(file_plan, final_generated_dict)
 
-        if not completeness["is_complete"]:
+        if not completeness["is_complete"] and allow_plan_expansion:
             logger.warning(
                 f"项目完整性检查未通过: "
                 f"缺失 {len(completeness['missing_files'])} 个文件, "
@@ -1562,6 +1549,13 @@ class SpecFirstGenerateMixin:
                         ctx.save_file_content(missing_file, content, "completeness_fix")
                         logger.info(f"缺失文件已补充: {missing_file}")
                         files_generated += 1
+
+        if not completeness["is_complete"] and not allow_plan_expansion:
+            logger.info(
+                "严格计划跳过项目完整性补充: "
+                f"缺失 {len(completeness['missing_files'])} 个文件, "
+                f"无效 {len(completeness['invalid_files'])} 个文件"
+            )
 
         logger.info(f"项目生成完成: {completeness['total_generated']}/{completeness['total_planned']} 文件")
 
@@ -1596,7 +1590,40 @@ class SpecFirstGenerateMixin:
             except SyntaxError:
                 return False
 
-        elif ext in ('.js', '.ts', '.vue'):
+        elif ext == '.ts':
+            # TypeScript syntax (including decorators and annotations) cannot be
+            # parsed by `node -c`; use the installed compiler's parser only.
+            import shutil
+            import tempfile
+            import subprocess
+            tsc_path = shutil.which('tsc')
+            if not tsc_path:
+                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
+            typescript_module = Path(tsc_path).resolve().parent.parent / 'lib' / 'typescript.js'
+            if not typescript_module.is_file():
+                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
+            try:
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.ts', delete=False) as f:
+                    f.write(content)
+                    tmp_path = f.name
+                script = (
+                    "const ts=require(process.argv[1]);const fs=require('fs');"
+                    "const source=fs.readFileSync(process.argv[2],'utf8');"
+                    "const result=ts.transpileModule(source,{reportDiagnostics:true,compilerOptions:{"
+                    "target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,"
+                    "experimentalDecorators:true,emitDecoratorMetadata:true}});"
+                    "process.exit(result.diagnostics?.some(d=>d.category===ts.DiagnosticCategory.Error)?1:0);"
+                )
+                result = subprocess.run(
+                    ['node', '-e', script, str(typescript_module), tmp_path],
+                    capture_output=True, text=True, timeout=5
+                )
+                Path(tmp_path).unlink(missing_ok=True)
+                return result.returncode == 0
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
+
+        elif ext in ('.js', '.vue'):
             # 检测 Python 代码混入 JS 文件
             python_indicators = ['def ', 'import ', 'from ', 'class ', 'self.', 'print(']
             python_count = sum(1 for ind in python_indicators if ind in content)
@@ -2093,6 +2120,7 @@ class SpecFirstGenerateMixin:
         dep_context: str = "",
         callback=None,
         heartbeat_tracker=None,
+        persist: bool = True,
     ) -> Optional[str]:
         """恢复无效内容：直接调用 LLM 生成代码（不走 ReAct，节省 token）
 
@@ -2153,11 +2181,21 @@ class SpecFirstGenerateMixin:
             content = clean_code_block(content)
 
             # 验证
-            from app.agent.utils import get_expected_language_for_file, is_valid_code_content, validate_language_with_llm
+            from app.agent.utils import (
+                get_expected_language_for_file,
+                is_placeholder_content,
+                is_valid_code_content,
+                validate_language_with_llm,
+            )
             target_language = project_context.get("architecture", {}).get("language", "")
             file_expected_language = get_expected_language_for_file(file_path, target_language)
 
             is_valid, new_reason = is_valid_code_content(file_path, content)
+            if is_valid:
+                is_placeholder, placeholder_reason = is_placeholder_content(content, file_path)
+                if is_placeholder:
+                    is_valid = False
+                    new_reason = placeholder_reason
             if is_valid:
                 # 语言检测
                 if file_expected_language and self._quick_llm_check:
@@ -2168,9 +2206,11 @@ class SpecFirstGenerateMixin:
                         logger.warning(f"内容恢复语言检测失败: {file_path} - {lang_reason} (第 {attempt + 1} 次)")
                         continue
                 logger.info(f"内容恢复成功: {file_path} (第 {attempt + 1} 次)")
-                # 写入文件（使用原子写入）
-                from app.agent.utils import write_file_atomic as _wf_atomic
-                _wf_atomic(self.output_dir, file_path, content)
+                if persist:
+                    from app.agent.utils import write_file_atomic as _wf_atomic
+                    if not _wf_atomic(self.output_dir, file_path, content):
+                        logger.warning(f"内容恢复写入失败: {file_path} (第 {attempt + 1} 次)")
+                        continue
                 return content
             logger.warning(f"内容恢复失败: {file_path} - {new_reason} (第 {attempt + 1} 次)")
 

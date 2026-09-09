@@ -88,12 +88,23 @@ async def generate_project(
                 cancel_event=cancel_event,
             )
 
-        workflow = build_legacy_workflow("generate", "/generate", run_generate)
+        async def run_core(_state):
+            # The core route keeps the established generator behind the new boundary
+            # until the dedicated Core generation adapter completes its acceptance.
+            return await run_generate(_state)
+
+        workflow = build_legacy_workflow(
+            "generate", "/generate", run_generate, core_handler=run_core
+        )
         state = await run_workflow(
             workflow,
             session_id=req.session_id or task_id,
             task_id=task_id,
-            metadata={"requirement": req.requirement, "output_dir": output_dir},
+            metadata={
+                "requirement": req.requirement,
+                "output_dir": output_dir,
+                "provider_id": getattr(req, "provider_id", None),
+            },
             db=db,
             user_id=int(user_id),
         )

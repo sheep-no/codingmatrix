@@ -9,6 +9,9 @@ from .language_adapter import (
 from .python import PythonLanguageAdapter
 from .javascript import JavaScriptLanguageAdapter
 from .generic import GenericLanguageAdapter
+from .java import JavaLanguageAdapter
+from .go import GoLanguageAdapter
+from .rust import RustLanguageAdapter
 
 from .event_adapter import progress_event_to_message
 from .legacy_agent_adapter import legacy_result_to_delta
@@ -23,6 +26,9 @@ __all__ = [
     "PythonLanguageAdapter",
     "JavaScriptLanguageAdapter",
     "GenericLanguageAdapter",
+    "JavaLanguageAdapter",
+    "GoLanguageAdapter",
+    "RustLanguageAdapter",
     "legacy_result_to_delta",
     "progress_event_to_message",
     "spec_first_result_to_delta",

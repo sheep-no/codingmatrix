@@ -23,6 +23,9 @@ _CAPABILITIES: Dict[str, LanguageCapabilities] = {
     "python": LanguageCapabilities("python", (".py",), supports_compile=True, supports_tests=True),
     "javascript": LanguageCapabilities("javascript", (".js", ".jsx",), supports_compile=True, supports_tests=True),
     "typescript": LanguageCapabilities("typescript", (".ts", ".tsx"), supports_compile=True, supports_tests=True),
+    "java": LanguageCapabilities("java", (".java",), supports_compile=True, supports_tests=True),
+    "go": LanguageCapabilities("go", (".go",), supports_compile=True, supports_tests=True),
+    "rust": LanguageCapabilities("rust", (".rs",), supports_compile=True, supports_tests=True),
     "generic": LanguageCapabilities("generic", ()),
 }
 

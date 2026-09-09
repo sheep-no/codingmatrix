@@ -27,6 +27,13 @@ class ValidationCategory(str, Enum):
     UNKNOWN = "unknown"
 
 
+_ROUTE_CATEGORY_ALIASES = {
+    "fixture": ValidationCategory.TEST,
+    "name": ValidationCategory.IMPORT,
+    "schema": ValidationCategory.TYPE,
+}
+
+
 class ValidationFinding(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -97,7 +104,10 @@ class ValidationReport(BaseModel):
         scope: str = "cloud_syntax",
         code: Optional[str] = None,
     ) -> "ValidationReport":
-        resolved = category or ValidationCategory(RepairRouter.route(error_message=message).category)
+        route_category = RepairRouter.route(error_message=message).category
+        resolved = category or _ROUTE_CATEGORY_ALIASES.get(route_category)
+        if resolved is None:
+            resolved = ValidationCategory(route_category)
         finding = ValidationFinding(
             category=resolved,
             message=message,

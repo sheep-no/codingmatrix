@@ -5,7 +5,7 @@ from app.agent.dependency_manifest import DependencyKind, DependencyManifest
 from app.agent.generation_plan import GenerationPlan, add_profile_components
 from app.agent.interface_registry import InterfaceRegistry
 from app.agent.toolchain import detect_toolchain
-from app.agent.validation_coordinator import ValidationCoordinator
+from app.agent.validation_coordinator import ValidationCoordinator, ValidationResult
 from app.agent.toolchain import CommandSpec, ToolchainAction
 from app.agent.validation_coordinator import ValidationPlan
 from app.agent.signature_extractor import extract_signatures
@@ -95,6 +95,58 @@ def test_architecture_conversion_preserves_language_profile_and_runtime() -> Non
     assert (plan.language, plan.framework, plan.runtime) == ("go", "chi", "go1.23")
 
 
+def test_architecture_conversion_preserves_strict_file_scope() -> None:
+    paths = ["pom.xml", "src/main/java/com/example/Application.java"]
+    plan = GenerationPlan.from_architecture({
+        "language": "java",
+        "file_plan": [{"path": path} for path in paths],
+        "strict_file_paths": paths,
+    })
+
+    projected = add_profile_components(
+        plan.files,
+        {"capability_policy": {"component_file_plan": [{"path": "app/command.py"}]}},
+        policy=plan.policy,
+        requested_paths=plan.requested_paths,
+        language=plan.language,
+    )
+
+    assert plan.policy == "strict"
+    assert set(plan.requested_paths) == set(paths)
+    assert {item.path for item in projected.files} == set(paths)
+
+
+def test_architecture_conversion_normalizes_legacy_dependency_groups() -> None:
+    plan = GenerationPlan.from_architecture({
+        "file_plan": [{"path": "pom.xml"}],
+        "dependencies": {
+            "runtime": ["org.springframework.boot:spring-boot-starter-web"],
+            "backend": ["org.xerial:sqlite-jdbc"],
+        },
+    })
+
+    assert plan.dependencies.names() == (
+        "org.springframework.boot:spring-boot-starter-web",
+        "org.xerial:sqlite-jdbc",
+    )
+
+
+def test_architecture_conversion_normalizes_package_version_map() -> None:
+    plan = GenerationPlan.from_architecture({
+        "file_plan": [{"path": "pom.xml"}],
+        "dependencies": {
+            "spring-boot-starter-web": "^3.3.5",
+            "spring-boot-starter-data-jpa": "^3.3.5",
+        },
+    })
+
+    assert plan.dependencies.names() == (
+        "spring-boot-starter-data-jpa",
+        "spring-boot-starter-web",
+    )
+    assert {item.version for item in plan.dependencies.dependencies} == {"^3.3.5"}
+
+
 def test_validation_coordinator_projects_profile_steps_to_safe_commands(tmp_path) -> None:
     (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
     profile = {"capability_policy": {"validation_steps": ["syntax", "tests", "headless_startup"]}}
@@ -133,6 +185,27 @@ def test_validation_coordinator_maps_failures_to_report() -> None:
     assert report.findings[0].scope == "local_runtime"
 
 
+@pytest.mark.parametrize(
+    ("action", "category"),
+    [
+        (ToolchainAction.INSTALL, "dependency"),
+        (ToolchainAction.LINT, "type"),
+        (ToolchainAction.TYPECHECK, "type"),
+        (ToolchainAction.BUILD, "framework"),
+        (ToolchainAction.TEST, "test"),
+        (ToolchainAction.SMOKE, "framework"),
+    ],
+)
+def test_validation_coordinator_preserves_stage_failure_category(action, category) -> None:
+    command = CommandSpec(action=action, command=("python3", "-c", "pass"))
+    plan = ValidationPlan((command,), ())
+    result = ValidationResult(command, 1, "", "failed")
+
+    report = ValidationCoordinator().to_report(plan, (result,), context_hash="a" * 64)
+
+    assert report.findings[0].category.value == category
+
+
 def test_plan_projection_preserves_scheduler_metadata_and_imports() -> None:
     plan = GenerationPlan.build([{
         "path": "src/main.ts",
@@ -145,6 +218,17 @@ def test_plan_projection_preserves_scheduler_metadata_and_imports() -> None:
     assert (item.file_type, item.priority, item.imports) == ("entry", 1, ("src/config.ts",))
     assert item.contract == {"exports": ["main"]}
     assert plan.file_entries()[1]["dependencies"] == []
+
+
+def test_generation_plan_normalizes_model_priority() -> None:
+    plan = GenerationPlan.build([
+        {"path": "low.py", "priority": 0},
+        {"path": "high.py", "priority": 6},
+        {"path": "default.py", "priority": "unexpected"},
+    ])
+
+    priorities = {item.path: item.priority for item in plan.files}
+    assert priorities == {"default.py": 3, "high.py": 5, "low.py": 1}
 
 
 def test_python_signature_extraction_preserves_return_types_and_fields() -> None:

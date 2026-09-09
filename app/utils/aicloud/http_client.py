@@ -108,7 +108,11 @@ async def call_with_retry(
             logger.error(f"API 异常: {e}", exc_info=True)
             raise
     
-    raise last_error
+    if isinstance(last_error, BaseException):
+        raise last_error
+    if isinstance(last_error, httpx.Response):
+        last_error.raise_for_status()
+    raise RuntimeError("API request failed without an exception or response")
 
 
 class RateLimitedClient:

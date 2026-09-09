@@ -1,6 +1,13 @@
 import pytest
 
-from app.agent.orchestration import compare_shadow_results, route_generation
+from app.agent.orchestration import (
+    CORE_ENGINE,
+    LEGACY_ENGINE,
+    compare_shadow_results,
+    engine_metadata,
+    route_generation,
+    select_engine,
+)
 
 
 def _result(success, paths):
@@ -15,6 +22,27 @@ def test_shadow_comparison_excludes_source_content():
 
     assert comparison["matches"] is True
     assert "content" not in comparison
+
+
+def test_engine_flag_defaults_to_legacy_and_accepts_explicit_core(monkeypatch):
+    monkeypatch.delenv("AGENT_ORCHESTRATION_ENGINE", raising=False)
+
+    assert select_engine() == LEGACY_ENGINE
+    assert select_engine("core") == CORE_ENGINE
+    assert engine_metadata("core")["engine_route"] == "experimental"
+
+
+@pytest.mark.asyncio
+async def test_core_flag_falls_back_to_legacy_until_core_handler_is_wired(monkeypatch):
+    monkeypatch.setenv("AGENT_ORCHESTRATION_ENGINE", "core")
+
+    async def legacy():
+        return _result(True, ["app.py"])
+
+    routed = await route_generation(legacy)
+
+    assert routed.engine == CORE_ENGINE
+    assert routed.result["success"] is True
 
 
 @pytest.mark.asyncio

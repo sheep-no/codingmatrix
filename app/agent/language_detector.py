@@ -158,6 +158,7 @@ class LanguageDetector:
         "next": "javascript",
         "nuxt": "javascript",
         "spring": "java",
+        "spring-boot": "java",
         "springboot": "java",
         "hibernate": "java",
         "gin": "go",
@@ -218,8 +219,41 @@ class LanguageDetector:
         Returns:
             LanguageDetectionResult
         """
-        requirement_lower = requirement.lower()
+        user_requirement = requirement.split("\n\n[Available Skills]", 1)[0]
+        requirement_lower = user_requirement.lower()
         evidence = []
+
+        # A direct language declaration in the request outranks appended context.
+        explicit_aliases = {
+            "js": "javascript",
+            "ts": "typescript",
+            "spring boot": "java",
+            "spring-boot": "java",
+            "springboot": "java",
+        }
+        explicit_pattern = (
+            r"\b(?:use|using|written\s+in|implemented\s+in)\s+"
+            r"(python|java|go|golang|rust|typescript|javascript|js|ts)\b"
+        )
+        explicit_match = re.search(explicit_pattern, requirement_lower)
+        if not explicit_match:
+            explicit_match = re.search(
+                r"\b(java|python|go|golang|rust|typescript|javascript|js|ts)\s+"
+                r"(?:spring[- ]boot|fastapi|flask|django|express|nestjs|nest\.js|gin)\b",
+                requirement_lower,
+            )
+        if explicit_match:
+            raw_language = explicit_match.group(1)
+            language = explicit_aliases.get(raw_language, raw_language)
+            evidence.append(f"显式语言声明: '{raw_language}' → {language}")
+            return LanguageDetectionResult(
+                language=language,
+                confidence=1.0,
+                evidence=evidence,
+                adapter_name=cls._get_adapter_name(language),
+                backend_language=language,
+                all_languages=[language],
+            )
 
         # 策略 0: 检查是否是全栈项目（前端 + 后端不同语言）
         is_fullstack, frontend_lang, backend_lang = cls._detect_fullstack_languages(requirement_lower)
