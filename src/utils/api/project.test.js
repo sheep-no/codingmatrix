@@ -2,6 +2,38 @@ import { describe, expect, it, vi } from 'vitest'
 import { createProjectClient } from './project'
 
 describe('project model context client', () => {
+  it('controls project lifecycle and retention protection', async () => {
+    const baseClient = {
+      post: vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ session_id: 'project-1', lifecycle_status: 'archived' })
+      }),
+      delete: vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ session_id: 'project-1', pinned: false })
+      })
+    }
+    const client = createProjectClient(baseClient)
+
+    await expect(client.archiveProject('project-1')).resolves.toEqual({
+      session_id: 'project-1', lifecycle_status: 'archived'
+    })
+    await expect(client.restoreProject('project-1')).resolves.toEqual({
+      session_id: 'project-1', lifecycle_status: 'archived'
+    })
+    await expect(client.pinProject('project-1')).resolves.toEqual({
+      session_id: 'project-1', lifecycle_status: 'archived'
+    })
+    await expect(client.unpinProject('project-1')).resolves.toEqual({
+      session_id: 'project-1', pinned: false
+    })
+
+    expect(baseClient.post).toHaveBeenNthCalledWith(1, '/agent/projects/project-1/archive')
+    expect(baseClient.post).toHaveBeenNthCalledWith(2, '/agent/projects/project-1/restore')
+    expect(baseClient.post).toHaveBeenNthCalledWith(3, '/agent/projects/project-1/pin')
+    expect(baseClient.delete).toHaveBeenCalledWith('/agent/projects/project-1/pin')
+  })
+
   it('reads and updates session model context', async () => {
     const context = { current_model: 'model-a', expected_revision: 3 }
     const baseClient = {
