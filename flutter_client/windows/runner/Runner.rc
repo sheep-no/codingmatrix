@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.codingmatrix" "\0"
-            VALUE "FileDescription", "flutter_client" "\0"
+            VALUE "CompanyName", "CodingMatrix" "\0"
+            VALUE "FileDescription", "CodingMatrix Agent" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "flutter_client" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.codingmatrix. All rights reserved." "\0"
-            VALUE "OriginalFilename", "flutter_client.exe" "\0"
-            VALUE "ProductName", "flutter_client" "\0"
+            VALUE "InternalName", "codingmatrix_agent" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 CodingMatrix. All rights reserved." "\0"
+            VALUE "OriginalFilename", "codingmatrix_agent.exe" "\0"
+            VALUE "ProductName", "CodingMatrix Agent" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
