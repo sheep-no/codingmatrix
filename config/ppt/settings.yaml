@@ -1,0 +1,142 @@
+# PPT 全局设置配置文件
+# 将硬编码的参数统一到此文件中
+
+# 服务设置
+service:
+  # 输出目录
+  output_dir: "./pptx_output"
+  # 静态文件目录
+  static_dir: "./static/ppt"
+  # 图片缓存目录
+  image_cache_dir: "./static/images/ppt-cache"
+  # 临时文件目录
+  temp_dir: "./tmp/ppt"
+
+# 任务队列设置
+task_queue:
+  # 最大并发任务数
+  max_concurrent_tasks: 10
+  # 每用户最大并发任务数
+  max_concurrent_per_user: 3
+  # 任务超时时间（秒）
+  task_timeout_seconds: 300
+  # 任务状态保留天数
+  task_retention_days: 7
+
+# AI 模型设置
+ai:
+  # 默认模型
+  default_model: "Qwen/Qwen3.5-4B"
+  # 最大重试次数
+  max_retries: 3
+  # 温度参数
+  temperature: 0.7
+  # 大纲生成模型
+  outline_model: "Qwen/Qwen3.5-4B"
+  # 内容生成模型
+  content_model: "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+  # 美化建议模型
+  polish_model: "Qwen/Qwen3.5-4B"
+  # 设计建议模型
+  design_model: "Qwen/Qwen3.5-4B"
+
+# 幻灯片设置
+slides:
+  # 默认幻灯片数量
+  default_count: 10
+  # 最小幻灯片数量
+  min_count: 5
+  # 最大幻灯片数量
+  max_count: 50
+  # 幻灯片尺寸（英寸）
+  width: 10
+  height: 7.5
+  # 默认布局
+  default_layout: "blank"  # blank, title, content
+
+# 文本设置
+text:
+  # 最大标题字数
+  max_title_length: 50
+  # 最大内容行数
+  max_content_lines: 8
+  # 每行最大字符数（中文）
+  max_chars_per_line_cn: 25
+  # 每行最大字符数（英文）
+  max_chars_per_line_en: 50
+  # 字号范围
+  min_font_size: 12
+  max_font_size: 48
+  # 默认标题字号
+  default_title_size: 32
+  # 默认正文字号
+  default_body_size: 18
+  # 缩放步长
+  font_size_step: 2
+
+# 图片设置
+images:
+  # 搜索源优先级
+  search_sources:
+    - "bing"
+    - "unsplash"
+    - "pexels"
+  # 最大并发搜图数
+  max_concurrent_search: 5
+  # 图片下载超时（秒）
+  download_timeout: 10
+  # 默认图片宽度（像素）
+  default_width: 1920
+  # 默认图片高度（像素）
+  default_height: 1080
+  # 缓存过期时间（秒）- 7 天
+  cache_ttl: 604800
+  # 最大缓存大小（MB）
+  max_cache_size_mb: 500
+
+# 动画设置
+animations:
+  # 是否默认启用
+  default_enabled: false
+  # 默认动画类型
+  default_animation: "fade"
+  # 动画持续时间（秒）
+  duration: 0.5
+  # 动画延迟（秒）
+  delay: 0.1
+  # 支持的动画类型
+  supported_animations:
+    - "fade"
+    - "slide_left"
+    - "slide_right"
+    - "slide_up"
+    - "slide_down"
+    - "zoom"
+    - "bounce"
+
+# 导出设置
+export:
+  # PDF 转换设置
+  pdf:
+    # LibreOffice 路径
+    libreoffice_path: "libreoffice"
+    # 转换超时（秒）
+    conversion_timeout: 60
+    # 是否启用 PDF 导出
+    enabled: true
+
+# 存储设置
+storage:
+  # 文件保留天数
+  file_retention_days: 7
+  # 最大存储容量（GB）
+  max_total_size_gb: 10
+  # 存储使用率阈值（超过时触发清理）
+  threshold_percentage: 80
+
+# 日志设置
+logging:
+  # 日志级别
+  level: "INFO"
+  # 是否输出详细日志
+  verbose: false
