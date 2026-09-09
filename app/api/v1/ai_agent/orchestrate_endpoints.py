@@ -130,7 +130,7 @@ from .schemas import (
 from .helpers import (
     get_session_manager, get_spec_cache, get_feedback_learner,
     _approval_queues, _create_project_session, _update_project_session_status,
-    verify_admin_token, get_user_recent_session,
+    verify_admin_token, get_user_recent_session, verify_session_ownership,
     detect_resume_intent, resolve_resume_session, analyze_files_to_regenerate,
     _detect_and_clean_zombie_sessions, cleanup_session_files,
 )
@@ -153,6 +153,24 @@ def _generation_http_exception(error: Exception) -> HTTPException:
 # 运行中的生成任务，用于浏览器重连
 _active_tasks: Dict[str, dict] = {}
 _user_creation_locks: Dict[str, asyncio.Lock] = {}
+
+
+async def _cancel_active_generation(session_id: str) -> bool:
+    """Cancel an in-process generation task and wait for its cleanup."""
+    active_task = _active_tasks.pop(session_id, None)
+    if not active_task:
+        return False
+    gen_task = active_task.get("gen_task")
+    if not gen_task or gen_task.done():
+        return True
+    gen_task.cancel()
+    try:
+        await asyncio.wait_for(gen_task, timeout=5.0)
+    except asyncio.CancelledError:
+        pass
+    except asyncio.TimeoutError:
+        logger.warning("生成任务取消等待超时 | session=%s", session_id)
+    return True
 
 logger = logging.getLogger(__name__)
 
@@ -604,6 +622,34 @@ async def orchestrate_project_stream(
 
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+    if request.is_resume is True:
+        if not request.session_id:
+            raise HTTPException(status_code=422, detail="恢复必须指定 session_id")
+        session = await verify_session_ownership(db, request.session_id, user_id)
+        active = _active_tasks.get(session.session_id)
+        if session.status != "running" or not active or active["gen_task"].done():
+            raise HTTPException(status_code=409, detail="任务已结束或当前进程无可重连任务，请刷新详情")
+        if active.get("connected", True):
+            raise HTTPException(status_code=409, detail="任务仍有订阅连接，请断开后重试")
+        active["connected"] = True
+
+        async def resume_events():
+            try:
+                while True:
+                    try:
+                        item = await asyncio.wait_for(active["queue"].get(), timeout=5)
+                        if item == "[DONE]":
+                            break
+                        yield item
+                    except asyncio.TimeoutError:
+                        if active["gen_task"].done():
+                            break
+                        yield ": heartbeat\n\n"
+            finally:
+                active["connected"] = False
+
+        return StreamingResponse(resume_events(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
     skill_context = _skill_context_for_user(user_id)
 
     # 防护：检查速率限制
@@ -638,7 +684,10 @@ async def orchestrate_project_stream(
         if running_session:
             # 检查是否有活跃的生成任务（浏览器重连场景）
             active_task = _active_tasks.get(running_session.session_id)
-            if active_task and not active_task["gen_task"].done():
+            if request.is_resume is None and active_task and not active_task["gen_task"].done():
+                if active_task.get("connected", True):
+                    raise HTTPException(status_code=409, detail="任务已有事件连接，请断开后重试")
+                active_task["connected"] = True
                 # 重连到现有任务
                 logger.info(f"[SSE] 检测到活跃任务，允许重连 | session={running_session.session_id}")
                 # 直接返回重连响应，使用现有 queue
@@ -658,6 +707,8 @@ async def orchestrate_project_stream(
                                 continue
                     except asyncio.CancelledError:
                         logger.info(f"[SSE] 重连客户端断开 | session={running_session.session_id}")
+                    finally:
+                        active_task["connected"] = False
 
                 return StreamingResponse(
                     reconnect_generator(),
@@ -678,7 +729,9 @@ async def orchestrate_project_stream(
             )
 
         # ========== 意图检测：处理"继续"语义 ==========
-        resume_intent = await detect_resume_intent(request.requirement)
+        resume_intent = await detect_resume_intent(request.requirement) if request.is_resume is None else {
+            "is_resume": False, "has_changes": False, "additional_requirement": ""
+        }
         is_resume = resume_intent.get("is_resume", False)
         has_changes = resume_intent.get("has_changes", False)
         additional_requirement = resume_intent.get("additional_requirement", "")
@@ -825,6 +878,16 @@ async def orchestrate_project_stream(
     cache = await get_spec_cache()
     learner = await get_feedback_learner()
 
+    session_state = None
+    if is_resume or request.incremental:
+        session_state = await sm.resume_session(session_id)
+    if session_state is None:
+        await sm.create_session(
+            requirement=request.requirement,
+            output_dir=output_dir,
+            session_id=session_id,
+        )
+
     async def event_generator() -> AsyncIterator[str]:
         logger.info(f"[SSE] event_generator 开始 | session={session_id}")
         try:
@@ -926,6 +989,7 @@ async def orchestrate_project_stream(
                     files_total = result.get("total_files", 0)
                     logger.info(f"[SSE] 生成完成 | session={session_id} files={files_generated}/{files_total}")
                     await sm.complete_session(session_id, files_generated=files_generated, files_total=files_total)
+                    result = {**result, "project_path": output_dir, "session_id": session_id}
                     await queue.put(f"data: {json.dumps({'type': 'done', 'data': result}, ensure_ascii=False)}\n\n")
                 except Exception as e:
                     logger.error(f"[SSE] Orchestrator 流式生成失败: {e}", exc_info=True)
@@ -944,6 +1008,7 @@ async def orchestrate_project_stream(
                 "gen_task": gen_task,
                 "queue": queue,
                 "cancel_event": cancel_event,
+                "connected": True,
             }
 
             # 心跳 task：每 5 秒发送一次心跳，防止浏览器/proxy 断连
@@ -980,6 +1045,9 @@ async def orchestrate_project_stream(
                 logger.info(f"[SSE] 客户端断开连接，生成任务继续在后台运行 | session={session_id}")
             finally:
                 heartbeat_task.cancel()
+                active = _active_tasks.get(session_id)
+                if active:
+                    active["connected"] = False
                 # 不设置 cancel_event，不取消 gen_task
                 # 生成任务在服务端独立运行，用户重新连接后可查看进度
                 if not gen_task.done():
@@ -987,18 +1055,16 @@ async def orchestrate_project_stream(
                 # 关键：判定"是否真正成功"必须看 gen_task 状态，而不是 generation_completed
                 # generation_completed 可能在客户端断开的瞬间还没被置为 True
                 # 但 gen_task 已完成且无异常 → 生成实际上已成功 → 不可标 cancelled
-                gen_succeeded = (
-                    not generation_completed
-                    and gen_task.done()
-                    and gen_task.exception() is None
-                )
-                if generation_completed or gen_succeeded:
-                    logger.info(f"[SSE] 生成已成功完成 | session={session_id}")
+                gen_finished = gen_task.done()
+                if generation_completed or gen_finished:
+                    if cancel_event.is_set() or gen_task.cancelled():
+                        logger.info(f"[SSE] 生成已停止 | session={session_id}")
+                    else:
+                        logger.info(f"[SSE] 生成已成功完成 | session={session_id}")
                     # 清理活跃任务
                     _active_tasks.pop(session_id, None)
                 else:
                     logger.info(f"[SSE] 生成未完成，任务继续在后台运行 | session={session_id}")
-                    concurrent_mgr.unregister_session(user_role)
                     # 注册完成回调，任务结束后清理 _active_tasks
                     def _on_task_done(t):
                         _active_tasks.pop(session_id, None)
@@ -1063,8 +1129,8 @@ async def stop_project(
     if cancel_ev:
         cancel_ev.set()
     
-    # 2. 清理活跃任务
-    _active_tasks.pop(session_id, None)
+    # 2. 取消活跃任务并等待其 finally 清理资源
+    await _cancel_active_generation(session_id)
     
     # 3. 删除项目文件（用户已确认停止，保护隐私）
     files_deleted = False
@@ -1261,6 +1327,52 @@ async def search_sessions(
     except Exception as e:
         logger.error(f"搜索会话失败: {e}")
         raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
+
+
+@router.get("/sessions")
+async def list_user_sessions(
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+    limit: int = 50,
+):
+    user_id = token.get("sub")
+    if not user_id or not str(user_id).isdigit():
+        raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+    result = await db.execute(
+        select(ProjectSession)
+        .where(ProjectSession.user_id == str(user_id))
+        .order_by(ProjectSession.last_activity_at.desc())
+        .limit(min(max(limit, 1), 50))
+    )
+    return {"sessions": [_session_payload(session) for session in result.scalars().all()]}
+
+
+def _session_payload(session: ProjectSession) -> dict:
+    return {
+        "session_id": session.session_id,
+        "requirement": session.requirement,
+        "status": session.status,
+        "output_dir": session.output_dir,
+        "files_generated": session.files_generated,
+        "files_total": session.files_total,
+        "error_message": session.error_message,
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+        "updated_at": session.last_activity_at.isoformat() if session.last_activity_at else None,
+        "reconnectable": session.status == "running" and session.session_id in _active_tasks
+        and not _active_tasks[session.session_id]["gen_task"].done()
+        and not _active_tasks[session.session_id].get("connected", True),
+        "recovery_note": "仅重连当前进程的存活任务；已消费事件、决策重放和进程重启续跑暂不支持",
+    }
+
+
+@router.get("/sessions/{session_id}")
+async def get_user_session(
+    session_id: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    session = await verify_session_ownership(db, session_id, str(token.get("sub", "")))
+    return _session_payload(session)
 
 
 @router.post("/analyze_complexity", response_model=ComplexityAnalysisResponse)
@@ -1485,8 +1597,8 @@ async def session_action_endpoint(
         if cancel_ev:
             cancel_ev.set()
         
-        # 清理活跃任务
-        _active_tasks.pop(session_id, None)
+        # 取消活跃任务并等待其 finally 清理资源
+        await _cancel_active_generation(session_id)
         
         # 删除项目文件（用户已确认取消，释放资源）
         result = await db.execute(

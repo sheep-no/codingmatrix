@@ -85,7 +85,9 @@ flowchart LR
 
 云端文件校验通过 `app.agent.validation_report.ValidationReport` 统一表达。报告为不可变、可序列化结构，记录 `cloud_syntax` scope、错误类别、文件路径、诊断上下文 hash、修复候选 hash 和修复证据；`RepairRouter` 对 syntax、dependency、export、signature、async、fixture、schema 和 type 类错误使用受控自动修复，对 business、test 和 unknown 类错误进入用户确认流程。`RepairBudget` 限制单类错误最多 3 次、任务累计最多 5 次，预算耗尽后保留可定位诊断并停止自动修复。
 
-Flutter 桌面客户端位于 `flutter_client/`，使用 Presentation、Application、Domain 和 Infrastructure 四层组织工作台。当前提供 Riverpod 驱动的响应式 Agent 工作台、Agent/Session/Task/TaskEvent/Artifact/ModelContext 数据模型、增量 SSE 解析器和云端认证基础层；`CloudAuthClient` 先获取 CSRF Token，再以双提交 Cookie/Header 方式调用 `/api/v1/auth/login`，访问令牌通过 `CredentialStore` 以引用形式交给 `AuthSession`。当前跨平台开发适配器为内存存储，Windows Credential Manager 适配器属于后续 Windows 专项任务。
+Flutter 客户端位于 `flutter_client/`，使用 Presentation、Application、Domain 和 Infrastructure 四层组织工作台，保留 Riverpod StateNotifier。`CloudAuthClient` 调用 `/api/v1/csrf-token`、`/api/v1/login` 和 `/api/v1/refresh`，以 Cookie/Header 双提交方式认证；`CredentialStore` 在生产 Provider 中使用 `flutter_secure_storage`，保存包含服务 origin、账号、访问令牌、过期时间及 Cookie 的单一加密会话记录，领域层继续使用 `AuthSession.accessTokenRef`。切换账号或服务时先清除旧记录；启动恢复通过服务端 refresh 验证，离线或刷新失败返回登录页。Android 已关闭应用自动备份；Android、Windows、Linux 的真实设备安全存储仍待平台验收。
+
+`AuthenticatedClient` 统一注入 Bearer、Cookie 和 CSRF，限制同一 origin 的 `/api/` 请求，关闭自动重定向，并提供超时、JSON 错误及网络错误的固定脱敏信息。并发 401 合并刷新，只对 GET/HEAD 最多重发一次；Agent 生成和停止等写请求保持单次提交。退出仅取消本地流订阅并清除会话，账号引用变化重建工作台 Provider，清空旧事件与产物缓存；服务端 logout 撤销等待接口 D1。停止按钮的完整确认流程继续属于 Flutter 完善规格任务 3。
 
 ## StateGraph 边界
 

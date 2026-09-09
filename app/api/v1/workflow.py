@@ -32,6 +32,7 @@ from app.schema.workflow import (
     WorkflowStreamEvent,
     WorkflowErrorResponse,
     TaskGraph,
+    TaskStatus,
 )
 from app.utils.security import verify_token
 from app.utils.workflow.task_decomposer import TaskDecomposer, TaskDecomposerError
@@ -190,10 +191,16 @@ async def execute_workflow(
                 node_timeout=min(300, request.timeout // 2),
                 max_concurrent=3,
             )
+            async with _workflows_lock:
+                _workflows[task_graph.workflow_id]["executor"] = executor
+                _workflows[task_graph.workflow_id]["status"] = "running"
 
             event_queue = asyncio.Queue()
 
             def on_node_start(node_id: str):
+                for node in task_graph.nodes:
+                    if node.id == node_id:
+                        node.status = TaskStatus.RUNNING
                 event_queue.put_nowait(json.dumps({
                     "event": "node_started",
                     "node_id": node_id,
@@ -217,6 +224,16 @@ async def execute_workflow(
                 on_node_start=on_node_start,
                 on_node_complete=on_node_complete,
             ))
+            def record_terminal(task):
+                record = _workflows.get(task_graph.workflow_id)
+                if record is not None and record.get("executor") is executor:
+                    if task.cancelled():
+                        record["status"] = "cancelled"
+                    elif task.exception() is not None:
+                        record["status"] = "failed"
+                    else:
+                        record["status"] = task.result()["status"]
+            executor_task.add_done_callback(record_terminal)
 
             async for event in _drain_event_queue(event_queue):
                 yield event
@@ -230,6 +247,8 @@ async def execute_workflow(
                 yield event
 
             result = await executor_task
+            async with _workflows_lock:
+                _workflows[task_graph.workflow_id]["status"] = result["status"]
 
             yield json.dumps({
                 "event": "workflow_completed",
@@ -317,23 +336,17 @@ async def get_workflow_status(
             raise HTTPException(status_code=404, detail="Workflow not found")
 
         workflow_data = _workflows[workflow_id]
+        if str(workflow_data.get("user_id")) != str(token.get("sub") or token.get("user_id")):
+            raise HTTPException(status_code=404, detail="Workflow not found")
         task_graph = workflow_data["task_graph"]
 
         aggregator = workflow_data.get("aggregator")
         
-        if aggregator is None:
-            try:
-                from app.utils.workflow.executor import WorkflowExecutor
-                executor = WorkflowExecutor(task_graph=task_graph)
-                aggregator = executor.get_aggregator()
-            except Exception as e:
-                logger.warning(f"创建执行器获取聚合器失败: {e}")
-
-        if aggregator:
-            summary = aggregator.get_workflow_summary()
-            status = "running" if not aggregator.is_complete() else summary.get("status", "unknown")
-        else:
-            status = workflow_data.get("status", "unknown")
+        executor = workflow_data.get("executor")
+        if aggregator is None and executor is not None:
+            aggregator = executor.get_aggregator()
+        status = workflow_data.get("status", "unknown")
+        results = aggregator.get_all_results() if aggregator else {}
 
         return {
             "workflow_id": workflow_id,
@@ -347,6 +360,9 @@ async def get_workflow_status(
                     "type": node.type.value,
                     "params": node.params,
                     "depends_on": node.depends_on,
+                    "status": ("completed" if results[node.id].success else "failed") if node.id in results else node.status.value,
+                    "result": results[node.id].data if node.id in results else None,
+                    "error": results[node.id].error if node.id in results else None,
                 }
                 for node in task_graph.nodes
             ],
@@ -673,4 +689,3 @@ async def delete_workflow_history(
         "status": "deleted",
         "message": "工作流历史记录已删除",
     }
-

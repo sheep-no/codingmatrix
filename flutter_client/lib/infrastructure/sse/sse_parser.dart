@@ -1,11 +1,7 @@
 import 'dart:convert';
 
 class SseEvent {
-  const SseEvent({
-    required this.type,
-    required this.raw,
-    this.data,
-  });
+  const SseEvent({required this.type, required this.raw, this.data});
 
   final String type;
   final String raw;

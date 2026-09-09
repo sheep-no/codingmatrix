@@ -20,6 +20,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _obscurePassword = true;
 
   @override
+  void initState() {
+    super.initState();
+    _baseUrlController.text = ref.read(cloudAuthClientProvider).baseUrl;
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
@@ -31,13 +37,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
-    ref.read(apiBaseUrlProvider.notifier).state = _baseUrlController.text
-        .trim();
     await ref
         .read(authControllerProvider.notifier)
         .login(
           email: _emailController.text.trim(),
           password: _passwordController.text,
+          serviceUrl: _baseUrlController.text.trim(),
         );
   }
 
@@ -173,6 +178,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                   ),
                                 )
                               : const Text('登录'),
+                        ),
+                        TextButton(
+                          onPressed: auth.isLoading
+                              ? null
+                              : () => ref
+                                    .read(authControllerProvider.notifier)
+                                    .logout(),
+                          child: const Text('清除本地会话'),
                         ),
                       ],
                     ),

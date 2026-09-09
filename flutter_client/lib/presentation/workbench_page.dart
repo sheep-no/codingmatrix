@@ -2,15 +2,79 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/auth_controller.dart';
+import '../application/provider_key_controller.dart';
 import '../application/workbench_controller.dart';
 import '../domain/models/unified_models.dart';
 import '../infrastructure/sse/sse_parser.dart';
+import 'provider_settings_page.dart';
+import 'agent_decision_page.dart';
+import 'project_files_page.dart';
+import 'agent_history_page.dart';
+import 'github_settings_page.dart';
+import 'chat_page.dart';
+import 'ppt_page.dart';
+import 'image_generation_page.dart';
+import 'workflow_page.dart';
 
-class WorkbenchPage extends ConsumerWidget {
+class WorkbenchPage extends ConsumerStatefulWidget {
   const WorkbenchPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<WorkbenchPage> createState() => _WorkbenchPageState();
+}
+
+class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
+  final _requirementController = TextEditingController();
+
+  @override
+  void dispose() {
+    _requirementController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _startGeneration(AuthState auth) async {
+    final requirement = _requirementController.text.trim();
+    final tokenRef = auth.session?.accessTokenRef;
+    if (requirement.isEmpty || tokenRef == null) {
+      return;
+    }
+    await ref
+        .read(workbenchControllerProvider.notifier)
+        .startGeneration(
+          accessTokenRef: tokenRef,
+          requirement: requirement,
+          providerKey: ref.read(providerKeyControllerProvider).selected,
+        );
+  }
+
+  Future<void> _confirmStop() async {
+    final taskId = ref.read(workbenchControllerProvider).task?.taskId;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('停止并清理项目文件？'),
+        content: const Text('此操作会停止服务端任务并删除已生成的项目文件。退出登录仅断开本地连接。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('继续任务'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('停止并清理'),
+          ),
+        ],
+      ),
+    );
+    if (mounted &&
+        confirmed == true &&
+        ref.read(workbenchControllerProvider).task?.taskId == taskId) {
+      await ref.read(workbenchControllerProvider.notifier).stopGeneration();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
     final workbench = ref.watch(workbenchControllerProvider);
     final session = auth.session;
@@ -20,7 +84,37 @@ class WorkbenchPage extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('工作台'),
         actions: [
-          if (session != null)
+          PopupMenuButton<String>(
+            tooltip: '更多模块',
+            onSelected: (value) => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => switch (value) {
+                  'workflow' => const WorkflowPage(),
+                  'github' => const GithubSettingsPage(),
+                  'provider' => const ProviderSettingsPage(),
+                  'chat' => const ChatPage(),
+                  'ppt' => const PptPage(),
+                  _ => const ImageGenerationPage(),
+                },
+              ),
+            ),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'image', child: Text('图片生成')),
+              PopupMenuItem(value: 'workflow', child: Text('工作流执行')),
+              PopupMenuItem(value: 'github', child: Text('GitHub 设置')),
+              PopupMenuItem(value: 'provider', child: Text('Provider 授权')),
+              PopupMenuItem(value: 'chat', child: Text('聊天')),
+              PopupMenuItem(value: 'ppt', child: Text('PPT')),
+            ],
+          ),
+          IconButton(
+            tooltip: '会话历史',
+            icon: const Icon(Icons.history),
+            onPressed: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const AgentHistoryPage())),
+          ),
+          if (session != null && MediaQuery.sizeOf(context).width >= 720)
             Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -37,9 +131,46 @@ class WorkbenchPage extends ConsumerWidget {
                 ),
               ),
             ),
+          if (MediaQuery.sizeOf(context).width >= 720)
+            TextButton(
+              key: const Key('providerSettingsButton'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ProviderSettingsPage()),
+              ),
+              child: const Text('Provider'),
+            ),
+          if (MediaQuery.sizeOf(context).width >= 720)
+            TextButton(
+              key: const Key('chatButton'),
+              onPressed: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const ChatPage())),
+              child: const Text('聊天'),
+            ),
+          if (MediaQuery.sizeOf(context).width >= 720)
+            TextButton(
+              key: const Key('pptButton'),
+              onPressed: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const PptPage())),
+              child: const Text('PPT'),
+            ),
+          if (MediaQuery.sizeOf(context).width >= 720)
+            TextButton(
+              key: const Key('githubSettingsButton'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const GithubSettingsPage()),
+              ),
+              child: const Text('GitHub'),
+            ),
           TextButton(
             key: const Key('logoutButton'),
-            onPressed: () => ref.read(authControllerProvider.notifier).logout(),
+            onPressed: () async {
+              await ref.read(workbenchControllerProvider.notifier).disconnect();
+              if (mounted) {
+                await ref.read(authControllerProvider.notifier).logout();
+              }
+            },
             child: const Text('退出'),
           ),
         ],
@@ -51,6 +182,52 @@ class WorkbenchPage extends ConsumerWidget {
             final compact = constraints.maxWidth < 720;
             final overview = _OverviewCard(workbench: workbench, task: task);
             final events = _EventsCard(events: workbench.events);
+            final isRunning = workbench.active;
+            final actions = Wrap(
+              spacing: 12,
+              children: [
+                if (workbench.decisions.isNotEmpty)
+                  FilledButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const AgentDecisionPage(),
+                      ),
+                    ),
+                    child: const Text('处理架构决策'),
+                  ),
+                if (workbench.projectPath != null)
+                  OutlinedButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ProjectFilesPage(project: workbench.projectPath!),
+                      ),
+                    ),
+                    child: const Text('查看项目文件'),
+                  ),
+                if (compact)
+                  OutlinedButton(
+                    key: const Key('pptButtonCompact'),
+                    onPressed: () => Navigator.of(
+                      context,
+                    ).push(MaterialPageRoute(builder: (_) => const PptPage())),
+                    child: const Text('PPT 生成'),
+                  ),
+                if (compact)
+                  OutlinedButton(
+                    key: const Key('githubSettingsButtonCompact'),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const GithubSettingsPage(),
+                      ),
+                    ),
+                    child: const Text('GitHub 设置'),
+                  ),
+                if (workbench.actionError != null) Text(workbench.actionError!),
+                if (task?.status == 'disconnected')
+                  const Text('连接已断开，服务端任务状态待确认。会话恢复尚未接入。'),
+              ],
+            );
             final heading = Text(
               workbench.agent?.name ?? 'CodingMatrix Agent',
               style: Theme.of(context).textTheme.headlineSmall,
@@ -63,6 +240,14 @@ class WorkbenchPage extends ConsumerWidget {
                   children: [
                     heading,
                     const SizedBox(height: 16),
+                    _PromptCard(
+                      controller: _requirementController,
+                      isRunning: isRunning,
+                      onStart: () => _startGeneration(auth),
+                      onStop: _confirmStop,
+                    ),
+                    const SizedBox(height: 16),
+                    actions,
                     overview,
                     const SizedBox(height: 16),
                     SizedBox(height: 320, child: events),
@@ -76,6 +261,14 @@ class WorkbenchPage extends ConsumerWidget {
               children: [
                 heading,
                 const SizedBox(height: 16),
+                _PromptCard(
+                  controller: _requirementController,
+                  isRunning: isRunning,
+                  onStart: () => _startGeneration(auth),
+                  onStop: _confirmStop,
+                ),
+                const SizedBox(height: 16),
+                actions,
                 Expanded(
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -89,6 +282,61 @@ class WorkbenchPage extends ConsumerWidget {
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _PromptCard extends StatelessWidget {
+  const _PromptCard({
+    required this.controller,
+    required this.isRunning,
+    required this.onStart,
+    required this.onStop,
+  });
+
+  final TextEditingController controller;
+  final bool isRunning;
+  final VoidCallback onStart;
+  final VoidCallback onStop;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: TextField(
+                key: const Key('requirementField'),
+                controller: controller,
+                minLines: 1,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: '告诉 Agent 你要完成什么',
+                  hintText: '例如：创建一个带登录页的 Flutter 应用',
+                  prefixIcon: Icon(Icons.edit_note_outlined),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            isRunning
+                ? OutlinedButton.icon(
+                    key: const Key('stopGenerationButton'),
+                    onPressed: onStop,
+                    icon: const Icon(Icons.stop_circle_outlined),
+                    label: const Text('停止'),
+                  )
+                : FilledButton.icon(
+                    key: const Key('startGenerationButton'),
+                    onPressed: onStart,
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: const Text('开始'),
+                  ),
+          ],
         ),
       ),
     );

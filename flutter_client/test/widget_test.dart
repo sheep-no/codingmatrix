@@ -11,11 +11,115 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+class ExitWorkbenchController extends WorkbenchController {
+  int stops = 0;
+  int disconnects = 0;
+
+  @override
+  Future<void> stopGeneration({bool markCancelled = true}) async {
+    stops++;
+  }
+
+  @override
+  Future<void> disconnect() async {
+    disconnects++;
+  }
+}
+
 void main() {
+  testWidgets('stop requires explicit cleanup confirmation', (tester) async {
+    final workbench = ExitWorkbenchController();
+    workbench.bindTask(
+      const Task(taskId: 'active', sessionId: 'session', status: 'running'),
+    );
+    final store = CredentialStore();
+    final auth = AuthController(
+      CloudAuthClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient((_) async => http.Response('', 500)),
+        credentialStore: store,
+      ),
+      store,
+      session: const AuthSession(
+        username: 'alice',
+        permissionLevel: 'normal',
+        accessTokenRef: 'ref',
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith((_) => auth),
+          workbenchControllerProvider.overrideWith((_) => workbench),
+        ],
+        child: const CodingMatrixApp(),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('stopGenerationButton')));
+    await tester.pumpAndSettle();
+    expect(workbench.stops, 0);
+    await tester.tap(find.text('继续任务'));
+    await tester.pumpAndSettle();
+    expect(workbench.stops, 0);
+    await tester.tap(find.byKey(const Key('stopGenerationButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('停止并清理'));
+    await tester.pumpAndSettle();
+    expect(workbench.stops, 1);
+  });
+  testWidgets('logout disconnects locally without destructive stop', (
+    tester,
+  ) async {
+    final store = CredentialStore();
+    final workbench = ExitWorkbenchController();
+    workbench.bindTask(
+      const Task(taskId: 'active', sessionId: 'session', status: 'running'),
+    );
+    final auth = AuthController(
+      CloudAuthClient(
+        baseUrl: 'https://one.example',
+        httpClient: MockClient(
+          (_) async => throw StateError('Logout must not send HTTP'),
+        ),
+        credentialStore: store,
+      ),
+      store,
+      session: const AuthSession(
+        username: 'alice',
+        permissionLevel: 'normal',
+        accessTokenRef: 'ref',
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          credentialStoreProvider.overrideWithValue(store),
+          authControllerProvider.overrideWith((_) => auth),
+          workbenchControllerProvider.overrideWith((_) => workbench),
+        ],
+        child: const CodingMatrixApp(),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('logoutButton')));
+    await tester.pumpAndSettle();
+    expect(workbench.stops, 0);
+    expect(workbench.disconnects, 1);
+    expect(find.byKey(const Key('loginButton')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('login workbench is visible before authentication', (
     tester,
   ) async {
-    await tester.pumpWidget(const ProviderScope(child: CodingMatrixApp()));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          credentialStoreProvider.overrideWithValue(CredentialStore()),
+        ],
+        child: const CodingMatrixApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
 
     expect(find.text('CodingMatrix Agent'), findsOneWidget);
     expect(find.byKey(const Key('loginButton')), findsOneWidget);

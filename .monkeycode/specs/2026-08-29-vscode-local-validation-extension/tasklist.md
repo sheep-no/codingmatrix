@@ -162,3 +162,12 @@
 - 目标：将旧生成流程中的运行时沙盒调用收敛为 `cloud_syntax`，把运行时、依赖、构建、单元测试和 E2E 验证交给 VS Code Agent Host。
 - 修改：`app/agent/utils.py` 的验证范围分流、云端沙盒缺失策略和对应单元测试。
 - 验收证据：相关回归测试通过（22 passed）；覆盖云端 `bwrap` 缺失时跳过运行时沙盒、Agent Host 发布 `local_validation` 动作、Host 回传 `tool_result`、checkpoint 恢复和 `completed` 状态归并；真实模型生成请求已成功完成并生成 10 个文件，日志确认云端语法验证跳过 `bwrap`；真实 HTTP Agent Host 握手成功；`npm --prefix vscode-extension run e2e` 通过（退出码 0）。剩余验收是使用已绑定 Host 会话重新触发生成，并由 VS Code Host 实际拉取、执行和回传本地结果。
+
+### VSCODE-016 Agent Host 安全与生命周期加固
+
+- 状态：`completed`
+- 优先级：`P0`
+- 修改：工作区路径 canonicalization、动作取消与幂等、串行轮询、重连资源隔离、SSE 响应流消费和插件构建/E2E 依赖。
+- 安全：所有验证与终端工作目录映射到已授权 workspace；真实文件系统路径检查覆盖目录符号链接和悬空叶节点符号链接；插件停用、会话取消和连接替换均会终止活动本地动作。
+- 稳定性：相同 session/message 的并发动作合并执行，失败动作允许服务端重投，动作缓存保持有界；连接 generation 隔离旧轮询，重连和停用释放 poll timer、Skill timer 与 watcher；流式响应按需单次消费，避免 SSE 全量重复缓存。
+- 验收证据：`npm --prefix vscode-extension test` 通过（75/75）；`npm --prefix vscode-extension run e2e` 通过（退出码 0），使用 VS Code `1.136.1` 和真实 Extension Host 验证扩展构建、发现、激活、工作台命令和兼容性握手；`git diff --check` 通过。

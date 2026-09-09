@@ -1,9 +1,15 @@
+import { lstat as fsLstat, realpath as fsRealpath } from "node:fs/promises";
+
 export interface WorkspaceRoot {
   workspace_id: string;
   root: string;
 }
 
 export type RealpathLike = (path: string) => Promise<string>;
+
+export interface ResolveOptions {
+  allowMissingLeaf?: boolean;
+}
 
 export class WorkspaceAuthorizationError extends Error {
   constructor(
@@ -44,7 +50,7 @@ export class WorkspaceAuthorization {
   private readonly workspaces = new Map<string, WorkspaceRoot>();
   private readonly realpath: RealpathLike;
 
-  constructor(realpath: RealpathLike = async (path) => path) {
+  constructor(realpath: RealpathLike = fsRealpath) {
     this.realpath = realpath;
   }
 
@@ -80,7 +86,7 @@ export class WorkspaceAuthorization {
     return [...this.workspaces.values()].map((workspace) => ({ ...workspace }));
   }
 
-  async resolve(workspaceId: string, relativePath: string): Promise<string> {
+  async resolve(workspaceId: string, relativePath: string, options: ResolveOptions = {}): Promise<string> {
     const workspace = this.workspaces.get(workspaceId);
     if (!workspace) {
       throw new WorkspaceAuthorizationError(
@@ -101,7 +107,7 @@ export class WorkspaceAuthorization {
         "validation path escapes the workspace",
       );
     }
-    const canonicalCandidate = normalizePath(await this.realpath(candidate));
+    const canonicalCandidate = normalizePath(await this.resolveCanonical(candidate, options.allowMissingLeaf === true));
     if (!containsPath(workspace.root, canonicalCandidate)) {
       throw new WorkspaceAuthorizationError(
         "path_outside_workspace",
@@ -110,4 +116,46 @@ export class WorkspaceAuthorization {
     }
     return canonicalCandidate;
   }
+
+  assertResolvedPath(workspaceId: string, path: string): void {
+    const workspace = this.workspaces.get(workspaceId);
+    if (!workspace) {
+      throw new WorkspaceAuthorizationError(
+        "unauthorized_workspace",
+        `workspace ${workspaceId} is not authorized`,
+      );
+    }
+    const candidate = normalizePath(path);
+    if (!isAbsolutePath(candidate) || !containsPath(workspace.root, candidate)) {
+      throw new WorkspaceAuthorizationError(
+        "path_outside_workspace",
+        "validation path resolves outside the workspace",
+      );
+    }
+  }
+
+  private async resolveCanonical(candidate: string, allowMissingLeaf: boolean): Promise<string> {
+    try {
+      return await this.realpath(candidate);
+    } catch (error) {
+      if (!allowMissingLeaf || !isFileMissing(error)) throw error;
+      try {
+        await fsLstat(candidate);
+        throw new WorkspaceAuthorizationError(
+          "path_outside_workspace",
+          "validation path cannot be a dangling symbolic link",
+        );
+      } catch (lstatError) {
+        if (!isFileMissing(lstatError)) throw lstatError;
+      }
+      const separator = candidate.lastIndexOf("/");
+      const parent = candidate.slice(0, separator) || "/";
+      const leaf = candidate.slice(separator + 1);
+      return `${normalizePath(await this.realpath(parent))}/${leaf}`;
+    }
+  }
+}
+
+function isFileMissing(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }

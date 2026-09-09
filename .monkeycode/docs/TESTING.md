@@ -1,5 +1,45 @@
 # 测试指南
 
+## Flutter GitHub 配置适配（2026-09-08）
+
+`GithubClient` 和 `GithubSettingsPage` 已接入 `/api/v1/github/config` GET/POST。定向测试 5/5 通过，包含配置字段映射、原始 Token 不保留在返回模型、窄屏工作台入口和提交状态。当前页面将服务端占位成功显示为“配置已提交，尚未验证绑定”。真实 GitHub 授权、仓库/分支选择、持久化绑定和连接验证等待 D2 契约。
+
+## 候选模块契约盘点（2026-09-08）
+
+已完成聊天、PPT、绘图、工作流和文件上传的路由盘点，结果见 `INTERFACES.md`。聊天存在双轨接口，绘图输入输出尚未确认，工作流使用 NDJSON，上传同时支持完整和分片流程；在 D4 明确前不进行 Flutter 业务页面实现。
+
+聊天第一阶段已完成同步页面和入口接入。Flutter analyze 通过，全量测试 53/53 通过；未进行真实后端联调、流式聊天、历史会话和附件上传验收。
+
+## Android APK 构建验证（2026-09-08）
+
+当前代码已完成 `flutter build apk --release --no-pub`，执行时显式设置 `ANDROID_HOME=/tmp/opencode/android-sdk`。构建耗时 410.7 秒，退出码 0，峰值内存约 2.04 GiB；日志 `/tmp/terminal_term_1788869844986_116.log`。Gradle 的重复目录监听提示未阻断本次构建。
+
+产物：`flutter_client/build/app/outputs/flutter-apk/app-release.apk`，约 51.2 MB，版本 1.0.0 (1)，包名 `com.example.codingmatrix_desktop`。最低 API 24、目标 API 36，包含 arm64-v8a、armeabi-v7a、x86_64。APK v2 签名和 ZIP 完整性校验通过，证书为 Android Debug；校验日志 `/tmp/terminal_term_1788870305414_117.log`。
+
+SHA-256：`9f353f73d9e472d484433132b7638ed08f8fc11168c5325bda881f37d14db276`。
+
+本次未连接 Android 真机或模拟器，安装启动、设备安全存储、真实 API 和下载闭环仍待验收。此包用于测试，正式发布签名待配置。
+
+## Flutter Agent 交付验证（2026-09-08）
+
+`agent_delivery_test.dart` 覆盖决策字典提交、超时 ignored 响应、迟到决策隔离、终态保护、文件查询参数、ZIP 流式保存、中断失败和文件树预览；Widget 测试覆盖停止清理确认。全量 48 项测试通过，静态分析无问题，日志 `/tmp/terminal_term_1788867475340_109.log`。后端定向文件交付测试 4 项通过；当前真实服务到设备链路及新版 APK 待验证。
+
+工作台出现关键决策后点击“处理架构决策”；生成成功返回 project_path 后点击“查看项目文件”。ZIP 保存到应用文档目录（Android 为私有目录），失败文件不作为下载成功产物展示。会话历史与存活任务重连见下节；增量修改和系统分享入口继续未接入。
+
+## Flutter 会话历史与重连（2026-09-08）
+
+Flutter 静态分析无问题，全量 52/52 测试通过；日志 `/tmp/terminal_term_1788869482324_114.log`。新增测试覆盖历史与详情请求、账号/服务切换后的迟到历史响应隔离、显式恢复 409 时仅发送一次请求，以及已完成详情的文件入口和禁用恢复按钮。`git diff --check` 通过。
+
+工作台工具栏“会话历史”入口提供最近 50 条会话、详情刷新、错误信息及项目文件入口。详情仅在后端返回 `reconnectable: true` 时启用恢复，确认后重新查询状态，并携带原 `session_id` 和 `is_resume: true` 连接 SSE。当前进程无存活任务或已有订阅时返回 409，客户端不会自动创建新任务。
+
+后端 `tests/unit/test_flutter_session_history.py` 与 `tests/unit/test_flutter_project_delivery.py` 共 9 项通过，覆盖列表数量限制、详情订阅状态、现有队列重连、结束任务冲突及文件交付。恢复仅接收未消费及后续事件；已消费事件、决策重放和进程重启续跑尚未支持。APK 构建结果见上节；真实 API 联调和设备下载待验证。
+
+## Flutter Provider 接入验证（2026-09-08）
+
+`flutter_client/test/provider_key_test.dart` 覆盖本地生成 RSA 密钥的 OAEP SHA-256 往返、随机密文、管理接口契约、无效测试响应和窄屏删除确认。Agent 流测试断言 `api_key_token` 与 `provider_id`。当前全量 38 项通过，静态分析无问题，日志 `/tmp/terminal_term_1788866099828_107.log`。
+
+操作入口为工作台的 Provider 设置：添加 Key 后选择“用于生成”。Key 默认为 24 小时有效期；原始值仅用于加密提交，授权引用和选择仅存于当前账号内存，可重新拉取服务端列表。真实 Provider、设备操作与本轮 APK 尚待验证。
+
 ## 测试分层
 
 | 层级 | 目录或配置 | 工具 | 用途 |
@@ -118,8 +158,8 @@ Agent Host 和本地验证修改后运行 `npm --prefix vscode-extension test`�
 
 ## 最近结果（2026-09-07）
 
-- VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `62 passed`。
-- VS Code Extension Development Host：E2E 通过，已验证扩展激活、Agent Workbench 打开、兼容性握手和工作区能力。
+- VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `75 passed`。
+- VS Code Extension Development Host：VS Code `1.136.1` E2E 通过，已验证扩展激活、Agent Workbench 打开、兼容性握手和工作区能力。
 - 前端相关回归：`23 passed`，生产构建成功。
 - Web 任务反馈专项：`4 files passed, 36 tests passed`，覆盖归一化、增量合并、断线恢复、过期快照、终态保护、游标重置和组件操作派发；前端完整 Vitest 为 `25 files passed, 108 tests passed`。
 - Web 性能采集与预算：前端完整 Vitest 为 `27 files passed, 115 tests passed`；首屏 JavaScript `356.1 KiB gzip / 450 KiB`、首屏 CSS `55.0 KiB gzip / 100 KiB`、最大图片 `124.6 KiB / 200 KiB`、最大路由 chunk `46.7 KiB gzip / 150 KiB`，生产构建预算检查通过。
@@ -127,5 +167,11 @@ Agent Host 和本地验证修改后运行 `npm --prefix vscode-extension test`�
 - Web 工作台浏览器回归：`workbench-responsive.spec.js` 与 `capability-center.spec.js` 共 `3 passed`，覆盖首页、Agent Dashboard、Capability Center 以及 1440px、768px、390px 视口；移动端 Chromium 快照为导航 `412ms`、LCP `4012ms`、CLS `0.05`，INP 因无交互样本为空，Long Task 条目为空。
 - Lighthouse：使用生产预览服务器完成优化后移动端和桌面端审计。移动端性能分数 `30`，LCP `8.7s`、FCP `4.5s`、TBT `2,260ms`、CLS `0.062`；桌面端性能分数 `27`，LCP `8.2s`、FCP `4.3s`、TBT `970ms`、CLS `0.047`。两种视口均提示约 `21 KiB` 未使用 JavaScript，INP 因无交互样本为空。移除首屏完整 Element Plus 插件注册后，首屏 JavaScript gzip 从 `356.1 KiB` 降至 `86.5 KiB`，Element Plus vendor gzip 从 `275.75 KiB` 降至 `30.77 KiB`。开发服务器模式曾出现 `NO_FCP`，生产预览模式已完成有效审计。
 - PPT 专项回归：`141 passed`；真实 HTTP/WebSocket 验收覆盖 HTML 生成、PPTX 下载、进度事件和格式错误隔离。
-- 原始 `npm --prefix vscode-extension run e2e` 在当前无头环境会受到 `xauth` 缺失影响；使用已启动的 `Xvfb` 直接运行 E2E 入口后完成验收。
+- 无头 Linux 环境安装 `xvfb`、`xauth`、`libgtk-3-0`、`libgbm1` 和 `libxkbcommon0` 后，可直接运行 `npm --prefix vscode-extension run e2e` 完成验收。
 - 游戏 AI PPT 真实生成 E2E 当前结果为 `1 passed`；运行时曾发现根目录与 `src/node_modules` 的 Playwright 依赖冲突，固定使用根目录 CLI、配置和 Chromium 项目后通过。
+
+## Flutter 认证验证（2026-09-08）
+
+在 `flutter_client/` 使用 SDK `/tmp/opencode/flutter` 执行 `flutter analyze --no-pub`，结果为 `No issues found`；执行 `flutter test --no-pub --concurrency=1 --reporter expanded`，结果为 `34 passed`。验证通过受管后台终端执行，退出码 0，CPU 上限 150%、内存上限 30%、超时 240 秒；最终峰值内存约 748 MiB。日志位于 `/tmp/terminal_term_1788863400873_103.log`。
+
+新增测试覆盖安全存储适配器、重启恢复、访问令牌过期、并发及迟到 401、Cookie 合并和作用域、账号/服务隔离、刷新跨账号拒绝、退出期间在途响应与持久化、清理失败重试、HTTP/网络/JSON 脱敏、写请求禁止自动重发、Riverpod 工作台缓存隔离和退出不调用 stop。设备存储使用插件 mock；真实 KeyStore/Credential Manager/Secret Service、真实后端联调与平台构建仍待单独验收。

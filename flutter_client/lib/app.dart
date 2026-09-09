@@ -47,7 +47,11 @@ class CodingMatrixApp extends ConsumerWidget {
           ),
         ),
       ),
-      home: auth.isAuthenticated ? const WorkbenchPage() : const LoginPage(),
+      home: auth.isRestoring
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : auth.isAuthenticated
+          ? const WorkbenchPage()
+          : const LoginPage(),
     );
   }
 }

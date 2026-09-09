@@ -10,6 +10,7 @@
     "vscode": ">=1.90.0"
   },
   "main": "./dist/extension.js",
+  "files": ["dist/**"],
   "activationEvents": ["onStartupFinished"],
   "contributes": {
     "configuration": {
@@ -63,6 +64,8 @@
   },
   "type": "module",
   "devDependencies": {
-    "@vscode/test-cli": "^0.0.15"
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "typescript": "^5.9.2"
   }
 }

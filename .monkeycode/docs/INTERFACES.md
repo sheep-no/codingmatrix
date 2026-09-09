@@ -1,9 +1,41 @@
 # Interfaces
 
+## Flutter 会话历史与重连
+
+- `GET /api/v1/agent/sessions`：返回当前账号最近会话，`limit` 限制为 1 至 50，按最近活动时间降序排列。
+- `GET /api/v1/agent/sessions/{session_id}`：返回当前账号会话详情，包含 `output_dir`、文件计数、错误信息和 `reconnectable`。
+- `POST /api/v1/agent/orchestrate/stream`：显式重连传递原 `session_id`、`is_resume: true` 及必填 `requirement`；恢复路径仅订阅既有任务队列。任务已结束、进程内无任务或已有订阅返回 409，缺少会话 ID 返回 422。
+
+`reconnectable` 表示会话处于 running、当前进程任务存活且订阅已断开。当前恢复能力覆盖未消费及后续事件，已消费事件、决策重放与进程重启续跑待实现。
+
+## GitHub 配置
+
+- `GET /api/v1/github/config`：返回 `username`、`token` 和 `use_github`；当前后端返回默认空配置。
+- `POST /api/v1/github/config`：接收 `username`、`token`、`use_github`，返回 `success`、`message`、`username`、`use_github`；当前仅返回确认信息。
+
+## Flutter 候选业务模块盘点
+
+- 聊天：`POST /api/v1/chat`、`POST /api/v1/chat/stream`，另有 `/api/v1/aicloud/chat` 和 `/api/v1/aicloud/chat/stream` 双轨实现；主契约、会话字段和错误格式待确定。
+- PPT：`/api/v1/pptx/outlines`、生成、质量报告、预览、下载和历史端点已挂载；涉及大纲、异步任务、质量报告和文件下载。
+- 绘图：Kolors 路由已挂载，但 Flutter 所需的输入、历史、进度和结果字段尚未完成契约核对。
+- 工作流：`/api/v1/workflow/import`、`/{workflow_id}/execute`、`/status/{workflow_id}`、`/history/{workflow_id}` 和 `export`；执行流使用 NDJSON，状态包含 task_graph 和 summary。
+- 文件上传：`POST /api/v1/upload` 支持 100MB 单文件和 SHA256 去重；另有 `/upload/init`、`/upload/chunk/{file_id}/{chunk_index}`、`/upload/merge/{file_id}` 分片流程。
+
+Flutter 当前未接入这些候选模块。D4 需要确定优先级、主聊天实现以及绘图输入输出后再实施页面和客户端。
+
+聊天第一阶段已采用网页端同步接口 `POST /api/v1/chat`。Flutter 发送 `prompt`、`stream: false` 和可选 `conversation_id`，读取 `response` 与返回的 `conversation_id`。当前页面未开放模型、联网搜索、推理和文件附件选项。
+
+聊天历史使用 `POST /api/v1/history` 获取会话列表，使用 `POST /api/v1/conversation/history` 获取详情；Flutter 页面支持选择历史会话并恢复消息。
+
+Flutter 页面对 Token 执行密码输入和提交后清理，并显示“尚未验证绑定”。仓库/分支、持久化绑定和连接验证没有已核实的后端契约。
+
 ## 认证与公共 API
 
-- `POST /api/v1/auth/login`：登录并建立认证会话。
-- `POST /api/v1/auth/register`：注册用户。
+- `GET /api/v1/csrf-token`：返回 csrf_token 并设置同名 Cookie（Path=/、Max-Age=3600）。
+- `POST /api/v1/login`：接收 email/password，要求 CSRF Cookie 和 X-CSRF-Token 一致且在服务端有效；返回 access_token、username、permission_level，设置 refresh_token（HttpOnly、Path=/api/v1、Max-Age=604800）并轮换 csrf_token Cookie。
+- `POST /api/v1/refresh`：使用 refresh_token Cookie 和有效 CSRF 双提交；返回新访问令牌和用户信息，只轮换 csrf_token Cookie，原 refresh_token Cookie 继续保留。生产环境两种 Cookie 均为 Secure，SameSite=lax。
+- `POST /api/v1/register`：注册用户。
+- 服务端 logout 接口尚未找到；Flutter 退出为本地凭据与缓存清理，不发送撤销接口或 Agent stop。
 - `GET /api/v1/health`：检查数据库和 Redis 状态。
 - `GET /api/v1/public-key`：读取前端加密所需的公开密钥。
 
@@ -196,7 +228,7 @@ PPT 生成支持 `pptx`、`html` 和 `markdown` 格式的严格产物分流。�
 
 `vscode-extension/src/tool-dispatcher.ts` 提供本地工具分发。文件读取和修改使用工作区授权路径、UTF-8 内容 hash、读取大小上限和 expected hash 冲突保护；诊断通过注入适配器获取；验证和终端动作复用 `ValidationRunner`，并遵守参数数组、`shell=false`、本地执行总开关和验证操作开关。
 
-`vscode-extension/src/webview-bridge.ts` 提供 Webview 与扩展 Host 的消息、请求响应关联、超时和释放处理。`vscode-extension/src/agent-host-runtime.ts` 校验会话与策略版本，将工具动作交给 `ToolDispatcher`，并把非验证结果包装为 `tool_result` 事件或将本地验证结果提交到云端连接层；控制消息可应用单调递增的策略更新并处理审批决定。
+`vscode-extension/src/webview-bridge.ts` 提供 Webview 与扩展 Host 的消息、请求响应关联、超时和释放处理。`vscode-extension/src/agent-host-runtime.ts` 校验会话与策略版本，将工具动作交给 `ToolDispatcher`，并把非验证结果包装为 `tool_result` 事件或将本地验证结果提交到云端连接层；控制消息可应用单调递增的策略更新并处理审批决定。运行时按 session/message 合并并发动作、允许失败动作重投并限制幂等缓存规模；连接 generation 隔离重连前的在途轮询和结果提交，会话取消、连接替换及插件停用会向活动本地动作传播取消信号。
 
 `vscode-extension/src/agent-workbench.ts` 提供原生 Webview 工作台控制器和安全 HTML。`codingmatrix.openAgentWorkbench` 命令由 `src/extension.ts` 注册，打开单例 Agent 面板并通过 `WebviewBridge` 连接 Host 消息。
 
@@ -208,7 +240,7 @@ PPT 生成支持 `pptx`、`html` 和 `markdown` 格式的严格产物分流。�
 
 `vscode-extension/src/connection.ts` 提供 Bearer 认证的动作拉取和结果提交客户端，默认路径为 `/api/v1/agent/local-validation/actions` 与 `/api/v1/agent/local-validation/results`。客户端对 401/403 返回认证错误，对 408/429/5xx 执行有限重试，网络中断时将结果写入可注入的 `ResultStore`，新连接实例可刷新持久化队列并在云端确认后删除记录。
 
-`vscode-extension/src/workspace-authorization.ts` 提供工作区授权、撤销、多工作区隔离和路径解析。路径必须相对授权根目录，解析后的符号链接目标也必须位于对应工作区内。
+`vscode-extension/src/workspace-authorization.ts` 提供工作区授权、撤销、多工作区隔离和路径解析。路径必须相对授权根目录，验证与终端工作目录均由 workspace identity 映射；读取路径、已有写入路径、目录符号链接和悬空叶节点符号链接均通过真实文件系统 canonical path 校验工作区边界。
 
 `vscode-extension/src/validation-runner.ts` 通过注入的进程适配器执行验证动作，固定使用参数数组和 `shell=false`，并提供 `dependency_install` 等操作白名单、超时、取消、退出码和输出上限控制。执行结果统一映射为 `LocalValidationResult`；执行计划使用 `plan_schema_version=1`、`run_id`、`step_id` 和串行依赖关系描述文件传输、hash 校验、依赖安装与验证阶段。
 
