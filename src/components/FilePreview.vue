@@ -39,7 +39,7 @@
 </template>
 
 <script setup>
-  import { computed } from 'vue'
+  import { ref, computed, watch, onUnmounted } from 'vue'
 
   const props = defineProps({
     file: { type: Object, required: true }
