@@ -2767,8 +2767,12 @@ router = APIRouter()
                 callback=self.callback
             )
             if success:
-                with open(full_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
+                try:
+                    with open(full_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                except OSError as e:
+                    logger.error(f"文件写入失败（错误恢复后）: {file_path} - {e}")
+                    validation_success = False
                 content_hash = CodeValidator._compute_content_hash(content)
                 cache_key = f"{file_path}:{content_hash}"
             else:
