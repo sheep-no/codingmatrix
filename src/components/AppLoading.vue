@@ -74,6 +74,13 @@ onMounted(() => {
   }
 })
 
+onBeforeUnmount(() => {
+  if (progressTimer) clearInterval(progressTimer)
+  if (tipTimer) clearInterval(tipTimer)
+  progressTimer = null
+  tipTimer = null
+})
+
 const startProgress = () => {
   resetTimers()
   progress.value = 0
