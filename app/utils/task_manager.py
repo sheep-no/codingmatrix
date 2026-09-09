@@ -321,7 +321,7 @@ class TaskManager:
             error_message: 可选错误信息
         """
         task_info = await self._get_task_from_redis(task_id)
-        if task_info and task_info["status"] == TaskStatus.RUNNING.value:
+        if task_info and task_info["status"] in (TaskStatus.RUNNING.value, TaskStatus.PENDING.value):
             task_info["progress"] = min(max(0, progress), 100)
             task_info["progress_message"] = message
             if status:
@@ -334,7 +334,7 @@ class TaskManager:
             if error_message:
                 task_info["error_message"] = error_message
             await self._save_task_to_redis(task_id, task_info)
-            logger.debug(f"更新进度 | task_id={task_id} | progress={progress}% | message={message}")
+            logger.debug(f"更新进度 | task_id={task_id} | progress={progress}% | message={message} | status={status}")
 
     async def reconcile_task(self, task_id: str) -> Optional[dict]:
         """核对 Redis/内存快照与 SQL 状态，返回差异报告。"""
