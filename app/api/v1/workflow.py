@@ -49,6 +49,8 @@ _workflows_lock = asyncio.Lock()
 _session_workflows = {}
 _session_lock = asyncio.Lock()
 
+_MAX_WORKFLOWS = 500  # 最大缓存工作流数
+
 
 async def _drain_event_queue(event_queue: asyncio.Queue, timeout: float = 0.05):
     """从事件队列中耗尽所有事件"""
@@ -144,6 +146,10 @@ async def execute_workflow(
                 return
 
             async with _workflows_lock:
+                # 超过限制时淘汰最旧的工作流
+                if len(_workflows) >= _MAX_WORKFLOWS:
+                    oldest_key = next(iter(_workflows))
+                    _workflows.pop(oldest_key, None)
                 _workflows[task_graph.workflow_id] = {
                     "task_graph": task_graph,
                     "request": request,
@@ -297,7 +303,7 @@ async def execute_workflow(
             yield json.dumps({
                 "event": "workflow_error",
                 "error": "decomposition_failed",
-                "message": str(e),
+                "message": "任务分解失败，请检查输入后重试",
                 "timestamp": datetime.now().isoformat(),
             }) + "\n"
         except Exception as e:
@@ -305,7 +311,7 @@ async def execute_workflow(
             yield json.dumps({
                 "event": "workflow_error",
                 "error": "execution_failed",
-                "message": str(e),
+                "message": "工作流执行失败，请稍后重试",
                 "timestamp": datetime.now().isoformat(),
             }) + "\n"
 
@@ -388,9 +394,10 @@ async def import_workflow(
     is_valid, errors = validator.validate(task_graph)
 
     if not is_valid:
+        logger.warning(f"工作流验证失败 | user_id={user_id} | errors={errors}")
         raise HTTPException(
             status_code=400,
-            detail=f"任务图验证失败: {', '.join(errors)}"
+            detail="任务图验证失败，请检查工作流定义"
         )
 
     workflow_id = task_graph.workflow_id
@@ -427,6 +434,8 @@ async def execute_imported_workflow(
         if workflow_id not in _workflows:
             raise HTTPException(status_code=404, detail="Workflow not found")
         workflow_data = _workflows[workflow_id]
+        if workflow_data.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="无权执行此工作流")
         task_graph = workflow_data["task_graph"]
 
     async def generate_events():
@@ -525,7 +534,7 @@ async def execute_imported_workflow(
             yield json.dumps({
                 "event": "workflow_error",
                 "error": "execution_failed",
-                "message": str(e),
+                "message": "工作流执行失败，请稍后重试",
                 "timestamp": datetime.now().isoformat(),
             }) + "\n"
 
@@ -551,11 +560,15 @@ async def export_workflow(
     Args:
         workflow_id: 工作流 ID
     """
+    user_id = token.get("sub") or token.get("user_id")
+
     async with _workflows_lock:
         if workflow_id not in _workflows:
             raise HTTPException(status_code=404, detail="Workflow not found")
 
         workflow_data = _workflows[workflow_id]
+        if workflow_data.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="无权导出此工作流")
         task_graph = workflow_data["task_graph"]
 
         if hasattr(task_graph, 'model_dump'):
@@ -589,14 +602,19 @@ async def delete_workflow(
     token: dict = Depends(verify_token),
 ):
     """
-    导出工作流
+    删除工作流
 
     Args:
         workflow_id: 工作流 ID
     """
+    user_id = token.get("sub") or token.get("user_id")
+
     async with _workflows_lock:
         if workflow_id not in _workflows:
             raise HTTPException(status_code=404, detail="Workflow not found")
+
+        if _workflows[workflow_id].get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="无权删除此工作流")
 
         del _workflows[workflow_id]
 
@@ -623,10 +641,11 @@ async def get_workflow_history(
         .order_by(WorkflowHistory.created_at.desc())
     )
 
+    from sqlalchemy import func
     total_result = await db.execute(
-        select(WorkflowHistory).where(WorkflowHistory.user_id == user_id)
+        select(func.count()).where(WorkflowHistory.user_id == user_id)
     )
-    total = len(total_result.all())
+    total = total_result.scalar() or 0
 
     offset = (page - 1) * page_size
     result = await db.execute(query.offset(offset).limit(page_size))
