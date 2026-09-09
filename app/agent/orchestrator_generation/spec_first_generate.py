@@ -238,6 +238,7 @@ class SpecFirstGenerateMixin:
             logger.warning("Spec-First 项目计划暂未冻结，保留兼容生成流程: %s", exc)
         if project_plan is not None:
             project_context["generation_plan"] = project_plan.model_dump(mode="json")
+        allow_plan_expansion = project_plan is None or project_plan.policy != "strict"
         validation_plan = ValidationCoordinator().build_plan(
             project_context["profile"], detect_toolchain(self.output_dir)
         )
@@ -352,7 +353,8 @@ class SpecFirstGenerateMixin:
             try:
                 result = await self._generate_with_dynamic_topology(
                     ctx, dep_graph, spec_generator, architecture, requirement,
-                    project_context, generated_contents, callback, language_adapter
+                    project_context, generated_contents, callback, language_adapter,
+                    allow_plan_expansion
                 )
             finally:
                 # 清除依赖图白名单（延迟到此处，确保被取消的 ReAct 协程也被阻止写入）
@@ -718,7 +720,10 @@ class SpecFirstGenerateMixin:
             self.warnings.extend([issue.message for issue in integrity_result.issues if issue.severity == "error"])
 
             # 自动生成修复文件（如 __init__.py）
-            fixes = integrity_validator.generate_fixes(integrity_result, generated_files_dict)
+            fixes = (
+                integrity_validator.generate_fixes(integrity_result, generated_files_dict)
+                if allow_plan_expansion else {}
+            )
             if fixes:
                 from app.agent.utils import write_file_atomic as _wf_atomic
                 for fix_path, fix_content in fixes.items():
@@ -732,7 +737,7 @@ class SpecFirstGenerateMixin:
         if dep_graph_issues:
             logger.warning(f"依赖图完整性验证发现 {len(dep_graph_issues)} 个问题")
             missing_files = dep_graph.get_missing_files()
-            if missing_files:
+            if missing_files and allow_plan_expansion:
                 architecture = dep_graph.add_missing_files(architecture)
                 # 为新发现的文件生成内容
                 from app.agent.utils import write_file_atomic as _wf_atomic
@@ -934,7 +939,8 @@ class SpecFirstGenerateMixin:
         project_context: Dict,
         generated_contents: Dict[str, str],
         callback: Optional[Callable] = None,
-        language_adapter=None
+        language_adapter=None,
+        allow_plan_expansion: bool = True,
     ) -> Dict[str, Any]:
         """使用动态拓扑调度生成文件"""
         # 免费模型速率限制：并行度降为 2，避免 429 错误
@@ -1434,7 +1440,10 @@ class SpecFirstGenerateMixin:
             warnings_list.extend([issue.message for issue in integrity_result.issues if issue.severity == "error"])
 
             # 自动生成修复文件（如 __init__.py）
-            fixes = integrity_validator.generate_fixes(integrity_result, generated_files_dict)
+            fixes = (
+                integrity_validator.generate_fixes(integrity_result, generated_files_dict)
+                if allow_plan_expansion else {}
+            )
             if fixes:
                 from app.agent.utils import write_file_atomic as _wf_atomic
                 for fix_path, fix_content in fixes.items():
@@ -1450,7 +1459,7 @@ class SpecFirstGenerateMixin:
         if dep_graph_issues:
             logger.warning(f"依赖图完整性验证发现 {len(dep_graph_issues)} 个问题")
             missing_files = dep_graph.get_missing_files()
-            if missing_files:
+            if missing_files and allow_plan_expansion:
                 architecture = dep_graph.add_missing_files(architecture)
                 from app.agent.utils import write_file_atomic as _wf_atomic
                 for missing_file in missing_files:
@@ -1520,7 +1529,7 @@ class SpecFirstGenerateMixin:
         final_generated_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
         completeness = await self._validate_project_completeness(file_plan, final_generated_dict)
 
-        if not completeness["is_complete"]:
+        if not completeness["is_complete"] and allow_plan_expansion:
             logger.warning(
                 f"项目完整性检查未通过: "
                 f"缺失 {len(completeness['missing_files'])} 个文件, "
@@ -1540,6 +1549,13 @@ class SpecFirstGenerateMixin:
                         ctx.save_file_content(missing_file, content, "completeness_fix")
                         logger.info(f"缺失文件已补充: {missing_file}")
                         files_generated += 1
+
+        if not completeness["is_complete"] and not allow_plan_expansion:
+            logger.info(
+                "严格计划跳过项目完整性补充: "
+                f"缺失 {len(completeness['missing_files'])} 个文件, "
+                f"无效 {len(completeness['invalid_files'])} 个文件"
+            )
 
         logger.info(f"项目生成完成: {completeness['total_generated']}/{completeness['total_planned']} 文件")
 

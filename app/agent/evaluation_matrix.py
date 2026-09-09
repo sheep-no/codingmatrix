@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from enum import Enum
 from statistics import mean, quantiles
 from collections import Counter
-from typing import Iterable, Tuple
+from typing import Callable, Iterable, Tuple
+
+from .code_synthesis_contracts import HttpContract
 
 
 class ApplicationDomain(str, Enum):
@@ -29,6 +31,9 @@ class EvaluationCase:
     database: str = "sqlite"
     file_scale: str = "small"
     strategy: str = "baseline"
+    contract_version: int = 1
+    contract_instructions: Tuple[str, ...] = ()
+    http_contracts: Tuple[HttpContract, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -52,6 +57,7 @@ class EvaluationRecord:
     first_passed: bool | None = None
     candidate_passed: bool | None = None
     repaired_passed: bool | None = None
+    evaluation_status: str = "completed"
 
     @property
     def success(self) -> bool:
@@ -59,6 +65,22 @@ class EvaluationRecord:
             self.plan_consistent, self.interfaces_consistent, self.dependency_closure,
             self.files_complete, self.compile_passed, self.tests_passed,
             self.startup_passed, self.persistence_passed,
+            self.database_status == "supported",
+        ))
+
+    @property
+    def core_passed(self) -> bool:
+        """Report the orchestration contract result independently of project quality."""
+        return all((self.plan_consistent, self.dependency_closure, self.files_complete))
+
+    @property
+    def engineering_passed(self) -> bool:
+        """Report language/framework validation independently of model-stage outcomes."""
+        return all((
+            self.compile_passed,
+            self.tests_passed,
+            self.startup_passed,
+            self.persistence_passed,
             self.database_status == "supported",
         ))
 
@@ -78,6 +100,15 @@ class EvaluationSummary:
     successful: int
     success_rate: float
     p95_seconds: float
+
+
+@dataclass(frozen=True)
+class LayerSummary:
+    total: int
+    passed: int
+    pass_rate: float
+    p95_seconds: float
+    excluded: int = 0
 
 
 @dataclass(frozen=True)
@@ -101,10 +132,23 @@ class EvaluationReport:
     target_success_rate: float
     target_met: bool
     strategy_summaries: Tuple[StrategySummary, ...] = ()
+    core_summary: LayerSummary | None = None
+    engineering_summary: LayerSummary | None = None
+    quality_summary: LayerSummary | None = None
+
+
+_FIXTURE_CONTRACTS: dict[tuple[str, str], Tuple[str, ...]] = {
+    ("python", "fastapi"): (
+        "Bind SQLAlchemy metadata to a real SQLite engine before serving requests.",
+        "Every FastAPI database dependency must yield a usable session and close it after the request.",
+        "Generated pytest tests must be collected by pytest and use fastapi.testclient.TestClient(app).",
+        "Use the documented TestClient response API, including response.json().",
+    ),
+}
 
 
 FIXED_CRUD_CASES: Tuple[EvaluationCase, ...] = (
-        EvaluationCase("python-fastapi-crud", "python", "fastapi", "Create a CRUD todo API with SQLite persistence.", ("app/main.py", "app/models.py", "app/schemas.py", "app/crud.py", "tests/test_crud.py")),
+    EvaluationCase("python-fastapi-crud", "python", "fastapi", "Create a CRUD todo API with SQLite persistence.", ("app/main.py", "app/models.py", "app/schemas.py", "app/crud.py", "tests/test_crud.py"), contract_instructions=_FIXTURE_CONTRACTS[("python", "fastapi")]),
     EvaluationCase("python-flask-crud", "python", "flask", "Create a CRUD todo API with SQLite persistence.", ("app.py", "models.py", "crud.py", "tests/test_crud.py")),
     EvaluationCase("typescript-express-crud", "typescript", "express", "Create a CRUD todo API with SQLite persistence.", ("src/app.ts", "src/routes/todos.ts", "src/db.ts", "tests/todos.test.ts")),
     EvaluationCase("typescript-nestjs-crud", "typescript", "nestjs", "Create a CRUD todo API with SQLite persistence.", ("src/main.ts", "src/todos/todos.controller.ts", "src/todos/todos.service.ts", "test/todos.e2e-spec.ts")),
@@ -129,7 +173,7 @@ _SCALE_FILES = {
     "modular": {
         "python": ("app/main.py", "app/models.py", "app/schemas.py", "app/crud.py", "app/repository.py", "tests/test_crud.py"),
         "typescript": ("src/app.ts", "src/routes/todos.ts", "src/services/todos.ts", "src/repositories/todos.ts", "tests/todos.test.ts"),
-        "go": ("go.mod", "cmd/server/main.go", "internal/todos/store.go", "internal/todos/service.go", "internal/todos/handler.go", "internal/todos/handler_test.go"),
+        "go": ("go.mod", "go.sum", "cmd/server/main.go", "internal/todos/store.go", "internal/todos/service.go", "internal/todos/handler.go", "internal/todos/handler_test.go"),
         "java": ("pom.xml", "src/main/java/com/example/Application.java", "src/main/java/com/example/Todo.java", "src/main/java/com/example/TodoRepository.java", "src/main/java/com/example/TodoService.java", "src/test/java/com/example/TodoControllerTest.java"),
     },
 }
@@ -146,10 +190,11 @@ FIXED_EVALUATION_MATRIX: Tuple[EvaluationCase, ...] = tuple(
         required_files=files,
         file_scale=scale,
         strategy=strategy,
+        contract_instructions=_FIXTURE_CONTRACTS.get((language, _FRAMEWORKS[language]), ()),
     )
     for language in ("python", "typescript", "go", "java")
     for scale, language_files in _SCALE_FILES.items()
-    for strategy in ("deterministic", "llm")
+    for strategy in ("traditional", "spec_first")
     for files in (language_files[language],)
 )
 
@@ -190,6 +235,28 @@ def summarize(records: Iterable[EvaluationRecord]) -> EvaluationSummary:
     return EvaluationSummary(len(values), successful, successful / len(values), p95)
 
 
+def summarize_layer(
+    records: Iterable[EvaluationRecord],
+    passed: Callable[[EvaluationRecord], bool],
+) -> LayerSummary:
+    all_values = list(records)
+    values = [record for record in all_values if record.evaluation_status != "evaluation_infrastructure_failure"]
+    excluded = sum(
+        record.evaluation_status == "evaluation_infrastructure_failure"
+        for record in all_values
+    )
+    if not values:
+        return LayerSummary(0, 0, 0.0, 0.0, excluded)
+    successful = sum(bool(passed(record)) for record in values)
+    return LayerSummary(
+        total=len(values),
+        passed=successful,
+        pass_rate=successful / len(values),
+        p95_seconds=_p95(sorted(record.elapsed_seconds for record in values)),
+        excluded=excluded,
+    )
+
+
 def build_report(
     records: Iterable[EvaluationRecord],
     *,
@@ -209,19 +276,34 @@ def build_report(
         or record.elapsed_seconds < 0 or record.token_count < 0
         or record.model_call_count < 0
         or record.database_status not in {"supported", "experimental", "unsupported"}
+        or record.evaluation_status not in {"completed", "evaluation_infrastructure_failure"}
     }))
     categories = {
-        "plan": sum(not record.plan_consistent for record in values),
-        "interface": sum(not record.interfaces_consistent for record in values),
-        "dependency": sum(not record.dependency_closure for record in values),
-        "artifact": sum(not record.files_complete for record in values),
-        "compile": sum(not record.compile_passed for record in values),
-        "test": sum(not record.tests_passed for record in values),
-        "startup": sum(not record.startup_passed for record in values),
-        "persistence": sum(not record.persistence_passed for record in values),
-        "database": sum(record.database_status != "supported" for record in values),
+        "evaluation_infrastructure_failure": sum(
+            record.evaluation_status == "evaluation_infrastructure_failure"
+            for record in values
+        ),
     }
+    completed_values = [
+        record
+        for record in values
+        if record.evaluation_status != "evaluation_infrastructure_failure"
+    ]
+    categories.update({
+        "plan": sum(not record.plan_consistent for record in completed_values),
+        "interface": sum(not record.interfaces_consistent for record in completed_values),
+        "dependency": sum(not record.dependency_closure for record in completed_values),
+        "artifact": sum(not record.files_complete for record in completed_values),
+        "compile": sum(not record.compile_passed for record in completed_values),
+        "test": sum(not record.tests_passed for record in completed_values),
+        "startup": sum(not record.startup_passed for record in completed_values),
+        "persistence": sum(not record.persistence_passed for record in completed_values),
+        "database": sum(record.database_status != "supported" for record in completed_values),
+    })
     summary = summarize(values)
+    core_summary = summarize_layer(values, lambda record: record.core_passed)
+    engineering_summary = summarize_layer(values, lambda record: record.engineering_passed)
+    quality_summary = summarize_layer(values, lambda record: record.stage_success("repaired"))
     matrix_complete = not missing and not invalid and len(values) == len(expected)
     strategy_summaries = tuple(
         _summarize_strategy(strategy, [record for record in values if record.strategy == strategy])
@@ -234,8 +316,11 @@ def build_report(
         failure_categories=tuple((name, count) for name, count in categories.items() if count),
         matrix_complete=matrix_complete,
         target_success_rate=target_success_rate,
-        target_met=matrix_complete and summary.success_rate >= target_success_rate,
+        target_met=matrix_complete and quality_summary.pass_rate >= target_success_rate,
         strategy_summaries=strategy_summaries,
+        core_summary=core_summary,
+        engineering_summary=engineering_summary,
+        quality_summary=quality_summary,
     )
 
 
@@ -254,4 +339,4 @@ def _summarize_strategy(strategy: str, records: list[EvaluationRecord]) -> Strat
     )
 
 
-__all__ = ["ApplicationDomain", "EvaluationCase", "EvaluationRecord", "EvaluationSummary", "StrategySummary", "EvaluationReport", "EvaluationRegistry", "FIXED_CRUD_CASES", "FIXED_EVALUATION_MATRIX", "summarize", "build_report"]
+__all__ = ["ApplicationDomain", "EvaluationCase", "EvaluationRecord", "EvaluationSummary", "LayerSummary", "StrategySummary", "EvaluationReport", "EvaluationRegistry", "FIXED_CRUD_CASES", "FIXED_EVALUATION_MATRIX", "summarize", "summarize_layer", "build_report"]

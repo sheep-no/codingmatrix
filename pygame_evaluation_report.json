@@ -1,0 +1,15 @@
+{
+  "case_id": "pygame-snake",
+  "engine": "core",
+  "http_status": 200,
+  "generation_success": true,
+  "files_complete": true,
+  "compile_passed": true,
+  "tests_passed": true,
+  "tests_total": 5,
+  "headless_smoke_passed": true,
+  "render_visual_passed": true,
+  "screenshot": "projects/projects/1/evaluation_pygame-snake_1788463341/snake-effect.png",
+  "output_dir": "projects/projects/1/evaluation_pygame-snake_1788463341",
+  "success": true
+}

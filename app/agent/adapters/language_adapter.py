@@ -10,7 +10,7 @@ LanguageAdapter - 语言适配层
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Mapping, Optional, Tuple
 from pathlib import Path
 
 
@@ -108,6 +108,38 @@ class LanguageAdapter(ABC):
         from app.agent.signature_extractor import extract_signatures
 
         return extract_signatures(file_path, content)
+
+    def extract_contract_facts(
+        self,
+        content: str,
+        file_path: str = "",
+    ) -> Mapping[str, Tuple[str, ...]]:
+        """Project source into fact sets understood by the generic contract gate."""
+        definitions = self.extract_definitions(content)
+        imports = self.parse_imports(content, file_path)
+        signatures = tuple(
+            f"{definition.name}({definition.signature})"
+            for definition in definitions.values()
+            if definition.signature is not None
+        )
+        return {
+            "symbols": tuple(definitions),
+            "imports": tuple(item.module for item in imports if item.module),
+            "signatures": signatures,
+        }
+
+    def source_diagnostics(self, content: str, file_path: str = "") -> Tuple[str, ...]:
+        """Return language-owned diagnostics that do not depend on project semantics."""
+        return ()
+
+    def repair_source(
+        self,
+        content: str,
+        file_path: str,
+        diagnostics: Tuple[str, ...],
+    ) -> Optional[str]:
+        """Return one language-owned minimal repair candidate when available."""
+        return None
 
     @abstractmethod
     def get_package_init_file(self, package_path: str) -> str:

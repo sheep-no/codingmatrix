@@ -167,6 +167,11 @@ class BackendEngineer(Specialist):
             return ""
 
         framework = str(architecture.get("framework", "")).lower()
+        test_framework = str(
+            LanguageDetector.get_language_specific_rules(project_language).get(
+                "test_framework", ""
+            )
+        ).lower()
         project_spec = architecture.get("project_spec", {})
         if isinstance(project_spec, dict):
             framework = framework or str(project_spec.get("framework", "")).lower()
@@ -285,7 +290,7 @@ class BackendEngineer(Specialist):
                 lines.append(
                     "- 同一资源集合的所有方法必须使用需求指定的同一个规范路径；需求为 /api/v1/todos 时，GET、POST 均使用 /api/v1/todos，禁止单独添加尾斜杠。"
                 )
-        if file_type == "test" or "test" in file_path.lower():
+        if (file_type == "test" or "test" in file_path.lower()) and "pytest" in test_framework:
             lines.extend([
                 "- pytest fixture、测试函数和客户端调用的同步/异步风格必须一致。",
                 "- 文件持久化测试必须使用 tmp_path 创建真实临时文件，并用 pytest monkeypatch 替换存储路径解析函数或路径常量。",

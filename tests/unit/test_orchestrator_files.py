@@ -13,6 +13,10 @@ from app.agent.orchestrator_files import _validate_python_contract
 from app.agent.orchestrator_files import _repair_python_shared_base
 from app.agent.orchestrator_files import _repair_python_sqlalchemy_metadata_owner
 from app.agent.orchestrator_files import _repair_python_sqlalchemy_text_execute
+from app.agent.orchestrator_files import _repair_python_fastapi_class_route_registration
+from app.agent.orchestrator_files import _repair_python_sqlite_connection_url
+from app.agent.orchestrator_files import _repair_python_invalid_code_marker
+from app.agent.orchestrator_files import _repair_python_unmounted_fastapi_router
 from app.agent.orchestrator_files import _repair_python_sqlalchemy_datetime_defaults
 from app.agent.orchestrator_files import _repair_python_sessionmaker_class_none
 from app.agent.orchestrator_files import _repair_python_sqlalchemy_get_db
@@ -285,6 +289,47 @@ def test_sqlalchemy_table_initialization_runs_after_all_model_imports():
     assert repaired.index("from models import Todo") < repaired.index(
         "Base.metadata.create_all(bind=engine)"
     )
+
+
+def test_sqlalchemy_table_initialization_supports_single_file_projects():
+    architecture = {
+        "file_plan": [
+            {"path": "main.py", "file_type": "entry"},
+        ]
+    }
+    content = (
+        "from sqlalchemy import create_engine\n"
+        "from sqlalchemy.orm import declarative_base\n"
+        "engine = create_engine('sqlite:///todos.db')\n"
+        "Base = declarative_base()\n"
+        "class Todo(Base):\n"
+        "    __tablename__ = 'todos'\n"
+        "    id = Column(Integer, primary_key=True)\n"
+    )
+
+    repaired = _repair_python_sqlalchemy_table_initialization(
+        content, "main.py", {}, architecture
+    )
+
+    assert "Base.metadata.create_all(bind=engine)" in repaired
+    assert repaired.index("Base.metadata.create_all(bind=engine)") > repaired.index(
+        "Base = declarative_base()"
+    )
+
+
+def test_sqlalchemy_text_repair_preserves_sqlite_cursor_execute():
+    content = (
+        "from sqlalchemy import text\n"
+        "import sqlite3\n"
+        "conn = sqlite3.connect('todos.db')\n"
+        "cursor = conn.cursor()\n"
+        "cursor.execute('SELECT 1')\n"
+    )
+
+    repaired = _repair_python_sqlalchemy_text_execute(content, "main.py")
+
+    assert "cursor.execute('SELECT 1')" in repaired
+    assert "cursor.execute(text('SELECT 1'))" not in repaired
 
 
 def test_database_test_fixture_repair_adds_setup_dependency_and_isolation():
@@ -1654,6 +1699,27 @@ async def test_backend_generation_uses_frozen_core_context_without_react_tools(t
             "architecture": {"language": "java"},
             "generation_contract": {
                 "frozen_file_set": ["src/main/java/com/example/Application.java"],
+                "test_generation_contract": {
+                    "discovery": "declared_test_files",
+                    "execution": "profile_command",
+                    "dependencies": "declared_contracts",
+                    "serialization": "framework_defined",
+                    "stack_rules": {"pytest": {"fixture_scope": ["test_file", "conftest"]}},
+                },
+                "cross_file_contracts": [{
+                    "name": "application.entry",
+                    "kind": "file",
+                    "owner": "src/main/java/com/example/Application.java",
+                    "schema": {"exports": ["Application"]},
+                }],
+                "contract_index": {"entries": [{
+                    "name": "PATCH /inventory", "kind": "api", "owner": "inventory",
+                    "schema": {
+                        "request_body_schema": {"type": "object"},
+                        "response_body_schema": {"type": "array"},
+                        "serialization_guidance": "Convert domain instances using the configured JSON encoder.",
+                    },
+                }]},
             },
         },
         project_path=str(tmp_path),
@@ -1661,6 +1727,14 @@ async def test_backend_generation_uses_frozen_core_context_without_react_tools(t
 
     assert result.startswith("package com.example")
     assert "冻结生成契约和已生成依赖已经包含在上下文中" in direct_prompts[0]
+    assert '"request_body_schema"' in direct_prompts[0]
+    assert '"response_body_schema"' in direct_prompts[0]
+    assert "Convert domain instances using the configured JSON encoder." in direct_prompts[0]
+    assert '"discovery": "declared_test_files"' in direct_prompts[0]
+    assert '"serialization": "framework_defined"' in direct_prompts[0]
+    assert '"pytest"' in direct_prompts[0]
+    assert '"exports": [' in direct_prompts[0]
+    assert '"Application"' in direct_prompts[0]
     assert "先用 read_file / list_files / search_files" not in direct_prompts[0]
 
 
@@ -1995,3 +2069,42 @@ def test_explicit_file_scope_normalizes_prefixed_paths_and_fills_omissions():
     ]
     assert result["file_plan"][0]["description"] == "实现 crud.py"
     assert result["file_plan"][1]["description"] == "entry"
+
+
+def test_fastapi_class_route_registration_repair_uses_existing_handlers():
+    content = (
+        "from fastapi import FastAPI\n"
+        "app = FastAPI()\n"
+        "def create_todo(): pass\n"
+        "def list_todos(): pass\n"
+        "def get_todo(todo_id): pass\n"
+        "app.include_router(FastAPI(prefix='/api/v1', routes=[\n"
+        "    FastAPI.post('/todos', response_model=TodoResponse),\n"
+        "    FastAPI.get('/todos', response_model=TodoListResponse),\n"
+        "    FastAPI.get('/todos/{todo_id}', response_model=TodoResponse),\n"
+        "]))\n"
+    )
+
+    repaired = _repair_python_fastapi_class_route_registration(content, "main.py")
+
+    assert "FastAPI.post" not in repaired
+    assert "app.add_api_route('/api/v1/todos', create_todo, methods=[\"POST\"]" in repaired
+    assert "app.add_api_route('/api/v1/todos/{todo_id}', get_todo, methods=[\"GET\"]" in repaired
+
+
+def test_sqlite_connection_repair_converts_sqlalchemy_url():
+    assert _repair_python_sqlite_connection_url(
+        "import sqlite3\nconn = sqlite3.connect('sqlite:///./todos.db')\n", "main.py"
+    ) == "import sqlite3\nconn = sqlite3.connect('./todos.db')\n"
+
+
+def test_invalid_code_marker_repair_removes_none_assignment():
+    content = "def get_db(): pass\nget_db.__code__ = None  # debug marker\n"
+    assert _repair_python_invalid_code_marker(content, "main.py") == "def get_db(): pass\n"
+
+
+def test_unmounted_fastapi_router_repair_adds_include_call():
+    content = "from fastapi import APIRouter\nrouter = APIRouter(prefix='/api/v1')\n"
+    assert _repair_python_unmounted_fastapi_router(content, "main.py").endswith(
+        "app.include_router(router)\n"
+    )

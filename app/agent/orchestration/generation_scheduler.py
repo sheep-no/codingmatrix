@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Awaitable, Callable, Dict, Mapping, Optional, Set, Tuple
+from typing import Any, Awaitable, Callable, Dict, Literal, Mapping, Optional, Set, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,6 +17,9 @@ from .artifact_committer import (
 )
 from .budget import ExecutionBudget
 from .plan import GenerationPlan, PlannedFile
+from ..contract_index import ContractEntry, ContractIndex
+from ..synthesis_protocol import ModelOperation, ModelOperationKind
+from ..workflow_ir import TechnologyProfile
 
 
 class GenerationNodeStatus(str, Enum):
@@ -54,6 +57,41 @@ class GeneratedContent(BaseModel):
     model_name: str = Field(min_length=1)
     validation_passed: bool = True
     diagnostics: Tuple[str, ...] = ()
+    contract_refs: Tuple[str, ...] = ()
+
+
+class TestGenerationContract(BaseModel):
+    """Technology-neutral invariants for generated tests."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    discovery: Literal["declared_test_files"] = "declared_test_files"
+    execution: Literal["profile_command"] = "profile_command"
+    dependencies: Literal["declared_contracts"] = "declared_contracts"
+    serialization: Literal["framework_defined"] = "framework_defined"
+    stack_rules: Mapping[str, Any] = Field(default_factory=dict)
+
+
+def test_contract_for_technology(technology: TechnologyProfile) -> TestGenerationContract:
+    """Build the generic test contract and isolate stack-specific rules."""
+    rules: dict[str, Any] = {}
+    language = technology.language.lower()
+    framework = technology.framework.lower()
+    if language == "python":
+        rules["runner"] = "pytest"
+        if framework == "fastapi":
+            rules["client"] = "framework_test_client"
+        if framework == "flask":
+            rules["client"] = "application_test_client"
+    elif language in {"typescript", "javascript"}:
+        rules["runner"] = "jest_or_vitest"
+    elif language == "go":
+        rules["runner"] = "go_test"
+    elif language == "java":
+        rules["runner"] = "junit"
+    elif language == "rust":
+        rules["runner"] = "cargo_test"
+    return TestGenerationContract(stack_rules=rules)
 
 
 @dataclass(frozen=True)
@@ -64,6 +102,11 @@ class FileGenerationContext:
     upstream_contents: Mapping[str, str]
     attempt: int
     cancel_event: Optional[asyncio.Event]
+    contract_index: ContractIndex
+    http_contracts: Tuple[ContractEntry, ...]
+    cross_file_contracts: Tuple[ContractEntry, ...]
+    test_generation_contract: TestGenerationContract
+    technology: TechnologyProfile
     previous_diagnostics: Tuple[str, ...] = ()
 
     @property
@@ -157,9 +200,11 @@ class GenerationScheduler:
         task_id: str,
         stage_id: str,
         cancel_event: Optional[asyncio.Event] = None,
+        contract_index: Optional[ContractIndex] = None,
         task_elapsed_seconds: float = 0.0,
     ) -> GenerationScheduleResult:
         self._initialize(plan)
+        frozen_contracts = contract_index or ContractIndex.build(())
         remaining_stage_seconds = min(
             budget.stage_seconds,
             budget.task_seconds - task_elapsed_seconds,
@@ -176,6 +221,7 @@ class GenerationScheduler:
                 task_id=task_id,
                 stage_id=stage_id,
                 cancel_event=cancel_event,
+                contract_index=frozen_contracts,
             ),
             name=f"generation-scheduler:{task_id}:{stage_id}",
         )
@@ -244,6 +290,7 @@ class GenerationScheduler:
         task_id: str,
         stage_id: str,
         cancel_event: Optional[asyncio.Event],
+        contract_index: ContractIndex,
     ) -> None:
         reverse_dependencies: Dict[str, Set[str]] = {path: set() for path in self.nodes}
         for item in plan.files:
@@ -274,6 +321,7 @@ class GenerationScheduler:
                             task_id=task_id,
                             stage_id=stage_id,
                             cancel_event=cancel_event,
+                            contract_index=contract_index,
                             completion_queue=completion_queue,
                             loop=loop,
                         ),
@@ -324,6 +372,7 @@ class GenerationScheduler:
         task_id: str,
         stage_id: str,
         cancel_event: Optional[asyncio.Event],
+        contract_index: ContractIndex,
         completion_queue: asyncio.Queue[str],
         loop: asyncio.AbstractEventLoop,
     ) -> None:
@@ -343,6 +392,7 @@ class GenerationScheduler:
                     )
                     break
                 try:
+                    contract = node.planned_file.contract
                     context = FileGenerationContext(
                         task_id=task_id,
                         stage_id=stage_id,
@@ -353,6 +403,23 @@ class GenerationScheduler:
                         }),
                         attempt=attempt,
                         cancel_event=cancel_event,
+                        contract_index=contract_index,
+                        http_contracts=tuple(
+                            entry for entry in contract_index.entries if entry.kind == "api"
+                        ),
+                        cross_file_contracts=tuple(
+                            entry for entry in contract_index.entries if entry.kind != "api"
+                        ),
+                        technology=TechnologyProfile(
+                            language=node.planned_file.language,
+                            framework=str(contract.get("framework", "")),
+                            runtime=str(contract.get("runtime", "")),
+                        ),
+                        test_generation_contract=test_contract_for_technology(TechnologyProfile(
+                            language=node.planned_file.language,
+                            framework=str(contract.get("framework", "")),
+                            runtime=str(contract.get("runtime", "")),
+                        )),
                         previous_diagnostics=validation_feedback,
                     )
                     async with asyncio.timeout(remaining):
@@ -378,6 +445,35 @@ class GenerationScheduler:
                             )
                             break
                         continue
+
+                    try:
+                        contract_refs = generated.contract_refs or node.planned_file.contract_refs
+                        operation = ModelOperation(
+                            operation=ModelOperationKind.FILE_SLOT,
+                            target_path=path,
+                            allowed_paths=tuple(sorted(self.nodes)),
+                            depends_on=tuple(node.planned_file.dependencies),
+                            contract_refs=contract_refs,
+                            content=generated.content,
+                        )
+                    except ValueError as exc:
+                        self._fail_node(
+                            node,
+                            GenerationNodeStatus.FAILED,
+                            "protocol_validation_failed",
+                            str(exc),
+                        )
+                        break
+
+                    missing_contracts = contract_index.missing(operation.contract_refs)
+                    if missing_contracts:
+                        self._fail_node(
+                            node,
+                            GenerationNodeStatus.FAILED,
+                            "operation_contract_missing",
+                            f"model operation references unknown contracts: {list(missing_contracts)}",
+                        )
+                        break
 
                     commit_result = self.committer.commit(
                         path,

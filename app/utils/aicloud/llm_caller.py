@@ -7,6 +7,9 @@
 """
 
 import asyncio
+from contextvars import ContextVar, Token
+from dataclasses import dataclass
+import json
 import logging
 import random
 from typing import AsyncIterator, Optional, Union, Dict, Any
@@ -25,6 +28,75 @@ from app.utils.aicloud.adapters.dynamic import DynamicAdapter
 from app.utils.aicloud.dynamic_provider import DynamicProvider
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LLMCallMetrics:
+    """Request-scoped aggregate for logical model calls."""
+
+    model_call_count: int = 0
+    token_count: int = 0
+
+
+_llm_call_metrics: ContextVar[Optional[LLMCallMetrics]] = ContextVar(
+    "llm_call_metrics", default=None
+)
+
+
+def begin_llm_call_metrics() -> Token:
+    """Start an isolated metrics scope for one API request."""
+    return _llm_call_metrics.set(LLMCallMetrics())
+
+
+def finish_llm_call_metrics(token: Token) -> Dict[str, int]:
+    """Snapshot and close the active request metrics scope."""
+    metrics = _llm_call_metrics.get() or LLMCallMetrics()
+    _llm_call_metrics.reset(token)
+    return {
+        "model_call_count": metrics.model_call_count,
+        "token_count": metrics.token_count,
+    }
+
+
+def _record_llm_response_metrics(result: Any) -> None:
+    metrics = _llm_call_metrics.get()
+    if metrics is None or not isinstance(result, dict):
+        return
+    usage = result.get("usage") or {}
+    metrics.token_count += int(usage.get("total_tokens") or 0)
+
+
+def _record_llm_call() -> None:
+    metrics = _llm_call_metrics.get()
+    if metrics is not None:
+        metrics.model_call_count += 1
+
+
+def _stream_usage_tokens(chunk: Any) -> int:
+    if not isinstance(chunk, str):
+        return 0
+    payload = chunk.strip()
+    if payload.startswith("data: "):
+        payload = payload[6:]
+    try:
+        parsed = json.loads(payload)
+    except (json.JSONDecodeError, TypeError):
+        return 0
+    usage = parsed.get("usage") or {}
+    return int(usage.get("total_tokens") or 0)
+
+
+def _record_llm_stream_metrics(chunk: Any) -> None:
+    """Record one standalone stream chunk for compatibility callers.
+
+    Stream wrappers use the per-stream maximum below so cumulative provider
+    usage fields are counted once. This helper retains the historical behavior
+    for direct unit-test and integration callers that provide one chunk.
+    """
+    tokens = _stream_usage_tokens(chunk)
+    metrics = _llm_call_metrics.get()
+    if metrics is not None:
+        metrics.token_count += tokens
 
 # 适配器工厂
 ADAPTER_FACTORIES = {
@@ -154,13 +226,19 @@ class _SemaphoreWrappedAsyncIterator:
         self._model_sem = model_sem
         self._closed = False
         self._released = False
+        self._max_stream_tokens = 0
 
     def __aiter__(self):
         return self
 
     async def __anext__(self) -> str:
         try:
-            return await self._inner.__anext__()
+            chunk = await self._inner.__anext__()
+            self._max_stream_tokens = max(
+                self._max_stream_tokens,
+                _stream_usage_tokens(chunk),
+            )
+            return chunk
         except BaseException:
             try:
                 await self.aclose()
@@ -177,6 +255,9 @@ class _SemaphoreWrappedAsyncIterator:
             if close is not None:
                 await close()
         finally:
+            metrics = _llm_call_metrics.get()
+            if metrics is not None:
+                metrics.token_count += self._max_stream_tokens
             self._release()
 
     def _release(self) -> None:
@@ -204,6 +285,8 @@ async def call_llm(
     provider_id: Optional[str] = None,
     messages: Optional[list] = None,
     disable_fallback: bool = False,
+    synthesis_protocol: Optional[str] = None,
+    capability_degraded: bool = False,
     _skip_semaphore: bool = False,
 ) -> Union[dict, AsyncIterator[str]]:
     """
@@ -228,6 +311,7 @@ async def call_llm(
         非流式: OpenAI 兼容响应字典
         流式: AsyncIterator[str]
     """
+    _record_llm_call()
     adapter = None
     
     # 优先级 1: 直接指定动态供应商
@@ -374,6 +458,7 @@ async def call_llm(
         if global_sem:
             global_sem.release()
             global_sem = None
+        _record_llm_response_metrics(result)
         return result
     except asyncio.CancelledError:
         if model_sem:

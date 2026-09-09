@@ -24,6 +24,7 @@ class PlanFile(BaseModel):
     priority: int = Field(default=3, ge=1, le=5)
     dependencies: Tuple[str, ...] = ()
     imports: Tuple[str, ...] = ()
+    contract_refs: Tuple[str, ...] = ()
     contract: Mapping[str, Any] = Field(default_factory=dict)
 
 
@@ -96,6 +97,7 @@ class GenerationPlan(BaseModel):
             "priority": item.priority,
             "dependencies": list(item.dependencies),
             "imports": list(item.imports),
+            "contract_refs": list(item.contract_refs),
             "contract": dict(item.contract),
         } for item in self.files)
 
@@ -143,10 +145,13 @@ def _coerce_file(item: Mapping[str, object] | PlanFile) -> PlanFile:
     imports = item.get("imports", ())
     if isinstance(imports, str):
         imports = (imports,)
+    contract_refs = item.get("contract_refs", ())
+    if isinstance(contract_refs, str):
+        contract_refs = (contract_refs,)
     contract = item.get("contract", {})
     if not isinstance(contract, Mapping):
         raise ValueError("file contract must be an object")
-    return PlanFile(path=_normalize_path(str(item.get("path", ""))), role=str(item.get("role", item.get("description", ""))), language=str(item.get("language", "")), file_type=str(item.get("file_type", "")), priority=_normalize_priority(item.get("priority", 3)), dependencies=tuple(_normalize_path(str(value)) for value in raw or ()), imports=tuple(str(value) for value in imports or ()), contract=dict(contract))
+    return PlanFile(path=_normalize_path(str(item.get("path", ""))), role=str(item.get("role", item.get("description", ""))), language=str(item.get("language", "")), file_type=str(item.get("file_type", "")), priority=_normalize_priority(item.get("priority", 3)), dependencies=tuple(_normalize_path(str(value)) for value in raw or ()), imports=tuple(str(value) for value in imports or ()), contract_refs=tuple(str(value) for value in contract_refs or ()), contract=dict(contract))
 
 
 def _normalize_priority(value: object) -> int:

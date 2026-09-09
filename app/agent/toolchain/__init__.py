@@ -105,9 +105,14 @@ class ToolchainRunner:
                 raise ValueError("toolchain wrapper must stay inside workspace") from exc
             if not wrapper.is_file():
                 raise FileNotFoundError(f"workspace wrapper not found: {executable}")
+        environment = os.environ.copy()
+        # A host regular package can shadow a project's namespace package even
+        # when cwd is correct. Do not inherit the host's Python search path.
+        environment["PYTHONPATH"] = str(workspace)
         process = await asyncio.create_subprocess_exec(
             *spec.command,
             cwd=str(workspace),
+            env=environment,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,

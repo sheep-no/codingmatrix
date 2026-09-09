@@ -26,6 +26,7 @@ class FastAPIStackAdapter(BaseStackAdapter):
     language = "python"
     framework = "fastapi"
     aliases = (("python", "fastapi"),)
+    contract_extensions = frozenset({".py"})
 
     def framework_profile(self, project: ProjectModel | None = None) -> FrameworkProfile:
         _require_project_stack(project, self.aliases)
@@ -55,6 +56,7 @@ class ExpressStackAdapter(BaseStackAdapter):
         ("js", "express"),
         ("ts", "express"),
     )
+    contract_extensions = frozenset({".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"})
 
     def framework_profile(self, project: ProjectModel | None = None) -> FrameworkProfile:
         _require_project_stack(project, self.aliases)
@@ -89,6 +91,7 @@ class GoStackAdapter(BaseStackAdapter):
         ("go", "net/http"),
         ("go", "net-http"),
     )
+    contract_extensions = frozenset({".go"})
 
     def framework_profile(self, project: ProjectModel | None = None) -> FrameworkProfile:
         _require_project_stack(project, self.aliases)
@@ -120,6 +123,7 @@ class SpringStackAdapter(BaseStackAdapter):
         ("java", "spring-boot"),
         ("java", "spring-boot-gradle"),
     )
+    contract_extensions = frozenset({".java", ".xml"})
 
     def framework_profile(self, project: ProjectModel | None = None) -> FrameworkProfile:
         _require_project_stack(project, self.aliases)

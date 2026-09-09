@@ -129,6 +129,8 @@ class BaseStackAdapter:
     language = "generic"
     framework = "generic"
     aliases: tuple[tuple[str, str], ...] = ()
+    contract_extensions: frozenset[str] = frozenset()
+    contract_roles: frozenset[str] = frozenset()
 
     def detect(self, workspace: Path) -> ProjectModel:
         raise NotImplementedError
@@ -138,6 +140,10 @@ class BaseStackAdapter:
 
     def capabilities(self) -> CapabilitySet:
         return self.framework_profile().capabilities
+
+    def contract_scope(self) -> tuple[str, frozenset[str], frozenset[str]]:
+        """Describe the files and roles owned by this stack's contracts."""
+        return self.stack_id, self.contract_extensions, self.contract_roles
 
     def synthesis_capabilities(self) -> SynthesisCapabilitySnapshot:
         profile = self.framework_profile()

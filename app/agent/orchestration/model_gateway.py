@@ -16,6 +16,8 @@ from app.utils.aicloud.llm_caller import call_llm
 
 from .budget import ExecutionBudget
 from .models import utc_now
+from ..code_synthesis_contracts import ModelCapabilityProfile
+from ..synthesis_protocol import select_response_protocol
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +112,8 @@ class ModelCallTelemetry(BaseModel):
     total_tokens: Optional[int] = None
     input_chars: int = 0
     max_tokens: Optional[int] = None
+    synthesis_protocol: Optional[str] = None
+    capability_degraded: bool = False
 
 
 class ModelGatewayError(RuntimeError):
@@ -155,11 +159,17 @@ class ModelGateway:
         activity_callback: Optional[
             Callable[[ModelCallContext, ModelStreamDataKind, datetime], None]
         ] = None,
+        model_profile: Optional[ModelCapabilityProfile] = None,
     ) -> None:
         self._caller = caller
         self._activity_callback = activity_callback
         self._activity: Dict[str, ModelCallActivity] = {}
         self._telemetry: Dict[str, ModelCallTelemetry] = {}
+        self._model_profile = model_profile
+
+    @property
+    def model_profile(self) -> Optional[ModelCapabilityProfile]:
+        return self._model_profile
 
     def activity_for(self, call_id: str) -> ModelCallActivity:
         return self._activity.get(call_id, ModelCallActivity(call_id=call_id))
@@ -174,6 +184,7 @@ class ModelGateway:
         cancel_event: Optional[asyncio.Event] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
+        kwargs = self._adapt_request(kwargs)
         self._start_telemetry(context, kwargs)
         try:
             result = await self._await_with_controls(
@@ -202,6 +213,7 @@ class ModelGateway:
         cancel_event: Optional[asyncio.Event] = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
+        kwargs = self._adapt_request(kwargs)
         self._start_telemetry(context, kwargs)
         stream_result: Optional[AsyncIterator[str]] = None
         try:
@@ -248,7 +260,19 @@ class ModelGateway:
             started_at=context.started_at,
             input_chars=input_chars,
             max_tokens=kwargs.get("max_tokens"),
+            synthesis_protocol=kwargs.get("synthesis_protocol"),
+            capability_degraded=kwargs.get("capability_degraded", False),
         )
+
+    def _adapt_request(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        if self._model_profile is None or "synthesis_protocol" in kwargs:
+            return kwargs
+        profile = self._model_profile
+        adapted = dict(kwargs)
+        adapted["synthesis_protocol"] = select_response_protocol(profile).value
+        adapted["capability_degraded"] = not profile.supports_json_schema
+        adapted.setdefault("max_tokens", profile.max_output_tokens)
+        return adapted
 
     def _finish_telemetry(self, context: ModelCallContext, result: Any = None) -> None:
         current = self._telemetry.get(context.call_id)

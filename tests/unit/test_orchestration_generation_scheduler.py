@@ -15,6 +15,7 @@ from app.agent.orchestration import (
     build_file_plan,
 )
 from app.agent.shared_context import SharedContext
+from app.agent.contract_index import ContractIndex
 
 
 def make_scheduler(tmp_path: Path, *, max_concurrent: int = 2, max_retries: int = 0):
@@ -75,6 +76,101 @@ async def test_scheduler_generates_dependencies_in_topological_order(tmp_path: P
     assert all(node.status is GenerationNodeStatus.COMPLETED for node in result.nodes.values())
     assert result.stats.max_parallelism == 1
     assert scheduler.active_task_count == 0
+
+
+@pytest.mark.asyncio
+async def test_scheduler_shares_one_frozen_contract_snapshot_with_all_files(tmp_path: Path) -> None:
+    scheduler = make_scheduler(tmp_path)
+    contracts = ContractIndex.build([
+        {
+            "name": "inventory.entry",
+            "kind": "file",
+            "owner": "main.py",
+            "schema": {"exports": ["application"]},
+        },
+        {
+            "name": "PATCH /inventory",
+            "kind": "api",
+            "owner": "routes.py",
+            "schema": {
+                "method": "PATCH",
+                "path": "/inventory",
+                "serialization_guidance": "Encode domain values before sending JSON.",
+            },
+        },
+    ])
+    plan = build_file_plan(
+        [
+            {
+                "path": "model.py",
+                "language": "python",
+                "contract_refs": ["inventory.entry"],
+                "contract": {"framework": "fastapi", "runtime": "python"},
+            },
+            {
+                "path": "service.py",
+                "language": "python",
+                "dependencies": ["model.py"],
+                "contract_refs": ["inventory.entry"],
+                "contract": {"framework": "fastapi", "runtime": "python"},
+            },
+        ],
+        requested_paths=["model.py", "service.py"],
+    )
+    observed = []
+
+    async def generator(context):
+        observed.append(context)
+        return GeneratedContent(content=f"# {context.file_path}\n", model_name="model")
+
+    result = await scheduler.run(
+        plan,
+        generator,
+        make_budget(),
+        task_id="task-contracts",
+        stage_id="stage-contracts",
+        contract_index=contracts,
+    )
+
+    assert result.status is GenerationScheduleStatus.COMPLETED
+    assert [item.file_path for item in observed] == ["model.py", "service.py"]
+    assert all(item.contract_index is contracts for item in observed)
+    assert all(item.technology.model_dump(mode="json") == {
+        "language": "python", "framework": "fastapi", "runtime": "python"
+    } for item in observed)
+    assert all(item.http_contracts[0].schema["serialization_guidance"]
+               == "Encode domain values before sending JSON." for item in observed)
+    assert all(item.cross_file_contracts[0].schema["exports"] == ["application"]
+               for item in observed)
+    assert all(item.test_generation_contract.discovery == "declared_test_files" for item in observed)
+    assert all(item.test_generation_contract.execution == "profile_command" for item in observed)
+    assert all(item.test_generation_contract.dependencies == "declared_contracts" for item in observed)
+    assert all(item.test_generation_contract.serialization == "framework_defined" for item in observed)
+
+
+@pytest.mark.asyncio
+async def test_scheduler_rejects_unknown_contract_before_commit(tmp_path: Path) -> None:
+    scheduler = make_scheduler(tmp_path)
+    plan = build_file_plan(
+        [{"path": "main.py", "contract_refs": ["missing.contract"]}],
+        requested_paths=["main.py"],
+    )
+
+    async def generator(context):
+        return GeneratedContent(content="VALUE = 1\n", model_name="model")
+
+    result = await scheduler.run(
+        plan,
+        generator,
+        make_budget(),
+        task_id="task-missing-contract",
+        stage_id="stage-missing-contract",
+        contract_index=ContractIndex.build(()),
+    )
+
+    assert result.status is GenerationScheduleStatus.FAILED
+    assert result.nodes["main.py"].diagnostics[0].code == "operation_contract_missing"
+    assert not (tmp_path / "main.py").exists()
 
 
 @pytest.mark.asyncio

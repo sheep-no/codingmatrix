@@ -53,6 +53,33 @@ def _select_core_adapter(orchestrator, *, incremental: bool, spec_first: bool):
     return TraditionalAdapter(orchestrator), "traditional"
 
 
+def _core_request_metadata(request) -> Dict[str, Any]:
+    metadata = request.model_dump(
+        include={
+            "contracts", "framework", "runtime", "required_validation_scopes",
+            "allowed_files", "change_plan",
+        },
+        exclude_none=True,
+    )
+    metadata["requested_paths"] = list(request.allowed_files)
+    metadata["user_requirement"] = request.requirement
+    return metadata
+
+
+def _legacy_requirement_with_allowed_files(
+    requirement: str,
+    allowed_files: List[str],
+) -> str:
+    """Project the structured file boundary onto the legacy text contract."""
+    if not allowed_files:
+        return requirement
+    frozen_paths = ", ".join(allowed_files)
+    return (
+        f"{requirement.rstrip()}\n\n"
+        f"Generate exactly these files and no others: {frozen_paths}"
+    )
+
+
 def resolve_sync_output_dir(
     project_path: str | None,
     output_dir: str | None,
@@ -607,18 +634,43 @@ async def orchestrate_project(
         db, int(user_id), "orchestrator", request.requirement
     )
     session_id = session.id if session else None
+    from app.utils.aicloud.llm_caller import begin_llm_call_metrics, finish_llm_call_metrics
 
-    single_file_result = await generate_single_file(
-        requirement=request.requirement,
-        project_name=request.project_name,
-        api_key_token=request.api_key_token,
-        provider_id=request.provider_id,
-    )
+    metrics_token = begin_llm_call_metrics()
+    metrics_active = True
+
+    def close_generation_metrics() -> Dict[str, int]:
+        nonlocal metrics_active
+        if not metrics_active:
+            return {}
+        metrics_active = False
+        return finish_llm_call_metrics(metrics_token)
+
+    try:
+        single_file_result = None if request.engine == "core" else await generate_single_file(
+            requirement=request.requirement,
+            project_name=request.project_name,
+            api_key_token=request.api_key_token,
+            provider_id=request.provider_id,
+        )
+    except Exception:
+        close_generation_metrics()
+        raise
     if single_file_result is not None:
         single_file_result["session_id"] = session_id
+        single_file_result["generation_metrics"] = close_generation_metrics()
         return OrchestratorResponse(**single_file_result)
 
-    skill_context = _skill_context_for_user(user_id, request.requirement)
+    skill_context = (
+        _skill_context_for_user(user_id, request.requirement)
+        if request.enable_skills
+        else ""
+    )
+    generation_requirement = request.requirement + skill_context
+    legacy_requirement = _legacy_requirement_with_allowed_files(
+        generation_requirement,
+        request.allowed_files,
+    )
 
     start_time = time.time()
 
@@ -649,23 +701,18 @@ async def orchestrate_project(
             )
             return await execute_core_generation(
                 adapter,
-                requirement=request.requirement + skill_context,
+                requirement=generation_requirement,
                 task_id=core_task_id,
                 session_id=str(session_id or output_dir),
                 mode=mode,
                 output_dir=orchestrator.output_dir,
-                metadata={
-                    "required_validation_scopes": request.required_validation_scopes,
-                    "allowed_files": request.allowed_files,
-                    "change_plan": request.change_plan,
-                    "user_requirement": request.requirement,
-                },
+                metadata=_core_request_metadata(request),
             )
 
         workflow = build_legacy_workflow(
             "orchestrate",
             "/orchestrate",
-            lambda _state: orchestrator.generate(requirement=request.requirement + skill_context),
+            lambda _state: orchestrator.generate(requirement=legacy_requirement),
             core_handler=run_orchestrate_core,
         )
         graph_state = await run_workflow(
@@ -673,6 +720,7 @@ async def orchestrate_project(
             session_id=str(session_id or output_dir),
             task_id=str(session_id or output_dir),
             metadata={
+                **({"engine": request.engine} if request.engine is not None else {}),
                 "requirement": request.requirement,
                 "output_dir": output_dir,
                 "required_validation_scopes": request.required_validation_scopes,
@@ -699,11 +747,19 @@ async def orchestrate_project(
                 execution_time=execution_time
             )
 
+        result["generation_metrics"] = {
+            **result.get("generation_metrics", {}),
+            **close_generation_metrics(),
+        }
+        # Verification clients must inspect the same directory used by the agent.
+        result["output_dir"] = str(Path(orchestrator.output_dir).resolve())
         return OrchestratorResponse(**result)
 
     except HTTPException:
+        close_generation_metrics()
         raise
     except Exception as e:
+        close_generation_metrics()
         logger.error(f"Orchestrator 生成失败: {e}", exc_info=True)
         raise _generation_http_exception(e) from e
 
@@ -720,6 +776,11 @@ async def orchestrate_project_stream(
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
     skill_context = _skill_context_for_user(user_id, request.requirement)
+    generation_requirement = request.requirement + skill_context
+    legacy_requirement = _legacy_requirement_with_allowed_files(
+        generation_requirement,
+        request.allowed_files,
+    )
 
     # 防护：检查速率限制
     rate_ok, rate_msg = check_rate_limit(f"stream:{user_id}")
@@ -1020,15 +1081,12 @@ async def orchestrate_project_stream(
                         )
                         return await execute_core_generation(
                             adapter,
-                            requirement=request.requirement + skill_context,
+                            requirement=generation_requirement,
                             task_id=core_task_id,
                             session_id=session_id,
                             mode=mode,
                             output_dir=orchestrator.output_dir,
-                            metadata={
-                                "required_validation_scopes": request.required_validation_scopes,
-                                "allowed_files": request.allowed_files,
-                            },
+                            metadata=_core_request_metadata(request),
                             cancel_event=cancel_event,
                         )
 
@@ -1036,7 +1094,7 @@ async def orchestrate_project_stream(
                         "orchestrate_stream",
                         "/orchestrate/stream",
                         lambda _state: orchestrator.generate(
-                            requirement=request.requirement + skill_context
+                            requirement=legacy_requirement
                         ),
                         core_handler=run_stream_core,
                     )
@@ -1045,6 +1103,7 @@ async def orchestrate_project_stream(
                         session_id=session_id,
                         task_id=session_id,
                         metadata={
+                            **({"engine": request.engine} if request.engine is not None else {}),
                             "requirement": request.requirement,
                             "output_dir": output_dir,
                             "provider_id": request.provider_id,

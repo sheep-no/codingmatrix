@@ -12,6 +12,36 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .capabilities import Capability, CapabilitySet
 
 
+class HttpContract(BaseModel):
+    """HTTP wire contract; preserve existing route extensions and omitted fields."""
+
+    model_config = ConfigDict(extra="allow", frozen=True)
+
+    method: str = ""
+    path: str = ""
+    request_body_schema: dict[str, Any] | bool | None = None
+    response_body_schema: dict[str, Any] | bool | None = None
+    serialization_guidance: str | None = None
+    source: str = "model_proposal"
+    status: str = "proposed"
+
+    @model_validator(mode="after")
+    def validate_lifecycle(self) -> "HttpContract":
+        allowed_sources = {"user", "fixture", "existing", "architect", "model_proposal"}
+        allowed_statuses = {"proposed", "validated", "frozen", "rejected"}
+        if self.source not in allowed_sources:
+            raise ValueError("unsupported contract source")
+        if self.status not in allowed_statuses:
+            raise ValueError("unsupported contract status")
+        if self.status == "frozen" and self.source == "model_proposal":
+            raise ValueError("model proposals cannot be frozen directly")
+        return self
+
+    @property
+    def is_authoritative(self) -> bool:
+        return self.status == "frozen"
+
+
 class GenerationStrategy(str, Enum):
     SCAFFOLD = "scaffold"
     SCHEMA_CODEGEN = "schema_codegen"
@@ -41,6 +71,29 @@ class ValidationProfile(BaseModel):
     name: str = Field(min_length=1)
     required_scopes: Tuple[str, ...] = ()
     commands: Tuple[Tuple[str, ...], ...] = ()
+
+
+class ModelCapabilityProfile(BaseModel):
+    """Declare model transport and structured-output capabilities."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1)
+    supports_structured_output: bool = False
+    supports_json_schema: bool = False
+    supports_tool_calls: bool = False
+    supports_streaming: bool = False
+    max_context_tokens: int = Field(default=8192, gt=0)
+    max_output_tokens: int = Field(default=2048, gt=0)
+    deterministic: bool = False
+
+    @model_validator(mode="after")
+    def validate_structured_output(self) -> "ModelCapabilityProfile":
+        if self.supports_json_schema and not self.supports_structured_output:
+            raise ValueError("JSON Schema output requires structured output support")
+        if self.max_output_tokens > self.max_context_tokens:
+            raise ValueError("max_output_tokens must not exceed max_context_tokens")
+        return self
 
 
 class ArtifactSpec(BaseModel):
@@ -167,9 +220,11 @@ def _assert_acyclic(artifacts: Tuple[ArtifactSpec, ...]) -> None:
 
 
 __all__ = [
+    "HttpContract",
     "ArtifactSpec",
     "ChangePlanIR",
     "GenerationStrategy",
+    "ModelCapabilityProfile",
     "ProjectModel",
     "StrategyDecision",
     "ValidationProfile",

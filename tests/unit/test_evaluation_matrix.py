@@ -16,8 +16,10 @@ def test_expanded_matrix_covers_languages_scales_and_strategies():
     assert len(FIXED_EVALUATION_MATRIX) == 24
     assert {case.language for case in FIXED_EVALUATION_MATRIX} == {"python", "typescript", "go", "java"}
     assert {case.file_scale for case in FIXED_EVALUATION_MATRIX} == {"single", "small", "modular"}
-    assert {case.strategy for case in FIXED_EVALUATION_MATRIX} == {"deterministic", "llm"}
+    assert {case.strategy for case in FIXED_EVALUATION_MATRIX} == {"traditional", "spec_first"}
     assert len({case.case_id for case in FIXED_EVALUATION_MATRIX}) == 24
+    go_modular = next(case for case in FIXED_EVALUATION_MATRIX if case.case_id == "go-modular-traditional")
+    assert "go.sum" in go_modular.required_files
 
 
 def test_summary_calculates_success_rate_and_p95():
@@ -125,7 +127,48 @@ def test_report_aggregates_stage_rates_calls_and_p95_per_strategy():
 
     assert report.matrix_complete is True
     assert [(item.strategy, item.first_success_rate) for item in report.strategy_summaries] == [
-        ("deterministic", 0.0), ("llm", 1.0)
+        ("spec_first", 1.0), ("traditional", 0.0)
     ]
-    assert report.strategy_summaries[0].average_model_calls == 2
-    assert report.strategy_summaries[1].p95_seconds == 2.0
+    assert report.strategy_summaries[0].average_model_calls == 3
+    assert report.strategy_summaries[1].p95_seconds == 1.0
+
+
+def test_report_separates_core_engineering_and_quality_layers():
+    records = [
+        EvaluationRecord(
+            "a", True, True, True, True, True, True, True, True, 1, 1.0,
+            first_passed=False, candidate_passed=True, repaired_passed=True,
+        ),
+        EvaluationRecord(
+            "b", True, True, True, True, False, False, False, False, 1, 2.0,
+            first_passed=False, candidate_passed=False, repaired_passed=False,
+        ),
+    ]
+
+    report = build_report(records, cases=[
+        EvaluationCase("a", "python", "fastapi", "", ("main.py",)),
+        EvaluationCase("b", "python", "fastapi", "", ("main.py",)),
+    ])
+
+    assert report.core_summary.passed == 2
+    assert report.engineering_summary.passed == 1
+    assert report.quality_summary.passed == 1
+    assert report.target_met is False
+
+
+def test_infrastructure_failures_are_excluded_from_layer_rates():
+    records = [
+        EvaluationRecord(
+            "a", False, False, False, False, False, False, False, False, 0, 1.0,
+            evaluation_status="evaluation_infrastructure_failure",
+        )
+    ]
+
+    report = build_report(records, cases=[
+        EvaluationCase("a", "python", "fastapi", "", ("main.py",)),
+    ])
+
+    assert report.core_summary.total == 0
+    assert report.core_summary.excluded == 1
+    assert report.quality_summary.pass_rate == 0.0
+    assert report.failure_categories == (("evaluation_infrastructure_failure", 1),)

@@ -197,6 +197,48 @@ def test_success_gate_accepts_preserved_incremental_files(tmp_path: Path) -> Non
     assert result.disk_paths == ("changed.py", "unchanged.py")
 
 
+def test_snapshot_and_success_gate_ignore_only_bytecode_cache(tmp_path: Path) -> None:
+    from app.agent.change_plan import ChangePlan
+    from app.agent.project_snapshot import ProjectSnapshot
+
+    plan = build_file_plan([{"path": "changed.py"}], requested_paths=["changed.py"])
+    committer, context = make_committer(tmp_path)
+    event = commit_valid_file(committer, context, "changed.py", "VALUE = 2\n")
+    cache = tmp_path / "__pycache__"
+    cache.mkdir()
+    bytecode = cache / "changed.cpython-311.pyc"
+    bytecode.write_bytes(b"old cache")
+    before = ProjectSnapshot.scan(tmp_path)
+    changes = ChangePlan.build(before, [{"path": "changed.py", "action": "modify"}])
+    bytecode.write_bytes(b"refreshed by validation")
+    assert changes.verify_untouched(before, ProjectSnapshot.scan(tmp_path)) == ()
+    assert check_artifact_success_gate(plan, context.get_artifact_manifest(), [event], tmp_path).success
+
+    unexpected = cache / "unexpected.py"
+    unexpected.write_text("VALUE = 3\n", encoding="utf-8")
+    assert changes.verify_untouched(before, ProjectSnapshot.scan(tmp_path)) == ("__pycache__/unexpected.py",)
+    assert not check_artifact_success_gate(plan, context.get_artifact_manifest(), [event], tmp_path).success
+
+
+def test_snapshot_and_success_gate_ignore_validation_database_artifacts(tmp_path: Path) -> None:
+    from app.agent.change_plan import ChangePlan
+    from app.agent.project_snapshot import ProjectSnapshot
+
+    plan = build_file_plan([{"path": "changed.py"}], requested_paths=["changed.py"])
+    committer, context = make_committer(tmp_path)
+    event = commit_valid_file(committer, context, "changed.py", "VALUE = 2\n")
+    before = ProjectSnapshot.scan(tmp_path)
+    changes = ChangePlan.build(before, [{"path": "changed.py", "action": "modify"}])
+    for name in ("app.db", "app.db-wal", "app.db-shm", "app.db-journal"):
+        (tmp_path / name).write_bytes(b"runtime")
+
+    assert changes.verify_untouched(before, ProjectSnapshot.scan(tmp_path)) == ()
+    assert check_artifact_success_gate(plan, context.get_artifact_manifest(), [event], tmp_path).success
+
+    (tmp_path / "business.db").write_bytes(b"unexpected")
+    assert changes.verify_untouched(before, ProjectSnapshot.scan(tmp_path)) == ()
+
+
 def test_success_gate_accepts_project_generation_plan(tmp_path: Path) -> None:
     plan = ProjectGenerationPlan.build(
         [{"path": "model.py"}, {"path": "service.py", "dependencies": ["model.py"]}],

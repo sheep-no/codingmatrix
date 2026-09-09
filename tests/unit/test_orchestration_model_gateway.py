@@ -17,6 +17,7 @@ from app.agent.orchestration import (
     ModelStreamDataKind,
 )
 from app.agent.orchestration.models import utc_now
+from app.agent.code_synthesis_contracts import ModelCapabilityProfile
 from app.utils.aicloud.llm_caller import _SemaphoreWrappedAsyncIterator
 
 
@@ -151,6 +152,34 @@ async def test_non_streaming_call_records_finish_reason_usage_and_input_budget()
     assert telemetry.input_chars == 5
     assert telemetry.max_tokens == 128
     assert telemetry.elapsed_seconds is not None
+
+
+@pytest.mark.asyncio
+async def test_model_profile_selects_protocol_and_records_degradation() -> None:
+    received: dict[str, Any] = {}
+
+    async def caller(**kwargs: Any) -> dict[str, Any]:
+        received.update(kwargs)
+        return {}
+
+    gateway = ModelGateway(
+        caller,
+        model_profile=ModelCapabilityProfile(
+            name="tool-model",
+            supports_structured_output=True,
+            supports_tool_calls=True,
+            max_output_tokens=512,
+        ),
+    )
+    await gateway.call(make_context(1.0), model="test", prompt="hello")
+
+    assert received["synthesis_protocol"] == "tool_call"
+    assert received["capability_degraded"] is True
+    assert received["max_tokens"] == 512
+    telemetry = gateway.telemetry_for("call-1")
+    assert telemetry is not None
+    assert telemetry.synthesis_protocol == "tool_call"
+    assert telemetry.capability_degraded is True
 
 
 @pytest.mark.asyncio

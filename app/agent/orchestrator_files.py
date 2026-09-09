@@ -192,6 +192,13 @@ def _repair_python_sqlalchemy_text_execute(content: str, file_path: str) -> str:
             and isinstance(node.args[0].value, str)
         ):
             continue
+        receiver = node.func.value
+        if (
+            isinstance(receiver, ast.Name)
+            and receiver.id in {"conn", "connection", "cursor"}
+            and "sqlite3.connect" in content
+        ):
+            continue
         argument = node.args[0]
         start = source_offset(argument.lineno, argument.col_offset)
         end = source_offset(argument.end_lineno, argument.end_col_offset)
@@ -204,6 +211,129 @@ def _repair_python_sqlalchemy_text_execute(content: str, file_path: str) -> str:
     if not re.search(r"^from\s+sqlalchemy\s+import\s+.*\btext\b", content, re.MULTILINE):
         content = "from sqlalchemy import text\n" + content.lstrip("\n")
     return content
+
+
+def _repair_python_fastapi_class_route_registration(content: str, file_path: str) -> str:
+    """Convert malformed FastAPI class route declarations to app.add_api_route calls."""
+    if not file_path.endswith(".py") or "app.include_router" not in content:
+        return content
+    try:
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError:
+        return content
+    function_names = {node.name for node in ast.walk(tree)
+                      if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    lines = content.splitlines(keepends=True)
+    offsets, current = [], 0
+    for line in lines:
+        offsets.append(current)
+        current += len(line)
+
+    def source_offset(line_number: int, byte_column: int) -> int:
+        line = lines[line_number - 1]
+        column = len(line.encode("utf-8")[:byte_column].decode("utf-8"))
+        return offsets[line_number - 1] + column
+
+    def handler_for(method: str, path: str) -> str | None:
+        resource = path.rstrip("/").split("/")[-1]
+        has_id = "{" in resource
+        if has_id:
+            resource = path.rstrip("/").split("/")[-2]
+        singular = resource.rstrip("s")
+        prefixes = {
+            "POST": ("create_",),
+            "GET": (("get_",) if has_id else ("list_", "get_all_")),
+            "PUT": ("update_",),
+            "DELETE": ("delete_",),
+        }[method]
+        candidates = [f"{prefix}{name}" for prefix in prefixes for name in (singular, resource)]
+        return next((name for name in candidates if name in function_names), None)
+
+    replacements = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "app"
+                and node.func.attr == "include_router" and node.args):
+            continue
+        router = node.args[0]
+        routes_keyword = next((keyword for keyword in getattr(router, "keywords", [])
+                               if keyword.arg == "routes"), None)
+        if not (isinstance(router, ast.Call) and isinstance(router.func, ast.Name)
+                and router.func.id == "FastAPI" and routes_keyword
+                and isinstance(routes_keyword.value, ast.List)):
+            continue
+        prefix_keyword = next((keyword for keyword in router.keywords if keyword.arg == "prefix"), None)
+        prefix = (prefix_keyword.value.value.rstrip("/")
+                  if prefix_keyword and isinstance(prefix_keyword.value, ast.Constant)
+                  and isinstance(prefix_keyword.value.value, str) else "")
+        route_lines = []
+        for route in routes_keyword.value.elts:
+            if not (isinstance(route, ast.Call) and isinstance(route.func, ast.Attribute)
+                    and isinstance(route.func.value, ast.Name) and route.func.value.id == "FastAPI"
+                    and route.args and isinstance(route.args[0], ast.Constant)
+                    and isinstance(route.args[0].value, str)):
+                route_lines = []
+                break
+            method = route.func.attr.upper()
+            route_path = route.args[0].value
+            handler = handler_for(method, route_path)
+            if not handler:
+                route_lines = []
+                break
+            kwargs = [f'methods=["{method}"]']
+            for keyword in route.keywords:
+                if keyword.arg in {"response_model", "status_code", "summary", "description"}:
+                    value = ast.get_source_segment(content, keyword.value)
+                    if value:
+                        kwargs.append(f"{keyword.arg}={value}")
+            route_lines.append(f"app.add_api_route({(prefix + route_path)!r}, {handler}, {', '.join(kwargs)})")
+        if route_lines:
+            replacements.append((source_offset(node.lineno, node.col_offset),
+                                 source_offset(node.end_lineno, node.end_col_offset),
+                                 "\n".join(route_lines)))
+    for start, end, replacement in sorted(replacements, reverse=True):
+        content = content[:start] + replacement + content[end:]
+    return content
+
+
+def _repair_python_sqlite_connection_url(content: str, file_path: str) -> str:
+    """Convert SQLAlchemy-style SQLite URLs passed to sqlite3.connect."""
+    if not file_path.endswith(".py") or "sqlite3.connect" not in content:
+        return content
+    return re.sub(r"sqlite3\.connect\(\s*(['\"])sqlite:///([^'\"]+)\1\s*\)",
+                  r"sqlite3.connect(\1\2\1)", content)
+
+
+def _repair_python_invalid_code_marker(content: str, file_path: str) -> str:
+    """Remove generated debug markers that assign None to a function __code__."""
+    if not file_path.endswith(".py"):
+        return content
+    return re.sub(r"^\s*[^\n#]+\.\__code__\s*=\s*None\s*(?:#.*)?\n?", "", content, flags=re.MULTILINE)
+
+
+def _repair_python_unmounted_fastapi_router(content: str, file_path: str) -> str:
+    """Mount a declared APIRouter when the generated app omitted the include call."""
+    if not file_path.endswith(".py") or "APIRouter(" not in content or "app.include_router" in content:
+        return content
+    try:
+        tree = ast.parse(content, filename=file_path)
+    except SyntaxError:
+        return content
+    router_names = {
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "APIRouter"
+    }
+    if not router_names:
+        return content
+    return content.rstrip() + "\n\n" + "\n".join(
+        f"app.include_router({router_name})" for router_name in sorted(router_names)
+    ) + "\n"
 
 
 def _repair_python_sqlalchemy_datetime_defaults(content: str, file_path: str) -> str:
@@ -645,8 +775,34 @@ def _repair_python_sqlalchemy_table_initialization(
         return content
     database_path = _architecture_path_for_role(architecture, "database")
     database_source = generated_contents.get(database_path, "")
-    if not database_source or "sqlalchemy" not in database_source.lower():
+    single_file_database = (
+        not database_source
+        and "sqlalchemy" in content.lower()
+        and re.search(r"\bBase\s*=\s*declarative_base\s*\(\s*\)", content)
+        and re.search(r"\bengine\s*=\s*create_engine\s*\(", content)
+    )
+    if not single_file_database and (
+        not database_source or "sqlalchemy" not in database_source.lower()
+    ):
         return content
+    if single_file_database:
+        try:
+            tree = ast.parse(content, filename=file_path)
+        except SyntaxError:
+            return content
+        create_all_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "create_all"
+        ]
+        if create_all_calls:
+            return content
+        create_tables = ast.parse("Base.metadata.create_all(bind=engine)").body[0]
+        tree.body.append(create_tables)
+        ast.fix_missing_locations(tree)
+        return ast.unparse(tree) + "\n"
     try:
         database_exports = _python_exports(database_source)
         tree = ast.parse(content, filename=file_path)
@@ -1062,6 +1218,18 @@ def _repair_python_sessionmaker_class_none(content: str, file_path: str) -> str:
         return content
     repaired = re.sub(r"\bclass_\s*=\s*None\s*,\s*", "", content)
     return re.sub(r",\s*class_\s*=\s*None\b", "", repaired)
+
+
+def _repair_python_pydantic_base_alias(content: str, file_path: str) -> str:
+    """Keep generated Pydantic schema aliases independent from ORM metadata."""
+    if not file_path.endswith(".py") or "BasePydantic" not in content:
+        return content
+    return re.sub(
+        r"^\s*BasePydantic\s*=\s*type\(\s*['\"]BasePydantic['\"]\s*,\s*\(\s*Base\s*,\s*\)\s*,\s*\)\s*$",
+        "BasePydantic = BaseModel",
+        content,
+        flags=re.MULTILINE,
+    )
 
 
 def _repair_python_shared_base(
@@ -1971,8 +2139,13 @@ class FilesMixin:
                 content, file_path, generated_contents or {}, architecture
             )
             content = _repair_python_sqlalchemy_text_execute(content, file_path)
+            content = _repair_python_fastapi_class_route_registration(content, file_path)
+            content = _repair_python_sqlite_connection_url(content, file_path)
+            content = _repair_python_invalid_code_marker(content, file_path)
+            content = _repair_python_unmounted_fastapi_router(content, file_path)
             content = _repair_python_sqlalchemy_datetime_defaults(content, file_path)
             content = _repair_python_sessionmaker_class_none(content, file_path)
+            content = _repair_python_pydantic_base_alias(content, file_path)
             content = _repair_python_sqlalchemy_get_db(content, file_path, architecture)
             content = _repair_python_sqlalchemy_table_initialization(
                 content,
@@ -2146,6 +2319,7 @@ class FilesMixin:
                 content = _repair_python_sqlalchemy_text_execute(content, file_path)
                 content = _repair_python_sqlalchemy_datetime_defaults(content, file_path)
                 content = _repair_python_sessionmaker_class_none(content, file_path)
+                content = _repair_python_pydantic_base_alias(content, file_path)
                 content = _repair_python_sqlalchemy_get_db(content, file_path, architecture)
                 content = _repair_python_sqlalchemy_table_initialization(
                     content,

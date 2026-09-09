@@ -37,6 +37,9 @@ def _receive(body: bytes):
         "/api/v1/agent/orchestrate",
         "/api/v1/agent/orchestrate/stream",
         "/api/v1/agent/modify",
+        "/api/v1/ai-agent/orchestrate",
+        "/api/v1/ai-agent/orchestrate/stream",
+        "/api/v1/ai-agent/modify",
     ),
 )
 async def test_generation_prompts_may_contain_sql_vocabulary(path):

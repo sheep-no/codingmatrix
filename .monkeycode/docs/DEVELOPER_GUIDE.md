@@ -84,7 +84,7 @@ npm --prefix vscode-extension run e2e
 
 ## StateGraph 开发约定
 
-- 增量计划使用 `ProjectSnapshot` 和 `ChangePlan` 管理动态文件集合。`planned_files` 表示本次处理范围，未受影响文件通过 SHA-256 门禁保护；删除和重命名使用 `IncrementalFileTransaction` 暂存旧路径并在成功门禁后提交，删除-only 计划使用空生成计划。
+- 增量计划使用 `ProjectSnapshot` 和 `ChangePlan` 管理动态文件集合。`planned_files` 表示本次处理范围，未受影响文件通过 SHA-256 门禁保护；add/modify/delete/rename 在调度前统一进入 `IncrementalFileTransaction`，Core 只在 `completed` 终态提交，失败、取消和异常均回滚，删除-only 计划使用空生成计划。
 
 - 节点只读取快照并返回 StateDelta。
 - 文件状态使用路径、hash、摘要和诊断字段。
@@ -98,6 +98,7 @@ npm --prefix vscode-extension run e2e
 - 模型取消路径必须关闭底层异步流并归还信号量；现有 `LLMClient` 在成功、失败、超时和取消后均调用动态路由结果记录，使 `active_requests` 收敛为零。
 - 新内核生成内容统一通过 `ArtifactCommitter.commit()` 落盘；调用方只发布返回结果中的首次 `completion_event`。任务进入成功终态前调用 `check_artifact_success_gate()`，并将成功结果传给 `OrchestratorCore.finish()`；`artifact_commit_failed` 和 `artifact_consistency_failed` 保持为稳定错误码。
 - 新内核文件调度使用 `GenerationScheduler`；生成器只接收 `FileGenerationContext`，完成内容交给 `ArtifactCommitter`，下游只在所有上游节点完成后释放。阶段或用户取消后等待 `TaskGroup` 子任务回收，并将所有未完成节点收敛到对应终态。
+- 跨文件生成需要从 `GenerationPlan` 构建一次 `ContractIndex`，并让所有 `FileGenerationContext` 复用该不可变快照。新增生成器通过 `GeneratedContent.contract_refs` 声明接口、文件或 HTTP 契约引用；写盘前的契约校验失败时保留结构化诊断并阻止文件事件。
 - 云端校验结果使用 `ValidationReport`；新增修复类别先通过 `RepairRouter` 分类，再由 `RepairBudget` 控制单类 3 次、任务累计 5 次的自动修复额度。错误诊断应携带文件路径、scope、上下文 hash 和候选版本 hash，业务逻辑、测试断言及未知错误进入用户确认。
 - 生成前上下文通过 `ContextAssembler` 装配；输入条目必须声明 `source`、`source_id`、`content`、优先级和作用域，Memory、Retrieval 与 MCP/Skill 内容由装配器统一脱敏、去重并生成 `context_hash`。
 - 新增语言能力时通过 `app.agent.languages` 暴露 Adapter 和能力元数据，并为导入、模块解析、符号与签名边界增加测试；当前专用 Adapter 覆盖 Python、JavaScript/TypeScript、Java、Go 和 Rust。
@@ -113,13 +114,38 @@ npm --prefix vscode-extension run e2e
 - 脚手架、Toolchain 和工作区 Profile 修改还需加入 `tests/unit/test_scaffolding.py`，验证真实文件导入、manifest 依赖、脚本探测、输出上限、owner/workspace 隔离、恶意命令拒绝和逐级晋级。
 - 受约束代码合成的策略选择通过 `SynthesisCapabilityRegistry` 查询现有语言 Adapter 和固定版本脚手架能力。新增语言或脚手架后，运行 `python3 -m pytest tests/unit/test_code_synthesis_contracts.py tests/unit/test_scaffolding.py tests/unit/test_languages.py tests/unit/test_generation_contracts.py tests/unit/test_framework_profiles.py -q`，并执行 Core Adapter、计划和调度回归。
 - 新增技术栈通过 `app.agent.stack_adapters.StackAdapterRegistry` 注册语言/框架别名，并实现工作区探测、能力声明、动态 `ChangePlanIR`、符号提取、脚手架结果和验证画像。Artifact 集合由 `StackChangeRequest` 提供；验证 Stack Adapter 时运行 `python3 -m pytest tests/unit/test_stack_adapters.py tests/unit/test_code_synthesis_contracts.py tests/unit/test_profile_discovery.py tests/unit/test_framework_profiles.py tests/unit/test_languages.py tests/unit/test_java_language_adapter.py tests/unit/test_scaffolding.py tests/unit/test_generation_contracts.py tests/unit/test_orchestration_adapters.py tests/unit/test_orchestration_generation_scheduler.py -q`。
+- 新增候选契约时，在 `GenerationPlan.files[].contract` 中提供版本化声明，并由语言 Adapter 的 `extract_contract_facts()` 输出对应命名事实集。通用门禁只扩展声明类型或比较算子；技术栈、路径、文件名、符号、签名、路由、字段和内容要求均作为声明数据或解析事实传入。语言修复通过 `repair_source()` 产生最小候选，并重新执行同一个 `validate_candidate()`。Python 外部导出检查仅覆盖可读取且可静态确定导出集合的模块；动态导出、星号导入和多提供者歧义保持保守诊断或跳过修复。本地类构造诊断仅覆盖无基类、无装饰器且未声明 `__init__` 或 `__new__` 的普通类。相关修改运行 `python3 -m pytest tests/unit/test_declarative_contracts.py tests/unit/test_orchestration_adapters.py -q`。
 - 分层候选验证通过 `CandidateValidationRouter` 形成 V0-V6 连续前缀，层处理器必须返回其注册层级并在首个非通过结果短路。V2、V3 和 V5 的 Toolchain 命令必须先经 `validation_plan_for_level()` 隔离；V4 契约差异由独立处理器提供，领域语义保留在 Stack Adapter 或契约实现中。候选修复使用 `build_repair_feedback()` 保留原生成策略并限制诊断及上下文预算。相关修改运行 `python3 -m pytest tests/unit/test_synthesis_validation.py tests/unit/test_validation_report.py tests/unit/test_generation_contracts.py tests/unit/test_stack_adapters.py tests/unit/test_code_synthesis_contracts.py tests/unit/test_orchestration_artifact_committer.py -q`。
-- `ChangePlanIR` 投影只接受 Core 已具备内容生成语义的 create/modify Artifact。新增 delete/rename 支持时需要先接入事务生命周期，再扩展 `project_change_plan()`；能力缺失必须保留 `degraded` 和证据字段。
+- `ChangePlanIR` 投影只接受 Core 已具备内容生成语义的 create/modify Artifact。Core 增量生命周期已为 delete/rename 提供文件事务；扩展 `project_change_plan()` 时仍需显式投影相应操作并保留 `degraded` 和能力证据字段。
 - 任务 18 的真实脚手架基线使用固定版本 `express-generator@4.16.1` 验证：导入结果包含 7 个运行所需文本文件和 4 个运行时依赖，Toolchain 从 `package.json` 识别安装与启动命令，3 个 JavaScript 源文件通过受控 `node --check`。固定依赖加载后，`GET /` 与 `GET /users` 均返回 HTTP 200，受控停止后端口释放；超时探针返回 124 和稳定诊断，并回收派生子进程组。工作区 Profile 的五阶段探针连续通过两轮并晋级到 `supported`。
 - 工作区 Profile 通过 `ProfileCache` 读写 `.monkeycode/profiles.json`；画像缓存属于运行时元数据，读取时必须校验 schema version，写入时使用原子替换。
 - 生成模式适配器包括 `TraditionalAdapter`、`SpecFirstAdapter` 和 `IncrementalAdapter`；设置 `AGENT_ORCHESTRATION_ENGINE=core` 后，Spec-First 编排与增量修改通过 `execute_core_generation()` 进入 `OrchestratorCore.execute()`，默认保持 legacy。影子对比只记录成功状态与文件路径集合，checkpoint metadata 保存 `engine_version`。
-- Core adapter 只生成内容，正常文件落盘统一交给 `ArtifactCommitter`。增量 adapter 以受影响文件冻结 strict 计划，将外部依赖作为只读上下文，并通过 `preserved_paths` 声明未改动业务文件；删除动作等待事务提交协议后开放。
+- 单次编排可显式传 `engine="core"`；省略时沿用服务端配置。使用独立 `contracts`、`framework`、`runtime` 字段传入契约和技术栈事实，端点通过 `_core_request_metadata()` 送入 Core。固定样例源码 fallback 和默认策略注册已从 Core adapter 移除；扩展候选检查继续使用通用声明门禁，语言最小修复后执行同一门禁。
+- Core adapter 只生成内容，正常文件落盘统一交给 `ArtifactCommitter`。增量 adapter 以受影响文件冻结 strict 计划，将外部依赖作为只读上下文，并通过 `preserved_paths` 声明未改动业务文件；`IncrementalFileTransaction` 包围文件调度、持久化、验证和最终成功门禁。
 - Core 恢复当前支持 `planning` checkpoint 重新执行；其他活动阶段以 `orchestration.resume_stage_unsupported` 收敛。规划异常统一使用 `orchestration.planning_failed`，规划前取消统一进入 `cancelled`。
+
+### 本轮单元验证（2026-09-07）
+
+最终后台回归为 `608 passed, 3 warnings`（12.41 秒）：前次 575 项同范围在最新代码下为 579 项（新增 4 项 repair 目录映射测试），另加 Toolchain 18 项和脚手架 11 项。后台 `compileall` 退出码为 0，`git diff --check` 通过。该结果覆盖单元测试和语法编译；下文单独记录真实 Core 验收失败证据。
+
+```bash
+python3 -m pytest tests/unit/test_orchestration_*.py tests/unit/test_evaluation_*.py tests/unit/test_declarative_contracts.py tests/unit/test_code_synthesis_contracts.py tests/unit/test_synthesis_validation.py tests/unit/test_generation_contracts.py tests/unit/test_stack_adapters.py tests/unit/test_languages.py tests/unit/test_java_language_adapter.py tests/unit/test_framework_profiles.py tests/unit/test_orchestrator_files.py tests/unit/test_orchestrator_validation_scopes.py tests/unit/test_orchestrator_request_project_path.py tests/unit/test_input_validator.py tests/unit/test_output_dir_resolution.py tests/unit/test_spec_first_generator.py tests/unit/test_validation_report.py tests/unit/test_toolchain.py tests/unit/test_scaffolding.py -q
+python3 -m compileall -q app tests/unit tests/manual
+git diff --check
+```
+
+评测文件一致性使用 runner 遍历得到的完整业务文件集合与 fixture 严格比较；遍历排除依赖、缓存、构建目录及数据库等运行产物。repair 使用响应实际目录，并将其映射为 `PROJECTS_BASE_DIR` 下的相对路径传入 HTTP `project_path/output_dir`；回归覆盖绝对/相对响应目录经请求 Schema、端点解析和 Orchestrator 构造后仍落到原实际目录，以及基目录本身和越界目录在 HTTP 前被拒绝。
+
+`ToolchainRunner` 使用项目绝对路径作为 `cwd`，并在复制的宿主环境中覆盖 `PYTHONPATH` 为同一路径。隔离回归通过 `ValidationCoordinator` 启动真实 pytest 子进程，分别覆盖普通包和 namespace package，并核对父进程 `PYTHONPATH` 保持原值。
+
+真实 Core 首次候选验收记录：`python-small-spec_first`，`MAX_REPAIR_ATTEMPTS=0`，耗时 `92.272s`，HTTP 200、8 次模型调用，四个必需文件齐全且 `compileall` 通过，最终 `success=false`。产物目录为 `projects/1/evaluation_python-small-spec_first__1788796860`；宿主导入污染已修复，生成测试仍因 `client=None` 导致 `9 failed`，runtime 仍报数据库无表，CRUD 与 SQLite 持久化未通过。完整磁盘集合包含额外文件，记录为 `plan_consistent=false`，必需文件齐全与严格集合一致性分别判定。此次验收没有执行 repair，目录映射单元通过和导入隔离修复均不能推进端到端成功门禁。
+
+### 其他开发约定
+
+本次增量 repair 专项修复和真实重测记录见 [Core 增量修复实测](CORE_REPAIR_EVALUATION_2026-09-07.md)。新增依赖边界回归覆盖授权保留快照、真实导出、缺失文件和快照后新增文件；元数据回归覆盖根 `.dep_graph.json` 与额外隐藏/嵌套文件，字节码回归覆盖缓存刷新及缓存目录中的非法源码。缓存修复后的扩大回归为 `300 passed, 3 warnings`（4.56 秒）。真实验收结果在独立报告中逐轮记录，历史模型矩阵门禁继续按真实证据判定。
+
+2026-09-08 起，runner 的 `repair_attempts` 同时记录每轮 `input_failure`、HTTP repair 响应、模型指标、`result_verification` 和 `result_failure`。`latest_failure` 保留最新失败候选证据，`verification` 保留实际磁盘复验，两者在 rollback 后可以不同。`repair_stop_reason` 区分 `passed`、`http_error`、`budget_exhausted`、`no_progress_repeated_candidate` 和 `no_progress_repeated_diagnostic`；诊断指纹归一化耗时、内存地址与 attempts 计数，候选指纹独立去重，历史循环也会停止。最多三次 repair，单次 HTTP 超时沿用 900 秒，Core 内部预算保持原值。最终相关回归 351 项通过；两次真实运行分别以重复历史诊断和预算耗尽停止，完整交付仍未通过。详细实测见 [运行诊断与有界重试实测](CORE_REPAIR_EVALUATION_2026-09-08.md)。
+
 - 传统生成的模型活动超时由传入 Specialist/ReAct 的 `HeartbeatTracker` 判断，默认 120 秒；流式 chunk 必须调用 `touch()`。SSE heartbeat 只用于 HTTP 连接保活，排查生成停滞时应查看最近模型数据时间和 `react_timeout` 事件。
 - Core 模型调用通过 `ModelGateway.telemetry_for(call_id)` 查询单次遥测；重点检查 `finish_reason`、prompt/completion/total tokens、输入字符数、`max_tokens` 和 `elapsed_seconds`，结合 `model_timeout` 判断输出受限与墙钟预算耗尽。
 - GirlAI 相关修改后执行 `python3 -m pytest tests/unit/test_girlai_refactor.py tests/unit/test_girlai_state_adapter.py tests/unit/test_database_services.py -q`，并在 `/workspace/src` 执行 `npm run test:run -- utils/api/girl.test.js`。

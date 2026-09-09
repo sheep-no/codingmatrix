@@ -60,7 +60,7 @@ class RepairRouter:
     @classmethod
     def route(cls, error_type: str = "", error_message: str = "") -> RepairRoute:
         normalized = f"{error_type} {error_message}".lower()
-        if any(token in normalized for token in ("fixture", "pytest.fixture", "fixture 生命周期")):
+        if any(token in normalized for token in ("fixture", "fixture lifecycle", "fixture 生命周期")):
             return RepairRoute("fixture", "code_repair", True)
         if any(token in normalized for token in ("schema", "字段缺失", "业务字段")):
             return RepairRoute("schema", "code_repair", True)

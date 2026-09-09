@@ -53,6 +53,8 @@ class PlannedFile(BaseModel):
     priority: int = Field(default=3, ge=1, le=5)
     dependencies: Tuple[str, ...] = ()
     imports: Tuple[str, ...] = ()
+    contract_refs: Tuple[str, ...] = ()
+    contract: Mapping[str, Any] = Field(default_factory=dict)
     origin: PlanFileOrigin = PlanFileOrigin.PLANNED
     source: Optional[str] = None
     reason: Optional[str] = None
@@ -202,7 +204,15 @@ def build_file_plan(
         raw_imports = entry.get("imports", ())
         if isinstance(raw_imports, str):
             raw_imports = (raw_imports,)
+        raw_contract_refs = entry.get("contract_refs", ())
+        if isinstance(raw_contract_refs, str):
+            raw_contract_refs = (raw_contract_refs,)
         try:
+            raw_contract = entry.get("contract", {})
+            if raw_contract is None:
+                raw_contract = {}
+            if not isinstance(raw_contract, Mapping):
+                raise ValueError("contract must be an object")
             files.append(PlannedFile(
                 path=path,
                 role=str(entry.get("role") or entry.get("description") or ""),
@@ -211,6 +221,8 @@ def build_file_plan(
                 priority=_normalize_priority(entry.get("priority", 3)),
                 dependencies=dependencies,
                 imports=tuple(str(value) for value in raw_imports),
+                contract_refs=tuple(str(value) for value in raw_contract_refs),
+                contract=dict(raw_contract),
                 origin=origin,
                 source=entry.get("source"),
                 reason=entry.get("reason"),

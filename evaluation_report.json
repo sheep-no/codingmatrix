@@ -1,0 +1,88 @@
+{
+  "core_summary": {
+    "excluded": 0,
+    "p95_seconds": 346.71380000000005,
+    "pass_rate": 0.20833333333333334,
+    "passed": 5,
+    "total": 24
+  },
+  "engineering_summary": {
+    "excluded": 0,
+    "p95_seconds": 346.71380000000005,
+    "pass_rate": 0.0,
+    "passed": 0,
+    "total": 24
+  },
+  "failure_categories": [
+    [
+      "plan",
+      9
+    ],
+    [
+      "interface",
+      24
+    ],
+    [
+      "dependency",
+      14
+    ],
+    [
+      "artifact",
+      9
+    ],
+    [
+      "compile",
+      14
+    ],
+    [
+      "test",
+      24
+    ],
+    [
+      "startup",
+      24
+    ],
+    [
+      "persistence",
+      24
+    ]
+  ],
+  "invalid_case_ids": [],
+  "matrix_complete": true,
+  "missing_case_ids": [],
+  "quality_summary": {
+    "excluded": 0,
+    "p95_seconds": 346.71380000000005,
+    "pass_rate": 0.0,
+    "passed": 0,
+    "total": 24
+  },
+  "strategy_summaries": [
+    {
+      "average_model_calls": 11.916666666666666,
+      "candidate_success_rate": 0.0,
+      "first_success_rate": 0.0,
+      "p95_seconds": 219.46685000000002,
+      "repaired_success_rate": 0.0,
+      "strategy": "spec_first",
+      "total": 12
+    },
+    {
+      "average_model_calls": 11.25,
+      "candidate_success_rate": 0.0,
+      "first_success_rate": 0.0,
+      "p95_seconds": 353.0861,
+      "repaired_success_rate": 0.0,
+      "strategy": "traditional",
+      "total": 12
+    }
+  ],
+  "summary": {
+    "p95_seconds": 346.71380000000005,
+    "success_rate": 0.0,
+    "successful": 0,
+    "total": 24
+  },
+  "target_met": false,
+  "target_success_rate": 0.9
+}

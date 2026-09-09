@@ -31,6 +31,7 @@ from .generation_scheduler import (
     GenerationScheduleStats,
     GenerationScheduleStatus,
     GenerationScheduler,
+    TestGenerationContract,
 )
 from .models import (
     OrchestrationCommand,
@@ -66,6 +67,7 @@ from .adapters import (
     GenerationRequest,
     IncrementalAdapter,
     SpecFirstAdapter,
+    StackRepairCandidate,
     TraditionalAdapter,
 )
 from .routing import (
@@ -78,6 +80,16 @@ from .routing import (
 )
 from .engine_router import EngineRouteResult, compare_shadow_results, route_generation
 from .runtime import execute_core_generation
+from app.agent.workflow_ir import (
+    ContextPolicy,
+    ModelPolicy,
+    ScopeRef,
+    TechnologyProfile,
+    ToolGrant,
+    WorkflowIR,
+    WorkflowNode,
+    WorkflowNodeKind,
+)
 
 __all__ = [
     "ARTIFACT_COMMIT_FAILED",
@@ -100,6 +112,7 @@ __all__ = [
     "GenerationScheduleStats",
     "GenerationScheduleStatus",
     "GenerationScheduler",
+    "TestGenerationContract",
     "ModelCallActivity",
     "ModelCallCancelled",
     "ModelCallContext",
@@ -132,6 +145,7 @@ __all__ = [
     "GenerationRequest",
     "IncrementalAdapter",
     "SpecFirstAdapter",
+    "StackRepairCandidate",
     "TraditionalAdapter",
     "Dependency",
     "DependencyKind",
@@ -152,4 +166,12 @@ __all__ = [
     "compare_shadow_results",
     "route_generation",
     "execute_core_generation",
+    "ContextPolicy",
+    "ModelPolicy",
+    "ScopeRef",
+    "TechnologyProfile",
+    "ToolGrant",
+    "WorkflowIR",
+    "WorkflowNode",
+    "WorkflowNodeKind",
 ]

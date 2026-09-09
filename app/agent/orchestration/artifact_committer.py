@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Tuple
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.agent.shared_context import SharedContext
+from app.agent.project_snapshot import is_runtime_artifact
 from app.agent.utils import write_file_atomic
 
 from .plan import GenerationPlan, normalize_plan_path
@@ -346,6 +347,8 @@ def _business_disk_paths(output_dir: Path) -> Tuple[str, ...]:
     for path in output_dir.rglob("*"):
         relative = path.relative_to(output_dir)
         if any(part.startswith(".") for part in relative.parts):
+            continue
+        if is_runtime_artifact(relative):
             continue
         if path.is_file():
             paths.append(relative.as_posix())

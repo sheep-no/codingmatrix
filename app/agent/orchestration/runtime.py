@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
@@ -70,4 +71,35 @@ async def execute_core_generation(
         cancel_event=cancel_event,
     )
     finalized = await adapter.finalize(result.state)
-    return dict(finalized.result)
+    payload = dict(finalized.result)
+    diagnostics = list(result.state.diagnostics)
+    validation = result.state.metadata.get("candidate_validation")
+    if validation and validation.get("status") != "waiting_local_validation" and not validation.get("passed", True) and not any(
+        item.get("code") == "project.validation_failed" for item in diagnostics
+    ):
+        diagnostics.append({
+            "code": "project.validation_failed",
+            "message": "project profile validation failed",
+            "details": validation,
+        })
+    hashes = result.state.metadata.get("candidate_hashes") or {}
+    schedule = result.state.metadata.get("schedule") or {}
+    payload["repair_feedback"] = {
+        "task_id": result.state.task_id,
+        "status": result.state.status.value,
+        "diagnostics": diagnostics,
+        "candidate_fingerprint": hashlib.sha256(
+            json.dumps(hashes, sort_keys=True).encode("utf-8")
+        ).hexdigest() if hashes and schedule.get("status") == "completed" else None,
+        "rolled_back": mode == "incremental" and bool(hashes) and not payload.get("success", False),
+    }
+    nodes = schedule.get("nodes") or {}
+    payload["generation_metrics"] = {
+        "node_attempts": {
+            path: int(node.get("attempts", 0))
+            for path, node in nodes.items()
+            if isinstance(node, Mapping)
+        },
+        "schedule_status": schedule.get("status"),
+    }
+    return payload

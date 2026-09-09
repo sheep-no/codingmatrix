@@ -14,6 +14,7 @@ from typing import Awaitable, Callable, Iterable, Mapping, Sequence
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.agent.code_synthesis_contracts import ChangePlanIR, GenerationStrategy
+from app.agent.contract_index import ContractIndex
 from app.agent.orchestration.artifact_committer import (
     ArtifactCompletionEvent,
     ArtifactConsistencyResult,
@@ -27,6 +28,7 @@ from app.agent.validation_coordinator import (
     ValidationPlan,
 )
 from app.agent.validation_report import ValidationCategory, ValidationFinding
+from app.agent.synthesis_protocol import ModelOperation, ModelOperationKind
 
 
 class ValidationLevel(str, Enum):
@@ -238,6 +240,87 @@ class ValidationContext:
     change_plan: ChangePlanIR
     workspace: Path
     satisfied_preconditions: frozenset[str] = frozenset()
+
+
+def validate_model_operation_v0(
+    operation: ModelOperation,
+    context: ValidationContext,
+    *,
+    contract_index: ContractIndex | None = None,
+    context_hash: str,
+) -> ValidationLayerResult:
+    """Validate a model operation against the frozen plan before staging."""
+    plan_paths = {artifact.path for artifact in context.change_plan.artifacts}
+    diagnostics: list[MinimalDiagnostic] = []
+
+    if operation.target_path is not None and operation.target_path not in plan_paths:
+        diagnostics.append(_diagnostic(
+            ValidationLevel.V0,
+            ValidationCategory.TYPE,
+            "operation_path_outside_plan",
+            "model operation targets a path outside the frozen change plan",
+            context_hash,
+            operation.target_path,
+        ))
+
+    if operation.target_path is not None and operation.target_path in plan_paths:
+        planned = context.change_plan.artifact(operation.target_path)
+        undeclared = set(operation.depends_on) - set(planned.depends_on)
+        if undeclared:
+            diagnostics.append(_diagnostic(
+                ValidationLevel.V0,
+                ValidationCategory.DEPENDENCY,
+                "operation_dependency_undeclared",
+                f"model operation declares dependencies absent from the plan: {sorted(undeclared)}",
+                context_hash,
+                operation.target_path,
+            ))
+
+    if contract_index is not None:
+        missing_contracts = [
+            name for name in operation.contract_refs if contract_index.get(name) is None
+        ]
+        if missing_contracts:
+            diagnostics.append(_diagnostic(
+                ValidationLevel.V0,
+                ValidationCategory.TYPE,
+                "operation_contract_missing",
+                f"model operation references unknown contracts: {sorted(missing_contracts)}",
+                context_hash,
+                operation.target_path,
+            ))
+
+    if operation.operation is ModelOperationKind.PATCH and operation.patch is not None:
+        patch_paths = _patch_paths(operation.patch)
+        invalid_paths = patch_paths - {operation.target_path}
+        if invalid_paths:
+            diagnostics.append(_diagnostic(
+                ValidationLevel.V0,
+                ValidationCategory.TYPE,
+                "patch_scope_exceeded",
+                f"patch changes paths outside its target: {sorted(invalid_paths)}",
+                context_hash,
+                operation.target_path,
+            ))
+
+    return ValidationLayerResult(
+        level=ValidationLevel.V0,
+        status=LayerStatus.FAILED if diagnostics else LayerStatus.PASSED,
+        diagnostics=tuple(diagnostics),
+    )
+
+
+def _patch_paths(patch: str) -> set[str]:
+    paths: set[str] = set()
+    for line in patch.splitlines():
+        if line.startswith(("--- ", "+++ ")):
+            path = line[4:].split("\t", 1)[0]
+            if path == "/dev/null":
+                continue
+            if path.startswith(("a/", "b/")):
+                path = path[2:]
+            paths.add(path)
+    return paths
 
 
 LayerHandler = Callable[

@@ -109,6 +109,89 @@ async def test_execute_runs_adapter_through_artifact_success_gate(tmp_path) -> N
 
 
 @pytest.mark.asyncio
+async def test_execute_persists_workflow_ir_for_frozen_plan(tmp_path) -> None:
+    class Adapter:
+        def _model_assignment_payload(self):
+            return {
+                "architect_model": "planner-model",
+                "backend_model": "code-model",
+                "fallback_model": "fallback-model",
+            }
+
+        async def create_plan(self, request):
+            return build_file_plan([
+                {
+                    "path": "main.ts",
+                    "language": "typescript",
+                    "contract": {
+                        "exports": ["app"],
+                        "fixtures": ["client"],
+                        "framework": "express",
+                        "runtime": "node",
+                    },
+                },
+                {
+                    "path": "service.go",
+                    "language": "go",
+                    "depends_on": ["main.ts"],
+                    "contract": {"framework": "gin", "runtime": "go"},
+                },
+            ])
+
+        async def generate_file(self, context):
+            return GeneratedContent(content="VALUE = 1\n", model_name="test-model")
+
+    output_dir = Path(tmp_path) / "generated"
+    core = OrchestratorCore(OrchestrationCheckpointStore(Path(tmp_path) / "checkpoints"))
+    result = await core.execute(
+        OrchestrationCommand(
+            task_id="workflow-ir-task",
+            session_id="workflow-ir-session",
+            mode="traditional",
+            request={
+                "requirement": "create an app",
+                "language": "typescript",
+                "framework": "express",
+                "runtime": "node",
+                "languages": ["typescript", "go"],
+                "frameworks": ["express", "gin"],
+                "runtimes": ["node", "go"],
+            },
+        ),
+        Adapter(),
+        output_dir=output_dir,
+        shared_context=SharedContext("create an app", output_dir),
+    )
+
+    workflow = result.state.metadata["workflow_ir"]
+    assert result.state.metadata["workflow_digest"] == workflow["digest"]
+    assert result.state.metadata["model_routing"]["backend_model"] == "code-model"
+    assert (workflow["language"], workflow["framework"], workflow["runtime"]) == (
+        "typescript", "express", "node"
+    )
+    assert workflow["languages"] == ["typescript", "go"]
+    assert workflow["frameworks"] == ["express", "gin"]
+    assert workflow["runtimes"] == ["node", "go"]
+    model_by_node = {node["node_id"]: node["model_policy"] for node in workflow["nodes"]}
+    assert model_by_node["plan"]["preferred_models"] == ["planner-model"]
+    assert model_by_node["file:main.ts"]["preferred_models"] == ["fallback-model"]
+    assert model_by_node["file:main.ts"] is not None
+    main_node = next(node for node in workflow["nodes"] if node["node_id"] == "file:main.ts")
+    assert main_node["provided_symbols"] == ["app"]
+    assert main_node["required_fixtures"] == ["client"]
+    assert main_node["technology"] == {
+        "language": "typescript", "framework": "express", "runtime": "node"
+    }
+    go_node = next(node for node in workflow["nodes"] if node["node_id"] == "file:service.go")
+    assert go_node["technology"] == {
+        "language": "go", "framework": "gin", "runtime": "go"
+    }
+    assert {node["node_id"] for node in workflow["nodes"]} == {
+        "plan", "file:main.ts", "file:service.go"
+    }
+
+
+@pytest.mark.asyncio
 async def test_execute_converges_planning_failure_to_terminal_state(tmp_path) -> None:
     class Adapter:
         async def create_plan(self, request):

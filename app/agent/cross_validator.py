@@ -260,12 +260,16 @@ class CrossValidator:
         )
 
         # Step 2: 对选中版本进行迭代修复
+        # A merged label is telemetry, not a provider model identifier.  Keep
+        # refinement on the configured judge model so the gateway receives a
+        # model name that the provider can resolve.
+        refinement_model = judge_model if "+" in winner_model else winner_model
         result = await refinement_loop.refine(
             file_path=file_path,
             file_type=file_type,
             description=description,
             initial_content=selected_code,
-            model_name=winner_model,
+            model_name=refinement_model,
             project_context=project_context,
             callback=callback
         )

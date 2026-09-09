@@ -8,6 +8,7 @@ from app.agent.code_synthesis_contracts import (
     GenerationStrategy,
     ProjectModel,
 )
+from app.agent.contract_index import ContractIndex
 from app.agent.orchestration.artifact_committer import (
     ArtifactConsistencyResult,
     ArtifactDiagnostic,
@@ -30,7 +31,9 @@ from app.agent.synthesis_validation import (
     rank_candidates,
     stack_file_handler,
     validation_plan_for_level,
+    validate_model_operation_v0,
 )
+from app.agent.synthesis_protocol import ModelOperation, ModelOperationKind
 from app.agent.toolchain import CommandSpec, ToolchainAction
 from app.agent.validation_coordinator import ValidationPlan
 from app.agent.validation_report import ValidationCategory
@@ -39,7 +42,11 @@ from app.agent.validation_report import ValidationCategory
 HASH = "a" * 64
 
 
-def _plan(*paths: str, preconditions: tuple[str, ...] = ()) -> ChangePlanIR:
+def _plan(
+    *paths: str,
+    preconditions: tuple[str, ...] = (),
+    dependencies: dict[str, tuple[str, ...]] | None = None,
+) -> ChangePlanIR:
     project = ProjectModel(language="python", framework="fastapi")
     artifacts = [
         ArtifactSpec(
@@ -51,10 +58,78 @@ def _plan(*paths: str, preconditions: tuple[str, ...] = ()) -> ChangePlanIR:
             validation_profile="test",
             source="test",
             preconditions=preconditions,
+            depends_on=(dependencies or {}).get(path, ()),
         )
         for path in paths
     ]
     return ChangePlanIR.build(project, artifacts)
+
+
+def test_v0_accepts_scoped_operation_with_declared_dependency_and_contract() -> None:
+    plan = _plan("models.py", "routes.py", dependencies={"routes.py": ("models.py",)})
+    context = ValidationContext(change_plan=plan, workspace=Path("."))
+    operation = ModelOperation(
+        operation=ModelOperationKind.FILE_SLOT,
+        target_path="routes.py",
+        allowed_paths=("models.py", "routes.py"),
+        depends_on=("models.py",),
+        contract_refs=("todo.read",),
+        content="def read():\n    return []\n",
+    )
+    index = ContractIndex.build(
+        [{"name": "todo.read", "kind": "api", "owner": "routes"}]
+    )
+
+    result = validate_model_operation_v0(
+        operation, context, contract_index=index, context_hash=HASH
+    )
+
+    assert result.passed is True
+
+
+def test_v0_rejects_plan_scope_dependency_contract_and_patch_violations() -> None:
+    plan = _plan("routes.py", "models.py")
+    context = ValidationContext(change_plan=plan, workspace=Path("."))
+    operation = ModelOperation(
+        operation=ModelOperationKind.PATCH,
+        target_path="routes.py",
+        allowed_paths=("routes.py", "models.py"),
+        depends_on=("models.py",),
+        contract_refs=("missing",),
+        patch=(
+            "--- a/routes.py\n"
+            "+++ b/models.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+        ),
+    )
+
+    result = validate_model_operation_v0(
+        operation,
+        context,
+        contract_index=ContractIndex.build([]),
+        context_hash=HASH,
+    )
+    codes = {diagnostic.code for diagnostic in result.diagnostics}
+
+    assert result.passed is False
+    assert codes == {"operation_dependency_undeclared", "operation_contract_missing", "patch_scope_exceeded"}
+
+
+def test_v0_rejects_target_outside_frozen_plan() -> None:
+    plan = _plan("routes.py")
+    context = ValidationContext(change_plan=plan, workspace=Path("."))
+    operation = ModelOperation(
+        operation=ModelOperationKind.FILE_SLOT,
+        target_path="extra.py",
+        allowed_paths=("extra.py",),
+        content="value = 1\n",
+    )
+
+    result = validate_model_operation_v0(operation, context, context_hash=HASH)
+
+    assert result.diagnostics[0].code == "operation_path_outside_plan"
 
 
 def _candidate(

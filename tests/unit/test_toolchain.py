@@ -1,6 +1,45 @@
+import os
+
 import pytest
 
 from app.agent.toolchain import CommandSpec, ToolchainAction, ToolchainRunner, detect_toolchain
+from app.agent.validation_coordinator import ValidationCoordinator, ValidationPlan
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("regular_package", [False, True])
+async def test_validation_isolates_project_imports_from_host(tmp_path, monkeypatch, regular_package):
+    host = tmp_path / "host"
+    project = tmp_path / "generated"
+    (host / "app").mkdir(parents=True)
+    (host / "app" / "__init__.py").write_text("", encoding="utf-8")
+    (host / "app" / "models.py").write_text("ORIGIN = 'host'\n", encoding="utf-8")
+    (project / "app").mkdir(parents=True)
+    if regular_package:
+        (project / "app" / "__init__.py").write_text("", encoding="utf-8")
+    (project / "app" / "models.py").write_text("ORIGIN = 'generated'\n", encoding="utf-8")
+    (project / "tests").mkdir()
+    (project / "tests" / "test_import.py").write_text(
+        "from pathlib import Path\n"
+        "from app import models\n"
+        "def test_project_import():\n"
+        "    assert models.ORIGIN == 'generated'\n"
+        "    assert Path(models.__file__).resolve().parent.parent == Path.cwd()\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PYTHONPATH", str(host))
+    plan = ValidationPlan((CommandSpec(
+        action=ToolchainAction.TEST,
+        command=("python3", "-m", "pytest", "-q", "tests"),
+        timeout_seconds=30,
+    ),), ())
+
+    results = await ValidationCoordinator().execute(plan, project.relative_to(tmp_path))
+
+    assert results[0].passed, results[0].stdout + results[0].stderr
+    assert "1 passed" in results[0].stdout
+    assert os.environ["PYTHONPATH"] == str(host)
 
 
 def test_toolchain_detects_parameterized_python_commands(tmp_path):
