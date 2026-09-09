@@ -49,6 +49,30 @@ export function createProjectClient(baseClient) {
       throw new Error('停止会话失败')
     },
 
+    async archiveProject(sessionId) {
+      const response = await client.post(`/agent/projects/${encodeURIComponent(sessionId)}/archive`)
+      if (response.ok) return await response.json()
+      throw new Error('回收项目失败')
+    },
+
+    async restoreProject(sessionId) {
+      const response = await client.post(`/agent/projects/${encodeURIComponent(sessionId)}/restore`)
+      if (response.ok) return await response.json()
+      throw new Error('恢复项目失败')
+    },
+
+    async pinProject(sessionId) {
+      const response = await client.post(`/agent/projects/${encodeURIComponent(sessionId)}/pin`)
+      if (response.ok) return await response.json()
+      throw new Error('置顶项目失败')
+    },
+
+    async unpinProject(sessionId) {
+      const response = await client.delete(`/agent/projects/${encodeURIComponent(sessionId)}/pin`)
+      if (response.ok) return await response.json()
+      throw new Error('取消置顶项目失败')
+    },
+
     async deleteSession(sessionId) {
       const response = await client.delete(`/agent/sessions/${sessionId}`)
       if (response.ok) {
@@ -61,6 +85,12 @@ export function createProjectClient(baseClient) {
       const response = await client.get(`/agent/sessions/${sessionId}/model-context`)
       if (response.ok) return await response.json()
       throw new Error('获取模型上下文失败')
+    },
+
+    async listProjectSessions(limit = 50) {
+      const response = await client.get('/agent/sessions', { limit })
+      if (response.ok) return await response.json()
+      throw new Error('获取项目状态失败')
     },
 
     async updateAgentModelContext(sessionId, context) {

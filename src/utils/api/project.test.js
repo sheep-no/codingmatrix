@@ -33,3 +33,35 @@ describe('project model context client', () => {
     })).resolves.toEqual({ conflict: true })
   })
 })
+
+describe('project lifecycle client', () => {
+  it('archives, restores and updates project lifecycle state', async () => {
+    const baseClient = {
+      post: vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ lifecycle_status: 'archived' }) }),
+      delete: vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ pinned: false }) })
+    }
+    const client = createProjectClient(baseClient)
+    await expect(client.archiveProject('session/1')).resolves.toEqual({ lifecycle_status: 'archived' })
+    await expect(client.restoreProject('session/1')).resolves.toEqual({ lifecycle_status: 'archived' })
+    await client.pinProject('session/1')
+    await client.unpinProject('session/1')
+    expect(baseClient.post).toHaveBeenCalledWith('/agent/projects/session%2F1/archive')
+    expect(baseClient.post).toHaveBeenCalledWith('/agent/projects/session%2F1/restore')
+    expect(baseClient.post).toHaveBeenCalledWith('/agent/projects/session%2F1/pin')
+    expect(baseClient.delete).toHaveBeenCalledWith('/agent/projects/session%2F1/pin')
+  })
+
+  it('lists project sessions with lifecycle metadata', async () => {
+    const baseClient = {
+      get: vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ sessions: [{ session_id: 'session-1', lifecycle_status: 'archived', pinned: false }] })
+      })
+    }
+    const client = createProjectClient(baseClient)
+    await expect(client.listProjectSessions()).resolves.toEqual({
+      sessions: [{ session_id: 'session-1', lifecycle_status: 'archived', pinned: false }]
+    })
+    expect(baseClient.get).toHaveBeenCalledWith('/agent/sessions', { limit: 50 })
+  })
+})

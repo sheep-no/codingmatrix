@@ -50,6 +50,8 @@
         @new-session="doCreateNewSession"
         @switch-session="doSwitchSession"
         @delete-session="doDeleteSession"
+        @archive-project="archiveProject"
+        @restore-project="restoreProject"
         @update:search-query="files.fileSearchQuery = $event"
         @toggle-category="toggleCategory"
         @select-file="selectFile"
@@ -447,6 +449,42 @@ const doDeleteSession = (id) => {
   })
 }
 
+const updateProjectLifecycle = async (id, action, successMessage) => {
+  if (generation.isGenerating && id === session.currentSessionId) {
+    ElMessage.warning('项目生成期间无法操作当前项目')
+    return false
+  }
+  try {
+    await projectApi[action](id)
+    const item = session.sessionHistory.find(entry => entry.id === id)
+    if (item) item.lifecycle_status = action === 'archiveProject' ? 'archived' : 'active'
+    ElMessage.success(successMessage)
+    return true
+  } catch (error) {
+    ElMessage.error(error.message)
+    return false
+  }
+}
+
+const archiveProject = id => updateProjectLifecycle(id, 'archiveProject', '项目已回收')
+const restoreProject = id => updateProjectLifecycle(id, 'restoreProject', '项目已恢复')
+
+const syncProjectLifecycle = async () => {
+  try {
+    const data = await projectApi.listProjectSessions()
+    const remoteSessions = Array.isArray(data?.sessions) ? data.sessions : []
+    for (const remote of remoteSessions) {
+      const local = session.sessionHistory.find(entry => entry.id === remote.session_id)
+      if (local) {
+        local.lifecycle_status = remote.lifecycle_status || local.lifecycle_status || 'active'
+        local.pinned = Boolean(remote.pinned)
+      }
+    }
+  } catch (error) {
+    workspace.addLog('warning', `同步项目生命周期状态失败: ${error.message}`)
+  }
+}
+
 // ========== File Operations ==========
 const showFileDiff = (p) => workspace.showFileDiff(files.fileDiffs, p, backend.showDiffModal, backend.selectedDiffFile)
 const saveFileVersion = (p) => workspace.saveFileVersion(p, backend.fileVersions, session.currentSessionId)
@@ -523,6 +561,7 @@ onMounted(() => {
   providerStore.loadFromStorage()
   providerStore.listProviders().catch(() => {})
   session.loadSessionHistory()
+  syncProjectLifecycle()
   backend.loadSettings()
   session.startAutoSave(
     () => (files.generatedFiles?.length || 0) > 0 || workspace.logs.length > 0,
