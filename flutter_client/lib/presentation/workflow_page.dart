@@ -1,8 +1,10 @@
+// ignore_for_file: curly_braces_in_flow_control_structures, use_build_context_synchronously
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../application/workflow_controller.dart';
+import '../infrastructure/workflow/workflow_client.dart';
 
 class WorkflowPage extends ConsumerStatefulWidget {
   const WorkflowPage({super.key});
@@ -14,11 +16,60 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
   final input = TextEditingController();
   final timeout = TextEditingController(text: '1800');
   final form = GlobalKey<FormState>();
+  final importController = TextEditingController();
+  bool toolsBusy = false;
+  WorkflowClient get client =>
+      WorkflowClient(ref.read(authenticatedClientProvider));
   @override
   void dispose() {
     input.dispose();
     timeout.dispose();
+    importController.dispose();
     super.dispose();
+  }
+
+  Future<void> importWorkflow() async {
+    importController.clear();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('导入工作流 JSON'),
+        content: TextField(
+          controller: importController,
+          minLines: 8,
+          maxLines: 14,
+          decoration: const InputDecoration(hintText: '{"nodes":[]}'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('导入'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !mounted) return;
+    try {
+      final graph = jsonDecode(importController.text);
+      if (graph is! Map) throw const FormatException('工作流必须是 JSON 对象');
+      final result = await client.importWorkflow(
+        Map<String, dynamic>.from(graph),
+      );
+      if (mounted)
+        setState(
+          () => input.text =
+              '${result['requirement'] ?? result['name'] ?? '已导入工作流'}',
+        );
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('导入失败：$e')));
+    }
   }
 
   @override
@@ -32,7 +83,50 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     final controller = ref.read(workflowControllerProvider.notifier);
     final snapshot = state.snapshot;
     return Scaffold(
-      appBar: AppBar(title: const Text('工作流执行')),
+      appBar: AppBar(
+        title: const Text('工作流执行'),
+        actions: [
+          IconButton(
+            onPressed: toolsBusy
+                ? null
+                : () async {
+                    setState(() => toolsBusy = true);
+                    try {
+                      final items = await client.history();
+                      if (!context.mounted) return;
+                      showModalBottomSheet<void>(
+                        context: context,
+                        builder: (_) => ListView(
+                          children: [
+                            for (final item in items)
+                              ListTile(
+                                title: Text(
+                                  '${item['name'] ?? item['workflow_id'] ?? '工作流'}',
+                                ),
+                                subtitle: Text('${item['status'] ?? ''}'),
+                                trailing: IconButton(
+                                  tooltip: '删除历史',
+                                  icon: const Icon(Icons.delete_outline),
+                                  onPressed: () async {
+                                    final id =
+                                        '${item['workflow_id'] ?? item['id'] ?? ''}';
+                                    if (id.isEmpty) return;
+                                    await client.deleteHistory(id);
+                                    if (context.mounted) Navigator.pop(context);
+                                  },
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    } finally {
+                      if (mounted) setState(() => toolsBusy = false);
+                    }
+                  },
+            icon: const Icon(Icons.history),
+          ),
+        ],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 960),
@@ -86,6 +180,12 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                           },
                     child: const Text('执行工作流'),
                   ),
+                  OutlinedButton(
+                    onPressed: state.active || state.refreshing
+                        ? null
+                        : importWorkflow,
+                    child: const Text('导入工作流'),
+                  ),
                   if (state.active)
                     OutlinedButton(
                       onPressed: controller.disconnect,
@@ -97,6 +197,47 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                           ? null
                           : controller.refresh,
                       child: Text(state.refreshing ? '查询中' : '查询状态'),
+                    ),
+                  if (snapshot.id != null)
+                    OutlinedButton(
+                      onPressed: toolsBusy
+                          ? null
+                          : () async {
+                              setState(() => toolsBusy = true);
+                              try {
+                                final value = await client.exportWorkflow(
+                                  snapshot.id!,
+                                );
+                                if (mounted) {
+                                  showDialog<void>(
+                                    context: context,
+                                    builder: (_) => AlertDialog(
+                                      title: const Text('工作流导出'),
+                                      content: SelectableText(
+                                        const JsonEncoder.withIndent(
+                                          '  ',
+                                        ).convert(value),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(context),
+                                          child: const Text('关闭'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }
+                              } catch (e) {
+                                if (mounted)
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('导出失败：$e')),
+                                  );
+                              } finally {
+                                if (mounted) setState(() => toolsBusy = false);
+                              }
+                            },
+                      child: const Text('导出工作流'),
                     ),
                 ],
               ),

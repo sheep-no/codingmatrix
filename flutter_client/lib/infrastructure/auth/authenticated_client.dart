@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:pointycastle/digests/sha256.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -125,6 +127,62 @@ class AuthenticatedClient extends http.BaseClient {
     final response = await http.Response.fromStream(await send(request));
     final decoded = jsonDecode(response.body);
     return Map<String, dynamic>.from(decoded as Map);
+  }
+
+  Future<Map<String, dynamic>> uploadFileResumable(String path) async {
+    final file = File(path);
+    final length = await file.length();
+    final bytes = await file.readAsBytes();
+    final digest = SHA256Digest()
+        .process(bytes)
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+    final name = path.split(Platform.pathSeparator).last;
+    final init =
+        await requestJson(
+              '/api/v1/files/upload/init?filename=${Uri.encodeQueryComponent(name)}&file_size=$length&file_hash=$digest',
+              method: 'POST',
+            )
+            as Map;
+    final fileId = '${init['file_id']}';
+    if (init['status'] == 'exists') return Map<String, dynamic>.from(init);
+    final chunkSize = (init['chunk_size'] as num?)?.toInt() ?? 5 * 1024 * 1024;
+    final total =
+        (init['total_chunks'] as num?)?.toInt() ??
+        ((length + chunkSize - 1) ~/ chunkSize);
+    final uploaded = {
+      for (final item in (init['uploaded_chunks'] as List? ?? const []))
+        (item as num).toInt(),
+    };
+    for (var index = 0; index < total; index++) {
+      if (uploaded.contains(index)) continue;
+      final start = index * chunkSize;
+      final end = (start + chunkSize).clamp(0, bytes.length);
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse(auth.baseUrl).resolve(
+          '/api/v1/files/upload/chunk/$fileId/$index?total_chunks=$total',
+        ),
+      );
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'chunk',
+          bytes.sublist(start, end),
+          filename: 'chunk_$index',
+        ),
+      );
+      final response = await http.Response.fromStream(await send(request));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw CloudAuthException('分片上传失败：${response.statusCode}');
+      }
+    }
+    return Map<String, dynamic>.from(
+      await requestJson(
+            '/api/v1/files/upload/merge/$fileId?filename=${Uri.encodeQueryComponent(name)}&file_hash=$digest&file_size=$length',
+            method: 'POST',
+          )
+          as Map,
+    );
   }
 
   // The provider owns the shared transport.

@@ -15,6 +15,13 @@ import 'chat_page.dart';
 import 'ppt_page.dart';
 import 'image_generation_page.dart';
 import 'workflow_page.dart';
+import 'virtual_girl_page.dart';
+import 'model_list_page.dart';
+import 'dynamic_provider_page.dart';
+import 'task_queue_page.dart';
+import 'file_center_page.dart';
+import 'admin_page.dart';
+import 'mcp_admin_page.dart';
 
 class WorkbenchPage extends ConsumerStatefulWidget {
   const WorkbenchPage({super.key});
@@ -92,19 +99,39 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
                   'workflow' => const WorkflowPage(),
                   'github' => const GithubSettingsPage(),
                   'provider' => const ProviderSettingsPage(),
+                  'models' => const ModelListPage(),
+                  'dynamic_provider' => const DynamicProviderPage(),
+                  'tasks' => const TaskQueuePage(),
+                  'files' => const FileCenterPage(),
                   'chat' => const ChatPage(),
                   'ppt' => const PptPage(),
+                  'girl' => const VirtualGirlPage(),
+                  'admin' => const AdminPage(),
+                  'mcp' => const McpAdminPage(),
                   _ => const ImageGenerationPage(),
                 },
               ),
             ),
-            itemBuilder: (_) => const [
+            itemBuilder: (_) => [
               PopupMenuItem(value: 'image', child: Text('图片生成')),
               PopupMenuItem(value: 'workflow', child: Text('工作流执行')),
               PopupMenuItem(value: 'github', child: Text('GitHub 设置')),
               PopupMenuItem(value: 'provider', child: Text('Provider 授权')),
+              PopupMenuItem(value: 'models', child: Text('模型列表')),
+              PopupMenuItem(
+                value: 'dynamic_provider',
+                child: Text('动态 Provider'),
+              ),
+              PopupMenuItem(value: 'tasks', child: Text('任务队列')),
+              PopupMenuItem(value: 'files', child: Text('文件中心')),
               PopupMenuItem(value: 'chat', child: Text('聊天')),
+              PopupMenuItem(value: 'girl', child: Text('GirlAI 伴侣')),
               PopupMenuItem(value: 'ppt', child: Text('PPT')),
+              if (session?.permissionLevel == 'admin' ||
+                  session?.permissionLevel == 'superadmin')
+                PopupMenuItem(value: 'admin', child: Text('管理员后台')),
+              if (session?.permissionLevel == 'superadmin')
+                PopupMenuItem(value: 'mcp', child: Text('MCP 管理')),
             ],
           ),
           IconButton(
