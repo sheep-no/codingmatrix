@@ -157,6 +157,8 @@ class FileOperator:
         files = []
         try:
             for item in base_dir.rglob("*"):
+                if item.is_symlink():
+                    continue  # 跳过符号链接，防止穿越
                 if item.is_file():
                     rel_path = item.relative_to(base_dir)
                     skip = False
@@ -191,6 +193,8 @@ class FileOperator:
         """
         target = self._validate_path(path, must_exist=True, check_extension=False)
 
+        if target.is_symlink():
+            raise PermissionError(f"安全限制: 不允许读取符号链接: {path}")
         if not target.is_file():
             raise FileNotFoundError(f"不是文件: {path}")
 

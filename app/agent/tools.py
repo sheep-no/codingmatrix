@@ -168,6 +168,10 @@ def _tool_read_file(project_path: str, file_path: str, offset: int = 0,
             return {"error": f"文件不存在: {file_path}"}
         if not full_path.is_file():
             return {"error": f"不是文件: {file_path}"}
+        # 检查文件大小，防止 OOM
+        file_size = full_path.stat().st_size
+        if file_size > 10 * 1024 * 1024:  # 10MB
+            return {"error": f"文件过大 ({file_size} bytes)，超过 10MB 限制"}
         lines = full_path.read_text(encoding='utf-8', errors='ignore').split('\n')
         total = len(lines)
         start = min(offset, total)
@@ -190,7 +194,7 @@ def _tool_list_files(project_path: str, directory: str = ".",
         if not target.exists():
             return {"error": f"目录不存在: {directory}"}
         entries = []
-        _scan_dir(target, entries, depth=0, max_depth=max_depth, base=Path(project_path))
+        _scan_dir(target, entries, depth=0, max_depth=max_depth, base=project_resolved)
         return {"directory": directory, "entries": entries[:200]}
     except Exception as e:
         return {"error": str(e)}
@@ -204,6 +208,8 @@ def _scan_dir(path: Path, entries: list, depth: int, max_depth: int, base: Path)
         for item in sorted(path.iterdir()):
             if item.name.startswith('.') or item.name in ('__pycache__', 'node_modules', '.git'):
                 continue
+            if item.is_symlink():
+                continue  # 跳过符号链接，防止穿越
             rel = str(item.relative_to(base))
             if item.is_dir():
                 entries.append({"type": "dir", "path": rel + "/"})
@@ -523,6 +529,7 @@ def _execute_python_sandbox(code: str, timeout: int) -> Dict:
     import os
     import subprocess
     import tempfile
+    import os
 
     dangerous_patterns = [
         r'\bimport\s+os\b', r'\bimport\s+sys\b', r'\bimport\s+subprocess\b',
@@ -654,6 +661,7 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
     """执行终端命令（构建、安装依赖、运行脚本等）"""
     import subprocess
     import os
+    import shlex
 
     try:
         if not isinstance(command, str) or not command.strip():
