@@ -24,35 +24,32 @@
           <!-- 深度思考开关 -->
           <label
             class="config-item"
-            :class="{ disabled: useHybrid || projectGeneratorMode }"
+              :class="{ disabled: projectGeneratorMode }"
           >
             <input
               v-model="useReasoning"
               type="checkbox"
               class="config-checkbox"
-              :disabled="useHybrid || projectGeneratorMode"
+              :disabled="projectGeneratorMode"
               aria-describedby="reasoning-tooltip"
-              @change="handleReasoningChange"
             />
             <span class="config-label">深度思考</span>
             <span id="reasoning-tooltip" class="config-tooltip" role="tooltip">启用后，AI会先进行推理分析</span>
           </label>
-
-          <!-- 混合思考开关 -->
-          <label
-            class="config-item"
-            :class="{ disabled: projectGeneratorMode }"
-          >
-            <input
-              v-model="useHybrid"
-              type="checkbox"
-              class="config-checkbox"
-              :disabled="projectGeneratorMode"
-              aria-describedby="hybrid-tooltip"
-              @change="handleHybridChange"
-            />
-            <span class="config-label">混合思考</span>
-            <span id="hybrid-tooltip" class="config-tooltip" role="tooltip">结合推理和直接生成</span>
+          <label class="config-item">
+            <span class="config-label">联网</span>
+            <select v-model="searchMode" class="config-select" aria-label="联网模式" :disabled="projectGeneratorMode">
+              <option value="auto">自动</option>
+              <option value="on">开启</option>
+              <option value="off">关闭</option>
+            </select>
+          </label>
+          <label class="config-item">
+            <span class="config-label">搜索深度</span>
+            <select v-model="searchDepth" class="config-select" aria-label="搜索深度" :disabled="projectGeneratorMode || searchMode === 'off'" title="浅搜索一轮；多轮根据首轮结果再搜索一轮">
+              <option value="shallow">浅搜索</option>
+              <option value="multi">多轮搜索（两轮）</option>
+            </select>
           </label>
         </div>
       </div>
@@ -114,9 +111,7 @@
                 : props.isStreaming
                    ? '正在生成，请稍候...'
                   : useReasoning
-                    ? useHybrid
-                       ? '混合思考模式，请输入需求...'
-                       : '深度思考模式，请输入需求...'
+                    ? '深度思考模式，请输入需求...'
                     : '输入消息，按 Ctrl+Enter 发送...'
           "
           :disabled="props.isStreaming"
@@ -128,6 +123,11 @@
           @keydown.esc="props.editMessage && cancelEdit()"
           @input="handleInput"
         />
+        <div class="composer-actions">
+        <span class="composer-summary">
+          {{ projectGeneratorMode ? '项目模式' : useReasoning ? '深度思考' : '标准回答' }}
+          <span v-if="!projectGeneratorMode"> · {{ searchMode === 'off' ? '联网关闭' : searchMode === 'on' ? '联网开启' : '自动联网' }}{{ searchMode !== 'off' && searchDepth === 'multi' ? ' · 两轮搜索' : '' }}</span>
+        </span>
         <!-- 发送/取消按钮 -->
         <template v-if="!isStreaming">
           <button
@@ -216,6 +216,7 @@
             <path d="M18 15l-6-6-6 6" />
           </svg>
         </button>
+        </div>
       </div>
     </div>
   </div>
@@ -237,8 +238,9 @@
 
   const inputMessage = ref('')
   const useReasoning = ref(false)
-  const useHybrid = ref(false)
-  const showConfig = ref(true)
+  const searchMode = ref('auto')
+  const searchDepth = ref('shallow')
+  const showConfig = ref(false)
   const textareaRef = ref(null)
   const inputWrapperRef = ref(null)
   const dropZoneRef = ref(null)
@@ -315,13 +317,6 @@
     }
   )
 
-  // 监听混合思考的变化
-  watch(useHybrid, newValue => {
-    if (newValue) {
-      useReasoning.value = true
-    }
-  })
-
   // 停止流式输出
   const stopStream = () => {
     if (props.isStreaming) {
@@ -340,21 +335,7 @@
     }, 300)
   }
 
-  // 处理混合思考变化
-  const handleHybridChange = () => {
-    if (useHybrid.value) {
-      useReasoning.value = true
-    }
-  }
-
   // 处理深度思考变化
-  const handleReasoningChange = event => {
-    if (useHybrid.value && !event.target.checked) {
-      event.target.checked = true
-      useReasoning.value = true
-    }
-  }
-
   function triggerFileUpload() {
     fileInputRef.value?.click()
   }
@@ -494,7 +475,8 @@
     const messageData = {
       prompt: inputMessage.value,
       use_reasoning: useReasoning.value,
-      use_hybrid: useHybrid.value,
+      search_mode: searchMode.value,
+      search_depth: searchDepth.value,
       files: attachedFiles.value.map(f => ({
         id: f.serverId || null,
         name: f.name,
@@ -707,27 +689,25 @@
 
   /* 固定定位容器 - 添加顶部圆角 */
   .bottom-input-container {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: var(--input-bg);
-    backdrop-filter: blur(20px);
-    padding: 14px 24px 20px;
-    border-top: 1px solid var(--border-color);
-    border-left: 1px solid var(--border-color);
-    border-right: 1px solid var(--border-color);
-    border-top-left-radius: 18px;
-    border-top-right-radius: 18px;
-    box-shadow: var(--shadow-lg);
-    z-index: 1000;
+    position: relative;
+    background: var(--bg-primary);
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 18px;
+    box-shadow: 0 4px 24px var(--shadow-color);
     display: flex;
     flex-direction: column;
     gap: 10px;
     max-width: 900px;
     margin: 0 auto;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    max-height: 48dvh;
+    overflow-y: auto;
+  }
+
+  .bottom-input-container:focus-within {
+    border-color: var(--color-primary-500);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary-500) 10%, transparent);
   }
 
   /* 折叠状态 */
@@ -787,11 +767,10 @@
 
   /* 配置面板 */
   .config-panel {
-    background: rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(10px);
-    border-radius: 14px;
-    padding: 12px 16px;
-    border: 1px solid rgba(226, 232, 240, 0.7);
+    background: var(--bg-secondary);
+    border-radius: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
     animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: var(--shadow-sm);
   }
@@ -810,7 +789,7 @@
   .config-row {
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 12px 20px;
     flex-wrap: wrap;
   }
 
@@ -849,10 +828,28 @@
     white-space: nowrap;
   }
 
+  .config-select {
+    max-width: 100%;
+    padding: 4px 6px;
+    border: 1px solid var(--border-color, #d1d5db);
+    border-radius: 6px;
+    color: var(--text-primary);
+    background: var(--bg-primary, #fff);
+    font: inherit;
+    font-size: 13px;
+  }
+
+  .config-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .config-tooltip {
-    font-size: 11px;
-    color: var(--text-tertiary);
-    margin-left: 3px;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
 
   /* 输入框包装器 */
@@ -871,18 +868,20 @@
     flex-wrap: wrap;
     gap: 8px;
     padding: 8px;
-    background: rgba(248, 250, 252, 0.8);
+    background: var(--bg-secondary);
     border-radius: 10px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
+    max-height: 140px;
+    overflow-y: auto;
   }
 
   .chat-input {
     flex: 1;
     width: 100%;
-    min-height: 46px;
+    min-height: 60px;
     max-height: 180px;
-    padding: 11px 140px 11px 14px;
-    border: 1px solid var(--slate-300);
+    padding: 8px 10px;
+    border: 0;
     border-radius: 12px;
     font-size: 15px;
     font-family: inherit;
@@ -890,7 +889,8 @@
     outline: none;
     transition: all 0.2s ease;
     background: var(--bg-primary);
-    box-shadow: var(--shadow-sm);
+    color: var(--text-primary);
+    box-shadow: none;
     resize: none;
     overflow-y: auto;
     word-wrap: break-word;
@@ -898,20 +898,16 @@
   }
 
   .chat-input:focus {
-    border-color: var(--color-primary-600);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    box-shadow: none;
   }
 
   .chat-input::placeholder {
-    color: #94a3b8;
+    color: var(--text-secondary);
   }
 
   /* 发送按钮 */
   .send-btn {
-    position: absolute;
-    right: 130px;
-    top: 50%;
-    transform: translateY(-50%);
+    order: 5;
      width: 40px;
      height: 40px;
      background: var(--accent-primary);
@@ -928,7 +924,7 @@
 
   .send-btn:hover:not(:disabled) {
      background: var(--accent-primary-hover);
-    transform: translateY(-50%) scale(1.06);
+    transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(37, 99, 235, 0.4);
   }
 
@@ -953,10 +949,7 @@
 
   /* 停止按钮 */
   .stop-btn {
-    position: absolute;
-    right: 130px;
-    top: 50%;
-    transform: translateY(-50%);
+    order: 5;
      width: 40px;
      height: 40px;
      background: var(--status-danger);
@@ -984,7 +977,7 @@
 
   .stop-btn:hover {
      background: color-mix(in srgb, var(--status-danger) 85%, black);
-    transform: translateY(-50%) scale(1.06);
+    transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(239, 68, 68, 0.4);
   }
 
@@ -997,12 +990,9 @@
 
   /* 配置开关按钮 */
   .config-toggle {
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 34px;
-    height: 34px;
+    order: 1;
+    width: 40px;
+    height: 40px;
     background: var(--bg-tertiary);
     border: none;
     border-radius: 8px;
@@ -1022,7 +1012,6 @@
 
   .config-toggle:hover {
     background: var(--bg-tertiary);
-    transform: translateY(-50%) rotate(30deg);
   }
 
   .config-toggle.active {
@@ -1030,14 +1019,15 @@
     color: white;
   }
 
+  .config-toggle.active svg {
+    color: white;
+  }
+
   /* 文件上传按钮 */
   .upload-btn {
-    position: absolute;
-    right: 50px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 34px;
-    height: 34px;
+    order: 0;
+    width: 40px;
+    height: 40px;
     background: var(--bg-tertiary);
     border: none;
     border-radius: 8px;
@@ -1057,7 +1047,6 @@
 
   .upload-btn:hover {
     background: var(--bg-tertiary);
-    transform: translateY(-50%) scale(0.95);
   }
 
   .hidden-file-input {
@@ -1066,12 +1055,9 @@
 
   /* 折叠按钮 */
   .collapse-btn {
-    position: absolute;
-    right: 90px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 34px;
-    height: 34px;
+    order: 2;
+    width: 40px;
+    height: 40px;
     background: var(--bg-tertiary);
     border: none;
     border-radius: 8px;
@@ -1091,20 +1077,54 @@
 
   .collapse-btn:hover {
     background: var(--bg-tertiary);
-    transform: translateY(-50%) scale(0.95);
+  }
+
+  .composer-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-top: 1px solid var(--border-color);
+    padding-top: 8px;
+  }
+
+  .composer-actions > button {
+    flex-shrink: 0;
+  }
+
+  .composer-summary {
+    order: 3;
+    flex: 1;
+    min-width: 0;
+    padding-inline: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+  }
+
+  .cancel-edit-btn {
+    order: 4;
+    width: 40px;
+    height: 40px;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
   }
 
   /* 响应式设计 */
   @media (max-width: 1024px) {
     .bottom-input-container {
-      max-width: 85vw;
+      max-width: 900px;
     }
   }
 
   @media (max-width: 768px) {
     .bottom-input-container {
-      max-width: 95vw;
-      padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+      max-width: 100%;
+      padding: 10px;
       border-top-left-radius: 16px;
       border-top-right-radius: 16px;
     }
@@ -1122,27 +1142,15 @@
     }
 
     .chat-input {
-      padding: 10px 110px 10px 12px;
+      padding: 8px 6px;
       font-size: 16px;
     }
 
-    .send-btn,
-    .stop-btn {
-      right: 95px;
-    }
-
-    .collapse-btn {
-      right: 55px;
-    }
-    
-    .upload-btn {
-      right: 20px;
-    }
   }
 
   @media (max-width: 480px) {
     .bottom-input-container {
-      max-width: 98vw;
+      max-width: 100%;
     }
 
     .config-row {
@@ -1153,6 +1161,15 @@
 
     .config-item {
       width: 100%;
+    }
+
+    .config-select {
+      margin-left: auto;
+      min-height: 36px;
+    }
+
+    .composer-summary {
+      font-size: 11px;
     }
   }
 </style>

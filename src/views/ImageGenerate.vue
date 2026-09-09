@@ -11,7 +11,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
         </svg>
-        <span>AI 绘画</span>
+        <h1>AI 绘画</h1>
       </div>
       <div class="header-actions">
         <span class="header-hint">基于 Kolors 模型</span>
@@ -22,16 +22,16 @@
       <!-- 左侧配置面板 -->
       <aside class="config-panel">
         <!-- 模式切换 -->
-        <div class="mode-tabs">
-          <button :class="['mode-tab', { active: mode === 'text2img' }]" @click="mode = 'text2img'">文生图</button>
-          <button :class="['mode-tab', { active: mode === 'img2img' }]" @click="mode = 'img2img'">图生图</button>
+        <div class="mode-tabs" role="group" aria-label="生成模式">
+          <button :class="['mode-tab', { active: mode === 'text2img' }]" :aria-pressed="mode === 'text2img'" :disabled="isGenerating" @click="mode = 'text2img'">文生图</button>
+          <button :class="['mode-tab', { active: mode === 'img2img' }]" :aria-pressed="mode === 'img2img'" :disabled="isGenerating" @click="mode = 'img2img'">图生图</button>
         </div>
 
         <!-- 图生图 - 上传图片 -->
         <div v-if="mode === 'img2img'" class="form-section">
           <label class="form-label">参考图片</label>
-          <div class="upload-area" @click="$refs.fileInput.click()" @dragover.prevent @drop.prevent="onDrop">
-            <img v-if="previewUrl" :src="previewUrl" class="upload-preview" />
+          <label class="upload-area" @dragover.prevent @drop.prevent="onDrop">
+            <img v-if="previewUrl" :src="previewUrl" class="upload-preview" alt="已选择的参考图片" />
             <div v-else class="upload-placeholder">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
@@ -39,17 +39,20 @@
               <span>点击或拖拽上传图片</span>
               <span class="upload-hint">支持 JPG/PNG/WEBP，最大 10MB</span>
             </div>
-            <input ref="fileInput" type="file" accept="image/*" class="file-input" @change="onFileSelect" />
-          </div>
+            <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp" aria-label="上传参考图片" :disabled="isGenerating" class="file-input" @change="onFileSelect" />
+          </label>
+          <span v-if="uploadedFile" class="selected-file">{{ uploadedFile.name }}</span>
         </div>
 
         <!-- Prompt 输入 -->
         <div class="form-section">
-          <label class="form-label">
+          <label class="form-label" for="image-prompt">
             描述 <span class="required">*</span>
           </label>
           <textarea
+            id="image-prompt"
             v-model="prompt"
+            maxlength="2000"
             class="form-textarea"
             placeholder="描述你想要生成的画面..."
             rows="5"
@@ -62,23 +65,26 @@
         <div class="form-section">
           <label class="form-label">画面风格</label>
           <div class="style-grid">
-            <div
+            <button
               v-for="s in styles"
               :key="s.value"
               class="style-card"
+              type="button"
+              :aria-pressed="style === s.value"
+              :disabled="isGenerating"
               :class="{ selected: style === s.value }"
               @click="style = s.value"
             >
               <div class="style-preview" :style="{ background: s.color }"></div>
               <span class="style-name">{{ s.name }}</span>
-            </div>
+            </button>
           </div>
         </div>
 
         <!-- 分辨率 -->
         <div class="form-section">
-          <label class="form-label">分辨率</label>
-          <select v-model="resolution" class="form-select" :disabled="isGenerating">
+          <label class="form-label" for="image-resolution">分辨率</label>
+          <select id="image-resolution" v-model="resolution" class="form-select" :disabled="isGenerating">
             <option v-if="mode === 'img2img'" value="keep">保持原图</option>
             <option value="512x512">512 x 512</option>
             <option value="768x768">768 x 768</option>
@@ -89,43 +95,43 @@
         </div>
 
         <!-- 高级选项 -->
-        <div class="form-section">
-          <label class="form-label">高级选项</label>
+        <details class="form-section advanced-options">
+          <summary class="form-label">高级选项 <span>步数、强度与随机种子</span></summary>
           <div class="advanced-group">
             <div class="slider-item">
               <div class="slider-header">
                 <span>步数</span>
                 <span class="slider-value">{{ steps }}</span>
               </div>
-              <input v-model.number="steps" type="range" min="10" max="50" :disabled="isGenerating" />
+              <input v-model.number="steps" aria-label="生成步数" type="range" min="10" max="50" :disabled="isGenerating" />
             </div>
             <div v-if="mode === 'text2img'" class="slider-item">
               <div class="slider-header">
                 <span>CFG Scale</span>
                 <span class="slider-value">{{ cfgScale }}</span>
               </div>
-              <input v-model.number="cfgScale" type="range" min="1" max="20" step="0.5" :disabled="isGenerating" />
+              <input v-model.number="cfgScale" aria-label="CFG Scale" type="range" min="1" max="20" step="0.5" :disabled="isGenerating" />
             </div>
             <div v-if="mode === 'img2img'" class="slider-item">
               <div class="slider-header">
                 <span>降噪强度</span>
                 <span class="slider-value">{{ denoising }}</span>
               </div>
-              <input v-model.number="denoising" type="range" min="0.1" max="1" step="0.05" :disabled="isGenerating" />
+              <input v-model.number="denoising" aria-label="降噪强度" type="range" min="0.1" max="1" step="0.05" :disabled="isGenerating" />
             </div>
             <div class="slider-item">
               <div class="slider-header">
                 <span>种子 (-1 随机)</span>
-                <button class="btn-random" @click="seed = Math.floor(Math.random() * 999999999)">
+                <button class="btn-random" aria-label="随机生成种子" :disabled="isGenerating" @click="seed = Math.floor(Math.random() * 999999999)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
                     <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                   </svg>
                 </button>
               </div>
-              <input v-model.number="seed" type="number" class="seed-input" :disabled="isGenerating" />
+              <input v-model.number="seed" aria-label="随机种子" type="number" class="seed-input" :disabled="isGenerating" />
             </div>
           </div>
-        </div>
+        </details>
 
         <!-- 生成按钮 -->
         <button
@@ -161,6 +167,7 @@
           <span>清除参考图片，重新文生图</span>
         </button>
 
+        <p v-if="error" class="error-message" role="alert">{{ error }}</p>
         <TaskFeedbackPanel
           :feedback="taskFeedbackState"
           :connection-status="taskFeedbackConnection"
@@ -172,15 +179,16 @@
 
       <!-- 右侧结果展示 -->
       <main class="result-panel">
+        <div class="result-heading"><h2>创作画布</h2><span>{{ generatedImages.length ? `${generatedImages.length} 张作品` : '你的灵感将在这里呈现' }}</span></div>
         <div v-if="generatedImages.length === 0 && !isGenerating" class="empty-state">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
           </svg>
-          <h3>等待生成</h3>
-          <p>在左侧输入描述，选择风格，点击生成</p>
+          <h3>把想象变成画面</h3>
+          <p>描述主体、场景和光线，选择喜欢的风格后开始生成。</p>
         </div>
 
-        <div v-if="isGenerating" class="loading-state">
+        <div v-if="isGenerating" class="loading-state" role="status">
           <div class="loading-dots">
             <span></span><span></span><span></span>
           </div>
@@ -189,14 +197,14 @@
 
         <div v-if="generatedImages.length > 0" class="images-grid">
           <div v-for="(img, idx) in generatedImages" :key="idx" class="image-card">
-            <img :src="img.url" class="generated-image" />
+            <img :src="img.url" class="generated-image" :alt="`生成作品 ${idx + 1}`" />
             <div class="image-actions">
-              <button class="btn-icon" title="下载" @click="downloadImage(img)">
+              <button class="btn-icon" title="下载" aria-label="下载图片" @click="downloadImage(img)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                 </svg>
               </button>
-              <button class="btn-icon" title="作为参考图" @click="useAsReference(img)">
+              <button class="btn-icon" title="作为参考图" aria-label="作为参考图" :disabled="isGenerating" @click="useAsReference(img)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/>
                 </svg>
@@ -213,9 +221,9 @@
           </div>
           <div class="history-grid">
             <div v-for="item in history" :key="item.id" class="history-item">
-              <img :src="item.url" />
+              <img :src="item.url" alt="历史生成作品" loading="lazy" />
               <div class="history-overlay">
-                <button class="btn-icon-sm" title="删除" @click="deleteHistory(item.id)">
+                <button class="btn-icon-sm" title="删除" aria-label="删除历史图片" @click="deleteHistory(item.id)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                   </svg>
@@ -284,7 +292,7 @@
   ]
 
   const canGenerate = computed(() => {
-    if (!prompt.value.trim()) return false
+    if (!prompt.value.trim() || prompt.value.length > 2000) return false
     if (mode.value === 'img2img' && !uploadedFile.value) return false
     return true
   })
@@ -558,6 +566,11 @@
   })
 
   function setFile(file) {
+    if (isGenerating.value) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      error.value = '请选择 JPG、PNG 或 WEBP 图片'
+      return
+    }
     if (file.size > 10 * 1024 * 1024) {
       error.value = '图片大小不能超过 10MB'
       return
@@ -572,6 +585,19 @@
 </script>
 
 <style scoped>
+  .image-generate-page { height: 100dvh; display: flex; flex-direction: column; background: var(--surface-app); color: var(--content-primary); }
+  .image-generate-page *, .image-generate-page *::before, .image-generate-page *::after { box-sizing: border-box; }
+  .header-title h1 { margin: 0; font: inherit; }
+  button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 3px; }
+  button:disabled { cursor: not-allowed; opacity: 0.5; }
+  .selected-file { overflow-wrap: anywhere; color: var(--text-secondary); font-size: 12px; }
+  .advanced-options { display: block; }
+  .advanced-options summary { padding: 8px 0; cursor: pointer; }
+  .advanced-options summary span { margin-left: 8px; font-weight: 400; font-size: 12px; color: var(--text-tertiary); }
+  .advanced-options[open] .advanced-group { margin-top: 12px; }
+  .result-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+  .result-heading h2 { margin: 0; font-size: 16px; }
+  .result-heading span { color: var(--text-tertiary); font-size: 12px; }
   .page-header {
     display: flex;
     align-items: center;
@@ -605,12 +631,14 @@
   .page-content {
     flex: 1;
     display: grid;
-    grid-template-columns: 420px 1fr;
+    grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+    min-height: 0;
     gap: 0;
     overflow: hidden;
   }
 
   .config-panel {
+    min-width: 0;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
     padding: 24px;
@@ -619,6 +647,8 @@
     flex-direction: column;
     gap: 24px;
   }
+
+  .config-panel > * { flex-shrink: 0; }
 
   .mode-tabs { display: flex; gap: 8px; }
 
@@ -650,6 +680,7 @@
     color: var(--text-primary);
     font-size: 14px;
     font-family: inherit;
+    line-height: 1.7;
     resize: vertical;
   }
 
@@ -675,11 +706,15 @@
   .upload-placeholder svg { width: 40px; height: 40px; opacity: 0.5; }
   .upload-hint { font-size: 12px; }
 
-  .file-input { display: none; }
+  .file-input { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+  .upload-area:focus-within { outline: 2px solid var(--accent-primary); outline-offset: 3px; }
 
   .style-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 
   .style-card {
+    min-width: 0;
+    background: transparent;
+    font-family: inherit;
     padding: 8px;
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -690,7 +725,7 @@
   .style-card:hover { background: var(--hover-bg); }
   .style-card.selected { border-color: var(--teal-hover); background: var(--primary-100); }
 
-  .style-preview { aspect-ratio: 1; border-radius: 6px; margin-bottom: 6px; }
+  .style-preview { aspect-ratio: 1.6; border-radius: 6px; margin-bottom: 6px; }
   .style-name { font-size: 12px; color: var(--text-secondary); }
 
   .form-select {
@@ -783,6 +818,7 @@
   .error-message svg { width: 16px; height: 16px; flex-shrink: 0; }
 
   .result-panel {
+    min-width: 0;
     padding: 24px;
     overflow-y: auto;
     display: flex;
@@ -790,6 +826,10 @@
   }
 
   .empty-state, .loading-state {
+    min-height: 260px;
+    text-align: center;
+    padding: 24px;
+    line-height: 1.7;
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -819,7 +859,7 @@
     40% { opacity: 1; transform: scale(1); }
   }
 
-  .images-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .images-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 16px; }
 
   .image-card {
     border-radius: 12px;
@@ -828,26 +868,22 @@
     position: relative;
   }
 
-  .image-card:hover .image-actions { opacity: 1; }
+  .image-card:hover .image-actions, .image-card:focus-within .image-actions { opacity: 1; }
 
   .generated-image { width: 100%; display: block; }
 
   .image-actions {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
     display: flex;
     gap: 8px;
     padding: 12px;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-    opacity: 0;
+    background: #182329;
+    opacity: 1;
     transition: opacity 0.2s;
   }
 
   .btn-icon {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     border: none;
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.15);
@@ -900,7 +936,7 @@
     transition: opacity 0.2s;
   }
 
-  .history-item:hover .history-overlay { opacity: 1; }
+  .history-item:hover .history-overlay, .history-item:focus-within .history-overlay { opacity: 1; }
 
   .btn-icon-sm {
     width: 32px;
@@ -961,5 +997,19 @@
   .btn-clear-reference svg {
     width: 14px;
     height: 14px;
+  }
+  @media (hover: none) {
+    .history-overlay { opacity: 1; inset: auto 0 0 auto; padding: 6px; border-radius: 8px 0 0 0; }
+  }
+  @media (max-width: 800px) {
+    .image-generate-page { overflow-y: auto; }
+    .page-header { padding: 14px 16px; flex-wrap: wrap; gap: 12px; }
+    .header-actions { display: none; }
+    .page-content { display: flex; flex-direction: column; overflow: visible; flex: none; }
+    .config-panel { padding: 20px 16px; border-right: 0; border-bottom: 1px solid var(--border-color); overflow: visible; gap: 20px; }
+    .result-panel { padding: 24px 16px; overflow: visible; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .loading-dots span { animation: none; }
   }
 </style>

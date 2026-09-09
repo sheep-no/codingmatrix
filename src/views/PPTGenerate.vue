@@ -1,7 +1,7 @@
 <template>
   <div class="ppt-generate-page">
     <header class="page-header">
-      <button class="back-btn" @click="goBack">
+      <button class="back-btn" type="button" aria-label="返回首页" @click="goBack">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 12H5M12 19l-7-7 7-7"/>
         </svg>
@@ -18,7 +18,7 @@
         <span>AI PPT 生成</span>
       </div>
       <div class="header-actions">
-        <button class="header-btn" title="生成历史" @click="showHistoryPanel = !showHistoryPanel">
+         <button class="header-btn" type="button" title="生成历史" :aria-expanded="showHistoryPanel" aria-controls="ppt-history-panel" @click="showHistoryPanel = !showHistoryPanel">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
             <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
           </svg>
@@ -326,7 +326,7 @@
 
     <!-- 历史记录面板 -->
     <div v-if="showHistoryPanel" class="history-panel-overlay" @click.self="showHistoryPanel = false">
-      <div class="history-panel">
+          <div id="ppt-history-panel" class="history-panel" role="dialog" aria-modal="true" aria-label="生成历史">
         <div class="history-panel-header">
           <h3>生成历史</h3>
           <button class="close-btn" @click="showHistoryPanel = false">
@@ -1046,6 +1046,7 @@ onUnmounted(() => {
   background: var(--bg-primary);
   display: flex;
   flex-direction: column;
+  color: var(--text-primary);
 }
 
 .page-header {
@@ -1085,10 +1086,12 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   overflow: hidden;
+  min-height: 0;
 }
 
 .config-panel {
-  width: 420px;
+  width: min(420px, 36vw);
+  min-width: 320px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   padding: 24px;
@@ -1785,4 +1788,21 @@ onUnmounted(() => {
 .history-action-btn:hover { border-color: var(--color-primary); }
 .history-action-btn.delete { color: #ef4444; border-color: #fca5a5; }
 .history-action-btn.delete:hover { background: rgba(239,68,68,0.1); }
+button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+.file-details { min-width: 0; }
+.file-name { overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .page-header { padding: 14px 16px; flex-wrap: wrap; }
+  .header-hint { display: none; }
+  .page-content { display: flex; flex-direction: column; overflow: auto; }
+  .config-panel { width: 100%; min-width: 0; border-right: 0; border-bottom: 1px solid var(--border-color); padding: 20px 16px; overflow: visible; }
+  .result-panel { min-height: 420px; padding: 20px 16px; }
+  .template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .template-grid { grid-template-columns: 1fr; }
+  .workflow-heading { align-items: flex-start; flex-direction: column; }
+  .workflow-heading-actions, .outline-slide-actions, .modify-actions { flex-wrap: wrap; }
+  .history-panel { width: min(400px, 100vw); }
+}
 </style>

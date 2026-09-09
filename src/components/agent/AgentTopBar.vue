@@ -1,8 +1,8 @@
 <template>
   <div class="agent-topbar">
     <div class="topbar-left">
-      <h1 class="topbar-title">CodingMatrix</h1>
-      <div class="topbar-status" :class="`status-${status}`">
+      <h1 class="topbar-title">CodingMatrix <span>Agent</span></h1>
+      <div class="topbar-status" :class="`status-${status}`" role="status">
         <span class="status-dot"></span>
         <span class="status-text">{{ statusLabel }}</span>
       </div>
@@ -52,7 +52,7 @@ const showMore = ref(false)
 const moreRef = ref(null)
 
 const statusLabel = computed(() => ({
-  idle: '空闲',
+  idle: '准备就绪',
   running: '运行中',
   failed: '失败',
   completed: '已完成'
@@ -84,17 +84,17 @@ onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
   background: var(--surface-app);
   border-bottom: 1px solid var(--control-border);
   z-index: 100;
+  flex-shrink: 0;
+  gap: 12px;
 }
 .topbar-left { display: flex; align-items: center; gap: 16px; }
 .topbar-title {
   font-size: 18px;
   font-weight: 700;
   margin: 0;
-  background: linear-gradient(135deg, var(--text-primary) 0%, var(--primary) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--text-primary);
 }
+.topbar-title span { font-size: 12px; font-weight: 500; color: var(--primary); margin-left: 8px; }
 .topbar-status {
   display: flex;
   align-items: center;
@@ -178,4 +178,15 @@ onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
 }
 .topbar-dropdown button:hover { background: var(--surface-subtle); }
 .topbar-dropdown button:disabled { opacity: 0.4; cursor: not-allowed; }
+@media (max-width: 768px) {
+  .agent-topbar { padding: 10px 12px; flex-wrap: wrap; }
+  .topbar-left { gap: 10px; flex-wrap: wrap; }
+  .topbar-right { gap: 4px; margin-left: auto; }
+  .topbar-cost { display: none; }
+}
+@media (max-width: 480px) {
+  .topbar-left { flex: 1; }
+  .topbar-title { width: 100%; font-size: 16px; }
+  .topbar-status { padding: 2px 8px; font-size: 11px; }
+}
 </style>

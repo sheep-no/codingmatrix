@@ -56,10 +56,9 @@
             @prepend-history="handlePrependHistory"
             @quick-prompt="handleQuickPrompt"
             @edit-message="handleEditMessage"
+            @retry-message="handleSendMessage"
           />
         </ErrorBoundary>
-      </main>
-
       <!-- 底部输入区 -->
       <div class="bottom-wrapper" role="form" aria-label="消息输入区">
         <Bottominput
@@ -73,6 +72,7 @@
           @cancel-edit="handleCancelEdit"
         />
       </div>
+      </main>
 
       <!-- Toast 通知 -->
       <ToastContainer />
@@ -169,6 +169,7 @@
   import { useToast } from '@/composables/useToast'
   import { useOfflineQueue } from '@/composables/useOfflineQueue'
   import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
+  import { normalizeRequestError, getRequestErrorMessage } from '@/utils/requestError'
 
   // 工具组件延迟加载 - 减少初始包大小
   const NginxConfig = defineAsyncComponent(() => import('./NginxConfig.vue'))
@@ -317,6 +318,32 @@
 
   const SESSION_RESTORE_MAX_AGE = 24 * 60 * 60 * 1000
 
+  const normalizeHistoryMessage = message => {
+    const metadata = message.metadata || {}
+    const warnings = (metadata.warnings || []).map(warning => (
+      typeof warning === 'string'
+        ? warning
+        : warning.error || warning.message || warning.stage || JSON.stringify(warning)
+    ))
+
+    return {
+      id: message.id,
+      conversation_id: parseInt(message.conversation_id, 10),
+      prompt: message.prompt,
+      response: message.response || '',
+      reasoning: message.thinking || '',
+      thinkingOpen: true,
+      createdAt: message.created_at,
+      title: message.title,
+      sources: metadata.sources || [],
+      model: metadata.model || message.model || '',
+      searchDepth: metadata.search_depth || 'shallow',
+      warnings,
+      usage: metadata.usage || message.usage,
+      toolCalls: metadata.tool_calls || message.tool_calls || []
+    }
+  }
+
   const saveStateToStorage = () => {
     const state = {
       selectedHistoryItem: selectedHistoryItem.value,
@@ -373,16 +400,7 @@
         if (response.ok) {
           const data = await response.json()
           if (data.items && data.items.length > 0) {
-            const historyItems = data.items.map(message => ({
-              id: message.id,
-              conversation_id: parseInt(message.conversation_id, 10),
-              prompt: message.prompt,
-              response: message.response || '',
-              reasoning: message.thinking || '',
-              thinkingOpen: true,
-              createdAt: message.created_at,
-              title: message.title
-            }))
+            const historyItems = data.items.map(normalizeHistoryMessage)
             currentConversationId.value = conversationId
             conversationHistory.value = historyItems
             selectedHistoryItem.value = state.selectedHistoryItem
@@ -457,9 +475,26 @@
   const handleQuickPrompt = prompt => {
     handleSendMessage({
       prompt,
-      model: 'Qwen/Qwen3-8B',
+      model: undefined,
       use_reasoning: false
     })
+  }
+
+  const createRetryRequest = messageData => {
+    const retryRequest = {
+      prompt: messageData.prompt,
+      model: messageData.model,
+      stream: messageData.stream,
+      use_reasoning: messageData.use_reasoning,
+      search_mode: messageData.search_mode,
+      search_depth: messageData.search_depth,
+      conversation_id: messageData.conversation_id,
+      files: messageData.files,
+      is_project_generator: messageData.is_project_generator,
+      session_id: messageData.session_id,
+      requirement: messageData.requirement
+    }
+    return Object.fromEntries(Object.entries(retryRequest).filter(([, value]) => value !== undefined))
   }
 
   const handleSendMessage = async messageData => {
@@ -470,7 +505,7 @@
     if (isLoading.value) return
 
     // 检查 API Key 配置
-    if (!apiKeyStore.hasSiliconflowKey) {
+    if (!apiKeyStore.hasSiliconflowKey && !messageData.model) {
       showError('请先配置 API Key 后再使用')
       // 跳转到设置页面
       router.push('/settings')
@@ -565,9 +600,11 @@
         streamManager.saveStreamRequestState(
           {
             prompt: messageData.prompt,
-            model: messageData.model || 'Qwen/Qwen3-8B',
+            model: messageData.model || undefined,
             stream: true,
             use_reasoning: messageData.use_reasoning || false,
+            search_mode: messageData.search_mode || 'auto',
+            search_depth: messageData.search_depth || 'shallow',
             conversation_id: sendConversationId
           },
           messageData,
@@ -576,9 +613,11 @@
 
         const requestData = {
           prompt: messageData.prompt,
-          model: messageData.model || 'Qwen/Qwen3-8B',
+          model: messageData.model || undefined,
           stream: true,
           use_reasoning: messageData.use_reasoning || false,
+          search_mode: messageData.search_mode || 'auto',
+          search_depth: messageData.search_depth || 'shallow',
           conversation_id: sendConversationId,
           api_key_token: apiKeyStore.siliconflowKey?.token
         }
@@ -608,7 +647,9 @@
         } catch (e) {
           console.error('无法解析错误响应:', response.statusText)
         }
-        throw new Error(errorMessage)
+        const requestError = new Error(errorMessage)
+        requestError.status = response.status
+        throw requestError
       }
 
       await consumeJsonStream(
@@ -633,12 +674,14 @@
         const streamHistory = conversationHistoryMap.value.get(streamConversationId)
         if (streamHistory && streamHistory.length > 0) {
           const streamLastIndex = streamHistory.length - 1
-          streamHistory[streamLastIndex].isStreaming = false
+           streamHistory[streamLastIndex].isStreaming = false
+           streamHistory[streamLastIndex].chatStage = ''
           saveConversationToMap(streamConversationId, streamHistory)
 
           if (String(currentConversationId.value) === String(streamConversationId)) {
             if (conversationHistory.value[streamLastIndex]) {
               conversationHistory.value[streamLastIndex].isStreaming = false
+              conversationHistory.value[streamLastIndex].chatStage = ''
             }
           }
         }
@@ -672,6 +715,7 @@
               existingReasoning + '\n\n[PAUSE] Reasoning stopped (user interrupted)'
           }
         } else {
+          const requestError = normalizeRequestError(error)
           const hasPartialContent =
             (lastMessage.response && lastMessage.response.length > 0) ||
             (lastMessage.reasoning && lastMessage.reasoning.length > 0)
@@ -686,18 +730,21 @@
             const existingReasoning = lastMessage.reasoning || ''
 
             if (!existingResponse.includes('[ERR] Response error')) {
-              lastMessage.response = existingResponse + `\n\n[ERR] Response error: ${error.message}`
+              lastMessage.response = existingResponse + `\n\n[ERR] Response error: ${getRequestErrorMessage(error)}`
             }
             if (existingReasoning && !existingReasoning.includes('[ERR] Reasoning error')) {
               lastMessage.reasoning =
-                existingReasoning + `\n\n[ERR] Reasoning error: ${error.message}`
-            }
+                existingReasoning + `\n\n[ERR] Reasoning error: ${getRequestErrorMessage(error)}`
+              }
           } else {
-            lastMessage.response = `[ERR] Request failed: ${error.message}`
+            lastMessage.response = `[ERR] Request failed: ${requestError.message}`
           }
+          lastMessage.requestError = requestError
+          lastMessage.retryRequest = requestError.retryable ? createRetryRequest(currentMessageData) : null
         }
 
         lastMessage.isStreaming = false
+        lastMessage.chatStage = ''
         saveConversationToMap(streamConversationId)
 
         if (String(currentConversationId.value) === String(streamConversationId)) {
@@ -874,6 +921,22 @@
 
     const history = streamHistory
 
+    if (data.stage) {
+      const labels = { parsing: '正在解析附件', searching: '正在搜索资料', answering: '正在生成回答' }
+      if (data.stage === 'searching' && data.round) labels.searching = `正在搜索资料（第 ${data.round}/${data.total_rounds} 轮）`
+      if (history[lastIndex]) {
+        history[lastIndex].chatStage = ['completed', 'skipped', 'failed'].includes(data.status) ? '' : labels[data.stage] || data.stage
+        if (['failed', 'skipped'].includes(data.status) && data.error) history[lastIndex].warnings = [...(history[lastIndex].warnings || []), data.error]
+        if (data.sources) history[lastIndex].sources = data.sources
+        if (data.model) history[lastIndex].model = data.model
+        if (data.search_depth) history[lastIndex].searchDepth = data.search_depth
+        if (String(currentConversationId.value) === String(streamConversationId) && conversationHistory.value[lastIndex]) {
+          Object.assign(conversationHistory.value[lastIndex], { chatStage: history[lastIndex].chatStage, sources: history[lastIndex].sources, warnings: history[lastIndex].warnings, model: history[lastIndex].model, searchDepth: history[lastIndex].searchDepth })
+        }
+      }
+      return
+    }
+
     // 后端错误
     if (data.error) {
       streamUpdateBatcher.flush()
@@ -885,6 +948,13 @@
         }
       }
       return
+    }
+
+    if (data.usage && history[lastIndex]) {
+      history[lastIndex].usage = data.usage
+      if (String(currentConversationId.value) === String(streamConversationId) && conversationHistory.value[lastIndex]) {
+        conversationHistory.value[lastIndex].usage = data.usage
+      }
     }
 
     if (data.conversation_id !== undefined) {
@@ -936,6 +1006,21 @@
 
     if (data.choices && data.choices[0] && history[lastIndex]) {
       const delta = data.choices[0].delta
+      if (delta.tool_calls?.length) {
+        const toolCalls = history[lastIndex].toolCalls || []
+        delta.tool_calls.forEach(toolCall => {
+          const index = toolCall.index ?? toolCalls.length
+          const current = toolCalls[index] || { id: toolCall.id || '', name: '', arguments: '' }
+          current.id = current.id || toolCall.id || ''
+          current.name = current.name || toolCall.function?.name || ''
+          current.arguments += toolCall.function?.arguments || ''
+          toolCalls[index] = current
+        })
+        history[lastIndex].toolCalls = toolCalls
+        if (String(currentConversationId.value) === String(streamConversationId) && conversationHistory.value[lastIndex]) {
+          conversationHistory.value[lastIndex].toolCalls = toolCalls
+        }
+      }
       streamUpdateBatcher.enqueue({
         key: `${streamConversationId}:${lastIndex}`,
         conversationId: streamConversationId,
@@ -1018,16 +1103,7 @@
         if (response.ok) {
           const data = await response.json()
           if (data.items && data.items.length > 0) {
-            const historyItems = data.items.map(message => ({
-              id: message.id,
-              conversation_id: parseInt(message.conversation_id, 10),
-              prompt: message.prompt,
-              response: message.response || '',
-              reasoning: message.thinking || '',
-              thinkingOpen: true,
-              createdAt: message.created_at,
-              title: message.title
-            }))
+            const historyItems = data.items.map(normalizeHistoryMessage)
             conversationHistory.value = historyItems
             saveConversationToMap(item.conversation_id)
           } else {
@@ -1072,7 +1148,11 @@
   }
 
   const handlePrependHistory = newMessages => {
-    conversationHistory.value = [...newMessages, ...conversationHistory.value]
+    const normalizedMessages = newMessages.map(normalizeHistoryMessage)
+    conversationHistory.value = [...normalizedMessages, ...conversationHistory.value]
+    if (currentConversationId.value) {
+      saveConversationToMap(currentConversationId.value)
+    }
   }
 
   const handleNewConversation = () => {
@@ -1235,6 +1315,9 @@
 
   .main-content {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
     min-height: 0;
     overflow: hidden;
     background: var(--bg-primary);
@@ -1245,6 +1328,8 @@
     z-index: 100;
     flex-shrink: 0;
     flex-basis: auto;
+    padding: 12px 24px max(16px, env(safe-area-inset-bottom));
+    background: var(--bg-primary);
   }
 
   @media (max-width: 768px) {
@@ -1311,6 +1396,10 @@
     .main-content {
       flex: 1;
       min-height: 0;
+    }
+
+    .bottom-wrapper {
+      padding: 8px 10px max(10px, env(safe-area-inset-bottom));
     }
   }
 </style>

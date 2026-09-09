@@ -222,9 +222,39 @@ async def call_llm(
         manager = get_dynamic_provider_manager()
         provider = manager.get(provider_id)
         if provider and provider.enabled:
+            try:
+                from app.utils.aicloud.langchain_adapter import LangChainUnavailable
+                from app.utils.aicloud.langchain_adapter import invoke as lc_invoke
+                from app.utils.aicloud.langchain_adapter import stream as lc_stream
+                from app.utils.aicloud.providers import ModelProvider
+
+                lc_provider = (ModelProvider.ANTHROPIC
+                               if provider.protocol.value == "anthropic"
+                               else ModelProvider.OPENAI)
+                lc_messages = messages or [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ]
+                lc_messages = [m for m in lc_messages if m.get("content")]
+                if stream:
+                    result = lc_stream(
+                        lc_provider, model, lc_messages, provider.api_key,
+                        provider.base_url, timeout=timeout, max_retries=2,
+                    )
+                else:
+                    result = await lc_invoke(
+                        lc_provider, model, lc_messages, provider.api_key,
+                        provider.base_url, timeout=timeout, max_retries=2,
+                    )
+                logger.debug(f"使用 LangChain 动态供应商调用模型: {model}")
+                return result
+            except LangChainUnavailable:
+                logger.info("LangChain provider package unavailable; using native adapter")
+            except ImportError:
+                logger.info("LangChain bridge unavailable; using native adapter")
             adapter = DynamicAdapter(provider)
             adapter.timeout = timeout
-            logger.debug(f"使用动态供应商 {provider.name} 调用模型: {model}")
+            logger.debug(f"使用原生动态供应商调用模型: {model}")
         else:
             logger.warning(f"动态供应商 {provider_id} 不存在或已禁用，降级到其他路由")
     

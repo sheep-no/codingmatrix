@@ -7,7 +7,8 @@ const apiMock = vi.hoisted(() => ({
   deleteSkill: vi.fn(),
   listAgentHostSessions: vi.fn(),
   listKnowledgeDocs: vi.fn(),
-  listUploadedProjects: vi.fn()
+  listUploadedProjects: vi.fn(),
+  analyzeImage: vi.fn()
 }))
 
 vi.mock('@/utils/api/index', () => ({ api: apiMock }))
@@ -23,7 +24,7 @@ function mountCapabilityCenter() {
 }
 
 async function openTab(wrapper, label) {
-  const button = wrapper.findAll('[role="tab"]').find(tab => tab.text() === label)
+  const button = wrapper.findAll('[role="tab"]').find(tab => tab.get('span').text() === label)
   await button.trigger('click')
   await flushPromises()
 }
@@ -81,5 +82,40 @@ describe('CapabilityCenter', () => {
     expect(apiMock.deleteSkill).toHaveBeenCalledWith('review')
     expect(apiMock.listSkills).toHaveBeenCalledTimes(2)
     confirm.mockRestore()
+  })
+
+  it('supports keyboard tab navigation and associates the selected panel', async () => {
+    const wrapper = mountCapabilityCenter()
+    await wrapper.get('#tab-vision').trigger('keydown', { key: 'ArrowDown' })
+    await flushPromises()
+    expect(wrapper.get('#tab-knowledge').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('#tab-knowledge').attributes('tabindex')).toBe('0')
+    expect(wrapper.get('#tab-vision').attributes('tabindex')).toBe('-1')
+    expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe('tab-knowledge')
+    expect(apiMock.listKnowledgeDocs).toHaveBeenCalledOnce()
+    await wrapper.get('#tab-knowledge').trigger('keydown', { key: 'End' })
+    expect(wrapper.get('#tab-projects').attributes('aria-selected')).toBe('true')
+    await wrapper.get('#tab-projects').trigger('keydown', { key: 'ArrowDown' })
+    expect(wrapper.get('#tab-vision').attributes('aria-selected')).toBe('true')
+    wrapper.unmount()
+  })
+
+  it('shows the selected filename and prevents concurrent image operations', async () => {
+    let finish
+    apiMock.analyzeImage.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const wrapper = mountCapabilityCenter()
+    const file = new File(['fixture'], 'layout.png', { type: 'image/png' })
+    const input = wrapper.get('input[type="file"]')
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+    expect(wrapper.get('.drop-zone').text()).toContain('layout.png')
+    await wrapper.get('.actions button').trigger('click')
+    expect(apiMock.analyzeImage).toHaveBeenCalledOnce()
+    expect(wrapper.findAll('.actions button').every(button => button.element.disabled)).toBe(true)
+    finish({ description: '图片处理完成' })
+    await flushPromises()
+    expect(wrapper.get('pre').text()).toContain('图片处理完成')
+    expect(wrapper.get('.actions button').element.disabled).toBe(false)
+    wrapper.unmount()
   })
 })

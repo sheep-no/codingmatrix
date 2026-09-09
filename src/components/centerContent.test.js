@@ -1,4 +1,4 @@
-import { shallowMount } from '@vue/test-utils'
+import { mount, shallowMount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CenterContent from './centerContent.vue'
@@ -114,5 +114,22 @@ describe('chat resize scrolling', () => {
     resize()
     await nextTick()
     expect(top).toBe(height - 500)
+  })
+})
+
+describe('chat source rendering', () => {
+  it('renders file sources as text and web sources as links', async () => {
+    const wrapper = mount(CenterContent, {
+      props: { conversationId: '1', conversationHistory: [{ id: 1, prompt: 'q', response: 'a', sources: [
+        { kind: 'file', title: 'notes.txt' },
+        { kind: 'web', title: 'Docs', url: 'https://example.com', snippet: 'reference' }
+      ] }] },
+      global: { stubs: { MessageList: { template: '<div><slot :message="messages[0]" /></div>', props: ['messages'] } } }
+    })
+    expect(wrapper.findAll('.chat-sources span').map(node => node.text())).toContain('notes.txt')
+    expect(wrapper.findAll('.chat-sources span').some(node => node.element.tagName === 'SPAN')).toBe(true)
+    expect(wrapper.get('.chat-sources a').attributes('href')).toBe('https://example.com')
+    expect(wrapper.text()).toContain('reference')
+    wrapper.unmount()
   })
 })

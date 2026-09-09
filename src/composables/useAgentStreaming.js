@@ -379,8 +379,8 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
   }
 
   const buildStreamParams = (requirement, sessionId, selectedProviderModel, projectName) => {
-    // 获取用户 SiliconFlow API Key token
-    const siliconflowKey = apiKeyStore.siliconflowKey
+    // 获取用户内置供应商 API Key token
+    const selectedApiKeyToken = apiKeyStore.siliconflowKey
     
     // 解析动态供应商选择 (格式: "provider_id::model_id")
     let providerId = undefined
@@ -403,7 +403,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       dependency_graph: true,
       incremental: isIncremental,
       require_approval: false,
-      api_key_token: siliconflowKey ? siliconflowKey.token : undefined,
+      api_key_token: selectedApiKeyToken ? selectedApiKeyToken.token : undefined,
       provider_id: providerId,
       project_name: projectName || undefined,
       ...(isIncremental ? {

@@ -1,7 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 from app.models.history import History
-from typing import Optional
+from typing import Optional, Any
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,7 @@ async def save_history_to_db(
         response: str,
         thinking: Optional[str] = None,
         commit: bool = True,
+        metadata: Optional[dict[str, Any]] = None,
 ) -> int:
     """
     保存历史记录到数据库
@@ -49,6 +51,7 @@ async def save_history_to_db(
         response=response,
         thinking=thinking,
         title=prompt[:100],
+        metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else None,
     )
     db.add(history)
     if commit:

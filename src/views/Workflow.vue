@@ -1,7 +1,7 @@
 <template>
   <div class="workflow-page">
     <header class="page-header">
-      <button class="back-btn" @click="goBack">
+      <button class="back-btn" type="button" aria-label="返回首页" @click="goBack">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 12H5M12 19l-7-7 7-7"/>
         </svg>
@@ -11,12 +11,12 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
         </svg>
-        <span>AI 工作流编排</span>
+         <h1>AI 工作流编排</h1>
       </div>
       <div class="header-actions">
         <input ref="importInput" type="file" accept=".json" hidden @change="importWorkflow" />
-        <button class="export-btn" @click="importInput?.click()">导入</button>
-        <button class="export-btn" :disabled="!workflowNodes.length" @click="exportWorkflow">
+         <button class="export-btn" type="button" @click="importInput?.click()">导入</button>
+         <button class="export-btn" type="button" :disabled="!workflowNodes.length" @click="exportWorkflow">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
@@ -59,21 +59,22 @@
 
         <div v-if="workflowNodes.length" class="node-list">
           <h4>工作流节点</h4>
-          <div
+           <article
             v-for="(node, index) in workflowNodes"
             :key="node.id || index"
             class="node-item"
-          >
-            <div class="node-header">
-              <span class="node-type">{{ node.type }}</span>
-              <span class="node-name">{{ node.name }}</span>
-            </div>
-            <p class="node-desc">{{ node.description }}</p>
-          </div>
+             :aria-label="`节点 ${index + 1}：${node.name}`"
+           >
+             <div class="node-header">
+               <span class="node-type">{{ node.type }}</span>
+               <span class="node-name">{{ node.name }}</span>
+             </div>
+             <p class="node-desc">{{ node.description }}</p>
+           </article>
         </div>
         <div v-if="history.length" class="history-list">
           <h4>最近工作流</h4>
-          <button v-for="item in history" :key="item.workflow_id" class="history-item" @click="loadHistory(item.workflow_id)">
+           <button v-for="item in history" :key="item.workflow_id" type="button" class="history-item" @click="loadHistory(item.workflow_id)">
             {{ item.workflow_id }} · {{ item.status }}
           </button>
         </div>
@@ -88,19 +89,20 @@
         </div>
 
         <div v-else class="workflow-canvas">
-          <div
+           <article
             v-for="(node, index) in workflowNodes"
             :key="node.id || index"
             class="canvas-node"
-          >
+             :aria-label="`画布节点 ${index + 1}：${node.name}`"
+           >
             <div class="node-badge">{{ node.type }}</div>
             <h3>{{ node.name }}</h3>
             <p>{{ node.description }}</p>
-            <div v-if="node.output" class="node-output">
-              <pre>{{ node.output }}</pre>
-            </div>
-          </div>
-        </div>
+             <div v-if="node.output" class="node-output">
+               <pre>{{ node.output }}</pre>
+             </div>
+           </article>
+         </div>
       </main>
     </div>
   </div>
@@ -277,6 +279,7 @@ onMounted(async () => {
   background: var(--bg-primary);
   display: flex;
   flex-direction: column;
+  color: var(--text-primary);
 }
 
 .page-header {
@@ -307,6 +310,7 @@ onMounted(async () => {
   font-size: 18px;
   font-weight: 600;
 }
+.header-title h1 { margin: 0; font: inherit; }
 
 .header-title svg {
   width: 20px;
@@ -340,6 +344,7 @@ onMounted(async () => {
   gap: 24px;
   padding: 24px;
   flex: 1;
+  min-height: 0;
 }
 
 .config-panel {
@@ -350,6 +355,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
 }
 
 .form-group {
@@ -458,6 +464,7 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 24px;
   overflow-y: auto;
+  min-width: 0;
 }
 
 .preview-placeholder {
@@ -527,8 +534,19 @@ onMounted(async () => {
 }
 
 @media (max-width: 768px) {
+  .page-header { padding: 14px 16px; flex-wrap: wrap; gap: 12px; }
+  .header-title { font-size: 16px; }
+  .header-actions { width: 100%; margin-left: 0; display: flex; gap: 8px; }
+  .export-btn { flex: 1; justify-content: center; }
   .page-content {
     grid-template-columns: 1fr;
+    padding: 16px;
+    gap: 16px;
   }
+  .config-panel, .preview-panel { padding: 16px; }
+  .preview-panel { min-height: 420px; }
+  .preview-placeholder { min-height: 320px; height: auto; text-align: center; line-height: 1.6; }
 }
+button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 3px; }
+.canvas-node, .node-item { overflow-wrap: anywhere; }
 </style>

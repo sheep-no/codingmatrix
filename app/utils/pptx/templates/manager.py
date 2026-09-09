@@ -103,6 +103,11 @@ class TemplateManager:
                 "background": f"#{config.background_color}",
                 "has_header_bar": config.has_header_bar,
                 "has_page_number": config.has_page_number,
+                "sample": {
+                    "version": "v1",
+                    "status": "available",
+                    "slides": [f"/pptx/templates/{tid}/preview/{page}" for page in range(1, 4)],
+                },
             })
         return result
 

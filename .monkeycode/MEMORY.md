@@ -233,4 +233,11 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
 - Category: 测试方法
 - Instructions:
   - 客户端位于 `flutter_client/`，验证命令为 `FLUTTER_ALLOW_ROOT=1 flutter analyze` 和 `FLUTTER_ALLOW_ROOT=1 flutter test`。
-  - 当前客户端测试覆盖 Widget workbench、SSE 分帧解析、认证客户端和统一模型序列化；静态分析与测试均已通过。
+   - 当前客户端测试覆盖 Widget workbench、SSE 分帧解析、认证客户端和统一模型序列化；静态分析与测试均已通过。
+
+### 前端优先协作范围
+- Date: 2026-09-09
+- Context: 用户明确后续工作重点
+- Instructions:
+  - 后续功能分析和实现以前端为主，重点关注设置页、供应商与 API Key 状态、模型选择、流式展示、错误反馈、响应式布局和前端测试。
+  - 后端改动控制在前端链路必需的最小范围。

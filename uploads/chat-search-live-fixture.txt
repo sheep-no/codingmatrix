@@ -1,0 +1,4 @@
+Product: Python
+Title: Python release status
+This is a synthetic public test document for checking the latest Python release.
+The version should be verified using current public documentation.

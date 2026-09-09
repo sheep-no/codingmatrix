@@ -1,17 +1,18 @@
 <template>
   <div class="agent-input-bar">
     <div class="input-row">
-      <div class="input-left">
+      <div v-if="dynamicModels?.length" class="input-left">
         <select
           v-if="dynamicModels && dynamicModels.length > 0"
           :value="selectedProviderModel"
           class="model-select"
+          aria-label="选择生成模型"
           @change="$emit('update:selectedProviderModel', $event.target.value)"
         >
           <option value="">默认模型</option>
           <optgroup v-for="group in groupedDynamicModels" :key="group.provider" :label="group.provider">
-            <option v-for="m in group.models" :key="m.provider_id + ':' + m.model_id" :value="m.provider_id + '::' + m.model_id">
-              {{ m.model_id }}
+            <option v-for="m in group.models" :key="m.provider_id + ':' + m.model_id" :value="m.provider_id + '::' + m.model_id" :title="modelTitle(m)">
+              {{ modelLabel(m) }}
             </option>
           </optgroup>
         </select>
@@ -22,6 +23,7 @@
           :value="prompt"
           :placeholder="placeholderText"
           class="prompt-textarea"
+          aria-label="项目需求"
           data-testid="agent-prompt-input"
           rows="1"
           @input="onInput"
@@ -88,6 +90,22 @@ const groupedDynamicModels = computed(() => {
   return Object.values(groups)
 })
 
+function modelLabel(model) {
+  const protocol = model.protocol ? ` · ${model.protocol}` : ''
+  const context = model.context_length ? ` · ${formatContext(model.context_length)}` : ''
+  return `${model.model_id}${protocol}${context}`
+}
+
+function modelTitle(model) {
+  return `${model.model_id}${model.protocol ? ` (${model.protocol})` : ''}${model.context_length ? `，上下文 ${formatContext(model.context_length)}` : ''}`
+}
+
+function formatContext(value) {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return ''
+  return numericValue >= 1024 ? `${Math.round(numericValue / 1024)}K` : `${numericValue}`
+}
+
 function onInput(event) {
   emit('update:prompt', event.target.value)
   autoResize()
@@ -119,19 +137,27 @@ watch(() => props.prompt, () => autoResize())
 
 <style scoped>
 .agent-input-bar {
-  padding: 12px 16px;
+  padding: 16px 20px;
   background: var(--surface-app);
   border-top: 1px solid var(--control-border);
 }
 .input-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-end;
   gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 16px;
+  background: var(--surface-subtle);
 }
+.input-row:focus-within { border-color: var(--control-border-focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 8%, transparent); }
 .input-left {
   flex-shrink: 0;
+  grid-column: 1 / -1;
 }
 .model-select {
+  max-width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--control-border);
   border-radius: 8px;
@@ -149,10 +175,11 @@ watch(() => props.prompt, () => autoResize())
 }
 .prompt-textarea {
   width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--control-border);
+  padding: 8px 2px;
+  border: 0;
   border-radius: 12px;
-  font-size: 14px;
+  font-size: 15px;
+  font-family: inherit;
   line-height: 1.5;
   background: var(--surface-subtle);
   color: var(--content-primary);

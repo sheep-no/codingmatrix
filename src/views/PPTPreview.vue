@@ -2,7 +2,7 @@
   <div class="ppt-preview-page">
     <!-- 页面头部 -->
     <header class="page-header">
-      <button class="back-btn" @click="goBack">
+      <button class="back-btn" type="button" aria-label="返回 PPT 生成页" @click="goBack">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 12H5M12 19l-7-7 7-7"/>
         </svg>
@@ -20,14 +20,14 @@
       </div>
       <div class="header-actions">
         <!-- 下载按钮 -->
-        <button v-if="showPDFDownload" class="btn btn-secondary" @click="downloadPDF">
+        <button v-if="showPDFDownload" class="btn btn-secondary" type="button" @click="downloadPDF">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
           </svg>
           下载 PDF
         </button>
-        <button v-if="pptId" class="btn btn-primary" @click="downloadPPTX">
+        <button v-if="pptId" class="btn btn-primary" type="button" @click="downloadPPTX">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
@@ -402,6 +402,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-color);
   border-radius: 12px;
   background: var(--bg-secondary);
+  overflow-wrap: anywhere;
 }
 
 .quality-report-heading,
@@ -475,6 +476,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   overflow-y: auto;
   background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .page-header {
@@ -564,6 +566,7 @@ onBeforeUnmount(() => {
   min-height: 320px;
   background: #1a1a1a;
   overflow: hidden;
+  min-width: 0;
 }
 
 .html-preview-container > p {
@@ -584,6 +587,7 @@ onBeforeUnmount(() => {
   flex: 1;
   padding: 24px;
   overflow-y: auto;
+  min-width: 0;
 }
 
 .slides-container {
@@ -649,6 +653,16 @@ onBeforeUnmount(() => {
   .quality-report-meta {
     flex-wrap: wrap;
   }
+
+  .page-header { padding: 12px 16px; }
+  .header-title { font-size: 16px; }
+  .header-actions { width: 100%; justify-content: flex-end; gap: 8px; }
+  .header-actions .btn { flex: 1; justify-content: center; padding: 10px 8px; }
+  .html-preview-container { min-height: 280px; }
+  .page-content { padding: 16px; }
+  .quality-report-card { margin: 12px 16px 0; padding: 14px 16px; }
+  .quality-report-meta { line-height: 1.6; }
+  .quality-regenerate-btn { margin: 8px 0 0; width: 100%; }
 }
 
 /* 加载状态 */

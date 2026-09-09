@@ -171,6 +171,35 @@
 
               <!-- 思考过程 -->
               <MessageThinking :message="message" :render-markdown="renderMarkdown" />
+              <div v-if="message.model" class="chat-model">回答模型：{{ message.model }}</div>
+              <div v-if="message.usage" class="chat-usage" aria-label="模型用量">
+                Token 用量：{{ message.usage.total_tokens ?? ((message.usage.prompt_tokens || 0) + (message.usage.completion_tokens || 0)) }}
+              </div>
+              <details v-if="message.toolCalls?.length" class="chat-tool-calls">
+                <summary>工具调用 <span>{{ message.toolCalls.length }}</span></summary>
+                <div v-for="(toolCall, index) in message.toolCalls" :key="toolCall.id || index" class="chat-tool-call">
+                  <strong>{{ toolCall.name || '未命名工具' }}</strong>
+                  <code v-if="toolCall.arguments">{{ toolCall.arguments }}</code>
+                </div>
+              </details>
+              <div v-if="message.chatStage" class="chat-stage" role="status">{{ message.chatStage }}</div>
+              <div v-if="message.warnings?.length" class="chat-warnings" role="alert">
+                <div v-for="(warning, index) in message.warnings" :key="index">{{ warning }}</div>
+              </div>
+              <details v-if="message.sources?.length" class="chat-sources" aria-label="参考来源">
+                <summary class="chat-sources-title">参考来源 <span>{{ message.sources.length }}</span></summary>
+                <div class="source-list">
+                  <template v-for="(source, index) in message.sources" :key="source.url || source.title || index">
+                    <div v-if="source.kind === 'file'" class="source-item">
+                      <span class="source-kind">附件</span><span class="source-title">{{ source.title }}</span>
+                    </div>
+                    <a v-else class="source-item" :href="source.url" target="_blank" rel="noopener noreferrer">
+                      <span class="source-kind">网页</span>
+                      <span class="source-copy"><span class="source-title">{{ source.title }}</span><span v-if="source.snippet" class="source-snippet">{{ source.snippet }}</span></span>
+                    </a>
+                  </template>
+                </div>
+              </details>
 
               <!-- AI 响应内容 -->
               <div v-if="message.response || message.isStreaming" class="ai-response-content">
@@ -179,6 +208,16 @@
                     class="card-content markdown-body"
                     v-html="renderMarkdown(message.response)"
                   ></div>
+
+                  <div v-if="message.requestError" class="response-error-actions" role="alert">
+                    <span>{{ message.requestError.message }}</span>
+                    <button
+                      v-if="message.retryRequest"
+                      type="button"
+                      class="response-retry-btn"
+                      @click="$emit('retry-message', message.retryRequest)"
+                    >{{ message.requestError.action || '重试' }}</button>
+                  </div>
 
                   <!-- 下载按钮（项目生成模式） -->
                   <div
@@ -303,7 +342,8 @@
     'close',
     'syncHistory',
     'quick-prompt',
-    'edit-message'
+    'edit-message',
+    'retry-message'
   ])
 
   const selectedHistory = ref(null)
@@ -1056,6 +1096,110 @@
     box-sizing: border-box;
   }
 
+  .chat-model {
+    margin: 4px 0 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .chat-stage {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    margin: 8px 0;
+    padding: 6px 10px;
+    border-radius: 8px;
+    color: var(--color-primary-600);
+    background: var(--bg-secondary);
+    font-size: 12px;
+  }
+
+  .chat-stage::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .chat-sources {
+    margin: 10px 0 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    font-size: 13px;
+  }
+
+  .chat-sources-title {
+    padding: 10px 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .chat-sources-title span {
+    margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-primary-600);
+  }
+
+  .source-list {
+    display: grid;
+    gap: 4px;
+    padding: 0 6px 6px;
+  }
+
+  .source-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+    padding: 10px;
+    border-radius: 6px;
+    color: var(--text-primary);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+
+  a.source-item:hover {
+    background: var(--bg-primary);
+    color: var(--color-primary-600);
+  }
+
+  .source-kind {
+    flex-shrink: 0;
+    padding: 2px 5px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 10px;
+    color: var(--text-secondary);
+  }
+
+  .source-copy { min-width: 0; }
+  .source-title { font-weight: 500; }
+  .source-snippet {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+  }
+
+  .chat-warnings {
+    margin: 10px 0;
+    padding: 10px 12px;
+    border-left: 3px solid var(--color-warning-500);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    background: var(--warning-bg);
+    overflow-wrap: anywhere;
+  }
+
   /* 焦点可见样式 */
   :focus-visible {
     outline: 2px solid var(--primary-500, #3b82f6);
@@ -1091,6 +1235,13 @@
 
   .center-content-wrapper.has-messages {
     background: var(--bg-primary);
+  }
+
+  .chat-interface {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
   }
 
   /* ========================================
@@ -1155,6 +1306,7 @@
     display: flex;
     align-items: center;
     gap: 14px;
+    min-width: 0;
   }
 
   .conversation-icon {
@@ -1178,12 +1330,16 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
+    min-width: 0;
   }
 
   .conversation-title {
     font-size: 15px;
     font-weight: 600;
     color: var(--text-primary, #1e293b);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   .message-count {
@@ -1196,6 +1352,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
   }
 
   .action-btn {
@@ -1236,7 +1393,9 @@
    ======================================== */
   .messages-container {
     flex: 1;
-    padding: 24px;
+    padding: 28px max(24px, calc((100% - 900px) / 2));
+    min-height: 0;
+    scrollbar-gutter: stable;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
@@ -1356,7 +1515,7 @@
   }
 
   .message.streaming {
-    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    animation: none;
   }
 
   @keyframes pulse {
@@ -1492,6 +1651,14 @@
     opacity: 1;
   }
 
+  .message-user:focus-within .message-action-btn {
+    opacity: 1;
+  }
+
+  @media (hover: none) {
+    .message-action-btn { opacity: 1; }
+  }
+
   .message-action-btn:hover {
     background: var(--slate-100);
     color: var(--slate-700);
@@ -1568,19 +1735,74 @@
     border-color: var(--primary-200, #99f6e4);
   }
 
+  .response-error-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 24px;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-secondary, #f8fafc);
+    color: var(--status-danger, #dc2626);
+    font-size: 13px;
+  }
+
+  .response-retry-btn {
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--primary, #14b8a6);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--primary, #0f766e);
+    cursor: pointer;
+  }
+
+  .response-retry-btn:hover {
+    background: var(--primary-50, #f0fdfa);
+  }
+
+  .chat-usage {
+    margin: 8px 24px 0;
+    color: var(--text-secondary, #64748b);
+    font-size: 12px;
+  }
+
+  .chat-tool-calls {
+    margin: 8px 24px 0;
+    color: var(--text-secondary, #64748b);
+    font-size: 12px;
+  }
+
+  .chat-tool-call {
+    display: grid;
+    gap: 4px;
+    margin-top: 6px;
+    padding: 8px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 6px;
+    background: var(--bg-secondary, #f8fafc);
+  }
+
+  .chat-tool-call code {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
   .card-content {
-    padding: 16px 20px;
+    padding: 20px 24px;
     color: var(--text-primary, #1e293b);
     overflow-x: auto;
-    font-size: 14px;
-    line-height: 1.7;
+    font-size: 15px;
+    line-height: 1.8;
+    overflow-wrap: anywhere;
   }
 
   /* Markdown 内容样式 */
   .markdown-body :deep(h1),
   .markdown-body :deep(h2),
   .markdown-body :deep(h3) {
-    margin: 0 0 16px 0;
+    margin: 24px 0 12px;
     color: var(--slate-800);
     font-weight: 700;
     line-height: 1.3;
@@ -1602,6 +1824,9 @@
     color: var(--slate-700);
   }
 
+  .markdown-body :deep(> :first-child) { margin-top: 0; }
+  .markdown-body :deep(> :last-child) { margin-bottom: 0; }
+
   .markdown-body :deep(code) {
     background: var(--bg-secondary, #f1f5f9);
     padding: 2px 6px;
@@ -1613,7 +1838,7 @@
   }
 
   .markdown-body :deep(pre) {
-    background: var(--bg-primary, #1e293b) !important;
+    background: #17212f !important;
     padding: 0;
     border-radius: 8px;
     overflow: hidden;
@@ -2249,6 +2474,8 @@
     .message-body {
       max-width: calc(100% - 54px);
     }
+
+    .card-content { padding: 14px; }
 
     .features-grid {
       grid-template-columns: 1fr;
