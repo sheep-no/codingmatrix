@@ -40,3 +40,32 @@ async def test_runtime_runner_upgrades_existing_project_sessions(tmp_path, monke
         "purge_after",
     } <= column_names
     assert "ix_project_sessions_lifecycle_status" in index_names
+
+
+@pytest.mark.asyncio
+async def test_runtime_runner_upgrades_existing_tasks_outline_columns(tmp_path, monkeypatch):
+    database_path = Path(tmp_path) / "legacy-tasks.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    async with engine.begin() as connection:
+        await connection.execute(text(
+            "CREATE TABLE tasks ("
+            "id INTEGER PRIMARY KEY, task_id VARCHAR(64), task_type VARCHAR(50), "
+            "status VARCHAR(20), user_id INTEGER)"
+        ))
+    await engine.dispose()
+
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
+    await run_async_migrations()
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    async with engine.connect() as connection:
+        columns = await connection.execute(text("PRAGMA table_info(tasks)"))
+        column_names = {row[1] for row in columns}
+    await engine.dispose()
+
+    assert {
+        "outline_id",
+        "outline_version",
+        "quality_mode",
+        "quality_report_artifact_id",
+    } <= column_names

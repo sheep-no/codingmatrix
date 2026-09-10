@@ -23,3 +23,23 @@ async def test_run_workflow_persists_state_when_context_is_provided(monkeypatch)
 
     assert state.task_id == "task-1"
     persist.assert_awaited_once_with(db, 7, state)
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_returns_state_when_persist_fails(monkeypatch):
+    definition = build_legacy_workflow("test", "/test", lambda state: {"ok": True})
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("table tasks has no column named outline_id")
+
+    monkeypatch.setattr(agent_state_adapter, "persist_agent_state", boom)
+
+    state = await run_workflow(
+        definition,
+        session_id="session-2",
+        task_id="task-2",
+        db=object(),
+        user_id=7,
+    )
+
+    assert state.task_id == "task-2"

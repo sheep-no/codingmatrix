@@ -7,6 +7,7 @@ from app.agent.specialist_base import Specialist
 from app.utils.prompt_loader import load_backend_engineer_prompt
 from app.agent.tracing import traced
 from app.agent.language_detector import LanguageDetector
+from app.agent.utils import compact_project_context_for_file
 
 logger = logging.getLogger(__name__)
 
@@ -381,6 +382,8 @@ class BackendEngineer(Specialist):
         # 从 project_context 中提取语言信息
         architecture = project_context.get("architecture", {})
         project_language = architecture.get("language", "python")
+        if project_context.get("requirement") and not architecture.get("requirement"):
+            architecture = {**architecture, "requirement": project_context["requirement"]}
 
         # 根据文件路径动态决定此文件的实际语言（避免配置文件被错误标记）
         from app.agent.utils import get_expected_language_for_file
@@ -398,6 +401,12 @@ class BackendEngineer(Specialist):
         )
         file_type = file_plan_item.get("file_type") or self._infer_file_type_from_path(file_path)
         file_spec = project_spec.get(file_type, project_spec.get("default", {}))
+        if not is_existing_file:
+            from app.agent.adapters import LanguageAdapterRegistry
+            scaffold = LanguageAdapterRegistry.scaffold_file(file_path, file_type, architecture)
+            if scaffold:
+                logger.info("使用语言适配器骨架: %s type=%s", file_path, file_type)
+                return scaffold
         spec_constraints = self._build_spec_constraints(file_type, file_spec)
         contract_constraints = self._build_contract_constraints(file_path, architecture)
         file_scope_constraints = self._build_file_scope_constraints(file_path, architecture)
@@ -416,11 +425,18 @@ class BackendEngineer(Specialist):
         has_frozen_generation_context = isinstance(
             project_context.get("generation_contract"), dict
         )
-        exploration_rule = (
-            "- 冻结生成契约和已生成依赖已经包含在上下文中，直接依据这些事实生成完整文件"
-            if has_frozen_generation_context
-            else "- 先用 read_file / list_files / search_files 等工具探索项目结构和已有代码，了解上下文"
-        )
+        if has_frozen_generation_context:
+            exploration_rule = (
+                "- 冻结生成契约和已生成依赖已经包含在上下文中，直接依据这些事实生成完整文件"
+            )
+        elif spec_context or dep_context:
+            exploration_rule = (
+                "- 本文件的契约和一跳依赖签名已经包含在上下文中，直接输出完整文件，不要再探索其他文件"
+            )
+        else:
+            exploration_rule = (
+                "- 先用 read_file / list_files / search_files 等工具探索项目结构和已有代码，了解上下文"
+            )
         import_validation_rules = (
             """【跨文件导入验证 - 必须执行】
 生成代码前，依据冻结文件集合、接口契约和已生成依赖源码核对每个项目内导入。只导入上下文中已声明的文件与公共符号。"""
@@ -508,7 +524,7 @@ class BackendEngineer(Specialist):
 
 {import_validation_rules}
 
-项目上下文：{json.dumps(project_context, ensure_ascii=False, indent=2)}
+项目上下文：{compact_project_context_for_file(file_path, project_context)}
 """
 
         if spec_context:
@@ -603,7 +619,11 @@ from .utils import greet, farewell
                 project_path=project_path, react_mode="simple", callback=callback,
                 heartbeat_tracker=heartbeat_tracker, enable_streaming_thinking=True,
                 thinking_budget=50,
-                required_tool_names={"read_symbols"} if dependency_files else set(),
+                required_tool_names=(
+                    {"read_symbols"}
+                    if dependency_files and "read_symbols" not in preverified_tool_names
+                    else set()
+                ),
                 preverified_tool_names=preverified_tool_names,
             )
         else:

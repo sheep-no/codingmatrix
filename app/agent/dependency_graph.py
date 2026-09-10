@@ -1009,8 +1009,8 @@ class DependencyGraph:
                 signatures = self.language_adapter.extract_signatures(content, dep_path)
             else:
                 signatures = extract_signatures(dep_path, content)
-            signature_budget = max(0, int(budget * 0.4))
-            code_budget = max(0, budget - signature_budget)
+            signature_budget = max(0, int(budget * 0.75))
+            code_budget = min(800, max(0, budget - signature_budget))
             signature_text = (signatures or "")[:signature_budget]
             code_text = content[:code_budget]
             package["dependencies"].append({

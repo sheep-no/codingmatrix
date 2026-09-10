@@ -1648,6 +1648,30 @@ async def test_backend_model_prompt_follows_sqlite_database_abstraction(tmp_path
     assert "已生成的 database.py 使用原生 sqlite3" in prompts[0]
     assert "禁止导入 SQLAlchemy" in prompts[0]
     assert call_kwargs[0]["react_mode"] == "simple"
+    assert "不要再探索其他文件" in prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_backend_skips_required_read_symbols_after_host_preread(tmp_path, monkeypatch):
+    (tmp_path / "database.py").write_text("class Base:\n    pass\n", encoding="utf-8")
+    call_kwargs = []
+
+    async def call_llm_with_tools(prompt, *_args, **_kwargs):
+        call_kwargs.append(_kwargs)
+        return "class Todo:\n    pass\n"
+
+    engineer = BackendEngineer("测试工程师", "test-model")
+    monkeypatch.setattr(engineer, "call_llm_with_tools", call_llm_with_tools)
+
+    await engineer.generate_file(
+        "models.py",
+        "model",
+        {"architecture": {"language": "python"}},
+        dep_context="## 依赖文件: database.py\n```\nclass Base:\n    pass\n```\n",
+        project_path=str(tmp_path),
+    )
+
+    assert call_kwargs[0]["required_tool_names"] == set()
 
 
 @pytest.mark.asyncio
@@ -2109,3 +2133,228 @@ def test_unmounted_fastapi_router_repair_adds_include_call():
     assert _repair_python_unmounted_fastapi_router(content, "main.py").endswith(
         "app.include_router(router)\n"
     )
+
+
+def test_requirement_aware_default_architecture_uses_ticket_skeleton():
+    architect = object.__new__(Architect)
+    complexity = types.SimpleNamespace(
+        has_frontend=False,
+        has_backend=True,
+        key_technologies=[],
+        risk_factors=[],
+    )
+
+    result = architect._get_requirement_aware_default_architecture(
+        "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+        complexity,
+        language="python",
+    )
+
+    default_spec = result["project_spec"]["default"]
+    paths = {item["path"] for item in result["file_plan"]}
+    assert result["used_default_architecture"] is True
+    assert "工单系统" in result["requirement"]
+    assert default_spec["framework"] == "FastAPI"
+    assert default_spec["storage"] == {"type": "sqlite", "filename": "tickets.db"}
+    assert default_spec["terminology"]["ticket"] == "Ticket"
+    assert "tickets" in result["db_schema"]
+    assert "main.py" in paths
+    assert "app/models/ticket_model.py" in paths
+    assert "app/controllers/ticket_controller.py" in paths
+
+
+@pytest.mark.asyncio
+async def test_generate_batch_files_uses_original_requirement():
+    from app.agent.architect_json_parser import ArchitectJsonParser
+
+    architect = object.__new__(Architect)
+    architect.json_parser = ArchitectJsonParser()
+    architect.model_name = "test-model"
+    captured = {}
+
+    async def fake_call(prompt, system_prompt="", stream=False, thinking_budget=None):
+        captured["prompt"] = prompt
+        return '{"file_plan": []}'
+
+    architect.call_llm = fake_call
+    await architect._generate_batch_files(
+        {
+            "project_type": "backend",
+            "requirement": "工单系统 CRUD，包含状态与指派",
+            "file_plan": [{"path": "main.py", "description": "入口"}],
+            "tech_stack": ["FastAPI"],
+            "language": "python",
+        },
+        types.SimpleNamespace(key_technologies=["FastAPI"]),
+        5,
+    )
+
+    assert "工单系统 CRUD，包含状态与指派" in captured["prompt"]
+    assert "需求：backend" not in captured["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_design_architecture_retries_empty_output_with_thinking_disabled():
+    architect = object.__new__(Architect)
+    architect.model_name = "test-model"
+    architect.json_parser = types.SimpleNamespace(safe_parse_json=lambda text: {})
+    calls = []
+
+    async def fake_call(prompt, system_prompt="", stream=False, thinking_budget=None):
+        calls.append(thinking_budget)
+        return ""
+
+    architect.call_llm = fake_call
+    result = await architect.design_architecture(
+        "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+        types.SimpleNamespace(
+            level=types.SimpleNamespace(value="medium"),
+            estimated_files=12,
+            has_frontend=False,
+            has_backend=True,
+            has_database=True,
+            key_technologies=["FastAPI"],
+            risk_factors=[],
+        ),
+    )
+
+    assert calls == [None, 0]
+    assert result["used_default_architecture"] is True
+    assert "tickets" in result["db_schema"]
+
+
+@pytest.mark.asyncio
+async def test_validate_project_completeness_treats_missing_disk_file_as_incomplete(tmp_path):
+    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
+
+    mixin = object.__new__(SpecFirstGenerateMixin)
+    mixin.output_dir = tmp_path
+    mixin._relative_output_dir = None
+    (tmp_path / "README.md").write_text("# ok\n", encoding="utf-8")
+
+    completeness = await mixin._validate_project_completeness(
+        [{"path": "main.py"}, {"path": "README.md"}],
+        {"main.py": "print('hi')\n", "README.md": "# ok\n"},
+    )
+
+    assert "main.py" in completeness["missing_files"]
+    assert completeness["is_complete"] is False
+
+
+def _ticket_complexity():
+    return types.SimpleNamespace(
+        level=types.SimpleNamespace(value="medium"),
+        estimated_files=12,
+        has_frontend=False,
+        has_backend=True,
+        has_database=True,
+        key_technologies=["FastAPI"],
+        risk_factors=[],
+    )
+
+
+@pytest.mark.asyncio
+async def test_design_architecture_harvests_nested_file_plan():
+    architect = object.__new__(Architect)
+    architect.model_name = "test-model"
+    parsed = {
+        "project_type": "backend",
+        "api_spec": {"paths": {"/api/tickets": {"get": {"summary": "list"}}}},
+        "architecture": {
+            "files": [
+                {"path": "main.py", "file_type": "entry"},
+                {"path": "app/services/ticket_service.py", "file_type": "service"},
+            ]
+        },
+    }
+    architect.json_parser = types.SimpleNamespace(safe_parse_json=lambda text: parsed)
+
+    async def fake_call(prompt, system_prompt="", stream=False, thinking_budget=None):
+        return '{"ok": true}'
+
+    architect.call_llm = fake_call
+    result = await architect.design_architecture(
+        "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+        _ticket_complexity(),
+    )
+
+    paths = {item["path"] for item in result["file_plan"]}
+    assert "main.py" in paths
+    assert "app/services/ticket_service.py" in paths
+    assert "/api/tickets" in result["api_spec"]["paths"]
+    assert result.get("used_default_architecture") is None
+    assert result.get("used_default_file_plan") is None
+
+
+@pytest.mark.asyncio
+async def test_design_architecture_keeps_api_spec_when_file_plan_missing():
+    architect = object.__new__(Architect)
+    architect.model_name = "test-model"
+    parsed = {
+        "project_type": "backend",
+        "api_spec": {"paths": {"/api/tickets": {"get": {"summary": "list"}}}},
+    }
+    architect.json_parser = types.SimpleNamespace(safe_parse_json=lambda text: parsed)
+
+    async def fake_call(prompt, system_prompt="", stream=False, thinking_budget=None):
+        return '{"ok": true}'
+
+    architect.call_llm = fake_call
+    result = await architect.design_architecture(
+        "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+        _ticket_complexity(),
+    )
+
+    paths = {item["path"] for item in result["file_plan"]}
+    assert result["used_default_file_plan"] is True
+    assert "/api/tickets" in result["api_spec"]["paths"]
+    assert "main.py" in paths
+    assert "app/models/ticket_model.py" in paths
+
+
+@pytest.mark.asyncio
+async def test_backend_engineer_uses_adapter_skeleton_for_manifest_and_entry():
+    engineer = object.__new__(BackendEngineer)
+    called = []
+
+    async def boom(*args, **kwargs):
+        called.append(1)
+        return "SHOULD_NOT_RUN"
+
+    engineer.call_llm = boom
+    architecture = {
+        "language": "python",
+        "requirement": "工单系统",
+        "project_spec": {
+            "default": {"framework": "FastAPI", "storage": {"type": "sqlite"}}
+        },
+        "file_plan": [
+            {"path": "main.py", "file_type": "entry"},
+            {"path": "app/controllers/ticket_controller.py", "file_type": "api"},
+            {"path": "requirements.txt", "file_type": "config"},
+            {"path": "README.md", "file_type": "docs"},
+        ],
+    }
+    requirements = await engineer.generate_file(
+        "requirements.txt",
+        "依赖",
+        {"architecture": architecture},
+    )
+    entry = await engineer.generate_file(
+        "main.py",
+        "入口",
+        {"architecture": architecture},
+    )
+    readme = await engineer.generate_file(
+        "README.md",
+        "文档",
+        {"architecture": architecture},
+    )
+
+    assert called == []
+    assert "fastapi" in requirements.lower()
+    assert "uvicorn" in requirements.lower()
+    assert "from fastapi import FastAPI" in entry
+    assert "app.controllers.ticket_controller" in entry
+    assert "# 工单系统" in readme
+    assert "`main.py`" in readme

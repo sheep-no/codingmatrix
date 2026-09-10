@@ -6,7 +6,8 @@ import asyncio
 import logging
 import re
 from pathlib import Path
-from typing import Optional
+import json
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -1146,6 +1147,21 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
 
     stripped = content.strip()
 
+    truncation_patterns = [
+        (r"未展示完整", "LLM truncated output"),
+        (r"后续代码与", "LLM truncated output"),
+        (r"其他代码保持不变", "LLM truncated output"),
+        (r"代码保持不变", "LLM truncated output"),
+        (r"需替换为真实实现", "stub implementation"),
+        (r"omitted for brevity", "LLM truncated output"),
+        (r"rest of (the )?code (is |remains )?(the same|unchanged)", "LLM truncated output"),
+        (r"not shown (here|in (this )?snippet)", "LLM truncated output"),
+        (r"\.\.\.\s*（后续", "LLM truncated output"),
+    ]
+    for pattern, desc in truncation_patterns:
+        if re.search(pattern, stripped, re.IGNORECASE):
+            return True, desc
+
     # 占位符模式匹配
     placeholder_patterns = [
         # Python 占位符
@@ -1218,6 +1234,40 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
             return True, f"代码中嵌入了工具调用 JSON"
 
     return False, ""
+
+
+def compact_project_context_for_file(file_path: str, project_context: Dict[str, Any]) -> str:
+    """Build a per-file generation context without dumping the full architecture."""
+    architecture = project_context.get("architecture") or {}
+    if not isinstance(architecture, dict):
+        architecture = {}
+    file_plan = architecture.get("file_plan") or []
+    normalized = (file_path or "").replace("\\", "/")
+    this_file: Dict[str, Any] = {}
+    for item in file_plan:
+        if isinstance(item, dict) and item.get("path", "").replace("\\", "/") == normalized:
+            this_file = item
+            break
+    contract = this_file.get("contract") or {}
+    if not isinstance(contract, dict):
+        contract = {}
+    compact: Dict[str, Any] = {
+        "requirement": (project_context.get("requirement") or "")[:2000],
+        "language": architecture.get("language"),
+        "tech_stack": (architecture.get("tech_stack") or [])[:10],
+        "this_file": {
+            "path": this_file.get("path") or file_path,
+            "file_type": this_file.get("file_type"),
+            "description": this_file.get("description"),
+            "imports": this_file.get("imports") or [],
+            "exports": this_file.get("exports") or contract.get("exports"),
+            "contract": contract,
+        },
+    }
+    generation_contract = project_context.get("generation_contract")
+    if isinstance(generation_contract, dict):
+        compact["generation_contract"] = generation_contract
+    return json.dumps(compact, ensure_ascii=False)
 
 
 def write_file_atomic(output_dir: Path, file_path: str, content: str, skip_placeholder_check: bool = False) -> bool:

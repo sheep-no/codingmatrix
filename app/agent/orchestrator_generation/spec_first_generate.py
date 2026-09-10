@@ -1244,12 +1244,19 @@ class SpecFirstGenerateMixin:
                         result.success = False
 
             # 原子写入（统一使用 write_file_atomic）
+            persisted = False
+            disk_file = self.output_dir / normalized
             if final_content:
                 from app.agent.utils import write_file_atomic as _wf_atomic
-                write_ok = _wf_atomic(self.output_dir, normalized, final_content)
-                if not write_ok:
+                persisted = bool(_wf_atomic(self.output_dir, normalized, final_content))
+                if not persisted:
                     logger.error(f"文件写入失败: {file_path}")
                     result.success = False
+
+            if not persisted or not disk_file.exists() or disk_file.stat().st_size == 0:
+                logger.error(f"文件未落盘: {file_path}")
+                result.success = False
+                raise ValueError(f"文件未落盘: {file_path}")
 
             self._report_file_event(file_path, final_content, description, file_type)
 
@@ -2241,7 +2248,15 @@ class SpecFirstGenerateMixin:
         planned_files = {f["path"] for f in file_plan}
         generated_set = set(generated_files.keys())
 
-        missing_files = sorted(planned_files - generated_set)
+        missing_files = set(planned_files - generated_set)
+        output_dir = getattr(self, "output_dir", None)
+        if output_dir is not None:
+            for planned in planned_files:
+                relative = self._strip_output_dir_prefix(planned)
+                disk = Path(output_dir) / relative
+                if (not disk.exists()) or disk.stat().st_size == 0:
+                    missing_files.add(planned)
+        missing_files = sorted(missing_files)
 
         empty_files = [
             f for f, c in generated_files.items()

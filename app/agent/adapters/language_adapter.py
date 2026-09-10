@@ -132,6 +132,22 @@ class LanguageAdapter(ABC):
         """Return language-owned diagnostics that do not depend on project semantics."""
         return ()
 
+    def scaffold_boilerplate(
+        self,
+        file_path: str,
+        file_type: str,
+        architecture: Optional[Dict] = None,
+    ) -> Optional[str]:
+        """Return a deterministic skeleton for entry, manifests, and README files."""
+        from .boilerplate import scaffold_for_language
+
+        return scaffold_for_language(
+            self.language,
+            file_path,
+            file_type or "",
+            architecture or {},
+        )
+
     def repair_source(
         self,
         content: str,
@@ -255,6 +271,24 @@ class LanguageAdapterRegistry:
 
         # Fallback 到通用适配器
         return cls._adapters.get("generic")
+
+    @classmethod
+    def scaffold_file(
+        cls,
+        file_path: str,
+        file_type: str = "",
+        architecture: Optional[Dict] = None,
+    ) -> Optional[str]:
+        architecture = architecture or {}
+        language = (
+            architecture.get("language")
+            or architecture.get("backend_language")
+            or "python"
+        )
+        adapter = cls.get_adapter(str(language)) or cls.get_adapter("generic")
+        if adapter is None:
+            return None
+        return adapter.scaffold_boilerplate(file_path, file_type or "", architecture)
 
     @classmethod
     def detect_language(cls, files: Dict[str, str]) -> str:

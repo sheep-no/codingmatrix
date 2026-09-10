@@ -26,6 +26,59 @@ from app.agent.refinement_loop import RefinementLoop, RefinementResult
 logger = logging.getLogger(__name__)
 
 
+LLM_FIX_ISSUE_PRIORITY = {
+    "import_error": 0,
+    "missing_module": 1,
+    "symbol_not_defined": 2,
+    "api_contract": 3,
+    "model_mismatch": 4,
+    "signature_mismatch": 5,
+    "symbol_not_found": 8,
+}
+
+
+def select_llm_fix_issues(
+    issues: List[Dict[str, str]],
+    *,
+    max_issues: int = 20,
+    max_files: int = 6,
+    max_issues_per_file: int = 8,
+) -> List[Dict[str, str]]:
+    """Keep only the highest-value cross-file issues for a small reviewer model."""
+    deduped: List[Dict[str, str]] = []
+    seen = set()
+    for issue in issues:
+        key = (issue.get("type"), issue.get("file"), issue.get("message"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(issue)
+
+    ranked = sorted(
+        deduped,
+        key=lambda item: (
+            LLM_FIX_ISSUE_PRIORITY.get(item.get("type", ""), 9),
+            item.get("file") or "",
+        ),
+    )
+    selected: List[Dict[str, str]] = []
+    files_used: List[str] = []
+    per_file: Dict[str, int] = {}
+    for issue in ranked:
+        file_path = issue.get("file") or ""
+        if file_path not in per_file and len(files_used) >= max_files:
+            continue
+        if per_file.get(file_path, 0) >= max_issues_per_file:
+            continue
+        if len(selected) >= max_issues:
+            break
+        selected.append(issue)
+        per_file[file_path] = per_file.get(file_path, 0) + 1
+        if file_path not in files_used:
+            files_used.append(file_path)
+    return selected
+
+
 def _load_cross_validation_config() -> Dict[str, Any]:
     """加载交叉验证配置"""
     try:
@@ -1246,8 +1299,16 @@ class CrossValidator:
         if not fix_model:
             return generated_files, issues
 
-        # 尝试使用 LLM 修复
-        fixed_files = await self._fix_with_llm(generated_files, issues, fix_model)
+        selected = select_llm_fix_issues(issues)
+        if not selected:
+            return generated_files, issues
+        if len(selected) < len(issues):
+            logger.warning(
+                "跨文件问题 %s 条，仅将 %s 条交给 LLM 修复",
+                len(issues),
+                len(selected),
+            )
+        fixed_files = await self._fix_with_llm(generated_files, selected, fix_model)
 
         return fixed_files, issues
 

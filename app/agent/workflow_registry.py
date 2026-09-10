@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
+import logging
 
 from app.agent.adapters import legacy_result_to_delta
 from app.agent.state import CheckpointStore, State, StateDelta, StateGraph, StateGraphBuilder, StateReducer
@@ -18,6 +19,7 @@ _checkpoint_store = CheckpointStore(
     Path(os.getenv("AGENT_STATE_CHECKPOINT_DIR", "data/agent_state_checkpoints"))
 )
 _recoverable_workflow_factories: Dict[str, Callable[[], WorkflowDefinition]] = {}
+logger = logging.getLogger(__name__)
 
 
 def _build_recoverable_legacy_workflow(name: str, endpoint: str) -> WorkflowDefinition:
@@ -176,8 +178,14 @@ async def run_workflow(
     _checkpoint_store.save(state, _checkpoint_id(session_id, task_id))
     if db is not None and user_id is not None:
         from app.services.agent_state_adapter import persist_agent_state
-
-        await persist_agent_state(db, user_id, state)
+        try:
+            await persist_agent_state(db, user_id, state)
+        except Exception:
+            logger.exception(
+                "persist_agent_state 失败，工作流结果仍返回 session=%s task=%s",
+                session_id,
+                task_id,
+            )
     if state.pending_actions:
         try:
             from app.api.v1.agent_host import enqueue_state_actions
@@ -261,7 +269,12 @@ async def cancel_workflows_for_session(
         _checkpoint_store.save(state, _checkpoint_id(*key))
         if db is not None and user_id is not None:
             from app.services.agent_state_adapter import persist_agent_state
-
-            await persist_agent_state(db, user_id, state)
+            try:
+                await persist_agent_state(db, user_id, state)
+            except Exception:
+                logger.exception(
+                    "persist_agent_state 失败，取消结果仍返回 session=%s",
+                    session_id,
+                )
         cancelled += 1
     return cancelled

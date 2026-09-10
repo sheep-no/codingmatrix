@@ -42,3 +42,22 @@ class TestCrossValidator:
         
         assert result in [version_a, version_b]
         assert winner in ["model-a", "model-b"]
+
+
+def test_select_llm_fix_issues_caps_and_prioritizes_imports():
+    from app.agent.cross_validator import select_llm_fix_issues
+
+    issues = [
+        {"type": "symbol_not_found", "file": f"f{i}.py", "message": f"missing {i}"}
+        for i in range(40)
+    ]
+    issues.insert(0, {"type": "import_error", "file": "main.py", "message": "no app.main"})
+    issues.insert(1, {"type": "import_error", "file": "main.py", "message": "no app.main"})
+
+    selected = select_llm_fix_issues(issues, max_issues=20, max_files=6)
+
+    assert len(selected) <= 20
+    assert len({item["file"] for item in selected}) <= 6
+    assert selected[0]["type"] == "import_error"
+    assert selected[0]["file"] == "main.py"
+    assert sum(1 for item in selected if item["message"] == "no app.main") == 1

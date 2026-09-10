@@ -95,6 +95,10 @@ async def run_async_migrations():
                 "result_json": "JSON",
                 "updated_at": "DATETIME",
                 "finished_at": "DATETIME",
+                "outline_id": "VARCHAR(64)",
+                "outline_version": "INTEGER",
+                "quality_mode": "VARCHAR(20)",
+                "quality_report_artifact_id": "VARCHAR(64)",
             }
             for column_name, column_type in additions.items():
                 if column_name not in task_columns:

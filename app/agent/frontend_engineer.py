@@ -6,6 +6,7 @@ from app.agent.specialist_base import Specialist
 from app.utils.prompt_loader import load_frontend_engineer_prompt
 from app.agent.tracing import traced
 from app.agent.language_detector import LanguageDetector
+from app.agent.utils import compact_project_context_for_file
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,8 @@ class FrontendEngineer(Specialist):
         # 从 project_context 中提取语言信息
         architecture = project_context.get("architecture", {})
         project_language = architecture.get("language", "javascript")
+        if project_context.get("requirement") and not architecture.get("requirement"):
+            architecture = {**architecture, "requirement": project_context["requirement"]}
 
         # 根据文件路径动态决定此文件的实际语言（避免 HTML 文件被错误标记为 .py）
         from app.agent.utils import get_expected_language_for_file
@@ -111,7 +114,31 @@ class FrontendEngineer(Specialist):
         project_spec = architecture.get("project_spec", {})
         file_type = self._infer_file_type_from_path(file_path)
         file_spec = project_spec.get(file_type, project_spec.get("default", {}))
+        if not is_existing_file:
+            from app.agent.adapters import LanguageAdapterRegistry
+            planned = next(
+                (
+                    item for item in architecture.get("file_plan", [])
+                    if isinstance(item, dict)
+                    and item.get("path", "").replace("\\", "/") == file_path.replace("\\", "/")
+                ),
+                {},
+            )
+            planned_type = planned.get("file_type") or file_type
+            scaffold = LanguageAdapterRegistry.scaffold_file(file_path, planned_type, architecture)
+            if scaffold:
+                logger.info("使用语言适配器骨架: %s type=%s", file_path, planned_type)
+                return scaffold
         spec_constraints = self._build_spec_constraints(file_type, file_spec)
+
+        if spec_context or dep_context:
+            exploration_rule = (
+                "- 本文件的契约和一跳依赖签名已经包含在上下文中，直接输出完整文件，不要再探索其他文件"
+            )
+        else:
+            exploration_rule = (
+                "- 先用 read_file / list_files / search_files 等工具探索项目结构和已有代码，了解上下文"
+            )
 
         prompt = f"""【严格约束】你必须严格按文件路径指定的语言编写代码，禁止自行添加或修改扩展名。
 
@@ -125,7 +152,7 @@ class FrontendEngineer(Specialist):
 
 【任务约束 - 最高优先级】
 - 你本次任务只创建 {file_path} 这一个文件
-- 先用 read_file / list_files / search_files 等工具探索项目结构和已有代码，了解上下文
+{exploration_rule}
 - 探索完成后，直接以纯文本形式返回 {file_path} 的完整内容
 - 不要尝试创建或修改其他文件
 
@@ -157,7 +184,7 @@ class FrontendEngineer(Specialist):
 4. 确认所有跨文件导入正确后再返回代码
 不要凭猜测导入不存在的符号。每次导入项目内模块前，先验证再使用。
 
-项目上下文：{json.dumps(project_context, ensure_ascii=False, indent=2)}
+项目上下文：{compact_project_context_for_file(file_path, project_context)}
 """
 
         if spec_context:

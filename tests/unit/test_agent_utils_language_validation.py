@@ -26,6 +26,42 @@ def test_extract_rejects_tool_call_json_before_persistence(tmp_path):
     assert utils.is_placeholder_content(content, "app/models.py")[0] is True
 
 
+def test_placeholder_rejects_truncated_llm_output():
+    content = '''import json
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@router.post("/login")
+async def login():
+    return {"access_token": "token123"}
+
+# 其他路由和功能保持不变
+# ...（后续代码与用户提供的原始代码相同，未展示完整）
+'''
+    is_placeholder, reason = utils.is_placeholder_content(content, "main.py")
+    assert is_placeholder is True
+    assert reason
+
+
+def test_compact_project_context_keeps_current_file_only():
+    context = {
+        "requirement": "工单服务",
+        "architecture": {
+            "language": "python",
+            "tech_stack": ["fastapi"],
+            "file_plan": [
+                {"path": "main.py", "file_type": "entry", "description": "入口", "imports": [], "contract": {"exports": ["app"]}},
+                {"path": "models.py", "file_type": "model", "description": "模型"},
+            ],
+        },
+    }
+    compact = utils.compact_project_context_for_file("main.py", context)
+    assert "models.py" not in compact
+    assert "工单服务" in compact
+    assert "entry" in compact
+
+
 @pytest.mark.asyncio
 async def test_validate_language_with_llm_skips_timed_out_call(monkeypatch):
     call_cancelled = asyncio.Event()

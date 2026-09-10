@@ -1,7 +1,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Any, Dict, List, Optional, Set
 
 from app.utils import call_llm
 from app.agent.complexity import ComplexityAnalysis
@@ -259,6 +259,12 @@ language 字段要求：
         else:
             response = await self.call_llm(prompt, self.SYSTEM_PROMPT)
 
+        if not response or not str(response).strip():
+            logger.warning("架构师输出为空，禁用思考后重试一次")
+            response = await self.call_llm(
+                prompt, self.SYSTEM_PROMPT, thinking_budget=0
+            )
+
         logger.info(
             "架构响应审计: model=%s response_type=%s response_chars=%d has_json_marker=%s",
             self.model_name,
@@ -270,7 +276,7 @@ language 字段要求：
         # 解析 JSON
         try:
             if not response or not response.strip():
-                logger.warning("架构师输出为空，返回默认架构")
+                logger.warning("架构师重试仍为空，返回默认架构")
                 return self._get_requirement_aware_default_architecture(
                     requirement, complexity, target_language, frontend_language
                 )
@@ -288,7 +294,7 @@ language 字段要求：
                     "frontend_language": frontend_language,
                     "backend_language": backend_language,
                     "all_languages": all_languages,
-                    "file_plan": architecture,
+                    "file_plan": self._normalize_file_plan(architecture, target_language),
                     "project_spec": self._build_default_project_spec(target_language, frontend_language, complexity),
                     "dependencies": {},
                     "risks": complexity.risk_factors
@@ -328,12 +334,9 @@ language 字段要求：
             if complexity.has_database:
                 architecture = self._validate_and_enhance_db_schema(architecture, complexity)
 
-            # 确保 file_plan 存在
-            if not architecture.get("file_plan"):
-                logger.warning("架构师未返回 file_plan，使用默认架构")
-                architecture = self._get_requirement_aware_default_architecture(
-                    requirement, complexity, target_language, frontend_language
-                )
+            architecture = self._ensure_architecture_file_plan(
+                architecture, requirement, complexity, target_language, frontend_language
+            )
 
             # 确保 project_spec 存在
             if not architecture.get("project_spec"):
@@ -358,6 +361,7 @@ language 字段要求：
                 architecture, target_language, strict_paths=strict_paths
             )
 
+            architecture["requirement"] = requirement
             return architecture
         else:
             return self._get_requirement_aware_default_architecture(
@@ -443,6 +447,129 @@ language 字段要求：
     def _safe_parse_json(self, text: str) -> Dict:
         """安全解析 JSON，处理各种格式问题"""
         return self.json_parser.safe_parse_json(text)
+
+    _FILE_PLAN_KEYS = (
+        "file_plan", "files", "filePlan", "planned_files", "file_list",
+        "project_files", "source_files",
+    )
+    _FILE_PLAN_NEST_KEYS = (
+        "architecture", "design", "project", "result", "data",
+        "backend_structure", "frontend_structure",
+    )
+
+    @classmethod
+    def _normalize_file_plan_item(cls, item: Any, language: str) -> Optional[Dict]:
+        if isinstance(item, str) and item.strip():
+            path = item.strip().replace("\\", "/")
+            return {
+                "path": path,
+                "description": "",
+                "priority": 3,
+                "file_type": "unknown",
+                "language": language,
+                "imports": [],
+            }
+        if not isinstance(item, dict):
+            return None
+        path = item.get("path") or item.get("file") or item.get("filename") or item.get("name")
+        if not path or not isinstance(path, str):
+            return None
+        path = path.strip().replace("\\", "/")
+        if not path or path in {".", ".."}:
+            return None
+        looks_like_file = (
+            "." in Path(path).name
+            or "/" in path
+            or path.lower() in {"makefile", "dockerfile", "gemfile", "go.mod", "cargo.toml"}
+        )
+        if not looks_like_file:
+            return None
+        normalized = dict(item)
+        normalized["path"] = path
+        normalized.setdefault("description", "")
+        normalized.setdefault("priority", 3)
+        normalized.setdefault("file_type", "unknown")
+        normalized.setdefault("language", language)
+        normalized.setdefault("imports", [])
+        return normalized
+
+    @classmethod
+    def _normalize_file_plan(cls, items: Any, language: str) -> List[Dict]:
+        if not isinstance(items, list):
+            return []
+        normalized = []
+        seen: Set[str] = set()
+        for item in items:
+            entry = cls._normalize_file_plan_item(item, language)
+            if not entry or entry["path"] in seen:
+                continue
+            seen.add(entry["path"])
+            normalized.append(entry)
+        return normalized
+
+    @classmethod
+    def _harvest_file_plan(cls, obj: Any, language: str, depth: int = 0, seen: Optional[Set[int]] = None) -> List[Dict]:
+        if depth > 5 or obj is None:
+            return []
+        seen = seen if seen is not None else set()
+        obj_id = id(obj)
+        if obj_id in seen:
+            return []
+        seen.add(obj_id)
+        if isinstance(obj, list):
+            normalized = cls._normalize_file_plan(obj, language)
+            if normalized:
+                return normalized
+            for item in obj:
+                harvested = cls._harvest_file_plan(item, language, depth + 1, seen)
+                if harvested:
+                    return harvested
+            return []
+        if not isinstance(obj, dict):
+            return []
+        for key in cls._FILE_PLAN_KEYS:
+            if key in obj:
+                harvested = cls._harvest_file_plan(obj[key], language, depth + 1, seen)
+                if harvested:
+                    return harvested
+        for key in cls._FILE_PLAN_NEST_KEYS:
+            if key in obj:
+                harvested = cls._harvest_file_plan(obj[key], language, depth + 1, seen)
+                if harvested:
+                    return harvested
+        return []
+
+    def _ensure_architecture_file_plan(
+        self,
+        architecture: Dict,
+        requirement: str,
+        complexity: ComplexityAnalysis,
+        target_language: str,
+        frontend_language: Optional[str],
+    ) -> Dict:
+        harvested = self._harvest_file_plan(architecture, target_language)
+        if harvested:
+            architecture["file_plan"] = harvested
+            return architecture
+        existing = architecture.get("file_plan")
+        if isinstance(existing, list) and self._normalize_file_plan(existing, target_language):
+            architecture["file_plan"] = self._normalize_file_plan(existing, target_language)
+            return architecture
+        logger.warning("架构师未返回 file_plan，补入默认文件计划并保留已解析字段")
+        default = self._get_requirement_aware_default_architecture(
+            requirement, complexity, target_language, frontend_language
+        )
+        architecture["file_plan"] = default["file_plan"]
+        architecture["used_default_file_plan"] = True
+        if not architecture.get("project_spec"):
+            architecture["project_spec"] = default.get("project_spec")
+        if not architecture.get("db_schema") and default.get("db_schema"):
+            architecture["db_schema"] = default.get("db_schema")
+        if not architecture.get("tech_stack"):
+            architecture["tech_stack"] = default.get("tech_stack")
+        architecture.setdefault("language", target_language)
+        architecture.setdefault("requirement", requirement)
+        return architecture
 
     def _get_default_architecture(self, complexity: ComplexityAnalysis, language: str = "python", frontend_language: Optional[str] = None) -> Dict:
         """返回默认架构（根据语言生成）"""
@@ -570,6 +697,44 @@ language 字段要求：
             "risks": complexity.risk_factors
         }
 
+    def _domain_file_plan(self, language: str, domain: str) -> List[Dict]:
+        """默认架构中按领域补充分层文件。"""
+        extensions = {
+            "python": "py",
+            "javascript": "js",
+            "typescript": "ts",
+            "go": "go",
+            "java": "java",
+            "rust": "rs",
+        }
+        ext = extensions.get(language, "py")
+        if language == "go":
+            prefix = "internal/"
+        elif language in ("javascript", "typescript"):
+            prefix = "src/"
+        elif language == "python":
+            prefix = "app/"
+        else:
+            prefix = ""
+        entries = [
+            (f"{prefix}models/{domain}_model.{ext}", "model", 2, f"{domain} 数据模型"),
+            (f"{prefix}repositories/{domain}_repository.{ext}", "repository", 3, f"{domain} 数据访问"),
+            (f"{prefix}services/{domain}_service.{ext}", "service", 3, f"{domain} 业务逻辑"),
+            (f"{prefix}controllers/{domain}_controller.{ext}", "api", 3, f"{domain} HTTP 接口"),
+            (f"{prefix}tests/test_{domain}.{ext}", "test", 5, f"{domain} 自动化测试"),
+        ]
+        return [
+            {
+                "path": path,
+                "description": description,
+                "priority": priority,
+                "file_type": file_type,
+                "language": language,
+                "imports": [],
+            }
+            for path, file_type, priority, description in entries
+        ]
+
     def _get_requirement_aware_default_architecture(
         self,
         requirement: str,
@@ -579,6 +744,8 @@ language 字段要求：
     ) -> Dict:
         """架构输出异常时保留需求中明确列出的项目文件。"""
         architecture = self._get_default_architecture(complexity, language, frontend_language)
+        architecture["requirement"] = requirement
+        architecture["used_default_architecture"] = True
         requirement_lower = requirement.lower()
         default_spec = architecture["project_spec"]["default"]
         if "sqlite" in requirement_lower:
@@ -596,6 +763,7 @@ language 字段要求：
             if hint in requirement_lower:
                 default_spec["framework"] = framework
                 break
+        is_ticket_domain = bool(re.search(r"ticket|工单", requirement_lower))
         if re.search(r"\btodos?\b|待办", requirement_lower):
             default_spec["terminology"] = {
                 "todo": "Todo",
@@ -613,7 +781,36 @@ language 字段要求：
                     }
                 }
             }
+        if is_ticket_domain:
+            default_spec["terminology"] = {
+                "ticket": "Ticket",
+                "title": "Title",
+                "description": "Description",
+                "status": "Status",
+                "priority": "Priority",
+                "assignee": "Assignee",
+            }
+            if "sqlite" in requirement_lower:
+                default_spec["storage"] = {"type": "sqlite", "filename": "tickets.db"}
+            architecture["db_schema"] = {
+                "tickets": {
+                    "columns": {
+                        "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+                        "title": "TEXT NOT NULL",
+                        "description": "TEXT",
+                        "status": "TEXT NOT NULL DEFAULT 'open'",
+                        "priority": "TEXT NOT NULL DEFAULT 'medium'",
+                        "assignee": "TEXT",
+                    }
+                }
+            }
         planned_paths = {item["path"] for item in architecture["file_plan"]}
+        if is_ticket_domain:
+            for item in self._domain_file_plan(language, "ticket"):
+                if item["path"] in planned_paths:
+                    continue
+                architecture["file_plan"].append(item)
+                planned_paths.add(item["path"])
         extensions = {"python": "py", "javascript": "js", "typescript": "ts", "go": "go"}
         extension = extensions.get(language, language)
         explicit_paths = re.findall(
@@ -1075,9 +1272,13 @@ language 字段要求：
         if len(all_languages) > 1:
             lang_info += f"\n项目使用多种语言：{', '.join(all_languages)}"
 
+        requirement_text = (architecture.get("requirement") or "").strip()
+        if not requirement_text:
+            requirement_text = architecture.get("project_type", "未知项目")
+
         prompt = f"""请为以下项目补充文件规划。
 
-需求：{architecture.get('project_type', '未知项目')}
+需求：{requirement_text}
 技术栈：{', '.join(architecture.get('tech_stack', complexity.key_technologies))}
 {lang_info}
 
@@ -1115,7 +1316,8 @@ language 字段要求：
 6. 如果已有文件足够完整，返回空的 file_plan 数组
 7. 文件路径中不得包含空格
 8. 如果有前端，确保包含 HTML/CSS/JS 等前端文件
-9. 避免同名文件：新文件不要与已有文件同名，使用更具描述性的名称（如 user_model.py 而非 user.py）"""
+9. 避免同名文件：新文件不要与已有文件同名，使用更具描述性的名称（如 user_model.py 而非 user.py）
+10. 补充文件必须覆盖需求中的核心业务对象，保持与需求领域一致"""
 
         try:
             logger.info(f"架构师调用 LLM | system_prompt={len(self.SYSTEM_PROMPT)} chars, user_prompt={len(prompt)} chars, total={len(self.SYSTEM_PROMPT) + len(prompt)} chars")
