@@ -1,8 +1,8 @@
 # 测试文档
 
-> 最后核对：2026-09-03
+> 最后核对：2026-09-10
 
-本文档以 `.monkeycode/docs/TESTING.md`、`.monkeycode/docs/DEVELOPER_GUIDE.md`、当前测试目录和实际配置为准。文件数与测试定义数是 2026-09-03 的静态清点，验收数字保留原始记录的范围和日期。
+本文档以当前测试目录和实际配置为准。后端与 Web 文件数是 2026-09-03 的静态清点；Flutter 测试是 2026-09-10 的目录清点与运行记录。验收数字保留原始记录的范围和日期。
 
 ## 当前测试版图
 
@@ -14,6 +14,7 @@
 | 浏览器 E2E | `tests/e2e/*.spec.js` | Playwright | 77 个 spec，433 个直接 `test(...)` 定义 |
 | VS Code 单元 | `vscode-extension/test/*.test.mjs` | Node test、TypeScript | `npm --prefix vscode-extension test` |
 | VS Code Host E2E | `vscode-extension/e2e/` | `@vscode/test-electron`、Xvfb | `npm --prefix vscode-extension run e2e` |
+| Flutter 客户端 | `flutter_client/test/**/*_test.dart` | `flutter test` | 15 个文件 |
 
 静态定义数用于描述代码规模，参数化、动态生成、skip 和收集失败会使实际 pytest/Vitest/Playwright 收集结果产生差异。
 
@@ -56,6 +57,12 @@ npm --prefix vscode-extension test
 
 # VS Code Extension Host E2E
 npm --prefix vscode-extension run e2e
+
+# Flutter 静态分析
+cd /workspace/flutter_client && flutter analyze --no-pub
+
+# Flutter 测试
+cd /workspace/flutter_client && flutter test --no-pub --concurrency=1
 ```
 
 根目录 `package.json` 只定义 `test:e2e`。Vite、Vitest、lint 和前端构建脚本位于 `src/package.json`。`Makefile` 的 `make test` 等价于执行项目 pytest 默认收集，`scripts/test.sh` 会执行 `pytest tests/ -v --tb=short`，范围还包含 `tests/` 根部测试文件。
@@ -71,7 +78,14 @@ npm --prefix vscode-extension run e2e
 
 ## 已记录验收结果
 
-### 2026-09-02 至 2026-09-03 当前记录
+### 2026-09-10 Flutter 客户端
+
+- `flutter analyze --no-pub`：`No issues found!`
+- `flutter test --no-pub --concurrency=1`：`All tests passed!`（88）
+- 范围：`flutter_client/test/` 共 15 个文件，覆盖认证、SSE、聊天、编排、GitHub 配置保存、模块生命周期和 widget。
+- 该记录使用 Mock HTTP，不覆盖真实 Provider、GitHub、LLM、Windows 或 Android 真机。
+
+### 2026-09-02 至 2026-09-03 后端与 Web 记录
 
 - 后端 unit/integration 完整回归：`1784 passed, 2 skipped`。该记录覆盖本地基础依赖，不代表生产端口、Nginx、Celery 或多 worker 链路。
 - 前端全量 Vitest：`36 passed`；Vite 生产构建成功。
@@ -93,5 +107,5 @@ npm --prefix vscode-extension run e2e
 - `/api/v1/health` 覆盖数据库和 Redis，未覆盖 Celery worker 在线状态。
 - 进程内 ASGI 测试无法证明真实端口、Nginx、broker、共享产物卷和多 worker 行为。
 - `scripts/verify-integration.sh` 主要提供静态、语法和配置级证据。
-- 模型供应商调用、认证 E2E、PPT Celery、VS Code Extension Host 和跨进程 StateGraph 恢复需要对应环境单独验收。
+- 模型供应商调用、认证 E2E、PPT Celery、VS Code Extension Host、Flutter 真机/桌面联调和跨进程 StateGraph 恢复需要对应环境单独验收。
 - 验收数字必须连同命令、范围、依赖条件和日期引用。

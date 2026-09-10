@@ -1,6 +1,6 @@
 # 项目结构说明
 
-> 最后核对：2026-09-03
+> 最后核对：2026-09-10
 
 本文档描述当前仓库的目录职责、主要入口和配置边界。目录调整遵循“运行代码、测试代码、项目文档、运行数据分区”的原则。
 
@@ -20,6 +20,7 @@ workspace/
 ├── data/                # 模型配置、运行数据、知识库和备份
 ├── migrations/          # 数据库迁移脚本
 ├── vscode-extension/    # VS Code Agent Host、工作台和本地验证扩展
+├── flutter_client/      # Flutter 桌面 Agent 工作台
 ├── docs/                # 面向开发者和运维人员的项目文档
 │   ├── PROJECT-STRUCTURE.md # 项目结构总览
 │   └── ROOT-FILES.md     # 根目录文件分类
@@ -95,6 +96,15 @@ PPTX 渲染优先消费结构化 `content_blocks`，兼容旧 `content` 与 `bul
 - `agent-workbench.ts`、`webview-bridge.ts`、`status-view.ts`：原生工作台、Webview 消息和状态快照。
 - `app/api/v1/agent_host.py`：认证握手、动作、事件、策略、Skills 和 session control 后端端点；队列与确认原子保存到 `data/agent_host_sessions/`。
 
+### Flutter 桌面客户端
+
+- `flutter_client/lib/main.dart`：应用入口与 Riverpod 装配。
+- `flutter_client/lib/domain/`：会话、任务、快照、工作流、PPT、GirlAI 等模型。
+- `flutter_client/lib/application/`：页面状态与编排。
+- `flutter_client/lib/infrastructure/`：`AuthenticatedClient`、SSE、文件上传、GitHub/MCP/管理 API。
+- `flutter_client/lib/presentation/`：16 个页面，含工作台、对话、管理后台和 MCP 管理。
+- 2026-09-10 清点：58 个 `lib/**/*.dart` / 9,149 行。能力与边界见 [Flutter 桌面客户端](features/FLUTTER-CLIENT.md)。
+
 ## 测试结构
 
 - `tests/unit/`：后端模块级测试；2026-09-03 静态清点为 144 个 `test_*.py`。
@@ -102,6 +112,7 @@ PPTX 渲染优先消费结构化 `content_blocks`，兼容旧 `content` 与 `bul
 - `tests/e2e/`：浏览器端到端测试，根目录 `playwright.config.js` 是默认兼容入口。
 - `src/**/*.test.js`：Vitest 前端单元测试，共 15 个文件，配置位于 `src/vite.config.js`。
 - `vscode-extension/test/`、`vscode-extension/e2e/`：Node 原生测试和真实 Extension Host E2E。
+- `flutter_client/test/`：Flutter widget 与 HTTP Mock 测试，15 个 `*_test.dart`。
 - `tests/performance/`：性能和资源相关测试。
 - `tests/manual/`：手工调用真实服务的流程脚本。脚本通过 `TEST_BASE_URL`、`TEST_ADMIN_EMAIL`、`TEST_ADMIN_PASSWORD` 和 `TEST_API_KEY` 读取运行参数。
 - `examples/`：独立示例代码，不参与应用启动和自动化测试。
