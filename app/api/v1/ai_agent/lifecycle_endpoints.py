@@ -6,9 +6,12 @@ from app.db.database import get_db
 from app.db.models import ProjectSession
 from app.services.state_migration_service import (
     archive_project,
+    LocalProjectStorageAdapter,
+    permanently_delete_project,
     restore_project,
     set_project_pinned,
 )
+from app.api.v1.ai_agent.project_config import PROJECTS_BASE_DIR
 from app.utils.security import verify_token
 
 
@@ -44,6 +47,24 @@ async def archive_project_endpoint(
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(error)) from error
     return {"session_id": project.session_id, "lifecycle_status": project.lifecycle_status}
+
+
+@router.delete("/{session_id}")
+async def permanently_delete_project_endpoint(
+    session_id: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    project = await _owned_project(db, session_id, token)
+    try:
+        result = await permanently_delete_project(
+            db, project, LocalProjectStorageAdapter(PROJECTS_BASE_DIR)
+        )
+        await db.commit()
+    except (ValueError, PermissionError, OSError) as error:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return result
 
 
 @router.post("/{session_id}/restore")

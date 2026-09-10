@@ -49,6 +49,34 @@ export function createProjectClient(baseClient) {
       throw new Error('停止会话失败')
     },
 
+    async archiveProject(sessionId) {
+      const response = await client.post(`/agent/projects/${sessionId}/archive`)
+      if (response.ok) return await response.json()
+      throw new Error('归档项目失败')
+    },
+    async deleteProject(sessionId) {
+      const response = await api.delete(`/api/v1/agent/projects/${sessionId}`)
+      return response.data
+    },
+
+    async restoreProject(sessionId) {
+      const response = await client.post(`/agent/projects/${sessionId}/restore`)
+      if (response.ok) return await response.json()
+      throw new Error('恢复项目失败')
+    },
+
+    async pinProject(sessionId) {
+      const response = await client.post(`/agent/projects/${sessionId}/pin`)
+      if (response.ok) return await response.json()
+      throw new Error('固定项目失败')
+    },
+
+    async unpinProject(sessionId) {
+      const response = await client.delete(`/agent/projects/${sessionId}/pin`)
+      if (response.ok) return await response.json()
+      throw new Error('取消固定项目失败')
+    },
+
     async deleteSession(sessionId) {
       const response = await client.delete(`/agent/sessions/${sessionId}`)
       if (response.ok) {

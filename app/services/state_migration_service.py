@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.task import Task
@@ -79,6 +79,26 @@ class LocalProjectStorageAdapter:
             raise ValueError("项目输出路径不是目录")
         shutil.rmtree(path)
         return {"status": "deleted", "path": str(path)}
+
+
+async def permanently_delete_project(
+    db: AsyncSession,
+    project: ProjectSession,
+    project_storage: LocalProjectStorageAdapter,
+) -> dict[str, Any]:
+    """Immediately remove a user-requested project and its retention records."""
+    if project.status == "running" or await db.scalar(select(Task).where(
+        Task.session_id == project.session_id,
+        Task.status.in_(ACTIVE_TASK_STATUSES),
+    )) is not None:
+        raise ValueError("项目仍有活动任务，暂时无法删除")
+    storage_result = await project_storage.delete_project(project, f"user-delete:{project.session_id}")
+    await db.execute(delete(StateRetentionRecord).where(
+        StateRetentionRecord.resource_type == "project",
+        StateRetentionRecord.resource_id == project.session_id,
+    ))
+    await db.delete(project)
+    return {"session_id": project.session_id, "status": "deleted", "storage": storage_result}
 
 
 def _cleanup_key(record: StateRetentionRecord) -> str:
