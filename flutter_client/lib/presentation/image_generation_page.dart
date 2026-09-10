@@ -1,5 +1,7 @@
+// ignore_for_file: curly_braces_in_flow_control_structures
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 import '../application/auth_controller.dart';
 import '../application/image_generation_controller.dart';
 import '../application/provider_key_controller.dart';
@@ -19,6 +21,8 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
   final seed = TextEditingController();
   final form = GlobalKey<FormState>();
   int size = 1024, count = 1;
+  String? referencePath;
+  String? maskPath;
   double steps = 50, guidance = 7.5;
   @override
   void dispose() {
@@ -69,6 +73,79 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                 ),
                 child: const Text('管理 Provider 授权'),
               ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final option in const [
+                    ('avatar', '头像'),
+                    ('landscape', '风景图'),
+                    ('icon', '图标'),
+                  ])
+                    OutlinedButton(
+                      onPressed: enabled
+                          ? () => controller.shortcut(
+                              option.$1,
+                              prompt.text.trim(),
+                              option.$1 == 'icon' ? 'flat' : 'realistic',
+                              key,
+                            )
+                          : null,
+                      child: Text('生成${option.$2}'),
+                    ),
+                ],
+              ),
+              OutlinedButton.icon(
+                onPressed: enabled
+                    ? () async {
+                        final picked = await FilePicker.platform.pickFiles(
+                          type: FileType.image,
+                        );
+                        final path = picked?.files.single.path;
+                        if (path != null && mounted)
+                          setState(() => referencePath = path);
+                      }
+                    : null,
+                icon: const Icon(Icons.image),
+                label: Text(referencePath == null ? '选择参考图' : '已选择参考图'),
+              ),
+              if (referencePath != null)
+                FilledButton.tonal(
+                  onPressed: enabled
+                      ? () => controller.imageToImage(
+                          referencePath!,
+                          prompt.text.trim(),
+                          key,
+                        )
+                      : null,
+                  child: const Text('执行图生图'),
+                ),
+              if (referencePath != null)
+                OutlinedButton.icon(
+                  onPressed: enabled
+                      ? () async {
+                          final picked = await FilePicker.platform.pickFiles(
+                            type: FileType.image,
+                          );
+                          final path = picked?.files.single.path;
+                          if (path != null && mounted)
+                            setState(() => maskPath = path);
+                        }
+                      : null,
+                  icon: const Icon(Icons.brush),
+                  label: Text(maskPath == null ? '选择蒙版' : '已选择蒙版'),
+                ),
+              if (referencePath != null && maskPath != null)
+                FilledButton.tonal(
+                  onPressed: enabled
+                      ? () => controller.inpaint(
+                          referencePath!,
+                          maskPath!,
+                          prompt.text.trim(),
+                          key,
+                        )
+                      : null,
+                  child: const Text('执行局部重绘'),
+                ),
               Form(
                 key: form,
                 child: Column(

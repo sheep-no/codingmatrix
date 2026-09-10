@@ -1,6 +1,6 @@
 # 快速开始
 
-> 最后更新：2026-09-03
+> 最后更新：2026-09-10
 
 ## 环境要求
 
@@ -9,6 +9,7 @@
 - SQLite 默认可用；运行时迁移器也支持 MySQL
 - Redis 用于用户 API Key、共享缓存和 Celery
 - Docker Compose 用于容器化服务，可选
+- Flutter SDK（Dart `^3.9.2`）用于 `flutter_client/` 桌面客户端；未安装时不影响 Web 前后端
 
 ## 安装依赖
 
@@ -78,6 +79,15 @@ npm run dev
 
 Vite 将 `/api/v1`、`/api/v2` 和 WebSocket 请求代理到 `http://localhost:8000`。
 
+```bash
+# 终端 3：启动 Flutter 桌面客户端
+cd /workspace/flutter_client
+flutter pub get
+flutter run -d linux
+```
+
+Flutter 客户端直连后端 `http://localhost:8000`，登录流程与 Web 相同：先取 CSRF 和 RSA 公钥，再提交加密登录载荷。页面与 API 边界见 [Flutter 桌面客户端](../features/FLUTTER-CLIENT.md)。
+
 ## 首次认证
 
 登录、注册和刷新端点均使用 CSRF 依赖。客户端先获取 CSRF Cookie，再在请求头中回传同一 Token。
@@ -114,6 +124,11 @@ npm run test:run
 # 前端生产构建
 cd /workspace/src
 npm run build
+
+# Flutter 静态分析与测试
+cd /workspace/flutter_client
+flutter analyze --no-pub
+flutter test --no-pub --concurrency=1
 ```
 
 前端构建产物位于仓库根目录 `dist/`。容器/Nginx 的产物路径差异记录在 [服务与端口指南](SERVICES.md)。
@@ -125,3 +140,4 @@ npm run build
 - [多供应商配置](MULTI-PROVIDER-SETUP.md)
 - [API Key 指南](API-KEY-GUIDE.md)
 - [安全概览](../security/SECURITY-OVERVIEW.md)
+- [Flutter 桌面客户端](../features/FLUTTER-CLIENT.md)

@@ -1,6 +1,6 @@
 # 根目录文件说明
 
-> 最后核对：2026-09-03
+> 最后核对：2026-09-10
 
 ## 目录结构
 
@@ -43,6 +43,7 @@
 ├── sessions/                    # Agent 会话数据
 ├── skills/                      # Workflow planner Skill
 ├── vscode-extension/            # VS Code Agent Host 扩展
+├── flutter_client/              # Flutter 桌面 Agent 工作台
 ├── pptx_output/                 # PPT 运行产物
 └── uploads/                     # 上传文件
 ```

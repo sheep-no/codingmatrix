@@ -88,4 +88,33 @@ class WorkflowClient {
           as Map,
     ),
   );
+
+  Future<Map<String, dynamic>> importWorkflow(
+    Map<String, dynamic> graph,
+  ) async => Map<String, dynamic>.from(
+    await api.requestJson(
+          '/api/v1/workflow/import',
+          method: 'POST',
+          body: graph,
+        )
+        as Map,
+  );
+  Future<Map<String, dynamic>> exportWorkflow(String id) async =>
+      Map<String, dynamic>.from(
+        await api.requestJson(
+              '/api/v1/workflow/export/${Uri.encodeComponent(id)}',
+            )
+            as Map,
+      );
+  Future<List<Map<String, dynamic>>> history() async => [
+    for (final x
+        in (await api.requestJson('/api/v1/workflow/history') as Map)['items']
+                as List? ??
+            const [])
+      Map<String, dynamic>.from(x),
+  ];
+  Future<void> deleteHistory(String id) async => api.requestJson(
+    '/api/v1/workflow/history/${Uri.encodeComponent(id)}',
+    method: 'DELETE',
+  );
 }

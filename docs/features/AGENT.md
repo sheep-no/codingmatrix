@@ -24,6 +24,7 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 | 模型上下文持久化 | 活跃 | 独立 Task/revision 和 GET/PUT API |
 | Mobile Agent | 活跃 | `/agent` 同页响应式工作台 |
 | VS Code Agent Host | 活跃 | 本地 action、策略、验证、Skills 和会话控制 |
+| Flutter 桌面客户端 | 活跃 | `flutter_client/` 调用 `/api/v1/agent/orchestrate/stream` 等现有接口；详见 [Flutter 桌面客户端](FLUTTER-CLIENT.md) |
 | `POST /api/v1/agent/react` | 废弃文档路径 | 路由未实现，ReAct 由编排入口内部使用 |
 | 多语言依赖解析器 | 独立未接入 | 生产图使用 `dependency_graph.py` 自身解析器 |
 | Web 搜索增强模块 | 独立未接入 | 生产搜索未导入增强模块 |

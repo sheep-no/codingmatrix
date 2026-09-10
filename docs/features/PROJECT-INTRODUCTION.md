@@ -1,8 +1,8 @@
 # CodingMatrix 项目功能介绍
 
-> 最后更新：2026-09-03
+> 最后更新：2026-09-10
 
-CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，覆盖智能对话、项目生成、多 Agent 协作、模型配置、演示文稿生成、AI Cloud 沙箱和知识库等能力。
+CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，另提供 Flutter 桌面客户端，覆盖智能对话、项目生成、多 Agent 协作、模型配置、演示文稿生成、AI Cloud 沙箱和知识库等能力。
 
 ## 核心能力
 
@@ -63,6 +63,14 @@ CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，覆盖智�
 - ECharts 用于图表，Vitest 与 Playwright 用于测试。
 - SSE 和 WebSocket 用于流式响应与任务进度。
 
+### Flutter 桌面客户端
+
+- 源码位于 `flutter_client/`，使用 Riverpod 与四层架构。
+- 已接入对话、GirlAI、PPT、图片生成、工作流、文件中心、模型、动态供应商、任务队列、Agent 历史、GitHub 配置/保存、管理后台和 MCP 管理。
+- GitHub 仅配置与项目保存；仓库列表、分支、提交、推送接口尚未提供。
+
+详见 [Flutter 桌面客户端](FLUTTER-CLIENT.md)。
+
 ## 当前边界
 
 - 动态供应商、统一模型供应商和用户 API Key 供应商是三条独立配置链，生命周期和持久化方式不同。
@@ -75,3 +83,4 @@ CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，覆盖智�
 - [架构设计](../architecture/ARCHITECTURE.md)
 - [API 文档](../api/API-DOCUMENTATION.md)
 - [安全说明](../security/SECURITY-OVERVIEW.md)
+- [Flutter 桌面客户端](FLUTTER-CLIENT.md)

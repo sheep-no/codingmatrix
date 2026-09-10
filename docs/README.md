@@ -1,12 +1,12 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-09-03 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：34 张表 | Alembic：15 个有效迁移文件
+> 最后更新：2026-09-10 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：34 张表 | Alembic：15 个有效迁移文件 | Flutter：58 个 Dart 文件 / 9,149 行
 
-CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，覆盖智能对话、项目生成、多 Agent 协作、模型与供应商配置、PPT 生成、AI Cloud、GirlAI，以及 Web、Mobile 和 VS Code 多端 Agent 工作流。
+CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，覆盖智能对话、项目生成、多 Agent 协作、模型与供应商配置、PPT 生成、AI Cloud、GirlAI，以及 Web、Mobile、VS Code 和 Flutter 桌面多端 Agent 工作流。
 
 ## 文档时效范围
 
-- 本首页及 `architecture/`、`api/`、`features/`、`guides/`、`security/`、`testing/`、`observability/`、`prompts/`、`skills/` 和顶层结构文档描述 2026-09-03 当前项目状态。
+- 本首页及 `architecture/`、`api/`、`features/`、`guides/`、`security/`、`testing/`、`observability/`、`prompts/`、`skills/` 和顶层结构文档描述 2026-09-10 当前项目状态。后端规模数字沿用 2026-09-03 清点；Flutter 客户端规模按 2026-09-10 源码清点。
 - `evolution/`、`.monkeycode/specs/` 和 `versions/` 保存历史规划、功能规格与版本快照，按形成时的历史语义保留；其中的规模、接口和验收数字不代表当前基线。
 - 当前 API 数量采用实际挂载后的路由记录口径；测试数量采用静态测试定义口径。运行结果、依赖条件和验收日期以对应测试文档为准。
 
@@ -14,7 +14,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 
 ### 项目结构
 
-- [项目结构](PROJECT-STRUCTURE.md) - 目录职责、代码分层、统一状态、PPT 与 VS Code Host 结构
+- [项目结构](PROJECT-STRUCTURE.md) - 目录职责、代码分层、统一状态、PPT、VS Code Host 与 Flutter 客户端结构
 - [根目录文件说明](ROOT-FILES.md) - 根目录文件、运行数据和脚本分类
 - [技术债务](TECH-DEBT.md) - 当前技术债务跟踪
 
@@ -28,8 +28,8 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 
 ### 架构
 
-- [系统架构](architecture/ARCHITECTURE.md) - 系统分层、统一状态、PPT 编排和多端 Agent
-- [模块说明](architecture/MODULES.md) - 后端、前端、测试和关键模块清单
+- [系统架构](architecture/ARCHITECTURE.md) - 系统分层、统一状态、PPT 编排和多端 Agent（含 Flutter）
+- [模块说明](architecture/MODULES.md) - 后端、前端、Flutter 客户端、测试和关键模块清单
 - [数据模型与 LLM](architecture/MODELS.md) - 34 张 ORM 表、模型配置和供应商适配器
 - [API 职责矩阵](architecture/API-RESPONSIBILITY-MATRIX.md) - v1/v2 Router 职责和关键执行链
 
@@ -41,6 +41,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 ### Agent 与模型
 
 - [Agent 系统](features/AGENT.md) - Web/Mobile Agent、StateGraph 迁移层、模型上下文和 VS Code Host
+- [Flutter 桌面客户端](features/FLUTTER-CLIENT.md) - `flutter_client/` 分层、16 个页面、GitHub/MCP/管理边界
 - [动态模型路由](features/DYNAMIC-MODEL-ROUTER.md) - 健康感知、熔断、角色分配和学习路由
 - [ReAct 工具调用](features/REACT-TOOL-CALLING.md) - 编排内自主循环、工具注册和事件输出
 - [会话生命周期](features/SESSION-LIFECYCLE.md) - 会话、任务、事件、checkpoint 和恢复
@@ -66,7 +67,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 - [CSRF 防护](security/CSRF-IMPLEMENTATION.md) - Double-submit Cookie 实现与边界
 - [权限规范](security/PERMISSION-SPEC.md) - normal、admin、superadmin 权限模型
 - [测试索引](testing/README.md) - 测试文档入口和运行条件
-- [测试指南](testing/TESTING.md) - pytest、Vitest、Playwright 与 VS Code Extension Host 测试
+- [测试指南](testing/TESTING.md) - pytest、Vitest、Playwright、VS Code Extension Host 与 Flutter 测试
 
 ### 可观测性与提示资源
 
@@ -96,6 +97,9 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 | Composables | 14 个 | `src/composables/` |
 | API Client JS | 19 个 | 前端 API client JavaScript 文件 |
 | 前端源码 | 约 62,953 行 | `src/` 源码静态清点 |
+| Flutter Dart | 58 个文件 / 9,149 行 | `flutter_client/lib/**/*.dart` |
+| Flutter 页面 | 16 个 | `flutter_client/lib/presentation/*_page.dart` |
+| Flutter 测试 | 15 个文件 | `flutter_client/test/**/*_test.dart` |
 
 ### 测试规模
 
@@ -117,7 +121,8 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 | 数据 | SQLAlchemy 2.0 + SQLite + Alembic | 业务、统一状态与迁移 |
 | 缓存与任务 | Redis + Celery + APScheduler | Key、缓存、任务队列和定时任务 |
 | 流式通信 | SSE + WebSocket | Agent 事件、任务进度和系统状态 |
-| 测试 | pytest + Vitest + Playwright + VS Code Extension Host | 后端、前端、浏览器和扩展验证 |
+| 桌面客户端 | Flutter + Riverpod + Dart SDK ^3.9.2 | `flutter_client/` Agent 工作台 |
+| 测试 | pytest + Vitest + Playwright + VS Code Extension Host + Flutter test | 后端、前端、浏览器、扩展和桌面客户端验证 |
 | 部署 | Docker Compose + Nginx | API、Worker、Redis 和前端入口 |
 
 ## 最新能力状态
@@ -131,6 +136,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 | PPT 大纲与质量 | 大纲支持版本化编辑和批准门禁；生成按 `planning -> assets -> rendering -> rule_qa -> reflow -> vision_qa -> completed` 编排，提供质量报告、最多 2 次自动重排和单页重生成 |
 | Mobile Agent | 与 Web Agent 共用 `/agent`、API 和 Store；768px 以下提供单列布局、会话/文件抽屉、遮罩、焦点管理和移动工具栏 |
 | VS Code Agent Host | 协议版本 1 支持 workspace、file、terminal、diagnostics、validation 和 skill runtime，包含握手、动作队列、审批策略、Skill 同步及 pause/resume/cancel |
+| Flutter 桌面客户端 | `flutter_client/` 已接入对话、GirlAI、PPT、图片、工作流、文件、模型、动态供应商、任务、Agent 历史、GitHub 配置/保存、管理后台和 MCP 管理；GitHub 深度操作仍受后端接口限制 |
 | 任务恢复 | SQL Task/Event 为持久化事实源，支持事件重放、worker lease 心跳、retry、recover、取消检查和 checkpoint 恢复 |
 
 ## API 基线
@@ -149,9 +155,14 @@ HTTP schema 以运行时 `/api/openapi.json` 为准；兼容隐藏端点和 WebS
 # 启动后端
 PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+
 # 启动前端
 cd /workspace/src
 npm run dev
+
+# 启动 Flutter 桌面客户端（需本机已配置 Flutter）
+cd /workspace/flutter_client
+flutter run -d linux
 ```
 
 开发环境访问前端 `http://localhost:3000`，后端健康检查位于 `http://localhost:8000/api/v1/health`，Swagger UI 位于 `http://localhost:8000/api/docs`。数据库初始化、迁移和完整验证命令见[快速开始](guides/GETTING-STARTED.md)。

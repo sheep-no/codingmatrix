@@ -1,3 +1,4 @@
+// ignore_for_file: curly_braces_in_flow_control_structures
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/models/image_generation.dart';
 import '../domain/models/provider_key.dart';
@@ -58,6 +59,34 @@ class ImageGenerationController extends StateNotifier<ImageGenerationState> {
     }
   }
 
+  Future<void> shortcut(
+    String mode,
+    String prompt,
+    String style,
+    ProviderKeySummary? key,
+  ) async {
+    if (!mounted ||
+        state.busy ||
+        key == null ||
+        !key.isUsable ||
+        key.provider != 'siliconflow')
+      return;
+    final op = ++_operation;
+    state = const ImageGenerationState(busy: true);
+    try {
+      final result = await client.shortcut(mode, prompt, style);
+      if (!_active(op)) return;
+      state = ImageGenerationState(
+        busy: true,
+        images: result.sources.map((s) => GeneratedImage(source: s)).toList(),
+      );
+      for (var i = 0; i < result.sources.length; i++) await _read(i, op);
+      if (_active(op)) state = ImageGenerationState(images: state.images);
+    } catch (_) {
+      if (_active(op)) state = const ImageGenerationState(error: '快捷图片生成失败');
+    }
+  }
+
   Future<void> _read(int index, int op) async {
     final image = state.images[index];
     GeneratedImage updated;
@@ -76,6 +105,80 @@ class ImageGenerationController extends StateNotifier<ImageGenerationState> {
       busy: state.busy,
       cached: state.cached,
     );
+  }
+
+  Future<void> imageToImage(
+    String imagePath,
+    String prompt,
+    ProviderKeySummary? key,
+  ) async {
+    if (!mounted ||
+        state.busy ||
+        key == null ||
+        !key.isUsable ||
+        prompt.trim().isEmpty)
+      return;
+    final op = ++_operation;
+    state = const ImageGenerationState(busy: true);
+    try {
+      final result = await client.imageToImage(
+        imagePath: imagePath,
+        prompt: prompt,
+        token: key.token,
+      );
+      if (!_active(op)) return;
+      state = ImageGenerationState(
+        busy: true,
+        cached: result.cached,
+        images: result.sources.map((s) => GeneratedImage(source: s)).toList(),
+      );
+      for (var i = 0; i < result.sources.length; i++) await _read(i, op);
+      if (_active(op))
+        state = ImageGenerationState(
+          images: state.images,
+          cached: result.cached,
+        );
+    } catch (_) {
+      if (_active(op)) state = const ImageGenerationState(error: '图生图失败');
+    }
+  }
+
+  Future<void> inpaint(
+    String imagePath,
+    String maskPath,
+    String prompt,
+    ProviderKeySummary? key,
+  ) async {
+    if (!mounted ||
+        state.busy ||
+        key == null ||
+        !key.isUsable ||
+        prompt.trim().isEmpty)
+      return;
+    final op = ++_operation;
+    state = const ImageGenerationState(busy: true);
+    try {
+      final result = await client.inpaint(
+        imagePath: imagePath,
+        maskPath: maskPath,
+        prompt: prompt,
+        token: key.token,
+      );
+      if (!_active(op)) return;
+      state = ImageGenerationState(
+        busy: true,
+        cached: result.cached,
+        images: result.sources.map((s) => GeneratedImage(source: s)).toList(),
+      );
+      for (var i = 0; i < result.sources.length; i++) await _read(i, op);
+      if (_active(op))
+        state = ImageGenerationState(
+          images: state.images,
+          cached: result.cached,
+        );
+    } catch (_) {
+      if (_active(op)) state = const ImageGenerationState(error: '局部重绘失败');
+    }
   }
 
   Future<void> reload(int index) async {
