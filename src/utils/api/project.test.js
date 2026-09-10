@@ -49,6 +49,24 @@ describe('project model context client', () => {
     expect(baseClient.delete).toHaveBeenCalledWith('/agent/projects/project-1')
   })
 
+  it('keeps reclaim errors distinguishable for 404 and 409', async () => {
+    const missing = createProjectClient({
+      delete: vi.fn().mockResolvedValue({ ok: false, status: 404 })
+    })
+    await expect(missing.reclaimProject('gone')).rejects.toMatchObject({
+      message: '项目不存在',
+      status: 404
+    })
+
+    const busy = createProjectClient({
+      delete: vi.fn().mockResolvedValue({ ok: false, status: 409 })
+    })
+    await expect(busy.reclaimProject('busy')).rejects.toMatchObject({
+      message: '删除项目失败',
+      status: 409
+    })
+  })
+
   it('reads and updates session model context', async () => {
     const context = { current_model: 'model-a', expected_revision: 3 }
     const baseClient = {
