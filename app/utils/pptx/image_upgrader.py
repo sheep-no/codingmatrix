@@ -1355,11 +1355,11 @@ class ImageStrategy:
                 for source in order:
                     try:
                         if source == "unsplash":
-                            results = await asyncio.to_thread(self._unsplash.search_images, query, 5, 0.3)
+                            results = self._unsplash.search_images(query, 5, 0.3)
                         elif source == "pexels":
-                            results = await asyncio.to_thread(self._pexels.search_images, query, 5, 0.3)
+                            results = self._pexels.search_images(query, 5, 0.3)
                         elif source == "pixabay":
-                            results = await asyncio.to_thread(self._pixabay.search_images, query, 5, 0.3)
+                            results = self._pixabay.search_images(query, 5, 0.3)
                         else:
                             results = []
                         source_results_list.append([{"source": source, **r} for r in results])
@@ -1374,11 +1374,11 @@ class ImageStrategy:
             for source in order:
                 try:
                     if source == "unsplash":
-                        results = await asyncio.to_thread(self._unsplash.search_images, query, 5, 0.3)
+                        results = self._unsplash.search_images(query, 5, 0.3)
                     elif source == "pexels":
-                        results = await asyncio.to_thread(self._pexels.search_images, query, 5, 0.3)
+                        results = self._pexels.search_images(query, 5, 0.3)
                     elif source == "pixabay":
-                        results = await asyncio.to_thread(self._pixabay.search_images, query, 5, 0.3)
+                        results = self._pixabay.search_images(query, 5, 0.3)
                     else:
                         results = []
                     source_results_list.append([{"source": source, **r} for r in results])

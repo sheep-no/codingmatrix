@@ -28,7 +28,7 @@
           </option>
         </select>
         <button class="btn btn-sm btn-outline" title="新建会话" @click="$emit('new-session')">新建</button>
-        <button v-if="sessionId" class="btn btn-sm btn-danger" title="删除会话" @click="$emit('delete-session', sessionId)">删除</button>
+        <button v-if="sessionId" class="btn btn-sm btn-danger" title="删除并清理" @click="$emit('delete-session', sessionId)">删除并清理</button>
       </div>
     </div>
   </div>

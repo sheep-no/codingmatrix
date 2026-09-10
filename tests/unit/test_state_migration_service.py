@@ -15,6 +15,7 @@ from app.services.state_migration_service import (
     archive_project,
     create_retention_record,
     evaluate_project_lifecycle,
+    permanently_delete_project,
     process_retention_records,
     resolve_compatibility_mapping,
     restore_project,
@@ -352,3 +353,90 @@ async def test_project_archive_restore_and_pin_are_idempotent(db):
     unpinned = await set_project_pinned(db, project.session_id, False)
     assert unpinned.pinned is False
     assert record.eligible_at == unpinned.last_activity_at
+
+
+@pytest.mark.asyncio
+async def test_user_reclaim_deletes_project_directory_and_record(db, tmp_path):
+    project_dir = tmp_path / "1" / "reclaim-me"
+    project_dir.mkdir(parents=True)
+    (project_dir / "main.py").write_text("print('hi')\n")
+    project = ProjectSession(
+        session_id="reclaim-me",
+        user_id="1",
+        requirement="hello",
+        output_dir="1/reclaim-me",
+        status="completed",
+        lifecycle_status="active",
+    )
+    db.add(project)
+    await db.flush()
+    await create_retention_record(db, "project", project.session_id, "project_standard")
+
+    result = await permanently_delete_project(db, project, LocalProjectStorageAdapter(tmp_path))
+    await db.flush()
+
+    assert result["status"] == "deleted"
+    assert not project_dir.exists()
+    remaining = await db.scalar(select(ProjectSession).where(ProjectSession.session_id == "reclaim-me"))
+    assert remaining is None
+    leftover = await db.scalar(
+        select(StateRetentionRecord).where(StateRetentionRecord.resource_id == "reclaim-me")
+    )
+    assert leftover is None
+
+
+@pytest.mark.asyncio
+async def test_user_reclaim_rejects_running_project(db, tmp_path):
+    project_dir = tmp_path / "1" / "running-project"
+    project_dir.mkdir(parents=True)
+    project = ProjectSession(
+        session_id="running-project",
+        user_id="1",
+        requirement="busy",
+        output_dir="1/running-project",
+        status="running",
+        lifecycle_status="active",
+    )
+    db.add(project)
+    await db.flush()
+
+    from app.api.v1.ai_agent import orchestrate_endpoints
+
+    class _LiveTask:
+        def done(self):
+            return False
+
+    orchestrate_endpoints._active_tasks["running-project"] = {"gen_task": _LiveTask()}
+    try:
+        with pytest.raises(ValueError, match="活动任务"):
+            await permanently_delete_project(db, project, LocalProjectStorageAdapter(tmp_path))
+        assert project_dir.exists()
+        kept = await db.scalar(select(ProjectSession).where(ProjectSession.session_id == "running-project"))
+        assert kept is not None
+    finally:
+        orchestrate_endpoints._active_tasks.pop("running-project", None)
+
+
+@pytest.mark.asyncio
+async def test_user_reclaim_deletes_stale_running_project(db, tmp_path):
+    project_dir = tmp_path / "1" / "stale-running"
+    project_dir.mkdir(parents=True)
+    (project_dir / "app.py").write_text("print('done')\n")
+    project = ProjectSession(
+        session_id="stale-running",
+        user_id="1",
+        requirement="hello",
+        output_dir="1/stale-running",
+        status="running",
+        lifecycle_status="active",
+    )
+    db.add(project)
+    await db.flush()
+
+    result = await permanently_delete_project(db, project, LocalProjectStorageAdapter(tmp_path))
+    await db.flush()
+
+    assert result["status"] == "deleted"
+    assert not project_dir.exists()
+    remaining = await db.scalar(select(ProjectSession).where(ProjectSession.session_id == "stale-running"))
+    assert remaining is None

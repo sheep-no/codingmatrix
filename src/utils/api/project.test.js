@@ -34,6 +34,21 @@ describe('project model context client', () => {
     expect(baseClient.delete).toHaveBeenCalledWith('/agent/projects/project-1/pin')
   })
 
+  it('reclaims a hosted project immediately', async () => {
+    const baseClient = {
+      delete: vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ session_id: 'project-1', status: 'deleted' })
+      })
+    }
+    const client = createProjectClient(baseClient)
+
+    await expect(client.reclaimProject('project-1')).resolves.toEqual({
+      session_id: 'project-1', status: 'deleted'
+    })
+    expect(baseClient.delete).toHaveBeenCalledWith('/agent/projects/project-1')
+  })
+
   it('reads and updates session model context', async () => {
     const context = { current_model: 'model-a', expected_revision: 3 }
     const baseClient = {

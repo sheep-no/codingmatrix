@@ -18,7 +18,8 @@ function mountAgentDashboard() {
     getLearningStats: vi.fn().mockResolvedValue({}),
     listSkills: vi.fn().mockResolvedValue([]),
     listAgentHostSessions: vi.fn().mockResolvedValue([]),
-    get: vi.fn().mockResolvedValue({ ok: true, json: async () => ({ providers: [] }) })
+    get: vi.fn().mockResolvedValue({ ok: true, json: async () => ({ providers: [] }) }),
+    reclaimProject: vi.fn().mockResolvedValue({ session_id: 'project-1', status: 'deleted' })
   }
 
   return shallowMount(AgentDashboard, {

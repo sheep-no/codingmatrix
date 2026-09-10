@@ -21,7 +21,12 @@ from app.api.v1.agent_host import (
     list_agent_host_sessions,
     AgentHostActionAckRequest,
     acknowledge_agent_host_action,
+    agent_host_heartbeat,
 )
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.db.models import ProjectSession
+from app.models.base import Base
 from app.agent.state import StateDelta, StateGraphBuilder
 import app.agent.workflow_registry as workflow_registry
 from app.agent.workflow_registry import (
@@ -494,3 +499,82 @@ async def test_tool_result_rebuilds_workflow_from_registered_factory() -> None:
     )
 
     assert state.metadata["factory_continued"] is True
+
+
+@pytest.fixture
+async def host_db():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_agent_host_heartbeat_marks_project_active(host_db) -> None:
+    stale = datetime.now(timezone.utc) - timedelta(hours=3)
+    project = ProjectSession(
+        session_id="host-project-7",
+        user_id="7",
+        requirement="keep alive",
+        output_dir="7/host-project-7",
+        status="completed",
+        lifecycle_status="idle",
+        last_activity_at=stale,
+    )
+    host_db.add(project)
+    await host_db.flush()
+
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="host-project-7",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["workspace"],
+        ),
+        {"sub": "7"},
+    )
+    result = await agent_host_heartbeat(handshake.session_id, {"sub": "7"}, host_db)
+    await host_db.refresh(project)
+
+    assert result["session_id"] == handshake.session_id
+    assert result["project_session_id"] == "host-project-7"
+    assert result["status"] == "active"
+    assert project.lifecycle_status == "active"
+    assert project.last_activity_at.replace(tzinfo=None) > stale.replace(tzinfo=None)
+
+
+@pytest.mark.asyncio
+async def test_agent_host_heartbeat_requires_owned_project(host_db) -> None:
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="missing-project",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["workspace"],
+        ),
+        {"sub": "7"},
+    )
+
+    with pytest.raises(HTTPException) as error:
+        await agent_host_heartbeat(handshake.session_id, {"sub": "7"}, host_db)
+    assert error.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_agent_host_heartbeat_rejects_non_numeric_user() -> None:
+    handshake = await agent_host_handshake(
+        HostHandshakeRequest(
+            workspace_id="workspace-non-numeric",
+            extension_version="0.1.0",
+            protocol_versions=[1],
+            capabilities=["workspace"],
+        ),
+        {"sub": "user-1"},
+    )
+
+    with pytest.raises(HTTPException) as error:
+        await agent_host_heartbeat(handshake.session_id, {"sub": "user-1"}, None)
+    assert error.value.status_code == 403

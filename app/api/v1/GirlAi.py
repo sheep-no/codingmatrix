@@ -1305,8 +1305,6 @@ async def delete_history(
             await db.commit()
             logger.info(f"删除历史记录 | user_id={user_id} | deleted={deleted_count}")
             return {"status": "deleted", "count": deleted_count, "ids": record_ids}
-        else:
-            raise HTTPException(status_code=400, detail="请提供 record_ids 或 delete_all=true")
 
     except HTTPException:
         raise

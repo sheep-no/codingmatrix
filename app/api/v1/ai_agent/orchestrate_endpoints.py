@@ -1186,6 +1186,7 @@ async def orchestrate_project_stream(
                     # 检查是否在生成完成后被取消（stop_project 竞态保护）
                     if cancel_event.is_set():
                         logger.info(f"[SSE] 生成完成后检测到取消信号，跳过 complete_session | session={session_id}")
+                        await sm.cancel_session(session_id)
                         await queue.put(f"data: {json.dumps({'type': 'cancelled', 'data': {'message': '项目已停止'}}, ensure_ascii=False)}\n\n")
                         return
                     result_error = _generation_result_error(result)
@@ -1202,6 +1203,10 @@ async def orchestrate_project_stream(
                     await sm.complete_session(session_id, files_generated=files_generated, files_total=files_total)
                     result = {**result, "project_path": output_dir, "session_id": session_id}
                     await queue.put(f"data: {json.dumps({'type': 'done', 'data': result}, ensure_ascii=False)}\n\n")
+                except asyncio.CancelledError:
+                    logger.info(f"[SSE] 生成任务被取消 | session={session_id}")
+                    await sm.cancel_session(session_id)
+                    raise
                 except Exception as e:
                     logger.error(f"[SSE] Orchestrator 流式生成失败: {e}", exc_info=True)
                     await sm.complete_session(session_id, errors=[str(e)])

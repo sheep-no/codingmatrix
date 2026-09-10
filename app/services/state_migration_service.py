@@ -9,6 +9,7 @@ from typing import Any, Optional, Protocol
 
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import OperationalError
 
 from app.models.task import Task
 from app.db.models import ProjectSession
@@ -81,22 +82,44 @@ class LocalProjectStorageAdapter:
         return {"status": "deleted", "path": str(path)}
 
 
+def _generation_is_active(session_id: str) -> bool:
+    """True only when an in-memory generation task is still running."""
+    try:
+        from app.api.v1.ai_agent.orchestrate_endpoints import _active_tasks
+    except Exception:
+        return False
+    active = _active_tasks.get(session_id)
+    if not active:
+        return False
+    gen_task = active.get("gen_task")
+    return gen_task is not None and not gen_task.done()
+
+
 async def permanently_delete_project(
     db: AsyncSession,
     project: ProjectSession,
     project_storage: LocalProjectStorageAdapter,
 ) -> dict[str, Any]:
     """Immediately remove a user-requested project and its retention records."""
-    if project.status == "running" or await db.scalar(select(Task).where(
-        Task.session_id == project.session_id,
-        Task.status.in_(ACTIVE_TASK_STATUSES),
-    )) is not None:
+    if _generation_is_active(project.session_id):
+        raise ValueError("项目仍有活动任务，暂时无法删除")
+    try:
+        active_task = await db.scalar(select(Task.task_id).where(
+            Task.session_id == project.session_id,
+            Task.status.in_(ACTIVE_TASK_STATUSES),
+        ))
+    except OperationalError:
+        active_task = None
+    if active_task is not None:
         raise ValueError("项目仍有活动任务，暂时无法删除")
     storage_result = await project_storage.delete_project(project, f"user-delete:{project.session_id}")
-    await db.execute(delete(StateRetentionRecord).where(
-        StateRetentionRecord.resource_type == "project",
-        StateRetentionRecord.resource_id == project.session_id,
-    ))
+    try:
+        await db.execute(delete(StateRetentionRecord).where(
+            StateRetentionRecord.resource_type == "project",
+            StateRetentionRecord.resource_id == project.session_id,
+        ))
+    except OperationalError:
+        pass
     await db.delete(project)
     return {"session_id": project.session_id, "status": "deleted", "storage": storage_result}
 

@@ -54,9 +54,12 @@ export function createProjectClient(baseClient) {
       if (response.ok) return await response.json()
       throw new Error('归档项目失败')
     },
-    async deleteProject(sessionId) {
-      const response = await api.delete(`/api/v1/agent/projects/${sessionId}`)
-      return response.data
+    async reclaimProject(sessionId) {
+      const response = await client.delete(`/agent/projects/${sessionId}`)
+      if (response.ok) return await response.json()
+      const error = new Error(response.status === 404 ? '项目不存在' : '删除项目失败')
+      error.status = response.status
+      throw error
     },
 
     async restoreProject(sessionId) {

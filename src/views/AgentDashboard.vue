@@ -435,16 +435,40 @@ const doSwitchSession = async (id) => {
   }
   return true
 }
-const doDeleteSession = (id) => {
+const doDeleteSession = async (id) => {
   if (generation.isGenerating) {
     ElMessage.warning('项目生成期间无法删除会话')
     return false
   }
-  return session.deleteSession(id, () => {
+  const wasCurrent = session.currentSessionId === id
+  try {
+    await ElMessageBox.confirm(
+      '将立即删除该托管项目及其文件，无法恢复。',
+      '删除并清理',
+      { confirmButtonText: '删除并清理', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return false
+  }
+  if (typeof projectApi.reclaimProject === 'function') {
+    try {
+      await projectApi.reclaimProject(id)
+    } catch (error) {
+      if (error.status !== 404) {
+        ElMessage.error(error.message || '删除项目失败')
+        return false
+      }
+    }
+  }
+  session.deleteSession(id)
+  if (wasCurrent) {
     files.clearAll()
     workspace.logs = []
     workspace.thinkingMessages = []
-  })
+    workspace.currentProjectPath = null
+  }
+  ElMessage.success('项目已删除')
+  return true
 }
 
 // ========== File Operations ==========
