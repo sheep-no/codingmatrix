@@ -2224,6 +2224,39 @@ async def test_design_architecture_retries_empty_output_with_thinking_disabled()
 
 
 @pytest.mark.asyncio
+async def test_design_architecture_uses_default_when_retry_times_out():
+    architect = object.__new__(Architect)
+    architect.model_name = "test-model"
+    architect.json_parser = types.SimpleNamespace(safe_parse_json=lambda text: {})
+    calls = []
+
+    async def fake_call(prompt, system_prompt="", stream=False, thinking_budget=None):
+        calls.append(thinking_budget)
+        if thinking_budget == 0:
+            raise TimeoutError("LLM 调用超时 (300s): Qwen/Qwen3-8B")
+        return ""
+
+    architect.call_llm = fake_call
+    result = await architect.design_architecture(
+        "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+        types.SimpleNamespace(
+            level=types.SimpleNamespace(value="medium"),
+            estimated_files=12,
+            has_frontend=False,
+            has_backend=True,
+            has_database=True,
+            key_technologies=["FastAPI"],
+            risk_factors=[],
+        ),
+    )
+
+    assert calls == [None, 0]
+    assert result["used_default_architecture"] is True
+    assert "tickets" in result["db_schema"]
+    assert "main.py" in {item["path"] for item in result["file_plan"]}
+
+
+@pytest.mark.asyncio
 async def test_validate_project_completeness_treats_missing_disk_file_as_incomplete(tmp_path):
     from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
 

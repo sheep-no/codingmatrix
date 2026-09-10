@@ -249,21 +249,33 @@ language 字段要求：
         logger.info(f"架构师调用 LLM | system_prompt={len(self.SYSTEM_PROMPT)} chars, user_prompt={len(prompt)} chars, total={len(self.SYSTEM_PROMPT) + len(prompt)} chars")
 
         # 使用流式 thinking 调用 LLM
-        if callback:
-            response = await self.call_llm_with_tools(
-                prompt, self.SYSTEM_PROMPT,
-                tools={},  # 架构师不需要工具
-                enable_streaming_thinking=True,
-                callback=callback,
+        try:
+            if callback:
+                response = await self.call_llm_with_tools(
+                    prompt, self.SYSTEM_PROMPT,
+                    tools={},  # 架构师不需要工具
+                    enable_streaming_thinking=True,
+                    callback=callback,
+                )
+            else:
+                response = await self.call_llm(prompt, self.SYSTEM_PROMPT)
+        except Exception as exc:
+            logger.warning("架构师首次调用失败，返回默认架构: %s", exc)
+            return self._get_requirement_aware_default_architecture(
+                requirement, complexity, target_language, frontend_language
             )
-        else:
-            response = await self.call_llm(prompt, self.SYSTEM_PROMPT)
 
         if not response or not str(response).strip():
             logger.warning("架构师输出为空，禁用思考后重试一次")
-            response = await self.call_llm(
-                prompt, self.SYSTEM_PROMPT, thinking_budget=0
-            )
+            try:
+                response = await self.call_llm(
+                    prompt, self.SYSTEM_PROMPT, thinking_budget=0
+                )
+            except Exception as exc:
+                logger.warning("架构师重试失败，返回默认架构: %s", exc)
+                return self._get_requirement_aware_default_architecture(
+                    requirement, complexity, target_language, frontend_language
+                )
 
         logger.info(
             "架构响应审计: model=%s response_type=%s response_chars=%d has_json_marker=%s",
