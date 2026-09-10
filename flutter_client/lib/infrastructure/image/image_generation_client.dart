@@ -40,6 +40,73 @@ class ImageGenerationClient {
     );
   }
 
+  Future<ImageGenerationResult> shortcut(
+    String mode,
+    String prompt,
+    String style,
+  ) async {
+    final result = await api.requestJson(
+      '/api/v1/kolors/$mode',
+      method: 'POST',
+      body: {'prompt': prompt, 'style': style},
+    );
+    if (result is! Map || result['success'] != true) throw StateError('生成失败');
+    final sources =
+        result['images'] is List && (result['images'] as List).isNotEmpty
+        ? result['images']
+        : result['paths'];
+    if (sources is! List || sources.isEmpty) throw StateError('图片结果无效');
+    return ImageGenerationResult([for (final x in sources) '$x'], false);
+  }
+
+  Future<ImageGenerationResult> imageToImage({
+    required String imagePath,
+    required String prompt,
+    required String token,
+  }) async {
+    final result = await api.requestJson(
+      '/api/v1/kolors/image-to-image',
+      method: 'POST',
+      body: {'image_path': imagePath, 'prompt': prompt, 'api_key_token': token},
+    );
+    if (result is! Map || result['success'] != true) throw StateError('图生图失败');
+    final sources =
+        result['images'] is List && (result['images'] as List).isNotEmpty
+        ? result['images']
+        : result['paths'];
+    if (sources is! List || sources.isEmpty) throw StateError('图片结果无效');
+    return ImageGenerationResult([
+      for (final x in sources) '$x',
+    ], result['cached'] == true);
+  }
+
+  Future<ImageGenerationResult> inpaint({
+    required String imagePath,
+    required String maskPath,
+    required String prompt,
+    required String token,
+  }) async {
+    final result = await api.requestJson(
+      '/api/v1/kolors/inpaint',
+      method: 'POST',
+      body: {
+        'image_path': imagePath,
+        'mask_path': maskPath,
+        'prompt': prompt,
+        'api_key_token': token,
+      },
+    );
+    if (result is! Map || result['success'] != true) throw StateError('局部重绘失败');
+    final sources =
+        result['images'] is List && (result['images'] as List).isNotEmpty
+        ? result['images']
+        : result['paths'];
+    if (sources is! List || sources.isEmpty) throw StateError('图片结果无效');
+    return ImageGenerationResult([
+      for (final x in sources) '$x',
+    ], result['cached'] == true);
+  }
+
   Future<Uint8List> read(String source) async {
     if (source.startsWith('data:image/')) {
       if (source.length > maxBytes * 4 ~/ 3 + 128) throw StateError('图片过大');

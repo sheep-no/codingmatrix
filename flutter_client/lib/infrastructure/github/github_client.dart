@@ -26,4 +26,37 @@ class GithubClient {
     }
     return GithubBinding.fromJson(Map<String, dynamic>.from(result));
   }
+
+  Future<Map<String, dynamic>> saveProject({
+    required String projectName,
+    required String projectDescription,
+    required String projectData,
+    required GithubConfigData config,
+  }) async => Map<String, dynamic>.from(
+    await api.requestJson(
+          '/api/v1/github/save',
+          method: 'POST',
+          body: {
+            'project_name': projectName,
+            'project_description': projectDescription,
+            'project_data': projectData,
+            'github_config': {
+              'username': config.username,
+              'token': config.token,
+              'use_github': config.useGithub,
+            },
+          },
+        )
+        as Map,
+  );
+}
+
+class GithubConfigData {
+  const GithubConfigData({
+    required this.username,
+    required this.token,
+    required this.useGithub,
+  });
+  final String username, token;
+  final bool useGithub;
 }

@@ -37,4 +37,30 @@ class AgentSessionClient {
           as Map,
     ),
   );
+
+  Future<List<Map<String, dynamic>>> snapshots(String id) async {
+    final value =
+        await api.requestJson(
+              '/api/v1/agent/snapshots/${Uri.encodeComponent(id)}',
+            )
+            as Map;
+    return [
+      for (final item in (value['snapshots'] as List? ?? const []))
+        Map<String, dynamic>.from(item),
+    ];
+  }
+
+  Future<void> rollback(String id, String tag) async => api.requestJson(
+    '/api/v1/agent/rollback/${Uri.encodeComponent(id)}?target_tag=${Uri.encodeQueryComponent(tag)}',
+    method: 'POST',
+  );
+
+  Future<String> diff(String id, String fromTag, String toTag) async {
+    final value =
+        await api.requestJson(
+              '/api/v1/agent/snapshot/diff?session_id=${Uri.encodeQueryComponent(id)}&from_tag=${Uri.encodeQueryComponent(fromTag)}&to_tag=${Uri.encodeQueryComponent(toTag)}',
+            )
+            as Map;
+    return '${value['diff'] ?? ''}';
+  }
 }
