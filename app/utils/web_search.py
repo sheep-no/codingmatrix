@@ -18,8 +18,10 @@
 import logging
 import asyncio
 import os
+import base64
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse, urljoin, unquote
 import httpx
 from bs4 import BeautifulSoup
 import re
@@ -70,6 +72,443 @@ class SearchResult:
         return context
 
 
+
+_EN_STOP = {
+    "the", "and", "for", "with", "from", "that", "this", "what", "how",
+    "are", "was", "new", "into", "about",
+}
+_CJK_STOP = {
+    "的", "了", "是", "在", "和", "与", "或", "吗", "呢", "吧",
+    "什么", "怎么", "如何", "一下", "这个", "那个",
+    "年", "月", "日",
+}
+_GENERIC_CJK = {
+    "时间", "开放", "今天", "最新", "查询", "介绍", "网站", "信息",
+    "内容", "相关", "使用", "可以", "问题", "方法", "官方",
+    "今年", "去年", "明年", "本月", "本周", "昨天", "明天", "现在", "目前",
+    "中国", "全国", "我国", "国内", "数据",
+}
+_CJK_STOP_CHARS = set("的了是在和与或吗呢吧年月")
+
+
+def extract_query_terms(query: str) -> Dict[str, List[str]]:
+    """Split a query into versions, English tokens, and CJK pieces."""
+    text = (query or "").strip()
+    versions = re.findall(r"\d+(?:\.\d+)+", text)
+    english = [
+        word.lower()
+        for word in re.findall(r"[A-Za-z][A-Za-z0-9+\-]{1,}", text)
+        if word.lower() not in _EN_STOP
+    ]
+    cjk: List[str] = []
+    for run in re.findall(r"[\u4e00-\u9fff]+", text):
+        cjk.extend(_split_cjk_run(run))
+    return {
+        "versions": _unique(versions),
+        "english": _unique(english),
+        "cjk": _unique([piece for piece in cjk if piece not in _CJK_STOP]),
+    }
+
+
+def _split_cjk_run(run: str) -> List[str]:
+    """Break a CJK run on stop characters before taking 2-char pieces."""
+    parts: List[str] = []
+    buf: List[str] = []
+    for char in run:
+        if char in _CJK_STOP_CHARS:
+            if buf:
+                parts.append("".join(buf))
+                buf = []
+        else:
+            buf.append(char)
+    if buf:
+        parts.append("".join(buf))
+
+    pieces: List[str] = []
+    for part in parts:
+        if not part or part in _CJK_STOP:
+            continue
+        if len(part) <= 3:
+            pieces.append(part)
+            continue
+        for index in range(0, len(part) - 1, 2):
+            pieces.append(part[index:index + 2])
+        if len(part) % 2 == 1:
+            pieces.append(part[-2:])
+    return pieces
+
+
+def expand_relative_time(text: str, now: datetime | None = None) -> str:
+    """Replace 今年/今天/本月 with concrete calendar values for search queries."""
+    current = now or datetime.now()
+    monday = current - timedelta(days=current.weekday())
+    sunday = monday + timedelta(days=6)
+    replacements = (
+        ("最近五年", f"{current.year - 4}年至{current.year}年"),
+        ("最近三年", f"{current.year - 2}年至{current.year}年"),
+        ("最近两年", f"{current.year - 1}年至{current.year}年"),
+        ("过去五年", f"{current.year - 4}年至{current.year}年"),
+        ("过去三年", f"{current.year - 2}年至{current.year}年"),
+        ("近五年", f"{current.year - 4}年至{current.year}年"),
+        ("近三年", f"{current.year - 2}年至{current.year}年"),
+        ("近两年", f"{current.year - 1}年至{current.year}年"),
+        ("这个月", f"{current.year}年{current.month}月"),
+        ("本月", f"{current.year}年{current.month}月"),
+        ("本周", f"{monday.strftime('%Y年%m月%d日')}至{sunday.strftime('%Y年%m月%d日')}"),
+        ("今天", current.strftime("%Y年%m月%d日")),
+        ("昨天", (current - timedelta(days=1)).strftime("%Y年%m月%d日")),
+        ("明天", (current + timedelta(days=1)).strftime("%Y年%m月%d日")),
+        ("前几年", f"{current.year - 3}年至{current.year - 1}年"),
+        ("近几年", f"{current.year - 3}年至{current.year}年"),
+        ("今年", f"{current.year}年"),
+        ("去年", f"{current.year - 1}年"),
+        ("明年", f"{current.year + 1}年"),
+    )
+    expanded = text or ""
+    for source, dest in replacements:
+        if source in expanded:
+            expanded = expanded.replace(source, dest)
+    return expanded
+
+
+def extract_named_entity(query: str) -> str:
+    """Split a Chinese topic from its aspect using 的/之, not org-type suffixes."""
+    expanded = expand_relative_time(query or "")
+    compact = re.sub(r"\s+", "", expanded)
+    for sep in ("的", "之"):
+        if sep not in compact:
+            continue
+        left, right = compact.split(sep, 1)
+        left = _strip_time_marks(left)
+        right = _strip_time_marks(right)
+        if _is_entity_name(left) and right:
+            return left
+    parts = [part for part in re.split(r"\s+", expanded) if part]
+    if len(parts) >= 2:
+        head = _strip_time_marks(parts[0])
+        rest = "".join(parts[1:])
+        if (
+            _is_entity_name(head)
+            and re.search(r"[\u4e00-\u9fff]", head)
+            and re.search(r"[\u4e00-\u9fffA-Za-z0-9]", rest)
+        ):
+            return head
+    return ""
+
+
+def _strip_time_marks(text: str) -> str:
+    cleaned = expand_relative_time(text or "")
+    cleaned = re.sub(r"\d{4}年?", "", cleaned)
+    return re.sub(r"[至\s]+", "", cleaned)
+
+
+def _is_entity_name(text: str) -> bool:
+    name = (text or "").strip()
+    if not 2 <= len(name) <= 24:
+        return False
+    if re.fullmatch(r"\d{4}年?", name):
+        return False
+    if name in _GENERIC_CJK:
+        return False
+    return bool(re.search(r"[\u4e00-\u9fffA-Za-z]", name))
+
+
+def aspect_tokens(query: str, entity: str) -> List[str]:
+    """CJK tokens that remain after removing the named entity and calendar spans."""
+    rest = (query or "").replace(entity or "", " ")
+    rest = expand_relative_time(rest)
+    rest = re.sub(r"\d{4}年?", " ", rest)
+    rest = re.sub(r"[至的了和与]", " ", rest)
+    tokens = [
+        token
+        for token in extract_query_terms(rest).get("cjk") or []
+        if token not in _GENERIC_CJK
+    ]
+    return _unique(tokens)
+
+
+def is_aggregator_host(host: str) -> bool:
+    """Search/encyclopedia hosts are not treated as the entity's own site."""
+    normalized = (host or "").lower().removeprefix("www.")
+    suffixes = (
+        "baike.baidu.com",
+        "baidu.com",
+        "zhihu.com",
+        "wikipedia.org",
+        "bing.com",
+        "google.com",
+        "google.com.hk",
+        "sogou.com",
+        "so.com",
+        "duckduckgo.com",
+        "microsoft.com",
+    )
+    return any(normalized == item or normalized.endswith("." + item) for item in suffixes)
+
+
+def _org_labels(host: str) -> List[str]:
+    host = (host or "").lower().removeprefix("www.")
+    for suffix in (".edu.cn", ".gov.cn", ".org.cn", ".com.cn"):
+        if host.endswith(suffix):
+            return host[: -len(suffix)].split(".")
+    if host.endswith(".cn"):
+        return host[:-3].split(".")
+    if "." in host:
+        return host.rsplit(".", 1)[0].split(".")
+    return [host] if host else []
+
+
+def same_org_host(candidate: str, official: str) -> bool:
+    """True when a link host belongs to the same org as an official search hit."""
+    cand = _org_labels(candidate)
+    off = _org_labels(official)
+    if not cand or not off:
+        return False
+    key = off[-1]
+    return len(key) >= 3 and key == cand[-1]
+
+
+def decode_openexternallink(href: str) -> str:
+    """Decode school-site javascript:openexternallink('base64') targets."""
+    match = re.search(r"openexternallink\('([^']+)'\)", href or "", re.I)
+    if not match:
+        return ""
+    try:
+        decoded = base64.b64decode(match.group(1)).decode("utf-8", "ignore")
+        return unquote(decoded).strip()
+    except (ValueError, TypeError, OSError):
+        return ""
+
+
+def parse_official_aspect_links(
+    html: str,
+    page_url: str,
+    entity: str,
+    aspect: List[str],
+    official_hosts: List[str],
+) -> List[SearchResult]:
+    """Turn homepage anchors that match the question aspect into search hits."""
+    if not html or not aspect:
+        return []
+    soup = BeautifulSoup(html, "html.parser")
+    results: List[SearchResult] = []
+    seen = set()
+    page_host = (urlparse(page_url).netloc or "").lower()
+    allowed = [host.lower() for host in official_hosts if host] + ([page_host] if page_host else [])
+    for anchor in soup.find_all("a"):
+        text = re.sub(r"\s+", "", anchor.get_text(" ", strip=True) or "")
+        href = (anchor.get("href") or "").strip()
+        if href.lower().startswith("javascript:"):
+            href = decode_openexternallink(href)
+        if not href or href.startswith("#"):
+            continue
+        blob = f"{text} {href}"
+        if not any(token in blob for token in aspect):
+            continue
+        absolute = urljoin(page_url, href)
+        parsed = urlparse(absolute)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            continue
+        host = parsed.netloc.lower()
+        if not any(host == item or same_org_host(host, item) for item in allowed):
+            continue
+        key = absolute.rstrip("/").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        title = text or absolute
+        results.append(SearchResult(
+            title=title[:200],
+            url=absolute,
+            snippet=f"{entity} {title}"[:300],
+            source=host,
+        ))
+        if len(results) >= 8:
+            break
+    return results
+
+
+def prefer_entity_aspect_results(
+    results: List[SearchResult],
+    query: str,
+    entity: str,
+) -> List[SearchResult]:
+    """Prefer official pages that mention the entity and the remaining aspect."""
+    aspect = aspect_tokens(query, entity)
+    with_aspect: List[SearchResult] = []
+    entity_only: List[SearchResult] = []
+    for item in results:
+        if not item.url:
+            continue
+        blob = f"{item.title} {item.snippet} {item.url}"
+        if entity not in blob:
+            continue
+        if aspect and any(token in blob for token in aspect):
+            with_aspect.append(item)
+        else:
+            entity_only.append(item)
+    return with_aspect or entity_only
+
+
+def _unique(items: List[str]) -> List[str]:
+    seen = set()
+    ordered = []
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            ordered.append(item)
+    return ordered
+
+
+def relevance_score(result: SearchResult, terms: Dict[str, List[str]]) -> float:
+    """Score how many distinctive query terms appear in a result."""
+    blob = f"{result.title} {result.snippet} {result.url}".lower()
+    versions = terms.get("versions") or []
+    tokens = (terms.get("english") or []) + (terms.get("cjk") or [])
+    if not versions and not tokens:
+        return 1.0
+    version_hits = sum(1 for version in versions if version.lower() in blob)
+    core_tokens = (terms.get("english") or []) + [
+        token for token in (terms.get("cjk") or []) if token not in _GENERIC_CJK
+    ]
+    scored_tokens = core_tokens or tokens
+    token_hits = sum(1 for token in scored_tokens if token.lower() in blob)
+    version_part = 1.0 if not versions else version_hits / len(versions)
+    token_part = 1.0 if not scored_tokens else token_hits / len(scored_tokens)
+    if versions:
+        score = 0.6 * version_part + 0.4 * token_part
+    else:
+        score = token_part
+    core_cjk = [token for token in (terms.get("cjk") or []) if token not in _GENERIC_CJK]
+    if core_cjk:
+        version_ok = bool(versions) and version_hits == len(versions)
+        if not version_ok and core_cjk[-1].lower() not in blob:
+            return min(score, 0.2)
+        if terms.get("require_phrase", True):
+            cjk_terms = terms.get("cjk") or []
+            if not version_ok and len(cjk_terms) >= 2:
+                phrase = cjk_terms[-2] + cjk_terms[-1]
+                if phrase.lower() not in blob:
+                    return min(score, 0.2)
+    return score
+
+
+def filter_relevant_results(
+    results: List[SearchResult],
+    query: str,
+    min_score: float = 0.4,
+    require_phrase: bool = True,
+) -> List[SearchResult]:
+    """Drop results that only match a generic first keyword."""
+    terms = extract_query_terms(query)
+    terms["require_phrase"] = require_phrase
+    ranked = sorted(
+        ((item, relevance_score(item, terms)) for item in results if item.url),
+        key=lambda pair: pair[1],
+        reverse=True,
+    )
+    kept = [item for item, score in ranked if score >= min_score]
+    if kept:
+        return kept
+    return []
+
+
+def merge_results_by_url(groups: List[List[SearchResult]]) -> List[SearchResult]:
+    """Keep first occurrence of each normalized URL."""
+    merged: List[SearchResult] = []
+    seen = set()
+    for group in groups:
+        for item in group:
+            key = (item.url or "").rstrip("/").lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+    return merged
+
+
+def search_query_variants(query: str) -> List[str]:
+    """Add English what's-new queries when the user asks for a version changelog."""
+    variants = []
+    expanded = expand_relative_time(query)
+    entity = extract_named_entity(expanded)
+    if entity:
+        variants.append(entity)
+    variants.append(query)
+    if expanded != query:
+        variants.append(expanded)
+    terms = extract_query_terms(query)
+    if (
+        terms["versions"]
+        and terms["english"]
+        and any(marker in (query or "") for marker in ("新特性", "新功能", "更新说明", "发布说明"))
+    ):
+        head = " ".join(terms["english"][:2])
+        version = terms["versions"][0]
+        variants.append(f"{head} {version} what's new")
+        variants.append(f"{head} {version} release notes")
+    years = re.findall(r"20\d{2}", expanded)
+    stat_marks = ("就业", "失业", "人口", "物价", "经济", "gdp", "GDP", "工资")
+    if (
+        years
+        and any(scope in expanded for scope in ("中国", "全国"))
+        and any(mark in expanded for mark in stat_marks)
+    ):
+        variants.append(f"{years[-1]}年国民经济和社会发展统计公报")
+    return _unique(variants)
+
+
+def official_reference_results(query: str) -> List[SearchResult]:
+    """Stable official docs for queries Bing HTML often misses."""
+    terms = extract_query_terms(query)
+    english = [token.lower() for token in (terms.get("english") or [])]
+    versions = terms.get("versions") or []
+    results: List[SearchResult] = []
+    changelog_marks = ("新特性", "新功能", "更新说明", "发布说明", "what's new", "whats new", "release notes")
+    if "python" in english and versions and any(mark in (query or "").lower() for mark in changelog_marks):
+        version = versions[0]
+        results.append(SearchResult(
+            title=f"What's New In Python {version}",
+            url=f"https://docs.python.org/{version}/whatsnew/{version}.html",
+            snippet=f"Official Python {version} changelog covering new features and incompatibilities.",
+            source="Python Docs",
+        ))
+        results.append(SearchResult(
+            title=f"Python {version} 新特性",
+            url=f"https://docs.python.org/zh-cn/{version}/whatsnew/{version}.html",
+            snippet=f"Python {version} 官方中文「新特性」文档。",
+            source="Python Docs",
+        ))
+    return results
+
+
+def title_has_core_entity(result: SearchResult, query: str) -> bool:
+    """Keep encyclopedia hits whose title names the main CJK entity."""
+    core = [token for token in (extract_query_terms(query).get("cjk") or []) if token not in _GENERIC_CJK]
+    if not core:
+        return True
+    return core[-1] in (result.title or "")
+
+
+def parse_wikipedia_search(payload: Dict, lang: str) -> List[SearchResult]:
+    """Convert MediaWiki search JSON into SearchResult items."""
+    hits = ((payload or {}).get("query") or {}).get("search") or []
+    results: List[SearchResult] = []
+    for hit in hits:
+        title = (hit.get("title") or "").strip()
+        if not title:
+            continue
+        snippet = re.sub(r"<[^>]+>", " ", hit.get("snippet") or "")
+        snippet = re.sub(r"\s+", " ", snippet).strip()
+        results.append(SearchResult(
+            title=title,
+            url=f"https://{lang}.wikipedia.org/wiki/{quote(title)}",
+            snippet=snippet[:300] or title,
+            source="Wikipedia",
+        ))
+    return results
+
+
 class FreeWebSearch:
     """免费 Web 搜索引擎（无需 API Key）"""
 
@@ -104,17 +543,65 @@ class FreeWebSearch:
             logger.info(f"开始搜索 | query={query[:50]}... | count={count}")
 
             # 优先使用 Bing 搜索
-            results = await self._search_baidu(query, count)
-            if results:
-                logger.info(f"Bing 搜索成功 | 结果数={len(results)}")
-                return results
+            fetch_count = max(count * 2, 8)
+            bing_raw = []
+            for variant in search_query_variants(query):
+                variant_hits = await self._search_baidu(variant, fetch_count, lang)
+                bing_raw.extend(filter_relevant_results(variant_hits, variant))
+            merged_bing = merge_results_by_url([bing_raw])
+            bing_results = merged_bing
+            entity = extract_named_entity(query)
+            if entity:
+                entity_hits = [
+                    item for item in merged_bing
+                    if entity in f"{item.title} {item.snippet}"
+                ]
+                discovered = await self._discover_official_aspect_pages(
+                    entity_hits, query, entity
+                )
+                wiki_raw = await self._search_wikipedia(entity, fetch_count)
+                wiki_hits = [item for item in wiki_raw if entity in (item.title or "")]
+                preferred = prefer_entity_aspect_results(
+                    merge_results_by_url([discovered, bing_results, entity_hits, wiki_hits]),
+                    query,
+                    entity,
+                )
+                if preferred:
+                    logger.info(f"实体/官网检索成功 | 结果数={len(preferred)}")
+                    return preferred[:count]
+            if bing_results:
+                logger.info(f"Bing 搜索成功 | 结果数={len(bing_results)}")
+                return bing_results[:count]
 
             # 备用 DuckDuckGo
-            logger.warning("Bing 搜索失败，尝试 DuckDuckGo")
-            results = await self._search_duckduckgo(query, count)
-            if results:
-                logger.info(f"DuckDuckGo 搜索成功 | 结果数={len(results)}")
-                return results
+            logger.warning("Bing 结果不足或相关性低，尝试 DuckDuckGo")
+            ddg_results = filter_relevant_results(
+                await self._search_duckduckgo(query, max(count * 2, 8)),
+                query,
+            )
+            merged = filter_relevant_results(
+                merge_results_by_url([bing_results, ddg_results]),
+                query,
+            )
+            if merged:
+                logger.info(f"合并搜索成功 | 结果数={len(merged)}")
+                return merged[:count]
+
+            refs = official_reference_results(query)
+            wiki_raw = await self._search_wikipedia(query, fetch_count)
+            wiki_results = filter_relevant_results(
+                [item for item in wiki_raw if title_has_core_entity(item, query)],
+                query,
+                require_phrase=False,
+            )
+            extra = filter_relevant_results(
+                merge_results_by_url([refs, wiki_results]),
+                query,
+                require_phrase=False,
+            )
+            if extra:
+                logger.info(f"百科/官方文档补全 | 结果数={len(extra)}")
+                return extra[:count]
 
             logger.warning("所有搜索服务都失败，使用降级结果")
             return self._fallback_results(query)
@@ -123,13 +610,80 @@ class FreeWebSearch:
             logger.error(f"搜索失败 | query={query} | error={str(e)}")
             return self._fallback_results(query)
 
-    async def _search_baidu(self, query: str, count: int) -> List[SearchResult]:
+    async def _fetch_html(self, url: str) -> str:
+        """Fetch HTML for official-site link discovery."""
+        import ssl
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return ""
+        ssl_context = ssl.create_default_context()
+        ssl_context.set_ciphers("DEFAULT:!DH")
+        headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        }
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout,
+                follow_redirects=True,
+                verify=ssl_context,
+            ) as client:
+                resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                return ""
+            return resp.text
+        except (httpx.HTTPError, OSError, ValueError, TypeError) as exc:
+            logger.warning(f"官网页面抓取失败 | url={url} | error={exc}")
+            return ""
+
+    async def _discover_official_aspect_pages(
+        self,
+        entity_hits: List[SearchResult],
+        query: str,
+        entity: str,
+    ) -> List[SearchResult]:
+        """Fetch official homepages and keep in-site links that match the aspect."""
+        aspect = aspect_tokens(query, entity)
+        if not aspect or not entity_hits:
+            return []
+        entries: List[str] = []
+        official_hosts: List[str] = []
+        seen_org = set()
+        for item in entity_hits:
+            parsed = urlparse(item.url or "")
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                continue
+            host = parsed.netloc.lower()
+            if is_aggregator_host(host):
+                continue
+            labels = tuple(_org_labels(host)[-1:])
+            if labels in seen_org:
+                continue
+            seen_org.add(labels)
+            official_hosts.append(host)
+            entries.append(f"{parsed.scheme}://{parsed.netloc}/")
+            if len(entries) >= 2:
+                break
+        discovered: List[SearchResult] = []
+        for entry in entries:
+            html = await self._fetch_html(entry)
+            discovered.extend(
+                parse_official_aspect_links(html, entry, entity, aspect, official_hosts)
+            )
+        return merge_results_by_url([discovered])
+
+    async def _search_baidu(self, query: str, count: int, lang: str = "zh-CN") -> List[SearchResult]:
         """Bing 搜索（替代方案）"""
         try:
             url = "https://www.bing.com/search"
+            use_zh = (lang or "zh-CN").lower().startswith("zh")
             params = {
                 "q": query,
-                "count": min(count, 10)
+                "count": min(count, 20),
+                "mkt": "zh-CN" if use_zh else "en-US",
+                "setlang": "zh-hans" if use_zh else "en",
+                "cc": "CN" if use_zh else "US",
             }
 
             headers = {
@@ -235,6 +789,38 @@ class FreeWebSearch:
             logger.error(f"DuckDuckGo 搜索异常 | error={str(e)}")
             return []
     
+    async def _search_wikipedia(self, query: str, count: int) -> List[SearchResult]:
+        """MediaWiki search API (zh first, then en)."""
+        headers = {
+            "User-Agent": "AicodeWebSearch/1.0 (chat grounding; +https://github.com/)",
+            "Accept": "application/json",
+        }
+        langs = ("zh", "en") if (query and re.search(r"[\u4e00-\u9fff]", query)) else ("en", "zh")
+        collected: List[SearchResult] = []
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+                for lang in langs:
+                    resp = await client.get(
+                        f"https://{lang}.wikipedia.org/w/api.php",
+                        params={
+                            "action": "query",
+                            "list": "search",
+                            "srsearch": query,
+                            "srlimit": min(count, 8),
+                            "format": "json",
+                            "utf8": 1,
+                        },
+                        headers=headers,
+                    )
+                    if resp.status_code != 200:
+                        continue
+                    collected.extend(parse_wikipedia_search(resp.json(), lang))
+                    if len(collected) >= count:
+                        break
+        except Exception as e:
+            logger.warning(f"Wikipedia 搜索异常 | error={str(e)}")
+        return collected[:count]
+
     def _parse_duckduckgo_html(self, html: str, count: int) -> List[SearchResult]:
         """解析 DuckDuckGo HTML"""
         try:

@@ -2,6 +2,42 @@ import { describe, expect, it, vi } from 'vitest'
 import { createPptClient } from './ppt'
 
 describe('outline generation options', () => {
+  it('consumes SSE outline events and returns the finished draft', async () => {
+    const draft = { id: 'outline-stream', slides: [{ title: '机会' }] }
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'stage', index: 0 })}\n\n`))
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'slide', slide: { title: '机会' } })}\n\n`))
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done', draft })}\n\n`))
+        controller.close()
+      },
+    })
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'text/event-stream' },
+      body: stream,
+    })
+    const events = []
+    const result = await createPptClient({ request }).createOutline({ topic: '增长' }, { onEvent: event => events.push(event) })
+    expect(request).toHaveBeenCalledWith('/pptx/outlines', expect.objectContaining({
+      method: 'POST',
+      headers: { Accept: 'text/event-stream' },
+    }))
+    expect(events.map(event => event.type)).toEqual(['stage', 'slide', 'done'])
+    expect(result).toEqual(draft)
+  })
+
+  it('falls back to a JSON outline response', async () => {
+    const draft = { id: 'outline-json', slides: [] }
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => draft,
+    })
+    await expect(createPptClient({ request }).createOutline({ topic: '增长' })).resolves.toEqual(draft)
+  })
+
   it('encodes template recommendation queries and retains the plain registry endpoint', async () => {
     const get = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ templates: [] }) })
     const ppt = createPptClient({ get })
@@ -41,5 +77,10 @@ describe('outline generation options', () => {
       quality_mode: 'refined', outline_version: 3, output_format: 'pdf',
       auto_images: false, enable_animation: false, api_key_token: 'user-token',
     })
+  })
+
+  it('throws when history listing fails', async () => {
+    const get = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ detail: '未授权' }) })
+    await expect(createPptClient({ get }).getHistory()).rejects.toThrow('未授权')
   })
 })

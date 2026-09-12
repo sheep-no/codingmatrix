@@ -1,15 +1,15 @@
 """SQL persistence for PPT outlines, quality reports and task metadata."""
 
 import asyncio
+from typing import Any, AsyncIterator, Optional
 
 from datetime import datetime, timezone
-from typing import Any, Optional
 from uuid import uuid4
 
 from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.ppt_agent import PPTAgent, PresentationOutline
+from app.agent.ppt_agent import PPTAgent, PresentationOutline, SlideOutline
 from app.models.file import File
 from app.models.ppt_state import PPTOutline, PPTQualityReport
 from app.models.task import Task
@@ -53,6 +53,13 @@ _SEMANTIC_SLIDE_TYPES = {
     "chart": "data",
     "end": "closing",
 }
+
+OUTLINE_STREAM_STAGES = (
+    ("analyzing", "分析主题与受众"),
+    ("retrieving", "检索参考资料"),
+    ("drafting", "起草页面结构"),
+    ("assembling", "整理可编辑大纲"),
+)
 
 
 async def _load_materials(
@@ -139,6 +146,79 @@ def _editable_agent_slides(outline: PresentationOutline) -> list[dict[str, Any]]
     return slides
 
 
+def _stage_event(index: int) -> dict[str, Any]:
+    key, label = OUTLINE_STREAM_STAGES[index]
+    return {"type": "stage", "stage": key, "label": label, "index": index}
+
+
+def _preview_from_raw_agent_slide(raw: dict[str, Any], index: int) -> Optional[dict[str, Any]]:
+    slide_type = str(raw.get("type") or "content")
+    if slide_type in {"title", "end"}:
+        return None
+    bullets = [item for item in (raw.get("bullets") or []) if str(item).strip()][:6]
+    content_blocks = raw.get("content_blocks") or [
+        {"type": "text", "content": item, "metadata": {}} for item in bullets
+    ]
+    outline = PresentationOutline(
+        title=str(raw.get("title") or "PPT"),
+        slides=[
+            SlideOutline(
+                type=slide_type,
+                title=str(raw.get("title") or "").strip(),
+                bullets=bullets,
+                image_keywords=list(raw.get("image_keywords") or [])[:3],
+                notes=str(raw.get("notes") or ""),
+                narrative_role=str(raw.get("narrative_role") or ""),
+                content_blocks=content_blocks,
+            )
+        ],
+    )
+    if not outline.slides[0].title:
+        return None
+    converted = _agent_slides(outline)
+    if not converted:
+        return None
+    slide = converted[0]
+    slide["id"] = f"slide-{index + 1}"
+    slide["position"] = index
+    return slide
+
+
+def _attach_evidence(slides: list[dict[str, Any]], evidence_sources: list[dict[str, Any]]) -> None:
+    for index, slide in enumerate(slides):
+        slide["evidence_sources"] = [
+            *slide.get("evidence_sources", []),
+            *(evidence_sources[index:index + 1] if index < len(evidence_sources) else []),
+        ][:6]
+
+
+async def _persist_new_outline(
+    db: AsyncSession,
+    numeric_user_id: int,
+    request: OutlineCreateRequest,
+    title: str,
+    slides: list[dict[str, Any]],
+) -> OutlineDraft:
+    topic = request.topic.strip()
+    row = PPTOutline(
+        record_id=str(uuid4()),
+        outline_id=str(uuid4()),
+        user_id=numeric_user_id,
+        version=1,
+        status="draft",
+        title=title,
+        scenario=request.scenario or classify_scenario(f"{topic} {request.description}").scenario,
+        template_id=request.template_id,
+        slide_limit=request.num_slides or max(1, len(slides) + 1),
+        slides_json=slides,
+        created_at=datetime.utcnow(),
+    )
+    db.add(row)
+    await db.flush()
+    await db.commit()
+    return _to_contract(row)
+
+
 def _blueprint_slides(topic: str, count: int) -> list[dict[str, Any]]:
     blueprint = build_commercial_page_blueprint(topic)
     return [
@@ -184,7 +264,11 @@ async def _build_outline_slides(
     materials: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
     topic = request.topic.strip()
-    slides = _blueprint_slides(topic, max(0, request.num_slides - 1))
+    if request.num_slides is None:
+        content_count = len(build_commercial_page_blueprint(topic))
+    else:
+        content_count = max(0, request.num_slides - 1)
+    slides = _blueprint_slides(topic, content_count)
     title = topic
     if request.api_key_token:
         material_context = "\n\n".join(
@@ -194,7 +278,7 @@ async def _build_outline_slides(
         outline = await PPTAgent(model=request.model or None).generate_outline(
             topic=topic,
             description=description[:24000],
-            num_slides=request.num_slides,
+            num_slides=request.num_slides or 0,
             api_key_token=request.api_key_token,
         )
         title = outline.title or topic
@@ -205,8 +289,6 @@ async def _build_outline_slides(
 
 async def create_ppt_outline(db: AsyncSession, user_id: str, request: OutlineCreateRequest) -> OutlineDraft:
     numeric_user_id = _user_id(user_id)
-    outline_id = str(uuid4())
-    now = datetime.utcnow()
     topic = request.topic.strip()
     materials = await _load_materials(db, numeric_user_id, request.material_file_ids)
     evidence_sources = []
@@ -219,28 +301,71 @@ async def create_ppt_outline(db: AsyncSession, user_id: str, request: OutlineCre
     except Exception:
         evidence_sources = []
     title, slides = await _build_outline_slides(request, materials)
-    for index, slide in enumerate(slides):
-        slide["evidence_sources"] = [
-            *slide.get("evidence_sources", []),
-            *(evidence_sources[index:index + 1] if index < len(evidence_sources) else []),
-        ][:6]
-    row = PPTOutline(
-        record_id=str(uuid4()),
-        outline_id=outline_id,
-        user_id=numeric_user_id,
-        version=1,
-        status="draft",
-        title=title,
-        scenario=request.scenario or classify_scenario(f"{topic} {request.description}").scenario,
-        template_id=request.template_id,
-        slide_limit=request.num_slides,
-        slides_json=slides,
-        created_at=now,
-    )
-    db.add(row)
-    await db.flush()
-    await db.commit()
-    return _to_contract(row)
+    _attach_evidence(slides, evidence_sources)
+    return await _persist_new_outline(db, numeric_user_id, request, title, slides)
+
+
+async def stream_ppt_outline(
+    db: AsyncSession, user_id: str, request: OutlineCreateRequest
+) -> AsyncIterator[dict[str, Any]]:
+    numeric_user_id = _user_id(user_id)
+    topic = request.topic.strip()
+    yield _stage_event(0)
+    materials = await _load_materials(db, numeric_user_id, request.material_file_ids)
+    yield _stage_event(1)
+    evidence_sources: list[dict[str, Any]] = []
+    try:
+        evidence_sources = [
+            result.to_dict()
+            for result in await FreeWebSearch().search(f"{topic} 行业市场数据案例趋势", count=5)
+            if result.url
+        ]
+    except Exception:
+        evidence_sources = []
+    yield _stage_event(2)
+
+    title = topic
+    slides: list[dict[str, Any]] = []
+    if request.api_key_token:
+        material_context = "\n\n".join(
+            f"[{material['filename']}]\n{material['content']}" for material in materials
+        )
+        description = "\n\n".join(part for part in (request.description.strip(), material_context) if part)
+        agent = PPTAgent(model=request.model or None)
+        outline = None
+        preview_index = 0
+        async for event in agent.stream_outline(
+            topic=topic,
+            description=description[:24000],
+            num_slides=request.num_slides,
+            api_key_token=request.api_key_token,
+        ):
+            if event.get("type") == "retry":
+                preview_index = 0
+                yield event
+                continue
+            if event.get("type") == "slide":
+                preview = _preview_from_raw_agent_slide(event.get("slide") or {}, preview_index)
+                if preview:
+                    yield {"type": "slide", "slide": preview, "index": preview_index}
+                    preview_index += 1
+                continue
+            if event.get("type") == "complete":
+                outline = event.get("outline")
+        if isinstance(outline, PresentationOutline):
+            title = outline.title or topic
+            slides = _editable_agent_slides(outline)
+        else:
+            title, slides = await _build_outline_slides(request, materials)
+    else:
+        title, slides = await _build_outline_slides(request, materials)
+        for index, slide in enumerate(slides):
+            yield {"type": "slide", "slide": slide, "index": index}
+
+    yield _stage_event(3)
+    _attach_evidence(slides, evidence_sources)
+    draft = await _persist_new_outline(db, numeric_user_id, request, title, slides)
+    yield {"type": "done", "draft": draft.model_dump(mode="json")}
 
 
 async def get_ppt_outline(

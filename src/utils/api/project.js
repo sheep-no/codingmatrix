@@ -49,28 +49,17 @@ export function createProjectClient(baseClient) {
       throw new Error('停止会话失败')
     },
 
-    async archiveProject(sessionId) {
-      const response = await client.post(`/agent/projects/${encodeURIComponent(sessionId)}/archive`)
+    async permanentlyDeleteProject(sessionId) {
+      const response = await client.delete(`/agent/projects/${encodeURIComponent(sessionId)}`)
       if (response.ok) return await response.json()
-      throw new Error('回收项目失败')
-    },
-
-    async restoreProject(sessionId) {
-      const response = await client.post(`/agent/projects/${encodeURIComponent(sessionId)}/restore`)
-      if (response.ok) return await response.json()
-      throw new Error('恢复项目失败')
-    },
-
-    async pinProject(sessionId) {
-      const response = await client.post(`/agent/projects/${encodeURIComponent(sessionId)}/pin`)
-      if (response.ok) return await response.json()
-      throw new Error('置顶项目失败')
-    },
-
-    async unpinProject(sessionId) {
-      const response = await client.delete(`/agent/projects/${encodeURIComponent(sessionId)}/pin`)
-      if (response.ok) return await response.json()
-      throw new Error('取消置顶项目失败')
+      let detail = '删除项目失败'
+      try {
+        const body = await response.json()
+        detail = body.detail || detail
+      } catch (_error) { /* response body is optional */ }
+      const error = new Error(detail)
+      error.status = response.status
+      throw error
     },
 
     async deleteSession(sessionId) {
@@ -85,12 +74,6 @@ export function createProjectClient(baseClient) {
       const response = await client.get(`/agent/sessions/${sessionId}/model-context`)
       if (response.ok) return await response.json()
       throw new Error('获取模型上下文失败')
-    },
-
-    async listProjectSessions(limit = 50) {
-      const response = await client.get('/agent/sessions', { limit })
-      if (response.ok) return await response.json()
-      throw new Error('获取项目状态失败')
     },
 
     async updateAgentModelContext(sessionId, context) {
@@ -212,30 +195,6 @@ export function createProjectClient(baseClient) {
       } else {
         throw new Error('下载项目失败')
       }
-    },
-
-    async uploadProjectZip(file, projectName = '') {
-      const formData = new FormData()
-      formData.append('file', file)
-      const query = projectName ? `?project_name=${encodeURIComponent(projectName)}` : ''
-      const response = await client.request(`/agent/projects/upload-zip${query}`, {
-        method: 'POST',
-        body: formData
-      })
-      if (!response.ok) throw new Error(`上传项目失败 (${response.status})`)
-      return response.json()
-    },
-
-    async listUploadedProjects() {
-      const response = await client.get('/agent/projects/user-uploads')
-      if (!response.ok) throw new Error(`获取上传项目失败 (${response.status})`)
-      return response.json()
-    },
-
-    async deleteUploadedProject(projectName) {
-      const response = await client.delete(`/agent/projects/user-uploads/${encodeURIComponent(projectName)}`)
-      if (!response.ok) throw new Error(`删除上传项目失败 (${response.status})`)
-      return response.json()
     },
 
     async evaluateRequirement(requirement, api_key_token) {

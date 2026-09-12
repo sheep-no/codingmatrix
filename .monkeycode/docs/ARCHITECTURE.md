@@ -57,6 +57,8 @@ Web 前端通过 Vue Router 组织页面，通过 Pinia 保存认证、Agent 会
 
 图表编辑器位于 `src/views/ChartEditorPage.vue`，属于浏览器端独立编辑流程。SheetJS 在当前会话解析 XLSX、XLS、CSV 和 JSON，ECharts 负责图表实例和 PNG 导出；图表配置、数据源字段元数据和选择状态通过 `localStorage` 的用户作用域草稿恢复。草稿按 `savedAt`/`expiresAt` 实现两天滑动有效期，只保存可重新关联文件所需的元数据，不保存原始行数据；项目 JSON 导入导出复用同一可序列化状态模型，导入后将数据源置为待重新关联状态。
 
+管理员面板位于 `src/components/AdminPanel.vue`，路由为 `/admin`，`admin` 与 `superadmin` 可访问。可见模块为系统监控、系统日志、用户管理、Nginx 配置、服务管理和资源配置；超级管理员额外打开模型管理与 `/admin/dashboard` 并发仪表板。工具集入口仅超级用户可见。菜单与搜索关键字保存在 `localStorage` 键 `adminMenuState`。
+
 VS Code 工作台由 `vscode-extension/src/agent-workbench.ts` 提供原生 Webview，由 `extension.ts` 创建 Agent Host 运行时。工作台支持需求输入、流式事件展示、暂停、恢复、取消、动作批准和拒绝；Host 通过 `CloudConnection` 与 `/api/v1/agent/host/*` 交互，并通过 `/api/v1/agent/orchestrate/stream` 发起 Agent 流式请求。VS Code 工作台当前采用轻量面板形态，Web 端的完整历史会话、模型选择、文件版本历史、性能和学习面板仍保留在 Web 工作台。
 
 Flutter 桌面客户端位于 `flutter_client/`，使用 Presentation、Application、Domain 和 Infrastructure 四层组织工作台。当前提供 Riverpod 驱动的响应式 Agent 工作台、Agent/Session/Task/TaskEvent/Artifact/ModelContext 数据模型、增量 SSE 解析器和云端认证基础层；`CloudAuthClient` 先获取 CSRF Token，再以双提交 Cookie/Header 方式调用 `/api/v1/auth/login`，访问令牌通过 `CredentialStore` 以引用形式交给 `AuthSession`。当前跨平台开发适配器为内存存储，Windows Credential Manager 适配器属于后续 Windows 专项任务。

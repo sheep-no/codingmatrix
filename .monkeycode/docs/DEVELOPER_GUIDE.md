@@ -127,6 +127,15 @@ npm --prefix src run build
 
 图表编辑器的单元测试覆盖数据导入、字段识别、聚合、图表编辑、撤销重做、草稿两天过期、项目 JSON 导入导出和文件重新关联。E2E 覆盖桌面端导入与恢复流程、PNG 导出、移动端操作和横向溢出检查。项目配置草稿使用 `localStorage` 保存元数据，浏览器清理站点数据后应通过项目 JSON 或原始数据文件恢复。
 
+### 管理员面板验证
+
+```bash
+# 运行管理员面板浏览器场景
+npx --no-install playwright test tests/e2e/admin-panel-scenarios.spec.js --config=playwright.config.js --project=chromium
+```
+
+认证使用 `TEST_ADMIN_EMAIL` 和 `TEST_ADMIN_PASSWORD`，默认邮箱为 `admin_test@example.com`。该账户权限为 `admin`，从 `/admin` 进入；工具集「管理员面板」仅超级用户可见。场景覆盖模块搜索、用户管理、取消创建用户、取消退出、刷新后菜单恢复，以及系统日志再进入。
+
 ## 最近验收结果（2026-09-05）
 
 - PPT 专项回归：`225 passed`；共享持久化新增测试覆盖 Artifact 父子关联、内容 hash、质量诊断、Checkpoint、归属隔离和重试幂等，Celery Markdown 生产链路通过隔离数据库验收。

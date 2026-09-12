@@ -20,11 +20,20 @@
 | `/image-generate` | `src/views/ImageGenerate.vue` | 是 |
 | `/aicloud` | `src/components/Aicloud.vue` | 是 |
 | `/settings` | `src/views/Settings.vue` | 是 |
-| `/admin`、`/admin/dashboard` | 管理页面 | 管理员 |
+| `/admin` | `src/components/AdminPanel.vue` | `admin` 或 `superadmin` |
+| `/admin/dashboard` | `src/views/AdminDashboard.vue` | `admin` 或 `superadmin` |
 | `/docs` | `src/views/Docs.vue` | 是 |
 | `/chart-editor` | `src/views/ChartEditorPage.vue` | 是 |
 
 `/project-generate` 重定向到 `/agent`。路由守卫根据用户登录状态和 `admin`/`superadmin` 权限控制访问。
+
+## 管理员面板
+
+`src/components/AdminPanel.vue` 提供 `/admin`。工具集「管理员面板」仅超级用户可见，点击后 `window.open('/admin')`；`admin` 权限也可直接打开该路由。
+
+管理员可见模块：系统监控、系统日志、用户管理、Nginx 配置、服务管理、资源配置。超级管理员额外可见模型管理（`src/components/settings/AdminModelManager.vue`）和并发管理仪表板（`/admin/dashboard`）。
+
+当前菜单与搜索关键字写入 `localStorage` 键 `adminMenuState`，挂载时按权限白名单恢复。设置页「系统模型管理」和「统一模型配置 (v2)」同样只对超级用户开放。
 
 ## Agent 页面
 
@@ -83,7 +92,13 @@ VS Code 工作台与 Web 工作台共享 Agent Host 协议和云端 Agent API。
 4. 页面恢复草稿后，数据源标记为“需要重新选择文件”；选择同名且字段头一致的文件后，程序重新解析并绑定已有图表。
 5. “导出项目”生成 `chart-editor-project.json`，项目配置可通过“导入项目”迁移到另一个浏览器环境；导入结果同样需要重新关联原始文件。
 
+刷新或关闭页面前，`beforeunload` 与 `pagehide` 会立刻调用 `persistDraftNow()`，避免 250ms 防抖导致标题丢失。
+
 浏览器无法恢复用户设备的绝对文件路径，文件改名或文件字段头变化时需要重新选择并确认数据来源。撤销和重做历史保留在当前页面内存中，页面关闭后通过元数据草稿恢复图表结构。
+
+## AI 绘画
+
+`src/views/ImageGenerate.vue` 对应 `/image-generate`，调用 `POST /api/v1/kolors/text-to-image`，模型 `Kwai-Kolors/Kolors`。进行中的文生图会话写入 `sessionStorage` 键 `image-generate-session-v1`，有效期 30 分钟；刷新后恢复画布并重发请求。返回会中止进行中的请求并保留描述；图生图在没有参考文件时按文生图恢复。
 
 ## PPT 三步流程
 
@@ -113,15 +128,21 @@ VS Code 工作台与 Web 工作台共享 Agent Host 协议和云端 Agent API。
 
 ## Capability Center
 
-`src/views/CapabilityCenter.vue` 默认只渲染视觉工具面板。Skills、Agent Host、知识库和上传项目在用户首次进入对应 Tab 时请求数据，并在当前页面会话中缓存；面板上的刷新操作显式绕过缓存。Tab 请求相互隔离，单个面板的刷新不会清空其他面板数据。
+`src/views/CapabilityCenter.vue` 默认只渲染视觉工具面板。Skills、Agent Host 和知识库在用户首次进入对应 Tab 时请求数据，并在当前页面会话中缓存；面板上的刷新操作显式绕过缓存。Tab 请求相互隔离，单个面板的刷新不会清空其他面板数据。
+
+当前五个面板为：视觉工具（`/api/v1/vision`）、知识库（`/api/v1/aicloud/knowledge`）、代码沙箱（`/api/v1/aicloud/execute`）、Skills（`/api/v1/skills`）和 Agent Host（`/api/v1/agent/host/sessions`）。
 
 各面板维护独立的加载与错误状态。列表面板提供空状态和失败重试，视觉工具与代码沙箱保留最近一次操作参数用于重试，单个面板失败不会覆盖其他面板结果。
 
-视觉工具、知识库和上传项目使用统一拖拽区，同时支持点击选择文件。资源删除操作要求确认，列表刷新显式绕过面板缓存，结果内容通过独立结果区展示。
+视觉工具和知识库使用统一拖拽区，同时支持点击选择文件。资源删除操作要求确认，列表刷新显式绕过面板缓存，结果内容通过独立结果区展示。
 
 基础 API 客户端通过 `createAbortController` 提供取消入口，并将取消和网络失败归一化为带稳定 `code` 的 `ApiError`，领域 API 继续复用基础请求客户端。
 
 Capability Center 组件测试覆盖 Tab 延迟加载与缓存、错误重试和删除确认；Playwright 用例覆盖移动端 Tab 切换、请求隔离与横向溢出。
+
+## 搜索历史
+
+`src/components/leftlist.vue` 工具集「搜索历史」打开侧栏搜索框。检索调用 `POST /api/v1/history`，请求体为 `prompt_keyword`、`limit` 和 `offset`。空关键词、清除或关闭搜索框后重新拉取全部会话。组件测试位于 `src/components/leftlist.test.js`，覆盖打开搜索框、关键词检索、失败重试和清除后拉全量。
 
 首页 `src/components/index.vue` 在 768px 以下使用与 Agent Dashboard 一致的会话抽屉协议：顶部菜单打开左侧导航，遮罩或 Escape 关闭抽屉并恢复菜单按钮焦点。移动输入框保持至少 16px 字号，并通过 `safe-area-inset-bottom` 避让设备安全区。
 

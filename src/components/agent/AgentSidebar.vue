@@ -28,16 +28,8 @@
             <span class="session-mode">{{ getModeLabel(session.mode) }}</span>
             <span class="session-meta">{{ session.filesCount }} 文件</span>
           </div>
-          <div class="session-time">{{ session.lifecycle_status === 'archived' ? '已回收' : session.lifecycle_status === 'purged' ? '已清理' : formatTime(session.timestamp) }}</div>
-          <button
-            v-if="session.lifecycle_status !== 'purged'"
-            class="session-lifecycle"
-            :title="session.lifecycle_status === 'archived' ? '恢复项目' : '回收项目'"
-            :aria-label="session.lifecycle_status === 'archived' ? '恢复项目' : '回收项目'"
-            @click.stop="$emit(session.lifecycle_status === 'archived' ? 'restore-project' : 'archive-project', session.id)"
-            @keydown.stop
-          >{{ session.lifecycle_status === 'archived' ? '恢复' : '回收' }}</button>
-          <button class="session-delete" title="删除" aria-label="删除会话" @click.stop="$emit('delete-session', session.id)" @keydown.stop>
+          <div class="session-time">{{ formatTime(session.timestamp) }}</div>
+          <button class="session-delete" title="永久删除项目" aria-label="永久删除项目" @click.stop="$emit('delete-session', session.id)" @keydown.stop>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
@@ -128,7 +120,7 @@ const props = defineProps({
   workspaceSkills: { type: Array, default: () => [] }
 })
 
-defineEmits(['new-session', 'switch-session', 'delete-session', 'archive-project', 'restore-project', 'update:searchQuery', 'toggle-category', 'select-file'])
+defineEmits(['new-session', 'switch-session', 'delete-session', 'update:searchQuery', 'toggle-category', 'select-file'])
 
 const flatTreeItems = computed(() => {
   const items = []
@@ -300,16 +292,6 @@ function getFileName(filePath) {
 }
 .session-item:hover .session-delete { opacity: 1; }
 .session-delete:hover { background: color-mix(in srgb, var(--danger), transparent 90%); color: var(--danger); }
-.session-lifecycle {
-  border: 1px solid var(--control-border);
-  border-radius: 4px;
-  padding: 3px 6px;
-  background: transparent;
-  color: var(--content-secondary);
-  cursor: pointer;
-  font-size: 11px;
-}
-.session-lifecycle:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
 .session-empty {
   padding: 16px;
   text-align: center;

@@ -173,7 +173,7 @@ class TestBuiltInTemplates:
         assert config.template_id == "tech"
         assert config.category == TemplateCategory.TECH
         assert config.background_color == "0F172A"
-        assert config.accent_color == "F97316"
+        assert config.accent_color == "38BDF8"
 
 
 class TestTemplateManager:

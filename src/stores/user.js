@@ -81,18 +81,29 @@ export const useUserStore = defineStore(
       const storedEmail = localStorage.getItem('email')
 
       if (storedUsername) {
-        isLoggedIn.value = true
         username.value = storedUsername
         email.value = storedEmail || ''
         permissionLevel.value = localStorage.getItem('permission_level') || 'normal'
 
-        // 尝试刷新 access token（刷新失败不立即清除用户，由路由守卫处理）
-        tokenManager.refreshAccessToken().catch(() => {
-          // 刷新失败是预期的（例如从 localStorage 恢复时没有 refresh token cookie）
-          // 不清除用户状态，让用户继续使用页面，实际 API 请求会触发 401 后再处理
+        if (tokenManager.getToken() && tokenManager.isTokenValid()) {
+          isLoggedIn.value = true
+          return true
+        }
+
+        isLoggedIn.value = false
+        tokenManager.refreshAccessToken().then((ok) => {
+          if (ok && tokenManager.getToken()) {
+            isLoggedIn.value = true
+          } else if (!tokenManager.getToken()) {
+            clearUser()
+          }
+        }).catch(() => {
+          if (!tokenManager.getToken()) {
+            clearUser()
+          }
         })
 
-        return true
+        return !!tokenManager.getToken()
       }
 
       return false

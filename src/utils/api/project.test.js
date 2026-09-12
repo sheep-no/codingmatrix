@@ -34,34 +34,35 @@ describe('project model context client', () => {
   })
 })
 
-describe('project lifecycle client', () => {
-  it('archives, restores and updates project lifecycle state', async () => {
+describe('project deletion client', () => {
+  it('permanently deletes a generated project', async () => {
     const baseClient = {
-      post: vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ lifecycle_status: 'archived' }) }),
-      delete: vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ pinned: false }) })
-    }
-    const client = createProjectClient(baseClient)
-    await expect(client.archiveProject('session/1')).resolves.toEqual({ lifecycle_status: 'archived' })
-    await expect(client.restoreProject('session/1')).resolves.toEqual({ lifecycle_status: 'archived' })
-    await client.pinProject('session/1')
-    await client.unpinProject('session/1')
-    expect(baseClient.post).toHaveBeenCalledWith('/agent/projects/session%2F1/archive')
-    expect(baseClient.post).toHaveBeenCalledWith('/agent/projects/session%2F1/restore')
-    expect(baseClient.post).toHaveBeenCalledWith('/agent/projects/session%2F1/pin')
-    expect(baseClient.delete).toHaveBeenCalledWith('/agent/projects/session%2F1/pin')
-  })
-
-  it('lists project sessions with lifecycle metadata', async () => {
-    const baseClient = {
-      get: vi.fn().mockResolvedValue({
+      delete: vi.fn().mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue({ sessions: [{ session_id: 'session-1', lifecycle_status: 'archived', pinned: false }] })
+        json: vi.fn().mockResolvedValue({ session_id: 'session/1', status: 'deleted' })
       })
     }
     const client = createProjectClient(baseClient)
-    await expect(client.listProjectSessions()).resolves.toEqual({
-      sessions: [{ session_id: 'session-1', lifecycle_status: 'archived', pinned: false }]
+    await expect(client.permanentlyDeleteProject('session/1')).resolves.toEqual({
+      session_id: 'session/1',
+      status: 'deleted'
     })
-    expect(baseClient.get).toHaveBeenCalledWith('/agent/sessions', { limit: 50 })
+    expect(baseClient.delete).toHaveBeenCalledWith('/agent/projects/session%2F1')
+  })
+
+  it('exposes the backend deletion error and status', async () => {
+    const baseClient = {
+      delete: vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: vi.fn().mockResolvedValue({ detail: '项目仍有活动任务，暂时无法删除' })
+      })
+    }
+    const client = createProjectClient(baseClient)
+
+    await expect(client.permanentlyDeleteProject('session-1')).rejects.toMatchObject({
+      message: '项目仍有活动任务，暂时无法删除',
+      status: 409
+    })
   })
 })

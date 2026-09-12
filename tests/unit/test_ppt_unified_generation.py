@@ -133,6 +133,33 @@ class TestUnifiedGeneration:
             assert len(slides_data) == 5, f"Expected 5 content slides, got {len(slides_data)}"
             assert len(Presentation(filepath).slides) == 6
 
+    @pytest.mark.asyncio
+    async def test_zh_cover_uses_localized_chrome(self, mock_request):
+        outline = {
+            "title": "县域医共体智慧诊疗协同方案",
+            "subtitle": "以分级诊疗协同提升县域急危重症处置能力",
+            "slides": [{
+                "slide_type": "key_points",
+                "title": "协同路径",
+                "content": ["基层首诊", "双向转诊", "资源下沉"],
+            }],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "app.api.v1.aiGeneratorPptx.visual_analyzer.analyze_ppt_content",
+            new=AsyncMock(return_value=None),
+        ):
+            filepath = Path(tmpdir) / "zh-cover.pptx"
+            await generate_pptx_file_enhanced(filepath, outline, mock_request)
+            presentation = Presentation(filepath)
+
+        cover_text = "\n".join(
+            shape.text for shape in presentation.slides[0].shapes if hasattr(shape, "text")
+        )
+        assert "策略简报" in cover_text
+        assert "以分级诊疗协同提升县域急危重症处置能力" in cover_text
+        assert "STRATEGY" not in cover_text
+        assert "INSIGHT" not in cover_text
+
     def test_total_slide_budget_removes_input_cover(self, sample_outline):
         slides = _content_slides_for_total(sample_outline["slides"], 5)
 
@@ -311,7 +338,7 @@ class TestUnifiedGeneration:
         mock_request.template = "business"
         roles = [
             ("opportunity_map", "机会 01"),
-            ("evidence_story", "EVIDENCE"),
+            ("evidence_story", "证据"),
             ("strategic_choice", "方案 A"),
             ("execution_roadmap", "进入下一阶段的门槛"),
             ("decision_close", "决策 01"),
@@ -413,13 +440,13 @@ class TestUnifiedGeneration:
     @pytest.mark.parametrize(
         ("template", "expected_label"),
         [
-            ("modern", "DECISION"),
-            ("minimal", "DECISION /"),
-            ("academic", "RESEARCH CONCLUSION"),
-            ("education", "LEARNING CHECK"),
-            ("medical", "CLINICAL RATIONALE"),
-            ("elegant", "BOARD RECOMMENDATION"),
-            ("tech", "LOCK / RECOMMENDATION"),
+            ("modern", "决策"),
+            ("minimal", "决策"),
+            ("academic", "研究结论"),
+            ("education", "学习检验"),
+            ("medical", "临床依据"),
+            ("elegant", "董事会建议"),
+            ("tech", "锁定建议"),
         ],
     )
     async def test_priority_theme_renders_semantic_choice(self, template, expected_label):

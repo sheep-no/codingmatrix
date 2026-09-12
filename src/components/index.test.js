@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia'
-import { shallowMount } from '@vue/test-utils'
+import { flushPromises, shallowMount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/composables/useKeyboardShortcuts', () => ({
@@ -13,6 +13,7 @@ vi.mock('@/utils/api/index', () => ({ api: { post: vi.fn(), stream: vi.fn() } })
 import HomeWorkspace from './index.vue'
 import Bottominput from './bottominput.vue'
 import { api } from '@/utils/api/index'
+import { streamManager } from '@/utils/streamManager'
 
 let wrapper
 
@@ -40,6 +41,8 @@ describe('首页工作台响应式导航', () => {
   beforeEach(() => {
     localStorage.clear()
     setActivePinia(createPinia())
+    api.post.mockClear()
+    api.stream.mockClear()
   })
 
   afterEach(() => {
@@ -95,6 +98,7 @@ describe('首页工作台响应式导航', () => {
       plugins: [createPinia()],
       stubs: { FileDropZone: { template: '<div />', methods: { setupDropZone() {}, cleanupDropZone() {} } } }
     } })
+    expect(wrapper.text()).toContain('按需联网')
     expect(wrapper.find('select[aria-label="搜索深度"]').exists()).toBe(false)
     await wrapper.get('.config-toggle').trigger('click')
     const depth = wrapper.get('select[aria-label="搜索深度"]')
@@ -103,6 +107,9 @@ describe('首页工作台响应式导航', () => {
     expect(wrapper.vm.$.setupState.searchDepth).toBe('multi')
     await wrapper.get('select[aria-label="联网模式"]').setValue('off')
     expect(depth.element.disabled).toBe(true)
+    expect(wrapper.text()).toContain('联网关闭')
+    await wrapper.get('select[aria-label="联网模式"]').setValue('on')
+    expect(wrapper.text()).toContain('联网开启')
   })
 
   it('显示第二轮进度，并保留提前结束的说明', () => {
@@ -115,6 +122,20 @@ describe('首页工作台响应式导航', () => {
     expect(state.conversationHistory[0].chatStage).toContain('第 2/2 轮')
     state.handleChatStream({ stage: 'searching', status: 'skipped', error: '缺少新文本' }, '1', 0, {})
     expect(state.conversationHistory[0].warnings).toEqual(['缺少新文本'])
+  })
+
+  it('数字会话 id 与字符串缓存 key 能对上流式更新', () => {
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    state.currentConversationId = 1
+    state.conversationHistory = [{ prompt: 'q', response: '' }]
+    state.conversationHistoryMap.set('1', [{ prompt: 'q', response: '' }])
+    state.handleChatStream({ stage: 'answering', status: 'started', model: 'm-1' }, 1, 0, { prompt: 'q' })
+    expect(warn).not.toHaveBeenCalledWith('[WARN] Stream chat history not found:', 1)
+    expect(state.conversationHistoryMap.get('1')[0].model).toBe('m-1')
+    expect(state.conversationHistory[0].model).toBe('m-1')
+    warn.mockRestore()
   })
 
   it('从历史接口恢复来源和失败提示', async () => {
@@ -176,5 +197,64 @@ describe('首页工作台响应式导航', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.mobile-home-scrim').exists()).toBe(false)
     expect(document.activeElement).toBe(trigger.element)
+  })
+
+  it('恢复会话时保留正在搜索的本地消息，不向历史接口覆盖', async () => {
+    localStorage.setItem('chatState', JSON.stringify({
+      currentConversationId: '21',
+      conversationHistory: [{ prompt: '就业数据', response: '', isStreaming: true, chatStage: '正在搜索资料' }],
+      selectedHistoryItem: { conversation_id: 21 },
+      timestamp: Date.now()
+    }))
+    wrapper = mountHomeWorkspace()
+    await flushPromises()
+    const state = wrapper.vm.$.setupState
+    expect(state.conversationHistory[0].chatStage).toBe('正在搜索资料')
+    expect(state.conversationHistory[0].isStreaming).toBe(true)
+    expect(api.post).not.toHaveBeenCalled()
+  })
+
+  it('刷新后在搜索或回答阶段自动续请同一条消息', async () => {
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    vi.spyOn(state.userStore, 'isLoggedIn', 'get').mockReturnValue(true)
+    vi.spyOn(state.apiKeyStore, 'hasSiliconflowKey', 'get').mockReturnValue(true)
+    api.stream.mockImplementation(() => new Promise(() => {}))
+
+    state.currentConversationId = 'temp_1'
+    state.conversationHistory = [{ prompt: '就业数据', response: '部分回答', isStreaming: true, chatStage: '正在生成回答' }]
+    state.conversationHistoryMap.set('temp_1', state.conversationHistory)
+    streamManager.saveStreamRequestState(
+      { prompt: '就业数据', stream: true, search_mode: 'on', search_depth: 'shallow' },
+      { prompt: '就业数据', search_mode: 'on', search_depth: 'shallow' },
+      'temp_1'
+    )
+
+    const resumePromise = state.restoreStream()
+    await flushPromises()
+
+    expect(api.stream).toHaveBeenCalledWith(
+      '/chat',
+      expect.objectContaining({ prompt: '就业数据', search_mode: 'on', search_depth: 'shallow' }),
+      expect.anything()
+    )
+    expect(state.conversationHistory).toHaveLength(1)
+    expect(state.conversationHistory[0].isStreaming).toBe(true)
+    expect(state.conversationHistory[0].chatStage).toBe('正在生成回答')
+    resumePromise.catch(() => {})
+  })
+
+  it('刷新前保留流式请求状态和搜索阶段', async () => {
+    wrapper = mountHomeWorkspace()
+    await flushPromises()
+    const state = wrapper.vm.$.setupState
+    state.currentConversationId = 'temp_1'
+    state.conversationHistory = [{ prompt: 'q', isStreaming: true, chatStage: '正在搜索资料' }]
+    streamManager.saveStreamRequestState({ prompt: 'q', stream: true }, { prompt: 'q' }, 'temp_1')
+
+    window.dispatchEvent(new Event('beforeunload'))
+
+    expect(JSON.parse(localStorage.getItem('streamRequestState')).isStreaming).toBe(true)
+    expect(JSON.parse(localStorage.getItem('chatState')).conversationHistory[0].chatStage).toBe('正在搜索资料')
   })
 })

@@ -86,8 +86,8 @@ class StreamManager {
 
       const state = JSON.parse(savedState)
 
-      // 检查状态是否过期（超过5分钟）
-      if (Date.now() - state.timestamp > 300000) {
+      // 搜索 + 长回答可能超过 5 分钟，过期窗口与一次完整生成对齐
+      if (Date.now() - state.timestamp > 30 * 60 * 1000) {
         localStorage.removeItem(STORAGE_KEY)
         return null
       }
@@ -203,15 +203,25 @@ class StreamManager {
   }
 
   /**
-   * 清理所有 AbortController
+   * 中断进行中的 fetch，保留可恢复的请求快照
    */
-  cleanup() {
+  abortActiveControllers() {
     for (const [requestId, controller] of this.abortControllers.entries()) {
       controller.abort()
     }
     this.abortControllers.clear()
     sessionStorage.removeItem(ABORT_CONTROLLERS_KEY)
-    this.clearStreamRequestState()
+  }
+
+  /**
+   * 清理所有 AbortController
+   * @param {{ persistStream?: boolean }} [options]
+   */
+  cleanup({ persistStream = false } = {}) {
+    this.abortActiveControllers()
+    if (!persistStream) {
+      this.clearStreamRequestState()
+    }
   }
 
   /**

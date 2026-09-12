@@ -1,4 +1,9 @@
 from app.agent.ppt_agent import PPTAgent
+from app.agent.ppt_agent import decode_llm_stream_delta, extract_completed_slide_objects
+import json
+
+import pytest
+
 from app.utils.pptx.commercial_content import (
     build_expanded_commercial_page_blueprint,
     resolve_topic_template,
@@ -119,3 +124,85 @@ def test_topic_template_resolution_is_semantic_and_honors_explicit_choice():
     assert resolve_topic_template("完全未知的主题", "") in {
         "modern", "minimal", "elegant", "education", "academic"
     }
+
+
+def test_agent_validation_keeps_natural_length_when_auto():
+    outline = PPTAgent()._validate_outline(
+        {
+            "title": "业务增长",
+            "slides": [
+                {"type": "title", "title": "业务增长"},
+                {"type": "content", "title": "机会", "bullets": ["验证机会"]},
+                {"type": "content", "title": "路径", "bullets": ["推进路径"]},
+                {"type": "end", "title": "谢谢"},
+            ],
+        },
+        "业务增长",
+        0,
+    )
+
+    assert len(outline.slides) == 4
+    assert outline.slides[1].title == "机会"
+    assert outline.slides[2].title == "路径"
+
+
+def test_agent_auto_prompt_does_not_force_exact_count():
+    prompt = PPTAgent()._build_prompt("业务增长", "", None)
+    assert "页数: 自动" in prompt
+    assert "总页数必须等于" not in prompt
+
+
+def test_agent_auto_fallback_uses_blueprint_length():
+    outline = PPTAgent()._fallback_outline("业务增长", None)
+    assert len(outline.slides) >= 6
+    assert outline.slides[0].type == "title"
+    assert outline.slides[-1].type == "end"
+
+
+def test_extract_completed_slide_objects_from_partial_buffer():
+    buffer = '{"title":"业务增长","slides":[{"type":"title","title":"业务增长"},{"type":"content","title":"机会"'
+    slides = extract_completed_slide_objects(buffer)
+    assert slides == [{"type": "title", "title": "业务增长"}]
+
+    buffer += ',"bullets":["验证窗口"]},{"type":"end","title":"谢谢"}]}'
+    slides = extract_completed_slide_objects(buffer)
+    assert [slide["title"] for slide in slides] == ["业务增长", "机会", "谢谢"]
+
+
+def test_decode_llm_stream_delta_reads_openai_chunk():
+    chunk = '{"choices":[{"delta":{"content":"{\\"title\\":"}}]}'
+    assert decode_llm_stream_delta(chunk) == '{"title":'
+    assert decode_llm_stream_delta("data: [DONE]") == ""
+    assert decode_llm_stream_delta('{"title":') == ""
+
+
+@pytest.mark.asyncio
+async def test_stream_outline_emits_completed_slides(monkeypatch):
+    payload = {
+        "title": "业务增长",
+        "slides": [
+            {"type": "title", "title": "业务增长"},
+            {"type": "content", "title": "机会", "bullets": ["验证窗口"]},
+            {"type": "end", "title": "谢谢"},
+        ],
+    }
+    pieces = json.dumps(payload, ensure_ascii=False)
+    chunks = [
+        json.dumps({"choices": [{"delta": {"content": pieces[:40]}}]}, ensure_ascii=False),
+        json.dumps({"choices": [{"delta": {"content": pieces[40:90]}}]}, ensure_ascii=False),
+        json.dumps({"choices": [{"delta": {"content": pieces[90:]}}]}, ensure_ascii=False),
+    ]
+
+    async def fake_call_llm(**_kwargs):
+        async def gen():
+            for chunk in chunks:
+                yield chunk
+        return gen()
+
+    monkeypatch.setattr("app.agent.ppt_agent.call_llm", fake_call_llm)
+    events = [event async for event in PPTAgent().stream_outline("业务增长", num_slides=3)]
+    slides = [event["slide"]["title"] for event in events if event["type"] == "slide"]
+    assert "机会" in slides
+    complete = next(event for event in events if event["type"] == "complete")
+    assert complete["outline"].title == "业务增长"
+    assert len(complete["outline"].slides) == 3

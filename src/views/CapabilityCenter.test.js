@@ -7,7 +7,6 @@ const apiMock = vi.hoisted(() => ({
   deleteSkill: vi.fn(),
   listAgentHostSessions: vi.fn(),
   listKnowledgeDocs: vi.fn(),
-  listUploadedProjects: vi.fn(),
   analyzeImage: vi.fn()
 }))
 
@@ -35,7 +34,6 @@ describe('CapabilityCenter', () => {
     apiMock.listSkills.mockResolvedValue([])
     apiMock.listAgentHostSessions.mockResolvedValue([])
     apiMock.listKnowledgeDocs.mockResolvedValue([])
-    apiMock.listUploadedProjects.mockResolvedValue([])
     apiMock.deleteSkill.mockResolvedValue(undefined)
   })
 
@@ -94,8 +92,8 @@ describe('CapabilityCenter', () => {
     expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe('tab-knowledge')
     expect(apiMock.listKnowledgeDocs).toHaveBeenCalledOnce()
     await wrapper.get('#tab-knowledge').trigger('keydown', { key: 'End' })
-    expect(wrapper.get('#tab-projects').attributes('aria-selected')).toBe('true')
-    await wrapper.get('#tab-projects').trigger('keydown', { key: 'ArrowDown' })
+    expect(wrapper.get('#tab-host').attributes('aria-selected')).toBe('true')
+    await wrapper.get('#tab-host').trigger('keydown', { key: 'ArrowDown' })
     expect(wrapper.get('#tab-vision').attributes('aria-selected')).toBe('true')
     wrapper.unmount()
   })

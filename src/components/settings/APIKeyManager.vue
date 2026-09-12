@@ -23,7 +23,7 @@
           <a href="https://cloud.siliconflow.cn/" target="_blank" class="guide-link">前往注册</a>
         </p>
         <div class="add-key-form">
-          <input v-model="siliconflowForm.key" type="password" placeholder="输入 API Key" class="key-input" />
+          <input v-model="siliconflowForm.key" type="password" placeholder="输入 API Key" class="key-input" data-testid="siliconflow-key-input" />
           <select v-model="siliconflowForm.ttl" class="ttl-select" @change="onTTLChange(siliconflowForm)">
             <option value="24h">24 小时</option>
             <option value="7d">7 天</option>
@@ -32,7 +32,7 @@
             <option value="custom">自定义</option>
           </select>
           <input v-if="siliconflowForm.ttl === 'custom'" v-model.number="siliconflowForm.customHours" type="number" min="1" placeholder="小时数" class="custom-ttl-input" />
-          <button :disabled="loading" class="submit-btn" @click="submitSiliconflowKey">
+          <button :disabled="loading" class="submit-btn" data-testid="siliconflow-key-save" @click="submitSiliconflowKey">
             {{ loading ? '保存中...' : '保存' }}
           </button>
         </div>

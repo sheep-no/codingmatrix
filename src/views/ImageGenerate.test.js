@@ -9,10 +9,11 @@ import ImageGenerate from './ImageGenerate.vue'
 describe('ImageGenerate interaction', () => {
   let wrapper
   beforeEach(() => {
+    sessionStorage.clear()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) }))
     wrapper = mount(ImageGenerate)
   })
-  afterEach(() => { wrapper.unmount(); vi.unstubAllGlobals() })
+  afterEach(() => { wrapper.unmount(); sessionStorage.clear(); vi.unstubAllGlobals() })
 
   it('selects styles using native buttons and keeps advanced options collapsed', async () => {
     expect(wrapper.get('details').attributes('open')).toBeUndefined()
@@ -50,6 +51,92 @@ describe('ImageGenerate interaction', () => {
     await flushPromises()
     expect(wrapper.get('.generated-image').attributes('alt')).toBe('生成作品 1')
     expect(wrapper.get('[aria-label="下载图片"]').exists()).toBe(true)
+    expect(wrapper.get('.btn-generate').element.disabled).toBe(false)
+  })
+
+  it('persists the prompt and restores the canvas after a refresh', async () => {
+    await wrapper.get('#image-prompt').setValue('海边的灯塔')
+    await flushPromises()
+    expect(JSON.parse(sessionStorage.getItem('image-generate-session-v1')).prompt).toBe('海边的灯塔')
+
+    wrapper.unmount()
+    sessionStorage.setItem('image-generate-session-v1', JSON.stringify({
+      savedAt: Date.now(),
+      mode: 'text2img',
+      prompt: '海边的灯塔',
+      style: 'anime',
+      resolution: '512x512',
+      steps: 25,
+      cfgScale: 7.5,
+      denoising: 0.7,
+      seed: -1,
+      isGenerating: false,
+      generatedImages: [{ url: '/saved.png' }],
+      lastGeneratedImage: { url: '/saved.png', prompt: '海边的灯塔' },
+      originalPrompt: '海边的灯塔',
+    }))
+    wrapper = mount(ImageGenerate)
+    await flushPromises()
+    expect(wrapper.get('#image-prompt').element.value).toBe('海边的灯塔')
+    expect(wrapper.get('.generated-image').attributes('src')).toBe('/saved.png')
+    const anime = wrapper.findAll('.style-card').find(button => button.text() === '动漫')
+    expect(anime.attributes('aria-pressed')).toBe('true')
+  })
+
+  it('resumes in-flight generation after a refresh from sessionStorage', async () => {
+    wrapper.unmount()
+    sessionStorage.setItem('image-generate-session-v1', JSON.stringify({
+      savedAt: Date.now(),
+      mode: 'text2img',
+      prompt: '月光下的狐狸',
+      style: 'realistic',
+      resolution: '512x512',
+      steps: 20,
+      cfgScale: 7,
+      denoising: 0.7,
+      seed: -1,
+      isGenerating: true,
+      generatedImages: [],
+      lastGeneratedImage: null,
+      originalPrompt: '',
+    }))
+    let finish
+    fetch.mockImplementation((url) => {
+      if (String(url).includes('text-to-image')) {
+        return new Promise((resolve) => { finish = resolve })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ items: [] }) })
+    })
+    wrapper = mount(ImageGenerate)
+    await flushPromises()
+    expect(wrapper.get('.loading-state').attributes('role')).toBe('status')
+    expect(wrapper.get('#image-prompt').element.value).toBe('月光下的狐狸')
+    finish({ ok: true, json: async () => ({ images: ['/resumed.png'] }) })
+    await flushPromises()
+    expect(wrapper.get('.generated-image').attributes('src')).toBe('/resumed.png')
+  })
+
+  it('falls back to text-to-image when restoring an img2img session without a file', async () => {
+    wrapper.unmount()
+    sessionStorage.setItem('image-generate-session-v1', JSON.stringify({
+      savedAt: Date.now(),
+      mode: 'img2img',
+      prompt: '月光下的狐狸',
+      style: 'realistic',
+      resolution: '512x512',
+      steps: 25,
+      cfgScale: 7.5,
+      denoising: 0.7,
+      seed: -1,
+      isGenerating: false,
+      generatedImages: [{ url: '/saved.png' }],
+      lastGeneratedImage: { url: '/saved.png', prompt: '橘猫' },
+      originalPrompt: '橘猫',
+    }))
+    wrapper = mount(ImageGenerate)
+    await flushPromises()
+    expect(wrapper.get('#image-prompt').element.value).toBe('月光下的狐狸')
+    expect(wrapper.get('.mode-tab.active').text()).toContain('文生图')
     expect(wrapper.get('.btn-generate').element.disabled).toBe(false)
   })
 })

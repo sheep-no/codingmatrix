@@ -150,4 +150,14 @@ describe('PPTPreview quality report', () => {
     expect(wrapper.text()).not.toContain('暂无幻灯片数据')
     wrapper.unmount()
   })
+
+  it('keeps the deck stage beside the quality inspector', async () => {
+    const wrapper = mount(PPTPreview)
+    await flushPromises()
+    expect(wrapper.find('.preview-workspace').exists()).toBe(true)
+    expect(wrapper.find('.preview-stage').exists()).toBe(true)
+    expect(wrapper.find('.preview-inspector').exists()).toBe(true)
+    expect(wrapper.find('.preview-inspector .quality-report-card').exists()).toBe(true)
+    wrapper.unmount()
+  })
 })

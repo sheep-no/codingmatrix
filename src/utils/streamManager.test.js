@@ -4,6 +4,7 @@ import { streamManager } from './streamManager'
 describe('streamManager persisted state', () => {
   beforeEach(() => {
     localStorage.clear()
+    streamManager.cleanup()
   })
 
   it('removes credentials from recoverable request state', () => {
@@ -21,5 +22,23 @@ describe('streamManager persisted state', () => {
 
     expect(state.requestData).toEqual({ prompt: 'test', nested: { safe: true } })
     expect(state.messageData).toEqual({ content: 'safe' })
+  })
+
+  it('keeps recoverable state when aborting controllers or persisting cleanup', () => {
+    streamManager.saveStreamRequestState({ prompt: 'keep' }, { prompt: 'keep' }, 'temp_1')
+    streamManager.createAbortController('req_keep')
+    streamManager.abortActiveControllers()
+    expect(streamManager.getStreamRequestState()?.requestData).toEqual({ prompt: 'keep' })
+
+    streamManager.cleanup({ persistStream: true })
+    expect(streamManager.getStreamRequestState()?.isStreaming).toBe(true)
+  })
+
+  it('still restores stream state after five minutes', () => {
+    streamManager.saveStreamRequestState({ prompt: 'long' }, { prompt: 'long' }, 7)
+    const raw = JSON.parse(localStorage.getItem('streamRequestState'))
+    raw.timestamp = Date.now() - 6 * 60 * 1000
+    localStorage.setItem('streamRequestState', JSON.stringify(raw))
+    expect(streamManager.getStreamRequestState()?.requestData.prompt).toBe('long')
   })
 })

@@ -142,7 +142,9 @@ export const useTokenManager = () => {
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
           console.warn('[WARN] Refresh token invalid, please re-login')
-          clearToken()
+          if (!isTokenValid()) {
+            clearToken()
+          }
           return false
         }
         throw new Error('Token refresh failed')

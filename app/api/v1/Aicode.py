@@ -27,7 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.schema.codeRequest import CodeRequest
 from app.utils import call_llm
-from app.utils.web_search import FreeWebSearch
+from app.utils.web_search import FreeWebSearch, expand_relative_time, fetch_page_text
+from app.utils.aicloud.llm_caller import LLMCallError
 from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from fastapi.responses import StreamingResponse
 from app.utils.security import verify_token
@@ -48,6 +49,11 @@ from app.utils.aicloud.knowledge_processor import parse_document
 logger = logging.getLogger(__name__)
 router = APIRouter()
 _parser = RobustJSONParser(strict_mode=False)
+CHAT_STREAM_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+    "Connection": "keep-alive",
+}
 
 # 部分响应缓存 {task_id: {"prompt": ..., "partial_response": ..., "model": ..., "timestamp": ...}}
 _partial_response_cache: Dict[str, dict] = {}
@@ -156,73 +162,77 @@ REASONING_PROMPT = """请深入分析以下问题：
 # 工具函数
 # -----------------------------
 
-def ai_decide_search(prompt: str) -> bool:
-    """
-    AI 自主判断是否需要网络搜索
-    
-    判断逻辑：
-    1. 需要搜索的场景：时效性信息、新闻动态、实时数据、最新信息
-    2. 不需要搜索的场景：代码生成、知识讲解、文本处理、数学计算
-    
-    Args:
-        prompt: 用户问题
-        
-    Returns:
-        True=需要搜索，False=不需要搜索
-    """
-    prompt_lower = prompt.lower()
-    if any(term in prompt_lower for term in ("联网搜索", "网上搜索", "在线核查", "核查附件最新", "搜索最新")):
-        return True
-    
-    # 需要搜索的关键词（时效性、动态信息）
-    search_triggers = [
-        # 时间相关
-        "最新", "最近", "新闻", "今天", "昨天", "本周", "本月", "今年", "明年",
-        "2024", "2025", "2026", "2027",
-        
-        # 动态事件
-        "发布会", "更新", "版本", "发布", "上线", "上线时间", "发售", "官宣",
-        "价格", "股价", "汇率", "排名", "排行榜", "榜单",
-        "天气", "疫情", "政策", "法规", "新规",
-        "销量", "用户数", "市场份额",
-        
-        # 英文查询
-        "latest", "recent", "news", "today", "this week", "this month",
-        "release date", "price", "update", "version",
-        "who is", "what is the current", "current status"
-    ]
-    
-    # 不需要搜索的关键词（静态知识、代码生成）
-    no_search_triggers = [
-        # 代码生成
-        "代码", "编程", "function", "class", "def ", "import", "const ",
-        "写一个", "生成代码", "实现一个", "创建一个", "编写",
-        "api 接口", "endpoint", "route", "controller",
-        
-        # 知识讲解
-        "解释", "原理", "概念", "是什么意思", "什么是", "定义",
-        "教学", "教程", "学习", "入门", "指南",
-        "为什么", "如何实现", "怎么写",
-        
-        # 文本处理
-        "翻译", "润色", "写作", "改写", "总结", "摘要",
-        
-        # 数学计算
-        "计算", "等于", "公式", "求解", "积分", "微分"
-    ]
-    
-    # 优先匹配需要搜索的
-    for keyword in search_triggers:
-        if keyword in prompt_lower:
+def current_time_block(now: datetime | None = None) -> str:
+    """Give the model an explicit calendar so 今年/今天 can be resolved."""
+    current = now or datetime.now()
+    weekdays = "一二三四五六日"
+    return (
+        f"[当前时间] {current.strftime('%Y-%m-%d %H:%M')}，星期{weekdays[current.weekday()]}。"
+        "涉及「今年」「今天」「本月」时按该日期理解。"
+    )
+
+
+
+_GREETINGS = {
+    "你好", "您好", "在吗", "嗨", "哈喽", "早上好", "晚上好",
+    "hi", "hello", "hey", "yo",
+}
+_SEARCH_DECISION_PROMPT = """当前时间：{now}
+
+用户问题：
+{prompt}
+
+判断回答该问题是否必须检索公开互联网。需要网上的事实、数据、新闻、价格、政策、统计、特定年份或「今年/前几年」资料时 search=true。
+编写代码、解释概念、翻译润色、纯数学计算时 search=false。
+只输出 JSON，例如 {{"search": true}} 或 {{"search": false}}。"""
+
+
+def parse_search_decision(text: str) -> Optional[bool]:
+    """Parse the classifier JSON; None means the model output was unusable."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    try:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        payload = json.loads(raw[start:end + 1] if start >= 0 and end > start else raw)
+        if isinstance(payload, dict) and "search" in payload:
+            return bool(payload["search"])
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
+    return None
+
+
+async def ai_decide_search(prompt: str, api_key_token: Optional[str] = None) -> bool:
+    """Ask the fast model whether this question needs live web data."""
+    text = (prompt or "").strip()
+    if not text or text.lower() in _GREETINGS:
+        return False
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    try:
+        result = await call_llm(
+            model=DEFAULT_FAST_MODEL,
+            prompt=_SEARCH_DECISION_PROMPT.format(now=now, prompt=text[:1000]),
+            stream=False,
+            temperature=0.0,
+            max_tokens=64,
+            timeout=8.0,
+            api_key_token=api_key_token,
+        )
+        content = (
+            ((result or {}).get("choices") or [{}])[0]
+            .get("message", {})
+            .get("content")
+            or ""
+        )
+        decision = parse_search_decision(content)
+        if decision is None:
+            logger.info("搜索判断无法解析，默认检索 | raw=%s", str(content)[:80])
             return True
-    
-    # 匹配不需要搜索的
-    for keyword in no_search_triggers:
-        if keyword in prompt_lower:
-            return False
-    
-    # 默认不搜索
-    return False
+        return decision
+    except Exception as exc:
+        logger.warning("搜索判断失败，默认检索 | error=%s", exc)
+        return True
 
 
 def build_bounded_search_query(prompt: str, attachment_names: Optional[List[str]] = None) -> str:
@@ -234,7 +244,175 @@ def build_bounded_search_query(prompt: str, attachment_names: Optional[List[str]
         if entity:
             names.append(entity[:80])
     entity_prefix = " ".join(names)[:140].strip()
-    return " ".join(part for part in (entity_prefix, query) if part)[:400]
+    combined = " ".join(part for part in (entity_prefix, query) if part)[:400]
+    return expand_relative_time(combined)[:400]
+
+
+_SEARCH_PLAN_PROMPT = """当前时间：{now}
+
+用户问题：
+{prompt}
+
+附件关键词：
+{attachments}
+
+已检索到的来源：
+{sources}
+
+上一轮失败的查询：
+{failed}
+
+请规划下一步联网动作，只输出 JSON，不要解释。
+可选：
+{{"action":"search","queries":["关键词1","关键词2"]}}
+{{"action":"fetch","urls":["https://..."]}}
+{{"action":"stop"}}
+
+要求：
+- search 的 queries 是搜索引擎关键词，不要整句复述用户问题。
+- 主体名称写完整，再加方面词（如 就业质量报告、开放时间、价格）。
+- 全国/年度就业、GDP、人口、物价等，查询写成「YYYY年国民经济和社会发展统计公报」或「国家统计局 YYYY 就业」。
+- 把今年/近三年/前几年展开成具体年份。
+- 上一轮失败的查询不要再用，必须换词。
+- 每次最多 3 条查询，每条不超过 80 字。
+- fetch 的 url 必须来自已有来源。
+- 资料足够回答则 stop。
+"""
+
+
+def parse_search_plan(text: str) -> Optional[Dict[str, Any]]:
+    """Parse a model search/fetch/stop plan; None means the output was unusable."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    try:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        payload = json.loads(raw[start:end + 1] if start >= 0 and end > start else raw)
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    action = str(payload.get("action") or "").strip().lower()
+    queries = payload.get("queries") or []
+    urls = payload.get("urls") or []
+    if isinstance(queries, str):
+        queries = [queries]
+    if isinstance(urls, str):
+        urls = [urls]
+    if action not in {"search", "fetch", "stop"}:
+        action = "search" if queries else ""
+    if action not in {"search", "fetch", "stop"}:
+        return None
+    cleaned_queries = []
+    for item in queries:
+        query = expand_relative_time(" ".join(str(item).split()))[:80]
+        if query:
+            cleaned_queries.append(query)
+    cleaned_urls = []
+    for item in urls:
+        url = str(item or "").strip()
+        if url.startswith("http://") or url.startswith("https://"):
+            cleaned_urls.append(url)
+    return {
+        "action": action,
+        "queries": cleaned_queries[:3],
+        "urls": cleaned_urls[:3],
+    }
+
+
+def _fallback_search_plan(
+    prompt: str,
+    attachment_names: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    return {
+        "action": "search",
+        "queries": [build_bounded_search_query(prompt, attachment_names)],
+        "urls": [],
+    }
+
+
+async def plan_search_actions(
+    prompt: str,
+    attachment_names: Optional[List[str]] = None,
+    sources: Optional[List[Dict[str, str]]] = None,
+    failed_queries: Optional[List[str]] = None,
+    api_key_token: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Ask the fast model to write search queries or pick pages to fetch."""
+    fallback = _fallback_search_plan(prompt, attachment_names)
+    source_lines = []
+    for item in (sources or [])[:8]:
+        url = (item.get("url") or "").strip()
+        if not url:
+            continue
+        title = (item.get("title") or "")[:80]
+        snippet = (item.get("snippet") or "")[:80]
+        source_lines.append(f"- {title} | {url} | {snippet}")
+    attachments = ", ".join(
+        Path(name).stem for name in (attachment_names or []) if name
+    ) or "（无）"
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    try:
+        result = await call_llm(
+            model=DEFAULT_FAST_MODEL,
+            prompt=_SEARCH_PLAN_PROMPT.format(
+                now=now,
+                prompt=(prompt or "")[:1000],
+                attachments=attachments[:200],
+                sources="\n".join(source_lines) if source_lines else "（无）",
+                failed="\n".join(f"- {item}" for item in (failed_queries or [])[:6]) or "（无）",
+            ),
+            stream=False,
+            temperature=0.0,
+            max_tokens=256,
+            timeout=8.0,
+            api_key_token=api_key_token,
+        )
+        content = (
+            ((result or {}).get("choices") or [{}])[0]
+            .get("message", {})
+            .get("content")
+            or ""
+        )
+        plan = parse_search_plan(content)
+        if not plan:
+            logger.info("检索规划无法解析，回退原问题 | raw=%s", str(content)[:80])
+            return fallback
+        if plan["action"] == "search" and not plan["queries"]:
+            return fallback
+        if plan["action"] == "fetch" and not plan["urls"]:
+            return {"action": "stop", "queries": [], "urls": []} if sources else fallback
+        return plan
+    except Exception as exc:
+        logger.warning("检索规划失败，回退原问题 | error=%s", exc)
+        return fallback
+
+
+async def fetch_source_pages(
+    urls: List[str],
+    seen: Optional[set] = None,
+    limit: int = 2,
+) -> List[Dict[str, str]]:
+    """Read a few search-hit pages so the answer can use body text, not snippets."""
+    fetched: List[Dict[str, str]] = []
+    visited = seen if seen is not None else set()
+    for raw in urls:
+        url = (raw or "").strip()
+        if not url or url in visited:
+            continue
+        if not (url.startswith("http://") or url.startswith("https://")):
+            continue
+        if any(marker in url for marker in (" ", "\n", "\r", "@")):
+            continue
+        visited.add(url)
+        text = await fetch_page_text(url, timeout=8.0)
+        if not text:
+            continue
+        fetched.append({"url": url, "text": text[:1500]})
+        if len(fetched) >= limit:
+            break
+    return fetched
 
 
 def build_followup_search_query(query: str, sources: List[Dict[str, str]]) -> Optional[str]:
@@ -533,6 +711,7 @@ async def _build_context(
     include_history: bool = True,
     on_stage: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
     search_depth: str = "shallow",
+    api_key_token: Optional[str] = None,
 ) -> Tuple[str, List[Dict[str, str]], bool, bool, List[Dict[str, str]]]:
     """
     构建上下文：会话历史 + 文件解析 + 联网搜索
@@ -549,6 +728,8 @@ async def _build_context(
             if inspect.isawaitable(result):
                 await result
     
+    context_parts.append(current_time_block())
+
     if include_history and conversation_id:
         history_context = await compress_conversation_history(db, user_id, conversation_id)
         if history_context:
@@ -591,25 +772,91 @@ async def _build_context(
         logger.info(f"用户禁止搜索 | prompt={prompt[:50]}...")
         await stage({"stage": "searching", "status": "skipped", "reason": "disabled"})
     else:
-        ai_needs_search = ai_decide_search(prompt) or (
-            bool(attachment_terms) and any(term in prompt for term in ("核查", "核对", "检索", "搜索"))
+        should_search = effective_mode == "on" or await ai_decide_search(
+            prompt, api_key_token=api_key_token
         )
-        
-        should_search = effective_mode == "on" or ai_needs_search
         logger.info(f"联网模式={effective_mode} | {'执行搜索' if should_search else '跳过搜索'}")
+        if not should_search:
+            await stage({"stage": "searching", "status": "skipped", "reason": "auto_not_needed"})
     
     if should_search:
         search = FreeWebSearch()
-        query = build_bounded_search_query(prompt, attachment_terms)
-        total_rounds = 2 if search_depth == "multi" else 1
+        fallback_query = build_bounded_search_query(prompt, attachment_terms)
+        max_rounds = 2 if search_depth == "multi" else 1
         seen_urls = set()
-        for round_number in range(1, total_rounds + 1):
-            event = {"stage": "searching", "round": round_number, "total_rounds": total_rounds}
+        fetched_urls = set()
+        planned_sources: List[Dict[str, str]] = []
+        failed_queries: List[str] = []
+        empty_retry_left = 1
+        round_number = 0
+        while round_number < max_rounds:
+            round_number += 1
+            event = {"stage": "searching", "round": round_number, "total_rounds": max_rounds}
             await stage({**event, "status": "started"})
             try:
-                search_text, web_sources = await search.search_with_sources(query=query, count=search_count)
+                plan = await plan_search_actions(
+                    prompt,
+                    attachment_names=attachment_terms,
+                    sources=planned_sources,
+                    failed_queries=failed_queries,
+                    api_key_token=api_key_token,
+                )
+                action = plan.get("action")
+                if action == "stop":
+                    if planned_sources:
+                        await stage({**event, "status": "skipped", "reason": "plan_stop"})
+                        break
+                    action = "search"
+                    plan = {"queries": [fallback_query], "urls": []}
+                if action == "fetch":
+                    allowed = {item.get("url") for item in planned_sources if item.get("url")}
+                    if not allowed:
+                        action = "search"
+                        plan = {"queries": [fallback_query], "urls": []}
+                    else:
+                        requested = [url for url in (plan.get("urls") or []) if url in allowed]
+                        if not requested or all(url in fetched_urls for url in requested):
+                            await stage({**event, "status": "skipped", "reason": "already_fetched"})
+                            break
+                        pages = await fetch_source_pages(
+                            requested,
+                            fetched_urls,
+                        )
+                        if not pages:
+                            raise ValueError("未获得网页正文")
+                        for page in pages:
+                            context_parts.append(f"\n[网页正文 {page['url']}]\n{page['text']}\n")
+                        await stage({**event, "status": "completed", "sources": list(sources)})
+                        continue
+                queries = [item for item in (plan.get("queries") or []) if item] or [fallback_query]
+                queries = [item for item in queries if item not in failed_queries] or queries
+                web_sources: List[Dict[str, str]] = []
+                last_error: Optional[Exception] = None
+                for query in queries[:3]:
+                    try:
+                        round_text, round_sources = await search.search_with_sources(
+                            query=query, count=search_count
+                        )
+                    except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as exc:
+                        last_error = exc
+                        continue
+                    if not round_sources:
+                        last_error = ValueError("未获得网页来源")
+                        continue
+                    if round_text:
+                        context_parts.append(f"\n[第 {round_number} 轮网络搜索结果]\n{round_text}\n")
+                    web_sources.extend(round_sources)
                 if not web_sources:
-                    raise ValueError("未获得网页来源")
+                    failed_queries.extend(item for item in queries if item)
+                    if empty_retry_left > 0 and (
+                        last_error is None or isinstance(last_error, ValueError)
+                    ):
+                        empty_retry_left -= 1
+                        max_rounds = max(max_rounds, round_number + 1)
+                        logger.info("检索无结果，换词重试 | failed=%s", failed_queries[:4])
+                        await stage({**event, "status": "skipped", "reason": "empty_retry"})
+                        continue
+                    raise last_error or ValueError("未获得网页来源")
             except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
                 warning = {**event, "error": f"第 {round_number} 轮搜索未获得有效结果，将使用已有资料回答。"}
                 stage_errors.append(warning)
@@ -620,19 +867,16 @@ async def _build_context(
             for source in web_sources:
                 if source["url"] not in seen_urls:
                     sources.append(source)
+                    planned_sources.append(source)
                     seen_urls.add(source["url"])
-            if search_text:
-                context_parts.append(f"\n[第 {round_number} 轮网络搜索结果]\n{search_text}\n")
+            pages = await fetch_source_pages(
+                [item["url"] for item in web_sources],
+                fetched_urls,
+                limit=2,
+            )
+            for page in pages:
+                context_parts.append(f"\n[网页正文 {page['url']}]\n{page['text']}\n")
             await stage({**event, "status": "completed", "sources": list(sources)})
-            if round_number < total_rounds:
-                next_query = build_followup_search_query(query, web_sources)
-                if not next_query:
-                    warning = {"stage": "searching", "round": 2, "total_rounds": total_rounds,
-                               "error": "首轮结果缺少可用于追问的新文本，多轮搜索已提前结束。"}
-                    stage_errors.append(warning)
-                    await stage({**warning, "status": "skipped"})
-                    break
-                query = next_query
     
     return "\n".join(context_parts) if context_parts else "", sources, should_search, had_files, stage_errors
 
@@ -667,6 +911,30 @@ def _select_prompt_template(prompt: str, use_reasoning: bool) -> str:
 
 # 流式响应生成
 # -----------------------------
+
+async def _aclose_llm_stream(stream) -> None:
+    """关闭 LLM 流，确保适配器与信号量在客户端断开后释放。"""
+    if stream is None:
+        return
+    release_now = getattr(stream, "release_now", None)
+    if callable(release_now):
+        release_now()
+    aclose = getattr(stream, "aclose", None)
+    if aclose is None:
+        return
+
+    async def _close():
+        try:
+            await aclose()
+        except Exception:
+            logger.debug("关闭 LLM 流失败", exc_info=True)
+
+    close_task = asyncio.get_running_loop().create_task(_close())
+    try:
+        await asyncio.shield(close_task)
+    except asyncio.CancelledError:
+        return
+
 
 async def stream_response(
     user_id: str,
@@ -713,6 +981,7 @@ async def stream_response(
                 files_to_parse=files_to_parse,
                 include_history=include_history,
                 on_stage=stage_events.put,
+                api_key_token=api_key_token,
             )
         finally:
             await stage_events.put(None)
@@ -745,6 +1014,7 @@ async def stream_response(
     response_parts = []
 
     yield json.dumps({"stage": "answering", "status": "started", "model": model, "sources": sources, "search_depth": search_depth}, ensure_ascii=False) + "\n"
+    result_gen = None
     try:
         try:
             result_gen = await call_llm(model=model, prompt=final_prompt, stream=True,
@@ -827,6 +1097,14 @@ async def stream_response(
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"流式生成失败 | error={str(e)}")
         yield '{"error": "服务内部错误，请稍后重试"}\n'
+    except LLMCallError as e:
+        logger.error(f"流式生成失败 | error={e.message}")
+        yield json.dumps({"error": e.message}, ensure_ascii=False) + "\n"
+    except Exception as e:
+        logger.error(f"流式生成失败 | error={str(e)}")
+        yield '{"error": "服务内部错误，请稍后重试"}\n'
+    finally:
+        await _aclose_llm_stream(result_gen)
 
 
 # 非流式生成 ==============
@@ -859,7 +1137,8 @@ async def generate_response(
         search_depth=search_depth,
         search_count=search_count,
         files_to_parse=files_to_parse,
-        include_history=include_history
+        include_history=include_history,
+        api_key_token=api_key_token,
     )
     
     system_prompt = _select_prompt_template(prompt, use_reasoning)
@@ -1006,7 +1285,8 @@ async def generate_code(
                     resume_from=getattr(body, 'resume_id', None),
                     api_key_token=body.api_key_token
                 ),
-                media_type="text/plain"
+                media_type="text/event-stream",
+                headers=CHAT_STREAM_HEADERS,
             )
         else:
             return await generate_response(
@@ -1147,7 +1427,8 @@ async def resume_code_generation(
             include_history=False,
             resume_from=resume_id
         ),
-        media_type="text/plain"
+        media_type="text/event-stream",
+        headers=CHAT_STREAM_HEADERS,
     )
 
 

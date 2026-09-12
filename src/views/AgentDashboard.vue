@@ -50,8 +50,6 @@
         @new-session="doCreateNewSession"
         @switch-session="doSwitchSession"
         @delete-session="doDeleteSession"
-        @archive-project="archiveProject"
-        @restore-project="restoreProject"
         @update:search-query="files.fileSearchQuery = $event"
         @toggle-category="toggleCategory"
         @select-file="selectFile"
@@ -437,52 +435,42 @@ const doSwitchSession = async (id) => {
   }
   return true
 }
-const doDeleteSession = (id) => {
+const doDeleteSession = async (id) => {
   if (generation.isGenerating) {
-    ElMessage.warning('项目生成期间无法删除会话')
+    ElMessage.warning('项目生成期间无法删除项目')
     return false
   }
-  return session.deleteSession(id, () => {
+  const deletingCurrentProject = session.currentSessionId === id
+  try {
+    await ElMessageBox.confirm(
+      '删除后，项目文件和相关记录会立即清理，且无法恢复。确认永久删除该项目？',
+      '永久删除项目',
+      {
+        confirmButtonText: '永久删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+    await projectApi.permanentlyDeleteProject(id)
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return false
+    if (error.status !== 404) {
+      ElMessage.error(error.message || '删除项目失败')
+      return false
+    }
+  }
+  session.deleteSession(id)
+  if (deletingCurrentProject) {
     files.clearAll()
     workspace.logs = []
     workspace.thinkingMessages = []
-  })
-}
-
-const updateProjectLifecycle = async (id, action, successMessage) => {
-  if (generation.isGenerating && id === session.currentSessionId) {
-    ElMessage.warning('项目生成期间无法操作当前项目')
-    return false
+    workspace.executionDetails = []
+    workspace.currentProjectPath = null
+    taskFeedback.reset()
   }
-  try {
-    await projectApi[action](id)
-    const item = session.sessionHistory.find(entry => entry.id === id)
-    if (item) item.lifecycle_status = action === 'archiveProject' ? 'archived' : 'active'
-    ElMessage.success(successMessage)
-    return true
-  } catch (error) {
-    ElMessage.error(error.message)
-    return false
-  }
-}
-
-const archiveProject = id => updateProjectLifecycle(id, 'archiveProject', '项目已回收')
-const restoreProject = id => updateProjectLifecycle(id, 'restoreProject', '项目已恢复')
-
-const syncProjectLifecycle = async () => {
-  try {
-    const data = await projectApi.listProjectSessions()
-    const remoteSessions = Array.isArray(data?.sessions) ? data.sessions : []
-    for (const remote of remoteSessions) {
-      const local = session.sessionHistory.find(entry => entry.id === remote.session_id)
-      if (local) {
-        local.lifecycle_status = remote.lifecycle_status || local.lifecycle_status || 'active'
-        local.pinned = Boolean(remote.pinned)
-      }
-    }
-  } catch (error) {
-    workspace.addLog('warning', `同步项目生命周期状态失败: ${error.message}`)
-  }
+  ElMessage.success('项目已永久删除')
+  return true
 }
 
 // ========== File Operations ==========
@@ -561,7 +549,6 @@ onMounted(() => {
   providerStore.loadFromStorage()
   providerStore.listProviders().catch(() => {})
   session.loadSessionHistory()
-  syncProjectLifecycle()
   backend.loadSettings()
   session.startAutoSave(
     () => (files.generatedFiles?.length || 0) > 0 || workspace.logs.length > 0,

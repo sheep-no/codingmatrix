@@ -104,7 +104,8 @@
         v-if="showVirtualGirl"
         ref="virtualGirlRef"
         :visible="showVirtualGirl"
-        @update:visible="val => (navigationStore.showVirtualGirl = val)"
+        @close="() => navigationStore.hideTool('virtualGirl')"
+        @update:visible="val => { if (!val) navigationStore.hideTool('virtualGirl') }"
       />
 
       <TaskQueue
@@ -215,6 +216,7 @@
   const isLoading = ref(false)
   const isHistoryLoading = ref(false)
   const isStreamActive = ref(false)
+  let pageUnloading = false
 
   const showNginxConfig = computed(() => navigationStore.showNginxConfig)
   const showDockerConfig = computed(() => navigationStore.showDockerConfig)
@@ -269,9 +271,14 @@
     }
   }
 
+  const conversationKey = conversationId => {
+    if (conversationId === null || conversationId === undefined || conversationId === '') return ''
+    return String(conversationId)
+  }
+
   const saveConversationToMap = (conversationId, customHistory = null) => {
     if (conversationId) {
-      const key = String(conversationId)
+      const key = conversationKey(conversationId)
       const historyToSave = customHistory !== null ? customHistory : conversationHistory.value
       conversationHistoryMap.value.set(key, JSON.parse(JSON.stringify(historyToSave)))
 
@@ -287,7 +294,7 @@
   }
 
   const streamUpdateBatcher = createStreamUpdateBatcher(update => {
-    const history = conversationHistoryMap.value.get(update.conversationId)
+    const history = conversationHistoryMap.value.get(conversationKey(update.conversationId))
     const message = history?.[update.lastIndex]
     if (!message) return
 
@@ -307,7 +314,7 @@
 
   const getConversationFromMap = conversationId => {
     if (conversationId) {
-      const key = String(conversationId)
+      const key = conversationKey(conversationId)
       const cached = conversationHistoryMap.value.get(key)
       if (cached) {
         return JSON.parse(JSON.stringify(cached))
@@ -368,10 +375,27 @@
       const conversationId = state.currentConversationId
       if (!conversationId) return false
 
+      const localHistory = state.conversationHistory || []
+      const hasLiveStream = localHistory.some(message => message.isStreaming)
+        || Boolean(streamManager.getStreamRequestState()?.isStreaming)
+
+      if (hasLiveStream && localHistory.length) {
+        currentConversationId.value = conversationId
+        conversationHistory.value = localHistory
+        selectedHistoryItem.value = state.selectedHistoryItem
+        if (String(conversationId).startsWith('temp_')) {
+          tempConversationId.value = conversationId
+        }
+        saveConversationToMap(conversationId)
+        return true
+      }
+
       if (String(conversationId).startsWith('temp_')) {
         currentConversationId.value = conversationId
-        conversationHistory.value = state.conversationHistory || []
+        conversationHistory.value = localHistory
         selectedHistoryItem.value = state.selectedHistoryItem
+        tempConversationId.value = conversationId
+        saveConversationToMap(conversationId)
         return true
       }
 
@@ -497,7 +521,8 @@
     return Object.fromEntries(Object.entries(retryRequest).filter(([, value]) => value !== undefined))
   }
 
-  const handleSendMessage = async messageData => {
+  const handleSendMessage = async (messageData, options = {}) => {
+    const resume = Boolean(options && options.resume)
     if (!userStore.isLoggedIn) {
       handleRequireLogin()
       return
@@ -525,7 +550,7 @@
       tempConversationId.value = tempId
       currentConversationId.value = tempId
 
-      conversationHistory.value = []
+      if (!resume) conversationHistory.value = []
       saveConversationToMap(tempId)
 
       setTimeout(() => {
@@ -543,27 +568,55 @@
       }, 100)
     }
 
-    const userMessage = {
-      id: Date.now(),
-      prompt: messageData.prompt,
-      response: '',
-      reasoning: '',
-      isStreaming: true,
-      hasThinking: false,
-      thinkingOpen: messageData.is_project_generator ? false : true,
-      projectThinkingOpen: false,
-      isProjectGenerator: messageData.is_project_generator || false,
-      thinkingContent: '',
-      otherContent: '',
-      files: messageData.files?.filter(f => f.category === 'image') || []
+    if (resume) {
+      const lastMessage = conversationHistory.value[conversationHistory.value.length - 1]
+      if (!lastMessage || lastMessage.prompt !== messageData.prompt) {
+        conversationHistory.value.push({
+          id: Date.now(),
+          prompt: messageData.prompt,
+          response: '',
+          reasoning: '',
+          isStreaming: true,
+          chatStage: '正在恢复回答',
+          hasThinking: false,
+          thinkingOpen: !messageData.is_project_generator,
+          projectThinkingOpen: false,
+          isProjectGenerator: messageData.is_project_generator || false,
+          thinkingContent: '',
+          otherContent: '',
+          files: messageData.files?.filter(f => f.category === 'image') || []
+        })
+      } else {
+        lastMessage.isStreaming = true
+        lastMessage.requestError = null
+        lastMessage.retryRequest = null
+        lastMessage.chatStage = lastMessage.chatStage || '正在恢复回答'
+        lastMessage.response = ''
+        lastMessage.reasoning = ''
+      }
+    } else {
+      conversationHistory.value.push({
+        id: Date.now(),
+        prompt: messageData.prompt,
+        response: '',
+        reasoning: '',
+        isStreaming: true,
+        hasThinking: false,
+        thinkingOpen: messageData.is_project_generator ? false : true,
+        projectThinkingOpen: false,
+        isProjectGenerator: messageData.is_project_generator || false,
+        thinkingContent: '',
+        otherContent: '',
+        files: messageData.files?.filter(f => f.category === 'image') || []
+      })
     }
 
-    conversationHistory.value.push(userMessage)
     saveConversationToMap(currentConversationId.value)
+    saveStateToStorage()
 
     const lastMessageIndex = conversationHistory.value.length - 1
     const currentMessageData = messageData
-    const streamConversationId = currentConversationId.value
+    const streamConversationId = conversationKey(currentConversationId.value)
 
     try {
       let response
@@ -597,20 +650,6 @@
 
 
 
-        streamManager.saveStreamRequestState(
-          {
-            prompt: messageData.prompt,
-            model: messageData.model || undefined,
-            stream: true,
-            use_reasoning: messageData.use_reasoning || false,
-            search_mode: messageData.search_mode || 'auto',
-            search_depth: messageData.search_depth || 'shallow',
-            conversation_id: sendConversationId
-          },
-          messageData,
-          sendConversationId
-        )
-
         const requestData = {
           prompt: messageData.prompt,
           model: messageData.model || undefined,
@@ -625,14 +664,29 @@
         // 集成 Vision: 将附件文件传递给后端自动处理
         if (messageData.files && messageData.files.length > 0) {
           requestData.files = messageData.files
-            .filter(f => f.serverPath)
+            .filter(f => f.serverPath || f.server_path)
             .map(f => ({
-              server_path: f.serverPath,
+              server_path: f.serverPath || f.server_path,
               name: f.name,
               type: f.type,
               category: f.category || 'document'
             }))
         }
+
+        streamManager.saveStreamRequestState(
+          {
+            prompt: requestData.prompt,
+            model: requestData.model,
+            stream: true,
+            use_reasoning: requestData.use_reasoning,
+            search_mode: requestData.search_mode,
+            search_depth: requestData.search_depth,
+            conversation_id: sendConversationId,
+            files: requestData.files
+          },
+          messageData,
+          currentConversationId.value
+        )
 
         response = await api.stream('/chat', requestData, abortController.signal)
       }
@@ -671,7 +725,7 @@
           conversationHistory.value[lastMessageIndex].isStreaming = false
         }
       } else {
-        const streamHistory = conversationHistoryMap.value.get(streamConversationId)
+        const streamHistory = conversationHistoryMap.value.get(conversationKey(streamConversationId))
         if (streamHistory && streamHistory.length > 0) {
           const streamLastIndex = streamHistory.length - 1
            streamHistory[streamLastIndex].isStreaming = false
@@ -690,8 +744,8 @@
       streamUpdateBatcher.flush()
       console.error('发送消息失败:', error)
 
-      const streamHistory = conversationHistoryMap.value.get(streamConversationId)
-      if (streamHistory && streamHistory.length > 0) {
+      const streamHistory = conversationHistoryMap.value.get(conversationKey(streamConversationId))
+      if (!pageUnloading && streamHistory && streamHistory.length > 0) {
         const streamLastIndex = streamHistory.length - 1
         const lastMessage = streamHistory[streamLastIndex]
 
@@ -754,16 +808,20 @@
         }
       }
     } finally {
-      isLoading.value = false
-      isStreamActive.value = false
-      streamManager.clearStreamRequestState()
+      if (pageUnloading) {
+        saveStateToStorage()
+      } else {
+        isLoading.value = false
+        isStreamActive.value = false
+        streamManager.clearStreamRequestState()
 
-      if (
-        !currentMessageData.is_project_generator &&
-        leftlistRef.value &&
-        leftlistRef.value.fetchHistory
-      ) {
-        leftlistRef.value.fetchHistory()
+        if (
+          !currentMessageData.is_project_generator &&
+          leftlistRef.value &&
+          leftlistRef.value.fetchHistory
+        ) {
+          leftlistRef.value.fetchHistory()
+        }
       }
     }
   }
@@ -913,7 +971,7 @@
   }
 
   const handleChatStream = (data, streamConversationId, lastIndex, messageData) => {
-    const streamHistory = conversationHistoryMap.value.get(streamConversationId)
+    const streamHistory = conversationHistoryMap.value.get(conversationKey(streamConversationId))
     if (!streamHistory) {
       console.warn('[WARN] Stream chat history not found:', streamConversationId)
       return
@@ -959,17 +1017,17 @@
 
     if (data.conversation_id !== undefined) {
       const receivedConversationIdRef = data.conversation_id
-      const oldConversationId = currentConversationId.value
-      currentConversationId.value = String(receivedConversationIdRef)
+      const oldConversationId = conversationKey(currentConversationId.value)
+      currentConversationId.value = conversationKey(receivedConversationIdRef)
 
       if (oldConversationId && oldConversationId.startsWith('temp_')) {
-        const cachedHistory = conversationHistoryMap.value.get(oldConversationId)
+        const cachedHistory = conversationHistoryMap.value.get(conversationKey(oldConversationId))
         if (cachedHistory) {
           conversationHistoryMap.value.set(
-            String(receivedConversationIdRef),
+            conversationKey(receivedConversationIdRef),
             JSON.parse(JSON.stringify(cachedHistory))
           )
-          conversationHistoryMap.value.delete(oldConversationId)
+          conversationHistoryMap.value.delete(conversationKey(oldConversationId))
 
         }
       }
@@ -1066,7 +1124,7 @@
     }
 
     selectedHistoryItem.value = item
-    currentConversationId.value = item.conversation_id
+    currentConversationId.value = conversationKey(item.conversation_id)
 
     const cachedHistory = getConversationFromMap(item.conversation_id)
 
@@ -1169,49 +1227,58 @@
   }
 
   const restoreStream = async () => {
-    const savedState = streamManager.getStreamRequestState()
+    let savedState = streamManager.getStreamRequestState()
+    const lastMessage = conversationHistory.value[conversationHistory.value.length - 1]
+
+    if ((!savedState || !savedState.isStreaming) && lastMessage?.isStreaming && lastMessage.prompt) {
+      savedState = {
+        isStreaming: true,
+        conversationId: currentConversationId.value,
+        requestData: {
+          prompt: lastMessage.prompt,
+          stream: true,
+          search_mode: lastMessage.searchMode || 'auto',
+          search_depth: lastMessage.searchDepth || 'shallow'
+        },
+        messageData: {
+          prompt: lastMessage.prompt,
+          search_mode: lastMessage.searchMode || 'auto',
+          search_depth: lastMessage.searchDepth || 'shallow'
+        }
+      }
+    }
+
     if (!savedState || !savedState.isStreaming) {
+      return
+    }
+
+    if (savedState.requestData?.is_project_generator) {
+      streamManager.clearStreamRequestState()
       return
     }
 
     if (savedState.conversationId) {
       currentConversationId.value = String(savedState.conversationId)
-    }
-
-    const lastMessageIndex = conversationHistory.value.length - 1
-    if (lastMessageIndex >= 0 && !conversationHistory.value[lastMessageIndex].isStreaming) {
-      const lastMessage = conversationHistory.value[lastMessageIndex]
-
-      const hasPartialContent =
-        (lastMessage.response && lastMessage.response.includes('[WARN] Response interrupted')) ||
-        (lastMessage.reasoning && lastMessage.reasoning.includes('[WARN] Reasoning interrupted'))
-
-      if (hasPartialContent) {
-        lastMessage.response = lastMessage.response.replace(
-          '\n\n[WARN] Response interrupted (page refreshed)',
-          ''
-        )
-        lastMessage.reasoning =
-          lastMessage.reasoning?.replace('\n\n[WARN] Reasoning interrupted (page refreshed)', '') ||
-          ''
-        lastMessage.isStreaming = false
-
-        await nextTick()
-        const messagesContainer = centerContentRef.value?.$el?.querySelector('.messages-container')
-        if (messagesContainer) {
-          const restorePrompt = document.createElement('div')
-          restorePrompt.className = 'stream-restore-prompt'
-          restorePrompt.innerHTML = `
-          <div class="restore-message">
-            <span>[WARN] Page refreshed, previous output has been preserved</span>
-          </div>
-        `
-          messagesContainer.appendChild(restorePrompt)
-        }
+      if (String(savedState.conversationId).startsWith('temp_')) {
+        tempConversationId.value = String(savedState.conversationId)
       }
     }
 
-    streamManager.clearStreamRequestState()
+    const messageData = {
+      prompt: savedState.messageData?.prompt || savedState.requestData?.prompt,
+      model: savedState.messageData?.model || savedState.requestData?.model,
+      use_reasoning: savedState.messageData?.use_reasoning || savedState.requestData?.use_reasoning || false,
+      search_mode: savedState.messageData?.search_mode || savedState.requestData?.search_mode || 'auto',
+      search_depth: savedState.messageData?.search_depth || savedState.requestData?.search_depth || 'shallow',
+      files: savedState.messageData?.files || savedState.requestData?.files
+    }
+
+    if (!messageData.prompt) {
+      streamManager.clearStreamRequestState()
+      return
+    }
+
+    await handleSendMessage(messageData, { resume: true })
   }
 
   const _cleanupFns = []
@@ -1225,7 +1292,8 @@
     await restoreStream()
 
     const onBeforeUnload = () => {
-      streamManager.cleanup()
+      pageUnloading = true
+      saveStateToStorage()
       navigationStore.saveNavigationToStorage()
     }
     window.addEventListener('beforeunload', onBeforeUnload)
@@ -1293,7 +1361,11 @@
   onUnmounted(() => {
     _cleanupFns.forEach(fn => fn())
     _cleanupFns.length = 0
-    streamManager.cleanup()
+    if (pageUnloading) {
+      saveStateToStorage()
+    } else {
+      streamManager.cleanup()
+    }
     streamUpdateBatcher.dispose()
   })
 </script>
@@ -1303,7 +1375,8 @@
     display: flex;
     flex-direction: row;
     width: 100%;
-    height: 100vh;
+    flex: 1;
+    min-height: 0;
     background: var(--bg-primary);
     overflow: hidden;
   }
@@ -1336,7 +1409,6 @@
     .main-layout {
       position: relative;
       flex-direction: column;
-      height: 100dvh;
     }
 
     .mobile-home-toolbar {

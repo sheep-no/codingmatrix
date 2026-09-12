@@ -15,63 +15,63 @@ PPT_TEMPLATES = {
         "name": "现代简约",
         "primary_color": "#2563eb",
         "secondary_color": "#64748b",
-        "font_family": "Arial, sans-serif",
+        "font_family": "微软雅黑, Microsoft YaHei, sans-serif",
         "background": "#ffffff"
     },
     "business": {
         "name": "商务专业",
         "primary_color": "#1e40af",
         "secondary_color": "#475569",
-        "font_family": "Georgia, serif",
+        "font_family": "微软雅黑, Microsoft YaHei, sans-serif",
         "background": "#f8fafc"
     },
     "creative": {
         "name": "创意设计",
         "primary_color": "#4c1d3d",
         "secondary_color": "#d95d55",
-        "font_family": "Verdana, sans-serif",
+        "font_family": "微软雅黑, Microsoft YaHei, sans-serif",
         "background": "#fff8f1"
     },
     "minimal": {
         "name": "极简主义",
         "primary_color": "#000000",
         "secondary_color": "#6b7280",
-        "font_family": "Helvetica, sans-serif",
+        "font_family": "微软雅黑, Microsoft YaHei, sans-serif",
         "background": "#ffffff"
     },
     "academic": {
         "name": "学术研究",
         "primary_color": "#0369a1",
         "secondary_color": "#0c4a6e",
-        "font_family": "Times New Roman, serif",
+        "font_family": "宋体, SimSun, serif",
         "background": "#f0f9ff"
     },
     "tech": {
         "name": "科技蓝调",
         "primary_color": "#3b82f6",
         "secondary_color": "#1d4ed8",
-        "font_family": "Consolas, monospace",
+        "font_family": "微软雅黑, Microsoft YaHei, sans-serif",
         "background": "#0f172a"
     },
     "education": {
         "name": "教育培训",
         "primary_color": "#16a34a",
         "secondary_color": "#15803d",
-        "font_family": "Aptos, Arial, sans-serif",
+        "font_family": "微软雅黑, Microsoft YaHei, sans-serif",
         "background": "#f0fdf4"
     },
     "medical": {
         "name": "医疗健康",
         "primary_color": "#059669",
         "secondary_color": "#047857",
-        "font_family": "Arial, sans-serif",
+        "font_family": "微软雅黑, Microsoft YaHei, sans-serif",
         "background": "#ecfdf5"
     },
     "elegant": {
         "name": "优雅商务",
         "primary_color": "#7c3aed",
         "secondary_color": "#6d28d9",
-        "font_family": "Georgia, serif",
+        "font_family": "微软雅黑, Microsoft YaHei, sans-serif",
         "background": "#f5f3ff"
     },
 }
@@ -103,8 +103,8 @@ class PPTStyle:
         self.PRIMARY_LIGHT = RGBColor(min(pc[0]+50, 255), min(pc[1]+50, 255), min(pc[2]+50, 255))
         self.PRIMARY_DARK = RGBColor(max(pc[0]-50, 0), max(pc[1]-50, 0), max(pc[2]-50, 0))
 
-        self.ACCENT_COLOR = RGBColor(*sc) if self.template_name == "creative" else RGBColor(0xFF, 0x66, 0x00)
-        self.ACCENT_LIGHT = RGBColor(0xED, 0xA5, 0x9F) if self.template_name == "creative" else RGBColor(0xFF, 0x99, 0x66)
+        self.ACCENT_COLOR = RGBColor(*sc)
+        self.ACCENT_LIGHT = RGBColor(min(sc[0] + 72, 255), min(sc[1] + 72, 255), min(sc[2] + 72, 255))
 
         self.BG_WHITE = RGBColor(*bg)
         self.BG_LIGHT_BLUE = RGBColor(0xE8, 0xF4, 0xFC)
@@ -115,7 +115,8 @@ class PPTStyle:
         self.TEXT_GRAY = RGBColor(0x66, 0x66, 0x66)
 
         self.FONT_MAIN = tpl['font_family'].split(',')[0].strip()
-        self.FONT_TITLE = 'Arial'
+        self.FONT_TITLE = self.FONT_MAIN
+        self.language = "zh-CN"
 
 
 def apply_design_tokens(style, tokens):

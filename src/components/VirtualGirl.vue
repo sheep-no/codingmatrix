@@ -14,24 +14,6 @@
       <div class="resize-handle" @mousedown="startResize"></div>
 
       <!-- 跨网页模式切换按钮 -->
-      <div
-        class="mode-toggle-btn"
-        title="切换到跨网页模式"
-        @click="togglePiPMode"
-      >
-        <svg
-          class="mode-icon-svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-          <line x1="8" y1="21" x2="16" y2="21"></line>
-          <line x1="12" y1="17" x2="12" y2="21"></line>
-        </svg>
-      </div>
-
       <!-- 窗口头部 -->
       <div class="window-header" @mousedown="startDrag">
         <div class="window-title">
@@ -46,6 +28,13 @@
           </div>
         </div>
         <div class="window-controls">
+          <button class="control-btn" title="切换到跨网页模式" @click.stop="togglePiPMode">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+          </button>
           <button class="control-btn" title="搜索历史" @click.stop="showSearch = !showSearch">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -312,6 +301,7 @@
   import { ElMessage, ElMessageBox } from 'element-plus'
   import { useUserStore } from '@/stores/user'
   import { useGirlAiCompanion } from '@/composables/useGirlAiCompanion'
+  import { useApiKeyStore } from '@/stores/apikey'
 
   const props = defineProps({
     visible: { type: Boolean, default: false }
@@ -322,6 +312,7 @@
   // 模式选择
   const usePiPMode = ref(false)
   const userStore = useUserStore()
+  const apiKeyStore = useApiKeyStore()
   const {
     state: companionState,
     loadState: loadCompanionState,
@@ -357,7 +348,7 @@
   const isAutoHide = ref(false)
   let pipWindowRef = null
   const windowPosition = ref({ x: 100, y: 100 })
-  const windowSize = ref({ width: 400, height: 500 })
+  const windowSize = ref({ width: 460, height: 520 })
   const dragOffset = ref({ x: 0, y: 0 })
   const resizeOffset = ref({ x: 0, y: 0 })
   const isConnected = ref(true)
@@ -552,6 +543,7 @@
 
   // 保存聊天历史到 localStorage
   const saveChatHistory = () => {
+    if (isHistoryLoading.value) return
     try {
       localStorage.setItem(
         storageKey.value,
@@ -563,6 +555,35 @@
       )
     } catch (error) {
       console.error('保存聊天历史失败:', error)
+    }
+  }
+
+  const mergeLocalPendingMessages = (localHistory = snapshotLocalHistory()) => {
+    try {
+      if (!localHistory.length) return
+      const existing = new Set(
+        chatHistory.value.map(message => `${message.role}::${message.content}`)
+      )
+      const extras = localHistory.filter(
+        message => message?.content && !existing.has(`${message.role}::${message.content}`)
+      )
+      if (!extras.length) return
+      chatHistory.value = [...chatHistory.value, ...extras]
+      messageTimestamps.value = chatHistory.value.map(message => message.timestamp || Date.now())
+    } catch (error) {
+      console.error('合并本地聊天历史失败:', error)
+    }
+  }
+
+  const snapshotLocalHistory = () => {
+    try {
+      const raw = localStorage.getItem(storageKey.value)
+      if (!raw) return []
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed.history) ? parsed.history : []
+    } catch (error) {
+      console.error('读取本地聊天历史失败:', error)
+      return []
     }
   }
 
@@ -634,6 +655,7 @@
 
     isHistoryLoading.value = true
     const requestVersion = ++historyRequestVersion
+    const localSnapshot = snapshotLocalHistory()
 
     try {
       chatHistory.value = []
@@ -661,12 +683,13 @@
         messageTimestamps.value = [Date.now()]
       }
 
-      saveChatHistory()
       isHistoryLoaded.value = true
     } catch (error) {
       console.error('恢复聊天历史失败:', error)
     } finally {
       isHistoryLoading.value = false
+      mergeLocalPendingMessages(localSnapshot)
+      saveChatHistory()
     }
   }
 
@@ -867,7 +890,9 @@ window.opener.postMessage({type:'girlai-ready'},'*');
           scrollToBottom()
 
           try {
-            const data = await api.sendGirlAiMessage(userMsg, selectedCharacter.value)
+            const data = await api.sendGirlAiMessage(userMsg, selectedCharacter.value, {
+              apiKeyToken: apiKeyStore.siliconflowKey?.token
+            })
             if (requestVersion !== historyRequestVersion) return
             chatHistory.value.push({ role: 'assistant', content: data.message, timestamp: Date.now() })
             messageTimestamps.value.push(Date.now())
@@ -1144,12 +1169,15 @@ window.opener.postMessage({type:'girlai-ready'},'*');
     inputMessage.value = ''
     isLoading.value = true
     isConnected.value = false
+    saveChatHistory()
 
     await nextTick()
     scrollToBottom()
 
     try {
-      const data = await sendCompanionTurn(message, selectedCharacter.value)
+      const data = await sendCompanionTurn(message, selectedCharacter.value, {
+        apiKeyToken: apiKeyStore.siliconflowKey?.token
+      })
       if (requestVersion !== historyRequestVersion) return
 
       const assistantTimestamp = Date.now()
@@ -1323,13 +1351,6 @@ window.opener.postMessage({type:'girlai-ready'},'*');
     border: 2px solid rgba(148, 163, 184, 0.2);
     display: flex;
     flex-direction: column;
-  }
-
-  /* SVG 图标样式 */
-  .mode-icon-svg {
-    width: 16px;
-    height: 16px;
-    color: white;
   }
 
   .user-avatar-icon-svg {
@@ -1507,27 +1528,6 @@ window.opener.postMessage({type:'girlai-ready'},'*');
 
   .control-btn.close-btn:hover {
     background: rgba(239, 68, 68, 0.5);
-  }
-
-  /* 模式切换按钮 */
-  .mode-toggle-btn {
-    position: absolute;
-    top: 10px;
-    right: 120px;
-    background: rgba(255, 255, 255, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 20px;
-    padding: 6px 12px;
-    cursor: pointer;
-    z-index: 10;
-    font-size: 18px;
-    transition: all 0.2s;
-    backdrop-filter: blur(10px);
-  }
-
-  .mode-toggle-btn:hover {
-    background: rgba(255, 255, 255, 0.3);
-    transform: scale(1.1);
   }
 
   /* 窗口内容 */

@@ -238,7 +238,7 @@
 </template>
 
 <script setup>
-  import { ref, computed, onMounted, onUnmounted } from 'vue'
+  import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
   import { useRouter } from 'vue-router'
   import { useApiKeyStore } from '@/stores/apikey'
   import { useUserStore } from '@/stores/user'
@@ -249,6 +249,8 @@
   const apiKeyStore = useApiKeyStore()
   const userStore = useUserStore()
   const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
+  const IMAGE_SESSION_KEY = 'image-generate-session-v1'
+  const SESSION_TTL_MS = 30 * 60 * 1000
 
   const mode = ref('text2img')
   const prompt = ref('')
@@ -271,6 +273,7 @@
   const lastGeneratedImage = ref(null)  // 保存最后一张生成的图片 { url, prompt }
   const originalPrompt = ref('')  // 保存生成图片时的原始 prompt
   let abortController = null
+  let pageUnloading = false
 
   const taskFeedbackActions = computed(() => {
     const status = taskFeedbackState.value.status
@@ -299,6 +302,77 @@
 
   const goBack = () => router.push('/')
 
+  function persistableImages(images) {
+    return (images || [])
+      .filter((img) => img && typeof img.url === 'string' && !img.url.startsWith('blob:'))
+      .map((img) => ({ url: img.url }))
+  }
+
+  function persistSession() {
+    try {
+      const lastImage = lastGeneratedImage.value
+      sessionStorage.setItem(IMAGE_SESSION_KEY, JSON.stringify({
+        savedAt: Date.now(),
+        mode: uploadedFile.value ? mode.value : 'text2img',
+        prompt: prompt.value,
+        style: style.value,
+        resolution: resolution.value,
+        steps: steps.value,
+        cfgScale: cfgScale.value,
+        denoising: denoising.value,
+        seed: seed.value,
+        isGenerating: isGenerating.value,
+        generatedImages: persistableImages(generatedImages.value),
+        lastGeneratedImage: lastImage && typeof lastImage.url === 'string' && !lastImage.url.startsWith('blob:')
+          ? { url: lastImage.url, prompt: lastImage.prompt || '' }
+          : null,
+        originalPrompt: originalPrompt.value,
+      }))
+    } catch (err) {
+      console.warn('保存绘画会话失败:', err)
+    }
+  }
+
+  function restoreSession() {
+    try {
+      const raw = sessionStorage.getItem(IMAGE_SESSION_KEY)
+      if (!raw) return null
+      const saved = JSON.parse(raw)
+      if (!saved || typeof saved !== 'object') return null
+      if (saved.savedAt && Date.now() - saved.savedAt > SESSION_TTL_MS) {
+        sessionStorage.removeItem(IMAGE_SESSION_KEY)
+        return null
+      }
+      return saved
+    } catch {
+      return null
+    }
+  }
+
+  function applySession(saved) {
+    if (!saved) return false
+    // 参考文件无法写入 sessionStorage，图生图会话回退到文生图，避免生成按钮被锁死
+    mode.value = 'text2img'
+    prompt.value = typeof saved.prompt === 'string' ? saved.prompt : ''
+    style.value = saved.style || 'realistic'
+    resolution.value = saved.resolution || '1024x1024'
+    steps.value = Number.isFinite(saved.steps) ? saved.steps : 25
+    cfgScale.value = Number.isFinite(saved.cfgScale) ? saved.cfgScale : 7.5
+    denoising.value = Number.isFinite(saved.denoising) ? saved.denoising : 0.7
+    seed.value = Number.isFinite(saved.seed) ? saved.seed : -1
+    generatedImages.value = persistableImages(saved.generatedImages)
+    lastGeneratedImage.value = saved.lastGeneratedImage && saved.lastGeneratedImage.url
+      ? { url: saved.lastGeneratedImage.url, prompt: saved.lastGeneratedImage.prompt || '' }
+      : null
+    originalPrompt.value = saved.originalPrompt || ''
+    return Boolean(saved.isGenerating && prompt.value.trim() && mode.value === 'text2img')
+  }
+
+  function markPageUnloading() {
+    pageUnloading = true
+    persistSession()
+  }
+
   function onFileSelect(e) {
     const file = e.target.files?.[0]
     if (file) setFile(file)
@@ -322,6 +396,7 @@
     isGenerating.value = true
     error.value = ''
     generatedImages.value = []
+    persistSession()
     taskFeedback.start({
       stage: mode.value === 'img2img' ? '正在执行图生图' : '正在执行文生图',
       progress: null
@@ -410,6 +485,8 @@
         progress: 100,
         nextAction: '下载图片或基于结果继续修改'
       }, { mode: mode.value, images: generatedImages.value })
+      persistSession()
+      await loadHistory()
     } catch (e) {
       if (e.name === 'AbortError') {
         taskFeedback.update({ status: 'paused', stage: '生成已取消', nextAction: '调整参数后重新生成' })
@@ -423,6 +500,7 @@
     } finally {
       abortController = null
       isGenerating.value = false
+      persistSession()
     }
   }
 
@@ -557,13 +635,30 @@
 
   onMounted(() => {
     loadHistory()
+    const shouldResume = applySession(restoreSession())
+    window.addEventListener('beforeunload', markPageUnloading)
+    window.addEventListener('pagehide', markPageUnloading)
+    if (shouldResume) handleGenerate()
   })
 
   onUnmounted(() => {
+    window.removeEventListener('beforeunload', markPageUnloading)
+    window.removeEventListener('pagehide', markPageUnloading)
+    if (abortController && !pageUnloading) {
+      abortController.abort()
+      isGenerating.value = false
+    }
+    persistSession()
     if (previewUrl.value) {
       URL.revokeObjectURL(previewUrl.value)
     }
   })
+
+  watch(
+    [mode, prompt, style, resolution, steps, cfgScale, denoising, seed, isGenerating, generatedImages, lastGeneratedImage, originalPrompt],
+    persistSession,
+    { deep: true }
+  )
 
   function setFile(file) {
     if (isGenerating.value) return
@@ -585,7 +680,7 @@
 </script>
 
 <style scoped>
-  .image-generate-page { height: 100dvh; display: flex; flex-direction: column; background: var(--surface-app); color: var(--content-primary); }
+  .image-generate-page { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface-app); color: var(--content-primary); }
   .image-generate-page *, .image-generate-page *::before, .image-generate-page *::after { box-sizing: border-box; }
   .header-title h1 { margin: 0; font: inherit; }
   button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 3px; }

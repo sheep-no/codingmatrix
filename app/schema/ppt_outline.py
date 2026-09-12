@@ -63,7 +63,7 @@ class OutlineDraft(BaseModel):
 class OutlineCreateRequest(BaseModel):
     topic: str = Field(..., min_length=1, max_length=5000)
     description: str = Field(default="", max_length=5000)
-    num_slides: int = Field(default=10, ge=1, le=50)
+    num_slides: Optional[int] = Field(default=None, ge=1, le=50)
     scenario: Optional[Literal[
         "business", "data_report", "product_pitch", "academic", "education", "general"
     ]] = None
