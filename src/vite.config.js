@@ -5,7 +5,13 @@ import { fileURLToPath, URL } from 'node:url'
 function configureSseProxy(proxy) {
   proxy.on('proxyRes', (proxyRes, req, res) => {
     const contentType = proxyRes.headers['content-type'] || ''
-    if (contentType.includes('text/event-stream')) {
+    const streaming = (
+      contentType.includes('text/event-stream') ||
+      contentType.includes('application/x-ndjson') ||
+      contentType.includes('ndjson') ||
+      contentType.includes('text/plain')
+    )
+    if (streaming) {
       proxyRes.headers['cache-control'] = 'no-cache'
       proxyRes.headers['x-accel-buffering'] = 'no'
       res.writeHead(proxyRes.statusCode, proxyRes.headers)
@@ -57,7 +63,7 @@ export default defineConfig({
         ws: true,
         secure: false,
         selfHandleResponse: true,
-        cookieDomainRewrite: '127.0.0.1',
+        cookieDomainRewrite: { '*': '' },
         cookiePathRewrite: '/',
         configure: configureSseProxy
       },
@@ -67,7 +73,7 @@ export default defineConfig({
         ws: true,
         secure: false,
         selfHandleResponse: true,
-        cookieDomainRewrite: '127.0.0.1',
+        cookieDomainRewrite: { '*': '' },
         cookiePathRewrite: '/',
         configure: configureSseProxy
       }

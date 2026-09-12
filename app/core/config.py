@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     LOG_COMPRESS_OLD_LOGS: bool = True
     LOG_CLEANUP_SCHEDULE: str = "weekly"
 
+    # PPT / Kolors 生成物保留天数，到期后由调度任务物理删除
+    GENERATED_ASSET_RETENTION_DAYS: int = 30
+
     SECRET_KEY: str = ""
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     ALGORITHM: str = "HS256"
@@ -63,6 +66,13 @@ class Settings(BaseSettings):
     def validate_db_max_overflow(cls, v):
         if v < 0:
             raise ValueError("DB_MAX_OVERFLOW 必须 >= 0")
+        return v
+
+    @field_validator("GENERATED_ASSET_RETENTION_DAYS")
+    @classmethod
+    def validate_generated_asset_retention_days(cls, v):
+        if v < 1:
+            raise ValueError("GENERATED_ASSET_RETENTION_DAYS 必须 >= 1")
         return v
 
     SILICONFLOW_API_KEY: str = ""

@@ -88,7 +88,7 @@ async def _generate_ppt(
         outline = context["outline"]
         if request.output_format == OutputFormat.PDF:
             pptx_filepath = output_dir / f"{task_id}.pptx"
-            await generate_pptx_file_enhanced(pptx_filepath, outline, request, update_progress=progress.update)
+            await generate_pptx_file_enhanced(pptx_filepath, outline, request, update_progress=progress.update, user_id=user_id)
             await _convert_pptx_to_pdf(pptx_filepath, filepath)
         elif request.output_format == OutputFormat.HTML:
             await progress.update(60, "正在生成 HTML 格式...")
@@ -97,7 +97,7 @@ async def _generate_ppt(
             await progress.update(60, "正在生成 Markdown 格式...")
             await generate_markdown_ppt(filepath, outline, request)
         else:
-            await generate_pptx_file_enhanced(filepath, outline, request, update_progress=progress.update)
+            await generate_pptx_file_enhanced(filepath, outline, request, update_progress=progress.update, user_id=user_id)
         return context
 
     async def rendering(context):

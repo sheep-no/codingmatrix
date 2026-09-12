@@ -550,46 +550,6 @@
           <div v-else-if="activeMenu === 'models'" class="content-section">
             <AdminModelManager />
           </div>
-
-          <!-- 代码沙箱配置 -->
-          <div v-else-if="activeMenu === 'sandbox'" class="content-section">
-            <div class="sandbox-config">
-              <h3>代码沙箱配置</h3>
-              <p class="section-desc">配置工程师代码验证沙箱，允许工程师在生成代码后进行沙箱验证。</p>
-
-              <div class="config-card">
-                <div class="config-row">
-                  <div class="config-label">
-                    <span class="label-text">启用代码沙箱</span>
-                    <span class="label-desc">开启后，工程师可在生成代码后使用 execute_code 工具验证代码正确性</span>
-                  </div>
-                  <el-switch
-                    v-model="sandboxConfig.enable_code_sandbox"
-                    active-text="启用"
-                    inactive-text="禁用"
-                    @change="updateSandboxConfig"
-                  />
-                </div>
-
-                <div class="config-row">
-                  <div class="config-label">
-                    <span class="label-text">支持的语言</span>
-                    <span class="label-desc">当前支持 Python 和 JavaScript，后续可扩展</span>
-                  </div>
-                  <div class="language-tags">
-                    <el-tag
-                      v-for="lang in sandboxConfig.sandbox_languages"
-                      :key="lang"
-                      type="success"
-                      effect="plain"
-                    >
-                      {{ lang }}
-                    </el-tag>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </main>
     </div>
@@ -612,12 +572,12 @@
 
 <script setup>
   import { ref, computed, onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
-  import { ElMessage, ElMessageBox, ElSwitch, ElTag } from 'element-plus'
+  import { ElMessageBox } from 'element-plus'
   import { useRouter } from 'vue-router'
   import { useUserStore } from '@/stores/user'
   import * as echarts from 'echarts'
   import { defineAsyncComponent } from 'vue'
-  import { WebSocketManager, API_CONFIG, api } from '../utils/api/index'
+  import { WebSocketManager, API_CONFIG } from '../utils/api/index'
 
   const UserManagement = defineAsyncComponent(() => import('./UserManagement.vue'))
   const SystemLogs = defineAsyncComponent(() => import('./SystemLogs.vue'))
@@ -632,42 +592,6 @@
     memory: { used: '#5470c6', available: '#91cc75' },
     disk: { start: '#83bff6', end: '#188df0' },
     network: { sent: '#5470c6', recv: '#91cc75', tooltipBg: '#6a7985' }
-  }
-
-  // 代码沙箱配置
-  const sandboxConfig = ref({
-    enable_code_sandbox: true,
-    sandbox_languages: ['python', 'javascript']
-  })
-
-  const fetchSandboxConfig = async () => {
-    try {
-      const resp = await api.get('/api/v2/admin/sandbox-config')
-      if (resp.ok) {
-        sandboxConfig.value = await resp.json()
-      }
-    } catch {
-      // 沙箱配置获取失败时使用默认值
-    }
-  }
-
-  const updateSandboxConfig = async () => {
-    try {
-      const resp = await api.put('/api/v2/admin/sandbox-config', {
-        enable_code_sandbox: sandboxConfig.value.enable_code_sandbox,
-        sandbox_languages: sandboxConfig.value.sandbox_languages.join(',')
-      })
-      if (resp.ok) {
-        const data = await resp.json()
-        if (data.success) {
-          ElMessage.success('沙箱配置已保存')
-        }
-      } else {
-        ElMessage.error('保存失败')
-      }
-    } catch (e) {
-      ElMessage.error('保存失败: ' + (e.message || '未知错误'))
-    }
   }
 
   const router = useRouter()
@@ -809,29 +733,6 @@
         viewBox: '0 0 24 24',
         path: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5'
       })
-      systemConfigItems.push({
-        id: 'sandbox',
-        name: '代码沙箱',
-        description: '配置工程师代码验证沙箱（Python/JavaScript）',
-        viewBox: '0 0 24 24',
-        path: 'M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0L19.2 12l-4.6-4.6L16 6l6 6-6 6-1.4-1.4z'
-      })
-      if (!isAdmin.value) {
-        systemConfigItems.push({
-          id: 'service-manager',
-          name: '服务管理',
-          description: '监控和管理系统服务',
-          viewBox: '0 0 24 24',
-          path: 'M22 11.08V12a10 10 0 1 1-5.93-9.14'
-        })
-        systemConfigItems.push({
-          id: 'resource-control',
-          name: '资源配置',
-          description: 'Docker 资源限制和功能开关',
-          viewBox: '0 0 24 24',
-          path: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5'
-        })
-      }
     }
 
     groups['系统配置'] = {
@@ -944,11 +845,12 @@
 
   // 搜索处理
   const handleSearch = () => {
-    // 搜索逻辑由 computed 处理
+    saveMenuState()
   }
 
   const clearSearch = () => {
     searchKeyword.value = ''
+    saveMenuState()
   }
 
   // 菜单切换
@@ -1026,6 +928,37 @@
       localStorage.setItem('adminMenuState', JSON.stringify(state))
     } catch {
       // localStorage 不可用时静默失败
+    }
+  }
+
+  const ADMIN_MENUS = new Set([
+    'monitor',
+    'logs',
+    'users',
+    'nginx',
+    'service-manager',
+    'resource-control'
+  ])
+  const SUPER_MENUS = new Set([...ADMIN_MENUS, 'models'])
+
+  const restoreMenuState = () => {
+    try {
+      const raw = localStorage.getItem('adminMenuState')
+      if (!raw) return
+      const state = JSON.parse(raw)
+      const allowed = isSuperUser.value
+        ? SUPER_MENUS
+        : isAdmin.value
+          ? ADMIN_MENUS
+          : new Set(['nginx'])
+      if (state.activeMenu && allowed.has(state.activeMenu)) {
+        activeMenu.value = state.activeMenu
+      }
+      if (typeof state.searchKeyword === 'string') {
+        searchKeyword.value = state.searchKeyword
+      }
+    } catch {
+      // 存储损坏时保持默认菜单
     }
   }
 
@@ -1526,10 +1459,8 @@
 
     // 检查权限
     if (checkPermission()) {
+      restoreMenuState()
       connectWebSocket()
-
-      // 加载沙箱配置
-      fetchSandboxConfig()
 
       setTimeout(() => {
         initCpuChart()
@@ -1745,7 +1676,8 @@
     --admin-shadow-lg: rgba(0, 0, 0, 0.5);
 
     width: 100%;
-    height: 100vh;
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     background: linear-gradient(180deg, #0f0f1a 0%, #1a1a2e 50%, #0f0f1a 100%);
@@ -1919,6 +1851,7 @@
   /* 主体内容 */
   .admin-body {
     flex: 1;
+    min-height: 0;
     display: flex;
     overflow: hidden;
     position: relative;
@@ -2338,6 +2271,7 @@
   /* 主内容区域 */
   .admin-main {
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -2440,6 +2374,7 @@
   /* 内容包装器 */
   .content-wrapper {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 20px;
     background: transparent;
@@ -2967,60 +2902,5 @@
         gap: 12px;
         align-items: flex-start;
       }
-
-    /* 代码沙箱配置 */
-    .sandbox-config {
-      h3 {
-        color: var(--text-primary);
-        font-size: 18px;
-        margin: 0 0 8px;
-      }
-
-      .section-desc {
-        color: var(--text-secondary);
-        font-size: 14px;
-        margin: 0 0 20px;
-      }
-
-      .config-card {
-        background: var(--bg-secondary);
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        padding: 20px;
-      }
-
-      .config-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 0;
-
-        &:not(:last-child) {
-          border-bottom: 1px solid var(--border-color);
-        }
-
-        .config-label {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-
-          .label-text {
-            color: var(--text-primary);
-            font-size: 14px;
-            font-weight: 500;
-          }
-
-          .label-desc {
-            color: var(--text-secondary);
-            font-size: 12px;
-          }
-        }
-
-        .language-tags {
-          display: flex;
-          gap: 8px;
-        }
-      }
-    }
   }
 </style>

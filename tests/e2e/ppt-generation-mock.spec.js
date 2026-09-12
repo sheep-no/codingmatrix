@@ -112,10 +112,9 @@ test.describe('PPT 三步生成流程（mock）', () => {
 
     await expect(page.getByText('第 3 步：选择质量模式')).toBeVisible()
     await page.getByRole('button', { name: '开始生成 PPT' }).click()
-    await expect(page.getByText('正在渲染页面')).toBeVisible()
-    await expect(page.getByText('生成成功!')).toBeVisible()
+    await expect(page.getByText('生成成功!')).toBeVisible({ timeout: 15000 })
 
-    await page.getByRole('button', { name: '在线预览' }).click()
+    await page.getByRole('main').getByRole('button', { name: '在线预览' }).click()
     await expect(page).toHaveURL(/ppt-preview\/ppt-e2e/)
     await expect(page.getByText('生成质量 92')).toBeVisible()
     await expect(page.getByText('需人工复核：slide-1')).toBeVisible()

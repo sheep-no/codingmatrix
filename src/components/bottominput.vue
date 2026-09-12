@@ -24,7 +24,7 @@
           <!-- 深度思考开关 -->
           <label
             class="config-item"
-              :class="{ disabled: projectGeneratorMode }"
+              :class="{ disabled: projectGeneratorMode, on: useReasoning }"
           >
             <input
               v-model="useReasoning"
@@ -36,15 +36,15 @@
             <span class="config-label">深度思考</span>
             <span id="reasoning-tooltip" class="config-tooltip" role="tooltip">启用后，AI会先进行推理分析</span>
           </label>
-          <label class="config-item">
+          <label class="config-item" :class="{ on: searchMode !== 'off' }">
             <span class="config-label">联网</span>
-            <select v-model="searchMode" class="config-select" aria-label="联网模式" :disabled="projectGeneratorMode">
-              <option value="auto">自动</option>
-              <option value="on">开启</option>
+            <select v-model="searchMode" class="config-select" aria-label="联网模式" :disabled="projectGeneratorMode" title="自动判断：代码和讲解类问题不搜；始终开启：每次都搜">
+              <option value="auto">自动判断</option>
+              <option value="on">始终开启</option>
               <option value="off">关闭</option>
             </select>
           </label>
-          <label class="config-item">
+          <label class="config-item" :class="{ on: searchMode !== 'off' && searchDepth === 'multi', disabled: searchMode === 'off' }">
             <span class="config-label">搜索深度</span>
             <select v-model="searchDepth" class="config-select" aria-label="搜索深度" :disabled="projectGeneratorMode || searchMode === 'off'" title="浅搜索一轮；多轮根据首轮结果再搜索一轮">
               <option value="shallow">浅搜索</option>
@@ -126,7 +126,7 @@
         <div class="composer-actions">
         <span class="composer-summary">
           {{ projectGeneratorMode ? '项目模式' : useReasoning ? '深度思考' : '标准回答' }}
-          <span v-if="!projectGeneratorMode"> · {{ searchMode === 'off' ? '联网关闭' : searchMode === 'on' ? '联网开启' : '自动联网' }}{{ searchMode !== 'off' && searchDepth === 'multi' ? ' · 两轮搜索' : '' }}</span>
+          <span v-if="!projectGeneratorMode"> · {{ searchMode === 'off' ? '联网关闭' : searchMode === 'on' ? '联网开启' : '按需联网' }}{{ searchMode !== 'off' && searchDepth === 'multi' ? ' · 两轮搜索' : '' }}</span>
         </span>
         <!-- 发送/取消按钮 -->
         <template v-if="!isStreaming">
@@ -690,11 +690,12 @@
   /* 固定定位容器 - 添加顶部圆角 */
   .bottom-input-container {
     position: relative;
-    background: var(--bg-primary);
-    padding: 12px;
-    border: 1px solid var(--border-color);
-    border-radius: 18px;
-    box-shadow: 0 4px 24px var(--shadow-color);
+    background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+    padding: 14px 16px 12px;
+    border: 1px solid var(--control-border);
+    border-radius: 22px;
+    box-shadow: 0 18px 40px color-mix(in srgb, var(--text-primary) 8%, transparent);
+    backdrop-filter: blur(12px);
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -706,8 +707,8 @@
   }
 
   .bottom-input-container:focus-within {
-    border-color: var(--color-primary-500);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary-500) 10%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--control-border));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 18%, transparent);
   }
 
   /* 折叠状态 */
@@ -767,12 +768,12 @@
 
   /* 配置面板 */
   .config-panel {
-    background: var(--bg-secondary);
-    border-radius: 10px;
-    padding: 10px 12px;
-    border: 1px solid var(--border-color);
+    background: transparent;
+    border-radius: 0;
+    padding: 0 2px;
+    border: 0;
     animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: var(--shadow-sm);
+    box-shadow: none;
   }
 
   @keyframes slideDown {
@@ -789,16 +790,27 @@
   .config-row {
     display: flex;
     align-items: center;
-    gap: 12px 20px;
+    gap: 8px;
     flex-wrap: wrap;
   }
 
   .config-item {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
+    min-height: 36px;
+    padding: 4px 12px 4px 10px;
+    border: 1px solid var(--control-border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
     cursor: pointer;
-    transition: opacity 0.2s;
+    transition: border-color 0.2s, background 0.2s, color 0.2s;
+  }
+
+  .config-item.on {
+    border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--control-border));
+    background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-primary));
+    color: var(--accent-primary);
   }
 
   .config-item.disabled {
@@ -830,11 +842,11 @@
 
   .config-select {
     max-width: 100%;
-    padding: 4px 6px;
-    border: 1px solid var(--border-color, #d1d5db);
-    border-radius: 6px;
+    padding: 2px 4px;
+    border: 0;
+    border-radius: 0;
     color: var(--text-primary);
-    background: var(--bg-primary, #fff);
+    background: transparent;
     font: inherit;
     font-size: 13px;
   }
@@ -880,7 +892,7 @@
     width: 100%;
     min-height: 60px;
     max-height: 180px;
-    padding: 8px 10px;
+    padding: 10px 4px 6px;
     border: 0;
     border-radius: 12px;
     font-size: 15px;
@@ -888,7 +900,7 @@
     line-height: 1.5;
     outline: none;
     transition: all 0.2s ease;
-    background: var(--bg-primary);
+    background: transparent;
     color: var(--text-primary);
     box-shadow: none;
     resize: none;
@@ -1030,7 +1042,7 @@
     height: 40px;
     background: var(--bg-tertiary);
     border: none;
-    border-radius: 8px;
+    border-radius: 999px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -1096,7 +1108,9 @@
     flex: 1;
     min-width: 0;
     padding-inline: 6px;
-    font-size: 12px;
+    font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.04em;
     line-height: 1.5;
     color: var(--text-secondary);
     overflow-wrap: anywhere;

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File as FastAPIFile, Form, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File as FastAPIFile, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -52,6 +52,7 @@ from app.schema.ppt_outline import (
 from app.services.ppt_state_service import (
     approve_ppt_outline as persist_approve_ppt_outline,
     create_ppt_outline as persist_create_ppt_outline,
+    stream_ppt_outline as persist_stream_ppt_outline,
     delete_ppt_outline as persist_delete_ppt_outline,
     get_ppt_quality_report as persist_get_ppt_quality_report,
     get_ppt_outline as persist_get_ppt_outline,
@@ -101,19 +102,48 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.enum.shapes import MSO_CONNECTOR
+from pptx.oxml.ns import qn
+from lxml import etree
 from PIL import Image
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["PPT 生成 (增强版)"])
+PPT_STREAM_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+    "Connection": "keep-alive",
+}
 
 
 @router.post("/pptx/outlines", response_model=OutlineDraft, status_code=201)
 async def create_ppt_outline(
     req: OutlineCreateRequest,
+    http_request: Request,
     token: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
 ):
     """创建用户作用域的 PPT 大纲草稿。"""
+    accept = (http_request.headers.get("accept") or "").lower()
+    if "text/event-stream" in accept:
+        async def event_stream():
+            try:
+                async for event in persist_stream_ppt_outline(
+                    db, str(token.get("sub", "anonymous")), req
+                ):
+                    yield f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n"
+            except StateNotFoundError:
+                yield f"data: {json.dumps({'type': 'error', 'message': '素材文件不存在'}, ensure_ascii=False)}\n\n"
+            except ValueError as exc:
+                yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
+            except Exception:
+                logger.exception("PPT outline stream failed")
+                yield f"data: {json.dumps({'type': 'error', 'message': '大纲生成失败'}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers=PPT_STREAM_HEADERS,
+        )
     try:
         return await persist_create_ppt_outline(db, str(token.get("sub", "anonymous")), req)
     except StateNotFoundError:
@@ -486,14 +516,14 @@ def add_decorative_header(slide, prs, title_text, style: PPTStyle):
 def add_page_number(slide, prs, page_num, total_pages, style: PPTStyle):
     """添加页码"""
     # 页脚装饰条
-    footer_height = Inches(0.1)
+    footer_height = Inches(0.04)
     footer_shape = slide.shapes.add_shape(
         1,
         Inches(0), prs.slide_height - footer_height,
         prs.slide_width, footer_height
     )
     footer_shape.fill.solid()
-    footer_shape.fill.fore_color.rgb = style.PRIMARY_DARK
+    footer_shape.fill.fore_color.rgb = style.PRIMARY_COLOR
     footer_shape.line.fill.background()
 
     # 页码文本
@@ -505,10 +535,10 @@ def add_page_number(slide, prs, page_num, total_pages, style: PPTStyle):
     tf = page_text.text_frame
     p = tf.paragraphs[0]
     p.text = f"{page_num} / {total_pages}"
-    p.font.name = style.FONT_MAIN
     p.font.size = Pt(10)
     p.font.color.rgb = style.PRIMARY_COLOR
     p.alignment = PP_ALIGN.RIGHT
+    _apply_paragraph_font(p, style.FONT_MAIN)
 
 
 def add_bullet_with_icon(slide, left, top, width, text, level, style: PPTStyle, icon=None):
@@ -619,7 +649,7 @@ def _fit_editorial_text(text, width, height, size):
     return value, min_size
 
 
-def _add_editorial_text(slide, text, left, top, width, height, style, size=18, color=None, bold=False, align=None):
+def _add_editorial_text(slide, text, left, top, width, height, style, size=18, color=None, bold=False, align=None, anchor=None):
     fitted_text, fitted_size = _fit_editorial_text(text, width, height, size)
     box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     box.text_frame.word_wrap = True
@@ -627,15 +657,17 @@ def _add_editorial_text(slide, text, left, top, width, height, style, size=18, c
     box.text_frame.margin_right = 0
     box.text_frame.margin_top = 0
     box.text_frame.margin_bottom = 0
-    box.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+    if anchor is None:
+        anchor = MSO_ANCHOR.MIDDLE if height <= 0.45 else MSO_ANCHOR.TOP
+    box.text_frame.vertical_anchor = anchor
     paragraph = box.text_frame.paragraphs[0]
     paragraph.text = fitted_text
-    paragraph.font.name = style.FONT_MAIN
     paragraph.font.size = Pt(fitted_size)
     paragraph.font.bold = bold
     paragraph.font.color.rgb = color or style.TEXT_DARK
     if align:
         paragraph.alignment = align
+    _apply_paragraph_font(paragraph, style.FONT_TITLE if bold else style.FONT_MAIN)
     return box
 
 
@@ -645,6 +677,7 @@ def _add_editorial_card(slide, title, body, left, top, width, height, style, acc
     card.fill.fore_color.rgb = style.PRIMARY_COLOR if filled else style.BG_WHITE
     card.line.color.rgb = style.PRIMARY_COLOR if filled else style.PRIMARY_LIGHT
     card.line.width = Pt(1)
+    _soften_rounded_rect(card)
     marker = slide.shapes.add_shape(1, Inches(left), Inches(top), Inches(0.08), Inches(height))
     marker.fill.solid()
     marker.fill.fore_color.rgb = accent or style.ACCENT_COLOR
@@ -718,6 +751,80 @@ def _slide_role(slide_data: Dict[str, Any]) -> str:
     }.get(normalize_slide_type(slide_data.get("slide_type")), "opportunity_map")
 
 
+def _is_zh_style(style) -> bool:
+    language = getattr(style, "language", "zh-CN")
+    return isinstance(language, str) and language.lower().startswith("zh")
+
+
+def _chrome(style, zh: str, en: str) -> str:
+    return zh if _is_zh_style(style) else en
+
+
+_ROLE_LABELS = {
+    "opportunity_map": ("机会判断", "OPPORTUNITY MAP"),
+    "evidence_story": ("证据叙事", "EVIDENCE STORY"),
+    "strategic_choice": ("战略选择", "STRATEGIC CHOICE"),
+    "execution_roadmap": ("执行路径", "EXECUTION ROADMAP"),
+    "decision_close": ("决策收口", "DECISION CLOSE"),
+}
+
+
+def _role_kicker(style, role: str, idx: int | None = None) -> str:
+    zh, en = _ROLE_LABELS.get(role, ("内容", "CONTENT"))
+    label = _chrome(style, zh, en)
+    if idx is None:
+        return label
+    return f"{idx:02d} / {label}"
+
+
+def _cover_kicker(style) -> str:
+    mapping = {
+        "education": ("学习讲义", "LEARNING LAB"),
+        "elegant": ("决策备忘", "PRIVATE EDITION"),
+        "medical": ("临床简报", "CLINICAL BRIEF"),
+        "academic": ("研究简报", "RESEARCH BRIEF"),
+        "creative": ("策略提案", "STRATEGY"),
+        "tech": ("技术方案", "SYSTEM DECK"),
+        "minimal": ("演示文稿", "PRESENTATION"),
+        "modern": ("策略简报", "STRATEGY BRIEF"),
+        "business": ("策略简报", "STRATEGY BRIEF"),
+    }
+    zh, en = mapping.get(getattr(style, "template_name", "modern"), ("策略简报", "STRATEGY BRIEF"))
+    return _chrome(style, zh, en)
+
+
+def _cover_tagline(outline: Dict[str, Any]) -> str:
+    for key in ("subtitle", "tagline", "summary"):
+        value = str(outline.get(key) or "").strip()
+        if value:
+            return value
+    slides = outline.get("slides") or []
+    if slides and isinstance(slides[0], dict):
+        message = str(slides[0].get("key_message") or "").strip()
+        if message:
+            return message
+    return "把关键判断讲清楚，再落到可执行的下一步"
+
+
+def _apply_paragraph_font(paragraph, font_name: str) -> None:
+    paragraph.font.name = font_name
+    for run in paragraph.runs:
+        run.font.name = font_name
+        rPr = run._r.get_or_add_rPr()
+        for tag in ("latin", "ea", "cs"):
+            el = rPr.find(qn(f"a:{tag}"))
+            if el is None:
+                el = etree.SubElement(rPr, qn(f"a:{tag}"))
+            el.set("typeface", font_name)
+
+
+def _soften_rounded_rect(shape) -> None:
+    try:
+        shape.adjustments[0] = 0.08
+    except (AttributeError, IndexError, ValueError):
+        pass
+
+
 def _item_at(items: List[str], index: int) -> str:
     return items[index] if index < len(items) else items[-1]
 
@@ -758,21 +865,21 @@ def _render_slide_academic(prs, blank_layout, style, slide_data, idx, total_slid
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
     key_message = slide_data.get("key_message") or "以证据回答一个明确问题"
-    _add_editorial_text(slide, "RESEARCH BRIEF", 0.7, 0.34, 2.7, 0.28, style, 9, style.PRIMARY_COLOR, True)
-    _add_editorial_text(slide, f"FIG. {idx:02d}  /  {role.replace('_', ' ').upper()}", 8.8, 0.34, 3.8, 0.28, style, 9, style.PRIMARY_COLOR, True, PP_ALIGN.RIGHT)
+    _add_editorial_text(slide, _cover_kicker(style), 0.7, 0.34, 2.7, 0.28, style, 9, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, _role_kicker(style, role, idx), 8.8, 0.34, 3.8, 0.28, style, 9, style.PRIMARY_COLOR, True, PP_ALIGN.RIGHT)
     rule = slide.shapes.add_shape(1, Inches(0.7), Inches(0.83), Inches(11.9), Inches(0.025))
     rule.fill.solid(); rule.fill.fore_color.rgb = style.PRIMARY_COLOR; rule.line.fill.background()
     _add_editorial_text(slide, title, 0.7, 1.02, 8.5, 0.68, style, 28, style.PRIMARY_DARK, True)
     _add_editorial_text(slide, key_message, 9.2, 1.05, 3.4, 0.58, style, 12, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
 
     if role == "evidence_story":
-        _add_academic_note(slide, "PRIMARY FINDING", items[0], 0.7, 1.92, 4.0, 4.72, style, True)
+        _add_academic_note(slide, _chrome(style, "核心发现", "PRIMARY FINDING"), items[0], 0.7, 1.92, 4.0, 4.72, style, True)
         for number in range(1, 4):
-            _add_academic_note(slide, f"EVIDENCE [{number}]", _item_at(items, number), 5.05, 1.92 + (number - 1) * 1.57, 7.55, 1.28, style)
+            _add_academic_note(slide, _chrome(style, f"证据 [{number}]", f"EVIDENCE [{number}]"), _item_at(items, number), 5.05, 1.92 + (number - 1) * 1.57, 7.55, 1.28, style)
     elif role == "strategic_choice":
-        _add_academic_note(slide, "HYPOTHESIS A", items[0], 0.7, 1.92, 5.55, 2.72, style)
-        _add_academic_note(slide, "HYPOTHESIS B", _item_at(items, 1), 6.65, 1.92, 5.95, 2.72, style)
-        _add_academic_note(slide, "RESEARCH CONCLUSION", "；".join(items[2:]) or key_message, 2.15, 5.02, 9.05, 1.38, style, True)
+        _add_academic_note(slide, _chrome(style, "假设 A", "HYPOTHESIS A"), items[0], 0.7, 1.92, 5.55, 2.72, style)
+        _add_academic_note(slide, _chrome(style, "假设 B", "HYPOTHESIS B"), _item_at(items, 1), 6.65, 1.92, 5.95, 2.72, style)
+        _add_academic_note(slide, _chrome(style, "研究结论", "RESEARCH CONCLUSION"), "；".join(items[2:]) or key_message, 2.15, 5.02, 9.05, 1.38, style, True)
     elif role == "execution_roadmap":
         protocol = slide.shapes.add_shape(1, Inches(1.28), Inches(2.18), Inches(0.035), Inches(3.72))
         protocol.fill.solid(); protocol.fill.fore_color.rgb = style.PRIMARY_COLOR; protocol.line.fill.background()
@@ -781,20 +888,20 @@ def _render_slide_academic(prs, blank_layout, style, slide_data, idx, total_slid
             marker = slide.shapes.add_shape(9, Inches(1.03), Inches(top + 0.3), Inches(0.52), Inches(0.52))
             marker.fill.solid(); marker.fill.fore_color.rgb = style.PRIMARY_COLOR; marker.line.fill.background()
             _add_editorial_text(slide, str(number + 1), 1.03, top + 0.42, 0.52, 0.2, style, 11, style.TEXT_WHITE, True, PP_ALIGN.CENTER)
-            _add_academic_note(slide, f"PROTOCOL / {('PILOT', 'VALIDATE', 'SCALE')[number]}", _item_at(items, number), 1.85, top, 10.45, 1.12, style, number == 2)
+            _add_academic_note(slide, _chrome(style, f"步骤 / {('试点', '验证', '推广')[number]}", f"PROTOCOL / {('PILOT', 'VALIDATE', 'SCALE')[number]}"), _item_at(items, number), 1.85, top, 10.45, 1.12, style, number == 2)
         _add_editorial_text(slide, _item_at(items, 3), 1.85, 6.42, 10.45, 0.32, style, 10, style.TEXT_GRAY)
     elif role == "decision_close":
-        _add_academic_note(slide, "CONCLUSION", items[0], 0.7, 1.92, 11.9, 2.05, style, True)
+        _add_academic_note(slide, _chrome(style, "结论", "CONCLUSION"), items[0], 0.7, 1.92, 11.9, 2.05, style, True)
         for number in range(1, 4):
-            _add_academic_note(slide, f"IMPLICATION [{number}]", _item_at(items, number), 0.7 + (number - 1) * 4.05, 4.35, 3.8, 2.05, style)
+            _add_academic_note(slide, _chrome(style, f"含义 [{number}]", f"IMPLICATION [{number}]"), _item_at(items, number), 0.7 + (number - 1) * 4.05, 4.35, 3.8, 2.05, style)
     else:
-        _add_academic_note(slide, "RESEARCH QUESTION", items[0], 0.7, 1.92, 7.15, 4.72, style, True)
-        _add_academic_note(slide, "OBSERVATION [1]", _item_at(items, 1), 8.2, 1.92, 4.4, 2.05, style)
-        _add_academic_note(slide, "OBSERVATION [2]", _item_at(items, 2), 8.2, 4.35, 4.4, 2.29, style)
+        _add_academic_note(slide, _chrome(style, "研究问题", "RESEARCH QUESTION"), items[0], 0.7, 1.92, 7.15, 4.72, style, True)
+        _add_academic_note(slide, _chrome(style, "观察 [1]", "OBSERVATION [1]"), _item_at(items, 1), 8.2, 1.92, 4.4, 2.05, style)
+        _add_academic_note(slide, _chrome(style, "观察 [2]", "OBSERVATION [2]"), _item_at(items, 2), 8.2, 4.35, 4.4, 2.29, style)
         _add_editorial_text(slide, _item_at(items, 3), 1.02, 5.92, 6.5, 0.38, style, 10, style.TEXT_WHITE, True)
     sources = slide_data.get("evidence_sources") or []
     source_label = sources[0].get("title", "已批准大纲") if sources else "待补：基线数据、用户访谈或公开研究"
-    _add_editorial_text(slide, f"SOURCE / {source_label[:72]}", 0.7, 6.92, 10.2, 0.24, style, 9, style.PRIMARY_COLOR)
+    _add_editorial_text(slide, f"{_chrome(style, '来源', 'SOURCE')} / {source_label[:72]}", 0.7, 6.92, 10.2, 0.24, style, 9, style.PRIMARY_COLOR)
     return slide
 
 
@@ -825,20 +932,20 @@ def _render_slide_education(prs, blank_layout, style, slide_data, idx, total_sli
     key_message = slide_data.get("key_message") or "先理解，再练习，最后带走行动"
     chapter = slide.shapes.add_shape(5, Inches(0.68), Inches(0.38), Inches(1.35), Inches(0.42))
     chapter.fill.solid(); chapter.fill.fore_color.rgb = style.PRIMARY_COLOR; chapter.line.fill.background()
-    _add_editorial_text(slide, f"LESSON {idx:02d}", 0.68, 0.46, 1.35, 0.22, style, 9, style.TEXT_WHITE, True, PP_ALIGN.CENTER)
-    _add_editorial_text(slide, role.replace("_", " ").upper(), 2.25, 0.46, 4.5, 0.25, style, 9, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, _chrome(style, f"课时 {idx:02d}", f"LESSON {idx:02d}"), 0.68, 0.46, 1.35, 0.22, style, 9, style.TEXT_WHITE, True, PP_ALIGN.CENTER)
+    _add_editorial_text(slide, _role_kicker(style, role), 2.25, 0.46, 4.5, 0.25, style, 9, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, f"{idx + 1} / {total_slides}", 11.68, 0.46, 0.9, 0.25, style, 9, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
     _add_editorial_text(slide, title, 0.68, 1.02, 8.65, 0.68, style, 29, style.TEXT_DARK, True)
     _add_editorial_text(slide, key_message, 9.25, 1.05, 3.33, 0.58, style, 12, style.PRIMARY_DARK, True, PP_ALIGN.RIGHT)
 
     if role == "evidence_story":
-        _add_learning_card(slide, "KEY LEARNING", items[0], 0.68, 1.92, 4.2, 4.72, style, True)
+        _add_learning_card(slide, _chrome(style, "关键学习", "KEY LEARNING"), items[0], 0.68, 1.92, 4.2, 4.72, style, True)
         for number in range(1, 4):
-            _add_learning_card(slide, f"PROOF POINT {number}", _item_at(items, number), 5.18, 1.92 + (number - 1) * 1.57, 7.4, 1.28, style)
+            _add_learning_card(slide, _chrome(style, f"证据 {number}", f"PROOF POINT {number}"), _item_at(items, number), 5.18, 1.92 + (number - 1) * 1.57, 7.4, 1.28, style)
     elif role == "strategic_choice":
-        _add_learning_card(slide, "PRACTICE A", items[0], 0.68, 1.92, 5.55, 2.75, style)
-        _add_learning_card(slide, "PRACTICE B", _item_at(items, 1), 6.65, 1.92, 5.93, 2.75, style, True)
-        _add_learning_card(slide, "LEARNING CHECK", "；".join(items[2:]) or key_message, 2.1, 5.03, 9.15, 1.38, style, True)
+        _add_learning_card(slide, _chrome(style, "练习 A", "PRACTICE A"), items[0], 0.68, 1.92, 5.55, 2.75, style)
+        _add_learning_card(slide, _chrome(style, "练习 B", "PRACTICE B"), _item_at(items, 1), 6.65, 1.92, 5.93, 2.75, style, True)
+        _add_learning_card(slide, _chrome(style, "学习检验", "LEARNING CHECK"), "；".join(items[2:]) or key_message, 2.1, 5.03, 9.15, 1.38, style, True)
     elif role == "execution_roadmap":
         rail = slide.shapes.add_shape(1, Inches(1.25), Inches(3.16), Inches(10.7), Inches(0.06))
         rail.fill.solid(); rail.fill.fore_color.rgb = style.PRIMARY_LIGHT; rail.line.fill.background()
@@ -847,16 +954,16 @@ def _render_slide_education(prs, blank_layout, style, slide_data, idx, total_sli
             badge = slide.shapes.add_shape(9, Inches(left + 1.5), Inches(2.87), Inches(0.62), Inches(0.62))
             badge.fill.solid(); badge.fill.fore_color.rgb = style.PRIMARY_COLOR; badge.line.fill.background()
             _add_editorial_text(slide, str(number + 1), left + 1.5, 3.0, 0.62, 0.22, style, 12, style.TEXT_WHITE, True, PP_ALIGN.CENTER)
-            _add_learning_card(slide, f"MODULE / {('TRY', 'PRACTICE', 'APPLY')[number]}", _item_at(items, number), left, 3.55, 3.65, 2.35, style, number == 2)
+            _add_learning_card(slide, _chrome(style, f"模块 / {('尝试', '练习', '应用')[number]}", f"MODULE / {('TRY', 'PRACTICE', 'APPLY')[number]}"), _item_at(items, number), left, 3.55, 3.65, 2.35, style, number == 2)
         _add_editorial_text(slide, _item_at(items, 3), 1.3, 6.3, 10.7, 0.38, style, 11, style.PRIMARY_DARK, True, PP_ALIGN.CENTER)
     elif role == "decision_close":
-        _add_learning_card(slide, "TAKEAWAY", items[0], 0.68, 1.92, 11.9, 2.02, style, True)
+        _add_learning_card(slide, _chrome(style, "带走的要点", "TAKEAWAY"), items[0], 0.68, 1.92, 11.9, 2.02, style, True)
         for number in range(1, 4):
-            _add_learning_card(slide, f"NEXT STEP {number}", _item_at(items, number), 0.68 + (number - 1) * 4.08, 4.35, 3.66, 2.05, style)
+            _add_learning_card(slide, _chrome(style, f"下一步 {number}", f"NEXT STEP {number}"), _item_at(items, number), 0.68 + (number - 1) * 4.08, 4.35, 3.66, 2.05, style)
     else:
-        _add_learning_card(slide, "WHY THIS MATTERS", items[0], 0.68, 1.92, 6.95, 4.72, style, True)
-        _add_learning_card(slide, "NOTICE", _item_at(items, 1), 7.98, 1.92, 4.6, 2.05, style)
-        _add_learning_card(slide, "TRY NEXT", _item_at(items, 2), 7.98, 4.35, 4.6, 2.29, style)
+        _add_learning_card(slide, _chrome(style, "为什么重要", "WHY THIS MATTERS"), items[0], 0.68, 1.92, 6.95, 4.72, style, True)
+        _add_learning_card(slide, _chrome(style, "请注意", "NOTICE"), _item_at(items, 1), 7.98, 1.92, 4.6, 2.05, style)
+        _add_learning_card(slide, _chrome(style, "下一步尝试", "TRY NEXT"), _item_at(items, 2), 7.98, 4.35, 4.6, 2.29, style)
         _add_editorial_text(slide, _item_at(items, 3), 1.0, 5.9, 6.1, 0.42, style, 10, style.TEXT_WHITE, True)
     return slide
 
@@ -886,23 +993,23 @@ def _render_slide_medical(prs, blank_layout, style, slide_data, idx, total_slide
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
     key_message = slide_data.get("key_message") or "以证据明确判断，以路径推进照护"
-    _add_editorial_text(slide, "CLINICAL BRIEF", 0.72, 0.42, 2.4, 0.28, style, 10, style.PRIMARY_COLOR, True)
-    _add_editorial_text(slide, f"CASE / {idx:02d}", 10.75, 0.42, 1.8, 0.28, style, 9, style.TEXT_GRAY, True, PP_ALIGN.RIGHT)
+    _add_editorial_text(slide, _cover_kicker(style), 0.72, 0.42, 2.4, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, _chrome(style, f"病例 / {idx:02d}", f"CASE / {idx:02d}"), 10.75, 0.42, 1.8, 0.28, style, 9, style.TEXT_GRAY, True, PP_ALIGN.RIGHT)
     _add_editorial_text(slide, title, 0.72, 0.98, 8.4, 0.7, style, 28, style.TEXT_DARK, True)
     _add_editorial_text(slide, key_message, 9.28, 1.02, 3.3, 0.58, style, 12, style.PRIMARY_DARK, True, PP_ALIGN.RIGHT)
     rule = slide.shapes.add_shape(1, Inches(0.72), Inches(1.78), Inches(11.88), Inches(0.025))
     rule.fill.solid(); rule.fill.fore_color.rgb = style.PRIMARY_LIGHT; rule.line.fill.background()
 
     if role == "evidence_story":
-        _add_clinical_card(slide, "PRIMARY FINDING", items[0], 0.72, 2.05, 4.25, 4.45, style, True)
+        _add_clinical_card(slide, _chrome(style, "核心发现", "PRIMARY FINDING"), items[0], 0.72, 2.05, 4.25, 4.45, style, True)
         for number in range(1, 4):
-            _add_clinical_card(slide, f"EVIDENCE / {number}", _item_at(items, number), 5.25, 2.05 + (number - 1) * 1.5, 7.35, 1.23, style)
+            _add_clinical_card(slide, _chrome(style, f"证据 / {number}", f"EVIDENCE / {number}"), _item_at(items, number), 5.25, 2.05 + (number - 1) * 1.5, 7.35, 1.23, style)
     elif role == "strategic_choice":
-        _add_clinical_card(slide, "OPTION A", items[0], 0.72, 2.05, 5.5, 2.65, style)
-        _add_clinical_card(slide, "RECOMMENDED OPTION", _item_at(items, 1), 6.65, 2.05, 5.95, 2.65, style, True)
-        _add_clinical_card(slide, "CLINICAL RATIONALE", "；".join(items[2:]) or key_message, 2.05, 5.03, 9.2, 1.35, style, True)
+        _add_clinical_card(slide, _chrome(style, "方案 A", "OPTION A"), items[0], 0.72, 2.05, 5.5, 2.65, style)
+        _add_clinical_card(slide, _chrome(style, "推荐方案", "RECOMMENDED OPTION"), _item_at(items, 1), 6.65, 2.05, 5.95, 2.65, style, True)
+        _add_clinical_card(slide, _chrome(style, "临床依据", "CLINICAL RATIONALE"), "；".join(items[2:]) or key_message, 2.05, 5.03, 9.2, 1.35, style, True)
     elif role == "execution_roadmap":
-        _add_editorial_text(slide, "CARE PATHWAY", 0.72, 2.18, 2.4, 0.3, style, 10, style.PRIMARY_COLOR, True)
+        _add_editorial_text(slide, _chrome(style, "照护路径", "CARE PATHWAY"), 0.72, 2.18, 2.4, 0.3, style, 10, style.PRIMARY_COLOR, True)
         rail = slide.shapes.add_shape(1, Inches(1.0), Inches(3.2), Inches(11.0), Inches(0.04))
         rail.fill.solid(); rail.fill.fore_color.rgb = style.PRIMARY_LIGHT; rail.line.fill.background()
         for number in range(3):
@@ -910,19 +1017,19 @@ def _render_slide_medical(prs, blank_layout, style, slide_data, idx, total_slide
             marker = slide.shapes.add_shape(9, Inches(left + 1.48), Inches(2.88), Inches(0.64), Inches(0.64))
             marker.fill.solid(); marker.fill.fore_color.rgb = style.PRIMARY_COLOR; marker.line.fill.background()
             _add_editorial_text(slide, str(number + 1), left + 1.48, 3.03, 0.64, 0.2, style, 12, style.TEXT_WHITE, True, PP_ALIGN.CENTER)
-            _add_clinical_card(slide, ("ASSESS", "TREAT", "FOLLOW UP")[number], _item_at(items, number), left, 3.58, 3.65, 2.15, style, number == 2)
+            _add_clinical_card(slide, _chrome(style, ("评估", "处置", "随访")[number], ("ASSESS", "TREAT", "FOLLOW UP")[number]), _item_at(items, number), left, 3.58, 3.65, 2.15, style, number == 2)
         _add_editorial_text(slide, _item_at(items, 3), 1.25, 6.25, 10.8, 0.35, style, 11, style.PRIMARY_DARK, True, PP_ALIGN.CENTER)
     elif role == "decision_close":
-        _add_clinical_card(slide, "CARE DECISION", items[0], 0.72, 2.05, 11.88, 1.95, style, True)
+        _add_clinical_card(slide, _chrome(style, "照护决策", "CARE DECISION"), items[0], 0.72, 2.05, 11.88, 1.95, style, True)
         for number in range(1, 4):
-            _add_clinical_card(slide, f"ACTION / {number}", _item_at(items, number), 0.72 + (number - 1) * 4.08, 4.35, 3.66, 2.15, style)
+            _add_clinical_card(slide, _chrome(style, f"行动 / {number}", f"ACTION / {number}"), _item_at(items, number), 0.72 + (number - 1) * 4.08, 4.35, 3.66, 2.15, style)
     else:
-        _add_clinical_card(slide, "CLINICAL SIGNAL", items[0], 0.72, 2.05, 6.95, 4.45, style, True)
-        _add_clinical_card(slide, "PATIENT IMPACT", _item_at(items, 1), 7.98, 2.05, 4.62, 1.95, style)
-        _add_clinical_card(slide, "NEXT REVIEW", _item_at(items, 2), 7.98, 4.35, 4.62, 2.15, style)
+        _add_clinical_card(slide, _chrome(style, "临床信号", "CLINICAL SIGNAL"), items[0], 0.72, 2.05, 6.95, 4.45, style, True)
+        _add_clinical_card(slide, _chrome(style, "患者影响", "PATIENT IMPACT"), _item_at(items, 1), 7.98, 2.05, 4.62, 1.95, style)
+        _add_clinical_card(slide, _chrome(style, "下次复核", "NEXT REVIEW"), _item_at(items, 2), 7.98, 4.35, 4.62, 2.15, style)
     sources = slide_data.get("evidence_sources") or []
     source_label = sources[0].get("title", "已批准大纲") if sources else "待补：临床指南、病例数据或用户访谈"
-    _add_editorial_text(slide, f"SOURCE / {source_label[:68]}", 0.72, 6.9, 10.8, 0.28, style, 10, style.PRIMARY_COLOR)
+    _add_editorial_text(slide, f"{_chrome(style, '来源', 'SOURCE')} / {source_label[:68]}", 0.72, 6.9, 10.8, 0.28, style, 10, style.PRIMARY_COLOR)
     _add_editorial_text(slide, f"{idx + 1} / {total_slides}", 11.68, 6.92, 0.9, 0.24, style, 9, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
     return slide
 
@@ -957,7 +1064,7 @@ def _render_slide_elegant(prs, blank_layout, style, slide_data, idx, total_slide
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
     key_message = slide_data.get("key_message") or "聚焦关键判断，形成清晰决议"
-    _add_editorial_text(slide, "EXECUTIVE MEMO", 0.72, 0.42, 2.7, 0.28, style, 9, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, _cover_kicker(style), 0.72, 0.42, 2.7, 0.28, style, 9, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, f"{idx + 1:02d}", 11.78, 0.36, 0.8, 0.38, style, 16, style.PRIMARY_COLOR, True, PP_ALIGN.RIGHT)
     _add_editorial_text(slide, title, 0.72, 0.95, 8.4, 0.72, style, 29, style.TEXT_DARK, True)
     _add_editorial_text(slide, key_message, 9.15, 1.0, 3.43, 0.58, style, 11, style.PRIMARY_DARK, False, PP_ALIGN.RIGHT)
@@ -965,15 +1072,15 @@ def _render_slide_elegant(prs, blank_layout, style, slide_data, idx, total_slide
     top_rule.fill.solid(); top_rule.fill.fore_color.rgb = style.PRIMARY_COLOR; top_rule.line.fill.background()
 
     if role == "evidence_story":
-        _add_elegant_note(slide, "THE EVIDENCE", items[0], 0.72, 2.08, 4.05, 4.35, style, True)
+        _add_elegant_note(slide, _chrome(style, "证据", "THE EVIDENCE"), items[0], 0.72, 2.08, 4.05, 4.35, style, True)
         for number in range(1, 4):
             top = 2.08 + (number - 1) * 1.48
             _add_editorial_text(slide, f"0{number}", 5.25, top + 0.05, 0.55, 0.35, style, 16, style.PRIMARY_COLOR, True)
-            _add_elegant_note(slide, "EVIDENCE NOTE", _item_at(items, number), 5.95, top, 6.63, 1.18, style)
+            _add_elegant_note(slide, _chrome(style, "证据笔记", "EVIDENCE NOTE"), _item_at(items, number), 5.95, top, 6.63, 1.18, style)
     elif role == "strategic_choice":
-        _add_elegant_note(slide, "PATH A", items[0], 0.72, 2.08, 4.7, 2.65, style)
-        _add_elegant_note(slide, "PATH B", _item_at(items, 1), 5.78, 2.08, 6.8, 2.65, style)
-        _add_elegant_note(slide, "BOARD RECOMMENDATION", "；".join(items[2:]) or key_message, 2.08, 5.08, 9.18, 1.3, style, True)
+        _add_elegant_note(slide, _chrome(style, "路径 A", "PATH A"), items[0], 0.72, 2.08, 4.7, 2.65, style)
+        _add_elegant_note(slide, _chrome(style, "路径 B", "PATH B"), _item_at(items, 1), 5.78, 2.08, 6.8, 2.65, style)
+        _add_elegant_note(slide, _chrome(style, "董事会建议", "BOARD RECOMMENDATION"), "；".join(items[2:]) or key_message, 2.08, 5.08, 9.18, 1.3, style, True)
     elif role == "execution_roadmap":
         spine = slide.shapes.add_shape(1, Inches(2.15), Inches(2.18), Inches(0.025), Inches(4.05))
         spine.fill.solid(); spine.fill.fore_color.rgb = style.PRIMARY_COLOR; spine.line.fill.background()
@@ -982,18 +1089,18 @@ def _render_slide_elegant(prs, blank_layout, style, slide_data, idx, total_slide
             _add_editorial_text(slide, f"0{number + 1}", 0.72, top + 0.28, 0.7, 0.35, style, 16, style.PRIMARY_COLOR, True)
             marker = slide.shapes.add_shape(9, Inches(1.98), Inches(top + 0.31), Inches(0.36), Inches(0.36))
             marker.fill.solid(); marker.fill.fore_color.rgb = style.PRIMARY_COLOR; marker.line.fill.background()
-            _add_elegant_note(slide, ("COMMIT", "PROVE", "EXPAND")[number], _item_at(items, number), 2.72, top, 9.86, 1.12, style, number == 2)
+            _add_elegant_note(slide, _chrome(style, ("承诺", "验证", "扩大")[number], ("COMMIT", "PROVE", "EXPAND")[number]), _item_at(items, number), 2.72, top, 9.86, 1.12, style, number == 2)
         _add_editorial_text(slide, _item_at(items, 3), 2.72, 6.38, 9.86, 0.32, style, 11, style.PRIMARY_DARK, True)
     elif role == "decision_close":
-        _add_elegant_note(slide, "RESOLUTION", items[0], 0.72, 2.08, 11.86, 1.86, style, True)
+        _add_elegant_note(slide, _chrome(style, "决议", "RESOLUTION"), items[0], 0.72, 2.08, 11.86, 1.86, style, True)
         for number in range(1, 4):
-            _add_elegant_note(slide, f"COMMITMENT / 0{number}", _item_at(items, number), 0.72 + (number - 1) * 4.08, 4.38, 3.66, 2.02, style)
+            _add_elegant_note(slide, _chrome(style, f"承诺 / 0{number}", f"COMMITMENT / 0{number}"), _item_at(items, number), 0.72 + (number - 1) * 4.08, 4.38, 3.66, 2.02, style)
     else:
         _add_editorial_text(slide, "01", 0.72, 2.12, 1.4, 0.9, style, 44, style.PRIMARY_COLOR, True)
-        _add_elegant_note(slide, "PRIMARY SIGNAL", items[0], 2.05, 2.08, 6.12, 4.35, style, True)
-        _add_elegant_note(slide, "IMPLICATION", _item_at(items, 1), 8.55, 2.08, 4.03, 1.88, style)
-        _add_elegant_note(slide, "VALIDATION", _item_at(items, 2), 8.55, 4.38, 4.03, 2.05, style)
-    _add_editorial_text(slide, "PRIVATE & CONFIDENTIAL", 0.72, 6.92, 3.0, 0.22, style, 8, style.TEXT_GRAY, True)
+        _add_elegant_note(slide, _chrome(style, "核心信号", "PRIMARY SIGNAL"), items[0], 2.05, 2.08, 6.12, 4.35, style, True)
+        _add_elegant_note(slide, _chrome(style, "含义", "IMPLICATION"), _item_at(items, 1), 8.55, 2.08, 4.03, 1.88, style)
+        _add_elegant_note(slide, _chrome(style, "验证", "VALIDATION"), _item_at(items, 2), 8.55, 4.38, 4.03, 2.05, style)
+    _add_editorial_text(slide, _chrome(style, "内部审阅", "PRIVATE & CONFIDENTIAL"), 0.72, 6.92, 3.0, 0.22, style, 8, style.TEXT_GRAY, True)
     return slide
 
 
@@ -1003,15 +1110,22 @@ def _add_modern_tile(slide, label, body, left, top, width, height, style, featur
     tile.fill.fore_color.rgb = style.PRIMARY_COLOR if featured else style.BG_WHITE
     tile.line.color.rgb = style.PRIMARY_COLOR if featured else style.PRIMARY_LIGHT
     tile.line.width = Pt(1.25)
+    _soften_rounded_rect(tile)
     text_color = style.TEXT_WHITE if featured else style.TEXT_DARK
     label_color = style.TEXT_WHITE if featured else style.PRIMARY_COLOR
-    _add_editorial_text(slide, label, left + 0.28, top + 0.2, width - 0.56, 0.3, style, 11, label_color, True)
+    _add_editorial_text(slide, label, left + 0.28, top + 0.18, width - 0.56, 0.28, style, 11, label_color, True)
     headline, detail = _split_commercial_item(body)
-    if detail and height >= 2.0:
-        _add_editorial_text(slide, headline, left + 0.28, top + 0.65, width - 0.56, 0.68, style, 17, text_color, True)
-        _add_editorial_text(slide, detail, left + 0.28, top + 1.5, width - 0.56, height - 1.72, style, 11, text_color)
+    body_top = top + 0.5
+    body_height = max(0.4, height - 0.68)
+    if detail and height >= 1.6:
+        head_h = 0.52 if height < 2.2 else 0.68
+        _add_editorial_text(slide, headline, left + 0.28, body_top, width - 0.56, head_h, style, 16 if height < 2.2 else 18, text_color, True)
+        _add_editorial_text(slide, detail, left + 0.28, body_top + head_h + 0.06, width - 0.56, max(0.36, body_height - head_h - 0.08), style, 12, text_color)
+    elif height >= 2.2:
+        size = 16 if width < 4.5 else (18 if featured else 16)
+        _add_editorial_text(slide, body, left + 0.28, body_top, width - 0.56, body_height, style, size, text_color, True, anchor=MSO_ANCHOR.MIDDLE)
     else:
-        _add_editorial_text(slide, body, left + 0.28, top + 0.62, width - 0.56, height - 0.82, style, 15, text_color, featured)
+        _add_editorial_text(slide, body, left + 0.28, body_top, width - 0.56, body_height, style, 15, text_color, featured, anchor=MSO_ANCHOR.MIDDLE)
     return tile
 
 
@@ -1026,34 +1140,35 @@ def _render_slide_modern(prs, blank_layout, style, slide_data, idx, total_slides
     title = slide_data.get("title", f"第 {idx} 页")
     key_message = slide_data.get("key_message") or "用清晰证据推动下一步决策"
     add_page_number(slide, prs, idx + 1, total_slides, style)
-    _add_editorial_text(slide, f"{idx:02d} / {role.replace('_', ' ').upper()}", 0.72, 0.38, 4.8, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, _role_kicker(style, role, idx), 0.72, 0.38, 4.8, 0.28, style, 10, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, title, 0.72, 0.72, 8.6, 0.58, style, 28, style.TEXT_DARK, True)
     _add_editorial_text(slide, key_message, 9.05, 0.68, 3.55, 0.55, style, 12, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
 
     if role == "evidence_story":
-        _add_modern_tile(slide, "PRIMARY SIGNAL", items[0], 0.72, 1.58, 4.0, 4.85, style, True)
+        _add_modern_tile(slide, _chrome(style, "核心信号", "PRIMARY SIGNAL"), items[0], 0.72, 1.52, 11.88, 1.42, style, True)
         for number in range(1, 4):
-            _add_modern_tile(slide, f"EVIDENCE {number:02d}", _item_at(items, number), 5.05, 1.58 + (number - 1) * 1.62, 7.55, 1.32, style)
+            _add_modern_tile(slide, _chrome(style, f"证据 {number:02d}", f"EVIDENCE {number:02d}"), _item_at(items, number), 0.72 + (number - 1) * 4.05, 3.18, 3.85, 2.55, style, number == 1)
     elif role == "strategic_choice":
-        _add_modern_tile(slide, "OPTION 01", items[0], 0.72, 1.68, 5.7, 2.8, style)
-        _add_modern_tile(slide, "OPTION 02 / RECOMMENDED", _item_at(items, 1), 6.9, 1.68, 5.7, 2.8, style, True)
-        _add_modern_tile(slide, "DECISION", "；".join(items[2:]) or key_message, 2.65, 4.92, 8.05, 1.35, style, True)
+        _add_modern_tile(slide, _chrome(style, "方案 01", "OPTION 01"), items[0], 0.72, 1.52, 5.7, 2.35, style)
+        _add_modern_tile(slide, _chrome(style, "方案 02 / 推荐", "OPTION 02 / RECOMMENDED"), _item_at(items, 1), 6.9, 1.52, 5.7, 2.35, style, True)
+        _add_modern_tile(slide, _chrome(style, "决策", "DECISION"), "；".join(items[2:]) or key_message, 0.72, 4.12, 11.88, 1.55, style, True)
     elif role == "execution_roadmap":
-        rail = slide.shapes.add_shape(1, Inches(1.0), Inches(3.05), Inches(11.25), Inches(0.06))
+        rail = slide.shapes.add_shape(1, Inches(1.0), Inches(3.15), Inches(11.25), Inches(0.06))
         rail.fill.solid(); rail.fill.fore_color.rgb = style.PRIMARY_LIGHT; rail.line.fill.background()
         for number in range(3):
             left = 0.72 + number * 4.15
-            _add_modern_tile(slide, f"0{number + 1} / {('试点', '扩展', '规模化')[number]}", _item_at(items, number), left, 1.68 + (number % 2) * 1.45, 3.72, 2.25, style, number == 2)
-        _add_editorial_text(slide, _item_at(items, 3), 2.1, 5.72, 9.1, 0.52, style, 13, style.PRIMARY_COLOR, True, PP_ALIGN.CENTER)
+            stage = (_chrome(style, "试点", "PILOT"), _chrome(style, "扩展", "EXPAND"), _chrome(style, "规模化", "SCALE"))[number]
+            _add_modern_tile(slide, f"0{number + 1} / {stage}", _item_at(items, number), left, 2.05, 3.72, 2.2, style, number == 2)
+        _add_editorial_text(slide, _item_at(items, 3), 0.72, 4.52, 11.88, 0.5, style, 14, style.PRIMARY_COLOR, True, PP_ALIGN.CENTER)
     elif role == "decision_close":
-        _add_modern_tile(slide, "PRIORITY", items[0], 0.72, 1.58, 6.2, 4.82, style, True)
+        _add_modern_tile(slide, _chrome(style, "优先事项", "PRIORITY"), items[0], 0.72, 1.52, 11.88, 1.42, style, True)
         for number in range(1, 4):
-            _add_modern_tile(slide, f"ACTION {number:02d}", _item_at(items, number), 7.28, 1.58 + (number - 1) * 1.62, 5.32, 1.32, style)
+            _add_modern_tile(slide, _chrome(style, f"行动 {number:02d}", f"ACTION {number:02d}"), _item_at(items, number), 0.72 + (number - 1) * 4.05, 3.18, 3.85, 2.55, style, number == 1)
     else:
-        _add_modern_tile(slide, "OPPORTUNITY / 01", items[0], 0.72, 1.58, 7.05, 4.82, style, True)
-        _add_modern_tile(slide, "SIGNAL / 02", _item_at(items, 1), 8.1, 1.58, 4.5, 2.1, style)
-        _add_modern_tile(slide, "SIGNAL / 03", _item_at(items, 2), 8.1, 4.02, 4.5, 2.38, style)
-        _add_editorial_text(slide, _item_at(items, 3), 1.08, 5.65, 6.35, 0.38, style, 11, style.TEXT_WHITE, True)
+        _add_modern_tile(slide, _chrome(style, "机会 / 01", "OPPORTUNITY / 01"), items[0], 0.72, 1.52, 5.85, 2.4, style, True)
+        _add_modern_tile(slide, _chrome(style, "信号 / 02", "SIGNAL / 02"), _item_at(items, 1), 6.85, 1.52, 5.75, 2.4, style)
+        _add_modern_tile(slide, _chrome(style, "信号 / 03", "SIGNAL / 03"), _item_at(items, 2), 0.72, 4.15, 5.85, 2.18, style)
+        _add_modern_tile(slide, _chrome(style, "信号 / 04", "SIGNAL / 04"), _item_at(items, 3), 6.85, 4.15, 5.75, 2.18, style)
     return slide
 
 
@@ -1087,7 +1202,7 @@ def _render_slide_modern_variant(prs, blank_layout, style, slide_data, idx, tota
     add_page_number(slide, prs, idx + 1, total_slides, style)
     band = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(1.45))
     band.fill.solid(); band.fill.fore_color.rgb = style.PRIMARY_COLOR; band.line.fill.background()
-    _add_editorial_text(slide, f"{idx:02d}  /  {role.replace('_', ' ').upper()}", 0.72, 0.34, 4.4, 0.28, style, 10, style.ACCENT_LIGHT, True)
+    _add_editorial_text(slide, _role_kicker(style, role, idx), 0.72, 0.34, 4.4, 0.28, style, 10, style.ACCENT_LIGHT, True)
     _add_editorial_text(slide, title, 0.72, 0.7, 7.8, 0.52, style, 27, style.TEXT_WHITE, True)
     _add_editorial_text(slide, key_message, 9.0, 0.65, 3.55, 0.62, style, 12, style.TEXT_WHITE, False, PP_ALIGN.RIGHT)
     _add_editorial_text(slide, "核心判断", 0.82, 1.95, 1.55, 0.3, style, 11, style.PRIMARY_COLOR, True)
@@ -1119,7 +1234,7 @@ def _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides
 
 def _render_modern_grid_variant(prs, blank_layout, style, slide_data, idx, total_slides):
     slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
-    _add_editorial_text(slide, f"{idx:02d} / FOUR LENSES", 0.72, 0.42, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, f"{idx:02d} / {_chrome(style, '四个视角', 'FOUR LENSES')}", 0.72, 0.42, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, title, 0.72, 0.85, 8.5, 0.65, style, 30, style.TEXT_DARK, True)
     _add_editorial_text(slide, key_message, 0.75, 1.58, 11.5, 0.35, style, 13, style.TEXT_GRAY)
     labels = ("理解", "参与", "协作", "结果")
@@ -1132,7 +1247,7 @@ def _render_modern_grid_variant(prs, blank_layout, style, slide_data, idx, total
 
 def _render_modern_statement_variant(prs, blank_layout, style, slide_data, idx, total_slides):
     slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
-    _add_editorial_text(slide, f"{idx:02d} / STATEMENT", 0.78, 0.5, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, f"{idx:02d} / {_chrome(style, '核心判断', 'STATEMENT')}", 0.78, 0.5, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, title, 0.78, 0.95, 11.4, 0.65, style, 30, style.TEXT_DARK, True)
     panel = slide.shapes.add_shape(5, Inches(0.78), Inches(2.05), Inches(11.75), Inches(2.05))
     panel.fill.solid(); panel.fill.fore_color.rgb = style.PRIMARY_COLOR; panel.line.fill.background()
@@ -1148,7 +1263,7 @@ def _render_modern_rail_variant(prs, blank_layout, style, slide_data, idx, total
     rail = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(2.2), Inches(7.5))
     rail.fill.solid(); rail.fill.fore_color.rgb = style.PRIMARY_COLOR; rail.line.fill.background()
     _add_editorial_text(slide, f"{idx:02d}", 0.55, 0.62, 1.1, 0.7, style, 32, style.TEXT_WHITE, True)
-    _add_editorial_text(slide, "ACTION\nPATH", 0.58, 1.65, 1.1, 0.8, style, 15, style.ACCENT_LIGHT, True)
+    _add_editorial_text(slide, _chrome(style, "行动\n路径", "ACTION\nPATH"), 0.58, 1.65, 1.1, 0.8, style, 15, style.ACCENT_LIGHT, True)
     _add_editorial_text(slide, title, 2.85, 0.75, 8.7, 0.65, style, 30, style.TEXT_DARK, True)
     _add_editorial_text(slide, key_message, 2.88, 1.55, 9.5, 0.4, style, 13, style.TEXT_GRAY)
     for i in range(4):
@@ -1162,7 +1277,7 @@ def _render_modern_rail_variant(prs, blank_layout, style, slide_data, idx, total
 
 def _render_modern_matrix_variant(prs, blank_layout, style, slide_data, idx, total_slides):
     slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
-    _add_editorial_text(slide, f"{idx:02d} / FIELD NOTES", 0.75, 0.45, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, f"{idx:02d} / {_chrome(style, '现场笔记', 'FIELD NOTES')}", 0.75, 0.45, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, title, 0.75, 0.9, 7.8, 0.62, style, 29, style.TEXT_DARK, True)
     _add_editorial_text(slide, key_message, 8.95, 0.92, 3.55, 0.55, style, 12, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
     for i in range(4):
@@ -1177,7 +1292,7 @@ def _render_modern_matrix_variant(prs, blank_layout, style, slide_data, idx, tot
 
 def _render_modern_quote_variant(prs, blank_layout, style, slide_data, idx, total_slides):
     slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
-    _add_editorial_text(slide, f"{idx:02d} / TAKEAWAY", 0.82, 0.55, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, f"{idx:02d} / {_chrome(style, '要点', 'TAKEAWAY')}", 0.82, 0.55, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, "“", 0.8, 1.55, 1.0, 1.0, style, 72, style.ACCENT_COLOR, True)
     _add_editorial_text(slide, items[0], 1.65, 1.85, 10.3, 1.35, style, 31, style.TEXT_DARK, True)
     _add_editorial_text(slide, title, 1.68, 3.65, 9.5, 0.5, style, 17, style.PRIMARY_COLOR, True)
@@ -1190,7 +1305,7 @@ def _render_modern_full_bleed_variant(prs, blank_layout, style, slide_data, idx,
     slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
     hero = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(7.5))
     hero.fill.solid(); hero.fill.fore_color.rgb = style.PRIMARY_COLOR; hero.line.fill.background()
-    _add_editorial_text(slide, f"{idx:02d} / POINT OF VIEW", 0.82, 0.62, 4.8, 0.3, style, 10, style.ACCENT_LIGHT, True)
+    _add_editorial_text(slide, f"{idx:02d} / {_chrome(style, '立场', 'POINT OF VIEW')}", 0.82, 0.62, 4.8, 0.3, style, 10, style.ACCENT_LIGHT, True)
     _add_editorial_text(slide, items[0], 1.0, 2.05, 11.2, 1.45, style, 34, style.TEXT_WHITE, True, PP_ALIGN.CENTER)
     _add_editorial_text(slide, title, 1.1, 4.05, 11.0, 0.55, style, 19, style.ACCENT_LIGHT, True, PP_ALIGN.CENTER)
     _add_editorial_text(slide, key_message, 2.0, 5.05, 9.3, 0.7, style, 14, style.TEXT_WHITE, False, PP_ALIGN.CENTER)
@@ -1199,7 +1314,7 @@ def _render_modern_full_bleed_variant(prs, blank_layout, style, slide_data, idx,
 
 def _render_modern_timeline_variant(prs, blank_layout, style, slide_data, idx, total_slides):
     slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
-    _add_editorial_text(slide, f"{idx:02d} / SEQUENCE", 0.75, 0.45, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, f"{idx:02d} / {_chrome(style, '节奏', 'SEQUENCE')}", 0.75, 0.45, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, title, 0.75, 0.9, 8.4, 0.6, style, 29, style.TEXT_DARK, True)
     _add_editorial_text(slide, key_message, 9.3, 0.93, 3.2, 0.5, style, 12, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
     rail = slide.shapes.add_shape(1, Inches(1.1), Inches(3.35), Inches(11.1), Inches(0.06))
@@ -1217,24 +1332,24 @@ def _render_modern_timeline_variant(prs, blank_layout, style, slide_data, idx, t
 
 def _render_modern_metric_variant(prs, blank_layout, style, slide_data, idx, total_slides):
     slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
-    _add_editorial_text(slide, f"{idx:02d} / SIGNALS", 0.75, 0.45, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, f"{idx:02d} / {_chrome(style, '信号', 'SIGNALS')}", 0.75, 0.45, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, title, 0.75, 0.9, 8.3, 0.6, style, 29, style.TEXT_DARK, True)
     _add_editorial_text(slide, key_message, 9.25, 0.93, 3.25, 0.5, style, 12, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
     _add_editorial_text(slide, items[0], 0.85, 2.0, 7.05, 2.0, style, 33, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, "核心信号", 0.9, 4.55, 2.1, 0.3, style, 11, style.TEXT_GRAY, True)
     for number in range(1, 4):
         top = 1.82 + (number - 1) * 1.45
-        _add_modern_tile(slide, f"METRIC 0{number}", _item_at(items, number), 8.25, top, 4.25, 1.12, style, number == 3)
+        _add_modern_tile(slide, _chrome(style, f"指标 0{number}", f"METRIC 0{number}"), _item_at(items, number), 8.25, top, 4.25, 1.12, style, number == 3)
     return slide
 
 
 def _render_modern_split_variant(prs, blank_layout, style, slide_data, idx, total_slides):
     slide, items, title, key_message = _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides)
-    _add_editorial_text(slide, f"{idx:02d} / TWO LENSES", 0.75, 0.45, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
+    _add_editorial_text(slide, f"{idx:02d} / {_chrome(style, '两个视角', 'TWO LENSES')}", 0.75, 0.45, 4.0, 0.28, style, 10, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, title, 0.75, 0.9, 8.2, 0.6, style, 29, style.TEXT_DARK, True)
     _add_editorial_text(slide, key_message, 9.2, 0.93, 3.3, 0.5, style, 12, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
-    _add_modern_tile(slide, "LENS A", items[0], 0.75, 2.0, 5.7, 3.9, style, True)
-    _add_modern_tile(slide, "LENS B", _item_at(items, 1), 6.9, 2.0, 5.7, 3.9, style)
+    _add_modern_tile(slide, _chrome(style, "视角 A", "LENS A"), items[0], 0.75, 2.0, 5.7, 3.9, style, True)
+    _add_modern_tile(slide, _chrome(style, "视角 B", "LENS B"), _item_at(items, 1), 6.9, 2.0, 5.7, 3.9, style)
     _add_editorial_text(slide, "共同结论", 1.0, 6.25, 1.6, 0.25, style, 10, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, "；".join(items[2:]), 2.3, 6.2, 9.6, 0.35, style, 12, style.TEXT_GRAY)
     return slide
@@ -1255,7 +1370,7 @@ def _render_slide_minimal(prs, blank_layout, style, slide_data, idx, total_slide
     title = slide_data.get("title", f"第 {idx} 页")
     key_message = slide_data.get("key_message") or "一个页面，一个明确判断"
     _add_editorial_text(slide, f"{idx:02d}", 0.65, 0.42, 0.7, 0.4, style, 12, style.TEXT_DARK, True)
-    _add_editorial_text(slide, role.replace("_", " / ").upper(), 1.5, 0.42, 4.4, 0.4, style, 10, style.TEXT_GRAY, True)
+    _add_editorial_text(slide, _role_kicker(style, role), 1.5, 0.42, 4.4, 0.4, style, 10, style.TEXT_GRAY, True)
     _add_editorial_text(slide, f"{idx + 1} / {total_slides}", 11.8, 0.42, 0.85, 0.4, style, 10, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
     _add_minimal_rule(slide, 0.65, 1.0, 12.0, style, 2)
     _add_editorial_text(slide, title, 0.65, 1.22, 8.65, 0.72, style, 30, style.TEXT_DARK, True)
@@ -1275,14 +1390,30 @@ def _render_slide_minimal(prs, blank_layout, style, slide_data, idx, total_slide
         _add_minimal_rule(slide, 0.65, 3.72, 12.0, style)
         for number in range(1, 4):
             left = 0.65 + (number - 1) * 4.0
-            _add_editorial_text(slide, f"ACTION / 0{number}", left, 4.05, 3.55, 0.3, style, 10, style.TEXT_GRAY, True)
+            _add_editorial_text(slide, _chrome(style, f"行动 / 0{number}", f"ACTION / 0{number}"), left, 4.05, 3.55, 0.3, style, 10, style.TEXT_GRAY, True)
             _add_editorial_text(slide, _item_at(items, number), left, 4.55, 3.55, 1.25, style, 15, style.TEXT_DARK)
     else:
         labels = {
-            "strategic_choice": ("A / OPTION", "B / OPTION", "DECISION /"),
-            "evidence_story": ("01 / SIGNAL", "02 / SIGNAL", "03 / MEANING"),
-            "opportunity_map": ("01 / CHANGE", "02 / WINDOW", "03 / TEST"),
-        }.get(role, ("01 / POINT", "02 / POINT", "03 / POINT"))
+            "strategic_choice": (
+                _chrome(style, "方案 A", "A / OPTION"),
+                _chrome(style, "方案 B", "B / OPTION"),
+                _chrome(style, "决策", "DECISION /"),
+            ),
+            "evidence_story": (
+                _chrome(style, "01 / 信号", "01 / SIGNAL"),
+                _chrome(style, "02 / 信号", "02 / SIGNAL"),
+                _chrome(style, "03 / 含义", "03 / MEANING"),
+            ),
+            "opportunity_map": (
+                _chrome(style, "01 / 变化", "01 / CHANGE"),
+                _chrome(style, "02 / 窗口", "02 / WINDOW"),
+                _chrome(style, "03 / 验证", "03 / TEST"),
+            ),
+        }.get(role, (
+            _chrome(style, "01 / 要点", "01 / POINT"),
+            _chrome(style, "02 / 要点", "02 / POINT"),
+            _chrome(style, "03 / 要点", "03 / POINT"),
+        ))
         for number in range(3):
             top = 2.28 + number * 1.25
             if role == "strategic_choice" and number == 2:
@@ -1322,40 +1453,40 @@ def _render_slide_tech(prs, blank_layout, style, slide_data, idx, total_slides):
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
     key_message = slide_data.get("key_message") or "从信号进入可执行决策"
-    _add_editorial_text(slide, "SYSTEM / STRATEGY", 0.7, 0.35, 3.0, 0.25, style, 9, style.ACCENT_LIGHT, True)
-    _add_editorial_text(slide, f"NODE {idx:02d}", 10.9, 0.35, 1.7, 0.25, style, 9, style.ACCENT_LIGHT, True, PP_ALIGN.RIGHT)
+    _add_editorial_text(slide, _cover_kicker(style), 0.7, 0.35, 3.0, 0.25, style, 9, style.ACCENT_LIGHT, True)
+    _add_editorial_text(slide, _chrome(style, f"节点 {idx:02d}", f"NODE {idx:02d}"), 10.9, 0.35, 1.7, 0.25, style, 9, style.ACCENT_LIGHT, True, PP_ALIGN.RIGHT)
     _add_editorial_text(slide, title, 0.7, 0.72, 8.75, 0.62, style, 28, style.TEXT_WHITE, True)
     _add_editorial_text(slide, key_message, 9.15, 0.74, 3.45, 0.54, style, 12, style.ACCENT_LIGHT, True, PP_ALIGN.RIGHT)
     header_line = slide.shapes.add_shape(1, Inches(0.7), Inches(1.42), Inches(11.9), Inches(0.04))
     header_line.fill.solid(); header_line.fill.fore_color.rgb = style.ACCENT_COLOR; header_line.line.fill.background()
 
     if role == "evidence_story":
-        _add_tech_panel(slide, "CORE / SIGNAL", items[0], 0.7, 1.78, 4.15, 4.9, style, True)
+        _add_tech_panel(slide, _chrome(style, "核心信号", "CORE / SIGNAL"), items[0], 0.7, 1.78, 4.15, 4.9, style, True)
         for number in range(1, 4):
-            _add_tech_panel(slide, f"DATA / 0{number}", _item_at(items, number), 5.2, 1.78 + (number - 1) * 1.62, 7.4, 1.28, style)
+            _add_tech_panel(slide, _chrome(style, f"数据 / 0{number}", f"DATA / 0{number}"), _item_at(items, number), 5.2, 1.78 + (number - 1) * 1.62, 7.4, 1.28, style)
     elif role == "strategic_choice":
-        _add_tech_panel(slide, "NODE A / OPTION", items[0], 0.7, 1.82, 5.45, 2.75, style)
-        _add_tech_panel(slide, "NODE B / RECOMMENDED", _item_at(items, 1), 7.15, 1.82, 5.45, 2.75, style, True)
+        _add_tech_panel(slide, _chrome(style, "节点 A / 方案", "NODE A / OPTION"), items[0], 0.7, 1.82, 5.45, 2.75, style)
+        _add_tech_panel(slide, _chrome(style, "节点 B / 推荐", "NODE B / RECOMMENDED"), _item_at(items, 1), 7.15, 1.82, 5.45, 2.75, style, True)
         connector = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(6.15), Inches(3.18), Inches(7.15), Inches(3.18))
         connector.line.color.rgb = style.ACCENT_COLOR; connector.line.width = Pt(2)
-        _add_tech_panel(slide, "LOCK / RECOMMENDATION", "；".join(items[2:]) or key_message, 2.35, 5.05, 8.65, 1.35, style, True)
+        _add_tech_panel(slide, _chrome(style, "锁定建议", "LOCK / RECOMMENDATION"), "；".join(items[2:]) or key_message, 2.35, 5.05, 8.65, 1.35, style, True)
     elif role == "execution_roadmap":
         for number in range(3):
             left = 0.7 + number * 4.18
             top = 2.0 + number * 0.42
-            _add_tech_panel(slide, f"PHASE / 0{number + 1}", _item_at(items, number), left, top, 3.65, 3.25, style, number == 2)
+            _add_tech_panel(slide, _chrome(style, f"阶段 / 0{number + 1}", f"PHASE / 0{number + 1}"), _item_at(items, number), left, top, 3.65, 3.25, style, number == 2)
             if number < 2:
                 connector = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(left + 3.65), Inches(top + 1.62), Inches(left + 4.18), Inches(top + 2.04))
                 connector.line.color.rgb = style.ACCENT_COLOR; connector.line.width = Pt(2)
         _add_editorial_text(slide, _item_at(items, 3), 1.2, 6.35, 10.9, 0.35, style, 11, style.ACCENT_LIGHT, True, PP_ALIGN.CENTER)
     elif role == "decision_close":
-        _add_tech_panel(slide, "PRIORITY / LOCKED", items[0], 0.7, 1.82, 7.0, 4.82, style, True)
+        _add_tech_panel(slide, _chrome(style, "优先锁定", "PRIORITY / LOCKED"), items[0], 0.7, 1.82, 7.0, 4.82, style, True)
         for number in range(1, 4):
-            _add_tech_panel(slide, f"EXEC / 0{number}", _item_at(items, number), 8.05, 1.82 + (number - 1) * 1.62, 4.55, 1.28, style)
+            _add_tech_panel(slide, _chrome(style, f"执行 / 0{number}", f"EXEC / 0{number}"), _item_at(items, number), 8.05, 1.82 + (number - 1) * 1.62, 4.55, 1.28, style)
     else:
         for number in range(3):
             left = 0.7 + number * 4.18
-            _add_tech_panel(slide, f"SIGNAL / 0{number + 1}", _item_at(items, number), left, 2.0 + (number % 2) * 0.7, 3.65, 3.45, style, number == 0)
+            _add_tech_panel(slide, _chrome(style, f"信号 / 0{number + 1}", f"SIGNAL / 0{number + 1}"), _item_at(items, number), left, 2.0 + (number % 2) * 0.7, 3.65, 3.45, style, number == 0)
         _add_editorial_text(slide, _item_at(items, 3), 2.0, 6.2, 9.35, 0.42, style, 11, style.ACCENT_LIGHT, True, PP_ALIGN.CENTER)
     return slide
 
@@ -1397,14 +1528,14 @@ def _render_slide_creative(prs, blank_layout, style, slide_data, idx, total_slid
         _add_editorial_text(slide, "事实先行，判断随后", 0.8, 1.42, 8.2, 0.6, style, 24, style.PRIMARY_COLOR, True)
         band_specs = [(0.8, 2.35, 11.8, style.PRIMARY_COLOR), (1.55, 3.65, 11.05, style.ACCENT_COLOR), (2.3, 4.95, 10.3, style.PRIMARY_DARK)]
         for number, (left, top, width, color) in enumerate(band_specs, 1):
-            _add_creative_block(slide, f"EVIDENCE / {number:02d}", items[number - 1] if len(items) >= number else items[-1], left, top, width, 1.05, style, color)
+            _add_creative_block(slide, _chrome(style, f"证据 / {number:02d}", f"EVIDENCE / {number:02d}"), items[number - 1] if len(items) >= number else items[-1], left, top, width, 1.05, style, color)
     elif role == "strategic_choice":
-        _add_creative_block(slide, "PATH / A", items[0], 0.7, 1.6, 5.45, 3.15, style, style.PRIMARY_COLOR)
-        _add_creative_block(slide, "PATH / B", items[1] if len(items) > 1 else items[0], 7.18, 1.6, 5.45, 3.15, style, style.ACCENT_COLOR)
+        _add_creative_block(slide, _chrome(style, "路径 A", "PATH / A"), items[0], 0.7, 1.6, 5.45, 3.15, style, style.PRIMARY_COLOR)
+        _add_creative_block(slide, _chrome(style, "路径 B", "PATH / B"), items[1] if len(items) > 1 else items[0], 7.18, 1.6, 5.45, 3.15, style, style.ACCENT_COLOR)
         versus = slide.shapes.add_shape(9, Inches(6.0), Inches(2.68), Inches(1.0), Inches(1.0))
         versus.fill.solid(); versus.fill.fore_color.rgb = style.BG_WHITE; versus.line.color.rgb = style.PRIMARY_COLOR
         _add_editorial_text(slide, "VS", 6.0, 2.96, 1.0, 0.3, style, 14, style.PRIMARY_COLOR, True, PP_ALIGN.CENTER)
-        _add_creative_block(slide, "CHOICE / 推荐", "；".join(items[2:]) or "优先验证价值更清晰的路径", 2.05, 5.18, 9.25, 1.12, style, style.PRIMARY_DARK)
+        _add_creative_block(slide, _chrome(style, "选择 / 推荐", "CHOICE / 推荐"), "；".join(items[2:]) or "优先验证价值更清晰的路径", 2.05, 5.18, 9.25, 1.12, style, style.PRIMARY_DARK)
     elif role == "execution_roadmap":
         stage_specs = [(0.75, 4.35, style.PRIMARY_COLOR), (4.88, 3.12, style.ACCENT_COLOR), (9.0, 1.9, style.PRIMARY_DARK)]
         connector_specs = [(4.3, 5.1, 4.88, 4.15), (8.43, 3.9, 9.0, 2.95)]
@@ -1424,19 +1555,19 @@ def _render_slide_creative(prs, blank_layout, style, slide_data, idx, total_slid
             )
         _add_editorial_text(slide, "从左下到右上，逐级放大确定性", 0.78, 1.55, 6.8, 0.45, style, 16, style.TEXT_GRAY)
     elif role == "decision_close":
-        _add_creative_block(slide, "PRIORITY / 01", items[0], 0.72, 1.55, 6.75, 4.75, style, style.PRIMARY_COLOR)
-        _add_creative_block(slide, "ACTION / 02", items[1] if len(items) > 1 else items[0], 7.85, 1.55, 4.78, 2.1, style, style.ACCENT_COLOR)
-        _add_creative_block(slide, "ACTION / 03", items[2] if len(items) > 2 else items[-1], 7.85, 4.18, 4.78, 2.12, style, style.PRIMARY_DARK)
+        _add_creative_block(slide, _chrome(style, "优先 / 01", "PRIORITY / 01"), items[0], 0.72, 1.55, 6.75, 4.75, style, style.PRIMARY_COLOR)
+        _add_creative_block(slide, _chrome(style, "行动 / 02", "ACTION / 02"), items[1] if len(items) > 1 else items[0], 7.85, 1.55, 4.78, 2.1, style, style.ACCENT_COLOR)
+        _add_creative_block(slide, _chrome(style, "行动 / 03", "ACTION / 03"), items[2] if len(items) > 2 else items[-1], 7.85, 4.18, 4.78, 2.12, style, style.PRIMARY_DARK)
         if len(items) > 3:
             _add_editorial_text(slide, items[3], 0.9, 5.7, 6.35, 0.42, style, 11, style.TEXT_WHITE, True)
     else:
-        _add_creative_block(slide, "SIGNAL / 01", items[0], 0.72, 1.55, 5.35, 4.75, style, style.PRIMARY_COLOR)
-        _add_creative_block(slide, "SIGNAL / 02", items[1] if len(items) > 1 else items[0], 6.42, 1.55, 6.2, 2.05, style, style.ACCENT_COLOR)
-        _add_creative_block(slide, "SIGNAL / 03", items[2] if len(items) > 2 else items[-1], 7.15, 4.02, 5.47, 2.28, style, style.PRIMARY_DARK)
+        _add_creative_block(slide, _chrome(style, "信号 / 01", "SIGNAL / 01"), items[0], 0.72, 1.55, 5.35, 4.75, style, style.PRIMARY_COLOR)
+        _add_creative_block(slide, _chrome(style, "信号 / 02", "SIGNAL / 02"), items[1] if len(items) > 1 else items[0], 6.42, 1.55, 6.2, 2.05, style, style.ACCENT_COLOR)
+        _add_creative_block(slide, _chrome(style, "信号 / 03", "SIGNAL / 03"), items[2] if len(items) > 2 else items[-1], 7.15, 4.02, 5.47, 2.28, style, style.PRIMARY_DARK)
 
     sources = slide_data.get("evidence_sources", [])
     if sources:
-        _add_editorial_text(slide, f"SOURCE / {sources[0].get('title', '公开资料')[:64]}", 0.72, 6.86, 10.2, 0.22, style, 8, style.TEXT_GRAY)
+        _add_editorial_text(slide, f"{_chrome(style, '来源', 'SOURCE')} / {sources[0].get('title', '公开资料')[:64]}", 0.72, 6.86, 10.2, 0.22, style, 8, style.TEXT_GRAY)
     return slide
 
 
@@ -1470,7 +1601,7 @@ def _render_slide_default(prs, blank_layout, style, slide_data, idx, total_slide
     if role == "evidence_story":
         panel = slide.shapes.add_shape(5, Inches(0.65), Inches(1.45), Inches(2.75), Inches(4.95))
         panel.fill.solid(); panel.fill.fore_color.rgb = style.PRIMARY_COLOR; panel.line.fill.background()
-        _add_editorial_text(slide, "EVIDENCE", 0.95, 1.85, 2.05, 0.3, style, 12, style.TEXT_WHITE, True)
+        _add_editorial_text(slide, _chrome(style, "证据", "EVIDENCE"), 0.95, 1.85, 2.05, 0.3, style, 12, style.TEXT_WHITE, True)
         _add_editorial_text(slide, "01", 0.9, 2.4, 2.1, 0.9, style, 46, style.TEXT_WHITE, True)
         _add_editorial_text(slide, "从事实出发\n把变化转成判断", 0.95, 3.75, 1.95, 0.9, style, 17, style.TEXT_WHITE, True)
         _add_editorial_text(slide, "可验证  ·  可复核  ·  可追溯", 0.95, 5.45, 2.05, 0.3, style, 10, style.TEXT_WHITE, True)
@@ -1704,6 +1835,9 @@ def _normalize_approved_outline(outline: Dict[str, Any]) -> Dict[str, Any]:
         _ensure_content_diversity(normalized_slides, outline.get("title", "PPT"))
     return {
         "title": outline.get("title", "PPT 标题"),
+        "subtitle": outline.get("subtitle", ""),
+        "tagline": outline.get("tagline", ""),
+        "summary": outline.get("summary", ""),
         "slides": normalized_slides,
         "preserve_content": preserve_content,
     }
@@ -1780,7 +1914,7 @@ def _content_slides_for_total(
         content_slides = content_slides[:max(0, total_slides - 1)]
     return content_slides
 
-async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], req: PPTGenerationRequest, update_progress=None):
+async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], req: PPTGenerationRequest, update_progress=None, user_id=None):
     """生成 PPTX 文件 (增强版：包含视觉决策和模板支持)"""
     outline = _normalize_approved_outline(outline)
     outline["slides"] = _content_slides_for_total(
@@ -1805,6 +1939,8 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
     except KeyError:
         tokens = None
         logger.warning("设计令牌模板不存在，沿用 PPTStyle: %s", req.template)
+    language = getattr(req, "language", None)
+    style.language = language.strip() if isinstance(language, str) and language.strip() else "zh-CN"
     total_slides = 1 + len(outline.get('slides', []))
     blank_layout = prs.slide_layouts[6]
 
@@ -1826,31 +1962,31 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
             accent.fill.solid(); accent.fill.fore_color.rgb = style.ACCENT_LIGHT; accent.line.fill.background()
 
     if style.template_name == "education":
-        _add_editorial_text(slide, "LEARNING LAB / 2026", 0.78, 0.68, 3.8, 0.32, style, 10, style.PRIMARY_COLOR, True)
+        _add_editorial_text(slide, f"{_cover_kicker(style)}  /  {datetime.now().year}", 0.78, 0.68, 3.8, 0.32, style, 10, style.PRIMARY_COLOR, True)
         _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 0.78, 1.55, 9.7, 1.62, style, 42, style.TEXT_DARK, True)
-        _add_editorial_text(slide, "理解关键判断 · 完成一次练习 · 带走下一步行动", 0.82, 3.5, 7.8, 0.42, style, 14, style.PRIMARY_DARK)
+        _add_editorial_text(slide, _cover_tagline(outline), 0.82, 3.5, 7.8, 0.42, style, 14, style.PRIMARY_DARK)
         for number, label in enumerate(("理解", "练习", "应用"), 1):
             left = 0.78 + (number - 1) * 4.05
-            _add_learning_card(slide, f"STEP 0{number}", label, left, 5.05, 3.55, 1.35, style, number == 3)
+            _add_learning_card(slide, _chrome(style, f"步骤 0{number}", f"STEP 0{number}"), label, left, 5.05, 3.55, 1.35, style, number == 3)
         _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 10.75, 0.68, 1.75, 0.28, style, 9, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
     elif style.template_name == "elegant":
-        _add_editorial_text(slide, "PRIVATE EDITION / 2026", 0.8, 0.7, 3.8, 0.3, style, 9, style.PRIMARY_COLOR, True)
+        _add_editorial_text(slide, f"{_cover_kicker(style)}  /  {datetime.now().year}", 0.8, 0.7, 3.8, 0.3, style, 9, style.PRIMARY_COLOR, True)
         cover_rule = slide.shapes.add_shape(1, Inches(0.8), Inches(1.28), Inches(11.75), Inches(0.025))
         cover_rule.fill.solid(); cover_rule.fill.fore_color.rgb = style.PRIMARY_COLOR; cover_rule.line.fill.background()
         _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 0.8, 1.85, 9.5, 1.62, style, 41, style.TEXT_DARK, True)
-        _add_editorial_text(slide, "INSIGHT  /  CHOICE  /  COMMITMENT", 0.83, 4.08, 6.5, 0.34, style, 11, style.PRIMARY_DARK, True)
+        _add_editorial_text(slide, _cover_tagline(outline), 0.83, 4.08, 6.5, 0.34, style, 11, style.PRIMARY_DARK, True)
         _add_editorial_text(slide, "I", 10.75, 4.6, 1.55, 1.25, style, 66, style.PRIMARY_COLOR, True, PP_ALIGN.RIGHT)
         bottom_rule = slide.shapes.add_shape(1, Inches(0.8), Inches(6.2), Inches(11.75), Inches(0.025))
         bottom_rule.fill.solid(); bottom_rule.fill.fore_color.rgb = style.PRIMARY_LIGHT; bottom_rule.line.fill.background()
-        _add_editorial_text(slide, "EXECUTIVE MEMORANDUM", 0.8, 6.42, 3.7, 0.28, style, 9, style.TEXT_GRAY, True)
+        _add_editorial_text(slide, _chrome(style, "高层备忘录", "EXECUTIVE MEMORANDUM"), 0.8, 6.42, 3.7, 0.28, style, 9, style.TEXT_GRAY, True)
         _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 10.75, 6.42, 1.8, 0.28, style, 9, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
     elif style.template_name == "medical":
-        _add_editorial_text(slide, "CLINICAL BRIEF / 2026", 0.78, 0.68, 3.8, 0.32, style, 10, style.PRIMARY_COLOR, True)
+        _add_editorial_text(slide, f"{_cover_kicker(style)}  /  {datetime.now().year}", 0.78, 0.68, 3.8, 0.32, style, 10, style.PRIMARY_COLOR, True)
         _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 0.78, 1.55, 9.25, 1.5, style, 40, style.TEXT_DARK, True)
-        _add_editorial_text(slide, "证据驱动判断 · 路径化推进照护", 0.82, 3.55, 7.8, 0.42, style, 14, style.PRIMARY_DARK)
+        _add_editorial_text(slide, _cover_tagline(outline), 0.82, 3.55, 7.8, 0.42, style, 14, style.PRIMARY_DARK)
         cover_rule = slide.shapes.add_shape(1, Inches(0.78), Inches(4.55), Inches(11.78), Inches(0.035))
         cover_rule.fill.solid(); cover_rule.fill.fore_color.rgb = style.PRIMARY_LIGHT; cover_rule.line.fill.background()
-        for number, label in enumerate(("SIGNAL", "PATHWAY", "ACTION"), 1):
+        for number, label in enumerate((_chrome(style, "信号", "SIGNAL"), _chrome(style, "路径", "PATHWAY"), _chrome(style, "行动", "ACTION")), 1):
             left = 0.78 + (number - 1) * 4.05
             _add_clinical_card(slide, f"0{number}", label, left, 5.18, 3.55, 1.28, style, number == 1)
         _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 10.75, 0.68, 1.75, 0.28, style, 9, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
@@ -1859,54 +1995,55 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
         margin.fill.solid(); margin.fill.fore_color.rgb = style.PRIMARY_COLOR; margin.line.fill.background()
         paper = slide.shapes.add_shape(1, Inches(1.18), Inches(0.68), Inches(11.42), Inches(6.15))
         paper.fill.solid(); paper.fill.fore_color.rgb = style.TEXT_WHITE; paper.line.color.rgb = style.PRIMARY_LIGHT
-        _add_editorial_text(slide, "RESEARCH BRIEF / 2026", 1.65, 1.15, 4.2, 0.32, style, 10, style.PRIMARY_COLOR, True)
+        _add_editorial_text(slide, f"{_cover_kicker(style)}  /  {datetime.now().year}", 1.65, 1.15, 4.2, 0.32, style, 10, style.PRIMARY_COLOR, True)
         _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 1.65, 2.02, 9.75, 1.7, style, 39, style.PRIMARY_DARK, True)
-        _add_editorial_text(slide, "证据 · 方法 · 结论", 1.68, 4.2, 5.3, 0.42, style, 14, style.TEXT_GRAY)
+        _add_editorial_text(slide, _cover_tagline(outline), 1.68, 4.2, 5.3, 0.42, style, 14, style.TEXT_GRAY)
         cover_rule = slide.shapes.add_shape(1, Inches(1.65), Inches(5.35), Inches(9.95), Inches(0.025))
         cover_rule.fill.solid(); cover_rule.fill.fore_color.rgb = style.PRIMARY_LIGHT; cover_rule.line.fill.background()
-        _add_editorial_text(slide, "VOLUME 01", 1.65, 5.62, 2.0, 0.28, style, 9, style.PRIMARY_COLOR, True)
+        _add_editorial_text(slide, _chrome(style, "卷一", "VOLUME 01"), 1.65, 5.62, 2.0, 0.28, style, 9, style.PRIMARY_COLOR, True)
         _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 9.8, 5.62, 1.8, 0.28, style, 9, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
     elif style.template_name == "creative":
         spine = slide.shapes.add_shape(1, Inches(0.75), Inches(0.78), Inches(0.12), Inches(5.95))
         spine.fill.solid(); spine.fill.fore_color.rgb = style.ACCENT_COLOR; spine.line.fill.background()
-        _add_editorial_text(slide, "STRATEGY / 2026", 1.3, 1.25, 4.0, 0.35, style, 12, style.ACCENT_COLOR, True)
+        _add_editorial_text(slide, f"{_cover_kicker(style)}  /  {datetime.now().year}", 1.3, 1.25, 4.0, 0.35, style, 12, style.ACCENT_COLOR, True)
         _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 1.3, 2.05, 8.2, 1.65, style, 41, style.PRIMARY_COLOR, True)
-        _add_editorial_text(slide, "MAKE THE NEXT MOVE VISIBLE", 1.32, 4.2, 5.7, 0.38, style, 13, style.TEXT_GRAY, True)
-        _add_editorial_text(slide, "IDEA", 9.15, 0.65, 3.25, 1.2, style, 48, style.ACCENT_LIGHT, True, PP_ALIGN.RIGHT)
+        _add_editorial_text(slide, _cover_tagline(outline), 1.32, 4.2, 5.7, 0.38, style, 13, style.TEXT_GRAY, True)
+        _add_editorial_text(slide, _chrome(style, "想法", "IDEA"), 9.15, 0.65, 3.25, 1.2, style, 48, style.ACCENT_LIGHT, True, PP_ALIGN.RIGHT)
         footer_panel = slide.shapes.add_shape(1, Inches(8.1), Inches(4.75), Inches(5.233), Inches(2.75))
         footer_panel.fill.solid(); footer_panel.fill.fore_color.rgb = style.PRIMARY_COLOR; footer_panel.line.fill.background()
-        _add_editorial_text(slide, "01  洞察\n02  选择\n03  行动", 8.65, 5.12, 3.0, 1.35, style, 17, style.TEXT_WHITE, True)
+        _add_editorial_text(slide, _chrome(style, "01  洞察\n02  选择\n03  行动", "01  INSIGHT\n02  CHOICE\n03  ACTION"), 8.65, 5.12, 3.0, 1.35, style, 17, style.TEXT_WHITE, True)
         _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 11.15, 6.6, 1.45, 0.3, style, 10, style.ACCENT_LIGHT, True, PP_ALIGN.RIGHT)
     elif style.template_name == "modern":
         if cover_variant == 0:
-            _add_editorial_text(slide, "STRATEGY / BRIEF", 0.78, 0.72, 3.5, 0.35, style, 11, style.PRIMARY_COLOR, True)
+            _add_editorial_text(slide, _cover_kicker(style), 0.78, 0.72, 3.5, 0.35, style, 11, style.PRIMARY_COLOR, True)
             _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 0.78, 1.55, 9.4, 1.55, style, 42, style.TEXT_DARK, True)
-            _add_editorial_text(slide, "从洞察到行动，建立可验证的增长路径", 0.82, 3.48, 7.2, 0.45, style, 15, style.TEXT_GRAY)
+            _add_editorial_text(slide, _cover_tagline(outline), 0.82, 3.48, 7.2, 0.45, style, 15, style.TEXT_GRAY)
             for number, label in enumerate(("洞察", "选择", "行动"), 1):
                 left = 0.78 + (number - 1) * 4.15
                 _add_modern_tile(slide, f"0{number}", label, left, 5.15, 3.65, 1.25, style, number == 1)
         elif cover_variant == 1:
             panel = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(4.25), prs.slide_height)
             panel.fill.solid(); panel.fill.fore_color.rgb = style.PRIMARY_COLOR; panel.line.fill.background()
-            _add_editorial_text(slide, "FIELD NOTE / 2026", 0.78, 0.82, 2.8, 0.32, style, 10, style.TEXT_WHITE, True)
+            _add_editorial_text(slide, f"{_cover_kicker(style)}  /  {datetime.now().year}", 0.78, 0.82, 2.8, 0.32, style, 10, style.TEXT_WHITE, True)
             _add_editorial_text(slide, "01", 0.78, 5.62, 1.2, 0.7, style, 34, style.ACCENT_LIGHT, True)
-            _add_editorial_text(slide, "INSIGHT", 0.82, 6.38, 2.0, 0.28, style, 10, style.TEXT_WHITE, True)
+            _add_editorial_text(slide, _chrome(style, "洞察", "INSIGHT"), 0.82, 6.38, 2.0, 0.28, style, 10, style.TEXT_WHITE, True)
             _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 5.15, 1.72, 7.3, 1.9, style, 42, style.TEXT_DARK, True)
-            _add_editorial_text(slide, "从洞察到行动，建立可验证的增长路径", 5.18, 4.18, 6.5, 0.45, style, 15, style.TEXT_GRAY)
+            _add_editorial_text(slide, _cover_tagline(outline), 5.18, 4.18, 6.5, 0.45, style, 15, style.TEXT_GRAY)
             _add_minimal_rule(slide, 5.18, 5.2, 6.8, style)
         elif cover_variant == 2:
             band = slide.shapes.add_shape(1, Inches(0), Inches(0), prs.slide_width, Inches(1.05))
             band.fill.solid(); band.fill.fore_color.rgb = style.PRIMARY_COLOR; band.line.fill.background()
-            _add_editorial_text(slide, "STRATEGY / BRIEF", 0.78, 0.38, 3.5, 0.3, style, 10, style.TEXT_WHITE, True)
+            _add_editorial_text(slide, _cover_kicker(style), 0.78, 0.38, 3.5, 0.3, style, 10, style.TEXT_WHITE, True)
             _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 1.05, 2.05, 11.2, 1.65, style, 44, style.TEXT_DARK, True, PP_ALIGN.CENTER)
-            _add_editorial_text(slide, "INSIGHT   /   CHOICE   /   ACTION", 2.7, 4.35, 7.95, 0.38, style, 13, style.PRIMARY_COLOR, True, PP_ALIGN.CENTER)
+            _add_editorial_text(slide, _cover_tagline(outline), 1.4, 4.05, 10.5, 0.55, style, 16, style.TEXT_GRAY, False, PP_ALIGN.CENTER)
+            _add_editorial_text(slide, _chrome(style, "洞察  /  选择  /  行动", "INSIGHT   /   CHOICE   /   ACTION"), 2.7, 4.75, 7.95, 0.38, style, 13, style.PRIMARY_COLOR, True, PP_ALIGN.CENTER)
             _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 10.8, 6.55, 1.7, 0.3, style, 10, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
         else:
             hero = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(8.6), prs.slide_height)
             hero.fill.solid(); hero.fill.fore_color.rgb = style.PRIMARY_COLOR; hero.line.fill.background()
-            _add_editorial_text(slide, "STRATEGY / BRIEF", 0.82, 0.82, 3.8, 0.3, style, 11, style.TEXT_WHITE, True)
+            _add_editorial_text(slide, _cover_kicker(style), 0.82, 0.82, 3.8, 0.3, style, 11, style.TEXT_WHITE, True)
             _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 0.82, 2.0, 7.0, 1.9, style, 40, style.TEXT_WHITE, True)
-            _add_editorial_text(slide, "从洞察到行动，建立可验证的增长路径", 0.85, 5.55, 6.4, 0.42, style, 14, style.TEXT_WHITE)
+            _add_editorial_text(slide, _cover_tagline(outline), 0.85, 5.55, 6.4, 0.42, style, 14, style.TEXT_WHITE)
             _add_editorial_text(slide, "01", 9.65, 1.7, 2.0, 0.75, style, 38, style.PRIMARY_COLOR, True)
             _add_editorial_text(slide, "洞察", 9.65, 2.55, 2.0, 0.3, style, 14, style.TEXT_GRAY, True)
             _add_editorial_text(slide, "02", 9.65, 3.45, 2.0, 0.75, style, 38, style.PRIMARY_COLOR, True)
@@ -1914,31 +2051,32 @@ async def generate_pptx_file_enhanced(filepath: Path, outline: Dict[str, Any], r
             _add_editorial_text(slide, "03", 9.65, 5.2, 2.0, 0.75, style, 38, style.PRIMARY_COLOR, True)
             _add_editorial_text(slide, "行动", 9.65, 6.05, 2.0, 0.3, style, 14, style.TEXT_GRAY, True)
     elif style.template_name == "minimal":
-        _add_editorial_text(slide, "PRESENTATION", 0.72, 0.68, 2.2, 0.3, style, 10, style.TEXT_GRAY, True)
+        _add_editorial_text(slide, _cover_kicker(style), 0.72, 0.68, 2.2, 0.3, style, 10, style.TEXT_GRAY, True)
         _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 10.85, 0.68, 1.75, 0.3, style, 10, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
         _add_minimal_rule(slide, 0.72, 1.15, 11.88, style, 2)
         _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 0.72, 2.0, 10.45, 1.8, style, 44, style.TEXT_DARK, True)
         _add_editorial_text(slide, "01", 10.75, 4.62, 1.85, 1.0, style, 52, style.TEXT_DARK, True, PP_ALIGN.RIGHT)
         _add_minimal_rule(slide, 0.72, 6.1, 3.25, style)
-        _add_editorial_text(slide, "INSIGHT / CHOICE / ACTION", 0.72, 6.3, 4.5, 0.3, style, 10, style.TEXT_GRAY, True)
+        _add_editorial_text(slide, _cover_tagline(outline), 0.72, 6.3, 8.5, 0.3, style, 12, style.TEXT_GRAY, True)
     elif style.template_name == "tech":
-        _add_editorial_text(slide, "SYSTEM / STRATEGY DECK", 0.78, 0.62, 4.2, 0.32, style, 10, style.ACCENT_LIGHT, True)
-        _add_editorial_text(slide, "ONLINE", 10.7, 0.62, 1.8, 0.32, style, 10, style.ACCENT_LIGHT, True, PP_ALIGN.RIGHT)
+        _add_editorial_text(slide, _cover_kicker(style), 0.78, 0.62, 4.2, 0.32, style, 10, style.ACCENT_LIGHT, True)
+        _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 10.7, 0.62, 1.8, 0.32, style, 10, style.ACCENT_LIGHT, True, PP_ALIGN.RIGHT)
         top_line = slide.shapes.add_shape(1, Inches(0.78), Inches(1.12), Inches(11.72), Inches(0.04))
         top_line.fill.solid(); top_line.fill.fore_color.rgb = style.ACCENT_COLOR; top_line.line.fill.background()
         _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 0.78, 1.72, 10.2, 1.55, style, 42, style.TEXT_WHITE, True)
-        _add_editorial_text(slide, "将复杂信号转化为可执行决策", 0.82, 3.65, 6.3, 0.42, style, 14, style.ACCENT_LIGHT)
-        for number, label in enumerate(("INSIGHT", "CHOICE", "ACTION"), 1):
-            _add_tech_panel(slide, f"MODULE / 0{number}", label, 0.78 + (number - 1) * 4.05, 5.05, 3.55, 1.18, style, number == 3)
+        _add_editorial_text(slide, _cover_tagline(outline), 0.82, 3.65, 6.3, 0.42, style, 14, style.ACCENT_LIGHT)
+        for number, label in enumerate((_chrome(style, "洞察", "INSIGHT"), _chrome(style, "选择", "CHOICE"), _chrome(style, "行动", "ACTION")), 1):
+            _add_tech_panel(slide, _chrome(style, f"模块 / 0{number}", f"MODULE / 0{number}"), label, 0.78 + (number - 1) * 4.05, 5.05, 3.55, 1.18, style, number == 3)
         _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 10.75, 6.72, 1.75, 0.28, style, 9, style.ACCENT_LIGHT, False, PP_ALIGN.RIGHT)
     else:
         hero = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(9.15), prs.slide_height)
         hero.fill.solid(); hero.fill.fore_color.rgb = style.PRIMARY_COLOR; hero.line.fill.background()
         accent = slide.shapes.add_shape(1, Inches(0.85), Inches(1.15), Inches(1.0), Inches(0.08))
         accent.fill.solid(); accent.fill.fore_color.rgb = style.ACCENT_COLOR; accent.line.fill.background()
-        _add_editorial_text(slide, "STRATEGY BRIEF", 0.85, 1.4, 4.0, 0.35, style, 12, style.TEXT_WHITE, True)
+        _add_editorial_text(slide, _cover_kicker(style), 0.85, 1.4, 4.0, 0.35, style, 12, style.TEXT_WHITE, True)
         _add_editorial_text(slide, outline.get('title', 'PPT 标题'), 0.85, 2.15, 7.55, 1.55, style, 40, style.TEXT_WHITE, True)
-        _add_editorial_text(slide, f"商业决策简报  ·  {datetime.now().strftime('%Y.%m.%d')}", 0.88, 5.65, 6.5, 0.4, style, 14, style.TEXT_WHITE)
+        _add_editorial_text(slide, _cover_tagline(outline), 0.88, 5.15, 6.5, 0.45, style, 14, style.TEXT_WHITE)
+        _add_editorial_text(slide, datetime.now().strftime('%Y.%m.%d'), 0.88, 5.75, 6.5, 0.3, style, 12, style.TEXT_WHITE)
         _add_editorial_text(slide, "01", 10.1, 1.35, 1.8, 0.8, style, 34, style.PRIMARY_COLOR, True)
         _add_editorial_text(slide, "洞察", 10.1, 2.1, 1.8, 0.35, style, 14, style.TEXT_GRAY, True)
         _add_editorial_text(slide, "02", 10.1, 3.15, 1.8, 0.8, style, 34, style.PRIMARY_COLOR, True)
@@ -3028,15 +3166,17 @@ async def list_ppt_history(
                 continue
 
             pptx_path = output_dir / f"{ppt_id}.pptx"
-            first_title = "未命名"
-            if slides_list and isinstance(slides_list, list) and len(slides_list) > 0:
-                first_title = slides_list[0].get("title", "未命名") if isinstance(slides_list[0], dict) else "未命名"
-
+            has_file = pptx_path.exists()
+            if isinstance(slides_list, list) and slides_list:
+                first = slides_list[0] if isinstance(slides_list[0], dict) else {}
+                record_title = str(first.get("title") or record_title).strip() or "未命名"
             records.append({
                 "task_id": ppt_id,
                 "title": record_title,
-                "slide_count": len(slides_list),
-                "has_file": pptx_path.exists(),
+                "topic": record_title,
+                "slide_count": len(slides_list) if isinstance(slides_list, list) else 0,
+                "has_file": has_file,
+                "status": "completed" if has_file else "failed",
                 "created_at": datetime.fromtimestamp(json_path.stat().st_mtime).isoformat(),
             })
         except Exception:
@@ -3045,7 +3185,14 @@ async def list_ppt_history(
     total = len(records)
     start = (page - 1) * page_size
     end = start + page_size
-    return {"records": records[start:end], "total": total}
+    total_pages = (total + page_size - 1) // page_size if page_size else 1
+    return {
+        "records": records[start:end],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
 
 
 @router.delete("/pptx/history/{task_id}")
@@ -3074,8 +3221,9 @@ async def delete_ppt_history(
         pass  # 旧格式或读取失败，允许删除
 
     json_path.unlink(missing_ok=True)
-    for ext in ["pptx", "html", "md"]:
+    for ext in ["pptx", "html", "md", "pdf"]:
         (output_dir / f"{task_id}.{ext}").unlink(missing_ok=True)
+    (PPT_OWNER_DIR / f"{task_id}.json").unlink(missing_ok=True)
 
     return {"success": True, "message": f"已删除 {task_id}"}
 

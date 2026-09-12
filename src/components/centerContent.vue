@@ -18,47 +18,30 @@
     <div v-else-if="hasMessages" class="chat-interface">
       <!-- 对话头部 -->
       <header class="conversation-header" role="banner">
-        <div class="header-left">
-          <div class="conversation-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              <circle cx="8" cy="10" r="1" fill="currentColor" />
-              <circle cx="12" cy="10" r="1" fill="currentColor" />
-              <circle cx="16" cy="10" r="1" fill="currentColor" />
-            </svg>
-          </div>
-          <div class="conversation-info">
-            <h2 id="conversation-title" class="conversation-title">
-              {{
-                selectedHistory?.title || truncateTitle(conversationHistory[0]?.prompt) || '新对话'
-              }}
-            </h2>
-            <span class="message-count" aria-label="消息数量">{{ conversationHistory.length }} 条消息</span>
-          </div>
+        <div class="conversation-info">
+          <h2 id="conversation-title" class="conversation-title">
+            {{
+              selectedHistory?.title || truncateTitle(conversationHistory[0]?.prompt) || '新对话'
+            }}
+          </h2>
+          <p class="conversation-kicker">
+            <span class="message-count" aria-label="消息数量">{{ conversationHistory.length }} 条</span>
+          </p>
         </div>
-        <div class="header-actions" role="toolbar" aria-label="对话操作">
-          <button class="action-btn" aria-label="导出对话" title="导出对话" @click="exportConversation">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
+        <details ref="headerMenuEl" class="header-menu">
+          <summary class="header-menu-btn" aria-label="对话操作">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <circle cx="5" cy="12" r="1.6" />
+              <circle cx="12" cy="12" r="1.6" />
+              <circle cx="19" cy="12" r="1.6" />
             </svg>
-          </button>
-          <button class="action-btn" aria-label="清空对话" title="清空对话" @click="clearConversation">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <polyline points="3 6 5 6 21 6" />
-              <path
-                d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-              />
-            </svg>
-          </button>
-          <button class="action-btn action-btn-close" aria-label="关闭对话" title="关闭" @click="closeConversation">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
+          </summary>
+          <div class="header-menu-list" role="toolbar" aria-label="对话操作">
+            <button type="button" class="header-menu-item" aria-label="导出对话" @click="runHeaderAction(exportConversation)">导出</button>
+            <button type="button" class="header-menu-item" aria-label="清空对话" @click="runHeaderAction(clearConversation)">清空</button>
+            <button type="button" class="header-menu-item danger" aria-label="关闭对话" @click="runHeaderAction(closeConversation)">关闭</button>
+          </div>
+        </details>
       </header>
 
       <!-- 消息列表 -->
@@ -137,8 +120,7 @@
                 stroke="currentColor"
                 stroke-width="2"
               >
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <path d="M9 9l6 6M15 9l-6 6" />
+                <path d="M12 3l2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4L12 3z" />
               </svg>
               <div v-else class="ai-typing" role="status" aria-label="AI 正在输入">
                 <span class="typing-dot"></span>
@@ -148,7 +130,7 @@
             </div>
             <div class="message-body">
               <div class="message-header">
-                <span class="sender-name sender-ai">AI 助手</span>
+                <span class="sender-name sender-ai">CodingMatrix</span>
                 <time class="message-time" :datetime="message.createdAt ? new Date(message.createdAt).toISOString() : ''">{{ formatMessageTime(message.createdAt) }}</time>
               </div>
 
@@ -171,9 +153,11 @@
 
               <!-- 思考过程 -->
               <MessageThinking :message="message" :render-markdown="renderMarkdown" />
-              <div v-if="message.model" class="chat-model">回答模型：{{ message.model }}</div>
-              <div v-if="message.usage" class="chat-usage" aria-label="模型用量">
-                Token 用量：{{ message.usage.total_tokens ?? ((message.usage.prompt_tokens || 0) + (message.usage.completion_tokens || 0)) }}
+              <div v-if="message.model || message.usage" class="message-meta">
+                <span v-if="message.model" class="chat-model meta-chip">{{ message.model }}</span>
+                <span v-if="message.usage" class="chat-usage meta-chip" aria-label="模型用量">
+                  {{ message.usage.total_tokens ?? ((message.usage.prompt_tokens || 0) + (message.usage.completion_tokens || 0)) }} tokens
+                </span>
               </div>
               <details v-if="message.toolCalls?.length" class="chat-tool-calls">
                 <summary>工具调用 <span>{{ message.toolCalls.length }}</span></summary>
@@ -243,12 +227,7 @@
                 role="status"
                 aria-label="AI 正在思考中"
               >
-                <div class="streaming-animation" aria-hidden="true">
-                  <div class="streaming-circle"></div>
-                  <div class="streaming-circle"></div>
-                  <div class="streaming-circle"></div>
-                </div>
-                <span class="streaming-label">AI 正在思考中...</span>
+                <span class="streaming-label">正在写</span>
               </div>
             </div>
           </div>
@@ -297,6 +276,7 @@
     getMessageOffset,
     getTotalMessageHeight
   } from '@/utils/messageVirtualizer'
+  import { cloneForIndexedDb } from '@/utils/cloneForIndexedDb'
 
   hljs.registerLanguage('python', python)
   hljs.registerLanguage('javascript', javascript)
@@ -348,6 +328,7 @@
 
   const selectedHistory = ref(null)
   const messagesContainer = ref(null)
+  const headerMenuEl = ref(null)
   const isLoadingMore = ref(false)
   const isHistoryLoaded = ref(false)
   const isUserScrolling = ref(false)
@@ -559,7 +540,7 @@
 
       const data = {
         conversationId: String(conversationId),
-        messages: messages,
+        messages: cloneForIndexedDb(messages),
         lastUpdated: Date.now()
       }
 
@@ -860,6 +841,11 @@
     emit('close')
   }
 
+  const runHeaderAction = action => {
+    action()
+    if (headerMenuEl.value) headerMenuEl.value.open = false
+  }
+
   // 清空对话
   const clearConversation = async () => {
     try {
@@ -1097,9 +1083,30 @@
   }
 
   .chat-model {
-    margin: 4px 0 8px;
+    margin: 0;
+    color: inherit;
+    font-size: inherit;
+    overflow-wrap: anywhere;
+  }
+
+  .message-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .meta-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 3px 8px;
+    border: 1px solid var(--control-border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
     color: var(--text-secondary);
-    font-size: 12px;
+    font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.02em;
     overflow-wrap: anywhere;
   }
 
@@ -1108,18 +1115,20 @@
     align-items: center;
     gap: 8px;
     width: fit-content;
-    margin: 8px 0;
-    padding: 6px 10px;
-    border-radius: 8px;
-    color: var(--color-primary-600);
-    background: var(--bg-secondary);
-    font-size: 12px;
+    margin: 2px 0 8px;
+    padding: 0;
+    color: var(--accent-primary);
+    background: transparent;
+    font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
   }
 
   .chat-stage::before {
     content: '';
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
     flex-shrink: 0;
     border-radius: 50%;
     background: currentColor;
@@ -1212,6 +1221,12 @@
     box-shadow: 0 0 0 4px var(--primary-100, #dbeafe);
   }
 
+  .header-menu-btn:focus-visible,
+  .header-menu-item:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+  }
+
   .message-action-btn:focus-visible {
     outline: 2px solid var(--primary-500, #3b82f6);
     outline-offset: 1px;
@@ -1295,47 +1310,34 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 24px;
-    background: var(--bg-primary, #fff);
-    border-bottom: 1px solid var(--border-color, #e2e8f0);
+    padding: 10px 28px 8px;
+    background: transparent;
+    border-bottom: 1px solid color-mix(in srgb, var(--control-border) 80%, transparent);
     flex-shrink: 0;
     z-index: 100;
   }
 
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    min-width: 0;
-  }
-
-  .conversation-icon {
-    width: 36px;
-    height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-secondary, #f1f5f9);
-    border: 1px solid var(--border-color, #e2e8f0);
-    border-radius: 8px;
-    color: var(--primary, #14b8a6);
-  }
-
-  .conversation-icon svg {
-    width: 24px;
-    height: 24px;
-  }
-
   .conversation-info {
     display: flex;
-    flex-direction: column;
-    gap: 3px;
+    align-items: baseline;
+    gap: 12px;
     min-width: 0;
+    flex: 1;
+  }
+
+  .conversation-kicker {
+    margin: 0;
+    min-width: 0;
+    flex-shrink: 0;
   }
 
   .conversation-title {
-    font-size: 15px;
-    font-weight: 600;
+    min-width: 0;
+    font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", "STSong", Georgia, serif;
+    font-size: clamp(18px, 2.2vw, 26px);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
     color: var(--text-primary, #1e293b);
     overflow: hidden;
     white-space: nowrap;
@@ -1343,49 +1345,85 @@
   }
 
   .message-count {
-    font-size: 12px;
-    color: var(--slate-500);
-    font-weight: 500;
+    color: var(--text-tertiary);
+    font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
   }
 
-  .header-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .header-menu {
     flex-shrink: 0;
+    position: relative;
   }
 
-  .action-btn {
-    width: 34px;
-    height: 34px;
+  .header-menu-btn {
+    list-style: none;
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
     background: transparent;
-    border: 1px solid var(--border-color, #e2e8f0);
-    border-radius: 8px;
-    color: var(--text-secondary, #64748b);
+    border: 0;
+    border-radius: 999px;
+    color: var(--text-secondary);
     cursor: pointer;
-    transition: all 0.15s;
   }
 
-  .action-btn:hover {
-    background: var(--bg-secondary, #f1f5f9);
-    color: var(--text-primary, #1e293b);
-    border-color: var(--border-color, #e2e8f0);
+  .header-menu-btn::-webkit-details-marker {
+    display: none;
   }
 
-  .action-btn svg {
-    width: 20px;
-    height: 20px;
-    position: relative;
-    z-index: 1;
+  .header-menu-btn::marker {
+    content: none;
   }
 
-  .action-btn-close:hover {
-    background: var(--danger-bg);
-    color: var(--danger);
-    border-color: #fecaca;
+  .header-menu-btn:hover,
+  .header-menu[open] .header-menu-btn {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+  }
+
+  .header-menu-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .header-menu-list {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 20;
+    display: grid;
+    min-width: 132px;
+    padding: 6px;
+    border: 1px solid var(--control-border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+    box-shadow: 0 16px 40px color-mix(in srgb, var(--text-primary) 10%, transparent);
+    backdrop-filter: blur(12px);
+  }
+
+  .header-menu-item {
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .header-menu-item:hover {
+    background: var(--bg-primary);
+  }
+
+  .header-menu-item.danger:hover {
+    background: var(--danger-bg, color-mix(in srgb, #dc2626 12%, var(--bg-secondary)));
+    color: var(--danger, #dc2626);
   }
 
   /* ========================================
@@ -1393,14 +1431,16 @@
    ======================================== */
   .messages-container {
     flex: 1;
-    padding: 28px max(24px, calc((100% - 900px) / 2));
+    padding: 28px max(24px, calc((100% - 720px) / 2)) 64px;
     min-height: 0;
     scrollbar-gutter: stable;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 0;
-    background: transparent;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 6%, transparent), transparent 160px),
+      var(--bg-primary);
   }
 
   .virtual-spacer {
@@ -1434,11 +1474,11 @@
     justify-content: center;
     gap: 12px;
     padding: 16px;
-    background: linear-gradient(180deg, rgba(139, 92, 246, 0.08) 0%, transparent 100%);
-    border-radius: var(--radius-lg);
-    color: var(--slate-600);
-    font-size: 13px;
-    font-weight: 600;
+    background: transparent;
+    color: var(--text-tertiary);
+    font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
     animation: fadeIn 0.3s ease;
   }
 
@@ -1466,7 +1506,7 @@
 
   .message {
     display: flex;
-    gap: 10px;
+    gap: 12px;
     position: relative;
   }
 
@@ -1503,15 +1543,22 @@
     }
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .message-wrapper,
+    .message.highlight,
+    .typing-dot,
+    .streaming-circle {
+      animation: none;
+    }
+  }
+
   .message-user {
-    align-self: flex-end;
     flex-direction: row-reverse;
-    max-width: 75%;
+    justify-content: flex-start;
   }
 
   .message-ai {
-    align-self: flex-start;
-    max-width: 92%;
+    align-items: flex-start;
   }
 
   .message.streaming {
@@ -1530,45 +1577,39 @@
 
   /* 头像 */
   .message-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
+    display: none;
   }
 
   .avatar-user {
-    background: var(--bg-secondary, #f1f5f9);
-    border: 1px solid var(--border-color, #e2e8f0);
-    color: var(--text-secondary, #64748b);
+    background: color-mix(in srgb, #c45c26 16%, var(--bg-secondary));
+    border: 1px solid color-mix(in srgb, #c45c26 35%, var(--control-border));
+    color: #c45c26;
   }
 
   .avatar-ai {
-    background: var(--primary, #14b8a6);
-    color: white;
+    background: var(--accent-primary);
+    color: #fff;
   }
 
   .message-avatar svg {
-    width: 24px;
-    height: 24px;
-    color: white;
+    width: 15px;
+    height: 15px;
+    color: currentColor;
   }
 
   /* AI 输入指示器 */
   .ai-typing {
     display: flex;
-    gap: 5px;
-    padding: 8px;
+    gap: 3px;
+    padding: 0;
     align-items: center;
     justify-content: center;
   }
 
   .typing-dot {
-    width: 8px;
-    height: 8px;
-    background: var(--bg-primary);
+    width: 4px;
+    height: 4px;
+    background: #fff;
     border-radius: 50%;
     animation: typingBounce 1.4s ease-in-out infinite;
   }
@@ -1602,7 +1643,7 @@
     flex-direction: column;
     gap: 6px;
     flex: 1;
-    max-width: calc(100% - 44px);
+    max-width: 100%;
   }
 
   .message-header {
@@ -1618,11 +1659,19 @@
     letter-spacing: -0.01em;
   }
 
+  .message-user .sender-name {
+    color: #c45c26;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
   .sender-ai {
-    background: var(--gradient-ai);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: var(--accent-primary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
   }
 
   .message-time {
@@ -1632,9 +1681,8 @@
   }
 
   .message-action-btn {
-    margin-left: auto;
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1642,7 +1690,7 @@
     background: transparent;
     color: var(--text-tertiary, #94a3b8);
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: 8px;
     opacity: 0;
     transition: opacity 0.15s, background 0.15s, color 0.15s;
   }
@@ -1653,6 +1701,22 @@
 
   .message-user:focus-within .message-action-btn {
     opacity: 1;
+  }
+
+  .message-user .message-body {
+    align-items: flex-end;
+    max-width: min(78%, 560px);
+    margin-left: auto;
+  }
+
+  .message-user .message-header {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .message-ai .message-body {
+    padding: 0 0 4px 18px;
+    border-left: 3px solid color-mix(in srgb, #c45c26 42%, var(--accent-primary));
   }
 
   @media (hover: none) {
@@ -1671,18 +1735,22 @@
 
   /* 用户消息文本 */
   .message-text {
-    padding: 14px 18px;
-    border-radius: var(--radius-lg);
+    padding: 12px 16px;
+    border-radius: 18px 18px 6px 18px;
     font-size: 15px;
-    line-height: 1.6;
+    line-height: 1.65;
     word-break: break-word;
   }
 
   .user-text {
-    background: var(--bg-secondary, #f1f5f9);
-    color: var(--text-primary, #1e293b);
-    border: 1px solid var(--border-color, #e2e8f0);
-    border-bottom-right-radius: 4px;
+    background: color-mix(in srgb, #c45c26 12%, var(--bg-secondary));
+    color: var(--text-primary);
+    border: 1px solid color-mix(in srgb, #c45c26 28%, var(--control-border));
+  }
+
+  .user-text p {
+    margin: 0;
+    white-space: pre-wrap;
   }
 
   /* ========================================
@@ -1724,15 +1792,15 @@
   }
 
   .response-card {
-    background: var(--bg-primary, #fff);
-    border: 1px solid var(--border-color, #e2e8f0);
-    border-radius: 10px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
     overflow: hidden;
-    transition: all var(--transition-base);
+    transition: none;
   }
 
   .response-card:hover {
-    border-color: var(--primary-200, #99f6e4);
+    border-color: transparent;
   }
 
   .response-error-actions {
@@ -1740,9 +1808,10 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 12px 24px;
-    border-top: 1px solid var(--border-color, #e2e8f0);
-    background: var(--bg-secondary, #f8fafc);
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--status-danger, #dc2626) 28%, var(--control-border));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--status-danger, #dc2626) 8%, var(--bg-secondary));
     color: var(--status-danger, #dc2626);
     font-size: 13px;
   }
@@ -1763,14 +1832,18 @@
   }
 
   .chat-usage {
-    margin: 8px 24px 0;
-    color: var(--text-secondary, #64748b);
-    font-size: 12px;
+    margin: 0;
+    color: inherit;
+    font-size: inherit;
   }
 
   .chat-tool-calls {
-    margin: 8px 24px 0;
-    color: var(--text-secondary, #64748b);
+    margin: 4px 0 0;
+    padding: 0 12px 10px;
+    border: 1px solid var(--control-border);
+    border-radius: 12px;
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
     font-size: 12px;
   }
 
@@ -1790,7 +1863,7 @@
   }
 
   .card-content {
-    padding: 20px 24px;
+    padding: 2px 0 4px;
     color: var(--text-primary, #1e293b);
     overflow-x: auto;
     font-size: 15px;
@@ -1821,7 +1894,7 @@
 
   .markdown-body :deep(p) {
     margin: 0 0 14px 0;
-    color: var(--slate-700);
+    color: var(--text-primary);
   }
 
   .markdown-body :deep(> :first-child) { margin-top: 0; }
@@ -1840,11 +1913,13 @@
   .markdown-body :deep(pre) {
     background: #17212f !important;
     padding: 0;
-    border-radius: 8px;
+    border-radius: 4px 14px 14px 4px;
     overflow: hidden;
     position: relative;
-    margin: 12px 0;
-    border: 1px solid var(--border-color, #e2e8f0);
+    margin: 16px 0;
+    border: 1px solid var(--control-border);
+    border-left: 3px solid #c45c26;
+    box-shadow: 0 10px 28px color-mix(in srgb, #c45c26 12%, transparent);
   }
 
   .markdown-body :deep(pre code) {
@@ -1942,10 +2017,9 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 16px;
-    background: var(--slate-50);
-    border-radius: var(--radius-md);
-    border: 1px dashed var(--slate-300);
+    padding: 0;
+    background: transparent;
+    border: 0;
   }
 
   .streaming-animation {
@@ -1985,9 +2059,11 @@
   }
 
   .streaming-label {
-    font-size: 13px;
-    color: var(--slate-600);
-    font-weight: 600;
+    color: var(--accent-primary);
+    font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
   }
 
   /* ========================================
@@ -2434,12 +2510,8 @@
    响应式设计
    ======================================== */
   @media (max-width: 1024px) {
-    .message-user {
-      max-width: 85%;
-    }
-
-    .message-ai {
-      max-width: 95%;
+    .message-user .message-body {
+      max-width: min(86%, 560px);
     }
 
     .features-grid {
@@ -2454,28 +2526,29 @@
     }
 
     .messages-container {
-      padding: 16px;
+      padding: 16px 14px 40px;
       gap: 0;
     }
 
-    .message-user {
-      max-width: 90%;
-    }
-
-    .message-ai {
-      max-width: 100%;
-    }
-
     .message-avatar {
-      width: 38px;
-      height: 38px;
+      width: 28px;
+      height: 28px;
+      margin-top: 18px;
     }
 
     .message-body {
-      max-width: calc(100% - 54px);
+      max-width: 100%;
     }
 
-    .card-content { padding: 14px; }
+    .message-user .message-body {
+      max-width: calc(100% - 40px);
+    }
+
+    .message-ai .message-body {
+      padding-left: 10px;
+    }
+
+    .card-content { padding: 0; }
 
     .features-grid {
       grid-template-columns: 1fr;

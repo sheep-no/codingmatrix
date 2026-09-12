@@ -408,6 +408,9 @@ html:not(.theme-light):not(.theme-default):not(.theme-dark):not(.theme-auto) {
   --content-secondary: var(--text-secondary);
   --content-muted: var(--text-tertiary);
   --content-inverse: var(--bg-primary);
+  --color-surface: var(--bg-primary);
+  --color-surface-hover: var(--bg-secondary);
+  --color-surface-elevated: var(--bg-tertiary);
   --accent-primary: var(--primary);
   --accent-primary-hover: var(--primary-hover);
   --status-success: var(--success);

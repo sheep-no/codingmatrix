@@ -88,4 +88,25 @@ describe('GirlAI client', () => {
       duration_ms: 800
     })
   })
+
+  it('forwards api_key_token on companion turn', async () => {
+    const baseClient = {
+      post: vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ assistant_text: '收到' })
+      })
+    }
+
+    await expect(createGirlClient(baseClient).sendCompanionTurn(
+      '你好',
+      'gentle',
+      { apiKeyToken: 'user-token' }
+    )).resolves.toEqual({ assistant_text: '收到' })
+
+    expect(baseClient.post).toHaveBeenCalledWith('/GirlAi/companion/turn', {
+      prompt: '你好',
+      character_id: 'gentle',
+      api_key_token: 'user-token'
+    })
+  })
 })

@@ -38,21 +38,62 @@
       </div>
     </header>
 
-    <div v-if="pdfPreview" class="html-preview-container">
-      <p>成品 PDF 预览（静态页面，动画请下载 PPTX 查看）</p>
-      <iframe :src="pdfPreview" title="成品 PDF 预览" class="preview-iframe"></iframe>
-    </div>
-    <div v-else-if="htmlPreview" class="html-preview-container">
-      <p>结构预览：用于核对内容，成品排版请下载文件查看。</p>
-      <iframe
-        :srcdoc="htmlPreview"
-        class="preview-iframe"
-        sandbox="allow-scripts"
-        frameborder="0"
-      ></iframe>
-    </div>
+    <div class="preview-workspace">
+      <section class="preview-stage" aria-label="幻灯片预览">
+        <div v-if="pdfPreview" class="html-preview-container">
+          <p class="preview-stage-caption">成品 PDF 预览（静态页面，动画请下载 PPTX 查看）</p>
+          <iframe :src="pdfPreview" title="成品 PDF 预览" class="preview-iframe"></iframe>
+        </div>
+        <div v-else-if="htmlPreview" class="html-preview-container">
+          <p class="preview-stage-caption">结构预览：用于核对内容，成品排版请下载文件查看。</p>
+          <iframe
+            :srcdoc="htmlPreview"
+            class="preview-iframe"
+            sandbox="allow-scripts"
+            frameborder="0"
+          ></iframe>
+        </div>
+        <div v-else-if="slides.length > 0" class="page-content slides-stage">
+          <p class="preview-stage-caption">结构预览：用于核对内容，成品排版请下载文件查看。</p>
+          <div class="slides-container">
+            <div
+              v-for="(slide, index) in slides"
+              :key="index"
+              class="slide-card"
+            >
+              <div class="slide-header">
+                <div class="slide-number">幻灯片 {{ index + 1 }}</div>
+                <div class="slide-type">{{ slide.type || '内容' }}</div>
+              </div>
+              <div class="slide-body">
+                <div class="slide-title">{{ slide.title }}</div>
+                <div class="slide-content">{{ slideContent(slide) }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-else-if="isLoading" class="page-content">
+          <div class="loading-state">
+            <div class="loading-spinner"></div>
+            <p>正在加载预览...</p>
+          </div>
+        </div>
+        <div v-else class="page-content">
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+            <p>暂无幻灯片数据</p>
+          </div>
+        </div>
+      </section>
 
-    <section v-if="qualityReport" class="quality-report-card">
+      <aside v-if="qualityReport" class="preview-inspector">
+    <section class="quality-report-card">
       <div class="quality-report-heading">
         <strong>生成质量 {{ qualityReport.overall_score }}（规则评分）</strong>
         <span>{{ qualityReport.quality_mode === 'refined' ? '精修模式' : '标准模式' }}</span>
@@ -109,48 +150,7 @@
         </form>
       </template>
     </section>
-
-    <!-- 传统幻灯片预览（回退） -->
-    <div v-if="!pdfPreview && !htmlPreview && slides.length > 0" class="page-content">
-      <p>结构预览：用于核对内容，成品排版请下载文件查看。</p>
-      <div class="slides-container">
-        <div 
-          v-for="(slide, index) in slides" 
-          :key="index" 
-          class="slide-card"
-        >
-          <div class="slide-header">
-            <div class="slide-number">幻灯片 {{ index + 1 }}</div>
-            <div class="slide-type">{{ slide.type || '内容' }}</div>
-          </div>
-          <div class="slide-body">
-            <div class="slide-title">{{ slide.title }}</div>
-            <div class="slide-content">{{ slideContent(slide) }}</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 加载中 -->
-    <div v-else-if="!pdfPreview && !htmlPreview && isLoading" class="page-content">
-      <div class="loading-state">
-        <div class="loading-spinner"></div>
-        <p>正在加载预览...</p>
-      </div>
-    </div>
-
-    <!-- 空状态 -->
-    <div v-else-if="!pdfPreview && !htmlPreview && !slides.length" class="page-content">
-      <div class="empty-state">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/>
-          <line x1="16" y1="13" x2="8" y2="13"/>
-          <line x1="16" y1="17" x2="8" y2="17"/>
-          <polyline points="10 9 9 9 8 9"/>
-        </svg>
-        <p>暂无幻灯片数据</p>
-      </div>
+      </aside>
     </div>
   </div>
 </template>
@@ -397,11 +397,11 @@ onBeforeUnmount(() => {
 .slide-edit-panel p { line-height: 1.6; overflow-wrap: anywhere; }
 
 .quality-report-card {
-  margin: 16px 24px 0;
-  padding: 16px 20px;
+  margin: 0 0 16px;
+  padding: 16px 18px;
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   overflow-wrap: anywhere;
 }
 
@@ -463,18 +463,23 @@ onBeforeUnmount(() => {
 }
 
 .quality-regenerate-btn {
-  margin-left: 10px;
+  margin-top: 12px;
+  width: 100%;
   border: 0;
-  background: transparent;
-  color: var(--primary-color, #2563eb);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: var(--color-primary);
+  color: #fff;
   cursor: pointer;
 }
 
 .ppt-preview-page {
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
   background: var(--bg-primary);
   color: var(--text-primary);
 }
@@ -559,17 +564,44 @@ onBeforeUnmount(() => {
 }
 
 /* HTML 预览容器 */
+.preview-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+}
+
+.preview-workspace:not(:has(.preview-inspector)) {
+  grid-template-columns: 1fr;
+}
+
+.preview-stage {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-tertiary, #111827);
+}
+
+.preview-inspector {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 16px;
+  border-left: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
 .html-preview-container {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 320px;
-  background: #1a1a1a;
+  min-height: 0;
+  background: #111827;
   overflow: hidden;
   min-width: 0;
 }
 
-.html-preview-container > p {
+.preview-stage-caption {
   margin: 0;
   padding: 10px 16px;
   color: #f3f4f6;
@@ -581,6 +613,7 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   border: none;
+  background: #fff;
 }
 
 .page-content {
@@ -588,6 +621,15 @@ onBeforeUnmount(() => {
   padding: 24px;
   overflow-y: auto;
   min-width: 0;
+}
+
+.slides-stage {
+  background: var(--bg-primary);
+}
+
+.slides-stage .preview-stage-caption {
+  color: var(--text-secondary);
+  padding: 0 0 12px;
 }
 
 .slides-container {
@@ -643,6 +685,22 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
+@media (max-width: 960px) {
+  .preview-workspace {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+
+  .preview-stage {
+    min-height: 52vh;
+  }
+
+  .preview-inspector {
+    border-left: 0;
+    border-top: 1px solid var(--border-color);
+  }
+}
+
 @media (max-width: 600px) {
   .page-header {
     flex-wrap: wrap;
@@ -658,11 +716,11 @@ onBeforeUnmount(() => {
   .header-title { font-size: 16px; }
   .header-actions { width: 100%; justify-content: flex-end; gap: 8px; }
   .header-actions .btn { flex: 1; justify-content: center; padding: 10px 8px; }
-  .html-preview-container { min-height: 280px; }
+  .html-preview-container { min-height: 240px; }
   .page-content { padding: 16px; }
-  .quality-report-card { margin: 12px 16px 0; padding: 14px 16px; }
+  .quality-report-card { margin: 0 0 12px; padding: 14px 16px; }
   .quality-report-meta { line-height: 1.6; }
-  .quality-regenerate-btn { margin: 8px 0 0; width: 100%; }
+  .quality-regenerate-btn { margin: 8px 0 0; }
 }
 
 /* 加载状态 */

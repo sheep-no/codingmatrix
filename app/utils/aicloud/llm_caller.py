@@ -121,6 +121,9 @@ _RETRY_MAX_ATTEMPTS = 3
 _RETRY_BASE_DELAY = 2.0  # 秒
 _RETRY_MAX_DELAY = 30.0  # 秒
 
+# 流式取消后若未释放，后续请求会永久卡在 acquire；超时后失败并释放已拿到的额度
+_SEMAPHORE_ACQUIRE_TIMEOUT = 30.0
+
 
 async def _retry_on_rate_limit(coro_factory, max_attempts: int = _RETRY_MAX_ATTEMPTS):
     """对 429 Rate Limit 错误做指数退避重试
@@ -217,8 +220,44 @@ async def get_adapter(provider: ModelProvider, config: Optional[ProviderConfig] 
         return adapter
 
 
-class _SemaphoreWrappedAsyncIterator:
-    """包装 AsyncIterator，在迭代期间持有信号量，迭代结束后释放"""
+def _release_llm_semaphores(global_sem, model_sem) -> None:
+    """释放已获取的 LLM 信号量。多释放会抬高上限，调用方须保证只走一次。"""
+    if model_sem is not None:
+        model_sem.release()
+    if global_sem is not None:
+        global_sem.release()
+
+
+async def _acquire_llm_semaphores(global_sem, model_sem, timeout: float = _SEMAPHORE_ACQUIRE_TIMEOUT) -> None:
+    """按固定顺序获取全局/模型信号量；取消或超时必须释放已拿到的额度。"""
+    acquired = []
+    try:
+        async with asyncio.timeout(timeout):
+            if global_sem is not None:
+                await global_sem.acquire()
+                acquired.append(global_sem)
+            if model_sem is not None:
+                await model_sem.acquire()
+                acquired.append(model_sem)
+    except BaseException as exc:
+        for sem in reversed(acquired):
+            sem.release()
+        if isinstance(exc, TimeoutError):
+            raise LLMCallError("LLM 并发繁忙，请稍后重试", status_code=503) from exc
+        raise
+
+
+def _iter_stream_holding_semaphore(
+    inner: AsyncIterator[str],
+    global_sem,
+    model_sem,
+) -> AsyncIterator[str]:
+    """返回可同步释放的流包装器。"""
+    return SemaphoreHeldStream(inner, global_sem, model_sem)
+
+
+class SemaphoreHeldStream:
+    """流式迭代期间持有信号量；release_now 是同步的，取消路径也能立刻归还额度。"""
 
     def __init__(self, inner: AsyncIterator[str], global_sem, model_sem):
         self._inner = inner
@@ -227,6 +266,13 @@ class _SemaphoreWrappedAsyncIterator:
         self._closed = False
         self._released = False
         self._max_stream_tokens = 0
+
+    def release_now(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        _release_llm_semaphores(self._global_sem, self._model_sem)
+        logger.info("[信号量] 流式结束，已释放信号量")
 
     def __aiter__(self):
         return self
@@ -258,17 +304,18 @@ class _SemaphoreWrappedAsyncIterator:
             metrics = _llm_call_metrics.get()
             if metrics is not None:
                 metrics.token_count += self._max_stream_tokens
-            self._release()
+            self.release_now()
 
-    def _release(self) -> None:
+    def __del__(self):
         if self._released:
             return
-        self._released = True
-        logger.info("[信号量] 流式迭代关闭，释放信号量")
-        if self._model_sem:
-            self._model_sem.release()
-        if self._global_sem:
-            self._global_sem.release()
+        try:
+            self.release_now()
+        except Exception:
+            pass
+
+
+_SemaphoreWrappedAsyncIterator = SemaphoreHeldStream
 
 
 async def call_llm(
@@ -445,25 +492,19 @@ async def call_llm(
             model_sem = get_model_semaphore(model)
         except Exception:
             pass  # 信号量不可用时不阻塞调用
+        logger.info(
+            f"[信号量] 等待 {model} "
+            f"(global={global_sem._value if global_sem else 'N/A'}, "
+            f"model={model_sem._value if model_sem else 'N/A'})"
+        )
+        await _acquire_llm_semaphores(global_sem, model_sem)
+        logger.info(
+            f"[信号量] 已获取 {model} 信号量 "
+            f"(global={global_sem._value if global_sem else 'N/A'}, "
+            f"model={model_sem._value if model_sem else 'N/A'})"
+        )
 
-        # 获取信号量：全局 + 按模型。等待第二级额度时取消也必须归还第一级额度。
-        global_acquired = False
-        model_acquired = False
-        try:
-            if global_sem:
-                await global_sem.acquire()
-                global_acquired = True
-            if model_sem:
-                await model_sem.acquire()
-                model_acquired = True
-        except BaseException:
-            if model_acquired:
-                model_sem.release()
-            if global_acquired:
-                global_sem.release()
-            raise
-        logger.info(f"[信号量] 已获取 {model} 信号量 (global={global_sem._value if global_sem else 'N/A'}, model={model_sem._value if model_sem else 'N/A'})")
-
+    hold_for_stream = False
     try:
         result = await _retry_on_rate_limit(lambda: adapter.call_llm(
             model=model,
@@ -476,25 +517,14 @@ async def call_llm(
             cancel_event=cancel_event,
             messages=messages,
         ))
-        # 流式模式：包装迭代器，在迭代期间持有信号量
         if stream and hasattr(result, '__aiter__'):
+            hold_for_stream = True
             logger.info(f"[信号量] 流式模式，信号量将在迭代期间持有 {model}")
-            return _SemaphoreWrappedAsyncIterator(result, global_sem, model_sem)
-        # 非流式：结果已返回，释放信号量
+            return _iter_stream_holding_semaphore(result, global_sem, model_sem)
         logger.info(f"[信号量] 释放 {model} 信号量 (非流式)")
-        if model_sem:
-            model_sem.release()
-            model_sem = None
-        if global_sem:
-            global_sem.release()
-            global_sem = None
         _record_llm_response_metrics(result)
         return result
     except asyncio.CancelledError:
-        if model_sem:
-            model_sem.release()
-        if global_sem:
-            global_sem.release()
         raise
     except Exception as e:
         logger.warning(
@@ -505,13 +535,7 @@ async def call_llm(
             type(e).__name__,
             getattr(e, "status_code", None),
         )
-        # 释放信号量
-        logger.info(f"[信号量] 异常释放 {model} 信号量: {e}")
-        if model_sem:
-            model_sem.release()
-        if global_sem:
-            global_sem.release()
-        # 流式调用失败时尝试 fallback（仅在流式未开始前的失败）
+        logger.info(f"[信号量] 调用失败 {model}: {e}")
         if stream and not disable_fallback:
             logger.warning(f"Stream call failed before streaming started, attempting fallback: {e}")
             router = ProviderRouter.get_instance(settings.get_provider_registry())
@@ -522,26 +546,9 @@ async def call_llm(
                 fallback_global_acquired = False
                 fallback_model_acquired = False
                 try:
-                    # 优先使用用户 Key（如果用户配置了），否则使用平台默认
                     fallback_adapter = await get_adapter(fallback, user_config)
                     fallback_adapter.timeout = timeout
                     logger.info(f"Stream fallback to {fallback.value}")
-
-                    # 为 fallback 也获取信号量
-                    if global_sem is None:
-                        try:
-                            from app.agent.llm_client import get_model_semaphore, get_global_semaphore
-                            global_sem = get_global_semaphore()
-                            model_sem = get_model_semaphore(model)
-                        except Exception:
-                            pass
-                    if global_sem:
-                        await global_sem.acquire()
-                        fallback_global_acquired = True
-                    if model_sem:
-                        await model_sem.acquire()
-                        fallback_model_acquired = True
-
                     fallback_result = await fallback_adapter.call_llm(
                         model=model,
                         prompt=prompt,
@@ -554,11 +561,8 @@ async def call_llm(
                         messages=messages,
                     )
                     if stream and hasattr(fallback_result, '__aiter__'):
-                        return _SemaphoreWrappedAsyncIterator(fallback_result, global_sem, model_sem)
-                    if model_sem:
-                        model_sem.release()
-                    if global_sem:
-                        global_sem.release()
+                        hold_for_stream = True
+                        return _iter_stream_holding_semaphore(fallback_result, global_sem, model_sem)
                     return fallback_result
                 except asyncio.CancelledError:
                     if fallback_model_acquired:
@@ -568,12 +572,11 @@ async def call_llm(
                     raise
                 except Exception as fallback_error:
                     logger.warning(f"Stream fallback {fallback.value} also failed: {fallback_error}")
-                    if fallback_model_acquired:
-                        model_sem.release()
-                    if fallback_global_acquired:
-                        global_sem.release()
                     continue
         raise
+    finally:
+        if not hold_for_stream:
+            _release_llm_semaphores(global_sem, model_sem)
 
 
 def _get_user_api_key_from_token(token: str) -> Optional[str]:

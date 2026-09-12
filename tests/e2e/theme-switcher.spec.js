@@ -10,14 +10,13 @@ test.describe('Theme Switcher', () => {
     const html = page.locator('html')
     const theme = await html.evaluate(el => {
       if (el.classList.contains('theme-light')) return 'light'
-      if (el.classList.contains('theme-default')) return 'default'
       if (el.classList.contains('theme-dark')) return 'dark'
       return 'unknown'
     })
     
     console.log(`Current theme: ${theme}`)
     console.log('HTML classes:', await html.evaluate(el => el.className))
-    expect(['light', 'default', 'dark'].includes(theme)).toBeTruthy()
+    expect(['light', 'dark'].includes(theme)).toBeTruthy()
   })
 
   test('切换到明亮模式', async ({ page }) => {
@@ -43,27 +42,23 @@ test.describe('Theme Switcher', () => {
     expect(bgPrimary).toBe('#ffffff')
   })
 
-  test('切换到默认模式', async ({ page }) => {
+  test('切换到随系统', async ({ page }) => {
     await page.goto('/')
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(1000)
     await page.waitForSelector('.theme-switcher .theme-btn', { state: 'visible' })
     
-    const defaultBtn = page.locator('.theme-switcher .theme-btn').nth(1)
-    await defaultBtn.click()
+    const autoBtn = page.locator('.theme-switcher .theme-btn').nth(2)
+    await autoBtn.click()
     await page.waitForTimeout(500)
     
-    const html = page.locator('html')
-    const hasDefaultTheme = await html.evaluate(el => el.classList.contains('theme-default'))
-    console.log('Default theme class applied:', hasDefaultTheme)
-    console.log('HTML classes:', await html.evaluate(el => el.className))
-    expect(hasDefaultTheme).toBe(true)
-    
-    const bgPrimary = await page.evaluate(() => 
-      getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim()
-    )
-    console.log('bg-primary value:', bgPrimary)
-    expect(bgPrimary).toBe('#fcfdfd')
+    const applied = await page.evaluate(() => ({
+      stored: localStorage.getItem('app-theme'),
+      light: document.documentElement.classList.contains('theme-light'),
+      dark: document.documentElement.classList.contains('theme-dark')
+    }))
+    expect(applied.stored).toBe('theme-auto')
+    expect(applied.light || applied.dark).toBe(true)
   })
 
   test('切换到暗色模式', async ({ page }) => {
@@ -72,7 +67,7 @@ test.describe('Theme Switcher', () => {
     await page.waitForTimeout(1000)
     await page.waitForSelector('.theme-switcher .theme-btn', { state: 'visible' })
     
-    const darkBtn = page.locator('.theme-switcher .theme-btn').nth(2)
+    const darkBtn = page.locator('.theme-switcher .theme-btn').nth(1)
     await darkBtn.click()
     await page.waitForTimeout(500)
     
@@ -101,7 +96,7 @@ test.describe('Theme Switcher', () => {
     await page.waitForTimeout(1000)
     await page.waitForSelector('.theme-switcher .theme-btn', { state: 'visible' })
     
-    const darkBtn = page.locator('.theme-switcher .theme-btn').nth(2)
+    const darkBtn = page.locator('.theme-switcher .theme-btn').nth(1)
     await darkBtn.click()
     await page.waitForTimeout(500)
     
@@ -124,7 +119,7 @@ test.describe('Theme Switcher', () => {
     await page.waitForTimeout(1000)
     await page.waitForSelector('.theme-switcher .theme-btn', { state: 'visible' })
     
-    const darkBtn = page.locator('.theme-switcher .theme-btn').nth(2)
+    const darkBtn = page.locator('.theme-switcher .theme-btn').nth(1)
     await darkBtn.click()
     await page.waitForTimeout(500)
     
@@ -154,17 +149,8 @@ test.describe('Theme Switcher', () => {
         }
       },
       {
-        name: 'default',
-        btnIndex: 1,
-        expected: {
-          '--bg-primary': '#fcfdfd',
-          '--bg-secondary': '#f0f7f6',
-          '--text-primary': '#1a2e35'
-        }
-      },
-      {
         name: 'dark',
-        btnIndex: 2,
+        btnIndex: 1,
         expected: {
           '--bg-primary': '#0f172a',
           '--bg-secondary': '#1e293b',
@@ -198,7 +184,7 @@ test.describe('Theme Switcher', () => {
     await page.waitForTimeout(1000)
     await page.waitForSelector('.theme-switcher .theme-btn', { state: 'visible' })
     
-    const darkBtn = page.locator('.theme-switcher .theme-btn').nth(2)
+    const darkBtn = page.locator('.theme-switcher .theme-btn').nth(1)
     await darkBtn.click()
     await page.waitForTimeout(500)
     

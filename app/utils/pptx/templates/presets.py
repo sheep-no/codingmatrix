@@ -241,12 +241,14 @@ class ModernTemplate(TemplateBase):
             description="适用于通用商业演示的现代蓝色主题。",
             primary_color="2563EB",
             secondary_color="3B82F6",
-            accent_color="F97316",
+            accent_color="1E3A8A",
             background_color="FFFFFF",
             text_color="1E293B",
             light_text_color="64748B",
-            title_font="Arial",
-            body_font="Arial",
+            title_font="微软雅黑",
+            body_font="微软雅黑",
+            title_font_en="Calibri",
+            body_font_en="Calibri",
         )
 
 
@@ -267,8 +269,10 @@ class MedicalTemplate(TemplateBase):
             background_color="ECFDF5",
             text_color="134E4A",
             light_text_color="5F7470",
-            title_font="Arial",
-            body_font="Arial",
+            title_font="微软雅黑",
+            body_font="微软雅黑",
+            title_font_en="Calibri",
+            body_font_en="Calibri",
         )
 
 
@@ -289,8 +293,10 @@ class ElegantTemplate(TemplateBase):
             background_color="F5F3FF",
             text_color="2E1065",
             light_text_color="6B5A78",
-            title_font="Georgia",
-            body_font="Georgia",
+            title_font="微软雅黑",
+            body_font="微软雅黑",
+            title_font_en="Georgia",
+            body_font_en="Georgia",
         )
 
 
@@ -309,7 +315,7 @@ class EducationTemplate(TemplateBase):
             # 配色
             primary_color="2E75B6",       # 蓝
             secondary_color="548235",     # 绿
-            accent_color="FFC000",        # 黄
+            accent_color="0F766E",        # 青绿
             background_color="FFFFFF",    # 白
             text_color="333333",          # 深灰
             light_text_color="666666",    # 浅灰
@@ -448,7 +454,7 @@ class TechTemplate(TemplateBase):
             description="适用于技术方案、系统架构和 AI 产品汇报，采用深色界面与高对比数据强调。",
             primary_color="3B82F6",
             secondary_color="1D4ED8",
-            accent_color="F97316",
+            accent_color="38BDF8",
             background_color="0F172A",
             text_color="FFFFFF",
             light_text_color="93C5FD",

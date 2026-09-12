@@ -71,7 +71,20 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.settings-page { padding: 32px; max-width: 1200px; margin: 0 auto; min-height: 100vh; overflow-y: auto; box-sizing: border-box; color: var(--text-primary); }
+.settings-page {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+  color: var(--text-primary);
+}
 .page-title { font-size: 24px; margin-bottom: 24px; color: #303133; }
 .settings-tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--border-color); overflow-x: auto; scrollbar-width: thin; }
 .tab { flex: 0 0 auto; padding: 13px 18px; background: transparent; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-size: 15px; color: var(--text-secondary); transition: all 0.2s; display: flex; align-items: center; gap: 8px; }

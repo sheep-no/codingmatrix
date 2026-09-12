@@ -1,641 +1,280 @@
 <template>
-  <div class="empty-state">
-    <div class="empty-state-bg">
-      <div class="bg-circle bg-circle-1"></div>
-      <div class="bg-circle bg-circle-2"></div>
-      <div class="bg-circle bg-circle-3"></div>
-      <div class="floating-particles">
-        <span v-for="n in 12" :key="n" class="particle" :style="getParticleStyle(n)"></span>
-      </div>
+  <div class="empty-state idle-stage" role="region" aria-label="对话待机画面">
+    <div class="idle-atmosphere" aria-hidden="true">
+      <div class="idle-grid"></div>
+      <div class="idle-wash idle-wash-a"></div>
+      <div class="idle-wash idle-wash-b"></div>
+      <span class="idle-orbit"></span>
     </div>
-    <div class="empty-state-content">
-      <div class="hero-section">
-        <div class="hero-icon">
-          <div class="icon-ring icon-ring-1"></div>
-          <div class="icon-ring icon-ring-2"></div>
-          <div class="icon-ring icon-ring-3"></div>
-          <div class="icon-core">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path
-                d="M12 2a7 7 0 0 1 7 7v3h3a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h3V9a7 7 0 0 1 7-7z"
-              />
-              <path d="M9 21h6" />
-              <path d="M12 17v4" />
-            </svg>
-          </div>
-        </div>
-        <h1 class="hero-title">{{ typingTitle }}</h1>
-        <p v-if="showSubtitle" class="hero-subtitle">{{ typingSubtitle }}</p>
+
+    <div class="idle-board">
+      <p class="idle-kicker">{{ greeting }} · CodingMatrix</p>
+      <h1 class="idle-title">从一句需求开始</h1>
+      <p class="idle-lead">
+        把问题写进下方输入框。写代码、拆原理、改缺陷、起草文档，都可以从这里起手。
+      </p>
+
+      <div class="idle-prompts">
+        <button
+          v-for="item in prompts"
+          :key="item.title"
+          class="idle-card"
+          type="button"
+          :style="{ '--card-accent': item.accent }"
+          @click="$emit('quick-prompt', item.prompt)"
+        >
+          <span class="idle-card-index">{{ item.index }}</span>
+          <span class="idle-card-body">
+            <span class="idle-card-title">{{ item.title }}</span>
+            <span class="idle-card-copy">{{ item.copy }}</span>
+          </span>
+        </button>
       </div>
 
-      <div class="quick-actions">
-        <div class="action-label">快速开始</div>
-        <div class="action-chips">
-          <button class="action-chip" @click="$emit('quick-prompt', '帮我写一个Python快速排序')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="16 18 22 12 16 6" />
-              <polyline points="8 6 2 12 8 18" />
-            </svg>
-            <span>写代码</span>
-          </button>
-          <button class="action-chip" @click="$emit('quick-prompt', '解释一下什么是RESTful API')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
-            <span>问问题</span>
-          </button>
-          <button class="action-chip" @click="$emit('quick-prompt', '帮我分析一下这段代码的问题')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path
-                d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
-              />
-            </svg>
-            <span>调试代码</span>
-          </button>
-          <button class="action-chip" @click="$emit('quick-prompt', '帮我写一个项目readme文档')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
-            <span>写文档</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="prompt-carousel">
-        <div class="carousel-label">灵感提示</div>
-        <div class="carousel-track">
-          <button
-            v-for="(prompt, index) in carouselPrompts"
-            :key="index"
-            class="carousel-item"
-            @click="$emit('quick-prompt', prompt.text)"
-          >
-            <span class="carousel-icon" v-html="prompt.icon"></span>
-            <span class="carousel-text">{{ prompt.text }}</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="features-section">
-        <div class="section-label">功能亮点</div>
-        <div class="features-grid">
-          <div class="feature-card">
-            <div class="feature-icon feature-icon-1">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M9 12l2 2 4-4" />
-              </svg>
-            </div>
-            <div class="feature-content">
-              <h3>智能对话</h3>
-              <p>自然流畅的对话体验</p>
-            </div>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon feature-icon-2">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="16 18 22 12 16 6" />
-                <polyline points="8 6 2 12 8 18" />
-                <line x1="14" y1="4" x2="10" y2="20" />
-              </svg>
-            </div>
-            <div class="feature-content">
-              <h3>代码生成</h3>
-              <p>快速生成高质量代码</p>
-            </div>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon feature-icon-3">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 6v6l4 2" />
-              </svg>
-            </div>
-            <div class="feature-content">
-              <h3>深度思考</h3>
-              <p>复杂问题逐步分析</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <p class="idle-hint">Enter 发送 · Shift + Enter 换行</p>
     </div>
   </div>
 </template>
 
 <script setup>
-  import { ref, onMounted, onBeforeUnmount } from 'vue'
+  import { computed } from 'vue'
 
   defineEmits(['quick-prompt'])
 
-  const FULL_TITLE = '欢迎使用 AI 助手'
-  const FULL_SUBTITLE = '您的智能编程伙伴，让创意触手可及'
+  const greeting = computed(() => {
+    const hour = new Date().getHours()
+    if (hour < 5) return '夜深了'
+    if (hour < 11) return '早上好'
+    if (hour < 14) return '中午好'
+    if (hour < 18) return '下午好'
+    return '晚上好'
+  })
 
-  const typingTitle = ref('')
-  const typingSubtitle = ref('')
-  const showSubtitle = ref(false)
-
-  let titleTimer = null
-  let subtitleTimer = null
-
-  const startTypingAnimation = () => {
-    typingTitle.value = ''
-    showSubtitle.value = false
-
-    let i = 0
-    titleTimer = setInterval(() => {
-      if (i < FULL_TITLE.length) {
-        typingTitle.value += FULL_TITLE[i]
-        i++
-      } else {
-        clearInterval(titleTimer)
-        showSubtitle.value = true
-        startSubtitleTyping()
-      }
-    }, 80)
-  }
-
-  const startSubtitleTyping = () => {
-    typingSubtitle.value = ''
-
-    let i = 0
-    subtitleTimer = setInterval(() => {
-      if (i < FULL_SUBTITLE.length) {
-        typingSubtitle.value += FULL_SUBTITLE[i]
-        i++
-      } else {
-        clearInterval(subtitleTimer)
-      }
-    }, 50)
-  }
-
-  const getParticleStyle = n => {
-    const size = Math.random() * 6 + 4
-    const left = Math.random() * 100
-    const delay = Math.random() * 10
-    const duration = Math.random() * 10 + 15
-    return {
-      width: `${size}px`,
-      height: `${size}px`,
-      left: `${left}%`,
-      animationDelay: `${delay}s`,
-      animationDuration: `${duration}s`
+  const prompts = [
+    {
+      index: '01',
+      title: '写一段可运行的代码',
+      copy: '带注释和测试，直接能跑。',
+      prompt: '帮我写一个 Python 快速排序，带测试用例和简要注释',
+      accent: '#c45c26'
+    },
+    {
+      index: '02',
+      title: '把概念讲清楚',
+      copy: '用生活例子拆开技术名词。',
+      prompt: '用一个生活中的例子解释什么是 RESTful API',
+      accent: '#2a6f6a'
+    },
+    {
+      index: '03',
+      title: '定位代码问题',
+      copy: '先找原因，再给修法。',
+      prompt: '帮我分析这段代码可能的缺陷，并给出修改建议',
+      accent: '#3d4a9c'
+    },
+    {
+      index: '04',
+      title: '起草一份说明',
+      copy: '结构清楚，别人能接着写。',
+      prompt: '帮我写一个项目 README 大纲，包含简介、安装、使用和贡献',
+      accent: '#8a4a6a'
     }
-  }
-
-  const carouselPrompts = [
-    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>', text: '帮我写一个五子棋小游戏' },
-    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>', text: '用 Python 分析 CSV 数据并生成图表' },
-    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>', text: '设计一个个人博客网站' },
-    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>', text: '写一个 Docker 部署配置' },
-    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>', text: '做一个响应式登录页面' },
-    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>', text: '解释 Transformer 模型原理' },
-    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>', text: '帮我润色这段英文邮件' },
-    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>', text: '用 CSS 做一个加载动画' },
-    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>', text: '对比 React 和 Vue 的优缺点' },
-    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>', text: '优化这段 SQL 查询性能' }
   ]
-
-  onMounted(() => {
-    startTypingAnimation()
-  })
-
-  onBeforeUnmount(() => {
-    if (titleTimer) clearInterval(titleTimer)
-    if (subtitleTimer) clearInterval(subtitleTimer)
-  })
-
-  defineExpose({ startTypingAnimation })
 </script>
 
 <style scoped>
-  .empty-state {
+  .idle-stage {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
     height: 100%;
-    position: relative;
+    min-height: 0;
     overflow: hidden;
-    background: var(--bg-primary) !important;
+    background:
+      radial-gradient(1200px 520px at 12% -10%, color-mix(in srgb, var(--accent-primary) 16%, transparent), transparent 58%),
+      var(--bg-primary);
   }
 
-  .empty-state-bg {
+  .idle-atmosphere {
     position: absolute;
     inset: 0;
-    overflow: hidden;
     pointer-events: none;
   }
 
-  .bg-circle {
+  .idle-grid {
     position: absolute;
-    border-radius: 50%;
-    filter: blur(80px);
-    opacity: 0.6;
-    animation: floatBg 20s ease-in-out infinite;
-  }
-
-  .bg-circle-1 {
-    width: 600px;
-    height: 600px;
-    background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
-    top: -200px;
-    right: -100px;
-    animation-delay: 0s;
-    opacity: 0.15;
-  }
-
-  .bg-circle-2 {
-    width: 500px;
-    height: 500px;
-    background: linear-gradient(135deg, var(--color-blue-500) 0%, var(--color-blue-600) 100%);
-    bottom: -150px;
-    left: -100px;
-    animation-delay: -7s;
-    opacity: 0.12;
-  }
-
-  .bg-circle-3 {
-    width: 400px;
-    height: 400px;
-    background: linear-gradient(135deg, var(--color-success-500) 0%, var(--color-success-600) 100%);
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    animation-delay: -14s;
-    opacity: 0.1;
-  }
-
-  @keyframes floatBg {
-    0%,
-    100% {
-      transform: translate(0, 0) scale(1);
-    }
-    33% {
-      transform: translate(30px, -30px) scale(1.05);
-    }
-    66% {
-      transform: translate(-20px, 20px) scale(0.95);
-    }
-  }
-
-  .empty-state-content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    max-width: 700px;
-    padding: 40px;
-    z-index: 1;
-  }
-
-  .hero-section {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    margin-bottom: 32px;
-  }
-
-  .hero-icon {
-    position: relative;
-    width: 120px;
-    height: 120px;
-    margin-bottom: 28px;
-  }
-
-  .icon-ring {
-    position: absolute;
-    border-radius: 50%;
-    border: 2px solid var(--color-primary-400);
-    opacity: 0.4;
-    animation: pulseRing 3s ease-out infinite;
-  }
-
-  .icon-ring-1 {
     inset: 0;
-    animation-delay: 0s;
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--control-border) 70%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--control-border) 70%, transparent) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse at 50% 42%, #000 18%, transparent 72%);
+    opacity: 0.45;
   }
 
-  .icon-ring-2 {
-    inset: -15px;
-    border-color: var(--color-primary-300);
-    animation-delay: 0.5s;
-  }
-
-  .icon-ring-3 {
-    inset: -30px;
-    border-color: var(--color-primary-200);
-    animation-delay: 1s;
-  }
-
-  @keyframes pulseRing {
-    0% {
-      transform: scale(1);
-      opacity: 0.4;
-    }
-    100% {
-      transform: scale(1.5);
-      opacity: 0;
-    }
-  }
-
-  .icon-core {
+  .idle-wash {
     position: absolute;
-    inset: 15px;
-    background: var(--gradient-primary);
     border-radius: 50%;
+    filter: blur(72px);
+  }
+
+  .idle-wash-a {
+    width: min(42vw, 420px);
+    height: min(42vw, 420px);
+    right: -8%;
+    top: -12%;
+    background: color-mix(in srgb, var(--accent-primary) 28%, transparent);
+  }
+
+  .idle-wash-b {
+    width: min(36vw, 340px);
+    height: min(36vw, 340px);
+    left: -6%;
+    bottom: -16%;
+    background: color-mix(in srgb, #c45c26 22%, transparent);
+  }
+
+  .idle-orbit {
+    position: absolute;
+    width: min(58vw, 640px);
+    height: min(58vw, 640px);
+    left: 50%;
+    top: 46%;
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 28%, transparent);
+    border-radius: 50%;
+    transform: translate(-50%, -50%) rotate(12deg);
+  }
+
+  .idle-board {
+    position: relative;
+    z-index: 1;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow:
-      var(--shadow-xl),
-      0 0 40px var(--color-primary-500);
+    flex-direction: column;
+    width: min(880px, calc(100% - 48px));
+    padding: 28px 8px 16px;
   }
 
-  .icon-core svg {
-    width: 40px;
-    height: 40px;
-    color: white;
+  .idle-kicker {
+    margin: 0 0 14px;
+    color: var(--accent-primary);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
   }
 
-  .hero-title {
-    font-size: 42px;
-    font-weight: 800;
+  .idle-title {
+    margin: 0;
+    max-width: 14ch;
     color: var(--text-primary);
-    margin-bottom: 12px;
-    letter-spacing: -0.03em;
-    text-align: center;
-    text-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
-    min-height: 52px;
+    font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", "STSong", Georgia, serif;
+    font-size: clamp(36px, 6vw, 64px);
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: -0.04em;
   }
 
-  .hero-title::after {
-    content: '|';
-    animation: blink-cursor 1s step-end infinite;
-    color: var(--color-primary-500);
-    margin-left: 2px;
-  }
-
-  @keyframes blink-cursor {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0;
-    }
-  }
-
-  .hero-subtitle {
-    font-size: 18px;
+  .idle-lead {
+    margin: 18px 0 32px;
+    max-width: 36em;
     color: var(--text-secondary);
-    text-align: center;
-    font-weight: 500;
-    min-height: 27px;
+    font-size: clamp(15px, 1.7vw, 18px);
+    line-height: 1.7;
   }
 
-  .quick-actions {
-    margin-bottom: 32px;
-    text-align: center;
-  }
-
-  .action-label {
-    font-size: 13px;
-    color: var(--text-tertiary);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: 16px;
-  }
-
-  .action-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    justify-content: center;
-  }
-
-  .action-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 20px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 100px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-primary);
-    cursor: pointer;
-    transition: all 0.25s ease;
-    box-shadow: var(--shadow-sm);
-  }
-
-  .action-chip:hover {
-    background: var(--gradient-primary);
-    color: white;
-    border-color: transparent;
-    transform: translateY(-3px);
-    box-shadow:
-      var(--shadow-lg),
-      0 10px 30px rgba(20, 184, 166, 0.3);
-  }
-
-  .action-chip svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  .features-section {
-    text-align: center;
-    width: 100%;
-  }
-
-  .section-label {
-    font-size: 13px;
-    color: var(--text-tertiary);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: 20px;
-  }
-
-  .features-grid {
+  .idle-prompts {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 20px;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
   }
 
-  .feature-card {
+  .idle-card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 14px;
+    min-height: var(--control-min-size);
+    padding: 18px 18px 16px;
+    border: 1px solid var(--control-border);
+    border-left: 4px solid var(--card-accent);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    backdrop-filter: blur(12px);
+    transition:
+      transform var(--motion-fast),
+      border-color var(--motion-fast),
+      background var(--motion-fast),
+      box-shadow var(--motion-fast);
+  }
+
+  .idle-card:hover,
+  .idle-card:focus-visible {
+    transform: translateY(-3px);
     background: var(--bg-secondary);
-    padding: 24px 20px;
-    border-radius: 16px;
-    text-align: center;
-    box-shadow: var(--shadow-md);
-    transition: all 0.3s ease;
-    border: 1px solid var(--border-color);
+    border-color: color-mix(in srgb, var(--card-accent) 55%, var(--control-border));
+    box-shadow: 0 18px 40px color-mix(in srgb, var(--card-accent) 18%, transparent);
+    outline: none;
   }
 
-  .feature-card:hover {
-    transform: translateY(-8px);
-    box-shadow: var(--shadow-xl);
-    border-color: var(--color-primary-300);
-    background: var(--bg-primary);
+  .idle-card-index {
+    color: var(--card-accent);
+    font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding-top: 4px;
   }
 
-  .feature-icon {
-    width: 56px;
-    height: 56px;
-    margin: 0 auto 16px;
-    border-radius: 14px;
+  .idle-card-body {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: var(--shadow-md);
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
   }
 
-  .feature-icon svg {
-    width: 28px;
-    height: 28px;
-    color: white;
-  }
-
-  .feature-icon-1 {
-    background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
-  }
-
-  .feature-icon-2 {
-    background: linear-gradient(135deg, var(--color-blue-500) 0%, var(--color-blue-600) 100%);
-  }
-
-  .feature-icon-3 {
-    background: linear-gradient(135deg, var(--color-warning-500) 0%, var(--color-warning-600) 100%);
-  }
-
-  .feature-content h3 {
+  .idle-card-title {
+    color: var(--text-primary);
     font-size: 16px;
     font-weight: 700;
-    color: var(--text-primary);
-    margin-bottom: 6px;
   }
 
-  .feature-content p {
-    font-size: 13px;
+  .idle-card-copy {
     color: var(--text-secondary);
-  }
-
-  .floating-particles {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-  }
-
-  .particle {
-    position: absolute;
-    bottom: -10px;
-    background: var(--color-primary-400);
-    border-radius: 50%;
-    opacity: 0.15;
-    animation: float-up linear infinite;
-  }
-
-  @keyframes float-up {
-    0% {
-      transform: translateY(0) rotate(0deg);
-      opacity: 0;
-    }
-    10% {
-      opacity: 0.15;
-    }
-    90% {
-      opacity: 0.15;
-    }
-    100% {
-      transform: translateY(-100vh) rotate(720deg);
-      opacity: 0;
-    }
-  }
-
-  .prompt-carousel {
-    margin-bottom: 36px;
-    width: 100%;
-  }
-
-  .carousel-label {
     font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .idle-hint {
+    margin: 22px 0 0;
     color: var(--text-tertiary);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: 14px;
-    text-align: center;
+    font-size: 12px;
+    letter-spacing: 0.04em;
   }
 
-  .carousel-track {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    justify-content: center;
-    animation: fadeInUp 0.6s ease 1.5s both;
-  }
-
-  @keyframes fadeInUp {
-    from {
-      opacity: 0;
-      transform: translateY(16px);
+  @media (max-width: 720px) {
+    .idle-board {
+      width: min(100% - 32px, 880px);
+      padding: 12px 0 8px;
     }
-    to {
-      opacity: 1;
-      transform: translateY(0);
+
+    .idle-prompts {
+      grid-template-columns: 1fr;
+    }
+
+    .idle-title {
+      max-width: none;
     }
   }
 
-  .carousel-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-xl, 16px);
-    font-size: 13px;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all var(--transition-base, 200ms);
-    box-shadow: var(--shadow-xs);
-    max-width: 260px;
-  }
-
-  .carousel-item:hover {
-    background: var(--gradient-primary);
-    color: #ffffff;
-    border-color: transparent;
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-  }
-
-  .carousel-item:active {
-    transform: translateY(0);
-  }
-
-  .carousel-icon {
-    width: 20px;
-    height: 20px;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .carousel-icon svg {
-    width: 100%;
-    height: 100%;
-  }
-
-  .carousel-text {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  @media (prefers-reduced-motion: reduce) {
+    .idle-card,
+    .idle-card:hover,
+    .idle-card:focus-visible {
+      transition: none;
+      transform: none;
+    }
   }
 </style>

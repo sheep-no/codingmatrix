@@ -100,6 +100,17 @@ npm --prefix vscode-extension run e2e
 - 浏览器测试需要先启动前端，涉及真实 API 的用例还需要后端、Redis、数据库和测试账号。
 - `tests/e2e/test_ppt_game_ai.e2e.spec.js` 在浏览器上下文中动态注册一次性用户，调用真实 `/api/v1/pptx/generate`，验证领域化回退内容和 PPTX 下载；该用例使用根目录 `playwright.config.js` 与 Chromium 项目。
 
+浏览器场景 E2E 从仓库根目录运行，统一使用根目录 `playwright.config.js` 与 Chromium 项目：
+
+```bash
+npx --no-install playwright test tests/e2e/girlai-companion-scenarios.spec.js --config=playwright.config.js --project=chromium
+npx --no-install playwright test tests/e2e/image-generation-scenarios.spec.js --config=playwright.config.js --project=chromium
+npx --no-install playwright test tests/e2e/chart-editor-scenarios.spec.js --config=playwright.config.js --project=chromium
+npx --no-install playwright test tests/e2e/admin-panel-scenarios.spec.js --config=playwright.config.js --project=chromium
+```
+
+`admin-panel-scenarios.spec.js` 使用种子账户 `admin_test@example.com` 打开 `/admin`，覆盖模块搜索、用户管理、取消创建用户、取消退出、刷新后菜单恢复，以及日志页再进入。认证 E2E 默认邮箱见 `DEVELOPER_GUIDE.md`。
+
 ## Agent 重点回归
 
 GirlAI 结构化伙伴回合解析和字段完整性测试位于 `tests/unit/test_girlai_companion_service.py`，覆盖默认字段、降级字段、模型上下文和记忆候选组合。当前伙伴回合保持纯对话契约，不包含工具请求、任务记录或提醒字段。
@@ -175,3 +186,12 @@ Agent Host 和本地验证修改后运行 `npm --prefix vscode-extension test`�
 在 `flutter_client/` 使用 SDK `/tmp/opencode/flutter` 执行 `flutter analyze --no-pub`，结果为 `No issues found`；执行 `flutter test --no-pub --concurrency=1 --reporter expanded`，结果为 `34 passed`。验证通过受管后台终端执行，退出码 0，CPU 上限 150%、内存上限 30%、超时 240 秒；最终峰值内存约 748 MiB。日志位于 `/tmp/terminal_term_1788863400873_103.log`。
 
 新增测试覆盖安全存储适配器、重启恢复、访问令牌过期、并发及迟到 401、Cookie 合并和作用域、账号/服务隔离、刷新跨账号拒绝、退出期间在途响应与持久化、清理失败重试、HTTP/网络/JSON 脱敏、写请求禁止自动重发、Riverpod 工作台缓存隔离和退出不调用 stop。设备存储使用插件 mock；真实 KeyStore/Credential Manager/Secret Service、真实后端联调与平台构建仍待单独验收。
+
+## 最近结果（2026-09-12）
+
+- 虚拟姬场景：`tests/e2e/girlai-companion-scenarios.spec.js` 为 `2 passed`。
+- 图片生成场景：`tests/e2e/image-generation-scenarios.spec.js` 为 `2 passed`；`src/views/ImageGenerate.test.js` 为 `6 passed`。
+- 图表编辑器场景：`tests/e2e/chart-editor-scenarios.spec.js` 为 `2 passed`；`src/views/ChartEditorPage.test.js` 为 `20 passed`。
+- 管理员面板场景：`tests/e2e/admin-panel-scenarios.spec.js` 为 `2 passed`；使用 `admin_test@example.com` 打开 `/admin`，覆盖搜索、用户管理、取消对话框、刷新后菜单恢复，以及日志页再进入。
+- 能力中心：`src/views/CapabilityCenter.test.js` 为 `5 passed`，覆盖 Tab 延迟加载、错误重试、删除确认和键盘导航。
+- 搜索历史：`src/components/leftlist.test.js` 为 `4 passed`，覆盖打开搜索框、`POST /history` 关键词检索、失败重试和清除后拉全量。

@@ -437,37 +437,42 @@ const doSwitchSession = async (id) => {
 }
 const doDeleteSession = async (id) => {
   if (generation.isGenerating) {
-    ElMessage.warning('项目生成期间无法删除会话')
+    ElMessage.warning('项目生成期间无法删除项目')
     return false
   }
-  const wasCurrent = session.currentSessionId === id
+  const deletingCurrentProject = session.currentSessionId === id
   try {
     await ElMessageBox.confirm(
-      '将立即删除该托管项目及其文件，无法恢复。',
-      '删除并清理',
-      { confirmButtonText: '删除并清理', cancelButtonText: '取消', type: 'warning' }
-    )
-  } catch {
-    return false
-  }
-  if (typeof projectApi.reclaimProject === 'function') {
-    try {
-      await projectApi.reclaimProject(id)
-    } catch (error) {
-      if (error.status !== 404) {
-        ElMessage.error(error.message || '删除项目失败')
-        return false
+      '删除后，项目文件和相关记录会立即清理，且无法恢复。确认永久删除该项目？',
+      '永久删除项目',
+      {
+        confirmButtonText: '永久删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
       }
+    )
+    const deleteProject = projectApi.permanentlyDeleteProject || projectApi.reclaimProject
+    if (typeof deleteProject === 'function') {
+      await deleteProject(id)
+    }
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return false
+    if (error.status !== 404) {
+      ElMessage.error(error.message || '删除项目失败')
+      return false
     }
   }
   session.deleteSession(id)
-  if (wasCurrent) {
+  if (deletingCurrentProject) {
     files.clearAll()
     workspace.logs = []
     workspace.thinkingMessages = []
+    workspace.executionDetails = []
     workspace.currentProjectPath = null
+    taskFeedback.reset()
   }
-  ElMessage.success('项目已删除')
+  ElMessage.success('项目已永久删除')
   return true
 }
 

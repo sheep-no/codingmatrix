@@ -903,7 +903,12 @@ onMounted(() => {
 
 <style scoped>
 .admin-dashboard {
-  min-height: 100vh;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
   color: var(--text-primary);
 }

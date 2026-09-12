@@ -17,7 +17,7 @@
     <div class="docs-body">
       <aside class="docs-aside">
         <div class="aside-inner">
-          <div v-for="group in nav" :key="group.label" class="aside-group">
+          <div v-for="group in filteredNav" :key="group.label" class="aside-group">
             <div class="aside-label">{{ group.label }}</div>
             <a
               v-for="item in group.items"
@@ -30,6 +30,7 @@
               {{ item.name }}
             </a>
           </div>
+          <p v-if="search.trim() && !filteredNav.length" class="aside-empty">没有匹配的章节</p>
         </div>
       </aside>
 
@@ -37,25 +38,25 @@
         <!-- Hero -->
         <section id="overview" class="section">
           <div class="hero-card">
-            <div class="hero-kicker">Platform Overview</div>
-            <h1 class="hero-heading">CodingMatrix 智能代码生成平台</h1>
-            <p class="hero-desc">基于多 Agent 协作的 AI 开发助手，支持多模型接入、智能对话、项目生成、代码审查和工作流编排。</p>
+            <div class="hero-kicker">Workbench Guide</div>
+            <h1 class="hero-heading">CodingMatrix 智能工作台</h1>
+            <p class="hero-desc">首页对话、按需联网、Agent 项目生成、PPT 成片、AI 绘画、虚拟姬和图表编辑都在同一套工作台里完成。</p>
             <div class="hero-stats">
               <div class="stat">
+                <div class="stat-num">对话</div>
+                <div class="stat-text">流式问答与联网</div>
+              </div>
+              <div class="stat">
                 <div class="stat-num">Agent</div>
-                <div class="stat-text">协作编排</div>
+                <div class="stat-text">项目生成</div>
               </div>
               <div class="stat">
-                <div class="stat-num">多模型</div>
-                <div class="stat-text">统一接入</div>
+                <div class="stat-num">PPT</div>
+                <div class="stat-text">大纲到成片</div>
               </div>
               <div class="stat">
-                <div class="stat-num">API</div>
-                <div class="stat-text">服务集成</div>
-              </div>
-              <div class="stat">
-                <div class="stat-num">多语言</div>
-                <div class="stat-text">代码生成</div>
+                <div class="stat-num">工具</div>
+                <div class="stat-text">绘画 / 虚拟姬 / 图表</div>
               </div>
             </div>
           </div>
@@ -93,7 +94,7 @@
         <section id="providers" class="section">
           <div class="section-head">
             <h2>支持的 AI 供应商</h2>
-            <p class="section-sub">内置多个主流供应商适配器，支持自定义 base_url 接入任意兼容 OpenAI 接口的服务</p>
+            <p class="section-sub">对话与生成默认走硅基流动；设置里可再接 OpenAI 兼容的自定义供应商</p>
           </div>
           <div class="grid-2">
             <div v-for="p in providers" :key="p.name" class="provider-row">
@@ -129,65 +130,93 @@
             <h2>API Key 管理</h2>
           </div>
           <div class="content-card">
-            <p>平台使用 RSA 加密传输 API Key，服务端使用 Redis 内存存储，支持 TTL 自动过期。用户可同时配置多个供应商的 Key，系统根据任务类型自动路由到最优模型。</p>
+            <p>对话、PPT、绘画和 Agent 都走你在设置里提交的硅基流动 Key。原始 Key 只在浏览器提交，经 RSA 加密后由服务端写入 Redis，不会写进仓库。</p>
             <div class="two-col">
               <div>
                 <h4>安全机制</h4>
                 <ul>
-                  <li>RSA 公钥加密传输，防止中间人攻击</li>
-                  <li>服务端仅在 Redis 中存储，TTL 自动过期</li>
-                  <li>Token 用量统计可视化</li>
-                  <li>支持 Key 轮换，旧 Key 自动失效</li>
+                  <li>RSA 公钥加密传输</li>
+                  <li>服务端 Redis 存储，支持 TTL</li>
+                  <li>前端只保留 token 与元数据，不回显原始 Key</li>
+                  <li>聊天刷新续流时也不会把 Key 写入本地快照</li>
                 </ul>
               </div>
               <div>
                 <h4>配置步骤</h4>
                 <ol>
-                  <li>进入「设置 → API Key 管理」</li>
-                  <li>选择供应商类型</li>
-                  <li>输入 API Key，系统自动加密上传</li>
-                  <li>在「模型配置」中分配具体模型</li>
+                  <li>打开「设置 → API Key 管理」</li>
+                  <li>提交硅基流动 Key，系统自动加密上传</li>
+                  <li>需要兼容 OpenAI 接口时，再到「自定义供应商」填写 base_url</li>
+                  <li>Agent 页面可在「Agent 模型配置」里指定会话模型</li>
                 </ol>
               </div>
             </div>
           </div>
         </section>
 
-        <!-- Agent 协作 -->
-        <section id="agent" class="section">
+        <section id="chat" class="section">
           <div class="section-head">
-            <h2>Agent 协作架构</h2>
-            <p class="section-sub">四个层级的 Agent 分工协作，交叉验证确保代码质量</p>
+            <h2>首页对话与联网</h2>
+            <p class="section-sub">从侧栏回到「会话」，或打开首页输入框即可提问</p>
           </div>
-          <div class="layer-stack">
-            <div class="layer" style="--layer-color: #818cf8">
-              <div class="layer-badge" style="background: rgba(129,140,248,0.12); color: #818cf8">决策层</div>
-              <h4>Architect Agent</h4>
-              <p>分析用户需求，拆解任务为可执行子任务列表，确定技术栈和项目结构。生成需求文档和技术设计方案。</p>
+          <div class="content-card">
+            <div class="two-col">
+              <div>
+                <h4>提问方式</h4>
+                <ul>
+                  <li>未登录会先引导登录；未配置 Key 会跳到设置页</li>
+                  <li>支持深度推理、文件和图片附件</li>
+                  <li>回答以 SSE 流式输出，搜索和生成阶段会显示进度</li>
+                  <li>搜索中或回答中刷新页面，会恢复当前阶段并自动续请</li>
+                </ul>
+              </div>
+              <div>
+                <h4>联网检索</h4>
+                <ul>
+                  <li>按需联网：由快模型判断这条消息要不要搜</li>
+                  <li>联网开启 / 关闭：强制搜索或只走模型</li>
+                  <li>浅搜索一轮；多轮最多两轮，空结果会换词再搜</li>
+                  <li>空消息和打招呼会跳过检索判断</li>
+                </ul>
+              </div>
             </div>
-            <div class="layer" style="--layer-color: #34d399">
-              <div class="layer-badge" style="background: rgba(52,211,153,0.12); color: #34d399">执行层</div>
-              <h4>Frontend / Backend Agent</h4>
-              <p>根据设计方案分别生成前端和后端代码。前端负责 UI 组件、路由、状态管理；后端负责 API、数据库、业务逻辑。</p>
-            </div>
-            <div class="layer" style="--layer-color: #fbbf24">
-              <div class="layer-badge" style="background: rgba(251,191,36,0.12); color: #fbbf24">审查层</div>
-              <h4>Reviewer Agent</h4>
-              <p>对生成的代码进行质量检查：代码规范、安全漏洞、性能问题、类型安全。输出审查报告和修复建议。</p>
-            </div>
-            <div class="layer" style="--layer-color: #f87171">
-              <div class="layer-badge" style="background: rgba(248,113,113,0.12); color: #f87171">修复层</div>
-              <h4>Fixer Agent</h4>
-              <p>根据审查结果自动修复问题，支持多轮迭代直到所有检查通过。修复后的代码会重新提交审查。</p>
-            </div>
-          </div>
-          <div class="content-card" style="margin-top: 16px">
-            <h4>交叉验证机制</h4>
-            <p>每个 Agent 完成任务后，结果会被其他 Agent 交叉验证。例如 Backend Agent 生成的 API 会被 Frontend Agent 验证接口兼容性，确保前后端联调无误。</p>
+            <h4>侧栏历史</h4>
+            <ul>
+              <li>登录后侧栏列出最近对话，点击即可继续</li>
+              <li>工具集「搜索历史」打开搜索框，按提示词关键词筛选当前用户会话</li>
+              <li>清除关键词或关闭搜索框后，重新加载全部记录</li>
+            </ul>
           </div>
         </section>
 
-        <!-- 项目生成 -->
+        <section id="ppt" class="section">
+          <div class="section-head">
+            <h2>PPT 生成</h2>
+            <p class="section-sub">工具集 → PPT 生成，三步完成大纲到成片</p>
+          </div>
+          <div class="content-card">
+            <div class="two-col">
+              <div>
+                <h4>三步流程</h4>
+                <ol>
+                  <li>填写主题，页数默认自动，也可选约 8 / 12 / 16 / 20 页</li>
+                  <li>大纲流式起草：主区逐页出现卡片，刷新后会继续起草</li>
+                  <li>审阅时可增删、重排和改稿，确认后导出成片</li>
+                </ol>
+              </div>
+              <div>
+                <h4>成片与历史</h4>
+                <ul>
+                  <li>导出进度走 WebSocket，刷新后按任务 ID 续看</li>
+                  <li>成片主区显示进度条和页清单</li>
+                  <li>删除前确认后立即清文件</li>
+                  <li>生成物默认保留 30 天</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="project" class="section">
           <div class="section-head">
             <h2>项目生成与管理</h2>
@@ -197,25 +226,87 @@
               <div>
                 <h4>生成流程</h4>
                 <ol>
-                  <li>在 Agent 面板输入项目需求描述</li>
-                  <li>Architect Agent 分析需求并生成任务计划</li>
-                  <li>用户确认后多 Agent 并行执行</li>
-                  <li>实时查看生成进度和中间产物</li>
-                  <li>生成完成后在线预览、编辑或下载</li>
+                  <li>打开工具集「项目」，进入 Agent 工作台</li>
+                  <li>输入需求并发送，云端以 SSE 流式返回思考和文件</li>
+                  <li>需要本地执行时，Agent Host 会弹出审批</li>
+                  <li>工作区展示进度、文件树、验证结果和待决策项</li>
+                  <li>完成后可预览、下载或继续改需求</li>
                 </ol>
               </div>
               <div>
-                <h4>支持的项目类型</h4>
+                <h4>工作台能力</h4>
                 <ul>
-                  <li><strong>Web 应用</strong> — Vue/React + Node.js/Python/Go</li>
-                  <li><strong>API 服务</strong> — FastAPI / Express / Gin</li>
-                  <li><strong>CLI 工具</strong> — Python Click / Go Cobra</li>
-                  <li><strong>静态站点</strong> — HTML/CSS/JS + Tailwind</li>
+                  <li>会话历史、模型上下文和 Skills 同步</li>
+                  <li>手机端单列布局，会话和文件从抽屉打开</li>
+                  <li>VS Code 扩展可承接本地验证和 Host 动作</li>
+                  <li>删除会话前会确认，确认后立即清记录</li>
                 </ul>
-                <h4>Git 集成</h4>
-                <p>支持推送到 GitHub，自动创建仓库、初始化分支、提交代码。支持分支管理和 Merge Request。</p>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section id="tools" class="section">
+          <div class="section-head">
+            <h2>工具集</h2>
+            <p class="section-sub">侧栏「工具集」入口，菜单可滚动</p>
+          </div>
+          <div class="content-card">
+            <div class="two-col">
+              <div>
+                <h4>工作台与创作</h4>
+                <ul>
+                  <li>项目 / 能力 / 文档 / 设置：进入对应页面</li>
+                  <li>PPT 生成、AI 绘画、虚拟姬、图表编辑器</li>
+                  <li>图表支持 XLSX / XLS / CSV / JSON，导出 PNG</li>
+                </ul>
+              </div>
+              <div>
+                <h4>工程与历史</h4>
+                <ul>
+                  <li>Docker 配置、临时工作流</li>
+                  <li>搜索历史：按关键词筛选侧栏对话，请求 POST /api/v1/history</li>
+                  <li>能力中心五个面板：视觉工具、知识库、代码沙箱、Skills、Agent Host</li>
+                  <li>超级用户可从工具集打开管理员面板；admin 也可访问 /admin</li>
+                  <li>管理后台：监控、日志、用户、Nginx、服务管理、资源配置；超级管理员另有模型管理与并发仪表板</li>
+                  <li>外观支持白天、夜晚、随系统</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Agent 协作 -->
+        <section id="agent" class="section">
+          <div class="section-head">
+            <h2>Agent 工作台</h2>
+            <p class="section-sub">云端流式编排 + 本地 Host 执行，会话、文件和验证在同一页完成</p>
+          </div>
+          <div class="layer-stack">
+            <div class="layer" style="--layer-color: #818cf8">
+              <div class="layer-badge" style="background: rgba(129,140,248,0.12); color: #818cf8">云端</div>
+              <h4>编排与流式输出</h4>
+              <p>需求经 /api/v1/agent/orchestrate/stream 流式返回思考、步骤和生成文件。会话可暂停、恢复和取消。</p>
+            </div>
+            <div class="layer" style="--layer-color: #34d399">
+              <div class="layer-badge" style="background: rgba(52,211,153,0.12); color: #34d399">本地</div>
+              <h4>Agent Host</h4>
+              <p>读写工作区、跑终端和本地验证前会先审批。断线后的验证结果会排队，恢复连接再回传。</p>
+            </div>
+            <div class="layer" style="--layer-color: #fbbf24">
+              <div class="layer-badge" style="background: rgba(251,191,36,0.12); color: #fbbf24">技能</div>
+              <h4>Skills</h4>
+              <p>系统、用户和工作区 Skills 按命名空间隔离，可在能力中心管理并同步到工作台。</p>
+            </div>
+            <div class="layer" style="--layer-color: #f87171">
+              <div class="layer-badge" style="background: rgba(248,113,113,0.12); color: #f87171">反馈</div>
+              <h4>统一任务反馈</h4>
+              <p>Agent、工作流、PPT 和绘画共用状态、进度、耗时和下一步操作，失败可重试，完成后可预览或下载。</p>
+            </div>
+          </div>
+          <div class="content-card" style="margin-top: 16px">
+            <h4>能力中心</h4>
+            <p>工具集「能力」打开 /capabilities。视觉工具调用 /api/v1/vision；知识库走 /api/v1/aicloud/knowledge；代码沙箱执行 /api/v1/aicloud/execute；Skills 走 /api/v1/skills；Agent Host 列出 /api/v1/agent/host/sessions。</p>
           </div>
         </section>
 
@@ -270,7 +361,10 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 
 # 前端
-cd src && npm install && npm run dev</code></pre>
+cd src && npm install && npm run dev
+
+# PPT 成片（可选）
+celery -A app.celery_app worker --loglevel=info</code></pre>
               </div>
             </div>
             <h4>生产部署</h4>
@@ -279,7 +373,7 @@ cd src && npm run build
 
 # 启动（自动服务静态文件）
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4</code></pre>
-            <p>生产环境建议 Docker Compose 编排，包含 Redis、Nginx 反向代理、健康检查。</p>
+            <p>生产环境可用 Docker Compose 编排 Redis、Celery、Nginx 反向代理和健康检查。PPT 在 PPT_USE_CELERY=true 时由 Celery worker 导出成片。</p>
           </div>
         </section>
 
@@ -325,12 +419,13 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4</code></pre>
           <div class="notice-box">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             <div>
-              <strong>在线编译限制：</strong>仅支持 <strong>Python</strong> 和 <strong>JavaScript</strong> 在线运行。其他语言生成的代码需在本地验证。
+              <strong>代码沙箱：</strong>能力中心可在线运行 <strong>Python</strong>、<strong>JavaScript</strong> 和 <strong>Go</strong>。Agent 生成的其他语言由 Host 在本地验证。
             </div>
           </div>
           <div class="lang-chips">
             <span class="chip chip-ok">Python</span>
             <span class="chip chip-ok">JavaScript</span>
+            <span class="chip chip-ok">Go</span>
             <span v-for="l in langs" :key="l" class="chip">{{ l }}</span>
           </div>
         </section>
@@ -356,9 +451,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4</code></pre>
         </section>
 
         <footer class="docs-foot">
-          <span>CodingMatrix &copy; 2024</span>
+          <span>CodingMatrix &copy; 2026</span>
           <span class="foot-sep">&middot;</span>
-          <span>智能代码生成平台</span>
+          <span>智能工作台</span>
         </footer>
       </main>
     </div>
@@ -366,7 +461,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4</code></pre>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 
 const search = ref('')
 const active = ref('overview')
@@ -407,10 +502,13 @@ const nav = [
   { label: '使用指南', items: [
     { id: 'quickstart', name: '快速开始' },
     { id: 'apikey', name: 'API Key 管理' },
+    { id: 'chat', name: '首页对话' },
+    { id: 'ppt', name: 'PPT 生成' },
     { id: 'project', name: '项目生成' },
+    { id: 'tools', name: '工具集' },
   ]},
   { label: '架构与技术', items: [
-    { id: 'agent', name: 'Agent 协作' },
+    { id: 'agent', name: 'Agent 工作台' },
     { id: 'special', name: '特色功能' },
     { id: 'architecture', name: '技术架构' },
     { id: 'deployment', name: '部署指南' },
@@ -422,88 +520,93 @@ const nav = [
   ]},
 ]
 
+const filteredNav = computed(() => {
+  const query = search.value.trim().toLowerCase()
+  if (!query) return nav
+  return nav
+    .map(group => ({
+      ...group,
+      items: group.items.filter(item => item.name.toLowerCase().includes(query))
+    }))
+    .filter(group => group.items.length)
+})
+
 const features = [
-  { id: 'chat', icon: '💬', title: '智能对话与代码生成', brief: '支持多轮对话，自动理解需求并生成代码',
+  { id: 'chat', icon: '💬', title: '首页对话与联网', brief: '流式问答，按需检索，刷新后续上搜索或回答',
     blocks: [
-      { title: '对话能力', text: '基于大语言模型的多轮对话引擎，支持上下文记忆、意图识别、代码补全。用户用自然语言描述需求，系统自动生成可运行代码。' },
-      { title: '支持语言', list: ['Python — Flask / FastAPI / Django', 'JavaScript / TypeScript — React / Vue / Next.js / Express', 'Go — Gin / Echo', 'Rust — Actix / Axum', 'Java — Spring Boot', 'PHP — Laravel'] },
-      { title: '在线测试', text: 'Python 和 JavaScript 支持服务端在线编译运行。其他语言生成代码后需在本地测试。' },
+      { title: '怎么用', text: '在首页输入问题。可开关联网、选择浅搜索或两轮搜索，并附带文件或图片。' },
+      { title: '联网', list: ['按需联网由快模型判断', '强制开启或关闭联网', '空结果会换词再搜', '搜索中或回答中刷新会自动续请'] },
     ]},
-  { id: 'collab', icon: '🤖', title: '多 Agent 协作', brief: '决策、执行、审查、修复四层分工',
+  { id: 'collab', icon: '🤖', title: 'Agent 项目生成', brief: '云端流式编排，本地 Host 审批执行',
     blocks: [
-      { title: '工作流程', text: 'Architect 分析需求拆解任务 → Frontend/Backend 并行生成代码 → Reviewer 质量审查 → Fixer 自动修复。支持实时进度查看。' },
-      { title: '交叉验证', text: '每个 Agent 的输出会被其他 Agent 交叉验证。后端生成的 API 会被前端验证接口兼容性。' },
-      { title: '质量保障', text: 'Reviewer 检查代码规范、安全漏洞、性能问题。Fixer 根据报告自动修复，支持多轮迭代。' },
+      { title: '工作流程', text: '在工具集打开「项目」，发送需求后查看思考、文件和验证结果。本地动作需审批。' },
+      { title: '同步', text: 'Skills 可在能力中心管理。VS Code 扩展可承接本地验证。' },
     ]},
-  { id: 'provider', icon: '☁️', title: '多供应商支持', brief: '内置主流供应商，支持自定义接入',
+  { id: 'provider', icon: '☁️', title: '模型接入', brief: '硅基流动内置，自定义供应商可补 OpenAI 兼容接口',
     blocks: [
-      { title: '内置供应商', text: '硅基流动、阿里百炼、智谱 AI、DeepSeek、OpenAI、Anthropic、Google Gemini、Moonshot。' },
-      { title: '自定义接入', text: '通过自定义 base_url + 协议类型接入任意兼容 OpenAI 接口的服务，包括 Ollama、vLLM 等。' },
-      { title: '智能路由', text: '根据任务类型自动选择最优模型，支持手动覆盖。' },
+      { title: '内置', text: '硅基流动提供对话、推理、代码、绘画和 OCR 等模型，例如 DeepSeek R1、Qwen、GLM、Kolors。' },
+      { title: '自定义', text: '设置 → 自定义供应商，填写兼容 OpenAI 的 base_url。' },
     ]},
-  { id: 'projgen', icon: '📂', title: '项目生成与管理', brief: '输入需求一键生成完整项目',
+  { id: 'projgen', icon: '📂', title: 'PPT 与成片', brief: '流式大纲、审阅改稿、WebSocket 导出',
     blocks: [
-      { title: '生成流程', text: '输入需求 → Architect 生成计划 → 用户确认 → 多 Agent 并行执行 → 在线预览/编辑/下载。' },
-      { title: 'Git 集成', text: '支持推送到 GitHub，自动创建仓库、分支管理、Merge Request。' },
+      { title: '流程', text: '主题 → 流式大纲 → 增删重排 → 导出。页数默认自动。' },
+      { title: '进度', text: '起草和导出刷新后都能续上。历史删除立即清文件，产物默认保留 30 天。' },
     ]},
-  { id: 'keym', icon: '🔑', title: 'API Key 管理', brief: 'RSA 加密传输，Redis 内存存储',
+  { id: 'keym', icon: '🔑', title: 'API Key 管理', brief: 'RSA 加密提交，Redis 存储 token',
     blocks: [
-      { title: '安全机制', text: 'RSA 公钥加密传输，Redis TTL 自动过期，敏感信息不出日志。' },
-      { title: '多供应商', text: '同时配置多个供应商 Key，系统自动路由。Token 用量可视化。' },
+      { title: '安全机制', text: '浏览器提交原始 Key，服务端只存加密结果和 token。刷新续流不会把 Key 写入本地。' },
+      { title: '入口', text: '设置 → API Key 管理。未配置 Key 时对话会引导到设置页。' },
     ]},
-  { id: 'more', icon: '✨', title: '更多功能', brief: 'PPT 生成、图像生成、知识库等',
+  { id: 'more', icon: '✨', title: '工具与能力', brief: '绘画、虚拟姬、图表、知识库和沙箱',
     blocks: [
-      { title: '功能列表', list: ['PPT 自动生成 — 模板、图片搜索、PDF 导出', '图像生成 — Kolors 模型，文生图/图生图', 'GirlAI 虚拟助手', '知识库管理与 RAG 检索', 'Docker / Nginx 可视化管理', '系统监控与日志'] },
+      { title: '工具集', list: ['AI 绘画 — Kolors 文生图', '虚拟姬 — 回合式陪伴对话', '图表编辑器 — 表格导入与 PNG 导出', '能力中心 — 视觉、知识库、沙箱、Skills、Host', '搜索历史 — 按关键词筛选侧栏对话', '管理员面板 — 监控、日志、用户与系统配置'] },
     ]},
 ]
 
 const providers = [
-  { name: '硅基流动', desc: '国产高性能推理平台', models: 'Qwen / DeepSeek / GLM' },
-  { name: '阿里百炼', desc: '阿里云 AI 服务', models: 'Qwen-Turbo / Plus / Max' },
-  { name: '智谱 AI', desc: '清华系大模型', models: 'GLM-4 / CogView' },
-  { name: 'DeepSeek', desc: '深度求索', models: 'DeepSeek-V2 / Coder' },
-  { name: 'OpenAI', desc: '全球领先 AI 公司', models: 'GPT-4o / o1' },
-  { name: 'Anthropic', desc: 'AI 安全研究', models: 'Claude 3.5 Sonnet' },
-  { name: 'Google', desc: '谷歌 AI', models: 'Gemini Pro / Flash' },
-  { name: 'Moonshot', desc: '月之暗面', models: 'Moonshot-v1 系列' },
+  { name: '硅基流动', desc: '默认对话、推理、代码、绘画入口', models: 'DeepSeek R1 / Qwen / GLM / Kolors' },
+  { name: '自定义供应商', desc: '设置里填写 OpenAI 兼容 base_url', models: '按你接入的服务而定' },
 ]
 
 const steps = [
-  { title: '配置 API Key', text: '进入「设置 → API Key 管理」，添加至少一个供应商的 Key。推荐硅基流动或 DeepSeek。' },
-  { title: '选择模型', text: '在「设置 → 模型配置」中为不同任务分配模型。系统会推荐可用模型。' },
-  { title: '开始对话', text: '进入 Agent 面板，输入项目需求。Architect 会分析需求并生成任务计划。' },
-  { title: '确认执行', text: '查看计划后点击「开始执行」，多 Agent 并行工作，实时查看进度。' },
-  { title: '预览下载', text: '生成完成后在线预览、编辑，或打包下载、推送到 GitHub。' },
+  { title: '登录工作台', text: '打开首页，用已有账号登录。未登录时发送消息会弹出登录。' },
+  { title: '配置硅基流动 Key', text: '进入「设置 → API Key 管理」，提交 Key。系统用 RSA 加密上传。' },
+  { title: '先在首页提问', text: '需要查资料时打开联网。按需模式由模型判断；搜索或回答中刷新会自动续上。' },
+  { title: '按任务打开工具', text: 'PPT、绘画、虚拟姬、图表、项目都在侧栏工具集。能力页管理视觉、知识库、沙箱、Skills 和 Host。搜索历史用来筛选侧栏对话。超级用户可从工具集打开管理员面板，admin 也可访问 /admin。' },
+  { title: '查看结果', text: '对话在首页继续；PPT 和绘画可看历史；Agent 在工作台预览文件。删除都是永久删除。' },
 ]
 
 const specials = [
-  { icon: '📊', title: 'PPT 自动生成', desc: '输入主题生成演示文稿，支持模板和 PDF 导出' },
-  { icon: '🎨', title: '图像生成', desc: 'Kolors 模型，文生图、图生图、风格迁移' },
-  { icon: '💬', title: 'GirlAI 助手', desc: '虚拟 AI 助手，个性化对话和知识问答' },
-  { icon: '📚', title: '知识库', desc: '上传文档构建知识库，RAG 检索增强生成' },
-  { icon: '🐳', title: 'Docker 管理', desc: '容器管理、镜像构建、资源监控' },
-  { icon: '🌐', title: 'Nginx 配置', desc: '可视化配置，反向代理、SSL、负载均衡' },
-  { icon: '📈', title: '系统监控', desc: 'CPU/内存/磁盘/网络实时监控' },
-  { icon: '🔄', title: '工作流编排', desc: '可视化管理，审批、执行、重试' },
+  { icon: '📊', title: 'PPT 生成', desc: '流式大纲、审阅改稿、导出成片，刷新不丢进度' },
+  { icon: '🎨', title: 'AI 绘画', desc: 'Kolors 文生图，历史可删，产物默认保留 30 天' },
+  { icon: '💬', title: '虚拟姬', desc: '回合式陪伴对话，使用当前用户的 API Key' },
+  { icon: '📚', title: '知识库', desc: '在能力中心上传文档，供检索增强' },
+  { icon: '🐳', title: 'Docker 配置', desc: '工具集里打开容器相关配置' },
+  { icon: '📈', title: '图表编辑器', desc: '导入表格数据，六类图表，导出 PNG' },
+  { icon: '🛠️', title: '能力中心', desc: '视觉、知识库、沙箱、Skills 与 Host' },
+  { icon: '🔍', title: '搜索历史', desc: '按提示词关键词筛选侧栏对话，清除后恢复全部记录' },
+  { icon: '🔧', title: '管理员面板', desc: '监控、日志、用户、Nginx、服务与资源配置；超级管理员另有模型管理与并发仪表板' },
+  { icon: '🔄', title: '临时工作流', desc: '短任务编排，状态与重试跟 Agent 同一套反馈' },
 ]
 
 const stack = [
-  { layer: '前端', tech: 'Vue 3 + Vite + Element Plus + Pinia', note: '单页应用，组件化，响应式状态' },
-  { layer: '后端', tech: 'FastAPI + SQLAlchemy + SQLite + Redis', note: '异步 API，ORM，内存缓存，任务队列' },
-  { layer: 'AI 层', tech: '多供应商适配器 + 模型路由器 + Agent 引擎', note: '统一封装，智能路由，任务编排' },
-  { layer: '基础设施', tech: 'Docker + Nginx + WebSocket + SSE', note: '容器化，反向代理，实时通信' },
+  { layer: '前端', tech: 'Vue 3 + Vite + Pinia + Element Plus', note: '工作台路由、SSE 消费、主题切换' },
+  { layer: '后端', tech: 'FastAPI + SQLAlchemy + SQLite + Redis + Celery', note: '对话、PPT 队列、Key 与会话' },
+  { layer: 'AI 层', tech: '硅基流动模型目录 + 自定义 OpenAI 兼容供应商', note: '对话检索规划、Agent 编排、Kolors 绘画' },
+  { layer: '实时通道', tech: 'SSE + WebSocket', note: '聊天/Agent 走 SSE，PPT 导出走 WebSocket' },
 ]
 
-const langs = ['Go', 'Rust', 'Java', 'C/C++', 'PHP', 'Ruby', 'Swift', 'Kotlin', 'C#', 'TypeScript', 'Shell', 'SQL', 'HTML/CSS']
+const langs = ['Rust', 'Java', 'C/C++', 'PHP', 'Ruby', 'Swift', 'Kotlin', 'C#', 'TypeScript', 'Shell', 'SQL', 'HTML/CSS']
 
 const faqs = [
-  { q: '支持哪些编程语言？', a: ['在线编译支持 Python 和 JavaScript。代码生成覆盖 Go、Rust、Java、C/C++、PHP、Ruby、Swift、Kotlin 等常用语言。', '其他语言需在本地测试运行。'] },
-  { q: 'API Key 如何保证安全？', a: ['RSA 公钥加密传输，服务端仅 Redis 内存存储，TTL 自动过期。', '密钥不出现在日志、前端响应或数据库中。'] },
-  { q: '生成失败怎么办？', a: ['检查 Key 有效性和余额。查看系统日志了解错误原因。', '尝试更换模型或供应商。复杂项目可简化需求后重试。'] },
-  { q: '如何选择合适的模型？', a: ['架构设计推荐 GPT-4o 或 Claude 3.5 Sonnet。代码生成推荐 DeepSeek-Coder 或 Qwen-Plus。', '系统支持自动路由，也可手动指定。'] },
-  { q: '可以同时运行多个项目吗？', a: ['每用户最多 2 个并发会话。超时 10 分钟自动清理。'] },
-  { q: '如何推送到 GitHub？', a: ['生成完成后点击「推送到 GitHub」，首次需授权。系统自动创建仓库并提交代码。'] },
-  { q: '支持私有部署吗？', a: ['支持。需要 Python 3.10+、Node.js 18+、Redis 6+。参考「部署指南」章节。'] },
+  { q: '为什么一提问就让我去设置？', a: ['对话、PPT 和绘画都要先有硅基流动 Key。', '打开「设置 → API Key 管理」提交后即可。'] },
+  { q: '按需联网会不会每句都搜？', a: ['按需模式由快模型判断。空消息和打招呼会跳过。', '需要稳定检索时把联网改成开启；只要模型时改成关闭。'] },
+  { q: '搜索或回答到一半刷新会丢吗？', a: ['不会。首页会恢复当前阶段并自动再请求。', 'PPT 大纲起草和成片导出同样会按本地会话续上。'] },
+  { q: 'PPT 一定要指定页数吗？', a: ['默认自动。需要大致篇幅时再选约 8 / 12 / 16 / 20 页。'] },
+  { q: '删掉的对话或 PPT 还能找回吗？', a: ['不能。删除前会确认，确认后立即清记录和文件。'] },
+  { q: '怎么找以前的对话？', a: ['登录后侧栏列出最近会话，点击即可继续。', '工具集「搜索历史」按提示词关键词筛选；清除关键词后恢复全部列表。'] },
+  { q: 'API Key 存在哪？', a: ['浏览器用 RSA 加密提交，服务端放 Redis。', '前端本地只留 token 和元数据，原始 Key 不入库、不进仓库。'] },
+  { q: '支持私有部署吗？', a: ['支持。需要 Python 3.10+、Node.js 18+、Redis 6+。参考「部署指南」。'] },
 ]
 </script>
 
@@ -511,7 +614,8 @@ const faqs = [
 .docs-page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   background: var(--bg-secondary, #f8fafc);
   color: var(--text-primary, #1e293b);
   overflow: hidden;
@@ -603,6 +707,11 @@ const faqs = [
 .docs-aside::-webkit-scrollbar { width: 3px; }
 .docs-aside::-webkit-scrollbar-thumb { background: var(--border-color, #e2e8f0); border-radius: 2px; }
 .aside-inner { padding: 16px 0; }
+.aside-empty {
+  margin: 8px 16px 0;
+  font-size: 12px;
+  color: var(--text-tertiary, #94a3b8);
+}
 .aside-group { margin-bottom: 20px; }
 .aside-label {
   font-size: 11px;

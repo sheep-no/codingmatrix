@@ -18,7 +18,7 @@
         <span>AI PPT 生成</span>
       </div>
       <div class="header-actions">
-         <button class="header-btn" type="button" title="生成历史" :aria-expanded="showHistoryPanel" aria-controls="ppt-history-panel" @click="showHistoryPanel = !showHistoryPanel">
+         <button class="header-btn" type="button" title="生成历史" :aria-expanded="showHistoryPanel" aria-controls="ppt-history-panel" @click="toggleHistory">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
             <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
           </svg>
@@ -127,16 +127,16 @@
           <div class="advanced-options">
             <div class="option-item">
               <label class="option-label">
-                <span>最终总页数（含封面）</span>
+                <span>页数</span>
                 <select v-model="slideCount" class="option-select">
-                  <option value="5">5 页 (简洁)</option>
-                  <option value="10">10 页 (标准)</option>
-                  <option value="15">15 页 (详细)</option>
-                  <option value="20">20 页 (完整)</option>
-                  <option value="30">30 页 (深度)</option>
-                  <option value="50">50 页 (全面)</option>
+                  <option value="auto">自动（按主题决定）</option>
+                  <option value="8">约 8 页</option>
+                  <option value="12">约 12 页</option>
+                  <option value="16">约 16 页</option>
+                  <option value="20">约 20 页</option>
                 </select>
               </label>
+              <p class="option-hint">默认按主题复杂度自动决定页数，也可指定大致页数作为参考。</p>
             </div>
             <div class="option-item">
               <label class="option-label">
@@ -161,43 +161,6 @@
               </label>
             </div>
           </div>
-        </div>
-
-        <div v-if="workflowStep >= 2" class="outline-review-panel">
-          <div class="workflow-heading">
-            <span>第 2 步：审阅大纲</span>
-            <div class="workflow-heading-actions">
-              <span class="outline-total">预计最终 {{ outlineSlides.length + 1 }} 页（含封面）</span>
-              <span class="workflow-version">v{{ outlineDraft?.version || 1 }}</span>
-              <button class="outline-add-btn" type="button" :disabled="outlineSlides.length >= 49" @click="addOutlineSlide">新增页面</button>
-            </div>
-          </div>
-          <div v-for="(slide, index) in outlineSlides" :key="slide.id" class="outline-slide-editor">
-            <span class="outline-index">{{ index + 1 }}</span>
-            <div class="outline-fields">
-              <select v-model="slide.slide_type" class="outline-type-select" aria-label="页面类型">
-                <option value="key_points">要点页</option>
-                <option value="comparison">对比页</option>
-                <option value="timeline">时间线</option>
-                <option value="data_chart">数据图表</option>
-                <option value="closing">结论页</option>
-              </select>
-              <input v-model="slide.title" class="outline-title-input" placeholder="页面标题" />
-              <input v-model="slide.key_message" class="outline-message-input" placeholder="页面核心结论" />
-              <textarea v-model="slide.content_blocks[0].content" class="outline-content-input" rows="2" placeholder="页面内容"></textarea>
-              <div v-if="slideValidationMessages(slide).length" class="outline-validation">
-                {{ slideValidationMessages(slide).join('；') }}
-              </div>
-            </div>
-            <div class="outline-slide-actions">
-              <button class="outline-move-up" type="button" :disabled="index === 0" :aria-label="`上移第 ${index + 1} 页`" @click="moveOutlineSlide(index, -1)">上移</button>
-              <button class="outline-move-down" type="button" :disabled="index === outlineSlides.length - 1" :aria-label="`下移第 ${index + 1} 页`" @click="moveOutlineSlide(index, 1)">下移</button>
-              <button class="outline-remove" type="button" :disabled="outlineSlides.length === 1" :aria-label="`删除第 ${index + 1} 页`" @click="removeOutlineSlide(index)">删除</button>
-            </div>
-          </div>
-          <button class="generate-btn outline-approve-btn" :disabled="outlineSaving || !outlineCanApprove" @click="approveOutline">
-            {{ outlineSaving ? '正在保存...' : '批准大纲并继续' }}
-          </button>
         </div>
 
         <div v-if="workflowStep === 3" class="quality-mode-panel">
@@ -236,16 +199,91 @@
       </aside>
 
       <main class="preview-panel">
-        <div v-if="!generatedSlides.length && !generating && !generatedFileUrl" class="preview-placeholder">
+        <div v-if="outlineDrafting" class="outline-drafting" role="status">
+          <div class="spinner-ring"></div>
+          <h3>正在生成大纲</h3>
+          <p>{{ outlineStages[outlineStageIndex] }}</p>
+          <ol class="stage-list">
+            <li v-for="(stage, index) in outlineStages" :key="stage" :class="{ done: index < outlineStageIndex, current: index === outlineStageIndex }">
+              {{ stage }}
+            </li>
+          </ol>
+          <ol v-if="outlineSlides.length" class="generation-slide-list">
+            <li v-for="(slide, index) in outlineSlides" :key="slide.id || index" class="done">
+              <span>{{ index + 1 }}</span>
+              <strong>{{ slide.title || `第 ${index + 1} 页` }}</strong>
+            </li>
+          </ol>
+        </div>
+
+        <div v-else-if="workflowStep >= 2 && !generating && !generatedFileUrl" class="outline-review-panel">
+          <div class="workflow-heading">
+            <span>第 2 步：审阅大纲</span>
+            <div class="workflow-heading-actions">
+              <span class="outline-total">当前 {{ outlineSlides.length }} 页内容（另加封面）</span>
+              <span class="workflow-version">v{{ outlineDraft?.version || 1 }}</span>
+              <button class="outline-add-btn" type="button" :disabled="outlineSlides.length >= 49" @click="addOutlineSlide">新增页面</button>
+            </div>
+          </div>
+          <div class="outline-board">
+            <div v-for="(slide, index) in outlineSlides" :key="slide.id" class="outline-slide-editor">
+              <span class="outline-index">{{ index + 1 }}</span>
+              <div class="outline-fields">
+                <select v-model="slide.slide_type" class="outline-type-select" aria-label="页面类型">
+                  <option value="key_points">要点页</option>
+                  <option value="comparison">对比页</option>
+                  <option value="timeline">时间线</option>
+                  <option value="data_chart">数据图表</option>
+                  <option value="closing">结论页</option>
+                </select>
+                <input v-model="slide.title" class="outline-title-input" placeholder="页面标题" />
+                <input v-model="slide.key_message" class="outline-message-input" placeholder="页面核心结论" />
+                <textarea v-model="slide.content_blocks[0].content" class="outline-content-input" rows="3" placeholder="页面内容"></textarea>
+                <div v-if="slideValidationMessages(slide).length" class="outline-validation">
+                  {{ slideValidationMessages(slide).join('；') }}
+                </div>
+              </div>
+              <div class="outline-slide-actions">
+                <button class="outline-move-up" type="button" :disabled="index === 0" :aria-label="`上移第 ${index + 1} 页`" @click="moveOutlineSlide(index, -1)">上移</button>
+                <button class="outline-move-down" type="button" :disabled="index === outlineSlides.length - 1" :aria-label="`下移第 ${index + 1} 页`" @click="moveOutlineSlide(index, 1)">下移</button>
+                <button class="outline-remove" type="button" :disabled="outlineSlides.length === 1" :aria-label="`删除第 ${index + 1} 页`" @click="removeOutlineSlide(index)">删除</button>
+              </div>
+            </div>
+          </div>
+          <button class="generate-btn outline-approve-btn" :disabled="outlineSaving || !outlineCanApprove" @click="approveOutline">
+            {{ outlineSaving ? '正在保存...' : '批准大纲并继续' }}
+          </button>
+        </div>
+
+        <div v-else-if="!generatedSlides.length && !generating && !generatedFileUrl" class="preview-placeholder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
           </svg>
           <p>描述您的想法，AI Agent 将自动完成大纲、排版和配图</p>
         </div>
 
-        <div v-if="generating && !generatedSlides.length" class="loading-container">
-          <div class="spinner-ring"></div>
-          <p>正在生成幻灯片...</p>
+        <div v-else-if="generating && !generatedFileUrl" class="generation-live">
+          <div class="progress-section">
+            <div class="progress-header">
+              <span class="progress-title">正在生成 PPT</span>
+              <span class="progress-percentage">{{ generationPercent }}%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: generationPercent + '%' }"></div>
+            </div>
+            <p class="progress-step">{{ progressState?.step || 'starting' }}</p>
+            <p class="progress-message">{{ progressState?.message || '正在准备生成任务...' }}</p>
+          </div>
+          <ol class="generation-slide-list">
+            <li
+              v-for="(slide, index) in outlineSlides"
+              :key="slide.id"
+              :class="{ current: currentRenderingIndex === index, done: currentRenderingIndex > index }"
+            >
+              <span>{{ index + 1 }}</span>
+              <strong>{{ slide.title || `第 ${index + 1} 页` }}</strong>
+            </li>
+          </ol>
         </div>
 
         <div v-else-if="generatedFileUrl" class="success-container">
@@ -337,21 +375,26 @@
         </div>
         <div class="history-panel-body">
           <div v-if="loadingHistory" class="history-loading">加载中...</div>
+          <div v-else-if="historyError" class="history-empty" role="alert">
+            <p>{{ historyError }}</p>
+            <button type="button" class="history-action-btn" @click="loadHistory">重新加载</button>
+          </div>
           <div v-else-if="historyList.length === 0" class="history-empty">暂无历史记录</div>
           <div v-else class="history-list">
             <div v-for="item in historyList" :key="item.task_id" class="history-card">
               <div class="history-card-header">
-                <span class="history-card-title">{{ item.topic || '未命名' }}</span>
-                <span class="history-card-time">{{ new Date(item.created_at).toLocaleString('zh-CN') }}</span>
+                <span class="history-card-title">{{ historyTitle(item) }}</span>
+                <span class="history-card-time">{{ historyTime(item) }}</span>
               </div>
               <div class="history-card-meta">
                 <span>{{ item.slide_count || '-' }} 页</span>
-                <span>{{ item.template || 'modern' }}</span>
+                <span>{{ item.has_file === false ? '无成品文件' : '可预览' }}</span>
               </div>
               <div class="history-card-actions">
-                <button class="history-action-btn" @click="downloadHistory(item.task_id)">下载</button>
-                <button class="history-action-btn" @click="loadFromHistory(item)">加载</button>
-                <button class="history-action-btn delete" @click="deleteHistory(item.task_id)">删除</button>
+                <button class="history-action-btn history-preview-btn" type="button" :disabled="item.has_file === false" @click="previewHistory(item)">预览</button>
+                <button class="history-action-btn history-load-btn" type="button" @click="loadFromHistory(item)">加载</button>
+                <button class="history-action-btn" type="button" :disabled="item.has_file === false" @click="downloadHistory(item.task_id)">下载</button>
+                <button class="history-action-btn delete" type="button" @click="deleteHistory(item.task_id)">删除</button>
               </div>
             </div>
           </div>
@@ -362,7 +405,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useApiKeyStore } from '@/stores/apikey'
 import { api } from '@/utils/api/index'
@@ -386,7 +429,7 @@ const templateListError = ref(false)
 const scenarioNames = { business: '商务汇报', data_report: '数据报告', product_pitch: '产品路演', academic: '学术研究', education: '教育培训', general: '通用' }
 const scenarioLabel = scenario => scenarioNames[scenario] || scenario
 const templateName = id => templates.value.find(template => template.id === id)?.name || id
-const slideCount = ref('10')
+const slideCount = ref('auto')
 const outputFormat = ref('pptx')
 const autoImages = ref(true)
 const enableAnimation = ref(true)
@@ -394,6 +437,7 @@ const workflowStep = ref(1)
 const outlineDraft = ref(null)
 const outlineSlides = ref([])
 const outlineSaving = ref(false)
+const outlineDrafting = ref(false)
 const qualityMode = ref('standard')
 const qualityModes = [
   { id: 'standard', name: '标准模式', description: '规则质检和自动重排，速度更快' },
@@ -403,6 +447,12 @@ const generating = ref(false)
 const generatedSlides = ref([])
 const generatedFileUrl = ref('')
 const progressState = ref(null)
+const PPT_SESSION_KEY = 'ppt-generate-session-v1'
+const outlineStages = ['分析主题与受众', '检索参考资料', '起草页面结构', '整理可编辑大纲']
+const outlineStageIndex = ref(0)
+let outlineStageTimer = null
+let outlineAbort = null
+let outlineRequestId = 0
 const taskFeedback = useTaskFeedback('ppt')
 const taskFeedbackState = taskFeedback.feedback
 const taskFeedbackConnection = taskFeedback.connectionStatus
@@ -434,6 +484,7 @@ const fileInputRef = ref(null)
 const showHistoryPanel = ref(false)
 const historyList = ref([])
 const loadingHistory = ref(false)
+const historyError = ref('')
 
 // 增量修改相关状态
 const currentTaskId = ref('')
@@ -493,6 +544,19 @@ const canGenerate = computed(() => {
 })
 
 const outlineCanApprove = computed(() => outlineSlides.value.length > 0 && outlineSlides.value.every(isOutlineSlideValid))
+
+const generationPercent = computed(() => {
+  const raw = progressState.value?.progress
+  if (raw == null) return 8
+  const value = raw <= 1 ? raw * 100 : raw
+  return Math.max(8, Math.min(100, Math.round(value)))
+})
+
+const currentRenderingIndex = computed(() => {
+  const message = progressState.value?.message || ''
+  const match = message.match(/第\s*(\d+)\s*页/)
+  return match ? Number(match[1]) - 1 : -1
+})
 
 let localSlideSequence = 0
 
@@ -565,13 +629,9 @@ function goBack() {
 }
 
 function goToPreview() {
-  if (generatedFileUrl.value) {
-    // 从 URL 中提取 ppt_id
-    const match = generatedFileUrl.value.match(/\/pptx\/download\/([^?]+)/)
-    if (match) {
-      router.push(`/ppt-preview/${match[1]}`)
-    }
-  }
+  const fromUrl = String(generatedFileUrl.value || '').match(/\/pptx\/download\/([^/?#]+)/)
+  const pptId = currentTaskId.value || fromUrl?.[1] || ''
+  if (pptId) router.push(`/ppt-preview/${pptId}`)
 }
 
 async function downloadPdf() {
@@ -662,29 +722,64 @@ function formatFileSize(bytes) {
 }
 
 // 历史记录相关函数
+function historyTitle(item) {
+  return item?.title || item?.topic || '未命名'
+}
+
+function historyTime(item) {
+  if (!item?.created_at) return ''
+  const date = new Date(item.created_at)
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('zh-CN')
+}
+
+async function toggleHistory() {
+  showHistoryPanel.value = !showHistoryPanel.value
+  if (showHistoryPanel.value) await loadHistory()
+}
+
 async function loadHistory() {
   loadingHistory.value = true
+  historyError.value = ''
   try {
     const result = await api.ppt.getHistory(1, 20)
     historyList.value = result.records || []
   } catch (e) {
-    console.warn('加载历史失败:', e)
+    historyList.value = []
+    historyError.value = e.message || '加载历史失败'
   } finally {
     loadingHistory.value = false
   }
 }
 
 function loadFromHistory(item) {
-  topic.value = item.topic || ''
-  selectedTemplate.value = item.template || 'modern'
-  slideCount.value = String(item.slide_count || 10)
+  topic.value = item.topic || item.title || ''
+  if (item.template || item.template_id) {
+    selectedTemplate.value = item.template || item.template_id
+  }
+  slideCount.value = item.slide_count ? String(item.slide_count) : 'auto'
+  if (item.task_id && item.has_file !== false) {
+    currentTaskId.value = item.task_id
+    generatedFileUrl.value = `/api/v1/pptx/download/${item.task_id}`
+    generating.value = false
+  }
   showHistoryPanel.value = false
-  ElMessage.success('已加载历史配置')
+  ElMessage.success('已加载历史记录')
+}
+
+function previewHistory(item) {
+  if (!item?.task_id || item.has_file === false) return
+  showHistoryPanel.value = false
+  router.push(`/ppt-preview/${item.task_id}`)
 }
 
 async function deleteHistory(taskId) {
+  if (!window.confirm('删除后无法恢复，确定删除这份 PPT？')) return
   try {
-    await api.ppt.deleteHistory(taskId)
+    const result = await api.ppt.deleteHistory(taskId)
+    if (!result?.success) {
+      ElMessage.error('删除失败')
+      return
+    }
     historyList.value = historyList.value.filter(h => h.task_id !== taskId)
     ElMessage.success('已删除')
   } catch (e) {
@@ -806,7 +901,34 @@ function connectWebSocket(taskId) {
   }
 }
 
-async function handleGenerate() {
+function applyOutlineStreamEvent(event) {
+  if (!event || typeof event !== 'object') return
+  if (event.type === 'stage') {
+    const index = typeof event.index === 'number' ? event.index : outlineStages.indexOf(event.label)
+    if (index >= 0) {
+      outlineStageIndex.value = index
+      stopOutlineStages()
+    }
+    return
+  }
+  if (event.type === 'retry') {
+    outlineSlides.value = []
+    return
+  }
+  if (event.type === 'slide' && event.slide) {
+    const existing = outlineSlides.value || []
+    const next = existing.some(slide => slide.id && slide.id === event.slide.id)
+      ? existing.map(slide => (slide.id === event.slide.id ? { ...slide, ...event.slide } : slide))
+      : [...existing, event.slide]
+    outlineSlides.value = normalizeOutlineSlides(next)
+  }
+}
+
+function isOutlineRequestCanceled(error) {
+  return error?.name === 'AbortError' || error?.isCanceled || error?.code === 'REQUEST_ABORTED'
+}
+
+async function handleGenerate({ resume = false } = {}) {
   if (!canGenerate.value || generating.value) return
   if (!apiKeyStore.hasSiliconflowKey) {
     ElMessage.error('请先配置 API Key 后再使用')
@@ -815,19 +937,30 @@ async function handleGenerate() {
   }
 
   if (workflowStep.value === 1) {
+    const requestId = ++outlineRequestId
+    startOutlineStages()
+    outlineDrafting.value = true
     outlineSaving.value = true
+    if (!resume) outlineSlides.value = []
     try {
       if (uploadedFile.value && !uploadedMaterialId.value) {
         const uploaded = await api.uploadFile(uploadedFile.value)
         uploadedMaterialId.value = uploaded.id
       }
-      const draft = await api.ppt.createOutline({
+      const outlinePayload = {
         topic: topic.value.trim() || uploadedFile.value?.name || '未命名演示',
         description: topic.value.trim(),
-        num_slides: parseInt(slideCount.value),
         template_id: selectedTemplate.value,
         api_key_token: apiKeyStore.siliconflowKey?.token || null,
         material_file_ids: uploadedMaterialId.value ? [uploadedMaterialId.value] : [],
+      }
+      if (slideCount.value !== 'auto') outlinePayload.num_slides = parseInt(slideCount.value, 10)
+      outlineAbort?.abort()
+      outlineAbort = typeof AbortController === 'function' ? new AbortController() : null
+      persistSession()
+      const draft = await api.ppt.createOutline(outlinePayload, {
+        signal: outlineAbort?.signal,
+        onEvent: applyOutlineStreamEvent,
       })
       outlineDraft.value = draft
       automaticSelection.value = selectedTemplate.value === 'auto'
@@ -839,9 +972,14 @@ async function handleGenerate() {
       workflowStep.value = 2
       ElMessage.success('大纲已生成，请审阅页面结构')
     } catch (e) {
+      if (isOutlineRequestCanceled(e)) return
       ElMessage.error('大纲生成失败: ' + e.message)
     } finally {
-      outlineSaving.value = false
+      if (requestId === outlineRequestId) {
+        stopOutlineStages()
+        outlineDrafting.value = false
+        outlineSaving.value = false
+      }
     }
     return
   }
@@ -964,7 +1102,7 @@ function buildFullPrompt() {
 
   let prompt = `${topic.value.trim()}\n\n`
   prompt += `模板风格：${tpl?.name || '默认'}\n`
-  prompt += `幻灯片数量：${slideCount.value}页\n`
+  prompt += slideCount.value === 'auto' ? '幻灯片数量：按主题自动决定\n' : `幻灯片数量：${slideCount.value}页\n`
   if (features.length > 0) prompt += `特殊要求：${features.join('、')}\n`
   return prompt
 }
@@ -1018,31 +1156,131 @@ async function handleModify() {
   }
 }
 
-// 格式化时间
 function formatTime(date) {
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
+function startOutlineStages() {
+  stopOutlineStages()
+  outlineStageIndex.value = 0
+  outlineStageTimer = setInterval(() => {
+    if (outlineStageIndex.value < outlineStages.length - 1) outlineStageIndex.value += 1
+  }, 1600)
+}
+
+function stopOutlineStages() {
+  if (outlineStageTimer !== null) {
+    clearInterval(outlineStageTimer)
+    outlineStageTimer = null
+  }
+}
+
+function persistSession() {
+  try {
+    sessionStorage.setItem(PPT_SESSION_KEY, JSON.stringify({
+      workflowStep: workflowStep.value,
+      topic: topic.value,
+      slideCount: slideCount.value,
+      selectedTemplate: selectedTemplate.value,
+      automaticSelection: automaticSelection.value,
+      outputFormat: outputFormat.value,
+      autoImages: autoImages.value,
+      enableAnimation: enableAnimation.value,
+      qualityMode: qualityMode.value,
+      outlineDraft: outlineDraft.value,
+      outlineSlides: outlineSlides.value,
+      outlineDrafting: outlineDrafting.value,
+      outlineStageIndex: outlineStageIndex.value,
+      uploadedMaterialId: uploadedMaterialId.value,
+      generating: generating.value,
+      generatedFileUrl: generatedFileUrl.value,
+      generatedSlides: generatedSlides.value,
+      currentTaskId: currentTaskId.value,
+      progressState: progressState.value,
+    }))
+  } catch (error) {
+    console.warn('保存 PPT 会话失败:', error)
+  }
+}
+
+function restoreSession() {
+  try {
+    const raw = sessionStorage.getItem(PPT_SESSION_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function applySession(saved) {
+  if (!saved || typeof saved !== 'object') return
+  workflowStep.value = saved.workflowStep || 1
+  topic.value = saved.topic || ''
+  slideCount.value = saved.slideCount || 'auto'
+  selectedTemplate.value = saved.selectedTemplate || selectedTemplate.value
+  automaticSelection.value = Boolean(saved.automaticSelection)
+  outputFormat.value = saved.outputFormat || 'pptx'
+  autoImages.value = saved.autoImages !== false
+  enableAnimation.value = saved.enableAnimation !== false
+  qualityMode.value = saved.qualityMode || 'standard'
+  outlineDraft.value = saved.outlineDraft || null
+  outlineSlides.value = normalizeOutlineSlides(saved.outlineSlides || [])
+  uploadedMaterialId.value = saved.uploadedMaterialId || null
+  outlineStageIndex.value = Number.isInteger(saved.outlineStageIndex) ? saved.outlineStageIndex : 0
+  outlineDrafting.value = Boolean(saved.outlineDrafting && !saved.outlineDraft)
+  generatedFileUrl.value = saved.generatedFileUrl || ''
+  generatedSlides.value = saved.generatedSlides || []
+  currentTaskId.value = saved.currentTaskId || ''
+  progressState.value = saved.progressState || null
+  generating.value = Boolean(saved.generating && saved.currentTaskId && !saved.generatedFileUrl)
+}
+
+watch(
+  [workflowStep, topic, slideCount, selectedTemplate, outlineDraft, outlineSlides, outlineDrafting, outlineStageIndex, uploadedMaterialId, generating, generatedFileUrl, generatedSlides, currentTaskId, progressState, qualityMode, outputFormat, autoImages, enableAnimation, automaticSelection],
+  persistSession,
+  { deep: true },
+)
+
 onMounted(() => {
   loadTemplates()
-  loadHistory()
   if (typeof route.query.task_id === 'string' && route.query.task_id) {
     currentTaskId.value = route.query.task_id
     generating.value = true
     taskFeedback.reset()
     taskFeedback.start({ status: 'running', step: '正在恢复 PPT 导出进度', progress: 0 })
     connectWebSocket(currentTaskId.value)
+    return
+  }
+  const saved = restoreSession()
+  if (saved) applySession(saved)
+  if (generating.value && currentTaskId.value) {
+    taskFeedback.reset()
+    taskFeedback.start({
+      status: 'running',
+      step: progressState.value?.step || '正在恢复 PPT 生成进度',
+      progress: generationPercent.value,
+    })
+    connectWebSocket(currentTaskId.value)
+    return
+  }
+  if (outlineDrafting.value && canGenerate.value) {
+    handleGenerate({ resume: true })
   }
 })
 
 onUnmounted(() => {
+  outlineRequestId += 1
+  outlineAbort?.abort()
+  stopOutlineStages()
   closeWebSocket()
 })
 </script>
 
 <style scoped>
 .ppt-generate-page {
-  min-height: 100vh;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
   background: var(--bg-primary);
   display: flex;
   flex-direction: column;
@@ -1090,8 +1328,8 @@ onUnmounted(() => {
 }
 
 .config-panel {
-  width: min(420px, 36vw);
-  min-width: 320px;
+  width: min(340px, 30vw);
+  min-width: 280px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   padding: 24px;
@@ -1198,6 +1436,13 @@ onUnmounted(() => {
   accent-color: var(--color-primary);
 }
 
+.option-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
 .outline-review-panel,
 .quality-mode-panel {
   display: flex;
@@ -1219,6 +1464,7 @@ onUnmounted(() => {
 .workflow-heading {
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
   font-size: 14px;
   font-weight: 600;
 }
@@ -1259,6 +1505,84 @@ onUnmounted(() => {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--bg-secondary);
+}
+
+.preview-panel .outline-review-panel {
+  min-height: 100%;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.outline-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.outline-approve-btn {
+  align-self: flex-start;
+  min-width: 220px;
+}
+
+.outline-drafting,
+.generation-live {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 720px;
+}
+
+.outline-drafting h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.stage-list,
+.generation-slide-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stage-list li,
+.generation-slide-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.stage-list li.current,
+.generation-slide-list li.current {
+  border-color: var(--color-primary);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25);
+}
+
+.stage-list li.done,
+.generation-slide-list li.done {
+  color: var(--text-primary);
+  opacity: 0.75;
+}
+
+.generation-slide-list li span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .outline-index {
@@ -1755,7 +2079,7 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 200px;
+  max-width: min(220px, 55%);
 }
 
 .history-card-time { font-size: 12px; color: var(--text-tertiary); }
@@ -1788,6 +2112,7 @@ onUnmounted(() => {
 .history-action-btn:hover { border-color: var(--color-primary); }
 .history-action-btn.delete { color: #ef4444; border-color: #fca5a5; }
 .history-action-btn.delete:hover { background: rgba(239,68,68,0.1); }
+ .history-action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
 .file-details { min-width: 0; }
 .file-name { overflow-wrap: anywhere; }

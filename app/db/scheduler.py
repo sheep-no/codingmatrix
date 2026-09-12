@@ -215,6 +215,17 @@ async def project_retention_sweep_task():
             logger.error(f"项目保留扫描失败：{str(e)}", exc_info=True)
 
 
+async def cleanup_generated_assets_task():
+    """每天清理超过保留期的 PPT 与 Kolors 生成物。"""
+    try:
+        from app.services.generated_asset_retention import cleanup_generated_assets
+
+        result = await cleanup_generated_assets()
+        logger.info("生成物保留清理完成 | result=%s", result)
+    except Exception as e:
+        logger.error(f"生成物保留清理失败：{str(e)}", exc_info=True)
+
+
 # 配置定时任务
 # 1. 对话归档 - 每 10 天执行一次
 scheduler.add_job(
@@ -287,6 +298,17 @@ scheduler.add_job(
 )
 
 
+# 7. PPT / Kolors 生成物按龄淘汰 - 每天执行一次
+scheduler.add_job(
+    cleanup_generated_assets_task,
+    trigger=IntervalTrigger(days=1),
+    id="generated_asset_retention",
+    replace_existing=True,
+    max_instances=1,
+    coalesce=True,
+)
+
+
 def start_scheduler():
     """启动定时任务调度器"""
     scheduler.start()
@@ -295,8 +317,10 @@ def start_scheduler():
     logger.info("  - 文件清理：每 7 天执行")
     logger.info("  - 任务清理：每 7 天执行")
     logger.info("  - 日志清理：每 7 天执行")
+    logger.info("  - 项目保留扫描：每 1 天执行")
     logger.info("  - worker lease 恢复：每 1 分钟执行")
     logger.info("  - 统一状态保留：每 1 天执行")
+    logger.info("  - 生成物保留清理：每 1 天执行")
 
 
 def stop_scheduler() -> None:

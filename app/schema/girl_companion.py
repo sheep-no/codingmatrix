@@ -40,6 +40,7 @@ class CompanionTurnRequest(BaseModel):
     temperature: Optional[float] = Field(default=None, ge=0.0, le=1.5)
     max_tokens: Optional[int] = Field(default=None, ge=50, le=1000)
     voice_output: bool = False
+    api_key_token: Optional[str] = Field(default=None, max_length=256)
 
 
 class VoiceTranscriptionRequest(BaseModel):
@@ -52,6 +53,7 @@ class VoiceTranscriptionRequest(BaseModel):
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     duration_ms: Optional[int] = Field(default=None, ge=0, le=3_600_000)
     voice_output: bool = False
+    api_key_token: Optional[str] = Field(default=None, max_length=256)
 
     @field_validator("transcript")
     @classmethod

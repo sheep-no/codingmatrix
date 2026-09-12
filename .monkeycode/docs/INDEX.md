@@ -1,6 +1,6 @@
 # CodingMatrix 项目文档
 
-## 当前状态（2026-09-07）
+## 当前状态（2026-09-12）
 
 - Agent Web 工作台与 VS Code 工作台的核心链路已实现：云端流式 Agent、会话控制、本地 Host 动作、审批、本地验证、Skill 同步和断线结果恢复均已接入并完成对应测试。
 - Web 首页与 Agent Dashboard 已统一一级导航、输入操作和移动抽屉协议；1440px、768px、390px 三档视口验收覆盖桌面栏位、单列工作区、遮罩与 Escape 关闭、焦点恢复、输入字号和横向溢出。Agent、Workflow、PPT 和绘图工作区已接入共享 `TaskFeedback` 六字段模型，支持局部增量合并、运行耗时、连接状态、重复事件过滤、序列缺口检测和 PPT WebSocket 断线续传与快照恢复；统一操作反馈覆盖运行取消、失败重试、暂停恢复及完成后的预览、导出或下载。
@@ -10,12 +10,17 @@
 - GirlAI 伙伴回合已接入标准化情绪与工作意图分类、低置信度中性策略、关怀工作选项和统一 `session_events` 恢复；回合预留使用 `turn_id` 幂等约束、90 秒租约和 attempt fencing，支持完成回放、并发冲突和中断后的过期接管。
 - GirlAI 语音适配已提供标准化转写入口，转写回合复用文字伙伴流程；语音输出能力通过同回合状态声明，供应商能力不可用时保留文字回复并记录降级。
 - 图表编辑器已支持 XLSX、XLS、CSV、JSON 导入，六类基础图表、字段聚合、PNG 导出、撤销重做和移动端操作；草稿使用用户作用域 `localStorage` 保存元数据并在两天后过期，项目 JSON 支持配置迁移，恢复后通过重新选择同名且字段一致的文件关联数据。
+- 图表草稿在刷新或关闭页面前立刻写入 `localStorage`；AI 绘画进行中的文生图会话写入 `sessionStorage` 键 `image-generate-session-v1`，30 分钟内刷新后恢复画布并重发请求。
+- 管理员面板位于 `/admin`：`admin` 与 `superadmin` 可访问系统监控、系统日志、用户管理、Nginx 配置、服务管理和资源配置；超级管理员额外可见模型管理与 `/admin/dashboard` 并发仪表板。工具集「管理员面板」仅超级用户可见，`admin` 可直接打开 `/admin`。菜单状态写入 `localStorage` 键 `adminMenuState`，挂载时按权限恢复。浏览器场景见 `tests/e2e/admin-panel-scenarios.spec.js`。
+- 能力中心位于 `/capabilities`，当前面板为视觉工具、知识库、代码沙箱、Skills 和 Agent Host。
+- 工具集「搜索历史」打开侧栏搜索框，调用 `POST /api/v1/history` 按 `prompt_keyword` 筛选当前用户会话。
 - 当前 Web 工作台的完整会话历史、模型选择、文件版本、性能面板等 UI 尚未完整迁移到 VS Code 原生 Webview。
 
 - [架构文档](ARCHITECTURE.md)：FastAPI、Vue、StateGraph、统一状态和部署拓扑。
 - [接口文档](INTERFACES.md)：认证、Agent、任务、Agent Host、State 和验证契约。
 - [前端架构](FRONTEND.md)：Vue 路由、Pinia 状态、Agent 页面和 Vite 代理。
 - `FRONTEND.md` 的“图表编辑器”章节：数据导入、浏览器缓存、项目 JSON 迁移和文件重新关联流程。
+- `FRONTEND.md` 的“管理员面板”与“AI 绘画”章节：`/admin` 模块权限、菜单恢复，以及绘画会话刷新恢复。
 - [测试指南](TESTING.md)：Python、Vitest、Playwright 和 VS Code 扩展测试。
 - [开发者指南](DEVELOPER_GUIDE.md)：环境初始化、启动、构建、迁移和排障流程。
 - 游戏 AI PPT 真实生成 E2E：`tests/e2e/test_ppt_game_ai.e2e.spec.js`，覆盖临时用户注册、真实生成接口、领域化内容断言和 PPTX 下载。

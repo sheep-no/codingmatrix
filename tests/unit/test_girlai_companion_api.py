@@ -88,7 +88,7 @@ async def test_companion_turn_returns_structured_response_and_persists_both_hist
     monkeypatch.setattr(girl_module, "call_with_retry", retry)
 
     response = await girl_module.generate_companion_turn(
-        CompanionTurnRequest(prompt="请帮我规划", turn_id="turn-1"),
+        CompanionTurnRequest(prompt="请帮我规划", turn_id="turn-1", api_key_token="user-token"),
         token={"sub": "7"},
         db=db,
     )
@@ -102,6 +102,7 @@ async def test_companion_turn_returns_structured_response_and_persists_both_hist
     assert response.state_revision == 1
     assert llm.await_args.kwargs["max_tokens"] == 512
     assert llm.await_args.kwargs["temperature"] == 0.3
+    assert llm.await_args.kwargs["api_key_token"] == "user-token"
     assert "仅输出一个合法 JSON 对象" in llm.await_args.kwargs["system_prompt"]
     assert "请帮我规划" in llm.await_args.kwargs["prompt"]
     assert girl_module.COMPANION_REQUEST_TIMEOUT == 60.0

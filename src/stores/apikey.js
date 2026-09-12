@@ -125,7 +125,7 @@ export const useApiKeyStore = defineStore('apikey', () => {
       // 添加到本地列表
       const newToken = {
         token: response.token,
-        provider: response.provider,
+        provider: response.provider || provider,
         remark,
         status: 'unverified',
         created_at: new Date().toISOString(),
@@ -185,9 +185,11 @@ export const useApiKeyStore = defineStore('apikey', () => {
   async function listKeys() {
     try {
       const response = await listApiKeys()
-      tokens.value = response
-      saveTokens()
-      return response
+      if (Array.isArray(response)) {
+        tokens.value = response
+        saveTokens()
+      }
+      return tokens.value
     } catch (e) {
       console.error('获取 Key 列表失败：', e)
       throw e

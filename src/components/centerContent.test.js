@@ -132,4 +132,26 @@ describe('chat source rendering', () => {
     expect(wrapper.text()).toContain('reference')
     wrapper.unmount()
   })
+
+  it('places user and assistant turns in distinct conversation columns', async () => {
+    const wrapper = mount(CenterContent, {
+      props: {
+        conversationId: 'layout',
+        conversationHistory: [{
+          id: 2,
+          prompt: '解释闭包',
+          response: '闭包会记住外层作用域。',
+          model: 'demo-model',
+          usage: { total_tokens: 42 }
+        }]
+      },
+      global: { stubs: { MessageList: { template: '<div><slot :message="messages[0]" /></div>', props: ['messages'] } } }
+    })
+    expect(wrapper.get('.message-user').classes()).toContain('message-user')
+    expect(wrapper.get('.message-ai .sender-ai').text()).toBe('CodingMatrix')
+    expect(wrapper.get('.user-text').text()).toContain('解释闭包')
+    expect(wrapper.get('.message-meta').text()).toContain('demo-model')
+    expect(wrapper.get('.message-meta').text()).toContain('42 tokens')
+    wrapper.unmount()
+  })
 })

@@ -276,7 +276,12 @@ onMounted(async () => {
 
 <style scoped>
 .workflow-page {
-  min-height: 100vh;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   background: var(--bg-primary);
   display: flex;
   flex-direction: column;

@@ -1,15 +1,48 @@
 /**
  * API Key 管理 API 请求封装
  */
-import request from '@/utils/request'
+import { api } from '@/utils/api/index'
+
+function errorMessage(data, fallback) {
+  const detail = data?.detail ?? data?.message
+  if (typeof detail === 'string' && detail) return detail
+  if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg
+  return fallback
+}
+
+async function requestJson(method, url, body) {
+  if (typeof api.request !== 'function') {
+    throw new Error('API 客户端未初始化')
+  }
+
+  const options = { method }
+  if (body !== undefined) {
+    options.body = JSON.stringify(body)
+  }
+
+  const response = await api.request(url, options)
+  const text = await response.text()
+  let data = null
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = { message: text }
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(errorMessage(data, `请求失败 (${response.status})`))
+  }
+  return data
+}
 
 /**
  * 获取 RSA 公钥
  * @returns {Promise<{public_key: string}>}
  */
 export async function getPublicKey() {
-  const response = await request.get('/api/v1/agent/apikey/public-key')
-  return response.data
+  return requestJson('GET', '/api/v1/agent/apikey/public-key')
 }
 
 /**
@@ -22,8 +55,7 @@ export async function getPublicKey() {
  * @returns {Promise<{token: string, provider: string, expires_at: string}>}
  */
 export async function submitApiKey(data) {
-  const response = await request.post('/api/v1/agent/apikey', data)
-  return response.data
+  return requestJson('POST', '/api/v1/agent/apikey', data)
 }
 
 /**
@@ -32,8 +64,7 @@ export async function submitApiKey(data) {
  * @returns {Promise<{success: boolean, message: string}>}
  */
 export async function testApiKey(token) {
-  const response = await request.post('/api/v1/agent/apikey/test', { token })
-  return response.data
+  return requestJson('POST', '/api/v1/agent/apikey/test', { token })
 }
 
 /**
@@ -42,8 +73,7 @@ export async function testApiKey(token) {
  * @returns {Promise<{message: string}>}
  */
 export async function deleteApiKey(token) {
-  const response = await request.delete(`/api/v1/agent/apikey/${token}`)
-  return response.data
+  return requestJson('DELETE', `/api/v1/agent/apikey/${token}`)
 }
 
 /**
@@ -51,8 +81,7 @@ export async function deleteApiKey(token) {
  * @returns {Promise<Array<{token: string, provider: string, remark: string, status: string, created_at: string, expires_at: string, ttl_seconds: number, enabled: boolean}>>}
  */
 export async function listApiKeys() {
-  const response = await request.get('/api/v1/agent/apikeys')
-  return response.data
+  return requestJson('GET', '/api/v1/agent/apikeys')
 }
 
 /**
@@ -62,8 +91,7 @@ export async function listApiKeys() {
  * @returns {Promise<{message: string}>}
  */
 export async function updateApiKeyEnabled(token, enabled) {
-  const response = await request.put(`/api/v1/agent/apikey/${token}/enabled`, { enabled })
-  return response.data
+  return requestJson('PUT', `/api/v1/agent/apikey/${token}/enabled`, { enabled })
 }
 
 /**
@@ -73,8 +101,7 @@ export async function updateApiKeyEnabled(token, enabled) {
  * @returns {Promise<{message: string, context_lengths: Object}>}
  */
 export async function updateApiKeyContextLengths(token, context_lengths) {
-  const response = await request.put(`/api/v1/agent/apikey/${token}/context-lengths`, { context_lengths })
-  return response.data
+  return requestJson('PUT', `/api/v1/agent/apikey/${token}/context-lengths`, { context_lengths })
 }
 
 /**
@@ -83,8 +110,7 @@ export async function updateApiKeyContextLengths(token, context_lengths) {
  * @returns {Promise<{success_count: number, failed_count: number, results: Array}>}
  */
 export async function batchImport(keys) {
-  const response = await request.post('/api/v1/agent/apikey/batch/import', { keys })
-  return response.data
+  return requestJson('POST', '/api/v1/agent/apikey/batch/import', { keys })
 }
 
 /**
@@ -93,6 +119,6 @@ export async function batchImport(keys) {
  * @returns {Promise<{format: string, data: string, count: number}>}
  */
 export async function batchExport(format = 'json') {
-  const response = await request.get('/api/v1/agent/apikey/batch/export', { params: { format } })
-  return response.data
+  const query = new URLSearchParams({ format }).toString()
+  return requestJson('GET', `/api/v1/agent/apikey/batch/export?${query}`)
 }

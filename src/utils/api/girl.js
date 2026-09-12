@@ -29,10 +29,13 @@ async function parseResponse(response, fallback, message) {
 
 export function createGirlClient(client) {
   return {
-    async sendGirlAiMessage(prompt, characterId = 'gentle') {
+    async sendGirlAiMessage(prompt, characterId = 'gentle', options = {}) {
       const response = await client.post('/GirlAi', {
         prompt,
-        character_id: characterId
+        character_id: characterId,
+        ...(options.apiKeyToken || options.api_key_token
+          ? { api_key_token: options.apiKeyToken || options.api_key_token }
+          : {})
       })
 
       return parseResponse(response, {}, 'Send message failed')
@@ -44,7 +47,10 @@ export function createGirlClient(client) {
         character_id: characterId,
         ...(options.turnId ? { turn_id: options.turnId } : {}),
         ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
-        ...(options.maxTokens !== undefined ? { max_tokens: options.maxTokens } : {})
+        ...(options.maxTokens !== undefined ? { max_tokens: options.maxTokens } : {}),
+        ...(options.apiKeyToken || options.api_key_token
+          ? { api_key_token: options.apiKeyToken || options.api_key_token }
+          : {})
       })
       return parseResponse(response, {}, 'Send companion turn failed')
     },
