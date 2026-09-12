@@ -69,7 +69,7 @@ CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，另提供 F
 
 - 源码位于 `flutter_client/`，使用 Riverpod 与四层架构。
 - 已接入对话、GirlAI、PPT、图片生成、工作流、文件中心、模型、动态供应商、任务队列、Agent 历史、GitHub 配置/保存、管理后台和 MCP 管理。
-- GitHub 仅配置与项目保存；仓库列表、分支、提交、推送接口尚未提供。
+- GitHub Token 加密写入 `github_user_configs`，GET 不回传 Token。`POST /save` 按请求体 `use_github` 创建公开仓库或本地 Git。Flutter 设置页只提交配置。详见 [GitHub 集成](GITHUB.md)。
 
 详见 [Flutter 桌面客户端](FLUTTER-CLIENT.md)。
 

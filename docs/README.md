@@ -57,6 +57,8 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 - [GirlAI](features/GIRLAI.md) - 角色对话、自定义角色、偏好和统一状态
 - [AI Cloud](features/AICLOUD.md) - 沙箱、审查、知识库和统一会话状态
 - [工作流引擎](features/WORKFLOW.md) - DAG 执行、节点类型和状态接入边界
+- [Web 搜索](features/WEB-SEARCH.md) - 生产 `FreeWebSearch`、Bing/DuckDuckGo/Wikipedia 顺序与 Agent 工具分流
+- [GitHub 集成](features/GITHUB.md) - 配置加密存储与 `POST /api/v1/github/save`
 - [Web 搜索增强](features/WEB-SEARCH-ENHANCEMENTS.md) - 查询优化模块及当前接入状态
 - [多语言依赖解析](features/MULTI-LANGUAGE-DEPENDENCY-PARSER.md) - 独立解析器能力及生产接入边界
 
@@ -173,6 +175,4 @@ flutter run -d linux
 开发环境访问前端 `http://localhost:3000`，后端健康检查位于 `http://localhost:8000/api/v1/health`，Swagger UI 位于 `http://localhost:8000/api/docs`。数据库初始化、迁移和完整验证命令见[快速开始](guides/GETTING-STARTED.md)。
 
 ---
-
-最后更新：2026-09-03
-- [Web 搜索](features/WEB-SEARCH.md) - 生产 `FreeWebSearch`、Bing/DuckDuckGo/Wikipedia 顺序与 Agent 工具分流
+最后更新：2026-09-12

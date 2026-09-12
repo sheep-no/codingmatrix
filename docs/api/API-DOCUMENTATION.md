@@ -137,8 +137,9 @@
 | GET | `/api/v1/github/config` | 获取 GitHub 配置 | normal |
 | POST | `/api/v1/github/save` | 保存项目至 GitHub | normal |
 
-## AI Agent (`/api/v1/agent`)
+配置 GET 返回 `username`、`use_github`、`persisted`、`has_token`、`credential_state`，`token` 恒为空，`verified` 为 false。保存请求的 `project_data` 是路径到文件内容的 JSON 字符串；`github_config.use_github` 为 true 时创建公开仓库并推送 `main`，为 false 时写入本地 `projects/{user_id}/{project_name}`。契约见 `docs/features/GITHUB.md`。
 
+## AI Agent (`/api/v1/agent`)
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
 | POST | `/api/v1/agent/modify` | 修改项目或执行分析请求 | normal |
