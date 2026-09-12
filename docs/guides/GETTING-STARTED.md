@@ -1,6 +1,6 @@
 # 快速开始
 
-> 最后更新：2026-09-10
+> 最后更新：2026-09-12
 
 ## 环境要求
 
@@ -34,6 +34,8 @@ DATABASE_URL=sqlite+aiosqlite:////workspace/app.db
 REDIS_URL=redis://127.0.0.1:6379/0
 SECRET_KEY=<至少16字符的随机密钥>
 SILICONFLOW_API_KEY=<可选的供应商API_KEY>
+# PPT 与 Kolors 生成物保留天数，最小 1
+GENERATED_ASSET_RETENTION_DAYS=30
 ```
 
 所有凭据应由部署环境或本地 `.env` 提供。示例和文档统一使用占位符。

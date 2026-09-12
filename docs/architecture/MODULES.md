@@ -1,6 +1,6 @@
 # CodingMatrix 模块说明
 
-> 最后更新：2026-09-10 | 后端：423 个 Python 文件 / 117,655 行 | API：42 个 Python 文件 / 20,267 行、28 个挂载路由、约 279 个路由装饰器 | Agent：125 个 Python 文件 | Flutter：58 个 Dart 文件 / 9,149 行
+> 最后更新：2026-09-12 | 后端：423 个 Python 文件 / 117,655 行 | API：42 个 Python 文件 / 20,267 行、28 个挂载路由、约 279 个路由装饰器 | Agent：125 个 Python 文件 | Flutter：58 个 Dart 文件 / 9,149 行
 
 ## 项目结构概览
 
@@ -8,14 +8,14 @@
 codingmatrix/
 ├── app/                         # 后端 (FastAPI, Python 3.11, 423 个 Python 文件 / 117,655 行)
 │   ├── agent/                   # Agent 核心 (125 个 Python 文件)
-│   │   ├── adapters/            # 语言适配器 (generic/python/javascript)
+│   │   ├── adapters/            # 语言适配器与 boilerplate 骨架
 │   │   ├── state/               # StateGraph、reducer、checkpoint 与状态迁移
 │   │   ├── orchestrator_generation/   # 4 mixin: spec_first/traditional/incremental/evaluate
 │   │   ├── orchestrator_requirements/ # 3 层需求关联 + 双模型对抗
 │   │   └── *.py                 # 编排、路由、验证、恢复与工具实现
 │   ├── api/                     # API 路由 (42 个 Python 文件 / 20,267 行)
 │   │   ├── v1/                  # 20 个挂载路由
-│   │   │   └── ai_agent/        # 5 子路由聚合 (orchestrate/generate/association/knowledge/performance)
+│   │   │   └── ai_agent/        # 7 子路由：orchestrate/generate/association/knowledge/performance/lifecycle/model_context
 │   │   └── v2/                  # 8 个管理功能模块
 │   ├── core/                    # 核心配置 (4 文件, 1,042 行)
 │   ├── db/                      # 数据库 + 业务表 (12 文件)
@@ -492,7 +492,7 @@ dependencies.get_affected_files(['models/user.py'])
 
 | 模块 | 文件 | 行数 | 端点数 | 主要端点 |
 |------|------|------|--------|----------|
-| **ai_agent** (子包) | `ai_agent/router.py` + 5 子路由 | **3,313** | 30+ | `POST /api/v1/agent/orchestrate[/stream]`、`/generate`、`/modify`、`/stop/{sid}`、`/rollback`、`/snapshots/{sid}`、`/analyze_complexity`、`/evaluate`、`/search_sessions`、`/requirement-association`、`/knowledge`、`/performance`、`/concurrent-limits`、`/learning/*`、`/token-usage` |
+| **ai_agent** (子包) | `ai_agent/router.py` + 7 子路由 | **3,313** | 30+ | `POST /api/v1/agent/orchestrate[/stream]`、`/generate`、`/modify`、`/stop/{sid}`、`/rollback`、`/snapshots/{sid}`、`/analyze_complexity`、`/evaluate`、`/search_sessions`、`/requirement-association`、`/knowledge`、`/performance`、`/concurrent-limits`、`/learning/*`、`/token-usage`、`/projects/{sid}` |
 | auth | `auth.py` | 550 | 9 | `/public-key`、`/csrf-token`、`/login`、`/register`、`/refresh`、`/user/profile`、`/history`、`/conversation/history`、`/conversations` |
 | Aicode | `Aicode.py` | 919 | 5+ | 流式代码生成 |
 | apikey | `apikey.py` | 585 | 11 | `POST /agent/apikey`、`/test`、`/batch/import`、`PUT /{token}/enabled`、`/context-lengths`、`/fallback-preference` |

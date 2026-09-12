@@ -1,12 +1,12 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-09-10 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：34 张表 | Alembic：15 个有效迁移文件 | Flutter：58 个 Dart 文件 / 9,149 行
+> 最后更新：2026-09-12 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：34 张表 | Alembic：15 个有效迁移文件 | Flutter：58 个 Dart 文件 / 9,149 行
 
 CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，覆盖智能对话、项目生成、多 Agent 协作、模型与供应商配置、PPT 生成、AI Cloud、GirlAI，以及 Web、Mobile、VS Code 和 Flutter 桌面多端 Agent 工作流。
 
 ## 文档时效范围
 
-- 本首页及 `architecture/`、`api/`、`features/`、`guides/`、`security/`、`testing/`、`observability/`、`prompts/`、`skills/` 和顶层结构文档描述 2026-09-10 当前项目状态。后端规模数字沿用 2026-09-03 清点；Flutter 客户端规模按 2026-09-10 源码清点。
+- 本首页及 `architecture/`、`api/`、`features/`、`guides/`、`security/`、`testing/`、`observability/`、`prompts/`、`skills/` 和顶层结构文档描述 2026-09-12 当前项目状态。后端规模数字沿用 2026-09-03 清点；Flutter 客户端规模按 2026-09-10 源码清点。
 - `evolution/`、`.monkeycode/specs/` 和 `versions/` 保存历史规划、功能规格与版本快照，按形成时的历史语义保留；其中的规模、接口和验收数字不代表当前基线。
 - 当前 API 数量采用实际挂载后的路由记录口径；测试数量采用静态测试定义口径。运行结果、依赖条件和验收日期以对应测试文档为准。
 
@@ -40,11 +40,11 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 
 ### Agent 与模型
 
-- [Agent 系统](features/AGENT.md) - Web/Mobile Agent、StateGraph 迁移层、模型上下文和 VS Code Host
+- [Agent 系统](features/AGENT.md) - Web/Mobile Agent、架构回退、骨架生成、模型上下文和 VS Code Host
 - [Flutter 桌面客户端](features/FLUTTER-CLIENT.md) - `flutter_client/` 分层、16 个页面、GitHub/MCP/管理边界
 - [动态模型路由](features/DYNAMIC-MODEL-ROUTER.md) - 健康感知、熔断、角色分配和学习路由
 - [ReAct 工具调用](features/REACT-TOOL-CALLING.md) - 编排内自主循环、工具注册和事件输出
-- [会话生命周期](features/SESSION-LIFECYCLE.md) - 会话、任务、事件、checkpoint 和恢复
+- [会话生命周期](features/SESSION-LIFECYCLE.md) - 会话、托管项目回收、SSE 断线续跑和 checkpoint
 - [模型管理](features/MODEL-MANAGER.md) - 用户模型浏览与管理面配置边界
 - [动态供应商](features/DYNAMIC-PROVIDERS.md) - OpenAI 兼容与 Anthropic 协议供应商
 - [自定义 Skill](features/CUSTOM-SKILLS.md) - 用户 Skill 管理、热重载和 Host 同步
@@ -53,7 +53,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 ### 业务能力
 
 - [项目功能介绍](features/PROJECT-INTRODUCTION.md) - 平台当前能力总览
-- [PPT Agent](features/PPT-AGENT.md) - 版本化大纲、审批、质量检查和单页重生成
+- [PPT Agent](features/PPT-AGENT.md) - 版本化大纲、审批、质量检查、单页重生成和产物保留
 - [GirlAI](features/GIRLAI.md) - 角色对话、自定义角色、偏好和统一状态
 - [AI Cloud](features/AICLOUD.md) - 沙箱、审查、知识库和统一会话状态
 - [工作流引擎](features/WORKFLOW.md) - DAG 执行、节点类型和状态接入边界
@@ -137,6 +137,11 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 | Mobile Agent | 与 Web Agent 共用 `/agent`、API 和 Store；768px 以下提供单列布局、会话/文件抽屉、遮罩、焦点管理和移动工具栏 |
 | VS Code Agent Host | 协议版本 1 支持 workspace、file、terminal、diagnostics、validation 和 skill runtime，包含握手、动作队列、审批策略、Skill 同步及 pause/resume/cancel |
 | Flutter 桌面客户端 | `flutter_client/` 已接入对话、GirlAI、PPT、图片、工作流、文件、模型、动态供应商、任务、Agent 历史、GitHub 配置/保存、管理后台和 MCP 管理；GitHub 深度操作仍受后端接口限制 |
+| 架构师超时回退 | Architect LLM 超时、空输出或解析失败时使用需求感知默认架构，生成不中断 |
+| 语言骨架 | 入口、README、依赖清单由 `app/agent/adapters/boilerplate.py` 确定性生成 |
+| 托管项目回收 | `DELETE /api/v1/agent/projects/{session_id}` 立即删除托管文件；内存生成任务已结束的卡住 `running` 项目可删 |
+| SSE 断线续跑 | 客户端断开后生成继续；`reconnectable` 仅覆盖当前进程存活任务 |
+| PPT/图片保留 | 每天按 `GENERATED_ASSET_RETENTION_DAYS`（默认 30）清理过期产物 |
 | 任务恢复 | SQL Task/Event 为持久化事实源，支持事件重放、worker lease 心跳、retry、recover、取消检查和 checkpoint 恢复 |
 
 ## API 基线

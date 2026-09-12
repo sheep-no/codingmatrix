@@ -1,7 +1,7 @@
 # Agent 系统
 
-> 最后核对：2026-09-03
-> 状态：Web Agent、legacy 编排、StateGraph 包装、统一状态落库、Mobile Agent 与 VS Code Agent Host 活跃
+> 最后核对：2026-09-12
+> 状态：Web Agent、legacy 编排、StateGraph 包装、统一状态落库、Mobile Agent、VS Code Agent Host 与 Flutter 客户端活跃
 
 ## 概述
 
@@ -25,6 +25,10 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 | Mobile Agent | 活跃 | `/agent` 同页响应式工作台 |
 | VS Code Agent Host | 活跃 | 本地 action、策略、验证、Skills 和会话控制 |
 | Flutter 桌面客户端 | 活跃 | `flutter_client/` 调用 `/api/v1/agent/orchestrate/stream` 等现有接口；详见 [Flutter 桌面客户端](FLUTTER-CLIENT.md) |
+| 架构师默认架构回退 | 活跃 | LLM 超时、空输出或解析失败时返回需求感知默认架构，并标记 `used_default_architecture` |
+| 语言骨架生成 | 活跃 | 入口、README、依赖清单由 `adapters/boilerplate.py` 确定性生成 |
+| Spec-first 符号表 | 活跃 | `symbol_table.py` 冻结跨文件符号；单文件 prompt 只带压缩上下文 |
+| 托管项目立即删除 | 活跃 | `DELETE /api/v1/agent/projects/{session_id}`；内存中无活动生成任务时，卡住的 `running` 项目可删除 |
 | `POST /api/v1/agent/react` | 废弃文档路径 | 路由未实现，ReAct 由编排入口内部使用 |
 | 多语言依赖解析器 | 独立未接入 | 生产图使用 `dependency_graph.py` 自身解析器 |
 | Web 搜索增强模块 | 独立未接入 | 生产搜索未导入增强模块 |
@@ -33,7 +37,7 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 
 ### API 层
 
-`app/api/v1/ai_agent/router.py` 以 `/agent` 为前缀，组合生成、编排、关联、知识、性能和模型上下文子路由。`app/main.py` 再以 `/api/v1` 挂载，因此完整前缀为 `/api/v1/agent`。
+`app/api/v1/ai_agent/router.py` 以 `/agent` 为前缀，组合 generate、orchestrate、association、knowledge、performance、lifecycle 和 model_context 子路由。`app/main.py` 再以 `/api/v1` 挂载，因此完整前缀为 `/api/v1/agent`。
 
 ### 编排层
 
@@ -92,6 +96,8 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 
 `DynamicModelRouter` 根据角色配置、运行状态和学习数据分配模型，`MultiModelAgent` 协调多角色执行。模型信息通过 `model_info` 和 `react_generating` 事件到达前端。
 
+`LLMClient` 全局并发上限为 6。按模型默认每模型最多 2 路；智谱免费档覆盖为 `glm-4.7-flash=1`、`glm-4-flash-250414=20`、`glm-z1-flash=6`。未列出的模型沿用每模型 2 路，并仍受全局 6 路约束。
+
 模型上下文保存在独立的 `agent_model_context` Task 中，字段包括配置版本、角色映射、当前模型、当前 Agent、分配统计和最近 50 条 fallback 历史。它拥有独立 revision，更新支持乐观并发控制。
 
 接口：
@@ -111,6 +117,8 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 
 数据库 `ProjectSession` 保存用户所有权、输出目录、总体状态、文件计数和活动时间。API 操作会在执行前验证会话归属。
 
+Web 工作台删除会话会先调用 `projectApi.reclaimProject`（`DELETE /api/v1/agent/projects/{session_id}`），立即删除托管目录与保留记录。活动生成任务仍在内存中时返回 HTTP 409；仅数据库状态为 `running`、内存任务已结束的项目可以删除。
+
 ### 统一状态
 
 `persist_agent_state` 执行以下写入：
@@ -124,7 +132,19 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 
 本地 `CheckpointStore` 默认目录为 `data/agent_state_checkpoints`。Host 工具结果可通过 task 和 revision 合并回图状态并继续运行。
 
-完整生命周期见 `docs/features/SESSION-LIFECYCLE.md`。
+完整生命周期见 [会话生命周期](SESSION-LIFECYCLE.md)。
+
+## 架构回退与小模型上下文
+
+`Architect.design_architecture` 在首次 LLM 调用失败、空输出、禁用思考重试失败或 JSON 解析失败时，调用 `_get_requirement_aware_default_architecture`，返回带 `used_default_architecture=true` 的默认架构，生成流程继续。默认架构会调用 `freeze_symbol_table` 写入跨文件符号表。
+
+`requirement_signals.py` 按中英文否定词与 ASCII 词边界匹配需求关键词，架构范围约束优先遵守用户排除的能力。
+
+前后端工程师对尚未存在的入口、README 和依赖清单文件优先使用 `LanguageAdapterRegistry.scaffold_file`。骨架实现位于 `app/agent/adapters/boilerplate.py`，覆盖 Python/JavaScript/Go/Java 入口以及 `requirements.txt`、`pyproject.toml`、`package.json`、`go.mod`、`Cargo.toml`、`pom.xml`。
+
+单文件生成由 `compact_project_context_for_file` 提供压缩上下文：需求摘要、当前文件契约、可选 `generation_contract` 和 `symbol_table`。`CrossValidator.select_llm_fix_issues` 把交给小模型修复的跨文件问题限制为最多 20 条、6 个文件、每文件 8 条。
+
+Spec-first 生成在写出文件后调用 `remember_generated_file`，结束时调用 `finalize_generated_project`，用符号表校正清单与测试路径。
 
 ## Web Agent 与 Mobile Agent
 
@@ -138,6 +158,7 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 - `useAgentBackend`
 
 浏览器 `agentSession` store 将有限会话历史写入 localStorage，并保存阶段、日志、文件和模型上下文 revision。切换会话时会从后端补充模型上下文。
+删除当前会话前会弹出确认，文案说明将立即删除托管项目文件。
 
 Mobile Agent 使用同一 `/agent` 页面、API 和 store。768px 以下启用会话与文件抽屉、遮罩、焦点管理和移动工具栏；它没有独立后端服务。
 
@@ -213,6 +234,8 @@ Skills API 更新后会广播到当前用户的活跃 Host 会话；Host 通过 
 
 其他回调通常包装为 `progress`；生命周期还会发送 `log`、`done`、`error`、`critical_decisions` 和 `pause_for_approval`。前端消费详情见 `docs/features/SSE-DISPLAY-OPTIMIZATION.md`。
 
+SSE 订阅断开后，`_watch_stream_disconnect` 只把 `_active_tasks[session_id].connected` 标为 `false`，生成任务继续在当前进程跑。显式 `cancel` 才会调用 `_cancel_stream_generation`。同一会话可用 `is_resume=true` 或再次 `POST /orchestrate/stream` 挂回原队列；`reconnectable` 仅表示本进程内存任务仍存活。已消费事件、决策重放和进程重启续跑暂不支持。
+
 ## 会话控制
 
 Web Agent 会话 action：
@@ -262,8 +285,13 @@ VS Code Host 的本地验证属于独立执行面，适合依赖安装、构建�
 ## 代码索引
 
 - `app/api/v1/ai_agent/`
+- `app/api/v1/ai_agent/lifecycle_endpoints.py`
 - `app/agent/orchestrator.py`
 - `app/agent/orchestrator_generation/`
+- `app/agent/architect.py`
+- `app/agent/adapters/boilerplate.py`
+- `app/agent/symbol_table.py`
+- `app/agent/requirement_signals.py`
 - `app/agent/state/`
 - `app/agent/workflow_registry.py`
 - `app/services/agent_state_adapter.py`

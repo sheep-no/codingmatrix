@@ -1,6 +1,6 @@
 # PPT Agent - 智能演示文稿生成
 
-> 最后更新：2026-09-03
+> 最后更新：2026-09-12
 
 PPT Agent 将主题、大纲、素材、渲染和质量检查组织为可追踪的生成流程。主 API 位于 `app/api/v1/aiGeneratorPptx.py`，当前前端采用“配置、大纲审阅、批准生成”三步交互。
 
@@ -96,6 +96,7 @@ planning -> assets -> rendering -> rule_qa -> reflow -> vision_qa -> completed
 
 - PPTX 生成依赖 `python-pptx` 和 Pillow。
 - 产物默认写入 `./pptx_output`；生产 Compose 使用 `ppt-artifacts:/app/pptx_output` 在 API 与 Celery Worker 间共享文件。
+- 调度任务 `generated_asset_retention` 每天运行一次，清理超过 `GENERATED_ASSET_RETENTION_DAYS`（默认 30，最小 1）的 PPT 文件与 Kolors 图片历史。实现位于 `app/services/generated_asset_retention.py`，PPT 按任务 id 成组删除 `.pptx`/`.html`/`.md`/`.pdf`/`_slides.json` 和 `.owners` 记录。
 - PDF 接口的实际 PPT 转换只调用 LibreOffice；缺少 LibreOffice 时返回 HTTP 501。Poppler 可用于 PDF 后处理，但不能替代该转换命令。当前 `Dockerfile` 与 Compose 定义未安装 LibreOffice。
 - 图片搜索和视觉复审依赖外部服务可用性，失败会影响素材或质量阶段，任务状态和报告用于呈现结果。
 
@@ -110,3 +111,5 @@ planning -> assets -> rendering -> rule_qa -> reflow -> vision_qa -> completed
 - `app/utils/pptx/semantic_renderer.py`
 - `app/utils/pptx/quality.py`
 - `app/utils/pptx/design_tokens.py`
+- `app/services/generated_asset_retention.py`
+- `app/db/scheduler.py`（`generated_asset_retention` 任务）
