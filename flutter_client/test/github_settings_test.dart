@@ -148,4 +148,59 @@ void main() {
       expect(saved.verified, false);
     },
   );
+  test('verify and list contracts map repos branches and commits', () async {
+    final client = GithubClient(
+      DeliveryApi((path, method, body) async {
+        if (path == '/api/v1/github/verify') {
+          expect(method, 'POST');
+          return {
+            'success': true,
+            'verified': true,
+            'login': 'alice',
+            'message': 'GitHub 凭据有效',
+          };
+        }
+        if (path == '/api/v1/github/repos') {
+          return {
+            'repos': [
+              {
+                'full_name': 'alice/demo',
+                'name': 'demo',
+                'owner': 'alice',
+                'private': false,
+                'default_branch': 'main',
+              },
+            ],
+          };
+        }
+        if (path.endsWith('/branches')) {
+          return {
+            'branches': [
+              {'name': 'main', 'sha': 'abc1234', 'protected': false},
+            ],
+          };
+        }
+        expect(path.contains('sha=main'), true);
+        return {
+          'commits': [
+            {
+              'sha': 'abc1234def',
+              'message': 'init',
+              'author': 'Alice',
+              'date': '2026-09-12T00:00:00Z',
+            },
+          ],
+        };
+      }),
+    );
+    final verified = await client.verify();
+    expect(verified['verified'], true);
+    expect(verified.containsKey('token'), false);
+    final repos = await client.listRepos();
+    expect(repos.single.fullName, 'alice/demo');
+    final branches = await client.listBranches('alice', 'demo');
+    expect(branches.single.name, 'main');
+    final commits = await client.listCommits('alice', 'demo', sha: 'main');
+    expect(commits.single.message, 'init');
+  });
 }

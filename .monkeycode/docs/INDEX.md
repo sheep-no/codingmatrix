@@ -49,4 +49,4 @@
 - `.monkeycode/docs/` 保存当前项目知识和开发文档。
 - `.monkeycode/specs/` 保存功能规格；部分规格目录受 Git 忽略规则影响，提交时需显式暂存。
 - `docs/` 保存仓库对外架构、API、功能与测试文档；Agent 生命周期等 2026-09-12 变更已写入该目录。`docs/evolution/` 与 `docs/versions/` 保留历史快照。
-- `docs/features/PPT-AGENT.md`、`docs/features/WEB-SEARCH.md`、`docs/features/GITHUB.md`：PPT 历史与会话恢复、生产搜索主链路、GitHub 配置加密与 `/save` 契约。
+- `docs/features/PPT-AGENT.md`、`docs/features/WEB-SEARCH.md`、`docs/features/GITHUB.md`：PPT 历史与会话恢复、生产搜索主链路、GitHub 配置加密、验证与仓库/分支/提交只读列表。

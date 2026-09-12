@@ -51,6 +51,19 @@ def config_summary(record: GithubUserConfig | None) -> dict:
     }
 
 
+async def load_readable_token(db: AsyncSession, user_id: int) -> tuple[GithubUserConfig, str]:
+    record = await db.get(GithubUserConfig, user_id)
+    if record is None or not record.encrypted_token:
+        raise HTTPException(status_code=422, detail="尚未配置 GitHub 凭据")
+    try:
+        token = decrypt_token(record)
+    except Exception:
+        raise HTTPException(status_code=422, detail="凭据无法读取，请重新填写 Token") from None
+    if not token:
+        raise HTTPException(status_code=422, detail="尚未配置 GitHub 凭据")
+    return record, token
+
+
 async def save_config(db: AsyncSession, user_id: int, username: str, token: str, enabled: bool) -> dict:
     username = username.strip()
     token = token.strip()

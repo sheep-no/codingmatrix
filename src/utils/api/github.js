@@ -61,6 +61,31 @@ export function createGithubClient() {
       }
       const response = await api.post('/save', requestData)
       return response.data
+    },
+
+    async verifyGithub() {
+      const response = await api.post('/verify')
+      return response.data
+    },
+
+    async listRepos() {
+      const response = await api.get('/repos')
+      return response.data
+    },
+
+    async listBranches(owner, repo) {
+      const response = await api.get(
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`
+      )
+      return response.data
+    },
+
+    async listCommits(owner, repo, sha) {
+      const response = await api.get(
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits`,
+        { params: sha ? { sha } : {} }
+      )
+      return response.data
     }
   }
 }

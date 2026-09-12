@@ -49,6 +49,52 @@ class GithubClient {
         )
         as Map,
   );
+
+  Future<Map<String, dynamic>> verify() async => Map<String, dynamic>.from(
+    await api.requestJson('/api/v1/github/verify', method: 'POST') as Map,
+  );
+
+  Future<List<GithubRepo>> listRepos() async {
+    final result = await api.requestJson('/api/v1/github/repos');
+    final repos = result is Map ? result['repos'] : null;
+    return [
+      for (final item in repos is List ? repos : const [])
+        if (item is Map)
+          GithubRepo.fromJson(Map<String, dynamic>.from(item)),
+    ];
+  }
+
+  Future<List<GithubBranch>> listBranches(String owner, String repo) async {
+    final result = await api.requestJson(
+      '/api/v1/github/repos/${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repo)}/branches',
+    );
+    final branches = result is Map ? result['branches'] : null;
+    return [
+      for (final item in branches is List ? branches : const [])
+        if (item is Map)
+          GithubBranch.fromJson(Map<String, dynamic>.from(item)),
+    ];
+  }
+
+  Future<List<GithubCommit>> listCommits(
+    String owner,
+    String repo, {
+    String? sha,
+  }) async {
+    final query = sha == null || sha.isEmpty
+        ? ''
+        : '?sha=${Uri.encodeQueryComponent(sha)}';
+    final result = await api.requestJson(
+      '/api/v1/github/repos/${Uri.encodeComponent(owner)}/${Uri.encodeComponent(repo)}/commits$query',
+    );
+    final commits = result is Map ? result['commits'] : null;
+    return [
+      for (final item in commits is List ? commits : const [])
+        if (item is Map)
+          GithubCommit.fromJson(Map<String, dynamic>.from(item)),
+    ];
+  }
+
 }
 
 class GithubConfigData {

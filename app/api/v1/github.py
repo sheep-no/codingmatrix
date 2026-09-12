@@ -22,7 +22,8 @@ from app.utils.security import verify_token
 from app.db.database import get_db
 from app.models.user import User
 from app.models.github_config import GithubUserConfig
-from app.services.github_config_service import config_summary, save_config
+from app.services.github_config_service import config_summary, load_readable_token, save_config
+from app.services.github_remote import fetch_branches, fetch_commits, fetch_repos, fetch_user
 
 logger = logging.getLogger(__name__)
 
@@ -260,3 +261,65 @@ async def get_github_config(
         return config_summary(await db.get(GithubUserConfig, int(user_id)))
     except Exception:
         raise HTTPException(status_code=503, detail="GitHub 配置读取失败") from None
+
+
+def _require_user_id(token: dict) -> int:
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+    return int(user_id)
+
+
+@router.post("/verify")
+async def verify_github_credentials(
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    record, github_token = await load_readable_token(db, _require_user_id(token))
+    user = await fetch_user(github_token)
+    login = str(user["login"])
+    matched = login.lower() == (record.username or "").lower()
+    return {
+        "success": matched,
+        "verified": matched,
+        "login": login,
+        "username": record.username,
+        "message": "GitHub 凭据有效" if matched else "用户名与 Token 不匹配",
+    }
+
+
+@router.get("/repos")
+async def list_github_repos(
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    _, github_token = await load_readable_token(db, _require_user_id(token))
+    return {"repos": await fetch_repos(github_token)}
+
+
+@router.get("/repos/{owner}/{repo}/branches")
+async def list_github_branches(
+    owner: str,
+    repo: str,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    _, github_token = await load_readable_token(db, _require_user_id(token))
+    return {"owner": owner, "repo": repo, "branches": await fetch_branches(github_token, owner, repo)}
+
+
+@router.get("/repos/{owner}/{repo}/commits")
+async def list_github_commits(
+    owner: str,
+    repo: str,
+    sha: Optional[str] = None,
+    token: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    _, github_token = await load_readable_token(db, _require_user_id(token))
+    return {
+        "owner": owner,
+        "repo": repo,
+        "sha": sha,
+        "commits": await fetch_commits(github_token, owner, repo, sha),
+    }

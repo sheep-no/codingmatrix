@@ -112,6 +112,18 @@ class _GithubSettingsPageState extends ConsumerState<GithubSettingsPage> {
             onPressed: state.loading ? null : controller.load,
             child: const Text('重新读取配置'),
           ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            key: const Key('githubVerify'),
+            onPressed: state.loading ? null : controller.verify,
+            child: const Text('验证凭据'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            key: const Key('githubListRepos'),
+            onPressed: state.loading ? null : controller.loadRepos,
+            child: const Text('读取仓库列表'),
+          ),
           Text(
             state.saved
                 ? '配置已保存'
@@ -133,13 +145,45 @@ class _GithubSettingsPageState extends ConsumerState<GithubSettingsPage> {
             ),
             Text('远端验证：${state.binding!.verified ? '已验证' : '尚未验证'}'),
           ],
+          if (state.verifyMessage != null) Text(state.verifyMessage!),
+          for (final repo in state.repos)
+            ListTile(
+              title: Text(repo.fullName),
+              subtitle: Text(
+                repo.private
+                    ? '私有 · ${repo.defaultBranch}'
+                    : '公开 · ${repo.defaultBranch}',
+              ),
+              onTap: state.loading ? null : () => controller.loadBranches(repo),
+            ),
+          if (state.branches.isNotEmpty)
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final branch in state.branches)
+                  ActionChip(
+                    label: Text(branch.name),
+                    onPressed: state.loading
+                        ? null
+                        : () => controller.loadCommitsForSelection(branch.name),
+                  ),
+              ],
+            ),
+          for (final commit in state.commits)
+            ListTile(
+              dense: true,
+              title: Text(commit.message),
+              subtitle: Text(
+                '${commit.sha.length >= 7 ? commit.sha.substring(0, 7) : commit.sha}  ${commit.author}',
+              ),
+            ),
           if (state.error != null)
             Text(
               state.error!,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           const SizedBox(height: 8),
-          const Text('配置按当前登录账号保存。远端权限、仓库和分支状态需要实际服务验收。'),
+          const Text('配置按当前登录账号保存。验证凭据后可读取仓库、分支和最近提交。'),
         ],
       ),
     );

@@ -9,11 +9,21 @@ class GithubState {
     this.loading = false,
     this.error,
     this.saved = false,
+    this.repos = const [],
+    this.branches = const [],
+    this.commits = const [],
+    this.selectedRepo,
+    this.verifyMessage,
   });
   final GithubBinding? binding;
   final bool loading;
   final String? error;
   final bool saved;
+  final List<GithubRepo> repos;
+  final List<GithubBranch> branches;
+  final List<GithubCommit> commits;
+  final String? selectedRepo;
+  final String? verifyMessage;
 }
 
 class GithubController extends StateNotifier<GithubState> {
@@ -99,6 +109,139 @@ class GithubController extends StateNotifier<GithubState> {
       );
       return false;
     }
+  }
+
+  Future<bool> verify() async {
+    if (!mounted || state.loading) return false;
+    final op = ++_operation;
+    final previous = state;
+    state = GithubState(binding: previous.binding, loading: true);
+    try {
+      final result = await client.verify();
+      if (!_current(op)) return false;
+      final verified = result['verified'] == true;
+      state = GithubState(
+        binding: previous.binding,
+        verifyMessage: result['message'] as String? ?? (verified ? 'GitHub 凭据有效' : '验证未通过'),
+        error: verified ? null : (result['message'] as String? ?? '用户名与 Token 不匹配'),
+      );
+      return verified;
+    } catch (_) {
+      if (!_current(op)) return false;
+      state = GithubState(binding: previous.binding, error: 'GitHub 验证失败，请确认已保存凭据');
+      return false;
+    }
+  }
+
+  Future<void> loadRepos() async {
+    if (!mounted || state.loading) return;
+    final op = ++_operation;
+    final previous = state;
+    state = GithubState(
+      binding: previous.binding,
+      loading: true,
+      verifyMessage: previous.verifyMessage,
+    );
+    try {
+      final repos = await client.listRepos();
+      if (_current(op)) {
+        state = GithubState(
+          binding: previous.binding,
+          repos: repos,
+          verifyMessage: previous.verifyMessage,
+        );
+      }
+    } catch (_) {
+      if (_current(op)) {
+        state = GithubState(
+          binding: previous.binding,
+          verifyMessage: previous.verifyMessage,
+          error: '仓库列表读取失败，请先验证凭据',
+        );
+      }
+    }
+  }
+
+  Future<void> loadBranches(GithubRepo repo) async {
+    if (!mounted || state.loading) return;
+    final op = ++_operation;
+    final previous = state;
+    state = GithubState(
+      binding: previous.binding,
+      loading: true,
+      repos: previous.repos,
+      selectedRepo: repo.fullName,
+      verifyMessage: previous.verifyMessage,
+    );
+    try {
+      final branches = await client.listBranches(repo.owner, repo.name);
+      if (_current(op)) {
+        state = GithubState(
+          binding: previous.binding,
+          repos: previous.repos,
+          branches: branches,
+          selectedRepo: repo.fullName,
+          verifyMessage: previous.verifyMessage,
+        );
+      }
+    } catch (_) {
+      if (_current(op)) {
+        state = GithubState(
+          binding: previous.binding,
+          repos: previous.repos,
+          selectedRepo: repo.fullName,
+          verifyMessage: previous.verifyMessage,
+          error: '分支列表读取失败',
+        );
+      }
+    }
+  }
+
+  Future<void> loadCommits(GithubRepo repo, {String? sha}) async {
+    if (!mounted || state.loading) return;
+    final op = ++_operation;
+    final previous = state;
+    state = GithubState(
+      binding: previous.binding,
+      loading: true,
+      repos: previous.repos,
+      branches: previous.branches,
+      selectedRepo: repo.fullName,
+      verifyMessage: previous.verifyMessage,
+    );
+    try {
+      final commits = await client.listCommits(repo.owner, repo.name, sha: sha);
+      if (_current(op)) {
+        state = GithubState(
+          binding: previous.binding,
+          repos: previous.repos,
+          branches: previous.branches,
+          commits: commits,
+          selectedRepo: repo.fullName,
+          verifyMessage: previous.verifyMessage,
+        );
+      }
+    } catch (_) {
+      if (_current(op)) {
+        state = GithubState(
+          binding: previous.binding,
+          repos: previous.repos,
+          branches: previous.branches,
+          selectedRepo: repo.fullName,
+          verifyMessage: previous.verifyMessage,
+          error: '提交列表读取失败',
+        );
+      }
+    }
+  }
+
+  Future<void> loadCommitsForSelection(String sha) async {
+    GithubRepo? selected;
+    for (final repo in state.repos) {
+      if (repo.fullName == state.selectedRepo) selected = repo;
+    }
+    if (selected == null) return;
+    await loadCommits(selected, sha: sha);
   }
 }
 

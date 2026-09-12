@@ -65,6 +65,29 @@
       >
         测试连接
       </button>
+      <ul v-if="repos.length" class="repo-list">
+        <li v-for="repo in repos" :key="repo.full_name">
+          <button type="button" class="repo-button" @click="loadBranches(repo)">
+            {{ repo.full_name }}
+          </button>
+        </li>
+      </ul>
+      <div v-if="branches.length" class="branch-list">
+        <button
+          v-for="branch in branches"
+          :key="branch.name"
+          type="button"
+          class="branch-button"
+          @click="loadCommits(branch.name)"
+        >
+          {{ branch.name }}
+        </button>
+      </div>
+      <ul v-if="commits.length" class="commit-list">
+        <li v-for="commit in commits" :key="commit.sha">
+          {{ commit.message }}
+        </li>
+      </ul>
     </div>
 
     <div v-else class="offline-info">
@@ -77,13 +100,20 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useGithubStore } from '@/stores/github'
 import { ElMessage } from 'element-plus'
+import { createGithubClient } from '@/utils/api/github'
 
 const githubStore = useGithubStore()
+const githubClient = createGithubClient()
 
 const useGithub = ref(false)
 const githubUsername = ref('')
 const githubToken = ref('')
 const connectionStatus = ref(null)
+
+const repos = ref([])
+const branches = ref([])
+const commits = ref([])
+const selectedRepo = ref(null)
 
 // 计算属性
 const isConfigured = computed(() => {
@@ -130,77 +160,71 @@ const saveToken = () => {
 
 const autoTestConnection = async () => {
   try {
-    const response = await fetch('https://api.github.com/user', {
-      headers: {
-        'Authorization': `token ${githubToken.value}`,
-        'Accept': 'application/vnd.github.v3+json'
-      }
-    })
-
-    if (response.ok) {
-      const userData = await response.json()
-      if (userData.login === githubUsername.value) {
-        connectionStatus.value = {
-          type: 'success',
-          message: '✓ GitHub 连接正常'
-        }
-      } else {
-        connectionStatus.value = {
-          type: 'warning',
-          message: '[WARNING] 用户名与 Token 不匹配'
-        }
-      }
-    } else {
-      connectionStatus.value = {
-        type: 'error',
-        message: '✗ GitHub 连接失败'
-      }
+    if (githubUsername.value && githubToken.value) {
+      await githubClient.setGithubConfig({
+        username: githubUsername.value,
+        token: githubToken.value,
+        use_github: useGithub.value
+      })
     }
+    const result = await githubClient.verifyGithub()
+    connectionStatus.value = {
+      type: result.verified ? 'success' : 'warning',
+      message: result.message || (result.verified ? 'GitHub 连接正常' : '用户名与 Token 不匹配')
+    }
+    return result.verified === true
   } catch (error) {
     connectionStatus.value = {
       type: 'error',
-      message: '✗ 网络连接错误'
+      message: error.response?.data?.detail || 'GitHub 验证失败，请先保存配置'
     }
+    return false
   }
 }
 
 const testConnection = async () => {
+  repos.value = []
+  branches.value = []
+  commits.value = []
+  selectedRepo.value = null
+  const verified = await autoTestConnection()
+  if (!verified) {
+    ElMessage.warning(connectionStatus.value?.message || 'GitHub 验证未通过')
+    return
+  }
   try {
-    const response = await fetch('https://api.github.com/user', {
-      headers: {
-        'Authorization': `token ${githubToken.value}`,
-        'Accept': 'application/vnd.github.v3+json'
-      }
-    })
-
-    if (response.ok) {
-      const userData = await response.json()
-      if (userData.login === githubUsername.value) {
-        ElMessage.success('GitHub 连接测试成功！')
-        connectionStatus.value = {
-          type: 'success',
-          message: '✓ GitHub 连接正常'
-        }
-      } else {
-        ElMessage.warning('用户名与 Token 不匹配')
-        connectionStatus.value = {
-          type: 'warning',
-          message: '[WARNING] 用户名与 Token 不匹配'
-        }
-      }
-    } else {
-      ElMessage.error('GitHub 连接失败，请检查 Token')
-      connectionStatus.value = {
-        type: 'error',
-        message: '✗ GitHub 连接失败'
-      }
-    }
+    const data = await githubClient.listRepos()
+    repos.value = data.repos || []
+    ElMessage.success('GitHub 连接测试成功')
   } catch (error) {
-    ElMessage.error('网络错误：' + error.message)
-    connectionStatus.value = {
-      type: 'error',
-      message: '✗ 网络连接错误'
-    }
+    ElMessage.error(error.response?.data?.detail || '仓库列表读取失败')
+  }
+}
+
+const loadBranches = async (repo) => {
+  selectedRepo.value = repo
+  branches.value = []
+  commits.value = []
+  try {
+    const data = await githubClient.listBranches(repo.owner, repo.name)
+    branches.value = data.branches || []
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '分支列表读取失败')
+  }
+}
+
+const loadCommits = async (sha) => {
+  if (!selectedRepo.value) return
+  commits.value = []
+  try {
+    const data = await githubClient.listCommits(
+      selectedRepo.value.owner,
+      selectedRepo.value.name,
+      sha
+    )
+    commits.value = data.commits || []
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '提交列表读取失败')
   }
 }
 </script>
@@ -357,5 +381,17 @@ input:checked + .slider:before {
   background: var(--bg-secondary);
   border-radius: 6px;
   color: var(--text-secondary);
+}
+.repo-list,
+.commit-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.repo-button,
+.branch-button {
+  margin: 4px 8px 0 0;
+  padding: 4px 8px;
+  cursor: pointer;
 }
 </style>
