@@ -31,8 +31,6 @@
       <span v-if="!isCollapsed">新建会话</span>
     </button>
 
-    <WorkbenchNav class="primary-navigation" :collapsed="isCollapsed" />
-
     <!-- 工具集按钮 -->
     <button
       id="toolkit"
@@ -58,6 +56,28 @@
       class="toolkit-menu"
       @click.stop
     >
+      <div
+        v-for="item in workbenchTools"
+        :key="item.to"
+        role="menuitem"
+        tabindex="0"
+        class="toolkit-item"
+        @click.stop="openWorkbenchPage(item.to)"
+        @keydown.enter="openWorkbenchPage(item.to)"
+        @keydown.space.prevent="openWorkbenchPage(item.to)"
+      >
+        <svg
+          class="tool-icon-svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <path :d="item.icon"></path>
+        </svg>
+        <span>{{ item.label }}</span>
+      </div>
       <div
         role="menuitem"
         tabindex="0"
@@ -335,17 +355,25 @@
 
 <script setup>
   import { ref, onMounted, onUnmounted, watch } from 'vue'
+  import { useRouter } from 'vue-router'
   import { api } from '@/utils/api/index'
   import { useUserStore } from '@/stores/user'
   import ThemeSwitcher from './ui/ThemeSwitcher.vue'
   import LoginDialog from './LoginDialog.vue'
   import VirtualHistoryList from './VirtualHistoryList.vue'
-  import WorkbenchNav from './WorkbenchNav.vue'
   import { ElMessage, ElMessageBox } from 'element-plus'
 
   const emit = defineEmits(['newConversation', 'selectHistory', 'deleteHistory', 'login', 'logout', 'useTool'])
 
   const userStore = useUserStore()
+  const router = useRouter()
+
+  const workbenchTools = [
+    { label: '项目', to: '/agent', icon: 'M3 6h7l2 2h9v11H3V6z' },
+    { label: '能力', to: '/capabilities', icon: 'M8 3h8v4H8V3zM4 10h6v4H4v-4zM14 10h6v4h-6v-4zM8 17h8v4H8v-4zM12 7v3M7 14v3h10v-3' },
+    { label: '文档', to: '/docs', icon: 'M5 3h10l4 4v14H5V3zM15 3v5h4M8 12h8M8 16h8' },
+    { label: '设置', to: '/settings', icon: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4 12h2M18 12h2M12 4v2M12 18v2M6.3 6.3l1.4 1.4M16.3 16.3l1.4 1.4M17.7 6.3l-1.4 1.4M7.7 16.3l-1.4 1.4' }
+  ]
 
   const isCollapsed = ref(localStorage.getItem('sidebar-collapsed') === 'true')
   const activeId = ref(null)
@@ -379,6 +407,15 @@
 
   const openToolkit = () => {
     showToolkitMenu.value = !showToolkitMenu.value
+  }
+
+  const openWorkbenchPage = path => {
+    showToolkitMenu.value = false
+    if (!userStore.isLoggedIn) {
+      showLoginDialog.value = true
+      return
+    }
+    router.push(path)
   }
 
   const useTool = toolName => {
@@ -1016,12 +1053,6 @@
     transition: all 0.3s;
   }
 
-  .primary-navigation {
-    margin-bottom: var(--spacing-md);
-    position: relative;
-    z-index: 1;
-  }
-
   #newSpeak:hover .icon {
     background: rgba(255, 255, 255, 0.3);
     transform: rotate(90deg);
@@ -1037,31 +1068,31 @@
   }
 
   #toolkit {
-    background: var(--color-surface, #ffffff) !important;
-    color: var(--slate-700) !important;
-    border: 1.5px solid var(--border-color, #e2e8f0) !important;
-    border-radius: 10px !important;
-    padding: 10px 14px !important;
-    margin-bottom: var(--spacing-md) !important;
-    cursor: pointer !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: var(--spacing-md) !important;
-    font-size: 14px !important;
-    font-weight: 600 !important;
-    position: relative !important;
-    overflow: hidden !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+    background: var(--surface-raised);
+    color: var(--content-primary);
+    border: 1.5px solid var(--control-border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: var(--spacing-md);
+    cursor: pointer;
+    transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-md);
+    font-size: 14px;
+    font-weight: 600;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 2px 8px var(--shadow-color);
   }
 
   #toolkit:hover {
-    background: var(--teal-50, #f0fdfa);
-    border-color: var(--teal);
-    color: var(--teal);
+    background: color-mix(in srgb, var(--accent-primary) 14%, var(--surface-raised));
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(20, 184, 166, 0.15);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--accent-primary) 22%, transparent);
   }
 
   #toolkit:active {
@@ -1089,20 +1120,36 @@
    工具集下拉菜单 (现代化重构)
    ======================================== */
   .toolkit-menu {
-    background: rgba(255, 255, 255, 0.95);
+    background: var(--surface-raised);
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.5);
+    border: 1px solid var(--control-border);
     border-radius: 12px;
     margin-bottom: var(--spacing-md);
     padding: 6px;
     box-shadow:
-      0 10px 30px rgba(0, 0, 0, 0.1),
-      0 2px 8px rgba(0, 0, 0, 0.05);
+      0 10px 30px var(--shadow-color),
+      0 2px 8px var(--shadow-color);
     animation: menuSlideDown 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
     position: relative;
     z-index: 100;
     pointer-events: auto;
-    flex-shrink: 0;
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: min(52vh, 420px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--content-muted) 70%, transparent) transparent;
+  }
+
+  .toolkit-menu::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .toolkit-menu::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--content-muted) 70%, transparent);
+    border-radius: 999px;
   }
 
   @keyframes menuSlideDown {
@@ -1162,13 +1209,13 @@
 
   .toolkit-item span:not(.tool-icon) {
     font-size: 14px;
-    color: var(--slate-700);
+    color: var(--content-primary);
     font-weight: 500;
     transition: color 0.2s;
   }
 
   .toolkit-item:hover span:not(.tool-icon) {
-    color: var(--teal);
+    color: var(--accent-primary);
     font-weight: 600;
   }
 
@@ -1176,7 +1223,7 @@
     width: 18px;
     height: 18px;
     flex-shrink: 0;
-    color: var(--slate-500);
+    color: var(--content-secondary);
     transition: all 0.2s ease;
   }
 

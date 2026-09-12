@@ -8,6 +8,7 @@ Web 搜索增强功能模块
 """
 
 import re
+from datetime import datetime
 from typing import List
 
 
@@ -126,7 +127,7 @@ def enhance_query(query: str, prompt: str = "", enable_enhance: bool = True) -> 
     # 教程/学习类 → guide
     if any(kw in query for kw in ['教程', 'tutorial', '入门', 'guide', '学习', '怎么学']):
         if "guide" not in query.lower():
-            current_year = 2025
+            current_year = datetime.now().year
             return f"{query} complete guide {current_year} {current_year-1}"
         return query
     
@@ -237,7 +238,7 @@ def _extract_school_name(query: str) -> str:
     # ========== 6. 教程/学习类 ==========
     if any(kw in query for kw in ['教程', 'tutorial', '入门', 'guide', '学习', '怎么学']):
         if "guide" not in query.lower():
-            current_year = 2025
+            current_year = datetime.now().year
             return f"{query} complete guide {current_year} {current_year-1}"
         return query
     

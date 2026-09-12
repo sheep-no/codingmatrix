@@ -404,9 +404,9 @@ class TestStreamingSearch:
             timeout=60.0
         )
 
-        # 流式响应应该返回 200 和 text/plain
+        # 流式响应应该返回 200 和 text/event-stream，便于代理即时 flush
         assert response.status_code == 200
-        assert response.headers.get("content-type") == "text/plain; charset=utf-8"
+        assert "text/event-stream" in (response.headers.get("content-type") or "")
 
         # 检查响应内容
         assert len(response.text) > 0

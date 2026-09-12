@@ -29,7 +29,7 @@
             <span class="session-meta">{{ session.filesCount }} 文件</span>
           </div>
           <div class="session-time">{{ formatTime(session.timestamp) }}</div>
-          <button class="session-delete" title="删除并清理" aria-label="删除并清理" @click.stop="$emit('delete-session', session.id)" @keydown.stop>
+          <button class="session-delete" title="永久删除项目" aria-label="永久删除项目" @click.stop="$emit('delete-session', session.id)" @keydown.stop>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>

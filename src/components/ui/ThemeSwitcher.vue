@@ -1,12 +1,16 @@
 <template>
-  <div class="theme-switcher">
+  <div class="theme-switcher" role="radiogroup" aria-label="外观主题">
     <button
       class="theme-btn"
+      type="button"
+      role="radio"
+      :aria-checked="currentTheme === 'theme-light'"
       :class="{ active: currentTheme === 'theme-light' }"
-      title="明亮模式"
+      title="白天"
+      aria-label="白天"
       @click="setTheme('theme-light')"
     >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <circle cx="12" cy="12" r="5" />
         <line x1="12" y1="1" x2="12" y2="3" />
         <line x1="12" y1="21" x2="12" y2="23" />
@@ -20,35 +24,32 @@
     </button>
     <button
       class="theme-btn"
-      :class="{ active: currentTheme === 'theme-default' }"
-      title="默认模式"
-      @click="setTheme('theme-default')"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10" />
-        <path d="M12 2a10 10 0 0 1 0 20" />
-      </svg>
-    </button>
-    <button
-      class="theme-btn"
+      type="button"
+      role="radio"
+      :aria-checked="currentTheme === 'theme-dark'"
       :class="{ active: currentTheme === 'theme-dark' }"
-      title="暗色模式"
+      title="夜晚"
+      aria-label="夜晚"
       @click="setTheme('theme-dark')"
     >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
       </svg>
     </button>
     <button
       class="theme-btn"
+      type="button"
+      role="radio"
+      :aria-checked="currentTheme === 'theme-auto'"
       :class="{ active: currentTheme === 'theme-auto' }"
-      title="跟随系统"
+      title="随系统"
+      aria-label="随系统"
       @click="setTheme('theme-auto')"
     >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-        <line x1="8" y1="21" x2="16" y2="21" />
-        <line x1="12" y1="17" x2="12" y2="21" />
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 2a10 10 0 0 1 0 20" />
+        <path d="M12 8v4l2 2" />
       </svg>
     </button>
   </div>
@@ -56,19 +57,20 @@
 
 <script setup>
   import { ref, onMounted } from 'vue'
-  import { applyTheme, getStoredTheme, getPreferredSystemTheme } from '@/utils/theme'
+  import { applyTheme, getStoredTheme, initTheme } from '@/utils/theme'
 
-  const currentTheme = ref('theme-default')
+  const currentTheme = ref('theme-light')
 
   const setTheme = themeId => {
     currentTheme.value = themeId
     applyTheme(themeId, true)
+    initTheme()
   }
 
   onMounted(() => {
     const saved = getStoredTheme()
     currentTheme.value = saved
-    applyTheme(saved, false)
+    initTheme()
   })
 </script>
 
@@ -102,19 +104,13 @@
   }
 
   .theme-btn.active {
-    background: var(--color-primary-100);
-    border-color: var(--color-primary-500);
-    color: var(--color-primary-600);
+    background: color-mix(in srgb, var(--accent-primary) 16%, var(--bg-secondary));
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
   }
 
   .theme-btn svg {
     width: 20px;
     height: 20px;
-  }
-
-  .theme-dark .theme-btn.active {
-    background: var(--color-primary-900);
-    border-color: var(--color-primary-400);
-    color: var(--color-primary-300);
   }
 </style>

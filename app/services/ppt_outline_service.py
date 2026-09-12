@@ -40,6 +40,12 @@ class PPTOutlineService:
         now = datetime.now(timezone.utc).isoformat()
         topic = request.topic.strip()
         page_blueprint = build_commercial_page_blueprint(topic)
+        if request.num_slides is None:
+            content_count = len(page_blueprint)
+            slide_limit = max(1, content_count + 1)
+        else:
+            content_count = max(0, request.num_slides - 1)
+            slide_limit = request.num_slides
         slides = [
             OutlineSlide(
                 id=f"slide-{index + 1}",
@@ -51,7 +57,7 @@ class PPTOutlineService:
                 content_blocks=[ContentBlock.model_validate(block) for block in page_blueprint[index % len(page_blueprint)]["blocks"]],
                 asset_intent=page_blueprint[index % len(page_blueprint)]["asset_intent"],
             )
-            for index in range(max(0, request.num_slides - 1))
+            for index in range(content_count)
         ]
         draft = OutlineDraft(
             id=str(uuid4()),
@@ -60,7 +66,7 @@ class PPTOutlineService:
             title=topic,
             scenario=request.scenario or classify_scenario(f"{topic} {request.description}").scenario,
             template_id=request.template_id,
-            slide_limit=request.num_slides,
+            slide_limit=slide_limit,
             slides=slides,
             created_at=now,
         )

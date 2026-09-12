@@ -974,6 +974,11 @@ const scheduleDraftSave = () => {
   draftSaveTimer = setTimeout(saveDraft, 250)
 }
 
+const persistDraftNow = () => {
+  clearTimeout(draftSaveTimer)
+  saveDraft()
+}
+
 const recordHistory = () => {
   if (applyingHistory || !historyDirty) return
   const snapshot = JSON.stringify(createSerializableState())
@@ -1106,12 +1111,16 @@ onMounted(() => {
   resetHistory()
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('resize', handleResize)
+  window.addEventListener('beforeunload', persistDraftNow)
+  window.addEventListener('pagehide', persistDraftNow)
 })
 
 onBeforeUnmount(() => {
   clearTimeout(draftSaveTimer)
   clearTimeout(historySaveTimer)
   saveDraft()
+  window.removeEventListener('beforeunload', persistDraftNow)
+  window.removeEventListener('pagehide', persistDraftNow)
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('resize', handleResize)
   Object.values(chartInstances).forEach(c => c.dispose())
@@ -1121,7 +1130,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .chart-editor-page {
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);

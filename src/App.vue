@@ -48,9 +48,11 @@
 <style scoped>
   .app-container {
     width: 100%;
-    height: 100vh;
+    height: 100dvh;
     background: var(--bg-secondary);
     background: var(--gradient-bg);
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 </style>

@@ -16,13 +16,35 @@
  * - GET  /pptx/history/stats       - 获取统计信息
  * - WS   /ws/ppt/{task_id}         - WebSocket 进度推送
  */
+import { consumeJsonStream } from '../streamParser'
+
 export function createPptClient(client) {
   return {
-    async createOutline(payload) {
-      const response = await client.post('/pptx/outlines', payload)
-      if (response.ok) return await response.json()
-      const error = await response.json()
-      throw new Error(error.detail || '创建大纲失败')
+    async createOutline(payload, { onEvent, signal } = {}) {
+      const response = await client.request('/pptx/outlines', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { Accept: 'text/event-stream' },
+        signal,
+      })
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        throw new Error(error.detail || '创建大纲失败')
+      }
+      const contentType = response.headers.get('content-type') || ''
+      if (contentType.includes('text/event-stream')) {
+        let draft = null
+        let streamError = ''
+        await consumeJsonStream(response, event => {
+          onEvent?.(event)
+          if (event?.type === 'done' && event.draft) draft = event.draft
+          if (event?.type === 'error') streamError = event.message || '大纲生成失败'
+        }, { signal })
+        if (streamError) throw new Error(streamError)
+        if (!draft) throw new Error('大纲生成失败')
+        return draft
+      }
+      return await response.json()
     },
 
     async updateOutline(outlineId, payload) {
@@ -235,29 +257,23 @@ export function createPptClient(client) {
     },
 
     async getHistory(page = 1, pageSize = 20) {
-      try {
-        const response = await client.get(
-          `/pptx/history?page=${page}&page_size=${pageSize}`
-        )
-        if (response.ok) {
-          return await response.json()
-        }
-        return { records: [], total: 0 }
-      } catch {
-        return { records: [], total: 0 }
+      const response = await client.get(
+        `/pptx/history?page=${page}&page_size=${pageSize}`
+      )
+      if (response.ok) {
+        return await response.json()
       }
+      const error = await response.json().catch(() => ({}))
+      throw new Error(error.detail || '加载历史失败')
     },
 
     async deleteHistory(taskId) {
-      try {
-        const response = await client.delete(`/pptx/history/${taskId}`)
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch {
-        return { success: false }
+      const response = await client.delete(`/pptx/history/${taskId}`)
+      if (response.ok) {
+        return await response.json()
       }
+      const error = await response.json().catch(() => ({}))
+      throw new Error(error.detail || '删除历史失败')
     },
 
     async getStats() {

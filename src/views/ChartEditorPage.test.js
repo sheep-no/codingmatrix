@@ -425,4 +425,15 @@ describe('ChartEditorPage', () => {
 
     expect(wrapper.get('.chart-preview-title').text()).toBe('新的历史分支')
   })
+
+  it('flushes the draft immediately on pagehide so a refresh keeps the latest title', async () => {
+    const wrapper = mount(ChartEditorPage)
+    await uploadJson(wrapper, 'sales.json', [{ month: 'Jan', sales: 10 }])
+    await addChart(wrapper)
+    await wrapper.get('input[placeholder="图表标题"]').setValue('刷新后仍在')
+    window.dispatchEvent(new Event('pagehide'))
+
+    const storedDraft = JSON.parse(localStorage.getItem('chart-editor-draft-v1:anonymous'))
+    expect(storedDraft.charts[0].title).toBe('刷新后仍在')
+  })
 })

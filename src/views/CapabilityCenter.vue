@@ -121,21 +121,6 @@
        <button class="primary" :disabled="panelStates.sandbox.loading || !sandboxCode.trim()" @click="executeSandboxCode">运行代码</button>
        <pre v-if="sandboxResult && !panelStates.sandbox.error">{{ sandboxResult }}</pre>
     </section>
-
-    <section v-else class="panel">
-      <div class="panel-title"><h2>上传项目</h2><button @click="loadProjects(true)">刷新</button></div>
-       <label class="drop-zone" @dragover.prevent @drop.prevent="dropProjectFile">
-         <span>拖入 ZIP 项目，或点击选择文件</span>
-         <input type="file" accept=".zip" @change="uploadProject" />
-       </label>
-       <LoadingState v-if="panelStates.projects.loading" label="正在加载上传项目..." />
-       <ErrorState v-else-if="panelStates.projects.error" :message="panelStates.projects.error" @retry="loadProjects(true)" />
-       <div v-for="project in projects" :key="project.project_name" class="list-row">
-         <span>{{ project.project_name }} · {{ project.file_count }} 个文件</span>
-         <button @click="removeProject(project.project_name)">删除</button>
-       </div>
-       <div v-if="!panelStates.projects.loading && !panelStates.projects.error && projects.length === 0" class="empty">暂无上传项目</div>
-    </section>
     </div>
     </div>
   </main>
@@ -152,8 +137,7 @@ const tabs = [
   { id: 'knowledge', label: '知识库', description: '管理与检索参考文档' },
   { id: 'sandbox', label: '代码沙箱', description: '运行代码片段' },
   { id: 'skills', label: 'Skills', description: '管理可复用技能' },
-  { id: 'host', label: 'Agent Host', description: '查看会话与执行状态' },
-  { id: 'projects', label: '上传项目', description: '导入与管理项目文件' }
+  { id: 'host', label: 'Agent Host', description: '查看会话与执行状态' }
 ]
 const activeTab = ref('vision')
 function navigateTabs(event, id) {
@@ -175,7 +159,6 @@ const visionPrompt = ref('请详细描述这张图片的内容')
 const lastVisionOperation = ref('analyze')
 const skills = ref([])
 const hosts = ref([])
-const projects = ref([])
 const hostActions = ref('')
 const knowledgeDocs = ref([])
 const knowledgeQuery = ref('')
@@ -190,8 +173,7 @@ const panelStates = reactive({
   sandbox: { loading: false, error: '' },
   skills: { loading: false, error: '' },
   host: { loading: false, error: '' },
-  knowledge: { loading: false, error: '' },
-  projects: { loading: false, error: '' }
+  knowledge: { loading: false, error: '' }
 })
 
 function setVisionFile(event) { visionFile.value = event.target.files?.[0] || null }
@@ -201,10 +183,6 @@ function dropVisionFile(event) {
 
 function dropKnowledgeFile(event) {
   uploadKnowledge({ target: { files: event.dataTransfer.files, value: '' } })
-}
-
-function dropProjectFile(event) {
-  uploadProject({ target: { files: event.dataTransfer.files, value: '' } })
 }
 
 async function runVision(operation) {
@@ -295,32 +273,26 @@ async function executeSandboxCode() {
     panelStates.sandbox.error = error.message || '代码执行失败，请重试。'
   } finally { panelStates.sandbox.loading = false }
 }
-async function loadProjects(force = false) {
-  if (loadedPanels.has('projects') && !force) return
-  panelStates.projects.loading = true
-  panelStates.projects.error = ''
-  try {
-    projects.value = await api.listUploadedProjects()
-    loadedPanels.add('projects')
-  } catch (error) {
-    panelStates.projects.error = error.message || '上传项目加载失败，请重试。'
-  } finally { panelStates.projects.loading = false }
-}
-async function uploadProject(event) { const file = event.target.files?.[0]; if (!file) return; busy.value = true; try { await api.uploadProjectZip(file); await loadProjects(true) } finally { busy.value = false } }
-async function removeProject(name) {
-  if (!window.confirm(`确认删除上传项目「${name}」吗？`)) return
-  await api.deleteUploadedProject(name)
-  await loadProjects(true)
-}
 
 watch(activeTab, tab => {
-  const loaders = { skills: loadSkills, host: loadHosts, knowledge: loadKnowledgeDocs, projects: loadProjects }
+  const loaders = { skills: loadSkills, host: loadHosts, knowledge: loadKnowledgeDocs }
   loaders[tab]?.()
 }, { immediate: true })
 </script>
 
 <style scoped>
-.capability-page { min-height: 100vh; padding: 28px; background: var(--surface-app); color: var(--content-primary); box-sizing: border-box; }
+.capability-page {
+  flex: 1;
+  min-height: 0;
+  padding: 28px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  background: var(--surface-app);
+  color: var(--content-primary);
+  box-sizing: border-box;
+}
 .page-header, .panel-title, .list-row { display: flex; align-items: center; gap: 16px; }
 .page-header { margin: 0 auto 24px; max-width: 1100px; }
 .page-header h1, h2 { margin: 0; }

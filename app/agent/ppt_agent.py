@@ -12,13 +12,14 @@ import logging
 import asyncio
 from dataclasses import dataclass, field, asdict
 from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 from app.utils import call_llm
 from app.agent.architect_json_parser import ArchitectJsonParser
 from app.utils.pptx.commercial_content import (
     NARRATIVE_ROLES,
     build_expanded_commercial_page_blueprint,
+    build_commercial_page_blueprint,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,92 @@ logger = logging.getLogger(__name__)
 from app.agent.models import DEFAULT_PPT_MODEL
 
 PPT_DEFAULT_MODEL = DEFAULT_PPT_MODEL
+AUTO_SLIDE_MAX = 20
+
+
+def extract_completed_slide_objects(buffer: str) -> List[Dict[str, Any]]:
+    """Return fully closed objects from a partial JSON `slides` array."""
+    if not buffer:
+        return []
+    key_index = buffer.find('"slides"')
+    if key_index < 0:
+        return []
+    bracket = buffer.find("[", key_index)
+    if bracket < 0:
+        return []
+    fragment = buffer[bracket + 1:]
+    objects: List[Dict[str, Any]] = []
+    index = 0
+    length = len(fragment)
+    while index < length:
+        while index < length and fragment[index] in " \n\r\t,":
+            index += 1
+        if index >= length or fragment[index] == "]":
+            break
+        if fragment[index] != "{":
+            index += 1
+            continue
+        depth = 0
+        in_string = False
+        escape = False
+        start = index
+        closed = False
+        while index < length:
+            char = fragment[index]
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+            else:
+                if char == '"':
+                    in_string = True
+                elif char == "{":
+                    depth += 1
+                elif char == "}":
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            parsed = json.loads(fragment[start:index + 1])
+                        except json.JSONDecodeError:
+                            parsed = None
+                        if isinstance(parsed, dict):
+                            objects.append(parsed)
+                        index += 1
+                        closed = True
+                        break
+            index += 1
+        if not closed:
+            break
+    return objects
+
+
+def decode_llm_stream_delta(chunk_str: Any) -> str:
+    """Extract assistant content from an OpenAI-style stream chunk."""
+    if chunk_str is None:
+        return ""
+    if not isinstance(chunk_str, str):
+        chunk_str = str(chunk_str)
+    text = chunk_str.strip()
+    if not text or text == "[DONE]":
+        return ""
+    if text.startswith("data:"):
+        text = text[5:].strip()
+        if not text or text == "[DONE]":
+            return ""
+    try:
+        chunk = json.loads(text)
+    except json.JSONDecodeError:
+        return chunk_str if chunk_str and not chunk_str.lstrip().startswith("{") else ""
+    if not isinstance(chunk, dict):
+        return ""
+    choices = chunk.get("choices") or []
+    if not choices:
+        return ""
+    delta = (choices[0] or {}).get("delta") or {}
+    return delta.get("content") or ""
 
 
 class SlideType(str, Enum):
@@ -91,7 +178,7 @@ class PPTAgent:
         self,
         topic: str,
         description: str = "",
-        num_slides: int = 10,
+        num_slides: Optional[int] = None,
         api_key_token: Optional[str] = None,
     ) -> PresentationOutline:
         """根据自然语言输入生成 PPT 大纲"""
@@ -139,14 +226,90 @@ class PPTAgent:
 
         return self._fallback_outline(topic, num_slides)
 
-    def _build_prompt(self, topic: str, description: str, num_slides: int) -> str:
+    def _outline_system_prompt(self) -> str:
+        system_prompt = "你是一个专业的 PPT 制作助手。请根据用户输入生成结构化的 PPT 大纲。只返回纯 JSON，不要任何额外文字。"
+        try:
+            from app.services.skill_registry import get_skill
+            custom_prompt = get_skill("ppt_system_prompt")
+            if custom_prompt:
+                return custom_prompt
+        except Exception:
+            pass
+        return system_prompt
+
+    async def stream_outline(
+        self,
+        topic: str,
+        description: str = "",
+        num_slides: Optional[int] = None,
+        api_key_token: Optional[str] = None,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Stream slide objects as the model writes JSON, then yield the validated outline."""
+        prompt = self._build_prompt(topic, description, num_slides)
+        system_prompt = self._outline_system_prompt()
+
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            if attempt > 1:
+                yield {"type": "retry", "attempt": attempt}
+            try:
+                raw = await call_llm(
+                    model=self.model,
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    temperature=0.7,
+                    stream=True,
+                    api_key_token=api_key_token,
+                )
+                content = ""
+                emitted = 0
+                if hasattr(raw, "__aiter__"):
+                    async for chunk in raw:
+                        delta = decode_llm_stream_delta(chunk)
+                        if not delta:
+                            continue
+                        content += delta
+                        slides = extract_completed_slide_objects(content)
+                        while emitted < len(slides):
+                            yield {
+                                "type": "slide",
+                                "slide": slides[emitted],
+                                "index": emitted,
+                            }
+                            emitted += 1
+                elif isinstance(raw, dict):
+                    content = raw.get("choices", [{}])[0].get("message", {}).get("content", "")
+                else:
+                    content = str(raw)
+
+                if content and emitted == 0:
+                    for index, slide in enumerate(extract_completed_slide_objects(content)):
+                        yield {"type": "slide", "slide": slide, "index": index}
+
+                outline = await self._parse_with_llm_fallback(content, topic, num_slides, api_key_token)
+                if outline:
+                    yield {"type": "complete", "outline": outline}
+                    return
+            except Exception as exc:
+                logger.warning(f"流式大纲失败 (尝试 {attempt}/{self.MAX_RETRIES}): {exc}")
+                if attempt < self.MAX_RETRIES:
+                    await asyncio.sleep(2 ** attempt)
+
+        yield {"type": "complete", "outline": self._fallback_outline(topic, num_slides)}
+
+    def _build_prompt(self, topic: str, description: str, num_slides: Optional[int]) -> str:
+        if not num_slides:
+            page_rule = "总页数由主题复杂度决定，建议 8 到 16 页（含封面和结束页），内容够用即可，不要凑页也不要过短"
+            page_line = "页数: 自动"
+        else:
+            page_rule = f"总页数必须等于 {num_slides}"
+            page_line = f"页数: {num_slides}"
         return f"""你是一个专业的 PPT 制作助手。请根据用户输入生成结构化的 PPT 大纲。
 
 要求:
 1. 返回纯 JSON，不要任何额外文字
 2. 第一页必须是 "title" 类型 (封面页)
 3. 最后一页必须是 "end" 类型 (结束页)
-4. 总页数必须等于 {num_slides}
+4. {page_rule}
 5. 每页 bullets 数量不超过 6 条，每条不超过 40 字
 6. 封面和结束页之外的页面按 opportunity_map、evidence_story、strategic_choice、execution_roadmap、decision_close 组织商业叙事
 7. 每个内容页输出 4 个 content_blocks，bullets 与 content_blocks 的 content 保持一致
@@ -172,7 +335,7 @@ JSON Schema:
 用户输入:
 主题: {topic}
 描述: {description or '自由发挥'}
-页数: {num_slides}
+{page_line}
 
 请返回 JSON:"""
 
@@ -180,7 +343,7 @@ JSON Schema:
         self,
         raw: str,
         topic: str,
-        num_slides: int,
+        num_slides: Optional[int],
         api_key_token: Optional[str] = None
     ) -> Optional[PresentationOutline]:
         """
@@ -283,12 +446,12 @@ JSON Schema：
             logger.error(f"LLM 辅助提取 JSON 失败: {e}")
             return None
 
-    def _validate_outline(self, data: Dict, topic: str, num_slides: int) -> Optional[PresentationOutline]:
+    def _validate_outline(self, data: Dict, topic: str, num_slides: Optional[int]) -> Optional[PresentationOutline]:
         """验证并转换 JSON 数据为 PresentationOutline"""
         if data is None:
             return None
         try:
-            if num_slides <= 1:
+            if num_slides == 1:
                 return PresentationOutline(
                     title=data.get("title", topic),
                     slides=[SlideOutline(type="title", title=data.get("title", topic))],
@@ -339,37 +502,40 @@ JSON Schema：
                 if slides[-1].type != "end":
                     slides.append(SlideOutline(type="end", title="谢谢", bullets=[]))
 
-            while len(slides) > max(num_slides, 2):
-                # 保护：至少保留 title + end 两页
-                if len(slides) <= 2:
-                    break
-                slides.pop(-2)
+            if not num_slides:
+                while len(slides) > AUTO_SLIDE_MAX:
+                    slides.pop(-2)
+            else:
+                while len(slides) > num_slides:
+                    slides.pop(-2)
 
-            blueprint = build_expanded_commercial_page_blueprint(
-                topic, max(1, num_slides - 2)
-            )
-            while len(slides) < num_slides:
-                content_count = sum(slide.type not in {"title", "end"} for slide in slides)
-                page = blueprint[content_count % len(blueprint)]
-                slides.insert(-1, SlideOutline(
-                    type=page["slide_type"],
-                    title=page["title"],
-                    bullets=[block["content"] for block in page["blocks"]],
-                    image_keywords=page["asset_intent"]["keywords"],
-                    narrative_role=page["role"],
-                    content_blocks=page["blocks"],
-                ))
+                blueprint = build_expanded_commercial_page_blueprint(
+                    topic, max(1, num_slides - 2)
+                )
+                while len(slides) < num_slides:
+                    content_count = sum(slide.type not in {"title", "end"} for slide in slides)
+                    page = blueprint[content_count % len(blueprint)]
+                    slides.insert(-1, SlideOutline(
+                        type=page["slide_type"],
+                        title=page["title"],
+                        bullets=[block["content"] for block in page["blocks"]],
+                        image_keywords=page["asset_intent"]["keywords"],
+                        narrative_role=page["role"],
+                        content_blocks=page["blocks"],
+                    ))
 
             return PresentationOutline(title=data.get("title", topic), slides=slides)
         except Exception as e:
             logger.warning(f"大纲验证失败: {e}")
             return None
 
-    def _fallback_outline(self, topic: str, num_slides: int) -> PresentationOutline:
+    def _fallback_outline(self, topic: str, num_slides: Optional[int]) -> PresentationOutline:
+        if not num_slides:
+            num_slides = len(build_commercial_page_blueprint(topic)) + 2
         blueprint = build_expanded_commercial_page_blueprint(
             topic, max(1, num_slides - 2)
         )
-        if num_slides <= 1:
+        if num_slides == 1:
             return PresentationOutline(
                 title=topic,
                 slides=[SlideOutline(type="title", title=topic, bullets=[])],

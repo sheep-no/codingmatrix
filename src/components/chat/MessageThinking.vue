@@ -54,18 +54,18 @@ const ChevronIcon = () => h('svg', { class: 'chevron', viewBox: '0 0 24 24', fil
 
 <style scoped>
 .thinking-section { margin-bottom: 14px; }
-.thinking-details { overflow: hidden; background: var(--surface-subtle); border: 1px solid var(--control-border); border-radius: 8px; transition: border-color var(--motion-fast); }
-.thinking-details:hover { border-color: var(--control-border-focus); }
-.thinking-pulse { width: 18px; height: 18px; border-radius: 50%; background: var(--status-warning); animation: thinking-pulse 1.4s ease-in-out infinite; }
-.thinking-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; color: var(--content-secondary); font-size: 12px; font-weight: 600; list-style: none; cursor: pointer; transition: background var(--motion-fast); }
+.thinking-details { overflow: hidden; background: transparent; border: 0; border-left: 2px solid color-mix(in srgb, #c45c26 50%, var(--accent-primary)); border-radius: 0; padding-left: 12px; }
+.thinking-details:hover { border-color: #c45c26; }
+.thinking-pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-primary); animation: thinking-pulse 1.4s ease-in-out infinite; }
+.thinking-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 0 8px; color: var(--text-tertiary); font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; list-style: none; cursor: pointer; }
 .thinking-summary::marker { display: none; }
-.thinking-summary:hover { background: color-mix(in srgb, var(--status-warning) 12%, transparent); }
+.thinking-summary:hover { color: var(--text-secondary); }
 .thinking-indicator { display: flex; align-items: center; gap: 8px; }
-.thinking-indicator svg, .chevron { width: 18px; height: 18px; }
+.thinking-indicator svg, .chevron { width: 14px; height: 14px; }
 .thinking-indicator svg { opacity: 0.8; }
 .thinking-model { margin-left: 4px; color: var(--content-muted); font-size: 11px; font-weight: normal; }
 .chevron { transition: transform var(--motion-fast); }
 .thinking-details[open] .chevron { transform: rotate(180deg); }
-.thinking-content { padding: 14px; color: var(--content-secondary); font-size: 13px; line-height: 1.7; background: var(--surface-app); border-top: 1px solid var(--control-border); }
+.thinking-content { padding: 4px 0 8px; color: var(--text-secondary); font-size: 13px; line-height: 1.7; background: transparent; border-top: 0; }
 @keyframes thinking-pulse { 0%, 100% { opacity: 0.8; transform: scale(1); } 50% { opacity: 1; transform: scale(1.2); } }
 </style>

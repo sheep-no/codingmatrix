@@ -583,7 +583,8 @@ async def generate_message(
                         body.temperature
                         if body.temperature is not None
                         else character['temperature']
-                    )
+                    ),
+                    api_key_token=body.api_key_token,
                 )
 
             response = await asyncio.wait_for(
@@ -754,6 +755,7 @@ async def generate_companion_turn(
                         requested_temperature,
                         COMPANION_STRUCTURED_MAX_TEMPERATURE,
                     ),
+                    api_key_token=body.api_key_token,
                 )
 
             raw_response = await asyncio.wait_for(
@@ -865,6 +867,7 @@ async def create_voice_transcription_turn(
             character_id=body.character_id,
             turn_id=body.turn_id,
             voice_output=body.voice_output,
+            api_key_token=body.api_key_token,
         ),
         token=token,
         db=db,

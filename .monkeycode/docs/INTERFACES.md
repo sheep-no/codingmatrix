@@ -43,6 +43,8 @@ Flutter 页面对 Token 执行密码输入和提交后清理，并显示“尚�
 
 - `POST /api/v1/chat`：主聊天接口，支持流式输出、会话历史、文件理解和联网搜索。
 - `POST /api/v1/code`：主聊天兼容别名，客户端迁移到 `/api/v1/chat`。
+- `POST /api/v1/history`：按当前用户列出或搜索会话摘要。请求字段为 `prompt_keyword`、`limit`、`offset`；响应为 `{items, total, limit, offset}`。`items` 含 `id`、`conversation_id`、`prompt`、`response`、`thinking`、`title`、`created_at` 和 `metadata`。侧栏「搜索历史」使用该接口。
+- `POST /api/v1/conversation/history`：按 `conversation_id` 读取同一会话的消息，可选 `last_history_id` 和 `limit`。
 
 ## GirlAI API
 

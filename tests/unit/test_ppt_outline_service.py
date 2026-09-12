@@ -114,3 +114,11 @@ def test_user_cannot_read_another_users_outline():
         pass
     else:
         raise AssertionError("跨用户读取应该被拒绝")
+
+
+def test_auto_slide_count_uses_full_commercial_blueprint():
+    draft = PPTOutlineService().create("user-1", OutlineCreateRequest(topic="季度业务汇报"))
+
+    assert len(draft.slides) == 5
+    assert draft.slide_limit == 6
+    assert draft.slides[0].narrative_role == "opportunity_map"

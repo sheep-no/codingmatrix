@@ -34,5 +34,10 @@ describe('AgentSidebar accessibility', () => {
     expect(wrapper.find('.category-header').attributes('aria-expanded')).toBe('true')
     expect(wrapper.find('.file-item').element.tagName).toBe('BUTTON')
     expect(wrapper.findAll('.workbench-nav-link')).toHaveLength(5)
+    expect(wrapper.find('.session-lifecycle').exists()).toBe(false)
+
+    await wrapper.find('.session-delete').trigger('click')
+    expect(wrapper.emitted('delete-session')).toEqual([['session-1']])
+    expect(wrapper.find('.session-delete').attributes('aria-label')).toBe('永久删除项目')
   })
 })

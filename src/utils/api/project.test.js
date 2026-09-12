@@ -98,3 +98,36 @@ describe('project model context client', () => {
     })).resolves.toEqual({ conflict: true })
   })
 })
+
+describe('project deletion client', () => {
+  it('permanently deletes a generated project', async () => {
+    const baseClient = {
+      delete: vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ session_id: 'session/1', status: 'deleted' })
+      })
+    }
+    const client = createProjectClient(baseClient)
+    await expect(client.permanentlyDeleteProject('session/1')).resolves.toEqual({
+      session_id: 'session/1',
+      status: 'deleted'
+    })
+    expect(baseClient.delete).toHaveBeenCalledWith('/agent/projects/session%2F1')
+  })
+
+  it('exposes the backend deletion error and status', async () => {
+    const baseClient = {
+      delete: vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: vi.fn().mockResolvedValue({ detail: '项目仍有活动任务，暂时无法删除' })
+      })
+    }
+    const client = createProjectClient(baseClient)
+
+    await expect(client.permanentlyDeleteProject('session-1')).rejects.toMatchObject({
+      message: '项目仍有活动任务，暂时无法删除',
+      status: 409
+    })
+  })
+})

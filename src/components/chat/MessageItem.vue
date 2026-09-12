@@ -42,5 +42,9 @@ const label = computed(() => {
 </script>
 
 <style scoped>
-.message-wrapper { margin-bottom: 24px; }
+.message-wrapper { margin-bottom: 32px; }
+
+.message-wrapper :deep(.message) {
+  width: 100%;
+}
 </style>

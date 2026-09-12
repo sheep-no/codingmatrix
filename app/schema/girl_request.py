@@ -11,6 +11,7 @@ class GirlRequest(BaseModel):
     temperature: Optional[float] = Field(default=None, ge=0.0, le=1.5, description="AI 温度")
     character_id: Optional[str] = Field(default="gentle", description="角色 ID (gentle/lively/tsundere/intellectual/companion)")
     max_tokens: Optional[int] = Field(default=None, ge=50, le=1000, description="最大 Token 数")
+    api_key_token: Optional[str] = Field(default=None, max_length=256, description="用户 API Key Token")
 
 
 class GirlResponse(BaseModel):
