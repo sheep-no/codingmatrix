@@ -114,7 +114,7 @@
 - 技术栈：{technologies}
 - 风险因素：{risk_factors}
 
-请输出完整的架构设计，必须包含 api_spec（后端接口定义）和 db_schema（数据库表结构）。
+请输出完整的架构设计。仅当需求包含后端时填写 api_spec，仅当需求包含数据库时填写 db_schema；否则输出空对象。
 
 输出格式要求：
 - 只输出 JSON 格式

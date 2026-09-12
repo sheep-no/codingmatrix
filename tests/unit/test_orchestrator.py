@@ -59,6 +59,17 @@ class TestComplexityAnalyzer:
         assert result.has_auth is True
         assert "需要用户认证系统" in result.risk_factors
 
+    def test_negated_frontend_database_stay_simple(self):
+        result = ComplexityAnalyzer.analyze(
+            "写一个 Python 文件 hello.py，运行后打印 Hello World。"
+            "只要这一个文件，不要数据库、不要前端、不要测试。"
+        )
+        assert result.level == ProjectComplexity.SIMPLE
+        assert result.has_frontend is False
+        assert result.has_backend is False
+        assert result.has_database is False
+        assert result.estimated_files <= 3
+
 
 class TestDependencyGraph:
     """依赖图测试"""

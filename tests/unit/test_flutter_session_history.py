@@ -9,6 +9,11 @@ from app.api.v1.ai_agent import orchestrate_endpoints as endpoints
 from app.api.v1.ai_agent.schemas import OrchestratorRequest
 
 
+class ConnectedRequest:
+    async def is_disconnected(self):
+        return False
+
+
 @pytest.mark.asyncio
 async def test_history_payload_and_bounded_query(monkeypatch):
     session = SimpleNamespace(session_id="session", requirement="app", status="completed", output_dir="42/app", files_generated=2, files_total=2, error_message=None, created_at=None, last_activity_at=None)
@@ -31,7 +36,7 @@ async def test_explicit_reconnect_consumes_existing_queue(monkeypatch):
     await queue.put("[DONE]")
     active = {"gen_task": SimpleNamespace(done=lambda: False), "queue": queue, "connected": False}
     monkeypatch.setattr(endpoints, "_active_tasks", {"session": active})
-    response = await endpoints.orchestrate_project_stream(OrchestratorRequest(requirement="reconnect", session_id="session", is_resume=True), token={"sub": "42"}, db=None)
+    response = await endpoints.orchestrate_project_stream(OrchestratorRequest(requirement="reconnect", session_id="session", is_resume=True), ConnectedRequest(), token={"sub": "42"}, db=None)
     assert active["connected"] is True
     events = [item async for item in response.body_iterator]
     assert len(events) == 1
@@ -56,5 +61,5 @@ async def test_finished_reconnect_returns_conflict_without_generation(monkeypatc
     monkeypatch.setattr(endpoints, "verify_session_ownership", AsyncMock(return_value=SimpleNamespace(session_id="session", status="completed")))
     monkeypatch.setattr(endpoints, "_active_tasks", {})
     with pytest.raises(HTTPException) as error:
-        await endpoints.orchestrate_project_stream(OrchestratorRequest(requirement="reconnect", session_id="session", is_resume=True), token={"sub": "42"}, db=None)
+        await endpoints.orchestrate_project_stream(OrchestratorRequest(requirement="reconnect", session_id="session", is_resume=True), ConnectedRequest(), token={"sub": "42"}, db=None)
     assert error.value.status_code == 409

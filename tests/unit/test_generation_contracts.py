@@ -95,6 +95,19 @@ def test_architecture_conversion_preserves_language_profile_and_runtime() -> Non
     assert (plan.language, plan.framework, plan.runtime) == ("go", "chi", "go1.23")
 
 
+def test_architecture_conversion_accepts_string_llm_fields() -> None:
+    plan = GenerationPlan.from_architecture({
+        "language": "python",
+        "project_spec": "print hello world",
+        "file_plan": ["hello.py"],
+        "interfaces": "hello.py exposes main",
+        "dependencies": "none",
+    })
+    assert [item.path for item in plan.files] == ["hello.py"]
+    assert plan.interfaces.entries == ()
+    assert plan.dependencies.dependencies == ()
+
+
 def test_architecture_conversion_preserves_strict_file_scope() -> None:
     paths = ["pom.xml", "src/main/java/com/example/Application.java"]
     plan = GenerationPlan.from_architecture({

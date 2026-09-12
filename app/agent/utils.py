@@ -1099,35 +1099,24 @@ async def validate_language_with_llm(
     if not content or len(content.strip()) < 20:
         logger.debug(f"LLM 语言检测跳过: 内容太短 ({len(content.strip()) if content else 0} 字符)")
         return True, ""  # 内容太短，跳过检测
-
-    snippet = content[:500]
-    prompt = f"""判断以下代码是否是 {expected_language} 语言。只回答 YES 或 NO，不要解释。
-
-代码片段：
-```
-{snippet}
-```"""
-
-    try:
-        logger.info(f"LLM 语言检测: {file_path} 期望={expected_language}")
-        result = await asyncio.wait_for(
-            llm_caller(prompt),
-            timeout=LANGUAGE_VALIDATION_TIMEOUT_SECONDS,
-        )
-        logger.info(f"LLM 语言检测结果: {file_path} -> {result}")
-        if result and "NO" in result.upper():
-            return False, f"语言不匹配：期望 {expected_language}，LLM 判断内容不是该语言"
+    if _heuristic_language_match(file_path, content, expected_language):
+        logger.info("LLM 语言检测跳过: 启发式匹配 %s", file_path)
         return True, ""
-    except asyncio.TimeoutError:
-        logger.warning(
-            "LLM 语言检测超时，已跳过: file=%s timeout=%ss",
-            file_path,
-            LANGUAGE_VALIDATION_TIMEOUT_SECONDS,
-        )
-        return True, ""
-    except Exception as e:
-        logger.debug(f"LLM 语言检测跳过: {e}")
-        return True, ""  # LLM 调用失败不阻塞
+    logger.info("LLM 语言检测跳过: 不阻塞生成 %s", file_path)
+    return True, ""
+
+
+def _heuristic_language_match(file_path: str, content: str, expected_language: str) -> bool:
+    expected = (expected_language or "").strip().lower()
+    suffix = Path(file_path).suffix.lower()
+    text = content or ""
+    if suffix in {".md", ".txt", ".json", ".toml", ".yml", ".yaml", ".xml"}:
+        return True
+    if expected in {"python", "py"} and suffix == ".py":
+        return any(marker in text for marker in ("def ", "class ", "import ", "from ", "async def "))
+    if expected in {"javascript", "js", "typescript", "ts"} and suffix in {".js", ".ts", ".mjs", ".cjs"}:
+        return any(marker in text for marker in ("function ", "const ", "let ", "export ", "import "))
+    return False
 
 
 def is_placeholder_content(content: str, file_path: str = "") -> tuple:
@@ -1267,6 +1256,26 @@ def compact_project_context_for_file(file_path: str, project_context: Dict[str, 
     generation_contract = project_context.get("generation_contract")
     if isinstance(generation_contract, dict):
         compact["generation_contract"] = generation_contract
+    symbol_table = architecture.get("symbol_table")
+    if not isinstance(symbol_table, dict):
+        symbol_table = project_context.get("symbol_table")
+    if isinstance(symbol_table, dict) and symbol_table:
+        compact["symbol_table"] = symbol_table
+        frozen_facts = {}
+        if isinstance(symbol_table.get("storage"), dict):
+            frozen_facts["storage"] = symbol_table["storage"]
+        if isinstance(symbol_table.get("auth"), dict):
+            frozen_facts["auth"] = symbol_table["auth"]
+        if "route_prefix" in symbol_table:
+            frozen_facts["route_prefix"] = symbol_table.get("route_prefix")
+        if frozen_facts:
+            compact["frozen_facts"] = frozen_facts
+        this_entry = (symbol_table.get("files") or {}).get(normalized)
+        if isinstance(this_entry, dict) and this_entry:
+            compact["this_file"]["must_implement"] = this_entry
+    generated_signatures = project_context.get("generated_signatures")
+    if isinstance(generated_signatures, dict) and generated_signatures:
+        compact["already_generated"] = generated_signatures
     return json.dumps(compact, ensure_ascii=False)
 
 

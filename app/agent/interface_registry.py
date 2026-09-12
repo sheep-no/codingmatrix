@@ -51,7 +51,14 @@ class InterfaceRegistry(BaseModel):
 
     @classmethod
     def build(cls, entries: Iterable[Mapping[str, object] | InterfaceEntry], version: int = 1) -> "InterfaceRegistry":
-        normalized = tuple(sorted((_coerce_entry(entry) for entry in entries), key=lambda item: (item.module, item.owner)))
+        if isinstance(entries, str) or entries is None:
+            entries = ()
+        elif isinstance(entries, Mapping):
+            entries = (entries,)
+        normalized = tuple(sorted(
+            (_coerce_entry(entry) for entry in entries if isinstance(entry, (Mapping, InterfaceEntry))),
+            key=lambda item: (item.module, item.owner),
+        ))
         _validate_entries(normalized)
         digest = _digest(version, normalized)
         return cls(version=version, entries=normalized, digest=digest)

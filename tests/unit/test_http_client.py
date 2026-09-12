@@ -37,3 +37,28 @@ async def test_call_with_retry_raises_http_status_error_after_response_retries()
         await http_client.call_with_retry(lambda: asyncio.sleep(0, result=response), max_retries=1)
 
     assert exc_info.value.response.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_call_with_retry_does_not_retry_http_429(monkeypatch):
+    request = httpx.Request("POST", "https://example.test/v1/chat")
+    response = httpx.Response(429, request=request, headers={"Retry-After": "15"})
+    calls = {"n": 0}
+
+    async def request_func():
+        calls["n"] += 1
+        return response
+
+    slept = []
+
+    async def fake_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(http_client.asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        await http_client.call_with_retry(request_func, max_retries=3)
+
+    assert exc_info.value.response.status_code == 429
+    assert calls["n"] == 1
+    assert slept == []

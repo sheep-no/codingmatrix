@@ -225,3 +225,103 @@ class TestCallLLMWithTools:
         s = Specialist(role_name="coder", model_name="test", complexity="simple")
         # The tracked_execute_tool will be tested through the engine integration
         assert s._write_tools == {"partial_update", "insert_content", "regex_replace"}
+
+
+class TestStreamingThinking:
+    @pytest.mark.asyncio
+    @patch("app.agent.specialist_base.ReActEngine")
+    @patch("app.agent.specialist_base.LayeredModelRouter")
+    @patch("app.agent.specialist_base.LLMClient")
+    async def test_streams_content_when_no_reasoning(
+        self, mock_llm_cls, mock_router, mock_engine_cls
+    ):
+        mock_router.get_model_config.return_value = {}
+        mock_client = AsyncMock()
+
+        async def fake_stream(prompt, system_prompt, on_chunk=None, thinking_budget=None):
+            await on_chunk("print('hi')", "")
+            return "print('hi')"
+
+        mock_client.call_stream = fake_stream
+        mock_llm_cls.return_value = mock_client
+
+        events = []
+
+        def callback(raw):
+            events.append(json.loads(raw))
+
+        def engine_factory(*_args, **kwargs):
+            engine = AsyncMock()
+
+            async def run(prompt, system):
+                return await kwargs["call_llm_fn"](prompt, system)
+
+            engine.run = run
+            return engine
+
+        mock_engine_cls.side_effect = engine_factory
+
+        specialist = Specialist(role_name="coder", model_name="test", complexity="simple")
+        result = await specialist.call_llm_with_tools(
+            prompt="write",
+            system_prompt="sys",
+            project_path="/tmp",
+            enable_streaming_thinking=True,
+            callback=callback,
+        )
+
+        assert result == "print('hi')"
+        thinking = [event for event in events if event.get("type") == "thinking"]
+        assert thinking
+        assert "print('hi')" in "".join(event.get("message", "") for event in thinking)
+        assert any(event.get("streaming") is True for event in thinking)
+        assert thinking[-1]["streaming"] is False
+        assert thinking[-1]["phase"] == "llm_output"
+
+    @pytest.mark.asyncio
+    @patch("app.agent.specialist_base.ReActEngine")
+    @patch("app.agent.specialist_base.LayeredModelRouter")
+    @patch("app.agent.specialist_base.LLMClient")
+    async def test_prefers_reasoning_and_flushes_buffer(
+        self, mock_llm_cls, mock_router, mock_engine_cls
+    ):
+        mock_router.get_model_config.return_value = {}
+        mock_client = AsyncMock()
+
+        async def fake_stream(prompt, system_prompt, on_chunk=None, thinking_budget=None):
+            await on_chunk("CODE", "REASON")
+            await on_chunk("MORE", "")
+            return "CODEMORE"
+
+        mock_client.call_stream = fake_stream
+        mock_llm_cls.return_value = mock_client
+
+        events = []
+
+        def callback(raw):
+            events.append(json.loads(raw))
+
+        def engine_factory(*_args, **kwargs):
+            engine = AsyncMock()
+
+            async def run(prompt, system):
+                return await kwargs["call_llm_fn"](prompt, system)
+
+            engine.run = run
+            return engine
+
+        mock_engine_cls.side_effect = engine_factory
+
+        specialist = Specialist(role_name="coder", model_name="test", complexity="simple")
+        await specialist.call_llm_with_tools(
+            prompt="write",
+            project_path="/tmp",
+            enable_streaming_thinking=True,
+            callback=callback,
+        )
+
+        thinking = [event for event in events if event.get("type") == "thinking"]
+        text = "".join(event.get("message", "") for event in thinking)
+        assert "REASON" in text
+        assert "MORE" not in text
+        assert thinking[-1]["phase"] == "llm_reasoning"

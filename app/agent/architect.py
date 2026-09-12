@@ -1,5 +1,6 @@
 import logging
 import re
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -44,6 +45,37 @@ class Architect(Specialist):
 你的职责：分析需求、设计架构、定义 API 和数据库 Schema。
 输出格式要求：必须只输出 JSON 格式，不要包含任何解释文字。"""
 
+    @staticmethod
+    def _build_scope_rules_text(complexity: ComplexityAnalysis) -> str:
+        fe_rule = (
+            "需求包含前端：file_plan 需包含前端文件。"
+            if complexity.has_frontend
+            else "需求不含前端：file_plan 不得包含页面、组件、HTML、CSS。"
+        )
+        api_rule = (
+            "需求包含后端：必须输出非空 api_spec。"
+            if complexity.has_backend
+            else "需求不含后端：api_spec 必须为 {}，禁止默认 FastAPI/Flask/Express/Gin/Spring 等 Web 框架，file_plan 不得包含路由或控制器。"
+        )
+        db_rule = (
+            "需求包含数据库：必须输出非空 db_schema。"
+            if complexity.has_database
+            else "需求不含数据库：db_schema 必须为 {}，dependencies 不得包含 ORM 或数据库驱动。"
+        )
+        simple_rule = ""
+        if complexity.level.value in ("simple", "small") and not complexity.has_backend:
+            simple_rule = (
+                "\n- 这是简单脚本/小项目：file_plan 只保留用户点名的源文件；"
+                "project_spec.default.framework 填 none 或语言标准库，禁止填 Web 框架。"
+            )
+        return (
+            "范围约束（最高优先级，必须遵守）：\n"
+            "- 用户用「不要/无需/禁止/without/no」排除的能力，不得出现在架构、依赖和 file_plan 中\n"
+            f"- {fe_rule}\n"
+            f"- {api_rule}\n"
+            f"- {db_rule}{simple_rule}"
+        )
+
     def _build_language_rules_text(
         self,
         target_language: str,
@@ -51,6 +83,7 @@ class Architect(Specialist):
         backend_language: Optional[str],
         all_languages: List[str],
         lang_detection: 'LanguageDetectionResult',
+        has_backend: bool = True,
     ) -> str:
         """构建语言规则文本（支持多语言项目）"""
         lang_rules = LanguageDetector.get_language_specific_rules(target_language)
@@ -61,17 +94,23 @@ class Architect(Specialist):
 注意：该语言不在已知列表中，请根据语言名称推断正确的文件扩展名、入口文件、语法约定等。
 例如：Zig → .zig，Nim → .nim，Crystal → .cr 等。"""
         else:
+            if has_backend:
+                framework_line = f"- 默认后端框架：{lang_rules.get('default_framework') or '根据语言约定'}"
+                structure = lang_rules['common_structure']
+            else:
+                framework_line = "- 默认后端框架：无（未要求 Web/API，禁止套用 FastAPI/Flask/Express/Gin/Spring 等）"
+                structure = ["按用户指定的文件路径生成，不要套用分层 Web 模板"]
             base_text = f"""目标语言：{target_language}
 语言规则：
 - 文件扩展名：{lang_rules['file_extension']}
 - 包入口文件：{lang_rules['package_init']}
 - 导入语法：{lang_rules['import_syntax']}
 - 入口文件：{lang_rules['entry_point']}
-- 默认后端框架：{lang_rules.get('default_framework') or '根据语言约定'}
+{framework_line}
 - 测试框架：{lang_rules['test_framework']}
 - 包管理器：{lang_rules['package_manager']}
-- 配置文件：{', '.join(lang_rules['config_files']) if lang_rules['config_files'] else '无'}
-- 推荐结构：{chr(10).join('- ' + s for s in lang_rules['common_structure'])}"""
+ - 配置文件：{', '.join(lang_rules['config_files']) if lang_rules['config_files'] else '无'}
+ - 推荐结构：{chr(10).join('- ' + s for s in structure)}"""
 
         # 如果是全栈项目，添加前端语言规则
         if frontend_language and frontend_language != target_language:
@@ -121,6 +160,11 @@ class Architect(Specialist):
         backend_language = lang_detection.backend_language
         all_languages = lang_detection.all_languages or [target_language]
 
+        def finalize(architecture: Dict) -> Dict:
+            return self._canonicalize_architecture(
+                architecture, requirement, complexity, target_language, frontend_language
+            )
+
         logger.info(f"检测到目标语言: {target_language} (置信度: {lang_detection.confidence:.2f})")
         logger.info(f"检测依据: {lang_detection.evidence}")
         if frontend_language:
@@ -132,7 +176,8 @@ class Architect(Specialist):
 
         # 构建语言规则部分
         lang_rules_text = self._build_language_rules_text(
-            target_language, frontend_language, backend_language, all_languages, lang_detection
+            target_language, frontend_language, backend_language, all_languages, lang_detection,
+            has_backend=complexity.has_backend,
         )
 
         prompt = f"""请为以下需求设计项目架构：
@@ -150,12 +195,15 @@ class Architect(Specialist):
 
 {lang_rules_text}
 
-请输出完整的架构设计，必须包含 api_spec（后端接口定义）和 db_schema（数据库表结构）。
+{self._build_scope_rules_text(complexity)}
+
+请输出完整的架构设计。
 
 输出格式要求：
 - 只输出 JSON 格式
 - 不要包含任何解释文字
-- 必须包含以下字段：project_type, frontend_structure, backend_structure, api_spec, db_schema, file_plan, project_spec
+ - 必须包含以下字段：project_type, file_plan, project_spec
+ - api_spec、db_schema、frontend_structure、backend_structure 在不适用时输出空对象 {{}}
 - 所有文件必须使用正确的文件扩展名和语法
 
 file_plan 格式要求（每个文件必须包含 imports、file_type、language 和 contract 字段）：
@@ -167,6 +215,8 @@ file_plan 格式要求（每个文件必须包含 imports、file_type、language
     ...
 ]}}}}
 ```
+
+上述 model/api 示例仅在需求包含后端时使用；简单脚本的 file_plan 只含用户点名的文件。
 
 file_type 可选值（每个文件必须选择一个，不得留空或使用其他值）：entry, model, api, service, repository, types, database, config, middleware, frontend_component, frontend_page, frontend_style, template, test, utils, docs
 
@@ -196,7 +246,7 @@ project_spec 格式要求（按 file_type 分组，定义每个类型的存储�
     "default": {{
       "storage": {{"type": "json_file|localStorage|sqlite|postgresql|redis|memory", "config": "..."}},
       "terminology": {{"income": "收入", "expense": "支出", "category": "分类", ...}},
-      "framework": "FastAPI|Flask|Express.js|Gin|..."
+      "framework": "none|stdlib|用户指定的框架"
     }},
     "frontend_component": {{
       "storage": {{"type": "localStorage"}},
@@ -206,7 +256,7 @@ project_spec 格式要求（按 file_type 分组，定义每个类型的存储�
     "backend_component": {{
       "storage": {{"type": "json_file", "filename": "data.json"}},
       "terminology": {{"income": "收入", "expense": "支出", ...}},
-      "framework": "FastAPI|Flask|..."
+      "framework": "用户指定的后端框架；无后端时省略本组"
     }}
 }}}}
 ```
@@ -218,7 +268,7 @@ project_spec 规则：
 - 术语表的 key 是英文术语，value 是项目中使用的实际名称（中文或英文）
 - 如果项目只有一种语言/运行时，只需 default 即可
 - 如果项目有多种语言/运行时（如 JS 前端 + Python 后端），必须为每种 file_type 分组定义各自的规范
-- **框架一致性（重要）**：同一运行时的所有文件必须使用相同的框架。例如后端所有 .py 文件统一用 FastAPI 或统一用 Flask，禁止混用
+ - **框架一致性（重要）**：有后端时同一运行时必须使用同一个框架；无后端时 framework 填 none，禁止填 FastAPI/Flask/Express 等
 
 language 字段要求：
 - 每个文件必须指定 language 字段，表示该文件使用的编程语言
@@ -234,9 +284,10 @@ language 字段要求：
 5. 如果语言不在已知列表中，请根据语言名称推断正确的文件扩展名和语法约定
 6. 文件路径中不得包含空格，使用正斜杠 / 分隔目录
 7. 每个文件的 file_type 字段是必填项，必须从上述可选值中选择一个
-8. 如果有前端，必须包含 HTML/CSS/JS 等前端文件
+8. 仅当需求包含前端时才加入 HTML/CSS/JS 等前端文件
 9. 避免同名文件：不同目录下的文件尽量使用不同的文件名（如 models/user.py 和 routers/user.py 都叫 user.py，容易混淆）。建议使用更具描述性的名称，如 models/user_model.py、routers/user_router.py、services/user_service.py
-10. 框架一致性（重要）：同一运行时的所有后端文件必须使用同一个框架（如全部用 FastAPI 或全部用 Flask），禁止混用。project_spec.default.framework 指定了后端框架，所有后端文件必须遵守。requirements.txt / go.mod 等依赖文件必须包含所选框架的依赖"""
+10. 框架一致性（重要）：有后端时同一运行时必须使用同一个框架；无后端时 project_spec.default.framework 填 none，禁止填 FastAPI/Flask/Express。依赖文件只列出需求真正需要的包
+11. file_plan 只包含本项目源码和清单文件，禁止把第三方库或标准库写成项目路径"""
 
         if feedback:
             prompt += f"""
@@ -261,9 +312,9 @@ language 字段要求：
                 response = await self.call_llm(prompt, self.SYSTEM_PROMPT)
         except Exception as exc:
             logger.warning("架构师首次调用失败，返回默认架构: %s", exc)
-            return self._get_requirement_aware_default_architecture(
+            return finalize(self._get_requirement_aware_default_architecture(
                 requirement, complexity, target_language, frontend_language
-            )
+            ))
 
         if not response or not str(response).strip():
             logger.warning("架构师输出为空，禁用思考后重试一次")
@@ -273,9 +324,9 @@ language 字段要求：
                 )
             except Exception as exc:
                 logger.warning("架构师重试失败，返回默认架构: %s", exc)
-                return self._get_requirement_aware_default_architecture(
+                return finalize(self._get_requirement_aware_default_architecture(
                     requirement, complexity, target_language, frontend_language
-                )
+                ))
 
         logger.info(
             "架构响应审计: model=%s response_type=%s response_chars=%d has_json_marker=%s",
@@ -289,9 +340,9 @@ language 字段要求：
         try:
             if not response or not response.strip():
                 logger.warning("架构师重试仍为空，返回默认架构")
-                return self._get_requirement_aware_default_architecture(
+                return finalize(self._get_requirement_aware_default_architecture(
                     requirement, complexity, target_language, frontend_language
-                )
+                ))
 
             architecture = self._safe_parse_json(response)
             
@@ -313,19 +364,20 @@ language 字段要求：
                 }
             elif not isinstance(architecture, dict):
                 logger.warning(f"架构师输出类型不正确: {type(architecture).__name__}，返回默认架构")
-                return self._get_requirement_aware_default_architecture(
+                return finalize(self._get_requirement_aware_default_architecture(
                     requirement, complexity, target_language, frontend_language
-                )
+                ))
         except ValueError:
             logger.warning("架构师输出解析失败，尝试 LLM 辅助提取")
             architecture = await self._extract_json_with_llm(response, complexity)
             if not architecture:
                 logger.warning("LLM 辅助提取失败，返回默认架构")
-                return self._get_requirement_aware_default_architecture(
+                return finalize(self._get_requirement_aware_default_architecture(
                     requirement, complexity, target_language, frontend_language
-                )
+                ))
 
         if architecture:
+            architecture = self._coerce_architecture_fields(architecture)
             # 确保 language 字段存在
             if "language" not in architecture:
                 architecture["language"] = target_language
@@ -339,19 +391,15 @@ language 字段要求：
                 architecture["all_languages"] = all_languages
 
             # 验证并增强 api_spec
-            if complexity.has_backend:
-                architecture = self._validate_and_enhance_api_spec(architecture, complexity)
-
-            # 验证并增强 db_schema
-            if complexity.has_database:
-                architecture = self._validate_and_enhance_db_schema(architecture, complexity)
+            architecture = self._validate_and_enhance_api_spec(architecture, complexity)
+            architecture = self._validate_and_enhance_db_schema(architecture, complexity)
 
             architecture = self._ensure_architecture_file_plan(
                 architecture, requirement, complexity, target_language, frontend_language
             )
 
             # 确保 project_spec 存在
-            if not architecture.get("project_spec"):
+            if not isinstance(architecture.get("project_spec"), dict):
                 logger.warning("架构师未返回 project_spec，使用默认规范")
                 architecture["project_spec"] = self._build_default_project_spec(
                     target_language, frontend_language, complexity
@@ -359,6 +407,8 @@ language 字段要求：
 
             # 为 file_plan 中缺少 language 字段的文件补充默认值
             for f in architecture.get("file_plan", []):
+                if not isinstance(f, dict):
+                    continue
                 if "language" not in f:
                     # 根据 file_type 推断语言
                     file_type = f.get("file_type", "")
@@ -370,15 +420,15 @@ language 字段要求：
             # 显式文件范围要求优先于通用完整性补全规则。
             strict_paths = self._extract_strict_file_paths(requirement)
             architecture = self._ensure_file_plan_completeness(
-                architecture, target_language, strict_paths=strict_paths
+                architecture, target_language, strict_paths=strict_paths, complexity=complexity
             )
 
             architecture["requirement"] = requirement
-            return architecture
+            return finalize(architecture)
         else:
-            return self._get_requirement_aware_default_architecture(
+            return finalize(self._get_requirement_aware_default_architecture(
                 requirement, complexity, target_language, frontend_language
-            )
+            ))
 
     async def _extract_json_with_llm(self, raw_text: str, complexity: ComplexityAnalysis) -> Optional[Dict]:
         """使用 LLM 从非标准输出中提取 JSON"""
@@ -390,7 +440,7 @@ language 字段要求：
 要求：
 1. 只输出 JSON，不要包含其他内容
 2. 确保 JSON 格式正确
-3. 必须包含：project_type, frontend_structure, backend_structure, api_spec, db_schema, file_plan, project_spec
+3. 必须包含：project_type, file_plan, project_spec；无后端时 api_spec 为 {{}}，无数据库时 db_schema 为 {{}}
 4. 修复以下常见问题：
    - 值中错误的反斜杠引号："INTEGER\\" 应为 "INTEGER"
    - dependencies 中的数组格式应为对象或数组
@@ -398,62 +448,32 @@ language 字段要求：
 
         try:
             response = await self.call_llm(extract_prompt, "")
-
-            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-            return self._safe_parse_json(content)
+            content = response if isinstance(response, str) else str(response or "")
+            if not content.strip():
+                return None
+            parsed = self._safe_parse_json(content)
+            return parsed if isinstance(parsed, dict) else None
         except Exception as e:
             logger.error(f"LLM 辅助提取 JSON 失败: {e}")
             return None
 
     def _validate_and_enhance_api_spec(self, architecture: Dict, complexity: ComplexityAnalysis) -> Dict:
-        """验证并增强 API 规范"""
+        """只修 JSON 形状：缺字段补空对象，路径补前导斜杠。不发明接口。"""
         api_spec = architecture.get("api_spec", {})
-
-        # 如果没有 api_spec，生成基本的
-        if not api_spec or "paths" not in api_spec:
-            logger.warning("架构师未输出 api_spec，生成基本规范")
-            api_spec = {
-                "paths": {
-                    "/api/v1/health": {
-                        "get": {"summary": "健康检查", "responses": {"200": {"description": "OK"}}}
-                    }
-                }
-            }
-
-        # 验证路径格式
-        paths = api_spec.get("paths", {})
-        fix_keys = [p for p in paths if not p.startswith("/")]
-        for path in fix_keys:
-            paths[f"/{path}"] = paths.pop(path)
-
+        if not isinstance(api_spec, dict):
+            architecture["api_spec"] = {}
+            return architecture
+        paths = api_spec.get("paths")
+        if isinstance(paths, dict):
+            for path in [p for p in list(paths) if not str(p).startswith("/")]:
+                paths[f"/{path}"] = paths.pop(path)
         architecture["api_spec"] = api_spec
         return architecture
 
     def _validate_and_enhance_db_schema(self, architecture: Dict, complexity: ComplexityAnalysis) -> Dict:
-        """验证并增强数据库 Schema"""
+        """只修 JSON 形状：缺字段补空对象。不发明表或列。"""
         db_schema = architecture.get("db_schema", {})
-
-        # 如果没有 db_schema，生成基本的
-        if not db_schema:
-            logger.warning("架构师未输出 db_schema，生成基本规范")
-            db_schema = {
-                "users": {
-                    "columns": {
-                        "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-                        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-                    }
-                }
-            }
-
-        # 确保每个表都有 id 和 created_at
-        for table, schema in db_schema.items():
-            columns = schema.get("columns", {})
-            if "id" not in columns:
-                columns["id"] = "INTEGER PRIMARY KEY AUTOINCREMENT"
-            if "created_at" not in columns:
-                columns["created_at"] = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-
-        architecture["db_schema"] = db_schema
+        architecture["db_schema"] = db_schema if isinstance(db_schema, dict) else {}
         return architecture
 
     def _safe_parse_json(self, text: str) -> Dict:
@@ -559,13 +579,17 @@ language 字段要求：
         target_language: str,
         frontend_language: Optional[str],
     ) -> Dict:
+        if isinstance(architecture.get("file_plan"), str):
+            architecture["file_plan"] = self._parse_jsonish(architecture["file_plan"])
         harvested = self._harvest_file_plan(architecture, target_language)
         if harvested:
             architecture["file_plan"] = harvested
+            self._drop_stale_file_plan_aliases(architecture)
             return architecture
         existing = architecture.get("file_plan")
         if isinstance(existing, list) and self._normalize_file_plan(existing, target_language):
             architecture["file_plan"] = self._normalize_file_plan(existing, target_language)
+            self._drop_stale_file_plan_aliases(architecture)
             return architecture
         logger.warning("架构师未返回 file_plan，补入默认文件计划并保留已解析字段")
         default = self._get_requirement_aware_default_architecture(
@@ -575,13 +599,145 @@ language 字段要求：
         architecture["used_default_file_plan"] = True
         if not architecture.get("project_spec"):
             architecture["project_spec"] = default.get("project_spec")
-        if not architecture.get("db_schema") and default.get("db_schema"):
-            architecture["db_schema"] = default.get("db_schema")
         if not architecture.get("tech_stack"):
             architecture["tech_stack"] = default.get("tech_stack")
         architecture.setdefault("language", target_language)
         architecture.setdefault("requirement", requirement)
+        self._drop_stale_file_plan_aliases(architecture)
         return architecture
+
+    def _parse_jsonish(self, value: Any) -> Any:
+        """Parse LLM JSON-in-string values; leave prose strings unchanged."""
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if not text:
+            return value
+        looks_like_json = text[0] in "{[" or text.startswith("```")
+        if not looks_like_json:
+            return value
+        try:
+            return self.json_parser.safe_parse_json(text)
+        except Exception:
+            try:
+                return json.loads(text)
+            except Exception:
+                return value
+
+    def _canonicalize_interfaces(self, value: Any) -> Any:
+        parsed = self._parse_jsonish(value)
+        if parsed is None:
+            return {}
+        if isinstance(parsed, list):
+            return parsed
+        if not isinstance(parsed, dict):
+            return {}
+        if "module" in parsed or "path" in parsed:
+            return parsed
+        if isinstance(parsed.get("entries"), list):
+            return parsed["entries"]
+        if parsed and all(isinstance(item, dict) for item in parsed.values()):
+            entries = []
+            for name, spec in parsed.items():
+                entry = dict(spec)
+                entry.setdefault("module", name)
+                entry.setdefault("owner", name)
+                if "exports" in entry and "symbols" not in entry:
+                    entry["symbols"] = entry["exports"]
+                entries.append(entry)
+            return entries
+        return parsed
+
+    def _coerce_architecture_fields(self, architecture: Any) -> Dict:
+        """Turn GLM string-shaped objects into dict/list before downstream .get()."""
+        if not isinstance(architecture, dict):
+            return {}
+        architecture = dict(architecture)
+        mapping_keys = (
+            "project_spec",
+            "api_spec",
+            "db_schema",
+            "interfaces",
+            "frontend_structure",
+            "backend_structure",
+        )
+        for key in mapping_keys:
+            if key not in architecture:
+                continue
+            parsed = self._parse_jsonish(architecture[key])
+            if isinstance(parsed, dict):
+                architecture[key] = parsed
+            elif isinstance(parsed, list) and key == "interfaces":
+                architecture[key] = parsed
+        architecture["interfaces"] = self._canonicalize_interfaces(architecture.get("interfaces"))
+        for key in ("file_plan", "dependencies", "tech_stack"):
+            if key not in architecture:
+                continue
+            parsed = self._parse_jsonish(architecture[key])
+            if isinstance(parsed, (list, dict)):
+                architecture[key] = parsed
+        file_plan = architecture.get("file_plan")
+        if isinstance(file_plan, list):
+            for item in file_plan:
+                if not isinstance(item, dict):
+                    continue
+                if isinstance(item.get("contract"), str):
+                    contract = self._parse_jsonish(item["contract"])
+                    item["contract"] = contract if isinstance(contract, dict) else {}
+                if isinstance(item.get("imports"), str):
+                    imports = self._parse_jsonish(item["imports"])
+                    if isinstance(imports, list):
+                        item["imports"] = imports
+                    elif item["imports"].strip():
+                        item["imports"] = [item["imports"]]
+                    else:
+                        item["imports"] = []
+        return architecture
+
+    def _canonicalize_architecture(
+        self,
+        architecture: Any,
+        requirement: str,
+        complexity: ComplexityAnalysis,
+        target_language: str,
+        frontend_language: Optional[str],
+    ) -> Dict:
+        """Single export shape for design_architecture: objects, not JSON strings."""
+        if not isinstance(architecture, dict) or not architecture:
+            architecture = self._get_requirement_aware_default_architecture(
+                requirement, complexity, target_language, frontend_language
+            )
+        architecture = self._coerce_architecture_fields(architecture)
+        architecture.setdefault("language", target_language)
+        architecture.setdefault("frontend_language", frontend_language)
+        architecture.setdefault("requirement", requirement)
+        if not isinstance(architecture.get("project_spec"), dict) or not architecture.get("project_spec"):
+            architecture["project_spec"] = self._build_default_project_spec(
+                target_language, frontend_language, complexity
+            )
+        if not isinstance(architecture.get("api_spec"), dict):
+            architecture["api_spec"] = {}
+        if not isinstance(architecture.get("db_schema"), dict):
+            architecture["db_schema"] = {}
+        if not isinstance(architecture.get("interfaces"), (dict, list)):
+            architecture["interfaces"] = {}
+        if not isinstance(architecture.get("dependencies"), (dict, list)):
+            architecture["dependencies"] = {}
+        return self._ensure_architecture_file_plan(
+            architecture, requirement, complexity, target_language, frontend_language
+        )
+
+    @classmethod
+    def _drop_stale_file_plan_aliases(cls, architecture: Dict) -> None:
+        """Keep a single canonical file_plan so scaffolds cannot read leftover nested files."""
+        for key in cls._FILE_PLAN_KEYS:
+            if key != "file_plan":
+                architecture.pop(key, None)
+        for nest in cls._FILE_PLAN_NEST_KEYS:
+            nested = architecture.get(nest)
+            if isinstance(nested, dict):
+                for key in cls._FILE_PLAN_KEYS:
+                    nested.pop(key, None)
 
     def _get_default_architecture(self, complexity: ComplexityAnalysis, language: str = "python", frontend_language: Optional[str] = None) -> Dict:
         """返回默认架构（根据语言生成）"""
@@ -591,39 +747,14 @@ language 字段要求：
         # 根据语言生成不同的默认文件结构
         if language == "python":
             entry_point = "main.py"
-            db_file = "app/database.py"
-            model_file = "app/models.py"
-            router_file = "app/routers.py"
-            init_file = "app/__init__.py"
-            dep_file = "requirements.txt"
         elif language == "javascript":
             entry_point = "src/index.ts"
-            db_file = "src/database.ts"
-            model_file = "src/models/user.ts"
-            router_file = "src/routes/index.ts"
-            init_file = None  # JS 没有 __init__.py
-            dep_file = "package.json"
         elif language == "go":
             entry_point = "main.go"
-            db_file = "internal/database/database.go"
-            model_file = "internal/models/user.go"
-            router_file = "internal/handlers/user.go"
-            init_file = None  # Go 没有 __init__.py
-            dep_file = "go.mod"
         elif language == "java":
             entry_point = "src/main/java/com/example/Application.java"
-            db_file = "src/main/java/com/example/config/DatabaseConfig.java"
-            model_file = "src/main/java/com/example/model/User.java"
-            router_file = "src/main/java/com/example/controller/UserController.java"
-            init_file = None  # Java 没有 __init__.py
-            dep_file = "pom.xml"
         elif language == "rust":
             entry_point = "src/main.rs"
-            db_file = "src/database.rs"
-            model_file = "src/models/user.rs"
-            router_file = "src/handlers/user.rs"
-            init_file = None  # Rust 没有 __init__.py
-            dep_file = "Cargo.toml"
         else:
             # 通用结构
             ext = lang_rules.get('file_extension')
@@ -632,72 +763,18 @@ language 字段要求：
             else:
                 ext_name = language  # 未知语言使用语言名作为扩展名
             entry_point = f"main.{ext_name}"
-            db_file = f"database.{ext_name}"
-            model_file = f"models/user.{ext_name}"
-            router_file = f"routes/user.{ext_name}"
-            init_file = None
-            dep_file = "README.md"
 
         file_plan = [
             {"path": entry_point, "description": "主程序入口", "priority": 1, "file_type": "entry", "language": language, "imports": []},
-            {"path": dep_file, "description": "依赖配置", "priority": 2, "file_type": "config", "language": language, "imports": []},
-            {"path": "README.md", "description": "项目文档", "priority": 3, "file_type": "docs", "language": language, "imports": []}
         ]
 
-        if complexity.has_frontend:
-            # 使用前端语言，如果未指定则默认 javascript
-            fe_lang = frontend_language or "javascript"
-            file_plan.extend([
-                {"path": "templates/index.html", "description": "前端页面模板", "priority": 4, "file_type": "template", "language": "html", "imports": []},
-                {"path": "static/style.css", "description": "样式表", "priority": 5, "file_type": "frontend_style", "language": "css", "imports": []},
-                {"path": "static/app.js", "description": "前端脚本", "priority": 5, "file_type": "frontend_component", "language": fe_lang, "imports": []}
-            ])
-
-        if complexity.has_backend:
-            backend_files = [
-                {"path": db_file, "description": "数据库连接配置", "priority": 1, "file_type": "database", "language": language, "imports": []},
-                {"path": model_file, "description": "数据模型", "priority": 2, "file_type": "model", "language": language, "imports": [db_file]},
-                {"path": router_file, "description": "API 路由", "priority": 3, "file_type": "api", "language": language, "imports": [model_file, db_file]},
-            ]
-            # 如果有包入口文件，添加它
-            if init_file:
-                backend_files.insert(0, {"path": init_file, "description": "包初始化文件", "priority": 1, "file_type": "config", "language": language, "imports": []})
-            
-            # 添加服务层
-            if language == "python":
-                service_file = "app/services.py"
-                config_file = "app/config.py"
-                utils_file = "app/utils.py"
-                test_file = "tests/test_app.py"
-            elif language == "javascript":
-                service_file = "src/services/user.ts"
-                config_file = "src/config.ts"
-                utils_file = "src/utils.ts"
-                test_file = "tests/app.test.ts"
-            elif language == "go":
-                service_file = "internal/services/user.go"
-                config_file = "internal/config/config.go"
-                utils_file = "internal/utils/utils.go"
-                test_file = "internal/handlers/user_test.go"
-            else:
-                service_file = None
-                config_file = None
-                utils_file = None
-                test_file = None
-            
-            if service_file:
-                backend_files.append({"path": service_file, "description": "业务逻辑服务", "priority": 3, "file_type": "service", "language": language, "imports": [model_file]})
-            if config_file:
-                backend_files.append({"path": config_file, "description": "应用配置", "priority": 2, "file_type": "config", "language": language, "imports": []})
-            if utils_file:
-                backend_files.append({"path": utils_file, "description": "工具函数", "priority": 4, "file_type": "utils", "language": language, "imports": []})
-            if test_file:
-                backend_files.append({"path": test_file, "description": "测试文件", "priority": 5, "file_type": "test", "language": language, "imports": [router_file]})
-            
-            file_plan.extend(backend_files)
-
         return {
-            "project_type": "fullstack" if complexity.has_frontend and complexity.has_backend else ("frontend" if complexity.has_frontend else "backend"),
+            "project_type": (
+                "fullstack" if complexity.has_frontend and complexity.has_backend
+                else "frontend" if complexity.has_frontend
+                else "backend" if complexity.has_backend
+                else "script"
+            ),
             "tech_stack": complexity.key_technologies,
             "language": language,
             "frontend_language": frontend_language,
@@ -706,8 +783,113 @@ language 字段要求：
             "file_plan": file_plan,
             "project_spec": self._build_default_project_spec(language, frontend_language, complexity),
             "dependencies": {},
+            "api_spec": {},
+            "db_schema": {},
             "risks": complexity.risk_factors
         }
+
+    def _get_compact_eight_file_architecture(
+        self,
+        requirement: str,
+        complexity: ComplexityAnalysis,
+        language: str = "python",
+        frontend_language: Optional[str] = None,
+    ) -> Dict:
+        """实测用精简 8 文件架构，跳过 LLM 架构师与分批扩展。"""
+        architecture = self._get_default_architecture(complexity, language, frontend_language)
+        architecture["requirement"] = requirement
+        architecture["used_default_architecture"] = True
+        architecture["used_compact_eight_file_plan"] = True
+
+        if language == "python":
+            keep_order = [
+                "main.py",
+                "requirements.txt",
+                "README.md",
+                "app/database.py",
+                "app/models.py",
+                "app/services.py",
+                "app/routers.py",
+                "tests/test_app.py",
+            ]
+            descriptions = {
+                "main.py": "FastAPI 入口，注册路由并启动服务",
+                "requirements.txt": "依赖清单，包含运行与测试所需包",
+                "README.md": "说明启动方式和测试命令",
+                "app/database.py": "SQLite 连接、建表与会话",
+                "app/models.py": "User、Ticket、AuditLog 模型与工单状态枚举",
+                "app/services.py": "注册登录密码哈希、工单 CRUD/筛选/指派/关闭、权限、状态机与审计日志",
+                "app/routers.py": "用户鉴权与工单 HTTP 接口",
+                "tests/test_app.py": "覆盖鉴权失败、越权访问、非法状态流转、正常关闭",
+            }
+            imports = {
+                "main.py": ["app/routers.py"],
+                "requirements.txt": [],
+                "README.md": [],
+                "app/database.py": [],
+                "app/models.py": ["app/database.py"],
+                "app/services.py": ["app/models.py", "app/database.py"],
+                "app/routers.py": ["app/services.py", "app/models.py"],
+                "tests/test_app.py": ["main.py"],
+            }
+            file_types = {
+                "main.py": "entry",
+                "requirements.txt": "config",
+                "README.md": "docs",
+                "app/database.py": "database",
+                "app/models.py": "model",
+                "app/services.py": "service",
+                "app/routers.py": "api",
+                "tests/test_app.py": "test",
+            }
+            existing = {item.get("path"): item for item in architecture.get("file_plan", [])}
+            compact = []
+            for path in keep_order:
+                item = dict(existing.get(path) or {"path": path, "priority": 3, "language": language})
+                item["path"] = path
+                item["description"] = descriptions[path]
+                item["imports"] = list(imports[path])
+                item["file_type"] = file_types[path]
+                item["language"] = language
+                compact.append(item)
+            architecture["file_plan"] = compact
+        else:
+            architecture["file_plan"] = list(architecture.get("file_plan") or [])[:8]
+
+        requirement_lower = requirement.lower()
+        default_spec = architecture["project_spec"]["default"]
+        if re.search(r"ticket|工单", requirement_lower):
+            if language == "python":
+                default_spec["framework"] = "FastAPI"
+            default_spec["terminology"] = {
+                "ticket": "Ticket",
+                "title": "Title",
+                "description": "Description",
+                "status": "Status",
+                "priority": "Priority",
+                "assignee": "Assignee",
+            }
+            default_spec["storage"] = {
+                "type": "sqlite",
+                "filename": "tickets.db",
+                "backend": "sqlalchemy",
+            }
+            default_spec["auth"] = {"scheme": "jwt_hs256"}
+            architecture["db_schema"] = {
+                "tickets": {
+                    "columns": {
+                        "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+                        "title": "TEXT NOT NULL",
+                        "description": "TEXT",
+                        "status": "TEXT NOT NULL DEFAULT 'open'",
+                        "priority": "TEXT NOT NULL DEFAULT 'medium'",
+                        "assignee": "TEXT",
+                    }
+                }
+            }
+        from app.agent.symbol_table import freeze_symbol_table
+        freeze_symbol_table(architecture)
+        return architecture
 
     def _domain_file_plan(self, language: str, domain: str) -> List[Dict]:
         """默认架构中按领域补充分层文件。"""
@@ -758,71 +940,7 @@ language 字段要求：
         architecture = self._get_default_architecture(complexity, language, frontend_language)
         architecture["requirement"] = requirement
         architecture["used_default_architecture"] = True
-        requirement_lower = requirement.lower()
-        default_spec = architecture["project_spec"]["default"]
-        if "sqlite" in requirement_lower:
-            default_spec["storage"] = {"type": "sqlite", "filename": "todos.db"}
-        framework_hints = (
-            ("fastapi", "FastAPI"),
-            ("flask", "Flask"),
-            ("nestjs", "NestJS"),
-            ("express", "Express.js"),
-            ("net/http", "net/http"),
-            ("spring boot", "Spring Boot"),
-            ("spring-boot", "Spring Boot"),
-        )
-        for hint, framework in framework_hints:
-            if hint in requirement_lower:
-                default_spec["framework"] = framework
-                break
-        is_ticket_domain = bool(re.search(r"ticket|工单", requirement_lower))
-        if re.search(r"\btodos?\b|待办", requirement_lower):
-            default_spec["terminology"] = {
-                "todo": "Todo",
-                "title": "Title",
-                "description": "Description",
-                "completed": "Completed",
-            }
-            architecture["db_schema"] = {
-                "todos": {
-                    "columns": {
-                        "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-                        "title": "TEXT NOT NULL",
-                        "description": "TEXT",
-                        "completed": "BOOLEAN NOT NULL DEFAULT 0",
-                    }
-                }
-            }
-        if is_ticket_domain:
-            default_spec["terminology"] = {
-                "ticket": "Ticket",
-                "title": "Title",
-                "description": "Description",
-                "status": "Status",
-                "priority": "Priority",
-                "assignee": "Assignee",
-            }
-            if "sqlite" in requirement_lower:
-                default_spec["storage"] = {"type": "sqlite", "filename": "tickets.db"}
-            architecture["db_schema"] = {
-                "tickets": {
-                    "columns": {
-                        "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-                        "title": "TEXT NOT NULL",
-                        "description": "TEXT",
-                        "status": "TEXT NOT NULL DEFAULT 'open'",
-                        "priority": "TEXT NOT NULL DEFAULT 'medium'",
-                        "assignee": "TEXT",
-                    }
-                }
-            }
         planned_paths = {item["path"] for item in architecture["file_plan"]}
-        if is_ticket_domain:
-            for item in self._domain_file_plan(language, "ticket"):
-                if item["path"] in planned_paths:
-                    continue
-                architecture["file_plan"].append(item)
-                planned_paths.add(item["path"])
         extensions = {"python": "py", "javascript": "js", "typescript": "ts", "go": "go"}
         extension = extensions.get(language, language)
         explicit_paths = re.findall(
@@ -864,76 +982,12 @@ language 字段要求：
             architecture,
             language,
             strict_paths=strict_paths,
+            complexity=complexity,
         )
 
     def _build_default_project_spec(self, language: str, frontend_language: Optional[str], complexity: ComplexityAnalysis) -> Dict:
-        """构建默认的 project_spec（向后兼容）"""
-        # 根据语言确定存储类型和默认框架
-        storage_map = {
-            "python": {"type": "json_file", "filename": "data.json"},
-            "javascript": {"type": "localStorage"},
-            "typescript": {"type": "localStorage"},
-            "go": {"type": "json_file", "filename": "data.json"},
-            "java": {"type": "json_file", "filename": "data.json"},
-            "rust": {"type": "json_file", "filename": "data.json"},
-        }
-        framework_map = {
-            "python": "FastAPI",
-            "javascript": "Express.js",
-            "typescript": "Express.js",
-            "go": "Gin",
-            "java": "Spring Boot",
-            "rust": "Actix-web",
-        }
-        backend_storage = storage_map.get(language, {"type": "json_file", "filename": "data.json"})
-        backend_framework = framework_map.get(language)
-        frontend_storage = {"type": "localStorage"}
-        frontend_framework = "Vue" if complexity.has_frontend else None
-
-        # 默认术语表（中文项目）
-        default_terminology = {
-            "income": "收入",
-            "expense": "支出",
-            "category": "分类",
-            "amount": "金额",
-            "note": "备注",
-            "date": "日期",
-            "record": "记录",
-            "user": "用户",
-        }
-
-        spec = {
-            "default": {
-                "storage": backend_storage,
-                "terminology": default_terminology,
-                "framework": backend_framework,
-            }
-        }
-
-        # 如果有前端，添加前端规范
-        if complexity.has_frontend:
-            spec["frontend_component"] = {
-                "storage": frontend_storage,
-                "terminology": default_terminology,
-                "framework": frontend_framework,
-            }
-            spec["frontend_page"] = {
-                "storage": frontend_storage,
-                "terminology": default_terminology,
-                "framework": frontend_framework,
-            }
-            spec["frontend_style"] = {
-                "storage": frontend_storage,
-                "terminology": default_terminology,
-                "framework": frontend_framework,
-            }
-            spec["template"] = {
-                "storage": frontend_storage,
-                "terminology": default_terminology,
-                "framework": frontend_framework,
-            }
-
-        return spec
+        """解析失败时的空 project_spec，不发明框架或存储。"""
+        return {"default": {"terminology": {}}}
 
     @staticmethod
     def _parse_import_to_module(import_str: str) -> Optional[str]:
@@ -970,11 +1024,19 @@ language 字段要求：
         return None
 
     @staticmethod
+    def _is_external_module(adapter, name: str) -> bool:
+        if not name or adapter is None:
+            return False
+        checker = getattr(adapter, "is_known_external_module", None)
+        return bool(checker and checker(name))
+
+    @staticmethod
     def _extract_strict_file_paths(requirement: str) -> Optional[set]:
         """识别需求中明确限定的文件集合。"""
         if not requirement:
             return None
-        match = re.search(r"(?:只需要|仅需要|only)\s*(.{1,300}?)(?:个|份)?\s*文件", requirement, re.IGNORECASE)
+        file_pat = r"[\w./-]+\.(?:py|js|ts|jsx|tsx|vue|html|css|scss|json|yaml|yml|toml|xml|go|java|rs)"
+        match = re.search(r"(?:只需要|仅需要|只要|only)\s*(.{1,300}?)(?:个|份)?\s*文件", requirement, re.IGNORECASE)
         if not match:
             match = re.search(
                 r"(?:只生成|仅生成)\s*(?:以下\s*)?(?:\d+\s*个\s*)?(.{1,300}?)(?:。|$)",
@@ -989,14 +1051,37 @@ language 字段要求：
             )
         if not match:
             return None
-        paths = set(re.findall(r"[\w./-]+\.(?:py|js|ts|jsx|tsx|vue|html|css|scss|json|yaml|yml|toml|xml|go|java|rs)", match.group(1)))
+        blob = match.group(1)
+        after = requirement[match.end():match.end() + 200]
+        paths = set(re.findall(file_pat, blob + " " + after))
+        if not paths:
+            paths = set(re.findall(file_pat, requirement))
         return paths or None
+
+    @staticmethod
+    def _skip_boilerplate_files(complexity: Optional[Any]) -> bool:
+        if not complexity:
+            return False
+        if isinstance(complexity, dict):
+            level = complexity.get("level") or ""
+            estimated = complexity.get("estimated_files") or 0
+        else:
+            level = getattr(complexity, "level", "")
+            estimated = getattr(complexity, "estimated_files", 0) or 0
+        if hasattr(level, "value"):
+            level = level.value
+        try:
+            estimated = int(estimated)
+        except (TypeError, ValueError):
+            estimated = 0
+        return str(level).lower() == "simple" and estimated <= 1
 
     def _ensure_file_plan_completeness(
         self,
         architecture: Dict,
         target_language: Optional[str] = None,
         strict_paths: Optional[set] = None,
+        complexity: Optional[Any] = None,
     ) -> Dict:
         """确保 file_plan 完整性：补充 imports 中明确引用但 file_plan 中缺失的文件，以及缺失的前端文件
 
@@ -1067,54 +1152,19 @@ language 字段要求：
 
         logger.info(f"_ensure_file_plan_completeness: 检测到语言={detected_lang}, 适配器={adapter.language}")
 
+        kept_plan = []
+        for item in file_plan:
+            path = item.get("path", "")
+            if self._is_external_module(adapter, path):
+                logger.info("从 file_plan 移除第三方路径: %s", path)
+                continue
+            kept_plan.append(item)
+        if len(kept_plan) != len(file_plan):
+            file_plan = kept_plan
+            architecture["file_plan"] = file_plan
+
         # 提取所有已规划的文件路径（安全访问，避免 KeyError）
         planned_paths = {f["path"] for f in file_plan if "path" in f}
-        planned_types = {f.get("file_type") for f in file_plan}
-
-        # 确保依赖文件存在（requirements.txt / package.json / go.mod 等）
-        DEP_FILES = {
-            "python": "requirements.txt",
-            "javascript": "package.json",
-            "go": "go.mod",
-            "java": "pom.xml",
-            "rust": "Cargo.toml",
-        }
-        dep_file = DEP_FILES.get(detected_lang)
-        if dep_file and dep_file not in planned_paths:
-            file_plan.append({"path": dep_file, "description": "依赖配置", "priority": 2, "imports": [], "language": detected_lang})
-            planned_paths.add(dep_file)
-            logger.info(f"_ensure_file_plan_completeness: 补充依赖文件 {dep_file}")
-
-        # 确保 README.md 存在
-        if "README.md" not in planned_paths:
-            file_plan.append({"path": "README.md", "description": "项目文档", "priority": 3, "imports": [], "language": detected_lang})
-            planned_paths.add("README.md")
-            logger.info(f"_ensure_file_plan_completeness: 补充 README.md")
-
-        # 自动补充缺失的前端文件（当架构中标记有前端时）
-        frontend_language = architecture.get("frontend_language")
-        has_frontend_types = any(
-            ft in planned_types
-            for ft in ("frontend_component", "frontend_page", "frontend_style", "template")
-        )
-        # 检查是否有 HTML/CSS/JS 文件
-        has_html = any(f["path"].endswith(".html") for f in file_plan)
-        has_css = any(f["path"].endswith(".css") for f in file_plan)
-        has_js = any(f["path"].endswith((".js", ".jsx", ".ts", ".tsx")) for f in file_plan)
-
-        if frontend_language and not has_frontend_types and not has_html:
-            fe_lang = frontend_language or "javascript"
-            frontend_files = [
-                {"path": "templates/index.html", "description": "前端页面模板", "priority": 4, "file_type": "template", "language": "html", "imports": []},
-            ]
-            if not has_css:
-                frontend_files.append({"path": "static/style.css", "description": "样式表", "priority": 5, "file_type": "frontend_style", "language": "css", "imports": []})
-            if not has_js:
-                frontend_files.append({"path": "static/app.js", "description": "前端脚本", "priority": 5, "file_type": "frontend_component", "language": fe_lang, "imports": []})
-            
-            file_plan.extend(frontend_files)
-            planned_paths.update(f["path"] for f in frontend_files)
-            logger.info(f"_ensure_file_plan_completeness: 自动补充 {len(frontend_files)} 个前端文件")
 
         # 提取所有被引用的模块（解析 import 语句为模块路径）
         all_modules = set()
@@ -1145,6 +1195,9 @@ language 字段要求：
         missing_files = []
         from app.agent.adapters import ImportInfo
         for module in all_modules:
+            if self._is_external_module(adapter, module):
+                logger.info("跳过外部模块，不写入 file_plan: %s", module)
+                continue
             import_info = ImportInfo(module=module, symbols=[], is_relative=False)
             candidates = adapter.resolve_import_to_file(import_info, "")
 
@@ -1155,6 +1208,9 @@ language 字段要求：
                 # 验证文件路径是否合法（不包含空格或特殊字符）
                 if ' ' in file_path or ',' in file_path:
                     logger.warning(f"跳过非法文件路径: {file_path}")
+                    continue
+                if self._is_external_module(adapter, file_path):
+                    logger.info("跳过外部模块路径，不写入 file_plan: %s", file_path)
                     continue
                 # 推断文件类型
                 inferred_type = adapter.infer_file_type(file_path) if adapter else "unknown"
@@ -1257,7 +1313,9 @@ language 字段要求：
                 break
 
         architecture["file_plan"] = existing_plan
-        architecture = self._ensure_file_plan_completeness(architecture, target_language)
+        architecture = self._ensure_file_plan_completeness(
+            architecture, target_language, complexity=complexity
+        )
         return architecture
 
     async def _generate_batch_files(
@@ -1329,7 +1387,8 @@ language 字段要求：
 7. 文件路径中不得包含空格
 8. 如果有前端，确保包含 HTML/CSS/JS 等前端文件
 9. 避免同名文件：新文件不要与已有文件同名，使用更具描述性的名称（如 user_model.py 而非 user.py）
-10. 补充文件必须覆盖需求中的核心业务对象，保持与需求领域一致"""
+10. 补充文件必须覆盖需求中的核心业务对象，保持与需求领域一致
+11. 不要把第三方库或标准库写成项目文件路径"""
 
         try:
             logger.info(f"架构师调用 LLM | system_prompt={len(self.SYSTEM_PROMPT)} chars, user_prompt={len(prompt)} chars, total={len(self.SYSTEM_PROMPT) + len(prompt)} chars")

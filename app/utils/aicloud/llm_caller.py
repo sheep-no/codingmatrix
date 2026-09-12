@@ -11,7 +11,7 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass
 import json
 import logging
-import random
+import time
 from typing import AsyncIterator, Optional, Union, Dict, Any
 
 from app.core.config import settings
@@ -118,36 +118,216 @@ _adapter_cache_lock = asyncio.Lock()
 
 # 429 重试配置
 _RETRY_MAX_ATTEMPTS = 3
-_RETRY_BASE_DELAY = 2.0  # 秒
-_RETRY_MAX_DELAY = 30.0  # 秒
+_MODEL_COOLDOWN_MIN = 15.0
+_MODEL_COOLDOWN_MAX = 60.0
+_model_cooldown_until: Dict[str, float] = {}
 
 
-async def _retry_on_rate_limit(coro_factory, max_attempts: int = _RETRY_MAX_ATTEMPTS):
-    """对 429 Rate Limit 错误做指数退避重试
+def reset_model_cooldowns() -> None:
+    """Clear per-model 429 cooldowns (tests)."""
+    _model_cooldown_until.clear()
 
-    Args:
-        coro_factory: 返回 coroutine 的工厂函数（每次重试需创建新 coroutine）
-        max_attempts: 最大尝试次数
 
-    Returns:
-        调用结果
+def _is_rate_limit_error(exc: Exception) -> bool:
+    if getattr(exc, "status_code", None) == 429:
+        return True
+    if getattr(getattr(exc, "response", None), "status_code", None) == 429:
+        return True
+    text = str(exc).lower()
+    return "429" in text or "rate limit" in text or "too many requests" in text
 
-    Raises:
-        最后一次尝试的异常
-    """
+
+def _retry_after_seconds(exc: Exception) -> float:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None) if response is not None else None
+    header = None
+    if headers is not None and hasattr(headers, "get"):
+        header = headers.get("Retry-After") or headers.get("retry-after")
+    if header is not None:
+        raw = str(header).strip()
+        try:
+            return min(max(float(raw), _MODEL_COOLDOWN_MIN), _MODEL_COOLDOWN_MAX)
+        except ValueError:
+            pass
+    return _MODEL_COOLDOWN_MIN
+
+
+def _set_model_cooldown(model: str, seconds: float) -> None:
+    if not model:
+        return
+    delay = min(max(float(seconds), _MODEL_COOLDOWN_MIN), _MODEL_COOLDOWN_MAX)
+    _model_cooldown_until[model] = time.monotonic() + delay
+
+
+async def _await_model_cooldown(model: str) -> None:
+    if not model:
+        return
+    remaining = _model_cooldown_until.get(model, 0.0) - time.monotonic()
+    if remaining > 0:
+        logger.warning("rate_limited model=%s wait=%.1fs", model, remaining)
+        await asyncio.sleep(remaining)
+
+
+async def _retry_on_rate_limit_for_model(
+    coro_factory,
+    max_attempts: int = _RETRY_MAX_ATTEMPTS,
+    model: str = "",
+):
     last_error = None
     for attempt in range(max_attempts):
         try:
             return await coro_factory()
         except Exception as e:
-            error_str = str(e).lower()
-            is_429 = "429" in error_str or "rate limit" in error_str or "too many requests" in error_str
-            if is_429 and attempt < max_attempts - 1:
-                delay = min(_RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1), _RETRY_MAX_DELAY)
-                logger.warning(f"遇到 429 Rate Limit，{delay:.1f}s 后重试 ({attempt + 1}/{max_attempts}): {e}")
+            if _is_rate_limit_error(e) and attempt < max_attempts - 1:
+                delay = _retry_after_seconds(e)
+                _set_model_cooldown(model, delay)
+                logger.warning(
+                    "rate_limited model=%s wait=%.1fs attempt=%s/%s",
+                    model or "unknown",
+                    delay,
+                    attempt + 1,
+                    max_attempts,
+                )
                 await asyncio.sleep(delay)
                 last_error = e
                 continue
+            raise
+    raise last_error
+
+
+class _LLMSemaphoreLease:
+    """Tracks global+model semaphore ownership so 429 cooldown can release the slots."""
+
+    __slots__ = ("global_sem", "model_sem", "global_acquired", "model_acquired")
+
+    def __init__(self) -> None:
+        self.global_sem = None
+        self.model_sem = None
+        self.global_acquired = False
+        self.model_acquired = False
+
+    async def acquire(self, model: str, skip: bool) -> None:
+        if skip:
+            return
+        if self.global_sem is None and self.model_sem is None:
+            try:
+                from app.agent.llm_client import get_model_semaphore, get_global_semaphore
+                self.global_sem = get_global_semaphore()
+                self.model_sem = get_model_semaphore(model)
+            except Exception:
+                return
+        try:
+            if self.global_sem and not self.global_acquired:
+                await self.global_sem.acquire()
+                self.global_acquired = True
+            if self.model_sem and not self.model_acquired:
+                await self.model_sem.acquire()
+                self.model_acquired = True
+        except BaseException:
+            self.release()
+            raise
+        logger.info(
+            f"[信号量] 已获取 {model} 信号量 "
+            f"(global={self.global_sem._value if self.global_sem else 'N/A'}, "
+            f"model={self.model_sem._value if self.model_sem else 'N/A'})"
+        )
+
+    def release(self) -> None:
+        if self.model_acquired and self.model_sem:
+            self.model_sem.release()
+            self.model_acquired = False
+        if self.global_acquired and self.global_sem:
+            self.global_sem.release()
+            self.global_acquired = False
+
+    def transfer(self):
+        global_sem = self.global_sem if self.global_acquired else None
+        model_sem = self.model_sem if self.model_acquired else None
+        self.global_acquired = False
+        self.model_acquired = False
+        return global_sem, model_sem
+
+
+class _PrefixedAsyncIterator:
+    """Yield a peeked first chunk, then the remainder of an async iterator."""
+
+    def __init__(self, first: str, rest):
+        self._first = first
+        self._sent_first = False
+        self._rest = rest
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> str:
+        if not self._sent_first:
+            self._sent_first = True
+            return self._first
+        return await self._rest.__anext__()
+
+    async def aclose(self) -> None:
+        close = getattr(self._rest, "aclose", None)
+        if close is not None:
+            await close()
+
+
+async def _invoke_adapter_with_retry(
+    coro_factory,
+    model: str,
+    stream: bool = False,
+    skip_semaphore: bool = False,
+    max_attempts: int = _RETRY_MAX_ATTEMPTS,
+):
+    """Call the adapter; on 429 release semaphores, cool down, then re-acquire."""
+    lease = _LLMSemaphoreLease()
+    last_error = None
+    for attempt in range(max_attempts):
+        await _await_model_cooldown(model)
+        await lease.acquire(model, skip_semaphore)
+        try:
+            result = await coro_factory()
+            if stream and hasattr(result, "__aiter__"):
+                iterator = result.__aiter__()
+                try:
+                    first_chunk = await iterator.__anext__()
+                except StopAsyncIteration:
+                    global_sem, model_sem = lease.transfer()
+                    return _SemaphoreWrappedAsyncIterator(result, global_sem, model_sem)
+                except Exception:
+                    close = getattr(iterator, "aclose", None)
+                    if close is not None:
+                        try:
+                            await close()
+                        except Exception:
+                            pass
+                    raise
+                global_sem, model_sem = lease.transfer()
+                return _SemaphoreWrappedAsyncIterator(
+                    _PrefixedAsyncIterator(first_chunk, iterator),
+                    global_sem,
+                    model_sem,
+                )
+            logger.info(f"[信号量] 释放 {model} 信号量 (非流式)")
+            lease.release()
+            return result
+        except asyncio.CancelledError:
+            lease.release()
+            raise
+        except Exception as e:
+            if _is_rate_limit_error(e) and attempt < max_attempts - 1:
+                delay = _retry_after_seconds(e)
+                _set_model_cooldown(model, delay)
+                logger.warning(
+                    "rate_limited model=%s wait=%.1fs attempt=%s/%s",
+                    model or "unknown",
+                    delay,
+                    attempt + 1,
+                    max_attempts,
+                )
+                lease.release()
+                last_error = e
+                continue
+            lease.release()
             raise
     raise last_error
 
@@ -405,7 +585,7 @@ async def call_llm(
 
             logger.warning(f"Primary provider {primary_provider.value} failed: {e}")
 
-            fallback_providers = router.get_fallback_providers(primary_provider)
+            fallback_providers = router.get_fallback_providers(primary_provider, model)
             last_error = e
 
             for fallback in fallback_providers:
@@ -435,37 +615,8 @@ async def call_llm(
         stream,
     )
 
-    # 获取按模型并发信号量（延迟导入避免循环依赖）
-    global_sem = None
-    model_sem = None
-    if not _skip_semaphore:
-        try:
-            from app.agent.llm_client import get_model_semaphore, get_global_semaphore
-            global_sem = get_global_semaphore()
-            model_sem = get_model_semaphore(model)
-        except Exception:
-            pass  # 信号量不可用时不阻塞调用
-
-        # 获取信号量：全局 + 按模型。等待第二级额度时取消也必须归还第一级额度。
-        global_acquired = False
-        model_acquired = False
-        try:
-            if global_sem:
-                await global_sem.acquire()
-                global_acquired = True
-            if model_sem:
-                await model_sem.acquire()
-                model_acquired = True
-        except BaseException:
-            if model_acquired:
-                model_sem.release()
-            if global_acquired:
-                global_sem.release()
-            raise
-        logger.info(f"[信号量] 已获取 {model} 信号量 (global={global_sem._value if global_sem else 'N/A'}, model={model_sem._value if model_sem else 'N/A'})")
-
     try:
-        result = await _retry_on_rate_limit(lambda: adapter.call_llm(
+        result = await _invoke_adapter_with_retry(lambda: adapter.call_llm(
             model=model,
             prompt=prompt,
             system_prompt=system_prompt,
@@ -475,26 +626,13 @@ async def call_llm(
             thinking_budget=thinking_budget,
             cancel_event=cancel_event,
             messages=messages,
-        ))
-        # 流式模式：包装迭代器，在迭代期间持有信号量
+        ), model=model, stream=stream, skip_semaphore=_skip_semaphore)
         if stream and hasattr(result, '__aiter__'):
             logger.info(f"[信号量] 流式模式，信号量将在迭代期间持有 {model}")
-            return _SemaphoreWrappedAsyncIterator(result, global_sem, model_sem)
-        # 非流式：结果已返回，释放信号量
-        logger.info(f"[信号量] 释放 {model} 信号量 (非流式)")
-        if model_sem:
-            model_sem.release()
-            model_sem = None
-        if global_sem:
-            global_sem.release()
-            global_sem = None
+            return result
         _record_llm_response_metrics(result)
         return result
     except asyncio.CancelledError:
-        if model_sem:
-            model_sem.release()
-        if global_sem:
-            global_sem.release()
         raise
     except Exception as e:
         logger.warning(
@@ -505,18 +643,14 @@ async def call_llm(
             type(e).__name__,
             getattr(e, "status_code", None),
         )
-        # 释放信号量
-        logger.info(f"[信号量] 异常释放 {model} 信号量: {e}")
-        if model_sem:
-            model_sem.release()
-        if global_sem:
-            global_sem.release()
         # 流式调用失败时尝试 fallback（仅在流式未开始前的失败）
         if stream and not disable_fallback:
             logger.warning(f"Stream call failed before streaming started, attempting fallback: {e}")
             router = ProviderRouter.get_instance(settings.get_provider_registry())
             primary_provider = router.route(model)
-            fallback_providers = router.get_fallback_providers(primary_provider)
+            fallback_providers = router.get_fallback_providers(primary_provider, model)
+            global_sem = None
+            model_sem = None
 
             for fallback in fallback_providers:
                 fallback_global_acquired = False

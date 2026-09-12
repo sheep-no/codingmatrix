@@ -7,6 +7,7 @@ SiliconFlow 供应商适配器
 import asyncio
 import logging
 import os
+import time
 from pathlib import Path
 from typing import AsyncIterator, Optional, Union
 
@@ -118,11 +119,23 @@ class SiliconFlowAdapter(BaseProviderAdapter):
             }
             if support_thinking:
                 data["enable_thinking"] = False  # 禁用深度思考，避免 Qwen3 等模型浪费大量 token
+
+        logger.info(
+            "[SF-REQ] model=%s stream=%s keys=%s thinking_budget=%s enable_thinking=%s max_tokens=%s",
+            model,
+            stream,
+            sorted(data.keys()),
+            data.get("thinking_budget"),
+            data.get("enable_thinking"),
+            data.get("max_tokens"),
+        )
         
         if stream:
             async def generate():
                 async with _max_concurrent_calls:
                     client = await get_http_client()
+                    started = time.monotonic()
+                    logger.info("[SF-STREAM] iterate_start model=%s", model)
                     try:
                         async with client.stream(
                             "POST",
@@ -137,13 +150,55 @@ class SiliconFlowAdapter(BaseProviderAdapter):
                                     if len(error_body) > 2048:
                                         break
                                 raise Exception(f"HTTP {response.status_code}: {error_body[:500]}")
+                            logger.info(
+                                "[SF-STREAM] headers model=%s status=%s t=%.3fs",
+                                model,
+                                response.status_code,
+                                time.monotonic() - started,
+                            )
+                            line_n = 0
+                            data_n = 0
+                            empty_n = 0
+                            comment_n = 0
                             async for line in response.aiter_lines():
                                 if cancel_event and cancel_event.is_set():
                                     await response.aclose()
                                     raise asyncio.CancelledError("LLM 调用被取消")
+                                line_n += 1
+                                if not line:
+                                    empty_n += 1
+                                    kind = "empty"
+                                elif line.startswith(":"):
+                                    comment_n += 1
+                                    kind = "comment"
+                                elif line.startswith("data: "):
+                                    data_n += 1
+                                    kind = "data"
+                                else:
+                                    kind = "other"
+                                if line_n <= 5:
+                                    logger.info(
+                                        "[SF-STREAM] line#%d t=%.3fs kind=%s data_n=%d empty_n=%d comment_n=%d prefix=%r",
+                                        line_n,
+                                        time.monotonic() - started,
+                                        kind,
+                                        data_n,
+                                        empty_n,
+                                        comment_n,
+                                        (line or "")[:160],
+                                    )
                                 if line.startswith("data: "):
                                     chunk = line[6:]
                                     if chunk == "[DONE]":
+                                        logger.info(
+                                            "[SF-STREAM] done model=%s t=%.3fs lines=%d data_n=%d empty_n=%d comment_n=%d",
+                                            model,
+                                            time.monotonic() - started,
+                                            line_n,
+                                            data_n,
+                                            empty_n,
+                                            comment_n,
+                                        )
                                         break
                                     yield f"{chunk}\n"
                     except httpx.RemoteProtocolError as e:

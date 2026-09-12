@@ -68,7 +68,10 @@
           :logs="workspace.logs"
           :test-results="workspace.testResults"
           :validation-results="workspace.validationResults"
+          :generated-files="generatedFiles"
+          :tool-events="workspace.toolEvents"
           @select-decision="(id, label) => workspace.decisionAnswers[id] = label"
+          @select-file="selectFile"
           @use-default="(id) => { const d = workspace.pendingDecisions.find(x => x.id === id); if (d?.default) workspace.decisionAnswers[id] = d.default }"
           @submit-decision="doSubmitDecision"
           @clear-thinking="workspace.thinkingMessages = []"
@@ -326,10 +329,14 @@ const doStopSession = async () => {
   } catch (action) {
     if (action === 'close') return
   }
-  await backend.stopSession(session.currentSessionId)
-  generation.isGenerating = false
-  taskFeedback.update({ status: 'stopped', stage: '会话已停止', nextAction: '输入新需求后继续' })
-  session.currentSessionId = null
+  try {
+    await backend.stopSession(session.currentSessionId)
+    generation.isGenerating = false
+    taskFeedback.update({ status: 'stopped', stage: '会话已停止', nextAction: '输入新需求后继续' })
+    session.currentSessionId = null
+  } catch (error) {
+    ElMessage.error('停止失败，生成仍在继续')
+  }
 }
 const doSubmitDecision = async () => {
   await backend.submitDecision(session.currentSessionId)
@@ -339,6 +346,7 @@ const clearAllState = () => {
   workspace.thinkingMessages = []
   workspace.executionDetails = []
   workspace.logs = []
+  workspace.toolEvents = []
   session.currentSessionId = null
   workspace.currentProjectPath = null
   session.projectPrompt = ''

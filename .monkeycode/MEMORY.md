@@ -38,6 +38,13 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - SDD 需求澄清阶段采用一问一答方式。
   - Agent 每轮只提出一个问题，等待用户回答后再继续下一项澄清。
 
+### 方案与改代码分开；模型参数保持能力
+- Date: 2026-09-11
+- Context: 用户确认智谱三角色问题是工程接线，并要求先给方案
+- Instructions:
+  - 用户只要方案时只给方案，明确说「开始」后再改代码。
+  - 智谱/Agent 排障保持模型 max_tokens、thinking、温度和角色分工，修契约、限流和热更新。
+
 ### Playwright 依赖解析冲突排查
 - Date: 2026-08-29
 - Context: Agent 在验证前端聊天路由迁移时发现
@@ -45,6 +52,9 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
 - Instructions:
   - 根目录与 `src/node_modules` 同时安装 Playwright 时，使用 `src/playwright.config.js` 执行位于 `tests/e2e/` 的测试会触发 `Requiring @playwright/test second time`。
   - 前端单元测试可在 `src/` 目录执行 `npx vitest run`；Playwright E2E 需要统一 CLI 与测试文件解析到同一份 Playwright 依赖后再运行。
+  - 根配置 `playwright.config.js` 的 `testDir` 为 `./tests/e2e`；运行时用根 CLI + `src/node_modules/@playwright/test`，并设置 `PLAYWRIGHT_EXECUTABLE_PATH` 指向 ms-playwright chromium。
+  - 智谱免费档并发：`glm-4.7-flash=1`，`glm-4-flash-250414=20`，`glm-z1-flash` 未单独限流（代码默认 6，受全局 LLM 信号量 6 约束）。
+  - Agent 实测用 `TEST_API_KEY`（供应商 `glm`）+ 超管 `mr_yang@example.com` 改角色；流式请求走 `preferredAgentKey`，测完恢复 YAML 角色。
 
 ### 扫描文件先定作用与状态再深入
 - Date: 2026-08-26
@@ -198,11 +208,12 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 遇到会改变任务方向或结果的真实歧义时，再向用户请求澄清。
 
 ### Agent 工程能力实测
-- Date: 2026-09-10
-- Context: 用户要求用当前模型配置做 Agent 实测，并评估工程能力上限
-- Instructions:
-  - 实测使用当前已配置的模型分工，评估工程能力上限。
-  - 禁止为某个单一语言或技术栈新增或调整门禁。
+- Date: 2026-09-11
+  - Context: 用户要求用当前模型配置做 Agent 实测，并纠正管线不得写死语言和技术栈
+  - Instructions:
+    - 实测使用当前已配置的模型分工，评估工程能力上限。
+    - 禁止为某个单一语言或技术栈新增或调整门禁。
+    - 入口骨架仅在架构明确框架时生成；依赖扫描保留未映射的第三方包名；关键决策和 Spec-First 仅在需求或复杂度出现鉴权、后端、存储信号时触发。
 
 ### 既有数据库接入 Alembic
 - Date: 2026-09-03

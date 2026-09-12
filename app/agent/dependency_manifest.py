@@ -69,6 +69,8 @@ class DependencyManifest(BaseModel):
 def _normalize_dependencies(
     dependencies: Iterable[Mapping[str, object] | Dependency | str] | Mapping[str, object],
 ) -> Tuple[Mapping[str, object] | Dependency | str, ...]:
+    if dependencies is None or isinstance(dependencies, str):
+        return ()
     if not isinstance(dependencies, Mapping):
         return tuple(dependencies)
     if "name" in dependencies or "package" in dependencies:

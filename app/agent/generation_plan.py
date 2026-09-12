@@ -74,12 +74,26 @@ class GenerationPlan(BaseModel):
     @classmethod
     def from_architecture(cls, architecture: Mapping[str, object], **kwargs: object) -> "GenerationPlan":
         files = architecture.get("file_plan", ())
+        if isinstance(files, str):
+            files = [files]
+        elif not isinstance(files, (list, tuple)):
+            files = ()
         project = architecture.get("project_spec", {})
         project = project if isinstance(project, Mapping) else {}
         interface_data = architecture.get("interfaces", architecture.get("interface_registry", ()))
         dependency_data = architecture.get("dependencies", architecture.get("dependency_manifest", ()))
-        interfaces = interface_data if isinstance(interface_data, InterfaceRegistry) else InterfaceRegistry.build(interface_data or ())
-        dependencies = dependency_data if isinstance(dependency_data, DependencyManifest) else DependencyManifest.build(dependency_data or ())
+        if isinstance(interface_data, InterfaceRegistry):
+            interfaces = interface_data
+        elif isinstance(interface_data, str) or interface_data is None:
+            interfaces = InterfaceRegistry.build(())
+        else:
+            interfaces = InterfaceRegistry.build(interface_data or ())
+        if isinstance(dependency_data, DependencyManifest):
+            dependencies = dependency_data
+        elif isinstance(dependency_data, str) or dependency_data is None:
+            dependencies = DependencyManifest.build(())
+        else:
+            dependencies = DependencyManifest.build(dependency_data or ())
         strict_paths = architecture.get("strict_file_paths")
         build_options = dict(kwargs)
         if strict_paths and "policy" not in build_options:
@@ -139,6 +153,10 @@ def add_profile_components(
 def _coerce_file(item: Mapping[str, object] | PlanFile) -> PlanFile:
     if isinstance(item, PlanFile):
         return item
+    if isinstance(item, str):
+        item = {"path": item}
+    if not isinstance(item, Mapping):
+        raise ValueError("generation plan file must be an object")
     raw = item.get("dependencies", item.get("depends_on", ()))
     if isinstance(raw, str):
         raw = (raw,)

@@ -30,6 +30,14 @@ MAX_CONCURRENT_LLM_CALLS = 6
 MAX_CONCURRENT_PER_MODEL = 2  # 同一模型最多 2 个并发请求，避免 503 过载
 _global_semaphore: Optional[asyncio.Semaphore] = None
 _model_semaphores: Dict[str, asyncio.Semaphore] = {}
+_model_semaphore_limits: Dict[str, int] = {}
+
+# 智谱免费档按模型限流；未列出的模型沿用 MAX_CONCURRENT_PER_MODEL。
+MODEL_CONCURRENCY_LIMITS = {
+    "glm-4.7-flash": 1,
+    "glm-4-flash-250414": 20,
+    "glm-z1-flash": 6,
+}
 
 
 def get_global_semaphore() -> asyncio.Semaphore:
@@ -39,10 +47,24 @@ def get_global_semaphore() -> asyncio.Semaphore:
     return _global_semaphore
 
 
+def concurrency_limit_for(model_name: str) -> int:
+    """返回指定模型的并发上限。"""
+    key = (model_name or "").strip().lower()
+    if key in MODEL_CONCURRENCY_LIMITS:
+        return MODEL_CONCURRENCY_LIMITS[key]
+    for name, limit in MODEL_CONCURRENCY_LIMITS.items():
+        if key.endswith("/" + name):
+            return limit
+    return MAX_CONCURRENT_PER_MODEL
+
+
 def get_model_semaphore(model_name: str) -> asyncio.Semaphore:
-    """获取按模型的并发信号量，同一模型最多 MAX_CONCURRENT_PER_MODEL 个并发请求"""
-    if model_name not in _model_semaphores:
-        _model_semaphores[model_name] = asyncio.Semaphore(MAX_CONCURRENT_PER_MODEL)
+    """获取按模型的并发信号量。"""
+    limit = concurrency_limit_for(model_name)
+    existing = _model_semaphores.get(model_name)
+    if existing is None or _model_semaphore_limits.get(model_name) != limit:
+        _model_semaphores[model_name] = asyncio.Semaphore(limit)
+        _model_semaphore_limits[model_name] = limit
     return _model_semaphores[model_name]
 
 
@@ -240,8 +262,13 @@ class LLMClient:
         full_content = ""
         full_reasoning = ""
         last_meta: Dict[str, Any] = {}
+        consume_started = time.monotonic()
+        first_content_logged = False
+        first_reasoning_logged = False
+        chunk_n = 0
 
         async for chunk_str in stream_iter:
+            chunk_n += 1
             if not chunk_str:
                 continue
             chunk_str = chunk_str.strip()
@@ -269,8 +296,26 @@ class LLMClient:
 
             if content_delta:
                 full_content += content_delta
+                if not first_content_logged:
+                    first_content_logged = True
+                    logger.info(
+                        "[SF-STREAM] first_content model=%s t=%.3fs chunk=%d chars=%d",
+                        self.model_name,
+                        time.monotonic() - consume_started,
+                        chunk_n,
+                        len(content_delta),
+                    )
             if reasoning_delta:
                 full_reasoning += reasoning_delta
+                if not first_reasoning_logged:
+                    first_reasoning_logged = True
+                    logger.info(
+                        "[SF-STREAM] first_reasoning model=%s t=%.3fs chunk=%d chars=%d",
+                        self.model_name,
+                        time.monotonic() - consume_started,
+                        chunk_n,
+                        len(reasoning_delta),
+                    )
 
             if content_delta or reasoning_delta:
                 try:
@@ -282,6 +327,14 @@ class LLMClient:
             if chunk.get("usage"):
                 last_meta = chunk
 
+        logger.info(
+            "[SF-STREAM] consume_end model=%s t=%.3fs chunks=%d content_chars=%d reasoning_chars=%d",
+            self.model_name,
+            time.monotonic() - consume_started,
+            chunk_n,
+            len(full_content),
+            len(full_reasoning),
+        )
         # 合成兼容的 response dict 以复用 cost tracking
         synthetic_response: Dict[str, Any] = {
             "choices": [{"message": {"content": full_content}}],

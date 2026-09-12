@@ -26,6 +26,24 @@ export function normalizeAgentRole(agent) {
   return AGENT_ROLE_ALIAS[rawAgent] || rawAgent
 }
 
+export function normalizeEventTimestamp(ts) {
+  if (ts == null || ts === '') return Date.now()
+  const numeric = Number(ts)
+  if (!Number.isFinite(numeric) || numeric <= 0) return Date.now()
+  return numeric < 1e12 ? numeric * 1000 : numeric
+}
+
+export function markThinkingStreamEnded(messages, { agent, phase } = {}) {
+  if (!Array.isArray(messages)) return messages
+  for (const message of messages) {
+    if (message.streaming !== true) continue
+    if (agent && message.agent !== agent) continue
+    if (phase != null && phase !== '' && (message.phase || '') !== phase) continue
+    message.streaming = false
+  }
+  return messages
+}
+
 export function useAgentStreaming(projectApi, workspace, files, generation, session, taskFeedback = null) {
   // 注意：workspace 和 files 是 reactive() 对象，ref 属性会被自动解包
   // 不能解构后使用 .value，必须通过对象访问（如 workspace.currentAgent）
@@ -103,16 +121,27 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
 
     switch (data.type) {
       case 'file':
-        files.generatedFiles.push({
-          path: data.path,
-          content: data.content,
-          fileSize: data.file_size,
-          fileSizeHuman: data.file_size_human,
-          complexity: data.complexity,
-          lineCount: data.line_count
-        })
-        addLog('info', `生成文件: ${data.path} (${data.file_size_human || ''}, ${data.line_count || 0} 行)`)
-        if (data.file_type) addDetail('文件生成', `${data.path} (${data.file_type}, 复杂度: ${data.complexity?.level || '未知'})`)
+        {
+          const fileEntry = {
+            path: data.path,
+            content: data.content,
+            fileSize: data.file_size,
+            fileSizeHuman: data.file_size_human,
+            complexity: data.complexity,
+            lineCount: data.line_count,
+            description: data.description || '',
+            operation: data.operation || 'create',
+            timestamp: normalizeEventTimestamp(data.timestamp)
+          }
+          const existingIndex = files.generatedFiles.findIndex(item => item.path === data.path)
+          if (existingIndex >= 0) {
+            files.generatedFiles.splice(existingIndex, 1, fileEntry)
+          } else {
+            files.generatedFiles.push(fileEntry)
+          }
+          addLog('info', `生成文件: ${data.path} (${data.file_size_human || ''}, ${data.line_count || 0} 行)`)
+          if (data.file_type) addDetail('文件生成', `${data.path} (${data.file_type}, 复杂度: ${data.complexity?.level || '未知'})`)
+        }
         break
       case 'file_diff': {
         files.fileDiffs.push({
@@ -121,7 +150,8 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
           newContent: data.new_content || data.content || '',
           operation: data.operation || 'create',
           changes: data.changes,
-          sizeDelta: data.size_delta
+          sizeDelta: data.size_delta,
+          timestamp: normalizeEventTimestamp(data.timestamp)
         })
         const changeSummary = data.changes ? `+${data.changes.added}/-${data.changes.removed}` : ''
         addLog('info', `文件变更: ${data.path} (${data.operation}) ${changeSummary}`)
@@ -130,7 +160,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       case 'thinking': {
         const agent = data.agent || 'AI Agent'
         const msg = data.message || data.content
-        const ts = data.timestamp || Date.now()
+        const ts = normalizeEventTimestamp(data.timestamp)
         const phase = data.phase || ''
         const isStreaming = data.streaming === true
 
@@ -146,7 +176,10 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
           })
         } else {
           thinkingBatcher.flush()
-          // 非流式 thinking：保持原行为，push 新条目
+          markThinkingStreamEnded(workspace.thinkingMessages, { agent })
+          if (data.streaming === false && !msg) {
+            break
+          }
           workspace.thinkingMessages.push({
             agent,
             message: msg,
@@ -273,8 +306,15 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         workspace.decisionAnswers = {}
         addLog('warning', '需要您确认架构决策')
         break
+      case 'cancelled':
+        thinkingBatcher.flush()
+        markThinkingStreamEnded(workspace.thinkingMessages)
+        taskFeedback?.update({ status: 'stopped', stage: '会话已停止', nextAction: '输入新需求后继续' })
+        addLog('warning', data.data?.message || '项目已停止')
+        break
       case 'error':
         thinkingBatcher.flush()
+        markThinkingStreamEnded(workspace.thinkingMessages)
         taskFeedback?.fail(data.data?.error || data.message || '任务执行失败', data)
         addLog('error', data.data?.error || data.message || '未知错误')
         break
@@ -302,11 +342,45 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         const toolMsg = data.message || `调用工具: ${data.tool || '未知'}`
         addLog('info', toolMsg)
         addDetail('工具调用', `Round ${data.round || '?'}: ${data.tool || '未知'}`)
+        if (!Array.isArray(workspace.toolEvents)) workspace.toolEvents = []
+        workspace.toolEvents.push({
+          id: `${data.tool || 'tool'}-${data.round || 0}-${Date.now()}`,
+          tool: data.tool || 'unknown',
+          params: data.params || {},
+          round: data.round,
+          maxRounds: data.max_rounds,
+          message: toolMsg,
+          status: 'running',
+          result: '',
+          timestamp: normalizeEventTimestamp(data.timestamp),
+          agent: data.agent || workspace.currentAgent
+        })
         break
       }
       case 'react_tool_result': {
         const resultMsg = data.message || `工具返回: ${data.tool || '未知'}`
         addLog('info', resultMsg)
+        if (!Array.isArray(workspace.toolEvents)) workspace.toolEvents = []
+        const running = [...workspace.toolEvents].reverse().find(
+          item => item.tool === (data.tool || item.tool) && item.status === 'running'
+        )
+        if (running) {
+          running.status = 'done'
+          running.result = resultMsg
+          running.resultCount = data.result_count
+        } else {
+          workspace.toolEvents.push({
+            id: `${data.tool || 'tool'}-result-${Date.now()}`,
+            tool: data.tool || 'unknown',
+            params: {},
+            round: data.round,
+            message: resultMsg,
+            status: 'done',
+            result: resultMsg,
+            timestamp: normalizeEventTimestamp(data.timestamp),
+            agent: data.agent || workspace.currentAgent
+          })
+        }
         break
       }
       case 'react_generating': {
@@ -316,6 +390,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       }
       case 'done':
         thinkingBatcher.flush()
+        markThinkingStreamEnded(workspace.thinkingMessages)
         taskFeedback?.complete({ ...data, stage: getPhaseLabel('generation_complete'), progress: 100, nextAction: '预览或下载生成文件' })
         addLog('success', '项目生成完成')
         generation.workflowStages.forEach(stage => {
@@ -357,7 +432,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         if (trimmed.startsWith('data: ')) {
           try {
             const data = JSON.parse(trimmed.slice(6))
-            if (['done', 'error'].includes(data.type)) terminalEvent = data.type
+            if (['done', 'error', 'cancelled'].includes(data.type)) terminalEvent = data.type
             handleSseMessage(data)
           } catch (e) {
             console.error('Failed to parse SSE:', e)
@@ -368,19 +443,19 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     if (buffer.trim().startsWith('data: ')) {
       try {
         const data = JSON.parse(buffer.trim().slice(6))
-        if (['done', 'error'].includes(data.type)) terminalEvent = data.type
+        if (['done', 'error', 'cancelled'].includes(data.type)) terminalEvent = data.type
         handleSseMessage(data)
       } catch (e) {
         // ignore trailing incomplete data
       }
     }
     thinkingBatcher.flush()
+    markThinkingStreamEnded(workspace.thinkingMessages)
     return terminalEvent
   }
 
   const buildStreamParams = (requirement, sessionId, selectedProviderModel, projectName) => {
-    // 获取用户内置供应商 API Key token
-    const selectedApiKeyToken = apiKeyStore.siliconflowKey
+    const selectedApiKeyToken = apiKeyStore.preferredAgentKey
     
     // 解析动态供应商选择 (格式: "provider_id::model_id")
     let providerId = undefined
@@ -477,8 +552,8 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       return
     }
     // 检查是否有 SiliconFlow API Key 或动态供应商
-    if (!apiKeyStore.hasSiliconflowKey && !selectedProviderModel) {
-      ElMessage.warning('请先配置 SiliconFlow API Key 或选择自定义供应商模型')
+    if (!apiKeyStore.hasSiliconflowKey && !apiKeyStore.hasGlmKey && !selectedProviderModel) {
+      ElMessage.warning('请先配置 SiliconFlow 或智谱 GLM API Key，或选择自定义供应商模型')
       return
     }
 
@@ -492,6 +567,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       files.fileDiffs = []
     }
     workspace.logs = []
+    workspace.toolEvents = []
     generation.isGenerating = true
     taskFeedback?.start({ stage: isIncremental ? '准备增量更新' : '准备生成项目', progress: 0 })
     addLog('info', `开始${mode}...`)
@@ -508,7 +584,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         addLog('warning', '任务连接意外结束，已保留当前状态')
         return
       }
-      if (terminalEvent === 'error') return
+      if (terminalEvent === 'error' || terminalEvent === 'cancelled') return
       if (session.currentSessionId === streamSessionId) {
         const observedContext = generation.getModelContextSnapshot()
         try {

@@ -59,6 +59,7 @@ def _build_provider_map() -> Dict[str, "ModelProvider"]:
             name = m.get("name", "")
             provider_str = m.get("provider", "siliconflow")
             provider = provider_enum_map.get(provider_str, ModelProvider.SILICONFLOW)
+            provider_map[model_id] = provider
             if name:
                 provider_map[name] = provider
         _provider_map_cache = provider_map
@@ -108,6 +109,11 @@ def invalidate_model_mapping_cache():
     MODEL_ID_TO_KEY = _build_model_id_to_key()
     MODEL_PROVIDER_MAP = _build_provider_map()
     MODEL_KEY_TO_ID = {v: k for k, v in MODEL_ID_TO_KEY.items()}
+    try:
+        from app.utils.aicloud.provider_router import reload_provider_map
+        reload_provider_map()
+    except Exception:
+        pass
 
 
 # 模型 ID 到模型 Key 的映射（从运行时 YAML 配置动态生成）
@@ -702,6 +708,14 @@ async def get_dynamic_router() -> DynamicModelRouter:
         async with _router_lock:
             if _dynamic_router is None:
                 _dynamic_router = DynamicModelRouter()
+    return _dynamic_router
+
+
+def get_dynamic_router_sync() -> DynamicModelRouter:
+    """同步获取路由器单例，供非 async 的配置刷新路径使用。"""
+    global _dynamic_router
+    if _dynamic_router is None:
+        _dynamic_router = DynamicModelRouter()
     return _dynamic_router
 
 

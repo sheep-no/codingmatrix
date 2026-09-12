@@ -184,6 +184,7 @@ from .single_file_generation import generate_single_file
 
 _decision_queues: Dict[str, asyncio.Queue] = {}
 _cancel_events: Dict[str, asyncio.Event] = {}
+_pending_stream_owners: Dict[str, str] = {}
 
 
 def _generation_http_exception(error: Exception) -> HTTPException:
@@ -195,6 +196,77 @@ def _generation_http_exception(error: Exception) -> HTTPException:
 # 运行中的生成任务，用于浏览器重连
 _active_tasks: Dict[str, dict] = {}
 _user_creation_locks: Dict[str, asyncio.Lock] = {}
+
+
+def _register_pending_stream(session_id: str, user_id: str) -> asyncio.Event:
+    """Allow cancel before the session row exists in DB."""
+    _pending_stream_owners[session_id] = str(user_id)
+    event = _cancel_events.get(session_id)
+    if event is None:
+        event = asyncio.Event()
+        _cancel_events[session_id] = event
+    return event
+
+
+def _cancelled_stream_response() -> StreamingResponse:
+    async def cancelled_events():
+        yield (
+            f"data: {json.dumps({'type': 'cancelled', 'data': {'message': '项目已停止'}}, ensure_ascii=False)}\n\n"
+        )
+
+    return StreamingResponse(
+        cancelled_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def _client_disconnected(http_request: Request | None) -> bool:
+    if http_request is None:
+        return False
+    try:
+        return await http_request.is_disconnected()
+    except Exception:
+        return True
+
+
+async def _mark_disconnected_if_stale(active_task: dict) -> bool:
+    """Return True when no live SSE subscriber remains."""
+    gen_task = active_task.get("gen_task")
+    if gen_task is not None and gen_task.done():
+        active_task["connected"] = False
+        return True
+    if await _client_disconnected(active_task.get("http_request")):
+        active_task["connected"] = False
+        return True
+    return not active_task.get("connected", True)
+
+
+async def _supersede_running_generation(
+    db: AsyncSession,
+    session: ProjectSession,
+    reason: str = "客户端断开后被新任务取代",
+) -> None:
+    session_id = session.session_id
+    cancel_ev = _cancel_events.get(session_id)
+    if cancel_ev:
+        cancel_ev.set()
+    await _cancel_active_generation(session_id)
+    sm = await get_session_manager()
+    try:
+        await sm.cancel_session(session_id)
+        async with sm._lock:
+            sm._active_sessions.pop(session_id, None)
+    except Exception:
+        logger.warning("取代旧任务时 SessionManager 清理失败 | session=%s", session_id)
+    session.status = "cancelled"
+    session.error_message = reason
+    await db.commit()
+    await _cleanup_session_queues(session_id)
 
 
 async def _cancel_active_generation(session_id: str) -> bool:
@@ -250,6 +322,9 @@ async def _watch_stream_disconnect(
     while not cancel_event.is_set() and not generation_task.done():
         if await http_request.is_disconnected():
             logger.info("[SSE] 检测到客户端断开，取消生成 | session=%s", session_id)
+            active = _active_tasks.get(session_id)
+            if active:
+                active["connected"] = False
             await _cancel_stream_generation(session_id, cancel_event, generation_task)
             return
         await asyncio.sleep(0.25)
@@ -330,6 +405,7 @@ async def _cleanup_session_queues(session_id: str, expected_cancel_event: asynci
     if session_id in _cancel_events:
         if expected_cancel_event is None or _cancel_events.get(session_id) is expected_cancel_event:
             del _cancel_events[session_id]
+            _pending_stream_owners.pop(session_id, None)
 
 
 async def _cleanup_all_queues():
@@ -338,6 +414,7 @@ async def _cleanup_all_queues():
     _approval_queues.clear()
     _decision_queues.clear()
     _cancel_events.clear()
+    _pending_stream_owners.clear()
 
 
 async def _handle_analyze_request(request: ModifyRequest, project_dir: Path, user_id: str) -> dict:
@@ -795,6 +872,11 @@ async def orchestrate_project_stream(
 
     if not user_id or user_id == "anonymous" or not user_id.isdigit():
         raise HTTPException(status_code=403, detail="无效的用户身份，请重新登录")
+    requested_session_id = request.session_id
+    if requested_session_id:
+        _register_pending_stream(requested_session_id, user_id)
+        if _cancel_events[requested_session_id].is_set() or await _client_disconnected(http_request):
+            return _cancelled_stream_response()
     if request.is_resume is True:
         if not request.session_id:
             raise HTTPException(status_code=422, detail="恢复必须指定 session_id")
@@ -802,7 +884,7 @@ async def orchestrate_project_stream(
         active = _active_tasks.get(session.session_id)
         if session.status != "running" or not active or active["gen_task"].done():
             raise HTTPException(status_code=409, detail="任务已结束或当前进程无可重连任务，请刷新详情")
-        if active.get("connected", True):
+        if not await _mark_disconnected_if_stale(active):
             raise HTTPException(status_code=409, detail="任务仍有订阅连接，请断开后重试")
         active["connected"] = True
 
@@ -868,49 +950,71 @@ async def orchestrate_project_stream(
         if running_session:
             # 检查是否有活跃的生成任务（浏览器重连场景）
             active_task = _active_tasks.get(running_session.session_id)
-            if request.is_resume is None and active_task and not active_task["gen_task"].done():
-                if active_task.get("connected", True):
+            incoming_session_id = request.session_id
+            wants_new_session = (
+                request.is_resume is not True
+                and bool(incoming_session_id)
+                and incoming_session_id != running_session.session_id
+            )
+            live_task = active_task and not active_task["gen_task"].done()
+            if request.is_resume is None and live_task:
+                stale = await _mark_disconnected_if_stale(active_task)
+                if not stale:
                     raise HTTPException(status_code=409, detail="任务已有事件连接，请断开后重试")
-                active_task["connected"] = True
-                # 重连到现有任务
-                logger.info(f"[SSE] 检测到活跃任务，允许重连 | session={running_session.session_id}")
-                # 直接返回重连响应，使用现有 queue
-                async def reconnect_generator():
-                    queue = active_task["queue"]
-                    try:
-                        while True:
-                            try:
-                                item = await asyncio.wait_for(queue.get(), timeout=30.0)
-                                if item == "[DONE]":
+                if wants_new_session:
+                    logger.info(
+                        "[SSE] 旧连接已断开，停止残留任务以启动新会话 | old=%s new=%s",
+                        running_session.session_id,
+                        incoming_session_id,
+                    )
+                    await _supersede_running_generation(db, running_session)
+                else:
+                    active_task["connected"] = True
+                    logger.info(f"[SSE] 检测到活跃任务，允许重连 | session={running_session.session_id}")
+                    async def reconnect_generator():
+                        queue = active_task["queue"]
+                        try:
+                            while True:
+                                try:
+                                    item = await asyncio.wait_for(queue.get(), timeout=30.0)
+                                    if item == "[DONE]":
+                                        yield item
+                                        break
                                     yield item
-                                    break
-                                yield item
-                            except asyncio.TimeoutError:
-                                if active_task["gen_task"].done():
-                                    break
-                                continue
-                    except asyncio.CancelledError:
-                        logger.info(f"[SSE] 重连客户端断开 | session={running_session.session_id}")
-                    finally:
-                        active_task["connected"] = False
+                                except asyncio.TimeoutError:
+                                    if active_task["gen_task"].done():
+                                        break
+                                    continue
+                        except asyncio.CancelledError:
+                            logger.info(f"[SSE] 重连客户端断开 | session={running_session.session_id}")
+                        finally:
+                            active_task["connected"] = False
 
-                return StreamingResponse(
-                    reconnect_generator(),
-                    media_type="text/event-stream",
-                    headers={
-                        "Cache-Control": "no-cache",
-                        "Connection": "keep-alive",
-                        "X-Accel-Buffering": "no"
+                    return StreamingResponse(
+                        reconnect_generator(),
+                        media_type="text/event-stream",
+                        headers={
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                            "X-Accel-Buffering": "no"
+                        }
+                    )
+            elif wants_new_session:
+                logger.info(
+                    "[SSE] 清理无活跃连接的残留 running 会话 | old=%s new=%s",
+                    running_session.session_id,
+                    incoming_session_id,
+                )
+                await _supersede_running_generation(db, running_session)
+            else:
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "message": f"已有运行中的项目 '{running_session.session_id}'。请先完成或停止现有项目后再创建新项目。",
+                        "session_id": running_session.session_id,
+                        "created_at": running_session.created_at.isoformat() if running_session.created_at else None
                     }
                 )
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "message": f"已有运行中的项目 '{running_session.session_id}'。请先完成或停止现有项目后再创建新项目。",
-                    "session_id": running_session.session_id,
-                    "created_at": running_session.created_at.isoformat() if running_session.created_at else None
-                }
-            )
 
         # ========== 意图检测：处理"继续"语义 ==========
         resume_intent = await detect_resume_intent(request.requirement) if request.is_resume is None else {
@@ -1011,6 +1115,28 @@ async def orchestrate_project_stream(
                 await db.rollback()
                 await _create_project_session(db, int(user_id), session_id, request.requirement, output_dir)
 
+    cancel_event = _register_pending_stream(session_id, user_id)
+    if requested_session_id and requested_session_id != session_id:
+        requested_cancel = _cancel_events.get(requested_session_id)
+        if requested_cancel and requested_cancel.is_set():
+            cancel_event.set()
+    if cancel_event.is_set() or await _client_disconnected(http_request):
+        cancel_event.set()
+        try:
+            result = await db.execute(
+                select(ProjectSession).where(ProjectSession.session_id == session_id)
+            )
+            session_row = result.scalar_one_or_none()
+            if session_row and session_row.status == "running":
+                session_row.status = "cancelled"
+                session_row.error_message = "用户取消"
+                await db.commit()
+        except Exception:
+            logger.warning("取消启动前会话状态更新失败 | session=%s", session_id, exc_info=True)
+        await db.close()
+        await _cleanup_session_queues(session_id, cancel_event)
+        return _cancelled_stream_response()
+
     # 注册并发计数
     from app.utils.dynamic_concurrent import ConcurrentLimitManager
     concurrent_mgr = ConcurrentLimitManager()
@@ -1022,7 +1148,6 @@ async def orchestrate_project_stream(
     queue: asyncio.Queue = asyncio.Queue()
     approval_queue: asyncio.Queue = asyncio.Queue()
     decision_queue: asyncio.Queue = asyncio.Queue()
-    cancel_event = asyncio.Event()
 
     _approval_queues[session_id] = approval_queue
     _decision_queues[session_id] = decision_queue
@@ -1139,6 +1264,11 @@ async def orchestrate_project_stream(
 
             async def run_generation():
                 try:
+                    if cancel_event.is_set():
+                        logger.info(f"[SSE] 生成启动前已取消 | session={session_id}")
+                        await sm.cancel_session(session_id)
+                        await queue.put(f"data: {json.dumps({'type': 'cancelled', 'data': {'message': '项目已停止'}}, ensure_ascii=False)}\n\n")
+                        return
                     logger.info(f"[SSE] 开始生成任务 | session={session_id}")
                     core_task_id = f"{session_id}-{time.time_ns()}"
 
@@ -1225,6 +1355,7 @@ async def orchestrate_project_stream(
                 "queue": queue,
                 "cancel_event": cancel_event,
                 "connected": True,
+                "http_request": http_request,
             }
 
             # 心跳 task：每 5 秒发送一次心跳，防止浏览器/proxy 断连
@@ -1908,10 +2039,16 @@ async def _verify_session_ownership_or_queue(session_id: str, user_id: str, db: 
     验证用户对会话的访问权限
     对于队列操作，检查是否在等待的队列中即可（更宽松）
     """
-    # 如果会话在队列中，允许操作（可能是刚创建的会话）
+    owner = _pending_stream_owners.get(session_id)
+    if owner is not None:
+        if owner != str(user_id):
+            raise HTTPException(status_code=404, detail="会话不存在或无访问权限")
+        return
     if session_id in _approval_queues or session_id in _decision_queues:
         return
-    
+    if session_id in _cancel_events or session_id in _active_tasks:
+        return
+
     # 否则需要验证数据库所有权
     if db:
         from .helpers import verify_session_ownership

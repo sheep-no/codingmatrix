@@ -188,6 +188,20 @@ function getThinkingBudgetDisplay(roleKey) {
 
 async function loadModels() {
   try {
+    const v2 = await api.get('/api/v2/model-config/models')
+    if (v2.ok) {
+      const data = await v2.json()
+      availableModels.value = (data.models || [])
+        .filter(m => m.enabled !== false && (m.type === 'chat' || !m.type))
+        .map(m => ({
+          id: m.id,
+          name: m.display_name || m.name,
+          provider: m.provider,
+          model_key: m.name,
+          tags: m.tags || [],
+        }))
+      return
+    }
     const resp = await api.get('/api/v1/models/')
     if (resp.ok) {
       const data = await resp.json()

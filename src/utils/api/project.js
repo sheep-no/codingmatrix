@@ -38,6 +38,23 @@ export function createProjectClient(baseClient) {
           throw err
         }
       }
+      if (response.status === 409) {
+        try {
+          const errorData = await response.json()
+          const detail = errorData.detail || errorData
+          const message = typeof detail === 'string' ? detail : (detail.message || '任务状态冲突')
+          const err = new Error(message)
+          err.code = 409
+          err.status = 409
+          throw err
+        } catch (e) {
+          if (e.code === 409) throw e
+          const err = new Error('任务状态冲突，请停止后重试')
+          err.code = 409
+          err.status = 409
+          throw err
+        }
+      }
       throw new Error('流式生成项目失败')
     },
 
@@ -46,7 +63,9 @@ export function createProjectClient(baseClient) {
       if (response.ok) {
         return await response.json()
       }
-      throw new Error('停止会话失败')
+      const err = new Error('停止会话失败')
+      err.status = response.status
+      throw err
     },
 
     async archiveProject(sessionId) {

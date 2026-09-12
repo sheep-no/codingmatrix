@@ -1,15 +1,31 @@
 /**
  * API Key 管理 API 请求封装
  */
-import request from '@/utils/request'
+function client() {
+  if (!window.api) {
+    throw new Error('API client 未初始化')
+  }
+  return window.api
+}
+
+async function parseJson(response) {
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const detail = data.detail || data.message || `HTTP ${response.status}`
+    const message = typeof detail === 'string' ? detail : JSON.stringify(detail)
+    const error = new Error(message)
+    error.status = response.status
+    throw error
+  }
+  return data
+}
 
 /**
  * 获取 RSA 公钥
  * @returns {Promise<{public_key: string}>}
  */
 export async function getPublicKey() {
-  const response = await request.get('/api/v1/agent/apikey/public-key')
-  return response.data
+  return parseJson(await client().get('/api/v1/agent/apikey/public-key'))
 }
 
 /**
@@ -22,8 +38,7 @@ export async function getPublicKey() {
  * @returns {Promise<{token: string, provider: string, expires_at: string}>}
  */
 export async function submitApiKey(data) {
-  const response = await request.post('/api/v1/agent/apikey', data)
-  return response.data
+  return parseJson(await client().post('/api/v1/agent/apikey', data))
 }
 
 /**
@@ -32,8 +47,7 @@ export async function submitApiKey(data) {
  * @returns {Promise<{success: boolean, message: string}>}
  */
 export async function testApiKey(token) {
-  const response = await request.post('/api/v1/agent/apikey/test', { token })
-  return response.data
+  return parseJson(await client().post('/api/v1/agent/apikey/test', { token }))
 }
 
 /**
@@ -42,8 +56,7 @@ export async function testApiKey(token) {
  * @returns {Promise<{message: string}>}
  */
 export async function deleteApiKey(token) {
-  const response = await request.delete(`/api/v1/agent/apikey/${token}`)
-  return response.data
+  return parseJson(await client().delete(`/api/v1/agent/apikey/${token}`))
 }
 
 /**
@@ -51,8 +64,7 @@ export async function deleteApiKey(token) {
  * @returns {Promise<Array<{token: string, provider: string, remark: string, status: string, created_at: string, expires_at: string, ttl_seconds: number, enabled: boolean}>>}
  */
 export async function listApiKeys() {
-  const response = await request.get('/api/v1/agent/apikeys')
-  return response.data
+  return parseJson(await client().get('/api/v1/agent/apikeys'))
 }
 
 /**
@@ -62,8 +74,9 @@ export async function listApiKeys() {
  * @returns {Promise<{message: string}>}
  */
 export async function updateApiKeyEnabled(token, enabled) {
-  const response = await request.put(`/api/v1/agent/apikey/${token}/enabled`, { enabled })
-  return response.data
+  return parseJson(await client().put(
+    `/api/v1/agent/apikey/${token}/enabled?enabled=${enabled ? 'true' : 'false'}`
+  ))
 }
 
 /**
@@ -73,8 +86,10 @@ export async function updateApiKeyEnabled(token, enabled) {
  * @returns {Promise<{message: string, context_lengths: Object}>}
  */
 export async function updateApiKeyContextLengths(token, context_lengths) {
-  const response = await request.put(`/api/v1/agent/apikey/${token}/context-lengths`, { context_lengths })
-  return response.data
+  return parseJson(await client().put(
+    `/api/v1/agent/apikey/${token}/context-lengths`,
+    { context_lengths }
+  ))
 }
 
 /**
@@ -83,8 +98,7 @@ export async function updateApiKeyContextLengths(token, context_lengths) {
  * @returns {Promise<{success_count: number, failed_count: number, results: Array}>}
  */
 export async function batchImport(keys) {
-  const response = await request.post('/api/v1/agent/apikey/batch/import', { keys })
-  return response.data
+  return parseJson(await client().post('/api/v1/agent/apikey/batch/import', { keys }))
 }
 
 /**
@@ -93,6 +107,5 @@ export async function batchImport(keys) {
  * @returns {Promise<{format: string, data: string, count: number}>}
  */
 export async function batchExport(format = 'json') {
-  const response = await request.get('/api/v1/agent/apikey/batch/export', { params: { format } })
-  return response.data
+  return parseJson(await client().get('/api/v1/agent/apikey/batch/export', { format }))
 }

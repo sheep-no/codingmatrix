@@ -240,14 +240,24 @@ class Specialist:
                         raise asyncio.CancelledError("检测到取消信号，终止 LLM 流式调用")
                     if heartbeat_tracker:
                         heartbeat_tracker.touch()
-                    if not reasoning_delta:
+                    # 推理模型推 reasoning；无 reasoning 的模型把正文当思考流，避免界面空白
+                    if reasoning_delta:
+                        delta = reasoning_delta
+                    elif content_delta and not accumulated_reasoning:
+                        delta = content_delta
+                    else:
                         return
-                    accumulated_reasoning += reasoning_delta
+                    if reasoning_delta:
+                        accumulated_reasoning += reasoning_delta
                     buf = _merge_buffers.get(merge_key)
                     if not buf:
                         return
-                    buf["message"] += reasoning_delta
-                    buf["accumulated"] = accumulated_reasoning
+                    buf["message"] += delta
+                    buf["accumulated"] = accumulated_reasoning or buf["message"]
+                    if reasoning_delta:
+                        buf["phase"] = "llm_reasoning"
+                    elif not accumulated_reasoning:
+                        buf["phase"] = "llm_output"
 
                     # 50ms 合并窗口：如果当前没有 flush 任务在跑，启动一个
                     if merge_key not in _merge_tasks or _merge_tasks[merge_key].done():
@@ -259,11 +269,21 @@ class Specialist:
                 try:
                     result = await self._llm_client.call_stream(p, s, on_chunk=on_chunk, thinking_budget=thinking_budget)
                 finally:
-                    # 清理缓冲区
-                    _merge_buffers.pop(merge_key, None)
+                    # 先把窗口内残留推出去，再取消延迟 flush，避免最后几块思考丢失
                     task = _merge_tasks.pop(merge_key, None)
                     if task and not task.done():
                         task.cancel()
+                    _flush_buffer(merge_key)
+                    buf = _merge_buffers.pop(merge_key, None)
+                    if buf:
+                        self._emit_event(callback, "thinking", {
+                            "agent": buf["agent"],
+                            "model": buf["model"],
+                            "message": "",
+                            "accumulated": buf.get("accumulated") or "",
+                            "streaming": False,
+                            "phase": buf.get("phase") or "llm_output",
+                        })
                 if heartbeat_tracker:
                     heartbeat_tracker.touch()
                 return result

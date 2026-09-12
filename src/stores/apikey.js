@@ -34,6 +34,21 @@ export const useApiKeyStore = defineStore('apikey', () => {
     return !isTokenExpired(siliconflowKey.value)
   })
 
+  const glmKey = computed(() => {
+    return tokens.value.find(t => t.provider === 'glm' || t.provider === 'zhipu')
+  })
+
+  const hasGlmKey = computed(() => {
+    if (!glmKey.value || !glmKey.value.enabled) return false
+    return !isTokenExpired(glmKey.value)
+  })
+
+  const preferredAgentKey = computed(() => {
+    if (hasGlmKey.value) return glmKey.value
+    if (hasSiliconflowKey.value) return siliconflowKey.value
+    return tokens.value.find(t => t.enabled && !isTokenExpired(t)) || null
+  })
+
   // 初始化时从 localStorage 加载数据
   loadFromStorage()
 
@@ -291,6 +306,9 @@ export const useApiKeyStore = defineStore('apikey', () => {
     siliconflowKey,
     otherKeys,
     hasSiliconflowKey,
+    glmKey,
+    hasGlmKey,
+    preferredAgentKey,
     
     // Actions
     loadFromStorage,

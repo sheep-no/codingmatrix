@@ -9,6 +9,8 @@ from enum import Enum
 from typing import Optional, List
 from dataclasses import dataclass
 
+from app.agent.requirement_signals import has_positive_keyword
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,16 +60,14 @@ class ComplexityAnalyzer:
     @classmethod
     def analyze(cls, requirement: str) -> ComplexityAnalysis:
         """分析需求，返回复杂度评估"""
-        req_lower = requirement.lower()
-
-        has_frontend = any(kw in req_lower for kw in cls.FRONTEND_KEYWORDS)
-        has_backend = any(kw in req_lower for kw in cls.BACKEND_KEYWORDS)
-        has_database = any(kw in req_lower for kw in cls.DATABASE_KEYWORDS)
-        has_auth = any(kw in req_lower for kw in cls.AUTH_KEYWORDS)
-        has_complex = any(kw in req_lower for kw in cls.COMPLEX_KEYWORDS)
+        has_frontend = has_positive_keyword(requirement, cls.FRONTEND_KEYWORDS)
+        has_backend = has_positive_keyword(requirement, cls.BACKEND_KEYWORDS)
+        has_database = has_positive_keyword(requirement, cls.DATABASE_KEYWORDS)
+        has_auth = has_positive_keyword(requirement, cls.AUTH_KEYWORDS)
+        has_complex = has_positive_keyword(requirement, cls.COMPLEX_KEYWORDS)
 
         # 估算文件数
-        estimated_files = 3  # 基础：main.py + requirements.txt + README.md
+        estimated_files = 1  # 无额外信号时按单文件脚本
         if has_frontend: estimated_files += 5
         if has_backend: estimated_files += 3
         if has_database: estimated_files += 2
@@ -75,17 +75,24 @@ class ComplexityAnalyzer:
         if has_complex: estimated_files += 10
 
         # 识别技术栈
+        tech_aliases = [
+            ("vue", "Vue"),
+            ("react", "React"),
+            ("fastapi", "FastAPI"),
+            ("django", "Django"),
+            ("flask", "Flask"),
+            ("mysql", "MySQL"),
+            ("postgresql", "PostgreSQL"),
+            ("postgres", "PostgreSQL"),
+            ("redis", "Redis"),
+            ("express", "Express"),
+            ("spring", "Spring"),
+            ("gin", "Gin"),
+        ]
         techs = []
-        if 'vue' in req_lower: techs.append('Vue')
-        if 'react' in req_lower: techs.append('React')
-        if 'fastapi' in req_lower: techs.append('FastAPI')
-        if 'django' in req_lower: techs.append('Django')
-        if 'flask' in req_lower: techs.append('Flask')
-        if 'mysql' in req_lower: techs.append('MySQL')
-        if 'postgres' in req_lower or 'postgresql' in req_lower: techs.append('PostgreSQL')
-        if 'redis' in req_lower: techs.append('Redis')
-        if not techs:
-            techs = ['Python']
+        for keyword, label in tech_aliases:
+            if has_positive_keyword(requirement, [keyword]) and label not in techs:
+                techs.append(label)
 
         # 风险因素
         risks = []

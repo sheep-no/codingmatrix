@@ -57,6 +57,12 @@ def test_language_framework_prefix_wins_over_appended_context():
     assert result.language == "java"
 
 
+def test_negated_python_falls_back_to_go():
+    result = LanguageDetector.detect("不要用 Python，用 Go 写一个 hello 程序")
+
+    assert result.language == "go"
+
+
 def test_java_spring_boot_profile_exposes_toolchain_commands():
     profile = DEFAULT_PROFILES.require("java", "spring-boot")
 

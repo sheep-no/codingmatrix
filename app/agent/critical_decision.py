@@ -184,37 +184,56 @@ class CriticalDecisionExtractor:
         decisions_needed = []
 
         tech_stack = architecture.get("tech_stack", {})
-
-        # tech_stack 可能是 list（如 ["FastAPI", "Vue3"]）或 dict
-        if isinstance(tech_stack, list):
-            tech_stack_str = " ".join(str(t).lower() for t in tech_stack)
-            if "auth" not in tech_stack_str and "jwt" not in tech_stack_str:
-                decisions_needed.append("auth_strategy")
-            if "sqlite" not in tech_stack_str and "mysql" not in tech_stack_str and "postgres" not in tech_stack_str:
-                decisions_needed.append("database_choice")
-            if complexity_analysis and complexity_analysis.get("has_frontend"):
-                if "vue" not in tech_stack_str and "react" not in tech_stack_str and "angular" not in tech_stack_str:
-                    decisions_needed.append("frontend_framework")
-            if complexity_analysis and complexity_analysis.get("estimated_files", 0) > 20:
-                if "microservice" not in tech_stack_str and "monolith" not in tech_stack_str:
-                    decisions_needed.append("architecture_pattern")
-            if complexity_analysis and complexity_analysis.get("has_backend"):
-                if "rest" not in tech_stack_str and "graphql" not in tech_stack_str:
-                    decisions_needed.append("api_style")
+        raw_spec = architecture.get("project_spec")
+        if isinstance(raw_spec, dict):
+            nested = raw_spec.get("default")
+            spec = nested if isinstance(nested, dict) else raw_spec
         else:
-            if not tech_stack.get("auth_explicit"):
-                decisions_needed.append("auth_strategy")
-            if not tech_stack.get("database_explicit"):
-                decisions_needed.append("database_choice")
-            if complexity_analysis and complexity_analysis.get("has_frontend"):
-                if not tech_stack.get("frontend_framework"):
-                    decisions_needed.append("frontend_framework")
-            if complexity_analysis and complexity_analysis.get("estimated_files", 0) > 20:
-                if not tech_stack.get("architecture_pattern"):
-                    decisions_needed.append("architecture_pattern")
-            if complexity_analysis and complexity_analysis.get("has_backend"):
-                if not tech_stack.get("api_style"):
-                    decisions_needed.append("api_style")
+            spec = {}
+        auth_spec = spec.get("auth") if isinstance(spec.get("auth"), dict) else {}
+        storage = spec.get("storage") if isinstance(spec.get("storage"), dict) else {}
+        tech_stack_str = _tech_stack_text(tech_stack)
+
+        has_auth = _complexity_flag(complexity_analysis, "has_auth")
+        storage_type = str(storage.get("type") or "").lower()
+        persistent_storage = storage_type not in {"", "json_file", "localstorage", "memory"}
+        has_database = (
+            _complexity_flag(complexity_analysis, "has_database")
+        )
+        has_frontend = _complexity_flag(complexity_analysis, "has_frontend")
+        has_backend = _complexity_flag(complexity_analysis, "has_backend")
+        estimated_files = _complexity_int(complexity_analysis, "estimated_files")
+
+        auth_decided = bool(auth_spec.get("scheme")) or any(
+            token in tech_stack_str for token in ("jwt", "oauth", "session")
+        )
+        db_decided = persistent_storage or any(
+            token in tech_stack_str for token in ("sqlite", "mysql", "postgres", "mongodb", "mongo", "redis")
+        )
+        frontend_decided = any(
+            token in tech_stack_str for token in ("vue", "react", "angular", "svelte")
+        )
+        if isinstance(tech_stack, dict) and tech_stack.get("frontend_framework"):
+            frontend_decided = True
+        api_decided = any(token in tech_stack_str for token in ("rest", "graphql", "rpc"))
+        if isinstance(tech_stack, dict) and tech_stack.get("api_style"):
+            api_decided = True
+        architecture_decided = any(
+            token in tech_stack_str for token in ("microservice", "monolith")
+        )
+        if isinstance(tech_stack, dict) and tech_stack.get("architecture_pattern"):
+            architecture_decided = True
+
+        if has_auth and not auth_decided:
+            decisions_needed.append("auth_strategy")
+        if has_database and not db_decided:
+            decisions_needed.append("database_choice")
+        if has_frontend and not frontend_decided:
+            decisions_needed.append("frontend_framework")
+        if estimated_files > 20 and not architecture_decided:
+            decisions_needed.append("architecture_pattern")
+        if has_backend and not api_decided:
+            decisions_needed.append("api_style")
 
         return decisions_needed
 
@@ -239,7 +258,10 @@ class CriticalDecisionExtractor:
 
         keywords = patterns.get(decision_id, [])
         for file_info in file_plan:
-            path = file_info.get("path", "")
+            if isinstance(file_info, dict):
+                path = str(file_info.get("path", "") or "")
+            else:
+                path = str(file_info or "")
             for keyword in keywords:
                 if keyword.lower() in path.lower():
                     impact_files.append(path)
@@ -330,3 +352,56 @@ class CriticalDecisionExtractor:
                 decision.selected = decision.default
                 self.user_choices[decision.id] = decision.default
                 logger.info(f"跳过决策 {decision.id}，使用默认值 {decision.default}")
+
+
+def should_skip_user_decision(complexity_analysis: Optional[Any], questions: Optional[list] = None) -> bool:
+    """Skip waiting on architecture questions for simple, single-purpose requirements."""
+    if not questions:
+        return True
+    has_frontend = _complexity_flag(complexity_analysis, "has_frontend")
+    has_backend = _complexity_flag(complexity_analysis, "has_backend")
+    has_database = _complexity_flag(complexity_analysis, "has_database")
+    has_auth = _complexity_flag(complexity_analysis, "has_auth")
+    estimated = _complexity_int(complexity_analysis, "estimated_files")
+    level: Any = ""
+    if complexity_analysis:
+        if isinstance(complexity_analysis, dict):
+            level = complexity_analysis.get("level") or ""
+        else:
+            level = getattr(complexity_analysis, "level", "")
+        if hasattr(level, "value"):
+            level = level.value
+    if str(level).lower() == "simple":
+        return True
+    if not has_frontend and not has_backend and not has_database and not has_auth and estimated <= 5:
+        return True
+    return False
+
+
+def _complexity_flag(complexity_analysis: Optional[Any], name: str) -> bool:
+    if not complexity_analysis:
+        return False
+    if isinstance(complexity_analysis, dict):
+        return bool(complexity_analysis.get(name))
+    return bool(getattr(complexity_analysis, name, False))
+
+
+def _complexity_int(complexity_analysis: Optional[Any], name: str, default: int = 0) -> int:
+    if not complexity_analysis:
+        return default
+    if isinstance(complexity_analysis, dict):
+        value = complexity_analysis.get(name, default)
+    else:
+        value = getattr(complexity_analysis, name, default)
+    try:
+        return int(value or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _tech_stack_text(tech_stack: Any) -> str:
+    if isinstance(tech_stack, list):
+        return " ".join(str(item).lower() for item in tech_stack)
+    if isinstance(tech_stack, dict):
+        return " ".join(str(value).lower() for value in tech_stack.values())
+    return str(tech_stack or "").lower()

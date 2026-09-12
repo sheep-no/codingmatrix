@@ -10,6 +10,7 @@ DependencyGraphValidator - 依赖图验证器
 
 import json
 import logging
+from pathlib import Path
 from typing import Dict, List, Any, Optional, Callable, Awaitable
 from dataclasses import dataclass, field
 
@@ -17,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 # 最大重试次数
 MAX_VALIDATION_RETRIES = 2
+
+_FILE_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".go", ".rs", ".java", ".kt", ".rb", ".php"}
 
 
 @dataclass
@@ -78,28 +81,101 @@ class DependencyGraphValidator:
         Returns:
             ValidationResult 验证结果
         """
-        # 构建验证上下文
-        context = self._build_context(dep_graph, scope, new_files, architecture)
+        del scope, new_files
+        return self.validate_static(dep_graph, architecture)
 
-        # 调用 LLM 验证
-        prompt = self._build_prompt(context, scope)
-        system_prompt = self._build_system_prompt(scope)
+    def validate_static(
+        self,
+        dep_graph,
+        architecture: Optional[Dict[str, Any]] = None,
+    ) -> ValidationResult:
+        """确定性校验：空图、非法路径、指向不存在节点的依赖。"""
+        issues: List[ValidationIssue] = []
+        nodes = set(getattr(dep_graph, "nodes", {}) or {})
+        if not nodes:
+            issues.append(ValidationIssue(
+                issue_type="invalid_path",
+                file_path="",
+                message="依赖图为空",
+                suggestion="使用默认 file_plan 重建依赖图",
+            ))
+            return ValidationResult(passed=False, issues=issues)
 
-        try:
-            response = await self._llm_caller(prompt, system_prompt)
-            result = self._parse_response(response)
-            return result
-        except Exception as e:
-            logger.error(f"依赖图验证失败: {e}")
-            # 验证失败不阻塞生成，返回通过但记录 warning
-            return ValidationResult(passed=True, issues=[
-                ValidationIssue(
-                    issue_type="validation_error",
-                    file_path="",
-                    message=f"验证过程出错: {str(e)}",
-                    suggestion="跳过验证，继续生成"
-                )
-            ])
+        for path in nodes:
+            if _is_invalid_file_path(path):
+                issues.append(ValidationIssue(
+                    issue_type="invalid_path",
+                    file_path=str(path),
+                    message=f"文件路径不合法: {path}",
+                    suggestion="使用斜杠分隔目录，例如 app/database.py",
+                ))
+
+        adjacency = getattr(dep_graph, "adjacency", {}) or {}
+        for source, targets in adjacency.items():
+            for target in targets or []:
+                if target and not self._dependency_satisfied(target, nodes, current_file=str(source)):
+                    issues.append(ValidationIssue(
+                        issue_type="missing_dependency",
+                        file_path=str(source),
+                        message=f"{source} 依赖了不存在的节点 {target}",
+                        suggestion="从 file_plan 中补齐该文件或删除该依赖",
+                        related_files=[str(target)],
+                    ))
+
+        if architecture:
+            for item in architecture.get("file_plan") or []:
+                if not isinstance(item, dict):
+                    continue
+                path = item.get("path") or ""
+                for dep in item.get("imports") or item.get("dependencies") or []:
+                    if not dep:
+                        continue
+                    if self._dependency_satisfied(dep, nodes, current_file=str(path)):
+                        continue
+                    if not _looks_like_project_dependency(dep, nodes):
+                        continue
+                    issues.append(ValidationIssue(
+                        issue_type="missing_dependency",
+                        file_path=str(path),
+                        message=f"{path} 声明了不存在的依赖 {dep}",
+                        suggestion="从 file_plan 中补齐该文件或删除该依赖",
+                        related_files=[str(dep)],
+                    ))
+
+        blocking = [
+            issue for issue in issues
+            if issue.issue_type in {"invalid_path", "missing_dependency"}
+        ]
+        return ValidationResult(passed=not blocking, issues=issues)
+
+    def _dependency_satisfied(self, dep: Any, nodes: set, current_file: str = "") -> bool:
+        """Match module-style imports such as src.config to src/config.py nodes."""
+        raw = str(dep or "").replace("\\", "/").strip()
+        if not raw:
+            return True
+        if raw in nodes:
+            return True
+        candidates = list(_heuristic_file_candidates(raw))
+        adapter = self._language_adapter
+        if adapter is not None:
+            try:
+                from app.agent.adapters.language_adapter import ImportInfo
+                info = ImportInfo(module=raw, symbols=[], is_relative=raw.startswith("."))
+                candidates.extend(adapter.resolve_import_to_file(info, current_file or "") or [])
+            except Exception:
+                logger.debug("语言适配器未能解析依赖: %s", raw, exc_info=True)
+        seen = set()
+        for candidate in candidates:
+            path = str(candidate or "").replace("\\", "/").strip()
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            if path in nodes:
+                return True
+            package = _package_prefix(path)
+            if package and any(node == package or node.startswith(package + "/") for node in nodes):
+                return True
+        return False
 
     def _build_context(
         self,
@@ -342,3 +418,76 @@ def format_validation_feedback(result: ValidationResult) -> str:
     lines.append("")
     lines.append("请修正后重新生成 file_plan。")
     return "\n".join(lines)
+
+
+def _is_invalid_file_path(path: Any) -> bool:
+    if not path:
+        return True
+    normalized = str(path).replace("\\", "/").strip()
+    if not normalized or normalized.startswith("/") or normalized.startswith("~"):
+        return True
+    if any(part == ".." for part in normalized.split("/")):
+        return True
+    if "/" not in normalized and normalized.count(".") >= 2:
+        suffix = normalized.rsplit(".", 1)[-1].lower()
+        if suffix in {"py", "js", "ts", "go"} and "." in normalized.rsplit(".", 1)[0]:
+            return True
+    return False
+
+
+def _heuristic_file_candidates(dep: str) -> List[str]:
+    raw = str(dep or "").replace("\\", "/").strip().strip(".")
+    if not raw:
+        return []
+    candidates = [raw]
+    suffix = Path(raw).suffix.lower()
+    module_path = raw.replace(".", "/") if "/" not in raw else raw
+    if module_path != raw:
+        candidates.append(module_path)
+    if suffix not in _FILE_SUFFIXES:
+        candidates.append(f"{module_path}.py")
+        candidates.append(f"{module_path}/__init__.py")
+        if "/" in raw and raw != module_path:
+            candidates.append(f"{raw}.py")
+            candidates.append(f"{raw}/__init__.py")
+    seen = set()
+    unique: List[str] = []
+    for item in candidates:
+        if item and item not in seen:
+            seen.add(item)
+            unique.append(item)
+    return unique
+
+
+def _package_prefix(path: str) -> str:
+    normalized = str(path or "").replace("\\", "/").strip()
+    if normalized.endswith("/__init__.py"):
+        return normalized[: -len("/__init__.py")]
+    suffix = Path(normalized).suffix.lower()
+    if suffix in _FILE_SUFFIXES:
+        return normalized[: -len(suffix)]
+    return normalized.rstrip("/")
+
+
+def _project_roots(nodes: set) -> set:
+    roots = set()
+    for path in nodes:
+        parts = str(path).replace("\\", "/").split("/")
+        if len(parts) > 1:
+            roots.add(parts[0])
+    return roots
+
+
+def _looks_like_project_dependency(dep: Any, nodes: set) -> bool:
+    raw = str(dep or "").replace("\\", "/").strip()
+    if not raw:
+        return False
+    roots = _project_roots(nodes)
+    if not roots:
+        suffix = Path(raw).suffix.lower()
+        return "/" in raw or suffix in _FILE_SUFFIXES
+    for candidate in _heuristic_file_candidates(raw):
+        first = candidate.split("/")[0]
+        if first in roots:
+            return True
+    return False

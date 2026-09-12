@@ -59,6 +59,24 @@ class TestDependencyGraph:
         graph.build_from_architecture(architecture)
         assert "main.py" in graph.nodes
         assert "utils.py" in graph.nodes
+
+    def test_build_from_architecture_drops_third_party_paths(self, graph):
+        from app.agent.adapters.python import PythonLanguageAdapter
+
+        graph.language_adapter = PythonLanguageAdapter()
+        architecture = {
+            "file_plan": [
+                {"path": "app/main.py", "priority": 1, "imports": ["fastapi"]},
+                {"path": "fastapi.py", "priority": 2, "imports": []},
+                {"path": "sqlalchemy/orm/session.py", "priority": 2, "imports": []},
+            ]
+        }
+        graph.build_from_architecture(architecture)
+
+        assert "app/main.py" in graph.nodes
+        assert "fastapi.py" not in graph.nodes
+        assert "sqlalchemy/orm/session.py" not in graph.nodes
+        assert "fastapi.py" not in [item["path"] for item in architecture["file_plan"]]
     
     def test_build_from_architecture_with_explicit_dependencies(self, graph):
         """测试从架构构建时使用 LLM 显式声明的依赖"""

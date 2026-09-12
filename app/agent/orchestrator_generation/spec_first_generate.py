@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from collections import defaultdict
+import os
 
 from app.agent.spec_first_generator import SpecFirstGenerator
 from app.agent.refinement_loop import RefinementLoop
@@ -11,7 +12,7 @@ from app.agent.dependency_graph import DependencyGraph, summarize_dependency_con
 from app.agent.cross_validator import CrossValidator
 from app.agent.shared_context import SharedContext
 from app.agent.topology_scheduler import TopologyScheduler
-from app.agent.critical_decision import CriticalDecisionExtractor
+from app.agent.critical_decision import CriticalDecisionExtractor, should_skip_user_decision
 from app.agent.global_constraint import GlobalConstraintParser
 from app.agent.architecture_inspector import ArchitectureInspector
 from app.agent.orchestrator_progress import MAX_CONTENT_FOR_CONTEXT
@@ -19,12 +20,35 @@ from app.agent.adapters import LanguageAdapterRegistry
 from app.agent.dynamic_model_router import get_context_length
 from app.agent.models import DEFAULT_FAST_MODEL
 from app.agent.utils import extract_engineer_content, write_file_atomic, cleanup_temp_files
-from app.agent.dependency_graph_validator import DependencyGraphValidator, format_validation_feedback, MAX_VALIDATION_RETRIES
+from app.agent.dependency_graph_validator import DependencyGraphValidator
 from app.agent.generation_plan import GenerationPlan, add_profile_components
 from app.agent.toolchain import detect_toolchain
 from app.agent.validation_coordinator import ValidationCoordinator
 
 logger = logging.getLogger(__name__)
+
+
+def sync_generation_architecture(project_context: Dict[str, Any], architecture: Dict[str, Any]) -> list:
+    """Keep project_context.architecture pointing at the live architecture dict."""
+    project_context["architecture"] = architecture
+    return architecture.get("file_plan") or []
+
+
+def _skipped_refinement(content: str):
+    from app.agent.refinement_loop import RefinementResult
+
+    return RefinementResult(
+        success=True,
+        final_content=content or "",
+        attempts=0,
+        issues_found=[],
+        issues_fixed=0,
+        remaining_issues=[],
+    )
+
+
+def _is_adapter_owned_file(file_path: str, file_type: str, architecture: Dict[str, Any]) -> bool:
+    return bool(LanguageAdapterRegistry.scaffold_file(file_path, file_type, architecture or {}))
 
 
 class SpecFirstGenerateMixin:
@@ -40,6 +64,12 @@ class SpecFirstGenerateMixin:
         self.generated_files = []
         self.errors = []
         self.warnings = []
+
+        forced_file_count = 0
+        try:
+            forced_file_count = int((os.environ.get("AGENT_FORCE_FILE_COUNT") or "0").strip())
+        except ValueError:
+            forced_file_count = 0
 
         await self._initialize_components(requirement)
 
@@ -124,7 +154,7 @@ class SpecFirstGenerateMixin:
             self._report_step_detail("规格书已生成（API 契约 + 数据模型）", category="规格书")
 
         # 如果有缓存，使用缓存的架构和文件计划
-        if cached and cached.architecture:
+        if cached and cached.architecture and forced_file_count != 8:
             architecture = cached.architecture
             file_plan = cached.file_plan
             logger.info(f"从缓存加载架构: {len(file_plan)} 个文件")
@@ -135,7 +165,18 @@ class SpecFirstGenerateMixin:
                 lang_adapter = LanguageAdapterRegistry.get_adapter(detected_lang)
                 dep_graph = DependencyGraph.from_dict(cached.dependency_graph, language_adapter=lang_adapter)
                 logger.info(f"从缓存加载依赖图: {len(dep_graph.nodes)} 个节点")
+        elif forced_file_count == 8:
+            architecture = self.architect._get_compact_eight_file_architecture(
+                requirement, self.complexity, language=detected_language
+            )
+            file_plan = architecture.get("file_plan", [])
+            logger.info(
+                "强制精简 file_plan: %d 个文件（AGENT_FORCE_FILE_COUNT=%s）",
+                len(file_plan),
+                forced_file_count,
+            )
         else:
+            self._report_thinking("architect", "正在分析需求并设计系统架构...")
             architecture = await self.architect.design_architecture(requirement, self.complexity, callback=callback)
             file_plan = architecture.get("file_plan", [])
 
@@ -149,7 +190,7 @@ class SpecFirstGenerateMixin:
 
         # 分批规划：如果 file_plan 文件数不足复杂度预期，自动扩展
         estimated_files = ctx.complexity.get("estimated_files", len(file_plan)) if isinstance(ctx.complexity, dict) else (ctx.complexity.estimated_files if ctx.complexity else len(file_plan))
-        if len(file_plan) < estimated_files and estimated_files > 10:
+        if forced_file_count != 8 and len(file_plan) < estimated_files and estimated_files > 10:
             logger.info(f"分批规划触发：当前 {len(file_plan)} 个文件，预期 {estimated_files} 个")
             architecture = await self.architect.expand_file_plan(
                 architecture, self.complexity, target_file_count=estimated_files,
@@ -157,6 +198,19 @@ class SpecFirstGenerateMixin:
             )
             file_plan = architecture.get("file_plan", [])
             logger.info(f"分批规划完成：最终 {len(file_plan)} 个文件")
+
+        project_type = architecture.get("project_type", "") if architecture else ""
+        tech_stack = architecture.get("tech_stack") or [] if architecture else []
+        if isinstance(tech_stack, str):
+            tech_stack = [tech_stack]
+        self._report_thinking(
+            "architect",
+            (
+                f"架构设计完成。项目类型：{project_type or '未标注'}，"
+                f"技术栈：{', '.join(str(item) for item in tech_stack[:3]) or '未标注'}，"
+                f"共规划 {len(file_plan)} 个文件。"
+            ),
+        )
 
         self._report_progress(
             "architecture_design", 3, 6,
@@ -175,7 +229,7 @@ class SpecFirstGenerateMixin:
         decision_questions = decision_extractor.format_as_questions()
         ctx.set_metric("critical_decisions", decision_questions)
 
-        if decision_questions:
+        if decision_questions and not should_skip_user_decision(ctx.complexity, decision_questions):
             self._report_progress(
                 "awaiting_user_decision", 4, 6,
                 critical_decisions=decision_questions,
@@ -198,6 +252,9 @@ class SpecFirstGenerateMixin:
                     logger.warning("决策等待超时（120s），使用默认值继续")
                 except Exception as e:
                     logger.error(f"获取用户决策失败: {e}，使用默认值")
+        elif decision_questions:
+            logger.info("simple 需求跳过决策等待，使用默认值")
+            decision_extractor.skip_remaining_decisions()
 
         refinement_loop_instance = RefinementLoop(ctx, complexity=self.complexity.level.value if self.complexity else "medium", api_key_token=self.api_key_token)
         generated_contents: Dict[str, str] = {}
@@ -223,15 +280,16 @@ class SpecFirstGenerateMixin:
         ).model_dump(mode="json")
         try:
             project_plan = GenerationPlan.from_architecture(architecture)
-            project_plan = add_profile_components(
-                project_plan.files,
-                project_context["profile"],
-                policy=project_plan.policy,
-                requested_paths=project_plan.requested_paths,
-                language=project_plan.language,
-                framework=project_plan.framework,
-                runtime=project_plan.runtime,
-            )
+            if forced_file_count != 8:
+                project_plan = add_profile_components(
+                    project_plan.files,
+                    project_context["profile"],
+                    policy=project_plan.policy,
+                    requested_paths=project_plan.requested_paths,
+                    language=project_plan.language,
+                    framework=project_plan.framework,
+                    runtime=project_plan.runtime,
+                )
             architecture["file_plan"] = project_plan.file_entries()
         except ValueError as exc:
             project_plan = None
@@ -239,6 +297,8 @@ class SpecFirstGenerateMixin:
         if project_plan is not None:
             project_context["generation_plan"] = project_plan.model_dump(mode="json")
         allow_plan_expansion = project_plan is None or project_plan.policy != "strict"
+        if forced_file_count == 8:
+            allow_plan_expansion = False
         validation_plan = ValidationCoordinator().build_plan(
             project_context["profile"], detect_toolchain(self.output_dir)
         )
@@ -258,40 +318,49 @@ class SpecFirstGenerateMixin:
 
         # 尝试从磁盘加载依赖图（支持增量构建）
         dep_graph_path = self.output_dir / ".dep_graph.json"
-        dep_graph = DependencyGraph.load(str(dep_graph_path), language_adapter=language_adapter)
+        if forced_file_count == 8:
+            dep_graph = None
+        else:
+            dep_graph = DependencyGraph.load(str(dep_graph_path), language_adapter=language_adapter)
 
         if dep_graph is None:
             dep_graph = DependencyGraph(language_adapter=language_adapter)
             dep_graph.build_from_architecture(architecture)
 
-            # 依赖图验证：首次生成时全图验证
-            validation_feedback = ""
-            for retry in range(MAX_VALIDATION_RETRIES + 1):
-                validator = DependencyGraphValidator(
-                    llm_caller=self._create_validator_llm_caller(),
-                    language_adapter=language_adapter,
+            validator = DependencyGraphValidator(
+                llm_caller=self._create_validator_llm_caller(),
+                language_adapter=language_adapter,
+            )
+            validation_result = validator.validate_static(dep_graph, architecture=architecture)
+            if validation_result.passed:
+                logger.info("依赖图静态校验通过")
+            else:
+                logger.warning(
+                    "依赖图静态校验未通过 (%s 个问题)，补入默认文件计划，不再重跑架构师",
+                    len(validation_result.issues),
                 )
-                validation_result = await validator.validate(dep_graph, scope="full", architecture=architecture)
-
-                if validation_result.passed:
-                    logger.info(f"依赖图验证通过 (第 {retry + 1} 次)")
-                    break
-
-                validation_feedback = format_validation_feedback(validation_result)
-                logger.warning(f"依赖图验证未通过 (第 {retry + 1}/{MAX_VALIDATION_RETRIES + 1} 次): {len(validation_result.issues)} 个问题")
-
-                if retry < MAX_VALIDATION_RETRIES:
-                    # 反馈给架构师重新生成
-                    architecture = await self.architect.design_architecture(
-                        requirement, self.complexity, feedback=validation_feedback, callback=callback
+                for issue in validation_result.issues:
+                    logger.warning("  [%s] %s", issue.issue_type, issue.message)
+                if forced_file_count == 8:
+                    logger.warning("强制 8 文件计划，跳过默认 file_plan 回落")
+                else:
+                    default = self.architect._get_requirement_aware_default_architecture(
+                        requirement,
+                        self.complexity,
+                        language=architecture.get("language", "python"),
+                        frontend_language=architecture.get("frontend_language"),
                     )
-                    file_plan = architecture.get("file_plan", [])
-
-                    # 重新构建依赖图
+                    architecture["file_plan"] = default["file_plan"]
+                    architecture["used_default_file_plan"] = True
+                    if not architecture.get("project_spec"):
+                        architecture["project_spec"] = default.get("project_spec")
+                    if not architecture.get("db_schema") and default.get("db_schema"):
+                        architecture["db_schema"] = default.get("db_schema")
+                    self.architect._drop_stale_file_plan_aliases(architecture)
+                    file_plan = sync_generation_architecture(project_context, architecture)
                     dep_graph = DependencyGraph(language_adapter=language_adapter)
                     dep_graph.build_from_architecture(architecture)
-                else:
-                    logger.warning(f"依赖图验证达到最大重试次数，继续生成")
+            file_plan = sync_generation_architecture(project_context, architecture)
 
             logger.info(f"依赖图构建完成: {len(dep_graph.nodes)} 个文件节点, file_plan={len(file_plan)} 个文件")
             # 保存依赖图到磁盘
@@ -348,6 +417,9 @@ class SpecFirstGenerateMixin:
                 ctx.dependencies[planned_path] = dependencies
         ctx.set_metric("generation_layers", len(layers))
         ctx.set_metric("generation_order", [f for layer in layers for f in layer])
+
+        from app.agent.symbol_table import attach_to_project_context
+        attach_to_project_context(project_context, architecture)
 
         if hasattr(self, 'use_dynamic_topology') and self.use_dynamic_topology:
             try:
@@ -465,6 +537,10 @@ class SpecFirstGenerateMixin:
                     model=model_name,
                     callback=callback
                 )
+                self._report_thinking(
+                    getattr(engineer, "role_name", None) or getattr(engineer, "name", None) or "engineer",
+                    f"正在生成 {file_path}：{description}",
+                )
 
                 spec_context = {}
                 if spec_generator:
@@ -530,7 +606,11 @@ class SpecFirstGenerateMixin:
                             logger.error(f"所有重试均失败，跳过文件: {file_path}")
                             return {"path": file_path, "success": False, "error": f"文件生成失败: {invalid_reason}"}
 
-                if cross_validator.is_critical_file(file_path, file_type, file_priority):
+                architecture_for_file = project_context.get("architecture", {}) or {}
+                if _is_adapter_owned_file(file_path, file_type, architecture_for_file):
+                    logger.info("适配器骨架文件跳过审查: %s", file_path)
+                    result = _skipped_refinement(initial_content)
+                elif cross_validator.is_critical_file(file_path, file_type, file_priority):
                     self._report_progress(
                         "cross_validation",
                         4 + file_index,
@@ -562,20 +642,47 @@ class SpecFirstGenerateMixin:
                         from app.agent.models import DEFAULT_ARCHITECT_MODEL
                         judge_model = self.model_assignment.reviewer_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL
 
-                        result = await cross_validator.cross_validate_with_refinement(
-                            file_path=file_path,
-                            file_type=file_type,
-                            description=description,
-                            content_a=initial_content,
-                            model_a=model_name,
-                            content_b=alt_content,
-                            model_b=alt_model,
-                            judge_model=judge_model,
-                            refinement_loop=refinement_loop_instance,
-                            project_context=project_context,
-                            callback=callback
-                        )
+                        try:
+                            result = await cross_validator.cross_validate_with_refinement(
+                                file_path=file_path,
+                                file_type=file_type,
+                                description=description,
+                                content_a=initial_content,
+                                model_a=model_name,
+                                content_b=alt_content,
+                                model_b=alt_model,
+                                judge_model=judge_model,
+                                refinement_loop=refinement_loop_instance,
+                                project_context=project_context,
+                                callback=callback
+                            )
+                        except Exception as exc:
+                            from app.agent.cross_validator import is_review_timeout
+                            if is_review_timeout(exc):
+                                logger.warning("交叉验证超时，跳过审查: %s", file_path)
+                                result = _skipped_refinement(initial_content)
+                            else:
+                                raise
                     else:
+                        try:
+                            result = await refinement_loop_instance.refine(
+                                file_path=file_path,
+                                file_type=file_type,
+                                description=description,
+                                initial_content=initial_content,
+                                model_name=model_name,
+                                project_context=project_context,
+                                callback=callback
+                            )
+                        except Exception as exc:
+                            from app.agent.cross_validator import is_review_timeout
+                            if is_review_timeout(exc):
+                                logger.warning("审查超时，跳过并保留初稿: %s", file_path)
+                                result = _skipped_refinement(initial_content)
+                            else:
+                                raise
+                else:
+                    try:
                         result = await refinement_loop_instance.refine(
                             file_path=file_path,
                             file_type=file_type,
@@ -585,16 +692,13 @@ class SpecFirstGenerateMixin:
                             project_context=project_context,
                             callback=callback
                         )
-                else:
-                    result = await refinement_loop_instance.refine(
-                        file_path=file_path,
-                        file_type=file_type,
-                        description=description,
-                        initial_content=initial_content,
-                        model_name=model_name,
-                        project_context=project_context,
-                        callback=callback
-                    )
+                    except Exception as exc:
+                        from app.agent.cross_validator import is_review_timeout
+                        if is_review_timeout(exc):
+                            logger.warning("审查超时，跳过并保留初稿: %s", file_path)
+                            result = _skipped_refinement(initial_content)
+                        else:
+                            raise
 
                 final_content = result.final_content
 
@@ -689,6 +793,9 @@ class SpecFirstGenerateMixin:
                         ctx.save_file_content(file_path, content, model_name)
                         ctx.update_file_validation(file_path, result["success"], validation_issues)
                         generated_contents[file_path] = content[:MAX_CONTENT_FOR_CONTEXT]
+                        from app.agent.symbol_table import remember_generated_file
+                        for issue in remember_generated_file(project_context, file_path, content, architecture):
+                            self.warnings.append(issue)
 
                         self.generated_files.append(result)
                         if skipped:
@@ -773,9 +880,17 @@ class SpecFirstGenerateMixin:
             # 更新生成文件字典
             generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
 
-            fixed_files, cross_issues = await cross_validator.validate_and_fix(
-                generated_files_dict, architecture, fix_model
-            )
+            try:
+                fixed_files, cross_issues = await cross_validator.validate_and_fix(
+                    generated_files_dict, architecture, fix_model
+                )
+            except Exception as exc:
+                from app.agent.cross_validator import is_review_timeout
+                if is_review_timeout(exc):
+                    logger.warning("跨文件审查超时，跳过 LLM 修复并继续收尾")
+                    fixed_files, cross_issues = generated_files_dict, []
+                else:
+                    raise
 
             if cross_issues:
                 logger.warning(f"跨文件一致性验证发现 {len(cross_issues)} 个问题")
@@ -790,6 +905,12 @@ class SpecFirstGenerateMixin:
                         logger.info(f"跨文件一致性修复: {fix_path}")
 
         self._report_progress("integrity_validated", total_files + 4, total_files + 5, callback=callback)
+
+        from app.agent.symbol_table import finalize_generated_project
+        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        self.warnings.extend(
+            finalize_generated_project(self.output_dir, architecture, generated_files_dict, ctx)
+        )
 
         # 4. 项目级沙箱验证（新增）
         from app.agent.utils import validate_in_sandbox
@@ -956,7 +1077,7 @@ class SpecFirstGenerateMixin:
         from app.agent.tools import set_allowed_file_paths
         set_allowed_file_paths(set(dep_graph.nodes.keys()))
 
-        cross_validator = CrossValidator(ctx, language_adapter=language_adapter)
+        cross_validator = CrossValidator(ctx, language_adapter=language_adapter, api_key_token=self.api_key_token)
         refinement_loop = RefinementLoop(ctx, complexity=self.complexity.level.value if self.complexity else "medium", api_key_token=self.api_key_token)
 
         files_generated = 0
@@ -1012,6 +1133,8 @@ class SpecFirstGenerateMixin:
                                 ctx.save_file_content(file_path, existing_content, "cached")
                                 ctx.update_file_validation(file_path, True, [])
                                 generated_contents[file_path] = existing_content[:MAX_CONTENT_FOR_CONTEXT]
+                                from app.agent.symbol_table import remember_generated_file
+                                remember_generated_file(project_context, file_path, existing_content, architecture)
 
                                 generated_files_list.append({
                                     "path": file_path,
@@ -1037,6 +1160,10 @@ class SpecFirstGenerateMixin:
                     path: content[:MAX_CONTENT_FOR_CONTEXT]
                     for path, content in upstream_context.items()
                 }
+            self._report_thinking(
+                getattr(engineer, "role_name", None) or getattr(engineer, "name", None) or "engineer",
+                f"正在生成 {file_path}：{description}",
+            )
 
             spec_context = {}
             if spec_generator:
@@ -1108,7 +1235,10 @@ class SpecFirstGenerateMixin:
                         logger.error(f"所有重试均失败，跳过文件: {file_path}")
                         raise ValueError(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
 
-            if cross_validator.is_critical_file(file_path, file_type, file_priority):
+            if _is_adapter_owned_file(file_path, file_type, architecture):
+                logger.info("适配器骨架文件跳过审查: %s", file_path)
+                result = _skipped_refinement(initial_content)
+            elif cross_validator.is_critical_file(file_path, file_type, file_priority):
                 alt_model = self._select_alternative_model(model_name)
                 alt_engineer = self._select_engineer_for_model(alt_model)
                 if tracker:
@@ -1135,20 +1265,47 @@ class SpecFirstGenerateMixin:
                     from app.agent.models import DEFAULT_ARCHITECT_MODEL
                     judge_model = self.model_assignment.reviewer_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL
 
-                    result = await cross_validator.cross_validate_with_refinement(
-                        file_path=file_path,
-                        file_type=file_type,
-                        description=description,
-                        content_a=initial_content,
-                        model_a=model_name,
-                        content_b=alt_content,
-                        model_b=alt_model,
-                        judge_model=judge_model,
-                        refinement_loop=refinement_loop,
-                        project_context=combined_context,
-                        callback=callback
-                    )
+                    try:
+                        result = await cross_validator.cross_validate_with_refinement(
+                            file_path=file_path,
+                            file_type=file_type,
+                            description=description,
+                            content_a=initial_content,
+                            model_a=model_name,
+                            content_b=alt_content,
+                            model_b=alt_model,
+                            judge_model=judge_model,
+                            refinement_loop=refinement_loop,
+                            project_context=combined_context,
+                            callback=callback
+                        )
+                    except Exception as exc:
+                        from app.agent.cross_validator import is_review_timeout
+                        if is_review_timeout(exc):
+                            logger.warning("交叉验证超时，跳过审查: %s", file_path)
+                            result = _skipped_refinement(initial_content)
+                        else:
+                            raise
                 else:
+                    try:
+                        result = await refinement_loop.refine(
+                            file_path=file_path,
+                            file_type=file_type,
+                            description=description,
+                            initial_content=initial_content,
+                            model_name=model_name,
+                            project_context=combined_context,
+                            callback=callback
+                        )
+                    except Exception as exc:
+                        from app.agent.cross_validator import is_review_timeout
+                        if is_review_timeout(exc):
+                            logger.warning("审查超时，跳过并保留初稿: %s", file_path)
+                            result = _skipped_refinement(initial_content)
+                        else:
+                            raise
+            else:
+                try:
                     result = await refinement_loop.refine(
                         file_path=file_path,
                         file_type=file_type,
@@ -1158,16 +1315,13 @@ class SpecFirstGenerateMixin:
                         project_context=combined_context,
                         callback=callback
                     )
-            else:
-                result = await refinement_loop.refine(
-                    file_path=file_path,
-                    file_type=file_type,
-                    description=description,
-                    initial_content=initial_content,
-                    model_name=model_name,
-                    project_context=combined_context,
-                    callback=callback
-                )
+                except Exception as exc:
+                    from app.agent.cross_validator import is_review_timeout
+                    if is_review_timeout(exc):
+                        logger.warning("审查超时，跳过并保留初稿: %s", file_path)
+                        result = _skipped_refinement(initial_content)
+                    else:
+                        raise
 
             final_content = result.final_content
 
@@ -1264,6 +1418,9 @@ class SpecFirstGenerateMixin:
                 ctx.save_file_content(file_path, final_content, model_name)
                 ctx.update_file_validation(file_path, result.success, [])
                 generated_contents[file_path] = final_content[:MAX_CONTENT_FOR_CONTEXT]
+                from app.agent.symbol_table import remember_generated_file
+                for issue in remember_generated_file(project_context, file_path, final_content, architecture):
+                    warnings_list.append(issue)
 
                 generated_files_list.append({
                     "path": file_path,
@@ -1495,6 +1652,12 @@ class SpecFirstGenerateMixin:
                         files_generated += 1
 
         self._report_progress("integrity_validated", total_files + 4, total_files + 5, callback=callback)
+
+        from app.agent.symbol_table import finalize_generated_project
+        generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        warnings_list.extend(
+            finalize_generated_project(self.output_dir, architecture, generated_files_dict, ctx)
+        )
 
         # 4. 项目级沙箱验证
         from app.agent.utils import validate_in_sandbox

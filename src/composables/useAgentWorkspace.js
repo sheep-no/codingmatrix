@@ -12,6 +12,7 @@ export function useAgentWorkspace({
   const decisionAnswers = ref({})
   const decisionHistory = ref([])
   const logsContainer = ref(null)
+  const toolEvents = ref([])
   const currentAgent = ref(null)
   const currentModel = ref(null)
   const currentProjectPath = ref(null)
@@ -197,6 +198,7 @@ export function useAgentWorkspace({
   return reactive({
     logs, executionDetails, thinkingMessages, pendingDecisions,
     decisionAnswers, decisionHistory, logsContainer,
+    toolEvents,
     currentAgent, currentModel, currentProjectPath,
     testResults, validationResults, costData, performanceMetrics,
     addLog, addDetail, showFileDiff, hasFileDiff,

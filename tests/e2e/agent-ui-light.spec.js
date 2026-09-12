@@ -1,64 +1,35 @@
 import { test, expect } from '@playwright/test';
 import { apiLogin } from './fixtures/auth';
 
+async function openAgentWorkspace(page) {
+  await page.goto('/agent', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('.agent-page')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole('textbox', { name: '项目需求' })).toBeVisible({ timeout: 10000 });
+}
+
 test.describe('Agent UI 轻量测试', () => {
 
   test('登录后进入 Agent 页面，验证 UI 元素', async ({ page }) => {
-    // 登录
     const { ok } = await apiLogin(page, 'http://127.0.0.1:8000');
     expect(ok).toBeTruthy();
 
-    // 进入 Agent 页面
-    await page.goto('/agent');
-    await page.waitForLoadState('networkidle');
-
-    // 验证关键 UI 元素存在
-    const textarea = page.locator('textarea').first();
-    await expect(textarea).toBeVisible({ timeout: 10000 });
-
-    // 验证生成按钮存在
-    const generateBtn = page.locator('button', { hasText: /生成|开始|Generate/i }).first();
-    await expect(generateBtn).toBeVisible();
-
-    console.log('[PASS] Agent 页面 UI 元素正常');
+    await openAgentWorkspace(page);
+    await expect(page.getByRole('button', { name: '发送需求' })).toBeVisible();
   });
 
   test('输入需求后点击生成，验证 SSE 流开始', async ({ page }) => {
-    // 登录
     await apiLogin(page, 'http://127.0.0.1:8000');
 
-    // 进入 Agent 页面
-    await page.goto('/agent');
-    await page.waitForLoadState('networkidle');
+    await openAgentWorkspace(page);
 
-    // 输入需求
-    const textarea = page.locator('textarea').first();
-    await textarea.fill('创建一个 hello.py 打印 hello world');
+    const prompt = page.getByRole('textbox', { name: '项目需求' });
+    await prompt.fill('创建一个 hello.py 打印 hello world');
 
-    // 点击生成按钮
-    const generateBtn = page.locator('button', { hasText: /生成|开始|Generate/i }).first();
-    await generateBtn.click();
+    const sendBtn = page.getByRole('button', { name: '发送需求' });
+    await expect(sendBtn).toBeEnabled();
+    await sendBtn.click();
 
-    // 等待 SSE 流开始 - 检查是否有进度指示
-    // 不等生成完成，只验证流开始推送
-    const progressIndicator = page.locator(
-      '[class*="progress"], [class*="step"], [class*="generating"], [class*="loading"], text="生成中"'
-    ).first();
-
-    try {
-      await progressIndicator.waitFor({ state: 'visible', timeout: 15000 });
-      console.log('[PASS] SSE 流已开始，进度指示器出现');
-    } catch {
-      // 备选：检查按钮状态变化
-      const btn = page.locator('button').filter({ hasText: /生成中|停止|取消/i }).first();
-      try {
-        await btn.waitFor({ state: 'visible', timeout: 5000 });
-        console.log('[PASS] SSE 流已开始，按钮状态变化');
-      } catch {
-        // 最后检查页面是否有任何变化
-        console.log('[WARN] 未检测到明确的进度指示，但页面未报错');
-      }
-    }
+    await expect(page.getByRole('button', { name: '停止生成' })).toBeVisible({ timeout: 15000 });
   });
 
   test('验证 API 健康检查和认证', async ({ page }) => {

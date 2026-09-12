@@ -93,10 +93,64 @@
       </div>
     </div>
 
+    <div v-if="activityItems.length > 0" ref="activityRef" class="activity-stream">
+      <div class="activity-head">
+        <span class="activity-title">执行过程</span>
+        <span class="activity-count">{{ activityItems.length }}</span>
+      </div>
+      <div
+        v-for="item in activityItems"
+        :key="item.key"
+        class="activity-card"
+        :class="`activity-${item.kind}`"
+      >
+        <div v-if="item.kind === 'thinking'" class="activity-body">
+          <div class="activity-meta">
+            <span class="activity-kind">思考</span>
+            <span class="thinking-agent-name">{{ item.data.agent }}</span>
+            <span v-if="item.data.model" class="thinking-model-badge">{{ item.data.model }}</span>
+            <span v-if="item.data.phase" class="thinking-phase-tag">{{ item.data.phase }}</span>
+            <span v-if="item.data.streaming" class="thinking-streaming-indicator">
+              <span class="thinking-streaming-dot"></span>
+              生成中
+            </span>
+            <span class="thinking-item-time">{{ formatTime(item.data.timestamp) }}</span>
+          </div>
+          <pre class="activity-text">{{ item.data.message }}</pre>
+        </div>
+        <div v-else-if="item.kind === 'tool'" class="activity-body">
+          <div class="activity-meta">
+            <span class="activity-kind">工具</span>
+            <span class="tool-name">{{ item.data.tool }}</span>
+            <span class="tool-status" :class="`status-${item.data.status}`">{{ item.data.status === 'running' ? '执行中' : '完成' }}</span>
+            <span v-if="item.data.round" class="thinking-phase-tag">第 {{ item.data.round }} 轮</span>
+            <span class="thinking-item-time">{{ formatTime(item.data.timestamp) }}</span>
+          </div>
+          <div v-if="paramText(item.data.params)" class="tool-params">{{ paramText(item.data.params) }}</div>
+          <div v-if="item.data.result" class="tool-result">{{ item.data.result }}</div>
+        </div>
+        <button
+          v-else-if="item.kind === 'file'"
+          type="button"
+          class="activity-body file-card"
+          @click="$emit('select-file', item.data)"
+        >
+          <div class="activity-meta">
+            <span class="activity-kind">文件</span>
+            <span class="file-path">{{ item.data.operation === 'update' ? '更新' : '写入' }} {{ item.data.path }}</span>
+            <span class="file-stat">{{ item.data.lineCount || 0 }} 行</span>
+            <span v-if="item.data.fileSizeHuman" class="file-stat">{{ item.data.fileSizeHuman }}</span>
+            <span class="thinking-item-time">{{ formatTime(item.data.timestamp) }}</span>
+          </div>
+          <pre v-if="filePreview(item.data.content)" class="activity-text file-preview">{{ filePreview(item.data.content) }}</pre>
+        </button>
+      </div>
+    </div>
+
     <!-- Merged sections -->
-    <div v-if="(thinkingMessages && thinkingMessages.length > 0) || (executionSteps && executionSteps.length > 0) || (logs && logs.length > 0)" class="merged-sections">
+    <div v-if="(executionSteps && executionSteps.length > 0) || (logs && logs.length > 0)" class="merged-sections">
       <!-- Thinking -->
-      <div v-if="thinkingMessages && thinkingMessages.length > 0" class="merged-section">
+      <div v-if="false" class="merged-section">
         <div class="merged-section-header" @click="toggleMerged('thinking')">
           <div class="merged-header-left">
             <span class="merged-dot thinking-dot-bg"></span>
@@ -243,7 +297,7 @@
     </div>
 
     <!-- Empty state -->
-    <div v-if="!stages?.length && !thinkingMessages.length && !executionSteps.length && !logs.length && !decisions.length && !testResults && !validationResults" class="empty-state">
+    <div v-if="!stages?.length && !activityItems.length && !executionSteps.length && !logs.length && !decisions.length && !testResults && !validationResults" class="empty-state">
       <div class="empty-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="48" height="48">
           <path d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
@@ -263,7 +317,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, nextTick, watch } from 'vue'
+import { reactive, ref, nextTick, watch, computed } from 'vue'
 
 const props = defineProps({
   stages: { type: Array, required: true },
@@ -275,14 +329,68 @@ const props = defineProps({
   executionSteps: { type: Array, default: () => [] },
   logs: { type: Array, default: () => [] },
   testResults: { type: Object, default: null },
-  validationResults: { type: Object, default: null }
+  validationResults: { type: Object, default: null },
+  generatedFiles: { type: Array, default: () => [] },
+  toolEvents: { type: Array, default: () => [] }
 })
 
-defineEmits(['select-decision', 'use-default', 'submit-decision', 'clear-thinking', 'clear-steps', 'clear-logs'])
+defineEmits(['select-decision', 'use-default', 'submit-decision', 'clear-thinking', 'clear-steps', 'clear-logs', 'select-file'])
 
 const expandedStages = reactive({})
 const mergedExpanded = reactive({ thinking: true, steps: false, logs: false })
 const logsContainerRef = ref(null)
+const activityRef = ref(null)
+
+function eventTime(ts) {
+  if (ts == null || ts === '') return 0
+  const numeric = Number(ts)
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0
+  return numeric < 1e12 ? numeric * 1000 : numeric
+}
+
+const activityItems = computed(() => {
+  const items = []
+  ;(props.thinkingMessages || []).forEach((msg, index) => {
+    items.push({
+      kind: 'thinking',
+      ts: eventTime(msg.timestamp),
+      key: `thinking-${index}-${msg.agent || ''}`,
+      data: msg
+    })
+  })
+  ;(props.generatedFiles || []).forEach((file, index) => {
+    items.push({
+      kind: 'file',
+      ts: eventTime(file.timestamp),
+      key: `file-${file.path || index}`,
+      data: file
+    })
+  })
+  ;(props.toolEvents || []).forEach((event, index) => {
+    items.push({
+      kind: 'tool',
+      ts: eventTime(event.timestamp),
+      key: event.id || `tool-${index}`,
+      data: event
+    })
+  })
+  items.sort((a, b) => a.ts - b.ts)
+  return items
+})
+
+function paramText(params) {
+  if (!params || typeof params !== 'object') return ''
+  return Object.entries(params)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join('  ')
+}
+
+function filePreview(content) {
+  if (!content) return ''
+  const lines = String(content).split('\n')
+  const preview = lines.slice(0, 8).join('\n')
+  return lines.length > 8 ? `${preview}\n...` : preview
+}
 
 function toggleStage(id) {
   expandedStages[id] = !expandedStages[id]
@@ -298,7 +406,9 @@ function statusText(status) {
 
 function formatTime(ts) {
   if (!ts) return ''
-  return new Date(ts).toLocaleTimeString()
+  const numeric = Number(ts)
+  const millis = Number.isFinite(numeric) && numeric > 0 && numeric < 1e12 ? numeric * 1000 : numeric
+  return new Date(millis || ts).toLocaleTimeString()
 }
 
 function formatDuration(seconds) {
@@ -316,6 +426,20 @@ watch(() => props.logs?.length, () => {
     }
   })
 })
+
+watch(
+  () => [
+    activityItems.value.length,
+    props.thinkingMessages.at(-1)?.message?.length || 0
+  ],
+  () => {
+    nextTick(() => {
+      if (activityRef.value) {
+        activityRef.value.scrollTop = activityRef.value.scrollHeight
+      }
+    })
+  }
+)
 </script>
 
 <style scoped>
@@ -331,6 +455,95 @@ watch(() => props.logs?.length, () => {
   overflow-wrap: anywhere;
 }
 .agent-workspace > * { flex-shrink: 0; }
+
+.activity-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(70vh, 760px);
+  overflow-y: auto;
+  padding: 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+}
+.activity-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+.activity-title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+.activity-count {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.activity-card {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+.activity-thinking { border-left: 3px solid var(--primary); }
+.activity-tool { border-left: 3px solid #c27a2b; }
+.activity-file { border-left: 3px solid var(--success); }
+.activity-body {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: inherit;
+}
+.file-card { cursor: pointer; }
+.file-card:hover { background: color-mix(in srgb, var(--bg-tertiary), transparent 40%); }
+.activity-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.activity-kind {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+.activity-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+  font-family: inherit;
+}
+.file-preview {
+  max-height: 160px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.file-path { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.file-stat { font-size: 11px; color: var(--text-tertiary); }
+.tool-name { font-size: 13px; font-weight: 650; color: var(--text-primary); }
+.tool-status { font-size: 11px; color: var(--text-tertiary); }
+.tool-status.status-running { color: var(--primary); }
+.tool-status.status-done { color: var(--success); }
+.tool-params, .tool-result {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
 .progress-bar-section {
   padding: 18px;
   background: var(--bg-primary);

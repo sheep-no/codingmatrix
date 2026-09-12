@@ -134,38 +134,45 @@ class SpecFirstGenerator:
         """
         self.context.start_phase("spec_generation")
 
-        # 1. 生成 OpenAPI 规范
-        openapi_success = await self._generate_openapi_spec(requirement, complexity)
-        if not openapi_success:
-            self.context.add_error("OpenAPI 规范生成失败")
-            self.context.complete_phase("spec_generation", ["OpenAPI 生成失败"])
-            return False
+        needs_http = self._needs_http_spec(requirement, complexity)
+        needs_db = self._needs_db_spec(requirement, complexity)
 
-        self._report_progress("openapi_generated", callback)
+        if needs_http:
+            openapi_success = await self._generate_openapi_spec(requirement, complexity)
+            if not openapi_success:
+                self.context.add_error("OpenAPI 规范生成失败")
+                self.context.complete_phase("spec_generation", ["OpenAPI 生成失败"])
+                return False
+            self._report_progress("openapi_generated", callback)
 
-        # 2. 基于 OpenAPI 生成类型定义（依赖 OpenAPI）
-        types_success = await self._generate_types()
-        if not types_success:
-            self.context.add_warning("类型定义生成失败（依赖 OpenAPI），将使用默认类型")
+            types_success = await self._generate_types()
+            if not types_success:
+                self.context.add_warning("类型定义生成失败（依赖 OpenAPI），将使用默认类型")
+            self._report_progress("types_generated", callback)
+        else:
+            logger.info("需求无后端/API 信号，跳过 OpenAPI 与类型规范")
+            self._report_progress("openapi_skipped", callback)
 
-        self._report_progress("types_generated", callback)
+        if needs_db:
+            db_success = await self._generate_db_schema(requirement, complexity)
+            if not db_success:
+                self.context.add_warning("数据库 Schema 生成失败（依赖 OpenAPI），将使用默认模型")
+            self._report_progress("db_schema_generated", callback)
+        else:
+            logger.info("需求无存储信号，跳过数据库 Schema")
+            self._report_progress("db_schema_skipped", callback)
 
-        # 3. 生成数据库 Schema（依赖 OpenAPI）
-        db_success = await self._generate_db_schema(requirement, complexity)
-        if not db_success:
-            self.context.add_warning("数据库 Schema 生成失败（依赖 OpenAPI），将使用默认模型")
-
-        self._report_progress("db_schema_generated", callback)
-
-        # 4. 生成配置规范（独立，不依赖 OpenAPI）
-        config_success = await self._generate_config(requirement, complexity)
-        if not config_success:
-            self.context.add_warning("配置规范生成失败，将使用默认配置")
-
-        self._report_progress("config_generated", callback)
+        if needs_http or needs_db:
+            config_success = await self._generate_config(requirement, complexity)
+            if not config_success:
+                self.context.add_warning("配置规范生成失败，将使用默认配置")
+            self._report_progress("config_generated", callback)
+        else:
+            logger.info("需求无后端/存储信号，跳过配置规范")
+            self._report_progress("config_skipped", callback)
 
         self.context.complete_phase("spec_generation")
-        return openapi_success
+        return True
 
     async def _generate_openapi_spec(self, requirement: str, complexity: Dict) -> bool:
         """生成 OpenAPI 3.0 规范"""
@@ -482,6 +489,28 @@ OpenAPI 规范：
                 task.add_done_callback(self._pending_tasks.discard)
         except Exception as e:
             logger.error(f"Spec 进度回调失败: {e}")
+
+    @staticmethod
+    def _complexity_flag(complexity: Any, name: str) -> bool:
+        if not complexity:
+            return False
+        if isinstance(complexity, dict):
+            return bool(complexity.get(name))
+        return bool(getattr(complexity, name, False))
+
+    def _needs_http_spec(self, requirement: str, complexity: Any) -> bool:
+        if self._complexity_flag(complexity, "has_backend"):
+            return True
+        from app.agent.complexity import ComplexityAnalyzer
+        from app.agent.requirement_signals import has_positive_keyword
+        return has_positive_keyword(requirement or "", ComplexityAnalyzer.BACKEND_KEYWORDS)
+
+    def _needs_db_spec(self, requirement: str, complexity: Any) -> bool:
+        if self._complexity_flag(complexity, "has_database"):
+            return True
+        from app.agent.complexity import ComplexityAnalyzer
+        from app.agent.requirement_signals import has_positive_keyword
+        return has_positive_keyword(requirement or "", ComplexityAnalyzer.DATABASE_KEYWORDS)
 
     @staticmethod
     def get_spec_budget(context_length: int) -> int:

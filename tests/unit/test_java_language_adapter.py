@@ -36,6 +36,9 @@ def test_java_adapter_maps_java_files() -> None:
     assert adapter.infer_file_type("src/main/java/com/example/Todo.java") == "source"
     assert adapter.is_project_module("com.example.Todo")
     assert not adapter.is_project_module("org.springframework.web.bind.annotation.GetMapping")
+    assert adapter.is_known_external_module("org.springframework.web.bind.annotation.GetMapping")
+    assert adapter.is_known_external_module("java.util.List")
+    assert not adapter.is_known_external_module("com.example.Todo")
 
 
 def test_java_adapter_treats_mockito_static_imports_as_external() -> None:

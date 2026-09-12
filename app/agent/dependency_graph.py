@@ -235,6 +235,10 @@ class DependencyGraph:
             if '/' not in path and '.' not in path:
                 logger.warning(f"跳过包名/目录名作为文件路径: {path}")
                 continue
+
+            if self._is_external_plan_path(path):
+                logger.warning("跳过第三方库文件路径: %s", path)
+                continue
             
             # 点号路径转换：无斜杠但有多段点号（如 src.app.utils.py）
             if '/' not in path and '.' in path:
@@ -270,6 +274,12 @@ class DependencyGraph:
         # 使用清理后的 file_plan 更新架构
         architecture["file_plan"] = cleaned_file_plan
         file_plan = cleaned_file_plan
+        if self.generation_plan is not None:
+            try:
+                self.generation_plan = GenerationPlan.from_architecture(architecture)
+            except ValueError as exc:
+                logger.warning("清理第三方路径后生成计划未冻结: %s", exc)
+                self.generation_plan = None
 
         # 1. 先添加所有文件节点（确保所有文件都在图中）
         for file_info in file_plan:
@@ -614,6 +624,13 @@ class DependencyGraph:
                 if dependent in self.nodes and path in self.nodes[dependent].dependencies:
                     self.nodes[dependent].dependencies.remove(path)
             del self.reverse_adjacency[path]
+
+    def _is_external_plan_path(self, path: str) -> bool:
+        adapter = self.language_adapter
+        if not path or adapter is None:
+            return False
+        checker = getattr(adapter, "is_known_external_module", None)
+        return bool(checker and checker(path))
 
     def _import_to_file_path(self, import_path: str) -> Optional[str]:
         """将 import 路径转换为文件路径"""
@@ -1502,6 +1519,9 @@ class DependencyGraph:
         added_count = 0
         for file_path in missing:
             if file_path not in planned_paths:
+                if self._is_external_plan_path(file_path):
+                    logger.info("跳过外部模块缺失文件: %s", file_path)
+                    continue
                 # 推断文件描述和优先级
                 description = self._infer_file_description(file_path)
                 priority = self._infer_file_priority(file_path)

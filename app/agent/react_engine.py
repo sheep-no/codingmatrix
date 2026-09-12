@@ -536,7 +536,7 @@ class ReActEngine:
             ))
 
             await self._emit_event("react_tool_call", {
-                "message": f"正在搜索: {tool_name}",
+                "message": f"调用工具 {tool_name}",
                 "tool": tool_name,
                 "params": {k: str(v)[:100] for k, v in tool_params.items()},
                 "round": round_num,
@@ -734,7 +734,7 @@ class ReActEngine:
         await self._stream(f"[动作] {tool_name}({tool_params})\n")
 
         await self._emit_event("react_tool_call", {
-            "message": f"正在搜索: {tool_name}",
+            "message": f"调用工具 {tool_name}",
             "tool": tool_name,
             "params": {k: str(v)[:100] for k, v in tool_params.items()},
             "round": iteration + 1,

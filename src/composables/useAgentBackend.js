@@ -304,14 +304,26 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
   }
 
   const stopSession = async (sessionId) => {
-    if (sessionId) {
+    if (!sessionId) {
+      throw new Error('没有可停止的会话')
+    }
+    const delays = [0, 200, 400, 800, 1200]
+    let lastError
+    for (const delay of delays) {
+      if (delay) {
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
       try {
         await projectApi.stopSession(sessionId)
         addLog('warning', '生成已停止')
+        return true
       } catch (error) {
-        addLog('error', '停止生成失败')
+        lastError = error
+        if (error?.status !== 404) break
       }
     }
+    addLog('error', '停止生成失败')
+    throw lastError || new Error('停止生成失败')
   }
 
   const submitDecision = async (sessionId) => {

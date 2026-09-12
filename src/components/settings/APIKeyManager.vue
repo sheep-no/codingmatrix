@@ -405,8 +405,9 @@ async function deleteKey(token) {
 
 async function toggleEnabled(key) {
   try {
-    await store.toggleEnabled(key.token, !key.enabled)
-    ElMessage.success(`Key 已${key.enabled ? '禁用' : '启用'}`)
+    const nextEnabled = !key.enabled
+    await store.toggleEnabled(key.token, nextEnabled)
+    ElMessage.success(`Key 已${nextEnabled ? '启用' : '禁用'}`)
   } catch (e) {
     ElMessage.error('操作失败：' + (e.message || '未知错误'))
   }

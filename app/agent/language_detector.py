@@ -13,6 +13,7 @@ import re
 import logging
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
+from app.agent.requirement_signals import first_positive_span, is_span_negated
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +209,20 @@ class LanguageDetector:
     ]
 
     @classmethod
+    def _positive_regex(cls, text: str, pattern: str):
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            if not is_span_negated(text, match.start()):
+                return match
+        return None
+
+    @classmethod
+    def _keyword_hit(cls, text: str, keyword: str) -> bool:
+        if keyword.startswith("."):
+            pattern = r"(?:^|\s)" + re.escape(keyword) + r"(?:\s|$|，|。|,|\.)"
+            return cls._positive_regex(text, pattern) is not None
+        return first_positive_span(text, keyword) is not None
+
+    @classmethod
     def detect(cls, requirement: str, project_type: Optional[str] = None) -> LanguageDetectionResult:
         """
         从需求文本检测目标语言
@@ -235,12 +250,12 @@ class LanguageDetector:
             r"\b(?:use|using|written\s+in|implemented\s+in)\s+"
             r"(python|java|go|golang|rust|typescript|javascript|js|ts)\b"
         )
-        explicit_match = re.search(explicit_pattern, requirement_lower)
+        explicit_match = cls._positive_regex(requirement_lower, explicit_pattern)
         if not explicit_match:
-            explicit_match = re.search(
+            explicit_match = cls._positive_regex(
+                requirement_lower,
                 r"\b(java|python|go|golang|rust|typescript|javascript|js|ts)\s+"
                 r"(?:spring[- ]boot|fastapi|flask|django|express|nestjs|nest\.js|gin)\b",
-                requirement_lower,
             )
         if explicit_match:
             raw_language = explicit_match.group(1)
@@ -267,8 +282,7 @@ class LanguageDetector:
 
         # 策略 1: 框架推断（优先于通用语言关键词，因为框架更明确）
         for framework, lang in cls.FRAMEWORK_LANGUAGE.items():
-            pattern = r'\b' + re.escape(framework) + r'\b'
-            if re.search(pattern, requirement_lower):
+            if cls._keyword_hit(requirement_lower, framework):
                 evidence.append(f"框架推断: '{framework}' → {lang}")
                 result = LanguageDetectionResult(
                     language=lang,
@@ -292,13 +306,7 @@ class LanguageDetector:
         # 遍历匹配
         for keyword, lang in all_keywords:
             # 处理以点开头的关键词（如 .rpy）
-            if keyword.startswith('.'):
-                # 对于以点开头的关键词，使用特殊模式：前面是空格或字符串开头
-                pattern = r'(?:^|\s)' + re.escape(keyword) + r'(?:\s|$|，|。|,|\.)'
-            else:
-                # 使用词边界匹配，避免误匹配
-                pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, requirement_lower):
+            if cls._keyword_hit(requirement_lower, keyword):
                 evidence.append(f"关键词匹配: '{keyword}' → {lang}")
                 # 检查是否有冲突（需求中同时提到了其他语言的框架）
                 # 仅用于日志记录，不改变检测结果
@@ -376,8 +384,8 @@ class LanguageDetector:
             (r'([\w]+)\s*程序', 1),
         ]
         for pattern, group_idx in chinese_patterns:
-            match = re.search(pattern, requirement)
-            if match:
+            match = re.search(pattern, user_requirement)
+            if match and not is_span_negated(user_requirement, match.start()):
                 potential_lang = match.group(group_idx).lower()
                 # 在已知语言列表中，高置信度
                 if potential_lang in cls.LANGUAGE_KEYWORDS:
@@ -433,8 +441,7 @@ class LanguageDetector:
 
         # 检测前端语言
         for keyword in cls.FRONTEND_KEYWORDS:
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, requirement_lower):
+            if cls._keyword_hit(requirement_lower, keyword):
                 # 根据关键词推断前端语言
                 if keyword in ["react", "vue", "angular", "svelte", "next", "nuxt"]:
                     frontend_lang = "javascript"
@@ -445,8 +452,7 @@ class LanguageDetector:
 
         # 检测后端语言
         for keyword in cls.BACKEND_KEYWORDS:
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, requirement_lower):
+            if cls._keyword_hit(requirement_lower, keyword):
                 # 根据关键词推断后端语言
                 if keyword in ["django", "flask", "fastapi", "uvicorn"]:
                     backend_lang = "python"
@@ -481,8 +487,7 @@ class LanguageDetector:
 
         # 通过框架推断
         for framework, lang in cls.FRAMEWORK_LANGUAGE.items():
-            pattern = r'\b' + re.escape(framework) + r'\b'
-            if re.search(pattern, requirement_lower) and lang not in detected:
+            if cls._keyword_hit(requirement_lower, framework) and lang not in detected:
                 detected.append(lang)
 
         # 通过语言关键词推断
@@ -493,11 +498,7 @@ class LanguageDetector:
         all_keywords.sort(key=lambda x: len(x[0]), reverse=True)
 
         for keyword, lang in all_keywords:
-            if keyword.startswith('.'):
-                pattern = r'(?:^|\s)' + re.escape(keyword) + r'(?:\s|$|，|。|,|\.)'
-            else:
-                pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, requirement_lower) and lang not in detected:
+            if cls._keyword_hit(requirement_lower, keyword) and lang not in detected:
                 detected.append(lang)
 
         return detected
@@ -514,8 +515,7 @@ class LanguageDetector:
         for framework, lang in cls.FRAMEWORK_LANGUAGE.items():
             if lang == detected_lang:
                 continue
-            pattern = r'\b' + re.escape(framework) + r'\b'
-            if re.search(pattern, requirement_lower):
+            if cls._keyword_hit(requirement_lower, framework):
                 return f"检测到 {detected_lang}，但需求中也提到了 {framework}（{lang}）"
 
         # 检查是否有其他语言的关键词被提及
@@ -526,8 +526,7 @@ class LanguageDetector:
                 # 跳过太短的关键词，避免误匹配
                 if len(keyword) <= 2:
                     continue
-                pattern = r'\b' + re.escape(keyword) + r'\b'
-                if re.search(pattern, requirement_lower):
+                if cls._keyword_hit(requirement_lower, keyword):
                     return f"检测到 {detected_lang}，但需求中也提到了 {keyword}（{lang}）"
 
         return None

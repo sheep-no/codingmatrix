@@ -14,6 +14,13 @@ from typing import Dict, List, Mapping, Optional, Tuple
 from pathlib import Path
 
 
+_EXTERNAL_SOURCE_SUFFIXES = {
+    ".py", ".pyw", ".pyi",
+    ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+    ".go", ".rs", ".java", ".kt", ".rb", ".php",
+}
+
+
 @dataclass
 class ImportInfo:
     """导入信息"""
@@ -138,7 +145,7 @@ class LanguageAdapter(ABC):
         file_type: str,
         architecture: Optional[Dict] = None,
     ) -> Optional[str]:
-        """Return a deterministic skeleton for entry, manifests, and README files."""
+        """Return a deterministic skeleton for entry, manifests, README, and frozen tests."""
         from .boilerplate import scaffold_for_language
 
         return scaffold_for_language(
@@ -196,6 +203,25 @@ class LanguageAdapter(ABC):
             缺失的文件路径列表
         """
         pass
+
+    def is_known_external_module(self, module_name: str) -> bool:
+        """True when the name is a known stdlib or third-party package path."""
+        if not module_name:
+            return False
+        normalized = str(module_name).replace("\\", "/").strip().strip(".")
+        if not normalized:
+            return False
+        path_obj = Path(normalized)
+        if path_obj.suffix.lower() in _EXTERNAL_SOURCE_SUFFIXES:
+            normalized = str(path_obj.with_suffix("")).replace("\\", "/")
+        dotted = normalized.replace("/", ".")
+        top = dotted.split(".")[0]
+        for attr in ("COMMON_THIRD_PARTY", "PYTHON_BUILTINS", "NODE_BUILTINS"):
+            names = getattr(self, attr, None)
+            if names and top in names:
+                return True
+        prefixes = getattr(self, "external_package_prefixes", ()) or ()
+        return bool(prefixes) and dotted.startswith(prefixes)
 
     def get_required_package_files(self, package_path: str) -> List[str]:
         """

@@ -143,8 +143,6 @@ class BackendEngineer(Specialist):
     @classmethod
     def _build_contract_constraints(cls, file_path: str, architecture: Dict) -> str:
         contract = cls._get_file_contract(file_path, architecture)
-        if not contract:
-            return ""
         lines = ["【架构职责契约 - 必须遵守】"]
         for key, label in (("role", "职责"), ("runtime", "运行时"), ("database_abstraction", "数据库抽象")):
             if contract.get(key):
@@ -157,7 +155,31 @@ class BackendEngineer(Specialist):
                 lines.append(f"- {label}: {', '.join(map(str, values))}")
         if contract.get("notes"):
             lines.append(f"- 补充约束: {contract['notes']}")
-        return "\n".join(lines)
+        table = architecture.get("symbol_table") if isinstance(architecture.get("symbol_table"), dict) else {}
+        files = table.get("files") if isinstance(table.get("files"), dict) else {}
+        normalized = file_path.replace("\\", "/")
+        entry = files.get(normalized) if isinstance(files.get(normalized), dict) else {}
+        signatures = entry.get("signatures") if isinstance(entry.get("signatures"), dict) else {}
+        if signatures:
+            lines.append("- 必须按冻结签名实现（禁止改名或改参数）:")
+            for signature in signatures.values():
+                lines.append(f"  - {signature}")
+        elif entry.get("provides"):
+            provides = entry["provides"] if isinstance(entry["provides"], list) else [entry["provides"]]
+            lines.append(f"- 必须实现的公共符号: {', '.join(map(str, provides))}")
+        routes = entry.get("routes") or []
+        if routes:
+            route_text = ", ".join(map(str, routes if isinstance(routes, list) else [routes]))
+            lines.append(f"- 必须注册的路由: {route_text}")
+            lines.append("- 禁止添加未声明的路径前缀（例如 /api/v1），路由必须与冻结表一致")
+        storage = table.get("storage") if isinstance(table.get("storage"), dict) else {}
+        if storage.get("backend"):
+            lines.append(f"- 唯一存储后端: {storage.get('backend')}")
+            lines.append("- 禁止同时使用 JSON 文件与 ORM/SQL 作为业务存储")
+        auth = table.get("auth") if isinstance(table.get("auth"), dict) else {}
+        if auth.get("scheme"):
+            lines.append(f"- 鉴权方案: {auth.get('scheme')}")
+        return "\n".join(lines) if len(lines) > 1 else ""
 
     @staticmethod
     def _build_runtime_consistency_constraints(

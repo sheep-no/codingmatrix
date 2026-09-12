@@ -252,13 +252,13 @@ class ModelConfigManager:
         """刷新已加载的 Agent 模型映射、角色和降级链。"""
         try:
             from app.agent.dynamic_model_router import (
-                get_dynamic_router,
+                get_dynamic_router_sync,
                 invalidate_model_mapping_cache,
                 reload_roles_config,
             )
             invalidate_model_mapping_cache()
             reload_roles_config()
-            get_dynamic_router().reload_fallback_chain()
+            get_dynamic_router_sync().reload_fallback_chain()
         except Exception as e:
             logger.warning(f"刷新 Agent 运行时模型配置失败: {e}")
     

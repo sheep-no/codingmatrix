@@ -538,7 +538,26 @@ async def detect_resume_intent(requirement: str, model: str = DEFAULT_FAST_MODEL
         }
     """
     from app.utils import call_llm
-    
+
+    resume_keywords = [
+        "继续生成", "继续项目", "继续开发", "继续写",
+        "resume", "恢复项目", "接着生成", "接着写", "接着来",
+        "上次",
+    ]
+    req_lower = requirement.lower()
+    has_resume_keyword = any(
+        (kw.lower() in req_lower) if kw.isascii() else (kw in requirement)
+        for kw in resume_keywords
+    )
+    if not has_resume_keyword:
+        return {
+            "is_resume": False,
+            "has_changes": False,
+            "additional_requirement": "",
+            "target_session_id": "",
+            "resume_type": "recent",
+        }
+
     prompt = f"""分析以下用户输入，判断是否包含"继续"意图。
 
 用户输入："{requirement}"

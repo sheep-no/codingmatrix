@@ -61,3 +61,34 @@ def test_select_llm_fix_issues_caps_and_prioritizes_imports():
     assert selected[0]["type"] == "import_error"
     assert selected[0]["file"] == "main.py"
     assert sum(1 for item in selected if item["message"] == "no app.main") == 1
+
+
+def test_is_review_timeout_detects_timeout_errors():
+    from app.agent.cross_validator import is_review_timeout
+    from app.agent.llm_client import LLMClientError
+
+    assert is_review_timeout(TimeoutError("timed out"))
+    assert is_review_timeout(LLMClientError("LLM 流式调用超时 (300s): glm"))
+    assert is_review_timeout(RuntimeError("httpx.TimeoutException"))
+    assert not is_review_timeout(ValueError("bad json"))
+
+
+def test_validate_and_fix_skips_llm_on_timeout():
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+
+    ctx = SharedContext("test", Path("."))
+    validator = CrossValidator(ctx)
+    files = {"main.py": "def app():\n    return 1\n"}
+
+    async def boom(*_args, **_kwargs):
+        raise TimeoutError("LLM 调用超时 (300s)")
+
+    validator._fix_with_llm = boom
+    async def fake_consistency(*_args, **_kwargs):
+        return [{"type": "api_contract", "file": "main.py", "message": "route mismatch"}]
+
+    validator.validate_cross_file_consistency = fake_consistency
+    fixed, issues = asyncio.run(validator.validate_and_fix(files, {}, fix_model="glm"))
+    assert fixed == files
+    assert issues[0]["type"] == "api_contract"

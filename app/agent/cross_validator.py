@@ -79,6 +79,20 @@ def select_llm_fix_issues(
     return selected
 
 
+def is_review_timeout(exc: BaseException) -> bool:
+    """True when a reviewer/judge LLM call timed out and should be skipped."""
+    if isinstance(exc, TimeoutError):
+        return True
+    try:
+        import httpx
+        if isinstance(exc, httpx.TimeoutException):
+            return True
+    except Exception:
+        pass
+    text = str(exc).lower()
+    return "timeout" in text or "超时" in text
+
+
 def _load_cross_validation_config() -> Dict[str, Any]:
     """加载交叉验证配置"""
     try:
@@ -246,6 +260,9 @@ class CrossValidator:
                     break
                 logger.warning(f"交叉验证裁判返回空内容 (尝试 {attempt + 1}/2)")
             except Exception as e:
+                if is_review_timeout(e):
+                    logger.warning("交叉验证裁判超时，跳过审查并使用版本 A: %s", file_path)
+                    return version_a, model_a
                 logger.warning(f"交叉验证裁判调用失败 (尝试 {attempt + 1}/2): {e}")
 
         if not content:
@@ -1308,7 +1325,13 @@ class CrossValidator:
                 len(issues),
                 len(selected),
             )
-        fixed_files = await self._fix_with_llm(generated_files, selected, fix_model)
+        try:
+            fixed_files = await self._fix_with_llm(generated_files, selected, fix_model)
+        except Exception as exc:
+            if is_review_timeout(exc):
+                logger.warning("跨文件审查超时，跳过 LLM 修复")
+                return generated_files, issues
+            raise
 
         return fixed_files, issues
 
@@ -1510,6 +1533,9 @@ class CrossValidator:
                             fixed_files[file_path] = fixed_content
                             logger.info(f"已修复文件: {file_path}")
             except Exception as e:
+                if is_review_timeout(e):
+                    logger.warning("跨文件审查超时，跳过剩余 LLM 修复")
+                    break
                 logger.error(f"批量修复失败: {e}")
                 # 回退到单文件修复
                 for file_path in batch_paths:
@@ -1546,6 +1572,9 @@ class CrossValidator:
                             fixed_files[file_path] = fixed_content
                             logger.info(f"已修复文件（单文件回退）: {file_path}")
                     except Exception as e2:
+                        if is_review_timeout(e2):
+                            logger.warning("跨文件审查超时，跳过剩余 LLM 修复")
+                            return fixed_files
                         logger.error(f"修复文件 {file_path} 失败: {e2}")
 
         return fixed_files

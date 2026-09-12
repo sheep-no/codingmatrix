@@ -67,6 +67,20 @@ class ZhipuAdapter(BaseProviderAdapter):
                         headers=headers,
                         json=data
                     ) as response:
+                        if response.status_code != 200:
+                            error_body = ""
+                            try:
+                                async for chunk in response.aiter_bytes():
+                                    error_body += chunk.decode(errors="replace")
+                                    if len(error_body) > 2048:
+                                        break
+                            except Exception:
+                                pass
+                            raise httpx.HTTPStatusError(
+                                f"HTTP {response.status_code}: {error_body[:500]}",
+                                request=response.request,
+                                response=response,
+                            )
                         async for line in response.aiter_lines():
                             if cancel_event and cancel_event.is_set():
                                 await response.aclose()

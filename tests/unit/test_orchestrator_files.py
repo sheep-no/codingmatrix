@@ -2001,6 +2001,29 @@ def test_extract_strict_paths_from_only_generate_following_expression():
     assert result["strict_file_paths"] == ["main.py", "models.py"]
 
 
+def test_extract_strict_paths_只要这一个文件():
+    requirement = (
+        "写一个 Python 文件 hello.py，运行后打印 Hello World。"
+        "只要这一个文件，不要数据库、不要前端、不要测试。"
+    )
+    assert Architect._extract_strict_file_paths(requirement) == {"hello.py"}
+
+
+def test_completeness_skips_boilerplate_for_simple_single_file():
+    architect = object.__new__(Architect)
+    architecture = {
+        "language": "python",
+        "file_plan": [{"path": "hello.py", "imports": []}],
+    }
+    complexity = types.SimpleNamespace(level="simple", estimated_files=1)
+    result = architect._ensure_file_plan_completeness(
+        architecture,
+        target_language="python",
+        complexity=complexity,
+    )
+    assert [item["path"] for item in result["file_plan"]] == ["hello.py"]
+
+
 def test_extract_strict_paths_from_english_exact_files_expression():
     requirement = (
         "Create a CRUD API. Generate exactly these files and no others: "
@@ -2041,11 +2064,28 @@ def test_requirement_aware_default_architecture_preserves_todo_sqlite_contract()
         language="python",
     )
 
+    assert result["project_spec"]["default"].get("framework") in (None, "")
+    assert "todos" not in (result.get("db_schema") or {})
+    assert "FastAPI" not in str(result.get("project_spec"))
+    paths = [item["path"] for item in result["file_plan"]]
+    assert "app/routers.py" not in paths
+    assert "README.md" not in paths
+
+
+def test_default_architecture_omits_framework_without_backend():
+    architect = object.__new__(Architect)
+    complexity = types.SimpleNamespace(
+        has_frontend=False,
+        has_backend=False,
+        has_database=False,
+        key_technologies=["Python"],
+        risk_factors=[],
+    )
+
+    result = architect._get_default_architecture(complexity, language="python")
     default_spec = result["project_spec"]["default"]
-    assert default_spec["framework"] == "Flask"
-    assert default_spec["storage"] == {"type": "sqlite", "filename": "todos.db"}
-    assert default_spec["terminology"]["todo"] == "Todo"
-    assert "todos" in result["db_schema"]
+    assert not default_spec.get("framework")
+    assert "storage" not in default_spec
 
 
 @pytest.mark.asyncio
@@ -2094,6 +2134,66 @@ def test_explicit_file_scope_normalizes_prefixed_paths_and_fills_omissions():
     ]
     assert result["file_plan"][0]["description"] == "实现 crud.py"
     assert result["file_plan"][1]["description"] == "entry"
+
+
+def test_completeness_does_not_materialize_third_party_imports():
+    architect = object.__new__(Architect)
+    architecture = {
+        "language": "python",
+        "file_plan": [
+            {
+                "path": "app/main.py",
+                "imports": [
+                    "fastapi",
+                    "sqlalchemy.orm",
+                    "pytest",
+                    "app.services.ticket_service",
+                ],
+            },
+            {
+                "path": "app/routers/ticket_router.py",
+                "imports": ["from fastapi import APIRouter"],
+            },
+        ],
+    }
+
+    result = architect._ensure_file_plan_completeness(
+        architecture,
+        target_language="python",
+    )
+    paths = [item["path"] for item in result["file_plan"]]
+
+    assert "fastapi.py" not in paths
+    assert "pytest.py" not in paths
+    assert "sqlalchemy.py" not in paths
+    assert all(not path.startswith("sqlalchemy/") for path in paths)
+    assert "app/services/ticket_service.py" in paths
+    assert "requirements.txt" not in paths
+    assert "README.md" not in paths
+
+
+def test_completeness_strips_third_party_file_plan_entries():
+    architect = object.__new__(Architect)
+    architecture = {
+        "language": "python",
+        "file_plan": [
+            {"path": "app/main.py", "imports": []},
+            {"path": "fastapi.py", "description": "自动补充的模块文件", "imports": []},
+            {"path": "sqlalchemy/orm/session.py", "description": "自动补充的模块文件", "imports": []},
+            {"path": "pytest.py", "imports": []},
+        ],
+    }
+
+    result = architect._ensure_file_plan_completeness(
+        architecture,
+        target_language="python",
+    )
+    paths = [item["path"] for item in result["file_plan"]]
+
+    assert "app/main.py" in paths
+    assert "fastapi.py" not in paths
+    assert "pytest.py" not in paths
+    assert "sqlalchemy/orm/session.py" not in paths
 
 
 def test_fastapi_class_route_registration_repair_uses_existing_handlers():
@@ -2154,13 +2254,11 @@ def test_requirement_aware_default_architecture_uses_ticket_skeleton():
     paths = {item["path"] for item in result["file_plan"]}
     assert result["used_default_architecture"] is True
     assert "工单系统" in result["requirement"]
-    assert default_spec["framework"] == "FastAPI"
-    assert default_spec["storage"] == {"type": "sqlite", "filename": "tickets.db"}
-    assert default_spec["terminology"]["ticket"] == "Ticket"
-    assert "tickets" in result["db_schema"]
-    assert "main.py" in paths
-    assert "app/models/ticket_model.py" in paths
-    assert "app/controllers/ticket_controller.py" in paths
+    assert not default_spec.get("framework")
+    assert "storage" not in default_spec
+    assert "tickets" not in (result.get("db_schema") or {})
+    assert "app/models/ticket_model.py" not in paths
+    assert "app/controllers/ticket_controller.py" not in paths
 
 
 @pytest.mark.asyncio
@@ -2220,7 +2318,7 @@ async def test_design_architecture_retries_empty_output_with_thinking_disabled()
 
     assert calls == [None, 0]
     assert result["used_default_architecture"] is True
-    assert "tickets" in result["db_schema"]
+    assert result["db_schema"] == {}
 
 
 @pytest.mark.asyncio
@@ -2252,7 +2350,7 @@ async def test_design_architecture_uses_default_when_retry_times_out():
 
     assert calls == [None, 0]
     assert result["used_default_architecture"] is True
-    assert "tickets" in result["db_schema"]
+    assert result["db_schema"] == {}
     assert "main.py" in {item["path"] for item in result["file_plan"]}
 
 
@@ -2317,6 +2415,9 @@ async def test_design_architecture_harvests_nested_file_plan():
     assert "/api/tickets" in result["api_spec"]["paths"]
     assert result.get("used_default_architecture") is None
     assert result.get("used_default_file_plan") is None
+    nested = result.get("architecture")
+    if isinstance(nested, dict):
+        assert "files" not in nested
 
 
 @pytest.mark.asyncio
@@ -2342,7 +2443,35 @@ async def test_design_architecture_keeps_api_spec_when_file_plan_missing():
     assert result["used_default_file_plan"] is True
     assert "/api/tickets" in result["api_spec"]["paths"]
     assert "main.py" in paths
-    assert "app/models/ticket_model.py" in paths
+    assert "app/models/ticket_model.py" not in paths
+
+
+@pytest.mark.asyncio
+async def test_design_architecture_drops_invalid_nested_files_when_using_default_plan():
+    architect = object.__new__(Architect)
+    architect.model_name = "test-model"
+    parsed = {
+        "project_type": "backend",
+        "api_spec": {"paths": {"/api/tickets": {"get": {"summary": "list"}}}},
+        "files": "not-a-plan",
+        "architecture": {"files": "also-invalid"},
+    }
+    architect.json_parser = types.SimpleNamespace(safe_parse_json=lambda text: parsed)
+
+    async def fake_call(prompt, system_prompt="", stream=False, thinking_budget=None):
+        return '{"ok": true}'
+
+    architect.call_llm = fake_call
+    result = await architect.design_architecture(
+        "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+        _ticket_complexity(),
+    )
+
+    assert result["used_default_file_plan"] is True
+    assert "files" not in result
+    nested = result.get("architecture")
+    if isinstance(nested, dict):
+        assert "files" not in nested
 
 
 @pytest.mark.asyncio
@@ -2391,3 +2520,14 @@ async def test_backend_engineer_uses_adapter_skeleton_for_manifest_and_entry():
     assert "app.controllers.ticket_controller" in entry
     assert "# 工单系统" in readme
     assert "`main.py`" in readme
+
+
+def test_sync_generation_architecture_rebinds_context():
+    from app.agent.orchestrator_generation.spec_first_generate import sync_generation_architecture
+
+    old = {"file_plan": [{"path": "src/main.py"}]}
+    new = {"file_plan": [{"path": "main.py"}, {"path": "app/controllers/ticket_controller.py"}]}
+    ctx = {"architecture": old}
+    file_plan = sync_generation_architecture(ctx, new)
+    assert ctx["architecture"] is new
+    assert [item["path"] for item in file_plan] == ["main.py", "app/controllers/ticket_controller.py"]

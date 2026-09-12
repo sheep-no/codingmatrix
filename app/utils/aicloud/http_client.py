@@ -54,7 +54,7 @@ async def close_http_client():
 async def call_with_retry(
     request_func,
     max_retries: int = 3,
-    retry_on_status: tuple = (429, 500, 502, 503, 504)
+    retry_on_status: tuple = (500, 502, 503, 504)
 ):
     """
     带重试机制的 API 调用
@@ -62,7 +62,7 @@ async def call_with_retry(
     Args:
         request_func: 异步请求函数
         max_retries: 最大重试次数
-        retry_on_status: 需要重试的 HTTP 状态码（默认包含 429 限流）
+        retry_on_status: 需要重试的 HTTP 状态码（5xx）。429 由 llm_caller 按模型冷却处理。
     
     Returns:
         响应结果
@@ -75,15 +75,10 @@ async def call_with_retry(
             if hasattr(result, 'status_code'):
                 if result.status_code == 200:
                     return result
+                if result.status_code == 429:
+                    result.raise_for_status()
                 if result.status_code in retry_on_status:
-                    # 429 优先使用 Retry-After header
-                    if result.status_code == 429:
-                        retry_after = result.headers.get('Retry-After')
-                        if retry_after and retry_after.isdigit():
-                            wait_time = min(int(retry_after), 60)
-                        else:
-                            wait_time = (2 ** attempt) * 2.0  # 429 用更长退避
-                    elif result.status_code == 503:
+                    if result.status_code == 503:
                         # 503 模型过载，使用更长退避时间
                         wait_time = (2 ** attempt) * 3.0  # 3s, 6s, 12s
                         logger.warning(f"API 503 模型过载, 重试 {attempt + 1}/{max_retries}, 等待 {wait_time}s")
@@ -100,6 +95,8 @@ async def call_with_retry(
             logger.warning(f"API 超时, 重试 {attempt + 1}/{max_retries}, 等待 {wait_time}s")
             await asyncio.sleep(wait_time)
         except httpx.HTTPError as e:
+            if getattr(getattr(e, "response", None), "status_code", None) == 429:
+                raise
             last_error = e
             wait_time = (2 ** attempt) * 1.0
             logger.warning(f"API 网络错误: {e}, 重试 {attempt + 1}/{max_retries}")

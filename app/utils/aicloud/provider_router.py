@@ -33,6 +33,7 @@ def _load_provider_map() -> dict[str, ModelProvider]:
             name = m.get("name", "")
             provider_str = m.get("provider", "siliconflow")
             provider = provider_enum_map.get(provider_str, ModelProvider.SILICONFLOW)
+            result[model_id] = provider
             if name:
                 result[name] = provider
     except Exception as e:
@@ -52,6 +53,9 @@ def _load_provider_map() -> dict[str, ModelProvider]:
     result.setdefault("glm-4", ModelProvider.ZHIPU)
     result.setdefault("glm-4v", ModelProvider.ZHIPU)
     result.setdefault("glm-4-alltools", ModelProvider.ZHIPU)
+    result.setdefault("glm-4.7-flash", ModelProvider.ZHIPU)
+    result.setdefault("glm-4-flash-250414", ModelProvider.ZHIPU)
+    result.setdefault("glm-z1-flash", ModelProvider.ZHIPU)
     result.setdefault("deepseek-chat", ModelProvider.DEEPSEEK)
     result.setdefault("deepseek-reasoner", ModelProvider.DEEPSEEK)
     return result
@@ -59,6 +63,13 @@ def _load_provider_map() -> dict[str, ModelProvider]:
 
 # 从统一配置动态加载
 MODEL_PROVIDER_MAP: dict[str, ModelProvider] = _load_provider_map()
+
+
+def reload_provider_map() -> dict[str, ModelProvider]:
+    """重新从 YAML 加载模型-供应商映射。"""
+    global MODEL_PROVIDER_MAP
+    MODEL_PROVIDER_MAP = _load_provider_map()
+    return MODEL_PROVIDER_MAP
 
 # 故障转移配置
 PROVIDER_FALLBACK: dict[ModelProvider, list[ModelProvider]] = {
@@ -122,9 +133,13 @@ class ProviderRouter:
         logger.warning(f"Unknown model {model_name}, defaulting to SiliconFlow")
         return ModelProvider.SILICONFLOW
     
-    def get_fallback_providers(self, primary: ModelProvider) -> list[ModelProvider]:
-        """获取故障转移供应商列表（过滤掉不可用的）"""
+    def get_fallback_providers(self, primary: ModelProvider, model_name: Optional[str] = None) -> list[ModelProvider]:
+        """获取故障转移供应商列表。已绑定到特定供应商的模型不会跨厂回落。"""
         fallbacks = PROVIDER_FALLBACK.get(primary, [])
+        if model_name:
+            mapped = MODEL_PROVIDER_MAP.get(model_name)
+            if mapped is not None:
+                fallbacks = [provider for provider in fallbacks if provider == mapped]
         if not self._registry:
             return fallbacks
         return [p for p in fallbacks if self._registry.is_provider_available(p)]
