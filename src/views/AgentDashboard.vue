@@ -512,11 +512,7 @@ const openPerformancePanel = () => backend.openPerformancePanel()
 const analyzeRequirementComplexity = (p) => backend.analyzeRequirementComplexity(p)
 const doOpenVersionHistory = (f) => backend.openVersionHistoryWithBackend(f, session.currentSessionId)
 const saveProjectToBackend = () => backend.saveProjectToBackend()
-const handleFileSelect = (f) => workspace.handleFileSelect(f, {
-  zip: backend.uploadingZip,
-  progress: backend.importProgress,
-  show: backend.showUploadModal
-})
+const handleFileSelect = (f) => workspace.handleFileSelect(f, backend)
 const saveSettings = (localSettings) => {
   backend.settings = localSettings
   backend.saveSettings()

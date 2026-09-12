@@ -44,6 +44,17 @@ export function markThinkingStreamEnded(messages, { agent, phase } = {}) {
   return messages
 }
 
+export function resolveIncrementalStreamOptions(hasExistingFiles, currentProjectPath) {
+  const incremental = Boolean(hasExistingFiles && currentProjectPath)
+  if (!incremental) return { incremental: false }
+  return {
+    incremental: true,
+    engine: 'core',
+    is_resume: false,
+    project_path: currentProjectPath,
+  }
+}
+
 export function useAgentStreaming(projectApi, workspace, files, generation, session, taskFeedback = null) {
   // 注意：workspace 和 files 是 reactive() 对象，ref 属性会被自动解包
   // 不能解构后使用 .value，必须通过对象访问（如 workspace.currentAgent）
@@ -398,7 +409,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         })
         if (session.currentSessionId) {
           const doneData = data.data || data
-          const dirName = doneData.output_dir || session.currentSessionId
+          const dirName = doneData.project_path || doneData.output_dir || session.currentSessionId
           workspace.currentProjectPath = dirName
         }
         if (data.data?.performance) {
@@ -465,7 +476,10 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     
     // 自动判断模式：有已生成文件则为增量更新，否则为新建
     const hasExistingFiles = files.generatedFiles.length > 0
-    const isIncremental = hasExistingFiles && workspace.currentProjectPath
+    const incrementalOptions = resolveIncrementalStreamOptions(
+      hasExistingFiles,
+      workspace.currentProjectPath,
+    )
     
     return {
       requirement,
@@ -476,14 +490,11 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       enable_memory: true,
       spec_first: true,
       dependency_graph: true,
-      incremental: isIncremental,
       require_approval: false,
       api_key_token: selectedApiKeyToken ? selectedApiKeyToken.token : undefined,
       provider_id: providerId,
       project_name: projectName || undefined,
-      ...(isIncremental ? {
-        project_path: workspace.currentProjectPath
-      } : {})
+      ...incrementalOptions,
     }
   }
 
@@ -559,7 +570,10 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
 
     // 自动判断模式
     const hasExistingFiles = files.generatedFiles.length > 0
-    const isIncremental = hasExistingFiles && workspace.currentProjectPath
+    const isIncremental = resolveIncrementalStreamOptions(
+      hasExistingFiles,
+      workspace.currentProjectPath,
+    ).incremental
     const mode = isIncremental ? '增量更新' : '新建项目'
     
     if (!isIncremental) {

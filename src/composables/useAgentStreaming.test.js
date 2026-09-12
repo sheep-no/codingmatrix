@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { markThinkingStreamEnded, normalizeAgentRole, normalizeEventTimestamp } from './useAgentStreaming'
+import {
+  markThinkingStreamEnded,
+  normalizeAgentRole,
+  normalizeEventTimestamp,
+  resolveIncrementalStreamOptions,
+} from './useAgentStreaming'
 
 describe('agent streaming model roles', () => {
   it.each([
@@ -41,5 +46,25 @@ describe('markThinkingStreamEnded', () => {
     markThinkingStreamEnded(messages, { agent: '后端工程师' })
     expect(messages[0].streaming).toBe(false)
     expect(messages[1].streaming).toBe(true)
+  })
+})
+
+describe('resolveIncrementalStreamOptions', () => {
+  it('sends a boolean incremental flag and core engine when files already exist', () => {
+    expect(resolveIncrementalStreamOptions(true, '1/1789218793436')).toEqual({
+      incremental: true,
+      engine: 'core',
+      is_resume: false,
+      project_path: '1/1789218793436',
+    })
+  })
+
+  it('keeps incremental false for a new project', () => {
+    expect(resolveIncrementalStreamOptions(false, '1/1789218793436')).toEqual({
+      incremental: false,
+    })
+    expect(resolveIncrementalStreamOptions(true, '')).toEqual({
+      incremental: false,
+    })
   })
 })

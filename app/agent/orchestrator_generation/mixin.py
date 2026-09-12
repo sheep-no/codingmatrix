@@ -116,6 +116,9 @@ class GenerationMixin(
         if self.evaluation_only:
             return await self.evaluate(requirement)
 
+        if self.incremental:
+            return await self.generate_incremental(requirement, self.callback)
+
         if self.spec_first:
             return await self.generate_with_spec_first(requirement, self.callback)
 

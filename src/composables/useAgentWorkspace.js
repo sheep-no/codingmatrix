@@ -73,17 +73,18 @@ export function useAgentWorkspace({
   }
 
   const importZipFile = async (file, importing) => {
-    importing.zip.value = true
-    importing.progress.value = { current: 0, total: 0, currentFile: '' }
+    const progress = { current: 0, total: 0, currentFile: '' }
+    importing.uploadingZip = true
+    importing.importProgress = progress
     try {
       const zip = await JSZip.loadAsync(file)
       const entries = Object.keys(zip.files)
       const projectFiles = entries.filter(e => !e.endsWith('/'))
-      importing.progress.value.total = projectFiles.length
+      progress.total = projectFiles.length
       const importedFiles = []
       for (const entry of projectFiles) {
-        importing.progress.value.currentFile = entry
-        importing.progress.value.current++
+        progress.currentFile = entry
+        progress.current++
         const content = await zip.files[entry].async('string')
         importedFiles.push({ path: entry, content, name: entry.split('/').pop() })
       }
@@ -91,7 +92,7 @@ export function useAgentWorkspace({
       files.fileDiffs = importedFiles.map(f => ({
         path: f.path, oldContent: '', newContent: f.content, operation: 'create'
       }))
-      importing.show.value = false
+      importing.showUploadModal = false
       ElMessage.success(`成功导入 ${projectFiles.length} 个文件`)
       addLog('success', `导入项目: ${file.name} (${projectFiles.length} 个文件)`)
       if (!session.currentSessionId) {
@@ -101,8 +102,8 @@ export function useAgentWorkspace({
       console.error('ZIP 导入失败:', error)
       ElMessage.error(`导入失败: ${error.message}`)
     } finally {
-      importing.zip.value = false
-      importing.progress.value = { current: 0, total: 0, currentFile: '' }
+      importing.uploadingZip = false
+      importing.importProgress = { current: 0, total: 0, currentFile: '' }
     }
   }
 
