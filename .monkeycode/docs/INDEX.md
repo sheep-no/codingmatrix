@@ -38,8 +38,14 @@
 - `../specs/2026-09-03-girlai-companion-enhancement/`：GirlAI 纯对话伙伴回合、记忆、情绪意图和语音适配的需求、设计与实施计划。
 - `../specs/2026-09-06-flutter-desktop-agent-client/`：Flutter Windows 桌面 Agent 客户端的需求、设计与实施计划；当前已完成工程骨架和认证基础层。
 
+## 2026-09-12 增量
+
+- `docs/` 已同步架构师超时回退、boilerplate 骨架、托管项目 `DELETE /api/v1/agent/projects/{session_id}`、SSE 断线后生成继续、`reconnectable` / `is_resume`、GLM 并发与 429 冷却、PPT/图片按天保留。
+- Flutter 会话详情在 `reconnectable=true` 时用 `is_resume=true` 挂回 SSE；Web 工作台走同一用户再次提交流式请求的自动挂回。
+- 仓库对外文档以 `docs/` 为准；本目录保留会话内索引、接口与开发指南。
+
 ## 文档边界
 
 - `.monkeycode/docs/` 保存当前项目知识和开发文档。
 - `.monkeycode/specs/` 保存功能规格；部分规格目录受 Git 忽略规则影响，提交时需显式暂存。
-- `docs/` 保存仓库历史演化记录和较早的专项报告，内容更新状态以本目录为准。
+- `docs/` 保存仓库对外架构、API、功能与测试文档；Agent 生命周期等 2026-09-12 变更已写入该目录。`docs/evolution/` 与 `docs/versions/` 保留历史快照。

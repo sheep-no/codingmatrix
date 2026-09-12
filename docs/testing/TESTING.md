@@ -1,6 +1,6 @@
 # 测试文档
 
-> 最后核对：2026-09-10
+> 最后核对：2026-09-12
 
 本文档以当前测试目录和实际配置为准。后端与 Web 文件数是 2026-09-03 的静态清点；Flutter 测试是 2026-09-10 的目录清点与运行记录。验收数字保留原始记录的范围和日期。
 
@@ -11,7 +11,7 @@
 | 后端单元 | `tests/unit/test_*.py` | pytest、pytest-asyncio | 144 个文件，1848 个 `test_*` 定义 |
 | 后端集成 | `tests/integration/test_*.py` | pytest、数据库、Redis | 4 个文件，31 个 `test_*` 定义 |
 | Web 单元 | `src/**/*.test.js` | Vitest、jsdom、Vue Test Utils | 15 个文件，31 个直接 `test/it` 定义 |
-| 浏览器 E2E | `tests/e2e/*.spec.js` | Playwright | 77 个 spec，433 个直接 `test(...)` 定义 |
+| 浏览器 E2E | `tests/e2e/*.spec.js` | Playwright | 2026-09-12 目录 97 个 spec；2026-09-03 曾清点 77 个文件 / 433 个 `test(...)` |
 | VS Code 单元 | `vscode-extension/test/*.test.mjs` | Node test、TypeScript | `npm --prefix vscode-extension test` |
 | VS Code Host E2E | `vscode-extension/e2e/` | `@vscode/test-electron`、Xvfb | `npm --prefix vscode-extension run e2e` |
 | Flutter 客户端 | `flutter_client/test/**/*_test.dart` | `flutter test` | 15 个文件 |
@@ -108,4 +108,5 @@ cd /workspace/flutter_client && flutter test --no-pub --concurrency=1
 - 进程内 ASGI 测试无法证明真实端口、Nginx、broker、共享产物卷和多 worker 行为。
 - `scripts/verify-integration.sh` 主要提供静态、语法和配置级证据。
 - 模型供应商调用、认证 E2E、PPT Celery、VS Code Extension Host、Flutter 真机/桌面联调和跨进程 StateGraph 恢复需要对应环境单独验收。
+- 真实智谱/设置 live 规格位于 `tests/e2e/agent-glm-flash-live.spec.js`、`apikey-glm-live.spec.js`、`settings-model-config-live.spec.js`、`settings-ui-live.spec.js`，依赖 `TEST_API_KEY` 与运行中的前后端。SSE 挂回单元测试为 `tests/unit/test_stream_cancel_reconnect.py`。
 - 验收数字必须连同命令、范围、依赖条件和日期引用。

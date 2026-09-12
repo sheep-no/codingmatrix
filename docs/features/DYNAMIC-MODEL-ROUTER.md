@@ -1,6 +1,6 @@
 # 动态模型路由
 
-> 最后更新：2026-09-03
+> 最后更新：2026-09-12
 
 动态模型路由为 Agent 提供角色模型分配、实时健康评分、连续失败降级和基于历史表现的学习选择。核心实现位于 `app/agent/dynamic_model_router.py`。
 
@@ -15,13 +15,15 @@
 
 `data/agent_model_config.yaml` 通常由 `ModelConfigManager` 从 `data/unified_model_config.yaml` 派生。统一配置保存后会刷新模型映射、角色缓存和降级链。
 
+`reload_roles_config()` 清空 `_roles_cache` 并立即重读 YAML。配置中的智谱模型包括 `glm-4.7-flash`、`glm-4-flash-250414`、`glm-z1-flash`（`provider: zhipu`）；并发上限见 [Agent 系统](AGENT.md) 的 `LLMClient` 说明。
+
 当前角色配置为：
 
 | 角色 | 模型 ID |
 |------|---------|
 | architect | `qwen3-8b` |
 | frontend | `deepseek-r1` |
-| backend | `deepseek-r1` |
+| backend | `qwen3.5-4b` |
 | reviewer | `glm-z1-9b` |
 | fallback | `qwen3-8b` |
 

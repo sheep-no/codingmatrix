@@ -1,6 +1,6 @@
 # Flutter 桌面客户端
 
-> 最后更新：2026-09-10 | 源码：`flutter_client/` | Dart：58 个 `lib/**/*.dart` / 9,149 行 | 页面：16 | 测试：15 个文件
+> 最后更新：2026-09-12 | 源码：`flutter_client/` | Dart：58 个 `lib/**/*.dart` / 9,149 行 | 页面：16 | 测试：15 个文件
 
 `flutter_client` 是 CodingMatrix 的桌面 Agent 工作台，包名为 `codingmatrix_desktop`，版本 `1.0.0+1`，Dart SDK `^3.9.2`。客户端只调用现有 FastAPI 接口，使用 Cookie JWT、CSRF 和 RSA 加密登录，不单独实现业务引擎。
 
@@ -30,7 +30,7 @@
 | 模型列表 | `models_page.dart` | `/api/v1/models` |
 | 动态供应商 | `dynamic_provider_page.dart` | `/api/v1/providers` 增删改、同步、测试、启停 |
 | 任务中心 | `task_center_page.dart` | `/api/v1/tasks` 列表、取消、重试、恢复、心跳、事件 |
-| Agent 历史 | `agent_history_page.dart` | 会话、快照、回滚、并发限制 |
+| Agent 历史 | `agent_history_page.dart` | 会话、快照、回滚、并发限制；`reconnectable` 时带 `is_resume=true` 挂回 SSE |
 | 决策 | `decisions_page.dart` | 决策记录查询 |
 | GitHub | `github_settings_page.dart` | `/api/v1/github/config` 与 `/api/v1/github/save` |
 | 管理后台 | `admin_page.dart` | 用户 CRUD、重置密码、系统配置/统计、沙箱、内存、限流、日志、MCP 只读列表 |
@@ -42,6 +42,10 @@
 - Token 与 CSRF 写入安全存储；后续请求由 `AuthenticatedClient` 附加。
 - 管理后台入口对 `admin` / `superadmin` 可见。
 - MCP 完整管理页仅 `superadmin` 可见。
+
+## Agent SSE 重连
+
+`AgentStreamClient.generate` 请求体包含 `is_resume`。会话详情页在 `reconnectable=true` 时提供「断开并重连」：先读 `GET /api/v1/agent/sessions/{id}`，再 `POST /api/v1/agent/orchestrate/stream` 且 `is_resume=true`。确认文案说明只接收后续及未消费事件。`reconnectable=false` 时重连按钮保持禁用。
 
 ## GitHub 边界
 
@@ -78,4 +82,6 @@ flutter run -d linux
 - [快速开始](../guides/GETTING-STARTED.md)
 - [测试指南](../testing/TESTING.md)
 - [API 文档](../api/API-DOCUMENTATION.md)
+- [会话生命周期](SESSION-LIFECYCLE.md)
+- [Agent 系统](AGENT.md)
 - [模块说明](../architecture/MODULES.md)

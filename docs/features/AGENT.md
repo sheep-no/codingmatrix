@@ -98,6 +98,10 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 
 `LLMClient` 全局并发上限为 6。按模型默认每模型最多 2 路；智谱免费档覆盖为 `glm-4.7-flash=1`、`glm-4-flash-250414=20`、`glm-z1-flash=6`。未列出的模型沿用每模型 2 路，并仍受全局 6 路约束。
 
+`app/utils/aicloud/llm_caller.py` 对 429 / rate limit 最多再试 3 次，并按模型冷却 15–60 秒（可读 `Retry-After`）。冷却期间释放全局与模型信号量，避免占住额度。保存统一模型配置后，`ModelConfigManager._refresh_runtime_config` 调用 `reload_roles_config()` 与 `reload_fallback_chain()`，角色映射立即生效。
+
+Web 工作台 `useAgentStreaming.js` 把设置页选中的 `preferredAgentKey` 作为 `api_key_token` 写入流式请求。Web 端当前靠同一用户再次 `POST /orchestrate/stream` 走后端自动挂回；Flutter 历史页显式传 `is_resume=true`。
+
 模型上下文保存在独立的 `agent_model_context` Task 中，字段包括配置版本、角色映射、当前模型、当前 Agent、分配统计和最近 50 条 fallback 历史。它拥有独立 revision，更新支持乐观并发控制。
 
 接口：

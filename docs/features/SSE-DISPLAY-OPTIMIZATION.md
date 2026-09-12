@@ -36,6 +36,8 @@ data: {"type":"thinking","data":{"message":"..."}}
 
 浏览器或代理断开 SSE 后，后端把该会话标为未订阅，生成任务继续。心跳仍写入内存队列。同一用户对同一存活任务再次 `POST /api/v1/agent/orchestrate/stream`，或带 `is_resume=true` 与 `session_id`，会挂回原队列。任务仍有订阅连接时返回 HTTP 409。会话列表中的 `reconnectable` 只覆盖当前进程内存任务。
 
+Web `useAgentStreaming.js` 走自动挂回（同一用户再次提交流式请求）。Flutter 历史页显式传 `is_resume=true`，见 [Flutter 桌面客户端](FLUTTER-CLIENT.md)。
+
 ## 当前直通事件
 
 `PASSTHROUGH_SSE_EVENTS` 当前包含：
