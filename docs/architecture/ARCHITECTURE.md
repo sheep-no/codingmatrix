@@ -255,7 +255,7 @@ SQL 权威状态由 `app/models/unified_state.py` 和 `app/services/unified_stat
 │  │ │   regex_replace, write_file                     │ │  │
 │  │ │ 执行工具 (2): execute_code (Python AST+JS沙箱), │ │  │
 │  │ │   run_command (黑名单+白名单)                    │ │  │
-│  │ │ 网络工具 (2): web_search (DuckDuckGo),          │ │  │
+│  │ │ 网络工具 (2): web_search (DDG Instant Answer),  │ │  │
 │  │ │   http_request (SSRF防护)                       │ │  │
 │  │ │ Git 工具 (3): git_status, git_diff, git_log     │ │  │
 │  │ └─────────────────────────────────────────────────┘ │  │

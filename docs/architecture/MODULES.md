@@ -844,7 +844,7 @@ dependencies.get_affected_files(['models/user.py'])
 2. `run_command` - 危险命令黑名单 + 命令前缀白名单，60s 超时
 
 **网络工具 (2)**:
-1. `web_search` - DuckDuckGo 搜索
+1. `web_search` - DuckDuckGo Instant Answer（`api.duckduckgo.com`）；聊天/PPT/Workflow 生产搜索见 `docs/features/WEB-SEARCH.md`
 2. `http_request` - SSRF 防护的 HTTP 请求
 
 **注册表**:

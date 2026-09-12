@@ -183,3 +183,7 @@ npm run build:budget
 # 检查已有生产产物的性能预算
 npm run budget:check
 ```
+
+生成页用 `sessionStorage` 键 `ppt-generate-session-v1` 保存步骤、大纲和任务进度；同一标签刷新后恢复，生成中会重连 WebSocket。历史面板调用 `GET /api/v1/pptx/history`：预览进入 `/ppt-preview/{task_id}`，加载回填主题和下载 URL。
+
+首页聊天 `src/components/centerContent.vue` 把非临时会话写入 IndexedDB 库 `AIChatDB`、对象仓库 `conversations`。写入前用 `cloneForIndexedDb` 做 JSON 往返，去掉 Vue 代理、函数，并把 `Error` 压成可克隆字段。

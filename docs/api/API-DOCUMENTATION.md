@@ -223,9 +223,11 @@ GirlAI 预设角色为 `gentle`、`lively`、`tsundere`、`intellectual` 和 `co
 | GET | `/api/v1/pptx/{ppt_id}/slides` | 幻灯片列表 | normal |
 | DELETE | `/api/v1/pptx/{task_id}/cancel` | 取消任务 | normal |
 | POST | `/api/v1/pptx/{task_id}/update` | 更新任务 | normal |
+| GET | `/api/v1/pptx/history` | 当前用户分页历史 | normal |
+| DELETE | `/api/v1/pptx/history/{task_id}` | 删除历史及产物文件 | normal |
+| GET | `/api/v1/pptx/history/stats` | 历史统计 | normal |
 
 ### 大纲审批与质量端点
-
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
 | POST | `/api/v1/pptx/outlines` | 创建用户作用域的大纲草稿 | normal |
@@ -630,7 +632,7 @@ GirlAI 预设角色为 `gentle`、`lively`、`tsundere`、`intellectual` 和 `co
 - [x] DELETE /api/v1/kolors/history/{image_id} - 删除历史
 - [x] DELETE /api/v1/kolors/history - 删除全部历史
 
-### PPT 生成（重点端点 14 条）
+### PPT 生成（重点端点 17 条）
 - [x] POST /api/v1/pptx/outlines - 创建大纲草稿
 - [x] GET /api/v1/pptx/outlines/{outline_id} - 读取大纲版本
 - [x] PATCH /api/v1/pptx/outlines/{outline_id} - 编辑大纲
@@ -645,6 +647,9 @@ GirlAI 预设角色为 `gentle`、`lively`、`tsundere`、`intellectual` 和 `co
 - [x] GET /api/v1/pptx/{ppt_id}/slides - 幻灯片列表
 - [x] DELETE /api/v1/pptx/{task_id}/cancel - 取消任务
 - [x] POST /api/v1/pptx/{task_id}/update - 更新任务
+- [x] GET /api/v1/pptx/history - 当前用户分页历史
+- [x] DELETE /api/v1/pptx/history/{task_id} - 删除历史及产物
+- [x] GET /api/v1/pptx/history/stats - 历史统计
 
 ### 文件管理 (5/5)
 - [x] POST /api/v1/files/upload - 单文件上传

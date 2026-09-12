@@ -175,3 +175,4 @@ flutter run -d linux
 ---
 
 最后更新：2026-09-03
+- [Web 搜索](features/WEB-SEARCH.md) - 生产 `FreeWebSearch`、Bing/DuckDuckGo/Wikipedia 顺序与 Agent 工具分流

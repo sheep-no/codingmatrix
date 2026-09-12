@@ -1,6 +1,6 @@
 # Web 搜索增强功能
 
-> 最后核对：2026-09-03
+> 最后核对：2026-09-12
 > 状态：独立模块可用，生产搜索主链路未接入
 
 ## 当前状态
@@ -66,3 +66,5 @@ ranked = sort_by_quality(deduplicate_results(results))
 - `app/utils/web_search_enhancements.py`：独立增强实现
 - `app/utils/web_search.py`：当前生产搜索实现
 - `app/utils/workflow/node_types/web_search.py`：当前 Workflow 搜索节点
+
+生产搜索在 `web_search.py` 内自带 `search_query_variants`、`filter_relevant_results` 和 `merge_results_by_url`。Agent `_tool_web_search` 使用 DuckDuckGo Instant Answer JSON。完整主链路见 `docs/features/WEB-SEARCH.md`。
