@@ -19,6 +19,26 @@ def test_strip_leading_file_label_preserves_regular_first_line():
     assert utils.strip_leading_file_label(content, "app/main.py") == content
 
 
+def test_reusable_existing_file_content_accepts_complete_python():
+    content = "def main():\n    print('Hello World')\n\nif __name__ == '__main__':\n    main()\n"
+    reusable, reason = utils.reusable_existing_file_content("hello.py", content)
+    assert reusable is True
+    assert reason == ""
+
+
+def test_reusable_existing_file_content_rejects_stub_and_metadata():
+    stub_ok, stub_reason = utils.reusable_existing_file_content("app.py", "pass\n")
+    assert stub_ok is False
+    assert stub_reason
+
+    meta_ok, meta_reason = utils.reusable_existing_file_content(
+        "main.py",
+        '{"status": "ok", "message": "file written", "file_path": "main.py"}',
+    )
+    assert meta_ok is False
+    assert meta_reason
+
+
 def test_extract_rejects_tool_call_json_before_persistence(tmp_path):
     content = '{"tool":"read_file","params":{"path":"app/models.py"}}'
     assert utils.is_placeholder_content(content, "app/models.py")[0] is True

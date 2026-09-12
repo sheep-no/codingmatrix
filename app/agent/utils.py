@@ -1225,6 +1225,17 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
     return False, ""
 
 
+def reusable_existing_file_content(file_path: str, content: str) -> tuple:
+    """Whether on-disk content is complete enough to skip regeneration."""
+    is_valid, reason = is_valid_code_content(file_path, content)
+    if not is_valid:
+        return False, reason
+    is_placeholder, placeholder_reason = is_placeholder_content(content, file_path)
+    if is_placeholder:
+        return False, placeholder_reason
+    return True, ""
+
+
 def compact_project_context_for_file(file_path: str, project_context: Dict[str, Any]) -> str:
     """Build a per-file generation context without dumping the full architecture."""
     architecture = project_context.get("architecture") or {}

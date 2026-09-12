@@ -118,3 +118,32 @@ async def test_live_connection_still_conflicts_on_explicit_resume(monkeypatch):
         )
     assert error.value.status_code == 409
     assert "订阅连接" in error.value.detail
+
+
+@pytest.mark.asyncio
+async def test_disconnect_watcher_keeps_generation_running():
+    cancel_event = asyncio.Event()
+
+    async def worker():
+        await cancel_event.wait()
+
+    generation_task = asyncio.create_task(worker())
+    endpoints._active_tasks["watch"] = {
+        "gen_task": generation_task,
+        "connected": True,
+        "http_request": DisconnectedRequest(),
+    }
+    try:
+        await endpoints._watch_stream_disconnect(
+            DisconnectedRequest(),
+            "watch",
+            cancel_event,
+            generation_task,
+        )
+        assert not cancel_event.is_set()
+        assert not generation_task.done()
+        assert endpoints._active_tasks["watch"]["connected"] is False
+    finally:
+        generation_task.cancel()
+        await asyncio.gather(generation_task, return_exceptions=True)
+        endpoints._active_tasks.pop("watch", None)

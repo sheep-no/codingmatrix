@@ -318,16 +318,18 @@ async def _watch_stream_disconnect(
     cancel_event: asyncio.Event,
     generation_task: asyncio.Task,
 ) -> None:
-    """Observe the ASGI disconnect signal while generation is active."""
-    while not cancel_event.is_set() and not generation_task.done():
-        if await http_request.is_disconnected():
-            logger.info("[SSE] 检测到客户端断开，取消生成 | session=%s", session_id)
-            active = _active_tasks.get(session_id)
-            if active:
-                active["connected"] = False
-            await _cancel_stream_generation(session_id, cancel_event, generation_task)
-            return
-        await asyncio.sleep(0.25)
+    """Mark the SSE subscriber gone. Explicit cancel still stops generation."""
+    try:
+        while not cancel_event.is_set() and not generation_task.done():
+            if await http_request.is_disconnected():
+                logger.info("[SSE] 检测到客户端断开，生成转后台 | session=%s", session_id)
+                active = _active_tasks.get(session_id)
+                if active:
+                    active["connected"] = False
+                return
+            await asyncio.sleep(0.25)
+    except asyncio.CancelledError:
+        return
 
 
 def _skill_context_for_user(user_id: str, requirement: str = "") -> str:
@@ -1397,9 +1399,10 @@ async def orchestrate_project_stream(
                         continue
                 logger.info(f"[SSE] 队列消息处理完成 | session={session_id}")
             except asyncio.CancelledError:
-                logger.info(f"[SSE] 客户端断开连接，取消生成任务 | session={session_id}")
+                logger.info(f"[SSE] 客户端断开连接，生成转入后台 | session={session_id}")
             finally:
                 heartbeat_task.cancel()
+                disconnect_task.cancel()
                 active = _active_tasks.get(session_id)
                 if active:
                     active["connected"] = False

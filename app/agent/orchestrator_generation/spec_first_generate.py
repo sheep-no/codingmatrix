@@ -19,7 +19,7 @@ from app.agent.orchestrator_progress import MAX_CONTENT_FOR_CONTEXT
 from app.agent.adapters import LanguageAdapterRegistry
 from app.agent.dynamic_model_router import get_context_length
 from app.agent.models import DEFAULT_FAST_MODEL
-from app.agent.utils import extract_engineer_content, write_file_atomic, cleanup_temp_files
+from app.agent.utils import extract_engineer_content, write_file_atomic, cleanup_temp_files, reusable_existing_file_content
 from app.agent.dependency_graph_validator import DependencyGraphValidator
 from app.agent.generation_plan import GenerationPlan, add_profile_components
 from app.agent.toolchain import detect_toolchain
@@ -489,38 +489,31 @@ class SpecFirstGenerateMixin:
                 if full_path.exists():
                     try:
                         existing_content = full_path.read_text(encoding='utf-8')
-                        if existing_content.strip():
-                            # 检查文件修改时间和大小
-                            stat = full_path.stat()
-                            file_size = stat.st_size
-                            file_mtime = stat.st_mtime
-                            
-                            # 文件大小检查：至少 10 字节
-                            if file_size < 10:
-                                logger.warning(f"文件太小，重新生成: {file_path} ({file_size} bytes)")
-                            else:
-                                logger.info(f"文件已存在，跳过生成: {file_path} (size={file_size}, mtime={file_mtime})")
-                                self._report_progress(
-                                    "skipping_existing_file",
-                                    4 + file_index,
-                                    total_files + 5,
-                                    file_path=file_path,
-                                    callback=callback
-                                )
-                                return {
-                                    "path": file_path,
-                                    "description": description,
-                                    "file_type": file_type,
-                                    "success": True,
-                                    "size": len(existing_content),
-                                    "refinement_attempts": 0,
-                                    "issues_fixed": 0,
-                                    "content": existing_content,
-                                    "model_name": "cached",
-                                    "validation_passed": True,
-                                    "validation_issues": [],
-                                    "skipped": True
-                                }
+                        reusable, skip_reason = reusable_existing_file_content(file_path, existing_content)
+                        if reusable:
+                            logger.info("文件已存在且校验通过，跳过生成: %s", file_path)
+                            self._report_progress(
+                                "skipping_existing_file",
+                                4 + file_index,
+                                total_files + 5,
+                                file_path=file_path,
+                                callback=callback
+                            )
+                            return {
+                                "path": file_path,
+                                "description": description,
+                                "file_type": file_type,
+                                "success": True,
+                                "size": len(existing_content),
+                                "refinement_attempts": 0,
+                                "issues_fixed": 0,
+                                "content": existing_content,
+                                "model_name": "cached",
+                                "validation_passed": True,
+                                "validation_issues": [],
+                                "skipped": True
+                            }
+                        logger.warning("已有文件不可复用，重新生成: %s (%s)", file_path, skip_reason)
                     except Exception as e:
                         logger.warning(f"读取已存在文件失败: {file_path}, {e}")
 
@@ -1116,37 +1109,30 @@ class SpecFirstGenerateMixin:
             if full_path.exists():
                 try:
                     existing_content = full_path.read_text(encoding='utf-8')
-                    if existing_content.strip():
-                        # 检查文件修改时间和大小
-                        stat = full_path.stat()
-                        file_size = stat.st_size
-                        file_mtime = stat.st_mtime
-                        
-                        # 文件大小检查：至少 10 字节
-                        if file_size < 10:
-                            logger.warning(f"文件太小，重新生成: {file_path} ({file_size} bytes)")
-                        else:
-                            logger.info(f"文件已存在，跳过生成: {file_path} (size={file_size}, mtime={file_mtime})")
-                            progress_report("skipping_existing_file", file_path, files_generated, total_files)
+                    reusable, skip_reason = reusable_existing_file_content(file_path, existing_content)
+                    if reusable:
+                        logger.info("文件已存在且校验通过，跳过生成: %s", file_path)
+                        progress_report("skipping_existing_file", file_path, files_generated, total_files)
 
-                            async with state_lock:
-                                ctx.save_file_content(file_path, existing_content, "cached")
-                                ctx.update_file_validation(file_path, True, [])
-                                generated_contents[file_path] = existing_content[:MAX_CONTENT_FOR_CONTEXT]
-                                from app.agent.symbol_table import remember_generated_file
-                                remember_generated_file(project_context, file_path, existing_content, architecture)
+                        async with state_lock:
+                            ctx.save_file_content(file_path, existing_content, "cached")
+                            ctx.update_file_validation(file_path, True, [])
+                            generated_contents[file_path] = existing_content[:MAX_CONTENT_FOR_CONTEXT]
+                            from app.agent.symbol_table import remember_generated_file
+                            remember_generated_file(project_context, file_path, existing_content, architecture)
 
-                                generated_files_list.append({
-                                    "path": file_path,
-                                    "description": description,
-                                    "success": True,
-                                    "size": len(existing_content),
-                                    "model_name": "cached",
-                                    "skipped": True
-                                })
-                                files_generated += 1
+                            generated_files_list.append({
+                                "path": file_path,
+                                "description": description,
+                                "success": True,
+                                "size": len(existing_content),
+                                "model_name": "cached",
+                                "skipped": True
+                            })
+                            files_generated += 1
 
-                            return existing_content
+                        return existing_content
+                    logger.warning("已有文件不可复用，重新生成: %s (%s)", file_path, skip_reason)
                 except Exception as e:
                     logger.warning(f"读取已存在文件失败: {file_path}, {e}")
 

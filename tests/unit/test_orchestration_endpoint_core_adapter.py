@@ -205,12 +205,23 @@ async def test_disconnect_watcher_propagates_asgi_disconnect():
         await cancel_event.wait()
 
     generation_task = asyncio.create_task(worker())
-    await _watch_stream_disconnect(
-        DisconnectedRequest(),
-        "watch-session",
-        cancel_event,
-        generation_task,
-    )
+    orchestrate_endpoints._active_tasks["watch-session"] = {
+        "gen_task": generation_task,
+        "connected": True,
+        "cancel_event": cancel_event,
+    }
+    try:
+        await _watch_stream_disconnect(
+            DisconnectedRequest(),
+            "watch-session",
+            cancel_event,
+            generation_task,
+        )
 
-    assert cancel_event.is_set()
-    assert generation_task.done()
+        assert cancel_event.is_set() is False
+        assert generation_task.done() is False
+        assert orchestrate_endpoints._active_tasks["watch-session"]["connected"] is False
+    finally:
+        generation_task.cancel()
+        await asyncio.gather(generation_task, return_exceptions=True)
+        orchestrate_endpoints._active_tasks.pop("watch-session", None)
