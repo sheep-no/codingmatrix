@@ -616,3 +616,84 @@ import UserCard from '../components/User.vue';
         assert graph.adjacency["src/main/java/com/example/TodoController.java"] == {
             "src/main/java/com/example/Todo.java"
         }
+
+
+class TestEnrichFromSource:
+    def test_unknown_only_depended_by_entry_becomes_utils(self, tmp_path):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        (tmp_path / "calc.py").write_text(
+            "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "main.py").write_text(
+            '"""CLI entry."""\nfrom calc import add\nprint(add(1, 2))\n',
+            encoding="utf-8",
+        )
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.add_file("calc.py")
+        graph.add_file("main.py")
+        graph.add_dependency("main.py", "calc.py")
+
+        assert graph.nodes["calc.py"].file_type == "unknown"
+        assert graph.nodes["main.py"].file_type == "entry"
+
+        changed = graph.enrich_from_source(tmp_path)
+
+        assert changed is True
+        assert graph.nodes["calc.py"].file_type == "utils"
+        assert "add" in graph.nodes["calc.py"].description
+        assert "subtract" in graph.nodes["calc.py"].description
+        assert graph.nodes["main.py"].description == "CLI entry."
+
+    def test_does_not_overwrite_existing_metadata(self, tmp_path):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.add_file("calc.py", file_type="model", description="keep me")
+
+        changed = graph.enrich_from_source(tmp_path)
+
+        assert changed is False
+        assert graph.nodes["calc.py"].file_type == "model"
+        assert graph.nodes["calc.py"].description == "keep me"
+
+    def test_enrich_and_save_persists_to_disk(self, tmp_path):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+        (tmp_path / "main.py").write_text("from calc import add\n", encoding="utf-8")
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.add_file("calc.py")
+        graph.add_file("main.py")
+        graph.add_dependency("main.py", "calc.py")
+
+        assert graph.enrich_and_save(tmp_path) is True
+
+        loaded = DependencyGraph.load(str(tmp_path / ".dep_graph.json"), language_adapter=PythonLanguageAdapter())
+        assert loaded is not None
+        assert loaded.nodes["calc.py"].file_type == "utils"
+        assert "add" in loaded.nodes["calc.py"].description
+
+    @pytest.mark.asyncio
+    async def test_build_from_existing_project_fills_empty_descriptions(self, tmp_path):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        (tmp_path / "calc.py").write_text(
+            '"""Arithmetic helpers."""\ndef add(a, b):\n    return a + b\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "main.py").write_text("from calc import add\nprint(add(1, 2))\n", encoding="utf-8")
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        await graph.build_from_existing_project(tmp_path)
+
+        assert graph.nodes["calc.py"].file_type == "utils"
+        assert graph.nodes["calc.py"].description == "Arithmetic helpers."
+        assert "add" in graph.nodes["main.py"].description or graph.nodes["main.py"].file_type == "entry"

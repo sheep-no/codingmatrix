@@ -68,6 +68,7 @@ class IncrementalModifyMixin:
             return await self.generate_with_spec_first(requirement, callback)
 
         logger.info(f"加载依赖图: {len(dep_graph.nodes)} 个节点")
+        dep_graph.enrich_and_save(self.output_dir, str(dep_graph_path))
 
         # 从依赖图构建项目摘要（给架构师看）
         project_summary = self._build_project_summary_from_graph(dep_graph)

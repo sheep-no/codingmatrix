@@ -964,6 +964,8 @@ class IncrementalAdapter(_PlannedAgentAdapter):
             if not graph.nodes:
                 raise RuntimeError("incremental Core generation could not rebuild the dependency graph")
             graph.save(str(self.output_dir / ".dep_graph.json"))
+        if isinstance(graph, DependencyGraph):
+            graph.enrich_and_save(self.output_dir)
         self._dependency_graph = graph
         adjacency = getattr(graph, "adjacency", {})
 

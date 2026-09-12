@@ -67,6 +67,13 @@ class DependencyGraph:
     DEPENDENCY_RULES = DEPENDENCY_RULES
     PATH_TYPE_RULES = PATH_TYPE_RULES
 
+    _ENRICH_SOURCE_SUFFIXES = frozenset({
+        ".py", ".pyw", ".pyi",
+        ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue",
+        ".java", ".kt", ".go", ".rs", ".rb", ".php", ".cs",
+    })
+    _MAX_ENRICH_BYTES = 256 * 1024
+
     def __init__(self, language_adapter=None):
         self.nodes: Dict[str, FileNode] = {}
         self.adjacency: Dict[str, Set[str]] = defaultdict(set)  # file -> set of files it depends on
@@ -1279,6 +1286,8 @@ class DependencyGraph:
             for dep in dep_paths:
                 self.add_dependency(file_path, dep)
 
+        self.enrich_from_source(project_path)
+
         order = self.get_generation_order()
 
         logger.info(
@@ -1292,6 +1301,159 @@ class DependencyGraph:
             "edges": sum(len(d) for d in self.adjacency.values()),
             "order": order
         }
+
+    def enrich_from_source(self, project_path: Path) -> bool:
+        """Fill empty descriptions and unknown types from source. No LLM.
+
+        Returns True if any node changed.
+        """
+        project_path = Path(project_path)
+        changed = False
+        for path, node in list(self.nodes.items()):
+            abs_path = project_path / path
+            if not abs_path.is_file():
+                continue
+            if self._enrich_unknown_file_type(path, node):
+                changed = True
+            if self._enrich_empty_description(path, node, abs_path):
+                changed = True
+        if changed:
+            logger.info("依赖图已从源码轻量补全 description / unknown type")
+        return changed
+
+    def enrich_and_save(self, project_path: Path, graph_path: Optional[str] = None) -> bool:
+        """Enrich from source and persist when anything changed."""
+        changed = self.enrich_from_source(project_path)
+        if changed:
+            target = graph_path or str(Path(project_path) / ".dep_graph.json")
+            self.save(target)
+        return changed
+
+    def _enrich_unknown_file_type(self, path: str, node: FileNode) -> bool:
+        if node.file_type not in ("unknown", ""):
+            return False
+        inferred = self._infer_file_type(path)
+        if inferred and inferred not in ("unknown", ""):
+            self.update_file_type(path, inferred)
+            return node.file_type == inferred
+        dependents = self.reverse_adjacency.get(path, set())
+        dep_types = {
+            self.nodes[dep].file_type
+            for dep in dependents
+            if dep in self.nodes
+        }
+        dep_types.discard("")
+        if dependents and dep_types and dep_types <= {"entry"}:
+            self.update_file_type(path, "utils")
+            return node.file_type == "utils"
+        return False
+
+    def _enrich_empty_description(self, path: str, node: FileNode, abs_path: Path) -> bool:
+        if (node.description or "").strip():
+            return False
+        if abs_path.suffix.lower() not in self._ENRICH_SOURCE_SUFFIXES:
+            return False
+        desc = self._description_from_source(abs_path, path)
+        if not desc:
+            return False
+        node.description = desc
+        return True
+
+    def _description_from_source(self, abs_path: Path, rel_path: str) -> str:
+        try:
+            size = abs_path.stat().st_size
+        except OSError:
+            return ""
+        if size <= 0:
+            return ""
+        try:
+            content = abs_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return ""
+        if not content.strip():
+            return ""
+        if len(content) > self._MAX_ENRICH_BYTES:
+            content = content[: self._MAX_ENRICH_BYTES]
+
+        suffix = abs_path.suffix.lower()
+        if suffix in {".py", ".pyw", ".pyi"}:
+            doc = self._python_module_docstring(content)
+            if doc:
+                return doc
+
+        exported = self._exported_symbol_names(content)
+        if exported:
+            return f"定义 {', '.join(exported[:8])}"
+
+        comment = self._first_comment_line(content)
+        if comment:
+            return comment
+
+        inferred = self._infer_file_description(rel_path)
+        if inferred and inferred != "自动补充的模块文件":
+            return inferred
+        return ""
+
+    def _exported_symbol_names(self, content: str) -> List[str]:
+        if not self.language_adapter:
+            return []
+        try:
+            defs = self.language_adapter.extract_definitions(content) or {}
+        except Exception:
+            return []
+        ranked: List[str] = []
+        fallback: List[str] = []
+        for name, definition in defs.items():
+            if not getattr(definition, "is_exported", True):
+                continue
+            symbol_type = getattr(definition, "symbol_type", "")
+            if symbol_type in ("function", "class"):
+                ranked.append(name)
+            else:
+                fallback.append(name)
+        return ranked or fallback
+
+    @staticmethod
+    def _python_module_docstring(content: str) -> str:
+        import ast
+
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return ""
+        doc = ast.get_docstring(tree)
+        if not doc:
+            return ""
+        first = doc.strip().splitlines()[0].strip()
+        return first[:200]
+
+    @staticmethod
+    def _first_comment_line(content: str) -> str:
+        for raw in content.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith("#!"):
+                continue
+            if line.startswith("#"):
+                if "coding:" in line or "coding=" in line:
+                    continue
+                text = line.lstrip("#").strip()
+                if text:
+                    return text[:200]
+                continue
+            if line.startswith("//"):
+                text = line[2:].strip()
+                if text:
+                    return text[:200]
+                continue
+            if line.startswith("/*") or line.startswith("/**"):
+                text = line.lstrip("/*").rstrip("*/").strip().lstrip("*").strip()
+                if text:
+                    return text[:200]
+                continue
+            return ""
+        return ""
 
     def _parse_python_imports(self, file_path: Path, project_path: Path) -> List[str]:
         """解析 Python 文件的 import 语句，映射到项目内的文件路径"""
