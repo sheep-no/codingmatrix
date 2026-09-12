@@ -148,6 +148,11 @@
 | GET | `/api/v1/agent/knowledge/search` | 搜索知识 | normal |
 | GET | `/api/v1/agent/sessions/{session_id}/model-context` | 读取模型上下文快照 | normal |
 | PUT | `/api/v1/agent/sessions/{session_id}/model-context` | 按 revision 更新模型上下文 | normal |
+| POST | `/api/v1/agent/projects/{session_id}/archive` | 归档托管项目 | normal |
+| DELETE | `/api/v1/agent/projects/{session_id}` | 立即删除托管项目及文件 | normal |
+| POST | `/api/v1/agent/projects/{session_id}/restore` | 恢复已归档项目 | normal |
+| POST | `/api/v1/agent/projects/{session_id}/pin` | 固定项目，阻止自动清理 | normal |
+| DELETE | `/api/v1/agent/projects/{session_id}/pin` | 取消固定 | normal |
 
 `modify`、同步编排和流式编排路径已通过 `run_workflow(..., db=db, user_id=user_id)` 接入统一状态持久化。当前生产图包装 legacy handler；统一 Session、Task、Checkpoint、Event、Artifact 与 legacy 会话在迁移期共同存在。
 

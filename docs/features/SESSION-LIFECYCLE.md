@@ -1,6 +1,6 @@
 # 会话生命周期
 
-> 最后核对：2026-09-03
+> 最后核对：2026-09-12
 > 状态：多层会话模型并存，Agent StateGraph 已接入统一状态落库
 
 ## 会话层次
@@ -53,6 +53,22 @@ TTL 清理还会把运行中的数据库 `ProjectSession` 标记为 `expired`。
 ## ProjectSession
 
 Agent 编排端点使用 `ProjectSession` 进行身份校验、状态查询、输出目录定位和运行结果记录。会话 action 执行前会校验当前用户所有权。
+
+### 托管项目生命周期 API
+
+`app/api/v1/ai_agent/lifecycle_endpoints.py` 挂载在 `/api/v1/agent/projects`：
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| POST | `/{session_id}/archive` | 归档；项目 `running` 或存在 pending/running/recovering 任务时返回 409 |
+| DELETE | `/{session_id}` | 立即删除托管目录、`ProjectSession` 和保留记录 |
+| POST | `/{session_id}/restore` | 从归档恢复；`purged` 不可恢复 |
+| POST | `/{session_id}/pin` | 固定，阻止自动清理 |
+| DELETE | `/{session_id}/pin` | 取消固定 |
+
+立即删除由 `permanently_delete_project` 执行。拦截条件是内存中仍有未完成的生成任务（`_generation_is_active`），或数据库中仍有 `pending`/`running`/`recovering` 任务。仅 `ProjectSession.status=running`、内存生成任务已结束的项目可以删除。`user_owned`、`external`、`pinned` 以及超出 `PROJECTS_BASE_DIR` 的目录会触发 `PermissionError`，接口返回 409。
+
+前端 `src/utils/api/project.js` 的 `reclaimProject` 调用该 DELETE。`AgentDashboard.vue` 在用户确认「删除并清理」后调用；404 视为已不存在并继续清本地会话，其他错误保留会话。
 
 取消操作会触发运行取消事件、清理活跃任务、尝试清理输出目录、更新 JSON/DB 状态并释放并发计数。该操作具有文件清理副作用，客户端应在用户确认后调用。
 
@@ -134,5 +150,8 @@ Host 能力集合：`workspace`、`file`、`terminal`、`diagnostics`、`validat
 - `app/services/agent_state_adapter.py`
 - `app/services/model_context_service.py`
 - `app/api/v1/ai_agent/model_context_endpoints.py`
+- `app/api/v1/ai_agent/lifecycle_endpoints.py`
+- `app/services/state_migration_service.py`
+- `src/utils/api/project.js`
 - `app/api/v1/agent_host.py`
 - `vscode-extension/src/agent-host-runtime.ts`

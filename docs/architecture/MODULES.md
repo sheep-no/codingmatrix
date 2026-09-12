@@ -484,7 +484,8 @@ dependencies.get_affected_files(['models/user.py'])
 | SessionManager | `session_manager.py` | **582** | 5 状态机 (RUNNING/PAUSED/COMPLETED/FAILED/CANCELLED) + DB 写透 |
 | **OrchestratorGeneration** | `orchestrator_generation/` | **2,364** | **spec_first/traditional/incremental/evaluate 5 个 mixin** |
 | **OrchestratorRequirements** | `orchestrator_requirements/` | **1,037** | **3 层需求关联 + 双模型对抗 + 魔鬼代言人** |
-| **Adapters** | `adapters/` | **~1,600** | **语言适配器：generic/python/javascript/language_adapter** |
+| **Adapters** | `adapters/` | **含 boilerplate.py 323 行** | **语言适配器：generic/python/javascript/language_adapter；入口/README/manifest 骨架** |
+| Architect 默认架构 | `architect.py` | LLM 失败回退 | 超时、空输出、解析失败走 `_get_requirement_aware_default_architecture` |
 
 ### API 路由 (app/api/) - 28 个挂载路由 / 42 个 Python 文件 / 20,267 行
 

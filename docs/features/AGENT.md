@@ -1,7 +1,7 @@
 # Agent 系统
 
-> 最后核对：2026-09-03
-> 状态：Web Agent、legacy 编排、StateGraph 包装、统一状态落库、Mobile Agent 与 VS Code Agent Host 活跃
+> 最后核对：2026-09-12
+> 状态：Web Agent、legacy 编排、StateGraph 包装、统一状态落库、Mobile Agent、VS Code Agent Host 与 Flutter 客户端活跃
 
 ## 概述
 
@@ -25,6 +25,9 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 | Mobile Agent | 活跃 | `/agent` 同页响应式工作台 |
 | VS Code Agent Host | 活跃 | 本地 action、策略、验证、Skills 和会话控制 |
 | Flutter 桌面客户端 | 活跃 | `flutter_client/` 调用 `/api/v1/agent/orchestrate/stream` 等现有接口；详见 [Flutter 桌面客户端](FLUTTER-CLIENT.md) |
+| 架构师默认架构回退 | 活跃 | LLM 超时、空输出或解析失败时返回需求感知默认架构，并标记 `used_default_architecture` |
+| 语言骨架生成 | 活跃 | 入口、README、依赖清单由 `adapters/boilerplate.py` 确定性生成，不再先走 LLM |
+| 托管项目立即删除 | 活跃 | `DELETE /api/v1/agent/projects/{session_id}`；内存中无活动生成任务时，卡住的 `running` 项目可删除 |
 | `POST /api/v1/agent/react` | 废弃文档路径 | 路由未实现，ReAct 由编排入口内部使用 |
 | 多语言依赖解析器 | 独立未接入 | 生产图使用 `dependency_graph.py` 自身解析器 |
 | Web 搜索增强模块 | 独立未接入 | 生产搜索未导入增强模块 |
@@ -111,6 +114,8 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 
 数据库 `ProjectSession` 保存用户所有权、输出目录、总体状态、文件计数和活动时间。API 操作会在执行前验证会话归属。
 
+Web 工作台删除会话会先调用 `projectApi.reclaimProject`（`DELETE /api/v1/agent/projects/{session_id}`），立即删除托管目录与保留记录。活动生成任务仍在内存中时返回 HTTP 409；仅数据库状态为 `running`、内存任务已结束的项目可以删除。
+
 ### 统一状态
 
 `persist_agent_state` 执行以下写入：
@@ -124,7 +129,15 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 
 本地 `CheckpointStore` 默认目录为 `data/agent_state_checkpoints`。Host 工具结果可通过 task 和 revision 合并回图状态并继续运行。
 
-完整生命周期见 `docs/features/SESSION-LIFECYCLE.md`。
+完整生命周期见 [会话生命周期](SESSION-LIFECYCLE.md)。
+
+## 架构回退与小模型上下文
+
+`Architect.design_architecture` 在首次 LLM 调用、禁用思考重试或 JSON 解析失败时，调用 `_get_requirement_aware_default_architecture`，返回带 `used_default_architecture=true` 的默认架构，生成流程继续。
+
+前后端工程师对尚未存在的入口、README 和依赖清单文件优先使用 `LanguageAdapterRegistry.scaffold_file`。骨架实现位于 `app/agent/adapters/boilerplate.py`，覆盖 Python/JavaScript/Go/Java 入口以及 `requirements.txt`、`pyproject.toml`、`package.json`、`go.mod`、`Cargo.toml`、`pom.xml`。
+
+单文件生成不再把完整 architecture JSON 塞进 prompt。`compact_project_context_for_file` 只保留需求摘要、当前文件契约和可选 `generation_contract`。`CrossValidator.select_llm_fix_issues` 把交给小模型修复的跨文件问题限制为最多 20 条、6 个文件、每文件 8 条。
 
 ## Web Agent 与 Mobile Agent
 
@@ -137,7 +150,7 @@ Agent 系统从自然语言需求生成或修改项目，覆盖架构规划、Sp
 - `useAgentStreaming`
 - `useAgentBackend`
 
-浏览器 `agentSession` store 将有限会话历史写入 localStorage，并保存阶段、日志、文件和模型上下文 revision。切换会话时会从后端补充模型上下文。
+浏览器 `agentSession` store 将有限会话历史写入 localStorage，并保存阶段、日志、文件和模型上下文 revision。切换会话时会从后端补充模型上下文。删除当前会话前会弹出确认，文案说明将立即删除托管项目文件。
 
 Mobile Agent 使用同一 `/agent` 页面、API 和 store。768px 以下启用会话与文件抽屉、遮罩、焦点管理和移动工具栏；它没有独立后端服务。
 

@@ -1,6 +1,6 @@
 # CodingMatrix 项目功能介绍
 
-> 最后更新：2026-09-10
+> 最后更新：2026-09-12
 
 CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，另提供 Flutter 桌面客户端，覆盖智能对话、项目生成、多 Agent 协作、模型配置、演示文稿生成、AI Cloud 沙箱和知识库等能力。
 
@@ -12,6 +12,9 @@ CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，另提供 F
 - 多 Agent 流程按 architect、frontend、backend、reviewer、fallback 五类角色分配模型。
 - 动态模型路由可依据调用成功率、近期延迟和活动请求数选择候选模型，并在连续失败时使用配置的降级模型。
 - 项目生成流程包含任务状态、检查点和产物记录；具体能力以对应 API 和 Agent 实现为准。
+- Architect LLM 超时或输出无法解析时，使用需求感知默认架构继续生成。
+- 入口、README 和依赖清单可由语言适配器骨架直接写出。
+- 用户可立即删除托管项目；生成任务仍在内存运行时拒绝删除。
 
 ### 模型与供应商
 
