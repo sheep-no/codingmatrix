@@ -139,9 +139,16 @@ class IncrementalModifyMixin:
             "unsupported_steps": list(validation_plan.unsupported_steps),
         }
         incremental_plan = add_profile_components(
-            [change for change in change_plan if change.get("action") != "delete"],
+            [
+                change for change in change_plan
+                if change.get("action") != "delete" and change.get("path")
+            ],
             project_context["profile"],
-            policy="extensible",
+            policy="strict",
+            requested_paths=[
+                change.get("path") for change in change_plan
+                if change.get("action") != "delete" and change.get("path")
+            ],
         )
         planned_paths = {change.get("path") for change in change_plan}
         for item in incremental_plan.files:
@@ -551,7 +558,7 @@ class IncrementalModifyMixin:
             if is_simple:
                 # 简单变更用轻量模型（更快）
                 from app.agent.models import DEFAULT_FAST_MODEL
-                engineer = self._select_engineer(file_path, force_model=DEFAULT_FAST_MODEL)
+                engineer = self._select_engineer(file_path)
                 model_name = DEFAULT_FAST_MODEL
                 logger.info(f"简单变更，使用轻量模型: {file_path}")
             else:
