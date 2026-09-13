@@ -208,4 +208,75 @@ void main() {
     expect(find.text('图片 1'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  test('生成请求网络断开后退出忙碌并显示错误', () async {
+    final controller = ImageGenerationController(
+      ImageGenerationClient(
+        DeliveryApi(
+          (_, __, ___) async => throw const SocketException('connection lost'),
+        ),
+      ),
+    );
+    await controller.generate(const ImageGenerationInput(prompt: '山'), key);
+    expect(controller.state.error, '生成请求失败或结果未知，请确认后手动提交');
+    expect(controller.state.busy, false);
+    expect(controller.state.images, isEmpty);
+    controller.dispose();
+  });
+
+  testWidgets('生成中退出再进入不会保留图片', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final client = ImageGenerationClient(
+      DeliveryApi((_, __, ___) => pending.future),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        imageGenerationControllerProvider.overrideWith(
+          (_) => ImageGenerationController(client),
+        ),
+        providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('imagePrompt')), '山');
+    await tester.ensureVisible(find.byKey(const Key('imageGenerate')));
+    await tester.tap(find.byKey(const Key('imageGenerate')));
+    await tester.pump();
+    expect(find.text('正在生成或读取图片，请等待'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开图片'))),
+      ),
+    );
+    await tester.pump();
+
+    pending.complete({
+      'success': true,
+      'images': [pixel],
+    });
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('图片 1'), findsNothing);
+    expect(find.text('离开图片'), findsNothing);
+  });
 }
