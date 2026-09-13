@@ -1024,6 +1024,38 @@ language 字段要求：
         return None
 
     @staticmethod
+    def _planned_covers_module(
+        planned_paths: Set[str],
+        module: str,
+        candidates: List[str],
+    ) -> bool:
+        """A planned file already implements this import target."""
+        if any(candidate in planned_paths for candidate in candidates):
+            return True
+        last = (module or "").rsplit(".", 1)[-1]
+        if not last:
+            return False
+        dotted = module.replace(".", "/")
+        for path in planned_paths:
+            posix = str(path).replace("\\", "/")
+            stem = Path(posix).stem
+            parent = Path(posix).parent.as_posix()
+            covers_last = stem == last or (
+                stem in {"__init__", "mod", "index"}
+                and Path(posix).parent.name == last
+            )
+            if not covers_last:
+                continue
+            if "." not in module:
+                return True
+            no_ext = posix[:-len(Path(posix).suffix)] if Path(posix).suffix else posix
+            if no_ext == dotted or no_ext.endswith("/" + dotted):
+                return True
+            if parent == dotted or parent.endswith("/" + dotted):
+                return True
+        return False
+
+    @staticmethod
     def _is_external_module(adapter, name: str) -> bool:
         if not name or adapter is None:
             return False
@@ -1201,7 +1233,7 @@ language 字段要求：
             import_info = ImportInfo(module=module, symbols=[], is_relative=False)
             candidates = adapter.resolve_import_to_file(import_info, "")
 
-            exists = any(c in planned_paths for c in candidates)
+            exists = self._planned_covers_module(planned_paths, module, candidates)
 
             if not exists and candidates:
                 file_path = candidates[0]

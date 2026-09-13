@@ -2197,6 +2197,57 @@ def test_completeness_strips_third_party_file_plan_entries():
     assert "sqlalchemy/orm/session.py" not in paths
 
 
+def test_completeness_does_not_add_root_duplicate_for_nested_module():
+    architect = object.__new__(Architect)
+    architecture = {
+        "language": "python",
+        "file_plan": [
+            {
+                "path": "src/main.py",
+                "imports": ["from greet import greet"],
+                "file_type": "entry",
+            },
+            {
+                "path": "src/greet.py",
+                "imports": [],
+                "file_type": "utils",
+                "description": "定义 greet(name)",
+            },
+        ],
+    }
+
+    result = architect._ensure_file_plan_completeness(
+        architecture,
+        target_language="python",
+    )
+    paths = [item["path"] for item in result["file_plan"]]
+
+    assert paths == ["src/main.py", "src/greet.py"]
+
+
+def test_completeness_still_adds_missing_local_module():
+    architect = object.__new__(Architect)
+    architecture = {
+        "language": "python",
+        "file_plan": [
+            {
+                "path": "src/main.py",
+                "imports": ["from greet import greet"],
+            },
+        ],
+    }
+
+    result = architect._ensure_file_plan_completeness(
+        architecture,
+        target_language="python",
+    )
+    paths = [item["path"] for item in result["file_plan"]]
+
+    assert "src/main.py" in paths
+    assert "greet.py" in paths
+    assert "src/greet.py" not in paths
+
+
 def test_fastapi_class_route_registration_repair_uses_existing_handlers():
     content = (
         "from fastapi import FastAPI\n"
