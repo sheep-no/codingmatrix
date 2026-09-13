@@ -50,6 +50,7 @@ class ChatApi extends DeliveryApi {
   String? endpoint;
   Future<Map<String, dynamic>> Function(String)? upload;
   List<Map<String, dynamic>>? conversationItems;
+  List<Map<String, dynamic>>? historyItems;
 
   @override
   Future<Map<String, dynamic>> uploadFile(String path) async {
@@ -87,6 +88,14 @@ class ChatApi extends DeliveryApi {
             [
               {'role': 'user', 'content': '问题'},
               {'role': 'assistant', 'content': '你好'},
+            ],
+      };
+    }
+    if (path == '/api/v1/history') {
+      return {
+        'items': historyItems ??
+            [
+              {'conversation_id': 42, 'prompt': '问题'},
             ],
       };
     }
@@ -453,5 +462,73 @@ void main() {
           .text,
       '分析',
     );
+  });
+
+  testWidgets('发送完成后从历史切换到另一会话', (tester) async {
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '当前问题');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    api.chunks.add(utf8.encode('{"conversation_id":1}\n{"delta":"旧回复"}\n'));
+    await tester.pump();
+    await api.chunks.close();
+    await tester.pumpAndSettle();
+    expect(find.text('旧回复'), findsOneWidget);
+
+    api.historyItems = [
+      {'conversation_id': 99, 'prompt': '历史标题'},
+    ];
+    api.conversationItems = [
+      {'role': 'user', 'content': '历史用户'},
+      {'role': 'assistant', 'content': '历史回答'},
+    ];
+    await tester.tap(find.byKey(const Key('chatHistoryButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('历史标题'));
+    await tester.pumpAndSettle();
+    expect(find.text('历史回答'), findsOneWidget);
+    expect(find.text('历史用户'), findsOneWidget);
+    expect(find.text('旧回复'), findsNothing);
+  });
+
+  testWidgets('发送完成后退出再进入仍显示当前会话', (tester) async {
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '问题');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    api.chunks.add(utf8.encode('{"conversation_id":42}\n{"delta":"你好"}\n'));
+    await tester.pump();
+    await api.chunks.close();
+    await tester.pumpAndSettle();
+    expect(find.text('你好'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开聊天'))),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('你好'), findsNothing);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('你好'), findsOneWidget);
+    expect(find.text('问题'), findsOneWidget);
   });
 }
