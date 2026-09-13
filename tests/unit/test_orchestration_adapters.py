@@ -1747,3 +1747,41 @@ async def test_incremental_adapter_restores_narrowed_local_imports(tmp_path):
 
     assert "from calc import add, subtract, multiply" in generated.content
     assert generated.content.count("from calc import") == 1
+
+
+@pytest.mark.asyncio
+async def test_analyze_changes_reraises_architect_llm_failure(tmp_path):
+    from app.agent.orchestrator_generation.incremental_modify import IncrementalModifyMixin
+
+    mixin = IncrementalModifyMixin()
+    mixin.output_dir = tmp_path
+    mixin.architect = SimpleNamespace(
+        call_llm=AsyncMock(side_effect=RuntimeError("LLM 调用失败: glm-4.7-flash - 429")),
+    )
+
+    with pytest.raises(RuntimeError, match="429"):
+        await mixin._analyze_changes_with_architect(
+            "add divide",
+            "existing calculator",
+            SimpleNamespace(nodes={"calc.py": {}, "main.py": {}}),
+            None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_incremental_adapter_propagates_architect_llm_failure(tmp_path):
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    agent = _Agent(tmp_path)
+    agent._build_project_summary_from_graph = Mock(return_value="existing project")
+    agent._analyze_changes_with_architect = AsyncMock(
+        side_effect=RuntimeError("LLM 调用失败: glm-4.7-flash - 429"),
+    )
+    adapter = IncrementalAdapter(agent)
+
+    with pytest.raises(RuntimeError, match="429"):
+        await adapter.create_plan(GenerationRequest(
+            requirement="add divide",
+            task_id="architect-429",
+            session_id="architect-429",
+            metadata={"architecture": {"language": "python"}},
+        ))

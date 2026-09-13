@@ -432,7 +432,7 @@ class IncrementalModifyMixin:
 
         except Exception as e:
             logger.error(f"架构师分析失败: {e}")
-            return []
+            raise
 
     # ========== P1: 架构师分析缓存 ==========
 
