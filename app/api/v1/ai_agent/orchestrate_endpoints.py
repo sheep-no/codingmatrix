@@ -907,7 +907,11 @@ async def orchestrate_project_stream(
 
         return StreamingResponse(resume_events(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-    skill_context = _skill_context_for_user(user_id, request.requirement)
+    skill_context = (
+        _skill_context_for_user(user_id, request.requirement)
+        if request.enable_skills
+        else ""
+    )
     generation_requirement = request.requirement + skill_context
     legacy_requirement = _legacy_requirement_with_allowed_files(
         generation_requirement,
