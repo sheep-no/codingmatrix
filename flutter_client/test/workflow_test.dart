@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -69,6 +70,15 @@ class WorkflowApi extends DeliveryApi {
 List<int> line(Map<String, Object?> event) =>
     utf8.encode('${jsonEncode(event)}\n');
 Future<void> tick() => Future<void>.delayed(Duration.zero);
+
+class ThrowingSendApi extends DeliveryApi {
+  ThrowingSendApi() : super((_, __, ___) async => null);
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    throw const SocketException('connection lost');
+  }
+}
+
 void main() {
   test(
     'NDJSON handles split UTF8, CRLF, blank lines and final unterminated event',
@@ -204,4 +214,109 @@ void main() {
       await tester.pump();
     },
   );
+
+  testWidgets('空任务不会发起执行', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        workflowControllerProvider.overrideWith(
+          (_) => WorkflowController(WorkflowClient(ThrowingSendApi())),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('workflowExecute')));
+    await tester.pump();
+    expect(find.text('请输入任务描述'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
+  testWidgets('执行请求网络断开显示未知结果', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        workflowControllerProvider.overrideWith(
+          (_) => WorkflowController(WorkflowClient(ThrowingSendApi())),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('workflowInput')), '任务');
+    await tester.tap(find.byKey(const Key('workflowExecute')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('执行请求失败或结果未知，请先核对任务状态'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
+  testWidgets('执行中退出再进入不会保留任务图', (tester) async {
+    final source = StreamController<List<int>>();
+    addTearDown(() {
+      unawaited(source.close());
+    });
+    final api = WorkflowApi(source.stream);
+    final container = ProviderContainer(
+      overrides: [
+        workflowControllerProvider.overrideWith(
+          (_) => WorkflowController(WorkflowClient(api)),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('workflowInput')), '任务');
+    await tester.tap(find.byKey(const Key('workflowExecute')));
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(find.text('状态：connecting'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开工作流'))),
+      ),
+    );
+    await tester.pump();
+    expect(source.hasListener, false);
+    try {
+      source.add(line(graph));
+    } on StateError catch (_) {}
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('状态：idle'), findsOneWidget);
+    expect(find.text('依赖：n1'), findsNothing);
+    expect(
+      tester
+          .widget<TextFormField>(find.byKey(const Key('workflowInput')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+  });
 }

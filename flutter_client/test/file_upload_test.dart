@@ -67,6 +67,14 @@ class FileApi extends DeliveryApi {
           }
         : await upload!(path);
   }
+
+  Future<http.StreamedResponse> Function(http.BaseRequest)? downloadSend;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    if (downloadSend != null) return downloadSend!(request);
+    return super.send(request);
+  }
 }
 
 class TestPicker extends FilePicker {
@@ -221,6 +229,102 @@ void main() {
     expect(find.text('离开文件中心'), findsNothing);
     expect(find.text('a.txt'), findsNothing);
     expect(find.text('上传完成'), findsNothing);
+    expect(find.text('选择文件上传'), findsOneWidget);
+  });
+
+  testWidgets('未选择文件不会上传', (tester) async {
+    var uploads = 0;
+    FilePicker.platform = TestPicker();
+    final api = FileApi()
+      ..upload = (_) async {
+        uploads += 1;
+        return {
+          'name': 'a.txt',
+          'server_path': 'uploads/a.txt',
+          'file_id': '1',
+        };
+      };
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [authenticatedClientProvider.overrideWithValue(api)],
+        child: const MaterialApp(home: FileCenterPage()),
+      ),
+    );
+    await tester.tap(find.text('选择文件上传'));
+    await tester.pump();
+    expect(uploads, 0);
+    expect(find.text('上传完成'), findsNothing);
+  });
+
+  testWidgets('文件中心下载网络断开显示失败', (tester) async {
+    FilePicker.platform = TestPicker()
+      ..result = FilePickerResult([
+        PlatformFile(name: 'a.txt', path: '/tmp/a.txt', size: 10),
+      ]);
+    final api = FileApi()
+      ..downloadSend = (_) async =>
+          throw const SocketException('connection lost');
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [authenticatedClientProvider.overrideWithValue(api)],
+        child: const MaterialApp(home: FileCenterPage()),
+      ),
+    );
+    await tester.tap(find.text('选择文件上传'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('a.txt'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.download));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('下载失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('文件中心下载中退出再进入不会带回列表', (tester) async {
+    final pending = Completer<http.StreamedResponse>();
+    FilePicker.platform = TestPicker()
+      ..result = FilePickerResult([
+        PlatformFile(name: 'a.txt', path: '/tmp/a.txt', size: 10),
+      ]);
+    final api = FileApi()..downloadSend = (_) => pending.future;
+    final container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: FileCenterPage()),
+      ),
+    );
+    await tester.tap(find.text('选择文件上传'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('a.txt'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.download));
+    await tester.pump();
+    expect(find.text('下载中...'), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开文件中心'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: FileCenterPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('a.txt'), findsNothing);
+    expect(find.textContaining('下载失败'), findsNothing);
     expect(find.text('选择文件上传'), findsOneWidget);
   });
 }

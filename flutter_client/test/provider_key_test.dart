@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -208,5 +210,147 @@ void main() {
       }),
     );
     await expectLater(client.test('ref'), throwsStateError);
+  });
+
+  testWidgets('加载中网络断开显示配置加载失败', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi(
+                (_, __, ___) async =>
+                    throw const SocketException('connection lost'),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Provider 配置加载失败，请重试'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+  });
+
+  testWidgets('加载后显示授权且不展示 token', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi(
+                (_, __, ___) async => [
+                  {
+                    'token': 'sensitive-token-reference',
+                    'provider': 'openai',
+                    'status': 'verified',
+                    'enabled': true,
+                    'expires_at': DateTime.now()
+                        .add(const Duration(hours: 1))
+                        .toIso8601String(),
+                  },
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('openai · 授权 1'), findsOneWidget);
+    expect(find.textContaining('verified'), findsOneWidget);
+    expect(find.textContaining('sensitive-token'), findsNothing);
+  });
+
+  testWidgets('加载中退出再进入会重新拉取列表', (tester) async {
+    var calls = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((_, __, ___) async {
+                calls++;
+                if (calls == 1) return pending.future;
+                return [
+                  {
+                    'token': 'sensitive-token-reference',
+                    'provider': 'openai',
+                    'status': 'verified',
+                    'enabled': true,
+                    'expires_at': DateTime.now()
+                        .add(const Duration(hours: 1))
+                        .toIso8601String(),
+                  },
+                ];
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Provider 设置'), findsOneWidget);
+    expect(find.text('openai · 授权 1'), findsNothing);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开 Provider'))),
+      ),
+    );
+    await tester.pump();
+    pending.complete([
+      {
+        'token': 'old-token',
+        'provider': 'anthropic',
+        'status': 'verified',
+        'enabled': true,
+        'expires_at': DateTime.now()
+            .add(const Duration(hours: 1))
+            .toIso8601String(),
+      },
+    ]);
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('openai · 授权 1'), findsOneWidget);
+    expect(find.textContaining('anthropic'), findsNothing);
+    expect(find.textContaining('sensitive-token'), findsNothing);
+    expect(calls, 2);
   });
 }

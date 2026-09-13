@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -248,5 +249,130 @@ void main() {
   test('githubRepoNameFromProject uses last path segment', () {
     expect(githubRepoNameFromProject('42/demo-app'), 'demo-app');
     expect(githubRepoNameFromProject('42/项目'), 'project');
+  });
+
+  testWidgets('加载中网络断开显示配置加载失败', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(
+              DeliveryApi(
+                (_, __, ___) async =>
+                    throw const SocketException('connection lost'),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('GitHub 配置加载失败，请重试'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+  });
+
+  testWidgets('加载后显示已保存凭据', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(DeliveryApi((_, __, ___) async => stored)),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('凭据状态：已加密保存'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('githubUsername')))
+          .controller
+          ?.text,
+      'alice',
+    );
+  });
+
+  testWidgets('加载中退出再进入会重新拉取配置', (tester) async {
+    var calls = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(
+              DeliveryApi((_, __, ___) async {
+                calls++;
+                if (calls == 1) return pending.future;
+                return stored;
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开 GitHub'))),
+      ),
+    );
+    await tester.pump();
+    pending.complete({
+      'username': 'olduser',
+      'use_github': true,
+      'persisted': true,
+      'has_token': true,
+      'credential_state': 'stored',
+      'verified': false,
+    });
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('凭据状态：已加密保存'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('githubUsername')))
+          .controller
+          ?.text,
+      'alice',
+    );
+    expect(find.text('olduser'), findsNothing);
+    expect(calls, 2);
   });
 }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -143,4 +144,101 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('加载中网络断开显示重试且不泄露错误', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionsProvider.overrideWith(
+          (_) async => throw const SocketException('connection lost'),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('加载失败，点击重试'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('历史项目'), findsNothing);
+  });
+
+  testWidgets('加载后显示会话标题', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionsProvider.overrideWith(
+          (_) async => [AgentSession.fromJson(payload)],
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('历史项目'), findsOneWidget);
+    expect(find.textContaining('completed'), findsOneWidget);
+  });
+
+  testWidgets('加载中退出再进入会重新拉取列表', (tester) async {
+    var calls = 0;
+    final pending = Completer<List<AgentSession>>();
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionsProvider.overrideWith((_) async {
+          calls++;
+          if (calls == 1) return pending.future;
+          return [AgentSession.fromJson(payload)];
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开会话历史'))),
+      ),
+    );
+    await tester.pump();
+    pending.complete([
+      AgentSession.fromJson({
+        ...payload,
+        'session_id': 'old',
+        'requirement': '旧会话',
+      }),
+    ]);
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('历史项目'), findsOneWidget);
+    expect(find.text('旧会话'), findsNothing);
+    expect(calls, 2);
+  });
 }

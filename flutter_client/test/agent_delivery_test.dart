@@ -257,6 +257,111 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('没有待决策时不显示提交按钮', (tester) async {
+    final controller = WorkbenchController(
+      projectClient: AgentProjectClient(
+        DeliveryApi((_, __, ___) async => {'status': 'submitted'}),
+      ),
+    );
+    controller.bindTask(
+      const Task(taskId: 't', sessionId: 's', status: 'running'),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workbenchControllerProvider.overrideWith((_) => controller),
+        ],
+        child: const MaterialApp(home: AgentDecisionPage()),
+      ),
+    );
+    expect(find.text('当前没有待提交的决策，请返回工作台查看进度。'), findsOneWidget);
+    expect(find.text('提交决策'), findsNothing);
+  });
+
+  testWidgets('提交决策网络断开显示笼统错误', (tester) async {
+    final controller = WorkbenchController(
+      projectClient: AgentProjectClient(
+        DeliveryApi(
+          (_, __, ___) async => throw const SocketException('connection lost'),
+        ),
+      ),
+    );
+    controller.bindTask(
+      const Task(taskId: 't', sessionId: 's', status: 'running'),
+    );
+    controller.ingestSseChunk(
+      event('critical_decisions', {
+        'decisions': [question],
+      }),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workbenchControllerProvider.overrideWith((_) => controller),
+        ],
+        child: const MaterialApp(home: AgentDecisionPage()),
+      ),
+    );
+    await tester.tap(find.text('提交决策'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('决策未被确认，等待可能已超时；请查看任务进度'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('提交决策'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('提交中退出再进入会应用晚到的成功结果', (tester) async {
+    final pending = Completer<Object?>();
+    final controller = WorkbenchController(
+      projectClient: AgentProjectClient(
+        DeliveryApi((_, __, ___) => pending.future),
+      ),
+    );
+    controller.bindTask(
+      const Task(taskId: 't', sessionId: 's', status: 'running'),
+    );
+    controller.ingestSseChunk(
+      event('critical_decisions', {
+        'decisions': [question],
+      }),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        workbenchControllerProvider.overrideWith((_) => controller),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentDecisionPage()),
+      ),
+    );
+    await tester.tap(find.text('提交决策'));
+    await tester.pump();
+    expect(find.text('提交中…'), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: SizedBox.shrink()),
+      ),
+    );
+    await tester.pump();
+    pending.complete({'status': 'submitted'});
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentDecisionPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('当前没有待提交的决策，请返回工作台查看进度。'), findsOneWidget);
+    expect(find.text('提交决策'), findsNothing);
+  });
+
   testWidgets('file tree expands and opens a selectable preview', (
     tester,
   ) async {
@@ -355,5 +460,128 @@ void main() {
     expect(saved!['project_name'], 'project');
     expect(saved!['project_data'], '{"README.md":"# demo"}');
     expect(find.text('https://github.com/alice/project'), findsOneWidget);
+  });
+
+  GithubClient missingGithub() => GithubClient(
+    DeliveryApi(
+      (_, __, ___) async => {
+        'username': '',
+        'use_github': false,
+        'persisted': false,
+        'has_token': false,
+        'credential_state': 'missing',
+        'verified': false,
+      },
+    ),
+  );
+
+  testWidgets('文件列表网络断开显示笼统错误', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(
+            AgentProjectClient(
+              DeliveryApi(
+                (_, __, ___) async =>
+                    throw const SocketException('connection lost'),
+              ),
+            ),
+          ),
+          githubClientProvider.overrideWithValue(missingGithub()),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('文件列表加载失败，请重试'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('加载中退出再进入会重新拉列表', (tester) async {
+    var calls = 0;
+    final pending = Completer<Object?>();
+    final client = AgentProjectClient(
+      DeliveryApi((path, _, __) async {
+        if (!Uri.parse(path).path.endsWith('/files')) {
+          return {'content': 'void main() {}'};
+        }
+        calls += 1;
+        if (calls == 1) return pending.future;
+        return {
+          'files': [
+            {'path': 'src/main.dart'},
+          ],
+        };
+      }),
+    );
+    final github = missingGithub();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(client),
+          githubClientProvider.overrideWithValue(github),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    pending.complete({
+      'files': [
+        {'path': 'old.dart'},
+      ],
+    });
+    await tester.pump();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(client),
+          githubClientProvider.overrideWithValue(github),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('old.dart'), findsNothing);
+    await tester.tap(find.text('src'));
+    await tester.pumpAndSettle();
+    expect(find.text('main.dart'), findsOneWidget);
+  });
+
+  testWidgets('文件预览网络断开显示重试', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(
+            AgentProjectClient(
+              DeliveryApi((path, _, __) async {
+                if (Uri.parse(path).path.endsWith('/files')) {
+                  return {
+                    'files': [
+                      {'path': 'README.md'},
+                    ],
+                  };
+                }
+                throw const SocketException('connection lost');
+              }),
+            ),
+          ),
+          githubClientProvider.overrideWithValue(missingGithub()),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('README.md'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('文件读取失败，点击重试'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }

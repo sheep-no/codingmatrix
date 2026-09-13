@@ -11,6 +11,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'dart:async';
+import 'dart:io';
+
+import 'package:codingmatrix_desktop/infrastructure/agent/agent_stream_client.dart';
+import 'package:codingmatrix_desktop/presentation/workbench_page.dart';
+
 class ExitWorkbenchController extends WorkbenchController {
   int stops = 0;
   int disconnects = 0;
@@ -205,5 +211,126 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('任务概览'), findsOneWidget);
     expect(find.text('实时事件'), findsOneWidget);
+  });
+
+  AuthController signedInAuth(CredentialStore store, String tokenRef) {
+    return AuthController(
+      CloudAuthClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient((_) async => http.Response('', 500)),
+        credentialStore: store,
+      ),
+      store,
+      session: AuthSession(
+        username: 'alice',
+        permissionLevel: 'normal',
+        accessTokenRef: tokenRef,
+      ),
+    );
+  }
+
+  testWidgets('空需求不会开始生成', (tester) async {
+    final store = CredentialStore();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith((_) => signedInAuth(store, 'ref')),
+        ],
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('startGenerationButton')));
+    await tester.pump();
+    expect(find.byKey(const Key('startGenerationButton')), findsOneWidget);
+    expect(find.text('连接已断开，服务端任务状态待确认。会话恢复尚未接入。'), findsNothing);
+  });
+
+  testWidgets('事件流断开显示待确认不泄露连接细节', (tester) async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient(
+          (_) async => throw const SocketException('connection lost'),
+        ),
+        credentialStore: store,
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith((_) => signedInAuth(store, token)),
+          workbenchControllerProvider.overrideWith((_) => workbench),
+        ],
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('requirementField')), '做一个应用');
+    await tester.tap(find.byKey(const Key('startGenerationButton')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('连接已断开，服务端任务状态待确认。会话恢复尚未接入。'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('disconnected'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('生成中退出再进入会丢掉输入但保留断开状态', (tester) async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final pending = Completer<http.Response>();
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient((_) => pending.future),
+        credentialStore: store,
+      ),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => signedInAuth(store, token)),
+        workbenchControllerProvider.overrideWith((_) => workbench),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('requirementField')), '做一个应用');
+    await tester.tap(find.byKey(const Key('startGenerationButton')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const Key('stopGenerationButton')), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: SizedBox.shrink()),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('连接已断开，服务端任务状态待确认。会话恢复尚未接入。'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('requirementField')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
   });
 }
