@@ -368,7 +368,8 @@ class IncrementalModifyMixin:
         if cached_plan:
             logger.info(f"命中架构师分析缓存: {cache_key[:16]}...")
             self._report_progress("architect_cache_hit", 1, 1, callback=callback)
-            return cached_plan
+            from app.agent.change_plan import collapse_change_items
+            return collapse_change_items(cached_plan)
 
         prompt = f"""你是一个项目架构师，负责分析用户的增量修改需求。
 
@@ -401,6 +402,7 @@ class IncrementalModifyMixin:
 3. file_type 可选值: entry, model, router, api, config, utils, frontend_page, frontend_component, frontend_style, test
 4. priority: 1(最高)-5(最低)
 5. 严格输出 JSON 数组，不要有其他文字
+6. 每个 path 只能出现一次；同一文件的多处修改合并成一条
 
 ## JSON 数组:
 """
@@ -419,6 +421,9 @@ class IncrementalModifyMixin:
                 if isinstance(change_plan, list):
                     logger.info(f"架构师变更计划: {len(change_plan)} 个变更")
                     # P1: 保存到缓存
+                    from app.agent.change_plan import collapse_change_items
+                    change_plan = collapse_change_items(change_plan)
+                    logger.info(f"架构师变更计划去重后: {len(change_plan)} 个变更")
                     self._save_cached_change_plan(cache_key, change_plan)
                     return change_plan
 

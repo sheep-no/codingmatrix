@@ -15,7 +15,7 @@ from .models import OrchestrationState
 from .plan import GenerationPlan, build_file_plan, normalize_plan_path
 from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan, add_profile_components
 from app.agent.contract_index import ContractIndex
-from app.agent.change_plan import ChangePlan
+from app.agent.change_plan import ChangePlan, collapse_change_items
 from app.agent.project_snapshot import ProjectSnapshot
 from app.agent.declarative_contracts import ContractDeclaration, validate_candidate
 from app.agent.languages import get_language_adapter
@@ -989,12 +989,13 @@ class IncrementalAdapter(_PlannedAgentAdapter):
                 for change in changes
                 if normalize_plan_path(str(change.get("path", ""))) in allowed_files
             ]
-        if not changes:
-            raise ValueError("incremental change plan must contain at least one affected file")
         snapshot = ProjectSnapshot.scan(
             self.output_dir,
             revision=str(request.metadata.get("base_revision") or "working-tree"),
         )
+        changes = collapse_change_items(changes, known_paths=snapshot.hashes())
+        if not changes:
+            raise ValueError("incremental change plan must contain at least one affected file")
         try:
             self.change_plan = ChangePlan.build(snapshot, changes)
         except ValueError as exc:
