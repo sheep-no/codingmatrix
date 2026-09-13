@@ -1068,7 +1068,11 @@ language 字段要求：
         if not requirement:
             return None
         file_pat = r"[\w./-]+\.(?:py|js|ts|jsx|tsx|vue|html|css|scss|json|yaml|yml|toml|xml|go|java|rs)"
-        match = re.search(r"(?:只需要|仅需要|只要|only)\s*(.{1,300}?)(?:个|份)?\s*文件", requirement, re.IGNORECASE)
+        match = re.search(
+            r"(?:只需要|仅需要|只要|only)\s*(.{1,300}?)(?:个|份)?\s*文件",
+            requirement,
+            re.IGNORECASE | re.DOTALL,
+        )
         if not match:
             match = re.search(
                 r"(?:只生成|仅生成)\s*(?:以下\s*)?(?:\d+\s*个\s*)?(.{1,300}?)(?:。|$)",

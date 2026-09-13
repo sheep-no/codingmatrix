@@ -128,3 +128,37 @@ def test_hello_fallback_stays_single_file():
     assert result["api_spec"] == {}
     assert result["db_schema"] == {}
     assert not result["project_spec"]["default"].get("framework")
+
+
+def test_extract_strict_paths_must_two_files_spans_newlines():
+    requirement = "\n".join([
+        "做一个命令行问候程序，只要 Python。",
+        "必须两个文件：greet.py 定义 greet(name)，返回 Hello, {name}；",
+        "main.py 从 greet 导入 greet，并打印 greet('world')。",
+        "不要数据库、不要前端、不要测试、不要框架。",
+    ])
+    assert Architect._extract_strict_file_paths(requirement) == {"greet.py", "main.py"}
+
+
+def test_strict_paths_drop_extra_command_module():
+    architect = _architect()
+    requirement = "\n".join([
+        "做一个命令行问候程序，只要 Python。",
+        "必须两个文件：greet.py 定义 greet(name)，返回 Hello, {name}；",
+        "main.py 从 greet 导入 greet，并打印 greet('world')。",
+        "不要数据库、不要前端、不要测试、不要框架。",
+    ])
+    architecture = {
+        "language": "python",
+        "file_plan": [
+            {"path": "greet.py", "imports": []},
+            {"path": "main.py", "imports": ["from greet import greet"]},
+            {"path": "app/command.py", "imports": []},
+        ],
+    }
+    result = architect._ensure_file_plan_completeness(
+        architecture,
+        target_language="python",
+        strict_paths=Architect._extract_strict_file_paths(requirement),
+    )
+    assert [item["path"] for item in result["file_plan"]] == ["greet.py", "main.py"]
