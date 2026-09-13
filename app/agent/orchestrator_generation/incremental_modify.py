@@ -427,8 +427,9 @@ class IncrementalModifyMixin:
                     self._save_cached_change_plan(cache_key, change_plan)
                     return self._finalize_change_plan(change_plan, dep_graph)
 
-            logger.warning(f"架构师返回格式错误: {response[:200]}")
-            return []
+            preview = (response or "")[:200]
+            logger.warning(f"架构师返回格式错误: {preview}")
+            raise ValueError(f"architect change plan was not a JSON array: {preview}")
 
         except Exception as e:
             logger.error(f"架构师分析失败: {e}")

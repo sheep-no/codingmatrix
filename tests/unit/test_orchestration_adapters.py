@@ -1785,3 +1785,41 @@ async def test_incremental_adapter_propagates_architect_llm_failure(tmp_path):
             session_id="architect-429",
             metadata={"architecture": {"language": "python"}},
         ))
+
+
+@pytest.mark.asyncio
+async def test_analyze_changes_raises_on_architect_non_json(tmp_path):
+    from app.agent.orchestrator_generation.incremental_modify import IncrementalModifyMixin
+
+    mixin = IncrementalModifyMixin()
+    mixin.output_dir = tmp_path
+    mixin.architect = SimpleNamespace(
+        call_llm=AsyncMock(return_value="I cannot produce a change plan right now."),
+    )
+
+    with pytest.raises(ValueError, match="not a JSON array"):
+        await mixin._analyze_changes_with_architect(
+            "add divide",
+            "existing calculator",
+            SimpleNamespace(nodes={"calc.py": {}, "main.py": {}}),
+            None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_incremental_adapter_propagates_architect_json_failure(tmp_path):
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    agent = _Agent(tmp_path)
+    agent._build_project_summary_from_graph = Mock(return_value="existing project")
+    agent._analyze_changes_with_architect = AsyncMock(
+        side_effect=ValueError("architect change plan was not a JSON array: sorry"),
+    )
+    adapter = IncrementalAdapter(agent)
+
+    with pytest.raises(ValueError, match="not a JSON array"):
+        await adapter.create_plan(GenerationRequest(
+            requirement="add divide",
+            task_id="architect-json",
+            session_id="architect-json",
+            metadata={"architecture": {"language": "python"}},
+        ))
