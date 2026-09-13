@@ -407,6 +407,27 @@ class _PlannedAgentAdapter:
         names = ("architect_model", "frontend_model", "backend_model", "reviewer_model", "fallback_model")
         return {name: str(getattr(assignment, name)) for name in names if getattr(assignment, name, None)}
 
+    def _emit_generated_file_events(
+        self,
+        file_path: str,
+        content: str,
+        file_info: Mapping[str, Any],
+        original_content: str = "",
+    ) -> None:
+        if not content:
+            return
+        action = str(file_info.get("action") or "modify")
+        operation = "create" if action == "add" else "modify"
+        description = str(file_info.get("description") or file_info.get("reason") or "")
+        file_type = str(file_info.get("file_type") or "")
+        reporter = getattr(self.agent, "_report_file_event", None)
+        if callable(reporter):
+            reporter(file_path, content, description, file_type, operation=operation)
+        if original_content and original_content != content:
+            diff_reporter = getattr(self.agent, "_report_file_diff_event", None)
+            if callable(diff_reporter):
+                diff_reporter(file_path, original_content, content, operation=operation)
+
     def _freeze_plan(
         self,
         entries: Sequence[Mapping[str, Any]],
@@ -784,6 +805,9 @@ class _PlannedAgentAdapter:
             validation_passed = False
         if validation_passed and hasattr(self.agent, "_validate_content_syntax"):
             validation_passed = bool(await self.agent._validate_content_syntax(context.file_path, content))
+        self._emit_generated_file_events(
+            context.file_path, content, file_info, original_content,
+        )
         return GeneratedContent(
             content=content,
             model_name=str(result.get("model") or model_name),

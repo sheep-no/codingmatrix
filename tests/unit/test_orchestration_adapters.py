@@ -1606,3 +1606,44 @@ async def test_incremental_adapter_restores_dropped_local_imports(tmp_path):
     assert "Keep existing local imports to other project files" in rules
     assert adapter._project_context["original_content"] == original_main
     assert adapter._project_context["is_modification"] is True
+
+
+@pytest.mark.asyncio
+async def test_incremental_adapter_emits_file_sse_events(tmp_path):
+    original_main = "from calc import add\nprint(add(1, 2)\n"
+    (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    (tmp_path / "main.py").write_text(original_main, encoding="utf-8")
+    updated = "from calc import add\nprint(add(1, 2))\n"
+    file_events = []
+    diff_events = []
+    agent = _CoreFileAgent(tmp_path)
+    agent._generate_file_with_model = AsyncMock(return_value=updated)
+    agent._report_file_event = lambda *args, **kwargs: file_events.append((args, kwargs))
+    agent._report_file_diff_event = lambda *args, **kwargs: diff_events.append((args, kwargs))
+    adapter = IncrementalAdapter(agent)
+    await adapter.create_plan(GenerationRequest(
+        requirement="fix the missing parenthesis in main.py",
+        task_id="semi-calc-sse",
+        session_id="semi-calc-sse",
+        metadata={
+            "architecture": {"language": "python"},
+            "change_plan": [{
+                "path": "main.py",
+                "action": "modify",
+                "reason": "fix missing parenthesis",
+                "file_type": "entry",
+            }],
+        },
+    ))
+
+    generated = await adapter.generate_file(SimpleNamespace(
+        file_path="main.py", upstream_contents={}, previous_diagnostics=(),
+    ))
+
+    assert generated.content == updated
+    assert file_events == [
+        (("main.py", updated, "fix missing parenthesis", "entry"), {"operation": "modify"}),
+    ]
+    assert diff_events == [
+        (("main.py", original_main, updated), {"operation": "modify"}),
+    ]
