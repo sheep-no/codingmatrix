@@ -93,8 +93,6 @@ export function useAgentWorkspace({
         path: f.path, oldContent: '', newContent: f.content, operation: 'create'
       }))
       importing.showUploadModal = false
-      ElMessage.success(`成功导入 ${projectFiles.length} 个文件`)
-      addLog('success', `导入项目: ${file.name} (${projectFiles.length} 个文件)`)
       if (!session.currentSessionId) {
         session.createNewSession({})
       }
@@ -105,8 +103,11 @@ export function useAgentWorkspace({
         } catch (persistError) {
           console.error('导入项目落地失败:', persistError)
           ElMessage.error(`文件已导入，但未能写入工作区: ${persistError.message || persistError}`)
+          return
         }
       }
+      ElMessage.success(`成功导入 ${projectFiles.length} 个文件`)
+      addLog('success', `导入项目: ${file.name} (${projectFiles.length} 个文件)`)
     } catch (error) {
       console.error('ZIP 导入失败:', error)
       ElMessage.error(`导入失败: ${error.message}`)
