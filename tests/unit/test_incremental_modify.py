@@ -37,3 +37,48 @@ def test_add_action_is_simple_change():
     mixin = IncrementalModifyMixin()
     assert mixin._is_simple_change({"action": "add", "path": "app/command.py"}) is True
     assert mixin._is_simple_change({"action": "modify", "path": "greet.py", "reason": "add whisper"}) is False
+
+
+class _FileEventHarness(IncrementalModifyMixin):
+    def __init__(self):
+        self.file_events = []
+        self.diff_events = []
+
+    def _report_file_event(self, *args, **kwargs):
+        self.file_events.append((args, kwargs))
+
+    def _report_file_diff_event(self, *args, **kwargs):
+        self.diff_events.append((args, kwargs))
+
+
+def test_legacy_incremental_emits_file_and_diff_events():
+    harness = _FileEventHarness()
+    original = "def greet(name):\n    return f'Hello, {name}'\n"
+    updated = original + "\ndef whisper(name):\n    return f'Hello, {name}...'\n"
+    harness._emit_generated_file_events(
+        "greet.py",
+        updated,
+        {"action": "modify", "reason": "add whisper", "file_type": "utils"},
+        original,
+    )
+    assert harness.file_events == [
+        (("greet.py", updated, "add whisper", "utils"), {"operation": "modify"}),
+    ]
+    assert harness.diff_events == [
+        (("greet.py", original, updated), {"operation": "modify"}),
+    ]
+
+
+def test_legacy_incremental_skips_diff_when_content_unchanged():
+    harness = _FileEventHarness()
+    content = "print('hello')\n"
+    harness._emit_generated_file_events(
+        "main.py",
+        content,
+        {"action": "add", "description": "entry", "file_type": "entry"},
+        "",
+    )
+    assert harness.file_events == [
+        (("main.py", content, "entry", "entry"), {"operation": "create"}),
+    ]
+    assert harness.diff_events == []

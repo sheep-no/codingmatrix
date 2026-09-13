@@ -1000,6 +1000,27 @@ class IncrementalModifyMixin:
 
         return False
 
+    def _emit_generated_file_events(
+        self,
+        file_path: str,
+        content: str,
+        file_info: Dict,
+        original_content: str = "",
+    ) -> None:
+        if not content:
+            return
+        action = str(file_info.get("action") or "modify")
+        operation = "create" if action == "add" else "modify"
+        description = str(file_info.get("description") or file_info.get("reason") or "")
+        file_type = str(file_info.get("file_type") or "")
+        reporter = getattr(self, "_report_file_event", None)
+        if callable(reporter):
+            reporter(file_path, content, description, file_type, operation=operation)
+        if original_content and original_content != content:
+            diff_reporter = getattr(self, "_report_file_diff_event", None)
+            if callable(diff_reporter):
+                diff_reporter(file_path, original_content, content, operation=operation)
+
     async def _generate_file_with_model(
         self,
         file_path: str,
@@ -1120,6 +1141,10 @@ class IncrementalModifyMixin:
                 )
                 if not initial_content:
                     raise ValueError(f"文件生成失败: {file_path}")
+
+        self._emit_generated_file_events(
+            file_path, initial_content, file_info, original_content,
+        )
 
         if persist:
             normalized = self._strip_output_dir_prefix(file_path)
