@@ -92,3 +92,58 @@ def test_validate_and_fix_skips_llm_on_timeout():
     fixed, issues = asyncio.run(validator.validate_and_fix(files, {}, fix_model="glm"))
     assert fixed == files
     assert issues[0]["type"] == "api_contract"
+
+
+def test_clean_code_block_strips_unclosed_think():
+    from app.agent.utils import clean_code_block
+
+    dumped = "<think>\n好的，我现在需要帮用户修复他们的Python文件\n"
+    assert clean_code_block(dumped) == ""
+
+    wrapped = "<think>plan</think>\n```python\ndef greet(name):\n    return name\n```"
+    assert "def greet" in clean_code_block(wrapped)
+
+
+def test_accept_llm_fix_rejects_thinking_dump():
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+
+    validator = CrossValidator(SharedContext("test", Path(".")))
+    original = "def greet(name):\n    return f'Hello, {name}'\n"
+    dumped = "<think>\n好的，我现在需要帮用户修复他们的Python文件中的问题。\n"
+    assert validator._accept_llm_fix("src/greet.py", dumped, original) is None
+
+    parsed = validator._parse_batch_fix_result(dumped, ["src/greet.py"])
+    assert validator._accept_llm_fix("src/greet.py", parsed.get("src/greet.py", ""), original) is None
+
+
+def test_accept_llm_fix_keeps_valid_python():
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+
+    validator = CrossValidator(SharedContext("test", Path(".")))
+    original = "def greet(name):\n    return name\n"
+    fixed = "def greet(name):\n    return f'Hello, {name}'\n"
+    assert validator._accept_llm_fix("src/greet.py", fixed, original) == fixed.strip()
+
+
+def test_fix_with_llm_keeps_original_on_thinking_dump():
+    from unittest.mock import patch
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+
+    original = "def greet(name):\n    return f'Hello, {name}'\n"
+    files = {"src/greet.py": original}
+    issues = [{"type": "missing_argument", "file": "src/greet.py", "message": "x"}]
+    validator = CrossValidator(SharedContext("test", Path(".")))
+
+    async def fake_llm(**_kwargs):
+        return {
+            "choices": [
+                {"message": {"content": "<think>\n好的，我现在需要帮用户修复他们的Python文件\n"}}
+            ]
+        }
+
+    with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
+        fixed = asyncio.run(validator._fix_with_llm(files, issues, "glm"))
+    assert fixed["src/greet.py"] == original

@@ -32,6 +32,8 @@ def clean_code_block(content: str) -> str:
     content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
     # 剥离 <think>...</think>` 标签（部分模型变体）
     content = re.sub(r'<thinking>.*?</thinking>', '', content, flags=re.DOTALL).strip()
+    content = re.sub(r'<think>.*', '', content, flags=re.DOTALL).strip()
+    content = re.sub(r'<thinking>.*', '', content, flags=re.DOTALL).strip()
 
     pattern = r'```(?:\w+)?\s*(.*?)\s*```'
     match = re.search(pattern, content, re.DOTALL)

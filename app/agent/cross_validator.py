@@ -11,6 +11,7 @@ CrossValidator - 交叉验证器
 4. 如果两份代码都有问题，要求裁判生成最终版本
 """
 
+import ast
 import json
 import re
 import logging
@@ -1432,9 +1433,10 @@ class CrossValidator:
 
                 content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
                 if content:
-                    content = self._clean_code_block(content)
-                    files[file_path] = content
-                    logger.info(f"生成缺失模块（LLM）: {file_path}")
+                    accepted = self._accept_llm_fix(file_path, content, files.get(file_path, ""))
+                    if accepted:
+                        files[file_path] = accepted
+                        logger.info(f"生成缺失模块（LLM）: {file_path}")
             except Exception as e:
                 logger.error(f"生成模块 {module} 失败: {e}")
                 # 使用默认内容
@@ -1529,8 +1531,11 @@ class CrossValidator:
                     # 解析批量修复结果
                     fixed_batch = self._parse_batch_fix_result(content, batch_paths)
                     for file_path, fixed_content in fixed_batch.items():
-                        if fixed_content:
-                            fixed_files[file_path] = fixed_content
+                        accepted = self._accept_llm_fix(
+                            file_path, fixed_content, fixed_files.get(file_path, "")
+                        )
+                        if accepted:
+                            fixed_files[file_path] = accepted
                             logger.info(f"已修复文件: {file_path}")
             except Exception as e:
                 if is_review_timeout(e):
@@ -1568,9 +1573,12 @@ class CrossValidator:
 
                         fixed_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
                         if fixed_content:
-                            fixed_content = self._clean_code_block(fixed_content)
-                            fixed_files[file_path] = fixed_content
-                            logger.info(f"已修复文件（单文件回退）: {file_path}")
+                            accepted = self._accept_llm_fix(
+                                file_path, fixed_content, current_content
+                            )
+                            if accepted:
+                                fixed_files[file_path] = accepted
+                                logger.info(f"已修复文件（单文件回退）: {file_path}")
                     except Exception as e2:
                         if is_review_timeout(e2):
                             logger.warning("跨文件审查超时，跳过剩余 LLM 修复")
@@ -1602,12 +1610,27 @@ class CrossValidator:
         return result
 
     def _clean_code_block(self, content: str) -> str:
-        """清理代码块标记"""
-        # 移除 ```python ... ``` 包裹
-        content = re.sub(r'^```\w*\n?', '', content, flags=re.MULTILINE)
-        content = re.sub(r'\n?```$', '', content, flags=re.MULTILINE)
-        # 移除 ===文件路径=== ... ===END=== 格式
-        content = re.sub(r'===文件路径===\s*\n.*?===END===\s*\n?', '', content, flags=re.DOTALL)
-        # 移除 "修复后的完整代码" 等说明文字
-        content = re.sub(r'^修复后的完整代码\s*\n?', '', content, flags=re.MULTILINE)
-        return content.strip()
+        from app.agent.utils import clean_code_block
+
+        cleaned = clean_code_block(content)
+        cleaned = re.sub(r'===文件路径===\s*\n.*?===END===\s*\n?', '', cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r'^修复后的完整代码\s*\n?', '', cleaned, flags=re.MULTILINE)
+        return cleaned.strip()
+
+    def _accept_llm_fix(self, file_path: str, candidate: str, original: str) -> Optional[str]:
+        """Keep original file when the LLM fix is thinking text or invalid source."""
+        cleaned = self._clean_code_block(candidate or "")
+        if not cleaned:
+            logger.warning("拒绝覆盖 %s：修复结果为空", file_path)
+            return None
+        leading = cleaned.lstrip()
+        if leading.startswith("<think>") or leading.startswith("<thinking>"):
+            logger.warning("拒绝覆盖 %s：修复结果含思考标签", file_path)
+            return None
+        if file_path.endswith(".py"):
+            try:
+                ast.parse(cleaned)
+            except SyntaxError:
+                logger.warning("拒绝覆盖 %s：修复结果无法解析为 Python", file_path)
+                return None
+        return cleaned
