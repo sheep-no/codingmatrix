@@ -197,6 +197,16 @@ class SaveProjectRequest(BaseModel):
     project_data: str = Field(..., description="项目数据 (JSON 字符串)")
 
 
+class ImportedProjectFile(BaseModel):
+    path: str = Field(..., min_length=1, max_length=512)
+    content: str = Field("", max_length=1024 * 1024)
+
+
+class ImportProjectFilesRequest(BaseModel):
+    files: List[ImportedProjectFile] = Field(..., min_length=1, max_length=200)
+    project_name: Optional[str] = Field(None, max_length=80)
+
+
 class SaveProjectResponse(BaseModel):
     id: int
     name: str

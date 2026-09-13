@@ -73,6 +73,24 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
     }
   }
 
+  const persistImportedFiles = async (importedFiles, projectName) => {
+    const payload = (importedFiles || []).map((file) => ({
+      path: file.path,
+      content: file.content || '',
+    })).filter((file) => file.path)
+    if (!payload.length) return null
+    const result = await projectApi.importProjectFiles({
+      files: payload,
+      project_name: projectName || undefined,
+    })
+    if (!result?.project_path) {
+      throw new Error('导入未返回项目路径')
+    }
+    workspace.currentProjectPath = result.project_path
+    addLog('success', `项目已写入工作区: ${result.project_path}`)
+    return result.project_path
+  }
+
   const saveProjectToBackend = async () => {
     if (generatedFiles.value.length === 0) {
       ElMessage.warning('没有可保存的文件')
@@ -352,6 +370,7 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
     userSkills, workspaceSkills,
     uploadingZip, importProgress, fileInput, settings,
     loadSavedProjects, saveProjectToBackend, downloadProject, deleteFileFromBackend,
+    persistImportedFiles,
     loadPerformanceMetrics, openPerformancePanel, loadSnapshots, rollbackToSnapshot,
     loadBackendSettings, clearBackendCache, exportPerformanceData,
     saveSettings, loadSettings, copySettingsToClipboard,

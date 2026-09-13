@@ -25,10 +25,12 @@ from app.agent.workflow_registry import build_legacy_workflow, get_legacy_result
 from .schemas import (
     SaveProjectRequest, SaveProjectResponse,
     ProjectListResponse, LoadProjectResponse,
+    ImportProjectFilesRequest,
 )
 from .helpers import (
     _build_agent_config, _validate_project_path, _collect_files,
     _create_zip_archive_safe, _cleanup_temp_dir,
+    materialize_imported_project,
 )
 from .project_config import (
     PROJECTS_BASE_DIR, PROJECT_MIME_TYPES,
@@ -308,6 +310,24 @@ async def delete_project_file(
     except Exception as e:
         logger.error(f"删除文件失败 | 文件：{target_file} | 错误：{str(e)}")
         raise HTTPException(status_code=500, detail=f"删除文件失败：{str(e)}")
+
+
+@router.post("/import-files")
+async def import_project_files(
+    request: ImportProjectFilesRequest,
+    token: dict = Depends(verify_token),
+):
+    user_id = token.get("sub")
+    if not user_id or user_id == "anonymous":
+        raise HTTPException(status_code=401, detail="无效的用户令牌")
+    try:
+        return materialize_imported_project(
+            str(user_id),
+            [{"path": item.path, "content": item.content} for item in request.files],
+            project_name=request.project_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/save", response_model=SaveProjectResponse)

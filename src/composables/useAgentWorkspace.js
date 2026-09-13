@@ -98,6 +98,15 @@ export function useAgentWorkspace({
       if (!session.currentSessionId) {
         session.createNewSession({})
       }
+      if (typeof importing.persistImportedFiles === 'function') {
+        try {
+          const zipName = String(file.name || '').replace(/\.zip$/i, '')
+          await importing.persistImportedFiles(importedFiles, zipName)
+        } catch (persistError) {
+          console.error('导入项目落地失败:', persistError)
+          ElMessage.error(`文件已导入，但未能写入工作区: ${persistError.message || persistError}`)
+        }
+      }
     } catch (error) {
       console.error('ZIP 导入失败:', error)
       ElMessage.error(`导入失败: ${error.message}`)

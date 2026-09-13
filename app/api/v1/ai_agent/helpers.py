@@ -3,6 +3,7 @@ import os
 import shutil
 import json
 import asyncio
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncGenerator, List
@@ -89,6 +90,89 @@ def resolve_output_dir(output_dir: str) -> Path:
     else:
         # 新格式：相对路径
         return (Path(PROJECTS_BASE_DIR) / output_dir).resolve()
+
+
+MAX_IMPORT_FILES = 200
+MAX_IMPORT_TOTAL_BYTES = 10 * 1024 * 1024
+_IMPORT_SKIP_PARTS = set(SKIP_DIRS) | {"__MACOSX"}
+_IMPORT_SKIP_NAMES = {".DS_Store", "Thumbs.db"}
+_IMPORT_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _sanitize_imported_relpath(raw: str) -> Optional[str]:
+    if not raw or not isinstance(raw, str):
+        return None
+    path = raw.replace("\\", "/").strip().lstrip("/")
+    if not path or path.endswith(":"):
+        return None
+    parts = [part for part in path.split("/") if part and part != "."]
+    if not parts:
+        return None
+    for part in parts:
+        if part == ".." or part in _IMPORT_SKIP_PARTS or part in _IMPORT_SKIP_NAMES:
+            return None
+    return "/".join(parts)
+
+
+def materialize_imported_project(
+    user_id: str,
+    files: List[Dict[str, str]],
+    project_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Write imported text files under projects/{user_id}/{name}/ and return the relative path."""
+    if not user_id or user_id == "anonymous":
+        raise ValueError("无效的用户身份")
+    if not files:
+        raise ValueError("没有可导入的文件")
+    if len(files) > MAX_IMPORT_FILES:
+        raise ValueError(f"导入文件数超过上限（{MAX_IMPORT_FILES}）")
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+    raw_name = (project_name or f"imported_{stamp}").strip()
+    if raw_name.lower().endswith(".zip"):
+        raw_name = raw_name[:-4]
+    safe_name = _IMPORT_NAME_RE.sub("_", raw_name).strip("._-")[:80] or f"imported_{stamp}"
+    relative_project = f"{user_id}/{safe_name}"
+    dest = Path(PROJECTS_BASE_DIR) / relative_project
+    if dest.exists():
+        relative_project = f"{user_id}/{safe_name}_{stamp}"
+        dest = Path(PROJECTS_BASE_DIR) / relative_project
+    dest.mkdir(parents=True, exist_ok=True)
+    dest_resolved = dest.resolve()
+
+    written: List[str] = []
+    total_bytes = 0
+    for item in files:
+        rel_path = _sanitize_imported_relpath((item or {}).get("path", ""))
+        if not rel_path:
+            continue
+        content = (item or {}).get("content")
+        if content is None:
+            content = ""
+        if not isinstance(content, str):
+            continue
+        encoded = content.encode("utf-8")
+        if len(encoded) > MAX_TEXT_FILE_SIZE:
+            raise ValueError(f"文件过大: {rel_path}")
+        total_bytes += len(encoded)
+        if total_bytes > MAX_IMPORT_TOTAL_BYTES:
+            raise ValueError("导入内容超过大小上限")
+        target = (dest / rel_path).resolve()
+        if not target.is_relative_to(dest_resolved):
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        written.append(rel_path)
+
+    if not written:
+        raise ValueError("没有可写入的有效文件")
+
+    logger.info("导入项目已落地 | path=%s | files=%s", relative_project, len(written))
+    return {
+        "project_path": relative_project,
+        "file_count": len(written),
+        "files": written,
+    }
 
 
 def cleanup_session_files(output_dir: str) -> bool:
