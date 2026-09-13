@@ -194,6 +194,9 @@ def _tool_list_files(project_path: str, directory: str = ".",
         if not target.exists():
             return {"error": f"目录不存在: {directory}"}
         entries = []
+        if not target.is_dir():
+            return {"error": f"不是目录: {directory}"}
+        project_resolved = Path(project_path).resolve()
         _scan_dir(target, entries, depth=0, max_depth=max_depth, base=project_resolved)
         return {"directory": directory, "entries": entries[:200]}
     except Exception as e:
