@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/application/chat_controller.dart';
@@ -530,5 +531,66 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('你好'), findsOneWidget);
     expect(find.text('问题'), findsOneWidget);
+  });
+
+  test('上传中网络断开会退出忙碌并显示错误', () async {
+    api.upload = (_) async => throw const SocketException('connection lost');
+    await controller.send('分析', streaming: true, filePaths: ['/tmp/a.txt']);
+    final state = container.read(chatControllerProvider);
+    expect(api.body, isNull);
+    expect(state.error, contains('connection lost'));
+    expect(state.loading, false);
+    expect(state.uploading, false);
+    expect(state.messages.last.text, '分析');
+  });
+
+  testWidgets('上传中退出再进入会看到后台完成的回复', (tester) async {
+    final upload = Completer<Map<String, dynamic>>();
+    api.upload = (_) => upload.future;
+    picker.result = FilePickerResult([
+      PlatformFile(name: 'a.txt', path: '/tmp/a.txt', size: 10),
+    ]);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('chatAttachButton')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '分析');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    expect(container.read(chatControllerProvider).uploading, true);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开聊天'))),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('离开聊天'), findsOneWidget);
+
+    upload.complete({
+      'server_path': 'uploads/a.txt',
+      'name': 'a.txt',
+      'type': 'text/plain',
+    });
+    await tester.pump();
+    api.chunks.add(utf8.encode('{"delta":"回答"}\n'));
+    await api.chunks.close();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('回答'), findsOneWidget);
+    expect(find.text('分析'), findsOneWidget);
+    expect(find.text('a.txt'), findsNothing);
   });
 }
