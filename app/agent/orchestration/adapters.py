@@ -15,7 +15,7 @@ from .models import OrchestrationState
 from .plan import GenerationPlan, build_file_plan, normalize_plan_path
 from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan, add_profile_components
 from app.agent.contract_index import ContractIndex
-from app.agent.change_plan import ChangePlan, collapse_change_items
+from app.agent.change_plan import ChangePlan, collapse_change_items, expand_change_plan_for_missing_exports
 from app.agent.project_snapshot import ProjectSnapshot
 from app.agent.declarative_contracts import ContractDeclaration, validate_candidate
 from app.agent.languages import get_language_adapter
@@ -75,16 +75,18 @@ def preserved_local_import_gaps(
     original_paths, original_lines = local_imports(original_content)
     new_paths, _ = local_imports(new_content)
     missing_paths = original_paths - new_paths
-    if not missing_paths:
-        return (), ()
     missing_lines = tuple(
         line for line in original_lines
         if line not in new_content
     )
+    if not missing_paths and not missing_lines:
+        return (), ()
     diagnostics = tuple(
         f"incremental modify dropped local import of {path}"
         for path in sorted(missing_paths)
     )
+    if missing_lines and not missing_paths:
+        diagnostics = ("incremental modify narrowed local import",)
     return diagnostics, missing_lines
 
 
@@ -94,11 +96,50 @@ def restore_dropped_import_lines(content: str, missing_lines: Sequence[str]) -> 
     lines = [line for line in lines if line not in content]
     if not lines:
         return content
-    prefix = "\n".join(lines) + "\n"
+    content_lines = content.splitlines(True)
+    used: set[str] = set()
+    for missing in lines:
+        key = _import_statement_key(missing)
+        for idx, existing in enumerate(content_lines):
+            body, ending = _split_line_ending(existing)
+            stripped = body.lstrip()
+            leading = body[: len(body) - len(stripped)] if stripped else ""
+            if _import_statement_key(stripped) == key:
+                content_lines[idx] = f"{leading}{missing}{ending}"
+                used.add(missing)
+                break
+    content = "".join(content_lines)
+    remaining = [line for line in lines if line not in used and line not in content]
+    if not remaining:
+        return content
+    prefix = "\n".join(remaining) + "\n"
     if content.startswith("#!") or content.startswith("# -*-") or content.startswith("# coding"):
         first, _, rest = content.partition("\n")
         return f"{first}\n{prefix}{rest}"
     return prefix + content
+
+
+def _import_statement_key(line: str) -> str:
+    text = line.strip()
+    if text.startswith("from ") and " import " in text:
+        return text.split(" import ", 1)[0].strip() + " import"
+    if text.startswith("import ") and " from " in text:
+        return "from " + text.rsplit(" from ", 1)[1].strip()
+    if text.startswith("import "):
+        rest = text[len("import "):]
+        return "import " + rest.split(" as ", 1)[0].strip()
+    if "require(" in text:
+        start = text.find("require(")
+        return text[start:]
+    return text
+
+
+def _split_line_ending(line: str) -> Tuple[str, str]:
+    if line.endswith("\r\n"):
+        return line[:-2], "\r\n"
+    if line.endswith("\n"):
+        return line[:-1], "\n"
+    return line, ""
 
 
 class GenerationModeAdapter(Protocol):
@@ -670,7 +711,7 @@ class _PlannedAgentAdapter:
             )
             contract_context["rules"].extend([
                 "This is an incremental modify of target_file. Apply only modification_reason to this file.",
-                "Keep existing local imports to other project files; do not copy those modules' implementations into this file.",
+                "Keep existing local imports to other project files, including the original imported symbol lists; do not copy those modules' implementations into this file.",
                 "Keep this file's original role and export boundary.",
             ])
             self._project_context["original_content"] = original_content
@@ -1106,6 +1147,15 @@ class IncrementalAdapter(_PlannedAgentAdapter):
             revision=str(request.metadata.get("base_revision") or "working-tree"),
         )
         changes = collapse_change_items(changes, known_paths=snapshot.hashes())
+        adapter = getattr(graph, "language_adapter", None)
+        if adapter is None:
+            adapter = LanguageAdapterRegistry.get_adapter(language)
+        changes = expand_change_plan_for_missing_exports(
+            changes,
+            output_dir=self.output_dir,
+            language_adapter=adapter,
+            known_files=snapshot.hashes(),
+        )
         if not changes:
             raise ValueError("incremental change plan must contain at least one affected file")
         try:

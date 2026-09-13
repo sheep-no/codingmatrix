@@ -1566,6 +1566,36 @@ def test_preserved_local_import_gaps_restore_dropped_calc_import():
     assert remaining == ()
 
 
+def test_preserved_local_import_gaps_restore_narrowed_symbols():
+    from app.agent.adapters.python import PythonLanguageAdapter
+    from app.agent.orchestration.adapters import (
+        preserved_local_import_gaps,
+        restore_dropped_import_lines,
+    )
+
+    adapter = PythonLanguageAdapter()
+    original = "from calc import add, subtract, multiply\nprint(add(1, 2))\n"
+    narrowed = (
+        "from calc import add, subtract\n"
+        "print(add(1, 2))\n"
+        "print(subtract(5, 3))\n"
+        "print(4 * 6)\n"
+    )
+    diagnostics, missing = preserved_local_import_gaps(
+        adapter, "main.py", original, narrowed, ("main.py", "calc.py"),
+    )
+    assert diagnostics == ("incremental modify narrowed local import",)
+    assert missing == ("from calc import add, subtract, multiply",)
+    restored = restore_dropped_import_lines(narrowed, missing)
+    assert restored.splitlines()[0] == "from calc import add, subtract, multiply"
+    assert restored.count("from calc import") == 1
+    remaining, leftover = preserved_local_import_gaps(
+        adapter, "main.py", original, restored, ("main.py", "calc.py"),
+    )
+    assert remaining == ()
+    assert leftover == ()
+
+
 @pytest.mark.asyncio
 async def test_incremental_adapter_restores_dropped_local_imports(tmp_path):
     (tmp_path / "calc.py").write_text(
@@ -1603,7 +1633,7 @@ async def test_incremental_adapter_restores_dropped_local_imports(tmp_path):
 
     assert generated.content.startswith("from calc import add, subtract, multiply\n")
     rules = "\n".join(adapter._project_context["generation_contract"]["rules"])
-    assert "Keep existing local imports to other project files" in rules
+    assert "Keep existing local imports to other project files, including the original imported symbol lists" in rules
     assert adapter._project_context["original_content"] == original_main
     assert adapter._project_context["is_modification"] is True
 
@@ -1647,3 +1677,73 @@ async def test_incremental_adapter_emits_file_sse_events(tmp_path):
     assert diff_events == [
         (("main.py", original_main, updated), {"operation": "modify"}),
     ]
+
+
+@pytest.mark.asyncio
+async def test_incremental_adapter_expands_missing_export_provider(tmp_path):
+    (tmp_path / "calc.py").write_text(
+        "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    pass\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "main.py").write_text(
+        "from calc import add, subtract, multiply\nprint(add(1, 2)\n",
+        encoding="utf-8",
+    )
+    adapter = IncrementalAdapter(_CoreFileAgent(tmp_path))
+    plan = await adapter.create_plan(GenerationRequest(
+        requirement="implement subtract and multiply",
+        task_id="semi-calc-export",
+        session_id="semi-calc-export",
+        metadata={
+            "architecture": {"language": "python"},
+            "change_plan": [{
+                "path": "main.py",
+                "action": "modify",
+                "reason": "fix parenthesis and call multiply",
+            }],
+        },
+    ))
+
+    assert {item.path for item in plan.files} == {"calc.py", "main.py"}
+    calc_change = next(item for item in adapter.change_plan.changes if item.path == "calc.py")
+    assert calc_change.action.value == "modify"
+    assert "multiply" in calc_change.reason
+
+
+@pytest.mark.asyncio
+async def test_incremental_adapter_restores_narrowed_local_imports(tmp_path):
+    (tmp_path / "calc.py").write_text(
+        "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    pass\n",
+        encoding="utf-8",
+    )
+    original_main = "from calc import add, subtract, multiply\n\nprint(add(1, 2)\n"
+    (tmp_path / "main.py").write_text(original_main, encoding="utf-8")
+    narrowed = (
+        "from calc import add, subtract\n"
+        "print(add(1, 2))\n"
+        "print(subtract(5, 3))\n"
+        "print(4 * 6)\n"
+    )
+    agent = _CoreFileAgent(tmp_path)
+    agent._generate_file_with_model = AsyncMock(return_value=narrowed)
+    adapter = IncrementalAdapter(agent)
+    await adapter.create_plan(GenerationRequest(
+        requirement="fix subtract and add multiply to the python calculator",
+        task_id="semi-calc-narrow",
+        session_id="semi-calc-narrow",
+        metadata={
+            "architecture": {"language": "python"},
+            "change_plan": [{
+                "path": "main.py",
+                "action": "modify",
+                "reason": "fix missing parenthesis",
+            }],
+        },
+    ))
+
+    generated = await adapter.generate_file(SimpleNamespace(
+        file_path="main.py", upstream_contents={}, previous_diagnostics=(),
+    ))
+
+    assert "from calc import add, subtract, multiply" in generated.content
+    assert generated.content.count("from calc import") == 1

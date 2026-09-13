@@ -368,8 +368,7 @@ class IncrementalModifyMixin:
         if cached_plan:
             logger.info(f"命中架构师分析缓存: {cache_key[:16]}...")
             self._report_progress("architect_cache_hit", 1, 1, callback=callback)
-            from app.agent.change_plan import collapse_change_items
-            return collapse_change_items(cached_plan)
+            return self._finalize_change_plan(cached_plan, dep_graph)
 
         prompt = f"""你是一个项目架构师，负责分析用户的增量修改需求。
 
@@ -403,6 +402,7 @@ class IncrementalModifyMixin:
 4. priority: 1(最高)-5(最低)
 5. 严格输出 JSON 数组，不要有其他文字
 6. 每个 path 只能出现一次；同一文件的多处修改合并成一条
+7. 被其他已有文件 import/require 的符号必须在被导入文件中实现，不要写进导入方；若需求要补全被导入模块缺失的导出，必须把该模块列入 modify
 
 ## JSON 数组:
 """
@@ -425,7 +425,7 @@ class IncrementalModifyMixin:
                     change_plan = collapse_change_items(change_plan)
                     logger.info(f"架构师变更计划去重后: {len(change_plan)} 个变更")
                     self._save_cached_change_plan(cache_key, change_plan)
-                    return change_plan
+                    return self._finalize_change_plan(change_plan, dep_graph)
 
             logger.warning(f"架构师返回格式错误: {response[:200]}")
             return []
@@ -435,6 +435,23 @@ class IncrementalModifyMixin:
             return []
 
     # ========== P1: 架构师分析缓存 ==========
+
+    def _finalize_change_plan(
+        self,
+        change_plan: List[Dict],
+        dep_graph: DependencyGraph,
+    ) -> List[Dict]:
+        """Collapse duplicate paths, then add providers missing imported exports."""
+        from app.agent.change_plan import collapse_change_items, expand_change_plan_for_missing_exports
+
+        known = [str(path) for path in getattr(dep_graph, "nodes", {}) or ()]
+        collapsed = collapse_change_items(change_plan, known_paths=known)
+        return expand_change_plan_for_missing_exports(
+            collapsed,
+            output_dir=self.output_dir,
+            language_adapter=getattr(dep_graph, "language_adapter", None),
+            known_files=known,
+        )
 
     def _get_cached_change_plan(self, cache_key: str) -> Optional[List[Dict]]:
         """获取缓存的变更计划"""

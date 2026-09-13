@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import Enum
-from typing import Iterable, Mapping
+from pathlib import Path
+from typing import Any, Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -103,6 +104,113 @@ def _merge_actions(first: str, second: str, path: str, known_paths: set[str]) ->
     return second
 
 
+def expand_change_plan_for_missing_exports(
+    changes: Iterable[Mapping[str, object] | FileChange],
+    *,
+    output_dir: Path,
+    language_adapter: Any,
+    known_files: Iterable[str],
+) -> list[dict[str, object]]:
+    """Add provider files whose currently imported symbols are missing on disk."""
+    known = [str(path).replace("\\", "/") for path in known_files]
+    existing = collapse_change_items(changes, known_paths=known)
+    if language_adapter is None:
+        return existing
+    known_set = set(known)
+    deleted = {
+        str(item.get("path") or "").replace("\\", "/")
+        for item in existing
+        if str(item.get("action") or "") == "delete"
+    }
+    root = Path(output_dir)
+    try:
+        root_resolved = root.resolve()
+    except OSError:
+        return existing
+
+    contents: dict[str, str] = {}
+    for path in known:
+        if path in deleted:
+            continue
+        target = root / path
+        try:
+            resolved = target.resolve()
+            if not resolved.is_file() or not resolved.is_relative_to(root_resolved):
+                continue
+            contents[path] = resolved.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+
+    definitions: dict[str, set[str]] = {}
+    for path, content in contents.items():
+        try:
+            defs = language_adapter.extract_definitions(content) or {}
+        except Exception:
+            defs = {}
+        definitions[path] = {str(name) for name in defs}
+
+    missing_by_provider: dict[str, dict[str, set[str]]] = {}
+    for importer, content in contents.items():
+        try:
+            imports = language_adapter.parse_imports(content, importer) or ()
+        except Exception:
+            continue
+        for info in imports:
+            symbols = [
+                str(symbol)
+                for symbol in (getattr(info, "symbols", None) or ())
+                if symbol and symbol != "*"
+            ]
+            if not symbols:
+                continue
+            try:
+                candidates = language_adapter.resolve_import_to_file(info, importer) or ()
+            except Exception:
+                continue
+            provider = ""
+            for candidate in candidates:
+                normalized = str(candidate).replace("\\", "/")
+                if normalized in known_set and normalized not in deleted:
+                    provider = normalized
+                    break
+            if not provider:
+                continue
+            defined = definitions.get(provider, set())
+            absent = [symbol for symbol in symbols if symbol not in defined]
+            if not absent:
+                continue
+            bucket = missing_by_provider.setdefault(provider, {})
+            for symbol in absent:
+                bucket.setdefault(symbol, set()).add(importer)
+
+    extras: list[dict[str, object]] = []
+    for provider, symbol_importers in missing_by_provider.items():
+        symbols = sorted(symbol_importers)
+        importers = sorted({
+            importer
+            for names in symbol_importers.values()
+            for importer in names
+        })
+        extra: dict[str, object] = {
+            "action": "modify" if provider in known_set else "add",
+            "path": provider,
+            "reason": (
+                f"provide missing export {', '.join(symbols)} "
+                f"imported by {', '.join(importers)}"
+            ),
+        }
+        infer = getattr(language_adapter, "infer_file_type", None)
+        if callable(infer):
+            try:
+                extra["file_type"] = infer(provider)
+            except Exception:
+                pass
+        extras.append(extra)
+    if not extras:
+        return existing
+    return collapse_change_items([*existing, *extras], known_paths=known)
+
+
 class ChangePlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -167,4 +275,10 @@ class ChangePlan(BaseModel):
         ))
 
 
-__all__ = ["ChangeAction", "ChangePlan", "FileChange", "collapse_change_items"]
+__all__ = [
+    "ChangeAction",
+    "ChangePlan",
+    "FileChange",
+    "collapse_change_items",
+    "expand_change_plan_for_missing_exports",
+]
