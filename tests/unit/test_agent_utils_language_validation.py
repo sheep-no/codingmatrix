@@ -80,6 +80,24 @@ def test_compact_project_context_keeps_current_file_only():
     assert "entry" in compact
 
 
+def test_compact_project_context_keeps_original_content_for_modify():
+    context = {
+        "requirement": "补全 subtract 和 multiply",
+        "original_content": "from calc import add, subtract, multiply\nprint(add(1, 2)\n",
+        "modification_reason": "补上 main.py 缺失的右括号",
+        "architecture": {
+            "language": "python",
+            "file_plan": [
+                {"path": "main.py", "file_type": "entry", "description": "入口"},
+            ],
+        },
+    }
+    compact = utils.compact_project_context_for_file("main.py", context)
+    assert "from calc import add, subtract, multiply" in compact
+    assert "is_modification" in compact
+    assert "补上 main.py 缺失的右括号" in compact
+
+
 @pytest.mark.asyncio
 async def test_validate_language_with_llm_skips_model_call_for_python():
     called = []

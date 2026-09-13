@@ -47,6 +47,60 @@ class AdapterResult:
     result: Mapping[str, Any]
 
 
+def preserved_local_import_gaps(
+    language_adapter: Any,
+    file_path: str,
+    original_content: str,
+    new_content: str,
+    known_files: Sequence[str],
+) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+    """Return diagnostics and original import lines dropped from a modify candidate."""
+    known = {str(path).replace("\\", "/") for path in known_files}
+
+    def local_imports(content: str) -> Tuple[set[str], list[str]]:
+        paths: set[str] = set()
+        raw_lines: list[str] = []
+        if not content or language_adapter is None:
+            return paths, raw_lines
+        for info in language_adapter.parse_imports(content, file_path):
+            for candidate in language_adapter.resolve_import_to_file(info, file_path):
+                normalized = str(candidate).replace("\\", "/")
+                if normalized in known:
+                    paths.add(normalized)
+                    raw = str(getattr(info, "raw_line", "") or "").strip()
+                    if raw and raw not in raw_lines:
+                        raw_lines.append(raw)
+        return paths, raw_lines
+
+    original_paths, original_lines = local_imports(original_content)
+    new_paths, _ = local_imports(new_content)
+    missing_paths = original_paths - new_paths
+    if not missing_paths:
+        return (), ()
+    missing_lines = tuple(
+        line for line in original_lines
+        if line not in new_content
+    )
+    diagnostics = tuple(
+        f"incremental modify dropped local import of {path}"
+        for path in sorted(missing_paths)
+    )
+    return diagnostics, missing_lines
+
+
+def restore_dropped_import_lines(content: str, missing_lines: Sequence[str]) -> str:
+    """Reinsert dropped local import lines at the top of a modified file."""
+    lines = [str(line).strip() for line in missing_lines if str(line).strip()]
+    lines = [line for line in lines if line not in content]
+    if not lines:
+        return content
+    prefix = "\n".join(lines) + "\n"
+    if content.startswith("#!") or content.startswith("# -*-") or content.startswith("# coding"):
+        first, _, rest = content.partition("\n")
+        return f"{first}\n{prefix}{rest}"
+    return prefix + content
+
+
 class GenerationModeAdapter(Protocol):
     async def create_plan(self, request: GenerationRequest) -> GenerationPlan: ...
 
@@ -587,6 +641,24 @@ class _PlannedAgentAdapter:
                 "Frozen HTTP contracts are authoritative: implement their method, path, status, fields, and serialization exactly; report contract_gap for missing details instead of inventing changes.",
             ],
         }
+        original_content = str(file_info.get("original_content") or "")
+        if original_content and str(file_info.get("action") or "modify") != "add":
+            contract_context["original_content"] = original_content[:8000]
+            contract_context["modification_reason"] = str(
+                file_info.get("reason") or file_info.get("description") or ""
+            )
+            contract_context["rules"].extend([
+                "This is an incremental modify of target_file. Apply only modification_reason to this file.",
+                "Keep existing local imports to other project files; do not copy those modules' implementations into this file.",
+                "Keep this file's original role and export boundary.",
+            ])
+            self._project_context["original_content"] = original_content
+            self._project_context["modification_reason"] = contract_context["modification_reason"]
+            self._project_context["is_modification"] = True
+        else:
+            self._project_context.pop("original_content", None)
+            self._project_context.pop("modification_reason", None)
+            self._project_context.pop("is_modification", None)
         previous_diagnostics = tuple(getattr(context, "previous_diagnostics", ()))
         if previous_diagnostics:
             contract_context["retry_feedback"] = list(previous_diagnostics)
@@ -692,6 +764,22 @@ class _PlannedAgentAdapter:
             _, contract_diagnostics = self._validate_candidate_contract(
                 context.file_path, content
             )
+        original_content = str(file_info.get("original_content") or "")
+        if language_adapter is not None and original_content and str(file_info.get("action") or "modify") != "add":
+            known_files = tuple(self._file_entries) + tuple(self.preserved_paths)
+            dropped, missing_lines = preserved_local_import_gaps(
+                language_adapter, context.file_path, original_content, content, known_files,
+            )
+            if missing_lines:
+                restored = restore_dropped_import_lines(content, missing_lines)
+                if restored != content:
+                    content = restored
+                    self._generated_contents[context.file_path] = content
+                    dropped, _ = preserved_local_import_gaps(
+                        language_adapter, context.file_path, original_content, content, known_files,
+                    )
+            if dropped:
+                contract_diagnostics = contract_diagnostics + dropped
         if contract_diagnostics:
             validation_passed = False
         if validation_passed and hasattr(self.agent, "_validate_content_syntax"):

@@ -1287,6 +1287,17 @@ def compact_project_context_for_file(file_path: str, project_context: Dict[str, 
     generated_signatures = project_context.get("generated_signatures")
     if isinstance(generated_signatures, dict) and generated_signatures:
         compact["already_generated"] = generated_signatures
+    original_content = str(project_context.get("original_content") or "")
+    if not original_content and isinstance(generation_contract, dict):
+        original_content = str(generation_contract.get("original_content") or "")
+    if original_content:
+        compact["original_content"] = original_content[:8000]
+        compact["is_modification"] = True
+        compact["modification_reason"] = str(
+            project_context.get("modification_reason")
+            or (generation_contract.get("modification_reason") if isinstance(generation_contract, dict) else "")
+            or ""
+        )
     return json.dumps(compact, ensure_ascii=False)
 
 

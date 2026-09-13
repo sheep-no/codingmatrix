@@ -1448,6 +1448,7 @@ def test_backend_prompt_scope_uses_top_level_imports_for_flat_files():
     assert "main.py, models.py, crud.py" in constraints
     assert "项目内模块只能从上述文件集合导入" in constraints
     assert "同目录项目文件使用顶层绝对导入" in constraints
+    assert "禁止把其他文件的实现合并进当前文件" in constraints
 
 
 def test_backend_runtime_constraints_use_supported_fastapi_test_client_api():

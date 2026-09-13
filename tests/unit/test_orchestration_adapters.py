@@ -1537,3 +1537,72 @@ async def test_runtime_feedback_survives_transaction_rollback_and_checkpoint(tmp
     assert set(hashes) == {"changed.py", "stable.py"}
     assert hashes["changed.py"] == hashlib.sha256(b"# changed.py\n").hexdigest()
     assert feedback["candidate_fingerprint"] == hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
+
+
+def test_preserved_local_import_gaps_restore_dropped_calc_import():
+    from app.agent.adapters.python import PythonLanguageAdapter
+    from app.agent.orchestration.adapters import (
+        preserved_local_import_gaps,
+        restore_dropped_import_lines,
+    )
+
+    adapter = PythonLanguageAdapter()
+    original = "from calc import add, subtract, multiply\nprint(add(1, 2)\n"
+    collapsed = (
+        "def add(a, b):\n    return a + b\n"
+        "def subtract(a, b):\n    return a - b\n"
+        "print(add(1, 2))\n"
+    )
+    diagnostics, missing = preserved_local_import_gaps(
+        adapter, "main.py", original, collapsed, ("main.py", "calc.py"),
+    )
+    assert diagnostics == ("incremental modify dropped local import of calc.py",)
+    assert missing == ("from calc import add, subtract, multiply",)
+    restored = restore_dropped_import_lines(collapsed, missing)
+    assert restored.startswith("from calc import add, subtract, multiply\n")
+    remaining, _ = preserved_local_import_gaps(
+        adapter, "main.py", original, restored, ("main.py", "calc.py"),
+    )
+    assert remaining == ()
+
+
+@pytest.mark.asyncio
+async def test_incremental_adapter_restores_dropped_local_imports(tmp_path):
+    (tmp_path / "calc.py").write_text(
+        "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    pass\n",
+        encoding="utf-8",
+    )
+    original_main = "from calc import add, subtract, multiply\n\nprint(add(1, 2)\n"
+    (tmp_path / "main.py").write_text(original_main, encoding="utf-8")
+    collapsed = (
+        "def add(a, b):\n    return a + b\n"
+        "def subtract(a, b):\n    return a - b\n"
+        "def multiply(a, b):\n    return a * b\n"
+        "print(add(1, 2))\n"
+    )
+    agent = _CoreFileAgent(tmp_path)
+    agent._generate_file_with_model = AsyncMock(return_value=collapsed)
+    adapter = IncrementalAdapter(agent)
+    await adapter.create_plan(GenerationRequest(
+        requirement="fix subtract and add multiply to the python calculator",
+        task_id="semi-calc",
+        session_id="semi-calc",
+        metadata={
+            "architecture": {"language": "python"},
+            "change_plan": [{
+                "path": "main.py",
+                "action": "modify",
+                "reason": "fix missing parenthesis",
+            }],
+        },
+    ))
+
+    generated = await adapter.generate_file(SimpleNamespace(
+        file_path="main.py", upstream_contents={}, previous_diagnostics=(),
+    ))
+
+    assert generated.content.startswith("from calc import add, subtract, multiply\n")
+    rules = "\n".join(adapter._project_context["generation_contract"]["rules"])
+    assert "Keep existing local imports to other project files" in rules
+    assert adapter._project_context["original_content"] == original_main
+    assert adapter._project_context["is_modification"] is True
