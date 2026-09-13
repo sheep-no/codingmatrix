@@ -138,6 +138,21 @@ class TestParseToolCall:
         result = parse_tool_call(content)
         assert result is None
 
+    def test_glm_split_tool_name_and_params(self):
+        content = 'read_file\n{"file_path": "greet.py"}'
+        result = parse_tool_call(content)
+        assert result == {"tool": "read_file", "params": {"file_path": "greet.py"}}
+
+    def test_glm_call_syntax_tool_params(self):
+        content = 'list_files({"directory": "."})'
+        result = parse_tool_call(content)
+        assert result == {"tool": "list_files", "params": {"directory": "."}}
+
+    def test_python_source_is_not_a_tool_call(self):
+        content = 'def greet(name):\n    return f"Hello, {name}"'
+        result = parse_tool_call(content)
+        assert result is None
+
 
 class TestExtractJsonField:
     def test_extract_existing_field(self):

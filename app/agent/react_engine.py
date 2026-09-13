@@ -203,7 +203,8 @@ class ReActEngine:
         except (ValueError, Exception):
             pass
 
-        return None
+        from app.agent.json_parser import parse_tool_call
+        return parse_tool_call(text, known_tools=set(self.tool_names) or None)
 
     async def _execute_tool(self, tool_name: str, tool_params: Dict, timeout: float = 120.0) -> Tuple[bool, Any]:
         """执行工具（同步和异步函数统一处理），带超时保护"""

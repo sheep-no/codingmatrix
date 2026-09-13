@@ -127,6 +127,12 @@ class TestParseToolCall:
         result = engine._parse_tool_call("Just some text")
         assert result is None
 
+    def test_glm_split_format(self):
+        tools = {"read_file": {"fn": lambda **k: {}, "description": "read", "params": {}}}
+        engine = ReActEngine(tools=tools, call_llm_fn=AsyncMock())
+        result = engine._parse_tool_call('read_file\n{"file_path": "greet.py"}')
+        assert result == {"tool": "read_file", "params": {"file_path": "greet.py"}}
+
 
 class TestExecuteTool:
     @pytest.mark.asyncio
@@ -306,6 +312,27 @@ class TestRunSimpleMode:
         result = await engine.run("task", "sys")
         assert result == "final answer"
         assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_glm_split_tool_call_then_code(self):
+        call_count = 0
+
+        async def mock_llm(prompt, system_prompt):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return 'read_file\n{"file_path": "greet.py"}'
+            return "def greet(name):\n    return f'Hello, {name}'"
+
+        def mock_read_file(project_path="", **kwargs):
+            return {"content": "def greet(name):\n    return f'Hello, {name}'"}
+
+        tools = {"read_file": {"fn": mock_read_file, "description": "read", "params": {"file_path": "string"}}}
+        engine = ReActEngine(tools=tools, call_llm_fn=mock_llm, project_path="/tmp", max_rounds=3)
+        result = await engine.run("task", "sys")
+        assert "def greet" in result
+        assert call_count == 2
+        assert "read_file" in engine.used_tool_names
 
     @pytest.mark.asyncio
     async def test_required_tool_blocks_direct_final_response(self):
