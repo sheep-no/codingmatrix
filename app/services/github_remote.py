@@ -1,6 +1,7 @@
 """Read-only GitHub REST helpers. Callers pass a decrypted token; nothing is logged."""
 import logging
 import re
+import time
 from typing import Any
 
 import httpx
@@ -33,6 +34,18 @@ def validate_git_ref(value: str) -> None:
         raise HTTPException(status_code=422, detail="分支或提交引用无效")
 
 
+def validate_project_name(name: str) -> str:
+    name = (name or "").strip()
+    if not _REPO_RE.fullmatch(name):
+        raise HTTPException(status_code=422, detail="项目名称无效")
+    return name
+
+
+def github_https_remote(owner: str, repo: str) -> str:
+    validate_repo_ref(owner, repo)
+    return f"https://github.com/{owner}/{repo}.git"
+
+
 async def github_get(token: str, path: str, params: dict[str, Any] | None = None) -> Any:
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -46,7 +59,7 @@ async def github_get(token: str, path: str, params: dict[str, Any] | None = None
     except httpx.HTTPError:
         raise HTTPException(status_code=502, detail="GitHub 网络错误") from None
     if response.status_code == 401:
-        raise HTTPException(status_code=401, detail="GitHub 凭据无效")
+        raise HTTPException(status_code=422, detail="GitHub 凭据无效")
     if response.status_code == 403:
         raise HTTPException(status_code=403, detail="GitHub 拒绝访问或达到速率限制")
     if response.status_code == 404:
@@ -58,6 +71,52 @@ async def github_get(token: str, path: str, params: dict[str, Any] | None = None
         return response.json()
     except ValueError:
         raise HTTPException(status_code=502, detail="GitHub 响应无法解析") from None
+
+
+async def github_post(token: str, path: str, payload: dict[str, Any]) -> Any:
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{GITHUB_API}{path}",
+                headers=github_headers(token),
+                json=payload,
+            )
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="GitHub 请求超时") from None
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="GitHub 网络错误") from None
+    if response.status_code == 401:
+        raise HTTPException(status_code=422, detail="GitHub 凭据无效")
+    if response.status_code == 403:
+        raise HTTPException(status_code=403, detail="GitHub 拒绝访问或达到速率限制")
+    if response.status_code in (400, 409, 422):
+        raise HTTPException(status_code=400, detail="GitHub 仓库创建失败")
+    if response.status_code not in (200, 201):
+        logger.warning("GitHub POST %s failed with status %s", path, response.status_code)
+        raise HTTPException(status_code=502, detail="GitHub 请求失败")
+    try:
+        return response.json()
+    except ValueError:
+        raise HTTPException(status_code=502, detail="GitHub 响应无法解析") from None
+
+
+async def create_user_repo(token: str, name: str, description: str = "") -> dict[str, Any]:
+    name = validate_project_name(name)
+    payload = {"name": name, "description": description or "", "private": False}
+    try:
+        data = await github_post(token, "/user/repos", payload)
+    except HTTPException as exc:
+        if exc.status_code != 400:
+            raise
+        suffix = str(int(time.time()))
+        payload = {
+            **payload,
+            "name": validate_project_name(f"{name[: max(1, 99 - len(suffix))]}-{suffix}"),
+        }
+        data = await github_post(token, "/user/repos", payload)
+    if not isinstance(data, dict) or not data.get("clone_url"):
+        raise HTTPException(status_code=502, detail="GitHub 仓库信息无效")
+    return data
 
 
 async def fetch_user(token: str) -> dict[str, Any]:

@@ -48,7 +48,7 @@
 `AgentStreamClient.generate` 请求体包含 `is_resume`。会话详情页在 `reconnectable=true` 时提供「断开并重连」：先读 `GET /api/v1/agent/sessions/{id}`，再 `POST /api/v1/agent/orchestrate/stream` 且 `is_resume=true`。确认文案说明只接收后续及未消费事件。`reconnectable=false` 时重连按钮保持禁用。
 
 ## GitHub 边界
-设置页只读写 `/api/v1/github/config`。GET 不回传 Token；页面用 `has_token` / `credential_state` 显示凭据状态，`verified` 当前恒为 false。`GithubClient.saveProject` 已封装 `POST /api/v1/github/save`，设置页和工作台都没有调用。完整契约见 [GitHub 集成](GITHUB.md)。
+设置页读写 `/api/v1/github/config`，并调用 `/verify` 与仓库/分支/提交列表。GET 不回传 Token；页面用 `has_token` / `credential_state` 显示凭据状态。验证成功后内存中 `verified` 为 true，GET 配置仍不落库。项目文件页在 `use_github` 开启时「推送到 GitHub」调用 `POST /api/v1/github/save`，请求省略 `github_config`。完整契约见 [GitHub 集成](GITHUB.md)。
 
 ## 管理后台边界
 

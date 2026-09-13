@@ -26,6 +26,15 @@ class GithubBinding {
   final String credentialState;
 
   bool get configured => persisted && username.isNotEmpty && hasToken;
+
+  GithubBinding copyWith({bool? verified}) => GithubBinding(
+    username: username,
+    useGithub: useGithub,
+    verified: verified ?? this.verified,
+    persisted: persisted,
+    hasToken: hasToken,
+    credentialState: credentialState,
+  );
 }
 
 class GithubRepo {

@@ -58,9 +58,7 @@ const router = createRouter({
     },
     {
       path: '/github-config',
-      name: 'github-config',
-      component: () => import('../components/GithubConfigPanel.vue'),
-      meta: { requiresAuth: true }
+      redirect: '/settings?tab=github'
     },
     {
       path: '/settings',

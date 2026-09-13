@@ -64,6 +64,35 @@ async def load_readable_token(db: AsyncSession, user_id: int) -> tuple[GithubUse
     return record, token
 
 
+async def resolve_save_credentials(
+    db: AsyncSession,
+    user_id: int,
+    username: str = "",
+    token: str = "",
+    use_github: bool | None = None,
+) -> tuple[str, str, bool]:
+    username = (username or "").strip()
+    token = (token or "").strip()
+    record = await db.get(GithubUserConfig, user_id)
+    if use_github is None:
+        use_github = bool(record and record.use_github)
+    if not use_github:
+        return (username or (record.username if record else "")), token, False
+    if token:
+        if username and not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", username):
+            raise HTTPException(status_code=422, detail="GitHub 用户名格式无效")
+        if not username:
+            raise HTTPException(status_code=422, detail="请填写 GitHub 用户名")
+        if len(token) > 4096 or any(char.isspace() for char in token):
+            raise HTTPException(status_code=422, detail="GitHub Token 格式无效")
+        return username, token, True
+    record, stored = await load_readable_token(db, user_id)
+    username = username or record.username
+    if not username:
+        raise HTTPException(status_code=422, detail="请填写 GitHub 用户名")
+    return username, stored, True
+
+
 async def save_config(db: AsyncSession, user_id: int, username: str, token: str, enabled: bool) -> dict:
     username = username.strip()
     token = token.strip()

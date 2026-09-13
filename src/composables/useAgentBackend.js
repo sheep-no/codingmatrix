@@ -1,9 +1,12 @@
 import { ref, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useGithubStore } from '@/stores/github'
+import { toGithubRepoName } from '@/utils/api/github'
 
 export function useAgentBackend(projectApi, workspace, files, generation) {
   const { addLog } = workspace
   const { generatedFiles, selectedFile } = files
+  const githubStore = useGithubStore()
 
   // State
   const savedProjects = ref([])
@@ -78,8 +81,8 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
       ElMessage.warning('没有可保存的文件')
       return
     }
+    const projectName = `项目_${workspace.formatTime(Date.now())}`
     try {
-      const projectName = `项目_${workspace.formatTime(Date.now())}`
       const projectData = generatedFiles.value.map(f => ({
         path: f.path, content: f.content, name: f.path.split('/').pop()
       }))
@@ -89,6 +92,46 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
     } catch (error) {
       console.error('保存项目失败:', error)
       ElMessage.error('保存项目失败')
+      return
+    }
+    let githubEnabled = githubStore.useGithub
+    if (typeof projectApi.getGithubConfig === 'function') {
+      try {
+        const cfg = await projectApi.getGithubConfig()
+        if (cfg && typeof cfg.use_github === 'boolean') {
+          githubEnabled = cfg.use_github
+          githubStore.setUseGithub(githubEnabled)
+        }
+      } catch {
+        /* keep local switch */
+      }
+    }
+    if (githubEnabled && typeof projectApi.saveProjectToGithub === 'function') {
+      try {
+        const filesMap = {}
+        for (const file of generatedFiles.value) {
+          if (!file?.path || String(file.path).includes('..') || String(file.path).startsWith('/')) continue
+          filesMap[file.path] = file.content == null ? '' : String(file.content)
+        }
+        if (Object.keys(filesMap).length === 0) {
+          ElMessage.warning('没有可推送到 GitHub 的文件')
+        } else {
+          const githubResult = await projectApi.saveProjectToGithub({
+            name: toGithubRepoName(`agent-${Date.now()}`),
+            description: '由 AI Agent 生成的项目',
+            files: filesMap
+          })
+          const repoUrl = githubResult?.repo_url
+          ElMessage.success(repoUrl ? `已推送到 GitHub: ${repoUrl}` : (githubResult?.message || '已保存到 Git'))
+          addLog('success', repoUrl ? `GitHub: ${repoUrl}` : 'GitHub 保存完成')
+        }
+      } catch (error) {
+        const detail = error?.response?.data?.detail
+        ElMessage.error(typeof detail === 'string' ? detail : (error.message || 'GitHub 保存失败'))
+        addLog('error', 'GitHub 保存失败')
+      }
+    } else if (!githubEnabled) {
+      ElMessage.info('未启用 GitHub 保存，可在设置 → GitHub 中打开')
     }
   }
 

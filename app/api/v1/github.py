@@ -22,8 +22,16 @@ from app.utils.security import verify_token
 from app.db.database import get_db
 from app.models.user import User
 from app.models.github_config import GithubUserConfig
-from app.services.github_config_service import config_summary, load_readable_token, save_config
-from app.services.github_remote import fetch_branches, fetch_commits, fetch_repos, fetch_user
+from app.services.github_config_service import config_summary, load_readable_token, resolve_save_credentials, save_config
+from app.services.github_remote import (
+    create_user_repo,
+    fetch_branches,
+    fetch_commits,
+    fetch_repos,
+    fetch_user,
+    github_https_remote,
+    validate_project_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +43,17 @@ class GithubConfig(BaseModel):
     token: str = Field(..., description="GitHub Personal Access Token", repr=False)
     use_github: bool = Field(default=False, description="是否使用 GitHub")
 
+class GithubSaveConfig(BaseModel):
+    username: str = ""
+    token: str = Field(default="", repr=False)
+    use_github: Optional[bool] = None
+
 class GithubSaveRequest(BaseModel):
     """GitHub 保存请求模型"""
     project_name: str = Field(..., description="项目名称")
     project_description: str = Field(default="", description="项目描述")
     project_data: str = Field(..., description="项目数据（JSON 字符串）")
-    github_config: GithubConfig = Field(..., description="GitHub 配置")
+    github_config: Optional[GithubSaveConfig] = Field(default=None, description="可选；缺省凭据时使用已保存配置")
 
 class GithubSaveResponse(BaseModel):
     """GitHub 保存响应模型"""
@@ -91,157 +104,126 @@ async def save_project_to_github(
         raise HTTPException(status_code=401, detail="无效的用户令牌")
     
     try:
-        if request.github_config.use_github:
-            # 使用 GitHub 保存
-            result = await _save_to_github(request, user_id)
-        else:
-            # 使用本地 Git 保存
-            result = await _save_to_local_git(request, user_id)
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"保存项目失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"保存项目失败: {str(e)}")
+        validate_project_name(request.project_name)
+        config = request.github_config
+        username, github_token, use_github = await resolve_save_credentials(
+            db,
+            int(user_id),
+            username=config.username if config else "",
+            token=config.token if config else "",
+            use_github=None if config is None else config.use_github,
+        )
+        if use_github:
+            return await _save_to_github(request, str(user_id), username, github_token)
+        return await _save_to_local_git(request, str(user_id))
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("保存项目失败")
+        raise HTTPException(status_code=500, detail="保存项目失败") from None
 
-async def _save_to_github(request: GithubSaveRequest, user_id: str) -> GithubSaveResponse:
-    """保存项目到 GitHub"""
-    try:
-        # 创建临时目录
-        with tempfile.TemporaryDirectory() as temp_dir:
-            project_path = Path(temp_dir) / request.project_name
-            project_path.mkdir()
-            
-            # 解析项目数据并写入文件
-            import json
-            project_files = json.loads(request.project_data)
-            for file_path, content in project_files.items():
-                full_path = project_path / file_path
-                # 路径穿越校验
-                full_path = full_path.resolve()
-                if not str(full_path).startswith(str(project_path.resolve())):
-                    raise HTTPException(status_code=400, detail=f"非法路径: {file_path}")
-                full_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(full_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
-            
-            # 初始化 Git 仓库
-            subprocess.run(['git', 'init'], cwd=project_path, check=True)
-            subprocess.run(['git', 'add', '.'], cwd=project_path, check=True)
-            subprocess.run(['git', 'config', 'user.name', request.github_config.username], 
-                          cwd=project_path, check=True)
-            subprocess.run(['git', 'config', 'user.email', f"{request.github_config.username}@users.noreply.github.com"], 
-                          cwd=project_path, check=True)
-            subprocess.run(['git', 'commit', '-m', f"Initial commit for {request.project_name}"], 
-                          cwd=project_path, check=True)
-            
-            # 创建 GitHub 仓库
-            import httpx
-            headers = {
-                'Authorization': f'token {request.github_config.token}',
-                'Accept': 'application/vnd.github.v3+json'
-            }
-            
-            repo_data = {
-                'name': request.project_name,
-                'description': request.project_description,
-                'private': False
-            }
-            
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.post(
-                    'https://api.github.com/user/repos',
-                    headers=headers,
-                    json=repo_data
-                )
-                
-                if response.status_code != 201:
-                    raise HTTPException(status_code=400, detail=f"创建 GitHub 仓库失败: {response.text}")
-                
-                repo_info = response.json()
-                repo_url = repo_info['clone_url']
-            
-            # 推送到 GitHub
-            remote_url = f"https://{request.github_config.username}:{request.github_config.token}@github.com/{request.github_config.username}/{request.project_name}.git"
-            subprocess.run(['git', 'remote', 'add', 'origin', remote_url], 
-                          cwd=project_path, check=True)
-            subprocess.run(['git', 'push', '-u', 'origin', 'main'], 
-                          cwd=project_path, check=True)
-            
-            # 获取提交 ID
-            result = subprocess.run(['git', 'rev-parse', 'HEAD'], 
-                                   cwd=project_path, capture_output=True, text=True, check=True)
-            commit_id = result.stdout.strip()
-            
-            return GithubSaveResponse(
-                success=True,
-                message="项目已成功保存到 GitHub",
-                repo_url=repo_url,
-                commit_id=commit_id
-            )
-            
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Git 操作失败: {e}")
-        raise HTTPException(status_code=500, detail=f"Git 操作失败: {str(e)}")
-    except httpx.HTTPError as e:
-        logger.error(f"GitHub API 调用失败: {e}")
-        raise HTTPException(status_code=500, detail=f"GitHub API 调用失败: {str(e)}")
+GIT_TIMEOUT = 60
 
-async def _save_to_local_git(request: GithubSaveRequest, user_id: str) -> GithubSaveResponse:
-    """保存项目到本地 Git"""
+
+def _run_git(args: list[str], cwd: Path, extra_config: list[tuple[str, str]] | None = None):
+    command = ["git"]
+    for key, value in extra_config or []:
+        command.extend(["-c", f"{key}={value}"])
+    command.extend(args)
     try:
-        # 创建项目目录
-        projects_dir = Path("projects") / user_id
-        projects_dir.mkdir(parents=True, exist_ok=True)
-        
-        project_path = projects_dir / request.project_name
-        if project_path.exists():
-            # 如果项目已存在，创建带时间戳的备份
-            import datetime
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_path = projects_dir / f"{request.project_name}_backup_{timestamp}"
-            project_path.rename(backup_path)
-        
+        return subprocess.run(
+            command,
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Git 操作超时") from None
+    except subprocess.CalledProcessError:
+        raise HTTPException(status_code=500, detail="Git 操作失败") from None
+
+
+def _write_project_files(project_path: Path, project_data: str) -> None:
+    import json
+    try:
+        project_files = json.loads(project_data)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="项目数据不是合法 JSON") from None
+    if not isinstance(project_files, dict):
+        raise HTTPException(status_code=400, detail="项目数据必须是路径到内容的对象")
+    if not project_files:
+        raise HTTPException(status_code=400, detail="项目数据不能为空")
+    root = project_path.resolve()
+    for file_path, content in project_files.items():
+        full_path = (root / str(file_path)).resolve()
+        if full_path == root or not full_path.is_relative_to(root):
+            raise HTTPException(status_code=400, detail="非法路径")
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(full_path, "w", encoding="utf-8") as handle:
+            handle.write(str(content))
+
+
+async def _save_to_github(
+    request: GithubSaveRequest, user_id: str, username: str, github_token: str
+) -> GithubSaveResponse:
+    project_name = validate_project_name(request.project_name)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        project_path = Path(temp_dir) / project_name
         project_path.mkdir()
-        
-        # 写入项目文件
-        import json
-        project_files = json.loads(request.project_data)
-        for file_path, content in project_files.items():
-            full_path = project_path / file_path
-            # 路径穿越校验
-            full_path = full_path.resolve()
-            if not str(full_path).startswith(str(project_path.resolve())):
-                raise HTTPException(status_code=400, detail=f"非法路径: {file_path}")
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(full_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-        
-        # 初始化本地 Git 仓库
-        subprocess.run(['git', 'init'], cwd=project_path, check=True)
-        subprocess.run(['git', 'add', '.'], cwd=project_path, check=True)
-        subprocess.run(['git', 'config', 'user.name', 'CodingMatrix AI'], 
-                      cwd=project_path, check=True)
-        subprocess.run(['git', 'config', 'user.email', 'ai@codingmatrix.com'], 
-                      cwd=project_path, check=True)
-        subprocess.run(['git', 'commit', '-m', f"Initial commit for {request.project_name}"], 
-                      cwd=project_path, check=True)
-        
-        # 获取提交 ID
-        result = subprocess.run(['git', 'rev-parse', 'HEAD'], 
-                               cwd=project_path, capture_output=True, text=True, check=True)
-        commit_id = result.stdout.strip()
-        
+        _write_project_files(project_path, request.project_data)
+        _run_git(["init"], project_path)
+        _run_git(["symbolic-ref", "HEAD", "refs/heads/main"], project_path)
+        _run_git(["add", "."], project_path)
+        _run_git(["config", "user.name", username], project_path)
+        _run_git(["config", "user.email", f"{username}@users.noreply.github.com"], project_path)
+        _run_git(["commit", "-m", f"Initial commit for {project_name}"], project_path)
+        repo_info = await create_user_repo(github_token, project_name, request.project_description)
+        repo_name = str(repo_info.get("name") or project_name)
+        owner = username
+        if isinstance(repo_info.get("owner"), dict) and repo_info["owner"].get("login"):
+            owner = str(repo_info["owner"]["login"])
+        remote_url = github_https_remote(owner, repo_name)
+        _run_git(["remote", "add", "origin", remote_url], project_path)
+        _run_git(
+            ["push", "-u", "origin", "main"],
+            project_path,
+            extra_config=[("http.extraHeader", f"AUTHORIZATION: token {github_token}")],
+        )
+        commit_id = _run_git(["rev-parse", "HEAD"], project_path).stdout.strip()
         return GithubSaveResponse(
             success=True,
-            message="项目已成功保存到本地 Git",
-            repo_url=str(project_path.absolute()),
-            commit_id=commit_id
+            message="项目已成功保存到 GitHub",
+            repo_url=repo_info.get("html_url") or repo_info.get("clone_url"),
+            commit_id=commit_id,
         )
-        
-    except subprocess.CalledProcessError as e:
-        logger.error(f"本地 Git 操作失败: {e}")
-        raise HTTPException(status_code=500, detail=f"本地 Git 操作失败: {str(e)}")
+
+async def _save_to_local_git(request: GithubSaveRequest, user_id: str) -> GithubSaveResponse:
+    import datetime
+
+    project_name = validate_project_name(request.project_name)
+    projects_dir = Path("projects") / str(user_id)
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    project_path = projects_dir / project_name
+    if project_path.exists():
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        project_path.rename(projects_dir / f"{project_name}_backup_{timestamp}")
+    project_path.mkdir()
+    _write_project_files(project_path, request.project_data)
+    _run_git(["init"], project_path)
+    _run_git(["symbolic-ref", "HEAD", "refs/heads/main"], project_path)
+    _run_git(["add", "."], project_path)
+    _run_git(["config", "user.name", "CodingMatrix AI"], project_path)
+    _run_git(["config", "user.email", "ai@codingmatrix.com"], project_path)
+    _run_git(["commit", "-m", f"Initial commit for {project_name}"], project_path)
+    commit_id = _run_git(["rev-parse", "HEAD"], project_path).stdout.strip()
+    return GithubSaveResponse(
+        success=True,
+        message="项目已成功保存到本地 Git",
+        repo_url=str(project_path.absolute()),
+        commit_id=commit_id,
+    )
 
 @router.get("/config", response_model=Dict[str, Any])
 async def get_github_config(

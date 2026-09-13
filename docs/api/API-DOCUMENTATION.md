@@ -141,7 +141,7 @@
 | GET | `/api/v1/github/repos/{owner}/{repo}/commits` | 列出最近提交 | normal |
 | POST | `/api/v1/github/save` | 保存项目至 GitHub | normal |
 
-配置 GET 返回 `username`、`use_github`、`persisted`、`has_token`、`credential_state`，`token` 恒为空，`verified` 为 false。验证与列表使用库内加密 Token，响应不含 Token。保存请求的 `project_data` 是路径到文件内容的 JSON 字符串；`github_config.use_github` 为 true 时创建公开仓库并推送 `main`，为 false 时写入本地 `projects/{user_id}/{project_name}`。契约见 `docs/features/GITHUB.md`。
+配置 GET 返回 `username`、`use_github`、`persisted`、`has_token`、`credential_state`，`token` 恒为空，`verified` 为 false。验证与列表使用库内加密 Token，响应不含 Token。保存可省略 `github_config` 并改用库内凭据；`use_github=true` 时创建公开仓库并用 `http.extraHeader` 推送 `main`，为 false 时写入本地 `projects/{user_id}/{project_name}`。契约见 `docs/features/GITHUB.md`。
 
 ## AI Agent (`/api/v1/agent`)
 | 方法 | 路径 | 描述 | 权限 |

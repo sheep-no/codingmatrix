@@ -38,6 +38,15 @@ function getGithubApi() {
   return githubApi
 }
 
+export function toGithubRepoName(name) {
+  const slug = String(name || '')
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^[-._]+|[-._]+$/g, '')
+    .slice(0, 100)
+  return slug || 'project'
+}
+
 export function createGithubClient() {
   const api = getGithubApi()
 
@@ -54,12 +63,14 @@ export function createGithubClient() {
 
     async saveProjectToGithub(projectData, githubConfig) {
       const requestData = {
-        project_name: projectData.name,
+        project_name: toGithubRepoName(projectData.name),
         project_description: projectData.description || '',
         project_data: JSON.stringify(projectData.files),
-        github_config: githubConfig
       }
-      const response = await api.post('/save', requestData)
+      if (githubConfig) {
+        requestData.github_config = githubConfig
+      }
+      const response = await api.post('/save', requestData, { timeout: 90000 })
       return response.data
     },
 

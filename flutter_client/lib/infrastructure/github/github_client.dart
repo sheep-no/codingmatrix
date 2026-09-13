@@ -1,6 +1,16 @@
 import '../auth/authenticated_client.dart';
 import '../../domain/models/github_binding.dart';
 
+String githubRepoNameFromProject(String project) {
+  final parts = project.split('/').where((part) => part.isNotEmpty);
+  final last = parts.isEmpty ? project : parts.last;
+  final slug = last
+      .replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '-')
+      .replaceAll(RegExp(r'^[-._]+|[-._]+$'), '');
+  if (slug.isEmpty) return 'project';
+  return slug.length > 100 ? slug.substring(0, 100) : slug;
+}
+
 class GithubClient {
   GithubClient(this.api);
   final AuthenticatedClient api;
@@ -31,7 +41,7 @@ class GithubClient {
     required String projectName,
     required String projectDescription,
     required String projectData,
-    required GithubConfigData config,
+    GithubConfigData? config,
   }) async => Map<String, dynamic>.from(
     await api.requestJson(
           '/api/v1/github/save',
@@ -40,11 +50,12 @@ class GithubClient {
             'project_name': projectName,
             'project_description': projectDescription,
             'project_data': projectData,
-            'github_config': {
-              'username': config.username,
-              'token': config.token,
-              'use_github': config.useGithub,
-            },
+            if (config != null)
+              'github_config': {
+                'username': config.username,
+                'token': config.token,
+                'use_github': config.useGithub,
+              },
           },
         )
         as Map,

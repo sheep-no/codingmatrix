@@ -612,8 +612,8 @@ dependencies.get_affected_files(['models/user.py'])
 | `/image-generate` | `views/ImageGenerate.vue` | requiresAuth | Kolors 文生图/图生图 |
 | `/kolors` | `views/ImageGenerate.vue` | requiresAuth | `/image-generate` 别名 |
 | `/aicloud` | `components/Aicloud.vue` | requiresAuth | AI Cloud 沙箱 |
-| `/github-config` | `components/GithubConfigPanel.vue` | requiresAuth | GitHub 集成配置 |
-| `/settings` | `views/Settings.vue` | requiresAuth | 4 Tab (providers/apikey/agent/admin) |
+| `/github-config` | → `/settings?tab=github` | requiresAuth | GitHub 配置入口重定向 |
+| `/settings` | `views/Settings.vue` | requiresAuth | Tab：providers/apikey/agent/github/admin/unified |
 | `/admin` | `components/AdminPanel.vue` | requiresAuth + requiresSuper | 旧版管理面板 |
 | `/admin/dashboard` | `views/AdminDashboard.vue` | requiresAuth + requiresSuper | 1870 行管理控制台 |
 | `/docs` | `views/Docs.vue` | requiresAuth | 文档中心 (1140 行) |

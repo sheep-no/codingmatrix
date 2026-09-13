@@ -42,6 +42,7 @@
           需要 repo 权限的 Personal Access Token。
           <a href="https://github.com/settings/tokens" target="_blank">创建 Token</a>
         </p>
+        <p v-if="hasStoredToken" class="help-text">已保存 Token，留空表示继续使用当前凭据。</p>
       </div>
 
       <div class="status-section">
@@ -58,6 +59,13 @@
         </div>
       </div>
 
+      <button
+        class="save-button"
+        :disabled="!githubUsername"
+        @click="persistConfig()"
+      >
+        保存配置
+      </button>
       <button 
         class="test-button"
         :disabled="!isConfigured"
@@ -109,6 +117,7 @@ const useGithub = ref(false)
 const githubUsername = ref('')
 const githubToken = ref('')
 const connectionStatus = ref(null)
+const hasStoredToken = ref(false)
 
 const repos = ref([])
 const branches = ref([])
@@ -117,7 +126,7 @@ const selectedRepo = ref(null)
 
 // 计算属性
 const isConfigured = computed(() => {
-  return useGithub.value && githubUsername.value && githubToken.value
+  return useGithub.value && githubUsername.value && (githubToken.value || hasStoredToken.value)
 })
 
 // 监听配置变化，自动测试连接
@@ -128,34 +137,80 @@ watch(isConfigured, async (newVal) => {
 })
 
 // 生命周期钩子
+async function loadServerConfig() {
+  try {
+    const cfg = await githubClient.getGithubConfig()
+    if (!cfg) return
+    useGithub.value = cfg.use_github === true
+    githubStore.setUseGithub(useGithub.value)
+    if (cfg.username) {
+      githubUsername.value = cfg.username
+      githubStore.setGithubUsername(cfg.username)
+    }
+    hasStoredToken.value = cfg.has_token === true
+  } catch {
+    connectionStatus.value = {
+      type: 'warning',
+      message: '未能读取已保存的 GitHub 配置'
+    }
+  }
+}
+
 onMounted(() => {
   useGithub.value = githubStore.useGithub
   githubUsername.value = githubStore.githubUsername
-  githubToken.value = githubStore.githubToken
 
-  // 如果已配置，自动测试连接
-  if (isConfigured.value) {
-    autoTestConnection()
-  }
+  loadServerConfig()
 })
 
 // 方法
-const onUseGithubChange = () => {
-  githubStore.setUseGithub(useGithub.value)
+const persistConfig = async ({ notify = true } = {}) => {
+  if (useGithub.value && !githubUsername.value) {
+    if (notify) ElMessage.warning('请先填写 GitHub 用户名')
+    return false
+  }
+  try {
+    const result = await githubClient.setGithubConfig({
+      username: githubUsername.value,
+      token: githubToken.value || '',
+      use_github: useGithub.value
+    })
+    githubStore.setUseGithub(useGithub.value)
+    githubStore.setGithubUsername(githubUsername.value)
+    if (githubToken.value) hasStoredToken.value = true
+    githubToken.value = ''
+    githubStore.setGithubToken('')
+    if (notify) ElMessage.success(result.message || 'GitHub 配置已保存')
+    return true
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || 'GitHub 配置保存失败')
+    return false
+  }
+}
+
+const onUseGithubChange = async () => {
+  const previous = githubStore.useGithub
+  if (useGithub.value && !githubUsername.value) {
+    ElMessage.warning('请先填写 GitHub 用户名')
+    useGithub.value = false
+    githubStore.setUseGithub(false)
+    return
+  }
+  const ok = await persistConfig({ notify: false })
+  if (!ok) {
+    useGithub.value = previous
+    githubStore.setUseGithub(previous)
+  }
 }
 
 const saveUsername = () => {
   githubStore.setGithubUsername(githubUsername.value)
-  if (isConfigured.value) {
-    autoTestConnection()
-  }
+  if (githubUsername.value) persistConfig({ notify: false })
 }
 
 const saveToken = () => {
   githubStore.setGithubToken(githubToken.value)
-  if (isConfigured.value) {
-    autoTestConnection()
-  }
+  if (githubToken.value) persistConfig({ notify: false })
 }
 
 const autoTestConnection = async () => {
@@ -166,6 +221,9 @@ const autoTestConnection = async () => {
         token: githubToken.value,
         use_github: useGithub.value
       })
+      hasStoredToken.value = true
+      githubToken.value = ''
+      githubStore.setGithubToken('')
     }
     const result = await githubClient.verifyGithub()
     connectionStatus.value = {
@@ -365,6 +423,26 @@ input:checked + .slider:before {
   border-radius: 4px;
   cursor: pointer;
   font-weight: 500;
+}
+
+.save-button {
+  margin-right: 8px;
+  padding: 8px 16px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.save-button:hover:not(:disabled) {
+  border-color: #409eff;
+}
+
+.save-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .test-button:hover:not(:disabled) {

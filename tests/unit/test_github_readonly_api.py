@@ -95,7 +95,7 @@ async def test_github_get_maps_unauthorized(monkeypatch):
     monkeypatch.setattr(github_remote.httpx, "AsyncClient", lambda timeout: Client())
     with pytest.raises(HTTPException) as exc:
         await github_remote.github_get("secret-token", "/user")
-    assert exc.value.status_code == 401
+    assert exc.value.status_code == 422
     assert "secret-token" not in str(exc.value.detail)
 
 
@@ -179,3 +179,99 @@ async def test_list_branches_and_commits_endpoints(monkeypatch):
     assert branches["branches"][0]["name"] == "main"
     assert commits["commits"][0]["message"] == "init"
     assert commits["sha"] == "main"
+
+
+def test_github_https_remote_has_no_credentials():
+    url = github_remote.github_https_remote("alice", "demo")
+    assert url == "https://github.com/alice/demo.git"
+
+
+def test_write_project_files_rejects_traversal(tmp_path):
+    with pytest.raises(HTTPException) as exc:
+        github_api._write_project_files(tmp_path, '{"../secret":"x"}')
+    assert exc.value.status_code == 400
+
+
+def test_write_project_files_rejects_prefix_sibling(tmp_path):
+    root = tmp_path / "demo"
+    root.mkdir()
+    with pytest.raises(HTTPException) as exc:
+        github_api._write_project_files(root, '{"../demo-evil/x":"x"}')
+    assert exc.value.status_code == 400
+    assert not (tmp_path / "demo-evil" / "x").exists()
+
+
+def test_write_project_files_rejects_empty_object(tmp_path):
+    with pytest.raises(HTTPException) as exc:
+        github_api._write_project_files(tmp_path, "{}")
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_resolve_save_credentials_uses_stored_token(monkeypatch):
+    record = SimpleNamespace(username="alice", use_github=True, encrypted_token="envelope")
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=record)
+    monkeypatch.setattr(
+        github_config_service,
+        "load_readable_token",
+        AsyncMock(return_value=(record, "stored-token")),
+    )
+    username, token, enabled = await github_config_service.resolve_save_credentials(db, 7)
+    assert username == "alice"
+    assert token == "stored-token"
+    assert enabled is True
+
+
+@pytest.mark.asyncio
+async def test_resolve_save_credentials_prefers_request_token():
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=SimpleNamespace(username="alice", use_github=True))
+    username, token, enabled = await github_config_service.resolve_save_credentials(
+        db, 7, username="alice", token="request-token", use_github=True
+    )
+    assert username == "alice"
+    assert token == "request-token"
+    assert enabled is True
+
+
+@pytest.mark.asyncio
+async def test_save_endpoint_uses_stored_credentials(monkeypatch):
+    db = AsyncMock()
+    monkeypatch.setattr(
+        github_api,
+        "resolve_save_credentials",
+        AsyncMock(return_value=("alice", "stored-token", True)),
+    )
+    save = AsyncMock(
+        return_value=github_api.GithubSaveResponse(
+            success=True,
+            message="ok",
+            repo_url="https://github.com/alice/demo",
+            commit_id="abc",
+        )
+    )
+    monkeypatch.setattr(github_api, "_save_to_github", save)
+    request = github_api.GithubSaveRequest(project_name="demo", project_data='{"README.md":"# demo"}')
+    result = await github_api.save_project_to_github(
+        request, background_tasks=None, token={"sub": "7"}, db=db
+    )
+    assert result.success is True
+    assert save.await_args.args[2:] == ("alice", "stored-token")
+
+
+@pytest.mark.asyncio
+async def test_create_user_repo_retries_with_timestamp_suffix(monkeypatch):
+    calls = []
+
+    async def fake_post(_token, _path, payload):
+        calls.append(payload["name"])
+        if payload["name"] == "demo":
+            raise HTTPException(status_code=400, detail="GitHub 仓库创建失败")
+        return {"clone_url": f"https://github.com/alice/{payload['name']}.git", "name": payload["name"]}
+
+    monkeypatch.setattr(github_remote, "github_post", fake_post)
+    data = await github_remote.create_user_repo("stored-token", "demo")
+    assert calls[0] == "demo"
+    assert calls[1].startswith("demo-")
+    assert data["name"].startswith("demo-")

@@ -121,7 +121,7 @@ class GithubController extends StateNotifier<GithubState> {
       if (!_current(op)) return false;
       final verified = result['verified'] == true;
       state = GithubState(
-        binding: previous.binding,
+        binding: previous.binding?.copyWith(verified: verified),
         verifyMessage: result['message'] as String? ?? (verified ? 'GitHub 凭据有效' : '验证未通过'),
         error: verified ? null : (result['message'] as String? ?? '用户名与 Token 不匹配'),
       );
@@ -252,6 +252,10 @@ final githubControllerProvider =
         authControllerProvider.select((s) => s.session?.accessTokenRef),
       );
       return GithubController(
-        GithubClient(ref.watch(authenticatedClientProvider)),
+        ref.watch(githubClientProvider),
       );
     });
+
+final githubClientProvider = Provider<GithubClient>(
+  (ref) => GithubClient(ref.watch(authenticatedClientProvider)),
+);

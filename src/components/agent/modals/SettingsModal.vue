@@ -16,6 +16,12 @@
               <button class="btn btn-sm btn-primary" @click="$emit('open-model-config')">前往模型配置</button>
             </div>
           </div>
+          <div class="settings-section"><h4>GitHub 保存</h4>
+            <div class="api-key-hint">
+              <p>启用后，保存项目会推送到 GitHub 仓库。</p>
+              <button class="btn btn-sm btn-primary" @click="$emit('open-github')">前往 GitHub 配置</button>
+            </div>
+          </div>
           <div class="settings-section"><h4>MCP 工具扩展</h4>
             <MCPSettings />
           </div>
@@ -56,7 +62,7 @@ import { ref, watch } from 'vue'
 import MCPSettings from '@/components/settings/MCPSettings.vue'
 
 const props = defineProps({ modelValue: Boolean, settings: { type: Object, required: true }, concurrentLimits: { type: Object, required: true }, cacheStats: { type: Object, required: true } })
-const emit = defineEmits(['update:modelValue', 'save', 'copy', 'export', 'clear-cache', 'open-api-key', 'open-model-config'])
+const emit = defineEmits(['update:modelValue', 'save', 'copy', 'export', 'clear-cache', 'open-api-key', 'open-model-config', 'open-github'])
 
 // Local editable copy
 const localSettings = ref(JSON.parse(JSON.stringify(props.settings)))

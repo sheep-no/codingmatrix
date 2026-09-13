@@ -11,6 +11,8 @@ import 'package:codingmatrix_desktop/infrastructure/auth/cloud_auth_client.dart'
 import 'package:codingmatrix_desktop/infrastructure/auth/credential_store.dart';
 import 'package:codingmatrix_desktop/presentation/agent_decision_page.dart';
 import 'package:codingmatrix_desktop/presentation/project_files_page.dart';
+import 'package:codingmatrix_desktop/application/github_controller.dart';
+import 'package:codingmatrix_desktop/infrastructure/github/github_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -270,7 +272,23 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [agentProjectClientProvider.overrideWithValue(client)],
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(client),
+          githubClientProvider.overrideWithValue(
+            GithubClient(
+              DeliveryApi(
+                (_, __, ___) async => {
+                  'username': '',
+                  'use_github': false,
+                  'persisted': false,
+                  'has_token': false,
+                  'credential_state': 'missing',
+                  'verified': false,
+                },
+              ),
+            ),
+          ),
+        ],
         child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
       ),
     );
@@ -280,5 +298,61 @@ void main() {
     await tester.tap(find.text('main.dart'));
     await tester.pumpAndSettle();
     expect(find.text('void main() {}'), findsOneWidget);
+  });
+
+  testWidgets('file page pushes project to github without config', (
+    tester,
+  ) async {
+    Map? saved;
+    final filesClient = AgentProjectClient(
+      DeliveryApi(
+        (path, _, __) async => Uri.parse(path).path.endsWith('/files')
+            ? {
+                'files': [
+                  {'path': 'README.md'},
+                ],
+              }
+            : {'content': '# demo'},
+      ),
+    );
+    final github = GithubClient(
+      DeliveryApi((path, method, body) async {
+        if (path == '/api/v1/github/config') {
+          return {
+            'username': 'alice',
+            'use_github': true,
+            'persisted': true,
+            'has_token': true,
+            'credential_state': 'stored',
+            'verified': false,
+          };
+        }
+        expect(path, '/api/v1/github/save');
+        expect(method, 'POST');
+        saved = body as Map?;
+        return {
+          'success': true,
+          'repo_url': 'https://github.com/alice/project',
+          'commit_id': 'abc',
+        };
+      }),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(filesClient),
+          githubClientProvider.overrideWithValue(github),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('githubSaveProject')));
+    await tester.pumpAndSettle();
+    expect(saved, isNotNull);
+    expect(saved!.containsKey('github_config'), false);
+    expect(saved!['project_name'], 'project');
+    expect(saved!['project_data'], '{"README.md":"# demo"}');
+    expect(find.text('https://github.com/alice/project'), findsOneWidget);
   });
 }

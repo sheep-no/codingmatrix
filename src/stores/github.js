@@ -1,52 +1,26 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 
-function simpleHexEncode(str) {
-  let hex = ''
-  for (let i = 0; i < str.length; i++) {
-    hex += str.charCodeAt(i).toString(16).padStart(2, '0')
-  }
-  return hex
-}
-
-function simpleHexDecode(hex) {
-  let str = ''
-  for (let i = 0; i < hex.length; i += 2) {
-    str += String.fromCharCode(parseInt(hex.substring(i, i + 2), 16))
-  }
-  return str
-}
-
-function getStoredToken() {
+function purgeStoredToken() {
+  sessionStorage.removeItem('github_token')
+  localStorage.removeItem('github_token')
   try {
     const persisted = JSON.parse(localStorage.getItem('github-store') || '{}')
     if (persisted.githubToken) {
-      sessionStorage.setItem('github_token', simpleHexEncode(persisted.githubToken))
       delete persisted.githubToken
       localStorage.setItem('github-store', JSON.stringify(persisted))
     }
   } catch {
     localStorage.removeItem('github-store')
   }
-
-  const stored = sessionStorage.getItem('github_token') || localStorage.getItem('github_token')
-  if (!stored) return ''
-  try {
-    const token = simpleHexDecode(stored)
-    sessionStorage.setItem('github_token', simpleHexEncode(token))
-    localStorage.removeItem('github_token')
-    return token
-  } catch (e) {
-    console.debug('[github] 解码失败（已损坏）:', e.message)
-    return ''
-  }
 }
 
 export const useGithubStore = defineStore(
   'github',
   () => {
+    purgeStoredToken()
     const githubUsername = ref(localStorage.getItem('github_username') || '')
-    const githubToken = ref(getStoredToken())
+    const githubToken = ref('')
     const useGithub = ref(localStorage.getItem('use_github') === 'true')
 
     function setGithubUsername(username) {
@@ -55,15 +29,7 @@ export const useGithubStore = defineStore(
     }
 
     function setGithubToken(token) {
-      if (token) {
-        const encodedToken = simpleHexEncode(token)
-        sessionStorage.setItem('github_token', encodedToken)
-        githubToken.value = token
-      } else {
-        sessionStorage.removeItem('github_token')
-        localStorage.removeItem('github_token')
-        githubToken.value = ''
-      }
+      githubToken.value = token || ''
     }
 
     function setUseGithub(enabled) {
@@ -85,13 +51,13 @@ export const useGithubStore = defineStore(
     function getGithubConfig() {
       return {
         username: githubUsername.value,
-        token: githubToken.value,
+        token: '',
         useGithub: useGithub.value
       }
     }
 
     function isGithubConfigured() {
-      return useGithub.value && githubUsername.value && githubToken.value
+      return useGithub.value && !!githubUsername.value
     }
 
     return {
