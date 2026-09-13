@@ -74,9 +74,10 @@ class ChatApi extends DeliveryApi {
     String path, {
     String method = 'GET',
     Object? body,
+    Duration? timeout,
   }) async {
     this.body = body as Map<String, dynamic>;
-    return super.requestJson(path, method: method, body: body);
+    return super.requestJson(path, method: method, body: body, timeout: timeout);
   }
 }
 

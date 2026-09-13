@@ -52,6 +52,7 @@ class WorkflowApi extends DeliveryApi {
     String path, {
     String method = 'GET',
     Object? body,
+    Duration? timeout,
   }) {
     expect(path, '/api/v1/workflow/status/w1');
     expect(method, 'GET');
