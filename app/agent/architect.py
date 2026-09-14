@@ -311,22 +311,8 @@ language 字段要求：
             else:
                 response = await self.call_llm(prompt, self.SYSTEM_PROMPT)
         except Exception as exc:
-            logger.warning("架构师首次调用失败，返回默认架构: %s", exc)
-            return finalize(self._get_requirement_aware_default_architecture(
-                requirement, complexity, target_language, frontend_language
-            ))
-
-        if not response or not str(response).strip():
-            logger.warning("架构师输出为空，禁用思考后重试一次")
-            try:
-                response = await self.call_llm(
-                    prompt, self.SYSTEM_PROMPT, thinking_budget=0
-                )
-            except Exception as exc:
-                logger.warning("架构师重试失败，返回默认架构: %s", exc)
-                return finalize(self._get_requirement_aware_default_architecture(
-                    requirement, complexity, target_language, frontend_language
-                ))
+            logger.warning("架构师首次调用失败: %s", exc)
+            raise
 
         logger.info(
             "架构响应审计: model=%s response_type=%s response_chars=%d has_json_marker=%s",
@@ -336,45 +322,22 @@ language 字段要求：
             bool(response and ("{" in response or "[" in response)),
         )
 
+        if not response or not str(response).strip():
+            raise ValueError("architect architecture was empty")
+
         # 解析 JSON
         try:
-            if not response or not response.strip():
-                logger.warning("架构师重试仍为空，返回默认架构")
-                return finalize(self._get_requirement_aware_default_architecture(
-                    requirement, complexity, target_language, frontend_language
-                ))
-
             architecture = self._safe_parse_json(response)
-            
-            # 处理不同的返回格式
-            if isinstance(architecture, list):
-                # LLM 直接返回了文件列表，包装成标准格式
-                logger.info(f"架构师直接返回了文件列表 ({len(architecture)} 个文件)")
-                architecture = {
-                    "project_type": "fullstack" if complexity.has_frontend and complexity.has_backend else ("frontend" if complexity.has_frontend else "backend"),
-                    "tech_stack": complexity.key_technologies,
-                    "language": target_language,
-                    "frontend_language": frontend_language,
-                    "backend_language": backend_language,
-                    "all_languages": all_languages,
-                    "file_plan": self._normalize_file_plan(architecture, target_language),
-                    "project_spec": self._build_default_project_spec(target_language, frontend_language, complexity),
-                    "dependencies": {},
-                    "risks": complexity.risk_factors
-                }
-            elif not isinstance(architecture, dict):
-                logger.warning(f"架构师输出类型不正确: {type(architecture).__name__}，返回默认架构")
-                return finalize(self._get_requirement_aware_default_architecture(
-                    requirement, complexity, target_language, frontend_language
-                ))
         except ValueError:
             logger.warning("架构师输出解析失败，尝试 LLM 辅助提取")
             architecture = await self._extract_json_with_llm(response, complexity)
             if not architecture:
-                logger.warning("LLM 辅助提取失败，返回默认架构")
-                return finalize(self._get_requirement_aware_default_architecture(
-                    requirement, complexity, target_language, frontend_language
-                ))
+                raise ValueError("architect architecture JSON extraction failed")
+
+        if not isinstance(architecture, dict):
+            raise ValueError(
+                f"architect architecture was not a JSON object: {type(architecture).__name__}"
+            )
 
         if architecture:
             architecture = self._coerce_architecture_fields(architecture)
@@ -398,12 +361,8 @@ language 字段要求：
                 architecture, requirement, complexity, target_language, frontend_language
             )
 
-            # 确保 project_spec 存在
             if not isinstance(architecture.get("project_spec"), dict):
-                logger.warning("架构师未返回 project_spec，使用默认规范")
-                architecture["project_spec"] = self._build_default_project_spec(
-                    target_language, frontend_language, complexity
-                )
+                raise ValueError("architect architecture did not include a project_spec")
 
             # 为 file_plan 中缺少 language 字段的文件补充默认值
             for f in architecture.get("file_plan", []):
@@ -426,9 +385,7 @@ language 字段要求：
             architecture["requirement"] = requirement
             return finalize(architecture)
         else:
-            return finalize(self._get_requirement_aware_default_architecture(
-                requirement, complexity, target_language, frontend_language
-            ))
+            raise ValueError("architect architecture was empty")
 
     async def _extract_json_with_llm(self, raw_text: str, complexity: ComplexityAnalysis) -> Optional[Dict]:
         """使用 LLM 从非标准输出中提取 JSON"""
@@ -591,20 +548,7 @@ language 字段要求：
             architecture["file_plan"] = self._normalize_file_plan(existing, target_language)
             self._drop_stale_file_plan_aliases(architecture)
             return architecture
-        logger.warning("架构师未返回 file_plan，补入默认文件计划并保留已解析字段")
-        default = self._get_requirement_aware_default_architecture(
-            requirement, complexity, target_language, frontend_language
-        )
-        architecture["file_plan"] = default["file_plan"]
-        architecture["used_default_file_plan"] = True
-        if not architecture.get("project_spec"):
-            architecture["project_spec"] = default.get("project_spec")
-        if not architecture.get("tech_stack"):
-            architecture["tech_stack"] = default.get("tech_stack")
-        architecture.setdefault("language", target_language)
-        architecture.setdefault("requirement", requirement)
-        self._drop_stale_file_plan_aliases(architecture)
-        return architecture
+        raise ValueError("architect architecture did not include a file_plan")
 
     def _parse_jsonish(self, value: Any) -> Any:
         """Parse LLM JSON-in-string values; leave prose strings unchanged."""
@@ -648,6 +592,36 @@ language 字段要求：
             return entries
         return parsed
 
+    @classmethod
+    def _drop_unnamed_dependencies(cls, value: Any) -> Any:
+        """Remove dependency entries the model left unnamed; an empty name declares nothing."""
+        def _name(item: Any) -> Any:
+            if isinstance(item, str):
+                return item if item.strip() else None
+            if isinstance(item, dict):
+                name = str(item.get("name", item.get("package", "")) or "").strip()
+                return {**item, "name": name} if name else None
+            return item
+
+        if isinstance(value, list):
+            return [cleaned for item in value if (cleaned := _name(item)) is not None]
+        if not isinstance(value, dict):
+            return value
+        if "name" in value or "package" in value:
+            cleaned = _name(value)
+            return cleaned if cleaned is not None else {}
+        normalized = {}
+        for category, raw_items in value.items():
+            if isinstance(raw_items, (str, dict)):
+                raw_items = [raw_items]
+            if not isinstance(raw_items, list):
+                normalized[category] = raw_items
+                continue
+            normalized[category] = [
+                cleaned for item in raw_items if (cleaned := _name(item)) is not None
+            ]
+        return normalized
+
     def _coerce_architecture_fields(self, architecture: Any) -> Dict:
         """Turn GLM string-shaped objects into dict/list before downstream .get()."""
         if not isinstance(architecture, dict):
@@ -676,6 +650,9 @@ language 字段要求：
             parsed = self._parse_jsonish(architecture[key])
             if isinstance(parsed, (list, dict)):
                 architecture[key] = parsed
+        architecture["dependencies"] = self._drop_unnamed_dependencies(
+            architecture.get("dependencies")
+        )
         file_plan = architecture.get("file_plan")
         if isinstance(file_plan, list):
             for item in file_plan:
@@ -704,17 +681,13 @@ language 字段要求：
     ) -> Dict:
         """Single export shape for design_architecture: objects, not JSON strings."""
         if not isinstance(architecture, dict) or not architecture:
-            architecture = self._get_requirement_aware_default_architecture(
-                requirement, complexity, target_language, frontend_language
-            )
+            raise ValueError("architect architecture was empty")
         architecture = self._coerce_architecture_fields(architecture)
         architecture.setdefault("language", target_language)
         architecture.setdefault("frontend_language", frontend_language)
         architecture.setdefault("requirement", requirement)
-        if not isinstance(architecture.get("project_spec"), dict) or not architecture.get("project_spec"):
-            architecture["project_spec"] = self._build_default_project_spec(
-                target_language, frontend_language, complexity
-            )
+        if not isinstance(architecture.get("project_spec"), dict):
+            raise ValueError("architect architecture did not include a project_spec")
         if not isinstance(architecture.get("api_spec"), dict):
             architecture["api_spec"] = {}
         if not isinstance(architecture.get("db_schema"), dict):
@@ -1112,6 +1085,73 @@ language 字段要求：
             estimated = 0
         return str(level).lower() == "simple" and estimated <= 1
 
+    @staticmethod
+    def _path_module_forms(path: str, language: Optional[str]) -> List[str]:
+        """Equivalent module strings for a planned path, in decreasing specificity."""
+        posix = path.replace("\\", "/").lstrip("./")
+        if not posix:
+            return []
+        stem = posix
+        for ext in (
+            ".py", ".js", ".ts", ".jsx", ".tsx", ".vue", ".java",
+            ".go", ".rs", ".rb", ".php",
+        ):
+            if stem.endswith(ext):
+                stem = stem[: -len(ext)]
+                break
+        forms = [path, posix, stem, "./" + stem]
+        if (language or "").lower() in {"python", "py"}:
+            forms.insert(3, stem.replace("/", "."))
+        return [form for form in forms if form]
+
+    @classmethod
+    def _import_remap_pairs(
+        cls,
+        source_path: str,
+        strict_path: str,
+        language: Optional[str],
+    ) -> List[tuple]:
+        """Pairs rewriting a collapsed file's old module references to its strict path."""
+        if not source_path or source_path == strict_path:
+            return []
+        old_forms = cls._path_module_forms(source_path, language)
+        new_forms = cls._path_module_forms(strict_path, language)
+        pairs: List[tuple] = []
+        seen: Set[str] = set()
+        for old, new in zip(old_forms, new_forms):
+            if not old or not new or old == new or old in seen:
+                continue
+            seen.add(old)
+            pairs.append((old, new))
+        return pairs
+
+    @classmethod
+    def _rewrite_collapsed_imports(cls, item: Dict, remaps: List[tuple]) -> None:
+        """Update a file plan entry's dependency declarations after a path collapse."""
+        if not remaps:
+            return
+        ordered = sorted(remaps, key=lambda pair: len(pair[0]), reverse=True)
+
+        def rewrite(value: Any) -> Any:
+            if not isinstance(value, str) or not value.strip():
+                return value
+            text = value
+            for old, new in ordered:
+                if old in text:
+                    text = text.replace(old, new)
+            return text
+
+        for field in ("imports", "dependencies"):
+            values = item.get(field)
+            if isinstance(values, list):
+                item[field] = [rewrite(value) for value in values]
+        contract = item.get("contract")
+        if isinstance(contract, dict):
+            for field in ("required_imports", "forbidden_imports"):
+                values = contract.get(field)
+                if isinstance(values, list):
+                    contract[field] = [rewrite(value) for value in values]
+
     def _ensure_file_plan_completeness(
         self,
         architecture: Dict,
@@ -1144,6 +1184,7 @@ language 字段要求：
         if strict_paths:
             original_count = len(file_plan)
             strict_file_plan = []
+            remaps: List[tuple] = []
             for strict_path in sorted(strict_paths):
                 exact_match = next(
                     (f for f in file_plan if f.get("path") == strict_path),
@@ -1166,8 +1207,15 @@ language 字段要求：
                     "imports": [],
                     "language": target_language or "python",
                 }
+                source_path = (source or {}).get("path", "") if source else ""
+                language = normalized.get("language") or target_language
+                remaps.extend(
+                    self._import_remap_pairs(source_path, strict_path, language)
+                )
                 normalized["path"] = strict_path
                 strict_file_plan.append(normalized)
+            for item in strict_file_plan:
+                self._rewrite_collapsed_imports(item, remaps)
             architecture["file_plan"] = strict_file_plan
             architecture["strict_file_paths"] = sorted(strict_paths)
             logger.info(
@@ -1430,7 +1478,7 @@ language 字段要求：
             logger.info(f"架构师调用 LLM | system_prompt={len(self.SYSTEM_PROMPT)} chars, user_prompt={len(prompt)} chars, total={len(self.SYSTEM_PROMPT) + len(prompt)} chars")
             response = await self.call_llm(prompt, self.SYSTEM_PROMPT)
             if not response or not response.strip():
-                return []
+                raise ValueError("architect batch file plan was empty")
 
             parsed = self._safe_parse_json(response)
             
@@ -1443,7 +1491,9 @@ language 字段要求：
                 batch_plan = parsed.get("file_plan", [])
             else:
                 logger.warning(f"分批规划输出类型不正确: {type(parsed).__name__}")
-                return []
+                raise ValueError(
+                    f"architect batch file plan was not a JSON array or object: {type(parsed).__name__}"
+                )
             
             # 验证每个文件的格式
             valid_files = []
@@ -1472,4 +1522,4 @@ language 字段要求：
 
         except Exception as e:
             logger.warning(f"分批规划生成失败: {e}")
-            return []
+            raise

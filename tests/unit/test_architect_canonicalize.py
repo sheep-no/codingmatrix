@@ -162,3 +162,95 @@ def test_strict_paths_drop_extra_command_module():
         strict_paths=Architect._extract_strict_file_paths(requirement),
     )
     assert [item["path"] for item in result["file_plan"]] == ["greet.py", "main.py"]
+
+
+def test_strict_paths_rewrite_collapsed_imports():
+    architect = _architect()
+    architecture = {
+        "language": "python",
+        "file_plan": [
+            {"path": "src/greet.py", "imports": []},
+            {
+                "path": "src/main.py",
+                "imports": ["from src.greet import greet"],
+                "contract": {"required_imports": ["src/greet"]},
+            },
+        ],
+    }
+
+    result = architect._ensure_file_plan_completeness(
+        architecture,
+        target_language="python",
+        strict_paths={"greet.py", "main.py"},
+    )
+    plan = {item["path"]: item for item in result["file_plan"]}
+    assert set(plan) == {"greet.py", "main.py"}
+    assert plan["main.py"]["imports"] == ["from greet import greet"]
+    assert plan["main.py"]["contract"]["required_imports"] == ["greet"]
+    GenerationPlan.from_architecture(result)
+
+
+def test_canonicalize_missing_project_spec_raises():
+    architect = _architect()
+    with pytest.raises(ValueError, match="did not include a project_spec"):
+        architect._canonicalize_architecture(
+            {
+                "project_type": "script",
+                "language": "python",
+                "file_plan": [{"path": "hello.py", "file_type": "entry", "language": "python"}],
+            },
+            "写一个 Python hello world 脚本",
+            _simple_complexity(),
+            "python",
+            None,
+        )
+
+
+def test_canonicalize_drops_unnamed_dependencies():
+    architect = _architect()
+    architecture = {
+        "project_type": "script",
+        "language": "python",
+        "project_spec": {"default": {}},
+        "file_plan": [{"path": "hello.py", "file_type": "entry", "language": "python"}],
+        "api_spec": {},
+        "db_schema": {},
+        "dependencies": [
+            {"name": "", "kind": "runtime"},
+            {"name": "  ", "kind": "runtime"},
+            {"name": "requests", "kind": "runtime"},
+        ],
+    }
+
+    result = architect._canonicalize_architecture(
+        architecture,
+        "写一个 Python hello world 脚本",
+        _simple_complexity(),
+        "python",
+        None,
+    )
+    plan = GenerationPlan.from_architecture(result)
+    assert plan.dependencies.names() == ("requests",)
+
+
+def test_canonicalize_drops_unnamed_grouped_dependencies():
+    architect = _architect()
+    architecture = {
+        "project_type": "script",
+        "language": "python",
+        "project_spec": {"default": {}},
+        "file_plan": [{"path": "hello.py", "file_type": "entry", "language": "python"}],
+        "api_spec": {},
+        "db_schema": {},
+        "dependencies": {"runtime": ["", {"name": ""}, "requests"]},
+    }
+
+    result = architect._canonicalize_architecture(
+        architecture,
+        "写一个 Python hello world 脚本",
+        _simple_complexity(),
+        "python",
+        None,
+    )
+    plan = GenerationPlan.from_architecture(result)
+    assert plan.dependencies.names() == ("requests",)

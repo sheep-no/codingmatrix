@@ -290,7 +290,6 @@ class FrontendEngineer(Specialist):
 请返回完整的文件内容，使用 {file_actual_language} 语法编写，不要省略任何部分。"""
 
         # 有项目路径时使用 ReAct 工具调用，否则退化为普通 call_llm
-        # 编码阶段限制 thinking：省 token 留给代码输出，同时保留少量思考给用户展示
         if heartbeat_tracker:
             heartbeat_tracker.touch()
         if project_path:
@@ -306,10 +305,9 @@ class FrontendEngineer(Specialist):
                 prompt, self.SYSTEM_PROMPT, tools=read_only_tools,
                 project_path=project_path, callback=callback,
                 heartbeat_tracker=heartbeat_tracker, enable_streaming_thinking=True,
-                thinking_budget=50,
             )
         else:
-            result = await self.call_llm(prompt, self.SYSTEM_PROMPT, thinking_budget=50)
+            result = await self.call_llm(prompt, self.SYSTEM_PROMPT)
         if heartbeat_tracker:
             heartbeat_tracker.touch()
         return result

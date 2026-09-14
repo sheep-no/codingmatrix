@@ -11,6 +11,7 @@ class TestRefinementLoop:
         
         with tempfile.TemporaryDirectory() as tmpdir:
             ctx = SharedContext("test requirement", Path(tmpdir))
+            ctx.model_assignment = {"backend_model": "test-model"}
             yield RefinementLoop(ctx)
     
     def test_refine_success(self, loop):
@@ -29,3 +30,12 @@ class TestRefinementLoop:
         assert hasattr(result, 'final_content')
         assert hasattr(result, 'success')
         assert hasattr(result, 'attempts')
+
+
+def test_refinement_loop_requires_model_assignment(tmp_path):
+    from app.agent.refinement_loop import RefinementLoop
+    from app.agent.shared_context import SharedContext
+
+    ctx = SharedContext("test requirement", tmp_path)
+    with pytest.raises(RuntimeError, match="model assignment is required for refinement"):
+        RefinementLoop(ctx)

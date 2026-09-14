@@ -10,6 +10,7 @@ class TestSpecFirstGenerator:
         
         with tempfile.TemporaryDirectory() as tmpdir:
             ctx = SharedContext("test", Path(tmpdir))
+            ctx.model_assignment = {"architect_model": "test-model"}
             yield SpecFirstGenerator(ctx)
     
     def test_get_spec_context_for_file(self, generator):
@@ -46,6 +47,34 @@ class TestSpecFirstGenerator:
         )
         assert ok is True
 
+    @pytest.mark.asyncio
+    async def test_generate_all_specs_fails_when_types_fail(self, generator, monkeypatch):
+        async def openapi_ok(*_args, **_kwargs):
+            return True
+
+        async def types_fail(*_args, **_kwargs):
+            return False
+
+        async def unused(*_args, **_kwargs):
+            raise AssertionError("later spec steps should not run")
+
+        monkeypatch.setattr(generator, "_generate_openapi_spec", openapi_ok)
+        monkeypatch.setattr(generator, "_generate_types", types_fail)
+        monkeypatch.setattr(generator, "_generate_db_schema", unused)
+        monkeypatch.setattr(generator, "_generate_config", unused)
+
+        ok = await generator.generate_all_specs(
+            "做一个 FastAPI 用户接口，PostgreSQL 存储。",
+            {
+                "level": "medium",
+                "has_frontend": False,
+                "has_backend": True,
+                "has_database": True,
+                "has_auth": False,
+            },
+        )
+        assert ok is False
+
     def test_needs_db_spec_ignores_negated_database(self, generator):
         requirement = "写一个 Python 文件 hello.py，运行后打印 Hello World。只要这一个文件，不要数据库、不要前端、不要测试。"
         complexity = {
@@ -81,3 +110,12 @@ class TestSpecFirstGenerator:
             },
         )
         assert ok is True
+
+
+def test_spec_first_generator_requires_model_assignment(tmp_path):
+    from app.agent.spec_first_generator import SpecFirstGenerator
+    from app.agent.shared_context import SharedContext
+
+    ctx = SharedContext("test", tmp_path)
+    with pytest.raises(RuntimeError, match="model assignment is required for spec generation"):
+        SpecFirstGenerator(ctx)

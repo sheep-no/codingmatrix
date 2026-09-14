@@ -262,21 +262,18 @@ class CrossValidator:
                 logger.warning(f"交叉验证裁判返回空内容 (尝试 {attempt + 1}/2)")
             except Exception as e:
                 if is_review_timeout(e):
-                    logger.warning("交叉验证裁判超时，跳过审查并使用版本 A: %s", file_path)
-                    return version_a, model_a
+                    raise
                 logger.warning(f"交叉验证裁判调用失败 (尝试 {attempt + 1}/2): {e}")
 
         if not content:
-            logger.warning("交叉验证裁判最终返回空内容，默认使用版本 A")
-            return version_a, model_a
+            raise ValueError("cross validator judge was empty")
 
         try:
             result = self._extract_json(content)
             if not result:
-                logger.warning("交叉验证结果解析失败，默认使用版本 A")
-                return version_a, model_a
+                raise ValueError("cross validator judge was not JSON")
 
-            winner = result.get("winner", "A")
+            winner = result.get("winner")
             reason = result.get("reason", "")
 
             if winner == "A":
@@ -286,15 +283,19 @@ class CrossValidator:
                 logger.info(f"交叉验证选择版本 B ({model_b}): {reason}")
                 return version_b, model_b
             elif winner == "merged":
-                final_code = result.get("final_code", version_a)
+                final_code = result.get("final_code")
+                if not final_code:
+                    raise ValueError("cross validator merged result had no final_code")
                 logger.info(f"交叉验证选择合并版本: {reason}")
                 return final_code, f"{model_a}+{model_b}"
             else:
-                return version_a, model_a
+                raise ValueError(f"cross validator judge winner was invalid: {winner}")
 
         except Exception as e:
-            logger.error(f"交叉验证失败: {e}，默认使用版本 A")
-            return version_a, model_a
+            if isinstance(e, ValueError) and str(e).startswith("cross validator"):
+                raise
+            logger.error(f"交叉验证失败: {e}")
+            raise ValueError("cross validator judge failed") from e
 
     async def cross_validate_with_refinement(
         self,
@@ -1330,8 +1331,7 @@ class CrossValidator:
             fixed_files = await self._fix_with_llm(generated_files, selected, fix_model)
         except Exception as exc:
             if is_review_timeout(exc):
-                logger.warning("跨文件审查超时，跳过 LLM 修复")
-                return generated_files, issues
+                logger.warning("跨文件审查超时")
             raise
 
         return fixed_files, issues
@@ -1375,73 +1375,17 @@ class CrossValidator:
         model: Optional[str] = None
     ) -> Dict[str, str]:
         """生成缺失的模块文件"""
-        if not model:
-            # 如果没有指定模型，跳过生成
-            extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
-            default_ext = list(extensions)[0] if extensions else '.py'
-            for module in missing_modules:
-                file_path = module.replace('.', '/') + default_ext
-                if file_path not in files:
-                    logger.warning(f"跳过缺失模块生成（无模型）: {file_path} (模块: {module})")
-            return files
-
-        # 使用 LLM 生成模块内容
         extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
         default_ext = list(extensions)[0] if extensions else '.py'
-        language_name = self.language_adapter.language if self.language_adapter else "Python"
-
+        missing_paths = []
         for module in missing_modules:
             file_path = module.replace('.', '/') + default_ext
-            if file_path in files:
-                continue
-
-            # 跳过不在已有文件列表中的路径（避免创建依赖图外的文件）
-            logger.warning(f"跳过缺失模块生成（不在已有文件中）: {file_path} (模块: {module})")
-            continue
-
-            # 收集引用该模块的文件
-            referencing_files = []
-            for f_path, content in files.items():
-                if module in content:
-                    referencing_files.append(f_path)
-
-            # 构建提示词
-            prompt = f"""请为以下 {language_name} 模块生成代码：
-
-模块路径: {module}
-项目架构: {json.dumps(architecture.get('tech_stack', []), ensure_ascii=False)}
-
-引用该模块的文件:
-{self._format_referencing_files(files, referencing_files)}
-
-要求：
-1. 生成完整的模块代码
-2. 确保导出被引用的函数/类/变量
-3. 遵循 {language_name} 最佳实践
-4. 添加必要的类型注解（如果语言支持）
-
-只输出代码，不要解释。"""
-
-            try:
-                response = await call_llm(
-                    model=model,
-                    prompt=prompt,
-                    stream=False,
-                    max_tokens=4096,
-                    api_key_token=self.api_key_token
-                )
-
-                content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-                if content:
-                    accepted = self._accept_llm_fix(file_path, content, files.get(file_path, ""))
-                    if accepted:
-                        files[file_path] = accepted
-                        logger.info(f"生成缺失模块（LLM）: {file_path}")
-            except Exception as e:
-                logger.error(f"生成模块 {module} 失败: {e}")
-                # 使用默认内容
-                files[file_path] = f'"""Module: {module}"""\n\n# TODO: Implement this module\n'
-
+            if file_path not in files:
+                missing_paths.append(file_path)
+        if missing_paths:
+            raise RuntimeError(
+                "missing modules were not generated: " + ", ".join(missing_paths)
+            )
         return files
 
     def _format_referencing_files(self, files: Dict[str, str], referencing_files: List[str]) -> str:
@@ -1540,7 +1484,7 @@ class CrossValidator:
             except Exception as e:
                 if is_review_timeout(e):
                     logger.warning("跨文件审查超时，跳过剩余 LLM 修复")
-                    break
+                    raise
                 logger.error(f"批量修复失败: {e}")
                 # 回退到单文件修复
                 for file_path in batch_paths:
@@ -1582,7 +1526,7 @@ class CrossValidator:
                     except Exception as e2:
                         if is_review_timeout(e2):
                             logger.warning("跨文件审查超时，跳过剩余 LLM 修复")
-                            return fixed_files
+                            raise
                         logger.error(f"修复文件 {file_path} 失败: {e2}")
 
         return fixed_files

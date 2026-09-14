@@ -84,8 +84,10 @@ class RefinementLoop:
         self.context = context
         self.api_key_token = api_key_token
         self._pending_tasks: set = set()
-        from app.agent.models import DEFAULT_CODE_MODEL
-        self.default_model = context.model_assignment.get("backend_model", DEFAULT_CODE_MODEL) if context.model_assignment else DEFAULT_CODE_MODEL
+        assignment = context.model_assignment or {}
+        self.default_model = assignment.get("backend_model") if isinstance(assignment, dict) else getattr(assignment, "backend_model", None)
+        if not self.default_model:
+            raise RuntimeError("model assignment is required for refinement")
         from app.agent.orchestrator import LayeredModelRouter
         self.model_config = LayeredModelRouter.get_model_config(self.default_model)
         self._complexity = complexity
@@ -185,21 +187,21 @@ class RefinementLoop:
                 new_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
                 if not new_content or not new_content.strip():
                     logger.warning(f"修复尝试 {attempt} 返回空内容，消耗一次尝试")
-                    break
+                    continue
 
                 new_content = self._clean_code_block(new_content)
 
                 # Step 6: 验证修复是否有效（内容确实改变了）
                 if new_content.strip() == content.strip():
                     logger.warning(f"修复尝试 {attempt} 未改变代码内容，消耗一次尝试")
-                    break
+                    continue
 
                 content = new_content
                 issues_fixed += len(issues)
 
             except Exception as e:
                 logger.error(f"修复尝试 {attempt} 失败: {e}")
-                break
+                continue
 
         # 理论上不会到这里（最后一次尝试会提前返回）
         return RefinementResult(
@@ -208,7 +210,7 @@ class RefinementLoop:
             attempts=self.MAX_ATTEMPTS,
             issues_found=all_issues,
             issues_fixed=issues_fixed,
-            remaining_issues=[]
+            remaining_issues=issues if issues else all_issues
         )
 
     # ==================== 验证方法 ====================

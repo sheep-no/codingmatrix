@@ -13,7 +13,6 @@ from pathlib import Path
 from app.utils import call_llm
 from app.agent.code_validator import CodeValidator
 from app.agent.specialists import CodeReviewer
-from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL, DEFAULT_FAST_MODEL
 from app.agent.dynamic_model_router import LayeredModelRouter
 from app.agent.test_runner import TestRunner
 from app.agent.error_classifier import error_classifier, ErrorClassification
@@ -41,22 +40,6 @@ class ErrorRecoveryLoop:
 
     MAX_FIX_ATTEMPTS = 3  # 智能修正循环最多尝试 3 次（捕获深层问题）
 
-    # 默认模型降级链（硬编码兜底，SiliconFlow 模型）
-    DEFAULT_FALLBACK_CHAIN = [
-        DEFAULT_CODE_MODEL,        # 代码修复首选
-        DEFAULT_REASONING_MODEL,   # 通用修复
-        DEFAULT_FAST_MODEL,        # 快速降级
-    ]
-
-    # 供应商级降级链（当用户使用非 SiliconFlow Key 时，用同供应商模型）
-    _PROVIDER_FALLBACK_CHAINS = {
-        "dashscope": ["qwen-plus", "qwen-turbo"],
-        "zhipu": ["glm-4", "glm-4-flash"],
-        "deepseek": ["deepseek-chat", "deepseek-reasoner"],
-        "openai": ["gpt-4o", "gpt-4o-mini"],
-        "anthropic": ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"],
-    }
-
     def __init__(self, validator: CodeValidator, reviewer: CodeReviewer, api_key_token: Optional[str] = None, cancel_event=None):
         self.validator = validator
         self.reviewer = reviewer
@@ -68,13 +51,12 @@ class ErrorRecoveryLoop:
         self.MODEL_FALLBACK_CHAIN = self._load_fallback_chain("error_recovery")
 
     def _load_fallback_chain(self, chain_name: str = "error_recovery") -> List[str]:
-        """从配置文件加载降级链（供应商感知 + 用户偏好）
+        """加载错误恢复降级链。
 
         优先级：
         1. 用户偏好（disabled → 空链；custom → 用户自定义链）
         2. 配置文件中的降级链
-        3. 供应商级降级链
-        4. 硬编码默认链
+        无用户/管理员配置时返回空链，不换弱模型。
         """
         from app.agent.dynamic_model_router import load_agent_model_config, resolve_model_key
 
@@ -99,30 +81,7 @@ class ErrorRecoveryLoop:
             if chain:
                 resolved = [resolve_model_key(m) for m in chain]
                 return resolved
-
-        # 3. 检测用户供应商，使用同供应商的降级链
-        user_provider = self._detect_user_provider()
-        if user_provider and user_provider != "siliconflow":
-            provider_chain = self._PROVIDER_FALLBACK_CHAINS.get(user_provider, [])
-            if provider_chain:
-                logger.debug(f"使用 {user_provider} 供应商降级链: {provider_chain}")
-                return provider_chain
-
-        # 4. 硬编码默认链
-        return self.DEFAULT_FALLBACK_CHAIN.copy()
-
-    def _detect_user_provider(self) -> Optional[str]:
-        """从 api_key_token 检测用户 Key 所属供应商"""
-        if not self.api_key_token:
-            return None
-        try:
-            from app.services.apikey_manager import get_metadata_by_token
-            meta = get_metadata_by_token(self.api_key_token)
-            if meta:
-                return meta.get("provider", "").lower()
-        except Exception as e:
-            logger.debug(f"获取供应商元数据失败（非致命，使用默认）: {e}")
-        return None
+        return []
 
     def _get_user_fallback_preference(self) -> Optional[Dict]:
         """获取用户的降级链偏好配置"""
@@ -171,8 +130,7 @@ class ErrorRecoveryLoop:
             return fix_result["success"], fix_result["fixed_content"]
 
         except Exception as e:
-            logger.error(f"验证修复异常: {e}")
-            return False, content
+            raise RuntimeError(f"error recovery failed: {e}") from e
 
         finally:
             if temp_file.exists():
@@ -491,26 +449,14 @@ class ErrorRecoveryLoop:
         from app.agent.dynamic_model_router import load_agent_model_config, resolve_model_key
         config = load_agent_model_config()
 
-        # 默认映射（硬编码兜底）
-        DEFAULT_ERROR_MODEL_MAPPING = {
-            "NameError": DEFAULT_FAST_MODEL,       # 简单变量错误，快速模型即可
-            "AttributeError": DEFAULT_CODE_MODEL,  # 需要理解对象结构
-            "ImportError": DEFAULT_CODE_MODEL,     # 需要理解模块系统
-            "SyntaxError": DEFAULT_FAST_MODEL,     # 语法错误，简单修复
-            "TypeError": DEFAULT_CODE_MODEL,       # 类型系统理解
-            "KeyError": DEFAULT_FAST_MODEL,        # 简单字典操作
-            "IndexError": DEFAULT_FAST_MODEL,      # 简单索引操作
-            "LogicError": DEFAULT_CODE_MODEL       # 复杂逻辑需要强推理
-        }
-
-        # 尝试从配置文件加载
-        ERROR_MODEL_MAPPING = DEFAULT_ERROR_MODEL_MAPPING.copy()
+        ERROR_MODEL_MAPPING = {}
         if config and "error_type_models" in config:
             for error_type_key, model_id in config["error_type_models"].items():
                 ERROR_MODEL_MAPPING[error_type_key] = resolve_model_key(model_id)
 
-        # 获取推荐模型
-        recommended_model = ERROR_MODEL_MAPPING.get(error_type, models_to_try[0])
+        if not models_to_try:
+            raise RuntimeError("error recovery has no models to try")
+        recommended_model = ERROR_MODEL_MAPPING.get(error_type)
 
         # 如果推荐模型不在可用模型列表中，使用第一个模型
         if recommended_model in models_to_try:

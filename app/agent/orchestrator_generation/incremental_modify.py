@@ -19,7 +19,6 @@ from typing import Dict, List, Optional, Any
 
 from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
 from app.agent.orchestrator_progress import PROGRESS_LABELS
-from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from app.agent.generation_plan import GenerationPlan, add_profile_components
 
 logger = logging.getLogger(__name__)
@@ -64,8 +63,9 @@ class IncrementalModifyMixin:
 
         dep_graph = DependencyGraph.load(str(dep_graph_path), language_adapter=language_adapter)
         if dep_graph is None:
-            logger.warning("依赖图不存在，回退到完整生成流程")
-            return await self.generate_with_spec_first(requirement, callback)
+            raise RuntimeError(
+                f"incremental modify requires a dependency graph: {dep_graph_path}"
+            )
 
         logger.info(f"加载依赖图: {len(dep_graph.nodes)} 个节点")
         dep_graph.enrich_and_save(self.output_dir, str(dep_graph_path))
@@ -86,8 +86,7 @@ class IncrementalModifyMixin:
         )
 
         if not change_plan:
-            logger.warning("架构师未返回变更计划，回退到完整生成流程")
-            return await self.generate_with_spec_first(requirement, callback)
+            logger.info("架构师返回空变更计划，按无文件变更完成")
 
         self._report_progress(
             "incremental_plan", 2, 6,
@@ -307,6 +306,13 @@ class IncrementalModifyMixin:
         self.generated_files = result.get("generated_files", [])
         self.errors.extend(result.get("errors", []))
         self.warnings.extend(result.get("warnings", []))
+
+        if files_failed:
+            failed = [err for err in self.errors if "文件生成失败" in err]
+            raise RuntimeError(
+                f"incremental file generation failed for {files_failed} file(s): "
+                + "; ".join(failed or self.errors[-files_failed:])
+            )
 
         # ========== Step 5: P6 增量依赖图更新 ==========
         # 根据生成的文件内容更新依赖关系
@@ -553,17 +559,8 @@ class IncrementalModifyMixin:
             description = file_info.get("description", f"生成 {file_path}")
             original_content = file_info.get("original_content", "")
 
-            # P4: 根据变更复杂度选择模型
-            is_simple = self._is_simple_change(file_info)
-            if is_simple:
-                # 简单变更用轻量模型（更快）
-                from app.agent.models import DEFAULT_FAST_MODEL
-                engineer = self._select_engineer(file_path)
-                model_name = DEFAULT_FAST_MODEL
-                logger.info(f"简单变更，使用轻量模型: {file_path}")
-            else:
-                engineer = self._select_engineer(file_path)
-                model_name = self._select_model_for_file(file_path)
+            engineer = self._select_engineer(file_path)
+            model_name = self._select_model_for_file(file_path)
 
             # P8: 获取模型专属信号量，控制并发
             model_semaphore = self._get_model_semaphore(model_name)
@@ -603,10 +600,10 @@ class IncrementalModifyMixin:
             failed_files = []
             for i, result in enumerate(results):
                 file_path = layer_files[i]
-                if isinstance(result, Exception):
+                if isinstance(result, Exception) or not result:
                     logger.error(f"文件生成失败: {file_path} - {result}")
                     failed_files.append(file_path)
-                elif result:
+                else:
                     async with state_lock:
                         generated_contents[file_path] = result[:8000]
                         generated_files_list.append({
@@ -617,33 +614,11 @@ class IncrementalModifyMixin:
                             "action": file_plan_by_path.get(file_path, {}).get("action", "add"),
                         })
                         files_generated += 1
-
-            # P5: 智能重试 — 失败文件用降级模型重试
             if failed_files:
-                logger.info(f"尝试用降级模型重试 {len(failed_files)} 个失败文件")
-                retry_results = await self._retry_with_fallback_model(
-                    failed_files, file_plan_by_path, project_context,
-                    generated_contents, dep_graph, spec_generator, callback
+                raise RuntimeError(
+                    "incremental file generation failed for "
+                    f"{len(failed_files)} file(s): " + ", ".join(failed_files)
                 )
-                for file_path, content in retry_results.items():
-                    if content:
-                        async with state_lock:
-                            generated_contents[file_path] = content[:8000]
-                            generated_files_list.append({
-                                "path": file_path,
-                                "description": file_plan_by_path.get(file_path, {}).get("description", ""),
-                                "success": True,
-                                "size": len(content),
-                                "action": file_plan_by_path.get(file_path, {}).get("action", "add"),
-                                "retried": True,
-                            })
-                            files_generated += 1
-                            failed_files.remove(file_path)
-
-                # 记录仍然失败的文件
-                for file_path in failed_files:
-                    errors_list.append(f"文件生成失败（重试后）: {file_path}")
-                    files_failed += 1
 
             # 检查取消信号
             if self.cancel_event and self.cancel_event.is_set():
@@ -676,32 +651,34 @@ class IncrementalModifyMixin:
         # 只初始化模型路由和工程师，跳过复杂度分析、规范生成等
         from app.agent.dynamic_model_router import LayeredModelRouter
         from app.agent.specialist_base import get_global_llm_semaphore
-        from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL
 
         self.model_router = LayeredModelRouter()
         self.model_assignment = self.model_router.get_assignment()
 
-        def _get_model(attr: str, default: str) -> str:
-            return getattr(self.model_assignment, attr, default) if self.model_assignment else default
+        def _require_model(attr: str) -> str:
+            value = getattr(self.model_assignment, attr, None) if self.model_assignment else None
+            if not value:
+                raise RuntimeError("model assignment is required to initialize incremental components")
+            return value
 
         semaphore = get_global_llm_semaphore()
         cost_tracker = getattr(self, 'cost_tracker', None)
 
         from app.agent.specialists import Architect, FrontendEngineer, BackendEngineer
         self.architect = Architect(
-            "架构师", _get_model("architect_model", DEFAULT_ARCHITECT_MODEL),
+            "架构师", _require_model("architect_model"),
             task_type="generate", api_key_token=self.api_key_token,
             provider_id=self.provider_id, semaphore=semaphore,
             cost_tracker=cost_tracker, cancel_event=self.cancel_event
         )
         self.frontend_engineer = FrontendEngineer(
-            "前端工程师", _get_model("frontend_model", DEFAULT_CODE_MODEL),
+            "前端工程师", _require_model("frontend_model"),
             task_type="generate", api_key_token=self.api_key_token,
             provider_id=self.provider_id, semaphore=semaphore,
             cost_tracker=cost_tracker, cancel_event=self.cancel_event
         )
         self.backend_engineer = BackendEngineer(
-            "后端工程师", _get_model("backend_model", DEFAULT_CODE_MODEL),
+            "后端工程师", _require_model("backend_model"),
             task_type="generate", api_key_token=self.api_key_token,
             provider_id=self.provider_id, semaphore=semaphore,
             cost_tracker=cost_tracker, cancel_event=self.cancel_event
@@ -748,130 +725,6 @@ class IncrementalModifyMixin:
 
         # 修改文件默认为复杂变更（需要理解原代码）
         return False
-
-    async def _retry_with_fallback_model(
-        self,
-        failed_files: List[str],
-        file_plan_by_path: Dict,
-        project_context: Dict,
-        generated_contents: Dict[str, str],
-        dep_graph: DependencyGraph,
-        spec_generator,
-        callback=None
-    ) -> Dict[str, Optional[str]]:
-        """P5: 用降级模型重试失败文件"""
-        from app.agent.utils import extract_engineer_content, is_valid_code_content, write_file_atomic
-        from app.agent.spec_first_generator import SpecFirstGenerator
-
-        # 降级模型链：先使用稳定审查模型，再使用通用模型。
-        fallback_models = [
-            "glm-z1-9b",
-            DEFAULT_FAST_MODEL,
-        ]
-
-        results = {}
-
-        for file_path in failed_files:
-            file_info = file_plan_by_path.get(file_path, {})
-            description = file_info.get("description", f"生成 {file_path}")
-            original_content = file_info.get("original_content", "")
-            action = file_info.get("action", "add")
-            is_frontend = "frontend" in file_path or file_path.endswith(('.html', '.css', '.js', '.vue'))
-            agent_role = "frontend" if is_frontend else "backend"
-            previous_model = (
-                self.model_assignment.frontend_model if is_frontend and self.model_assignment
-                else self.model_assignment.backend_model if self.model_assignment
-                else None
-            )
-
-            # 尝试每个降级模型
-            for model_name in fallback_models:
-                try:
-                    logger.info(f"尝试用 {model_name} 重试: {file_path}")
-                    self._report_model_info(
-                        agent_role,
-                        model_name,
-                        fallback_from=previous_model,
-                        reason="retry_failed_file",
-                    )
-                    previous_model = model_name
-
-                    # 选择工程师
-                    if is_frontend:
-                        from app.agent.specialists import FrontendEngineer
-                        engineer = FrontendEngineer("前端工程师", model_name, task_type="generate",
-                                                   api_key_token=self.api_key_token, cancel_event=self.cancel_event)
-                    else:
-                        from app.agent.specialists import BackendEngineer
-                        engineer = BackendEngineer("后端工程师", model_name, task_type="generate",
-                                                  api_key_token=self.api_key_token, cancel_event=self.cancel_event)
-
-                    # 构建上下文
-                    combined_context = {**project_context}
-                    if action == "modify" and original_content:
-                        combined_context["original_content"] = original_content
-                        combined_context["modification_reason"] = file_info.get("reason", "")
-                        combined_context["is_modification"] = True
-
-                    spec_context = {}
-                    if spec_generator:
-                        file_type = file_info.get("file_type", "unknown")
-                        spec_context = spec_generator.get_spec_context_for_file(
-                            file_path, file_type,
-                            max_chars_per_spec=SpecFirstGenerator.get_spec_budget(
-                                self._get_context_length(model_name)
-                            )
-                        )
-
-                    dep_context = dep_graph.get_context_for_file(
-                        file_path,
-                        generated_contents,
-                        model_context_length=self._get_context_length(model_name),
-                        project_spec=project_context.get("architecture", {}).get("project_spec"),
-                    )
-                    logger.info(
-                        "依赖上下文审计: target=%s model=%s generated_count=%d dep=%s",
-                        file_path,
-                        model_name,
-                        len(generated_contents),
-                        summarize_dependency_context(dep_context),
-                    )
-
-                    # 生成文件
-                    content = await engineer.generate_file(
-                        file_path, description, combined_context, spec_context, dep_context,
-                        project_path=str(self.output_dir), callback=callback,
-                        is_existing_file=(action == "modify")
-                    )
-
-                    if asyncio.iscoroutine(content):
-                        content = await content
-
-                    # 提取内容
-                    if content:
-                        content = await extract_engineer_content(
-                            content, engineer, self.output_dir, file_path,
-                            expected_language="Python",
-                            llm_caller=self._quick_llm_check,
-                        )
-
-                    if content and content.strip():
-                        # 写入文件
-                        normalized = self._strip_output_dir_prefix(file_path)
-                        write_file_atomic(self.output_dir, normalized, content)
-                        logger.info(f"重试成功: {file_path} (模型: {model_name})")
-                        results[file_path] = content
-                        break
-
-                except Exception as e:
-                    logger.warning(f"重试失败: {file_path} (模型: {model_name}) - {e}")
-                    continue
-
-            if file_path not in results:
-                logger.error(f"所有模型重试失败: {file_path}")
-                results[file_path] = None
-
-        return results
 
     async def _update_dependency_graph_incremental(
         self,

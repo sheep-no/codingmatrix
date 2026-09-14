@@ -29,19 +29,96 @@ class TestCrossValidator:
         version_a = "def hello():\n    return 'A'"
         version_b = "def hello():\n    return 'B'"
         
-        result, winner = asyncio.run(validator.validate_and_select(
-            file_path="test.py",
-            file_type="backend",
-            description="test function",
-            version_a=version_a,
-            model_a="model-a",
-            version_b=version_b,
-            model_b="model-b",
-            judge_model="judge-model"
-        ))
-        
-        assert result in [version_a, version_b]
-        assert winner in ["model-a", "model-b"]
+        async def fake_llm(**_kwargs):
+            return {"choices": [{"message": {"content": '{"winner": "A", "reason": "ok"}'}}]}
+
+        from unittest.mock import patch
+        with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
+            result, winner = asyncio.run(validator.validate_and_select(
+                file_path="test.py",
+                file_type="backend",
+                description="test function",
+                version_a=version_a,
+                model_a="model-a",
+                version_b=version_b,
+                model_b="model-b",
+                judge_model="judge-model"
+            ))
+
+        assert result == version_a
+        assert winner == "model-a"
+
+
+def test_validate_and_select_empty_judge_raises(tmp_path):
+    from unittest.mock import patch
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+
+    validator = CrossValidator(SharedContext("test", tmp_path))
+
+    async def fake_llm(**_kwargs):
+        return {"choices": [{"message": {"content": ""}}]}
+
+    with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
+        with pytest.raises(ValueError, match="cross validator judge was empty"):
+            asyncio.run(validator.validate_and_select(
+                file_path="test.py",
+                file_type="backend",
+                description="test function",
+                version_a="A",
+                model_a="model-a",
+                version_b="B",
+                model_b="model-b",
+                judge_model="judge-model",
+            ))
+
+
+def test_validate_and_select_invalid_json_raises(tmp_path):
+    from unittest.mock import patch
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+
+    validator = CrossValidator(SharedContext("test", tmp_path))
+
+    async def fake_llm(**_kwargs):
+        return {"choices": [{"message": {"content": "not json at all"}}]}
+
+    with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
+        with pytest.raises(ValueError, match="cross validator judge was not JSON"):
+            asyncio.run(validator.validate_and_select(
+                file_path="test.py",
+                file_type="backend",
+                description="test function",
+                version_a="A",
+                model_a="model-a",
+                version_b="B",
+                model_b="model-b",
+                judge_model="judge-model",
+            ))
+
+
+def test_validate_and_select_timeout_reraises(tmp_path):
+    from unittest.mock import patch
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+
+    validator = CrossValidator(SharedContext("test", tmp_path))
+
+    async def fake_llm(**_kwargs):
+        raise TimeoutError("LLM 调用超时 (300s)")
+
+    with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
+        with pytest.raises(TimeoutError):
+            asyncio.run(validator.validate_and_select(
+                file_path="test.py",
+                file_type="backend",
+                description="test function",
+                version_a="A",
+                model_a="model-a",
+                version_b="B",
+                model_b="model-b",
+                judge_model="judge-model",
+            ))
 
 
 def test_select_llm_fix_issues_caps_and_prioritizes_imports():
@@ -89,9 +166,8 @@ def test_validate_and_fix_skips_llm_on_timeout():
         return [{"type": "api_contract", "file": "main.py", "message": "route mismatch"}]
 
     validator.validate_cross_file_consistency = fake_consistency
-    fixed, issues = asyncio.run(validator.validate_and_fix(files, {}, fix_model="glm"))
-    assert fixed == files
-    assert issues[0]["type"] == "api_contract"
+    with pytest.raises(TimeoutError, match="LLM 调用超时"):
+        asyncio.run(validator.validate_and_fix(files, {}, fix_model="glm"))
 
 
 def test_clean_code_block_strips_unclosed_think():
@@ -147,3 +223,49 @@ def test_fix_with_llm_keeps_original_on_thinking_dump():
     with patch("app.agent.cross_validator.call_llm", side_effect=fake_llm):
         fixed = asyncio.run(validator._fix_with_llm(files, issues, "glm"))
     assert fixed["src/greet.py"] == original
+
+
+def test_generate_missing_modules_raises_when_file_absent():
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+
+    validator = CrossValidator(SharedContext("test", Path(".")))
+    with pytest.raises(RuntimeError, match="missing modules were not generated"):
+        asyncio.run(validator._generate_missing_modules(
+            {"main.py": "import helper"},
+            ["helper"],
+            {},
+            model="glm",
+        ))
+
+
+def test_package_entry_content_rejects_plain_modules():
+    from app.agent.orchestrator_generation.spec_first_generate import _package_entry_content
+
+    class Adapter:
+        package_init_filename = "__init__.py"
+
+    assert _package_entry_content("app/utils.py", None, Adapter(), {}) is None
+
+
+def test_generate_missing_modules_raises_when_file_absent():
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+
+    validator = CrossValidator(SharedContext("test", Path(".")))
+    with pytest.raises(RuntimeError, match="missing modules were not generated"):
+        asyncio.run(validator._generate_missing_modules(
+            {"main.py": "import helper"},
+            ["helper"],
+            {},
+            model="glm",
+        ))
+
+
+def test_package_entry_content_rejects_plain_modules():
+    from app.agent.orchestrator_generation.spec_first_generate import _package_entry_content
+
+    class Adapter:
+        package_init_filename = "__init__.py"
+
+    assert _package_entry_content("app/utils.py", None, Adapter(), {}) is None

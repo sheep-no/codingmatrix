@@ -1928,6 +1928,9 @@ class FilesMixin:
                     full_path.unlink()
                     logger.info(f"删除失败的新文件: {fp}")
             self.warnings.append("小项目生成失败，已回滚")
+            raise RuntimeError(
+                "small project file generation failed: " + "; ".join(self.errors)
+            )
         else:
             # 成功：丢弃 stash
             if stashed:
@@ -2009,26 +2012,10 @@ class FilesMixin:
                         full_path.unlink()
                         logger.info(f"删除失败的新文件: {fp}")
                 self.warnings.append(f"第 {layer_idx+1} 层生成失败，已回滚")
-                blocked_files = [
-                    downstream
-                    for remaining_layer in layers[layer_idx + 1:]
-                    for downstream in remaining_layer
-                    if downstream in file_info_map
-                    and any(
-                        failed_file in dep_graph.adjacency.get(downstream, set())
-                        for failed_file in layer_files
-                    )
-                ]
-                if blocked_files:
-                    logger.warning(
-                        "依赖层失败，阻断下游文件: failed_layer=%s blocked=%s",
-                        layer_files,
-                        sorted(set(blocked_files)),
-                    )
-                    self.warnings.append(
-                        f"已阻断依赖失败文件的下游生成: {sorted(set(blocked_files))}"
-                    )
-                    break
+                raise RuntimeError(
+                    f"dependency layer {layer_idx + 1} file generation failed: "
+                    + "; ".join(self.errors)
+                )
             else:
                 # 成功：丢弃 stash
                 if stashed:
@@ -2130,9 +2117,14 @@ class FilesMixin:
         project_language = project_context.get("architecture", {}).get("language", "")
         from app.agent.utils import get_expected_language_for_file
         expected_language = get_expected_language_for_file(file_path, project_language)
+        assignment = getattr(self, "model_assignment", None)
+        detection_model = getattr(assignment, "backend_model", None) if assignment else None
+
         async def llm_caller(prompt: str) -> str:
+            if not detection_model:
+                raise RuntimeError("model assignment is required for language detection")
             return await call_llm(
-                model=DEFAULT_CODE_MODEL,
+                model=detection_model,
                 prompt=prompt,
                 system_prompt="你是一个代码语言检测器。只回答 YES 或 NO。",
                 api_key_token=getattr(self, 'api_key_token', None)
@@ -2191,19 +2183,9 @@ class FilesMixin:
                 )
 
             if not content:
-                # 空内容：fallback
-                self._report_progress(
-                    PROGRESS_LABELS["react_fallback"],
-                    len(self.generated_files) + 1,
-                    total_files + 4,
-                    file_path=file_path
+                raise RuntimeError(
+                    f"file generation failed for {file_path}: empty content after recovery"
                 )
-                content = await self._direct_llm_generate_file(file_path, description, project_context)
-                if not content:
-                    self.errors.append(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
-                    return None
-                content = self._clean_code_block(content)
-                content = _fix_absolute_imports(content, file_path, all_files)
 
         import_errors = _validate_python_implementation(content, file_path)
         import_errors.extend(_validate_python_database_abstraction(content, file_path, architecture))
@@ -2416,13 +2398,7 @@ class FilesMixin:
             error_message = f"文件生成失败: {file_path}（跨文件导入不一致: {'；'.join(import_errors)}）"
             self.errors.append(error_message)
             logger.error(error_message)
-            return {
-                "path": file_path,
-                "description": description,
-                "success": False,
-                "size": 0,
-                "validation_report": validation_report.model_dump(mode="json"),
-            }
+            raise RuntimeError(error_message)
 
         if self.require_approval and self._is_critical_file(file_path):
             self._report_progress(
@@ -2461,16 +2437,8 @@ class FilesMixin:
                 description=description
             )
             if not success:
-                self.warnings.append(f"文件验证未完全通过: {file_path}")
                 self.errors.append(f"文件验证失败，禁止落盘: {file_path}")
-                return {
-                    "path": file_path,
-                    "description": description,
-                    "success": False,
-                    "size": 0,
-                    "validation_report": self.validation_report.model_dump(mode="json")
-                    if self.validation_report else {},
-                }
+                raise RuntimeError(f"file validation failed: {file_path}")
 
         # 验证并修复路径格式
         file_path = self._normalize_file_path(file_path)
@@ -2497,12 +2465,7 @@ class FilesMixin:
                 error_message = f"{error_message}（{commit_result.diagnostic.message}）"
             self.errors.append(error_message)
             logger.error(error_message)
-            return {
-                "path": file_path,
-                "description": description,
-                "success": False,
-                "size": 0,
-            }
+            raise RuntimeError(error_message)
 
         self._report_progress(
             PROGRESS_LABELS["file_generated"],
@@ -2619,18 +2582,20 @@ class FilesMixin:
         return basename in critical_patterns
 
     def _select_model_for_file(self, file_path: str) -> str:
+        if not getattr(self, "model_assignment", None):
+            raise RuntimeError("model assignment is required to select a file model")
         ext = Path(file_path).suffix.lower()
         file_name = Path(file_path).name.lower()
         if file_name in {"pom.xml", "build.gradle", "build.gradle.kts", "dockerfile"}:
-            return self.model_assignment.reviewer_model if self.model_assignment else "glm-z1-9b"
+            return self.model_assignment.reviewer_model
         if "/test/" in file_path.lower() or file_name.startswith("test_") or file_name.endswith("_test.py"):
-            return self.model_assignment.reviewer_model if self.model_assignment else "glm-z1-9b"
+            return self.model_assignment.reviewer_model
         if ext in {'.vue', '.js', '.jsx', '.ts', '.tsx', '.html', '.css', '.scss', '.sass', '.less'}:
-            return self.model_assignment.frontend_model if self.model_assignment else DEFAULT_CODE_MODEL
+            return self.model_assignment.frontend_model
         elif ext in {'.py', '.go', '.java', '.rs', '.rb', '.php'}:
-            return self.model_assignment.backend_model if self.model_assignment else DEFAULT_CODE_MODEL
+            return self.model_assignment.backend_model
         else:
-            return self.model_assignment.frontend_model if self.model_assignment else DEFAULT_CODE_MODEL
+            return self.model_assignment.frontend_model
 
     def _select_engineer(self, file_path: str) -> Specialist:
         ext = Path(file_path).suffix.lower()
@@ -2715,42 +2680,9 @@ router = APIRouter()
         description: str,
         project_context: Dict
     ) -> Optional[str]:
-        try:
-            requirement = project_context.get("requirement", "")
-            architecture = project_context.get("architecture", {})
-            tech_stack = architecture.get("tech_stack", [])
-
-            system_prompt = (
-                f"你是一个专业的软件工程师。你需要生成一个文件: {file_path}\n"
-                f"项目技术栈: {', '.join(tech_stack)}\n"
-                f"文件描述: {description}\n\n"
-                "请按照以下步骤思考和生成：\n"
-                "1. 分析需求：理解文件的目的和职责\n"
-                "2. 设计结构：确定类/函数的结构和关系\n"
-                "3. 编写代码：生成完整的、可运行的代码\n"
-                "4. 自我审查：检查代码是否有错误\n\n"
-                "直接输出代码，不要解释。"
-            )
-
-            user_prompt = (
-                f"项目需求: {requirement[:500]}\n\n"
-                f"请生成文件 {file_path}。"
-            )
-
-            response = await call_llm(
-                model=DEFAULT_CODE_MODEL,
-                prompt=user_prompt,
-                max_tokens=4096,
-                temperature=0.4,
-                system_prompt=system_prompt,
-                api_key_token=self.api_key_token
-            )
-            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-            return self._clean_code_block(content) if content else None
-
-        except Exception as e:
-            logger.error(f"直接 LLM 生成失败 ({file_path}): {e}")
-            return None
+        raise RuntimeError(
+            f"direct LLM file generation is disabled: {file_path}"
+        )
 
     async def _validate_and_review_file(
         self,
@@ -2758,6 +2690,8 @@ router = APIRouter()
         content: str,
         description: str
     ) -> Tuple[bool, str]:
+        if self.enable_error_recovery and not getattr(self, "model_assignment", None):
+            raise RuntimeError("model assignment is required for file validation")
         content_hash = CodeValidator._compute_content_hash(content)
         cache_key = f"{file_path}:{content_hash}"
         cached_result = self.validator._validation_cache.get(cache_key) if self.validator else None
@@ -2778,7 +2712,7 @@ router = APIRouter()
                 file_path=full_path,
                 content=content,
                 file_description=description,
-                backend_model=self.model_assignment.backend_model if self.model_assignment else DEFAULT_CODE_MODEL,
+                backend_model=self.model_assignment.backend_model,
                 callback=self.callback
             )
             if success:
@@ -2825,7 +2759,8 @@ router = APIRouter()
                 validation_success = False
                 logger.warning(f"文件语法错误: {file_path}: {e}")
             except Exception as e:
-                logger.debug(f"文件操作失败：{e}")
+                validation_success = False
+                logger.warning(f"文件语法校验异常: {file_path}: {e}")
 
         return validation_success, content
 
@@ -2894,7 +2829,10 @@ router = APIRouter()
                     "affected_files": patch_result.dependency_chain,
                 })
             else:
-                self.errors.append(f"跨文件修改失败: 影响了 {len(patch_result.failed_patches)} 个文件的关联修改")
+                raise RuntimeError(
+                    "cross-file patch failed: "
+                    f"{len(patch_result.failed_patches)} file(s)"
+                )
 
         for file_info in incremental_plan:
             file_path = file_info.get("path", "")
@@ -2906,8 +2844,12 @@ router = APIRouter()
 
             if not full_path.exists():
                 result = await self._generate_single_file(file_info, project_context, total_files)
-                if result:
-                    self.generated_files.append(result)
+                if not result or not result.get("success"):
+                    raise RuntimeError(
+                        f"incremental patch failed for {file_path}: "
+                        "missing file was not generated"
+                    )
+                self.generated_files.append(result)
                 continue
 
             self._report_progress(
@@ -2944,9 +2886,7 @@ router = APIRouter()
                     lines_changed=result.diff.count('\n+') + result.diff.count('\n-')
                 )
             else:
-                self.errors.append(f"文件修改失败: {file_path}（正在降级为全量生成）")
-                self.warnings.append(f"降级到全量生成：{file_path}")
-                result = await self._generate_single_file(file_info, project_context, total_files)
-                if result:
-                    self.generated_files.append(result)
-                continue
+                raise RuntimeError(
+                    f"incremental patch failed for {file_path}: "
+                    + "; ".join(getattr(result, "errors", []) or ["apply failed"])
+                )

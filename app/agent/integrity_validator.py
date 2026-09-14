@@ -426,14 +426,7 @@ class IntegrityValidator:
                 elif missing.endswith('index.js') or missing.endswith('index.ts'):
                     fixes[missing] = self._generate_index_content(missing, generated_files)
                 else:
-                    # 根据文件扩展名生成正确的内容
-                    ext = Path(missing).suffix
-                    if ext == '.py':
-                        default_content = f'"""Module: {missing}"""\n'
-                    elif ext in ('.js', '.ts'):
-                        default_content = f'// Module: {missing}\n'
-                    else:
-                        default_content = ''
+                    continue
                 result.fixed_files.append(missing)
                 logger.info(f"自动生成修复文件: {missing}")
 

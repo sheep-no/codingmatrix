@@ -34,6 +34,7 @@ from app.agent.dependency_graph import DependencyGraph
 from app.agent.backend_engineer import BackendEngineer
 from app.agent.shared_context import SharedContext
 from app.agent.orchestration.artifact_committer import ArtifactCommitter
+from app.agent.orchestrator_utils import UtilsMixin
 
 
 def test_sync_project_call_does_not_use_await():
@@ -1090,30 +1091,26 @@ async def test_single_file_generation_records_artifact_event_pending_validation(
 
 
 @pytest.mark.asyncio
-async def test_single_file_generation_routes_empty_extraction_to_fallback(tmp_path, monkeypatch):
+async def test_single_file_generation_empty_extraction_raises(tmp_path, monkeypatch):
     async def extract_content(*_args, **_kwargs):
         return None
 
-    async def direct_generate(*_args, **_kwargs):
-        return "def recovered_value():\n    return True\n"
+    async def recover(*_args, **_kwargs):
+        return None
 
     monkeypatch.setattr(
         "app.agent.orchestrator_files.extract_engineer_content",
         extract_content,
     )
     orchestrator = _FilesTestOrchestrator(tmp_path)
-    monkeypatch.setattr(orchestrator, "_direct_llm_generate_file", direct_generate)
+    monkeypatch.setattr(orchestrator, "_recover_invalid_content_orchestator", recover)
 
-    result = await orchestrator._generate_single_file(
-        {"path": "main.py", "description": "entry"},
-        {"architecture": {"language": "python"}},
-        1,
-    )
-
-    assert result["success"] is True
-    assert (tmp_path / "main.py").read_text(encoding="utf-8") == (
-        "def recovered_value():\n    return True"
-    )
+    with pytest.raises(RuntimeError, match="empty content after recovery"):
+        await orchestrator._generate_single_file(
+            {"path": "main.py", "description": "entry"},
+            {"architecture": {"language": "python"}},
+            1,
+        )
 
 
 @pytest.mark.asyncio
@@ -1355,13 +1352,12 @@ async def test_repeated_invalid_static_repair_response_stops_early(tmp_path, mon
     orchestrator = _FilesTestOrchestrator(tmp_path)
     monkeypatch.setattr(orchestrator, "_select_engineer", lambda _path: engineer)
 
-    result = await orchestrator._generate_single_file(
-        {"path": "database.py", "description": "database"},
-        {"architecture": {"language": "python"}},
-        1,
-    )
-
-    assert result["success"] is False
+    with pytest.raises(RuntimeError, match="跨文件导入不一致"):
+        await orchestrator._generate_single_file(
+            {"path": "database.py", "description": "database"},
+            {"architecture": {"language": "python"}},
+            1,
+        )
     assert len(calls) == 3
     assert "修复响应无效" in orchestrator.errors[-1]
 
@@ -2344,7 +2340,7 @@ async def test_generate_batch_files_uses_original_requirement():
 
 
 @pytest.mark.asyncio
-async def test_design_architecture_retries_empty_output_with_thinking_disabled():
+async def test_design_architecture_empty_output_raises_without_thinking_retry():
     architect = object.__new__(Architect)
     architect.model_name = "test-model"
     architect.json_parser = types.SimpleNamespace(safe_parse_json=lambda text: {})
@@ -2355,26 +2351,25 @@ async def test_design_architecture_retries_empty_output_with_thinking_disabled()
         return ""
 
     architect.call_llm = fake_call
-    result = await architect.design_architecture(
-        "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
-        types.SimpleNamespace(
-            level=types.SimpleNamespace(value="medium"),
-            estimated_files=12,
-            has_frontend=False,
-            has_backend=True,
-            has_database=True,
-            key_technologies=["FastAPI"],
-            risk_factors=[],
-        ),
-    )
+    with pytest.raises(ValueError, match="architect architecture was empty"):
+        await architect.design_architecture(
+            "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+            types.SimpleNamespace(
+                level=types.SimpleNamespace(value="medium"),
+                estimated_files=12,
+                has_frontend=False,
+                has_backend=True,
+                has_database=True,
+                key_technologies=["FastAPI"],
+                risk_factors=[],
+            ),
+        )
 
-    assert calls == [None, 0]
-    assert result["used_default_architecture"] is True
-    assert result["db_schema"] == {}
+    assert calls == [None]
 
 
 @pytest.mark.asyncio
-async def test_design_architecture_uses_default_when_retry_times_out():
+async def test_design_architecture_llm_timeout_raises():
     architect = object.__new__(Architect)
     architect.model_name = "test-model"
     architect.json_parser = types.SimpleNamespace(safe_parse_json=lambda text: {})
@@ -2382,28 +2377,24 @@ async def test_design_architecture_uses_default_when_retry_times_out():
 
     async def fake_call(prompt, system_prompt="", stream=False, thinking_budget=None):
         calls.append(thinking_budget)
-        if thinking_budget == 0:
-            raise TimeoutError("LLM 调用超时 (300s): Qwen/Qwen3-8B")
-        return ""
+        raise TimeoutError("LLM 调用超时 (300s): Qwen/Qwen3-8B")
 
     architect.call_llm = fake_call
-    result = await architect.design_architecture(
-        "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
-        types.SimpleNamespace(
-            level=types.SimpleNamespace(value="medium"),
-            estimated_files=12,
-            has_frontend=False,
-            has_backend=True,
-            has_database=True,
-            key_technologies=["FastAPI"],
-            risk_factors=[],
-        ),
-    )
+    with pytest.raises(TimeoutError, match="LLM 调用超时"):
+        await architect.design_architecture(
+            "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+            types.SimpleNamespace(
+                level=types.SimpleNamespace(value="medium"),
+                estimated_files=12,
+                has_frontend=False,
+                has_backend=True,
+                has_database=True,
+                key_technologies=["FastAPI"],
+                risk_factors=[],
+            ),
+        )
 
-    assert calls == [None, 0]
-    assert result["used_default_architecture"] is True
-    assert result["db_schema"] == {}
-    assert "main.py" in {item["path"] for item in result["file_plan"]}
+    assert calls == [None]
 
 
 @pytest.mark.asyncio
@@ -2443,6 +2434,7 @@ async def test_design_architecture_harvests_nested_file_plan():
     parsed = {
         "project_type": "backend",
         "api_spec": {"paths": {"/api/tickets": {"get": {"summary": "list"}}}},
+        "project_spec": {"default": {"terminology": {}}},
         "architecture": {
             "files": [
                 {"path": "main.py", "file_type": "entry"},
@@ -2486,16 +2478,11 @@ async def test_design_architecture_keeps_api_spec_when_file_plan_missing():
         return '{"ok": true}'
 
     architect.call_llm = fake_call
-    result = await architect.design_architecture(
-        "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
-        _ticket_complexity(),
-    )
-
-    paths = {item["path"] for item in result["file_plan"]}
-    assert result["used_default_file_plan"] is True
-    assert "/api/tickets" in result["api_spec"]["paths"]
-    assert "main.py" in paths
-    assert "app/models/ticket_model.py" not in paths
+    with pytest.raises(ValueError, match="did not include a file_plan"):
+        await architect.design_architecture(
+            "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+            _ticket_complexity(),
+        )
 
 
 @pytest.mark.asyncio
@@ -2514,16 +2501,85 @@ async def test_design_architecture_drops_invalid_nested_files_when_using_default
         return '{"ok": true}'
 
     architect.call_llm = fake_call
-    result = await architect.design_architecture(
-        "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
-        _ticket_complexity(),
+    with pytest.raises(ValueError, match="did not include a file_plan"):
+        await architect.design_architecture(
+            "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+            _ticket_complexity(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_design_architecture_missing_project_spec_raises():
+    architect = object.__new__(Architect)
+    architect.model_name = "test-model"
+    parsed = {
+        "project_type": "backend",
+        "file_plan": [{"path": "main.py", "file_type": "entry", "language": "python"}],
+    }
+    architect.json_parser = types.SimpleNamespace(safe_parse_json=lambda text: parsed)
+
+    async def fake_call(prompt, system_prompt="", stream=False, thinking_budget=None):
+        return '{"ok": true}'
+
+    architect.call_llm = fake_call
+    with pytest.raises(ValueError, match="did not include a project_spec"):
+        await architect.design_architecture(
+            "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+            _ticket_complexity(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_design_architecture_list_payload_raises():
+    architect = object.__new__(Architect)
+    architect.model_name = "test-model"
+    architect.json_parser = types.SimpleNamespace(
+        safe_parse_json=lambda text: [{"path": "main.py", "file_type": "entry"}]
     )
 
-    assert result["used_default_file_plan"] is True
-    assert "files" not in result
-    nested = result.get("architecture")
-    if isinstance(nested, dict):
-        assert "files" not in nested
+    async def fake_call(prompt, system_prompt="", stream=False, thinking_budget=None):
+        return '[{"path": "main.py"}]'
+
+    architect.call_llm = fake_call
+    with pytest.raises(ValueError, match="was not a JSON object: list"):
+        await architect.design_architecture(
+            "做一个工单系统 ticket CRUD，使用 FastAPI 和 SQLite。",
+            _ticket_complexity(),
+        )
+
+
+def test_select_model_for_file_requires_model_assignment(tmp_path):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    orchestrator.model_assignment = None
+    with pytest.raises(RuntimeError, match="model assignment is required to select a file model"):
+        FilesMixin._select_model_for_file(orchestrator, "main.py")
+
+
+def test_create_validator_llm_caller_requires_model_assignment():
+    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
+
+    mixin = object.__new__(SpecFirstGenerateMixin)
+    mixin.model_assignment = None
+    mixin.api_key_token = None
+    mixin.cancel_event = None
+    with pytest.raises(RuntimeError, match="model assignment is required for dependency graph validation"):
+        mixin._create_validator_llm_caller()
+
+
+def test_validate_file_plan_raises_when_all_paths_filtered():
+    helper = UtilsMixin()
+    helper.warnings = []
+    with pytest.raises(ValueError, match="all file paths were filtered"):
+        helper._validate_file_plan([{"path": "bad file.py"}])
+
+
+def test_validate_file_plan_keeps_valid_paths():
+    helper = UtilsMixin()
+    helper.warnings = []
+    result = helper._validate_file_plan(
+        [{"path": "main.py", "description": "entry", "priority": 1}]
+    )
+    assert result[0]["path"] == "main.py"
 
 
 @pytest.mark.asyncio
@@ -2583,3 +2639,321 @@ def test_sync_generation_architecture_rebinds_context():
     file_plan = sync_generation_architecture(ctx, new)
     assert ctx["architecture"] is new
     assert [item["path"] for item in file_plan] == ["main.py", "app/controllers/ticket_controller.py"]
+
+
+def test_require_project_complete_passes_when_complete():
+    from app.agent.orchestrator_generation.spec_first_generate import _require_project_complete
+
+    _require_project_complete({"is_complete": True})
+
+
+def test_require_project_complete_raises_with_gap_details():
+    from app.agent.orchestrator_generation.spec_first_generate import _require_project_complete
+
+    with pytest.raises(RuntimeError, match="project completeness check failed") as excinfo:
+        _require_project_complete({
+            "is_complete": False,
+            "missing_files": ["main.py"],
+            "empty_files": ["util.py"],
+            "invalid_files": [("app.py", "syntax")],
+            "placeholder_files": [("stub.py", "TODO")],
+        })
+    message = str(excinfo.value)
+    assert "missing=main.py" in message
+    assert "empty=util.py" in message
+    assert "invalid=app.py" in message
+    assert "placeholder=stub.py" in message
+
+
+@pytest.mark.asyncio
+async def test_validate_project_completeness_treats_empty_content_as_incomplete(tmp_path):
+    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
+
+    mixin = object.__new__(SpecFirstGenerateMixin)
+    mixin.output_dir = tmp_path
+    mixin._relative_output_dir = None
+    (tmp_path / "main.py").write_text("print('hello world')\n", encoding="utf-8")
+
+    completeness = await mixin._validate_project_completeness(
+        [{"path": "main.py"}],
+        {"main.py": "   \n"},
+    )
+
+    assert "main.py" in completeness["empty_files"]
+    assert completeness["is_complete"] is False
+
+
+def test_spec_first_does_not_fill_missing_files_with_direct_llm():
+    from pathlib import Path
+
+    source = Path("app/agent/orchestrator_generation/spec_first_generate.py").read_text(
+        encoding="utf-8"
+    )
+    assert "_direct_llm_generate_file" not in source
+    assert "保留兼容生成流程" not in source
+    assert "generation plan could not be frozen" in source
+    assert "incremental dependency graph validation failed" in source
+    assert "sandbox validation failed" in source
+    assert "沙箱验证修复后仍有" not in source
+    assert "启动 LLM 批量推断" not in source
+    assert "unknown file types were not inferred" in source
+    assert "升级到更强模型" not in source
+    assert "file generation retry failed" in source
+    assert "model assignment is required for error recovery" in source
+    assert "DEFAULT_FAST_MODEL" not in source
+    assert "DEFAULT_CODE_MODEL" not in source
+    assert "model assignment is required for LLM check" in source
+
+
+def test_recovery_runs_when_invalid_reason_is_truthy():
+    from pathlib import Path
+
+    lines = Path("app/agent/orchestrator_generation/spec_first_generate.py").read_text(
+        encoding="utf-8"
+    ).splitlines()
+    recovery_lines = [
+        index
+        for index, line in enumerate(lines)
+        if line.strip().startswith("recovered = await self._recover_invalid_content(")
+    ]
+    assert len(recovery_lines) == 2
+    for recovery_index in recovery_lines:
+        recovery_indent = len(lines[recovery_index]) - len(lines[recovery_index].lstrip())
+        reason_index = recovery_index
+        while "if invalid_reason:" not in lines[reason_index]:
+            reason_index -= 1
+        reason_indent = len(lines[reason_index]) - len(lines[reason_index].lstrip())
+        assert recovery_indent == reason_indent
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_generate_file_is_disabled(tmp_path):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    with pytest.raises(RuntimeError, match="direct LLM file generation is disabled"):
+        await orchestrator._direct_llm_generate_file(
+            "main.py",
+            "entry",
+            {"architecture": {"language": "python"}},
+        )
+
+
+@pytest.mark.asyncio
+async def test_small_project_generation_failure_raises_after_rollback(tmp_path, monkeypatch):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+
+    async def fail_generate(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(orchestrator, "_generate_single_file", fail_generate)
+
+    with pytest.raises(RuntimeError, match="small project file generation failed"):
+        await orchestrator._generate_files_small_project(
+            [{"path": "main.py", "description": "entry"}],
+            {"architecture": {"language": "python"}},
+            1,
+        )
+
+
+@pytest.mark.asyncio
+async def test_dependency_layer_generation_failure_raises_after_rollback(tmp_path, monkeypatch):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    graph = DependencyGraph()
+    graph.add_file("main.py")
+
+    async def fail_generate(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(orchestrator, "_generate_single_file", fail_generate)
+
+    with pytest.raises(RuntimeError, match="dependency layer 1 file generation failed"):
+        await orchestrator._generate_files_by_dep_layers(
+            [{"path": "main.py", "description": "entry"}],
+            {"architecture": {"language": "python"}},
+            1,
+            graph,
+        )
+
+
+@pytest.mark.asyncio
+async def test_apply_patches_incremental_raises_when_missing_file_not_generated(tmp_path, monkeypatch):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+
+    async def fail_generate(*_args, **_kwargs):
+        return {"path": "helper.py", "success": False, "size": 0}
+
+    monkeypatch.setattr(orchestrator, "_generate_single_file", fail_generate)
+
+    with pytest.raises(RuntimeError, match="missing file was not generated"):
+        await orchestrator._apply_patches_incremental(
+            "add helper",
+            [{"path": "helper.py", "description": "helper"}],
+            {"architecture": {"language": "python"}},
+            1,
+        )
+
+
+def test_generation_does_not_reduce_thinking_budget():
+    from pathlib import Path
+
+    for path in (
+        "app/agent/backend_engineer.py",
+        "app/agent/frontend_engineer.py",
+        "app/agent/orchestrator_generation/spec_first_generate.py",
+    ):
+        source = Path(path).read_text(encoding="utf-8")
+        assert "thinking_budget=50" not in source
+
+
+@pytest.mark.asyncio
+async def test_validate_and_review_requires_model_assignment(tmp_path):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    orchestrator.enable_error_recovery = True
+    orchestrator.error_recovery = object()
+    orchestrator.model_assignment = None
+    with pytest.raises(RuntimeError, match="model assignment is required for file validation"):
+        await orchestrator._validate_and_review_file("main.py", "print(1)\n", "entry")
+
+
+@pytest.mark.asyncio
+async def test_validate_and_review_syntax_error_is_failure(tmp_path):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    orchestrator.enable_validation = True
+    orchestrator.enable_error_recovery = False
+    orchestrator.enable_review = False
+    orchestrator.validator = types.SimpleNamespace(_validation_cache={})
+    success, _content = await orchestrator._validate_and_review_file(
+        "main.py", "def (\n", "entry"
+    )
+    assert success is False
+
+
+@pytest.mark.asyncio
+async def test_infer_unknown_file_types_uses_path_and_dependents():
+    from app.agent.adapters.python import PythonLanguageAdapter
+    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
+
+    mixin = object.__new__(SpecFirstGenerateMixin)
+    graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+    graph.add_file("app/main.py", file_type="entry", description="entry")
+    graph.add_file("helpers.py", file_type="unknown", description="helpers")
+    graph.add_dependency("app/main.py", "helpers.py")
+
+    await mixin._infer_unknown_file_types(
+        graph, ["helpers.py"], {"file_plan": []}, "python"
+    )
+    assert graph.nodes["helpers.py"].file_type == "utils"
+
+
+@pytest.mark.asyncio
+async def test_infer_unknown_file_types_raises_when_still_unknown():
+    from app.agent.adapters.python import PythonLanguageAdapter
+    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
+
+    mixin = object.__new__(SpecFirstGenerateMixin)
+    graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+    graph.add_file("mystery.py", file_type="unknown", description="mystery")
+
+    with pytest.raises(RuntimeError, match="unknown file types were not inferred"):
+        await mixin._infer_unknown_file_types(
+            graph, ["mystery.py"], {"file_plan": []}, "python"
+        )
+
+
+@pytest.mark.asyncio
+async def test_infer_unknown_file_types_resolves_dependent_after_dependency():
+    from app.agent.adapters.python import PythonLanguageAdapter
+    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
+
+    mixin = object.__new__(SpecFirstGenerateMixin)
+    graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+    graph.add_file("greet.py", file_type="unknown", description="greet")
+    graph.add_file("main.py", file_type="unknown", description="entry")
+    graph.add_dependency("main.py", "greet.py")
+
+    await mixin._infer_unknown_file_types(
+        graph, ["greet.py", "main.py"], {"file_plan": []}, "python"
+    )
+    assert graph.nodes["main.py"].file_type == "entry"
+    assert graph.nodes["greet.py"].file_type == "utils"
+
+
+@pytest.mark.asyncio
+async def test_retry_generate_file_raises_without_switching_model():
+    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
+
+    mixin = object.__new__(SpecFirstGenerateMixin)
+    mixin._quick_llm_check = None
+
+    class _Engineer:
+        SYSTEM_PROMPT = "sys"
+
+        async def call_llm(self, *_args, **_kwargs):
+            return ""
+
+    with pytest.raises(RuntimeError, match="file generation retry failed"):
+        await mixin._retry_generate_file(
+            "main.py",
+            "entry",
+            {"architecture": {"language": "python"}},
+            "",
+            "",
+            _Engineer(),
+            None,
+            reason="empty",
+        )
+
+
+@pytest.mark.asyncio
+async def test_quick_llm_check_requires_backend_model():
+    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
+
+    mixin = object.__new__(SpecFirstGenerateMixin)
+    mixin.model_assignment = None
+    with pytest.raises(RuntimeError, match="model assignment is required for LLM check"):
+        await mixin._quick_llm_check("is this python?")
+
+
+@pytest.mark.asyncio
+async def test_language_detection_requires_backend_model(tmp_path, monkeypatch):
+    async def extract_content(_content, _engineer, _output_dir, _file_path, **kwargs):
+        await kwargs["llm_caller"]("is this python?")
+        return "def main():\n    return True\n"
+
+    monkeypatch.setattr(
+        "app.agent.orchestrator_files.extract_engineer_content",
+        extract_content,
+    )
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    orchestrator.model_assignment = None
+    with pytest.raises(RuntimeError, match="model assignment is required for language detection"):
+        await orchestrator._generate_single_file(
+            {"path": "main.py", "description": "entry"},
+            {"architecture": {"language": "python"}},
+            1,
+        )
+
+
+@pytest.mark.asyncio
+async def test_initialize_components_requires_assignment(tmp_path):
+    from app.agent.orchestrator_generation.mixin import GenerationMixin
+
+    class _Harness(GenerationMixin):
+        def __init__(self):
+            self.use_dynamic_topology = False
+            self.model_assignment = None
+            self.api_key_token = None
+            self.provider_id = None
+            self.cancel_event = None
+            self.output_dir = tmp_path
+
+        def _report_progress(self, *args, **kwargs):
+            pass
+
+        def _update_phase(self, phase):
+            self.phase = phase
+
+        async def _init_mcp_tools(self):
+            return
+
+    with pytest.raises(RuntimeError, match="model assignment is required to initialize components"):
+        await _Harness()._initialize_components("print hello")

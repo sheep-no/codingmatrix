@@ -242,9 +242,8 @@ class TestRunSimpleMode:
             heartbeat_tracker=tracker,
         )
 
-        result = await asyncio.wait_for(engine.run("task", "sys"), timeout=0.3)
-
-        assert result == ""
+        with pytest.raises(asyncio.TimeoutError, match="心跳超时"):
+            await asyncio.wait_for(engine.run("task", "sys"), timeout=0.3)
         assert cancelled.is_set()
 
     @pytest.mark.asyncio
@@ -402,6 +401,30 @@ class TestRunSimpleMode:
         assert any(s.step_type == "final" for s in engine.steps)
 
 
+    @pytest.mark.asyncio
+    async def test_empty_llm_raises(self, monkeypatch):
+        monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+        engine = ReActEngine(
+            tools={"t": {"fn": lambda **k: {}, "description": "t", "params": {}}},
+            call_llm_fn=AsyncMock(return_value=""),
+            project_path="/tmp",
+            max_rounds=3,
+        )
+        with pytest.raises(RuntimeError, match="returned empty after 3 attempts"):
+            await engine.run("task", "sys")
+
+    @pytest.mark.asyncio
+    async def test_llm_exception_raises(self):
+        engine = ReActEngine(
+            tools={"t": {"fn": lambda **k: {}, "description": "t", "params": {}}},
+            call_llm_fn=AsyncMock(side_effect=RuntimeError("boom")),
+            project_path="/tmp",
+            max_rounds=3,
+        )
+        with pytest.raises(RuntimeError, match="ReAct LLM call failed"):
+            await engine.run("task", "sys")
+
+
 class TestRunFullMode:
     @pytest.mark.asyncio
     async def test_full_mode_no_tool_call(self):
@@ -427,6 +450,61 @@ class TestRunFullMode:
         )
         result = await engine.run("task", "sys")
         mock_memory.add_user_message.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_full_mode_thought_llm_raises(self):
+        engine = ReActEngine(
+            tools={"t": {"fn": lambda **k: {}, "description": "t", "params": {}}},
+            call_llm_fn=AsyncMock(side_effect=RuntimeError("boom")),
+            project_path="/tmp",
+            max_rounds=2,
+            mode="full",
+        )
+        with pytest.raises(RuntimeError, match="ReAct thought LLM call failed"):
+            await engine.run("task", "sys")
+
+    @pytest.mark.asyncio
+    async def test_full_mode_empty_thought_raises(self):
+        engine = ReActEngine(
+            tools={"t": {"fn": lambda **k: {}, "description": "t", "params": {}}},
+            call_llm_fn=AsyncMock(return_value=""),
+            project_path="/tmp",
+            max_rounds=2,
+            mode="full",
+        )
+        with pytest.raises(RuntimeError, match="ReAct thought was empty"):
+            await engine.run("task", "sys")
+
+    @pytest.mark.asyncio
+    async def test_full_mode_action_llm_raises(self):
+        mock_llm = AsyncMock(side_effect=["thinking", RuntimeError("boom")])
+        engine = ReActEngine(
+            tools={"t": {"fn": lambda **k: {}, "description": "t", "params": {}}},
+            call_llm_fn=mock_llm,
+            project_path="/tmp",
+            max_rounds=2,
+            mode="full",
+        )
+        with pytest.raises(RuntimeError, match="ReAct action LLM call failed"):
+            await engine.run("task", "sys")
+
+    @pytest.mark.asyncio
+    async def test_full_mode_heartbeat_timeout_raises(self):
+        async def hanging_llm(_prompt, _system_prompt):
+            await asyncio.Event().wait()
+
+        tracker = HeartbeatTracker(timeout=0.03)
+        engine = ReActEngine(
+            tools={"t": {"fn": lambda **k: {}, "description": "t", "params": {}}},
+            call_llm_fn=hanging_llm,
+            project_path="/tmp",
+            max_rounds=2,
+            mode="full",
+            heartbeat_timeout=tracker.timeout,
+            heartbeat_tracker=tracker,
+        )
+        with pytest.raises(asyncio.TimeoutError, match="心跳超时"):
+            await asyncio.wait_for(engine.run("task", "sys"), timeout=0.3)
 
 
 class TestEmitEvent:

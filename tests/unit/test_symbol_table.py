@@ -281,3 +281,5 @@ def test_adapter_owned_frozen_tests_skip_review():
     result = _skipped_refinement("print(1)")
     assert result.success is True
     assert result.final_content == "print(1)"
+    assert result.remaining_issues
+    assert result.remaining_issues[0].type == "review_skipped"
