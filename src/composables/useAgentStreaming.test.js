@@ -3,6 +3,8 @@ import {
   markThinkingStreamEnded,
   normalizeAgentRole,
   normalizeEventTimestamp,
+  parseAgentSettings,
+  resolveCrossValidationFallback,
   resolveIncrementalStreamOptions,
 } from './useAgentStreaming'
 
@@ -66,5 +68,24 @@ describe('resolveIncrementalStreamOptions', () => {
     expect(resolveIncrementalStreamOptions(true, '')).toEqual({
       incremental: false,
     })
+  })
+})
+
+describe('cross-validation fallback settings', () => {
+  it('parses persisted agent settings', () => {
+    expect(parseAgentSettings('{"crossValidationFallback":true}')).toEqual({
+      crossValidationFallback: true,
+    })
+  })
+
+  it('falls back to an empty object for missing or invalid settings', () => {
+    expect(parseAgentSettings(null)).toEqual({})
+    expect(parseAgentSettings('not-json')).toEqual({})
+  })
+
+  it('enables the fallback only when the toggle is explicitly true', () => {
+    expect(resolveCrossValidationFallback({ crossValidationFallback: true })).toBe(true)
+    expect(resolveCrossValidationFallback({ crossValidationFallback: false })).toBe(false)
+    expect(resolveCrossValidationFallback({})).toBe(false)
   })
 })

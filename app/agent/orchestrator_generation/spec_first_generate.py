@@ -647,64 +647,78 @@ class SpecFirstGenerateMixin:
                     )
 
                     alt_model = self._select_alternative_model(model_name)
-                    alt_engineer = self._select_engineer_for_model(alt_model)
-                    alt_content = await alt_engineer.generate_file(
-                        file_path, description, project_context, spec_context, dep_context,
-                        project_path=str(self.output_dir), callback=callback,
-                        is_existing_file=(self.output_dir / normalized).exists()
-                     )
-                    if asyncio.iscoroutine(alt_content):
-                        logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
-                        alt_content = await alt_content
-                    if alt_content:
-                        target_language = project_context.get("architecture", {}).get("language", "")
-                        from app.agent.utils import get_expected_language_for_file
-                        file_expected_language = get_expected_language_for_file(file_path, target_language)
-                        alt_content = await extract_engineer_content(
-                            alt_content, alt_engineer, self.output_dir, file_path,
-                            expected_language=file_expected_language,
-                            llm_caller=self._quick_llm_check,
+                    if alt_model is None:
+                        result = await self._degrade_cross_validation(
+                            refinement_loop=refinement_loop_instance,
+                            file_path=file_path,
+                            file_type=file_type,
+                            description=description,
+                            model_name=model_name,
+                            initial_content=initial_content,
+                            project_context=project_context,
+                            callback=callback,
+                            progress_current=4 + file_index,
+                            progress_total=total_files + 5,
                         )
-
-                        if not self.model_assignment or not self.model_assignment.reviewer_model:
-                            raise RuntimeError("model assignment is required for cross-validation judge")
-                        judge_model = self.model_assignment.reviewer_model
-
-                        try:
-                            result = await cross_validator.cross_validate_with_refinement(
-                                file_path=file_path,
-                                file_type=file_type,
-                                description=description,
-                                content_a=initial_content,
-                                model_a=model_name,
-                                content_b=alt_content,
-                                model_b=alt_model,
-                                judge_model=judge_model,
-                                refinement_loop=refinement_loop_instance,
-                                project_context=project_context,
-                                callback=callback
-                            )
-                        except Exception as exc:
-                            from app.agent.cross_validator import is_review_timeout
-                            if is_review_timeout(exc):
-                                logger.warning("交叉验证超时: %s", file_path)
-                            raise
                     else:
-                        try:
-                            result = await refinement_loop_instance.refine(
-                                file_path=file_path,
-                                file_type=file_type,
-                                description=description,
-                                initial_content=initial_content,
-                                model_name=model_name,
-                                project_context=project_context,
-                                callback=callback
+                        alt_engineer = self._select_engineer_for_model(alt_model)
+                        alt_content = await alt_engineer.generate_file(
+                            file_path, description, project_context, spec_context, dep_context,
+                            project_path=str(self.output_dir), callback=callback,
+                            is_existing_file=(self.output_dir / normalized).exists()
+                         )
+                        if asyncio.iscoroutine(alt_content):
+                            logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
+                            alt_content = await alt_content
+                        if alt_content:
+                            target_language = project_context.get("architecture", {}).get("language", "")
+                            from app.agent.utils import get_expected_language_for_file
+                            file_expected_language = get_expected_language_for_file(file_path, target_language)
+                            alt_content = await extract_engineer_content(
+                                alt_content, alt_engineer, self.output_dir, file_path,
+                                expected_language=file_expected_language,
+                                llm_caller=self._quick_llm_check,
                             )
-                        except Exception as exc:
-                            from app.agent.cross_validator import is_review_timeout
-                            if is_review_timeout(exc):
-                                logger.warning("审查超时: %s", file_path)
-                            raise
+
+                            if not self.model_assignment or not self.model_assignment.reviewer_model:
+                                raise RuntimeError("model assignment is required for cross-validation judge")
+                            judge_model = self.model_assignment.reviewer_model
+
+                            try:
+                                result = await cross_validator.cross_validate_with_refinement(
+                                    file_path=file_path,
+                                    file_type=file_type,
+                                    description=description,
+                                    content_a=initial_content,
+                                    model_a=model_name,
+                                    content_b=alt_content,
+                                    model_b=alt_model,
+                                    judge_model=judge_model,
+                                    refinement_loop=refinement_loop_instance,
+                                    project_context=project_context,
+                                    callback=callback
+                                )
+                            except Exception as exc:
+                                from app.agent.cross_validator import is_review_timeout
+                                if is_review_timeout(exc):
+                                    logger.warning("交叉验证超时: %s", file_path)
+                                raise
+                        else:
+                            try:
+                                result = await refinement_loop_instance.refine(
+                                    file_path=file_path,
+                                    file_type=file_type,
+                                    description=description,
+                                    initial_content=initial_content,
+                                    model_name=model_name,
+                                    project_context=project_context,
+                                    callback=callback
+                                )
+                            except Exception as exc:
+                                from app.agent.cross_validator import is_review_timeout
+                                if is_review_timeout(exc):
+                                    logger.warning("审查超时: %s", file_path)
+                                raise
                 else:
                     try:
                         result = await refinement_loop_instance.refine(
@@ -1271,67 +1285,81 @@ class SpecFirstGenerateMixin:
                 result = _skipped_refinement(initial_content)
             elif cross_validator.is_critical_file(file_path, file_type, file_priority):
                 alt_model = self._select_alternative_model(model_name)
-                alt_engineer = self._select_engineer_for_model(alt_model)
-                if tracker:
-                    tracker.touch()
-                alt_content = await alt_engineer.generate_file(
-                    file_path, description, combined_context, spec_context, dep_context,
-                    project_path=str(self.output_dir), callback=callback,
-                    is_existing_file=(self.output_dir / normalized).exists(),
-                    heartbeat_tracker=tracker
-                )
-                if tracker:
-                    tracker.touch()
-                if asyncio.iscoroutine(alt_content):
-                    logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
-                    alt_content = await alt_content
-                if alt_content:
-                    # 检查替代工程师是否已通过工具直接编辑了文件
-                    if alt_engineer.get_edited_files():
-                        full = self.output_dir / normalized
-                        if full.exists():
-                            alt_content = full.read_text(encoding='utf-8')
-                    else:
-                        alt_content = self._clean_code_block(alt_content)
-                    if not self.model_assignment or not self.model_assignment.reviewer_model:
-                        raise RuntimeError("model assignment is required for cross-validation judge")
-                    judge_model = self.model_assignment.reviewer_model
-
-                    try:
-                        result = await cross_validator.cross_validate_with_refinement(
-                            file_path=file_path,
-                            file_type=file_type,
-                            description=description,
-                            content_a=initial_content,
-                            model_a=model_name,
-                            content_b=alt_content,
-                            model_b=alt_model,
-                            judge_model=judge_model,
-                            refinement_loop=refinement_loop,
-                            project_context=combined_context,
-                            callback=callback
-                        )
-                    except Exception as exc:
-                        from app.agent.cross_validator import is_review_timeout
-                        if is_review_timeout(exc):
-                            logger.warning("交叉验证超时: %s", file_path)
-                        raise
+                if alt_model is None:
+                    result = await self._degrade_cross_validation(
+                        refinement_loop=refinement_loop,
+                        file_path=file_path,
+                        file_type=file_type,
+                        description=description,
+                        model_name=model_name,
+                        initial_content=initial_content,
+                        project_context=combined_context,
+                        callback=callback,
+                        progress_current=files_generated,
+                        progress_total=total_files + 5,
+                    )
                 else:
-                    try:
-                        result = await refinement_loop.refine(
-                            file_path=file_path,
-                            file_type=file_type,
-                            description=description,
-                            initial_content=initial_content,
-                            model_name=model_name,
-                            project_context=combined_context,
-                            callback=callback
-                        )
-                    except Exception as exc:
-                        from app.agent.cross_validator import is_review_timeout
-                        if is_review_timeout(exc):
-                            logger.warning("审查超时: %s", file_path)
-                        raise
+                    alt_engineer = self._select_engineer_for_model(alt_model)
+                    if tracker:
+                        tracker.touch()
+                    alt_content = await alt_engineer.generate_file(
+                        file_path, description, combined_context, spec_context, dep_context,
+                        project_path=str(self.output_dir), callback=callback,
+                        is_existing_file=(self.output_dir / normalized).exists(),
+                        heartbeat_tracker=tracker
+                    )
+                    if tracker:
+                        tracker.touch()
+                    if asyncio.iscoroutine(alt_content):
+                        logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
+                        alt_content = await alt_content
+                    if alt_content:
+                        # 检查替代工程师是否已通过工具直接编辑了文件
+                        if alt_engineer.get_edited_files():
+                            full = self.output_dir / normalized
+                            if full.exists():
+                                alt_content = full.read_text(encoding='utf-8')
+                        else:
+                            alt_content = self._clean_code_block(alt_content)
+                        if not self.model_assignment or not self.model_assignment.reviewer_model:
+                            raise RuntimeError("model assignment is required for cross-validation judge")
+                        judge_model = self.model_assignment.reviewer_model
+
+                        try:
+                            result = await cross_validator.cross_validate_with_refinement(
+                                file_path=file_path,
+                                file_type=file_type,
+                                description=description,
+                                content_a=initial_content,
+                                model_a=model_name,
+                                content_b=alt_content,
+                                model_b=alt_model,
+                                judge_model=judge_model,
+                                refinement_loop=refinement_loop,
+                                project_context=combined_context,
+                                callback=callback
+                            )
+                        except Exception as exc:
+                            from app.agent.cross_validator import is_review_timeout
+                            if is_review_timeout(exc):
+                                logger.warning("交叉验证超时: %s", file_path)
+                            raise
+                    else:
+                        try:
+                            result = await refinement_loop.refine(
+                                file_path=file_path,
+                                file_type=file_type,
+                                description=description,
+                                initial_content=initial_content,
+                                model_name=model_name,
+                                project_context=combined_context,
+                                callback=callback
+                            )
+                        except Exception as exc:
+                            from app.agent.cross_validator import is_review_timeout
+                            if is_review_timeout(exc):
+                                logger.warning("审查超时: %s", file_path)
+                            raise
             else:
                 try:
                     result = await refinement_loop.refine(
@@ -1918,6 +1946,45 @@ class SpecFirstGenerateMixin:
             )
         if updated:
             logger.info("路径规则推断完成: %s/%s 个文件类型已更新", updated, len(unknown_files))
+
+    async def _degrade_cross_validation(
+        self,
+        *,
+        refinement_loop: RefinementLoop,
+        file_path: str,
+        file_type: str,
+        description: str,
+        model_name: str,
+        initial_content: str,
+        project_context: Dict,
+        callback: Optional[Callable],
+        progress_current: int,
+        progress_total: int,
+    ):
+        """Fall back to single-model review when no distinct model is available."""
+        reason = (
+            f"{file_path}: 无可用不同模型，交叉验证已按用户开关退化为单模型审查"
+        )
+        logger.warning(reason)
+        self.warnings.append(reason)
+        self._report_progress(
+            "cross_validation_skipped",
+            progress_current,
+            progress_total,
+            file_path=file_path,
+            reason="no_distinct_model",
+            message=reason,
+            callback=callback,
+        )
+        return await refinement_loop.refine(
+            file_path=file_path,
+            file_type=file_type,
+            description=description,
+            initial_content=initial_content,
+            model_name=model_name,
+            project_context=project_context,
+            callback=callback,
+        )
 
     async def _retry_generate_file(
         self,

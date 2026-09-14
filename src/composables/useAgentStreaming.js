@@ -55,6 +55,19 @@ export function resolveIncrementalStreamOptions(hasExistingFiles, currentProject
   }
 }
 
+export function parseAgentSettings(raw) {
+  try {
+    const parsed = JSON.parse(raw || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+export function resolveCrossValidationFallback(settings) {
+  return settings?.crossValidationFallback === true
+}
+
 export function useAgentStreaming(projectApi, workspace, files, generation, session, taskFeedback = null) {
   // 注意：workspace 和 files 是 reactive() 对象，ref 属性会被自动解包
   // 不能解构后使用 .value，必须通过对象访问（如 workspace.currentAgent）
@@ -495,6 +508,9 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       hasExistingFiles,
       workspace.currentProjectPath,
     )
+    const savedSettings = parseAgentSettings(
+      typeof localStorage !== 'undefined' ? localStorage.getItem('agent_settings') : null,
+    )
     
     return {
       requirement,
@@ -505,6 +521,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       enable_memory: true,
       spec_first: true,
       dependency_graph: true,
+      cross_validation_fallback: resolveCrossValidationFallback(savedSettings),
       require_approval: false,
       api_key_token: selectedApiKeyToken ? selectedApiKeyToken.token : undefined,
       provider_id: providerId,

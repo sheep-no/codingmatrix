@@ -63,7 +63,8 @@ class OrchestratorAgent(
         api_key_token: Optional[str] = None,
         provider_id: Optional[str] = None,
         cancel_event: Optional[asyncio.Event] = None,
-        decision_callback: Optional[Callable] = None
+        decision_callback: Optional[Callable] = None,
+        cross_validation_fallback: bool = False
     ):
         # 保存原始相对路径（给 LLM 看的，存到 progress 事件中）
         self._relative_output_dir = str(output_dir)
@@ -101,6 +102,7 @@ class OrchestratorAgent(
         self.api_key_token = api_key_token
         self.provider_id = provider_id
         self.cancel_event = cancel_event
+        self.cross_validation_fallback = cross_validation_fallback
         self.heartbeat_tracker = None
 
         from app.agent.git_operations import GitOperations

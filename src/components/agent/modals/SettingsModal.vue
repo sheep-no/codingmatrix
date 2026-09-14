@@ -34,6 +34,7 @@
               <div class="setting-item toggle-item"><label>Spec-First</label><input v-model="localSettings.specFirst" type="checkbox" /></div>
               <div class="setting-item toggle-item"><label>依赖图构建</label><input v-model="localSettings.dependencyGraph" type="checkbox" /></div>
               <div class="setting-item toggle-item"><label>记忆增强</label><input v-model="localSettings.enableMemory" type="checkbox" /></div>
+              <div class="setting-item toggle-item"><label>交叉验证降级</label><input v-model="localSettings.crossValidationFallback" type="checkbox" /></div>
             </div>
           </div>
           <div v-if="concurrentLimits.recommended" class="settings-section"><h4>后端并发限制</h4>

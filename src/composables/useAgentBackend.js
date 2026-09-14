@@ -43,7 +43,8 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
       backend: 'Qwen3-Coder', test: 'Qwen3-Coder', review: 'Qwen3-Plus'
     },
     maxConcurrent: 3, enableReview: true, enableValidation: true,
-    enableErrorRecovery: true, enableMemory: true, specFirst: true, dependencyGraph: true
+    enableErrorRecovery: true, enableMemory: true, specFirst: true, dependencyGraph: true,
+    crossValidationFallback: false
   })
 
   const loadSavedProjects = async () => {

@@ -2768,8 +2768,12 @@ router = APIRouter()
         from app.agent.utils import clean_code_block
         return clean_code_block(content)
 
-    def _select_alternative_model(self, primary_model: str) -> str:
-        """Pick a distinct assigned model for the cross-validation A/B pass."""
+    def _select_alternative_model(self, primary_model: str) -> Optional[str]:
+        """Pick a distinct assigned model for the cross-validation A/B pass.
+
+        Returns None when no distinct model exists and the user enabled the
+        degradation switch, letting callers fall back to single-model review.
+        """
         assignment = getattr(self, "model_assignment", None)
         if not assignment:
             raise RuntimeError(
@@ -2786,6 +2790,8 @@ router = APIRouter()
             candidate = getattr(assignment, attribute, None)
             if candidate and candidate != primary_model:
                 return str(candidate)
+        if getattr(self, "cross_validation_fallback", False):
+            return None
         raise RuntimeError(
             "a distinct alternative model is required for cross-validation"
         )

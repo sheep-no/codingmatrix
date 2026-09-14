@@ -64,6 +64,39 @@ def test_engine_schema_rejects_unknown_engine():
         OrchestratorRequest(requirement="implement inventory", engine="cor")
 
 
+@pytest.mark.asyncio
+async def test_endpoint_forwards_cross_validation_fallback(monkeypatch, tmp_path):
+    from app.agent import workflow_registry
+
+    monkeypatch.setenv("AGENT_ORCHESTRATION_ENGINE", "legacy")
+    result = dict(success=True, output_dir=str(tmp_path), total_files_created=0,
+                  files=[], validation={}, errors=[], warnings=[], elapsed_time=0)
+    captured = {}
+
+    def factory(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            output_dir=str(tmp_path), generate=AsyncMock(return_value=result)
+        )
+
+    monkeypatch.setattr(orchestrate_endpoints, "OrchestratorAgent", factory)
+    monkeypatch.setattr(orchestrate_endpoints, "execute_core_generation", AsyncMock(return_value=result))
+    monkeypatch.setattr(orchestrate_endpoints, "generate_single_file", AsyncMock(return_value=None))
+    monkeypatch.setattr(orchestrate_endpoints, "create_agent_session", AsyncMock(return_value=None))
+    monkeypatch.setattr(orchestrate_endpoints, "log_tool_execution", AsyncMock())
+    monkeypatch.setattr(workflow_registry, "_checkpoint_store", SimpleNamespace(save=lambda *a: None))
+    monkeypatch.setattr(workflow_registry, "_active_workflows", {})
+    request = OrchestratorRequest(
+        requirement="implement inventory",
+        enable_skills=False,
+        cross_validation_fallback=True,
+    )
+
+    await orchestrate_endpoints.orchestrate_project(request, {"sub": "1"}, None)
+
+    assert captured["cross_validation_fallback"] is True
+
+
 def test_core_orchestrate_selects_traditional_adapter_for_standard_request():
     agent = SimpleNamespace(output_dir="/tmp/core-adapter-test")
 
