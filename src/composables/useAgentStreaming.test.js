@@ -5,6 +5,7 @@ import {
   normalizeEventTimestamp,
   parseAgentSettings,
   resolveCrossValidationFallback,
+  resolveGenerationFlags,
   resolveIncrementalStreamOptions,
 } from './useAgentStreaming'
 
@@ -87,5 +88,39 @@ describe('cross-validation fallback settings', () => {
     expect(resolveCrossValidationFallback({ crossValidationFallback: true })).toBe(true)
     expect(resolveCrossValidationFallback({ crossValidationFallback: false })).toBe(false)
     expect(resolveCrossValidationFallback({})).toBe(false)
+  })
+})
+
+describe('resolveGenerationFlags', () => {
+  it('defaults every generation toggle to enabled', () => {
+    expect(resolveGenerationFlags({})).toEqual({
+      enable_review: true,
+      enable_validation: true,
+      enable_error_recovery: true,
+      enable_memory: true,
+      spec_first: true,
+      dependency_graph: true,
+    })
+    expect(resolveGenerationFlags(undefined).spec_first).toBe(true)
+  })
+
+  it('forwards explicitly disabled toggles', () => {
+    expect(
+      resolveGenerationFlags({
+        enableReview: false,
+        enableValidation: false,
+        enableErrorRecovery: false,
+        enableMemory: false,
+        specFirst: false,
+        dependencyGraph: false,
+      }),
+    ).toEqual({
+      enable_review: false,
+      enable_validation: false,
+      enable_error_recovery: false,
+      enable_memory: false,
+      spec_first: false,
+      dependency_graph: false,
+    })
   })
 })
