@@ -68,6 +68,19 @@ export function resolveCrossValidationFallback(settings) {
   return settings?.crossValidationFallback === true
 }
 
+export function resolveGenerationFlags(settings) {
+  // Persisted toggles default to enabled so an unset value keeps current behavior.
+  const enabled = (key) => settings?.[key] !== false
+  return {
+    enable_review: enabled('enableReview'),
+    enable_validation: enabled('enableValidation'),
+    enable_error_recovery: enabled('enableErrorRecovery'),
+    enable_memory: enabled('enableMemory'),
+    spec_first: enabled('specFirst'),
+    dependency_graph: enabled('dependencyGraph'),
+  }
+}
+
 export function useAgentStreaming(projectApi, workspace, files, generation, session, taskFeedback = null) {
   // 注意：workspace 和 files 是 reactive() 对象，ref 属性会被自动解包
   // 不能解构后使用 .value，必须通过对象访问（如 workspace.currentAgent）
@@ -515,12 +528,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     return {
       requirement,
       session_id: sessionId,
-      enable_review: true,
-      enable_validation: true,
-      enable_error_recovery: true,
-      enable_memory: true,
-      spec_first: true,
-      dependency_graph: true,
+      ...resolveGenerationFlags(savedSettings),
       cross_validation_fallback: resolveCrossValidationFallback(savedSettings),
       require_approval: false,
       api_key_token: selectedApiKeyToken ? selectedApiKeyToken.token : undefined,
