@@ -349,6 +349,21 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       case 'log':
         addLog('info', data.data?.message || data.message || '')
         break
+      case 'pipeline_mode': {
+        workspace.pipelineMode = {
+          engine: data.engine || '',
+          incremental: Boolean(data.incremental),
+          tools: data.tools || '',
+          skillsInjected: Boolean(data.skills_injected),
+          enableSkills: data.enable_skills !== false,
+          frozenContract: Boolean(data.frozen_contract),
+          message: data.message || '',
+          timestamp: normalizeEventTimestamp(data.timestamp)
+        }
+        addLog('info', data.message || '管线模式已确定')
+        addDetail('管线模式', data.message || `${data.engine || ''} ${data.tools || ''}`)
+        break
+      }
       case 'react_tool_call': {
         const toolMsg = data.message || `调用工具: ${data.tool || '未知'}`
         addLog('info', toolMsg)
@@ -582,6 +597,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     }
     workspace.logs = []
     workspace.toolEvents = []
+    workspace.pipelineMode = null
     generation.isGenerating = true
     taskFeedback?.start({ stage: isIncremental ? '准备增量更新' : '准备生成项目', progress: 0 })
     addLog('info', `开始${mode}...`)

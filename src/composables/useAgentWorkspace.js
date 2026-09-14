@@ -13,6 +13,7 @@ export function useAgentWorkspace({
   const decisionHistory = ref([])
   const logsContainer = ref(null)
   const toolEvents = ref([])
+  const pipelineMode = ref(null)
   const currentAgent = ref(null)
   const currentModel = ref(null)
   const currentProjectPath = ref(null)
@@ -210,6 +211,7 @@ export function useAgentWorkspace({
     logs, executionDetails, thinkingMessages, pendingDecisions,
     decisionAnswers, decisionHistory, logsContainer,
     toolEvents,
+    pipelineMode,
     currentAgent, currentModel, currentProjectPath,
     testResults, validationResults, costData, performanceMetrics,
     addLog, addDetail, showFileDiff, hasFileDiff,

@@ -42,7 +42,59 @@ PASSTHROUGH_SSE_EVENTS: FrozenSet[str] = frozenset({
     "warning", "file_rejected", "step_detail",
     # ReAct 反思事件
     "react_tool_call", "react_tool_result", "react_generating",
+    "pipeline_mode",
 })
+
+
+def _pipeline_mode_payload(request, skill_context: str = "", *, incremental: bool | None = None) -> Dict[str, Any]:
+    """Describe engine, tool, and Skill routing for the model and the UI."""
+    requested_engine = getattr(request, "engine", None)
+    if incremental is None:
+        incremental = bool(getattr(request, "incremental", False))
+    if requested_engine in {"core", "legacy"}:
+        engine = requested_engine
+    elif incremental:
+        engine = "core"
+    else:
+        engine = "legacy"
+    frozen_tools = incremental and engine == "core"
+    enable_skills = bool(getattr(request, "enable_skills", True))
+    skills_injected = bool(skill_context)
+    if not enable_skills:
+        skills_label = "关闭"
+    elif skills_injected:
+        skills_label = "已注入"
+    else:
+        skills_label = "未匹配"
+    tools = "frozen" if frozen_tools else "explore"
+    message = (
+        f"引擎 {engine} · {'增量' if incremental else '新建'} · "
+        f"工具 {'冻结后直写' if frozen_tools else '可探盘'} · "
+        f"Skill {skills_label}"
+    )
+    return {
+        "type": "pipeline_mode",
+        "engine": engine,
+        "requested_engine": requested_engine,
+        "incremental": incremental,
+        "spec_first": bool(getattr(request, "spec_first", True)),
+        "enable_skills": enable_skills,
+        "skills_injected": skills_injected,
+        "tools": tools,
+        "frozen_contract": frozen_tools,
+        "message": message,
+        "timestamp": int(time.time() * 1000),
+    }
+
+
+def _pipeline_mode_banner(payload: Dict[str, Any]) -> str:
+    return (
+        "[Pipeline Mode]\n"
+        f"engine={payload['engine']} incremental={str(payload['incremental']).lower()} "
+        f"tools={payload['tools']} skills_injected={str(payload['skills_injected']).lower()}\n"
+        "If tools=frozen, do not call list_files or read_file; edit only contracted files.\n"
+        "If tools=explore, inspect existing files before writing.\n\n"
+    )
 
 
 def _select_core_adapter(orchestrator, *, incremental: bool, spec_first: bool):
@@ -553,6 +605,8 @@ async def modify_project(
 
     # 保存用户消息到历史（先写数据库，再写 Redis）
     await conversation_store.append_message(session_id, user_id, "user", request.requirement)
+    pipeline_mode = _pipeline_mode_payload(request, incremental=True)
+    enhanced_requirement = _pipeline_mode_banner(pipeline_mode) + enhanced_requirement
 
     sm = await get_session_manager()
     cache = await get_spec_cache()
@@ -578,6 +632,7 @@ async def modify_project(
     async def event_generator() -> AsyncIterator[str]:
         logger.info(f"[SSE] modify event_generator 开始 | session={session_id}")
         try:
+            await queue.put(f"data: {json.dumps(pipeline_mode, ensure_ascii=False)}\n\n")
             async def stream_callback(msg: str):
                 try:
                     progress_data = json.loads(msg)
@@ -765,7 +820,10 @@ async def orchestrate_project(
         if request.enable_skills
         else ""
     )
-    generation_requirement = request.requirement + skill_context
+    pipeline_mode = _pipeline_mode_payload(request, skill_context)
+    generation_requirement = (
+        _pipeline_mode_banner(pipeline_mode) + request.requirement + skill_context
+    )
     legacy_requirement = _legacy_requirement_with_allowed_files(
         generation_requirement,
         request.allowed_files,
@@ -912,7 +970,10 @@ async def orchestrate_project_stream(
         if request.enable_skills
         else ""
     )
-    generation_requirement = request.requirement + skill_context
+    pipeline_mode = _pipeline_mode_payload(request, skill_context)
+    generation_requirement = (
+        _pipeline_mode_banner(pipeline_mode) + request.requirement + skill_context
+    )
     legacy_requirement = _legacy_requirement_with_allowed_files(
         generation_requirement,
         request.allowed_files,
@@ -1209,6 +1270,7 @@ async def orchestrate_project_stream(
     async def event_generator() -> AsyncIterator[str]:
         logger.info(f"[SSE] event_generator 开始 | session={session_id}")
         try:
+            await queue.put(f"data: {json.dumps(pipeline_mode, ensure_ascii=False)}\n\n")
             async def decision_callback(questions):
                 """等待用户决策的回调"""
                 await queue.put(f"data: {json.dumps({'type': 'critical_decisions', 'data': {'session_id': session_id, 'decisions': questions}}, ensure_ascii=False)}\n\n")

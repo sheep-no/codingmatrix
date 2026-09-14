@@ -49,6 +49,10 @@ class TestPassthroughSseEvents:
         missing = react_events - PASSTHROUGH_SSE_EVENTS
         assert not missing, f"ReAct 事件缺失透传: {missing}"
 
+    def test_pipeline_mode_included(self):
+        """管线模式事件必须透传（前端 useAgentStreaming 渲染管线卡片）"""
+        assert "pipeline_mode" in PASSTHROUGH_SSE_EVENTS
+
     def test_critical_decisions_not_in_passthrough(self):
         """critical_decisions 走专用 emit 路径（orchestrate_endpoints.py:431），
         不会进过滤器，所以不在透传集合中"""
@@ -77,10 +81,10 @@ class TestPassthroughSseEvents:
         assert "error" not in PASSTHROUGH_SSE_EVENTS
 
     def test_expected_total_count(self):
-        """14 个事件（4 进度 + 4 统计 + 3 警告 + 3 ReAct）"""
-        # 4 进度 + 4 实时统计 + 3 警告/步骤 + 3 ReAct = 14
-        assert len(PASSTHROUGH_SSE_EVENTS) == 14, (
-            f"期望 14 个透传事件，实际 {len(PASSTHROUGH_SSE_EVENTS)}: "
+        """15 个事件（4 进度 + 4 统计 + 3 警告 + 3 ReAct + 1 管线模式）"""
+        # 4 进度 + 4 实时统计 + 3 警告/步骤 + 3 ReAct + 1 pipeline_mode = 15
+        assert len(PASSTHROUGH_SSE_EVENTS) == 15, (
+            f"期望 15 个透传事件，实际 {len(PASSTHROUGH_SSE_EVENTS)}: "
             f"{sorted(PASSTHROUGH_SSE_EVENTS)}"
         )
 
