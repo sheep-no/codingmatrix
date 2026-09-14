@@ -40,6 +40,13 @@ class _Agent:
         self.complexity = object()
         self.callback = None
         self.output_dir = Path(tmp_path)
+        self.model_assignment = SimpleNamespace(
+            architect_model="test-architect",
+            frontend_model="test-frontend",
+            backend_model="test-backend",
+            reviewer_model="test-reviewer",
+            fallback_model="test-fallback",
+        )
 
     async def _initialize_components(self, requirement):
         self.initialized_requirement = requirement
