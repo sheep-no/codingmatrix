@@ -104,7 +104,17 @@
         class="activity-card"
         :class="`activity-${item.kind}`"
       >
-        <div v-if="item.kind === 'thinking'" class="activity-body">
+        <div v-if="item.kind === 'mode'" class="activity-body">
+          <div class="activity-meta">
+            <span class="activity-kind">管线</span>
+            <span class="tool-name">{{ item.data.engine }}</span>
+            <span class="thinking-phase-tag">{{ item.data.incremental ? '增量' : '新建' }}</span>
+            <span class="thinking-phase-tag">{{ item.data.tools === 'frozen' ? '冻结直写' : '可探盘' }}</span>
+            <span class="thinking-item-time">{{ formatTime(item.data.timestamp) }}</span>
+          </div>
+          <pre class="activity-text">{{ item.data.message }}</pre>
+        </div>
+        <div v-else-if="item.kind === 'thinking'" class="activity-body">
           <div class="activity-meta">
             <span class="activity-kind">思考</span>
             <span class="thinking-agent-name">{{ item.data.agent }}</span>
@@ -331,7 +341,8 @@ const props = defineProps({
   testResults: { type: Object, default: null },
   validationResults: { type: Object, default: null },
   generatedFiles: { type: Array, default: () => [] },
-  toolEvents: { type: Array, default: () => [] }
+  toolEvents: { type: Array, default: () => [] },
+  pipelineMode: { type: Object, default: null }
 })
 
 defineEmits(['select-decision', 'use-default', 'submit-decision', 'clear-thinking', 'clear-steps', 'clear-logs', 'select-file'])
@@ -350,6 +361,14 @@ function eventTime(ts) {
 
 const activityItems = computed(() => {
   const items = []
+  if (props.pipelineMode) {
+    items.push({
+      kind: 'mode',
+      ts: eventTime(props.pipelineMode.timestamp),
+      key: 'pipeline-mode',
+      data: props.pipelineMode
+    })
+  }
   ;(props.thinkingMessages || []).forEach((msg, index) => {
     items.push({
       kind: 'thinking',
@@ -491,6 +510,7 @@ watch(
 .activity-thinking { border-left: 3px solid var(--primary); }
 .activity-tool { border-left: 3px solid #c27a2b; }
 .activity-file { border-left: 3px solid var(--success); }
+.activity-mode { border-left: 3px solid #5b7c99; }
 .activity-body {
   display: block;
   width: 100%;

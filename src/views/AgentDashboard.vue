@@ -70,6 +70,7 @@
           :validation-results="workspace.validationResults"
           :generated-files="generatedFiles"
           :tool-events="workspace.toolEvents"
+          :pipeline-mode="workspace.pipelineMode"
           @select-decision="(id, label) => workspace.decisionAnswers[id] = label"
           @select-file="selectFile"
           @use-default="(id) => { const d = workspace.pendingDecisions.find(x => x.id === id); if (d?.default) workspace.decisionAnswers[id] = d.default }"
@@ -347,6 +348,7 @@ const clearAllState = () => {
   workspace.executionDetails = []
   workspace.logs = []
   workspace.toolEvents = []
+  workspace.pipelineMode = null
   session.currentSessionId = null
   workspace.currentProjectPath = null
   session.projectPrompt = ''
