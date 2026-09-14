@@ -2555,6 +2555,39 @@ def test_select_model_for_file_requires_model_assignment(tmp_path):
         FilesMixin._select_model_for_file(orchestrator, "main.py")
 
 
+def test_select_alternative_model_requires_model_assignment(tmp_path):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    orchestrator.model_assignment = None
+    with pytest.raises(RuntimeError, match="model assignment is required to select an alternative model"):
+        FilesMixin._select_alternative_model(orchestrator, "assigned-backend")
+
+
+def test_select_alternative_model_returns_distinct_assigned_model(tmp_path):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    orchestrator.model_assignment = types.SimpleNamespace(
+        architect_model="assigned-architect",
+        frontend_model="assigned-frontend",
+        backend_model="assigned-backend",
+        reviewer_model="assigned-reviewer",
+        fallback_model="assigned-fallback",
+    )
+    assert FilesMixin._select_alternative_model(orchestrator, "assigned-backend") == "assigned-architect"
+    assert FilesMixin._select_alternative_model(orchestrator, "assigned-architect") == "assigned-backend"
+
+
+def test_select_alternative_model_requires_a_distinct_model(tmp_path):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    orchestrator.model_assignment = types.SimpleNamespace(
+        architect_model="only-model",
+        frontend_model="only-model",
+        backend_model="only-model",
+        reviewer_model="only-model",
+        fallback_model="only-model",
+    )
+    with pytest.raises(RuntimeError, match="a distinct alternative model is required for cross-validation"):
+        FilesMixin._select_alternative_model(orchestrator, "only-model")
+
+
 def test_create_validator_llm_caller_requires_model_assignment():
     from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
 

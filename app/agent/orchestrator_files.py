@@ -17,7 +17,7 @@ from app.agent.code_patcher import apply_incremental_change
 from app.agent.complexity import ProjectComplexity
 from app.agent.code_validator import CodeValidator
 from app.agent.orchestrator_progress import PROGRESS_LABELS
-from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL, DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL
+from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_FAST_MODEL
 from app.agent.utils import extract_engineer_content, write_file_atomic
 from app.agent.dependency_graph import summarize_dependency_context
 from app.agent.topology_scheduler import HeartbeatTracker
@@ -2769,13 +2769,26 @@ router = APIRouter()
         return clean_code_block(content)
 
     def _select_alternative_model(self, primary_model: str) -> str:
-        alt_map = {
-            DEFAULT_REASONING_MODEL: DEFAULT_CODE_MODEL,
-            DEFAULT_CODE_MODEL: DEFAULT_REASONING_MODEL,
-            DEFAULT_FAST_MODEL: DEFAULT_CODE_MODEL,
-            DEFAULT_ARCHITECT_MODEL: DEFAULT_REASONING_MODEL,
-        }
-        return alt_map.get(primary_model, DEFAULT_CODE_MODEL)
+        """Pick a distinct assigned model for the cross-validation A/B pass."""
+        assignment = getattr(self, "model_assignment", None)
+        if not assignment:
+            raise RuntimeError(
+                "model assignment is required to select an alternative model"
+            )
+        # Prefer models other than the reviewer, which judges the A/B result.
+        for attribute in (
+            "architect_model",
+            "backend_model",
+            "frontend_model",
+            "fallback_model",
+            "reviewer_model",
+        ):
+            candidate = getattr(assignment, attribute, None)
+            if candidate and candidate != primary_model:
+                return str(candidate)
+        raise RuntimeError(
+            "a distinct alternative model is required for cross-validation"
+        )
 
     def _select_engineer_for_model(self, model_name: str) -> Specialist:
         frontend_models = {DEFAULT_FAST_MODEL, DEFAULT_CODE_MODEL}
