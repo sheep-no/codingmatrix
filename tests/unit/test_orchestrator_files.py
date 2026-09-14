@@ -2588,6 +2588,65 @@ def test_select_alternative_model_requires_a_distinct_model(tmp_path):
         FilesMixin._select_alternative_model(orchestrator, "only-model")
 
 
+def test_select_alternative_model_degrades_when_fallback_enabled(tmp_path):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    orchestrator.cross_validation_fallback = True
+    orchestrator.model_assignment = types.SimpleNamespace(
+        architect_model="only-model",
+        frontend_model="only-model",
+        backend_model="only-model",
+        reviewer_model="only-model",
+        fallback_model="only-model",
+    )
+    assert FilesMixin._select_alternative_model(orchestrator, "only-model") is None
+
+
+def test_select_alternative_model_fallback_still_requires_assignment(tmp_path):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    orchestrator.cross_validation_fallback = True
+    orchestrator.model_assignment = None
+    with pytest.raises(RuntimeError, match="model assignment is required to select an alternative model"):
+        FilesMixin._select_alternative_model(orchestrator, "only-model")
+
+
+@pytest.mark.asyncio
+async def test_degrade_cross_validation_emits_event_and_refines():
+    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
+
+    mixin = object.__new__(SpecFirstGenerateMixin)
+    mixin.warnings = []
+    events = []
+
+    def fake_report_progress(step, current, total, callback=None, **kwargs):
+        events.append({"step": step, "current": current, "total": total, **kwargs})
+
+    mixin._report_progress = fake_report_progress
+    refinement_calls = []
+
+    class FakeRefinementLoop:
+        async def refine(self, **kwargs):
+            refinement_calls.append(kwargs)
+            return types.SimpleNamespace(final_content="refined")
+
+    result = await mixin._degrade_cross_validation(
+        refinement_loop=FakeRefinementLoop(),
+        file_path="greet.py",
+        file_type="module",
+        description="打招呼",
+        model_name="only-model",
+        initial_content="print('hi')",
+        project_context={"architecture": {}},
+        callback=None,
+        progress_current=1,
+        progress_total=3,
+    )
+
+    assert result.final_content == "refined"
+    assert len(refinement_calls) == 1
+    assert any(event["step"] == "cross_validation_skipped" for event in events)
+    assert any("退化为单模型审查" in warning for warning in mixin.warnings)
+
+
 def test_create_validator_llm_caller_requires_model_assignment():
     from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
 
