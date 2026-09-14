@@ -219,6 +219,7 @@ class _AdminPageState extends ConsumerState<AdminPage> {
   }
 
   Future<void> loadUsers() async {
+    if (!mounted) return;
     setState(() {
       loading = true;
       error = null;
@@ -238,6 +239,7 @@ class _AdminPageState extends ConsumerState<AdminPage> {
   }
 
   Future<void> loadConfig() async {
+    if (mounted) setState(() => error = null);
     try {
       final value = await ref
           .read(authenticatedClientProvider)
@@ -263,6 +265,7 @@ class _AdminPageState extends ConsumerState<AdminPage> {
   }
 
   Future<void> showEndpoint(String title, String path) async {
+    if (mounted) setState(() => error = null);
     try {
       final value = await ref
           .read(authenticatedClientProvider)

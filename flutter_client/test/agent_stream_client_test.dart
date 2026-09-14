@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:codingmatrix_desktop/infrastructure/agent/agent_stream_client.dart';
 import 'package:codingmatrix_desktop/infrastructure/auth/credential_store.dart';
@@ -62,6 +63,34 @@ void main() {
     );
   });
 
+  test('generate 网络断开向上抛出', () async {
+    final store = CredentialStore();
+    final tokenRef = store.storeAccessToken('secret-token');
+    final streamClient = AgentStreamClient(
+      baseUrl: 'http://127.0.0.1:8080',
+      httpClient: MockClient(
+        (_) async => throw const SocketException('connection lost'),
+      ),
+      credentialStore: store,
+    );
+
+    await expectLater(
+      streamClient
+          .generate(
+            accessTokenRef: tokenRef,
+            requirement: 'build a dashboard',
+          )
+          .toList(),
+      throwsA(
+        isA<SocketException>().having(
+          (error) => error.message,
+          'message',
+          'connection lost',
+        ),
+      ),
+    );
+  });
+
   test('stops the authenticated backend session', () async {
     final store = CredentialStore();
     final tokenRef = store.storeAccessToken('secret-token');
@@ -80,6 +109,32 @@ void main() {
     await streamClient.stop(
       accessTokenRef: tokenRef,
       sessionId: 'desktop-session',
+    );
+  });
+
+  test('stop 网络断开向上抛出', () async {
+    final store = CredentialStore();
+    final tokenRef = store.storeAccessToken('secret-token');
+    final streamClient = AgentStreamClient(
+      baseUrl: 'http://127.0.0.1:8080',
+      httpClient: MockClient(
+        (_) async => throw const SocketException('connection lost'),
+      ),
+      credentialStore: store,
+    );
+
+    await expectLater(
+      streamClient.stop(
+        accessTokenRef: tokenRef,
+        sessionId: 'desktop-session',
+      ),
+      throwsA(
+        isA<SocketException>().having(
+          (error) => error.message,
+          'message',
+          'connection lost',
+        ),
+      ),
     );
   });
 }

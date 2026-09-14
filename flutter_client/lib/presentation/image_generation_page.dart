@@ -32,6 +32,24 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
     super.dispose();
   }
 
+  Future<void> pickImage({required bool mask}) async {
+    String? path;
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+      );
+      path = picked?.files.single.path;
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('选择图片失败：$e')));
+      return;
+    }
+    if (path != null && mounted)
+      setState(() => mask ? maskPath = path : referencePath = path);
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen(
@@ -95,16 +113,7 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                 ],
               ),
               OutlinedButton.icon(
-                onPressed: enabled
-                    ? () async {
-                        final picked = await FilePicker.platform.pickFiles(
-                          type: FileType.image,
-                        );
-                        final path = picked?.files.single.path;
-                        if (path != null && mounted)
-                          setState(() => referencePath = path);
-                      }
-                    : null,
+                onPressed: enabled ? () => pickImage(mask: false) : null,
                 icon: const Icon(Icons.image),
                 label: Text(referencePath == null ? '选择参考图' : '已选择参考图'),
               ),
@@ -121,16 +130,7 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                 ),
               if (referencePath != null)
                 OutlinedButton.icon(
-                  onPressed: enabled
-                      ? () async {
-                          final picked = await FilePicker.platform.pickFiles(
-                            type: FileType.image,
-                          );
-                          final path = picked?.files.single.path;
-                          if (path != null && mounted)
-                            setState(() => maskPath = path);
-                        }
-                      : null,
+                  onPressed: enabled ? () => pickImage(mask: true) : null,
                   icon: const Icon(Icons.brush),
                   label: Text(maskPath == null ? '选择蒙版' : '已选择蒙版'),
                 ),

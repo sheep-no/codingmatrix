@@ -38,6 +38,7 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
   }
 
   Future<void> load() async {
+    if (!mounted) return;
     setState(() {
       loading = true;
       error = null;

@@ -92,6 +92,7 @@ class _ProjectFilesPageState extends ConsumerState<ProjectFilesPage> {
       downloading = true;
       bytes = 0;
       downloadError = null;
+      savedPath = null;
     });
     try {
       final path = await ref.read(agentProjectClientProvider).download(

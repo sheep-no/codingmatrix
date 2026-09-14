@@ -17,8 +17,15 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
   String? message;
   final files = <Map<String, dynamic>>[];
   Future<void> upload() async {
-    final picked = await FilePicker.platform.pickFiles(allowMultiple: true);
+    FilePickerResult? picked;
+    try {
+      picked = await FilePicker.platform.pickFiles(allowMultiple: true);
+    } catch (e) {
+      if (mounted) setState(() => message = '选择文件失败：$e');
+      return;
+    }
     if (picked == null) return;
+    if (!mounted) return;
     setState(() {
       busy = true;
       message = null;

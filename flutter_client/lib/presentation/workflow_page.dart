@@ -111,14 +111,29 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                                     final id =
                                         '${item['workflow_id'] ?? item['id'] ?? ''}';
                                     if (id.isEmpty) return;
-                                    await client.deleteHistory(id);
-                                    if (context.mounted) Navigator.pop(context);
+                                    try {
+                                      await client.deleteHistory(id);
+                                      if (context.mounted)
+                                        Navigator.pop(context);
+                                    } catch (e) {
+                                      if (context.mounted)
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(content: Text('删除失败：$e')),
+                                        );
+                                    }
                                   },
                                 ),
                               ),
                           ],
                         ),
                       );
+                    } catch (e) {
+                      if (mounted)
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text('历史读取失败：$e')));
                     } finally {
                       if (mounted) setState(() => toolsBusy = false);
                     }

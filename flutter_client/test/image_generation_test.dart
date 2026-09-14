@@ -14,6 +14,7 @@ import 'package:codingmatrix_desktop/domain/models/provider_key.dart';
 import 'package:codingmatrix_desktop/infrastructure/image/image_generation_client.dart';
 import 'package:codingmatrix_desktop/infrastructure/provider/provider_key_client.dart';
 import 'package:codingmatrix_desktop/presentation/image_generation_page.dart';
+import 'package:file_picker/file_picker.dart';
 import 'agent_delivery_test.dart' show DeliveryApi;
 import 'auth_session_test.dart' show Fixture;
 
@@ -31,6 +32,32 @@ class ImageKeys extends ProviderKeyController {
   ImageKeys()
     : super(ProviderKeyClient(DeliveryApi((_, __, ___) async => null))) {
     state = const ProviderKeyState(items: [key], selectedToken: 'test-ref');
+  }
+}
+
+class TestImagePicker extends FilePicker {
+  TestImagePicker(this.path);
+  final String path;
+  Object? error;
+  @override
+  Future<FilePickerResult?> pickFiles({
+    String? dialogTitle,
+    String? initialDirectory,
+    FileType type = FileType.any,
+    List<String>? allowedExtensions,
+    Function(FilePickerStatus)? onFileLoading,
+    bool allowCompression = true,
+    int compressionQuality = 30,
+    bool allowMultiple = false,
+    bool withData = false,
+    bool withReadStream = false,
+    bool lockParentWindow = false,
+    bool readSequential = false,
+  }) async {
+    if (error != null) throw error!;
+    return FilePickerResult([
+      PlatformFile(name: 'ref.png', path: path, size: 10),
+    ]);
   }
 }
 
@@ -224,6 +251,64 @@ void main() {
     controller.dispose();
   });
 
+  test('图生图网络断开显示笼统错误', () async {
+    final controller = ImageGenerationController(
+      ImageGenerationClient(
+        DeliveryApi((path, method, body) async {
+          expect(path, '/api/v1/kolors/image-to-image');
+          expect(method, 'POST');
+          expect(body, {
+            'image_path': '/tmp/ref.png',
+            'prompt': '山',
+            'api_key_token': 'test-ref',
+          });
+          throw const SocketException('connection lost');
+        }),
+      ),
+    );
+    await controller.imageToImage('/tmp/ref.png', '山', key);
+    expect(controller.state.error, '图生图失败');
+    expect(controller.state.busy, false);
+    expect(controller.state.images, isEmpty);
+    controller.dispose();
+  });
+
+  test('局部重绘网络断开显示笼统错误', () async {
+    final controller = ImageGenerationController(
+      ImageGenerationClient(
+        DeliveryApi((path, method, body) async {
+          expect(path, '/api/v1/kolors/inpaint');
+          expect(method, 'POST');
+          expect(body, {
+            'image_path': '/tmp/ref.png',
+            'mask_path': '/tmp/mask.png',
+            'prompt': '山',
+            'api_key_token': 'test-ref',
+          });
+          throw const SocketException('connection lost');
+        }),
+      ),
+    );
+    await controller.inpaint('/tmp/ref.png', '/tmp/mask.png', '山', key);
+    expect(controller.state.error, '局部重绘失败');
+    expect(controller.state.busy, false);
+    expect(controller.state.images, isEmpty);
+    controller.dispose();
+  });
+
+  test('图生图中途释放会丢掉晚到的错误', () async {
+    final pending = Completer<Object?>();
+    final controller = ImageGenerationController(
+      ImageGenerationClient(DeliveryApi((_, __, ___) => pending.future)),
+    );
+    final future = controller.imageToImage('/tmp/ref.png', '山', key);
+    expect(controller.state.busy, true);
+    controller.dispose();
+    pending.completeError(const SocketException('connection lost'));
+    await future;
+    expect(controller.mounted, false);
+  });
+
   testWidgets('生成中退出再进入不会保留图片', (tester) async {
     tester.view.physicalSize = const Size(360, 900);
     tester.view.devicePixelRatio = 1;
@@ -278,5 +363,412 @@ void main() {
     await tester.pump();
     expect(find.text('图片 1'), findsNothing);
     expect(find.text('离开图片'), findsNothing);
+  });
+
+  testWidgets('生成中网络断开显示笼统错误', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final client = ImageGenerationClient(
+      DeliveryApi(
+        (_, __, ___) async => throw const SocketException('connection lost'),
+      ),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        imageGenerationControllerProvider.overrideWith(
+          (_) => ImageGenerationController(client),
+        ),
+        providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('imagePrompt')), '山');
+    await tester.ensureVisible(find.byKey(const Key('imageGenerate')));
+    await tester.tap(find.byKey(const Key('imageGenerate')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('生成请求失败或结果未知，请确认后手动提交'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('正在生成或读取图片，请等待'), findsNothing);
+    expect(find.text('图片 1'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('生成中退出再进入会丢掉错误', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final client = ImageGenerationClient(
+      DeliveryApi((_, __, ___) => pending.future),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        imageGenerationControllerProvider.overrideWith(
+          (_) => ImageGenerationController(client),
+        ),
+        providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('imagePrompt')), '山');
+    await tester.ensureVisible(find.byKey(const Key('imageGenerate')));
+    await tester.tap(find.byKey(const Key('imageGenerate')));
+    await tester.pump();
+    expect(find.text('正在生成或读取图片，请等待'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开图片'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('生成请求失败或结果未知，请确认后手动提交'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('图片 1'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('快捷生成网络断开显示笼统错误', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final client = ImageGenerationClient(
+      DeliveryApi(
+        (_, __, ___) async => throw const SocketException('connection lost'),
+      ),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        imageGenerationControllerProvider.overrideWith(
+          (_) => ImageGenerationController(client),
+        ),
+        providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.tap(find.text('生成头像'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('快捷图片生成失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('正在生成或读取图片，请等待'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('快捷生成中退出再进入会丢掉错误', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final client = ImageGenerationClient(
+      DeliveryApi((_, __, ___) => pending.future),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        imageGenerationControllerProvider.overrideWith(
+          (_) => ImageGenerationController(client),
+        ),
+        providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.tap(find.text('生成头像'));
+    await tester.pump();
+    expect(find.text('正在生成或读取图片，请等待'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开图片'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('快捷图片生成失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('图片 1'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('图生图中退出再进入会丢掉错误', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final client = ImageGenerationClient(
+      DeliveryApi((path, _, __) async {
+        if (path == '/api/v1/kolors/image-to-image') return pending.future;
+        return {'success': true, 'images': [pixel]};
+      }),
+    );
+    FilePicker.platform = TestImagePicker('/tmp/ref.png');
+    final container = ProviderContainer(
+      overrides: [
+        imageGenerationControllerProvider.overrideWith(
+          (_) => ImageGenerationController(client),
+        ),
+        providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.ensureVisible(find.text('选择参考图'));
+    await tester.tap(find.text('选择参考图'));
+    await tester.pump();
+    await tester.enterText(find.byKey(const Key('imagePrompt')), '山');
+    await tester.ensureVisible(find.text('执行图生图'));
+    await tester.tap(find.text('执行图生图'));
+    await tester.pump();
+    expect(find.text('正在生成或读取图片，请等待'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开图片'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('图生图失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('图片 1'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('局部重绘中退出再进入会丢掉错误', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final client = ImageGenerationClient(
+      DeliveryApi((path, _, __) async {
+        if (path == '/api/v1/kolors/inpaint') return pending.future;
+        return {'success': true, 'images': [pixel]};
+      }),
+    );
+    FilePicker.platform = TestImagePicker('/tmp/ref.png');
+    final container = ProviderContainer(
+      overrides: [
+        imageGenerationControllerProvider.overrideWith(
+          (_) => ImageGenerationController(client),
+        ),
+        providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.ensureVisible(find.text('选择参考图'));
+    await tester.tap(find.text('选择参考图'));
+    await tester.pump();
+    await tester.ensureVisible(find.text('选择蒙版'));
+    await tester.tap(find.text('选择蒙版'));
+    await tester.pump();
+    await tester.enterText(find.byKey(const Key('imagePrompt')), '山');
+    await tester.ensureVisible(find.text('执行局部重绘'));
+    await tester.tap(find.text('执行局部重绘'));
+    await tester.pump();
+    expect(find.text('正在生成或读取图片，请等待'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开图片'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('局部重绘失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('图片 1'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('保存中退出再进入会丢掉已保存路径和错误', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Directory>();
+    final client = ImageGenerationClient(
+      DeliveryApi((_, __, ___) async => {
+        'success': true,
+        'images': [pixel],
+      }),
+      directory: () => pending.future,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        imageGenerationControllerProvider.overrideWith(
+          (_) => ImageGenerationController(client),
+        ),
+        providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('imagePrompt')), '山');
+    await tester.ensureVisible(find.byKey(const Key('imageGenerate')));
+    await tester.tap(find.byKey(const Key('imageGenerate')));
+    await tester.pumpAndSettle();
+    expect(find.text('图片 1'), findsOneWidget);
+    await tester.ensureVisible(find.text('保存到应用文档目录'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存到应用文档目录'));
+    await tester.pump();
+    expect(find.text('正在保存'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开图片'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('保存失败，图片预览已保留'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.textContaining('已保存：'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('选择参考图失败显示失败原文', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    FilePicker.platform = TestImagePicker('/tmp/ref.png')
+      ..error = const SocketException('connection lost');
+    final client = ImageGenerationClient(
+      DeliveryApi((_, __, ___) async => {'success': true, 'images': [pixel]}),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        imageGenerationControllerProvider.overrideWith(
+          (_) => ImageGenerationController(client),
+        ),
+        providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.ensureVisible(find.text('选择参考图'));
+    await tester.tap(find.text('选择参考图'));
+    await tester.pump();
+    expect(find.textContaining('选择图片失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('已选择参考图'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }

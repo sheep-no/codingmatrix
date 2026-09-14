@@ -154,4 +154,304 @@ void main() {
     expect(find.textContaining('old · failed'), findsNothing);
     expect(calls, 2);
   });
+
+  testWidgets('取消网络断开显示失败原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (method == 'DELETE') {
+              expect(path, '/api/v1/tasks/t1');
+              throw const SocketException('connection lost');
+            }
+            return {
+              'tasks': [taskItem],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('取消'));
+    await tester.tap(find.byTooltip('取消'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('ppt · running'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('取消中退出再进入会丢掉错误', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (method == 'DELETE') return pending.future;
+            return {
+              'tasks': [taskItem],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('取消'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开任务队列'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('ppt · running'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('查看事件网络断开显示失败原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/events')) {
+              expect(path, '/api/v1/tasks/t1/events');
+              throw const SocketException('connection lost');
+            }
+            return {
+              'tasks': [taskItem],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('查看事件'));
+    await tester.tap(find.byTooltip('查看事件'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.textContaining('事件读取失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('查看事件中退出再进入会丢掉错误', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/events')) return pending.future;
+            return {
+              'tasks': [taskItem],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('查看事件'));
+    await tester.tap(find.byTooltip('查看事件'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开任务队列'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('事件读取失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('ppt · running'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('重试网络断开显示失败原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const failed = {
+      'task_id': 't2',
+      'task_type': 'ppt',
+      'status': 'failed',
+      'progress': 0,
+      'progress_message': '失败',
+    };
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/retry')) {
+              expect(path, '/api/v1/tasks/t2/retry');
+              expect(method, 'POST');
+              throw const SocketException('connection lost');
+            }
+            return {
+              'tasks': [failed],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('重试'));
+    await tester.tap(find.byTooltip('重试'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('ppt · failed'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('重试中退出再进入会丢掉错误', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const failed = {
+      'task_id': 't2',
+      'task_type': 'ppt',
+      'status': 'failed',
+      'progress': 0,
+      'progress_message': '失败',
+    };
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/retry')) return pending.future;
+            return {
+              'tasks': [failed],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('重试'));
+    await tester.tap(find.byTooltip('重试'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开任务队列'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('ppt · failed'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

@@ -32,6 +32,19 @@ class ExitWorkbenchController extends WorkbenchController {
   }
 }
 
+class StopErrorWorkbench extends WorkbenchController {
+  StopErrorWorkbench() {
+    state = const WorkbenchState(
+      task: Task(
+        taskId: 'local-1',
+        sessionId: 'desktop-1',
+        status: 'disconnected',
+      ),
+      actionError: '停止结果未确认，请重试或检查服务端任务',
+    );
+  }
+}
+
 void main() {
   testWidgets('stop requires explicit cleanup confirmation', (tester) async {
     final workbench = ExitWorkbenchController();
@@ -328,9 +341,144 @@ void main() {
     expect(
       tester
           .widget<TextField>(find.byKey(const Key('requirementField')))
+      .controller
+      ?.text,
+      isEmpty,
+    );
+  });
+
+  test('停止网络断开显示笼统错误', () async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    var stopCalls = 0;
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient((request) async {
+          if (request.url.path.contains('/agent/stop/')) {
+            stopCalls++;
+            throw const SocketException('connection lost');
+          }
+          return http.Response('', 200);
+        }),
+        credentialStore: store,
+      ),
+    );
+    await workbench.startGeneration(
+      accessTokenRef: token,
+      requirement: '做一个应用',
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    await workbench.stopGeneration();
+    expect(stopCalls, 1);
+    expect(workbench.state.actionError, '停止结果未确认，请重试或检查服务端任务');
+    expect(workbench.state.task?.status, 'disconnected');
+    workbench.dispose();
+  });
+
+  testWidgets('停止失败后退出再进入仍显示错误', (tester) async {
+    final store = CredentialStore();
+    final workbench = StopErrorWorkbench();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => signedInAuth(store, 'ref')),
+        workbenchControllerProvider.overrideWith((_) => workbench),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('停止结果未确认，请重试或检查服务端任务'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开工作台'))),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('停止结果未确认，请重试或检查服务端任务'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('requirementField')))
           .controller
           ?.text,
       isEmpty,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  test('停止时取消订阅抛错不会逃逸', () async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final source = StreamController<List<int>>(
+      onCancel: () async => throw const SocketException('connection lost'),
+    );
+    addTearDown(() {
+      unawaited(source.close());
+    });
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient.streaming(
+          (request, _) async => request.url.path.contains('/agent/stop/')
+              ? http.StreamedResponse(const Stream<List<int>>.empty(), 200)
+              : http.StreamedResponse(source.stream, 200),
+        ),
+        credentialStore: store,
+      ),
+    );
+    await workbench.startGeneration(
+      accessTokenRef: token,
+      requirement: '做一个应用',
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    await workbench.stopGeneration();
+    expect(workbench.state.task?.status, 'cancelled');
+    workbench.dispose();
+  });
+
+  test('断开时取消订阅抛错不会逃逸', () async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final source = StreamController<List<int>>(
+      onCancel: () async => throw const SocketException('connection lost'),
+    );
+    addTearDown(() {
+      unawaited(source.close());
+    });
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient.streaming(
+          (_, __) async => http.StreamedResponse(source.stream, 200),
+        ),
+        credentialStore: store,
+      ),
+    );
+    await workbench.startGeneration(
+      accessTokenRef: token,
+      requirement: '做一个应用',
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    await workbench.disconnect();
+    expect(workbench.state.task?.status, 'running');
+    workbench.dispose();
   });
 }

@@ -243,8 +243,13 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
       task: activeTask?.copyWith(status: 'stopping'),
       clearActionError: true,
     );
-    await _streamSubscription?.cancel();
+    final subscription = _streamSubscription;
     _streamSubscription = null;
+    try {
+      await subscription?.cancel();
+    } catch (_) {
+      // A broken stream can fail to cancel; the server stop below still runs.
+    }
     try {
       if (activeTask != null &&
           accessTokenRef != null &&
@@ -318,7 +323,11 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
     final subscription = _streamSubscription;
     _streamSubscription = null;
     _activeAccessTokenRef = null;
-    await subscription?.cancel();
+    try {
+      await subscription?.cancel();
+    } catch (_) {
+      // A broken stream can fail to cancel; there is nothing else to recover.
+    }
   }
 
   void resetStream() {

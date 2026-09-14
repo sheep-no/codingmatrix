@@ -52,6 +52,10 @@ class ChatApi extends DeliveryApi {
   Future<Map<String, dynamic>> Function(String)? upload;
   List<Map<String, dynamic>>? conversationItems;
   List<Map<String, dynamic>>? historyItems;
+  bool throwOnHistory = false;
+  bool throwOnStream = false;
+  Completer<Stream<List<int>>>? streamGate;
+  Completer<Object?>? historyGate;
 
   @override
   Future<Map<String, dynamic>> uploadFile(String path) async {
@@ -70,6 +74,8 @@ class ChatApi extends DeliveryApi {
   Future<Stream<List<int>>> sendJsonStream(String path, Object request) async {
     endpoint = path;
     body = request as Map<String, dynamic>;
+    if (throwOnStream) throw const SocketException('connection lost');
+    if (streamGate != null) return streamGate!.future;
     return chunks.stream;
   }
 
@@ -93,6 +99,8 @@ class ChatApi extends DeliveryApi {
       };
     }
     if (path == '/api/v1/history') {
+      if (historyGate != null) return historyGate!.future;
+      if (throwOnHistory) throw const SocketException('connection lost');
       return {
         'items': historyItems ??
             [
@@ -592,5 +600,144 @@ void main() {
     expect(find.text('回答'), findsOneWidget);
     expect(find.text('分析'), findsOneWidget);
     expect(find.text('a.txt'), findsNothing);
+  });
+
+  testWidgets('发送中网络断开显示错误原文', (tester) async {
+    api.throwOnStream = true;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '问题');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('问题'), findsWidgets);
+    expect(find.text('正在接收回复…'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('发送中退出再进入仍显示错误', (tester) async {
+    api.streamGate = Completer<Stream<List<int>>>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '问题');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    expect(find.text('正在接收回复…'), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开聊天'))),
+      ),
+    );
+    await tester.pump();
+    api.streamGate!.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('问题'), findsOneWidget);
+    expect(find.text('正在接收回复…'), findsNothing);
+  });
+
+  testWidgets('取消发送后退出再进入仍显示已取消', (tester) async {
+    api.streamGate = Completer<Stream<List<int>>>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '问题');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    expect(find.text('正在接收回复…'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    expect(find.text('已取消，已接收的内容已保留'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开聊天'))),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('已取消，已接收的内容已保留'), findsOneWidget);
+    expect(find.text('正在接收回复…'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('历史会话加载网络断开会带上异常原文', (tester) async {
+    api.throwOnHistory = true;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('chatHistoryButton')));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('暂无历史会话'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('历史加载中退出再进入仍显示错误原文', (tester) async {
+    api.historyGate = Completer<Object?>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('chatHistoryButton')));
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开聊天'))),
+      ),
+    );
+    await tester.pump();
+    api.historyGate!.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('暂无历史会话'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }

@@ -167,4 +167,634 @@ void main() {
     expect(find.text('旧用户'), findsNothing);
     expect(calls, 2);
   });
+
+  testWidgets('创建用户网络断开显示失败原文', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            if (path.contains('create_user')) {
+              expect(method, 'POST');
+              expect(body, {
+                'username': 'bob',
+                'email': 'bob@example.com',
+                'password': 'secret',
+              });
+              throw const SocketException('connection lost');
+            }
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('创建用户'));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(0), 'bob');
+    await tester.enterText(find.byType(TextField).at(1), 'bob@example.com');
+    await tester.enterText(find.byType(TextField).at(2), 'secret');
+    await tester.tap(find.text('创建'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('用户创建失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('alice'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('创建中退出再进入会丢掉错误', (tester) async {
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path.contains('create_user')) return pending.future;
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('创建用户'));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(0), 'bob');
+    await tester.enterText(find.byType(TextField).at(1), 'bob@example.com');
+    await tester.enterText(find.byType(TextField).at(2), 'secret');
+    await tester.tap(find.text('创建'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开管理后台'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('用户创建失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('alice'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除用户网络断开显示失败原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('delete_user')) {
+              expect(path, '/api/v2/Controller/delete_user/1');
+              expect(method, 'DELETE');
+              throw const SocketException('connection lost');
+            }
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('用户管理'));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('删除'));
+    await tester.tap(find.byTooltip('删除'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('用户删除失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('alice'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除中退出再进入会丢掉错误', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('delete_user')) return pending.future;
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('用户管理'));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('删除'));
+    await tester.tap(find.byTooltip('删除'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开管理后台'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('用户删除失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('alice'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('编辑中退出再进入会丢掉错误', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('update_user')) return pending.future;
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('用户管理'));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('编辑'));
+    await tester.tap(find.byTooltip('编辑'));
+    await tester.pump();
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开管理后台'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('用户更新失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('alice'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('编辑用户网络断开显示失败原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            if (path.contains('update_user')) {
+              expect(path, '/api/v2/Controller/update_user/1');
+              expect(method, 'PATCH');
+              expect(body, {
+                'username': 'alice',
+                'email': 'alice@example.com',
+                'permission_level': 'admin',
+              });
+              throw const SocketException('connection lost');
+            }
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('用户管理'));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('编辑'));
+    await tester.tap(find.byTooltip('编辑'));
+    await tester.pump();
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('用户更新失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('alice'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('重置密码网络断开显示失败原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            if (path.contains('reset-password')) {
+              expect(path, '/api/v2/Controller/1/reset-password');
+              expect(method, 'POST');
+              expect(body, {'new_password': 'newpass'});
+              throw const SocketException('connection lost');
+            }
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('用户管理'));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('重置密码'));
+    await tester.tap(find.byTooltip('重置密码'));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'newpass');
+    await tester.tap(find.text('重置'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('密码重置失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('重置密码中退出再进入会丢掉错误', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('reset-password')) return pending.future;
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('用户管理'));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('重置密码'));
+    await tester.tap(find.byTooltip('重置密码'));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'newpass');
+    await tester.tap(find.text('重置'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开管理后台'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('密码重置失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('alice'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('系统配置网络断开显示失败原文', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path.contains('/admin/config')) {
+              throw const SocketException('connection lost');
+            }
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('系统配置'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('配置读取失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('系统统计网络断开显示失败原文', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path.contains('/admin/stats')) {
+              throw const SocketException('connection lost');
+            }
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('系统统计'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('系统统计读取失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('系统统计失败后再次成功会清除旧错误', (tester) async {
+    var statsCalls = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path.contains('/admin/stats')) {
+              statsCalls += 1;
+              if (statsCalls == 1) {
+                throw const SocketException('connection lost');
+              }
+              return {'ok': true};
+            }
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('系统统计'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('系统统计读取失败'), findsOneWidget);
+    await tester.tap(find.text('系统统计'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('系统统计读取失败'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('系统配置读取中退出再进入会丢掉错误', (tester) async {
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path.contains('/admin/config')) return pending.future;
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('系统配置'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开管理后台'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('配置读取失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('沙箱配置读取中退出再进入会丢掉错误', (tester) async {
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path.contains('/admin/sandbox-config')) return pending.future;
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('沙箱配置'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开管理后台'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('沙箱配置读取失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('系统统计读取中退出再进入会丢掉错误', (tester) async {
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path.contains('/admin/stats')) return pending.future;
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('系统统计'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开管理后台'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('系统统计读取失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }

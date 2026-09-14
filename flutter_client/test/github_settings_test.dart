@@ -375,4 +375,553 @@ void main() {
     expect(find.text('olduser'), findsNothing);
     expect(calls, 2);
   });
+
+  testWidgets('提交配置网络断开显示结果未知', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(
+              DeliveryApi((path, method, body) async {
+                if (method == 'GET') return stored;
+                throw const SocketException('connection lost');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubSave')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('GitHub 配置提交失败或结果未知，请重新读取配置确认状态'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('验证凭据网络断开显示验证失败', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(
+              DeliveryApi((path, method, body) async {
+                if (method == 'GET') return stored;
+                throw const SocketException('connection lost');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubVerify')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('GitHub 验证失败，请确认已保存凭据'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('验证中退出再进入会重新拉取配置', (tester) async {
+    var verifies = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(
+              DeliveryApi((path, method, body) async {
+                if (method == 'GET') return stored;
+                verifies += 1;
+                if (verifies == 1) return pending.future;
+                return {'verified': true, 'message': 'GitHub 凭据有效'};
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubVerify')));
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开 GitHub'))),
+      ),
+    );
+    await tester.pump();
+    pending.complete({'verified': true, 'message': 'late-verify'});
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('凭据状态：已加密保存'), findsOneWidget);
+    expect(find.text('late-verify'), findsNothing);
+    expect(find.text('GitHub 凭据有效'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+  });
+
+  testWidgets('提交中退出再进入会重新拉取配置', (tester) async {
+    var posts = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(
+              DeliveryApi((path, method, body) async {
+                if (method == 'GET') return stored;
+                posts += 1;
+                if (posts == 1) return pending.future;
+                return {'success': true, ...stored};
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubSave')));
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开 GitHub'))),
+      ),
+    );
+    await tester.pump();
+    pending.complete({'success': true, ...stored, 'username': 'late-user'});
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('凭据状态：已加密保存'), findsOneWidget);
+    expect(find.text('配置已保存'), findsNothing);
+    expect(find.text('late-user'), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('githubUsername')))
+          .controller
+          ?.text,
+      'alice',
+    );
+  });
+
+  Map<String, Object> demoRepo() => {
+    'full_name': 'alice/demo',
+    'name': 'demo',
+    'owner': 'alice',
+    'private': false,
+    'default_branch': 'main',
+  };
+
+  Map<String, Object> demoBranch() => {
+    'name': 'main',
+    'sha': 'abc1234',
+    'protected': false,
+  };
+
+  testWidgets('读取仓库列表网络断开显示失败', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(
+              DeliveryApi((path, method, body) async {
+                if (path.contains('/repos')) {
+                  throw const SocketException('connection lost');
+                }
+                if (method == 'GET') return stored;
+                throw StateError('unexpected $method $path');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubListRepos')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('仓库列表读取失败，请先验证凭据'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('读取分支网络断开显示失败', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(
+              DeliveryApi((path, method, body) async {
+                if (path.contains('/branches')) {
+                  throw const SocketException('connection lost');
+                }
+                if (path.contains('/repos')) {
+                  return {
+                    'repos': [demoRepo()],
+                  };
+                }
+                if (method == 'GET') return stored;
+                throw StateError('unexpected $method $path');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubListRepos')));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.text('alice/demo'));
+    await tester.tap(find.text('alice/demo'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('分支列表读取失败'), findsOneWidget);
+    expect(find.text('alice/demo'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('读取分支中退出再进入会丢掉列表', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(
+              DeliveryApi((path, method, body) async {
+                if (path.contains('/branches')) return pending.future;
+                if (path.contains('/repos')) {
+                  return {
+                    'repos': [demoRepo()],
+                  };
+                }
+                if (method == 'GET') return stored;
+                throw StateError('unexpected $method $path');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubListRepos')));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.text('alice/demo'));
+    await tester.tap(find.text('alice/demo'));
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开 GitHub'))),
+      ),
+    );
+    await tester.pump();
+    pending.complete({
+      'branches': [demoBranch()],
+    });
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('凭据状态：已加密保存'), findsOneWidget);
+    expect(find.text('alice/demo'), findsNothing);
+    expect(find.text('main'), findsNothing);
+  });
+
+  testWidgets('读取仓库中退出再进入会丢掉列表', (tester) async {
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(
+              DeliveryApi((path, method, body) async {
+                if (path.contains('/repos')) return pending.future;
+                if (method == 'GET') return stored;
+                throw StateError('unexpected $method $path');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubListRepos')));
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开 GitHub'))),
+      ),
+    );
+    await tester.pump();
+    pending.complete({
+      'repos': [demoRepo()],
+    });
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('凭据状态：已加密保存'), findsOneWidget);
+    expect(find.text('alice/demo'), findsNothing);
+  });
+
+  test('未选仓库时不会读取提交', () async {
+    var calls = 0;
+    final controller = GithubController(
+      GithubClient(
+        DeliveryApi((_, __, ___) async {
+          calls += 1;
+          return stored;
+        }),
+      ),
+    );
+    await controller.loadCommitsForSelection('main');
+    expect(calls, 0);
+    controller.dispose();
+  });
+
+  testWidgets('读取提交列表网络断开显示失败', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(
+              DeliveryApi((path, method, body) async {
+                if (path.contains('/commits')) {
+                  throw const SocketException('connection lost');
+                }
+                if (path.contains('/branches')) {
+                  return {
+                    'branches': [demoBranch()],
+                  };
+                }
+                if (path.contains('/repos')) {
+                  return {
+                    'repos': [demoRepo()],
+                  };
+                }
+                if (method == 'GET') return stored;
+                throw StateError('unexpected $method $path');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubListRepos')));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.text('alice/demo'));
+    await tester.tap(find.text('alice/demo'));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.widgetWithText(ActionChip, 'main'));
+    await tester.tap(find.widgetWithText(ActionChip, 'main'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('提交列表读取失败'), findsOneWidget);
+    expect(find.text('alice/demo'), findsOneWidget);
+    expect(find.widgetWithText(ActionChip, 'main'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('读取提交中退出再进入会丢掉列表', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        githubControllerProvider.overrideWith(
+          (_) => GithubController(
+            GithubClient(
+              DeliveryApi((path, method, body) async {
+                if (path.contains('/commits')) return pending.future;
+                if (path.contains('/branches')) {
+                  return {
+                    'branches': [demoBranch()],
+                  };
+                }
+                if (path.contains('/repos')) {
+                  return {
+                    'repos': [demoRepo()],
+                  };
+                }
+                if (method == 'GET') return stored;
+                throw StateError('unexpected $method $path');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubListRepos')));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.text('alice/demo'));
+    await tester.tap(find.text('alice/demo'));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.widgetWithText(ActionChip, 'main'));
+    await tester.tap(find.widgetWithText(ActionChip, 'main'));
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开 GitHub'))),
+      ),
+    );
+    await tester.pump();
+    pending.complete({
+      'commits': [
+        {
+          'sha': 'deadbeef',
+          'message': 'late commit',
+          'author': 'alice',
+        },
+      ],
+    });
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: GithubSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('凭据状态：已加密保存'), findsOneWidget);
+    expect(find.text('alice/demo'), findsNothing);
+    expect(find.text('late commit'), findsNothing);
+  });
 }

@@ -208,6 +208,7 @@ class _DetailState extends ConsumerState<AgentSessionDetailPage> {
   bool busy = false;
   String? error;
   Future<void> showSnapshots(String id) async {
+    if (mounted) setState(() => error = null);
     try {
       final items = await ref.read(agentSessionClientProvider).snapshots(id);
       if (!mounted) return;
@@ -247,6 +248,7 @@ class _DetailState extends ConsumerState<AgentSessionDetailPage> {
                       ),
                     );
                     if (confirmed == true) {
+                      if (mounted) setState(() => error = null);
                       try {
                         await ref
                             .read(agentSessionClientProvider)
@@ -271,6 +273,7 @@ class _DetailState extends ConsumerState<AgentSessionDetailPage> {
                       '${items[items.length - 2]['tag'] ?? items[items.length - 2]['id'] ?? ''}';
                   final to = '${items.last['tag'] ?? items.last['id'] ?? ''}';
                   Navigator.pop(sheetContext);
+                  if (mounted) setState(() => error = null);
                   try {
                     final diff = await ref
                         .read(agentSessionClientProvider)

@@ -353,4 +353,467 @@ void main() {
     expect(find.textContaining('sensitive-token'), findsNothing);
     expect(calls, 2);
   });
+
+  testWidgets('空 Key 不会提交', (tester) async {
+    var submits = 0;
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((path, method, body) async {
+                if (path.contains('/apikeys')) return [];
+                submits += 1;
+                return {'public_key': 'unused'};
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('添加 Provider Key'));
+    await tester.pump();
+    expect(submits, 0);
+    expect(find.text('Provider Key 提交失败，请检查输入后重试'), findsNothing);
+  });
+
+  testWidgets('添加网络断开显示提交失败', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((path, method, body) async {
+                if (path.contains('/apikeys')) return [];
+                throw const SocketException('connection lost');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'sk-test');
+    await tester.tap(find.text('添加 Provider Key'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Provider Key 提交失败，请检查输入后重试'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      'sk-test',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('添加中退出再进入会清空输入并重新拉列表', (tester) async {
+    var lists = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((path, method, body) async {
+                if (path.contains('/apikeys')) {
+                  lists += 1;
+                  if (lists == 1) return [];
+                  return [
+                    {
+                      'token': 'sensitive-token-reference',
+                      'provider': 'openai',
+                      'status': 'verified',
+                      'enabled': true,
+                      'expires_at': DateTime.now()
+                          .add(const Duration(hours: 1))
+                          .toIso8601String(),
+                    },
+                  ];
+                }
+                return pending.future;
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'sk-test');
+    await tester.tap(find.text('添加 Provider Key'));
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开 Provider'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('openai · 授权 1'), findsOneWidget);
+    expect(find.text('Provider Key 提交失败，请检查输入后重试'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      isEmpty,
+    );
+  });
+
+  Map<String, Object> listedKey() => {
+    'token': 'sensitive-token-reference',
+    'provider': 'openai',
+    'status': 'verified',
+    'enabled': true,
+    'expires_at': DateTime.now()
+        .add(const Duration(hours: 1))
+        .toIso8601String(),
+  };
+
+  testWidgets('测试连接网络断开显示测试失败', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((path, method, body) async {
+                if (path == '/api/v1/agent/apikeys') return [listedKey()];
+                throw const SocketException('connection lost');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('测试连接'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Provider Key 测试失败，请重试'), findsOneWidget);
+    expect(find.text('连接测试通过'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.textContaining('sensitive-token'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('测试连接中退出再进入会丢掉错误并重新拉列表', (tester) async {
+    var lists = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((path, method, body) async {
+                if (path == '/api/v1/agent/apikeys') {
+                  lists += 1;
+                  return [listedKey()];
+                }
+                if (path == '/api/v1/agent/apikey/test') return pending.future;
+                throw StateError('unexpected $method $path');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('测试连接'));
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开 Provider'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Provider Key 测试失败，请重试'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('openai · 授权 1'), findsOneWidget);
+    expect(lists, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除网络断开显示删除失败', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((path, method, body) async {
+                if (path == '/api/v1/agent/apikeys') return [listedKey()];
+                throw const SocketException('connection lost');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('删除授权'));
+    await tester.pump();
+    await tester.tap(find.text('确认'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('删除 Provider Key 失败，请重试'), findsOneWidget);
+    expect(find.text('openai · 授权 1'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除中退出再进入会重新拉列表', (tester) async {
+    var lists = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((path, method, body) async {
+                if (path == '/api/v1/agent/apikeys') {
+                  lists += 1;
+                  return [listedKey()];
+                }
+                if (method == 'DELETE') return pending.future;
+                throw StateError('unexpected $method $path');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('删除授权'));
+    await tester.pump();
+    await tester.tap(find.text('确认'));
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开 Provider'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('openai · 授权 1'), findsOneWidget);
+    expect(find.text('删除 Provider Key 失败，请重试'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(lists, 2);
+  });
+
+  testWidgets('切换启用网络断开显示更新失败', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((path, method, body) async {
+                if (path == '/api/v1/agent/apikeys') return [listedKey()];
+                throw const SocketException('connection lost');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byType(Switch));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('更新 Provider 状态失败，请重试'), findsOneWidget);
+    expect(find.textContaining('已启用'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('忙碌中再次切换不会发请求', (tester) async {
+    var puts = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((path, method, body) async {
+                if (path == '/api/v1/agent/apikeys') return [listedKey()];
+                if (method == 'PUT') {
+                  puts += 1;
+                  return pending.future;
+                }
+                throw StateError('unexpected $method $path');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byType(Switch));
+    await tester.pump();
+    expect(puts, 1);
+    await tester.tap(find.byType(Switch));
+    await tester.pump();
+    expect(puts, 1);
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+  });
+
+  testWidgets('切换中退出再进入会重新拉列表', (tester) async {
+    var lists = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((path, method, body) async {
+                if (path == '/api/v1/agent/apikeys') {
+                  lists += 1;
+                  return [listedKey()];
+                }
+                if (method == 'PUT') return pending.future;
+                throw StateError('unexpected $method $path');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byType(Switch));
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开 Provider'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('openai · 授权 1'), findsOneWidget);
+    expect(find.text('更新 Provider 状态失败，请重试'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(lists, 2);
+  });
 }

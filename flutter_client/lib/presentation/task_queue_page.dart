@@ -22,6 +22,7 @@ class _TaskQueuePageState extends ConsumerState<TaskQueuePage> {
   }
 
   Future<void> load() async {
+    if (!mounted) return;
     setState(() => loading = true);
     try {
       final result = await client.list();

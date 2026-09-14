@@ -203,16 +203,18 @@ class _PptPageState extends ConsumerState<PptPage> {
                   final client = PptClient(
                     ref.read(authenticatedClientProvider),
                   );
-                  await client.approveOutline(id);
-                  final generated = await client.generateFromOutline(id);
-                  // The dialog remains mounted while the approval request is running.
-                  // ignore: use_build_context_synchronously
-                  if (context.mounted) {
-                    Navigator.pop(dialogContext);
-                    setState(
-                      () => message =
-                          '已按大纲提交生成：${generated['task_id'] ?? generated['id'] ?? ''}',
-                    );
+                  try {
+                    await client.approveOutline(id);
+                    final generated = await client.generateFromOutline(id);
+                    if (mounted)
+                      setState(
+                        () => message =
+                            '已按大纲提交生成：${generated['task_id'] ?? generated['id'] ?? ''}',
+                      );
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  } catch (e) {
+                    if (mounted) setState(() => message = '生成提交失败：$e');
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
                   }
                 },
                 child: const Text('批准并生成'),

@@ -157,4 +157,502 @@ void main() {
     expect(find.text('旧供应商'), findsNothing);
     expect(calls, 2);
   });
+
+  testWidgets('添加网络断开显示失败原文', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            if (method == 'POST' && path == '/api/v1/providers') {
+              expect(body, {
+                'name': 'custom',
+                'base_url': 'https://llm.example.com',
+                'protocol': 'openai',
+                'api_key': 'sk-test',
+              });
+              throw const SocketException('connection lost');
+            }
+            return [providerItem];
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(0), 'custom');
+    await tester.enterText(find.byType(TextField).at(1), 'https://llm.example.com');
+    await tester.enterText(find.byType(TextField).at(2), 'sk-test');
+    await tester.tap(find.text('添加供应商'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('自定义 GLM'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+      'custom',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('添加中退出再进入会丢掉错误并重新拉列表', (tester) async {
+    var lists = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (method == 'POST' && path == '/api/v1/providers') {
+              return pending.future;
+            }
+            lists++;
+            return [providerItem];
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(0), 'custom');
+    await tester.tap(find.text('添加供应商'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开供应商'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('自定义 GLM'), findsOneWidget);
+    expect(lists, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('停用网络断开显示失败原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/toggle')) {
+              expect(path, '/api/v1/providers/p1/toggle');
+              expect(method, 'PUT');
+              throw const SocketException('connection lost');
+            }
+            return [providerItem];
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byType(PopupMenuButton<String>));
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('停用'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('自定义 GLM'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('停用中退出再进入会丢掉错误并重新拉列表', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var lists = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/toggle')) return pending.future;
+            lists++;
+            return [providerItem];
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byType(PopupMenuButton<String>));
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('停用'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开供应商'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('自定义 GLM'), findsOneWidget);
+    expect(lists, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('同步模型网络断开显示失败原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/sync')) {
+              expect(path, '/api/v1/providers/p1/sync?force=true');
+              expect(method, 'POST');
+              throw const SocketException('connection lost');
+            }
+            return [providerItem];
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('同步模型'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('同步中退出再进入会丢掉错误并重新拉列表', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var lists = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/sync')) return pending.future;
+            lists++;
+            return [providerItem];
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('同步模型'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开供应商'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('自定义 GLM'), findsOneWidget);
+    expect(lists, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('测试连接网络断开显示失败原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/test')) {
+              expect(path, '/api/v1/providers/p1/test');
+              expect(method, 'POST');
+              throw const SocketException('connection lost');
+            }
+            return [providerItem];
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('测试连接'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('测试连接中退出再进入会丢掉错误并重新拉列表', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var lists = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/test')) return pending.future;
+            lists++;
+            return [providerItem];
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('测试连接'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开供应商'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('自定义 GLM'), findsOneWidget);
+    expect(lists, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除网络断开显示失败原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (method == 'DELETE') {
+              expect(path, '/api/v1/providers/p1');
+              throw const SocketException('connection lost');
+            }
+            return [providerItem];
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('删除'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(find.text('自定义 GLM'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除中退出再进入会丢掉错误并重新拉列表', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var lists = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (method == 'DELETE') return pending.future;
+            lists++;
+            return [providerItem];
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('删除'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开供应商'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('自定义 GLM'), findsOneWidget);
+    expect(lists, 2);
+    expect(tester.takeException(), isNull);
+  });
 }

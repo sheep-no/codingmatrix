@@ -8,8 +8,10 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:codingmatrix_desktop/application/agent_session_providers.dart';
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
+import 'package:codingmatrix_desktop/domain/models/auth_session.dart';
 import 'package:codingmatrix_desktop/infrastructure/agent/agent_session_client.dart';
 import 'package:codingmatrix_desktop/infrastructure/agent/agent_stream_client.dart';
+import 'package:codingmatrix_desktop/infrastructure/auth/cloud_auth_client.dart';
 import 'package:codingmatrix_desktop/infrastructure/auth/credential_store.dart';
 import 'package:codingmatrix_desktop/presentation/agent_history_page.dart';
 import 'agent_delivery_test.dart' show DeliveryApi;
@@ -24,6 +26,29 @@ void main() {
     'files_generated': 2,
     'files_total': 2,
     'reconnectable': false,
+  };
+  AuthController signedIn({bool withSession = true}) {
+    final store = CredentialStore();
+    return AuthController(
+      CloudAuthClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient((_) async => http.Response('', 500)),
+        credentialStore: store,
+      ),
+      store,
+      session: withSession
+          ? const AuthSession(
+              username: 'alice',
+              permissionLevel: 'normal',
+              accessTokenRef: 'ref',
+            )
+          : null,
+    );
+  }
+
+  Map<String, Object> livePayload() => {
+    ...payload,
+    'reconnectable': true,
   };
   test(
     'account change ignores late history from the previous account',
@@ -240,5 +265,580 @@ void main() {
     expect(find.text('历史项目'), findsOneWidget);
     expect(find.text('旧会话'), findsNothing);
     expect(calls, 2);
+  });
+
+  testWidgets('详情加载网络断开显示重试且不泄露错误', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionDetailProvider('s1').overrideWith(
+          (_) async => throw const SocketException('connection lost'),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('状态查询失败，点击重试'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('历史项目'), findsNothing);
+  });
+
+  testWidgets('详情加载中退出再进入会重新拉取', (tester) async {
+    var calls = 0;
+    final pending = Completer<AgentSession>();
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionDetailProvider('s1').overrideWith((_) async {
+          calls++;
+          if (calls == 1) return pending.future;
+          return AgentSession.fromJson(payload);
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开会话详情'))),
+      ),
+    );
+    await tester.pump();
+    pending.complete(
+      AgentSession.fromJson({
+        ...payload,
+        'requirement': '旧详情',
+      }),
+    );
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('历史项目'), findsOneWidget);
+    expect(find.text('旧详情'), findsNothing);
+    expect(calls, 2);
+  });
+
+  testWidgets('统计读取网络断开会带上异常原文', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionsProvider.overrideWith((_) async => []),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi(
+            (_, __, ___) async =>
+                throw const SocketException('connection lost'),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('Agent 统计'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('统计读取失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+  });
+
+  testWidgets('清理缓存网络断开会带上异常原文', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionsProvider.overrideWith((_) async => []),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi(
+            (_, __, ___) async =>
+                throw const SocketException('connection lost'),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('清理缓存'));
+    await tester.pump();
+    await tester.tap(find.text('清理'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('缓存清理失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+  });
+
+  testWidgets('快照读取网络断开会带上异常原文', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionDetailProvider('s1').overrideWith(
+          (_) async => AgentSession.fromJson(payload),
+        ),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi(
+            (_, __, ___) async =>
+                throw const SocketException('connection lost'),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('查看快照'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('快照读取失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+  });
+
+  testWidgets('并发限制网络断开会带上异常原文', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionsProvider.overrideWith((_) async => []),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi(
+            (_, __, ___) async =>
+                throw const SocketException('connection lost'),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('并发限制'));
+    await tester.pump();
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('更新失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+  });
+
+  testWidgets('快照回滚网络断开会带上异常原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionDetailProvider('s1').overrideWith(
+          (_) async => AgentSession.fromJson(payload),
+        ),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            if (path.contains('/snapshots/')) {
+              return {
+                'snapshots': [
+                  {'tag': 't1', 'message': 'first', 'id': 't1'},
+                ],
+              };
+            }
+            throw const SocketException('connection lost');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('查看快照'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.ensureVisible(find.byTooltip('回滚'));
+    await tester.tap(find.byTooltip('回滚'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('确认'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('回滚失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+  });
+
+  testWidgets('回滚失败后再次成功打开快照会清除旧错误', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionDetailProvider('s1').overrideWith(
+          (_) async => AgentSession.fromJson(payload),
+        ),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            if (path.contains('/rollback/')) {
+              throw const SocketException('connection lost');
+            }
+            return {
+              'snapshots': [
+                {'tag': 't1', 'message': 'first', 'id': 't1'},
+              ],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('查看快照'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.ensureVisible(find.byTooltip('回滚'));
+    await tester.tap(find.byTooltip('回滚'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('确认'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('回滚失败'), findsOneWidget);
+    await tester.tap(find.text('查看快照'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.textContaining('回滚失败'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('快照差异网络断开会带上异常原文', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionDetailProvider('s1').overrideWith(
+          (_) async => AgentSession.fromJson(payload),
+        ),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            if (path.contains('/snapshots/')) {
+              return {
+                'snapshots': [
+                  {'tag': 't1', 'id': 't1'},
+                  {'tag': 't2', 'id': 't2'},
+                ],
+              };
+            }
+            throw const SocketException('connection lost');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('查看快照'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.ensureVisible(find.text('比较最新两个快照'));
+    await tester.tap(find.text('比较最新两个快照'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('差异读取失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+  });
+
+  testWidgets('未登录时恢复不会发请求', (tester) async {
+    var details = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => signedIn(withSession: false)),
+        agentSessionDetailProvider('s1').overrideWith(
+          (_) async => AgentSession.fromJson(livePayload()),
+        ),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            details += 1;
+            throw StateError('unexpected $method $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('恢复 SSE 连接'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('断开并重连'), findsNothing);
+    expect(find.text('恢复未成功，请刷新详情后重试'), findsNothing);
+    expect(details, 0);
+  });
+
+  testWidgets('恢复SSE网络断开显示恢复未成功且不泄露错误', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => signedIn()),
+        agentSessionDetailProvider('s1').overrideWith(
+          (_) async => AgentSession.fromJson(livePayload()),
+        ),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi(
+            (_, __, ___) async =>
+                throw const SocketException('connection lost'),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('恢复 SSE 连接'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('断开并重连'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('恢复未成功，请刷新详情后重试'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('恢复中退出再进入会丢掉错误', (tester) async {
+    var details = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => signedIn()),
+        agentSessionDetailProvider('s1').overrideWith(
+          (_) async => AgentSession.fromJson(livePayload()),
+        ),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            details += 1;
+            return pending.future;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('恢复 SSE 连接'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('断开并重连'));
+    await tester.pump();
+    expect(find.text('正在确认'), findsOneWidget);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开会话详情'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('恢复 SSE 连接'), findsOneWidget);
+    expect(find.text('恢复未成功，请刷新详情后重试'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(details, 1);
+  });
+
+  testWidgets('快照读取中退出再进入会丢掉错误', (tester) async {
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionDetailProvider('s1').overrideWith(
+          (_) async => AgentSession.fromJson(payload),
+        ),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            if (path.contains('/snapshots/')) return pending.future;
+            throw StateError('unexpected $method $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('查看快照'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开会话详情'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('快照读取失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('查看快照'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('快照差异读取中退出再进入会丢掉错误', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionDetailProvider('s1').overrideWith(
+          (_) async => AgentSession.fromJson(payload),
+        ),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            if (path.contains('/snapshots/')) {
+              return {
+                'snapshots': [
+                  {'tag': 't1', 'id': 't1'},
+                  {'tag': 't2', 'id': 't2'},
+                ],
+              };
+            }
+            if (path.contains('/snapshot/diff')) return pending.future;
+            throw StateError('unexpected $method $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('查看快照'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.ensureVisible(find.text('比较最新两个快照'));
+    await tester.tap(find.text('比较最新两个快照'));
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开会话详情'))),
+      ),
+    );
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('差异读取失败'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('查看快照'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

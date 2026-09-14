@@ -20,7 +20,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 class DeliveryApi extends AuthenticatedClient {
-  DeliveryApi(this.handle, {this.stream})
+  DeliveryApi(this.handle, {this.stream, this.sendHandle})
     : super(
         CloudAuthClient(
           baseUrl: 'https://example.com',
@@ -31,6 +31,7 @@ class DeliveryApi extends AuthenticatedClient {
       );
   final Future<Object?> Function(String, String, Object?) handle;
   final Stream<List<int>>? stream;
+  final Future<http.StreamedResponse> Function(http.BaseRequest)? sendHandle;
   @override
   Future<Object?> requestJson(
     String path, {
@@ -39,11 +40,37 @@ class DeliveryApi extends AuthenticatedClient {
     Duration? timeout,
   }) => handle(path, method, body);
   @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) async =>
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    if (sendHandle != null) return sendHandle!(request);
+    return Future.value(
       http.StreamedResponse(
         stream ?? Stream.value([0x50, 0x4b, 5, 6, ...List.filled(18, 0)]),
         200,
+      ),
+    );
+  }
+}
+
+class _ScriptedDownloadClient extends AgentProjectClient {
+  _ScriptedDownloadClient(this.script)
+    : super(
+        DeliveryApi(
+          (path, _, __) async => Uri.parse(path).path.endsWith('/files')
+              ? {
+                  'files': [
+                    {'path': 'README.md'},
+                  ],
+                }
+              : {'content': '# demo'},
+        ),
       );
+  final Future<String> Function() script;
+  @override
+  Future<String> download(
+    String project,
+    void Function(int) progress, {
+    bool Function()? active,
+  }) => script();
 }
 
 String event(String type, Map<String, dynamic> data) =>
@@ -304,6 +331,59 @@ void main() {
     );
     await tester.tap(find.text('提交决策'));
     await tester.pump();
+    await tester.pump();
+    expect(find.text('决策未被确认，等待可能已超时；请查看任务进度'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.text('提交决策'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('提交决策失败后退出再进入仍显示错误', (tester) async {
+    final controller = WorkbenchController(
+      projectClient: AgentProjectClient(
+        DeliveryApi(
+          (_, __, ___) async => throw const SocketException('connection lost'),
+        ),
+      ),
+    );
+    controller.bindTask(
+      const Task(taskId: 't', sessionId: 's', status: 'running'),
+    );
+    controller.ingestSseChunk(
+      event('critical_decisions', {
+        'decisions': [question],
+      }),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        workbenchControllerProvider.overrideWith((_) => controller),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentDecisionPage()),
+      ),
+    );
+    await tester.tap(find.text('提交决策'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('决策未被确认，等待可能已超时；请查看任务进度'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开决策'))),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentDecisionPage()),
+      ),
+    );
     await tester.pump();
     expect(find.text('决策未被确认，等待可能已超时；请查看任务进度'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsNothing);
@@ -583,5 +663,419 @@ void main() {
     expect(find.text('文件读取失败，点击重试'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  Map<String, Object> enabledGithubConfig() => {
+    'username': 'alice',
+    'use_github': true,
+    'persisted': true,
+    'has_token': true,
+    'credential_state': 'stored',
+    'verified': false,
+  };
+
+  AgentProjectClient readmeFilesClient() => AgentProjectClient(
+    DeliveryApi(
+      (path, _, __) async => Uri.parse(path).path.endsWith('/files')
+          ? {
+              'files': [
+                {'path': 'README.md'},
+              ],
+            }
+          : {'content': '# demo'},
+    ),
+  );
+
+  testWidgets('推送到GitHub网络断开显示笼统错误', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(readmeFilesClient()),
+          githubClientProvider.overrideWithValue(
+            GithubClient(
+              DeliveryApi((path, method, body) async {
+                if (path == '/api/v1/github/config') {
+                  return enabledGithubConfig();
+                }
+                throw const SocketException('connection lost');
+              }),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubSaveProject')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('GitHub 推送失败，请先在设置中保存并启用凭据'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.textContaining('https://github.com'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('推送中再次点击不会发请求', (tester) async {
+    var saves = 0;
+    final pending = Completer<Object?>();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(readmeFilesClient()),
+          githubClientProvider.overrideWithValue(
+            GithubClient(
+              DeliveryApi((path, method, body) async {
+                if (path == '/api/v1/github/config') {
+                  return enabledGithubConfig();
+                }
+                if (path == '/api/v1/github/save') {
+                  saves += 1;
+                  return pending.future;
+                }
+                throw StateError('unexpected $method $path');
+              }),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubSaveProject')));
+    await tester.pump();
+    expect(saves, 1);
+    expect(find.text('正在推送到 GitHub'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('githubSaveProject')));
+    await tester.pump();
+    expect(saves, 1);
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+  });
+
+  testWidgets('推送中退出再进入会丢掉结果', (tester) async {
+    var saves = 0;
+    final pending = Completer<Object?>();
+    final filesClient = readmeFilesClient();
+    final github = GithubClient(
+      DeliveryApi((path, method, body) async {
+        if (path == '/api/v1/github/config') {
+          return enabledGithubConfig();
+        }
+        if (path == '/api/v1/github/save') {
+          saves += 1;
+          return pending.future;
+        }
+        throw StateError('unexpected $method $path');
+      }),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(filesClient),
+          githubClientProvider.overrideWithValue(github),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('githubSaveProject')));
+    await tester.pump();
+    expect(find.text('正在推送到 GitHub'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(filesClient),
+          githubClientProvider.overrideWithValue(github),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('推送到 GitHub'), findsOneWidget);
+    expect(find.text('GitHub 推送失败，请先在设置中保存并启用凭据'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(saves, 1);
+  });
+
+  testWidgets('下载网络断开显示笼统错误', (tester) async {
+    late Directory directory;
+    await tester.runAsync(() async {
+      directory = await Directory.systemTemp.createTemp('files-download-');
+    });
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(
+            AgentProjectClient(
+              DeliveryApi(
+                (path, _, __) async => Uri.parse(path).path.endsWith('/files')
+                    ? {
+                        'files': [
+                          {'path': 'README.md'},
+                        ],
+                      }
+                    : {'content': '# demo'},
+                sendHandle: (_) async =>
+                    throw const SocketException('connection lost'),
+              ),
+              directory: () async => directory,
+            ),
+          ),
+          githubClientProvider.overrideWithValue(missingGithub()),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('下载 ZIP 到应用文档'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('下载未完成，请重试；单个项目包上限 200 MB'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(find.textContaining('已保存'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('再次下载失败不会残留上次的保存路径', (tester) async {
+    var calls = 0;
+    final client = _ScriptedDownloadClient(() {
+      calls += 1;
+      if (calls == 1) return Future.value('/tmp/project-first.zip');
+      return Future.error(const SocketException('connection lost'));
+    });
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(client),
+          githubClientProvider.overrideWithValue(missingGithub()),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('下载 ZIP 到应用文档'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('已保存'), findsOneWidget);
+    await tester.tap(find.text('下载 ZIP 到应用文档'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('已保存'), findsNothing);
+    expect(find.text('下载未完成，请重试；单个项目包上限 200 MB'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('下载中再次点击不会发请求', (tester) async {
+    var sends = 0;
+    final pending = Completer<http.StreamedResponse>();
+    late Directory directory;
+    await tester.runAsync(() async {
+      directory = await Directory.systemTemp.createTemp('files-download-');
+    });
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(
+            AgentProjectClient(
+              DeliveryApi(
+                (path, _, __) async => Uri.parse(path).path.endsWith('/files')
+                    ? {
+                        'files': [
+                          {'path': 'README.md'},
+                        ],
+                      }
+                    : {'content': '# demo'},
+                sendHandle: (_) {
+                  sends += 1;
+                  return pending.future;
+                },
+              ),
+              directory: () async => directory,
+            ),
+          ),
+          githubClientProvider.overrideWithValue(missingGithub()),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('下载 ZIP 到应用文档'));
+    await tester.pump();
+    expect(sends, 1);
+    expect(find.textContaining('已下载'), findsOneWidget);
+    await tester.tap(find.textContaining('已下载'));
+    await tester.pump();
+    expect(sends, 1);
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+  });
+
+  testWidgets('下载中退出再进入会丢掉错误', (tester) async {
+    var sends = 0;
+    final pending = Completer<http.StreamedResponse>();
+    late Directory directory;
+    await tester.runAsync(() async {
+      directory = await Directory.systemTemp.createTemp('files-download-');
+    });
+    final client = AgentProjectClient(
+      DeliveryApi(
+        (path, _, __) async => Uri.parse(path).path.endsWith('/files')
+            ? {
+                'files': [
+                  {'path': 'README.md'},
+                ],
+              }
+            : {'content': '# demo'},
+        sendHandle: (_) {
+          sends += 1;
+          return pending.future;
+        },
+      ),
+      directory: () async => directory,
+    );
+    final github = missingGithub();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(client),
+          githubClientProvider.overrideWithValue(github),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('下载 ZIP 到应用文档'));
+    await tester.pump();
+    expect(find.textContaining('已下载'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(client),
+          githubClientProvider.overrideWithValue(github),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('下载 ZIP 到应用文档'), findsOneWidget);
+    expect(find.text('下载未完成，请重试；单个项目包上限 200 MB'), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(sends, 1);
+  });
+
+  testWidgets('GitHub配置加载网络断开显示未加载前往设置', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(readmeFilesClient()),
+          githubClientProvider.overrideWithValue(
+            GithubClient(
+              DeliveryApi(
+                (_, __, ___) async =>
+                    throw const SocketException('connection lost'),
+              ),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('GitHub 配置未加载，前往设置'), findsOneWidget);
+    expect(find.byKey(const Key('githubSaveProject')), findsNothing);
+    expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('未启用GitHub保存显示前往设置', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(readmeFilesClient()),
+          githubClientProvider.overrideWithValue(missingGithub()),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('未启用 GitHub 保存，前往设置'), findsOneWidget);
+    expect(find.byKey(const Key('githubSaveProject')), findsNothing);
+  });
+
+  testWidgets('GitHub配置加载中退出再进入会重新拉取', (tester) async {
+    var configs = 0;
+    final pending = Completer<Object?>();
+    final filesClient = readmeFilesClient();
+    final github = GithubClient(
+      DeliveryApi((path, method, body) async {
+        if (path == '/api/v1/github/config') {
+          configs += 1;
+          if (configs == 1) return pending.future;
+          return {
+            'username': '',
+            'use_github': false,
+            'persisted': false,
+            'has_token': false,
+            'credential_state': 'missing',
+            'verified': false,
+          };
+        }
+        throw StateError('unexpected $method $path');
+      }),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(filesClient),
+          githubClientProvider.overrideWithValue(github),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('GitHub 配置未加载，前往设置'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    pending.complete(enabledGithubConfig());
+    await tester.pump();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(filesClient),
+          githubClientProvider.overrideWithValue(github),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('未启用 GitHub 保存，前往设置'), findsOneWidget);
+    expect(find.byKey(const Key('githubSaveProject')), findsNothing);
+    expect(find.textContaining('alice'), findsNothing);
+    expect(configs, 2);
   });
 }
