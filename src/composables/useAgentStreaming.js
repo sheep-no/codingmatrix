@@ -77,7 +77,6 @@ export function resolveGenerationFlags(settings) {
     enable_error_recovery: enabled('enableErrorRecovery'),
     enable_memory: enabled('enableMemory'),
     spec_first: enabled('specFirst'),
-    dependency_graph: enabled('dependencyGraph'),
   }
 }
 
