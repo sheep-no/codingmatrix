@@ -1,6 +1,6 @@
 # PPT Agent - 智能演示文稿生成
 
-> 最后更新：2026-09-03
+> 最后更新：2026-09-12
 
 PPT Agent 将主题、大纲、素材、渲染和质量检查组织为可追踪的生成流程。主 API 位于 `app/api/v1/aiGeneratorPptx.py`，当前前端采用“配置、大纲审阅、批准生成”三步交互。
 
@@ -86,16 +86,41 @@ planning -> assets -> rendering -> rule_qa -> reflow -> vision_qa -> completed
 
 新功能应优先采用版本化大纲工作流，以获得批准门禁、质量报告和单页重生成能力。
 
+## 历史记录
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/pptx/history` | 当前用户分页历史，`page` 默认 1，`page_size` 默认 20、上限 100 |
+| DELETE | `/api/v1/pptx/history/{task_id}` | 删除记录及 `.pptx`/`.html`/`.md`/`.pdf`、`_slides.json` 与 owner 文件 |
+| GET | `/api/v1/pptx/history/stats` | 返回 `total`、`completed`、`failed` |
+
+列表扫描 `pptx_output/*_slides.json`，用 owner 文件匹配 `user_id`。每条记录含 `task_id`、`title`、`topic`、`slide_count`、`has_file`、`status`、`created_at`。有 `.pptx` 时 `status` 为 `completed`，否则为 `failed`。
+
+生成页历史面板调用 `api.ppt.getHistory`。预览跳转 `/ppt-preview/{task_id}`；加载回填主题、模板、页数，并在 `has_file !== false` 时设置下载 URL `/api/v1/pptx/download/{task_id}`。
+
 ## 前端
 
-- `src/views/PPTGenerate.vue`：配置生成参数、编辑和排序大纲、批准后选择质量模式并创建任务。
+- `src/views/PPTGenerate.vue`：配置生成参数、编辑和排序大纲、批准后选择质量模式并创建任务；提供历史面板。
 - `src/views/PPTPreview.vue`：预览页面，展示总分、逐页分数、问题、修复动作和单页重生成入口。
 - `src/utils/api/ppt.js`：封装 PPT API。
+
+## 浏览器会话恢复
+
+生成页把工作流步骤、主题、模板、页数、大纲草稿、任务 id、进度和产物 URL 写入 `sessionStorage` 键 `ppt-generate-session-v1`。相关状态用 deep `watch` 持续落盘，创建大纲前也会再写一次。
+
+挂载时：
+
+1. 路由带 `task_id` 时直接按该任务重连 WebSocket。
+2. 否则读取会话快照；若当时正在生成且已有任务 id，按快照重连进度。
+3. 若快照显示大纲仍在起草，调用 `handleGenerate({ resume: true })` 续跑大纲。
+
+关闭标签或刷新同一标签可恢复；新标签页没有这份 `sessionStorage`。
 
 ## 运行与依赖
 
 - PPTX 生成依赖 `python-pptx` 和 Pillow。
 - 产物默认写入 `./pptx_output`；生产 Compose 使用 `ppt-artifacts:/app/pptx_output` 在 API 与 Celery Worker 间共享文件。
+- 调度任务 `generated_asset_retention` 每天运行一次，清理超过 `GENERATED_ASSET_RETENTION_DAYS`（默认 30，最小 1）的 PPT 文件与 Kolors 图片历史。实现位于 `app/services/generated_asset_retention.py`，PPT 按任务 id 成组删除 `.pptx`/`.html`/`.md`/`.pdf`/`_slides.json` 和 `.owners` 记录。
 - PDF 接口的实际 PPT 转换只调用 LibreOffice；缺少 LibreOffice 时返回 HTTP 501。Poppler 可用于 PDF 后处理，但不能替代该转换命令。当前 `Dockerfile` 与 Compose 定义未安装 LibreOffice。
 - 图片搜索和视觉复审依赖外部服务可用性，失败会影响素材或质量阶段，任务状态和报告用于呈现结果。
 
@@ -110,3 +135,5 @@ planning -> assets -> rendering -> rule_qa -> reflow -> vision_qa -> completed
 - `app/utils/pptx/semantic_renderer.py`
 - `app/utils/pptx/quality.py`
 - `app/utils/pptx/design_tokens.py`
+- `app/services/generated_asset_retention.py`
+- `app/db/scheduler.py`（`generated_asset_retention` 任务）

@@ -25,6 +25,11 @@
 - 统一任务状态新增事件重放、worker lease 心跳和失败/取消任务恢复端点。
 - GirlAI 保持 11 条端点，并在成功对话和历史删除时同步维护 legacy 历史与统一 session/message 状态。
 
+## 2026-09-12 端点变化
+
+- Agent 托管项目生命周期：`/api/v1/agent/projects/{session_id}` 的 archive / DELETE / restore / pin。
+- SSE 断开后生成继续；会话 payload 增加 `reconnectable` 与 `recovery_note`。
+
 ## 历史更新：v5.13.0+
 
 ### LLM 调用路径统一
@@ -130,10 +135,15 @@
 |------|------|------|------|
 | POST | `/api/v1/github/config` | 保存 GitHub 配置 | normal |
 | GET | `/api/v1/github/config` | 获取 GitHub 配置 | normal |
+| POST | `/api/v1/github/verify` | 验证库内 Token | normal |
+| GET | `/api/v1/github/repos` | 列出可见仓库 | normal |
+| GET | `/api/v1/github/repos/{owner}/{repo}/branches` | 列出分支 | normal |
+| GET | `/api/v1/github/repos/{owner}/{repo}/commits` | 列出最近提交 | normal |
 | POST | `/api/v1/github/save` | 保存项目至 GitHub | normal |
 
-## AI Agent (`/api/v1/agent`)
+配置 GET 返回 `username`、`use_github`、`persisted`、`has_token`、`credential_state`，`token` 恒为空，`verified` 为 false。验证与列表使用库内加密 Token，响应不含 Token。保存可省略 `github_config` 并改用库内凭据；`use_github=true` 时创建公开仓库并用 `http.extraHeader` 推送 `main`，为 false 时写入本地 `projects/{user_id}/{project_name}`。契约见 `docs/features/GITHUB.md`。
 
+## AI Agent (`/api/v1/agent`)
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
 | POST | `/api/v1/agent/modify` | 修改项目或执行分析请求 | normal |
@@ -148,6 +158,13 @@
 | GET | `/api/v1/agent/knowledge/search` | 搜索知识 | normal |
 | GET | `/api/v1/agent/sessions/{session_id}/model-context` | 读取模型上下文快照 | normal |
 | PUT | `/api/v1/agent/sessions/{session_id}/model-context` | 按 revision 更新模型上下文 | normal |
+| POST | `/api/v1/agent/projects/{session_id}/archive` | 归档托管项目 | normal |
+| DELETE | `/api/v1/agent/projects/{session_id}` | 立即删除托管项目及文件 | normal |
+| POST | `/api/v1/agent/projects/{session_id}/restore` | 恢复已归档项目 | normal |
+| POST | `/api/v1/agent/projects/{session_id}/pin` | 固定项目，阻止自动清理 | normal |
+| DELETE | `/api/v1/agent/projects/{session_id}/pin` | 取消固定 | normal |
+
+会话列表 `GET /api/v1/agent/sessions` 与详情 `GET /api/v1/agent/sessions/{session_id}` 返回 `reconnectable` 与 `recovery_note`。`reconnectable` 仅在本进程仍有未完成生成任务且当前无 SSE 订阅时为 true。流式入口在客户端断开后继续生成；`is_resume=true` 可挂回原队列。
 
 `modify`、同步编排和流式编排路径已通过 `run_workflow(..., db=db, user_id=user_id)` 接入统一状态持久化。当前生产图包装 legacy handler；统一 Session、Task、Checkpoint、Event、Artifact 与 legacy 会话在迁移期共同存在。
 
@@ -211,9 +228,11 @@ GirlAI 预设角色为 `gentle`、`lively`、`tsundere`、`intellectual` 和 `co
 | GET | `/api/v1/pptx/{ppt_id}/slides` | 幻灯片列表 | normal |
 | DELETE | `/api/v1/pptx/{task_id}/cancel` | 取消任务 | normal |
 | POST | `/api/v1/pptx/{task_id}/update` | 更新任务 | normal |
+| GET | `/api/v1/pptx/history` | 当前用户分页历史 | normal |
+| DELETE | `/api/v1/pptx/history/{task_id}` | 删除历史及产物文件 | normal |
+| GET | `/api/v1/pptx/history/stats` | 历史统计 | normal |
 
 ### 大纲审批与质量端点
-
 | 方法 | 路径 | 描述 | 权限 |
 |------|------|------|------|
 | POST | `/api/v1/pptx/outlines` | 创建用户作用域的大纲草稿 | normal |
@@ -618,7 +637,7 @@ GirlAI 预设角色为 `gentle`、`lively`、`tsundere`、`intellectual` 和 `co
 - [x] DELETE /api/v1/kolors/history/{image_id} - 删除历史
 - [x] DELETE /api/v1/kolors/history - 删除全部历史
 
-### PPT 生成（重点端点 14 条）
+### PPT 生成（重点端点 17 条）
 - [x] POST /api/v1/pptx/outlines - 创建大纲草稿
 - [x] GET /api/v1/pptx/outlines/{outline_id} - 读取大纲版本
 - [x] PATCH /api/v1/pptx/outlines/{outline_id} - 编辑大纲
@@ -633,6 +652,9 @@ GirlAI 预设角色为 `gentle`、`lively`、`tsundere`、`intellectual` 和 `co
 - [x] GET /api/v1/pptx/{ppt_id}/slides - 幻灯片列表
 - [x] DELETE /api/v1/pptx/{task_id}/cancel - 取消任务
 - [x] POST /api/v1/pptx/{task_id}/update - 更新任务
+- [x] GET /api/v1/pptx/history - 当前用户分页历史
+- [x] DELETE /api/v1/pptx/history/{task_id} - 删除历史及产物
+- [x] GET /api/v1/pptx/history/stats - 历史统计
 
 ### 文件管理 (5/5)
 - [x] POST /api/v1/files/upload - 单文件上传
@@ -767,6 +789,10 @@ GirlAI 预设角色为 `gentle`、`lively`、`tsundere`、`intellectual` 和 `co
 |------|------|------|------|
 | POST | `/api/v1/github/config` | 保存 GitHub 配置 | normal |
 | GET | `/api/v1/github/config` | 获取 GitHub 配置 | normal |
+| POST | `/api/v1/github/verify` | 验证库内 Token | normal |
+| GET | `/api/v1/github/repos` | 列出可见仓库 | normal |
+| GET | `/api/v1/github/repos/{owner}/{repo}/branches` | 列出分支 | normal |
+| GET | `/api/v1/github/repos/{owner}/{repo}/commits` | 列出最近提交 | normal |
 | POST | `/api/v1/github/save` | 保存项目至 GitHub | normal |
 
 ### 提供商管理 (`/api/v1/providers`)

@@ -1,6 +1,6 @@
 # CodingMatrix 项目功能介绍
 
-> 最后更新：2026-09-10
+> 最后更新：2026-09-12
 
 CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，另提供 Flutter 桌面客户端，覆盖智能对话、项目生成、多 Agent 协作、模型配置、演示文稿生成、AI Cloud 沙箱和知识库等能力。
 
@@ -12,6 +12,8 @@ CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，另提供 F
 - 多 Agent 流程按 architect、frontend、backend、reviewer、fallback 五类角色分配模型。
 - 动态模型路由可依据调用成功率、近期延迟和活动请求数选择候选模型，并在连续失败时使用配置的降级模型。
 - 项目生成流程包含任务状态、检查点和产物记录；具体能力以对应 API 和 Agent 实现为准。
+- Architect LLM 超时或解析失败时回退到需求感知默认架构；入口、README 和依赖清单由语言骨架确定性生成。
+- 托管项目可通过 `DELETE /api/v1/agent/projects/{session_id}` 立即删除。SSE 断开后生成继续，仅当前进程内存任务可重连。
 
 ### 模型与供应商
 
@@ -67,7 +69,7 @@ CodingMatrix 是一个基于 FastAPI 与 Vue 3 的 AI 开发平台，另提供 F
 
 - 源码位于 `flutter_client/`，使用 Riverpod 与四层架构。
 - 已接入对话、GirlAI、PPT、图片生成、工作流、文件中心、模型、动态供应商、任务队列、Agent 历史、GitHub 配置/保存、管理后台和 MCP 管理。
-- GitHub 仅配置与项目保存；仓库列表、分支、提交、推送接口尚未提供。
+- GitHub Token 加密写入 `github_user_configs`，GET 不回传 Token。`POST /save` 按请求体 `use_github` 创建公开仓库或本地 Git。Flutter 设置页只提交配置。详见 [GitHub 集成](GITHUB.md)。
 
 详见 [Flutter 桌面客户端](FLUTTER-CLIENT.md)。
 

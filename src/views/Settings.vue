@@ -14,6 +14,10 @@
         <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
         Agent 模型配置
       </button>
+      <button id="settings-tab-github" :class="['tab', { active: currentTab === 'github' }]" role="tab" aria-controls="settings-panel" :aria-selected="currentTab === 'github'" :tabindex="currentTab === 'github' ? 0 : -1" @click="currentTab = 'github'" @keydown="handleTabKey">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+        GitHub
+      </button>
       <button v-if="isSuperUser" id="settings-tab-admin" :class="['tab', { active: currentTab === 'admin' }]" role="tab" aria-controls="settings-panel" :aria-selected="currentTab === 'admin'" :tabindex="currentTab === 'admin' ? 0 : -1" @click="currentTab = 'admin'" @keydown="handleTabKey">
         <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
         系统模型管理
@@ -27,6 +31,7 @@
       <DynamicProviderManager v-if="currentTab === 'providers'" />
       <APIKeyManager v-else-if="currentTab === 'apikey'" />
       <AgentModelConfig v-else-if="currentTab === 'agent'" />
+      <GithubConfigPanel v-else-if="currentTab === 'github'" />
       <AdminModelManager v-else-if="currentTab === 'admin' && isSuperUser" />
       <UnifiedModelConfig v-else-if="currentTab === 'unified' && isSuperUser" />
     </div>
@@ -42,6 +47,7 @@ import APIKeyManager from '@/components/settings/APIKeyManager.vue'
 import AgentModelConfig from '@/components/settings/AgentModelConfig.vue'
 import AdminModelManager from '@/components/settings/AdminModelManager.vue'
 import UnifiedModelConfig from '@/components/settings/UnifiedModelConfig.vue'
+import GithubConfigPanel from '@/components/GithubConfigPanel.vue'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -63,7 +69,7 @@ function handleTabKey(event) {
 }
 
 onMounted(() => {
-  const allowedTabs = ['providers', 'apikey', 'agent', 'admin', 'unified']
+  const allowedTabs = ['providers', 'apikey', 'agent', 'github', 'admin', 'unified']
   if (allowedTabs.includes(route.query.tab) && (['admin', 'unified'].includes(route.query.tab) ? isSuperUser.value : true)) {
     currentTab.value = route.query.tab
   }

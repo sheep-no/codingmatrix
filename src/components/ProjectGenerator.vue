@@ -329,6 +329,14 @@
           保存项目
         </button>
         <button
+          v-if="!isGenerating && !generationComplete"
+          class="btn btn-secondary"
+          type="button"
+          @click="router.push('/settings?tab=github')"
+        >
+          GitHub 设置
+        </button>
+        <button
           v-if="hasStopped && !isGenerating && !generationComplete"
           class="btn btn-warning"
           :disabled="!form.requirement.trim()"
@@ -417,7 +425,6 @@
   import { useGithubStore } from '@/stores/github'
   import { useApiKeyStore } from '@/stores/apikey'
   import { useRouter } from 'vue-router'
-  import GithubConfigPanel from './GithubConfigPanel.vue'
   import FilePreviewPanel from './FilePreviewPanel.vue'
   import { createProjectClient } from '@/utils/api/project'
   import { consumeJsonStream } from '@/utils/streamParser'
@@ -436,6 +443,7 @@
 
   // API Key Store
   const apiKeyStore = useApiKeyStore()
+  const githubStore = useGithubStore()
 
   // ========== 2. Reactive State ==========
   const form = ref({
@@ -732,6 +740,38 @@
       await loadSavedProjects()
     } catch (error) {
       ElMessage.error(error.message || '保存项目失败')
+      return
+    }
+    let githubEnabled = githubStore.useGithub
+    if (typeof api.getGithubConfig === 'function') {
+      try {
+        const cfg = await api.getGithubConfig()
+        if (cfg && typeof cfg.use_github === 'boolean') {
+          githubEnabled = cfg.use_github
+          githubStore.setUseGithub(githubEnabled)
+        }
+      } catch {
+        /* keep local switch */
+      }
+    }
+    if (!githubEnabled || typeof api.saveProjectToGithub !== 'function') {
+      if (!githubEnabled) ElMessage.info('未启用 GitHub 保存，可点「GitHub 设置」打开')
+      return
+    }
+    try {
+      const githubResult = await api.saveProjectToGithub({
+        name,
+        description: description || '',
+        files: {
+          'requirement.txt': form.value.requirement,
+          'session.json': JSON.stringify({ sessionId: form.value.sessionId || '' })
+        }
+      })
+      if (githubResult?.repo_url) {
+        ElMessage.success(`已推送到 GitHub: ${githubResult.repo_url}`)
+      }
+    } catch (error) {
+      ElMessage.error(error.response?.data?.detail || error.message || 'GitHub 保存失败')
     }
   }
 

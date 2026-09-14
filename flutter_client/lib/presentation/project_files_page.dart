@@ -1,8 +1,14 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/auth_controller.dart';
 import '../infrastructure/agent/agent_project_client.dart';
+import '../application/github_controller.dart';
+import '../infrastructure/github/github_client.dart';
+import '../domain/models/github_binding.dart';
+import 'github_settings_page.dart';
 
 final agentProjectClientProvider = Provider<AgentProjectClient>(
   (ref) => AgentProjectClient(ref.watch(authenticatedClientProvider)),
@@ -22,13 +28,20 @@ class _ProjectFilesPageState extends ConsumerState<ProjectFilesPage> {
   String? error;
   String? downloadError;
   String? savedPath;
+  bool githubSaving = false;
+  String? githubMessage;
+  String? githubError;
+  GithubBinding? githubBinding;
   int bytes = 0;
   int request = 0;
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(load);
+    Future.microtask(() {
+      load();
+      loadGithub();
+    });
   }
 
   Future<void> load() async {
@@ -58,6 +71,22 @@ class _ProjectFilesPageState extends ConsumerState<ProjectFilesPage> {
     }
   }
 
+  Future<void> loadGithub() async {
+    try {
+      final binding = await ref.read(githubClientProvider).load();
+      if (mounted) setState(() => githubBinding = binding);
+    } catch (_) {
+      if (mounted) setState(() => githubBinding = null);
+    }
+  }
+
+  Future<void> openGithubSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const GithubSettingsPage()),
+    );
+    if (mounted) await loadGithub();
+  }
+
   Future<void> download() async {
     setState(() {
       downloading = true;
@@ -77,6 +106,45 @@ class _ProjectFilesPageState extends ConsumerState<ProjectFilesPage> {
       if (mounted) setState(() => downloadError = '下载未完成，请重试；单个项目包上限 200 MB');
     } finally {
       if (mounted) setState(() => downloading = false);
+    }
+  }
+
+  Future<void> pushToGithub() async {
+    if (githubSaving || paths.isEmpty || githubBinding?.useGithub != true) return;
+    setState(() {
+      githubSaving = true;
+      githubError = null;
+      githubMessage = null;
+    });
+    try {
+      if (paths.length > 200) {
+        throw StateError('too many files');
+      }
+      final files = <String, String>{};
+      final client = ref.read(agentProjectClientProvider);
+      for (final path in paths) {
+        if (path.contains('..') || path.startsWith('/')) continue;
+        files[path] = await client.read(widget.project, path);
+      }
+      if (files.isEmpty) throw StateError('no files');
+      final result = await ref.read(githubClientProvider).saveProject(
+        projectName: githubRepoNameFromProject(widget.project),
+        projectDescription: '',
+        projectData: jsonEncode(files),
+      );
+      if (!mounted) return;
+      setState(() {
+        githubMessage =
+            result['repo_url'] as String? ??
+            result['message'] as String? ??
+            '已保存';
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => githubError = 'GitHub 推送失败，请先在设置中保存并启用凭据');
+      }
+    } finally {
+      if (mounted) setState(() => githubSaving = false);
     }
   }
 
@@ -140,6 +208,31 @@ class _ProjectFilesPageState extends ConsumerState<ProjectFilesPage> {
               if (downloadError != null)
                 Text(
                   downloadError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              if (githubBinding?.useGithub == true)
+                FilledButton.icon(
+                  key: const Key('githubSaveProject'),
+                  onPressed: githubSaving || loading || paths.isEmpty
+                      ? null
+                      : pushToGithub,
+                  icon: const Icon(Icons.cloud_upload_outlined),
+                  label: Text(githubSaving ? '正在推送到 GitHub' : '推送到 GitHub'),
+                )
+              else
+                TextButton(
+                  key: const Key('githubSettingsFromFiles'),
+                  onPressed: openGithubSettings,
+                  child: Text(
+                    githubBinding == null
+                        ? 'GitHub 配置未加载，前往设置'
+                        : '未启用 GitHub 保存，前往设置',
+                  ),
+                ),
+              if (githubMessage != null) SelectableText(githubMessage!),
+              if (githubError != null)
+                Text(
+                  githubError!,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
             ],
