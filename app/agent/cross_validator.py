@@ -168,10 +168,17 @@ class CrossValidator:
   "final_code": "最终选用的代码（仅当winner为merged时提供）"
 }"""
 
-    def __init__(self, context: SharedContext, language_adapter=None, api_key_token: Optional[str] = None):
+    def __init__(
+        self,
+        context: SharedContext,
+        language_adapter=None,
+        api_key_token: Optional[str] = None,
+        review_enabled: bool = True,
+    ):
         self.context = context
         self.language_adapter = language_adapter
         self.api_key_token = api_key_token
+        self.review_enabled = review_enabled
 
         # 从配置加载关键文件模式
         config = _load_cross_validation_config()
@@ -187,7 +194,7 @@ class CrossValidator:
             file_type: 文件类型
             priority: 文件优先级（1-5，1为最高）
         """
-        if not self.enabled:
+        if not self.enabled or not self.review_enabled:
             return False
         
         # priority=1 自动加入交叉验证

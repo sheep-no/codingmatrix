@@ -499,7 +499,12 @@ class SpecFirstGenerateMixin:
 
             state_lock = asyncio.Lock()
 
-            cross_validator = CrossValidator(ctx, language_adapter=language_adapter, api_key_token=self.api_key_token)
+            cross_validator = CrossValidator(
+                ctx,
+                language_adapter=language_adapter,
+                api_key_token=self.api_key_token,
+                review_enabled=getattr(self, "enable_review", True),
+            )
 
             async def generate_single_file(
                 file_path: str,
@@ -922,7 +927,12 @@ class SpecFirstGenerateMixin:
 
         # 3. CrossValidator 跨文件一致性验证
         if hasattr(self, 'model_assignment') and self.model_assignment:
-            cross_validator = CrossValidator(ctx, language_adapter=language_adapter, api_key_token=self.api_key_token)
+            cross_validator = CrossValidator(
+                ctx,
+                language_adapter=language_adapter,
+                api_key_token=self.api_key_token,
+                review_enabled=getattr(self, "enable_review", True),
+            )
             fix_model = self.model_assignment.reviewer_model
 
             # 更新生成文件字典
@@ -1130,7 +1140,12 @@ class SpecFirstGenerateMixin:
         from app.agent.tools import set_allowed_file_paths
         set_allowed_file_paths(set(dep_graph.nodes.keys()))
 
-        cross_validator = CrossValidator(ctx, language_adapter=language_adapter, api_key_token=self.api_key_token)
+        cross_validator = CrossValidator(
+            ctx,
+            language_adapter=language_adapter,
+            api_key_token=self.api_key_token,
+            review_enabled=getattr(self, "enable_review", True),
+        )
         refinement_loop = RefinementLoop(ctx, complexity=self.complexity.level.value if self.complexity else "medium", api_key_token=self.api_key_token)
 
         files_generated = 0

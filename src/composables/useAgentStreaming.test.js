@@ -99,7 +99,6 @@ describe('resolveGenerationFlags', () => {
       enable_error_recovery: true,
       enable_memory: true,
       spec_first: true,
-      dependency_graph: true,
     })
     expect(resolveGenerationFlags(undefined).spec_first).toBe(true)
   })
@@ -112,7 +111,6 @@ describe('resolveGenerationFlags', () => {
         enableErrorRecovery: false,
         enableMemory: false,
         specFirst: false,
-        dependencyGraph: false,
       }),
     ).toEqual({
       enable_review: false,
@@ -120,7 +118,6 @@ describe('resolveGenerationFlags', () => {
       enable_error_recovery: false,
       enable_memory: false,
       spec_first: false,
-      dependency_graph: false,
     })
   })
 })

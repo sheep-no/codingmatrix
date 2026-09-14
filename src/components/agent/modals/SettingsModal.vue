@@ -27,12 +27,10 @@
           </div>
           <div class="settings-section"><h4>生成配置</h4>
             <div class="settings-grid">
-              <div class="setting-item"><label>最大并行数</label><input v-model.number="localSettings.maxConcurrent" type="number" min="1" max="10" class="setting-input" /></div>
               <div class="setting-item toggle-item"><label>代码审查</label><input v-model="localSettings.enableReview" type="checkbox" /></div>
               <div class="setting-item toggle-item"><label>验证检查</label><input v-model="localSettings.enableValidation" type="checkbox" /></div>
               <div class="setting-item toggle-item"><label>错误恢复</label><input v-model="localSettings.enableErrorRecovery" type="checkbox" /></div>
               <div class="setting-item toggle-item"><label>Spec-First</label><input v-model="localSettings.specFirst" type="checkbox" /></div>
-              <div class="setting-item toggle-item"><label>依赖图构建</label><input v-model="localSettings.dependencyGraph" type="checkbox" /></div>
               <div class="setting-item toggle-item"><label>记忆增强</label><input v-model="localSettings.enableMemory" type="checkbox" /></div>
               <div class="setting-item toggle-item"><label>交叉验证降级</label><input v-model="localSettings.crossValidationFallback" type="checkbox" /></div>
             </div>
@@ -79,7 +77,6 @@ watch(() => props.modelValue, (open) => {
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
 .setting-item { background: var(--bg-tertiary); padding: 10px; border-radius: 8px; }
 .setting-item label { display: block; font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
-.setting-select, .setting-input { width: 100%; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); font-size: 12px; }
 .toggle-item { display: flex; align-items: center; justify-content: space-between; }
 .limit-value { font-size: 16px; font-weight: 700; color: var(--text-primary); }
 .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; }

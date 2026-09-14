@@ -24,6 +24,16 @@ class TestCrossValidator:
         # 不命中模式
         assert validator.is_critical_file("utils.py", "backend") is False
         assert validator.is_critical_file("README.md", "docs") is False
+
+    def test_is_critical_file_disabled_when_review_off(self):
+        from app.agent.cross_validator import CrossValidator
+        from app.agent.shared_context import SharedContext
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx = SharedContext("test", Path(tmpdir))
+            validator = CrossValidator(ctx, review_enabled=False)
+            assert validator.is_critical_file("auth.py", "backend", priority=1) is False
+            assert validator.is_critical_file("payment.py", "backend", priority=2) is False
     
     def test_validate_and_select(self, validator):
         version_a = "def hello():\n    return 'A'"
