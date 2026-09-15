@@ -1411,6 +1411,9 @@ def validate_content_quality(file_path: str, content: str) -> str:
     ext = Path(file_path).suffix.lower()
     stripped = content.strip()
 
+    # 文档/文本文件的首行本来就是散文，不能据此判为思考过程泄漏。
+    doc_ext = ext in ('.md', '.markdown', '.rst', '.txt', '.adoc')
+
     # 检测 LLM 思考过程泄漏（中英文描述性文本混入代码文件）
     thinking_patterns = [
         # 中文思考泄漏
@@ -1420,7 +1423,6 @@ def validate_content_quality(file_path: str, content: str) -> str:
         r'^已成功完成',
         r'^以下是.*?总结',
         r'^✅',
-        r'^---\s*$',
         r'^###\s+✅',
         # 英文思考泄漏
         r'^Let me think about',
@@ -1440,9 +1442,12 @@ def validate_content_quality(file_path: str, content: str) -> str:
         r'^In this file,',
         r'^The purpose of this',
     ]
-    for pattern in thinking_patterns:
-        if re.match(pattern, stripped, re.IGNORECASE | re.MULTILINE):
-            return f"内容疑似 LLM 思考过程泄漏（匹配模式: {pattern[:30]}）"
+    # 说明：原先的 r'^---\s*$' 已移除。该模式只在内容首行匹配，而首行 `---`
+    # 是 YAML 文档分隔符/Markdown front matter 的合法写法，属于必然误报。
+    if not doc_ext:
+        for pattern in thinking_patterns:
+            if re.match(pattern, stripped, re.IGNORECASE | re.MULTILINE):
+                return f"内容疑似 LLM 思考过程泄漏（匹配模式: {pattern[:30]}）"
 
     # CSS 文件内容校验
     if ext == '.css':
