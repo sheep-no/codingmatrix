@@ -57,6 +57,33 @@ class CodeValidator:
             paths.append(src_dir.resolve())
         return list(dict.fromkeys(str(path) for path in paths if path.is_dir()))
 
+    def _project_top_level_packages(self) -> List[str]:
+        """项目根下可被 `import X` 命中的顶层包/模块名。"""
+        names = []
+        try:
+            for entry in self.project_path.iterdir():
+                if entry.name.startswith(".") or entry.name == "__pycache__":
+                    continue
+                if entry.is_dir():
+                    if (entry / "__init__.py").exists():
+                        names.append(entry.name)
+                elif entry.suffix == ".py":
+                    names.append(entry.stem)
+        except OSError:
+            return []
+        return names
+
+    def _is_module_in_project(self, module: Any) -> bool:
+        """模块对象是否来自待校验项目（而非 Agent 自身代码）。"""
+        origin = getattr(module, "__file__", None)
+        if not origin:
+            return False
+        try:
+            Path(origin).resolve().relative_to(self.project_path)
+        except (OSError, ValueError):
+            return False
+        return True
+
     @classmethod
     def _compute_content_hash(cls, file_content: str) -> str:
         """计算文件内容的 SHA256 哈希"""
@@ -223,6 +250,8 @@ class CodeValidator:
             return True, []
 
         errors = []
+        shadowed_modules = {}
+        project_loaded = []
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 source = f.read()
@@ -253,6 +282,15 @@ class CodeValidator:
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
             try:
+                # 生成的项目常与 Agent 自身包重名（如 app/）。sys.modules 中
+                # 已缓存 Agent 自己的同名包时，生成项目的 `from app import ...`
+                # 会解析到 Agent 代码而非待校验项目，产生假的运行时导入失败。
+                # 执行前临时移出这些同名缓存，执行后恢复。
+                for pkg in self._project_top_level_packages():
+                    cached = sys.modules.get(pkg)
+                    if cached is not None and not self._is_module_in_project(cached):
+                        shadowed_modules[pkg] = cached
+                        del sys.modules[pkg]
                 spec.loader.exec_module(module)
             except ImportError as e:
                 errors.append(f"运行时导入失败: {str(e)}")
@@ -265,9 +303,18 @@ class CodeValidator:
                 # 不代表代码本身有错，交由本地 Agent Host 运行时验证处理。
                 pass
             finally:
-                # 清理临时模块和路径
-                if module_name in sys.modules:
-                    del sys.modules[module_name]
+                # 清理临时模块和路径。只移除与 Agent 自身重名的项目模块
+                # （以及本次校验的模块），避免污染 Agent 进程的 sys.modules，
+                # 同时不能误删项目路径恰好覆盖 Agent 代码时的模块。
+                colliding = set(shadowed_modules) | {module_name}
+                project_loaded.extend(
+                    name
+                    for name, mod in list(sys.modules.items())
+                    if name.split(".")[0] in colliding and self._is_module_in_project(mod)
+                )
+                for name in project_loaded:
+                    sys.modules.pop(name, None)
+                sys.modules.update(shadowed_modules)
                 for p in added_paths:
                     if p in sys.path:
                         sys.path.remove(p)
@@ -401,7 +448,12 @@ class CodeValidator:
             try:
                 with open(f, 'r', encoding='utf-8') as source:
                     tree = ast.parse(source.read())
-                module_name = f.relative_to(self.project_path).with_suffix('').as_posix().replace('/', '.')
+                rel = f.relative_to(self.project_path)
+                if rel.name == '__init__.py':
+                    # 包入口对外就是包本身：app/__init__.py -> app
+                    module_name = '.'.join(rel.parent.parts)
+                else:
+                    module_name = '.'.join(rel.with_suffix('').parts)
                 defined_symbols[module_name] = {'classes': set(), 'functions': set(), 'variables': set()}
                 for node in ast.iter_child_nodes(tree):
                     if isinstance(node, ast.ClassDef):
@@ -412,6 +464,12 @@ class CodeValidator:
                         for target in node.targets:
                             if isinstance(target, ast.Name):
                                 defined_symbols[module_name]['variables'].add(target.id)
+                    elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                        # 模块级导入的名字对外可见（再导出），如
+                        # __init__.py 里的 `from .factory import create_app`
+                        for alias in node.names:
+                            if alias.name != '*':
+                                defined_symbols[module_name]['variables'].add(alias.asname or alias.name)
             except Exception as e:
                 logger.debug(f"AST 解析失败 {f}（语法错误跳过）：{e}")
                 pass  # 语法错误的文件跳过
@@ -423,10 +481,20 @@ class CodeValidator:
                 with open(main_file, 'r', encoding='utf-8') as f:
                     main_content = f.read()
 
-                # 提取 from X import Y 语句
-                from_imports = re.findall(r'from\s+([\w.]+)\s+import\s+([\w,\s]+)', main_content)
-                for module, imports in from_imports:
-                    imported_names = [n.strip() for n in imports.split(',')]
+                # 用 ast 提取 from X import Y。按行文本解析会把 `import Y as Z`、
+                # 括号折行和注释都拼成假名字，产生假的「未导出」报错。
+                from_imports = []
+                try:
+                    main_tree = ast.parse(main_content)
+                except SyntaxError:
+                    main_tree = None
+                if main_tree is not None:
+                    for node in ast.walk(main_tree):
+                        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                            from_imports.append(
+                                (node.module, [alias.name for alias in node.names])
+                            )
+                for module, imported_names in from_imports:
                     # 检查模块是否存在
                     module_path = module.replace('.', '/') + '.py'
                     init_path = module.replace('.', '/') + '/__init__.py'
@@ -583,6 +651,10 @@ class CodeValidator:
                 logger.debug(f"Pipfile 解析失败：{e}")
 
         if not found_file:
+            # 非 Python 项目（如纯前端工程）就没有 Python 依赖清单，不算缺陷；
+            # 只有确实包含 Python 代码时才要求提供依赖清单。
+            if not any(self.project_path.rglob('*.py')):
+                return True, []
             return False, ["缺少 requirements.txt / pyproject.toml / Pipfile"]
 
         # Python 包名到导入名的常见映射
@@ -617,7 +689,14 @@ class CodeValidator:
             except ImportError:
                 missing.append(pkg)
 
-        return len(missing) == 0, [f"未安装的包: {', '.join(missing)}" if missing else ""]
+        # 包是否安装取决于 Agent 执行环境，不代表生成代码有缺陷，因此不计入
+        # 代码有效性，避免把环境缺包误判为生成失败。
+        if missing:
+            logger.warning(
+                "依赖清单中的包在当前环境未安装（不计入代码有效性）: %s",
+                ", ".join(missing),
+            )
+        return True, []
 
     async def run_full_validation(self) -> Dict[str, Any]:
         """运行完整验证（并发优化 + 缓存 + 运行时/API 兼容性检查 + 前端验证 + 跨文件检查）"""
