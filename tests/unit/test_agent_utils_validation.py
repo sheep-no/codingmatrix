@@ -35,3 +35,47 @@ def test_pom_validation_rejects_invalid_xml() -> None:
 
     assert not valid
     assert reason.startswith("POM XML 格式错误:")
+
+
+def test_python_docstring_bullets_are_not_treated_as_markdown() -> None:
+    content = (
+        '"""服务层。\n'
+        "\n"
+        "职责:\n"
+        "- 用户注册\n"
+        "- 用户登录\n"
+        "1. 校验参数\n"
+        "> 注意: 需要 JWT\n"
+        '"""\n'
+        "def register():\n"
+        "    return None\n"
+    )
+    valid, reason = is_valid_code_content("app/services/auth.py", content)
+
+    assert valid, reason
+
+
+def test_python_metadata_payload_is_still_rejected() -> None:
+    valid, reason = is_valid_code_content(
+        "app/main.py", '{"status": "ok", "file_path": "app/main.py"}'
+    )
+
+    assert not valid
+    assert reason == "内容是 JSON 元数据而非代码"
+
+
+def test_json_config_with_metadata_like_keys_is_accepted() -> None:
+    valid, reason = is_valid_code_content(
+        "data/config.json", '{"status": "active", "output": "x", "port": 8000}'
+    )
+
+    assert valid, reason
+
+
+def test_markdown_is_still_rejected_for_non_syntax_checked_files() -> None:
+    valid, reason = is_valid_code_content(
+        "notes.ts", "## Title\n- a\n- b\n```\ncode\n```\n"
+    )
+
+    assert not valid
+    assert reason == "内容是 Markdown 文档而非代码"
