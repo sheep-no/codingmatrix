@@ -517,6 +517,53 @@ def test_api_contract_still_flags_unknown_response_field():
     assert any("sku" in message for message in messages)
 
 
+def test_api_contract_ignores_unrelated_object_properties():
+    # fetch 之后无关对象的属性不是响应字段
+    files = {
+        "main.py": _fastapi_items_backend(),
+        "src/api.js": (
+            "export async function load() {\n"
+            "  const res = await fetch('/api/items')\n"
+            "  const data = await res.json()\n"
+            "  track(event.name, { page: config.pageTitle, ua: navigator.userAgent })\n"
+            "  return data.id\n"
+            "}\n"
+        ),
+    }
+    assert _api_contract_issues(files) == []
+
+
+def test_api_contract_still_flags_body_field_missing():
+    # data.items 是对响应体的真实字段访问，后端未返回时应报出
+    files = {
+        "main.py": _fastapi_items_backend(),
+        "src/api.js": (
+            "export async function load() {\n"
+            "  const res = await fetch('/api/items')\n"
+            "  const data = await res.json()\n"
+            "  return data.items\n"
+            "}\n"
+        ),
+    }
+    messages = [issue["message"] for issue in _api_contract_issues(files)]
+    assert any("items" in message for message in messages)
+
+
+def test_api_contract_reads_axios_response_data():
+    # axios 的响应字段在 res.data 上，不应误报
+    files = {
+        "main.py": _fastapi_items_backend(),
+        "src/api.js": (
+            "export async function load() {\n"
+            "  const res = await axios.get('/api/items')\n"
+            "  const total = res.data.id\n"
+            "  return total\n"
+            "}\n"
+        ),
+    }
+    assert _api_contract_issues(files) == []
+
+
 def test_validate_imports_flags_missing_project_module_only():
     files = {
         "app/__init__.py": "",

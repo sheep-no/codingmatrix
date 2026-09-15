@@ -1348,7 +1348,12 @@ class CrossValidator:
         return apis
 
     def _extract_frontend_api_calls(self, files: Dict[str, str]) -> List[Dict]:
-        """提取前端 API 调用"""
+        """提取前端 API 调用及其响应字段访问。
+
+        字段访问只统计响应体变量上的属性。此前对端点后 500 字符内所有 `.xxx`
+        都当作响应字段，会把 fetch 之后无关对象的属性（如 `config.pageTitle`、
+        `navigator.userAgent`）误报成后端未返回的字段。
+        """
         calls = []
 
         for file_path, content in files.items():
@@ -1367,17 +1372,25 @@ class CrossValidator:
                     if '${' in endpoint:
                         continue
 
-                    # 查找该调用附近的字段访问
-                    start_pos = match.end()
-                    surrounding = content[start_pos:start_pos + 500]
-                    # 匹配 data.xxx 或 response.data.xxx
-                    field_patterns = [
-                        r'\.(\w+)\s*[,;\)\}\]]',
-                        r'\["(\w+)"\]',
-                    ]
+                    # 只在该调用附近的代码里识别响应体变量
+                    surrounding = content[match.end():match.end() + 800]
+                    body_vars: Dict[str, str] = {}
+                    # fetch: data = await res.json() / const data = await res.json()
+                    for var in re.findall(
+                        r'(\w+)\s*=\s*await\s+[\w.$]+\.json\s*\(\s*\)', surrounding
+                    ):
+                        body_vars[var] = var
+                    # axios: res = await axios.get(...)，响应字段在 res.data 上
+                    for var in re.findall(
+                        r'(\w+)\s*=\s*await\s+axios\b', surrounding
+                    ):
+                        body_vars[var] = f'{var}.data'
+
                     fields = []
-                    for fp in field_patterns:
-                        for field in re.findall(fp, surrounding):
+                    for prefix in set(body_vars.values()):
+                        for field in re.findall(
+                            rf'\b{re.escape(prefix)}\s*\.\s*(\w+)', surrounding
+                        ):
                             if field not in self.NON_FIELD_PROPERTY_NAMES:
                                 fields.append(field)
 
