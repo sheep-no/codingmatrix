@@ -1176,9 +1176,13 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
         (r"not shown (here|in (this )?snippet)", "LLM truncated output"),
         (r"\.\.\.\s*（后续", "LLM truncated output"),
     ]
-    for pattern, desc in truncation_patterns:
-        if re.search(pattern, stripped, re.IGNORECASE):
-            return True, desc
+    # 文档/文本文件里这些短语是正常行文（如更新日志「其他代码保持不变」），
+    # 不能据此判为截断，否则合法的 README/说明文件会被反复重生成。
+    doc_ext = Path(file_path).suffix.lower()
+    if doc_ext not in ('.md', '.markdown', '.rst', '.txt', '.adoc'):
+        for pattern, desc in truncation_patterns:
+            if re.search(pattern, stripped, re.IGNORECASE):
+                return True, desc
 
     # 占位符模式匹配
     placeholder_patterns = [

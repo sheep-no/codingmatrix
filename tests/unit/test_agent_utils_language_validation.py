@@ -96,6 +96,18 @@ async def login():
     assert reason
 
 
+def test_placeholder_accepts_docs_with_changelog_prose():
+    content = "# 更新日志\n\n## v1.2\n\n- 新增登录接口\n- 其他代码保持不变\n"
+
+    assert utils.is_placeholder_content(content, "README.md")[0] is False
+
+
+def test_placeholder_accepts_docs_with_english_truncation_prose():
+    content = "# Guide\n\nAfter the change, the rest of the code remains the same.\n"
+
+    assert utils.is_placeholder_content(content, "docs/guide.md")[0] is False
+
+
 def test_compact_project_context_keeps_current_file_only():
     context = {
         "requirement": "工单服务",
