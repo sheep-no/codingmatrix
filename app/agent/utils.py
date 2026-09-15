@@ -284,36 +284,45 @@ def is_valid_code_content(file_path: str, content: str) -> tuple:
     if len(stripped) < 10:
         return False, "内容过短（<10 字符）"
 
-    # 检查是否是 JSON 元数据
-    if stripped.startswith('{') and stripped.endswith('}'):
-        try:
-            import json
-            obj = json.loads(stripped)
-            if isinstance(obj, dict):
-                metadata_keys = {
-                    "status", "message", "file_path", "file_size",
-                    "key_features", "notes", "summary", "result",
-                    "output", "response", "action", "operation"
-                }
-                if metadata_keys & set(obj.keys()):
-                    return False, "内容是 JSON 元数据而非代码"
-        except (json.JSONDecodeError, ValueError):
-            pass
+    ext = Path(file_path).suffix.lower()
+    name = Path(file_path).name.lower()
 
-    # 检查是否是 JSON 数组
-    if stripped.startswith('[') and stripped.endswith(']'):
-        try:
-            import json
-            json.loads(stripped)
-            return False, "内容是 JSON 数组而非代码"
-        except (json.JSONDecodeError, ValueError):
-            pass
+    # 整体 JSON 形态且含元数据键，通常意味着 LLM 返回了包装结果而非代码。
+    # 对 .json 文件本身跳过：合法配置文件可以包含这些键。
+    if ext != '.json':
+        # 检查是否是 JSON 元数据
+        if stripped.startswith('{') and stripped.endswith('}'):
+            try:
+                import json
+                obj = json.loads(stripped)
+                if isinstance(obj, dict):
+                    metadata_keys = {
+                        "status", "message", "file_path", "file_size",
+                        "key_features", "notes", "summary", "result",
+                        "output", "response", "action", "operation"
+                    }
+                    if metadata_keys & set(obj.keys()):
+                        return False, "内容是 JSON 元数据而非代码"
+            except (json.JSONDecodeError, ValueError):
+                pass
 
-    # 检查是否是 Markdown 文档（用特征模式而非单个 #）
-    md_patterns = ['## ', '### ', '- ', '* ', '1. ', '```', '> ']
-    md_count = sum(1 for p in md_patterns if p in stripped[:500])
-    if md_count >= 3:
-        return False, "内容是 Markdown 文档而非代码"
+        # 检查是否是 JSON 数组
+        if stripped.startswith('[') and stripped.endswith(']'):
+            try:
+                import json
+                json.loads(stripped)
+                return False, "内容是 JSON 数组而非代码"
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+    # 符号启发式只用于没有确定性语法校验的类型；docstring 中的项目符号
+    # （- / 1. / >）会让合法代码命中，因此 .py 等类型交给解析器判定。
+    if ext not in ('.py', '.pyw', '.pyi', '.json') and name != 'pom.xml':
+        # 检查是否是 Markdown 文档（用特征模式而非单个 #）
+        md_patterns = ['## ', '### ', '- ', '* ', '1. ', '```', '> ']
+        md_count = sum(1 for p in md_patterns if p in stripped[:500])
+        if md_count >= 3:
+            return False, "内容是 Markdown 文档而非代码"
 
     # 快速语法验证（JSON、Python 语法等）
     syntax_ok, syntax_reason = validate_syntax_for_extension(file_path, stripped)
