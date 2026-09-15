@@ -90,7 +90,7 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 集成测试需添加 `@pytest.mark.skipif` 检查服务器可用性
   - 测试运行命令：`python3 -m pytest tests/unit/ -v`
   - 项目使用自定义 pytest 标记：`unit`, `integration`, `database`, `security`, `agent`, `monitoring`, `logging`, `guardian`；这些标记未在 `pyproject.toml` 注册，只产生警告不影响执行。
-  - 单元测试在 `tests/unit/`，集成测试在 `tests/integration/`，E2E 在 `tests/e2e/`。
+  - 测试目录：单元 `tests/unit/`、集成 `tests/integration/`、E2E `tests/e2e/`、前端配置 `tests/frontend/`（需 Vitest）；测试状态报告在 `testing/TEST-STATUS-UPDATE-*.md`。
 
 ### 误报类修复的验证与回归流程
 - Date: 2026-09-15
@@ -103,6 +103,7 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 全量单测存在 Agent 验收范围外的既有失败基线（PPT 18 项、Flutter 3 项、Kolors 1 项，共 22 项），出现新失败必须归因到本次改动。
   - 内存紧张时用 API / 确定性探针替代 Playwright，不启动浏览器。
   - 每个 commit 单独切分支提交推送，合入 master 后重启后端（`PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000`）并复核 `:8000/docs` 与 `:3000`。
+  - `CodeValidator` 会在后端进程内 `exec` 生成项目代码做运行时校验。生成项目若与 Agent 自身包同名（如 `app/`），`sys.modules` 已缓存 Agent 同名包会导致假的 "cannot import name ... from 'app'"；排查此类报错时先确认校验是否受同名缓存影响。
 
 ### bcrypt 密码处理限制
 - Date: 2026-05-12
@@ -112,17 +113,6 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - bcrypt 算法限制密码最大 72 字节
   - `hash_password` 和 `verify_password` 都需要对密码进行 `[:72]` 截断
   - 未截断会抛出 `ValueError: password cannot be longer than 72 bytes`
-
-### 项目测试目录结构
-- Date: 2026-05-12
-- Context: Agent 在执行测试修复任务时发现
-- Category: 代码结构
-- Instructions:
-  - 单元测试：`tests/unit/`
-  - 集成测试：`tests/integration/`
-  - E2E 测试：`tests/e2e/`
-  - 前端测试配置：`tests/frontend/`（需要 Vitest 环境）
-  - 测试状态报告：`testing/TEST-STATUS-UPDATE-*.md`
 
 ### Agent 增量修改与测试验证
 - Date: 2026-05-13
