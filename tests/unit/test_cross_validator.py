@@ -411,6 +411,43 @@ def test_model_mismatch_still_flags_unknown_field():
     assert any("missing" in message for message in messages)
 
 
+def test_model_check_matches_complete_identifier():
+    files = {
+        "models.py": (
+            "from pydantic import BaseModel\n"
+            "class Item(BaseModel):\n"
+            "    id: int\n"
+            "class LineItem(BaseModel):\n"
+            "    sku: str\n"
+            "    qty: int\n"
+        ),
+        "service.py": (
+            "from models import Item, LineItem\n"
+            "line = LineItem(sku='x', qty=2)\n"
+            "item = Item(id=1)\n"
+        ),
+    }
+    assert _model_issues(files) == []
+    files["service.py"] += "invalid = Item(id=1, sku='x')\n"
+    issues = _model_issues(files)
+    assert len(issues) == 1
+    assert "sku" in issues[0]["message"]
+
+
+def test_model_check_ignores_nested_call_arguments():
+    # 字段值里的嵌套调用参数（parse(raw=1)）不是模型字段
+    files = {
+        "models.py": (
+            "from pydantic import BaseModel\n"
+            "class Item(BaseModel):\n"
+            "    id: int\n"
+            "    name: str\n"
+        ),
+        "service.py": "item = Item(id=parse(raw=1, strict=True), name='x')\n",
+    }
+    assert _model_issues(files) == []
+
+
 def _api_contract_issues(files):
     validator = _python_validator()
     issues = asyncio.run(

@@ -1429,7 +1429,12 @@ class CrossValidator:
         return None
 
     def _validate_model_consistency(self, files: Dict[str, str]) -> List[Dict[str, str]]:
-        """验证数据模型一致性"""
+        """验证数据模型一致性
+
+        只比较模型调用顶层的关键字实参。此前用非贪婪 `([\s\S]*?)\)` 提取实参，
+        会在第一个右括号处截断，字段值里的嵌套调用（`Item(id=parse(raw=1))`）
+        会把内层参数误判为模型字段。
+        """
         issues = []
 
         # 提取所有模型定义
@@ -1446,24 +1451,46 @@ class CrossValidator:
 
             # 检查模型实例化的字段是否与定义一致
             for model_name, model_info in model_defs.items():
-                if model_name in scan_content:
-                    defined_fields = model_info['fields']
-                    # 查找模型实例化
-                    init_pattern = rf'{model_name}\s*\(([\s\S]*?)\)'
-                    for match in re.finditer(init_pattern, scan_content):
-                        init_body = match.group(1)
-                        # 提取使用的字段
-                        used_fields = re.findall(r'(\w+)\s*=', init_body)
-                        for field in used_fields:
-                            if field not in defined_fields and field != 'self':
-                                issues.append({
-                                    "type": "model_mismatch",
-                                    "file": file_path,
-                                    "message": f"模型 {model_name} 未定义字段: {field}",
-                                    "suggestion": f"在 {model_info['file']} 中添加 {field} 字段定义"
-                                })
+                if model_name not in scan_content:
+                    continue
+
+                defined_fields = model_info['fields']
+                # 用完整标识符匹配，避免 LineItem(...) 被当成 Item(...)
+                init_pattern = rf'\b{re.escape(model_name)}\s*\('
+                for match in re.finditer(init_pattern, scan_content):
+                    init_body = self._balanced_paren_body(scan_content, match.end() - 1)
+                    if init_body is None:
+                        continue
+                    # 只看顶层关键字实参，跳过字段值里嵌套调用的参数
+                    for arg in self._split_top_level_args(init_body):
+                        if '=' not in arg:
+                            continue
+                        field = arg.split('=', 1)[0].strip()
+                        if not field.isidentifier() or field == 'self':
+                            continue
+                        if field not in defined_fields:
+                            issues.append({
+                                "type": "model_mismatch",
+                                "file": file_path,
+                                "message": f"模型 {model_name} 未定义字段: {field}",
+                                "suggestion": f"在 {model_info['file']} 中添加 {field} 字段定义"
+                            })
 
         return issues
+
+    @staticmethod
+    def _balanced_paren_body(content: str, open_index: int) -> Optional[str]:
+        """返回 open_index 处 '(' 配对括号内的文本，未配对时返回 None"""
+        depth = 0
+        for index in range(open_index, len(content)):
+            char = content[index]
+            if char == '(':
+                depth += 1
+            elif char == ')':
+                depth -= 1
+                if depth == 0:
+                    return content[open_index + 1:index]
+        return None
 
     def _mask_python_noncode(
         self, content: str, file_path: str, fill: str = ' '
