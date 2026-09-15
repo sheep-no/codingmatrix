@@ -44,3 +44,14 @@ def test_integrity_validation_generates_no_init_for_resource_directories() -> No
     result = validator.validate(PYTHON_APP_WITH_ASSETS)
 
     assert validator.generate_fixes(result, PYTHON_APP_WITH_ASSETS) == {}
+
+
+def test_python_adapter_extracts_annotated_module_constants() -> None:
+    content = (
+        "from typing import Final\n"
+        "SECRET_KEY: Final[str] = 'x'\n"
+        "PORT: int = 8000\n"
+    )
+    definitions = PythonLanguageAdapter().extract_definitions(content)
+
+    assert {"SECRET_KEY", "PORT"} <= set(definitions)

@@ -740,7 +740,8 @@ class PythonLanguageAdapter(LanguageAdapter):
 
             # 变量定义（模块级别）
             if not line.startswith(' ') and not line.startswith('\t'):
-                var_match = re.match(r'^(\w+)\s*=', stripped)
+                # 兼容带类型注解的赋值：NAME: Final[str] = value
+                var_match = re.match(r'^(\w+)\s*(?::[^=\n]+)?=', stripped)
                 if var_match:
                     var_name = var_match.group(1)
                     # 跳过导入的模块名
