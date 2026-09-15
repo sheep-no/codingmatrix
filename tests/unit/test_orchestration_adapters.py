@@ -110,6 +110,52 @@ async def test_typescript_syntax_validation_rejects_invalid_syntax():
 
 
 @pytest.mark.asyncio
+async def test_js_syntax_validation_accepts_es_module_and_class():
+    content = "import { api } from './api'\n\nexport class App {\n  run() { return api }\n}\n"
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("web/app.js", content)
+
+
+@pytest.mark.asyncio
+async def test_js_syntax_validation_rejects_python_code():
+    content = "def main():\n    return 1\n"
+
+    assert not await SpecFirstGenerateMixin()._validate_content_syntax("web/app.js", content)
+
+
+@pytest.mark.asyncio
+async def test_vue_syntax_validation_accepts_single_file_component():
+    content = (
+        "<template>\n  <div>{{ msg }}</div>\n</template>\n\n"
+        "<script>\nexport default {\n  data() { return { msg: 'hi' } }\n}\n</script>\n\n"
+        "<style scoped>\ndiv { color: red; }\n</style>\n"
+    )
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("src/App.vue", content)
+
+
+@pytest.mark.asyncio
+async def test_vue_syntax_validation_rejects_broken_script_block():
+    content = "<template><div/></template>\n<script>\nconst x = ;\n</script>\n"
+
+    assert not await SpecFirstGenerateMixin()._validate_content_syntax("src/App.vue", content)
+
+
+@pytest.mark.asyncio
+async def test_css_syntax_validation_accepts_braces_inside_comments_and_strings():
+    content = '/*\n * 这段注释用于说明整体样式设计思路\n * 以及响应式断点的处理方式说明\n * 还有更多补充说明文字用于描述样式\n * 最后再补充一行说明用于触发检测阈值\n */\nbody::after {\n  content: "}";\n}\n'
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("src/styles.css", content)
+
+
+@pytest.mark.asyncio
+async def test_css_syntax_validation_rejects_unbalanced_braces():
+    content = "body {\n  margin: 0;\n"
+
+    assert not await SpecFirstGenerateMixin()._validate_content_syntax("src/styles.css", content)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("previous_diagnostics", [(), ("repair the declared interface",)])
 @pytest.mark.parametrize(
     "requirement,language,paths,target,content",
