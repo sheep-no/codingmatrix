@@ -1,4 +1,6 @@
-from app.agent.utils import is_valid_code_content
+import json
+
+from app.agent.utils import is_valid_code_content, try_extract_from_metadata
 
 
 def test_pom_validation_accepts_well_formed_project() -> None:
@@ -79,3 +81,16 @@ def test_markdown_is_still_rejected_for_non_syntax_checked_files() -> None:
 
     assert not valid
     assert reason == "内容是 Markdown 文档而非代码"
+
+
+def test_json_data_file_with_content_key_is_not_rewritten() -> None:
+    payload = {"content": "正文" * 40, "title": "文章"}
+
+    assert try_extract_from_metadata("data/content.json", json.dumps(payload, ensure_ascii=False)) is None
+
+
+def test_wrapped_json_output_is_still_extracted() -> None:
+    inner = json.dumps({"name": "app", "version": "1.0.0", "description": "a sample project"})
+    wrapped = json.dumps({"status": "completed", "file_path": "config.json", "content": inner})
+
+    assert try_extract_from_metadata("config.json", wrapped) == inner
