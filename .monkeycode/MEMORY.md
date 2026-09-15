@@ -89,6 +89,20 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - async fixtures 必须使用 `@pytest_asyncio.fixture` 装饰器，不能用 `@pytest.fixture`
   - 集成测试需添加 `@pytest.mark.skipif` 检查服务器可用性
   - 测试运行命令：`python3 -m pytest tests/unit/ -v`
+  - 项目使用自定义 pytest 标记：`unit`, `integration`, `database`, `security`, `agent`, `monitoring`, `logging`, `guardian`；这些标记未在 `pyproject.toml` 注册，只产生警告不影响执行。
+  - 单元测试在 `tests/unit/`，集成测试在 `tests/integration/`，E2E 在 `tests/e2e/`。
+
+### 误报类修复的验证与回归流程
+- Date: 2026-09-15
+- Context: Agent 在审计 Agent 生成管线误报（跨文件校验、内容门禁、依赖图、符号表）时总结
+- Category: 测试方法
+- Instructions:
+  - 每处误报先写确定性探针复现（不依赖 LLM / Playwright），再用单测固化"正确产物不被拒 + 真实错误仍被拒"两类断言。
+  - 用 `git stash push <源文件>` 回退源码后跑新增用例，必须确认新增误报用例失败，证明修复非空；恢复后再核对文件内容一致。
+  - 每处修复跑定向测试 + 全量 `pytest tests/unit -q`，并把 `FAILED` 集合与失败基线做 `diff`，只允许失败集合不变。
+  - 全量单测存在 Agent 验收范围外的既有失败基线（PPT 18 项、Flutter 3 项、Kolors 1 项，共 22 项），出现新失败必须归因到本次改动。
+  - 内存紧张时用 API / 确定性探针替代 Playwright，不启动浏览器。
+  - 每个 commit 单独切分支提交推送，合入 master 后重启后端（`PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000`）并复核 `:8000/docs` 与 `:3000`。
 
 ### bcrypt 密码处理限制
 - Date: 2026-05-12
@@ -109,15 +123,6 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - E2E 测试：`tests/e2e/`
   - 前端测试配置：`tests/frontend/`（需要 Vitest 环境）
   - 测试状态报告：`testing/TEST-STATUS-UPDATE-*.md`
-
-### pytest 自定义标记
-- Date: 2026-05-12
-- Context: Agent 在执行测试运行时发现
-- Category: 测试方法
-- Instructions:
-  - 项目使用自定义 pytest 标记：`unit`, `integration`, `database`, `security`, `agent`, `monitoring`, `logging`, `guardian`
-  - 这些标记未在 `pyproject.toml` 中注册，会产生警告但不影响测试执行
-  - 建议在 `pyproject.toml` 中注册这些标记以消除警告
 
 ### Agent 增量修改与测试验证
 - Date: 2026-05-13
