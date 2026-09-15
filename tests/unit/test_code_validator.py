@@ -178,6 +178,120 @@ class TestCodeValidator:
         assert ok is False
         assert any("大括号不匹配" in err for err in errors)
 
+    @pytest.mark.asyncio
+    async def test_runtime_imports_survive_shadowing_module_name(self, tmp_path):
+        """生成项目与 Agent 自身包同名（app/）时不能解析到 Agent 自己的代码。"""
+        import sys
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text(
+            "from .factory import create_app\n", encoding="utf-8"
+        )
+        (tmp_path / "app" / "factory.py").write_text(
+            "def create_app():\n    return None\n", encoding="utf-8"
+        )
+        target = tmp_path / "main.py"
+        target.write_text("from app import create_app\n\napp = create_app()\n", encoding="utf-8")
+
+        Validator = CodeValidator
+        validator = Validator(tmp_path)
+        backend_app = sys.modules.get("app")
+        assert backend_app is not None, "Agent 自身 app 包应在 sys.modules 中"
+
+        ok, errors = await validator.validate_runtime_imports(target)
+
+        assert ok is True, errors
+        assert sys.modules["app"] is backend_app
+
+    @pytest.mark.asyncio
+    async def test_requirements_skip_manifest_for_non_python_project(self, tmp_path):
+        """纯前端工程没有 requirements.txt 不算缺陷。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "package.json").write_text('{"name": "demo"}\n', encoding="utf-8")
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "index.js").write_text("export default 1;\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_requirements()
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_requirements_missing_manifest_still_flagged_for_python_project(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "main.py").write_text("x = 1\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_requirements()
+
+        assert ok is False
+        assert any("缺少 requirements.txt" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_requirements_uninstalled_package_is_environment_not_defect(self, tmp_path):
+        """依赖清单里的包在当前环境未安装，不能判为生成代码无效。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "main.py").write_text("x = 1\n", encoding="utf-8")
+        (tmp_path / "requirements.txt").write_text(
+            "definitely_not_installed_pkg_xyz\n", encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_requirements()
+
+        assert ok is True
+
+    @pytest.mark.asyncio
+    async def test_cross_file_accepts_alias_and_reexport_imports(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "utils.py").write_text(
+            "def helper():\n    return 1\n\n\nclass Thing:\n    pass\n", encoding="utf-8"
+        )
+        (tmp_path / "config.py").write_text(
+            "from .base import settings\n", encoding="utf-8"
+        )
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text(
+            "from .factory import create_app\n", encoding="utf-8"
+        )
+        (tmp_path / "app" / "factory.py").write_text(
+            "def create_app():\n    return None\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text(
+            "from utils import helper as h\n"
+            "from utils import (helper,\n                   Thing)\n"
+            "from config import settings\n"
+            "from app import create_app\n"
+            "from app.factory import create_app as factory\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is True, errors
+
+    @pytest.mark.asyncio
+    async def test_cross_file_still_flags_missing_symbol(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text(
+            "from .factory import create_app\n", encoding="utf-8"
+        )
+        (tmp_path / "app" / "factory.py").write_text(
+            "def create_app():\n    return None\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text("from app import nope\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is False
+        assert any("nope" in err for err in errors)
+
+
 class TestCodeValidatorLRU:
     def test_lru_cache_limit(self):
         from app.agent.code_validator import CodeValidator
