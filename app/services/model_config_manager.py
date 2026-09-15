@@ -72,6 +72,7 @@ class ModelConfigManager:
         self._models: Dict[str, ModelConfig] = {}
         self._providers: Dict[str, ProviderConfig] = {}
         self._agent_config = AgentConfig()
+        self._defaults: Dict[str, str] = {}
         self._load_config()
     
     def _load_config(self):
@@ -125,6 +126,10 @@ class ModelConfigManager:
             roles=agent_data.get("roles", self._agent_config.roles),
             fallback_chain=agent_data.get("fallback_chain", self._agent_config.fallback_chain)
         )
+
+        # 保留按用途声明的默认模型，供 app.utils.model_defaults 读取
+        defaults = data.get("defaults")
+        self._defaults = dict(defaults) if isinstance(defaults, dict) else {}
     
     def _init_default_config(self):
         """初始化默认配置"""
@@ -184,7 +189,8 @@ class ModelConfigManager:
                 "agent": {
                     "roles": self._agent_config.roles,
                     "fallback_chain": self._agent_config.fallback_chain
-                }
+                },
+                "defaults": self._defaults,
             }
             
             os.makedirs(self.config_path.parent, exist_ok=True)
