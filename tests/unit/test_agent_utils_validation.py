@@ -95,6 +95,24 @@ def test_markdown_documentation_file_is_accepted() -> None:
     assert is_valid_code_content("docs/guide.rst", readme)[0]
 
 
+def test_text_and_extensionless_documentation_files_are_accepted() -> None:
+    prose = "## Install\n\n- step one\n- step two\n\n## Usage\n\n1. run\n> note\n"
+
+    assert is_valid_code_content("README.txt", prose)[0]
+    assert is_valid_code_content("docs/guide.adoc", prose)[0]
+    assert is_valid_code_content("README", prose)[0]
+    assert is_valid_code_content("CHANGELOG", prose)[0]
+
+
+def test_markdown_prose_in_code_file_is_still_rejected() -> None:
+    prose = "## Service\n\n- start server\n- stop server\n\n## Config\n\n1. set env\n> note\n"
+
+    for file_path in ("svc/server.go", "src/Main.java", "web/api.ts"):
+        valid, reason = is_valid_code_content(file_path, prose)
+        assert not valid, file_path
+        assert reason == "内容是 Markdown 文档而非代码"
+
+
 def test_code_file_embedding_markdown_template_is_accepted() -> None:
     content = (
         "const tpl = `# Title\\n\\n## Section\\n\\n- item\\n\\n1. first`\n"
@@ -152,6 +170,8 @@ def test_content_quality_allows_yaml_front_matter() -> None:
 def test_content_quality_allows_docs_prose_first_line() -> None:
     assert validate_content_quality("README.md", "This module provides a small API.\n") == ""
     assert validate_content_quality("docs/intro.md", "The following is an overview.\n") == ""
+    assert validate_content_quality("README", "This module provides a small API.\n") == ""
+    assert validate_content_quality("CHANGELOG", "Let me think about the release notes.\n") == ""
 
 
 def test_content_quality_still_flags_code_reasoning_leak() -> None:

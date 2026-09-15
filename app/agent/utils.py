@@ -13,6 +13,22 @@ logger = logging.getLogger(__name__)
 
 LANGUAGE_VALIDATION_TIMEOUT_SECONDS = 30
 
+# 文档/文本类文件：其正确内容本来就是 Markdown/散文或数据，针对「代码形态」
+# 的启发式（Markdown 说明、截断散文、思考泄漏散文）不适用于它们。
+_DOCUMENTATION_EXTENSIONS = ('.md', '.markdown', '.rst', '.txt', '.adoc')
+_DOCUMENTATION_FILE_NAMES = frozenset({
+    'readme', 'license', 'licence', 'changelog', 'notice',
+    'authors', 'contributing', 'copying',
+})
+
+
+def _is_documentation_file(file_path: str) -> bool:
+    """判断文件是否为文档/文本类文件（扩展名或无扩展名的常见文档名）。"""
+    path = Path(file_path)
+    if path.suffix.lower() in _DOCUMENTATION_EXTENSIONS:
+        return True
+    return path.name.lower() in _DOCUMENTATION_FILE_NAMES
+
 
 def clean_code_block(content: str) -> str:
     """从 LLM 输出中提取代码块
@@ -335,7 +351,11 @@ def is_valid_code_content(file_path: str, content: str) -> tuple:
     # 符号启发式只用于没有确定性语法校验的类型；docstring 中的项目符号
     # （- / 1. / >）会让合法代码命中，因此 .py 等类型交给解析器判定。
     # 文档类文件的正确内容本来就是 Markdown/富文本，不能据此判为无效。
-    if ext not in ('.py', '.pyw', '.pyi', '.json', '.md', '.markdown', '.rst') and name != 'pom.xml':
+    if (
+        ext not in ('.py', '.pyw', '.pyi', '.json')
+        and name != 'pom.xml'
+        and not _is_documentation_file(file_path)
+    ):
         # 检查是否是 Markdown 文档（用特征模式而非单个 #）
         md_patterns = ['## ', '### ', '- ', '* ', '1. ', '```', '> ']
         md_count = sum(1 for p in md_patterns if p in stripped[:500])
@@ -1186,8 +1206,7 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
     ]
     # 文档/文本文件里这些短语是正常行文（如更新日志「其他代码保持不变」），
     # 不能据此判为截断，否则合法的 README/说明文件会被反复重生成。
-    doc_ext = Path(file_path).suffix.lower()
-    if doc_ext not in ('.md', '.markdown', '.rst', '.txt', '.adoc'):
+    if not _is_documentation_file(file_path):
         for pattern, desc in truncation_patterns:
             if re.search(pattern, stripped, re.IGNORECASE):
                 return True, desc
@@ -1415,7 +1434,7 @@ def validate_content_quality(file_path: str, content: str) -> str:
     stripped = content.strip()
 
     # 文档/文本文件的首行本来就是散文，不能据此判为思考过程泄漏。
-    doc_ext = ext in ('.md', '.markdown', '.rst', '.txt', '.adoc')
+    is_doc_file = _is_documentation_file(file_path)
 
     # 检测 LLM 思考过程泄漏（中英文描述性文本混入代码文件）
     thinking_patterns = [
@@ -1447,7 +1466,7 @@ def validate_content_quality(file_path: str, content: str) -> str:
     ]
     # 说明：原先的 r'^---\s*$' 已移除。该模式只在内容首行匹配，而首行 `---`
     # 是 YAML 文档分隔符/Markdown front matter 的合法写法，属于必然误报。
-    if not doc_ext:
+    if not is_doc_file:
         for pattern in thinking_patterns:
             if re.match(pattern, stripped, re.IGNORECASE | re.MULTILINE):
                 return f"内容疑似 LLM 思考过程泄漏（匹配模式: {pattern[:30]}）"
