@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/application/girl_ai_controller.dart';
+import 'package:codingmatrix_desktop/domain/models/girl_companion.dart';
 import 'package:codingmatrix_desktop/presentation/virtual_girl_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -213,6 +214,42 @@ void main() {
     expect(state.messages, isEmpty);
     expect(state.error, isNull);
     expect(state.loading, false);
+  });
+
+  test('切账号后晚到的记忆确认不会抛出未处理异常', () async {
+    final fixture = Fixture();
+    final gate = Completer<http.Response>();
+    fixture.business = (request) async {
+      if (request.url.path == '/api/v1/GirlAi/memories/m1/confirm') {
+        return gate.future;
+      }
+      return http.Response('{}', 200);
+    };
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        credentialStoreProvider.overrideWithValue(fixture.store),
+        httpClientProvider.overrideWithValue(fixture.transport),
+        cloudAuthClientProvider.overrideWithValue(fixture.auth),
+      ],
+    );
+    final auth = container.read(authControllerProvider.notifier);
+    await Future<void>.delayed(Duration.zero);
+    await auth.login(email: 'alice@example.com', password: 'test-password');
+    container.read(girlAiControllerProvider);
+    final pending = container
+        .read(girlAiControllerProvider.notifier)
+        .confirmMemory(const MemoryCandidate(id: 'm1', key: '喜欢', value: '猫'));
+    await Future<void>.delayed(Duration.zero);
+    await auth.logout();
+    // Reading the state rebuilds the notifier, which is what a mounted page
+    // does once the account changes.
+    container.read(girlAiControllerProvider);
+    gate.complete(http.Response.bytes(utf8.encode('{}'), 200));
+    await pending;
+    final state = container.read(girlAiControllerProvider);
+    expect(state.memoryCandidates, isEmpty);
+    expect(state.error, isNull);
   });
 
   testWidgets('发送中网络断开显示错误原文', (tester) async {

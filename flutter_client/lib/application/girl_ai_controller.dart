@@ -52,13 +52,19 @@ final girlAiControllerProvider =
 
 class GirlAiController extends Notifier<GirlAiState> {
   int _generation = 0;
+  // Set once this instance is torn down (account switch or scope disposal).
+  // Late responses must not write into a state that no longer belongs to them.
+  bool _disposed = false;
   GirlAiClient get api => GirlAiClient(ref.read(authenticatedClientProvider));
   @override
   GirlAiState build() {
     ref.watch(
       authControllerProvider.select((auth) => auth.session?.accessTokenRef),
     );
-    ref.onDispose(() => _generation++);
+    ref.onDispose(() {
+      _generation++;
+      _disposed = true;
+    });
     return const GirlAiState();
   }
 
@@ -116,8 +122,10 @@ class GirlAiController extends Notifier<GirlAiState> {
       final records = query == null || query.trim().isEmpty
           ? await api.history()
           : await api.search(query.trim());
+      if (_disposed) return;
       state = state.copyWith(history: records, error: null);
     } catch (e) {
+      if (_disposed) return;
       state = state.copyWith(error: '$e');
     }
   }
@@ -126,6 +134,7 @@ class GirlAiController extends Notifier<GirlAiState> {
     if (memory.id == null) return;
     try {
       await api.confirmMemory(memory.id!, key: memory.key, value: memory.value);
+      if (_disposed) return;
       state = state.copyWith(
         memoryCandidates: state.memoryCandidates
             .where((item) => item.id != memory.id)
@@ -133,6 +142,7 @@ class GirlAiController extends Notifier<GirlAiState> {
         error: null,
       );
     } catch (e) {
+      if (_disposed) return;
       state = state.copyWith(error: '$e');
     }
   }
@@ -141,6 +151,7 @@ class GirlAiController extends Notifier<GirlAiState> {
     if (memory.id == null) return;
     try {
       await api.deleteMemory(memory.id!);
+      if (_disposed) return;
       state = state.copyWith(
         memoryCandidates: state.memoryCandidates
             .where((item) => item.id != memory.id)
@@ -148,6 +159,7 @@ class GirlAiController extends Notifier<GirlAiState> {
         error: null,
       );
     } catch (e) {
+      if (_disposed) return;
       state = state.copyWith(error: '$e');
     }
   }
