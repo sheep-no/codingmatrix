@@ -158,3 +158,30 @@ def test_content_quality_still_flags_code_reasoning_leak() -> None:
     content = "Let me think about this.\n\n\ndef f():\n    return 1\n"
 
     assert validate_content_quality("app/x.py", content) != ""
+
+
+def test_content_quality_allows_css_chinese_comments() -> None:
+    content = (
+        "/*\n"
+        " * 这段注释用于说明整体样式设计思路的实现\n"
+        " * 包括颜色、间距和排版等细节内容的设计\n"
+        " * 以及响应式断点的处理方式说明与实现\n"
+        " * 还有更多补充说明文字用于描述样式\n"
+        " * 最后再补充一行说明用于触发检测阈值\n"
+        " */\n\n"
+        "body {\n  margin: 0;\n  padding: 0;\n}\n"
+    )
+
+    assert validate_content_quality("styles.css", content) == ""
+
+
+def test_content_quality_still_flags_css_chinese_prose() -> None:
+    content = (
+        "这是一段中文说明文字，并非真正的样式代码内容。\n"
+        "这里继续描述样式应该如何设计以及颜色和间距的细节。\n"
+        "还有更多说明文字，用于模拟模型直接返回了描述而非代码。\n"
+        "继续补充更多中文描述内容以触发检测条件。\n"
+        "再补充一行中文说明文字。\n"
+    )
+
+    assert validate_content_quality("styles.css", content) != ""
