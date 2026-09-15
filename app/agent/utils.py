@@ -133,7 +133,7 @@ async def extract_engineer_content(
                 logger.info(f"工程师编辑了其他文件，当前文件 {file_path} 未被编辑")
             return None
 
-    if content and _is_edit_marker(content):
+    if content and _is_edit_marker(content, file_path):
         full_path = output_dir / file_path
         if full_path.exists():
             content = full_path.read_text(encoding='utf-8')
@@ -203,7 +203,7 @@ async def extract_engineer_content(
     return None
 
 
-def _is_edit_marker(content: str) -> bool:
+def _is_edit_marker(content: str, file_path: str = "") -> bool:
     """检查内容是否是编辑标记或元数据（JSON 格式）"""
     stripped = content.strip()
     if not stripped.startswith('{'):
@@ -216,6 +216,10 @@ def _is_edit_marker(content: str) -> bool:
         # 编辑标记
         if "action" in obj or "operation" in obj:
             return True
+        # .json 文件的整体内容本身就是合法 JSON，status/output/result 等键
+        # 可能只是数据字段。此时只有显式 action/operation 才算编辑标记。
+        if file_path.lower().endswith('.json'):
+            return False
         # LLM 返回的元数据（非代码内容）
         metadata_keys = {
             "status", "message", "file_path", "file_size",
