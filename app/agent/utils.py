@@ -1187,9 +1187,9 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
         (r'^throw new Error\(["\']TODO', "TODO error"),
         # 通用占位符
         (r'^//\s*Package initialization\s*$', "Package initialization stub"),
-        (r'^//\s*Module:', "Module stub comment"),
         (r'^"""Package initialization"""', "Python package init stub"),
-        (r'^"""Module:', "Python module stub"),
+        # 注意：`"""Module: ...` / `// Module: ...` 是合法的模块头文档，不能作为
+        # 占位符特征，否则正常 __init__.py 会被误判并反复重生成。
         # LLM 工具调用 JSON（LLM 误返回工具调用而非代码）
         (r'^\{"tool"\s*:\s*"[^"]+"\s*,\s*"params"\s*:', "LLM tool call JSON"),
         (r'^\{"tool"\s*:\s*"[^"]+"\s*\}', "LLM tool call JSON"),
@@ -1203,13 +1203,31 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
         r'\{"tool"\s*:\s*"[^"]+"\s*\}',
     ]
 
+    # 注释类特征不能单独证明"未实现"：合法的小模块也会带 TODO 注释。
+    # 这类特征只在文件没有任何有效代码行时才判为占位符，因此收集时让位给
+    # 非注释类特征（如 pass、NotImplementedError）。
+    comment_only_reasons = {
+        "Python TODO comment", "Python FIXME comment", "Python placeholder comment",
+        "JS TODO comment", "JS FIXME comment", "JS placeholder comment",
+        "CSS/JS placeholder comment", "CSS/JS TODO comment",
+    }
+
     matched_pattern = None
+    comment_only_match = None
     for pattern, desc in placeholder_patterns:
-        if re.search(pattern, stripped, re.IGNORECASE | re.MULTILINE):
-            matched_pattern = desc
-            break
+        if not re.search(pattern, stripped, re.IGNORECASE | re.MULTILINE):
+            continue
+        if desc in comment_only_reasons:
+            comment_only_match = comment_only_match or desc
+            continue
+        matched_pattern = desc
+        break
+    if matched_pattern is None:
+        matched_pattern = comment_only_match
 
     if matched_pattern:
+        min_effective_lines = 0 if matched_pattern in comment_only_reasons else 2
+
         # 过滤掉空行、注释行、docstring、pass 行后，检查剩余行数
         lines = []
         for l in stripped.split('\n'):
@@ -1225,7 +1243,7 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
             if l_stripped == 'pass':
                 continue
             lines.append(l_stripped)
-        if len(lines) <= 2:
+        if len(lines) <= min_effective_lines:
             return True, f"占位符代码（{matched_pattern}），有效行数: {len(lines)}"
 
     # 检查代码中嵌入的工具调用 JSON（不在开头，但在代码中间）
