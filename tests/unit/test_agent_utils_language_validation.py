@@ -44,6 +44,22 @@ def test_extract_rejects_tool_call_json_before_persistence(tmp_path):
     assert utils.is_placeholder_content(content, "app/models.py")[0] is True
 
 
+def test_placeholder_accepts_module_docstring_with_reexports():
+    content = '"""Module: app.services"""\nfrom .auth import login\n'
+
+    assert utils.is_placeholder_content(content, "app/__init__.py")[0] is False
+
+
+def test_placeholder_accepts_small_implementation_with_todo_comment():
+    content = "# TODO: 支持环境变量\ndef get():\n    return 1\n"
+
+    assert utils.is_placeholder_content(content, "app/config.py")[0] is False
+
+
+def test_placeholder_rejects_todo_without_effective_code():
+    assert utils.is_placeholder_content("# TODO: implement\n", "app/mod.py")[0] is True
+
+
 def test_placeholder_rejects_truncated_llm_output():
     content = '''import json
 from fastapi import FastAPI
