@@ -13,6 +13,34 @@ class _AdminPageState extends ConsumerState<AdminPage> {
   String? error;
   Map<String, dynamic>? result;
 
+  // Every request shares the page-level guard so a second tap cannot start a
+  // competing request, and so the buttons can be disabled while one runs.
+  Future<void> run(String failure, Future<void> Function() action) async {
+    if (loading || !mounted) return;
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      await action();
+    } catch (e) {
+      if (mounted) setState(() => error = '$failure：$e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  // Reads the user list without taking the guard, so callers that already hold
+  // it (create/update/delete) can refresh inside their own guarded block.
+  Future<void> fetchUsers() async {
+    final value = await ref
+        .read(authenticatedClientProvider)
+        .requestJson('/api/v2/Controller/users?page=1&page_size=50');
+    if (mounted) {
+      setState(() => result = Map<String, dynamic>.from(value as Map));
+    }
+  }
+
   Future<void> createUser() async {
     final username = TextEditingController();
     final email = TextEditingController();
@@ -57,25 +85,24 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       password.dispose();
       return;
     }
-    try {
+    final body = {
+      'username': username.text.trim(),
+      'email': email.text.trim(),
+      'password': password.text,
+    };
+    username.dispose();
+    email.dispose();
+    password.dispose();
+    await run('用户创建失败', () async {
       await ref
           .read(authenticatedClientProvider)
           .requestJson(
             '/api/v2/Controller/create_user',
             method: 'POST',
-            body: {
-              'username': username.text.trim(),
-              'email': email.text.trim(),
-              'password': password.text,
-            },
+            body: body,
           );
-      await loadUsers();
-    } catch (e) {
-      if (mounted) setState(() => error = '用户创建失败：$e');
-    }
-    username.dispose();
-    email.dispose();
-    password.dispose();
+      await fetchUsers();
+    });
   }
 
   Future<void> removeUser(int id, String username) async {
@@ -97,14 +124,12 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       ),
     );
     if (confirmed != true) return;
-    try {
+    await run('用户删除失败', () async {
       await ref
           .read(authenticatedClientProvider)
           .requestJson('/api/v2/Controller/delete_user/$id', method: 'DELETE');
-      await loadUsers();
-    } catch (e) {
-      if (mounted) setState(() => error = '用户删除失败：$e');
-    }
+      await fetchUsers();
+    });
   }
 
   Future<void> editUser(Map<String, dynamic> user) async {
@@ -160,7 +185,7 @@ class _AdminPageState extends ConsumerState<AdminPage> {
     username.dispose();
     email.dispose();
     if (saved != true || user['id'] is! int) return;
-    try {
+    await run('用户更新失败', () async {
       await ref
           .read(authenticatedClientProvider)
           .requestJson(
@@ -168,10 +193,8 @@ class _AdminPageState extends ConsumerState<AdminPage> {
             method: 'PATCH',
             body: body,
           );
-      await loadUsers();
-    } catch (e) {
-      if (mounted) setState(() => error = '用户更新失败：$e');
-    }
+      await fetchUsers();
+    });
   }
 
   Future<void> resetPassword(int id, String username) async {
@@ -200,7 +223,7 @@ class _AdminPageState extends ConsumerState<AdminPage> {
     final value = password.text;
     password.dispose();
     if (confirmed != true) return;
-    try {
+    await run('密码重置失败', () async {
       await ref
           .read(authenticatedClientProvider)
           .requestJson(
@@ -213,34 +236,13 @@ class _AdminPageState extends ConsumerState<AdminPage> {
           context,
         ).showSnackBar(const SnackBar(content: Text('密码已重置')));
       }
-    } catch (e) {
-      if (mounted) setState(() => error = '密码重置失败：$e');
-    }
+    });
   }
 
-  Future<void> loadUsers() async {
-    if (!mounted) return;
-    setState(() {
-      loading = true;
-      error = null;
-    });
-    try {
-      final value = await ref
-          .read(authenticatedClientProvider)
-          .requestJson('/api/v2/Controller/users?page=1&page_size=50');
-      if (mounted) {
-        setState(() => result = Map<String, dynamic>.from(value as Map));
-      }
-    } catch (e) {
-      if (mounted) setState(() => error = '用户列表读取失败：$e');
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
-  }
+  Future<void> loadUsers() => run('用户列表读取失败', fetchUsers);
 
   Future<void> loadConfig() async {
-    if (mounted) setState(() => error = null);
-    try {
+    await run('配置读取失败', () async {
       final value = await ref
           .read(authenticatedClientProvider)
           .requestJson('/api/v2/admin/config');
@@ -259,14 +261,11 @@ class _AdminPageState extends ConsumerState<AdminPage> {
           ),
         );
       }
-    } catch (e) {
-      if (mounted) setState(() => error = '配置读取失败：$e');
-    }
+    });
   }
 
   Future<void> showEndpoint(String title, String path) async {
-    if (mounted) setState(() => error = null);
-    try {
+    await run('$title读取失败', () async {
       final value = await ref
           .read(authenticatedClientProvider)
           .requestJson(path);
@@ -284,9 +283,7 @@ class _AdminPageState extends ConsumerState<AdminPage> {
           ],
         ),
       );
-    } catch (e) {
-      if (mounted) setState(() => error = '$title读取失败：$e');
-    }
+    });
   }
 
   @override
@@ -318,42 +315,64 @@ class _AdminPageState extends ConsumerState<AdminPage> {
               label: const Text('创建用户'),
             ),
             OutlinedButton.icon(
-              onPressed: loadConfig,
+              onPressed: loading ? null : loadConfig,
               icon: const Icon(Icons.settings),
               label: const Text('系统配置'),
             ),
             OutlinedButton.icon(
-              onPressed: () =>
-                  showEndpoint('系统统计', '/api/v2/Controller/admin/stats'),
+              onPressed: loading
+                  ? null
+                  : () => showEndpoint(
+                      '系统统计',
+                      '/api/v2/Controller/admin/stats',
+                    ),
               icon: const Icon(Icons.monitor_heart),
               label: const Text('系统统计'),
             ),
             OutlinedButton.icon(
-              onPressed: () =>
-                  showEndpoint('沙箱配置', '/api/v2/admin/sandbox-config'),
+              onPressed: loading
+                  ? null
+                  : () => showEndpoint(
+                      '沙箱配置',
+                      '/api/v2/admin/sandbox-config',
+                    ),
               icon: const Icon(Icons.security),
               label: const Text('沙箱配置'),
             ),
             OutlinedButton.icon(
-              onPressed: () => showEndpoint('MCP 服务', '/api/v2/mcp/servers'),
+              onPressed: loading
+                  ? null
+                  : () => showEndpoint('MCP 服务', '/api/v2/mcp/servers'),
               icon: const Icon(Icons.extension),
               label: const Text('MCP 服务'),
             ),
             OutlinedButton.icon(
-              onPressed: () =>
-                  showEndpoint('内存状态', '/api/v2/Controller/admin/memory'),
+              onPressed: loading
+                  ? null
+                  : () => showEndpoint(
+                      '内存状态',
+                      '/api/v2/Controller/admin/memory',
+                    ),
               icon: const Icon(Icons.memory),
               label: const Text('内存状态'),
             ),
             OutlinedButton.icon(
-              onPressed: () =>
-                  showEndpoint('限流配置', '/api/v2/Controller/admin/rate-limit'),
+              onPressed: loading
+                  ? null
+                  : () => showEndpoint(
+                      '限流配置',
+                      '/api/v2/Controller/admin/rate-limit',
+                    ),
               icon: const Icon(Icons.speed),
               label: const Text('限流配置'),
             ),
             OutlinedButton.icon(
-              onPressed: () =>
-                  showEndpoint('日志配置', '/api/v2/Controller/admin/log-config'),
+              onPressed: loading
+                  ? null
+                  : () => showEndpoint(
+                      '日志配置',
+                      '/api/v2/Controller/admin/log-config',
+                    ),
               icon: const Icon(Icons.article_outlined),
               label: const Text('日志配置'),
             ),
@@ -380,23 +399,27 @@ class _AdminPageState extends ConsumerState<AdminPage> {
                         children: [
                           IconButton(
                             tooltip: '编辑',
-                            onPressed: () => editUser(user),
+                            onPressed: loading ? null : () => editUser(user),
                             icon: const Icon(Icons.edit),
                           ),
                           IconButton(
                             tooltip: '重置密码',
-                            onPressed: () => resetPassword(
-                              user['id'] as int,
-                              '${user['username']}',
-                            ),
+                            onPressed: loading
+                                ? null
+                                : () => resetPassword(
+                                    user['id'] as int,
+                                    '${user['username']}',
+                                  ),
                             icon: const Icon(Icons.password),
                           ),
                           IconButton(
                             tooltip: '删除',
-                            onPressed: () => removeUser(
-                              user['id'] as int,
-                              '${user['username']}',
-                            ),
+                            onPressed: loading
+                                ? null
+                                : () => removeUser(
+                                    user['id'] as int,
+                                    '${user['username']}',
+                                  ),
                             icon: const Icon(Icons.delete_outline),
                           ),
                         ],

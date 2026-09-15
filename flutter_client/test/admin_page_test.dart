@@ -594,6 +594,43 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('系统统计进行中无法再次触发并发请求', (tester) async {
+    var statsCalls = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path.contains('/admin/stats')) {
+              statsCalls += 1;
+              return pending.future;
+            }
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('系统统计'));
+    await tester.pump();
+    expect(statsCalls, 1);
+    await tester.tap(find.text('系统统计'));
+    await tester.pump();
+    expect(statsCalls, 1);
+    pending.complete({'ok': true});
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('系统统计网络断开显示失败原文', (tester) async {
     final container = ProviderContainer(
       overrides: [
