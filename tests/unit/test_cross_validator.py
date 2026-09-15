@@ -411,6 +411,129 @@ def test_model_mismatch_still_flags_unknown_field():
     assert any("missing" in message for message in messages)
 
 
+def _api_contract_issues(files):
+    validator = _python_validator()
+    issues = asyncio.run(
+        validator.validate_cross_file_consistency(files, {"language": "python"})
+    )
+    return [issue for issue in issues if issue["type"] == "api_mismatch"]
+
+
+def _fastapi_items_backend(fields=("id", "name")):
+    annotations = "".join(f"    {name}: int\n" for name in fields)
+    return (
+        "from fastapi import FastAPI\n"
+        "from pydantic import BaseModel\n"
+        "\n"
+        "app = FastAPI()\n"
+        "\n"
+        "class ItemOut(BaseModel):\n"
+        f"{annotations}"
+        "\n"
+        '@app.get("/api/items", response_model=ItemOut)\n'
+        "def list_items():\n"
+        "    return ItemOut(id=1, name='pen')\n"
+    )
+
+
+def test_symbol_check_ignores_js_runtime_globals():
+    # fetch/setTimeout/Promise 等浏览器全局由运行时提供，不是项目定义
+    files = {
+        "src/runtime.js": (
+            "export function boot() {\n"
+            "  const parsed = parseInt('42', 10)\n"
+            "  setTimeout(() => console.log(parsed), 10)\n"
+            "  fetch('/api/items').then((res) => res.json())\n"
+            "  return Promise.resolve(new Date())\n"
+            "}\n"
+        ),
+    }
+    assert _symbol_issues(files) == []
+
+
+def test_api_contract_ignores_array_and_response_members():
+    files = {
+        "main.py": _fastapi_items_backend(),
+        "src/api.js": (
+            "export async function loadAll() {\n"
+            "  const res = await fetch('/api/items')\n"
+            "  const items = await res.json()\n"
+            "  const total = items.length,\n"
+            "    first = items[0]\n"
+            "  return items.map((it) => it.name), total, first, res.status\n"
+            "}\n"
+        ),
+    }
+    assert _api_contract_issues(files) == []
+
+
+def test_api_contract_prefers_exact_route_over_path_param_route():
+    # GET /api/items 应命中同名路由，而不是被 /api/items/{item_id} 前缀抢先匹配
+    files = {
+        "main.py": (
+            "from fastapi import FastAPI\n"
+            "from pydantic import BaseModel\n"
+            "\n"
+            "app = FastAPI()\n"
+            "\n"
+            "class ItemDetail(BaseModel):\n"
+            "    id: int\n"
+            "    name: str\n"
+            "\n"
+            "class ItemSummary(BaseModel):\n"
+            "    total: int\n"
+            "\n"
+            '@app.get("/api/items/{item_id}", response_model=ItemDetail)\n'
+            "def get_item(item_id: int):\n"
+            "    return ItemDetail(id=item_id, name='pen')\n"
+            "\n"
+            '@app.get("/api/items", response_model=ItemSummary)\n'
+            "def list_items():\n"
+            "    return ItemSummary(total=1)\n"
+        ),
+        "src/api.js": (
+            "export async function load() {\n"
+            "  const res = await fetch('/api/items')\n"
+            "  const body = await res.json()\n"
+            "  return body.total\n"
+            "}\n"
+        ),
+    }
+    assert _api_contract_issues(files) == []
+
+
+def test_api_contract_still_flags_unknown_response_field():
+    files = {
+        "main.py": _fastapi_items_backend(),
+        "src/api.js": (
+            "export async function load() {\n"
+            "  const res = await fetch('/api/items')\n"
+            "  const data = await res.json()\n"
+            "  return { sku: data.sku }\n"
+            "}\n"
+        ),
+    }
+    messages = [issue["message"] for issue in _api_contract_issues(files)]
+    assert any("sku" in message for message in messages)
+
+
+def test_validate_imports_flags_missing_project_module_only():
+    files = {
+        "app/__init__.py": "",
+        "app/main.py": (
+            "import os\n"
+            "from typing import List\n"
+            "from fastapi import FastAPI\n"
+            "from .models import User\n"
+            "from app.services import load\n"
+        ),
+        "app/models.py": "class User:\n    pass\n",
+    }
+    validator = _python_validator()
+    issues = validator._validate_imports(files)
+    assert [issue["message"] for issue in issues] == ["导入的模块不存在: app.services"]
+
+
 def test_generate_missing_modules_raises_when_file_absent():
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext
