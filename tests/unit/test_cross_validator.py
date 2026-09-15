@@ -34,6 +34,36 @@ class TestCrossValidator:
             validator = CrossValidator(ctx, review_enabled=False)
             assert validator.is_critical_file("auth.py", "backend", priority=1) is False
             assert validator.is_critical_file("payment.py", "backend", priority=2) is False
+
+    def test_positional_args_satisfy_required_params(self, validator):
+        # `def greet(name)` 本身会被扫描为一次调用，位置参数应满足 name
+        files = {
+            "greet.py": 'def greet(name):\n    return f"Hello, {name}"',
+            "main.py": 'from greet import greet\n\nprint(greet("world"))',
+        }
+        issues = asyncio.run(
+            validator.validate_cross_file_consistency(files, {"language": "python"})
+        )
+        assert [issue for issue in issues if issue["type"] == "missing_argument"] == []
+
+    def test_missing_positional_arg_still_reported(self, validator):
+        files = {"a.py": "def add(a, b):\n    return a + b\n\nresult = add(1)\n"}
+        issues = asyncio.run(
+            validator.validate_cross_file_consistency(files, {"language": "python"})
+        )
+        missing = [issue for issue in issues if issue["type"] == "missing_argument"]
+        assert len(missing) == 1
+        assert "b" in missing[0]["message"]
+
+    def test_keyword_and_default_args_satisfy_required_params(self, validator):
+        files = {
+            "kw.py": "def add(a, b):\n    return a + b\n\nresult = add(a=1, b=2)\n",
+            "default.py": "def sub(a, b=2):\n    return a - b\n\nresult = sub(1)\n",
+        }
+        issues = asyncio.run(
+            validator.validate_cross_file_consistency(files, {"language": "python"})
+        )
+        assert [issue for issue in issues if issue["type"] == "missing_argument"] == []
     
     def test_validate_and_select(self, validator):
         version_a = "def hello():\n    return 'A'"
