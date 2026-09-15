@@ -257,6 +257,13 @@ def try_extract_from_metadata(file_path: str, content: str) -> Optional[str]:
         if not isinstance(obj, dict):
             return None
 
+        # .json 文件的整体内容本身就是合法 JSON，字段可能就叫 content/code/source。
+        # 只有在出现明确的"生成摘要"标记键时才提取，避免把数据文件改写成字段值。
+        if file_path.lower().endswith('.json'):
+            wrapper_markers = ('status', 'file_path', 'filepath', 'language', 'action')
+            if not any(marker in obj for marker in wrapper_markers):
+                return None
+
         # 尝试从常见字段提取代码
         code_keys = ['content', 'code', 'file_content', 'source', 'body', 'implementation']
         for key in code_keys:
