@@ -28,12 +28,18 @@ def clean_code_block(content: str) -> str:
     elif not isinstance(content, str):
         content = str(content)
 
-    # 剥离 <think>...</think> 标签（DeepSeek-R1 等模型的思考过程）
-    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-    # 剥离 <think>...</think>` 标签（部分模型变体）
-    content = re.sub(r'<thinking>.*?</thinking>', '', content, flags=re.DOTALL).strip()
-    content = re.sub(r'<think>.*', '', content, flags=re.DOTALL).strip()
-    content = re.sub(r'<thinking>.*', '', content, flags=re.DOTALL).strip()
+    # 只在内容以思考块开头时剥离（DeepSeek-R1 等模型的思考过程）。
+    # 全局删除会把代码里作为字面量的 "<think>...</think>" 一并抹掉，
+    # 例如 PROMPT = "<think>请思考</think>" 会被清空。
+    for tag in ("think", "thinking"):
+        if not re.match(rf'\s*<{tag}>', content):
+            continue
+        closed = re.sub(rf'\s*<{tag}>.*?</{tag}>', '', content, count=1, flags=re.DOTALL)
+        if closed == content:
+            # 未闭合的思考块：整段输出都是思考过程
+            closed = re.sub(rf'\s*<{tag}>.*', '', content, flags=re.DOTALL)
+        content = closed
+    content = content.strip()
 
     pattern = r'```(?:\w+)?\s*(.*?)\s*```'
     match = re.search(pattern, content, re.DOTALL)
