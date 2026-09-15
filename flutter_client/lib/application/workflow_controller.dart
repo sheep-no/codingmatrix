@@ -108,8 +108,7 @@ class WorkflowController extends StateNotifier<WorkflowState> {
       ].reversed.take(100).toList().reversed.toList(),
     );
     if (!active) {
-      unawaited(_subscription?.cancel());
-      _subscription = null;
+      unawaited(_cancelStream());
     }
   }
 
@@ -126,8 +125,17 @@ class WorkflowController extends StateNotifier<WorkflowState> {
       events: state.events,
       error: message,
     );
-    unawaited(_subscription?.cancel());
+    unawaited(_cancelStream());
+  }
+
+  Future<void> _cancelStream() async {
+    final subscription = _subscription;
     _subscription = null;
+    try {
+      await subscription?.cancel();
+    } catch (_) {
+      // A broken stream can fail to cancel; there is nothing else to recover.
+    }
   }
 
   Future<void> disconnect() async {
@@ -144,9 +152,7 @@ class WorkflowController extends StateNotifier<WorkflowState> {
       events: state.events,
       error: '本地连接已断开，服务端可能继续执行；可查询状态',
     );
-    final subscription = _subscription;
-    _subscription = null;
-    await subscription?.cancel();
+    await _cancelStream();
   }
 
   Future<void> refresh() async {
@@ -182,7 +188,7 @@ class WorkflowController extends StateNotifier<WorkflowState> {
   @override
   void dispose() {
     ++_operation;
-    unawaited(_subscription?.cancel());
+    unawaited(_cancelStream());
     super.dispose();
   }
 }

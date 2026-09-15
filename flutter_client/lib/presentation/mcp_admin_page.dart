@@ -53,10 +53,27 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
     }
   }
 
+  // Writes share the page-level guard so a second tap cannot start a competing
+  // request while the first one is still in flight.
+  Future<void> mutate(String failure, Future<void> Function() action) async {
+    if (loading || !mounted) return;
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      await action();
+    } catch (e) {
+      if (mounted) setState(() => error = '$failure：$e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
   Future<void> add() async {
     final name = nameController.text.trim();
     if (name.isEmpty) return;
-    try {
+    await mutate('MCP 服务添加失败', () async {
       await ref
           .read(mcpAdminClientProvider)
           .addServer(
@@ -69,13 +86,11 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
       commandController.clear();
       urlController.clear();
       await load();
-    } catch (e) {
-      if (mounted) setState(() => error = 'MCP 服务添加失败：$e');
-    }
+    });
   }
 
   Future<void> testServer(String name) async {
-    try {
+    await mutate('连接测试失败', () async {
       final result = await ref.read(mcpAdminClientProvider).test(name);
       if (!mounted) return;
       showDialog<void>(
@@ -91,21 +106,18 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
           ],
         ),
       );
-    } catch (e) {
-      if (mounted) setState(() => error = '连接测试失败：$e');
-    }
+    });
   }
 
   Future<void> toggleServer(String name) async {
-    try {
+    await mutate('MCP 服务状态更新失败', () async {
       await ref.read(mcpAdminClientProvider).toggle(name);
       await load();
-    } catch (e) {
-      if (mounted) setState(() => error = 'MCP 服务状态更新失败：$e');
-    }
+    });
   }
 
   Future<void> editServer(Map<String, dynamic> server) async {
+    if (loading) return;
     final command = TextEditingController(text: '${server['command'] ?? ''}');
     final url = TextEditingController(text: '${server['url'] ?? ''}');
     var enabled = server['enabled'] == true;
@@ -155,17 +167,16 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
     };
     command.dispose();
     url.dispose();
-    try {
+    await mutate('MCP 服务更新失败', () async {
       await ref
           .read(mcpAdminClientProvider)
           .updateServer('${server['name']}', body);
       await load();
-    } catch (e) {
-      if (mounted) setState(() => error = 'MCP 服务更新失败：$e');
-    }
+    });
   }
 
   Future<void> removeServer(String name) async {
+    if (loading) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -184,12 +195,10 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
       ),
     );
     if (confirmed != true) return;
-    try {
+    await mutate('MCP 服务删除失败', () async {
       await ref.read(mcpAdminClientProvider).deleteServer(name);
       await load();
-    } catch (e) {
-      if (mounted) setState(() => error = 'MCP 服务删除失败：$e');
-    }
+    });
   }
 
   @override
@@ -270,22 +279,28 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
                 children: [
                   IconButton(
                     tooltip: '编辑',
-                    onPressed: () => editServer(server),
+                    onPressed: loading ? null : () => editServer(server),
                     icon: const Icon(Icons.edit),
                   ),
                   IconButton(
                     tooltip: '连接测试',
-                    onPressed: () => testServer('${server['name']}'),
+                    onPressed: loading
+                        ? null
+                        : () => testServer('${server['name']}'),
                     icon: const Icon(Icons.network_check),
                   ),
                   IconButton(
                     tooltip: '启停',
-                    onPressed: () => toggleServer('${server['name']}'),
+                    onPressed: loading
+                        ? null
+                        : () => toggleServer('${server['name']}'),
                     icon: const Icon(Icons.power_settings_new),
                   ),
                   IconButton(
                     tooltip: '删除',
-                    onPressed: () => removeServer('${server['name']}'),
+                    onPressed: loading
+                        ? null
+                        : () => removeServer('${server['name']}'),
                     icon: const Icon(Icons.delete_outline),
                   ),
                 ],

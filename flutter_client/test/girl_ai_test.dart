@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
@@ -7,8 +8,10 @@ import 'package:codingmatrix_desktop/presentation/virtual_girl_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 
 import 'agent_delivery_test.dart' show DeliveryApi;
+import 'auth_session_test.dart' show Fixture;
 
 class GirlApi extends DeliveryApi {
   GirlApi(super.handle);
@@ -171,6 +174,45 @@ void main() {
     await tester.pump();
     expect(find.text('你好'), findsOneWidget);
     expect(find.text('不应出现'), findsNothing);
+  });
+
+  test('切账号后晚到的虚拟姬回复不会写入新账号', () async {
+    final fixture = Fixture();
+    final gate = Completer<http.Response>();
+    fixture.business = (request) async {
+      if (request.url.path == '/api/v1/GirlAi/companion/turn') {
+        return gate.future;
+      }
+      return http.Response('{}', 200);
+    };
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        credentialStoreProvider.overrideWithValue(fixture.store),
+        httpClientProvider.overrideWithValue(fixture.transport),
+        cloudAuthClientProvider.overrideWithValue(fixture.auth),
+      ],
+    );
+    final auth = container.read(authControllerProvider.notifier);
+    await Future<void>.delayed(Duration.zero);
+    await auth.login(email: 'alice@example.com', password: 'test-password');
+    final pending = container
+        .read(girlAiControllerProvider.notifier)
+        .send('你好');
+    await Future<void>.delayed(Duration.zero);
+    expect(container.read(girlAiControllerProvider).loading, true);
+    await auth.logout();
+    gate.complete(
+      http.Response.bytes(
+        utf8.encode(jsonEncode(turnReply(text: '旧账号回复'))),
+        200,
+      ),
+    );
+    await pending;
+    final state = container.read(girlAiControllerProvider);
+    expect(state.messages, isEmpty);
+    expect(state.error, isNull);
+    expect(state.loading, false);
   });
 
   testWidgets('发送中网络断开显示错误原文', (tester) async {

@@ -52,17 +52,30 @@ class ChatController extends Notifier<ChatState> {
 
   @override
   ChatState build() {
+    ref.watch(
+      authControllerProvider.select((auth) => auth.session?.accessTokenRef),
+    );
     ref.onDispose(_invalidate);
     return const ChatState();
   }
 
   void _invalidate() {
     _operation++;
-    unawaited(_subscription?.cancel());
+    unawaited(_ignoreCancel(_subscription));
     _subscription = null;
     final completion = _completion;
     if (completion != null && !completion.isCompleted) completion.complete();
     _completion = null;
+  }
+
+  static Future<void> _ignoreCancel(
+    StreamSubscription<ChatStreamEvent>? subscription,
+  ) async {
+    try {
+      await subscription?.cancel();
+    } catch (_) {
+      // A broken stream can fail to cancel; the caller has already moved on.
+    }
   }
 
   void cancel() {
@@ -184,7 +197,7 @@ class ChatController extends Notifier<ChatState> {
                 );
                 if (event.error != null) {
                   completion.complete();
-                  unawaited(_subscription?.cancel());
+                  unawaited(_ignoreCancel(_subscription));
                 }
               },
               onError: (Object error, StackTrace stack) {

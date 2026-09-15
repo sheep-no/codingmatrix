@@ -55,6 +55,9 @@ class GirlAiController extends Notifier<GirlAiState> {
   GirlAiClient get api => GirlAiClient(ref.read(authenticatedClientProvider));
   @override
   GirlAiState build() {
+    ref.watch(
+      authControllerProvider.select((auth) => auth.session?.accessTokenRef),
+    );
     ref.onDispose(() => _generation++);
     return const GirlAiState();
   }

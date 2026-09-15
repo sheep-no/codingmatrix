@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
 import 'agent_delivery_test.dart' show DeliveryApi;
+import 'auth_session_test.dart' show Fixture;
 
 class UploadApi extends DeliveryApi {
   UploadApi() : super((_, _, _) async => null);
@@ -316,6 +317,50 @@ void main() {
     api.chunks.add(utf8.encode('旧响应'));
     await flush();
     expect(container.read(chatControllerProvider).messages, isEmpty);
+  });
+
+  test('取消失败的流不会让取消操作抛出', () async {
+    api.chunks.onCancel = () => throw const SocketException('connection lost');
+    final pending = controller.send('问题', streaming: true);
+    await flush();
+    api.chunks.add(utf8.encode('部分内容'));
+    await flush();
+    controller.cancel();
+    await pending;
+    await flush();
+    final state = container.read(chatControllerProvider);
+    expect(state.cancelled, true);
+    expect(state.loading, false);
+    expect(state.messages.last.text, '部分内容');
+  });
+
+  test('切账号后晚到的聊天流不会写入新账号', () async {
+    final fixture = Fixture();
+    fixture.business = (_) async => http.Response('{}', 200);
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        credentialStoreProvider.overrideWithValue(fixture.store),
+        httpClientProvider.overrideWithValue(fixture.transport),
+        cloudAuthClientProvider.overrideWithValue(fixture.auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+    final auth = container.read(authControllerProvider.notifier);
+    await Future<void>.delayed(Duration.zero);
+    await auth.login(email: 'alice@example.com', password: 'test-password');
+    unawaited(
+      container.read(chatControllerProvider.notifier).send('你好', streaming: true),
+    );
+    await flush();
+    api.chunks.add(utf8.encode('部分内容'));
+    await flush();
+    await auth.logout();
+    api.chunks.add(utf8.encode('旧账号回复'));
+    await flush();
+    final state = container.read(chatControllerProvider);
+    expect(state.messages, isEmpty);
+    expect(state.loading, false);
   });
 
   test('上传期间取消及重置后忽略晚到的上传结果', () async {

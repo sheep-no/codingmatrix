@@ -298,6 +298,55 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('停用进行中无法再次打开菜单触发并发操作', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var toggles = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/toggle')) {
+              toggles++;
+              return pending.future;
+            }
+            return [providerItem];
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byType(PopupMenuButton<String>));
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('停用'));
+    await tester.pump();
+    expect(toggles, 1);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(PopupMenuItem<String>), findsNothing);
+    expect(toggles, 1);
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('停用中退出再进入会丢掉错误并重新拉列表', (tester) async {
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1;

@@ -178,6 +178,18 @@ void main() {
       await refresh;
     },
   );
+  test('local disconnect survives a stream that fails to cancel', () async {
+    final source = StreamController<List<int>>(
+      onCancel: () => throw const SocketException('connection lost'),
+    );
+    final api = WorkflowApi(source.stream);
+    final controller = WorkflowController(WorkflowClient(api));
+    await controller.execute('任务');
+    await tick();
+    await controller.disconnect();
+    expect(controller.state.snapshot.status, 'disconnected');
+    controller.dispose();
+  });
   testWidgets(
     'compact workflow renders dependencies, errors and local disconnect',
     (tester) async {

@@ -118,6 +118,7 @@ class _DynamicProviderPageState extends ConsumerState<DynamicProviderPage> {
               ),
               isThreeLine: true,
               trailing: PopupMenuButton<String>(
+                enabled: !loading,
                 onSelected: (action) => run(() async {
                   if (action == 'toggle') await client.toggle(item.id);
                   if (action == 'sync') await client.sync(item.id);

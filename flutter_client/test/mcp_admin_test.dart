@@ -302,6 +302,52 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('启停进行中无法再次触发并发请求', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var toggles = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/toggle')) {
+              toggles++;
+              return pending.future;
+            }
+            return {
+              'servers': [serverItem],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: McpAdminPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('启停'));
+    await tester.tap(find.byTooltip('启停'));
+    await tester.pump();
+    expect(toggles, 1);
+    await tester.ensureVisible(find.byTooltip('启停'));
+    await tester.tap(find.byTooltip('启停'));
+    await tester.pump();
+    expect(toggles, 1);
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('启停中退出再进入会丢掉错误并重新拉列表', (tester) async {
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1;
