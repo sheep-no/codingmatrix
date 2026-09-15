@@ -58,7 +58,7 @@ class IntegrityValidator:
 
     验证内容：
     1. 导入验证：所有导入的模块都存在
-    2. 包完整性：包有入口文件（Python: __init__.py, JS: index.js/ts）
+    2. 包完整性：Python 包有 __init__.py（JS/TS 无目录级入口要求）
     3. 导入路径：导入路径与实际文件路径匹配
     4. API 契约：前端请求与后端响应一致（可选）
     """

@@ -465,24 +465,18 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
         return False
 
     def validate_package_structure(self, package_path: str, files: Dict[str, str]) -> List[str]:
-        """验证 JS 模块结构"""
-        missing = []
+        """验证 JS 模块结构
 
-        # 检查是否有入口文件
-        index_ts = f"{package_path}/index.ts"
-        index_js = f"{package_path}/index.js"
-
-        if index_ts not in files and index_js not in files:
-            missing.append(index_ts)  # 默认推荐 TypeScript
-
-        return missing
+        JS/TS 没有目录级包入口要求：程序入口点由 file_plan 的 entry 文件决定，
+        普通目录（components/、hooks/、api/ 等）不需要 index 文件。强制补 barrel
+        文件会为标准项目生成多余文件，且 `export * from` 对 default export 无效。
+        因此这里不做强制检查。
+        """
+        return []
 
     def get_required_package_files(self, package_path: str) -> List[str]:
-        """获取 JS 包所需的文件"""
-        return [
-            f"{package_path}/index.ts",
-            f"{package_path}/index.js",
-        ]
+        """JS/TS 不要求目录级入口文件"""
+        return []
 
 
 # 注册适配器
