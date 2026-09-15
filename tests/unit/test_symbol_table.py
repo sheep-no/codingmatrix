@@ -137,6 +137,95 @@ def test_symbol_gate_rejects_api_v1_prefix():
     assert any("/api/v1" in item for item in issues)
 
 
+def _router_architecture(routes, provides=None):
+    return {
+        "language": "python",
+        "file_plan": [{"path": "app/routers/users.py", "file_type": "api"}],
+        "symbol_table": {
+            "storage": {"backend": ""},
+            "auth": {"scheme": ""},
+            "route_prefix": "",
+            "files": {
+                "app/routers/users.py": {
+                    "provides": provides or ["router"],
+                    "requires": [],
+                    "signatures": {},
+                    "routes": routes,
+                }
+            },
+        },
+    }
+
+
+def test_symbol_gate_accepts_apirouter_prefix_style():
+    """`APIRouter(prefix=...)` + `@router.get("")` 是 FastAPI 常见写法，不应误报。"""
+    content = (
+        "from fastapi import APIRouter\n"
+        'router = APIRouter(prefix="/users", tags=["users"])\n'
+        '@router.get("")\n'
+        "def list_users():\n"
+        "    return []\n"
+        '@router.post("")\n'
+        "def create_user():\n"
+        "    return {}\n"
+    )
+
+    issues = validate_file_against_symbol_table(
+        "app/routers/users.py", content, _router_architecture(["GET /users", "POST /users"])
+    )
+
+    assert issues == []
+
+
+def test_symbol_gate_accepts_apirouter_prefix_with_path_param():
+    content = (
+        "from fastapi import APIRouter\n"
+        'router = APIRouter(prefix="/users")\n'
+        '@router.get("/{user_id}")\n'
+        "def get_user(user_id: int):\n"
+        "    return {}\n"
+    )
+
+    issues = validate_file_against_symbol_table(
+        "app/routers/users.py", content, _router_architecture(["GET /users/{}"])
+    )
+
+    assert issues == []
+
+
+def test_symbol_gate_accepts_keyword_path_decorator():
+    content = (
+        "from fastapi import APIRouter\n"
+        "router = APIRouter()\n"
+        '@router.get(path="/users")\n'
+        "def list_users():\n"
+        "    return []\n"
+    )
+
+    issues = validate_file_against_symbol_table(
+        "app/routers/users.py", content, _router_architecture(["GET /users"])
+    )
+
+    assert issues == []
+
+
+def test_symbol_gate_still_reports_missing_frozen_route():
+    """护栏：前缀拼接不能掩盖真实缺失的路由。"""
+    content = (
+        "from fastapi import APIRouter\n"
+        'router = APIRouter(prefix="/users")\n'
+        '@router.get("")\n'
+        "def list_users():\n"
+        "    return []\n"
+    )
+
+    issues = validate_file_against_symbol_table(
+        "app/routers/users.py", content, _router_architecture(["GET /users", "DELETE /users/{}"])
+    )
+
+    assert any("DELETE /users/{}" in item for item in issues)
+
+
 def test_symbol_gate_accepts_annotated_module_constants():
     architecture = {
         "language": "python",

@@ -10,9 +10,11 @@ from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional,
 logger = logging.getLogger(__name__)
 
 ROUTE_DECORATOR_RE = re.compile(
-    r"@(?:app|router|api_router)\.(get|post|put|patch|delete)\(\s*['\"]([^'\"]+)['\"]",
+    r"@(\w+)\.(get|post|put|patch|delete)\(\s*(?:path\s*=\s*)?['\"]([^'\"]*)['\"]",
     re.IGNORECASE,
 )
+APIRouter_PREFIX_KW_RE = re.compile(r"prefix\s*=\s*['\"]([^'\"]*)['\"]", re.IGNORECASE)
+APIRouter_ASSIGN_RE = re.compile(r"\b(\w+)\s*=\s*APIRouter\(", re.IGNORECASE)
 TEST_CLIENT_PATH_RE = re.compile(
     r"""(?:client|TestClient)[^.\n]{0,40}\.(?:get|post|put|patch|delete)\(\s*['\"]([^'\"]+)['\"]""",
     re.IGNORECASE,
@@ -516,7 +518,47 @@ def _defined_names(file_path: str, content: str, architecture: Mapping[str, Any]
 
 
 def _extract_routes(content: str) -> List[str]:
-    return [f"{method.upper()} {path}" for method, path in ROUTE_DECORATOR_RE.findall(content or "")]
+    """Extract `METHOD /path` pairs, including `APIRouter(prefix=...)` routers.
+    FastAPI 的常见写法是 `router = APIRouter(prefix="/users")` 配合
+    `@router.get("")`，装饰器上的路径不含前缀。不做前缀拼接会把这类
+    正确实现误判为缺少冻结路由。
+    """
+    text = content or ""
+    prefixes = _router_prefixes(text)
+
+    routes: List[str] = []
+    for router_name, method, path in ROUTE_DECORATOR_RE.findall(text):
+        prefix = prefixes.get(router_name, "")
+        if prefix:
+            suffix = path if path.startswith("/") else "/" + path
+            path = prefix + suffix
+        routes.append(f"{method.upper()} {path}")
+    return routes
+
+
+def _router_prefixes(text: str) -> Dict[str, str]:
+    """Map router variable names to their `APIRouter(prefix=...)` value."""
+    prefixes: Dict[str, str] = {}
+    for assign in APIRouter_ASSIGN_RE.finditer(text):
+        start = assign.end()
+        depth = 1
+        index = start
+        while index < len(text) and depth:
+            char = text[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+            elif char in "\"'":
+                quote = char
+                index += 1
+                while index < len(text) and text[index] != quote:
+                    index += 2 if text[index] == "\\" else 1
+            index += 1
+        match = APIRouter_PREFIX_KW_RE.search(text[start:index])
+        if match:
+            prefixes[assign.group(1)] = match.group(1).rstrip("/")
+    return prefixes
 
 
 def _extract_test_paths(content: str) -> List[str]:
