@@ -509,10 +509,18 @@ class DependencyGraph:
         """
         from collections import defaultdict
 
+        init_filename = (
+            self.language_adapter.package_init_filename if self.language_adapter else ""
+        )
+
         # 按 (文件名, file_type) 分组
         name_type_to_paths: Dict[tuple, List[str]] = defaultdict(list)
         for path in list(self.nodes.keys()):
             filename = Path(path).name
+            # 包入口文件（Python __init__.py、JS index.js、Rust lib.rs）在每个包里
+            # 都是独立模块，同名不代表功能重复；分组去重会误删多包项目的入口文件。
+            if init_filename and filename == init_filename:
+                continue
             node = self.nodes.get(path)
             file_type = node.file_type if node else 'unknown'
             name_type_to_paths[(filename, file_type)].append(path)
@@ -674,11 +682,33 @@ class DependencyGraph:
             del self.reverse_adjacency[path]
 
     def _is_external_plan_path(self, path: str) -> bool:
+        """判断 file_plan 路径是否是外部库源码，而非本项目要生成的文件。
+        `is_known_external_module` 是按 import 字符串设计的。直接把它套在
+        file_plan 路径上，会把与标准库同名的本地文件（types.py、secrets.py、
+        logging.py、crypto.js、path.js 等）当成外部库静默丢弃，导致计划中的
+        文件既不生成也不报错。
+
+        标准库名字是通用词，经常被用作本地文件名，因此按项目文件保留；
+        第三方包名（fastapi.py、sqlalchemy/orm/session.py）仍按外部库丢弃。
+        """
         adapter = self.language_adapter
         if not path or adapter is None:
             return False
+        normalized = str(path).replace("\\", "/").strip().strip("/")
+        if not normalized:
+            return False
+        top = normalized.split("/")[0]
+        top_path = Path(top)
+        from .adapters.language_adapter import _EXTERNAL_SOURCE_SUFFIXES
+
+        if top_path.suffix.lower() in _EXTERNAL_SOURCE_SUFFIXES:
+            top = str(top_path.with_suffix(""))
+        for attr in ("PYTHON_BUILTINS", "NODE_BUILTINS", "STDLIB_MODULES"):
+            stdlib = getattr(adapter, attr, None)
+            if stdlib and top in stdlib:
+                return False
         checker = getattr(adapter, "is_known_external_module", None)
-        return bool(checker and checker(path))
+        return bool(checker and checker(normalized))
 
     def _import_to_file_path(self, import_path: str) -> Optional[str]:
         """将 import 路径转换为文件路径"""
