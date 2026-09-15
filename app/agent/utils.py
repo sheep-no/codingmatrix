@@ -339,7 +339,15 @@ def is_valid_code_content(file_path: str, content: str) -> tuple:
         # 检查是否是 Markdown 文档（用特征模式而非单个 #）
         md_patterns = ['## ', '### ', '- ', '* ', '1. ', '```', '> ']
         md_count = sum(1 for p in md_patterns if p in stripped[:500])
-        if md_count >= 3:
+        # 代码里以字符串/模板字面量承载 Markdown（如生成文档的 JS/TS）会命中
+        # 上面的项目符号，因此只要出现明确代码构造就不判为 Markdown。
+        code_constructs = (
+            "function ", "const ", "let ", "var ", "=>", "import ", "export ",
+            "return ", "class ", "def ", "package ", "func ", "public ",
+            "private ", "protected ", "void ", "console.", "#include", "<?php",
+            "SELECT ", "print(", "echo ",
+        )
+        if md_count >= 3 and not any(token in stripped[:500] for token in code_constructs):
             return False, "内容是 Markdown 文档而非代码"
 
     # 快速语法验证（JSON、Python 语法等）

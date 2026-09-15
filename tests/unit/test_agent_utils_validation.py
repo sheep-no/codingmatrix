@@ -94,6 +94,15 @@ def test_markdown_documentation_file_is_accepted() -> None:
     assert is_valid_code_content("docs/guide.rst", readme)[0]
 
 
+def test_code_file_embedding_markdown_template_is_accepted() -> None:
+    content = (
+        "const tpl = `# Title\\n\\n## Section\\n\\n- item\\n\\n1. first`\n"
+        "export default tpl\n"
+    )
+
+    assert is_valid_code_content("web/app.js", content)[0]
+
+
 def test_markdown_metadata_payload_is_still_rejected_for_docs() -> None:
     valid, reason = is_valid_code_content(
         "README.md", json.dumps({"status": "completed", "content": "code here"})
