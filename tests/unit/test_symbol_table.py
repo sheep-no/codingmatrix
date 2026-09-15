@@ -137,6 +137,33 @@ def test_symbol_gate_rejects_api_v1_prefix():
     assert any("/api/v1" in item for item in issues)
 
 
+def test_symbol_gate_accepts_annotated_module_constants():
+    architecture = {
+        "language": "python",
+        "file_plan": [{"path": "app/config.py", "file_type": "config"}],
+        "symbol_table": {
+            "storage": {"backend": ""},
+            "auth": {"scheme": ""},
+            "route_prefix": "",
+            "files": {
+                "app/config.py": {
+                    "provides": ["SECRET_KEY", "DATABASE_URL"],
+                    "requires": [],
+                    "signatures": {},
+                    "routes": [],
+                }
+            },
+        },
+    }
+    content = (
+        "from typing import Final\n"
+        "SECRET_KEY: Final[str] = 'x'\n"
+        "DATABASE_URL = 'sqlite://'\n"
+    )
+    issues = validate_file_against_symbol_table("app/config.py", content, architecture)
+    assert issues == []
+
+
 def test_scan_python_packages_maps_jose_and_sqlalchemy():
     files = {
         "app/services.py": (
