@@ -26,6 +26,37 @@ from app.agent.generation_plan import GenerationPlan
 
 logger = logging.getLogger(__name__)
 
+# 常见无扩展名项目文件。这些名称与 npm/pypi 包名无法区分，
+# 但它们是真实的项目文件，不能在清理 file_plan 时被当成包名丢弃。
+_EXTENSIONLESS_PROJECT_FILES = frozenset({
+    "dockerfile",
+    "makefile",
+    "gnumakefile",
+    "justfile",
+    "procfile",
+    "gemfile",
+    "rakefile",
+    "vagrantfile",
+    "jenkinsfile",
+    "cmakelists",
+    "license",
+    "licence",
+    "notice",
+    "readme",
+    "changelog",
+    "contributing",
+    "authors",
+    "codeowners",
+})
+
+
+def _normalize_extensionless_name(name: str) -> str:
+    """归一化无扩展名文件名，使 `Dockerfile.dev` 也能命中已知规则。"""
+    lowered = str(name or "").strip().lower()
+    if lowered.startswith("dockerfile"):
+        return "dockerfile"
+    return lowered
+
 
 def summarize_dependency_context(context: str) -> Dict[str, Any]:
     """返回依赖上下文的可审计摘要，避免日志记录完整源码。"""
@@ -96,8 +127,13 @@ class DependencyGraph:
             logger.warning(f"拒绝含特殊字符的文件路径: {path}")
             return
         
-        # 包名检查：拒绝无扩展名且无目录分隔符的路径（如 "moment", "axios", "models"）
-        if '/' not in path and '.' not in path:
+        # 包名检查：拒绝无扩展名且无目录分隔符的路径（如 "moment", "axios", "models"），
+        # 但 Dockerfile / Makefile 等常见项目文件必须保留。
+        if (
+            '/' not in path
+            and '.' not in path
+            and _normalize_extensionless_name(path) not in _EXTENSIONLESS_PROJECT_FILES
+        ):
             logger.warning(f"拒绝包名/目录名作为文件路径: {path}")
             return
         
@@ -238,8 +274,13 @@ class DependencyGraph:
                 logger.warning(f"跳过含特殊字符的文件路径: {path}")
                 continue
             
-            # 包名检查：跳过无扩展名且无目录分隔符的路径（如 "moment", "axios", "models"）
-            if '/' not in path and '.' not in path:
+            # 包名检查：跳过无扩展名且无目录分隔符的路径（如 "moment", "axios", "models"），
+            # 但 Dockerfile / Makefile 等常见项目文件必须保留，否则会被静默丢弃。
+            if (
+                '/' not in path
+                and '.' not in path
+                and _normalize_extensionless_name(path) not in _EXTENSIONLESS_PROJECT_FILES
+            ):
                 logger.warning(f"跳过包名/目录名作为文件路径: {path}")
                 continue
 
@@ -1155,10 +1196,16 @@ class DependencyGraph:
     # ==================== 辅助方法 ====================
 
     def _infer_file_type(self, path: str) -> str:
-        """根据文件路径推断文件类型"""
-        # 优先使用语言适配器
+        """根据文件路径推断文件类型。
+        语言适配器只覆盖自己认识的路径；返回 unknown 时继续回落到通用路径
+        规则与扩展名映射，避免 index.html / App.tsx / style.css 这类常见文件
+        被判为未知类型并中断生成。扩展名映射里没有的类型仍然返回 unknown，
+        保留“无法确定类型”的显式失败语义。
+        """
         if self.language_adapter:
-            return self.language_adapter.infer_file_type(path)
+            inferred = self.language_adapter.infer_file_type(path)
+            if inferred and inferred not in ("unknown", ""):
+                return inferred
 
         # 使用硬编码规则作为 fallback
         for pattern, file_type in self.PATH_TYPE_RULES:
@@ -1173,7 +1220,10 @@ class DependencyGraph:
 
         # 根据扩展名推断
         ext = Path(path).suffix.lower()
-        return EXTENSION_TYPE_MAP.get(ext, 'utils')
+        if ext in EXTENSION_TYPE_MAP:
+            return EXTENSION_TYPE_MAP[ext]
+        # 有语言适配器时保留 unknown，让“类型无法确定”继续显式失败
+        return 'unknown' if self.language_adapter else 'utils'
 
     def _path_to_api_file(self, api_path: str) -> str:
         """将 API 路径转换为文件路径"""

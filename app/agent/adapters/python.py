@@ -78,6 +78,7 @@ class PythonLanguageAdapter(LanguageAdapter):
         ("pyproject.toml", "config"),
         ("setup.py", "config"),
         ("Makefile", "config"),
+        ("conftest.py", "test"),
 
         # 应用入口
         ("main.py", "entry"),

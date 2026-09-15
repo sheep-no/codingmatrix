@@ -265,6 +265,82 @@ class TestDependencyGraph:
         assert adapter.infer_file_type("src/index.ts") == "entry"
         assert adapter.infer_file_type("src/server.js") == "entry"
 
+    def test_common_files_are_not_inferred_as_unknown(self):
+        """适配器不认识的常见文件要回落到路径规则与扩展名映射，而非 unknown。"""
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        js_graph = DependencyGraph(language_adapter=JavaScriptLanguageAdapter())
+
+        assert js_graph._infer_file_type("index.html") == "frontend_page"
+        assert js_graph._infer_file_type("src/App.tsx") == "frontend_component"
+        assert js_graph._infer_file_type("src/App.vue") == "frontend_component"
+        assert js_graph._infer_file_type("src/style.css") == "frontend_style"
+        assert js_graph._infer_file_type("src/styles/index.css") == "frontend_style"
+
+        py_graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+
+        assert py_graph._infer_file_type("conftest.py") == "test"
+
+    def test_common_files_without_declared_type_do_not_block_generation(self):
+        import asyncio
+
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+        from app.agent.orchestrator_generation.spec_first_generate import (
+            SpecFirstGenerateMixin,
+        )
+
+        architecture = {"file_plan": [
+            {"path": "index.html", "priority": 1},
+            {"path": "src/main.tsx", "priority": 1},
+            {"path": "src/App.tsx", "priority": 2},
+            {"path": "src/styles/index.css", "priority": 4},
+            {"path": "package.json", "priority": 4},
+        ]}
+        graph = DependencyGraph(language_adapter=JavaScriptLanguageAdapter())
+        graph.build_from_architecture(architecture)
+
+        pending = graph.get_unknown_type_files()
+
+        # 未知类型必须可以用确定性规则补齐，否则 _infer_unknown_file_types 会硬失败。
+        asyncio.run(SpecFirstGenerateMixin()._infer_unknown_file_types(
+            graph, pending, architecture, "javascript"
+        ))
+
+    def test_extensionless_project_files_are_kept_in_plan(self):
+        """Dockerfile / Makefile 这类无扩展名项目文件不能被当成包名丢弃。"""
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": "Dockerfile", "priority": 4},
+            {"path": "Dockerfile.dev", "priority": 4},
+            {"path": "Makefile", "priority": 4},
+            {"path": "main.py", "priority": 1},
+        ]})
+
+        assert graph.nodes["Dockerfile"].file_type == "dockerfile"
+        assert graph.nodes["Dockerfile.dev"].file_type == "dockerfile"
+        assert graph.nodes["Makefile"].file_type == "config"
+
+    def test_bare_package_names_are_still_dropped_from_plan(self):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": "moment", "priority": 3},
+            {"path": "axios", "priority": 3},
+            {"path": "main.py", "priority": 1},
+        ]})
+
+        assert "moment" not in graph.nodes
+        assert "axios" not in graph.nodes
+        assert "main.py" in graph.nodes
+
     def test_generic_utils_file_types_are_inferred_from_paths(self, graph):
         architecture = {
             "file_plan": [
