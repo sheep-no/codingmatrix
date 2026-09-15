@@ -349,6 +349,68 @@ def test_symbol_check_still_flags_undefined_function():
     assert any("missing_helper" in message for message in messages)
 
 
+def _model_issues(files):
+    validator = _python_validator()
+    issues = asyncio.run(
+        validator.validate_cross_file_consistency(files, {"language": "python"})
+    )
+    return [issue for issue in issues if issue["type"] == "model_mismatch"]
+
+
+def test_pydantic_model_fields_are_kept_for_sqlalchemy_scan():
+    # `(BaseModel)` 曾命中 SQLAlchemy 的 Base 正则并用空字段覆盖 pydantic 模型
+    files = {
+        "schemas.py": (
+            "from pydantic import BaseModel\n"
+            "\n"
+            "class UserOut(BaseModel):\n"
+            "    id: int\n"
+            "    name: str\n"
+        ),
+        "crud.py": (
+            "from schemas import UserOut\n"
+            "\n"
+            "def make(user_id: int, name: str) -> UserOut:\n"
+            "    return UserOut(id=user_id, name=name)\n"
+        ),
+    }
+    assert _model_issues(files) == []
+
+
+def test_model_mismatch_ignores_comments_and_docstrings():
+    files = {
+        "schemas.py": (
+            "from pydantic import BaseModel\n"
+            "\n"
+            "class Ping(BaseModel):\n"
+            "    ok: bool\n"
+        ),
+        "main.py": (
+            "from schemas import Ping\n"
+            "\n"
+            "def build():\n"
+            '    """用法示例: Ping(extra=1)"""\n'
+            "    # Ping(retired=True) 是旧写法\n"
+            "    return Ping(ok=True)\n"
+        ),
+    }
+    assert _model_issues(files) == []
+
+
+def test_model_mismatch_still_flags_unknown_field():
+    files = {
+        "schemas.py": (
+            "from pydantic import BaseModel\n"
+            "\n"
+            "class Ping(BaseModel):\n"
+            "    ok: bool\n"
+        ),
+        "main.py": 'from schemas import Ping\n\nping = Ping(ok=True, missing=True)\n',
+    }
+    messages = [issue["message"] for issue in _model_issues(files)]
+    assert any("missing" in message for message in messages)
+
+
 def test_generate_missing_modules_raises_when_file_absent():
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext

@@ -1267,13 +1267,16 @@ class CrossValidator:
             if Path(file_path).suffix not in supported_extensions:
                 continue
 
+            # 屏蔽注释与字符串，避免把示例代码当成真实实例化
+            scan_content = self._mask_python_noncode(content, file_path)
+
             # 检查模型实例化的字段是否与定义一致
             for model_name, model_info in model_defs.items():
-                if model_name in content:
+                if model_name in scan_content:
                     defined_fields = model_info['fields']
                     # 查找模型实例化
                     init_pattern = rf'{model_name}\s*\(([\s\S]*?)\)'
-                    for match in re.finditer(init_pattern, content):
+                    for match in re.finditer(init_pattern, scan_content):
                         init_body = match.group(1)
                         # 提取使用的字段
                         used_fields = re.findall(r'(\w+)\s*=', init_body)
@@ -1287,6 +1290,38 @@ class CrossValidator:
                                 })
 
         return issues
+
+    def _mask_python_noncode(self, content: str, file_path: str) -> str:
+        """把 Python 注释与字符串字面量替换为空白，保留代码结构。
+
+        注释或文档字符串里的示例调用会被正则误判为真实实例化，先在扫描前屏蔽。
+        非 Python 文件或无法 tokenize 时原样返回。
+        """
+        if Path(file_path).suffix not in {'.py', '.pyw', '.pyi'} or not content:
+            return content
+        import io
+        import tokenize
+
+        try:
+            tokens = list(tokenize.generate_tokens(io.StringIO(content).readline))
+        except (tokenize.TokenError, IndentationError, SyntaxError, ValueError):
+            return content
+
+        grid = [list(line) for line in content.splitlines(keepends=True)]
+        for tok in tokens:
+            if tok.type not in (tokenize.COMMENT, tokenize.STRING):
+                continue
+            (start_row, start_col), (end_row, end_col) = tok.start, tok.end
+            for row in range(start_row, end_row + 1):
+                if row - 1 >= len(grid):
+                    continue
+                line = grid[row - 1]
+                begin = start_col if row == start_row else 0
+                stop = end_col if row == end_row else len(line)
+                for col in range(begin, min(stop, len(line))):
+                    if line[col] != '\n':
+                        line[col] = ' '
+        return ''.join(''.join(line) for line in grid)
 
     def _extract_model_definitions(self, files: Dict[str, str]) -> Dict[str, Dict]:
         """提取模型定义"""
@@ -1309,12 +1344,18 @@ class CrossValidator:
                     'type': 'pydantic'
                 }
 
-            # SQLAlchemy 模型
-            pattern = r'class\s+(\w+)\s*\([^)]*Base[^)]*\):([\s\S]*?)(?=class|\Z)'
+            # SQLAlchemy 模型（Base 需为独立标识符，排除 BaseModel）
+            pattern = (
+                r'class\s+(\w+)\s*\((?![^)]*BaseModel)[^)]*\bBase\b[^)]*\):'
+                r'([\s\S]*?)(?=class|\Z)'
+            )
             for match in re.finditer(pattern, content):
                 model_name = match.group(1)
                 model_body = match.group(2)
-                fields = re.findall(r'(\w+)\s*=\s*Column', model_body)
+                fields = re.findall(r'(\w+)\s*=\s*(?:\w+\.)?Column', model_body)
+                if not fields:
+                    # 基类名含 Base 但无 Column 字段，说明是别的模型基类
+                    continue
                 models[model_name] = {
                     'fields': fields,
                     'file': file_path,
