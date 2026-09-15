@@ -62,6 +62,38 @@ def test_extract_rejects_tool_call_json_before_persistence(tmp_path):
     assert utils.is_placeholder_content(content, "app/models.py")[0] is True
 
 
+def test_placeholder_accepts_tool_registry_data():
+    """工具注册表里的 {"tool": ..., "params": ...} 是合法业务数据，不是泄漏。"""
+    content = (
+        "TOOLS = [\n"
+        '    {"tool": "search", "params": {"q": "text"}},\n'
+        '    {"tool": "calc", "params": {"expr": "1+1"}},\n'
+        "]\n"
+        "\n"
+        "\n"
+        "def get_tool(name):\n"
+        '    return next((t for t in TOOLS if t["tool"] == name), None)\n'
+    )
+
+    assert utils.is_placeholder_content(content, "app/tools.py")[0] is False
+
+
+def test_placeholder_accepts_llm_function_schema():
+    content = (
+        'SCHEMA = {"tool": "get_weather", "params": {"city": "beijing"}}\n'
+        "\n"
+        "\n"
+        "def build_prompt(schema):\n"
+        "    return str(schema)\n"
+    )
+
+    assert utils.is_placeholder_content(content, "app/llm.py")[0] is False
+
+
+def test_placeholder_rejects_whole_content_tool_call_json():
+    assert utils.is_placeholder_content('{"tool": "search"}\n', "app/x.py")[0] is True
+
+
 def test_placeholder_accepts_module_docstring_with_reexports():
     content = '"""Module: app.services"""\nfrom .auth import login\n'
 
