@@ -1,6 +1,10 @@
 import json
 
-from app.agent.utils import is_valid_code_content, try_extract_from_metadata
+from app.agent.utils import (
+    _is_edit_marker,
+    is_valid_code_content,
+    try_extract_from_metadata,
+)
 
 
 def test_pom_validation_accepts_well_formed_project() -> None:
@@ -94,3 +98,19 @@ def test_wrapped_json_output_is_still_extracted() -> None:
     wrapped = json.dumps({"status": "completed", "file_path": "config.json", "content": inner})
 
     assert try_extract_from_metadata("config.json", wrapped) == inner
+
+
+def test_json_config_is_not_treated_as_edit_marker() -> None:
+    payload = json.dumps({"status": "active", "output": "dist/", "port": 8000})
+
+    assert not _is_edit_marker(payload, "data/config.json")
+
+
+def test_json_explicit_action_is_still_an_edit_marker() -> None:
+    assert _is_edit_marker(json.dumps({"action": "edited"}), "data/config.json")
+
+
+def test_code_file_metadata_payload_is_still_an_edit_marker() -> None:
+    payload = json.dumps({"status": "completed", "file_path": "app/main.py"})
+
+    assert _is_edit_marker(payload, "app/main.py")
