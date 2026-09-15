@@ -300,9 +300,10 @@ class CodeValidator:
                 if re.search(r'class\s+\w+\(.*Base.*BaseModel.*\)', source):
                     errors.append("SQLAlchemy 兼容性: 不能同时继承 Base 和 BaseModel (MRO 冲突)")
 
-            # APIRouter.exception_handler 不存在
-            if 'router.exception_handler' in source or 'APIRouter' in source and '.exception_handler' in source:
-                errors.append("FastAPI 兼容性: APIRouter 没有 exception_handler 属性，异常处理应在 app 级别注册")
+            # APIRouter.exception_handler 不存在（app.exception_handler 是合法写法）
+            router_names = set(re.findall(r'(\w+)\s*=\s*APIRouter\s*\(', source))
+            if any(f'{name}.exception_handler' in source for name in router_names):
+                errors.append("FastAPI 兼容性: APIRouter 没有 exception_handler 属性，应改用 router.add_exception_handler 或 app 级别注册")
 
         except Exception as e:
             errors.append(f"API 兼容性检查异常: {str(e)}")
@@ -368,14 +369,17 @@ class CodeValidator:
                 content = f.read()
 
             errors = []
-            # 检查大括号匹配
-            open_braces = content.count('{')
-            close_braces = content.count('}')
+            # 检查大括号匹配：注释和字符串里的 { } 不算结构字符
+            # （如 content: "}" 或 /* } */ 会干扰纯计数）
+            sanitized = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+            sanitized = re.sub(r'"[^"\n]*"|\'[^\'\n]*\'', '', sanitized)
+            open_braces = sanitized.count('{')
+            close_braces = sanitized.count('}')
             if open_braces != close_braces:
                 errors.append(f"CSS 语法: 大括号不匹配 (开: {open_braces}, 关: {close_braces})")
 
             # 检查是否有明显的语法错误（如连续的分号）
-            if ';;' in content:
+            if ';;' in sanitized:
                 errors.append("CSS 语法: 存在连续的分号")
 
             return len(errors) == 0, errors
