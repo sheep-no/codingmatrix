@@ -1825,56 +1825,26 @@ class SpecFirstGenerateMixin:
         elif ext == '.ts':
             # TypeScript syntax (including decorators and annotations) cannot be
             # parsed by `node -c`; use the installed compiler's parser only.
-            import shutil
-            import tempfile
-            import subprocess
-            tsc_path = shutil.which('tsc')
-            if not tsc_path:
-                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
-            typescript_module = Path(tsc_path).resolve().parent.parent / 'lib' / 'typescript.js'
-            if not typescript_module.is_file():
-                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
-            try:
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.ts', delete=False) as f:
-                    f.write(content)
-                    tmp_path = f.name
-                script = (
-                    "const ts=require(process.argv[1]);const fs=require('fs');"
-                    "const source=fs.readFileSync(process.argv[2],'utf8');"
-                    "const result=ts.transpileModule(source,{reportDiagnostics:true,compilerOptions:{"
-                    "target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,"
-                    "experimentalDecorators:true,emitDecoratorMetadata:true}});"
-                    "process.exit(result.diagnostics?.some(d=>d.category===ts.DiagnosticCategory.Error)?1:0);"
-                )
-                result = subprocess.run(
-                    ['node', '-e', script, str(typescript_module), tmp_path],
-                    capture_output=True, text=True, timeout=5
-                )
-                Path(tmp_path).unlink(missing_ok=True)
-                return result.returncode == 0
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
+            return self._check_ts_source(content)
 
         elif ext in ('.js', '.vue'):
-            # 检测 Python 代码混入 JS 文件
-            python_indicators = ['def ', 'import ', 'from ', 'class ', 'self.', 'print(']
-            python_count = sum(1 for ind in python_indicators if ind in content)
-            if python_count >= 3:
-                return False
-            import tempfile
-            import subprocess
-            try:
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
-                    f.write(content)
-                    tmp_path = f.name
-                result = subprocess.run(
-                    ['node', '-c', tmp_path],
-                    capture_output=True, text=True, timeout=5
+            source = content
+            use_ts = False
+            if ext == '.vue':
+                # .vue 是单文件组件：模板和样式不是 JS，只校验 <script> 块。
+                blocks = re.findall(
+                    r'<script([^>]*)>(.*?)</script>', content, re.DOTALL | re.IGNORECASE
                 )
-                Path(tmp_path).unlink(missing_ok=True)
-                return result.returncode == 0
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
+                if not blocks:
+                    return True
+                use_ts = any(
+                    re.search(r'lang\s*=\s*["\']?tsx?["\']?', attrs, re.IGNORECASE)
+                    for attrs, _ in blocks
+                )
+                source = "\n;\n".join(body for _, body in blocks)
+            if use_ts:
+                return self._check_ts_source(source)
+            return self._check_js_source(source)
 
         elif ext == '.html':
             for tag in ['html', 'head', 'body']:
@@ -1887,16 +1857,77 @@ class SpecFirstGenerateMixin:
             return script_opens == script_closes
 
         elif ext == '.css':
-            if content.count('{') != content.count('}'):
+            # 注释和字符串里的 { } 不算结构字符（content: "}" / /* } */）
+            sanitized = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+            sanitized = re.sub(r'"[^"\n]*"|\'[^\'\n]*\'', '', sanitized)
+            if sanitized.count('{') != sanitized.count('}'):
                 return False
             # 检测非 CSS 内容（大段中文描述文本）
-            lines = [l.strip() for l in content.split('\n') if l.strip() and not l.strip().startswith('/*')]
+            lines = [l.strip() for l in sanitized.split('\n') if l.strip()]
             chinese_lines = sum(1 for l in lines if len(re.findall(r'[\u4e00-\u9fff]', l)) > 10)
             if chinese_lines > len(lines) * 0.3 and chinese_lines > 3:
                 return False
             return True
 
         return True
+
+    def _check_ts_source(self, source: str) -> bool:
+        """校验 TypeScript 源码（node -c 无法解析装饰器/类型注解）。"""
+        import shutil
+        import tempfile
+        import subprocess
+        balanced = source.count('{') == source.count('}') and source.count('(') == source.count(')')
+        tsc_path = shutil.which('tsc')
+        if not tsc_path:
+            return balanced
+        typescript_module = Path(tsc_path).resolve().parent.parent / 'lib' / 'typescript.js'
+        if not typescript_module.is_file():
+            return balanced
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.ts', delete=False) as f:
+                f.write(source)
+                tmp_path = f.name
+            script = (
+                "const ts=require(process.argv[1]);const fs=require('fs');"
+                "const source=fs.readFileSync(process.argv[2],'utf8');"
+                "const result=ts.transpileModule(source,{reportDiagnostics:true,compilerOptions:{"
+                "target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,"
+                "experimentalDecorators:true,emitDecoratorMetadata:true}});"
+                "process.exit(result.diagnostics?.some(d=>d.category===ts.DiagnosticCategory.Error)?1:0);"
+            )
+            result = subprocess.run(
+                ['node', '-e', script, str(typescript_module), tmp_path],
+                capture_output=True, text=True, timeout=5
+            )
+            Path(tmp_path).unlink(missing_ok=True)
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return balanced
+
+    def _check_js_source(self, source: str) -> bool:
+        """校验 JS 源码。node 不可用时退回启发式，只把 Python 专有语法判为失败。"""
+        import tempfile
+        import subprocess
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
+                f.write(source)
+                tmp_path = f.name
+            result = subprocess.run(
+                ['node', '-c', tmp_path],
+                capture_output=True, text=True, timeout=5
+            )
+            Path(tmp_path).unlink(missing_ok=True)
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            python_only = (
+                r'^\s*def\s+\w+\s*\(.*\)\s*:',
+                r'^\s*elif\s+.*:\s*$',
+                r'^\s*class\s+\w+(\([^)]*\))?\s*:\s*$',
+                r'\bself\.',
+            )
+            if any(re.search(p, source, re.MULTILINE) for p in python_only):
+                return False
+            return source.count('{') == source.count('}') and source.count('(') == source.count(')')
 
     def _strip_output_dir_prefix(self, file_path: str) -> str:
         """去除 file_path 中可能的 output_dir 前缀，避免路径重复"""
