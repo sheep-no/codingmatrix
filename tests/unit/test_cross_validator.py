@@ -288,6 +288,67 @@ def test_package_entry_content_rejects_plain_modules():
     assert _package_entry_content("app/utils.py", None, Adapter(), {}) is None
 
 
+def _python_validator():
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+    from app.agent.adapters.python import PythonLanguageAdapter
+
+    return CrossValidator(SharedContext("test", Path(".")), language_adapter=PythonLanguageAdapter())
+
+
+def _symbol_issues(files):
+    validator = _python_validator()
+    issues = asyncio.run(
+        validator.validate_cross_file_consistency(files, {"language": "python"})
+    )
+    return [issue for issue in issues if issue["type"].startswith("symbol_")]
+
+
+def test_symbol_check_ignores_instance_and_class_attributes():
+    files = {
+        "calc.py": (
+            "class Calculator:\n"
+            "    KIND = \"calc\"\n"
+            "\n"
+            "    def __init__(self):\n"
+            "        self.total = 0\n"
+            "\n"
+            "    def add(self, value):\n"
+            "        self.total += value\n"
+            "        return self.total\n"
+        ),
+        "main.py": (
+            "from calc import Calculator\n"
+            "\n"
+            "calc = Calculator()\n"
+            "print(Calculator.KIND, calc.add(5))\n"
+        ),
+    }
+    assert _symbol_issues(files) == []
+
+
+def test_symbol_check_ignores_dotted_and_external_calls():
+    files = {
+        "app.py": (
+            "import json\n"
+            "from flask import Flask\n"
+            "\n"
+            "app = Flask(__name__)\n"
+            "\n"
+            "@app.route(\"/\")\n"
+            "def index():\n"
+            "    return json.dumps({\"ok\": True})\n"
+        ),
+    }
+    assert _symbol_issues(files) == []
+
+
+def test_symbol_check_still_flags_undefined_function():
+    files = {"main.py": "def run():\n    return missing_helper()\n"}
+    messages = [issue["message"] for issue in _symbol_issues(files)]
+    assert any("missing_helper" in message for message in messages)
+
+
 def test_generate_missing_modules_raises_when_file_absent():
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext
