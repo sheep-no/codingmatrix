@@ -954,6 +954,11 @@ class CrossValidator:
                 if not func_info.signature:
                     continue
 
+                # 调用点使用 *args / **kwargs 展开时，实参个数静态未知，
+                # 无法判断是否缺参，跳过本次数量校验。
+                if any(arg.startswith('*') for arg in self._split_top_level_args(call_args)):
+                    continue
+
                 # 提取定义中的参数
                 defined_params = self._extract_function_params(func_info.signature)
                 # 提取调用中的参数

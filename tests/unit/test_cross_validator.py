@@ -611,6 +611,34 @@ def test_signature_check_still_reports_missing_cross_file_argument():
     assert "port" in messages[0]
 
 
+def test_signature_check_skips_star_args_unpacking():
+    # 调用点用 *args / **kwargs 展开，实参个数静态未知，不应报缺参
+    files = {
+        "calc.py": "def connect(host, port):\n    return host\n",
+        "main.py": (
+            "from calc import connect\n"
+            "args = ('localhost', 80)\n"
+            "kw = {'host': 'x', 'port': 80}\n"
+            "connect(*args)\n"
+            "connect(**kw)\n"
+            "connect(*(1, 2))\n"
+        ),
+    }
+    assert _missing_argument_issues(files) == []
+
+
+def test_signature_check_still_reports_missing_after_partial_positional():
+    # 部分位置参数满足首个必需参数后，仍缺后续必需参数
+    files = {
+        "calc.py": "def build(name, opts, timeout):\n    return name\n",
+        "main.py": "from calc import build\n\nbuild('n')\n",
+    }
+    messages = _missing_argument_issues(files)
+    assert len(messages) == 2
+    assert any("opts" in message for message in messages)
+    assert any("timeout" in message for message in messages)
+
+
 def test_generate_missing_modules_raises_when_file_absent():
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext
