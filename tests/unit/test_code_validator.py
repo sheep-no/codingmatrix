@@ -117,6 +117,67 @@ class TestCodeValidator:
         assert ok is True
         assert errors == []
 
+    @pytest.mark.asyncio
+    async def test_api_compatibility_allows_app_level_exception_handler(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "main.py"
+        target.write_text(
+            "from fastapi import APIRouter, FastAPI\n\n"
+            "router = APIRouter()\n"
+            "app = FastAPI()\n\n"
+            "@app.exception_handler(Exception)\n"
+            "async def handler(request, exc):\n    return None\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_api_compatibility(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_api_compatibility_flags_router_exception_handler(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "routes.py"
+        target.write_text(
+            "from fastapi import APIRouter\n\nrouter = APIRouter()\nrouter.exception_handler(Exception)\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_api_compatibility(target)
+
+        assert ok is False
+        assert any("exception_handler" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_css_braces_inside_strings_and_comments_are_ignored(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "styles.css"
+        target.write_text(
+            '/* } */\nbody::after {\n  content: "}";\n}\n',
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_css_syntax(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_css_unbalanced_braces_still_flagged(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "broken.css"
+        target.write_text("body {\n  margin: 0;\n", encoding="utf-8")
+
+        ok, errors = await validator.validate_css_syntax(target)
+
+        assert ok is False
+        assert any("大括号不匹配" in err for err in errors)
+
 class TestCodeValidatorLRU:
     def test_lru_cache_limit(self):
         from app.agent.code_validator import CodeValidator
