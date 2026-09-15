@@ -55,6 +55,7 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 根配置 `playwright.config.js` 的 `testDir` 为 `./tests/e2e`；运行时用根 CLI + `src/node_modules/@playwright/test`，并设置 `PLAYWRIGHT_EXECUTABLE_PATH` 指向 ms-playwright chromium。
   - 智谱免费档并发：`glm-4.7-flash=1`，`glm-4-flash-250414=20`，`glm-z1-flash` 未单独限流（代码默认 6，受全局 LLM 信号量 6 约束）。
   - Agent 实测用 `TEST_API_KEY`（供应商 `glm`）+ 超管 `mr_yang@example.com` 改角色；流式请求走 `preferredAgentKey`，测完恢复 YAML 角色。
+  - `tests/e2e/agent-semi-import-live.spec.js` 的增量架构师用 `glm-4.7-flash`，该模型易触发上游 429（code 1305），会在 `_analyze_changes_with_architect` 硬失败而非降级；重跑前需冷却数分钟。
 
 ### 扫描文件先定作用与状态再深入
 - Date: 2026-08-26
