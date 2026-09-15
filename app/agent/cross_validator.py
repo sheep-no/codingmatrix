@@ -168,6 +168,25 @@ class CrossValidator:
   "final_code": "最终选用的代码（仅当winner为merged时提供）"
 }"""
 
+    # 前端在响应对象/数组/字符串上访问的运行时成员，不是后端响应字段。
+    # 字段级对比只看 JSON 负载字段，这类成员必须先排除，否则会误报 api_mismatch。
+    NON_FIELD_PROPERTY_NAMES = frozenset({
+        # fetch Response / Request / Headers
+        'json', 'text', 'blob', 'arrayBuffer', 'formData', 'clone',
+        'ok', 'status', 'statusText', 'headers', 'body', 'bodyUsed',
+        'redirected', 'type', 'url', 'method', 'mode', 'credentials',
+        # Promise
+        'then', 'catch', 'finally',
+        # Array / String / Object / Map / Set
+        'length', 'size', 'map', 'filter', 'reduce', 'reduceRight', 'forEach',
+        'find', 'findIndex', 'some', 'every', 'includes', 'indexOf', 'lastIndexOf',
+        'push', 'pop', 'shift', 'unshift', 'splice', 'slice', 'concat', 'join',
+        'split', 'trim', 'trimStart', 'trimEnd', 'replace', 'replaceAll',
+        'toLowerCase', 'toUpperCase', 'toString', 'valueOf', 'padStart', 'padEnd',
+        'keys', 'values', 'entries', 'has', 'get', 'set', 'add', 'delete', 'clear',
+        'sort', 'reverse', 'flat', 'flatMap', 'fill', 'at',
+    })
+
     def __init__(
         self,
         context: SharedContext,
@@ -707,6 +726,22 @@ class CrossValidator:
             'useState', 'useEffect', 'useContext', 'useCallback', 'useMemo',
             'createElement', 'createApp', 'createVNode', 'h', 'Fragment',
             'PropTypes', 'Component', 'PureComponent', 'memo', 'forwardRef',
+            # 浏览器/JS 运行时全局（非项目定义，文件级校验无法覆盖）
+            'fetch', 'console', 'document', 'window', 'navigator', 'location',
+            'localStorage', 'sessionStorage', 'history', 'screen',
+            'alert', 'confirm', 'prompt', 'setTimeout', 'clearTimeout',
+            'setInterval', 'clearInterval', 'requestAnimationFrame',
+            'cancelAnimationFrame', 'queueMicrotask', 'structuredClone',
+            'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent',
+            'decodeURIComponent', 'encodeURI', 'decodeURI', 'btoa', 'atob',
+            'Promise', 'JSON', 'Object', 'Array', 'Number', 'String', 'Boolean',
+            'Math', 'Date', 'RegExp', 'Error', 'TypeError', 'RangeError',
+            'Map', 'Set', 'WeakMap', 'WeakSet', 'Symbol', 'Proxy', 'Reflect',
+            'URL', 'URLSearchParams', 'Blob', 'File', 'FileReader', 'FormData',
+            'Headers', 'Response', 'Request', 'AbortController', 'EventSource',
+            'WebSocket', 'IntersectionObserver', 'ResizeObserver', 'MutationObserver',
+            'require', 'module', 'exports', 'process', 'global', 'Buffer',
+            'axios', 'swr', 'dayjs', 'moment',
             # CSS/HTML 常见属性
             'className', 'style', 'id', 'innerHTML', 'textContent',
             'addEventListener', 'removeEventListener', 'querySelector',
@@ -1230,7 +1265,9 @@ class CrossValidator:
                     ]
                     fields = []
                     for fp in field_patterns:
-                        fields.extend(re.findall(fp, surrounding))
+                        for field in re.findall(fp, surrounding):
+                            if field not in self.NON_FIELD_PROPERTY_NAMES:
+                                fields.append(field)
 
                     calls.append({
                         'endpoint': endpoint,
@@ -1241,17 +1278,29 @@ class CrossValidator:
         return calls
 
     def _find_matching_api(self, endpoint: str, apis: List[Dict]) -> Optional[Dict]:
-        """查找匹配的后端 API"""
+        """查找匹配的后端 API
+
+        三级匹配，先精确后宽松，避免被顺序影响：
+        1. 忽略末尾斜杠的精确匹配
+        2. 路径参数匹配（/api/items/{id} 匹配 /api/items/5）
+        3. 前端路径落在某条路由的子路径下
+        """
+        target = endpoint.rstrip('/')
 
         for api in apis:
-            api_path = api['path']
-            # 处理路径参数
-            api_pattern = re.sub(r'\{[^}]+\}', r'[^/]+', api_path)
-            if re.match(f'^{api_pattern}$', endpoint):
+            if api['path'].rstrip('/') == target:
                 return api
-            # 前缀匹配
-            if endpoint.startswith(api_path) or api_path.startswith(endpoint):
+
+        for api in apis:
+            api_pattern = re.sub(r'\{[^}]+\}', r'[^/]+', api['path'].rstrip('/'))
+            if re.match(f'^{api_pattern}$', target):
                 return api
+
+        for api in apis:
+            api_path = api['path'].rstrip('/')
+            if api_path and target.startswith(f'{api_path}/'):
+                return api
+
         return None
 
     def _validate_model_consistency(self, files: Dict[str, str]) -> List[Dict[str, str]]:
