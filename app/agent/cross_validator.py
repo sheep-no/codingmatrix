@@ -432,12 +432,21 @@ class CrossValidator:
         # 提取所有符号使用
         all_usages = self._extract_all_usages(files)
 
+        # 标准库/第三方导入的符号无法用项目文件校验，跳过
+        external_symbols = {
+            file_path: self._external_imported_symbols(content, file_path)
+            for file_path, content in files.items()
+        }
+
         # 检查每个使用是否对应一个定义
         for usage in all_usages:
             symbol_name = usage.name
 
             # 跳过内置函数和常见第三方库符号
             if self._is_builtin_symbol(symbol_name):
+                continue
+
+            if symbol_name in external_symbols.get(usage.file_path, set()):
                 continue
 
             # 检查是否有对应的定义
@@ -634,34 +643,23 @@ class CrossValidator:
             if _DEF_LINE_RE.match(stripped):
                 continue
 
-            # 匹配函数调用
-            func_calls = re.findall(r'(\w+)\s*\(', stripped)
-            for func_name in func_calls:
-                if not self._is_builtin_symbol(func_name):
+            # 匹配函数调用与类实例化。
+            # 带点号的调用（obj.method()、module.func()、@app.route()）是成员
+            # 引用，无法用文件级定义校验，跳过以免误报。
+            for match in re.finditer(r'(\w+)\s*\(', stripped):
+                name = match.group(1)
+                if match.start() > 0 and stripped[match.start() - 1] == '.':
+                    continue
+                if name[0].isupper():
                     usages.append(SymbolUsage(
-                        name=func_name,
+                        name=name,
                         file_path=file_path,
                         line_number=i,
                         context=stripped[:100]
                     ))
-
-            # 匹配类实例化
-            class_instantiations = re.findall(r'(\w+)\s*\(', stripped)
-            for class_name in class_instantiations:
-                if class_name[0].isupper():  # 类名通常大写开头
+                elif not self._is_builtin_symbol(name):
                     usages.append(SymbolUsage(
-                        name=class_name,
-                        file_path=file_path,
-                        line_number=i,
-                        context=stripped[:100]
-                    ))
-
-            # 匹配属性访问（obj.attr）
-            attr_accesses = re.findall(r'\.(\w+)', stripped)
-            for attr_name in attr_accesses:
-                if not attr_name.startswith('_'):
-                    usages.append(SymbolUsage(
-                        name=attr_name,
+                        name=name,
                         file_path=file_path,
                         line_number=i,
                         context=stripped[:100]
@@ -735,6 +733,25 @@ class CrossValidator:
             'Path', 'PurePath', 'PosixPath', 'WindowsPath',
         }
         return name in builtins
+
+    def _external_imported_symbols(self, content: str, file_path: str) -> Set[str]:
+        """本文件从标准库/第三方导入的符号名，这些符号无法用项目文件校验。"""
+        adapter = self.language_adapter
+        if not adapter or not content:
+            return set()
+        try:
+            imports = adapter.parse_imports(content, file_path)
+        except Exception as exc:
+            logger.debug(f"parse_imports 失败，跳过外部导入判定: {exc}")
+            return set()
+        symbols: Set[str] = set()
+        for imp in imports:
+            if imp.is_relative or adapter.is_project_module(imp.module):
+                continue
+            symbols.update(imp.symbols or [])
+            if imp.alias:
+                symbols.add(imp.alias)
+        return symbols
 
     def _find_symbol_source(self, symbol_name: str, usage_file: str, files: Dict[str, str]) -> Optional[str]:
         """查找符号的源文件"""
