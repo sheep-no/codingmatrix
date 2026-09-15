@@ -1278,8 +1278,11 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
 
     # 检查代码中嵌入的工具调用 JSON（不在开头，但在代码中间）
     for pattern in embedded_tool_call_patterns:
-        if re.search(pattern, stripped):
-            return True, f"代码中嵌入了工具调用 JSON"
+        # 只有内容整体就是一个工具调用 JSON 时才判为泄漏（LLM 误返回工具调用
+        # 而非代码）。工具注册表、LLM function schema、API 响应夹具等合法代码
+        # 同样包含 `{"tool": ..., "params": {...}}`，按子串匹配会大面积误报。
+        if re.fullmatch(rf"\s*{pattern}\s*", stripped, re.DOTALL):
+            return True, "内容整体为工具调用 JSON"
 
     return False, ""
 
