@@ -339,8 +339,11 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
             if stripped.startswith('//') or stripped.startswith('/*'):
                 continue
 
-            # 函数定义: function xxx() / async function xxx()
-            func_match = re.match(r'^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\((.*?)\)', stripped)
+            # 函数定义: function xxx() / async function xxx() / export default function xxx()
+            func_match = re.match(
+                r'^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)\s*\((.*?)\)',
+                stripped
+            )
             if func_match:
                 func_name = func_match.group(1)
                 signature = func_match.group(2)
