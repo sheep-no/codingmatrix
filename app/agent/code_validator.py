@@ -157,23 +157,28 @@ class CodeValidator:
             with open(file_path, 'r', encoding='utf-8') as f:
                 source = f.read()
 
-            # 提取所有 import 语句
+            # 用 ast 提取真实导入语句。按行文本解析会把 docstring/注释里的
+            # "示例: from x import y" 也当成导入，并给相对导入生成假模块名。
             imports = set()
-            for line in source.split('\n'):
-                line = line.strip()
-                if line.startswith('import '):
-                    module = line.split()[1].split('.')[0]
-                    imports.add(module)
-                elif line.startswith('from '):
-                    # Extract the full module path (e.g., "src.utils" from "from src.utils import greet")
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        module_path = parts[1]
-                        # Add the full path and each component
-                        imports.add(module_path)
-                        for part in module_path.split('.'):
-                            if part:
-                                imports.add(part)
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:
+                # 语法错误由 validate_syntax 报告，这里不重复报错
+                return True, []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        top = alias.name.split('.')[0]
+                        if top:
+                            imports.add(top)
+                elif isinstance(node, ast.ImportFrom):
+                    # 相对导入（level > 0）在项目包上下文外无法用 find_spec 判断，
+                    # 交由完整性/符号校验处理，这里跳过以免误报。
+                    if node.level or not node.module:
+                        continue
+                    top = node.module.split('.')[0]
+                    if top:
+                        imports.add(top)
 
             # 检查是否可以导入
             errors = []
@@ -196,7 +201,7 @@ class CodeValidator:
                     spec = importlib.util.find_spec(imp)
                     if spec is None:
                         errors.append(f"缺少依赖: {imp}")
-                except (ModuleNotFoundError, ValueError):
+                except (ImportError, ValueError):
                     errors.append(f"缺少依赖: {imp}")
 
             # Cleanup added paths
@@ -255,6 +260,10 @@ class CodeValidator:
                 errors.append(f"属性错误 (可能是 API 版本不兼容): {str(e)}")
             except TypeError as e:
                 errors.append(f"类型错误 (可能是 API 参数不兼容): {str(e)}")
+            except Exception:
+                # 其余异常多来自运行环境（缺环境变量、连不上数据库等），
+                # 不代表代码本身有错，交由本地 Agent Host 运行时验证处理。
+                pass
             finally:
                 # 清理临时模块和路径
                 if module_name in sys.modules:

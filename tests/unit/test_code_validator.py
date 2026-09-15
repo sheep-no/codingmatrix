@@ -59,6 +59,64 @@ class TestCodeValidator:
 
         assert result["is_valid"] is True
 
+    @pytest.mark.asyncio
+    async def test_validate_imports_skips_relative_imports(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "services.py"
+        target.write_text(
+            "from .models import Item\nfrom ..shared import util\n\nVALUE = 1\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_imports(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_validate_imports_ignores_docstring_examples(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "docs.py"
+        target.write_text(
+            '"""\nUsage:\n    import def_not_installed_lib\n    from other_missing import x\n"""\n'
+            "\nVALUE = 1\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_imports(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_validate_imports_still_flags_missing_module(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "bad.py"
+        target.write_text("import definitely_not_installed_lib_xyz\n", encoding="utf-8")
+
+        ok, errors = await validator.validate_imports(target)
+
+        assert ok is False
+        assert any("definitely_not_installed_lib_xyz" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_runtime_imports_ignore_environment_errors(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "env_required.py"
+        target.write_text(
+            'import os\n\nDB_URL = os.environ["AGENT_TEST_MISSING_ENV"]\n',
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_runtime_imports(target)
+
+        assert ok is True
+        assert errors == []
+
 class TestCodeValidatorLRU:
     def test_lru_cache_limit(self):
         from app.agent.code_validator import CodeValidator
