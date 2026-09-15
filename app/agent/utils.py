@@ -334,7 +334,8 @@ def is_valid_code_content(file_path: str, content: str) -> tuple:
 
     # 符号启发式只用于没有确定性语法校验的类型；docstring 中的项目符号
     # （- / 1. / >）会让合法代码命中，因此 .py 等类型交给解析器判定。
-    if ext not in ('.py', '.pyw', '.pyi', '.json') and name != 'pom.xml':
+    # 文档类文件的正确内容本来就是 Markdown/富文本，不能据此判为无效。
+    if ext not in ('.py', '.pyw', '.pyi', '.json', '.md', '.markdown', '.rst') and name != 'pom.xml':
         # 检查是否是 Markdown 文档（用特征模式而非单个 #）
         md_patterns = ['## ', '### ', '- ', '* ', '1. ', '```', '> ']
         md_count = sum(1 for p in md_patterns if p in stripped[:500])
