@@ -19,6 +19,24 @@ def test_strip_leading_file_label_preserves_regular_first_line():
     assert utils.strip_leading_file_label(content, "app/main.py") == content
 
 
+def test_clean_code_block_strips_leading_think_block():
+    content = "<think>let me plan</think>\n```python\nx = 1\n```"
+
+    assert utils.clean_code_block(content) == "x = 1"
+
+
+def test_clean_code_block_keeps_think_literal_inside_code():
+    content = 'PROMPT = "<think>请思考</think>"\ndef build():\n    return PROMPT\n'
+
+    assert utils.clean_code_block(content) == content.strip()
+
+
+def test_clean_code_block_keeps_thinking_literal_in_docstring():
+    content = '"""解释 <thinking> 标签的用法"""\ndef doc():\n    pass\n'
+
+    assert utils.clean_code_block(content) == content.strip()
+
+
 def test_reusable_existing_file_content_accepts_complete_python():
     content = "def main():\n    print('Hello World')\n\nif __name__ == '__main__':\n    main()\n"
     reusable, reason = utils.reusable_existing_file_content("hello.py", content)
