@@ -1451,8 +1451,9 @@ def validate_content_quality(file_path: str, content: str) -> str:
 
     # CSS 文件内容校验
     if ext == '.css':
-        # CSS 不应包含大段中文描述（排除注释）
-        lines = [l.strip() for l in stripped.split('\n') if l.strip() and not l.strip().startswith('/*')]
+        # CSS 不应包含大段中文描述（先剥离注释，中文注释是合法内容）
+        no_comments = re.sub(r'/\*.*?\*/', '', stripped, flags=re.DOTALL)
+        lines = [l.strip() for l in no_comments.split('\n') if l.strip()]
         chinese_lines = sum(1 for l in lines if len(re.findall(r'[\u4e00-\u9fff]', l)) > 10)
         if chinese_lines > len(lines) * 0.3 and chinese_lines > 3:
             return f"CSS 文件包含大量中文文本（{chinese_lines}/{len(lines)} 行），疑似非代码内容"
