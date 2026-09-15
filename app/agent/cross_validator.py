@@ -896,18 +896,27 @@ class CrossValidator:
                 defined_params = self._extract_function_params(func_info.signature)
                 # 提取调用中的参数
                 call_params = self._extract_call_params(call_args)
+                positional_count = self._count_positional_args(call_args)
 
                 # 检查必需参数是否都已提供
+                # 位置参数按定义顺序占用必需参数，避免把 f(x) 误报为缺少参数
+                has_varargs = 'kwargs' in defined_params or 'args' in defined_params
                 for param_name, param_default in defined_params.items():
-                    if param_default is None and param_name not in call_params and param_name != 'self':
-                        # 检查是否有 **kwargs 或 *args
-                        if 'kwargs' not in ''.join(defined_params.keys()) and 'args' not in ''.join(defined_params.keys()):
-                            issues.append({
-                                "type": "missing_argument",
-                                "file": file_path,
-                                "message": f"函数 '{func_name}' 缺少必需参数: {param_name}",
-                                "suggestion": f"在调用 {func_name}() 时提供参数 '{param_name}'"
-                            })
+                    if param_default is not None or param_name == 'self':
+                        continue
+                    if param_name in call_params:
+                        continue
+                    if positional_count > 0:
+                        positional_count -= 1
+                        continue
+                    if has_varargs:
+                        continue
+                    issues.append({
+                        "type": "missing_argument",
+                        "file": file_path,
+                        "message": f"函数 '{func_name}' 缺少必需参数: {param_name}",
+                        "suggestion": f"在调用 {func_name}() 时提供参数 '{param_name}'"
+                    })
 
         return issues
 
@@ -953,6 +962,16 @@ class CrossValidator:
                 pass
 
         return params
+
+    def _count_positional_args(self, call_args: str) -> int:
+        """统计位置参数个数（关键字参数与 * 展开不计入）"""
+        count = 0
+        for arg in call_args.split(','):
+            arg = arg.strip()
+            if not arg or arg.startswith('*') or '=' in arg:
+                continue
+            count += 1
+        return count
 
     def _validate_imports(self, files: Dict[str, str]) -> List[Dict[str, str]]:
         """验证导入语句
