@@ -4,6 +4,7 @@ from app.agent.utils import (
     _is_edit_marker,
     is_valid_code_content,
     try_extract_from_metadata,
+    validate_content_quality,
 )
 
 
@@ -139,3 +140,21 @@ def test_code_file_metadata_payload_is_still_an_edit_marker() -> None:
     payload = json.dumps({"status": "completed", "file_path": "app/main.py"})
 
     assert _is_edit_marker(payload, "app/main.py")
+
+
+def test_content_quality_allows_yaml_front_matter() -> None:
+    content = "---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n"
+
+    assert validate_content_quality("k8s/deploy.yaml", content) == ""
+    assert validate_content_quality("docs/guide.md", "---\ntitle: Guide\n---\n\n# Guide\n") == ""
+
+
+def test_content_quality_allows_docs_prose_first_line() -> None:
+    assert validate_content_quality("README.md", "This module provides a small API.\n") == ""
+    assert validate_content_quality("docs/intro.md", "The following is an overview.\n") == ""
+
+
+def test_content_quality_still_flags_code_reasoning_leak() -> None:
+    content = "Let me think about this.\n\n\ndef f():\n    return 1\n"
+
+    assert validate_content_quality("app/x.py", content) != ""
