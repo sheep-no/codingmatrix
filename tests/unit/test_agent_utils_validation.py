@@ -87,6 +87,22 @@ def test_markdown_is_still_rejected_for_non_syntax_checked_files() -> None:
     assert reason == "内容是 Markdown 文档而非代码"
 
 
+def test_markdown_documentation_file_is_accepted() -> None:
+    readme = "# Project\n\n## Install\n\n- step one\n- step two\n\n## Usage\n\n1. run\n2. done\n"
+
+    assert is_valid_code_content("README.md", readme)[0]
+    assert is_valid_code_content("docs/guide.rst", readme)[0]
+
+
+def test_markdown_metadata_payload_is_still_rejected_for_docs() -> None:
+    valid, reason = is_valid_code_content(
+        "README.md", json.dumps({"status": "completed", "content": "code here"})
+    )
+
+    assert not valid
+    assert reason == "内容是 JSON 元数据而非代码"
+
+
 def test_json_data_file_with_content_key_is_not_rewritten() -> None:
     payload = {"content": "正文" * 40, "title": "文章"}
 
