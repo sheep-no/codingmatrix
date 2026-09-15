@@ -41,6 +41,48 @@ def test_generation_plan_rejects_missing_dependency_and_unsafe_path() -> None:
         ])
 
 
+def test_generation_plan_resolves_module_style_dependencies() -> None:
+    """架构师按提示词在 dependencies 写模块名时，冻结不能误判计划损坏。"""
+    plan = GenerationPlan.from_architecture({
+        "language": "python",
+        "file_plan": [
+            {"path": "app/main.py", "dependencies": ["app.database", "app.routers.users"]},
+            {"path": "app/database.py"},
+            {"path": "app/routers/users.py", "dependencies": ["app.schemas"]},
+            {"path": "app/schemas.py"},
+        ],
+    })
+    dependencies = {item.path: list(item.dependencies) for item in plan.files}
+
+    assert dependencies["app/main.py"] == ["app/database.py", "app/routers/users.py"]
+    assert dependencies["app/routers/users.py"] == ["app/schemas.py"]
+
+
+def test_generation_plan_drops_external_and_self_dependencies() -> None:
+    plan = GenerationPlan.from_architecture({
+        "language": "python",
+        "file_plan": [
+            {"path": "app/main.py", "dependencies": ["fastapi", "sqlalchemy", "os", "app.main"]},
+        ],
+    })
+
+    assert list(plan.files[0].dependencies) == []
+
+
+def test_generation_plan_prefers_package_entry_for_directory_dependency() -> None:
+    plan = GenerationPlan.from_architecture({
+        "language": "javascript",
+        "file_plan": [
+            {"path": "src/index.js", "dependencies": ["src/components"]},
+            {"path": "src/components/index.js"},
+            {"path": "src/components/Card.jsx"},
+        ],
+    })
+
+    dependencies = {item.path: list(item.dependencies) for item in plan.files}
+    assert dependencies["src/index.js"] == ["src/components/index.js"]
+
+
 def test_profile_components_extend_only_extensible_plans() -> None:
     context = {"capability_policy": {"component_file_plan": [
         {"path": "game/rules.py", "component": "rules"},
