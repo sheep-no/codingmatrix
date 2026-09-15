@@ -341,6 +341,69 @@ class TestDependencyGraph:
         assert "axios" not in graph.nodes
         assert "main.py" in graph.nodes
 
+    def test_root_files_sharing_stdlib_names_are_kept(self):
+        """types.py / secrets.py 等与标准库同名的本地文件不能被当成外部库丢弃。
+
+        标准库名字是通用词；第三方包名（fastapi.py）仍按外部库丢弃。
+        """
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        planned = ["main.py", "types.py", "secrets.py", "logging.py", "email.py", "config.py"]
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": path, "priority": 2} for path in planned
+        ]})
+
+        assert sorted(graph.nodes) == sorted(planned)
+
+    def test_multi_package_init_files_are_not_deduplicated(self):
+        """包入口文件每包唯一，同名不代表重复；去重会丢掉多包项目的入口。"""
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        planned = [
+            "app/__init__.py",
+            "app/routers/__init__.py",
+            "app/models/__init__.py",
+            "tests/__init__.py",
+            "app/main.py",
+            "app/routers/users.py",
+        ]
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": path, "priority": 2} for path in planned
+        ]})
+
+        assert sorted(graph.nodes) == sorted(planned)
+
+    def test_multi_directory_index_files_are_not_deduplicated(self):
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        planned = ["src/index.js", "src/components/index.js", "src/utils/index.js", "src/App.jsx"]
+        graph = DependencyGraph(language_adapter=JavaScriptLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": path, "priority": 2} for path in planned
+        ]})
+
+        assert sorted(graph.nodes) == sorted(planned)
+
+    def test_non_entry_duplicate_files_are_still_deduplicated(self):
+        """护栏：非入口同名同类型文件仍按原逻辑去重。"""
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": "models.py", "priority": 2},
+            {"path": "src/models/models.py", "priority": 2},
+            {"path": "main.py", "priority": 1},
+        ]})
+
+        assert "src/models/models.py" in graph.nodes
+        assert "models.py" not in graph.nodes
+
     def test_generic_utils_file_types_are_inferred_from_paths(self, graph):
         architecture = {
             "file_plan": [
