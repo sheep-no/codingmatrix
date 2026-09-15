@@ -639,6 +639,129 @@ def test_signature_check_still_reports_missing_after_partial_positional():
     assert any("timeout" in message for message in messages)
 
 
+def _js_validator():
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+    from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+
+    return CrossValidator(
+        SharedContext("test", Path(".")),
+        language_adapter=JavaScriptLanguageAdapter(),
+    )
+
+
+def _js_symbol_messages(files):
+    validator = _js_validator()
+    issues = asyncio.run(
+        validator.validate_cross_file_consistency(files, {"language": "javascript"})
+    )
+    return [issue["message"] for issue in issues if issue["type"].startswith("symbol_")]
+
+
+def test_symbol_check_ignores_js_control_flow_and_methods():
+    # if/for/while/switch 等关键字与方法定义不是符号引用
+    files = {
+        "src/Counter.jsx": (
+            "import React from 'react'\n"
+            "\n"
+            "export default class Counter extends React.Component {\n"
+            "  constructor(props) {\n"
+            "    super(props)\n"
+            "    this.state = { n: 0 }\n"
+            "  }\n"
+            "\n"
+            "  increment() {\n"
+            "    this.setState({ n: this.state.n + 1 })\n"
+            "  }\n"
+            "\n"
+            "  render() {\n"
+            "    return <button onClick={() => this.increment()}>{this.state.n}</button>\n"
+            "  }\n"
+            "}\n"
+        ),
+        "src/util.js": (
+            "export function classify(value) {\n"
+            "  if (value > 0) {\n"
+            "    return 'pos'\n"
+            "  }\n"
+            "  for (let i = 0; i < 3; i += 1) {\n"
+            "    value += i\n"
+            "  }\n"
+            "  while (value > 10) {\n"
+            "    value -= 1\n"
+            "  }\n"
+            "  switch (value) {\n"
+            "    case 1:\n"
+            "      break\n"
+            "  }\n"
+            "  return value\n"
+            "}\n"
+        ),
+    }
+    assert _js_symbol_messages(files) == []
+
+
+def test_symbol_check_ignores_default_exported_function_name():
+    # export default function App() 是定义，不是对 App 的引用
+    files = {
+        "src/App.jsx": (
+            "import Widget from './Widget'\n"
+            "export default function App() {\n"
+            "  return Widget()\n"
+            "}\n"
+        ),
+        "src/Widget.jsx": "export default function Widget() {\n  return null\n}\n",
+    }
+    assert _js_symbol_messages(files) == []
+
+
+def test_symbol_check_still_flags_undefined_js_symbol():
+    files = {
+        "src/main.js": (
+            "export function boot() {\n"
+            "  return missingHelper(1)\n"
+            "}\n"
+        ),
+    }
+    messages = _js_symbol_messages(files)
+    assert any("missingHelper" in message for message in messages)
+
+
+def test_symbol_check_skips_files_outside_adapter_extensions():
+    # Python 适配器下，JS 文件不参与符号校验，避免跨语言误报
+    files = {
+        "backend/main.py": "from fastapi import FastAPI\n\napp = FastAPI()\n",
+        "frontend/src/App.jsx": (
+            "export default function App() {\n"
+            "  return undefinedHelper(1)\n"
+            "}\n"
+        ),
+    }
+    validator = _python_validator()
+    issues = asyncio.run(
+        validator.validate_cross_file_consistency(files, {"language": "python"})
+    )
+    assert [issue for issue in issues if issue["type"].startswith("symbol_")] == []
+
+
+def test_symbol_check_ignores_python_keywords_before_parens():
+    # `not (x)`、`in (1, 2)`、`and (y)` 里的关键字不是符号引用
+    files = {
+        "main.py": (
+            "values = [1, 2]\n"
+            "if not (len(values) > 3):\n"
+            "    print('ok')\n"
+            "if 1 in (1, 2, 3):\n"
+            "    print('contains')\n"
+            "if (values and (len(values))):\n"
+            "    print('truthy')\n"
+            "if (1 == 1 or (2 == 2)):\n"
+            "    print('logic')\n"
+        ),
+    }
+    assert _symbol_issues(files) == []
+
+
 def test_generate_missing_modules_raises_when_file_absent():
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext

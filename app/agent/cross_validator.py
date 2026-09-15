@@ -554,13 +554,13 @@ class CrossValidator:
 
         # 通用函数定义正则
         func_pattern = re.compile(
-            r'^(?:(?:pub|public|private|protected|static|async|virtual|override|export)\s+)*'
+            r'^(?:(?:pub|public|private|protected|static|async|virtual|override|export|default)\s+)*'
             r'(?:fn|func|function|def|sub|void|int|string|bool|fn)\s+(\w+)\s*\(([^)]*)\)',
             re.IGNORECASE
         )
         # 通用类型定义正则
         class_pattern = re.compile(
-            r'^(?:(?:pub|public|private|protected|abstract|static|final|export)\s+)*'
+            r'^(?:(?:pub|public|private|protected|abstract|static|final|export|default)\s+)*'
             r'(?:class|struct|interface|enum|type|trait|module)\s+(\w+)',
             re.IGNORECASE
         )
@@ -630,11 +630,15 @@ class CrossValidator:
     def _extract_all_usages(self, files: Dict[str, str]) -> List[SymbolUsage]:
         """提取所有文件中的符号使用
 
-        不按扩展名过滤，对所有文件扫描。GenericLanguageAdapter 的 extensions 为空，
-        如果按扩展名过滤会跳过所有文件。
+        按适配器扩展名过滤，与 _extract_all_definitions 保持一致。否则全栈项目里
+        JS 文件会被 Python 适配器当成"符号未定义"，产生跨语言误报。
+        GenericLanguageAdapter 的 extensions 为空，此时不过滤。
         """
         usages = []
+        supported_extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
         for file_path, content in files.items():
+            if supported_extensions and Path(file_path).suffix not in supported_extensions:
+                continue
             file_usages = self._extract_file_usages(content, file_path)
             usages.extend(file_usages)
         return usages
@@ -645,10 +649,16 @@ class CrossValidator:
         lines = content.split('\n')
 
         # 通用定义行检测（跳过定义行本身，避免把定义当成使用）
+        # 覆盖 export default function/class 这类带 default 修饰的定义
         _DEF_LINE_RE = re.compile(
-            r'^\s*(?:(?:pub|public|private|protected|static|async|virtual|override|export)\s+)*'
+            r'^\s*(?:(?:pub|public|private|protected|static|async|virtual|override|export|default)\s+)*'
             r'(?:fn|func|function|def|class|struct|interface|enum|type|trait|module)\s+\w+',
             re.IGNORECASE
+        )
+        # JS/TS 方法定义：可选修饰符 + 名称 + 参数列表 + 行尾 `{`
+        _METHOD_DEF_RE = re.compile(
+            r'^\s*(?:(?:public|private|protected|static|async|readonly|override)\s+)*'
+            r'(?:get\s+|set\s+)?\w+\s*\([^)]*\)\s*\{$'
         )
 
         for i, line in enumerate(lines, 1):
@@ -660,6 +670,10 @@ class CrossValidator:
             if stripped.startswith('//') or stripped.startswith('#') or stripped.startswith('/*'):
                 continue
             if _DEF_LINE_RE.match(stripped):
+                continue
+            # JS/TS 方法定义与对象方法简写（`increment() {`、`async run() {`、
+            # `get value() {`）不是调用，末尾的 `{` 用来与普通调用区分。
+            if _METHOD_DEF_RE.match(stripped):
                 continue
 
             # 匹配函数调用与类实例化。
@@ -759,6 +773,16 @@ class CrossValidator:
             'logger', 'logging', 'getLogger', 'info', 'debug', 'warning', 'error',
             # 异步相关
             'async', 'await', 'asyncio', 'aiohttp', 'async_session',
+            # 语句关键字（不是用户定义的符号）
+            # Python
+            'not', 'and', 'or', 'is', 'lambda', 'del', 'global', 'nonlocal',
+            'pass', 'raise', 'from', 'as', 'elif', 'except',
+            # JS/TS
+            'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default',
+            'try', 'catch', 'finally', 'throw', 'return', 'break', 'continue',
+            'typeof', 'instanceof', 'new', 'void', 'in', 'of', 'with', 'yield',
+            'function', 'class', 'const', 'let', 'var', 'import', 'export',
+            'extends', 'static', 'this', 'super',
             # 类型注解
             'Optional', 'List', 'Dict', 'Tuple', 'Set', 'Union', 'Any',
             'Literal', 'Type', 'ClassVar', 'Final', 'Annotated',
