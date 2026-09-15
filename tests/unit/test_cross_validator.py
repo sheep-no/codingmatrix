@@ -534,6 +534,83 @@ def test_validate_imports_flags_missing_project_module_only():
     assert [issue["message"] for issue in issues] == ["导入的模块不存在: app.services"]
 
 
+def _missing_argument_issues(files):
+    validator = _python_validator()
+    issues = validator._validate_function_signatures(files)
+    return [issue["message"] for issue in issues]
+
+
+def test_signature_check_ignores_comments_docstrings_and_strings():
+    # 注释、docstring、字符串字面量里的示例调用不是真实调用
+    files = {
+        "a.py": (
+            "def build(a, b):\n"
+            "    return a + b\n"
+            "\n"
+            "def deploy(target, mode):\n"
+            "    return target\n"
+        ),
+        "b.py": (
+            "# legacy build(1) signature\n"
+            'MSG = "run deploy(prod) to ship"\n'
+            "\n"
+            "def helper():\n"
+            '    """Use build(1) for quick work."""\n'
+            "    return 1\n"
+        ),
+    }
+    assert _missing_argument_issues(files) == []
+
+
+def test_signature_check_counts_nested_call_arguments():
+    # f(g(1), 2) 提供了两个实参，不能被第一个 ) 提前截断而误报缺参
+    files = {
+        "a.py": "def build(name, opts):\n    return name\n",
+        "b.py": (
+            "def norm(value):\n"
+            "    return value\n"
+            "\n"
+            "result = build(norm('a'), {'k': 1})\n"
+        ),
+    }
+    assert _missing_argument_issues(files) == []
+
+
+def test_signature_check_skips_ambiguous_same_name_definitions():
+    # 同名函数在多个文件定义且签名不同，无法判定调用点用哪一份，跳过而不是误报
+    files = {
+        "b.py": "def handle():\n    return 1\n",
+        "a.py": "def handle(event, ctx):\n    return event\n",
+        "c.py": "handle()\n",
+    }
+    assert _missing_argument_issues(files) == []
+
+
+def test_signature_check_skips_method_calls():
+    files = {
+        "a.py": "def save(path, data):\n    return path\n",
+        "store.py": (
+            "class Store:\n"
+            "    def save(self):\n"
+            "        return 1\n"
+            "\n"
+            "store = Store()\n"
+            "store.save()\n"
+        ),
+    }
+    assert _missing_argument_issues(files) == []
+
+
+def test_signature_check_still_reports_missing_cross_file_argument():
+    files = {
+        "calc.py": "def connect(host, port):\n    return host\n",
+        "main.py": "from calc import connect\n\nconnect('localhost')\n",
+    }
+    messages = _missing_argument_issues(files)
+    assert len(messages) == 1
+    assert "port" in messages[0]
+
+
 def test_generate_missing_modules_raises_when_file_absent():
     from app.agent.cross_validator import CrossValidator
     from app.agent.shared_context import SharedContext

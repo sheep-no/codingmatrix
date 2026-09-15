@@ -15,7 +15,7 @@ import ast
 import json
 import re
 import logging
-from typing import Optional, Dict, Any, List, Tuple, Set
+from typing import Optional, Dict, Any, List, Tuple, Set, Iterator
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -912,35 +912,45 @@ class CrossValidator:
         """
         issues = []
 
-        # 提取所有函数定义
-        func_definitions = {}
+        # 按文件收集函数定义：跨文件同名函数签名的定义不同，
+        # 只按名字汇总会让后一个文件覆盖前一个，导致调用点用错签名而误报。
+        defs_by_file: Dict[str, Dict[str, Any]] = {}
+        name_owners: Dict[str, List[str]] = {}
         for file_path, content in files.items():
             if self.language_adapter:
                 defs = self.language_adapter.extract_definitions(content)
-                for name, info in defs.items():
-                    if info.symbol_type == "function":
-                        func_definitions[name] = info
             else:
                 # Fallback: 通用规则
                 supported_extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
                 if Path(file_path).suffix not in supported_extensions:
                     continue
                 defs = self._extract_file_definitions(content, file_path)
-                for name, info in defs.items():
-                    if info.symbol_type == "function":
-                        func_definitions[name] = info
+
+            local = {
+                name: info
+                for name, info in defs.items()
+                if info.symbol_type == "function"
+            }
+            if not local:
+                continue
+            defs_by_file[file_path] = local
+            for name in local:
+                name_owners.setdefault(name, []).append(file_path)
 
         # 检查函数调用
         for file_path, content in files.items():
-            # 匹配函数调用
-            for match in re.finditer(r'(\w+)\s*\((.*?)\)', content, re.DOTALL):
-                func_name = match.group(1)
-                call_args = match.group(2)
+            for func_name, call_args in self._iter_call_sites(content, file_path):
+                local_defs = defs_by_file.get(file_path, {})
+                if func_name in local_defs:
+                    func_info = local_defs[func_name]
+                else:
+                    # 本文件没有定义时，只有全项目唯一同名定义才能确定签名，
+                    # 多个候选无法判定，宁可跳过也不要误报。
+                    owners = name_owners.get(func_name, [])
+                    if len(owners) != 1:
+                        continue
+                    func_info = defs_by_file[owners[0]][func_name]
 
-                if func_name not in func_definitions:
-                    continue
-
-                func_info = func_definitions[func_name]
                 if not func_info.signature:
                     continue
 
@@ -995,12 +1005,85 @@ class CrossValidator:
 
         return params
 
+    _CALL_NAME_RE = re.compile(r'([A-Za-z_]\w*)\s*\(')
+
+    def _iter_call_sites(self, content: str, file_path: str) -> Iterator[Tuple[str, str]]:
+        """产出真实调用点的 (函数名, 实参文本)。
+
+        三处与朴素正则的区别，都是为了消除误报：
+        1. 先屏蔽注释与字符串字面量中的示例调用（Python 可 tokenize）；
+        2. 跳过属性/方法调用 `obj.method()` 与装饰器，它们不是模块级函数调用；
+        3. 用括号配对截取完整实参，`f(g(1), 2)` 不会被第一个 `)` 提前截断。
+        """
+        # 字符串实参填充为 'x'，保留"这是一个参数"的结构，只是不解析其内容
+        masked = self._mask_python_noncode(content, file_path, fill='x')
+        for match in self._CALL_NAME_RE.finditer(masked):
+            start = match.start()
+            if start > 0 and masked[start - 1] in ('.', '@'):
+                continue
+            # 跳过 `def name(` / `async def name(` 声明本身
+            line_start = masked.rfind('\n', 0, start) + 1
+            if masked[line_start:start].strip() in ('def', 'async def'):
+                continue
+
+            depth = 0
+            end = None
+            for index in range(match.end() - 1, len(masked)):
+                char = masked[index]
+                if char == '(':
+                    depth += 1
+                elif char == ')':
+                    depth -= 1
+                    if depth == 0:
+                        end = index
+                        break
+            if end is None:
+                continue
+            yield match.group(1), masked[match.end():end]
+
+    def _split_top_level_args(self, call_args: str) -> List[str]:
+        """按顶层逗号切分实参，忽略嵌套括号与字符串内的逗号。"""
+        args: List[str] = []
+        chunk: List[str] = []
+        depth = 0
+        quote = ''
+        index = 0
+        while index < len(call_args):
+            char = call_args[index]
+            if quote:
+                chunk.append(char)
+                if char == '\\' and index + 1 < len(call_args):
+                    chunk.append(call_args[index + 1])
+                    index += 2
+                    continue
+                if char == quote:
+                    quote = ''
+                index += 1
+                continue
+            if char in ('"', "'", '`'):
+                quote = char
+            elif char in '([{':
+                depth += 1
+            elif char in ')]}':
+                depth -= 1
+            elif char == ',' and depth == 0:
+                args.append(''.join(chunk).strip())
+                chunk = []
+                index += 1
+                continue
+            chunk.append(char)
+            index += 1
+
+        tail = ''.join(chunk).strip()
+        if tail:
+            args.append(tail)
+        return [arg for arg in args if arg]
+
     def _extract_call_params(self, call_args: str) -> Set[str]:
         """提取调用参数"""
         params = set()
 
-        # 简单分割（不处理嵌套括号）
-        for arg in call_args.split(','):
+        for arg in self._split_top_level_args(call_args):
             arg = arg.strip()
             if not arg:
                 continue
@@ -1018,7 +1101,7 @@ class CrossValidator:
     def _count_positional_args(self, call_args: str) -> int:
         """统计位置参数个数（关键字参数与 * 展开不计入）"""
         count = 0
-        for arg in call_args.split(','):
+        for arg in self._split_top_level_args(call_args):
             arg = arg.strip()
             if not arg or arg.startswith('*') or '=' in arg:
                 continue
@@ -1340,11 +1423,17 @@ class CrossValidator:
 
         return issues
 
-    def _mask_python_noncode(self, content: str, file_path: str) -> str:
+    def _mask_python_noncode(
+        self, content: str, file_path: str, fill: str = ' '
+    ) -> str:
         """把 Python 注释与字符串字面量替换为空白，保留代码结构。
 
         注释或文档字符串里的示例调用会被正则误判为真实实例化，先在扫描前屏蔽。
         非 Python 文件或无法 tokenize 时原样返回。
+
+        fill 用于字符串字面量的填充字符。调用点提取需要把字符串实参保留为一个
+        参数（例如 `connect('localhost')`），此时传 fill='x'，否则位置参数会
+        被抹掉而错报缺少参数。
         """
         if Path(file_path).suffix not in {'.py', '.pyw', '.pyi'} or not content:
             return content
@@ -1360,6 +1449,7 @@ class CrossValidator:
         for tok in tokens:
             if tok.type not in (tokenize.COMMENT, tokenize.STRING):
                 continue
+            replacement = fill if tok.type == tokenize.STRING else ' '
             (start_row, start_col), (end_row, end_col) = tok.start, tok.end
             for row in range(start_row, end_row + 1):
                 if row - 1 >= len(grid):
@@ -1369,7 +1459,7 @@ class CrossValidator:
                 stop = end_col if row == end_row else len(line)
                 for col in range(begin, min(stop, len(line))):
                     if line[col] != '\n':
-                        line[col] = ' '
+                        line[col] = replacement
         return ''.join(''.join(line) for line in grid)
 
     def _extract_model_definitions(self, files: Dict[str, str]) -> Dict[str, Dict]:
