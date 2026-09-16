@@ -379,7 +379,7 @@ class TestRefinementLoop:
         ctx = _assigned_context("test", tmp_path)
         rl = RefinementLoop(ctx)
 
-        issues = rl._validate_js_basic("function test() { return true")
+        issues = rl._validate_js_source("function test() { return true", ".js")
         assert any(i.type == "syntax" for i in issues)
 
     def test_build_error_summary(self, tmp_path):
