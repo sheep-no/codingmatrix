@@ -122,6 +122,30 @@ def test_interface_registry_rejects_duplicate_public_owner() -> None:
         ])
 
 
+def test_interface_registry_merges_repeated_module_entries() -> None:
+    """架构师按类逐条输出时同一文件会重复出现，须合并而非中断生成。"""
+    registry = InterfaceRegistry.build([
+        {"module": "app/models.py", "owner": "app/models.py", "exports": ["User"]},
+        {"module": "app/models.py", "owner": "app/models.py", "exports": ["User", "Todo"]},
+    ])
+
+    assert [item.module for item in registry.entries] == ["app/models.py"]
+    assert [symbol.name for symbol in registry.symbols_for("app/models.py")] == ["User", "Todo"]
+
+
+def test_generation_plan_accepts_repeated_module_interfaces() -> None:
+    plan = GenerationPlan.from_architecture({
+        "project_spec": {"language": "python"},
+        "file_plan": [{"path": "app/models.py", "role": "models", "file_type": "models"}],
+        "interfaces": [
+            {"module": "app/models.py", "owner": "app/models.py", "symbols": [{"name": "User"}]},
+            {"module": "app/models.py", "owner": "app/models.py", "symbols": [{"name": "Todo"}]},
+        ],
+    })
+
+    assert [symbol.name for symbol in plan.interfaces.symbols_for("app/models.py")] == ["User", "Todo"]
+
+
 def test_dependency_manifest_rejects_forbidden_and_duplicate_dependencies() -> None:
     with pytest.raises(ValueError, match="forbidden"):
         DependencyManifest.build([{"name": "unsafe-package", "kind": DependencyKind.FORBIDDEN}])

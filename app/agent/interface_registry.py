@@ -59,6 +59,7 @@ class InterfaceRegistry(BaseModel):
             (_coerce_entry(entry) for entry in entries if isinstance(entry, (Mapping, InterfaceEntry))),
             key=lambda item: (item.module, item.owner),
         ))
+        normalized = _merge_entries(normalized)
         _validate_entries(normalized)
         digest = _digest(version, normalized)
         return cls(version=version, entries=normalized, digest=digest)
@@ -85,12 +86,8 @@ def _coerce_entry(entry: Mapping[str, object] | InterfaceEntry) -> InterfaceEntr
 
 
 def _validate_entries(entries: Tuple[InterfaceEntry, ...]) -> None:
-    seen_modules = set()
     owners = {}
     for entry in entries:
-        if entry.module in seen_modules:
-            raise ValueError(f"interface module has multiple owners: {entry.module}")
-        seen_modules.add(entry.module)
         for symbol in entry.symbols:
             if symbol.visibility is not InterfaceVisibility.PUBLIC:
                 continue
@@ -98,6 +95,32 @@ def _validate_entries(entries: Tuple[InterfaceEntry, ...]) -> None:
             if previous and previous != entry.owner:
                 raise ValueError(f"public symbol has multiple owners: {symbol.name}")
             owners[symbol.name] = entry.owner
+
+
+def _merge_entries(entries: Tuple[InterfaceEntry, ...]) -> Tuple[InterfaceEntry, ...]:
+    """合并同一 module 的多条条目（保留首个 owner），符号按出现顺序去重。
+
+    架构师按类/接口逐条输出时同一文件会重复出现，而 registry 的访问器
+    （``symbols_for``/``symbol_owner``）本来就按 module 聚合，重复条目只是
+    簿记冗余；把它当作硬失败会让合法架构直接中断生成。
+    """
+    merged: dict[str, Tuple[str, list]] = {}
+    for entry in entries:
+        owner, symbols = merged.setdefault(entry.module, (entry.owner, []))
+        seen = {_symbol_key(symbol) for symbol in symbols}
+        for symbol in entry.symbols:
+            key = _symbol_key(symbol)
+            if key not in seen:
+                symbols.append(symbol)
+                seen.add(key)
+    return tuple(
+        InterfaceEntry(module=module, owner=owner, symbols=tuple(symbols))
+        for module, (owner, symbols) in merged.items()
+    )
+
+
+def _symbol_key(symbol: InterfaceSymbol) -> Tuple:
+    return (symbol.name, symbol.visibility, symbol.parameters, symbol.return_type, symbol.is_async)
 
 
 def _digest(version: int, entries: Tuple[InterfaceEntry, ...]) -> str:
