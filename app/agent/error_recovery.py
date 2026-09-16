@@ -467,6 +467,11 @@ class ErrorRecoveryLoop:
         """构建针对性的错误上下文（基于错误分类）"""
         context_parts = []
 
+        # import_errors 来自 validate_single_file 对 Agent 执行环境的 find_spec 探测，
+        # 绝大多数是环境未安装第三方包（见 CodeValidator.validate_single_file 注释），
+        # 不代表代码缺陷，也不参与 is_valid/质量评分。把它写进修复提示会让模型去改
+        # 本来正确的 import，因此不注入提示，仅保留在日志与错误记录里。
+
         # 添加错误分类信息
         context_parts.append(f"## 错误类型\n{classification.error_type}: {classification.description}")
         context_parts.append(f"**针对性修复建议**: {classification.suggested_fix_strategy}")
@@ -476,11 +481,6 @@ class ErrorRecoveryLoop:
             context_parts.append("## 语法错误\n" + "\n".join(f"- {e}" for e in errors["syntax_errors"]))
             if classification.error_type == "SyntaxError":
                 context_parts.append("**重点检查**: 括号匹配、缩进、冒号、引号闭合等基本语法")
-
-        if errors.get("import_errors"):
-            context_parts.append("## 导入错误\n" + "\n".join(f"- {e}" for e in errors["import_errors"]))
-            if classification.error_type == "ImportError":
-                context_parts.append("**重点检查**: 模块已安装、导入路径正确、__init__.py 存在")
 
         if errors.get("dependency_errors"):
             context_parts.append("## 依赖错误\n" + "\n".join(f"- {e}" for e in errors["dependency_errors"]))
