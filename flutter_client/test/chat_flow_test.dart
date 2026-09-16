@@ -15,6 +15,7 @@ import 'package:http/http.dart' as http;
 
 import 'agent_delivery_test.dart' show DeliveryApi;
 import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 class UploadApi extends DeliveryApi {
   UploadApi() : super((_, _, _) async => null);
@@ -54,6 +55,7 @@ class ChatApi extends DeliveryApi {
   List<Map<String, dynamic>>? conversationItems;
   List<Map<String, dynamic>>? historyItems;
   bool throwOnHistory = false;
+  int historyCalls = 0;
   bool throwOnStream = false;
   Completer<Stream<List<int>>>? streamGate;
   Completer<Object?>? historyGate;
@@ -92,7 +94,8 @@ class ChatApi extends DeliveryApi {
     if (path == '/api/v1/conversation/history') {
       return {
         'conversation_id': this.body!['conversation_id'],
-        'items': conversationItems ??
+        'items':
+            conversationItems ??
             [
               {'role': 'user', 'content': '问题'},
               {'role': 'assistant', 'content': '你好'},
@@ -100,21 +103,29 @@ class ChatApi extends DeliveryApi {
       };
     }
     if (path == '/api/v1/history') {
+      historyCalls++;
       if (historyGate != null) return historyGate!.future;
       if (throwOnHistory) throw const SocketException('connection lost');
       return {
-        'items': historyItems ??
+        'items':
+            historyItems ??
             [
               {'conversation_id': 42, 'prompt': '问题'},
             ],
       };
     }
-    return super.requestJson(path, method: method, body: body, timeout: timeout);
+    return super.requestJson(
+      path,
+      method: method,
+      body: body,
+      timeout: timeout,
+    );
   }
 }
 
 class TestPicker extends FilePicker {
   FilePickerResult? result;
+  Completer<FilePickerResult?>? pending;
   @override
   Future<FilePickerResult?> pickFiles({
     String? dialogTitle,
@@ -131,6 +142,7 @@ class TestPicker extends FilePicker {
     bool readSequential = false,
   }) async {
     expect(allowMultiple, true);
+    if (pending != null) return pending!.future;
     return result;
   }
 }
@@ -350,7 +362,9 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     await auth.login(email: 'alice@example.com', password: 'test-password');
     unawaited(
-      container.read(chatControllerProvider.notifier).send('你好', streaming: true),
+      container
+          .read(chatControllerProvider.notifier)
+          .send('你好', streaming: true),
     );
     await flush();
     api.chunks.add(utf8.encode('部分内容'));
@@ -414,10 +428,7 @@ void main() {
     final state = container.read(chatControllerProvider);
     expect(state.conversationId, 99);
     expect(state.loading, false);
-    expect(state.messages.map((message) => message.text), [
-      '另一会话',
-      '历史回答',
-    ]);
+    expect(state.messages.map((message) => message.text), ['另一会话', '历史回答']);
   });
 
   test('发送完成后退出再进入会从详情恢复消息', () async {
@@ -548,6 +559,94 @@ void main() {
     expect(find.text('历史回答'), findsOneWidget);
     expect(find.text('历史用户'), findsOneWidget);
     expect(find.text('旧回复'), findsNothing);
+  });
+
+  testWidgets('切换账号清空聊天草稿和附件', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final scoped = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+    addTearDown(scoped.dispose);
+    picker.result = FilePickerResult([
+      PlatformFile(name: 'a.txt', path: '/tmp/a.txt', size: 1),
+    ]);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: scoped,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('chatAttachButton')));
+    await tester.pump();
+    expect(find.text('a.txt'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '草稿内容');
+    await tester.enterText(find.byKey(const Key('chatModelField')), 'glm-4');
+    await tester.tap(find.widgetWithText(FilterChip, '深度推理'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('a.txt'), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('chatPromptField')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('chatModelField')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(
+      tester
+          .widget<FilterChip>(find.widgetWithText(FilterChip, '深度推理'))
+          .selected,
+      isFalse,
+    );
+  });
+
+  testWidgets('切换账号后旧账号选择的附件不会写入新账号', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final scoped = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+    addTearDown(scoped.dispose);
+    picker.pending = Completer<FilePickerResult?>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: scoped,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('chatAttachButton')));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    picker.pending!.complete(
+      FilePickerResult([
+        PlatformFile(name: 'old.txt', path: '/tmp/old.txt', size: 1),
+      ]),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('old.txt'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('发送完成后退出再进入仍显示当前会话', (tester) async {
@@ -733,6 +832,34 @@ void main() {
     await tester.pump();
     expect(find.text('已取消，已接收的内容已保留'), findsOneWidget);
     expect(find.text('正在接收回复…'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('历史会话加载进行中无法再次触发并发请求', (tester) async {
+    api.historyGate = Completer<Object?>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('chatHistoryButton')));
+    await tester.pump();
+    expect(api.historyCalls, 1);
+    await tester.tap(
+      find.byKey(const Key('chatHistoryButton')),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+    expect(api.historyCalls, 1);
+    api.historyGate!.complete({
+      'items': [
+        {'conversation_id': 99, 'prompt': '历史标题'},
+      ],
+    });
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('历史标题'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
