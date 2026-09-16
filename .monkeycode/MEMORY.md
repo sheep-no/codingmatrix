@@ -293,6 +293,8 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 修改前读取项目记忆和 Git 状态，保留已有改动；所有手动编辑使用 apply_patch。
   - 测试前调用 background_terminal_list，测试和构建通过受控后台终端执行，命令先进入 `/workspace/flutter_client`。
   - 修改后执行 dart format、flutter analyze、定向测试和全量 flutter test，修复失败后再返回；未经用户明确要求不提交或推送。
+  - `dart format` 只格式化本次改动的文件；对整个 `lib test` 运行会因本地 SDK 与仓库既有格式不一致产生无关改动，并触发新的 `curly_braces_in_flow_control_structures` 告警。
+  - 账号切换竞态的统一守卫是自增 epoch 快照：`NotifierProvider` 重建时复用 notifier 实例，在 `ref.onDispose` 里置位的一次性布尔（如 `_disposed`）会永久生效并静默屏蔽后续请求；`StateNotifierProvider` 重建会新建实例，`mounted` 判断即可。
 ### 多语言 Profile 项目验证
 - Date: 2026-09-04
 - Context: Agent 在补齐 Core 多语言生成成功门禁时发现
