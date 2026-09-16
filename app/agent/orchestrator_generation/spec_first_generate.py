@@ -13,6 +13,11 @@ from app.agent.js_syntax import (
     check_js_source as _shared_check_js_source,
     check_ts_source as _shared_check_ts_source,
 )
+from app.agent.markup_syntax import (
+    css_structure_errors,
+    html_structure_errors,
+    strip_css_noise,
+)
 from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
 from app.agent.cross_validator import CrossValidator
 from app.agent.shared_context import SharedContext
@@ -1860,23 +1865,16 @@ class SpecFirstGenerateMixin:
                 return self._check_ts_source(source, jsx=use_jsx)
             return self._check_js_source(source)
 
-        elif ext == '.html':
-            for tag in ['html', 'head', 'body']:
-                open_count = len(re.findall(rf'<{tag}[\s>]', content, re.IGNORECASE))
-                close_count = len(re.findall(rf'</{tag}>', content, re.IGNORECASE))
-                if open_count > close_count:
-                    return False
-            script_opens = len(re.findall(r'<script[\s>]', content, re.IGNORECASE))
-            script_closes = len(re.findall(r'</script>', content, re.IGNORECASE))
-            return script_opens == script_closes
+        elif ext in ('.html', '.htm', '.xhtml'):
+            # 复用共享结构校验：HTML5 允许省略 </head>/</body>，且注释与
+            # script/style 字符串里的标签写法不算结构错误。
+            return not html_structure_errors(content)
 
         elif ext == '.css':
-            # 注释和字符串里的 { } 不算结构字符（content: "}" / /* } */）
-            sanitized = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-            sanitized = re.sub(r'"[^"\n]*"|\'[^\'\n]*\'', '', sanitized)
-            if sanitized.count('{') != sanitized.count('}'):
+            if css_structure_errors(content):
                 return False
             # 检测非 CSS 内容（大段中文描述文本）
+            sanitized = strip_css_noise(content)
             lines = [l.strip() for l in sanitized.split('\n') if l.strip()]
             chinese_lines = sum(1 for l in lines if len(re.findall(r'[\u4e00-\u9fff]', l)) > 10)
             if chinese_lines > len(lines) * 0.3 and chinese_lines > 3:

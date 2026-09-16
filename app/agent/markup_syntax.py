@@ -76,8 +76,7 @@ def css_structure_errors(content: str, *, check_parentheses: bool = False) -> Li
     合法，不作为错误。
     """
     errors: List[str] = []
-    sanitized = re.sub(r"/\*.*?\*/", "", content, flags=re.DOTALL)
-    sanitized = re.sub(r'"[^"\n]*"|\'[^\'\n]*\'', "", sanitized)
+    sanitized = strip_css_noise(content)
 
     open_braces = sanitized.count("{")
     close_braces = sanitized.count("}")
@@ -91,3 +90,9 @@ def css_structure_errors(content: str, *, check_parentheses: bool = False) -> Li
             errors.append(f"CSS 语法: 小括号不匹配 (开: {open_parens}, 关: {close_parens})")
 
     return errors
+
+
+def strip_css_noise(content: str) -> str:
+    """剥离 CSS 注释与字符串，只保留结构字符。"""
+    sanitized = re.sub(r"/\*.*?\*/", "", content, flags=re.DOTALL)
+    return re.sub(r'"[^"\n]*"|\'[^\'\n]*\'', "", sanitized)
