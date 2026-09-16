@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Any, Iterable, Mapping, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .code_synthesis_contracts import HttpContract
+from .interface_registry import InterfaceVisibility
+
+logger = logging.getLogger(__name__)
 
 
 class ContractEntry(BaseModel):
@@ -73,6 +77,10 @@ class ContractIndex(BaseModel):
         interfaces = getattr(plan, "interfaces", None)
         for interface in getattr(interfaces, "entries", ()):
             for symbol in interface.symbols:
+                # InterfaceRegistry 只保证 public 符号全局唯一；private/internal
+                # 同名符号是合法的，不能进入以名字为键的契约索引。
+                if symbol.visibility is not InterfaceVisibility.PUBLIC:
+                    continue
                 entries.append(ContractEntry(
                     name=symbol.name,
                     kind="interface",
@@ -99,7 +107,18 @@ class ContractIndex(BaseModel):
             ))
 
         entries.extend(_explicit_contract_entries(contracts))
-        return cls.build(entries, version=int(getattr(plan, "version", 1)))
+        # 接口符号、文件契约与显式契约之间可能重名（如文件契约与自身导出同名）。
+        # 索引以名字为键，保留首个（接口优先，顺序即来源优先级），避免合法计划
+        # 因重名抛 ValidationError 而中断生成。
+        unique_entries: list[ContractEntry] = []
+        seen_names: set[str] = set()
+        for entry in entries:
+            if entry.name in seen_names:
+                logger.debug("跳过重复契约名: %s", entry.name)
+                continue
+            seen_names.add(entry.name)
+            unique_entries.append(entry)
+        return cls.build(unique_entries, version=int(getattr(plan, "version", 1)))
 
 
 def _digest(version: int, entries: Tuple[ContractEntry, ...]) -> str:
