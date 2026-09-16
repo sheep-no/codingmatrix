@@ -253,6 +253,56 @@ def test_symbol_gate_accepts_annotated_module_constants():
     assert issues == []
 
 
+def test_frozen_symbols_accept_json_top_level_keys():
+    """JSON 清单的 exports 是顶层键，不应报 missing frozen symbol。"""
+    architecture = {
+        "language": "javascript",
+        "file_plan": [{"path": "package.json", "file_type": "config"}],
+        "symbol_table": {
+            "files": {
+                "package.json": {
+                    "provides": ["name", "version", "scripts"],
+                    "requires": [],
+                    "signatures": {},
+                    "routes": [],
+                }
+            },
+        },
+    }
+    content = (
+        '{\n'
+        '  "name": "app",\n'
+        '  "version": "1.0.0",\n'
+        '  "scripts": {"start": "node src/index.js"}\n'
+        '}\n'
+    )
+
+    assert validate_file_against_symbol_table("package.json", content, architecture) == []
+
+
+def test_frozen_symbols_still_flag_missing_json_key():
+    architecture = {
+        "language": "javascript",
+        "file_plan": [{"path": "package.json", "file_type": "config"}],
+        "symbol_table": {
+            "files": {
+                "package.json": {
+                    "provides": ["name", "dependencies"],
+                    "requires": [],
+                    "signatures": {},
+                    "routes": [],
+                }
+            },
+        },
+    }
+    content = '{"name": "app"}\n'
+
+    issues = validate_file_against_symbol_table("package.json", content, architecture)
+
+    assert any("dependencies" in item for item in issues)
+    assert not any("name" in item for item in issues)
+
+
 def test_scan_python_packages_maps_jose_and_sqlalchemy():
     files = {
         "app/services.py": (

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -507,6 +508,15 @@ def _as_str_list(value: Any) -> List[str]:
 def _defined_names(file_path: str, content: str, architecture: Mapping[str, Any]) -> set[str]:
     adapter = _adapter(architecture)
     names: set[str] = set()
+    # JSON 清单里 contract.exports 指的是顶层键，不是代码符号；不把键算作
+    # 定义会让 package.json 之类的合法配置永远报 missing frozen symbol。
+    if Path(file_path).suffix.lower() == ".json":
+        try:
+            payload = json.loads(content)
+        except (json.JSONDecodeError, ValueError):
+            payload = None
+        if isinstance(payload, dict):
+            names.update(str(key) for key in payload)
     if adapter is not None:
         try:
             names.update(adapter.extract_definitions(content))
