@@ -668,6 +668,33 @@ def test_validate_imports_flags_missing_top_level_package_without_adapter():
     ]
 
 
+@pytest.mark.parametrize(
+    "specifier, target",
+    [
+        ("@/components/Button.vue", "src/components/Button.vue"),
+        ("@/data/items.json", "src/data/items.json"),
+        ("@/styles/main.css", "src/styles/main.css"),
+        ("@/assets/logo.svg", "src/assets/logo.svg"),
+    ],
+)
+def test_validate_imports_resolves_alias_with_explicit_extension(specifier, target):
+    # 扩展名补全曾把 `@/x.vue` 拼成 `x.vue.js`，让带显式扩展名的别名导入永远匹配不上
+    files = {
+        target: "export default 1\n",
+        "src/App.jsx": f"import value from '{specifier}'\n",
+    }
+    assert _js_validator()._validate_imports(files) == []
+
+
+def test_validate_imports_still_flags_missing_alias_with_explicit_extension():
+    files = {
+        "src/App.jsx": "import Missing from '@/components/Missing.vue'\n",
+    }
+    assert [issue["message"] for issue in _js_validator()._validate_imports(files)] == [
+        "导入的模块不存在: @/components/Missing.vue"
+    ]
+
+
 def _missing_argument_issues(files):
     validator = _python_validator()
     issues = validator._validate_function_signatures(files)

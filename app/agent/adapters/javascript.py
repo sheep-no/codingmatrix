@@ -283,6 +283,10 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
                 if clean_module.endswith(ext):
                     clean_module = clean_module[:-len(ext)]
                     break
+            # 非 JS/TS 的显式扩展名（.vue/.css/.json 等）必须按原样解析：下面的
+            # 扩展名补全会把 `@/x.vue` 拼成 `x.vue.js`，导致合法导入永远匹配不上。
+            if Path(clean_module).suffix:
+                candidates.append(f"src/{clean_module}")
             for ext in ['.js', '.jsx', '.ts', '.tsx']:
                 candidates.append(f"src/{clean_module}{ext}")
                 candidates.append(f"src/{clean_module}/index{ext}")
