@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'agent_delivery_test.dart' show DeliveryApi;
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 void main() {
   test('提交生成任务并在完成后返回 ppt_id', () async {
@@ -158,19 +160,16 @@ void main() {
   });
 
   testWidgets('下载PPTX网络断开显示失败原文', (tester) async {
-    final api = DeliveryApi(
-      (path, _, __) async {
-        if (path == '/api/v1/pptx/generate_task') return {'task_id': 't1'};
-        if (path == '/api/v1/tasks/t1') {
-          return {
-            'status': 'completed',
-            'result': {'ppt_id': 'p1'},
-          };
-        }
-        fail('unexpected $path');
-      },
-      sendHandle: (_) async => throw const SocketException('connection lost'),
-    );
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/pptx/generate_task') return {'task_id': 't1'};
+      if (path == '/api/v1/tasks/t1') {
+        return {
+          'status': 'completed',
+          'result': {'ppt_id': 'p1'},
+        };
+      }
+      fail('unexpected $path');
+    }, sendHandle: (_) async => throw const SocketException('connection lost'));
     final container = ProviderContainer(
       overrides: [authenticatedClientProvider.overrideWithValue(api)],
     );
@@ -196,19 +195,16 @@ void main() {
 
   testWidgets('下载中退出再进入会丢掉错误', (tester) async {
     final pending = Completer<Never>();
-    final api = DeliveryApi(
-      (path, _, __) async {
-        if (path == '/api/v1/pptx/generate_task') return {'task_id': 't1'};
-        if (path == '/api/v1/tasks/t1') {
-          return {
-            'status': 'completed',
-            'result': {'ppt_id': 'p1'},
-          };
-        }
-        fail('unexpected $path');
-      },
-      sendHandle: (_) => pending.future,
-    );
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/pptx/generate_task') return {'task_id': 't1'};
+      if (path == '/api/v1/tasks/t1') {
+        return {
+          'status': 'completed',
+          'result': {'ppt_id': 'p1'},
+        };
+      }
+      fail('unexpected $path');
+    }, sendHandle: (_) => pending.future);
     final container = ProviderContainer(
       overrides: [authenticatedClientProvider.overrideWithValue(api)],
     );
@@ -252,19 +248,16 @@ void main() {
   });
 
   testWidgets('下载PDF网络断开显示失败原文', (tester) async {
-    final api = DeliveryApi(
-      (path, _, __) async {
-        if (path == '/api/v1/pptx/generate_task') return {'task_id': 't1'};
-        if (path == '/api/v1/tasks/t1') {
-          return {
-            'status': 'completed',
-            'result': {'ppt_id': 'p1'},
-          };
-        }
-        fail('unexpected $path');
-      },
-      sendHandle: (_) async => throw const SocketException('connection lost'),
-    );
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/pptx/generate_task') return {'task_id': 't1'};
+      if (path == '/api/v1/tasks/t1') {
+        return {
+          'status': 'completed',
+          'result': {'ppt_id': 'p1'},
+        };
+      }
+      fail('unexpected $path');
+    }, sendHandle: (_) async => throw const SocketException('connection lost'));
     final container = ProviderContainer(
       overrides: [authenticatedClientProvider.overrideWithValue(api)],
     );
@@ -285,6 +278,50 @@ void main() {
     await tester.pump();
     expect(find.textContaining('PDF 下载失败'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('质量报告进行中无法再次触发并发请求', (tester) async {
+    var reports = 0;
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/pptx/generate_task') return {'task_id': 't1'};
+      if (path == '/api/v1/tasks/t1') {
+        return {
+          'status': 'completed',
+          'result': {'ppt_id': 'p1'},
+        };
+      }
+      if (path == '/api/v1/pptx/t1/quality-report') {
+        reports++;
+        return pending.future;
+      }
+      fail('unexpected $path');
+    });
+    final container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: PptPage()),
+      ),
+    );
+    await tester.enterText(find.byType(TextField), '增长');
+    await tester.tap(find.text('生成 PPT'));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('查看质量报告'));
+    await tester.pump();
+    expect(reports, 1);
+    await tester.tap(find.text('查看质量报告'), warnIfMissed: false);
+    await tester.pump();
+    expect(reports, 1);
+    pending.complete({'pages': 3});
+    await tester.pump();
+    await tester.pump();
     expect(tester.takeException(), isNull);
   });
 
@@ -322,6 +359,54 @@ void main() {
     await tester.pump();
     expect(find.textContaining('质量报告获取失败'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切换账号后旧账号的质量报告不会写入新账号', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/pptx/generate_task') return {'task_id': 't1'};
+      if (path == '/api/v1/tasks/t1') {
+        return {
+          'status': 'completed',
+          'result': {'ppt_id': 'p1'},
+        };
+      }
+      if (path == '/api/v1/pptx/t1/quality-report') return pending.future;
+      fail('unexpected $path');
+    });
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: PptPage()),
+      ),
+    );
+    await tester.enterText(find.byType(TextField), '增长');
+    await tester.tap(find.text('生成 PPT'));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('查看质量报告'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete({'grade': 'A'});
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('质量报告'), findsNothing);
+    expect(find.textContaining('quality-report'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -377,6 +462,43 @@ void main() {
     expect(find.textContaining('质量报告获取失败'), findsNothing);
     expect(find.textContaining('connection lost'), findsNothing);
     expect(find.text('查看质量报告'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('历史读取进行中无法再次触发并发请求', (tester) async {
+    var historyCalls = 0;
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/pptx/history') {
+        historyCalls++;
+        return pending.future;
+      }
+      fail('unexpected $path');
+    });
+    final container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: PptPage()),
+      ),
+    );
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    expect(historyCalls, 1);
+    await tester.tap(find.byIcon(Icons.history), warnIfMissed: false);
+    await tester.pump();
+    expect(historyCalls, 1);
+    pending.complete({
+      'items': [
+        {'topic': '增长', 'status': 'completed', 'ppt_id': 'p1'},
+      ],
+    });
+    await tester.pump();
+    await tester.pump();
     expect(tester.takeException(), isNull);
   });
 
@@ -585,10 +707,44 @@ void main() {
     );
   });
 
+  testWidgets('批准并生成进行中无法再次触发并发请求', (tester) async {
+    var approves = 0;
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/pptx/outlines') {
+        return {'outline_id': 'o1'};
+      }
+      if (path == '/api/v1/pptx/outlines/o1/approve') {
+        approves++;
+        return pending.future;
+      }
+      if (path == '/api/v1/pptx/outlines/o1/generate') {
+        return {'task_id': 't9'};
+      }
+      fail('unexpected $path');
+    });
+    await openOutlineDialog(tester, api);
+    await tester.tap(find.text('批准并生成'));
+    await tester.pump();
+    expect(approves, 1);
+    await tester.tap(find.text('批准并生成'), warnIfMissed: false);
+    await tester.pump();
+    expect(approves, 1);
+    pending.complete({'ok': true});
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('PPT 大纲'), findsNothing);
+    expect(find.text('已按大纲提交生成：t9'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('批准并生成成功后关闭对话框并显示任务号', (tester) async {
     final api = DeliveryApi((path, _, __) async {
       if (path == '/api/v1/pptx/outlines') {
-        return {'outline_id': 'o1', 'slides': ['封面']};
+        return {
+          'outline_id': 'o1',
+          'slides': ['封面'],
+        };
       }
       if (path == '/api/v1/pptx/outlines/o1/approve') {
         return {'ok': true};
@@ -688,10 +844,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(
-          key: UniqueKey(),
-          home: const PptPage(),
-        ),
+        child: MaterialApp(key: UniqueKey(), home: const PptPage()),
       ),
     );
     await tester.pump();

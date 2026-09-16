@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../infrastructure/ppt/ppt_client.dart';
+import 'account_overlays.dart';
 
 class PptPage extends ConsumerStatefulWidget {
   const PptPage({super.key});
@@ -23,6 +24,20 @@ class _PptPageState extends ConsumerState<PptPage> {
     generation++;
     topic.dispose();
     super.dispose();
+  }
+
+  void _resetAccount() {
+    // Drop any in-flight generation so its late result cannot land in the
+    // next account's state.
+    generation++;
+    closeAccountOverlays(context);
+    topic.clear();
+    setState(() {
+      busy = false;
+      taskId = null;
+      pptId = null;
+      message = '';
+    });
   }
 
   Future<void> generate() async {
@@ -101,11 +116,13 @@ class _PptPageState extends ConsumerState<PptPage> {
   Future<void> report() async {
     final id = taskId;
     if (id == null || busy) return;
+    final run = generation;
+    setState(() => busy = true);
     try {
       final value = await PptClient(
         ref.read(authenticatedClientProvider),
       ).qualityReport(id);
-      if (!mounted) return;
+      if (!mounted || run != generation) return;
       showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -124,16 +141,22 @@ class _PptPageState extends ConsumerState<PptPage> {
         ),
       );
     } catch (error) {
-      if (mounted) setState(() => message = '质量报告获取失败：$error');
+      if (mounted && run == generation)
+        setState(() => message = '质量报告获取失败：$error');
+    } finally {
+      if (mounted && run == generation) setState(() => busy = false);
     }
   }
 
   Future<void> history() async {
+    if (busy) return;
+    final run = generation;
+    setState(() => busy = true);
     try {
       final items = await PptClient(
         ref.read(authenticatedClientProvider),
       ).history();
-      if (!mounted) return;
+      if (!mounted || run != generation) return;
       showModalBottomSheet<void>(
         context: context,
         builder: (_) => ListView(
@@ -149,13 +172,16 @@ class _PptPageState extends ConsumerState<PptPage> {
         ),
       );
     } catch (e) {
-      if (mounted) setState(() => message = '历史读取失败：$e');
+      if (mounted && run == generation) setState(() => message = '历史读取失败：$e');
+    } finally {
+      if (mounted && run == generation) setState(() => busy = false);
     }
   }
 
   Future<void> downloadPdf() async {
     final id = pptId;
     if (id == null || busy) return;
+    final run = generation;
     setState(() {
       busy = true;
       message = 'PDF 下载中...';
@@ -164,13 +190,13 @@ class _PptPageState extends ConsumerState<PptPage> {
       final path = await PptClient(
         ref.read(authenticatedClientProvider),
       ).download(id, (_) {}, format: 'pdf');
-      if (mounted)
+      if (mounted && run == generation)
         setState(() {
           busy = false;
           message = 'PDF 已保存到：$path';
         });
     } catch (e) {
-      if (mounted)
+      if (mounted && run == generation)
         setState(() {
           busy = false;
           message = 'PDF 下载失败：$e';
@@ -180,108 +206,130 @@ class _PptPageState extends ConsumerState<PptPage> {
 
   Future<void> createOutline() async {
     if (topic.text.trim().isEmpty || busy) return;
+    final run = generation;
     setState(() => busy = true);
     try {
       final result = await PptClient(
         ref.read(authenticatedClientProvider),
       ).createOutline(topic.text.trim());
-      if (!mounted) return;
+      if (!mounted || run != generation) return;
       final id = '${result['outline_id'] ?? result['id'] ?? ''}';
       showDialog<void>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('PPT 大纲'),
-          content: SingleChildScrollView(child: Text(result.toString())),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('关闭'),
+        builder: (dialogContext) {
+          var submitting = false;
+          return StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: const Text('PPT 大纲'),
+              content: SingleChildScrollView(child: Text(result.toString())),
+              actions: [
+                TextButton(
+                  onPressed: submitting
+                      ? null
+                      : () => Navigator.pop(dialogContext),
+                  child: const Text('关闭'),
+                ),
+                if (id.isNotEmpty)
+                  FilledButton(
+                    onPressed: submitting
+                        ? null
+                        : () async {
+                            setDialogState(() => submitting = true);
+                            final client = PptClient(
+                              ref.read(authenticatedClientProvider),
+                            );
+                            try {
+                              await client.approveOutline(id);
+                              final generated = await client
+                                  .generateFromOutline(id);
+                              if (mounted && run == generation)
+                                setState(
+                                  () => message =
+                                      '已按大纲提交生成：${generated['task_id'] ?? generated['id'] ?? ''}',
+                                );
+                              if (dialogContext.mounted)
+                                Navigator.pop(dialogContext);
+                            } catch (e) {
+                              if (mounted && run == generation)
+                                setState(() => message = '生成提交失败：$e');
+                              if (dialogContext.mounted)
+                                Navigator.pop(dialogContext);
+                            }
+                          },
+                    child: const Text('批准并生成'),
+                  ),
+              ],
             ),
-            if (id.isNotEmpty)
-              FilledButton(
-                onPressed: () async {
-                  final client = PptClient(
-                    ref.read(authenticatedClientProvider),
-                  );
-                  try {
-                    await client.approveOutline(id);
-                    final generated = await client.generateFromOutline(id);
-                    if (mounted)
-                      setState(
-                        () => message =
-                            '已按大纲提交生成：${generated['task_id'] ?? generated['id'] ?? ''}',
-                      );
-                    if (dialogContext.mounted) Navigator.pop(dialogContext);
-                  } catch (e) {
-                    if (mounted) setState(() => message = '生成提交失败：$e');
-                    if (dialogContext.mounted) Navigator.pop(dialogContext);
-                  }
-                },
-                child: const Text('批准并生成'),
-              ),
-          ],
-        ),
+          );
+        },
       );
     } catch (e) {
-      if (mounted) setState(() => message = '大纲创建失败：$e');
+      if (mounted && run == generation) setState(() => message = '大纲创建失败：$e');
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && run == generation) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('PPT 生成'),
-      actions: [
-        IconButton(
-          onPressed: busy ? null : history,
-          icon: const Icon(Icons.history),
-        ),
-      ],
-    ),
-    body: SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(
-            controller: topic,
-            minLines: 5,
-            maxLines: 10,
-            decoration: const InputDecoration(labelText: 'PPT 主题与内容要求'),
+  Widget build(BuildContext context) {
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _resetAccount(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('PPT 生成'),
+        actions: [
+          IconButton(
+            onPressed: busy ? null : history,
+            icon: const Icon(Icons.history),
           ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: busy ? null : generate,
-            child: Text(busy ? '处理中...' : '生成 PPT'),
-          ),
-          OutlinedButton(
-            onPressed: busy ? null : createOutline,
-            child: const Text('先生成 PPT 大纲'),
-          ),
-          if (pptId != null)
-            OutlinedButton(
-              onPressed: busy ? null : download,
-              child: const Text('下载 PPTX'),
-            ),
-          if (pptId != null)
-            OutlinedButton(
-              onPressed: busy ? null : report,
-              child: const Text('查看质量报告'),
-            ),
-          if (pptId != null)
-            OutlinedButton(
-              onPressed: busy ? null : downloadPdf,
-              child: const Text('下载 PDF'),
-            ),
-          if (message.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 16),
-              child: Text(message),
-            ),
         ],
       ),
-    ),
-  );
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: topic,
+              minLines: 5,
+              maxLines: 10,
+              decoration: const InputDecoration(labelText: 'PPT 主题与内容要求'),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: busy ? null : generate,
+              child: Text(busy ? '处理中...' : '生成 PPT'),
+            ),
+            OutlinedButton(
+              onPressed: busy ? null : createOutline,
+              child: const Text('先生成 PPT 大纲'),
+            ),
+            if (pptId != null)
+              OutlinedButton(
+                onPressed: busy ? null : download,
+                child: const Text('下载 PPTX'),
+              ),
+            if (pptId != null)
+              OutlinedButton(
+                onPressed: busy ? null : report,
+                child: const Text('查看质量报告'),
+              ),
+            if (pptId != null)
+              OutlinedButton(
+                onPressed: busy ? null : downloadPdf,
+                child: const Text('下载 PDF'),
+              ),
+            if (message.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: Text(message),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }

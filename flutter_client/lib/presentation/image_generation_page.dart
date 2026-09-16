@@ -24,6 +24,8 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
   String? referencePath;
   String? maskPath;
   double steps = 50, guidance = 7.5;
+  bool picking = false;
+  int _epoch = 0;
   @override
   void dispose() {
     prompt.dispose();
@@ -32,21 +34,45 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
     super.dispose();
   }
 
+  // Drops the previous account's draft inputs (text, picked local files and
+  // generation parameters) so nothing carries into the new account.
+  void _resetAccount() {
+    // Drop any in-flight pick so its late result cannot land in the next
+    // account's draft.
+    _epoch++;
+    prompt.clear();
+    negative.clear();
+    seed.clear();
+    setState(() {
+      picking = false;
+      referencePath = null;
+      maskPath = null;
+      size = 1024;
+      count = 1;
+      steps = 50;
+      guidance = 7.5;
+    });
+  }
+
   Future<void> pickImage({required bool mask}) async {
+    if (picking) return;
+    final epoch = _epoch;
+    setState(() => picking = true);
     String? path;
     try {
-      final picked = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-      );
+      final picked = await FilePicker.platform.pickFiles(type: FileType.image);
       path = picked?.files.single.path;
     } catch (e) {
-      if (mounted)
+      if (mounted && epoch == _epoch)
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('选择图片失败：$e')));
+      if (mounted && epoch == _epoch) setState(() => picking = false);
       return;
     }
-    if (path != null && mounted)
+    if (!mounted || epoch != _epoch) return;
+    setState(() => picking = false);
+    if (path != null && mounted && epoch == _epoch)
       setState(() => mask ? maskPath = path : referencePath = path);
   }
 
@@ -54,21 +80,13 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
   Widget build(BuildContext context) {
     ref.listen(
       authControllerProvider.select((s) => s.session?.accessTokenRef),
-      (_, __) {
-        prompt.clear();
-        negative.clear();
-        seed.clear();
-      },
+      (_, __) => _resetAccount(),
     );
-    ref.listen(apiBaseUrlProvider, (_, __) {
-      prompt.clear();
-      negative.clear();
-      seed.clear();
-    });
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
     final state = ref.watch(imageGenerationControllerProvider);
     final key = ref.watch(providerKeyControllerProvider).selected;
     final controller = ref.read(imageGenerationControllerProvider.notifier);
-    final enabled = !state.busy && state.saving == null;
+    final enabled = !state.busy && state.saving == null && !picking;
     return Scaffold(
       appBar: AppBar(title: const Text('图片生成')),
       body: Center(

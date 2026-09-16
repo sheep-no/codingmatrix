@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:codingmatrix_desktop/application/image_generation_controller.dart';
+import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/application/provider_key_controller.dart';
 import 'package:codingmatrix_desktop/domain/models/image_generation.dart';
 import 'package:codingmatrix_desktop/domain/models/provider_key.dart';
@@ -17,6 +18,7 @@ import 'package:codingmatrix_desktop/presentation/image_generation_page.dart';
 import 'package:file_picker/file_picker.dart';
 import 'agent_delivery_test.dart' show DeliveryApi;
 import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 const key = ProviderKeySummary(
   token: 'test-ref',
@@ -39,6 +41,8 @@ class TestImagePicker extends FilePicker {
   TestImagePicker(this.path);
   final String path;
   Object? error;
+  Completer<FilePickerResult?>? pending;
+  int picks = 0;
   @override
   Future<FilePickerResult?> pickFiles({
     String? dialogTitle,
@@ -55,6 +59,8 @@ class TestImagePicker extends FilePicker {
     bool readSequential = false,
   }) async {
     if (error != null) throw error!;
+    picks++;
+    if (pending != null) return pending!.future;
     return FilePickerResult([
       PlatformFile(name: 'ref.png', path: path, size: 10),
     ]);
@@ -546,6 +552,49 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('选择参考图进行中无法再次打开选择器', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<FilePickerResult?>();
+    final picker = TestImagePicker('/tmp/ref.png')..pending = pending;
+    FilePicker.platform = picker;
+    final container = ProviderContainer(
+      overrides: [
+        imageGenerationControllerProvider.overrideWith(
+          (_) => ImageGenerationController(
+            ImageGenerationClient(DeliveryApi((_, __, ___) async => null)),
+          ),
+        ),
+        providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.ensureVisible(find.text('选择参考图'));
+    await tester.tap(find.text('选择参考图'));
+    await tester.pump();
+    expect(picker.picks, 1);
+    await tester.tap(find.text('选择参考图'), warnIfMissed: false);
+    await tester.pump();
+    expect(picker.picks, 1);
+    pending.complete(
+      FilePickerResult([
+        PlatformFile(name: 'ref.png', path: '/tmp/ref.png', size: 10),
+      ]),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('图生图中退出再进入会丢掉错误', (tester) async {
     tester.view.physicalSize = const Size(360, 900);
     tester.view.devicePixelRatio = 1;
@@ -555,7 +604,10 @@ void main() {
     final client = ImageGenerationClient(
       DeliveryApi((path, _, __) async {
         if (path == '/api/v1/kolors/image-to-image') return pending.future;
-        return {'success': true, 'images': [pixel]};
+        return {
+          'success': true,
+          'images': [pixel],
+        };
       }),
     );
     FilePicker.platform = TestImagePicker('/tmp/ref.png');
@@ -617,7 +669,10 @@ void main() {
     final client = ImageGenerationClient(
       DeliveryApi((path, _, __) async {
         if (path == '/api/v1/kolors/inpaint') return pending.future;
-        return {'success': true, 'images': [pixel]};
+        return {
+          'success': true,
+          'images': [pixel],
+        };
       }),
     );
     FilePicker.platform = TestImagePicker('/tmp/ref.png');
@@ -680,10 +735,12 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final pending = Completer<Directory>();
     final client = ImageGenerationClient(
-      DeliveryApi((_, __, ___) async => {
-        'success': true,
-        'images': [pixel],
-      }),
+      DeliveryApi(
+        (_, __, ___) async => {
+          'success': true,
+          'images': [pixel],
+        },
+      ),
       directory: () => pending.future,
     );
     final container = ProviderContainer(
@@ -745,7 +802,12 @@ void main() {
     FilePicker.platform = TestImagePicker('/tmp/ref.png')
       ..error = const SocketException('connection lost');
     final client = ImageGenerationClient(
-      DeliveryApi((_, __, ___) async => {'success': true, 'images': [pixel]}),
+      DeliveryApi(
+        (_, __, ___) async => {
+          'success': true,
+          'images': [pixel],
+        },
+      ),
     );
     final container = ProviderContainer(
       overrides: [
@@ -769,6 +831,108 @@ void main() {
     expect(find.textContaining('选择图片失败'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsOneWidget);
     expect(find.text('已选择参考图'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切换账号后旧账号选择的参考图不会写入新账号', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final picker = TestImagePicker('/tmp/ref.png')
+      ..pending = Completer<FilePickerResult?>();
+    FilePicker.platform = picker;
+    final client = ImageGenerationClient(
+      DeliveryApi(
+        (_, __, ___) async => {
+          'success': true,
+          'images': [pixel],
+        },
+      ),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        imageGenerationControllerProvider.overrideWith(
+          (_) => ImageGenerationController(client),
+        ),
+        providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.ensureVisible(find.text('选择参考图'));
+    await tester.tap(find.text('选择参考图'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    picker.pending!.complete(
+      FilePickerResult([
+        PlatformFile(name: 'ref.png', path: '/tmp/ref.png', size: 10),
+      ]),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('已选择参考图'), findsNothing);
+    expect(find.text('执行图生图'), findsNothing);
+    expect(find.text('选择参考图'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切换账号清空参考图草稿', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    FilePicker.platform = TestImagePicker('/tmp/ref.png');
+    final client = ImageGenerationClient(
+      DeliveryApi(
+        (_, __, ___) async => {
+          'success': true,
+          'images': [pixel],
+        },
+      ),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        imageGenerationControllerProvider.overrideWith(
+          (_) => ImageGenerationController(client),
+        ),
+        providerKeyControllerProvider.overrideWith((_) => ImageKeys()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ImageGenerationPage()),
+      ),
+    );
+    await tester.ensureVisible(find.text('选择参考图'));
+    await tester.tap(find.text('选择参考图'));
+    await tester.pump();
+    expect(find.text('已选择参考图'), findsOneWidget);
+    expect(find.text('执行图生图'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('已选择参考图'), findsNothing);
+    expect(find.text('执行图生图'), findsNothing);
+    expect(find.text('选择参考图'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
