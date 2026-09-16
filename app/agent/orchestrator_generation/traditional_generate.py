@@ -416,7 +416,7 @@ class TraditionalGenerateMixin:
                 "is_complete": bool
             }
         """
-        from app.agent.utils import is_valid_code_content
+        from app.agent.utils import is_package_entry_file, is_valid_code_content
 
         planned_files = {f["path"] for f in file_plan}
         generated_set = set(generated_files.keys())
@@ -425,7 +425,8 @@ class TraditionalGenerateMixin:
 
         empty_files = [
             f for f, c in generated_files.items()
-            if not c or len(c.strip()) < 10
+            # 只有真正空白的文件才算「空」；内容质量交给 is_valid_code_content。
+            if not (c or "").strip() and not is_package_entry_file(f)
         ]
 
         invalid_files = []
