@@ -128,6 +128,35 @@ async def login():
     assert reason
 
 
+def test_placeholder_accepts_comment_about_unchanged_code():
+    """注释里说明「其余代码保持不变」是完整代码的一部分，不是截断声明。"""
+    content = "# 其余代码保持不变\ndef run():\n    return 1\n"
+
+    assert utils.is_placeholder_content(content, "app/svc.py")[0] is False
+
+
+def test_placeholder_accepts_english_comment_about_unchanged_code():
+    content = "# rest of the code remains the same\ndef run():\n    return 1\n"
+
+    assert utils.is_placeholder_content(content, "app/svc.py")[0] is False
+
+
+def test_placeholder_still_rejects_truncation_tail():
+    content = "def a():\n    return 1\n\n# 其余代码保持不变\n"
+
+    assert utils.is_placeholder_content(content, "app/svc.py")[0] is True
+
+
+def test_placeholder_accepts_pass_only_package_entry():
+    """仅含 pass 的 __init__.py 是合法的空包声明。"""
+    for content in ("pass\n", '"""App package."""\n\npass\n'):
+        assert utils.is_placeholder_content(content, "app/__init__.py")[0] is False
+
+
+def test_placeholder_still_rejects_pass_only_regular_module():
+    assert utils.is_placeholder_content("pass\n", "app/service.py")[0] is True
+
+
 def test_placeholder_accepts_docs_with_changelog_prose():
     content = "# 更新日志\n\n## v1.2\n\n- 新增登录接口\n- 其他代码保持不变\n"
 
