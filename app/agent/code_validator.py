@@ -10,13 +10,75 @@ import asyncio
 import importlib.util
 import logging
 from collections import OrderedDict
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 from pathlib import Path
 
 from app.agent.markup_syntax import css_structure_errors, html_structure_errors
 
 
 logger = logging.getLogger(__name__)
+
+
+def _imports_symbol_from_module(source: str, module: str, symbol: str) -> bool:
+    """源码中是否存在 `from <module> import <symbol>`（AST 精确匹配符号名）。
+
+    文本子串匹配会把 `CORSMiddleware`/`GZipMiddleware` 等 fastapi 顶层合法再导出
+    误判为 `Middleware`。
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and not node.level and node.module == module:
+            if any(alias.name == symbol for alias in node.names):
+                return True
+    return False
+
+
+# 模块级复合语句：其中的定义同样对外可见（如 `try: from x import y`、
+# `if TYPE_CHECKING:` 之外的普通 if 分支赋值）。
+_MODULE_LEVEL_CONTAINERS = (
+    ast.If, ast.Try, ast.With, ast.AsyncWith, ast.For, ast.AsyncFor, ast.While,
+)
+
+
+def _iter_module_scope(body: Iterable[ast.stmt]) -> Iterator[ast.stmt]:
+    """遍历模块作用域内的语句（进入复合语句，但不进入函数/类体）。"""
+    for node in body:
+        yield node
+        if isinstance(node, _MODULE_LEVEL_CONTAINERS):
+            yield from _iter_module_scope(node.body)
+            if isinstance(node, ast.Try):
+                for handler in node.handlers:
+                    yield from _iter_module_scope(handler.body)
+            # With/AsyncWith 没有 orelse/finalbody，用 getattr 兼容
+            yield from _iter_module_scope(getattr(node, "orelse", ()) or ())
+            yield from _iter_module_scope(getattr(node, "finalbody", ()) or ())
+
+
+def _module_level_exports(tree: ast.Module) -> Dict[str, set]:
+    """模块对外可见的类/函数/变量名（忽略函数与类体内部的局部定义）。"""
+    exports: Dict[str, set] = {"classes": set(), "functions": set(), "variables": set()}
+    for node in _iter_module_scope(tree.body):
+        if isinstance(node, ast.ClassDef):
+            exports["classes"].add(node.name)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            exports["functions"].add(node.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    exports["variables"].add(target.id)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            # `SECRET_KEY: str = "x"` 与 `x = 1` 一样是模块级导出
+            exports["variables"].add(node.target.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            # 模块级导入的名字对外可见（再导出），如
+            # __init__.py 里的 `from .factory import create_app`
+            for alias in node.names:
+                if alias.name != '*':
+                    exports["variables"].add(alias.asname or alias.name)
+    return exports
 
 
 class CodeValidator:
@@ -348,8 +410,9 @@ class CodeValidator:
             if 'OAuth2PasswordBearer' in source and 'token_url=' not in source and 'tokenUrl=' in source:
                 errors.append("FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='")
 
-            # FastAPI Middleware 导入位置变更
-            if 'from fastapi import' in source and 'Middleware' in source.split('from fastapi import')[1].split('\n')[0]:
+            # FastAPI Middleware 导入位置变更（只匹配精确符号：CORSMiddleware 等
+            # 由 fastapi 顶层正常再导出，子串匹配会误判合法导入）
+            if _imports_symbol_from_module(source, 'fastapi', 'Middleware'):
                 errors.append("FastAPI 兼容性: Middleware 已从 fastapi 移至 fastapi.middleware.cors")
 
             # SQLAlchemy 2.0: DeclarativeBase vs Base + BaseModel MRO 冲突
@@ -442,22 +505,7 @@ class CodeValidator:
                     module_name = '.'.join(rel.parent.parts)
                 else:
                     module_name = '.'.join(rel.with_suffix('').parts)
-                defined_symbols[module_name] = {'classes': set(), 'functions': set(), 'variables': set()}
-                for node in ast.iter_child_nodes(tree):
-                    if isinstance(node, ast.ClassDef):
-                        defined_symbols[module_name]['classes'].add(node.name)
-                    elif isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
-                        defined_symbols[module_name]['functions'].add(node.name)
-                    elif isinstance(node, ast.Assign):
-                        for target in node.targets:
-                            if isinstance(target, ast.Name):
-                                defined_symbols[module_name]['variables'].add(target.id)
-                    elif isinstance(node, (ast.Import, ast.ImportFrom)):
-                        # 模块级导入的名字对外可见（再导出），如
-                        # __init__.py 里的 `from .factory import create_app`
-                        for alias in node.names:
-                            if alias.name != '*':
-                                defined_symbols[module_name]['variables'].add(alias.asname or alias.name)
+                defined_symbols[module_name] = _module_level_exports(tree)
             except Exception as e:
                 logger.debug(f"AST 解析失败 {f}（语法错误跳过）：{e}")
                 pass  # 语法错误的文件跳过
