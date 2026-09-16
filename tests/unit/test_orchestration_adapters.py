@@ -200,6 +200,41 @@ async def test_mjs_and_cjs_use_real_node_syntax_check():
 
 
 @pytest.mark.asyncio
+async def test_html5_optional_closing_tags_are_accepted():
+    """HTML5 允许省略 </head>/</body>，只要文档以 </html> 结束。"""
+    content = (
+        '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <title>x</title>\n'
+        "<body>\n  <p>hi</p>\n</html>\n"
+    )
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("templates/index.html", content)
+
+
+@pytest.mark.asyncio
+async def test_html_markup_inside_script_string_is_not_a_structure_error():
+    content = '<script>\nconst t = "<body>";\n</script>\n'
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("templates/partial.html", content)
+
+
+@pytest.mark.asyncio
+async def test_html_and_css_real_defects_are_still_rejected():
+    mixin = SpecFirstGenerateMixin()
+
+    assert not await mixin._validate_content_syntax(
+        "templates/broken.html", "<html><body><script>var a=1;</body></html>"
+    )
+    assert not await mixin._validate_content_syntax("static/broken.css", "body {\n  margin: 0;\n")
+
+
+@pytest.mark.asyncio
+async def test_css_delimiters_inside_strings_and_comments_are_accepted():
+    content = '/* } */\nbody::after {\n  content: "}";\n  background: url("a(b");\n}\n'
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("static/styles.css", content)
+
+
+@pytest.mark.asyncio
 async def test_vue_tsx_script_block_is_validated():
     """<script lang="tsx"> 的 JSX 内容不应被误判为语法失败。"""
     content = '<script lang="tsx">export const A = () => <div>x</div></script>\n'
