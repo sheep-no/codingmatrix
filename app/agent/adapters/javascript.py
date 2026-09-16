@@ -8,6 +8,7 @@ JavaScriptLanguageAdapter - JavaScript/TypeScript 语言适配器
 - 符号定义提取
 """
 
+import os
 import re
 from typing import Dict, List
 from pathlib import Path
@@ -253,19 +254,22 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
         # 相对导入
         if import_info.is_relative:
             current_dir = str(Path(current_file).parent)
-            base_path = current_dir if current_dir != '.' else ''
+            base_dir = current_dir if current_dir not in ('', '.') else ''
+            # 规范化 `./` 与 `../`，避免拼出 `src/./components/x`、
+            # `src/../shared/env.js` 这类永远匹配不上文件集合的候选路径。
+            base = os.path.normpath(f"{base_dir}/{module}" if base_dir else module)
 
-            if base_path:
-                base = f"{base_path}/{module}"
-            else:
-                base = module
+            # 显式扩展名（`./Card.vue`、`./card.css`）不能走补全，否则会被拼成
+            # `Card.vue.js` 之类，合法导入永远匹配不上。
+            if Path(module).suffix:
+                candidates.append(base)
 
             # 尝试多种扩展名
-            for ext in ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']:
+            for ext in ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.vue']:
                 candidates.append(f"{base}{ext}")
 
             # index 文件
-            for ext in ['.js', '.jsx', '.ts', '.tsx']:
+            for ext in ['.js', '.jsx', '.ts', '.tsx', '.vue']:
                 candidates.append(f"{base}/index{ext}")
 
             return candidates
@@ -287,7 +291,7 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
             # 扩展名补全会把 `@/x.vue` 拼成 `x.vue.js`，导致合法导入永远匹配不上。
             if Path(clean_module).suffix:
                 candidates.append(f"src/{clean_module}")
-            for ext in ['.js', '.jsx', '.ts', '.tsx']:
+            for ext in ['.js', '.jsx', '.ts', '.tsx', '.vue']:
                 candidates.append(f"src/{clean_module}{ext}")
                 candidates.append(f"src/{clean_module}/index{ext}")
 
