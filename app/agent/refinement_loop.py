@@ -23,6 +23,7 @@ from dataclasses import dataclass
 
 from app.utils import call_llm
 from app.agent.shared_context import SharedContext
+from app.agent.js_syntax import check_js_source, check_ts_source, vue_script_source
 
 logger = logging.getLogger(__name__)
 
@@ -228,8 +229,8 @@ class RefinementLoop:
             issues.extend(self._validate_spec_consistency(content, file_type))
 
         # JavaScript/TypeScript 文件验证
-        elif ext in ('.js', '.ts', '.vue'):
-            issues.extend(self._validate_js_basic(content))
+        elif ext in ('.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.vue'):
+            issues.extend(self._validate_js_source(content, ext))
 
         # JSON 文件验证
         elif ext == '.json':
@@ -347,61 +348,38 @@ class RefinementLoop:
 
         return issues
 
-    def _validate_js_basic(self, content: str) -> List[ValidationIssue]:
-        """基础 JavaScript 验证"""
-        issues = []
-        
-        # 尝试使用 node -c 进行语法检查
-        try:
-            import subprocess
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
-                f.write(content)
-                tmp_path = f.name
-            
-            result = subprocess.run(
-                ['node', '-c', tmp_path],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            
-            if result.returncode != 0:
-                # 解析错误信息
-                error_msg = result.stderr.strip()
-                if error_msg:
-                    # 尝试提取行号
-                    line_match = re.search(r':(\d+)', error_msg)
-                    line_num = int(line_match.group(1)) if line_match else None
-                    issues.append(ValidationIssue(
-                        type="syntax",
-                        severity="error",
-                        message=f"JavaScript 语法错误: {error_msg}",
-                        line=line_num,
-                        suggestion="检查语法错误"
-                    ))
-            
-            # 清理临时文件
-            Path(tmp_path).unlink(missing_ok=True)
-            
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            # node 不可用，回退到基本检查
-            if content.count('{') != content.count('}'):
-                issues.append(ValidationIssue(
-                    type="syntax",
-                    severity="error",
-                    message="花括号不匹配",
-                    suggestion="检查所有 { 和 } 的配对"
-                ))
-            if content.count('(') != content.count(')'):
-                issues.append(ValidationIssue(
-                    type="syntax",
-                    severity="error",
-                    message="圆括号不匹配",
-                    suggestion="检查所有 ( 和 ) 的配对"
-                ))
-        
-        return issues
+    def _validate_js_source(self, content: str, ext: str) -> List[ValidationIssue]:
+        """校验 JS/TS 家族源码，包括 .vue 的 <script> 块与 JSX/TSX。
+
+        `node -c` 无法解析 JSX、类型注解和 Vue 单文件组件，整体送检会误报；
+        按扩展名选择共享校验器（见 app/agent/js_syntax.py）。
+        """
+        use_ts = ext in ('.ts', '.tsx')
+        use_jsx = ext in ('.jsx', '.tsx')
+        source = content
+        if ext == '.vue':
+            source, use_ts, use_jsx = vue_script_source(content)
+        if not source.strip():
+            return []
+
+        if use_ts:
+            ok, error = check_ts_source(source, jsx=use_jsx)
+            label = "TypeScript"
+        else:
+            ok, error = check_js_source(source)
+            label = "JavaScript"
+        if ok:
+            return []
+
+        error = error or "语法检查未通过"
+        line_match = re.search(r':(\d+)', error)
+        return [ValidationIssue(
+            type="syntax",
+            severity="error",
+            message=f"{label} 语法错误: {error}",
+            line=int(line_match.group(1)) if line_match else None,
+            suggestion="检查语法错误",
+        )]
 
     def _validate_json_syntax(self, content: str) -> List[ValidationIssue]:
         """验证 JSON 语法"""
