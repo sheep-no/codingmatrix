@@ -8,6 +8,11 @@ import os
 
 from app.agent.spec_first_generator import SpecFirstGenerator
 from app.agent.refinement_loop import RefinementLoop
+from app.agent.js_syntax import (
+    vue_script_source,
+    check_js_source as _shared_check_js_source,
+    check_ts_source as _shared_check_ts_source,
+)
 from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
 from app.agent.cross_validator import CrossValidator
 from app.agent.shared_context import SharedContext
@@ -98,25 +103,6 @@ def _require_project_complete(completeness: Dict[str, Any]) -> None:
     raise RuntimeError(
         "project completeness check failed: " + ("; ".join(parts) or "incomplete")
     )
-
-
-_PYTHON_ONLY_PATTERNS = (
-    r'^\s*def\s+\w+\s*\(.*\)\s*:',
-    r'^\s*elif\s+.*:\s*$',
-    r'^\s*class\s+\w+(\([^)]*\))?\s*:\s*$',
-    r'\bself\.',
-)
-
-
-def _has_python_only_syntax(source: str) -> bool:
-    """检测 JS/JSX 源码中出现的 Python 专有语法。"""
-    import re
-
-    return any(re.search(p, source, re.MULTILINE) for p in _PYTHON_ONLY_PATTERNS)
-
-
-def _balanced_delimiters(source: str) -> bool:
-    return source.count('{') == source.count('}') and source.count('(') == source.count(')')
 
 
 class SpecFirstGenerateMixin:
@@ -1854,19 +1840,9 @@ class SpecFirstGenerateMixin:
             use_jsx = use_ts
             if ext == '.vue':
                 # .vue 是单文件组件：模板和样式不是 JS，只校验 <script> 块。
-                blocks = re.findall(
-                    r'<script([^>]*)>(.*?)</script>', content, re.DOTALL | re.IGNORECASE
-                )
-                if not blocks:
+                source, use_ts, use_jsx = vue_script_source(content)
+                if not source:
                     return True
-                langs = {
-                    match.group(1).lower()
-                    for attrs, _ in blocks
-                    if (match := re.search(r'lang\s*=\s*["\']?(\w+)["\']?', attrs, re.IGNORECASE))
-                }
-                use_ts = bool(langs & {'ts', 'tsx'})
-                use_jsx = 'tsx' in langs
-                source = "\n;\n".join(body for _, body in blocks)
             if use_ts:
                 return self._check_ts_source(source, jsx=use_jsx)
             return self._check_js_source(source)
@@ -1898,70 +1874,15 @@ class SpecFirstGenerateMixin:
 
     def _check_ts_source(self, source: str, *, jsx: bool = False) -> bool:
         """校验 TypeScript/TSX 源码（node -c 无法解析装饰器/类型注解/JSX）。"""
-        import shutil
-        import tempfile
-        import subprocess
-        balanced = _balanced_delimiters(source)
-        # 回退到启发式时，JSX 也属 JS 家族，需拦截 Python 专有语法。
-        if jsx and _has_python_only_syntax(source):
-            return False
-        tsc_path = shutil.which('tsc')
-        if not tsc_path:
-            return balanced
-        typescript_module = Path(tsc_path).resolve().parent.parent / 'lib' / 'typescript.js'
-        if not typescript_module.is_file():
-            return balanced
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.tsx' if jsx else '.ts', delete=False) as f:
-                f.write(source)
-                tmp_path = f.name
-            jsx_option = ",jsx:ts.JsxEmit.React" if jsx else ""
-            script = (
-                "const ts=require(process.argv[1]);const fs=require('fs');"
-                "const source=fs.readFileSync(process.argv[2],'utf8');"
-                "const result=ts.transpileModule(source,{reportDiagnostics:true,compilerOptions:{"
-                "target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,"
-                "experimentalDecorators:true,emitDecoratorMetadata:true" + jsx_option + "}});"
-                "process.exit(result.diagnostics?.some(d=>d.category===ts.DiagnosticCategory.Error)?1:0);"
-            )
-            result = subprocess.run(
-                ['node', '-e', script, str(typescript_module), tmp_path],
-                capture_output=True, text=True, timeout=5
-            )
-            Path(tmp_path).unlink(missing_ok=True)
-            # 负返回码表示 node 被信号终止（如 OOM），属环境异常而非源码语法
-            # 错误，退回括号平衡启发式，避免把合法代码判为语法失败。
-            if result.returncode < 0:
-                return balanced
-            return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            return balanced
+        ok, _ = _shared_check_ts_source(source, jsx=jsx)
+        return ok
 
     def _check_js_source(self, source: str) -> bool:
         """校验 JS 源码。node 不可用时退回启发式，只把 Python 专有语法判为失败。"""
-        import tempfile
-        import subprocess
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
-                f.write(source)
-                tmp_path = f.name
-            result = subprocess.run(
-                ['node', '-c', tmp_path],
-                capture_output=True, text=True, timeout=5
-            )
-            Path(tmp_path).unlink(missing_ok=True)
-            # 负返回码表示 node 被信号终止（如 OOM），属环境异常而非源码语法
-            # 错误，落入下方的启发式回退。
-            if result.returncode < 0:
-                logger.warning("node 被信号终止，退回启发式 JS 校验: %s", result.returncode)
-            else:
-                return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            logger.warning("node 不可用，退回启发式 JS 校验")
-
-        if _has_python_only_syntax(source):
-            return False
-        return _balanced_delimiters(source)
+        ok, error = _shared_check_js_source(source)
+        if not ok and error:
+            logger.warning("JS 语法校验未通过: %s", error)
+        return ok
 
     def _strip_output_dir_prefix(self, file_path: str) -> str:
         """去除 file_path 中可能的 output_dir 前缀，避免路径重复"""
