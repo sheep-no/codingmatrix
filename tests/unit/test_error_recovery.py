@@ -57,3 +57,52 @@ async def test_try_react_auto_fix_requires_model_assignment():
     mixin.model_assignment = None
     with pytest.raises(RuntimeError, match="model assignment is required for ReAct auto-fix"):
         await mixin._try_react_auto_fix({"failed_tests": ["test_a"]})
+
+
+@pytest.mark.asyncio
+async def test_quality_score_ignores_environment_import_errors():
+    """环境缺包产生的 import_errors 不应拉低修复策略的质量评分。"""
+    from app.agent.error_recovery import ErrorRecoveryLoop
+
+    class StubValidator:
+        async def validate_single_file(self, file_path):
+            return {
+                "syntax_errors": [],
+                "import_errors": ["ModuleNotFoundError: No module named 'torch'"],
+                "runtime_errors": [],
+                "api_errors": [],
+                "frontend_errors": [],
+                "is_valid": True,
+            }
+
+    loop = ErrorRecoveryLoop(validator=StubValidator(), reviewer=object())
+    with tempfile.TemporaryDirectory() as tmpdir:
+        target = Path(tmpdir) / "main.py"
+        target.write_text("import torch\n", encoding="utf-8")
+
+        assert await loop._evaluate_code_quality("import torch\n", target) == 1.0
+
+
+@pytest.mark.asyncio
+async def test_quality_score_penalizes_code_defects():
+    from app.agent.error_recovery import ErrorRecoveryLoop
+
+    class StubValidator:
+        async def validate_single_file(self, file_path):
+            return {
+                "syntax_errors": ["line 1: invalid syntax"],
+                "import_errors": ["ModuleNotFoundError: No module named 'torch'"],
+                "runtime_errors": [],
+                "api_errors": [],
+                "frontend_errors": [],
+                "is_valid": False,
+            }
+
+    loop = ErrorRecoveryLoop(validator=StubValidator(), reviewer=object())
+    with tempfile.TemporaryDirectory() as tmpdir:
+        target = Path(tmpdir) / "main.py"
+        target.write_text("def broken(:\n", encoding="utf-8")
+
+        score = await loop._evaluate_code_quality("def broken(:\n", target)
+
+    assert score == 0.8

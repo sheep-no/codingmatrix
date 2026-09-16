@@ -394,9 +394,12 @@ class ErrorRecoveryLoop:
             if validation["is_valid"]:
                 return 1.0
             else:
-                # 根据错误数量计算质量分数
+                # 根据错误数量计算质量分数。import_errors 反映的是 Agent 执行环境
+                # 是否安装了第三方包，不代表生成代码有缺陷（validate_single_file
+                # 同样不把它计入 is_valid），因此不参与评分，避免环境缺包污染
+                # 修复策略的质量评分。
                 error_count = 0
-                for key in ["syntax_errors", "import_errors", "runtime_errors", "api_errors", "frontend_errors"]:
+                for key in ["syntax_errors", "runtime_errors", "api_errors", "frontend_errors"]:
                     error_count += len(validation.get(key, []))
 
                 # 最多5个错误，超过5个按5算
