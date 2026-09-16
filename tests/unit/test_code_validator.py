@@ -366,6 +366,97 @@ class TestCodeValidator:
         assert ok is False
         assert any("nonexistent" in err for err in errors)
 
+
+class TestHtmlCssStructureGate:
+    @pytest.mark.asyncio
+    async def test_html5_optional_closing_tags_are_accepted(self, tmp_path):
+        """HTML5 允许省略 </head>/</body>，文档以 </html> 结束即合法。"""
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "index.html"
+        target.write_text(
+            '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <title>x</title>\n'
+            "<body>\n  <p>hi</p>\n</html>\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_html_structure(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_html_fragment_without_root_tags_is_accepted(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "partial.html"
+        target.write_text('<div class="card">\n  <span>hi</span>\n</div>\n', encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_html_structure(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_script_tag_text_inside_string_is_not_a_tag(self, tmp_path):
+        """JS 字符串里的 "<script ...>" 不是标签，不能据它判 script 未闭合。"""
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "page.html"
+        target.write_text(
+            '<html><head></head><body><script>\nconst t = "<script src=x>";\n'
+            "</script></body></html>\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_html_structure(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_truncated_html_is_still_flagged(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "truncated.html"
+        target.write_text(
+            "<!DOCTYPE html>\n<html>\n<head>\n</head>\n<body>\n  <p>hi</p>\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_html_structure(target)
+
+        assert ok is False
+        assert any("</body>" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_unclosed_script_is_still_flagged(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "broken.html"
+        target.write_text(
+            "<html><head></head><body><script>var a=1;</body></html>", encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_html_structure(target)
+
+        assert ok is False
+        assert any("</script>" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_css_empty_declarations_are_accepted(self, tmp_path):
+        """空声明（连续或孤立的分号）在 CSS 中是合法的。"""
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "styles.css"
+        target.write_text("a {\n  color: red;;\n}\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_css_syntax(target)
+
+        assert ok is True
+        assert errors == []
+
+
 class TestCodeValidatorLRU:
     def test_lru_cache_limit(self):
         from app.agent.code_validator import CodeValidator

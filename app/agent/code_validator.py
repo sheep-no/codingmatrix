@@ -9,12 +9,33 @@ import time
 import asyncio
 import importlib.util
 import logging
+from html.parser import HTMLParser
 from collections import OrderedDict
 from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
+
+
+class _RawTextTagBalance(HTMLParser):
+    """统计 script/style 的开始与结束标签数量。
+
+    原始文本元素内部出现的 ``<script``/``<style`` 是普通文本而非标签
+    （如 JS 字符串里的 ``"<script src=x>"``），用解析器计数可避免把
+    这些内容误判为标签。
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.starts: Dict[str, int] = {}
+        self.ends: Dict[str, int] = {}
+
+    def handle_starttag(self, tag, attrs):
+        self.starts[tag] = self.starts.get(tag, 0) + 1
+
+    def handle_endtag(self, tag):
+        self.ends[tag] = self.ends.get(tag, 0) + 1
 
 
 class CodeValidator:
@@ -393,19 +414,25 @@ class CodeValidator:
                 content = f.read()
 
             errors = []
-            # 检查必需的闭合标签
-            required_tags = ['html', 'head', 'body']
-            for tag in required_tags:
+            # HTML5 允许省略 </head>、</body>、</html>。只要文档以 </html>
+            # 正常结束，前面省略的闭合标签就是合法的，不能判为结构错误。
+            # 不含这些标签的 HTML 片段同样不做要求。
+            document_closed = bool(re.search(r'</html\s*>', content, re.IGNORECASE))
+            for tag in ('html', 'head', 'body'):
                 open_count = len(re.findall(rf'<{tag}[\s>]', content, re.IGNORECASE))
-                close_count = len(re.findall(rf'</{tag}>', content, re.IGNORECASE))
-                if open_count > close_count:
+                close_count = len(re.findall(rf'</{tag}\s*>', content, re.IGNORECASE))
+                if open_count > close_count and not document_closed:
                     errors.append(f"HTML 结构: 缺少 </{tag}> 闭合标签")
 
-            # 检查 script 标签是否正确闭合
-            script_opens = len(re.findall(r'<script[\s>]', content, re.IGNORECASE))
-            script_closes = len(re.findall(r'</script>', content, re.IGNORECASE))
-            if script_opens != script_closes:
-                errors.append(f"HTML 结构: script 标签数量不匹配 (开: {script_opens}, 关: {script_closes})")
+            # script/style 是原始文本元素，内部内容不算标签
+            parser = _RawTextTagBalance()
+            parser.feed(content)
+            parser.close()
+            for tag in ('script', 'style'):
+                if parser.starts.get(tag, 0) > parser.ends.get(tag, 0):
+                    errors.append(
+                        f"HTML 结构: 缺少 </{tag}> 闭合标签 (开: {parser.starts.get(tag, 0)}, 关: {parser.ends.get(tag, 0)})"
+                    )
 
             return len(errors) == 0, errors
         except Exception as e:
@@ -430,9 +457,7 @@ class CodeValidator:
             if open_braces != close_braces:
                 errors.append(f"CSS 语法: 大括号不匹配 (开: {open_braces}, 关: {close_braces})")
 
-            # 检查是否有明显的语法错误（如连续的分号）
-            if ';;' in sanitized:
-                errors.append("CSS 语法: 存在连续的分号")
+            # 空声明（连续或孤立的分号）在 CSS 中是合法的，不作为语法错误。
 
             return len(errors) == 0, errors
         except Exception as e:
