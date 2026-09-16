@@ -1014,11 +1014,24 @@ class SpecFirstGenerateMixin:
         if self.enable_validation:
             final_validation = await self.validator.run_full_validation()
 
+            # 汇总各校验类别的失败原因供前端展示。import_errors 只含环境缺包等
+            # 诊断信息，不代表代码缺陷，不计入 issues。
+            issues = []
+            for issue_key in (
+                "syntax_errors",
+                "dependency_errors",
+                "api_errors",
+                "runtime_errors",
+                "frontend_errors",
+                "cross_file_errors",
+            ):
+                issues.extend(final_validation.get(issue_key) or [])
+
             # 推送验证结果事件
             self._report_validation_results({
                 "passed": final_validation.get("is_valid", False),
                 "checks": final_validation.get("checks", []),
-                "issues": final_validation.get("issues", []),
+                "issues": issues,
                 "score": final_validation.get("score", 0)
             })
 
