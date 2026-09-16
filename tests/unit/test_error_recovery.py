@@ -106,3 +106,41 @@ async def test_quality_score_penalizes_code_defects():
         score = await loop._evaluate_code_quality("def broken(:\n", target)
 
     assert score == 0.8
+
+
+def test_default_fix_template_is_strategy_text_without_placeholders():
+    """默认策略文本会被原样注入系统提示，不能残留未填充的提示词占位符。"""
+    from app.agent.error_classifier import ErrorClassification
+    from app.agent.error_recovery import ErrorRecoveryLoop
+
+    loop = ErrorRecoveryLoop(validator=object(), reviewer=object())
+    template = loop._build_default_fix_template()
+
+    assert "{content}" not in template
+    assert "{error_context}" not in template
+    assert "{suggested_fix_strategy}" not in template
+
+    classification = ErrorClassification("SyntaxError", "missing_delimiter", "语法错误", "检查括号匹配", 0.9)
+    context = loop._build_targeted_error_context_with_template(
+        {"syntax_errors": ["line 1: invalid syntax"]}, "code = 1", 0, classification, template
+    )
+
+    assert context.startswith("## 错误类型")
+    assert "invalid syntax" in context
+    assert "{content}" not in context
+
+
+def test_strategy_template_with_error_context_placeholder_is_substituted():
+    from app.agent.error_classifier import ErrorClassification
+    from app.agent.error_recovery import ErrorRecoveryLoop
+
+    loop = ErrorRecoveryLoop(validator=object(), reviewer=object())
+    classification = ErrorClassification("ImportError", "missing_module", "导入错误", "检查导入路径", 0.9)
+    context = loop._build_targeted_error_context_with_template(
+        {"import_errors": ["缺少依赖: fastapi"]}, "import fastapi\n", 0, classification,
+        "## 自定义策略\n{error_context}\n## 结束",
+    )
+
+    assert context.startswith("## 自定义策略")
+    assert context.endswith("## 结束")
+    assert "缺少依赖: fastapi" in context

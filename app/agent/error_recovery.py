@@ -411,22 +411,17 @@ class ErrorRecoveryLoop:
             return 0.5  # 默认中等质量
 
     def _build_default_fix_template(self) -> str:
-        """构建默认修复模板"""
-        return """请修复以下代码中的错误。
+        """默认修复策略。
 
-【当前代码】
-```
-{content}
-```
-
-【发现的错误】
-{error_context}
-
-【修复要求】
-1. {suggested_fix_strategy}
-2. 仅修复指出的问题，保持其他代码不变
-3. 确保修复后的代码能通过语法、导入和依赖验证
-4. 返回完整修复后的代码，不要省略任何部分"""
+        该文本只作为【修复策略】注入系统提示，必须是策略说明本身。此前的默认值
+        是一整份带 {content}/{error_context} 占位符的提示词模板，占位符从未被
+        填充，导致系统提示与【发现的错误】段落里出现字面量 {content}，并把完整
+        提示词框架重复嵌进错误上下文。需要注入错误上下文的策略模板请通过
+        strategy_evaluator 提供并在其中显式写 {error_context}。
+        """
+        return """1. 依据【发现的错误】逐条定位并修复，只改动导致错误的那几处代码
+2. 不要删除或重写与错误无关的代码、导入、函数与配置
+3. 修复后返回完整文件内容，不得省略、不得使用 "..." 或占位符代替代码"""
 
     def _build_targeted_error_context_with_template(
         self,
