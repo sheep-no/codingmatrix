@@ -872,58 +872,6 @@ class DependencyGraph:
             replaced_reverse_edges,
         )
 
-    def ensure_package_files(self) -> List[str]:
-        """
-        确保所有包都有入口文件（如 __init__.py）
-
-        使用 language_adapter 检查包结构，添加缺失的文件。
-
-        Returns:
-            添加的文件路径列表
-        """
-        added_files = []
-
-        # 收集所有包路径
-        packages = set()
-        init_file_name = self.language_adapter.package_init_filename if self.language_adapter else '__init__.py'
-        for path in self.nodes:
-            if '/' in path:
-                parts = path.rsplit('/', 1)
-                if len(parts) == 2:
-                    pkg = parts[0]
-                    # 检查是否是包（有文件但没有入口文件）
-                    if not path.endswith(init_file_name):
-                        packages.add(pkg)
-
-         # 检查每个包
-        for pkg in packages:
-            if self.language_adapter:
-                missing = self.language_adapter.validate_package_structure(
-                    pkg, {p: "" for p in self.nodes}
-                )
-                for init_path in missing:
-                    if init_path not in self.nodes:
-                        self.add_file(init_path, file_type="config", priority=5,
-                                     description=f"Package init file for {pkg}")
-                        added_files.append(init_path)
-                        # Make __init__.py depend on all other files in the same package
-                        for other_path in self.nodes:
-                            if other_path != init_path and other_path.startswith(pkg + '/') and not other_path.endswith(init_file_name):
-                                self.add_dependency(init_path, other_path)
-            else:
-                # Fallback: 通用规则
-                init_path = f"{pkg}/{init_file_name}"
-                if init_path not in self.nodes:
-                    self.add_file(init_path, file_type="config", priority=5,
-                                 description=f"Package init file for {pkg}")
-                    added_files.append(init_path)
-                    # Make __init__.py depend on all other files in the same package
-                    for other_path in self.nodes:
-                        if other_path != init_path and other_path.startswith(pkg + '/') and not other_path.endswith(init_file_name):
-                            self.add_dependency(init_path, other_path)
-
-        return added_files
-
     def get_generation_order(self) -> List[str]:
         """
         获取文件生成顺序（拓扑排序）
@@ -1843,7 +1791,6 @@ class DependencyGraph:
 
         重要：__init__.py 必须为 priority=5（最后生成），
         因为工程师生成 __init__.py 时需要先读取同包内其他文件。
-        这与 ensure_package_files() 中 priority=5 一致。
         """
         # 检查是否是包入口文件
         if self.language_adapter and self.language_adapter.package_init_filename:
