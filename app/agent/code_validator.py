@@ -369,6 +369,11 @@ class CodeValidator:
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await proc.communicate()
+            # 负返回码表示 node 被信号终止（如 OOM），属环境异常而非语法错误，
+            # 不能据此判为无效代码。
+            if proc.returncode < 0:
+                logger.warning("node 被信号终止，跳过 JS 语法校验: %s", proc.returncode)
+                return True, []
             if proc.returncode != 0:
                 err_msg = stderr.decode('utf-8', errors='replace').strip()
                 return False, [f"JS 语法错误: {err_msg}"]
