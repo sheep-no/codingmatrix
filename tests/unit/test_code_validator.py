@@ -516,6 +516,21 @@ class TestHtmlCssStructureGate:
         assert any("</script>" in err for err in errors)
 
     @pytest.mark.asyncio
+    async def test_structure_tag_inside_script_string_is_not_a_tag(self, tmp_path):
+        """片段里 JS 字符串中的 "<body>" 不是标签，不能判为缺少闭合标签。"""
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "fragment.html"
+        target.write_text(
+            '<script>\nconst t = "<body>";\n</script>\n', encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_html_structure(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
     async def test_css_empty_declarations_are_accepted(self, tmp_path):
         """空声明（连续或孤立的分号）在 CSS 中是合法的。"""
         from app.agent.code_validator import CodeValidator
