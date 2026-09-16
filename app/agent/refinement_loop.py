@@ -6,10 +6,12 @@ RefinementLoop - 迭代修复循环
 
 循环流程：
 1. Generate: 使用 LLM 生成代码
-2. Validate: 语法检查、导入检查、规范一致性检查
+2. Validate: 语法检查、规范一致性检查
 3. Analyze: 分析错误类型和原因
 4. Fix: 将错误信息注入 prompt，重新生成
 5. Repeat: 最多 N 次，直到验证通过或达到最大次数
+
+说明：只有 error 级别的问题会驱动修复循环；warning 只作为诊断信息返回。
 """
 
 import json
@@ -134,32 +136,37 @@ class RefinementLoop:
             # Step 1: 验证当前代码
             issues = await self._validate_code(file_path, content, file_type)
 
-            if not issues:
-                # 验证通过
+            all_issues.extend(issues)
+
+            # 只有 error 级别的缺陷才需要修复。warning 是提示性信息（规范建议等），
+            # 既不阻塞文件通过，也不该触发整文件重写：修复循环重写的是当前文件，
+            # 无法解决文件之外的提示，反复重写只会消耗轮次并可能改坏代码。
+            blocking = [issue for issue in issues if issue.severity == "error"]
+
+            if not blocking:
+                # 无阻塞缺陷即视为通过，warning 作为诊断信息保留
                 return RefinementResult(
                     success=True,
                     final_content=content,
                     attempts=attempt,
                     issues_found=all_issues,
                     issues_fixed=issues_fixed,
-                    remaining_issues=[]
+                    remaining_issues=[issue for issue in issues if issue.severity != "error"]
                 )
 
-            all_issues.extend(issues)
-
             # Step 2: 分析错误（含错误行 ±10 行代码上下文）
-            error_summary = self._build_error_summary(issues, content)
+            error_summary = self._build_error_summary(blocking, content)
 
             # Step 3: 如果是最后一次尝试，记录结果并返回
             if attempt == self.MAX_ATTEMPTS:
-                logger.warning(f"文件 {file_path} 经过 {attempt} 次修复仍有 {len(issues)} 个问题")
+                logger.warning(f"文件 {file_path} 经过 {attempt} 次修复仍有 {len(blocking)} 个问题")
                 return RefinementResult(
                     success=False,
                     final_content=content,
                     attempts=attempt,
                     issues_found=all_issues,
                     issues_fixed=issues_fixed,
-                    remaining_issues=issues
+                    remaining_issues=blocking
                 )
 
             # Step 4: 构建修复 prompt
@@ -198,7 +205,7 @@ class RefinementLoop:
                     continue
 
                 content = new_content
-                issues_fixed += len(issues)
+                issues_fixed += len(blocking)
 
             except Exception as e:
                 logger.error(f"修复尝试 {attempt} 失败: {e}")
@@ -211,7 +218,7 @@ class RefinementLoop:
             attempts=self.MAX_ATTEMPTS,
             issues_found=all_issues,
             issues_fixed=issues_fixed,
-            remaining_issues=issues if issues else all_issues
+            remaining_issues=blocking or all_issues
         )
 
     # ==================== 验证方法 ====================
@@ -225,7 +232,6 @@ class RefinementLoop:
         # Python 文件验证
         if ext == '.py':
             issues.extend(self._validate_python_syntax(content, file_path))
-            issues.extend(self._validate_python_imports(content))
             issues.extend(self._validate_spec_consistency(content, file_type))
 
         # JavaScript/TypeScript 文件验证
@@ -259,60 +265,6 @@ class RefinementLoop:
                 line=e.lineno,
                 suggestion="检查括号匹配、缩进和语法正确性"
             ))
-        return issues
-
-    def _validate_python_imports(self, content: str) -> List[ValidationIssue]:
-        """验证 Python 导入语句"""
-        issues = []
-        standard_libs = {
-            'os', 'sys', 'json', 're', 'datetime', 'pathlib', 'typing', 'asyncio',
-            'logging', 'collections', 'functools', 'itertools', 'math', 'string',
-            'io', 'copy', 'time', 'enum', 'dataclasses', 'abc', 'contextlib',
-            'urllib', 'http', 'email', 'hashlib', 'hmac', 'secrets', 'base64',
-            'struct', 'textwrap', 'unittest', 'pdb', 'traceback', 'warnings',
-            'weakref', 'types', 'importlib', 'sqlite3', 'decimal', 'uuid',
-            'argparse', 'configparser', 'csv', 'html', 'xml', 'zipfile', 'tarfile',
-            'glob', 'shutil', 'tempfile', 'subprocess', 'signal', 'threading',
-            'multiprocessing', 'socket', 'ssl', 'select', 'selectors'
-        }
-
-        imports = set()
-        for line in content.split('\n'):
-            line = line.strip()
-            if line.startswith('import '):
-                parts = line[7:].split()
-                if parts:
-                    module = parts[0].split('.')[0].split(',')[0].strip()
-                    if module:
-                        imports.add(module)
-            elif line.startswith('from '):
-                parts = line[5:].split()
-                if parts:
-                    module = parts[0].split('.')[0].strip()
-                    if module and module != '.':
-                        imports.add(module)
-
-        # 检查非标准库导入
-        missing_imports = []
-        for imp in imports:
-            if imp in standard_libs:
-                continue
-            if imp.startswith('_') or imp.startswith('app.') or imp.startswith('src.'):
-                continue  # 项目内部导入
-            try:
-                import importlib
-                importlib.import_module(imp)
-            except ImportError:
-                missing_imports.append(imp)
-
-        if missing_imports:
-            issues.append(ValidationIssue(
-                type="import",
-                severity="warning",
-                message=f"可能存在缺失的依赖: {', '.join(missing_imports[:5])}",
-                suggestion=f"确保这些包在 requirements.txt 中: {', '.join(missing_imports[:3])}"
-            ))
-
         return issues
 
     def _validate_spec_consistency(self, content: str, file_type: str) -> List[ValidationIssue]:

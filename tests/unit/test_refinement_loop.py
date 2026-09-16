@@ -96,3 +96,58 @@ class TestJsFamilyValidation:
 
         assert issues
         assert issues[0].type == "syntax"
+
+
+class TestWarningDoesNotBlockRefinement:
+    """warning 是诊断信息：不应触发修复轮次，也不应把文件判为失败。"""
+
+    @pytest.fixture
+    def loop(self):
+        from app.agent.refinement_loop import RefinementLoop
+        from app.agent.shared_context import SharedContext
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx = SharedContext("test requirement", Path(tmpdir))
+            ctx.model_assignment = {"backend_model": "test-model"}
+            yield RefinementLoop(ctx)
+
+    @pytest.mark.asyncio
+    async def test_warning_only_issues_pass_without_extra_llm_calls(self, loop, monkeypatch):
+        from app.agent.refinement_loop import ValidationIssue
+
+        async def warning_only(self, file_path, content, file_type):
+            return [ValidationIssue(
+                type="spec_mismatch",
+                severity="warning",
+                message="类型定义文件应使用 Pydantic BaseModel",
+            )]
+
+        calls = []
+
+        async def fail_if_called(**kwargs):
+            calls.append(kwargs)
+            raise AssertionError("warning 不应触发修复调用")
+
+        monkeypatch.setattr("app.agent.refinement_loop.RefinementLoop._validate_code", warning_only)
+        monkeypatch.setattr("app.agent.refinement_loop.call_llm", fail_if_called)
+
+        result = await loop.refine(
+            file_path="app/models.py",
+            file_type="model",
+            description="模型",
+            initial_content="class User:\n    pass\n",
+            model_name="test-model",
+        )
+
+        assert result.success is True
+        assert result.attempts == 1
+        assert calls == []
+        assert [issue.severity for issue in result.remaining_issues] == ["warning"]
+
+    @pytest.mark.asyncio
+    async def test_environment_import_absence_is_not_reported(self, loop):
+        content = "import torch\n\n\ndef run():\n    return torch.tensor(1)\n"
+
+        issues = await loop._validate_code("app/model.py", content, "model")
+
+        assert issues == []
