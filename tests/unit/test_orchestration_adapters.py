@@ -167,6 +167,47 @@ async def test_js_syntax_validation_fallback_still_rejects_python_code(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_js_family_extensions_accept_valid_sources():
+    """mjs/cjs/jsx/tsx 必须走 JS/TS 校验，而不是被静默跳过。"""
+    mixin = SpecFirstGenerateMixin()
+
+    assert await mixin._validate_content_syntax("src/a.mjs", "export const x = 1\n")
+    assert await mixin._validate_content_syntax("src/a.cjs", "module.exports = 1\n")
+    assert await mixin._validate_content_syntax(
+        "src/App.jsx", 'export default function App() { return <div className="a">hi</div> }\n'
+    )
+    assert await mixin._validate_content_syntax(
+        "src/App.tsx", "export const A = (): JSX.Element => <div>hi</div>\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_js_family_extensions_reject_python_code():
+    mixin = SpecFirstGenerateMixin()
+    python_source = "def main():\n    return 1\n"
+
+    for path in ("src/a.mjs", "src/a.cjs", "src/App.jsx", "src/App.tsx"):
+        assert not await mixin._validate_content_syntax(path, python_source), path
+
+
+@pytest.mark.asyncio
+async def test_mjs_and_cjs_use_real_node_syntax_check():
+    """括号平衡、非 Python 的 JS 语法错误只能由 node -c 拦截。"""
+    mixin = SpecFirstGenerateMixin()
+
+    for path in ("src/a.mjs", "src/a.cjs"):
+        assert not await mixin._validate_content_syntax(path, "const x = ;\n"), path
+
+
+@pytest.mark.asyncio
+async def test_vue_tsx_script_block_is_validated():
+    """<script lang="tsx"> 的 JSX 内容不应被误判为语法失败。"""
+    content = '<script lang="tsx">export const A = () => <div>x</div></script>\n'
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("src/App.vue", content)
+
+
+@pytest.mark.asyncio
 async def test_vue_syntax_validation_accepts_single_file_component():
     content = (
         "<template>\n  <div>{{ msg }}</div>\n</template>\n\n"
