@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../application/auth_controller.dart';
 import '../application/girl_ai_controller.dart';
+import 'account_overlays.dart';
 
 class VirtualGirlPage extends ConsumerStatefulWidget {
   const VirtualGirlPage({super.key});
@@ -10,6 +12,10 @@ class VirtualGirlPage extends ConsumerStatefulWidget {
 
 class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
   final input = TextEditingController();
+  bool historyBusy = false;
+  // Bumped on account change so an in-flight history request does not open a
+  // sheet over the next account.
+  int _epoch = 0;
   @override
   void initState() {
     super.initState();
@@ -29,8 +35,36 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
     ref.read(girlAiControllerProvider.notifier).send(value);
   }
 
+  void _resetAccount() {
+    _epoch++;
+    closeAccountOverlays(context);
+    input.clear();
+  }
+
+  Future<void> _showHistory() async {
+    if (historyBusy) return;
+    final epoch = _epoch;
+    setState(() => historyBusy = true);
+    try {
+      await ref.read(girlAiControllerProvider.notifier).loadHistory();
+      if (!mounted || epoch != _epoch) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        builder: (_) =>
+            _HistorySheet(records: ref.read(girlAiControllerProvider).history),
+      );
+    } finally {
+      if (mounted) setState(() => historyBusy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _resetAccount(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
     final state = ref.watch(girlAiControllerProvider);
     return Scaffold(
       appBar: AppBar(
@@ -38,16 +72,7 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
         actions: [
           IconButton(
             tooltip: '历史记录',
-            onPressed: () async {
-              await ref.read(girlAiControllerProvider.notifier).loadHistory();
-              if (!context.mounted) return;
-              showModalBottomSheet<void>(
-                context: context,
-                builder: (_) => _HistorySheet(
-                  records: ref.read(girlAiControllerProvider).history,
-                ),
-              );
-            },
+            onPressed: historyBusy ? null : _showHistory,
             icon: const Icon(Icons.history),
           ),
         ],
@@ -131,16 +156,20 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
                     children: [
                       IconButton(
                         tooltip: '保存',
-                        onPressed: () => ref
-                            .read(girlAiControllerProvider.notifier)
-                            .confirmMemory(memory),
+                        onPressed: state.busyMemoryIds.contains(memory.id)
+                            ? null
+                            : () => ref
+                                  .read(girlAiControllerProvider.notifier)
+                                  .confirmMemory(memory),
                         icon: const Icon(Icons.check),
                       ),
                       IconButton(
                         tooltip: '忽略',
-                        onPressed: () => ref
-                            .read(girlAiControllerProvider.notifier)
-                            .deleteMemory(memory),
+                        onPressed: state.busyMemoryIds.contains(memory.id)
+                            ? null
+                            : () => ref
+                                  .read(girlAiControllerProvider.notifier)
+                                  .deleteMemory(memory),
                         icon: const Icon(Icons.close),
                       ),
                     ],

@@ -10,6 +10,8 @@ import 'package:codingmatrix_desktop/application/workflow_controller.dart';
 import 'package:codingmatrix_desktop/infrastructure/workflow/workflow_client.dart';
 import 'package:codingmatrix_desktop/presentation/workflow_page.dart';
 import 'agent_delivery_test.dart' show DeliveryApi;
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 const graph = {
   'event': 'task_graph_generated',
@@ -445,10 +447,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(
-          key: UniqueKey(),
-          home: const WorkflowPage(),
-        ),
+        child: MaterialApp(key: UniqueKey(), home: const WorkflowPage()),
       ),
     );
     await tester.pump();
@@ -536,10 +535,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(
-          key: UniqueKey(),
-          home: const WorkflowPage(),
-        ),
+        child: MaterialApp(key: UniqueKey(), home: const WorkflowPage()),
       ),
     );
     await tester.pump();
@@ -588,6 +584,47 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('切账号后旧账号的历史弹层不会弹出', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/workflow/history') return pending.future;
+      fail('unexpected $path');
+    });
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+        workflowControllerProvider.overrideWith(
+          (_) => WorkflowController(WorkflowClient(api)),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete({
+      'items': [
+        {'workflow_id': 'w1', 'name': '上一账号的工作流', 'status': 'done'},
+      ],
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.text('上一账号的工作流'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('读取历史中退出再进入会丢掉错误', (tester) async {
     final pending = Completer<Object?>();
     final api = DeliveryApi((path, _, __) async {
@@ -621,6 +658,82 @@ void main() {
     await tester.pump();
     expect(find.textContaining('历史读取失败'), findsNothing);
     expect(find.textContaining('connection lost'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除历史进行中无法再次触发并发请求', (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var deletes = 0;
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, method, body) async {
+      if (path == '/api/v1/workflow/history') {
+        return {
+          'items': [
+            {'workflow_id': 'w1', 'name': '历史一', 'status': 'completed'},
+          ],
+        };
+      }
+      expect(path, '/api/v1/workflow/history/w1');
+      expect(method, 'DELETE');
+      deletes++;
+      return pending.future;
+    });
+    await pumpWorkflow(tester, api);
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('删除历史'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('删除历史'));
+    await tester.pump();
+    expect(deletes, 1);
+    await tester.tap(find.byTooltip('删除历史'), warnIfMissed: false);
+    await tester.pump();
+    expect(deletes, 1);
+    pending.complete(null);
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除历史成功后弹层关闭不会带走工作流页', (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, method, body) async {
+      if (path == '/api/v1/workflow/history') {
+        return {
+          'items': [
+            {'workflow_id': 'w1', 'name': '历史一', 'status': 'completed'},
+          ],
+        };
+      }
+      expect(path, '/api/v1/workflow/history/w1');
+      expect(method, 'DELETE');
+      return pending.future;
+    });
+    await pumpWorkflow(tester, api);
+    await tester.tap(find.byIcon(Icons.history));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('删除历史'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('删除历史'));
+    await tester.pump();
+
+    // 用户先关掉弹层，删除请求才成功返回。
+    Navigator.of(tester.element(find.byTooltip('删除历史'))).pop();
+    await tester.pumpAndSettle();
+    expect(find.text('历史一'), findsNothing);
+    pending.complete(null);
+    await tester.pumpAndSettle();
+    expect(find.byType(WorkflowPage), findsOneWidget);
+    expect(find.byKey(const Key('workflowInput')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
