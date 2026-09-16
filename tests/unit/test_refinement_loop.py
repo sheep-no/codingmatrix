@@ -151,3 +151,52 @@ class TestWarningDoesNotBlockRefinement:
         issues = await loop._validate_code("app/model.py", content, "model")
 
         assert issues == []
+
+
+class TestMarkupValidationReusesSharedSyntax:
+    """HTML/CSS 结构校验必须忽略注释、字符串和原始文本元素里的定界符。"""
+
+    @pytest.fixture
+    def loop(self):
+        from app.agent.refinement_loop import RefinementLoop
+        from app.agent.shared_context import SharedContext
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx = SharedContext("test requirement", Path(tmpdir))
+            ctx.model_assignment = {"backend_model": "test-model"}
+            yield RefinementLoop(ctx)
+
+    @pytest.mark.asyncio
+    async def test_markup_inside_script_string_is_not_a_structure_error(self, loop):
+        # 片段：不带文档级闭合，纯计数会把字符串里的 <body> 当成未闭合标签
+        content = '<script>\nconst t = "<body>";\nconsole.log("</html>");\n</script>\n'
+
+        assert await loop._validate_code("index.html", content, "frontend") == []
+
+    @pytest.mark.asyncio
+    async def test_markup_inside_comment_is_not_a_structure_error(self, loop):
+        content = "<!-- <body> </head> -->\n<div>hi</div>\n"
+
+        assert await loop._validate_code("index.html", content, "frontend") == []
+
+    @pytest.mark.asyncio
+    async def test_unclosed_body_without_document_end_is_flagged(self, loop):
+        content = "<html><head></head><body>\n<p>hi</p>\n"
+
+        issues = await loop._validate_code("index.html", content, "frontend")
+
+        assert issues
+        assert any("</body>" in issue.message for issue in issues)
+
+    @pytest.mark.asyncio
+    async def test_css_delimiters_inside_strings_and_comments_are_ignored(self, loop):
+        content = '/* } */\nbody::after {\n  content: "}";\n  background: url("a(b");\n}\n'
+
+        assert await loop._validate_code("styles.css", content, "frontend") == []
+
+    @pytest.mark.asyncio
+    async def test_css_unbalanced_braces_are_still_flagged(self, loop):
+        issues = await loop._validate_code("styles.css", "body {\n  margin: 0;\n", "frontend")
+
+        assert issues
+        assert any("大括号不匹配" in issue.message for issue in issues)
