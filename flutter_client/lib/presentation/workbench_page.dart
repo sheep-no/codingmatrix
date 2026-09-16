@@ -22,6 +22,7 @@ import 'task_queue_page.dart';
 import 'file_center_page.dart';
 import 'admin_page.dart';
 import 'mcp_admin_page.dart';
+import 'account_overlays.dart';
 
 class WorkbenchPage extends ConsumerStatefulWidget {
   const WorkbenchPage({super.key});
@@ -37,6 +38,11 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
   void dispose() {
     _requirementController.dispose();
     super.dispose();
+  }
+
+  void _resetAccount() {
+    closeAccountOverlays(context);
+    _requirementController.clear();
   }
 
   Future<void> _startGeneration(AuthState auth) async {
@@ -82,6 +88,11 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _resetAccount(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
     final auth = ref.watch(authControllerProvider);
     final workbench = ref.watch(workbenchControllerProvider);
     final session = auth.session;

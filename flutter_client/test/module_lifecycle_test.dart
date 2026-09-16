@@ -6,10 +6,18 @@ import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/application/image_generation_controller.dart';
 import 'package:codingmatrix_desktop/application/workflow_controller.dart';
 import 'package:codingmatrix_desktop/application/github_controller.dart';
+import 'package:codingmatrix_desktop/application/workbench_controller.dart';
 import 'package:codingmatrix_desktop/domain/models/auth_session.dart';
+import 'package:codingmatrix_desktop/domain/models/unified_models.dart';
 import 'package:codingmatrix_desktop/domain/models/image_generation.dart';
+import 'package:codingmatrix_desktop/domain/models/agent_decision.dart';
+import 'package:codingmatrix_desktop/presentation/agent_decision_page.dart';
 import 'package:codingmatrix_desktop/presentation/github_settings_page.dart';
+import 'package:codingmatrix_desktop/presentation/project_files_page.dart';
 import 'package:codingmatrix_desktop/presentation/workbench_page.dart';
+import 'package:codingmatrix_desktop/presentation/ppt_page.dart';
+import 'package:codingmatrix_desktop/infrastructure/agent/agent_project_client.dart';
+import 'package:codingmatrix_desktop/infrastructure/github/github_client.dart';
 import 'agent_delivery_test.dart' show DeliveryApi;
 import 'auth_session_test.dart' show Fixture;
 import 'image_generation_test.dart' show key, pixel;
@@ -114,6 +122,104 @@ void main() {
     },
   );
 
+  testWidgets('account switch clears project files and loads the new account', (
+    tester,
+  ) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    var files = 0;
+    final project = AgentProjectClient(
+      DeliveryApi((path, _, __) async {
+        if (Uri.parse(path).path.endsWith('/files')) {
+          files++;
+          return {
+            'files': [
+              {'path': files == 1 ? 'old.txt' : 'new.txt'},
+            ],
+          };
+        }
+        return {'content': ''};
+      }),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith((_) => auth),
+          agentProjectClientProvider.overrideWithValue(project),
+          githubClientProvider.overrideWithValue(
+            GithubClient(
+              DeliveryApi(
+                (_, __, ___) async => {
+                  'username': '',
+                  'use_github': false,
+                  'persisted': false,
+                  'has_token': false,
+                  'credential_state': 'missing',
+                  'verified': false,
+                },
+              ),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('old.txt'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('old.txt'), findsNothing);
+    expect(find.text('new.txt'), findsOneWidget);
+    expect(files, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('account switch clears PPT draft and generation state', (
+    tester,
+  ) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith((_) => auth),
+          authenticatedClientProvider.overrideWithValue(
+            DeliveryApi((path, _, __) async {
+              if (path == '/api/v1/pptx/generate_task') {
+                return {'task_id': 't1'};
+              }
+              if (path == '/api/v1/tasks/t1') {
+                return {
+                  'status': 'completed',
+                  'result': {'ppt_id': 'p1'},
+                };
+              }
+              return {};
+            }),
+          ),
+        ],
+        child: const MaterialApp(home: PptPage()),
+      ),
+    );
+    await tester.enterText(find.byType(TextField), '主题草稿');
+    await tester.tap(find.text('生成 PPT'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('下载 PPTX'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('下载 PPTX'), findsNothing);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      isEmpty,
+    );
+    expect(find.textContaining('生成完成'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'account switch clears GitHub draft and discards late old configuration',
     (tester) async {
@@ -165,6 +271,71 @@ void main() {
         isEmpty,
       );
       await tester.pumpWidget(const SizedBox());
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'account switch does not reuse the previous account decision choice',
+    (tester) async {
+      final auth = ModuleAuth(Fixture())..switchAccount('alice');
+      final submitted = <Map<String, String>>[];
+      WorkbenchController buildWorkbench() {
+        final controller = WorkbenchController(
+          projectClient: AgentProjectClient(
+            DeliveryApi((_, __, body) async {
+              submitted.add(Map<String, String>.from(body as Map));
+              return {'status': 'submitted'};
+            }),
+          ),
+        );
+        controller.state = WorkbenchState(
+          task: const Task(taskId: 't', sessionId: 's', status: 'running'),
+          decisions: [
+            AgentDecision.fromJson({
+              'id': 'database_choice',
+              'question': '数据库选型',
+              'context': '持久化',
+              'options': [
+                {'label': 'SQLite', 'description': '单机'},
+                {'label': 'PostgreSQL', 'description': '服务端'},
+              ],
+              'default': 'SQLite',
+            }),
+          ],
+        );
+        return controller;
+      }
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authControllerProvider.overrideWith((_) => auth),
+            workbenchControllerProvider.overrideWith((ref) {
+              ref.watch(
+                authControllerProvider.select((s) => s.session?.accessTokenRef),
+              );
+              return buildWorkbench();
+            }),
+          ],
+          child: const MaterialApp(home: AgentDecisionPage()),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('PostgreSQL').last);
+      await tester.pumpAndSettle();
+
+      auth.switchAccount('bob');
+      await tester.pumpAndSettle();
+      expect(find.text('提交决策'), findsOneWidget);
+
+      await tester.tap(find.text('提交决策'));
+      await tester.pumpAndSettle();
+
+      expect(submitted.single, {'database_choice': 'SQLite'});
       expect(tester.takeException(), isNull);
     },
   );

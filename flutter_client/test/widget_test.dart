@@ -16,6 +16,8 @@ import 'dart:io';
 
 import 'package:codingmatrix_desktop/infrastructure/agent/agent_stream_client.dart';
 import 'package:codingmatrix_desktop/presentation/workbench_page.dart';
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 class ExitWorkbenchController extends WorkbenchController {
   int stops = 0;
@@ -242,12 +244,52 @@ void main() {
     );
   }
 
+  testWidgets('切换账号清空工作台需求草稿', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final container = ProviderContainer(
+      overrides: [authControllerProvider.overrideWith((_) => auth)],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkbenchPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('requirementField')),
+      '上一账号的需求',
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('requirementField')))
+          .controller
+          ?.text,
+      '上一账号的需求',
+    );
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('requirementField')))
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('空需求不会开始生成', (tester) async {
     final store = CredentialStore();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          authControllerProvider.overrideWith((_) => signedInAuth(store, 'ref')),
+          authControllerProvider.overrideWith(
+            (_) => signedInAuth(store, 'ref'),
+          ),
         ],
         child: const MaterialApp(home: WorkbenchPage()),
       ),
@@ -274,7 +316,9 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          authControllerProvider.overrideWith((_) => signedInAuth(store, token)),
+          authControllerProvider.overrideWith(
+            (_) => signedInAuth(store, token),
+          ),
           workbenchControllerProvider.overrideWith((_) => workbench),
         ],
         child: const MaterialApp(home: WorkbenchPage()),
@@ -341,8 +385,8 @@ void main() {
     expect(
       tester
           .widget<TextField>(find.byKey(const Key('requirementField')))
-      .controller
-      ?.text,
+          .controller
+          ?.text,
       isEmpty,
     );
   });

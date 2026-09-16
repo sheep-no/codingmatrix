@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../application/auth_controller.dart';
 import '../application/workbench_controller.dart';
 
 class AgentDecisionPage extends ConsumerStatefulWidget {
@@ -12,8 +13,15 @@ class AgentDecisionPage extends ConsumerStatefulWidget {
 class _AgentDecisionPageState extends ConsumerState<AgentDecisionPage> {
   final choices = <String, String>{};
 
+  void _resetAccount() => setState(() => choices.clear());
+
   @override
   Widget build(BuildContext context) {
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _resetAccount(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
     final state = ref.watch(workbenchControllerProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('架构决策')),
