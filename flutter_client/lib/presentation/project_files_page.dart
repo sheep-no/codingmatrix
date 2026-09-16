@@ -29,11 +29,15 @@ class _ProjectFilesPageState extends ConsumerState<ProjectFilesPage> {
   String? downloadError;
   String? savedPath;
   bool githubSaving = false;
+  bool openingSettings = false;
   String? githubMessage;
   String? githubError;
   GithubBinding? githubBinding;
   int bytes = 0;
   int request = 0;
+  // Bumped on account change so late GitHub/download responses cannot write
+  // the previous account's state into the new account's page.
+  int _epoch = 0;
 
   @override
   void initState() {
@@ -71,23 +75,51 @@ class _ProjectFilesPageState extends ConsumerState<ProjectFilesPage> {
     }
   }
 
+  void _resetAccount() {
+    _epoch++;
+    setState(() {
+      paths = [];
+      githubBinding = null;
+      bytes = 0;
+      savedPath = null;
+      downloadError = null;
+      githubMessage = null;
+      githubError = null;
+      error = null;
+      downloading = false;
+      githubSaving = false;
+    });
+    load();
+    loadGithub();
+  }
+
   Future<void> loadGithub() async {
+    final epoch = _epoch;
     try {
       final binding = await ref.read(githubClientProvider).load();
-      if (mounted) setState(() => githubBinding = binding);
+      if (!mounted || epoch != _epoch) return;
+      setState(() => githubBinding = binding);
     } catch (_) {
-      if (mounted) setState(() => githubBinding = null);
+      if (!mounted || epoch != _epoch) return;
+      setState(() => githubBinding = null);
     }
   }
 
   Future<void> openGithubSettings() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const GithubSettingsPage()),
-    );
-    if (mounted) await loadGithub();
+    if (openingSettings) return;
+    setState(() => openingSettings = true);
+    try {
+      await Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const GithubSettingsPage()));
+      if (mounted) await loadGithub();
+    } finally {
+      if (mounted) setState(() => openingSettings = false);
+    }
   }
 
   Future<void> download() async {
+    final epoch = _epoch;
     setState(() {
       downloading = true;
       bytes = 0;
@@ -98,20 +130,25 @@ class _ProjectFilesPageState extends ConsumerState<ProjectFilesPage> {
       final path = await ref.read(agentProjectClientProvider).download(
         widget.project,
         (count) {
-          if (mounted) setState(() => bytes = count);
+          if (mounted && epoch == _epoch) setState(() => bytes = count);
         },
-        active: () => mounted,
+        active: () => mounted && epoch == _epoch,
       );
-      if (mounted) setState(() => savedPath = path);
+      if (mounted && epoch == _epoch) setState(() => savedPath = path);
     } catch (_) {
-      if (mounted) setState(() => downloadError = '下载未完成，请重试；单个项目包上限 200 MB');
+      if (mounted && epoch == _epoch) {
+        setState(() => downloadError = '下载未完成，请重试；单个项目包上限 200 MB');
+      }
     } finally {
-      if (mounted) setState(() => downloading = false);
+      if (mounted && epoch == _epoch) setState(() => downloading = false);
     }
   }
 
   Future<void> pushToGithub() async {
-    if (githubSaving || paths.isEmpty || githubBinding?.useGithub != true) return;
+    if (githubSaving || paths.isEmpty || githubBinding?.useGithub != true) {
+      return;
+    }
+    final epoch = _epoch;
     setState(() {
       githubSaving = true;
       githubError = null;
@@ -127,13 +164,16 @@ class _ProjectFilesPageState extends ConsumerState<ProjectFilesPage> {
         if (path.contains('..') || path.startsWith('/')) continue;
         files[path] = await client.read(widget.project, path);
       }
+      if (epoch != _epoch) return;
       if (files.isEmpty) throw StateError('no files');
-      final result = await ref.read(githubClientProvider).saveProject(
-        projectName: githubRepoNameFromProject(widget.project),
-        projectDescription: '',
-        projectData: jsonEncode(files),
-      );
-      if (!mounted) return;
+      final result = await ref
+          .read(githubClientProvider)
+          .saveProject(
+            projectName: githubRepoNameFromProject(widget.project),
+            projectDescription: '',
+            projectData: jsonEncode(files),
+          );
+      if (!mounted || epoch != _epoch) return;
       setState(() {
         githubMessage =
             result['repo_url'] as String? ??
@@ -141,11 +181,11 @@ class _ProjectFilesPageState extends ConsumerState<ProjectFilesPage> {
             '已保存';
       });
     } catch (_) {
-      if (mounted) {
+      if (mounted && epoch == _epoch) {
         setState(() => githubError = 'GitHub 推送失败，请先在设置中保存并启用凭据');
       }
     } finally {
-      if (mounted) setState(() => githubSaving = false);
+      if (mounted && epoch == _epoch) setState(() => githubSaving = false);
     }
   }
 
@@ -180,73 +220,84 @@ class _ProjectFilesPageState extends ConsumerState<ProjectFilesPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('项目文件'),
-      actions: [
-        IconButton(
-          tooltip: '刷新文件',
-          onPressed: loading ? null : load,
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    ),
-    body: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(widget.project),
-              FilledButton.icon(
-                onPressed: downloading ? null : download,
-                icon: const Icon(Icons.download),
-                label: Text(downloading ? '已下载 $bytes 字节' : '下载 ZIP 到应用文档'),
-              ),
-              if (savedPath != null) SelectableText('已保存：$savedPath'),
-              if (downloadError != null)
-                Text(
-                  downloadError!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              if (githubBinding?.useGithub == true)
-                FilledButton.icon(
-                  key: const Key('githubSaveProject'),
-                  onPressed: githubSaving || loading || paths.isEmpty
-                      ? null
-                      : pushToGithub,
-                  icon: const Icon(Icons.cloud_upload_outlined),
-                  label: Text(githubSaving ? '正在推送到 GitHub' : '推送到 GitHub'),
-                )
-              else
-                TextButton(
-                  key: const Key('githubSettingsFromFiles'),
-                  onPressed: openGithubSettings,
-                  child: Text(
-                    githubBinding == null
-                        ? 'GitHub 配置未加载，前往设置'
-                        : '未启用 GitHub 保存，前往设置',
-                  ),
-                ),
-              if (githubMessage != null) SelectableText(githubMessage!),
-              if (githubError != null)
-                Text(
-                  githubError!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-            ],
+  Widget build(BuildContext context) {
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _resetAccount(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('项目文件'),
+        actions: [
+          IconButton(
+            tooltip: '刷新文件',
+            onPressed: loading ? null : load,
+            icon: const Icon(Icons.refresh),
           ),
-        ),
-        if (loading) const LinearProgressIndicator(),
-        if (error != null) TextButton(onPressed: load, child: Text(error!)),
-        if (!loading && error == null && paths.isEmpty)
-          const Text('项目暂未返回可预览文件。'),
-        Expanded(child: ListView(children: tree(paths))),
-      ],
-    ),
-  );
+        ],
+      ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.project),
+                FilledButton.icon(
+                  onPressed: downloading ? null : download,
+                  icon: const Icon(Icons.download),
+                  label: Text(downloading ? '已下载 $bytes 字节' : '下载 ZIP 到应用文档'),
+                ),
+                if (savedPath != null) SelectableText('已保存：$savedPath'),
+                if (downloadError != null)
+                  Text(
+                    downloadError!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                if (githubBinding?.useGithub == true)
+                  FilledButton.icon(
+                    key: const Key('githubSaveProject'),
+                    onPressed: githubSaving || loading || paths.isEmpty
+                        ? null
+                        : pushToGithub,
+                    icon: const Icon(Icons.cloud_upload_outlined),
+                    label: Text(githubSaving ? '正在推送到 GitHub' : '推送到 GitHub'),
+                  )
+                else
+                  TextButton(
+                    key: const Key('githubSettingsFromFiles'),
+                    onPressed: openingSettings ? null : openGithubSettings,
+                    child: Text(
+                      githubBinding == null
+                          ? 'GitHub 配置未加载，前往设置'
+                          : '未启用 GitHub 保存，前往设置',
+                    ),
+                  ),
+                if (githubMessage != null) SelectableText(githubMessage!),
+                if (githubError != null)
+                  Text(
+                    githubError!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (loading) const LinearProgressIndicator(),
+          if (error != null) TextButton(onPressed: load, child: Text(error!)),
+          if (!loading && error == null && paths.isEmpty)
+            const Text('项目暂未返回可预览文件。'),
+          Expanded(child: ListView(children: tree(paths))),
+        ],
+      ),
+    );
+  }
 }
 
 class _FilePreviewPage extends ConsumerStatefulWidget {
@@ -259,6 +310,15 @@ class _FilePreviewPage extends ConsumerStatefulWidget {
 
 class _FilePreviewPageState extends ConsumerState<_FilePreviewPage> {
   Future<String>? content;
+
+  void _reload() {
+    setState(() {
+      content = ref
+          .read(agentProjectClientProvider)
+          .read(widget.project, widget.path);
+    });
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -268,34 +328,43 @@ class _FilePreviewPageState extends ConsumerState<_FilePreviewPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(widget.path)),
-    body: FutureBuilder<String>(
-      future: content,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(
-            child: TextButton(
-              onPressed: () => setState(
-                () => content = ref
-                    .read(agentProjectClientProvider)
-                    .read(widget.project, widget.path),
+  Widget build(BuildContext context) {
+    // The cached future belongs to the account that opened this page; reload it
+    // so the next account does not keep reading the previous account's file.
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _reload(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _reload());
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.path)),
+      body: FutureBuilder<String>(
+        future: content,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: TextButton(
+                onPressed: () => setState(
+                  () => content = ref
+                      .read(agentProjectClientProvider)
+                      .read(widget.project, widget.path),
+                ),
+                child: const Text('文件读取失败，点击重试'),
               ),
-              child: const Text('文件读取失败，点击重试'),
+            );
+          }
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: SelectableText(
+              snapshot.data ?? '',
+              style: const TextStyle(fontFamily: 'monospace'),
             ),
           );
-        }
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: SelectableText(
-            snapshot.data ?? '',
-            style: const TextStyle(fontFamily: 'monospace'),
-          ),
-        );
-      },
-    ),
-  );
+        },
+      ),
+    );
+  }
 }

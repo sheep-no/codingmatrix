@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:codingmatrix_desktop/application/workbench_controller.dart';
+import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/domain/models/unified_models.dart';
 import 'package:codingmatrix_desktop/infrastructure/agent/agent_project_client.dart';
 import 'package:codingmatrix_desktop/infrastructure/agent/agent_stream_client.dart';
@@ -10,6 +11,7 @@ import 'package:codingmatrix_desktop/infrastructure/auth/authenticated_client.da
 import 'package:codingmatrix_desktop/infrastructure/auth/cloud_auth_client.dart';
 import 'package:codingmatrix_desktop/infrastructure/auth/credential_store.dart';
 import 'package:codingmatrix_desktop/presentation/agent_decision_page.dart';
+import 'package:codingmatrix_desktop/presentation/github_settings_page.dart';
 import 'package:codingmatrix_desktop/presentation/project_files_page.dart';
 import 'package:codingmatrix_desktop/application/github_controller.dart';
 import 'package:codingmatrix_desktop/infrastructure/github/github_client.dart';
@@ -18,6 +20,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 class DeliveryApi extends AuthenticatedClient {
   DeliveryApi(this.handle, {this.stream, this.sendHandle})
@@ -355,9 +359,7 @@ void main() {
       }),
     );
     final container = ProviderContainer(
-      overrides: [
-        workbenchControllerProvider.overrideWith((_) => controller),
-      ],
+      overrides: [workbenchControllerProvider.overrideWith((_) => controller)],
     );
     addTearDown(container.dispose);
     await tester.pumpWidget(
@@ -407,9 +409,7 @@ void main() {
       }),
     );
     final container = ProviderContainer(
-      overrides: [
-        workbenchControllerProvider.overrideWith((_) => controller),
-      ],
+      overrides: [workbenchControllerProvider.overrideWith((_) => controller)],
     );
     addTearDown(container.dispose);
     await tester.pumpWidget(
@@ -484,6 +484,64 @@ void main() {
     await tester.tap(find.text('main.dart'));
     await tester.pumpAndSettle();
     expect(find.text('void main() {}'), findsOneWidget);
+  });
+
+  testWidgets('切账号后文件预览不会保留上一账号内容', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    var reads = 0;
+    final client = AgentProjectClient(
+      DeliveryApi((path, _, __) async {
+        if (Uri.parse(path).path.endsWith('/files')) {
+          return {
+            'files': [
+              {'path': 'src/main.dart'},
+            ],
+          };
+        }
+        reads++;
+        return {'content': '内容$reads'};
+      }),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        agentProjectClientProvider.overrideWithValue(client),
+        githubClientProvider.overrideWithValue(
+          GithubClient(
+            DeliveryApi(
+              (_, __, ___) async => {
+                'username': '',
+                'use_github': false,
+                'persisted': false,
+                'has_token': false,
+                'credential_state': 'missing',
+                'verified': false,
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('src'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('main.dart'));
+    await tester.pumpAndSettle();
+    expect(find.text('内容1'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('内容1'), findsNothing);
+    expect(find.text('内容2'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('file page pushes project to github without config', (
@@ -1077,5 +1135,34 @@ void main() {
     expect(find.byKey(const Key('githubSaveProject')), findsNothing);
     expect(find.textContaining('alice'), findsNothing);
     expect(configs, 2);
+  });
+
+  testWidgets('前往设置进行中无法再次叠开设置页', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          agentProjectClientProvider.overrideWithValue(readmeFilesClient()),
+          githubClientProvider.overrideWithValue(missingGithub()),
+        ],
+        child: const MaterialApp(home: ProjectFilesPage(project: '42/project')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('未启用 GitHub 保存，前往设置'), findsOneWidget);
+    final state = tester.state(find.byType(ProjectFilesPage)) as dynamic;
+    unawaited(state.openGithubSettings());
+    unawaited(state.openGithubSettings());
+    await tester.pumpAndSettle();
+    expect(find.text('GitHub 设置'), findsOneWidget);
+    expect(
+      find.byType(GithubSettingsPage, skipOffstage: false),
+      findsOneWidget,
+    );
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(ProjectFilesPage), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

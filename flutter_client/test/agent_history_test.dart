@@ -16,6 +16,7 @@ import 'package:codingmatrix_desktop/infrastructure/auth/credential_store.dart';
 import 'package:codingmatrix_desktop/presentation/agent_history_page.dart';
 import 'agent_delivery_test.dart' show DeliveryApi;
 import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 void main() {
   final payload = {
@@ -46,10 +47,7 @@ void main() {
     );
   }
 
-  Map<String, Object> livePayload() => {
-    ...payload,
-    'reconnectable': true,
-  };
+  Map<String, Object> livePayload() => {...payload, 'reconnectable': true};
   test(
     'account change ignores late history from the previous account',
     () async {
@@ -317,12 +315,7 @@ void main() {
       ),
     );
     await tester.pump();
-    pending.complete(
-      AgentSession.fromJson({
-        ...payload,
-        'requirement': '旧详情',
-      }),
-    );
+    pending.complete(AgentSession.fromJson({...payload, 'requirement': '旧详情'}));
     await tester.pump();
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -335,6 +328,113 @@ void main() {
     expect(find.text('历史项目'), findsOneWidget);
     expect(find.text('旧详情'), findsNothing);
     expect(calls, 2);
+  });
+
+  testWidgets('统计进行中无法再次触发并发请求', (tester) async {
+    var calls = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionsProvider.overrideWith((_) async => []),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async {
+            calls++;
+            return pending.future;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('Agent 统计'));
+    await tester.pump();
+    expect(calls, 4);
+    await tester.tap(find.byTooltip('Agent 统计'));
+    await tester.pump();
+    expect(calls, 4);
+    pending.complete(const <String, Object?>{'ok': true});
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切账号关闭已打开的统计弹层', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        agentSessionsProvider.overrideWith((_) async => []),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi(
+            (_, __, ___) async => const <String, Object?>{'tokens': '上一账号的统计'},
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('Agent 统计'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Agent 统计'), findsOneWidget);
+    expect(find.textContaining('上一账号的统计'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Agent 统计'), findsNothing);
+    expect(find.textContaining('上一账号的统计'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切账号后旧账号的统计弹层不会弹出', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        agentSessionsProvider.overrideWith((_) async => []),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async => pending.future),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('Agent 统计'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete(const <String, Object?>{'tokens': '上一账号的统计'});
+    await tester.pumpAndSettle();
+
+    expect(find.text('Agent 统计'), findsNothing);
+    expect(find.textContaining('上一账号的统计'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('统计读取网络断开会带上异常原文', (tester) async {
@@ -395,12 +495,101 @@ void main() {
     expect(find.textContaining('connection lost'), findsOneWidget);
   });
 
+  testWidgets('查看快照进行中无法再次触发并发请求', (tester) async {
+    var calls = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        agentSessionDetailProvider(
+          's1',
+        ).overrideWith((_) async => AgentSession.fromJson(payload)),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            if (path.contains('/snapshots/')) {
+              calls++;
+              return pending.future;
+            }
+            throw StateError('unexpected $method $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('查看快照'));
+    await tester.pump();
+    expect(calls, 1);
+    await tester.tap(find.text('查看快照'), warnIfMissed: false);
+    await tester.pump();
+    expect(calls, 1);
+    pending.complete({
+      'snapshots': [
+        {'tag': 't1', 'id': 't1'},
+      ],
+    });
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切账号后旧账号的快照弹层不会弹出', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        agentSessionDetailProvider(
+          's1',
+        ).overrideWith((_) async => AgentSession.fromJson(payload)),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path.contains('/snapshots/')) return pending.future;
+            throw StateError('unexpected $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('查看快照'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete({
+      'snapshots': [
+        {'tag': '上一账号的快照', 'id': 't1'},
+      ],
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.text('上一账号的快照'), findsNothing);
+    expect(find.byTooltip('回滚'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('快照读取网络断开会带上异常原文', (tester) async {
     final container = ProviderContainer(
       overrides: [
-        agentSessionDetailProvider('s1').overrideWith(
-          (_) async => AgentSession.fromJson(payload),
-        ),
+        agentSessionDetailProvider(
+          's1',
+        ).overrideWith((_) async => AgentSession.fromJson(payload)),
         authenticatedClientProvider.overrideWithValue(
           DeliveryApi(
             (_, __, ___) async =>
@@ -462,9 +651,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final container = ProviderContainer(
       overrides: [
-        agentSessionDetailProvider('s1').overrideWith(
-          (_) async => AgentSession.fromJson(payload),
-        ),
+        agentSessionDetailProvider(
+          's1',
+        ).overrideWith((_) async => AgentSession.fromJson(payload)),
         authenticatedClientProvider.overrideWithValue(
           DeliveryApi((path, method, body) async {
             if (path.contains('/snapshots/')) {
@@ -509,9 +698,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final container = ProviderContainer(
       overrides: [
-        agentSessionDetailProvider('s1').overrideWith(
-          (_) async => AgentSession.fromJson(payload),
-        ),
+        agentSessionDetailProvider(
+          's1',
+        ).overrideWith((_) async => AgentSession.fromJson(payload)),
         authenticatedClientProvider.overrideWithValue(
           DeliveryApi((path, method, body) async {
             if (path.contains('/rollback/')) {
@@ -560,9 +749,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final container = ProviderContainer(
       overrides: [
-        agentSessionDetailProvider('s1').overrideWith(
-          (_) async => AgentSession.fromJson(payload),
-        ),
+        agentSessionDetailProvider(
+          's1',
+        ).overrideWith((_) async => AgentSession.fromJson(payload)),
         authenticatedClientProvider.overrideWithValue(
           DeliveryApi((path, method, body) async {
             if (path.contains('/snapshots/')) {
@@ -602,10 +791,12 @@ void main() {
     var details = 0;
     final container = ProviderContainer(
       overrides: [
-        authControllerProvider.overrideWith((_) => signedIn(withSession: false)),
-        agentSessionDetailProvider('s1').overrideWith(
-          (_) async => AgentSession.fromJson(livePayload()),
+        authControllerProvider.overrideWith(
+          (_) => signedIn(withSession: false),
         ),
+        agentSessionDetailProvider(
+          's1',
+        ).overrideWith((_) async => AgentSession.fromJson(livePayload())),
         authenticatedClientProvider.overrideWithValue(
           DeliveryApi((path, method, body) async {
             details += 1;
@@ -635,9 +826,9 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         authControllerProvider.overrideWith((_) => signedIn()),
-        agentSessionDetailProvider('s1').overrideWith(
-          (_) async => AgentSession.fromJson(livePayload()),
-        ),
+        agentSessionDetailProvider(
+          's1',
+        ).overrideWith((_) async => AgentSession.fromJson(livePayload())),
         authenticatedClientProvider.overrideWithValue(
           DeliveryApi(
             (_, __, ___) async =>
@@ -672,9 +863,9 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         authControllerProvider.overrideWith((_) => signedIn()),
-        agentSessionDetailProvider('s1').overrideWith(
-          (_) async => AgentSession.fromJson(livePayload()),
-        ),
+        agentSessionDetailProvider(
+          's1',
+        ).overrideWith((_) async => AgentSession.fromJson(livePayload())),
         authenticatedClientProvider.overrideWithValue(
           DeliveryApi((path, method, body) async {
             details += 1;
@@ -726,9 +917,9 @@ void main() {
     final pending = Completer<Object?>();
     final container = ProviderContainer(
       overrides: [
-        agentSessionDetailProvider('s1').overrideWith(
-          (_) async => AgentSession.fromJson(payload),
-        ),
+        agentSessionDetailProvider(
+          's1',
+        ).overrideWith((_) async => AgentSession.fromJson(payload)),
         authenticatedClientProvider.overrideWithValue(
           DeliveryApi((path, method, body) async {
             if (path.contains('/snapshots/')) return pending.future;
@@ -782,9 +973,9 @@ void main() {
     final pending = Completer<Object?>();
     final container = ProviderContainer(
       overrides: [
-        agentSessionDetailProvider('s1').overrideWith(
-          (_) async => AgentSession.fromJson(payload),
-        ),
+        agentSessionDetailProvider(
+          's1',
+        ).overrideWith((_) async => AgentSession.fromJson(payload)),
         authenticatedClientProvider.overrideWithValue(
           DeliveryApi((path, method, body) async {
             if (path.contains('/snapshots/')) {
