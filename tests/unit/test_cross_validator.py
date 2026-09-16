@@ -618,6 +618,56 @@ def test_validate_imports_flags_missing_project_module_only():
     assert [issue["message"] for issue in issues] == ["导入的模块不存在: app.services"]
 
 
+def test_validate_imports_accepts_namespace_package_without_init():
+    # Python 3 命名空间包允许目录没有 __init__.py，
+    # `from app import models` 在 app/models.py 存在时是合法导入
+    files = {
+        "app/models.py": "class User:\n    pass\n",
+        "app/main.py": "from app import models\n",
+    }
+    validator = _python_validator()
+    assert validator._validate_imports(files) == []
+
+
+def test_validate_imports_accepts_aliased_and_star_imports():
+    files = {
+        "app/models.py": "class User:\n    pass\n",
+        "app/main.py": (
+            "from app import models as m\n"
+            "from app.models import *\n"
+        ),
+    }
+    validator = _python_validator()
+    assert validator._validate_imports(files) == []
+
+
+def test_validate_imports_flags_package_dir_without_target_file():
+    # 同目录下存在其它文件，不代表任意子模块都存在
+    files = {
+        "app/other.py": "x = 1\n",
+        "app/main.py": "from app.missing import load\n",
+    }
+    validator = _python_validator()
+    assert [issue["message"] for issue in validator._validate_imports(files)] == [
+        "导入的模块不存在: app.missing"
+    ]
+
+
+def test_validate_imports_flags_missing_top_level_package_without_adapter():
+    # 通用（无适配器）路径同样不能用目录前缀掩盖缺失的顶层包
+    files = {
+        "app/other.py": "x = 1\n",
+        "app/main.py": "from something_else import load\n",
+    }
+    from app.agent.cross_validator import CrossValidator
+    from app.agent.shared_context import SharedContext
+
+    generic = CrossValidator(SharedContext("test", Path(".")), language_adapter=None)
+    assert [issue["message"] for issue in generic._validate_imports(files)] == [
+        "导入的模块不存在: something_else"
+    ]
+
+
 def _missing_argument_issues(files):
     validator = _python_validator()
     issues = validator._validate_function_signatures(files)

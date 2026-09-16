@@ -1157,6 +1157,8 @@ class CrossValidator:
                     # 检查导入的模块是否存在
                     candidates = self.language_adapter.resolve_import_to_file(imp, file_path)
                     exists = any(c in files for c in candidates)
+                    if not exists:
+                        exists = self._package_dir_exists_in_files(imp.module, files)
 
                     if not exists:
                         issues.append({
@@ -1274,7 +1276,22 @@ class CrossValidator:
 
         # 通用 fallback：从项目文件中推断扩展名
         result = self._find_module_in_files(module, files)
-        return result is not None
+        if result is not None:
+            return True
+        # 没有 __init__ 的目录在 Python 3 中是合法的命名空间包
+        return self._package_dir_exists_in_files(module, files)
+
+    def _package_dir_exists_in_files(self, module: str, files: Dict[str, str]) -> bool:
+        """模块路径是否对应一个包含已生成文件的包目录。
+
+        没有 __init__.py 的目录在 Python 3 中是合法的命名空间包，
+        `from app import models` 在 app/models.py 存在时即可导入，
+        因此不能因为缺少包入口文件就判定导入的模块不存在。
+        """
+        if not module:
+            return False
+        prefix = module.replace('.', '/') + '/'
+        return any(path.startswith(prefix) for path in files)
 
     def _validate_api_contracts(
         self,
