@@ -336,7 +336,17 @@ class DependencyGraph:
             priority = file_info.get("priority", 3)
             file_type = file_info.get("file_type")
             if not file_type or file_type in {"unknown", "other", "utils"}:
-                file_type = self._infer_file_type(path)
+                inferred_type = self._infer_file_type(path)
+                if inferred_type and inferred_type not in ("unknown", ""):
+                    file_type = inferred_type
+                elif file_type == "utils":
+                    # 架构师显式标注的 utils 是有效类型。路径规则能细化时已在上
+                    # 一步改写；无法细化时保留 utils，避免被降级为 unknown 后
+                    # _infer_unknown_file_types 硬失败。缺失/unknown/other 仍保
+                    # 留显式失败语义。
+                    file_type = "utils"
+                else:
+                    file_type = inferred_type
 
             if not path:
                 continue
@@ -578,10 +588,14 @@ class DependencyGraph:
                 logger.info(f"  移除 {old_path} (score={score}), 保留 {best_path}")
 
     def get_unknown_type_files(self) -> List[str]:
-        """返回所有 file_type 为 unknown 或 utils 或空字符串的文件路径列表"""
+        """返回所有 file_type 为空或 unknown 的文件路径列表。
+
+        utils 是架构师可显式声明的有效类型（build_from_architecture 已尝试用
+        路径规则细化它），不属于「未知类型」，不应参与二次推断并触发硬失败。
+        """
         return [
             path for path, node in self.nodes.items()
-            if node.file_type in ('unknown', 'utils', '')
+            if node.file_type in ('unknown', '')
         ]
 
     def update_file_type(self, path: str, new_type: str):

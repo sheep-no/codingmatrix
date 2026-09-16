@@ -2952,6 +2952,27 @@ async def test_infer_unknown_file_types_raises_when_still_unknown():
 
 
 @pytest.mark.asyncio
+async def test_infer_unknown_file_types_keeps_declared_utils():
+    """架构师显式声明的 utils 不进入待推断集合，不会触发硬失败。"""
+    from app.agent.adapters.python import PythonLanguageAdapter
+    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
+
+    mixin = object.__new__(SpecFirstGenerateMixin)
+    graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+    architecture = {"file_plan": [
+        {"path": "app/__init__.py", "file_type": "config", "priority": 1},
+        {"path": "app/deps.py", "file_type": "utils", "priority": 2},
+    ]}
+    graph.build_from_architecture(architecture)
+
+    pending = graph.get_unknown_type_files()
+    assert pending == []
+
+    await mixin._infer_unknown_file_types(graph, pending, architecture, "python")
+    assert graph.nodes["app/deps.py"].file_type == "utils"
+
+
+@pytest.mark.asyncio
 async def test_infer_unknown_file_types_resolves_dependent_after_dependency():
     from app.agent.adapters.python import PythonLanguageAdapter
     from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin

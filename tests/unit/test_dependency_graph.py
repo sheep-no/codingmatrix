@@ -420,6 +420,37 @@ class TestDependencyGraph:
         assert graph.nodes["crud.py"].file_type == "repository"
         assert graph.adjacency["models.py"] == {"database.py"}
         assert graph.adjacency["crud.py"] == {"models.py", "database.py"}
+
+    def test_declared_utils_is_kept_when_path_rules_cannot_refine(self):
+        """架构师显式声明的 utils 在路径规则无法细化时必须保留。
+
+        原实现把 utils 一律推翻重推断，推断不出就降级为 unknown，使
+        _infer_unknown_file_types 对这些文件硬失败。
+        """
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": "app/__init__.py", "file_type": "config", "priority": 1},
+            {"path": "app/deps.py", "file_type": "utils", "priority": 2},
+            {"path": "myapp/urls.py", "file_type": "utils", "priority": 2},
+        ]})
+
+        assert graph.nodes["app/deps.py"].file_type == "utils"
+        assert graph.nodes["myapp/urls.py"].file_type == "utils"
+        assert graph.get_unknown_type_files() == []
+
+    def test_unknown_type_files_excludes_utils(self):
+        """utils 是确定类型，不属于待推断的未知类型。"""
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        graph.add_file("app/deps.py", file_type="utils")
+        graph.add_file("mystery.py", file_type="unknown")
+        graph.add_file("blank.py", file_type="")
+
+        assert graph.get_unknown_type_files() == ["mystery.py", "blank.py"]
     
     def test_extract_dependencies_from_content_python(self, graph):
         """测试从 Python 内容中提取依赖"""
