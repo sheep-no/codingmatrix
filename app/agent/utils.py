@@ -1183,6 +1183,23 @@ def _heuristic_language_match(file_path: str, content: str, expected_language: s
     return False
 
 
+def _has_effective_code_after(content: str, end_index: int) -> bool:
+    """判断给定位置之后是否还有实质代码行。
+
+    空行、整行注释、以及只含标点的片段（如截断句尾的「）」）都不算代码。
+    """
+    for line in content[end_index:].split('\n'):
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue
+        if stripped_line.startswith(('#', '//', '/*', '*')):
+            continue
+        if not re.search(r'[A-Za-z0-9_\u4e00-\u9fff]', stripped_line):
+            continue
+        return True
+    return False
+
+
 def is_placeholder_content(content: str, file_path: str = "") -> tuple:
     """检测内容是否为占位符代码
 
@@ -1215,7 +1232,11 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
     # 不能据此判为截断，否则合法的 README/说明文件会被反复重生成。
     if not _is_documentation_file(file_path):
         for pattern, desc in truncation_patterns:
-            if re.search(pattern, stripped, re.IGNORECASE):
+            for match in re.finditer(pattern, stripped, re.IGNORECASE):
+                # 短语之后若还有实质代码，说明输出没有在短语处被砍断，
+                # 它是代码里的注释/说明（如 patch 注释「其余代码保持不变」）。
+                if _has_effective_code_after(stripped, match.end()):
+                    continue
                 return True, desc
 
     # 占位符模式匹配
@@ -1270,8 +1291,13 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
 
     matched_pattern = None
     comment_only_match = None
+    # 仅含 pass 的 __init__.py 是合法的空包声明，不是占位实现；其它模块的
+    # 顶格 pass 仍然按 stub 处理。
+    is_package_entry = Path(file_path).name == '__init__.py'
     for pattern, desc in placeholder_patterns:
         if not re.search(pattern, stripped, re.IGNORECASE | re.MULTILINE):
+            continue
+        if desc == "Python pass statement" and is_package_entry:
             continue
         if desc in comment_only_reasons:
             comment_only_match = comment_only_match or desc
