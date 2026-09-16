@@ -228,3 +228,28 @@ def test_content_quality_still_flags_css_chinese_prose() -> None:
     )
 
     assert validate_content_quality("styles.css", content) != ""
+
+
+def test_empty_package_entry_is_valid_content() -> None:
+    assert is_valid_code_content("app/__init__.py", "") == (True, "")
+    assert is_valid_code_content("pkg/sub/__init__.py", "   \n")[0] is True
+
+
+def test_empty_package_entry_is_not_placeholder() -> None:
+    from app.agent.utils import is_placeholder_content
+
+    assert is_placeholder_content("", "app/__init__.py") == (False, "")
+    assert is_placeholder_content("", "app/main.py")[0] is True
+
+
+def test_short_documentation_file_passes_length_gate() -> None:
+    assert is_valid_code_content("requirements.txt", "flask\n")[0] is True
+    assert is_valid_code_content("README.md", "# Hi\n")[0] is True
+    assert is_valid_code_content("LICENSE", "MIT")[0] is True
+
+
+def test_short_code_file_still_rejected_by_length_gate() -> None:
+    valid, reason = is_valid_code_content("app/main.py", "pass")
+
+    assert valid is False
+    assert "过短" in reason

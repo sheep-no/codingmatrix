@@ -2775,6 +2775,27 @@ async def test_validate_project_completeness_treats_empty_content_as_incomplete(
     assert completeness["is_complete"] is False
 
 
+@pytest.mark.asyncio
+async def test_validate_project_completeness_accepts_package_entry_and_short_files(tmp_path):
+    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
+
+    mixin = object.__new__(SpecFirstGenerateMixin)
+    mixin.output_dir = tmp_path
+    mixin._relative_output_dir = None
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "requirements.txt").write_text("flask\n", encoding="utf-8")
+
+    completeness = await mixin._validate_project_completeness(
+        [{"path": "app/__init__.py"}, {"path": "requirements.txt"}],
+        {"app/__init__.py": "", "requirements.txt": "flask\n"},
+    )
+
+    assert completeness["missing_files"] == []
+    assert completeness["empty_files"] == []
+    assert completeness["is_complete"] is True
+
+
 def test_spec_first_does_not_fill_missing_files_with_direct_llm():
     from pathlib import Path
 

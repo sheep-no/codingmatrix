@@ -36,6 +36,14 @@ def _is_documentation_file(file_path: str) -> bool:
     return path.name.lower() in _DOCUMENTATION_FILE_NAMES
 
 
+def is_package_entry_file(file_path: str) -> bool:
+    """判断文件是否为包入口文件（Python 的 __init__.py）。
+
+    包入口文件允许为空或只含极短内容，空文件是合法的包标记。
+    """
+    return Path(file_path).name == "__init__.py"
+
+
 def clean_code_block(content: str) -> str:
     """从 LLM 输出中提取代码块
 
@@ -316,11 +324,20 @@ def is_valid_code_content(file_path: str, content: str) -> tuple:
         (is_valid, reason): 有效返回 (True, "")，无效返回 (False, "原因")
     """
     if not content:
+        # 空 __init__.py 是合法的包标记，不算无效内容
+        if is_package_entry_file(file_path):
+            return True, ""
         return False, "内容为空"
 
     stripped = content.strip()
 
-    if len(stripped) < 10:
+    # 包入口文件可以只含 __all__ 或一句 docstring；文档/文本文件的正确内容
+    # 也可以很短（如单行 requirements.txt、短 README），都不受最小长度限制。
+    if (
+        len(stripped) < 10
+        and not is_package_entry_file(file_path)
+        and not _is_documentation_file(file_path)
+    ):
         return False, "内容过短（<10 字符）"
 
     ext = Path(file_path).suffix.lower()
@@ -1213,6 +1230,9 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
         (is_placeholder, reason): 是占位符返回 (True, "原因"), 否则返回 (False, "")
     """
     if not content or not content.strip():
+        # 空的 __init__.py 是合法的包标记，不是占位符
+        if is_package_entry_file(file_path):
+            return False, ""
         return True, "内容为空"
 
     stripped = content.strip()

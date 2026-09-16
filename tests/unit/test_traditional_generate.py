@@ -42,6 +42,38 @@ async def test_traditional_completeness_treats_empty_content_as_incomplete(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_traditional_completeness_accepts_package_entry_and_short_files():
+    from app.agent.orchestrator_generation.traditional_generate import (
+        TraditionalGenerateMixin,
+    )
+
+    mixin = object.__new__(TraditionalGenerateMixin)
+    completeness = await mixin._validate_project_completeness_traditional(
+        [{"path": "app/__init__.py"}, {"path": "requirements.txt"}],
+        {"app/__init__.py": "", "requirements.txt": "flask\n"},
+    )
+
+    assert completeness["empty_files"] == []
+    assert completeness["is_complete"] is True
+
+
+@pytest.mark.asyncio
+async def test_traditional_completeness_still_flags_invalid_short_code():
+    from app.agent.orchestrator_generation.traditional_generate import (
+        TraditionalGenerateMixin,
+    )
+
+    mixin = object.__new__(TraditionalGenerateMixin)
+    completeness = await mixin._validate_project_completeness_traditional(
+        [{"path": "app/main.py"}],
+        {"app/main.py": "pass"},
+    )
+
+    assert [f for f, _ in completeness["invalid_files"]] == ["app/main.py"]
+    assert completeness["is_complete"] is False
+
+
+@pytest.mark.asyncio
 async def test_incremental_generate_failure_raises_after_rollback(tmp_path):
     from app.agent.orchestrator_generation.incremental_generate import (
         IncrementalGenerateMixin,

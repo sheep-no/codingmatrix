@@ -2400,7 +2400,7 @@ class SpecFirstGenerateMixin:
                 "is_complete": bool
             }
         """
-        from app.agent.utils import is_valid_code_content
+        from app.agent.utils import is_package_entry_file, is_valid_code_content
 
         planned_files = {f["path"] for f in file_plan}
         generated_set = set(generated_files.keys())
@@ -2411,13 +2411,18 @@ class SpecFirstGenerateMixin:
             for planned in planned_files:
                 relative = self._strip_output_dir_prefix(planned)
                 disk = Path(output_dir) / relative
-                if (not disk.exists()) or disk.stat().st_size == 0:
+                # 空的 __init__.py 是合法的包标记，不算缺失
+                if not disk.exists():
+                    missing_files.add(planned)
+                elif disk.stat().st_size == 0 and not is_package_entry_file(planned):
                     missing_files.add(planned)
         missing_files = sorted(missing_files)
 
         empty_files = [
             f for f, c in generated_files.items()
-            if not c or len(c.strip()) < 10
+            # 只有真正空白的文件才算「空」；内容质量交给 is_valid_code_content，
+            # 避免把单行依赖/短样式等合法短文件误判为空。
+            if not (c or "").strip() and not is_package_entry_file(f)
         ]
 
         invalid_files = []
