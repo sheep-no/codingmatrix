@@ -152,6 +152,35 @@ class TestCodeValidator:
         assert any("exception_handler" in err for err in errors)
 
     @pytest.mark.asyncio
+    async def test_api_compatibility_allows_fastapi_top_level_middleware_exports(self, tmp_path):
+        """fastapi 顶层再导出的 CORSMiddleware 等是合法写法，不能被子串匹配误判。"""
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "main.py"
+        target.write_text(
+            "from fastapi import FastAPI, CORSMiddleware\n\napp = FastAPI()\n"
+            "app.add_middleware(CORSMiddleware, allow_origins=['*'])\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_api_compatibility(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_api_compatibility_still_flags_fastapi_middleware_base_import(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "main.py"
+        target.write_text("from fastapi import Middleware\n", encoding="utf-8")
+
+        ok, errors = await validator.validate_api_compatibility(target)
+
+        assert ok is False
+        assert any("Middleware" in err for err in errors)
+
+    @pytest.mark.asyncio
     async def test_css_braces_inside_strings_and_comments_are_ignored(self, tmp_path):
         from app.agent.code_validator import CodeValidator
         validator = CodeValidator(tmp_path)
@@ -327,6 +356,61 @@ class TestCodeValidator:
 
         assert ok is False
         assert any("nope" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_cross_file_accepts_annotated_module_constants(self, tmp_path):
+        """`SECRET_KEY: str = "x"` 是模块级导出，不能被当成未导出符号。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "config.py").write_text(
+            'SECRET_KEY: str = "x"\nTIMEOUT: int = 30\n', encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text(
+            "from config import SECRET_KEY, TIMEOUT\n", encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is True, errors
+
+    @pytest.mark.asyncio
+    async def test_cross_file_accepts_definitions_inside_module_level_try_and_if(self, tmp_path):
+        """模块级 try/except 与 if 分支里的导入/赋值同样对外可见。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "compat.py").write_text(
+            "try:\n    from ujson import loads\nexcept ImportError:\n    from json import loads\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "flags.py").write_text(
+            "DEBUG = True\nif DEBUG:\n    LEVEL = 'debug'\nelse:\n    LEVEL = 'info'\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "locked.py").write_text(
+            "with open(__file__) as handle:\n    LOCK_NAME = 'x'\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text(
+            "from compat import loads\nfrom flags import LEVEL\nfrom locked import LOCK_NAME\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is True, errors
+
+    @pytest.mark.asyncio
+    async def test_cross_file_does_not_treat_locals_as_exports(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "utils.py").write_text(
+            "def build():\n    helper = 1\n    return helper\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text("from utils import helper\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is False
+        assert any("helper" in err for err in errors)
 
     @pytest.mark.asyncio
     async def test_cross_file_accepts_subpackage_import(self, tmp_path):
