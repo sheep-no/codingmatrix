@@ -347,6 +347,20 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
             if stripped.startswith('//') or stripped.startswith('/*'):
                 continue
 
+            # export default 的符号名就是 default；不登记它会让声明了 default
+            # 的组件契约永远报 missing frozen symbol。
+            if re.match(r'^export\s+default\b', stripped):
+                definitions['default'] = SymbolDefinition(
+                    name='default',
+                    symbol_type="export",
+                    line_number=i,
+                    is_exported=True
+                )
+                # export default { ... } 是对象字面量，不是具名导出列表，
+                # 继续往下走会把对象的属性当成导出符号。
+                if stripped.startswith('export default {'):
+                    continue
+
             # 函数定义: function xxx() / async function xxx() / export default function xxx()
             func_match = re.match(
                 r'^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)\s*\((.*?)\)',
@@ -415,8 +429,8 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
                 )
                 continue
 
-            # export default / export { xxx }
-            export_match = re.match(r'^export\s+(?:default\s+)?{([^}]+)}', stripped)
+            # export { xxx }
+            export_match = re.match(r'^export\s*{([^}]+)}', stripped)
             if export_match:
                 symbols = [s.strip().split(' as ')[-1].strip() for s in export_match.group(1).split(',')]
                 for symbol in symbols:

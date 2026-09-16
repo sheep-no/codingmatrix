@@ -98,6 +98,43 @@ def test_integrity_validation_generates_no_index_barrel_fixes() -> None:
     assert validator.generate_fixes(result, REACT_PROJECT) == {}
 
 
+def test_extract_definitions_registers_default_export() -> None:
+    """默认导出的符号名是 default，对象字面量的属性不算导出。"""
+    adapter = JavaScriptLanguageAdapter()
+
+    single_line = adapter.extract_definitions("export default { name: 'App', components: { Card } }\n")
+    assert set(single_line) == {"default"}
+
+    declaration = adapter.extract_definitions("export default function App() { return null }\n")
+    assert set(declaration) == {"App", "default"}
+
+
+def test_vue_component_default_export_satisfies_frozen_symbol() -> None:
+    from app.agent.symbol_table import validate_file_against_symbol_table
+
+    architecture = {
+        "language": "javascript",
+        "file_plan": [{"path": "src/App.vue", "file_type": "frontend_component"}],
+        "symbol_table": {
+            "files": {
+                "src/App.vue": {
+                    "provides": ["default"],
+                    "requires": [],
+                    "signatures": {},
+                    "routes": [],
+                }
+            },
+        },
+    }
+    content = (
+        "<template>\n  <Card />\n</template>\n\n"
+        "<script>\nimport Card from './components/Card.vue';\n"
+        "export default {\n  name: 'App',\n  components: {\n    Card\n  }\n}\n</script>\n"
+    )
+
+    assert validate_file_against_symbol_table("src/App.vue", content, architecture) == []
+
+
 def test_integrity_validation_still_requires_python_package_init() -> None:
     from app.agent.adapters import PythonLanguageAdapter
 
