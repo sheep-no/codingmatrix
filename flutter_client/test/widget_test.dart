@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 
@@ -494,6 +495,40 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     await workbench.stopGeneration();
     expect(workbench.state.task?.status, 'cancelled');
+    workbench.dispose();
+  });
+
+  test('心跳帧不进入事件日志', () async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final source = StreamController<List<int>>();
+    addTearDown(() {
+      unawaited(source.close());
+    });
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient.streaming(
+          (_, __) async => http.StreamedResponse(source.stream, 200),
+        ),
+        credentialStore: store,
+      ),
+    );
+    await workbench.startGeneration(
+      accessTokenRef: token,
+      requirement: '做一个应用',
+    );
+    await Future<void>.delayed(Duration.zero);
+    source.add(utf8.encode('data: {"type": "heartbeat"}\n\n'));
+    source.add(
+      utf8.encode('data: {"type": "progress", "data": {"progress": 10}}\n\n'),
+    );
+    source.add(utf8.encode('data: {"type": "heartbeat"}\n\n'));
+    await Future<void>.delayed(Duration.zero);
+    expect(workbench.state.events.map((event) => event.type).toList(), [
+      'progress',
+    ]);
+    expect(workbench.state.task?.progress, 10);
     workbench.dispose();
   });
 

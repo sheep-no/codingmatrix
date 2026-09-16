@@ -134,8 +134,15 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
       }
     }
 
+    // Heartbeats only keep the connection alive and carry no state, so they
+    // must not enter the event log. The log is rendered in full, and the
+    // server beats every five seconds: keeping them would add one entry per
+    // beat for the whole run and push the real progress out of the list.
+    final logged = parsed.where((event) => event.type != 'heartbeat').toList();
+    if (logged.isEmpty) return parsed;
+
     state = state.copyWith(
-      events: [...state.events, ...parsed],
+      events: [...state.events, ...logged],
       task: task,
       artifacts: artifacts,
       decisions: decisions,
