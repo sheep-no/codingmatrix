@@ -2046,6 +2046,27 @@ def test_extract_strict_paths_preserves_java_maven_manifest():
     }
 
 
+def test_extract_strict_paths_keeps_full_extension_of_listed_files():
+    """扩展名不能被更短的同前缀分支截断。"""
+    requirement = "只要 4 个文件：package.json、src/index.js、App.tsx、Card.jsx。"
+
+    assert Architect._extract_strict_file_paths(requirement) == {
+        "package.json",
+        "src/index.js",
+        "App.tsx",
+        "Card.jsx",
+    }
+
+
+def test_extract_strict_paths_includes_dependency_manifests():
+    requirement = "只要 2 个文件：requirements.txt 和 pyproject.toml。"
+
+    assert Architect._extract_strict_file_paths(requirement) == {
+        "requirements.txt",
+        "pyproject.toml",
+    }
+
+
 def test_extract_strict_paths_ignores_bare_filenames_mentioned_later():
     """列举之外的正文里提到的裸文件名不能算作必须生成的文件。"""
     requirement = (

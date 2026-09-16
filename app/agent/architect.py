@@ -1040,7 +1040,13 @@ language 字段要求：
         """识别需求中明确限定的文件集合。"""
         if not requirement:
             return None
-        file_pat = r"[\w./-]+\.(?:py|js|ts|jsx|tsx|vue|html|css|scss|json|yaml|yml|toml|xml|go|java|rs)"
+        # 扩展名后的否定断言必不可少：没有它 `package.json` 会被 `js` 分支
+        # 截成 `package.js`，`App.tsx`/`Card.jsx` 也会被截成 `.ts`/`.js`，
+        # 严格文件集随后会拿这些错名字去重写 file_plan。
+        file_pat = (
+            r"[\w./-]+\.(?:py|js|ts|jsx|tsx|mjs|cjs|vue|html|css|scss"
+            r"|json|yaml|yml|toml|xml|go|java|rs|txt|md|ini|cfg)(?![A-Za-z0-9])"
+        )
         match = re.search(
             r"(?:只需要|仅需要|只要|only)\s*(.{1,300}?)(?:个|份)?\s*文件",
             requirement,
