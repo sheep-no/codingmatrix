@@ -114,6 +114,10 @@ class AuthenticatedClient extends http.BaseClient {
     final response = await http.Response.fromStream(
       await _send(request, timeout: timeout),
     );
+    // 204 and empty-body 2xx responses are valid for delete/action endpoints
+    // (the task cancel route replies 204). Only a malformed non-empty body is
+    // a real protocol error.
+    if (response.body.trim().isEmpty) return null;
     try {
       return jsonDecode(response.body);
     } on FormatException {

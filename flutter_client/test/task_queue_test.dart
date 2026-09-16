@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
+import 'package:codingmatrix_desktop/infrastructure/auth/cloud_auth_client.dart';
 import 'package:codingmatrix_desktop/infrastructure/task/task_client.dart';
 import 'package:codingmatrix_desktop/presentation/task_queue_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 
 import 'agent_delivery_test.dart' show DeliveryApi;
 import 'auth_session_test.dart' show Fixture;
@@ -655,5 +657,37 @@ void main() {
     expect(find.textContaining('connection lost'), findsNothing);
     expect(find.text('ppt · failed'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  test('取消任务的 204 空响应不算失败', () async {
+    final f = Fixture();
+    await f.login();
+    f.business = (request) async {
+      expect(request.method, 'DELETE');
+      expect(request.url.path, '/api/v1/tasks/t1');
+      return http.Response('', 204);
+    };
+
+    // The backend cancels with 204 and no body. Decoding that empty body as
+    // JSON used to raise "服务响应 JSON 格式错误" even though the cancel had
+    // succeeded, so the page reported a failure and kept the stale status.
+    await TaskClient(f.api).cancel('t1');
+  });
+
+  test('非空但无效的响应体仍是协议错误', () async {
+    final f = Fixture();
+    await f.login();
+    f.business = (_) async => http.Response('not-json', 200);
+
+    await expectLater(
+      TaskClient(f.api).cancel('t1'),
+      throwsA(
+        isA<CloudAuthException>().having(
+          (error) => error.message,
+          'message',
+          '服务响应 JSON 格式错误',
+        ),
+      ),
+    );
   });
 }
