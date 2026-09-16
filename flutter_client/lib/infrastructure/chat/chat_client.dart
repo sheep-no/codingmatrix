@@ -135,6 +135,10 @@ class ChatClient {
                 } on FormatException {
                   // Braces in prose/code are preserved verbatim.
                 }
+                // Keys of the stream contract. `stage` marks the backend's
+                // progress frames (`parsing`/`searching`/`answering`), which
+                // carry no reply text: the web client renders them as stage
+                // labels, so they must not fall through to the text branch.
                 if (json == null ||
                     !json.keys.any(
                       (key) => const {
@@ -146,6 +150,7 @@ class ChatClient {
                         'done',
                         'interrupted',
                         'choices',
+                        'stage',
                       }.contains(key),
                     )) {
                   sink.add(ChatStreamEvent(text: raw));

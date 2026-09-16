@@ -169,6 +169,23 @@ void main() {
     expect(events.last.conversationId, 19);
   });
 
+  test('后端阶段帧不进入回复正文', () async {
+    final events = await ChatClient.parseStream(
+      Stream.fromIterable([
+        utf8.encode(
+          '{"stage": "parsing", "status": "started", "filename": "a.pdf"}\n',
+        ),
+        utf8.encode(
+          '{"stage": "answering", "status": "started", "model": "gpt", "sources": [], "search_depth": "shallow"}\n',
+        ),
+        utf8.encode('{"choices":[{"delta":{"content":"回答"}}]}\n'),
+        utf8.encode('{"conversation_id":19}\n'),
+      ]),
+    ).toList();
+    expect(events.map((event) => event.text).join(), '回答');
+    expect(events.last.conversationId, 19);
+  });
+
   test('NDJSON 跨 UTF-8 字节分片、CRLF、嵌套 delta 与无尾换行', () async {
     final input =
         '${jsonEncode({'conversation_id': 42})}\r\n'
