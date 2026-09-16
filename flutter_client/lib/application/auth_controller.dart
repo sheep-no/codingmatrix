@@ -73,6 +73,7 @@ class AuthController extends StateNotifier<AuthState> {
     required String password,
     String? serviceUrl,
   }) async {
+    if (state.isLoading) return;
     final operation = ++_operation;
     state = state.copyWith(isLoading: true, clearError: true);
     try {

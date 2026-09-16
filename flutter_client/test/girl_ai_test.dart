@@ -13,6 +13,7 @@ import 'package:http/http.dart' as http;
 
 import 'agent_delivery_test.dart' show DeliveryApi;
 import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 class GirlApi extends DeliveryApi {
   GirlApi(super.handle);
@@ -175,6 +176,71 @@ void main() {
     await tester.pump();
     expect(find.text('你好'), findsOneWidget);
     expect(find.text('不应出现'), findsNothing);
+  });
+
+  testWidgets('切换账号清空未发送的输入草稿', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final local = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+    addTearDown(local.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: local,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField), '上一账号的草稿');
+    expect(find.text('上一账号的草稿'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('上一账号的草稿'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('切账号后历史读取仍会写入新账号', () async {
+    var calls = 0;
+    api = GirlApi((path, _, __) async {
+      if (path == '/api/v1/GirlAi/history') {
+        calls++;
+        return {
+          'records': [
+            {'id': 'h$calls', 'role': 'user', 'content': '记录$calls'},
+          ],
+        };
+      }
+      fail('unexpected $path');
+    });
+    container.dispose();
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+
+    await container.read(girlAiControllerProvider.notifier).loadHistory();
+    expect(
+      container.read(girlAiControllerProvider).history.single.content,
+      '记录1',
+    );
+
+    auth.switchAccount('bob');
+    await container.read(girlAiControllerProvider.notifier).loadHistory();
+    expect(
+      container.read(girlAiControllerProvider).history.single.content,
+      '记录2',
+    );
   });
 
   test('切账号后晚到的虚拟姬回复不会写入新账号', () async {
@@ -422,6 +488,49 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('打开历史进行中无法再次触发并发请求', (tester) async {
+    var historyCalls = 0;
+    final pending = Completer<Object?>();
+    api = GirlApi((path, _, __) async {
+      if (path == '/api/v1/GirlAi/characters') {
+        return {
+          'characters': [
+            {'id': 'gentle', 'name': '温柔'},
+          ],
+        };
+      }
+      if (path == '/api/v1/GirlAi/history') {
+        historyCalls++;
+        return pending.future;
+      }
+      fail('unexpected $path');
+    });
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(api)],
+    );
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('历史记录'));
+    await tester.pump();
+    expect(historyCalls, 1);
+    await tester.tap(find.byTooltip('历史记录'), warnIfMissed: false);
+    await tester.pump();
+    expect(historyCalls, 1);
+    pending.complete({'records': []});
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('暂无历史记录'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('历史记录网络断开显示错误原文', (tester) async {
     api = GirlApi((path, _, __) async {
       if (path == '/api/v1/GirlAi/characters') {
@@ -455,6 +564,99 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.textContaining('connection lost'), findsOneWidget);
     expect(find.text('暂无历史记录'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切账号关闭已打开的历史弹层', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final scoped = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          GirlApi((path, _, __) async {
+            if (path == '/api/v1/GirlAi/characters') return {'characters': []};
+            if (path == '/api/v1/GirlAi/history') {
+              return {
+                'records': [
+                  {'id': 'h1', 'role': 'user', 'content': '上一账号的历史'},
+                ],
+              };
+            }
+            fail('unexpected $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(scoped.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: scoped,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('历史记录'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('上一账号的历史'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('上一账号的历史'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切账号后旧账号的历史弹层不会弹出', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    var historyCalls = 0;
+    final scoped = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          GirlApi((path, _, __) async {
+            if (path == '/api/v1/GirlAi/characters') {
+              return {'characters': []};
+            }
+            if (path == '/api/v1/GirlAi/history') {
+              historyCalls++;
+              if (historyCalls == 1) return pending.future;
+              return {'records': []};
+            }
+            fail('unexpected $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(scoped.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: scoped,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('历史记录'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete({
+      'records': [
+        {'id': 'h1', 'role': 'user', 'content': '上一账号的历史'},
+      ],
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.text('上一账号的历史'), findsNothing);
+    expect(find.text('暂无历史记录'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -510,10 +712,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(
-          key: UniqueKey(),
-          home: const VirtualGirlPage(),
-        ),
+        child: MaterialApp(key: UniqueKey(), home: const VirtualGirlPage()),
       ),
     );
     await tester.pump();
@@ -590,6 +789,78 @@ void main() {
     final state = container.read(girlAiControllerProvider);
     expect(state.error, contains('connection lost'));
     expect(state.memoryCandidates.single.id, 'm1');
+  });
+
+  testWidgets('保存记忆进行中无法再次触发并发请求', (tester) async {
+    var confirms = 0;
+    final pending = Completer<Object?>();
+    useApi(
+      memoryApi(
+        onConfirm: () {
+          confirms++;
+          return pending.future;
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), '你好');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('喜欢: 猫'), findsOneWidget);
+    await tester.tap(find.byTooltip('保存'));
+    await tester.pump();
+    expect(confirms, 1);
+    await tester.tap(find.byTooltip('保存'), warnIfMissed: false);
+    await tester.pump();
+    expect(confirms, 1);
+    pending.complete(null);
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('忽略记忆进行中无法再次触发并发请求', (tester) async {
+    var deletes = 0;
+    final pending = Completer<Object?>();
+    useApi(
+      memoryApi(
+        onDelete: () {
+          deletes++;
+          return pending.future;
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), '你好');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('喜欢: 猫'), findsOneWidget);
+    await tester.tap(find.byTooltip('忽略'));
+    await tester.pump();
+    expect(deletes, 1);
+    await tester.tap(find.byTooltip('忽略'), warnIfMissed: false);
+    await tester.pump();
+    expect(deletes, 1);
+    pending.complete(null);
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('保存记忆网络断开显示错误原文并保留卡片', (tester) async {

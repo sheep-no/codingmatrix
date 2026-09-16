@@ -13,6 +13,7 @@ class GirlAiState {
     this.emotion,
     this.intent,
     this.memoryCandidates = const [],
+    this.busyMemoryIds = const {},
     this.history = const [],
   });
   final String character;
@@ -23,6 +24,8 @@ class GirlAiState {
   final EmotionState? emotion;
   final IntentState? intent;
   final List<MemoryCandidate> memoryCandidates;
+  // Ids of memory candidates with an in-flight confirm/delete request.
+  final Set<String> busyMemoryIds;
   final List<GirlHistory> history;
   GirlAiState copyWith({
     String? character,
@@ -33,6 +36,7 @@ class GirlAiState {
     EmotionState? emotion,
     IntentState? intent,
     List<MemoryCandidate>? memoryCandidates,
+    Set<String>? busyMemoryIds,
     List<GirlHistory>? history,
   }) => GirlAiState(
     character: character ?? this.character,
@@ -43,6 +47,7 @@ class GirlAiState {
     emotion: emotion ?? this.emotion,
     intent: intent ?? this.intent,
     memoryCandidates: memoryCandidates ?? this.memoryCandidates,
+    busyMemoryIds: busyMemoryIds ?? this.busyMemoryIds,
     history: history ?? this.history,
   );
 }
@@ -52,9 +57,11 @@ final girlAiControllerProvider =
 
 class GirlAiController extends Notifier<GirlAiState> {
   int _generation = 0;
-  // Set once this instance is torn down (account switch or scope disposal).
-  // Late responses must not write into a state that no longer belongs to them.
-  bool _disposed = false;
+  // Bumped when this notifier's scope is torn down (account switch or scope
+  // disposal). Requests started under the previous scope must not write into
+  // the new one, and this notifier instance is reused across rebuilds, so a
+  // one-way flag would stay latched and mute every later request.
+  int _epoch = 0;
   GirlAiClient get api => GirlAiClient(ref.read(authenticatedClientProvider));
   @override
   GirlAiState build() {
@@ -63,7 +70,7 @@ class GirlAiController extends Notifier<GirlAiState> {
     );
     ref.onDispose(() {
       _generation++;
-      _disposed = true;
+      _epoch++;
     });
     return const GirlAiState();
   }
@@ -118,49 +125,70 @@ class GirlAiController extends Notifier<GirlAiState> {
   void select(String id) => state = state.copyWith(character: id);
 
   Future<void> loadHistory({String? query}) async {
+    final epoch = _epoch;
     try {
       final records = query == null || query.trim().isEmpty
           ? await api.history()
           : await api.search(query.trim());
-      if (_disposed) return;
+      if (epoch != _epoch) return;
       state = state.copyWith(history: records, error: null);
     } catch (e) {
-      if (_disposed) return;
+      if (epoch != _epoch) return;
       state = state.copyWith(error: '$e');
     }
   }
 
   Future<void> confirmMemory(MemoryCandidate memory) async {
-    if (memory.id == null) return;
+    final id = memory.id;
+    if (id == null || state.busyMemoryIds.contains(id)) return;
+    final epoch = _epoch;
+    state = state.copyWith(busyMemoryIds: {...state.busyMemoryIds, id});
     try {
-      await api.confirmMemory(memory.id!, key: memory.key, value: memory.value);
-      if (_disposed) return;
+      await api.confirmMemory(id, key: memory.key, value: memory.value);
+      if (epoch != _epoch) return;
       state = state.copyWith(
         memoryCandidates: state.memoryCandidates
-            .where((item) => item.id != memory.id)
+            .where((item) => item.id != id)
             .toList(),
         error: null,
       );
     } catch (e) {
-      if (_disposed) return;
+      if (epoch != _epoch) return;
       state = state.copyWith(error: '$e');
+    } finally {
+      if (epoch == _epoch) {
+        state = state.copyWith(
+          error: state.error,
+          busyMemoryIds: {...state.busyMemoryIds}..remove(id),
+        );
+      }
     }
   }
 
   Future<void> deleteMemory(MemoryCandidate memory) async {
-    if (memory.id == null) return;
+    final id = memory.id;
+    if (id == null || state.busyMemoryIds.contains(id)) return;
+    final epoch = _epoch;
+    state = state.copyWith(busyMemoryIds: {...state.busyMemoryIds, id});
     try {
-      await api.deleteMemory(memory.id!);
-      if (_disposed) return;
+      await api.deleteMemory(id);
+      if (epoch != _epoch) return;
       state = state.copyWith(
         memoryCandidates: state.memoryCandidates
-            .where((item) => item.id != memory.id)
+            .where((item) => item.id != id)
             .toList(),
         error: null,
       );
     } catch (e) {
-      if (_disposed) return;
+      if (epoch != _epoch) return;
       state = state.copyWith(error: '$e');
+    } finally {
+      if (epoch == _epoch) {
+        state = state.copyWith(
+          error: state.error,
+          busyMemoryIds: {...state.busyMemoryIds}..remove(id),
+        );
+      }
     }
   }
 }

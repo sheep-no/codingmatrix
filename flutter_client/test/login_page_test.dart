@@ -64,9 +64,7 @@ void main() {
 
   testWidgets('网络断开显示认证连接失败', (tester) async {
     final container = loginContainer(
-      MockClient(
-        (_) async => throw const SocketException('connection lost'),
-      ),
+      MockClient((_) async => throw const SocketException('connection lost')),
     );
     addTearDown(container.dispose);
 
@@ -91,9 +89,45 @@ void main() {
     await tester.pump();
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(
-      tester.widget<FilledButton>(find.byKey(const Key('loginButton'))).onPressed,
+      tester
+          .widget<FilledButton>(find.byKey(const Key('loginButton')))
+          .onPressed,
       isNull,
     );
+    pending.completeError(const SocketException('connection lost'));
+    await tester.pump();
+    await tester.pump();
+  });
+
+  testWidgets('登录进行中回车不会重复发起请求', (tester) async {
+    var calls = 0;
+    final pending = Completer<http.Response>();
+    final container = loginContainer(
+      MockClient((_) {
+        calls++;
+        return pending.future;
+      }),
+    );
+    addTearDown(container.dispose);
+
+    await pumpLogin(tester, container);
+    await fillLogin(tester);
+    await tester.tap(find.byKey(const Key('loginButton')));
+    await tester.pump();
+    expect(calls, 1);
+
+    tester
+        .widget<TextField>(
+          find.descendant(
+            of: find.byKey(const Key('passwordField')),
+            matching: find.byType(TextField),
+          ),
+        )
+        .onSubmitted
+        ?.call('secret');
+    await tester.pump();
+    expect(calls, 1);
+
     pending.completeError(const SocketException('connection lost'));
     await tester.pump();
     await tester.pump();
