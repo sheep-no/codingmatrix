@@ -43,6 +43,16 @@ _MODULE_LEVEL_CONTAINERS = (
 )
 
 
+# 标准库顶层模块名。优先用解释器自带清单，缺失时退回常见子集。
+_STDLIB_MODULES = frozenset(getattr(sys, "stdlib_module_names", ())) or frozenset({
+    'os', 'sys', 'json', 're', 'datetime', 'pathlib', 'typing', 'asyncio', 'logging',
+    'collections', 'functools', 'itertools', 'math', 'string', 'io', 'copy', 'time',
+    'enum', 'dataclasses', 'abc', 'contextlib', 'urllib', 'http', 'email', 'hashlib',
+    'hmac', 'secrets', 'base64', 'struct', 'textwrap', 'difflib', 'unittest', 'doctest',
+    'pdb', 'traceback', 'warnings', 'weakref', 'types', 'importlib',
+})
+
+
 def _iter_module_scope(body: Iterable[ast.stmt]) -> Iterator[ast.stmt]:
     """遍历模块作用域内的语句（进入复合语句，但不进入函数/类体）。"""
     for node in body:
@@ -147,6 +157,37 @@ class CodeValidator:
         except (OSError, ValueError):
             return False
         return True
+
+    def _python_third_party_imports(self) -> List[str]:
+        """项目中来自第三方包的顶层 Python 导入名（排序去重）。
+
+        只用标准库或项目内模块的项目不需要依赖清单；该判断同样避免了把
+        "只打印一段文字" 的单文件脚本判为缺少 requirements.txt。
+        """
+        local_modules = set(self._project_top_level_packages())
+        found = set()
+        for py_file in self.project_path.rglob("*.py"):
+            if "__pycache__" in str(py_file):
+                continue
+            try:
+                source = py_file.read_text(encoding="utf-8", errors="ignore")
+                tree = ast.parse(source)
+            except (OSError, SyntaxError, ValueError):
+                # 无法解析的文件由语法校验负责，这里不重复报错
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = [alias.name.split(".")[0] for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    if node.level or not node.module:
+                        continue
+                    names = [node.module.split(".")[0]]
+                else:
+                    continue
+                for name in names:
+                    if name and name not in _STDLIB_MODULES and name not in local_modules:
+                        found.add(name)
+        return sorted(found)
 
     @classmethod
     def _compute_content_hash(cls, file_content: str) -> str:
@@ -273,7 +314,7 @@ class CodeValidator:
 
             # 检查是否可以导入
             errors = []
-            standard_libs = {'os', 'sys', 'json', 're', 'datetime', 'pathlib', 'typing', 'asyncio', 'logging', 'collections', 'functools', 'itertools', 'math', 'string', 'io', 'copy', 'time', 'enum', 'dataclasses', 'abc', 'contextlib', 'urllib', 'http', 'email', 'hashlib', 'hmac', 'secrets', 'base64', 'struct', 'textwrap', 'difflib', 'unittest', 'doctest', 'pdb', 'traceback', 'warnings', 'weakref', 'types', 'importlib'}
+            standard_libs = _STDLIB_MODULES
 
             # Include the project root even when a generated project has no src/tests directory.
             added_paths = []
@@ -696,10 +737,16 @@ class CodeValidator:
 
         if not found_file:
             # 非 Python 项目（如纯前端工程）就没有 Python 依赖清单，不算缺陷；
-            # 只有确实包含 Python 代码时才要求提供依赖清单。
+            # 只用标准库/项目内模块的 Python 代码同样无需依赖清单。
             if not any(self.project_path.rglob('*.py')):
                 return True, []
-            return False, ["缺少 requirements.txt / pyproject.toml / Pipfile"]
+            third_party = self._python_third_party_imports()
+            if not third_party:
+                return True, []
+            return False, [
+                "缺少 requirements.txt / pyproject.toml / Pipfile"
+                f"（项目导入了第三方包: {', '.join(third_party)}）"
+            ]
 
         # Python 包名到导入名的常见映射
         PACKAGE_TO_IMPORT = {

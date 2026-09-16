@@ -286,14 +286,46 @@ class TestCodeValidator:
 
     @pytest.mark.asyncio
     async def test_requirements_missing_manifest_still_flagged_for_python_project(self, tmp_path):
+        """导入了第三方包的 Python 工程仍必须提供依赖清单。"""
         from app.agent.code_validator import CodeValidator
 
-        (tmp_path / "main.py").write_text("x = 1\n", encoding="utf-8")
+        (tmp_path / "main.py").write_text("import fastapi\n", encoding="utf-8")
 
         ok, errors = await CodeValidator(tmp_path).validate_requirements()
 
         assert ok is False
         assert any("缺少 requirements.txt" in err for err in errors)
+        assert any("fastapi" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_requirements_skip_manifest_for_stdlib_only_script(self, tmp_path):
+        """只用标准库的单文件脚本没有依赖清单不算缺陷。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "hello.py").write_text(
+            'import json\n\ndef main():\n    print(json.dumps({"hello": "world"}))\n',
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_requirements()
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_requirements_skip_manifest_for_project_local_imports(self, tmp_path):
+        """只导入项目内模块时同样不需要依赖清单。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text("", encoding="utf-8")
+        (tmp_path / "app" / "main.py").write_text("from app import models\n", encoding="utf-8")
+        (tmp_path / "app" / "models.py").write_text("x = 1\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_requirements()
+
+        assert ok is True
+        assert errors == []
 
     @pytest.mark.asyncio
     async def test_requirements_uninstalled_package_is_environment_not_defect(self, tmp_path):
