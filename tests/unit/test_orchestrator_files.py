@@ -2046,6 +2046,20 @@ def test_extract_strict_paths_preserves_java_maven_manifest():
     }
 
 
+def test_extract_strict_paths_ignores_bare_filenames_mentioned_later():
+    """列举之外的正文里提到的裸文件名不能算作必须生成的文件。"""
+    requirement = (
+        "用 Vue 3 写一个极简组件项目，只要 2 个文件：src/App.vue 和 "
+        "src/components/Card.vue。App.vue 通过 import Card from "
+        '"./components/Card.vue" 引入 Card 并渲染它。Card.vue 显示一行文字。'
+    )
+
+    assert Architect._extract_strict_file_paths(requirement) == {
+        "src/App.vue",
+        "src/components/Card.vue",
+    }
+
+
 def test_requirement_aware_default_architecture_preserves_todo_sqlite_contract():
     architect = object.__new__(Architect)
     complexity = types.SimpleNamespace(

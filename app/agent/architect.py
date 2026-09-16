@@ -1065,7 +1065,33 @@ language 字段要求：
         paths = set(re.findall(file_pat, blob + " " + after))
         if not paths:
             paths = set(re.findall(file_pat, requirement))
-        return paths or None
+        return Architect._prefer_most_specific_paths(paths) or None
+
+    @staticmethod
+    def _prefer_most_specific_paths(paths: set) -> set:
+        """同一文件的不同写法只保留最具体的路径。
+
+        需求在列举之外还会提到导入写法，例如 `App.vue`、
+        `./components/Card.vue`；它们与 `src/App.vue`、
+        `src/components/Card.vue` 是同一文件，不能各自算作必须生成的文件。
+        只有一个是另一个的路径后缀时才合并，`app/main.py` 与 `tests/main.py`
+        这类真正的同名文件仍然都保留。
+        """
+        cleaned = set()
+        for path in paths:
+            clean = path.replace("\\", "/")
+            while clean.startswith("./"):
+                clean = clean[2:]
+            if clean:
+                cleaned.add(clean)
+
+        ordered = sorted(cleaned, key=lambda item: (-item.count("/"), -len(item), item))
+        kept: List[str] = []
+        for candidate in ordered:
+            if any(kept_path.endswith("/" + candidate) for kept_path in kept):
+                continue
+            kept.append(candidate)
+        return set(kept)
 
     @staticmethod
     def _skip_boilerplate_files(complexity: Optional[Any]) -> bool:
