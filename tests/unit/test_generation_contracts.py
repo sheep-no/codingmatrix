@@ -146,6 +146,47 @@ def test_generation_plan_accepts_repeated_module_interfaces() -> None:
     assert [symbol.name for symbol in plan.interfaces.symbols_for("app/models.py")] == ["User", "Todo"]
 
 
+def test_interface_registry_tolerates_architect_symbol_shapes() -> None:
+    """架构师提示未固定 symbol schema，描述性字段与对象形参数不能中断生成。"""
+    registry = InterfaceRegistry.build([
+        {
+            "module": "app/api.py",
+            "owner": "app/api.py",
+            "symbols": [
+                {"name": "get_user", "signature": "get_user(uid: int) -> User", "description": "fetch"},
+                {"name": "find_user", "parameters": [{"name": "uid", "type": "int"}], "return_type": "User"},
+            ],
+        },
+    ])
+
+    assert [(symbol.name, symbol.parameters, symbol.return_type) for symbol in registry.symbols_for("app/api.py")] == [
+        ("get_user", (), None),
+        ("find_user", ("uid: int",), "User"),
+    ]
+
+
+def test_interface_registry_coerces_parameter_mapping() -> None:
+    registry = InterfaceRegistry.build([
+        {"module": "app/api.py", "owner": "app/api.py",
+         "symbols": [{"name": "get_user", "parameters": {"uid": "int"}, "return_type": "User"}]},
+    ])
+
+    assert registry.symbols_for("app/api.py")[0].parameters == ("uid: int",)
+
+
+def test_generation_plan_accepts_architect_symbol_shapes() -> None:
+    plan = GenerationPlan.from_architecture({
+        "project_spec": {"language": "python"},
+        "file_plan": [{"path": "app/api.py", "role": "api", "file_type": "api"}],
+        "interfaces": [
+            {"module": "app/api.py", "owner": "app/api.py",
+             "symbols": [{"name": "get_user", "signature": "get_user(uid: int) -> User"}]},
+        ],
+    })
+
+    assert [symbol.name for symbol in plan.interfaces.symbols_for("app/api.py")] == ["get_user"]
+
+
 def test_dependency_manifest_rejects_forbidden_and_duplicate_dependencies() -> None:
     with pytest.raises(ValueError, match="forbidden"):
         DependencyManifest.build([{"name": "unsafe-package", "kind": DependencyKind.FORBIDDEN}])
