@@ -451,6 +451,105 @@ class TestDependencyGraph:
         graph.add_file("blank.py", file_type="")
 
         assert graph.get_unknown_type_files() == ["mystery.py", "blank.py"]
+
+    def test_config_and_dotfiles_are_not_unknown(self):
+        """常见配置/元文件必须有确定性类型，否则 _infer_unknown_file_types 硬失败。"""
+        import asyncio
+
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+        from app.agent.orchestrator_generation.spec_first_generate import (
+            SpecFirstGenerateMixin,
+        )
+
+        planned = [
+            ".gitignore", ".editorconfig", ".dockerignore",
+            "nginx.conf", "setup.cfg", "poetry.lock", "alembic.ini",
+            "schema.graphql", "proto/user.proto", "infra/main.tf",
+            "requirements.txt", "app/main.py",
+        ]
+        architecture = {"file_plan": [
+            {"path": path, "priority": 2} for path in planned
+        ]}
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture(architecture)
+
+        pending = graph.get_unknown_type_files()
+        asyncio.run(SpecFirstGenerateMixin()._infer_unknown_file_types(
+            graph, pending, architecture, "python"
+        ))
+
+        assert graph.get_unknown_type_files() == []
+        assert "nginx.conf" in graph.nodes
+        assert "schema.graphql" in graph.nodes
+
+    def test_tool_named_config_files_are_kept_in_plan(self):
+        """以工具名命名的配置文件（vite.config.js、alembic.ini）不能被当外部库丢弃。"""
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        js_graph = DependencyGraph(language_adapter=JavaScriptLanguageAdapter())
+        js_graph.build_from_architecture({"file_plan": [
+            {"path": "vite.config.js", "priority": 2},
+            {"path": "src/main.js", "priority": 1},
+        ]})
+        assert "vite.config.js" in js_graph.nodes
+
+        py_graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        py_graph.build_from_architecture({"file_plan": [
+            {"path": "alembic.ini", "priority": 2},
+            {"path": "app/main.py", "priority": 1},
+        ]})
+        assert "alembic.ini" in py_graph.nodes
+
+    def test_external_package_source_trees_are_still_dropped(self):
+        """护栏：真正的第三方包源码路径仍按外部库丢弃。"""
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        py_graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        py_graph.build_from_architecture({"file_plan": [
+            {"path": "sqlalchemy/orm/session.py", "priority": 2},
+            {"path": "fastapi.py", "priority": 2},
+            {"path": "app/main.py", "priority": 1},
+        ]})
+        assert "sqlalchemy/orm/session.py" not in py_graph.nodes
+        assert "fastapi.py" not in py_graph.nodes
+
+        js_graph = DependencyGraph(language_adapter=JavaScriptLanguageAdapter())
+        js_graph.build_from_architecture({"file_plan": [
+            {"path": "react/index.js", "priority": 2},
+            {"path": "src/main.js", "priority": 1},
+        ]})
+        assert "react/index.js" not in js_graph.nodes
+
+    def test_dotted_module_paths_are_converted(self):
+        """点号分隔的模块路径（src.app.utils.py）仍要转换成目录路径。"""
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": "src.app.utils.py", "priority": 2},
+            {"path": "main.py", "priority": 1},
+        ]})
+
+        assert "src/app/utils.py" in graph.nodes
+
+    def test_dotted_file_names_are_not_converted(self):
+        """点号文件名（vite.config.js、index.test.js）不能被改写成目录路径。"""
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        planned = ["vite.config.js", "index.test.js", "main.min.js", "types.d.ts", "src/main.js"]
+        graph = DependencyGraph(language_adapter=JavaScriptLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": path, "priority": 2} for path in planned
+        ]})
+
+        assert sorted(graph.nodes) == sorted(planned)
     
     def test_extract_dependencies_from_content_python(self, graph):
         """测试从 Python 内容中提取依赖"""
