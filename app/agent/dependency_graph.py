@@ -58,6 +58,13 @@ def _normalize_extensionless_name(name: str) -> str:
     return lowered
 
 
+# 非源码类型：这些类型一定是项目文件，与第三方包同名也不能按外部库丢弃。
+_META_PLAN_FILE_TYPES = frozenset({
+    "config", "env", "dockerfile", "docker_compose",
+    "readme", "docs", "schema",
+})
+
+
 def summarize_dependency_context(context: str) -> Dict[str, Any]:
     """返回依赖上下文的可审计摘要，避免日志记录完整源码。"""
     context = context or ""
@@ -291,7 +298,11 @@ class DependencyGraph:
             # 点号路径转换：无斜杠但有多段点号（如 src.app.utils.py）
             if '/' not in path and '.' in path:
                 dot_segments = path.split('.')
-                if len(dot_segments) >= 3:
+                # 点号文件名（vite.config.js、index.test.js、main.min.js、foo.d.ts）
+                # 也是 3 段以上，但它们是文件名而非点号分隔的模块路径，转换会
+                # 凭空造出目录（vite/config.js）。倒数第二段是常见元词时保持原样。
+                meta_segments = {'config', 'conf', 'test', 'spec', 'min', 'd', 'module', 'setup'}
+                if len(dot_segments) >= 3 and dot_segments[-2].lower() not in meta_segments:
                     known_exts = {'py','js','ts','jsx','tsx','css','html','json','md','yaml','yml','toml','cfg','ini','sh','sql','go','rs','java','rb','php'}
                     last = dot_segments[-1].lower()
                     if last in known_exts:
@@ -711,6 +722,13 @@ class DependencyGraph:
         normalized = str(path).replace("\\", "/").strip().strip("/")
         if not normalized:
             return False
+
+        # 配置文件常以工具名命名（vite.config.js、alembic.ini、schema.graphql），
+        # 顶层名会与第三方包同名。它们按类型判定是项目文件，不能当外部库丢弃，
+        # 否则计划中的配置既不生成也不报错。
+        if self._infer_file_type(normalized) in _META_PLAN_FILE_TYPES:
+            return False
+
         top = normalized.split("/")[0]
         top_path = Path(top)
         from .adapters.language_adapter import _EXTERNAL_SOURCE_SUFFIXES
