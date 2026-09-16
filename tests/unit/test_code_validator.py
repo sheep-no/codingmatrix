@@ -416,6 +416,28 @@ class TestCodeValidator:
 
         assert result["is_valid"] is True
 
+    @pytest.mark.asyncio
+    async def test_full_validation_exposes_failure_categories(self, tmp_path):
+        """失败原因必须出现在具名类别里，供上层汇总后推送。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+        (tmp_path / "main.py").write_text("def run(\n", encoding="utf-8")
+
+        result = await CodeValidator(tmp_path).run_full_validation()
+
+        assert result["is_valid"] is False
+        for key in (
+            "syntax_errors",
+            "dependency_errors",
+            "api_errors",
+            "runtime_errors",
+            "frontend_errors",
+            "cross_file_errors",
+        ):
+            assert key in result
+        assert result["syntax_errors"]
+
 
 class TestHtmlCssStructureGate:
     @pytest.mark.asyncio
