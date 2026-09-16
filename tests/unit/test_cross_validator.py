@@ -695,6 +695,42 @@ def test_validate_imports_still_flags_missing_alias_with_explicit_extension():
     ]
 
 
+@pytest.mark.parametrize(
+    "specifier, target",
+    [
+        ("@/components/HelloWorld", "src/components/HelloWorld.vue"),
+        ("@/components/Card", "src/components/Card/index.vue"),
+        ("src/components/HelloWorld", "src/components/HelloWorld.vue"),
+    ],
+)
+def test_validate_imports_resolves_alias_to_vue_component(specifier, target):
+    # 别名候选不含 .vue 时，指向单文件组件的省略扩展名导入会被误报
+    files = {
+        target: "<template><div/></template>\n",
+        "src/App.vue": f"<script setup>\nimport value from '{specifier}'\n</script>\n",
+    }
+    assert _js_validator()._validate_imports(files) == []
+
+
+def test_validate_imports_still_flags_missing_vue_component():
+    files = {
+        "src/components/Other.vue": "<template/>\n",
+        "src/App.vue": "<script setup>\nimport Nope from '@/components/Nope'\n</script>\n",
+    }
+    assert [issue["message"] for issue in _js_validator()._validate_imports(files)] == [
+        "导入的模块不存在: @/components/Nope"
+    ]
+
+
+def test_validate_imports_prefers_existing_js_over_vue():
+    files = {
+        "src/utils/a.js": "export const x = 1\n",
+        "src/utils/a.vue": "<template/>\n",
+        "src/App.jsx": "import { x } from '@/utils/a'\n",
+    }
+    assert _js_validator()._validate_imports(files) == []
+
+
 def _missing_argument_issues(files):
     validator = _python_validator()
     issues = validator._validate_function_signatures(files)
