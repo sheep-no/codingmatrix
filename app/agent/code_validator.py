@@ -313,6 +313,14 @@ class CodeValidator:
                         shadowed_modules[pkg] = cached
                         del sys.modules[pkg]
                 spec.loader.exec_module(module)
+            except ModuleNotFoundError as e:
+                # 缺失的模块若是项目内包/模块，说明代码引用了不存在的文件；
+                # 否则是 Agent 执行环境未安装该第三方包，不代表生成代码有缺陷。
+                top = (getattr(e, "name", "") or "").split(".")[0]
+                if top and top in set(self._project_top_level_packages()):
+                    errors.append(f"运行时导入失败: {str(e)}")
+                else:
+                    logger.warning("运行时导入失败（环境缺包，不计入代码有效性）: %s", e)
             except ImportError as e:
                 errors.append(f"运行时导入失败: {str(e)}")
             except AttributeError as e:
@@ -599,7 +607,9 @@ class CodeValidator:
 
         if file_path.suffix == '.py':
             syntax_ok, syntax_errs = await self.validate_syntax(file_path)
-            import_ok, import_errs = await self.validate_imports(file_path)
+            # 导入检查结果只作为诊断信息：包是否安装取决于 Agent 执行环境，
+            # 不代表生成代码有缺陷，因此不参与 is_valid（与 validate_requirements 一致）。
+            _import_ok, import_errs = await self.validate_imports(file_path)
             runtime_ok, runtime_errs = await self.validate_runtime_imports(file_path)
             api_ok, api_errs = await self.validate_api_compatibility(file_path)
 
@@ -608,7 +618,7 @@ class CodeValidator:
             results["runtime_errors"].extend(runtime_errs)
             results["api_errors"].extend(api_errs)
 
-            if not syntax_ok or not import_ok or not runtime_ok or not api_ok:
+            if not syntax_ok or not runtime_ok or not api_ok:
                 results["is_valid"] = False
 
         elif file_path.suffix == '.js':
@@ -776,12 +786,12 @@ class CodeValidator:
         # 并发验证 Python 文件
         async def validate_py_file(py_file: Path) -> Tuple[List[str], List[str], List[str], List[str]]:
             syntax_ok, syntax_errs = await self.validate_syntax(py_file)
-            import_ok, import_errs = await self.validate_imports(py_file)
+            _import_ok, import_errs = await self.validate_imports(py_file)
             runtime_ok, runtime_errs = await self.validate_runtime_imports(py_file)
             api_ok, api_errs = await self.validate_api_compatibility(py_file)
             return (
                 syntax_errs if not syntax_ok else [],
-                import_errs if not import_ok else [],
+                import_errs,
                 runtime_errs if not runtime_ok else [],
                 api_errs if not api_ok else []
             )
@@ -802,7 +812,8 @@ class CodeValidator:
                     results["import_errors"].extend(import_errs)
                     results["runtime_errors"].extend(runtime_errs)
                     results["api_errors"].extend(api_errs)
-                    if syntax_errs or import_errs or runtime_errs or api_errs:
+                    # import_errs 只上报环境缺包等诊断信息，不参与有效性判定
+                    if syntax_errs or runtime_errs or api_errs:
                         results["is_valid"] = False
 
         # 并发验证前端文件
