@@ -122,6 +122,29 @@ def test_code_file_embedding_markdown_template_is_accepted() -> None:
     assert is_valid_code_content("web/app.js", content)[0]
 
 
+def test_markup_files_are_not_treated_as_markdown() -> None:
+    """标记/模板语言的合法内容含 `- `、`1. `、`> `，不能据此判为 Markdown 文档。"""
+    cases = {
+        "templates/index.html": "<ul>\n  <li>- a</li>\n  <li>1. b</li>\n</ul>\n<p>x > y</p>\n",
+        "templates/page.htm": "<ul>\n  <li>- a</li>\n  <li>1. b</li>\n</ul>\n<p>x > y</p>\n",
+        "public/icon.svg": "<svg><text>- a</text><text>1. b</text><text>x > y</text></svg>\n",
+        "src/App.vue": "<template>\n  <p>- a</p>\n  <p>1. b</p>\n  <p>x > y</p>\n</template>\n",
+        "data/feed.xml": "<root>\n  <item>- a</item>\n  <item>1. b</item>\n  <item>x > y</item>\n</root>\n",
+    }
+
+    for file_path, content in cases.items():
+        valid, reason = is_valid_code_content(file_path, content)
+        assert valid, (file_path, reason)
+
+
+def test_markdown_prose_in_html_is_accepted_but_not_in_code() -> None:
+    """排除标记语言的同时，普通代码文件的 Markdown 说明仍须拦截。"""
+    prose = "# Title\n\n- item one\n- item two\n\n1. step one\n\n> note\n"
+
+    assert is_valid_code_content("templates/index.html", prose)[0]
+    assert not is_valid_code_content("web/bundle.js", prose)[0]
+
+
 def test_markdown_metadata_payload_is_still_rejected_for_docs() -> None:
     valid, reason = is_valid_code_content(
         "README.md", json.dumps({"status": "completed", "content": "code here"})

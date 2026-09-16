@@ -21,6 +21,12 @@ _DOCUMENTATION_FILE_NAMES = frozenset({
     'authors', 'contributing', 'copying',
 })
 
+# 标记/模板语言：合法内容天然包含列表符号（`- `、`1. `）和标签闭合后的 `> `，
+# 用「Markdown 文档」启发式判别必然误报。
+_MARKUP_EXTENSIONS = frozenset({
+    '.html', '.htm', '.xhtml', '.xml', '.svg', '.vue', '.svelte', '.astro',
+})
+
 
 def _is_documentation_file(file_path: str) -> bool:
     """判断文件是否为文档/文本类文件（扩展名或无扩展名的常见文档名）。"""
@@ -353,6 +359,7 @@ def is_valid_code_content(file_path: str, content: str) -> tuple:
     # 文档类文件的正确内容本来就是 Markdown/富文本，不能据此判为无效。
     if (
         ext not in ('.py', '.pyw', '.pyi', '.json')
+        and ext not in _MARKUP_EXTENSIONS
         and name != 'pom.xml'
         and not _is_documentation_file(file_path)
     ):
