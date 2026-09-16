@@ -513,9 +513,15 @@ class CodeValidator:
                                           defined_symbols[module]['variables'])
                             for name in imported_names:
                                 if name and name not in all_symbols and name != '*':
-                                    # 可能是从子模块导入，检查子模块
-                                    sub_module_path = module.replace('.', '/') + '/' + name + '.py'
-                                    if not (self.project_path / sub_module_path).exists():
+                                    # 可能是从子模块或子包导入：
+                                    # from pkg import mod   -> pkg/mod.py
+                                    # from pkg import sub   -> pkg/sub/__init__.py
+                                    module_dir = module.replace('.', '/')
+                                    sub_module_paths = (
+                                        self.project_path / module_dir / f"{name}.py",
+                                        self.project_path / module_dir / name / "__init__.py",
+                                    )
+                                    if not any(p.exists() for p in sub_module_paths):
                                         errors.append(f"跨文件引用: '{module}' 模块未导出 '{name}' (实际导出: {', '.join(sorted(all_symbols)) if all_symbols else '无'})")
             except Exception as e:
                 logger.debug(f"跨文件引用检查失败：{e}")
