@@ -124,6 +124,49 @@ async def test_js_syntax_validation_rejects_python_code():
 
 
 @pytest.mark.asyncio
+async def test_js_syntax_validation_survives_node_timeout(monkeypatch):
+    """node 超时时必须走启发式回退而非崩溃（回退分支曾引用未定义的 re）。"""
+    import subprocess
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="node", timeout=5)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    content = "import { api } from './api'\n\nexport class App {\n  run() { return api }\n}\n"
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("web/app.js", content)
+
+
+@pytest.mark.asyncio
+async def test_js_syntax_validation_survives_node_signal_kill(monkeypatch):
+    """node 被信号终止（如 OOM，返回码为负）属环境异常，不能判为语法错误。"""
+    import subprocess
+
+    def fake_run(*args, **kwargs):
+        return SimpleNamespace(returncode=-9, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    content = "export class App {\n  run() { return 1 }\n}\n"
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("web/app.js", content)
+
+
+@pytest.mark.asyncio
+async def test_js_syntax_validation_fallback_still_rejects_python_code(monkeypatch):
+    """启发式回退仍须拦截 Python 专有语法。"""
+    import subprocess
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="node", timeout=5)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert not await SpecFirstGenerateMixin()._validate_content_syntax(
+        "web/app.js", "def main():\n    return 1\n"
+    )
+
+
+@pytest.mark.asyncio
 async def test_vue_syntax_validation_accepts_single_file_component():
     content = (
         "<template>\n  <div>{{ msg }}</div>\n</template>\n\n"

@@ -1900,12 +1900,17 @@ class SpecFirstGenerateMixin:
                 capture_output=True, text=True, timeout=5
             )
             Path(tmp_path).unlink(missing_ok=True)
+            # 负返回码表示 node 被信号终止（如 OOM），属环境异常而非源码语法
+            # 错误，退回括号平衡启发式，避免把合法代码判为语法失败。
+            if result.returncode < 0:
+                return balanced
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return balanced
 
     def _check_js_source(self, source: str) -> bool:
         """校验 JS 源码。node 不可用时退回启发式，只把 Python 专有语法判为失败。"""
+        import re
         import tempfile
         import subprocess
         try:
@@ -1917,17 +1922,24 @@ class SpecFirstGenerateMixin:
                 capture_output=True, text=True, timeout=5
             )
             Path(tmp_path).unlink(missing_ok=True)
-            return result.returncode == 0
+            # 负返回码表示 node 被信号终止（如 OOM），属环境异常而非源码语法
+            # 错误，落入下方的启发式回退。
+            if result.returncode < 0:
+                logger.warning("node 被信号终止，退回启发式 JS 校验: %s", result.returncode)
+            else:
+                return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            python_only = (
-                r'^\s*def\s+\w+\s*\(.*\)\s*:',
-                r'^\s*elif\s+.*:\s*$',
-                r'^\s*class\s+\w+(\([^)]*\))?\s*:\s*$',
-                r'\bself\.',
-            )
-            if any(re.search(p, source, re.MULTILINE) for p in python_only):
-                return False
-            return source.count('{') == source.count('}') and source.count('(') == source.count(')')
+            logger.warning("node 不可用，退回启发式 JS 校验")
+
+        python_only = (
+            r'^\s*def\s+\w+\s*\(.*\)\s*:',
+            r'^\s*elif\s+.*:\s*$',
+            r'^\s*class\s+\w+(\([^)]*\))?\s*:\s*$',
+            r'\bself\.',
+        )
+        if any(re.search(p, source, re.MULTILINE) for p in python_only):
+            return False
+        return source.count('{') == source.count('}') and source.count('(') == source.count(')')
 
     def _strip_output_dir_prefix(self, file_path: str) -> str:
         """去除 file_path 中可能的 output_dir 前缀，避免路径重复"""

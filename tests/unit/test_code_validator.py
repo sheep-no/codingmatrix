@@ -179,6 +179,43 @@ class TestCodeValidator:
         assert any("大括号不匹配" in err for err in errors)
 
     @pytest.mark.asyncio
+    async def test_js_syntax_signal_kill_is_not_a_syntax_error(self, tmp_path, monkeypatch):
+        """node 被信号终止（如 OOM，返回码为负）属环境异常，不能判为语法错误。"""
+        import asyncio
+
+        from app.agent.code_validator import CodeValidator
+
+        class _Proc:
+            returncode = -9
+
+            async def communicate(self):
+                return (b"", b"")
+
+        async def fake_exec(*args, **kwargs):
+            return _Proc()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+        target = tmp_path / "app.js"
+        target.write_text("export class App {}\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_js_syntax(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_js_syntax_real_error_still_flagged(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "broken.js"
+        target.write_text("const x = ;\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_js_syntax(target)
+
+        assert ok is False
+        assert errors
+
+    @pytest.mark.asyncio
     async def test_runtime_imports_survive_shadowing_module_name(self, tmp_path):
         """生成项目与 Agent 自身包同名（app/）时不能解析到 Agent 自己的代码。"""
         import sys
@@ -290,7 +327,6 @@ class TestCodeValidator:
 
         assert ok is False
         assert any("nope" in err for err in errors)
-
 
 class TestCodeValidatorLRU:
     def test_lru_cache_limit(self):
