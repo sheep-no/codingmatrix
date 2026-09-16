@@ -366,6 +366,56 @@ class TestCodeValidator:
         assert ok is False
         assert any("nonexistent" in err for err in errors)
 
+    @pytest.mark.asyncio
+    async def test_uninstalled_third_party_import_is_not_a_code_defect(self, tmp_path):
+        """环境未安装的第三方包不代表生成代码有缺陷，不应判为无效。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+        target = tmp_path / "main.py"
+        target.write_text(
+            "import definitely_not_installed_lib_xyz\n\n\ndef run():\n    return 1\n",
+            encoding="utf-8",
+        )
+
+        result = await CodeValidator(tmp_path).validate_single_file(target)
+
+        assert result["is_valid"] is True
+        # 缺包信息仍作为诊断保留
+        assert any("definitely_not_installed_lib_xyz" in err for err in result["import_errors"])
+
+    @pytest.mark.asyncio
+    async def test_missing_project_module_is_still_a_defect(self, tmp_path):
+        """项目内模块缺失才是代码缺陷，仍需判为无效。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text('"""pkg"""\n', encoding="utf-8")
+        target = tmp_path / "main.py"
+        target.write_text(
+            "from app.missing import X\n\n\ndef run():\n    return 1\n", encoding="utf-8"
+        )
+
+        result = await CodeValidator(tmp_path).validate_single_file(target)
+
+        assert result["is_valid"] is False
+        assert any("运行时导入失败" in err for err in result["runtime_errors"])
+
+    @pytest.mark.asyncio
+    async def test_full_validation_ignores_environment_missing_packages(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+        (tmp_path / "main.py").write_text(
+            "import definitely_not_installed_lib_xyz\n\n\ndef run():\n    return 1\n",
+            encoding="utf-8",
+        )
+
+        result = await CodeValidator(tmp_path).run_full_validation()
+
+        assert result["is_valid"] is True
+
 
 class TestHtmlCssStructureGate:
     @pytest.mark.asyncio
