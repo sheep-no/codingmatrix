@@ -328,6 +328,44 @@ class TestCodeValidator:
         assert ok is False
         assert any("nope" in err for err in errors)
 
+    @pytest.mark.asyncio
+    async def test_cross_file_accepts_subpackage_import(self, tmp_path):
+        """`from pkg import subpkg` 应解析到 subpkg/__init__.py，而非只找 subpkg.py。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app" / "routers" / "users").mkdir(parents=True)
+        (tmp_path / "app" / "__init__.py").write_text('"""pkg"""\n', encoding="utf-8")
+        (tmp_path / "app" / "routers" / "__init__.py").write_text('"""pkg"""\n', encoding="utf-8")
+        (tmp_path / "app" / "routers" / "users" / "__init__.py").write_text(
+            "from .router import router\n", encoding="utf-8"
+        )
+        (tmp_path / "app" / "routers" / "users" / "router.py").write_text(
+            "router = object()\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text(
+            "from app.routers import users\nfrom app import routers\n", encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is True, errors
+
+    @pytest.mark.asyncio
+    async def test_cross_file_still_flags_missing_subpackage(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app" / "routers").mkdir(parents=True)
+        (tmp_path / "app" / "__init__.py").write_text('"""pkg"""\n', encoding="utf-8")
+        (tmp_path / "app" / "routers" / "__init__.py").write_text('"""pkg"""\n', encoding="utf-8")
+        (tmp_path / "main.py").write_text(
+            "from app.routers import nonexistent\n", encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is False
+        assert any("nonexistent" in err for err in errors)
+
 class TestCodeValidatorLRU:
     def test_lru_cache_limit(self):
         from app.agent.code_validator import CodeValidator
