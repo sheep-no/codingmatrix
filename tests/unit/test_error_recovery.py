@@ -137,10 +137,33 @@ def test_strategy_template_with_error_context_placeholder_is_substituted():
     loop = ErrorRecoveryLoop(validator=object(), reviewer=object())
     classification = ErrorClassification("ImportError", "missing_module", "导入错误", "检查导入路径", 0.9)
     context = loop._build_targeted_error_context_with_template(
-        {"import_errors": ["缺少依赖: fastapi"]}, "import fastapi\n", 0, classification,
+        {"runtime_errors": ["运行时导入失败: from fastapi import Depends"]}, "import fastapi\n", 0, classification,
         "## 自定义策略\n{error_context}\n## 结束",
     )
 
     assert context.startswith("## 自定义策略")
     assert context.endswith("## 结束")
-    assert "缺少依赖: fastapi" in context
+    assert "运行时导入失败: from fastapi import Depends" in context
+
+
+def test_environment_import_diagnostics_are_not_fix_targets():
+    """validate_single_file 的 import_errors 只反映执行环境缺包，
+    不能作为修复目标写进提示词，否则模型会去改本来正确的 import。"""
+    from app.agent.error_classifier import ErrorClassification
+    from app.agent.error_recovery import ErrorRecoveryLoop
+
+    loop = ErrorRecoveryLoop(validator=object(), reviewer=object())
+    classification = ErrorClassification("SyntaxError", "missing_delimiter", "语法错误", "检查括号匹配", 0.9)
+    context = loop._build_targeted_error_context(
+        {
+            "syntax_errors": ["语法错误 第5行: invalid syntax"],
+            "import_errors": ["缺少依赖: torch"],
+        },
+        "import torch\n",
+        0,
+        classification,
+    )
+
+    assert "invalid syntax" in context
+    assert "缺少依赖: torch" not in context
+    assert "## 导入错误" not in context
