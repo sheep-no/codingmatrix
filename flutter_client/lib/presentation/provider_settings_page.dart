@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../application/auth_controller.dart';
 import '../application/provider_key_controller.dart';
 import '../infrastructure/provider/provider_key_client.dart';
+import 'account_overlays.dart';
 
 class ProviderSettingsPage extends ConsumerStatefulWidget {
   const ProviderSettingsPage({super.key});
@@ -17,9 +19,22 @@ class _ProviderSettingsPageState extends ConsumerState<ProviderSettingsPage> {
   @override
   void initState() {
     super.initState();
+    _scheduleLoad();
+  }
+
+  void _scheduleLoad() {
     Future.microtask(() {
       if (mounted) ref.read(providerKeyControllerProvider.notifier).load();
     });
+  }
+
+  void _resetAccount() {
+    closeAccountOverlays(context);
+    setState(() {
+      keyController.clear();
+      provider = supportedProviders.first;
+    });
+    _scheduleLoad();
   }
 
   @override
@@ -30,6 +45,11 @@ class _ProviderSettingsPageState extends ConsumerState<ProviderSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _resetAccount(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
     final state = ref.watch(providerKeyControllerProvider);
     final controller = ref.read(providerKeyControllerProvider.notifier);
     return Scaffold(

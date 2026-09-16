@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
+import 'account_overlays.dart';
 
 class AdminPage extends ConsumerStatefulWidget {
   const AdminPage({super.key});
@@ -12,11 +13,25 @@ class _AdminPageState extends ConsumerState<AdminPage> {
   bool loading = false;
   String? error;
   Map<String, dynamic>? result;
+  // Bumped on account change so a late response cannot write the previous
+  // account's users or error into the new account's page state.
+  int _epoch = 0;
+
+  void _resetAccount() {
+    _epoch++;
+    closeAccountOverlays(context);
+    setState(() {
+      result = null;
+      error = null;
+      loading = false;
+    });
+  }
 
   // Every request shares the page-level guard so a second tap cannot start a
   // competing request, and so the buttons can be disabled while one runs.
   Future<void> run(String failure, Future<void> Function() action) async {
     if (loading || !mounted) return;
+    final epoch = _epoch;
     setState(() {
       loading = true;
       error = null;
@@ -24,19 +39,20 @@ class _AdminPageState extends ConsumerState<AdminPage> {
     try {
       await action();
     } catch (e) {
-      if (mounted) setState(() => error = '$failure：$e');
+      if (mounted && epoch == _epoch) setState(() => error = '$failure：$e');
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted && epoch == _epoch) setState(() => loading = false);
     }
   }
 
   // Reads the user list without taking the guard, so callers that already hold
   // it (create/update/delete) can refresh inside their own guarded block.
   Future<void> fetchUsers() async {
+    final epoch = _epoch;
     final value = await ref
         .read(authenticatedClientProvider)
         .requestJson('/api/v2/Controller/users?page=1&page_size=50');
-    if (mounted) {
+    if (mounted && epoch == _epoch) {
       setState(() => result = Map<String, dynamic>.from(value as Map));
     }
   }
@@ -287,148 +303,153 @@ class _AdminPageState extends ConsumerState<AdminPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('管理员后台'),
-      actions: [
-        IconButton(
-          onPressed: loading ? null : loadUsers,
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    ),
-    body: ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            FilledButton.icon(
-              onPressed: loading ? null : loadUsers,
-              icon: const Icon(Icons.people),
-              label: const Text('用户管理'),
-            ),
-            OutlinedButton.icon(
-              onPressed: loading ? null : createUser,
-              icon: const Icon(Icons.person_add),
-              label: const Text('创建用户'),
-            ),
-            OutlinedButton.icon(
-              onPressed: loading ? null : loadConfig,
-              icon: const Icon(Icons.settings),
-              label: const Text('系统配置'),
-            ),
-            OutlinedButton.icon(
-              onPressed: loading
-                  ? null
-                  : () => showEndpoint(
-                      '系统统计',
-                      '/api/v2/Controller/admin/stats',
-                    ),
-              icon: const Icon(Icons.monitor_heart),
-              label: const Text('系统统计'),
-            ),
-            OutlinedButton.icon(
-              onPressed: loading
-                  ? null
-                  : () => showEndpoint(
-                      '沙箱配置',
-                      '/api/v2/admin/sandbox-config',
-                    ),
-              icon: const Icon(Icons.security),
-              label: const Text('沙箱配置'),
-            ),
-            OutlinedButton.icon(
-              onPressed: loading
-                  ? null
-                  : () => showEndpoint('MCP 服务', '/api/v2/mcp/servers'),
-              icon: const Icon(Icons.extension),
-              label: const Text('MCP 服务'),
-            ),
-            OutlinedButton.icon(
-              onPressed: loading
-                  ? null
-                  : () => showEndpoint(
-                      '内存状态',
-                      '/api/v2/Controller/admin/memory',
-                    ),
-              icon: const Icon(Icons.memory),
-              label: const Text('内存状态'),
-            ),
-            OutlinedButton.icon(
-              onPressed: loading
-                  ? null
-                  : () => showEndpoint(
-                      '限流配置',
-                      '/api/v2/Controller/admin/rate-limit',
-                    ),
-              icon: const Icon(Icons.speed),
-              label: const Text('限流配置'),
-            ),
-            OutlinedButton.icon(
-              onPressed: loading
-                  ? null
-                  : () => showEndpoint(
-                      '日志配置',
-                      '/api/v2/Controller/admin/log-config',
-                    ),
-              icon: const Icon(Icons.article_outlined),
-              label: const Text('日志配置'),
-            ),
-          ],
-        ),
-        if (loading) const LinearProgressIndicator(),
-        if (error != null)
-          Text(
-            error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
+  Widget build(BuildContext context) {
+    ref.listen(
+      authControllerProvider.select((s) => s.session?.accessTokenRef),
+      (_, __) => _resetAccount(),
+    );
+    ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('管理员后台'),
+        actions: [
+          IconButton(
+            onPressed: loading ? null : loadUsers,
+            icon: const Icon(Icons.refresh),
           ),
-        if (result != null) ...[
-          Text('用户总数：${result!['total'] ?? 0}'),
-          for (final user in (result!['users'] as List? ?? const []))
-            Card(
-              child: ListTile(
-                title: Text('${user['username'] ?? ''}'),
-                subtitle: Text(
-                  '${user['email'] ?? ''}\n权限：${user['permission_level'] ?? 'normal'}',
-                ),
-                isThreeLine: true,
-                trailing: user['id'] is int
-                    ? Wrap(
-                        children: [
-                          IconButton(
-                            tooltip: '编辑',
-                            onPressed: loading ? null : () => editUser(user),
-                            icon: const Icon(Icons.edit),
-                          ),
-                          IconButton(
-                            tooltip: '重置密码',
-                            onPressed: loading
-                                ? null
-                                : () => resetPassword(
-                                    user['id'] as int,
-                                    '${user['username']}',
-                                  ),
-                            icon: const Icon(Icons.password),
-                          ),
-                          IconButton(
-                            tooltip: '删除',
-                            onPressed: loading
-                                ? null
-                                : () => removeUser(
-                                    user['id'] as int,
-                                    '${user['username']}',
-                                  ),
-                            icon: const Icon(Icons.delete_outline),
-                          ),
-                        ],
-                      )
-                    : null,
-              ),
-            ),
         ],
-      ],
-    ),
-  );
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: loading ? null : loadUsers,
+                icon: const Icon(Icons.people),
+                label: const Text('用户管理'),
+              ),
+              OutlinedButton.icon(
+                onPressed: loading ? null : createUser,
+                icon: const Icon(Icons.person_add),
+                label: const Text('创建用户'),
+              ),
+              OutlinedButton.icon(
+                onPressed: loading ? null : loadConfig,
+                icon: const Icon(Icons.settings),
+                label: const Text('系统配置'),
+              ),
+              OutlinedButton.icon(
+                onPressed: loading
+                    ? null
+                    : () => showEndpoint(
+                        '系统统计',
+                        '/api/v2/Controller/admin/stats',
+                      ),
+                icon: const Icon(Icons.monitor_heart),
+                label: const Text('系统统计'),
+              ),
+              OutlinedButton.icon(
+                onPressed: loading
+                    ? null
+                    : () =>
+                          showEndpoint('沙箱配置', '/api/v2/admin/sandbox-config'),
+                icon: const Icon(Icons.security),
+                label: const Text('沙箱配置'),
+              ),
+              OutlinedButton.icon(
+                onPressed: loading
+                    ? null
+                    : () => showEndpoint('MCP 服务', '/api/v2/mcp/servers'),
+                icon: const Icon(Icons.extension),
+                label: const Text('MCP 服务'),
+              ),
+              OutlinedButton.icon(
+                onPressed: loading
+                    ? null
+                    : () => showEndpoint(
+                        '内存状态',
+                        '/api/v2/Controller/admin/memory',
+                      ),
+                icon: const Icon(Icons.memory),
+                label: const Text('内存状态'),
+              ),
+              OutlinedButton.icon(
+                onPressed: loading
+                    ? null
+                    : () => showEndpoint(
+                        '限流配置',
+                        '/api/v2/Controller/admin/rate-limit',
+                      ),
+                icon: const Icon(Icons.speed),
+                label: const Text('限流配置'),
+              ),
+              OutlinedButton.icon(
+                onPressed: loading
+                    ? null
+                    : () => showEndpoint(
+                        '日志配置',
+                        '/api/v2/Controller/admin/log-config',
+                      ),
+                icon: const Icon(Icons.article_outlined),
+                label: const Text('日志配置'),
+              ),
+            ],
+          ),
+          if (loading) const LinearProgressIndicator(),
+          if (error != null)
+            Text(
+              error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          if (result != null) ...[
+            Text('用户总数：${result!['total'] ?? 0}'),
+            for (final user in (result!['users'] as List? ?? const []))
+              Card(
+                child: ListTile(
+                  title: Text('${user['username'] ?? ''}'),
+                  subtitle: Text(
+                    '${user['email'] ?? ''}\n权限：${user['permission_level'] ?? 'normal'}',
+                  ),
+                  isThreeLine: true,
+                  trailing: user['id'] is int
+                      ? Wrap(
+                          children: [
+                            IconButton(
+                              tooltip: '编辑',
+                              onPressed: loading ? null : () => editUser(user),
+                              icon: const Icon(Icons.edit),
+                            ),
+                            IconButton(
+                              tooltip: '重置密码',
+                              onPressed: loading
+                                  ? null
+                                  : () => resetPassword(
+                                      user['id'] as int,
+                                      '${user['username']}',
+                                    ),
+                              icon: const Icon(Icons.password),
+                            ),
+                            IconButton(
+                              tooltip: '删除',
+                              onPressed: loading
+                                  ? null
+                                  : () => removeUser(
+                                      user['id'] as int,
+                                      '${user['username']}',
+                                    ),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ],
+                        )
+                      : null,
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
 }

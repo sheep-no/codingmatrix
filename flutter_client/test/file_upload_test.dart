@@ -10,6 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
 import 'agent_delivery_test.dart' show DeliveryApi;
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 class ChunkApi extends DeliveryApi {
   ChunkApi(super.handle);
@@ -60,11 +62,7 @@ class FileApi extends DeliveryApi {
   @override
   Future<Map<String, dynamic>> uploadFile(String path) async {
     return upload == null
-        ? {
-            'name': 'a.txt',
-            'server_path': 'uploads/a.txt',
-            'file_id': '1',
-          }
+        ? {'name': 'a.txt', 'server_path': 'uploads/a.txt', 'file_id': '1'}
         : await upload!(path);
   }
 
@@ -81,6 +79,7 @@ class TestPicker extends FilePicker {
   FilePickerResult? result;
   Object? error;
   Completer<FilePickerResult?>? pending;
+  int picks = 0;
 
   @override
   Future<FilePickerResult?> pickFiles({
@@ -99,6 +98,7 @@ class TestPicker extends FilePicker {
   }) async {
     if (error != null) throw error!;
     expect(allowMultiple, true);
+    picks++;
     return pending?.future ?? result;
   }
 }
@@ -156,6 +156,113 @@ void main() {
     final result = await api.uploadFileResumable(file.path);
     expect(api.uploaded, [0, 1]);
     expect(result['server_path'], 'uploads/cm_upload_resume.bin');
+  });
+
+  testWidgets('选择文件进行中无法再次打开选择器', (tester) async {
+    final picker = TestPicker()..pending = Completer<FilePickerResult?>();
+    FilePicker.platform = picker;
+    final api = FileApi();
+    final container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: FileCenterPage()),
+      ),
+    );
+    await tester.tap(find.text('选择文件上传'));
+    await tester.pump();
+    expect(picker.picks, 1);
+    await tester.tap(find.byIcon(Icons.upload_file), warnIfMissed: false);
+    await tester.pump();
+    expect(picker.picks, 1);
+    picker.pending!.complete(null);
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切换账号清空文件列表和提示', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final picker = TestPicker()
+      ..result = FilePickerResult([
+        PlatformFile(name: 'a.txt', path: '/tmp/a.txt', size: 10),
+      ]);
+    FilePicker.platform = picker;
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(FileApi()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: FileCenterPage()),
+      ),
+    );
+    await tester.tap(find.text('选择文件上传'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('a.txt'), findsOneWidget);
+    expect(find.text('上传完成'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('a.txt'), findsNothing);
+    expect(find.text('上传完成'), findsNothing);
+  });
+
+  testWidgets('切换账号后旧账号的上传结果不会写入新列表', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final picker = TestPicker()
+      ..result = FilePickerResult([
+        PlatformFile(name: 'a.txt', path: '/tmp/a.txt', size: 10),
+      ]);
+    FilePicker.platform = picker;
+    final pending = Completer<Map<String, dynamic>>();
+    final api = FileApi()..upload = (_) => pending.future;
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: FileCenterPage()),
+      ),
+    );
+    await tester.tap(find.text('选择文件上传'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('上传中...'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('a.txt'), findsNothing);
+
+    pending.complete({
+      'name': 'a.txt',
+      'server_path': 'uploads/a.txt',
+      'file_id': '1',
+    });
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('a.txt'), findsNothing);
+    expect(find.text('上传完成'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('文件中心上传中网络断开显示失败', (tester) async {

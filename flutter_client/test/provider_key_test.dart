@@ -15,6 +15,10 @@ import 'package:codingmatrix_desktop/infrastructure/auth/cloud_auth_client.dart'
 import 'package:codingmatrix_desktop/infrastructure/auth/credential_store.dart';
 import 'package:codingmatrix_desktop/infrastructure/provider/provider_key_client.dart';
 import 'package:codingmatrix_desktop/application/provider_key_controller.dart';
+import 'package:codingmatrix_desktop/application/auth_controller.dart';
+
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 class RecordingApi extends AuthenticatedClient {
   RecordingApi(this.handler)
@@ -278,6 +282,47 @@ void main() {
     expect(find.text('openai · 授权 1'), findsOneWidget);
     expect(find.textContaining('verified'), findsOneWidget);
     expect(find.textContaining('sensitive-token'), findsNothing);
+  });
+
+  testWidgets('切换账号清空已输入的 Key 并重新拉取列表', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    var calls = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((_, __, ___) async {
+                calls++;
+                return [];
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(calls, 1);
+
+    await tester.enterText(find.byType(TextField), 'sk-alice-secret');
+    expect(find.text('sk-alice-secret'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('sk-alice-secret'), findsNothing);
+    expect(calls, 2);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('加载中退出再进入会重新拉取列表', (tester) async {

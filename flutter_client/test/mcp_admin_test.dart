@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'agent_delivery_test.dart' show DeliveryApi;
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 const serverItem = {
   'name': 'filesystem',
@@ -55,9 +57,11 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         authenticatedClientProvider.overrideWithValue(
-          DeliveryApi((_, __, ___) async => {
-            'servers': [serverItem],
-          }),
+          DeliveryApi(
+            (_, __, ___) async => {
+              'servers': [serverItem],
+            },
+          ),
         ),
       ],
     );
@@ -73,6 +77,96 @@ void main() {
     await tester.pump();
     expect(find.text('filesystem'), findsOneWidget);
     expect(find.textContaining('stdio'), findsWidgets);
+  });
+
+  testWidgets('切换账号清空表单并重新拉取新账号的服务', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    var calls = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async {
+            calls++;
+            if (calls == 1) {
+              return {
+                'servers': [serverItem],
+              };
+            }
+            return {'servers': []};
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: McpAdminPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('filesystem'), findsOneWidget);
+    expect(calls, 1);
+
+    final nameField = find.byWidgetPredicate(
+      (w) => w is TextField && w.decoration?.labelText == '名称',
+    );
+    await tester.enterText(nameField, 'alice-mcp-server');
+    expect(find.text('alice-mcp-server'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('alice-mcp-server'), findsNothing);
+    expect(find.text('filesystem'), findsNothing);
+    expect(calls, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切换账号后旧账号的服务列表不会覆盖新列表', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    var calls = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async {
+            calls++;
+            if (calls == 1) return pending.future;
+            return {'servers': []};
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: McpAdminPage()),
+      ),
+    );
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('filesystem'), findsNothing);
+
+    pending.complete({
+      'servers': [serverItem],
+    });
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('filesystem'), findsNothing);
+    expect(calls, 2);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('加载中网络断开显示错误', (tester) async {
@@ -408,6 +502,52 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('切账号后旧账号的连接测试弹层不会弹出', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path.contains('/test')) return pending.future;
+            return {
+              'servers': [serverItem],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: McpAdminPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('连接测试'));
+    await tester.tap(find.byTooltip('连接测试'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete({'ok': true, 'detail': '上一账号的测试结果'});
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.textContaining('上一账号的测试结果'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('连接测试网络断开显示失败原文', (tester) async {
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1;
@@ -505,6 +645,56 @@ void main() {
     expect(find.textContaining('connection lost'), findsNothing);
     expect(find.text('filesystem'), findsOneWidget);
     expect(lists, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('取消编辑会释放临时输入控制器', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi(
+            (_, __, ___) async => {
+              'servers': [serverItem],
+            },
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: McpAdminPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('编辑'));
+    await tester.tap(find.byTooltip('编辑'));
+    await tester.pump();
+
+    final controllers = tester
+        .widgetList<TextField>(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(TextField),
+          ),
+        )
+        .map((field) => field.controller!)
+        .toList();
+    expect(controllers, isNotEmpty);
+
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+
+    for (final controller in controllers) {
+      expect(() => controller.addListener(() {}), throwsFlutterError);
+    }
     expect(tester.takeException(), isNull);
   });
 

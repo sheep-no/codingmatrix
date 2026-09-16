@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'agent_delivery_test.dart' show DeliveryApi;
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 const taskItem = {
   'task_id': 't1',
@@ -56,9 +58,11 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         authenticatedClientProvider.overrideWithValue(
-          DeliveryApi((_, __, ___) async => {
-            'tasks': [taskItem],
-          }),
+          DeliveryApi(
+            (_, __, ___) async => {
+              'tasks': [taskItem],
+            },
+          ),
         ),
       ],
     );
@@ -74,6 +78,105 @@ void main() {
     await tester.pump();
     expect(find.text('ppt · running'), findsOneWidget);
     expect(find.textContaining('生成中'), findsOneWidget);
+  });
+
+  testWidgets('切换账号清空旧任务并重新拉列表', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    var lists = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async {
+            lists++;
+            return lists == 1
+                ? {
+                    'tasks': [
+                      {
+                        'task_id': 'old',
+                        'task_type': 'ppt',
+                        'status': 'queued',
+                        'progress_message': '旧任务',
+                      },
+                    ],
+                  }
+                : {
+                    'tasks': [taskItem],
+                  };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('旧任务'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('旧任务'), findsNothing);
+    expect(find.textContaining('生成中'), findsOneWidget);
+    expect(lists, 2);
+  });
+
+  testWidgets('切换账号后旧账号的加载结果不会覆盖新列表', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    var lists = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async {
+            lists++;
+            if (lists == 1) return pending.future;
+            return {
+              'tasks': [taskItem],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete({
+      'tasks': [
+        {
+          'task_id': 'old',
+          'task_type': 'ppt',
+          'status': 'queued',
+          'progress_message': '旧任务',
+        },
+      ],
+    });
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.textContaining('旧任务'), findsNothing);
+    expect(find.textContaining('生成中'), findsOneWidget);
+    expect(lists, 2);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('加载中网络断开显示错误', (tester) async {
@@ -246,6 +349,105 @@ void main() {
     await tester.pump();
     expect(find.textContaining('connection lost'), findsNothing);
     expect(find.text('ppt · running'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('重试进行中无法再次触发并发请求', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const failed = {
+      'task_id': 't2',
+      'task_type': 'ppt',
+      'status': 'failed',
+      'progress': 0,
+      'progress_message': '失败',
+    };
+    var retries = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/retry')) {
+              retries++;
+              return pending.future;
+            }
+            return {
+              'tasks': [failed],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('重试'));
+    await tester.tap(find.byTooltip('重试'));
+    await tester.pump();
+    expect(retries, 1);
+    await tester.ensureVisible(find.byTooltip('重试'));
+    await tester.tap(find.byTooltip('重试'));
+    await tester.pump();
+    expect(retries, 1);
+    pending.complete(null);
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('查看事件进行中无法再次触发并发请求', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var eventCalls = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('/events')) {
+              eventCalls++;
+              return pending.future;
+            }
+            return {
+              'tasks': [taskItem],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: TaskQueuePage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('查看事件'));
+    await tester.tap(find.byTooltip('查看事件'));
+    await tester.pump();
+    expect(eventCalls, 1);
+    await tester.ensureVisible(find.byTooltip('查看事件'));
+    await tester.tap(find.byTooltip('查看事件'));
+    await tester.pump();
+    expect(eventCalls, 1);
+    pending.complete(const <Object?>[]);
+    await tester.pump();
+    await tester.pump();
     expect(tester.takeException(), isNull);
   });
 

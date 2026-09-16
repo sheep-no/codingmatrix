@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'agent_delivery_test.dart' show DeliveryApi;
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 const modelItem = {
   'id': 'm1',
@@ -58,9 +60,11 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         authenticatedClientProvider.overrideWithValue(
-          DeliveryApi((_, __, ___) async => {
-            'models': [modelItem],
-          }),
+          DeliveryApi(
+            (_, __, ___) async => {
+              'models': [modelItem],
+            },
+          ),
         ),
       ],
     );
@@ -77,6 +81,102 @@ void main() {
     expect(find.text('GLM-4'), findsOneWidget);
     expect(find.textContaining('通用对话'), findsOneWidget);
     expect(find.text('默认'), findsOneWidget);
+  });
+
+  testWidgets('切换账号清空旧模型并重新拉列表', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    var lists = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async {
+            lists++;
+            return lists == 1
+                ? {
+                    'models': [
+                      {
+                        'id': 'old',
+                        'name': '旧模型',
+                        'model_key': 'old',
+                        'description': '旧',
+                      },
+                    ],
+                  }
+                : {
+                    'models': [modelItem],
+                  };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ModelListPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('旧模型'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('旧模型'), findsNothing);
+    expect(find.text('GLM-4'), findsOneWidget);
+    expect(lists, 2);
+  });
+
+  testWidgets('切换账号时旧账号未完成的加载不会卡住新账号', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    var lists = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async {
+            lists++;
+            if (lists == 1) return pending.future;
+            return {
+              'models': [modelItem],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ModelListPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('GLM-4'), findsOneWidget);
+    expect(lists, 2);
+
+    pending.complete({
+      'models': [
+        {'id': 'old', 'name': '旧模型', 'model_key': 'old', 'description': '旧'},
+      ],
+    });
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('旧模型'), findsNothing);
+    expect(find.text('GLM-4'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('加载中网络断开显示错误', (tester) async {
@@ -140,12 +240,7 @@ void main() {
     await tester.pump();
     pending.complete({
       'models': [
-        {
-          'id': 'old',
-          'name': '旧模型',
-          'model_key': 'old',
-          'description': '应丢弃',
-        },
+        {'id': 'old', 'name': '旧模型', 'model_key': 'old', 'description': '应丢弃'},
       ],
     });
     await tester.pump();
@@ -161,5 +256,48 @@ void main() {
     expect(find.text('GLM-4'), findsOneWidget);
     expect(find.text('旧模型'), findsNothing);
     expect(calls, 2);
+  });
+
+  testWidgets('刷新进行中无法再次触发并发请求', (tester) async {
+    var calls = 0;
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async {
+            calls++;
+            if (calls == 1) {
+              return {
+                'models': [modelItem],
+              };
+            }
+            return pending.future;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ModelListPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('GLM-4'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.refresh));
+    await tester.tap(find.byIcon(Icons.refresh), warnIfMissed: false);
+    await tester.pump();
+    expect(calls, 2);
+
+    pending.complete({
+      'models': [modelItem],
+    });
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
   });
 }

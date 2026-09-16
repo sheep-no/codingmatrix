@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'agent_delivery_test.dart' show DeliveryApi;
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 const userItem = {
   'id': 1,
@@ -74,6 +76,78 @@ void main() {
     expect(find.text('用户总数：1'), findsOneWidget);
     expect(find.text('alice'), findsOneWidget);
     expect(find.textContaining('alice@example.com'), findsOneWidget);
+  });
+
+  testWidgets('切换账号清空上一个账号的用户列表且不自动拉取', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    var calls = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async {
+            calls++;
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('用户管理'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('alice'), findsOneWidget);
+    expect(calls, 1);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('alice'), findsNothing);
+    expect(find.textContaining('用户总数'), findsNothing);
+    expect(calls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切换账号关闭已打开的用户编辑弹层', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async => usersPayload),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('用户管理'));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('编辑'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('编辑用户'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('编辑用户'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('加载中网络断开显示错误', (tester) async {

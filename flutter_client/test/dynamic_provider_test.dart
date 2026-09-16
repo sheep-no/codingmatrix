@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'agent_delivery_test.dart' show DeliveryApi;
+import 'auth_session_test.dart' show Fixture;
+import 'module_lifecycle_test.dart' show ModuleAuth;
 
 const providerItem = {
   'id': 'p1',
@@ -158,6 +160,81 @@ void main() {
     expect(calls, 2);
   });
 
+  testWidgets('切换账号清空供应商草稿并重新拉列表', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    var lists = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (method == 'GET' && path == '/api/v1/providers') {
+              lists++;
+              return [providerItem];
+            }
+            return null;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(0), '草稿名称');
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+      isEmpty,
+    );
+    expect(find.text('自定义 GLM'), findsOneWidget);
+    expect(lists, 2);
+  });
+
+  testWidgets('切换账号重置协议选择', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async => [providerItem]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('OpenAI 协议'), findsOneWidget);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Anthropic 协议').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Anthropic 协议'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    expect(find.text('OpenAI 协议'), findsOneWidget);
+    expect(find.text('Anthropic 协议'), findsNothing);
+  });
+
   testWidgets('添加网络断开显示失败原文', (tester) async {
     final container = ProviderContainer(
       overrides: [
@@ -188,7 +265,10 @@ void main() {
     await tester.pump();
     await tester.pump();
     await tester.enterText(find.byType(TextField).at(0), 'custom');
-    await tester.enterText(find.byType(TextField).at(1), 'https://llm.example.com');
+    await tester.enterText(
+      find.byType(TextField).at(1),
+      'https://llm.example.com',
+    );
     await tester.enterText(find.byType(TextField).at(2), 'sk-test');
     await tester.tap(find.text('添加供应商'));
     await tester.pump();
