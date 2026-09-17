@@ -13,6 +13,7 @@ export function useAgentWorkspace({
   const decisionHistory = ref([])
   const logsContainer = ref(null)
   const toolEvents = ref([])
+  const pipelineMode = ref(null)
   const currentAgent = ref(null)
   const currentModel = ref(null)
   const currentProjectPath = ref(null)
@@ -73,17 +74,18 @@ export function useAgentWorkspace({
   }
 
   const importZipFile = async (file, importing) => {
-    importing.zip.value = true
-    importing.progress.value = { current: 0, total: 0, currentFile: '' }
+    const progress = { current: 0, total: 0, currentFile: '' }
+    importing.uploadingZip = true
+    importing.importProgress = progress
     try {
       const zip = await JSZip.loadAsync(file)
       const entries = Object.keys(zip.files)
       const projectFiles = entries.filter(e => !e.endsWith('/'))
-      importing.progress.value.total = projectFiles.length
+      progress.total = projectFiles.length
       const importedFiles = []
       for (const entry of projectFiles) {
-        importing.progress.value.currentFile = entry
-        importing.progress.value.current++
+        progress.currentFile = entry
+        progress.current++
         const content = await zip.files[entry].async('string')
         importedFiles.push({ path: entry, content, name: entry.split('/').pop() })
       }
@@ -91,18 +93,28 @@ export function useAgentWorkspace({
       files.fileDiffs = importedFiles.map(f => ({
         path: f.path, oldContent: '', newContent: f.content, operation: 'create'
       }))
-      importing.show.value = false
-      ElMessage.success(`成功导入 ${projectFiles.length} 个文件`)
-      addLog('success', `导入项目: ${file.name} (${projectFiles.length} 个文件)`)
+      importing.showUploadModal = false
       if (!session.currentSessionId) {
         session.createNewSession({})
       }
+      if (typeof importing.persistImportedFiles === 'function') {
+        try {
+          const zipName = String(file.name || '').replace(/\.zip$/i, '')
+          await importing.persistImportedFiles(importedFiles, zipName)
+        } catch (persistError) {
+          console.error('导入项目落地失败:', persistError)
+          ElMessage.error(`文件已导入，但未能写入工作区: ${persistError.message || persistError}`)
+          return
+        }
+      }
+      ElMessage.success(`成功导入 ${projectFiles.length} 个文件`)
+      addLog('success', `导入项目: ${file.name} (${projectFiles.length} 个文件)`)
     } catch (error) {
       console.error('ZIP 导入失败:', error)
       ElMessage.error(`导入失败: ${error.message}`)
     } finally {
-      importing.zip.value = false
-      importing.progress.value = { current: 0, total: 0, currentFile: '' }
+      importing.uploadingZip = false
+      importing.importProgress = { current: 0, total: 0, currentFile: '' }
     }
   }
 
@@ -199,6 +211,7 @@ export function useAgentWorkspace({
     logs, executionDetails, thinkingMessages, pendingDecisions,
     decisionAnswers, decisionHistory, logsContainer,
     toolEvents,
+    pipelineMode,
     currentAgent, currentModel, currentProjectPath,
     testResults, validationResults, costData, performanceMetrics,
     addLog, addDetail, showFileDiff, hasFileDiff,

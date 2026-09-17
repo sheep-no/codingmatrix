@@ -114,8 +114,10 @@ class SpecFirstGenerator:
         self.context = context
         self.language = language
         self.api_key_token = api_key_token
-        from app.agent.models import DEFAULT_ARCHITECT_MODEL
-        self.architect_model = context.model_assignment.get("architect_model", DEFAULT_ARCHITECT_MODEL) if context.model_assignment else DEFAULT_ARCHITECT_MODEL
+        assignment = context.model_assignment or {}
+        self.architect_model = assignment.get("architect_model") if isinstance(assignment, dict) else getattr(assignment, "architect_model", None)
+        if not self.architect_model:
+            raise RuntimeError("model assignment is required for spec generation")
         from app.agent.orchestrator import LayeredModelRouter
         self.model_config = LayeredModelRouter.get_model_config(self.architect_model)
         self._pending_tasks = set()
@@ -147,7 +149,9 @@ class SpecFirstGenerator:
 
             types_success = await self._generate_types()
             if not types_success:
-                self.context.add_warning("类型定义生成失败（依赖 OpenAPI），将使用默认类型")
+                self.context.add_error("类型定义生成失败（依赖 OpenAPI）")
+                self.context.complete_phase("spec_generation", ["类型定义生成失败"])
+                return False
             self._report_progress("types_generated", callback)
         else:
             logger.info("需求无后端/API 信号，跳过 OpenAPI 与类型规范")
@@ -156,7 +160,9 @@ class SpecFirstGenerator:
         if needs_db:
             db_success = await self._generate_db_schema(requirement, complexity)
             if not db_success:
-                self.context.add_warning("数据库 Schema 生成失败（依赖 OpenAPI），将使用默认模型")
+                self.context.add_error("数据库 Schema 生成失败")
+                self.context.complete_phase("spec_generation", ["数据库 Schema 生成失败"])
+                return False
             self._report_progress("db_schema_generated", callback)
         else:
             logger.info("需求无存储信号，跳过数据库 Schema")
@@ -165,7 +171,9 @@ class SpecFirstGenerator:
         if needs_http or needs_db:
             config_success = await self._generate_config(requirement, complexity)
             if not config_success:
-                self.context.add_warning("配置规范生成失败，将使用默认配置")
+                self.context.add_error("配置规范生成失败")
+                self.context.complete_phase("spec_generation", ["配置规范生成失败"])
+                return False
             self._report_progress("config_generated", callback)
         else:
             logger.info("需求无后端/存储信号，跳过配置规范")

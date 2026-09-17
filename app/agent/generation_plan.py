@@ -14,6 +14,16 @@ from .dependency_manifest import DependencyManifest
 from .interface_registry import InterfaceRegistry
 
 
+# 计划内文件可解析出的模块名（a/b.py -> a.b；a/__init__.py -> a）
+_PACKAGE_ENTRY_FILES = {
+    "__init__.py", "index.js", "index.jsx", "index.ts", "index.tsx", "mod.rs", "lib.rs",
+}
+_SOURCE_SUFFIXES = {
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue",
+    ".go", ".rs", ".java", ".kt", ".rb", ".php",
+}
+
+
 class PlanFile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -58,6 +68,7 @@ class GenerationPlan(BaseModel):
         paths = {item.path for item in normalized}
         if len(paths) != len(normalized):
             raise ValueError("generation plan file paths must be unique")
+        normalized = _resolve_plan_dependencies(normalized, paths)
         missing = {dependency for item in normalized for dependency in item.dependencies if dependency not in paths}
         if missing:
             raise ValueError(f"generation plan has missing file dependencies: {sorted(missing)}")
@@ -179,6 +190,84 @@ def _normalize_priority(value: object) -> int:
     except (TypeError, ValueError):
         return 3
     return min(max(priority, 1), 5)
+
+
+def _module_key(path: str) -> str:
+    """计划文件路径对应的模块名（app/models.py -> app.models）。"""
+    pure = PurePosixPath(path)
+    if pure.name in _PACKAGE_ENTRY_FILES:
+        parts = pure.parent.parts
+    elif pure.suffix.lower() in _SOURCE_SUFFIXES:
+        parts = pure.with_suffix("").parts
+    else:
+        return ""
+    return ".".join(part for part in parts if part not in ("", "."))
+
+
+def _resolve_plan_dependencies(files: Tuple[PlanFile, ...], paths: set) -> Tuple[PlanFile, ...]:
+    """把 file_plan 的 dependencies 规范化为计划内文件路径。
+
+    架构师提示词允许用 imports 或 dependencies 声明依赖方向，模型常在该字段
+    写入模块名（app.database）或第三方包名。契约模型只接受计划内文件路径，
+    直接冻结会因「missing file dependencies」误判为计划损坏而硬失败。
+
+    这里保留能解析到计划文件的依赖（含模块名 -> 文件路径），对确实写成文件
+    路径却缺失的依赖仍保留原值，交由 missing 检查报错。
+    """
+    index: dict = {}
+    for path in paths:
+        key = _module_key(path)
+        if key:
+            index.setdefault(key, path)
+
+    resolved_files = []
+    changed = False
+    for item in files:
+        resolved = []
+        for dependency in item.dependencies:
+            target = _match_plan_dependency(dependency, paths, index)
+            if target is not None:
+                if target != item.path and target not in resolved:
+                    resolved.append(target)
+            elif _looks_like_source_file(dependency) and dependency not in resolved:
+                # 明确写成文件路径却没有对应计划文件，保留以便报错
+                resolved.append(dependency)
+        if tuple(resolved) != item.dependencies:
+            changed = True
+        resolved_files.append(item.model_copy(update={"dependencies": tuple(resolved)}))
+    return tuple(resolved_files) if changed else files
+
+
+def _match_plan_dependency(dependency: str, paths: set, index: dict) -> Optional[str]:
+    """返回依赖对应的计划内文件路径；无法解析时返回 None。"""
+    if dependency in paths:
+        return dependency
+    dependency = str(dependency or "").strip()
+    if not dependency:
+        return None
+    if "/" not in dependency and "." in dependency:
+        candidate = dependency.replace(".", "/")
+    else:
+        candidate = dependency
+    for key in (dependency, candidate):
+        target = index.get(key)
+        if target:
+            return target
+    if candidate and not PurePosixPath(candidate).suffix:
+        prefix = candidate.rstrip("/") + "/"
+        matches = sorted(path for path in paths if path.startswith(prefix))
+        # 包目录依赖优先指向包入口文件
+        for path in matches:
+            if PurePosixPath(path).name in _PACKAGE_ENTRY_FILES:
+                return path
+        for path in matches:
+            if path.startswith(prefix):
+                return path
+    return None
+
+
+def _looks_like_source_file(dependency: str) -> bool:
+    return PurePosixPath(str(dependency or "")).suffix.lower() in _SOURCE_SUFFIXES
 
 
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")

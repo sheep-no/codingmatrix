@@ -91,12 +91,7 @@ class UtilsMixin:
             valid_files.append(file_info)
 
         if not valid_files:
-            self.warnings.append("所有文件路径被过滤，使用默认文件计划")
-            valid_files = [
-                {"path": "main.py", "description": "主程序入口", "priority": 1},
-                {"path": "requirements.txt", "description": "依赖列表", "priority": 2},
-                {"path": "README.md", "description": "项目文档", "priority": 3}
-            ]
+            raise ValueError("all file paths were filtered from file_plan")
 
         return valid_files
 
@@ -298,10 +293,12 @@ class UtilsMixin:
             engineer = self.backend_engineer or self.architect
             if engineer:
                 return await engineer.call_llm(prompt, system_prompt)
-            return ""
+            raise RuntimeError("no engineer available for LLM patch")
         except Exception as e:
             logger.error(f"LLM patch 调用失败: {e}")
-            return ""
+            if isinstance(e, RuntimeError) and "LLM patch" in str(e):
+                raise
+            raise RuntimeError(f"LLM patch call failed: {e}") from e
 
     def _estimate_generation_cost(self, architecture: Dict, file_plan: List[Dict]) -> Dict:
         estimated_files = len(file_plan)

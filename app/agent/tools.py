@@ -194,6 +194,9 @@ def _tool_list_files(project_path: str, directory: str = ".",
         if not target.exists():
             return {"error": f"目录不存在: {directory}"}
         entries = []
+        if not target.is_dir():
+            return {"error": f"不是目录: {directory}"}
+        project_resolved = Path(project_path).resolve()
         _scan_dir(target, entries, depth=0, max_depth=max_depth, base=project_resolved)
         return {"directory": directory, "entries": entries[:200]}
     except Exception as e:
@@ -923,11 +926,17 @@ def _tool_write_file(project_path: str, path: str, content: str) -> Dict:
 
 
 def _validate_file_syntax(file_path: str, content: str) -> str:
-    """验证文件语法，返回警告信息（空字符串表示通过）"""
+    """验证文件语法，返回警告信息（空字符串表示通过）
+
+    JS/TS 家族复用 app/agent/js_syntax.py，HTML/CSS 复用
+    app/agent/markup_syntax.py：`node -c` 无法解析 TS 类型、JSX 和 Vue 单文件
+    组件，纯计数元检查也会把字符串、注释里的定界符当成结构错误。
+    """
     import ast
     import re
-    import subprocess
-    import tempfile
+
+    from app.agent.js_syntax import check_js_source, check_ts_source, has_python_only_syntax, vue_script_source
+    from app.agent.markup_syntax import css_structure_errors, html_structure_errors
 
     ext = Path(file_path).suffix.lower()
 
@@ -938,46 +947,34 @@ def _validate_file_syntax(file_path: str, content: str) -> str:
         except SyntaxError as e:
             return f"Python 语法错误: {e}"
 
-    elif ext in ('.js', '.ts', '.vue'):
-        # 检测 Python 代码混入 JS 文件
-        python_indicators = ['def ', 'import ', 'from ', 'class ', 'self.', 'print(']
-        python_count = sum(1 for ind in python_indicators if ind in content)
-        if python_count >= 3:
-            return f"JavaScript 文件疑似包含 Python 代码（匹配 {python_count} 个指标）"
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
-                f.write(content)
-                tmp_path = f.name
-            result = subprocess.run(
-                ['node', '-c', tmp_path],
-                capture_output=True, text=True, timeout=5
-            )
-            Path(tmp_path).unlink(missing_ok=True)
-            if result.returncode != 0:
-                return f"JavaScript 语法错误: {result.stderr.strip()[:200]}"
+    elif ext in ('.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.vue'):
+        source = content
+        use_ts = ext in ('.ts', '.tsx')
+        use_jsx = ext in ('.jsx', '.tsx')
+        if ext == '.vue':
+            source, use_ts, use_jsx = vue_script_source(content)
+        if not source.strip():
             return ""
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            if content.count('{') != content.count('}'):
-                return "花括号不匹配"
-            if content.count('(') != content.count(')'):
-                return "圆括号不匹配"
+        if not use_ts and has_python_only_syntax(source):
+            return "JavaScript 文件疑似包含 Python 代码"
+        if use_ts:
+            ok, error = check_ts_source(source, jsx=use_jsx)
+            label = "TypeScript"
+        else:
+            ok, error = check_js_source(source)
+            label = "JavaScript"
+        if ok:
             return ""
+        return f"{label} 语法错误: {(error or '语法检查未通过')[:200]}"
 
-    elif ext == '.html':
-        for tag in ['html', 'head', 'body']:
-            open_count = len(re.findall(rf'<{tag}[\s>]', content, re.IGNORECASE))
-            close_count = len(re.findall(rf'</{tag}>', content, re.IGNORECASE))
-            if open_count > close_count:
-                return f"<{tag}> 标签未闭合"
-        script_opens = len(re.findall(r'<script[\s>]', content, re.IGNORECASE))
-        script_closes = len(re.findall(r'</script>', content, re.IGNORECASE))
-        if script_opens > script_closes:
-            return "<script> 标签未闭合"
-        return ""
+    elif ext in ('.html', '.htm', '.xhtml'):
+        errors = html_structure_errors(content)
+        return errors[0] if errors else ""
 
     elif ext == '.css':
-        if content.count('{') != content.count('}'):
-            return "CSS 大括号不匹配"
+        errors = css_structure_errors(content)
+        if errors:
+            return errors[0]
         # 检测非 CSS 内容（大段中文描述文本）
         lines = [l.strip() for l in content.split('\n') if l.strip() and not l.strip().startswith('/*')]
         chinese_lines = sum(1 for l in lines if len(re.findall(r'[\u4e00-\u9fff]', l)) > 10)

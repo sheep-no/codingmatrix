@@ -13,6 +13,36 @@ logger = logging.getLogger(__name__)
 
 LANGUAGE_VALIDATION_TIMEOUT_SECONDS = 30
 
+# 文档/文本类文件：其正确内容本来就是 Markdown/散文或数据，针对「代码形态」
+# 的启发式（Markdown 说明、截断散文、思考泄漏散文）不适用于它们。
+_DOCUMENTATION_EXTENSIONS = ('.md', '.markdown', '.rst', '.txt', '.adoc')
+_DOCUMENTATION_FILE_NAMES = frozenset({
+    'readme', 'license', 'licence', 'changelog', 'notice',
+    'authors', 'contributing', 'copying',
+})
+
+# 标记/模板语言：合法内容天然包含列表符号（`- `、`1. `）和标签闭合后的 `> `，
+# 用「Markdown 文档」启发式判别必然误报。
+_MARKUP_EXTENSIONS = frozenset({
+    '.html', '.htm', '.xhtml', '.xml', '.svg', '.vue', '.svelte', '.astro',
+})
+
+
+def _is_documentation_file(file_path: str) -> bool:
+    """判断文件是否为文档/文本类文件（扩展名或无扩展名的常见文档名）。"""
+    path = Path(file_path)
+    if path.suffix.lower() in _DOCUMENTATION_EXTENSIONS:
+        return True
+    return path.name.lower() in _DOCUMENTATION_FILE_NAMES
+
+
+def is_package_entry_file(file_path: str) -> bool:
+    """判断文件是否为包入口文件（Python 的 __init__.py）。
+
+    包入口文件允许为空或只含极短内容，空文件是合法的包标记。
+    """
+    return Path(file_path).name == "__init__.py"
+
 
 def clean_code_block(content: str) -> str:
     """从 LLM 输出中提取代码块
@@ -28,10 +58,18 @@ def clean_code_block(content: str) -> str:
     elif not isinstance(content, str):
         content = str(content)
 
-    # 剥离 <think>...</think> 标签（DeepSeek-R1 等模型的思考过程）
-    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-    # 剥离 <think>...</think>` 标签（部分模型变体）
-    content = re.sub(r'<thinking>.*?</thinking>', '', content, flags=re.DOTALL).strip()
+    # 只在内容以思考块开头时剥离（DeepSeek-R1 等模型的思考过程）。
+    # 全局删除会把代码里作为字面量的 "<think>...</think>" 一并抹掉，
+    # 例如 PROMPT = "<think>请思考</think>" 会被清空。
+    for tag in ("think", "thinking"):
+        if not re.match(rf'\s*<{tag}>', content):
+            continue
+        closed = re.sub(rf'\s*<{tag}>.*?</{tag}>', '', content, count=1, flags=re.DOTALL)
+        if closed == content:
+            # 未闭合的思考块：整段输出都是思考过程
+            closed = re.sub(rf'\s*<{tag}>.*', '', content, flags=re.DOTALL)
+        content = closed
+    content = content.strip()
 
     pattern = r'```(?:\w+)?\s*(.*?)\s*```'
     match = re.search(pattern, content, re.DOTALL)
@@ -125,7 +163,7 @@ async def extract_engineer_content(
                 logger.info(f"工程师编辑了其他文件，当前文件 {file_path} 未被编辑")
             return None
 
-    if content and _is_edit_marker(content):
+    if content and _is_edit_marker(content, file_path):
         full_path = output_dir / file_path
         if full_path.exists():
             content = full_path.read_text(encoding='utf-8')
@@ -195,7 +233,7 @@ async def extract_engineer_content(
     return None
 
 
-def _is_edit_marker(content: str) -> bool:
+def _is_edit_marker(content: str, file_path: str = "") -> bool:
     """检查内容是否是编辑标记或元数据（JSON 格式）"""
     stripped = content.strip()
     if not stripped.startswith('{'):
@@ -208,6 +246,10 @@ def _is_edit_marker(content: str) -> bool:
         # 编辑标记
         if "action" in obj or "operation" in obj:
             return True
+        # .json 文件的整体内容本身就是合法 JSON，status/output/result 等键
+        # 可能只是数据字段。此时只有显式 action/operation 才算编辑标记。
+        if file_path.lower().endswith('.json'):
+            return False
         # LLM 返回的元数据（非代码内容）
         metadata_keys = {
             "status", "message", "file_path", "file_size",
@@ -249,6 +291,13 @@ def try_extract_from_metadata(file_path: str, content: str) -> Optional[str]:
         if not isinstance(obj, dict):
             return None
 
+        # .json 文件的整体内容本身就是合法 JSON，字段可能就叫 content/code/source。
+        # 只有在出现明确的"生成摘要"标记键时才提取，避免把数据文件改写成字段值。
+        if file_path.lower().endswith('.json'):
+            wrapper_markers = ('status', 'file_path', 'filepath', 'language', 'action')
+            if not any(marker in obj for marker in wrapper_markers):
+                return None
+
         # 尝试从常见字段提取代码
         code_keys = ['content', 'code', 'file_content', 'source', 'body', 'implementation']
         for key in code_keys:
@@ -275,43 +324,75 @@ def is_valid_code_content(file_path: str, content: str) -> tuple:
         (is_valid, reason): 有效返回 (True, "")，无效返回 (False, "原因")
     """
     if not content:
+        # 空 __init__.py 是合法的包标记，不算无效内容
+        if is_package_entry_file(file_path):
+            return True, ""
         return False, "内容为空"
 
     stripped = content.strip()
 
-    if len(stripped) < 10:
+    # 包入口文件可以只含 __all__ 或一句 docstring；文档/文本文件的正确内容
+    # 也可以很短（如单行 requirements.txt、短 README），都不受最小长度限制。
+    if (
+        len(stripped) < 10
+        and not is_package_entry_file(file_path)
+        and not _is_documentation_file(file_path)
+    ):
         return False, "内容过短（<10 字符）"
 
-    # 检查是否是 JSON 元数据
-    if stripped.startswith('{') and stripped.endswith('}'):
-        try:
-            import json
-            obj = json.loads(stripped)
-            if isinstance(obj, dict):
-                metadata_keys = {
-                    "status", "message", "file_path", "file_size",
-                    "key_features", "notes", "summary", "result",
-                    "output", "response", "action", "operation"
-                }
-                if metadata_keys & set(obj.keys()):
-                    return False, "内容是 JSON 元数据而非代码"
-        except (json.JSONDecodeError, ValueError):
-            pass
+    ext = Path(file_path).suffix.lower()
+    name = Path(file_path).name.lower()
 
-    # 检查是否是 JSON 数组
-    if stripped.startswith('[') and stripped.endswith(']'):
-        try:
-            import json
-            json.loads(stripped)
-            return False, "内容是 JSON 数组而非代码"
-        except (json.JSONDecodeError, ValueError):
-            pass
+    # 整体 JSON 形态且含元数据键，通常意味着 LLM 返回了包装结果而非代码。
+    # 对 .json 文件本身跳过：合法配置文件可以包含这些键。
+    if ext != '.json':
+        # 检查是否是 JSON 元数据
+        if stripped.startswith('{') and stripped.endswith('}'):
+            try:
+                import json
+                obj = json.loads(stripped)
+                if isinstance(obj, dict):
+                    metadata_keys = {
+                        "status", "message", "file_path", "file_size",
+                        "key_features", "notes", "summary", "result",
+                        "output", "response", "action", "operation"
+                    }
+                    if metadata_keys & set(obj.keys()):
+                        return False, "内容是 JSON 元数据而非代码"
+            except (json.JSONDecodeError, ValueError):
+                pass
 
-    # 检查是否是 Markdown 文档（用特征模式而非单个 #）
-    md_patterns = ['## ', '### ', '- ', '* ', '1. ', '```', '> ']
-    md_count = sum(1 for p in md_patterns if p in stripped[:500])
-    if md_count >= 3:
-        return False, "内容是 Markdown 文档而非代码"
+        # 检查是否是 JSON 数组
+        if stripped.startswith('[') and stripped.endswith(']'):
+            try:
+                import json
+                json.loads(stripped)
+                return False, "内容是 JSON 数组而非代码"
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+    # 符号启发式只用于没有确定性语法校验的类型；docstring 中的项目符号
+    # （- / 1. / >）会让合法代码命中，因此 .py 等类型交给解析器判定。
+    # 文档类文件的正确内容本来就是 Markdown/富文本，不能据此判为无效。
+    if (
+        ext not in ('.py', '.pyw', '.pyi', '.json')
+        and ext not in _MARKUP_EXTENSIONS
+        and name != 'pom.xml'
+        and not _is_documentation_file(file_path)
+    ):
+        # 检查是否是 Markdown 文档（用特征模式而非单个 #）
+        md_patterns = ['## ', '### ', '- ', '* ', '1. ', '```', '> ']
+        md_count = sum(1 for p in md_patterns if p in stripped[:500])
+        # 代码里以字符串/模板字面量承载 Markdown（如生成文档的 JS/TS）会命中
+        # 上面的项目符号，因此只要出现明确代码构造就不判为 Markdown。
+        code_constructs = (
+            "function ", "const ", "let ", "var ", "=>", "import ", "export ",
+            "return ", "class ", "def ", "package ", "func ", "public ",
+            "private ", "protected ", "void ", "console.", "#include", "<?php",
+            "SELECT ", "print(", "echo ",
+        )
+        if md_count >= 3 and not any(token in stripped[:500] for token in code_constructs):
+            return False, "内容是 Markdown 文档而非代码"
 
     # 快速语法验证（JSON、Python 语法等）
     syntax_ok, syntax_reason = validate_syntax_for_extension(file_path, stripped)
@@ -1119,6 +1200,23 @@ def _heuristic_language_match(file_path: str, content: str, expected_language: s
     return False
 
 
+def _has_effective_code_after(content: str, end_index: int) -> bool:
+    """判断给定位置之后是否还有实质代码行。
+
+    空行、整行注释、以及只含标点的片段（如截断句尾的「）」）都不算代码。
+    """
+    for line in content[end_index:].split('\n'):
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue
+        if stripped_line.startswith(('#', '//', '/*', '*')):
+            continue
+        if not re.search(r'[A-Za-z0-9_\u4e00-\u9fff]', stripped_line):
+            continue
+        return True
+    return False
+
+
 def is_placeholder_content(content: str, file_path: str = "") -> tuple:
     """检测内容是否为占位符代码
 
@@ -1132,6 +1230,9 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
         (is_placeholder, reason): 是占位符返回 (True, "原因"), 否则返回 (False, "")
     """
     if not content or not content.strip():
+        # 空的 __init__.py 是合法的包标记，不是占位符
+        if is_package_entry_file(file_path):
+            return False, ""
         return True, "内容为空"
 
     stripped = content.strip()
@@ -1147,9 +1248,16 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
         (r"not shown (here|in (this )?snippet)", "LLM truncated output"),
         (r"\.\.\.\s*（后续", "LLM truncated output"),
     ]
-    for pattern, desc in truncation_patterns:
-        if re.search(pattern, stripped, re.IGNORECASE):
-            return True, desc
+    # 文档/文本文件里这些短语是正常行文（如更新日志「其他代码保持不变」），
+    # 不能据此判为截断，否则合法的 README/说明文件会被反复重生成。
+    if not _is_documentation_file(file_path):
+        for pattern, desc in truncation_patterns:
+            for match in re.finditer(pattern, stripped, re.IGNORECASE):
+                # 短语之后若还有实质代码，说明输出没有在短语处被砍断，
+                # 它是代码里的注释/说明（如 patch 注释「其余代码保持不变」）。
+                if _has_effective_code_after(stripped, match.end()):
+                    continue
+                return True, desc
 
     # 占位符模式匹配
     placeholder_patterns = [
@@ -1176,9 +1284,9 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
         (r'^throw new Error\(["\']TODO', "TODO error"),
         # 通用占位符
         (r'^//\s*Package initialization\s*$', "Package initialization stub"),
-        (r'^//\s*Module:', "Module stub comment"),
         (r'^"""Package initialization"""', "Python package init stub"),
-        (r'^"""Module:', "Python module stub"),
+        # 注意：`"""Module: ...` / `// Module: ...` 是合法的模块头文档，不能作为
+        # 占位符特征，否则正常 __init__.py 会被误判并反复重生成。
         # LLM 工具调用 JSON（LLM 误返回工具调用而非代码）
         (r'^\{"tool"\s*:\s*"[^"]+"\s*,\s*"params"\s*:', "LLM tool call JSON"),
         (r'^\{"tool"\s*:\s*"[^"]+"\s*\}', "LLM tool call JSON"),
@@ -1192,13 +1300,36 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
         r'\{"tool"\s*:\s*"[^"]+"\s*\}',
     ]
 
+    # 注释类特征不能单独证明"未实现"：合法的小模块也会带 TODO 注释。
+    # 这类特征只在文件没有任何有效代码行时才判为占位符，因此收集时让位给
+    # 非注释类特征（如 pass、NotImplementedError）。
+    comment_only_reasons = {
+        "Python TODO comment", "Python FIXME comment", "Python placeholder comment",
+        "JS TODO comment", "JS FIXME comment", "JS placeholder comment",
+        "CSS/JS placeholder comment", "CSS/JS TODO comment",
+    }
+
     matched_pattern = None
+    comment_only_match = None
+    # 仅含 pass 的 __init__.py 是合法的空包声明，不是占位实现；其它模块的
+    # 顶格 pass 仍然按 stub 处理。
+    is_package_entry = Path(file_path).name == '__init__.py'
     for pattern, desc in placeholder_patterns:
-        if re.search(pattern, stripped, re.IGNORECASE | re.MULTILINE):
-            matched_pattern = desc
-            break
+        if not re.search(pattern, stripped, re.IGNORECASE | re.MULTILINE):
+            continue
+        if desc == "Python pass statement" and is_package_entry:
+            continue
+        if desc in comment_only_reasons:
+            comment_only_match = comment_only_match or desc
+            continue
+        matched_pattern = desc
+        break
+    if matched_pattern is None:
+        matched_pattern = comment_only_match
 
     if matched_pattern:
+        min_effective_lines = 0 if matched_pattern in comment_only_reasons else 2
+
         # 过滤掉空行、注释行、docstring、pass 行后，检查剩余行数
         lines = []
         for l in stripped.split('\n'):
@@ -1214,13 +1345,16 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
             if l_stripped == 'pass':
                 continue
             lines.append(l_stripped)
-        if len(lines) <= 2:
+        if len(lines) <= min_effective_lines:
             return True, f"占位符代码（{matched_pattern}），有效行数: {len(lines)}"
 
     # 检查代码中嵌入的工具调用 JSON（不在开头，但在代码中间）
     for pattern in embedded_tool_call_patterns:
-        if re.search(pattern, stripped):
-            return True, f"代码中嵌入了工具调用 JSON"
+        # 只有内容整体就是一个工具调用 JSON 时才判为泄漏（LLM 误返回工具调用
+        # 而非代码）。工具注册表、LLM function schema、API 响应夹具等合法代码
+        # 同样包含 `{"tool": ..., "params": {...}}`，按子串匹配会大面积误报。
+        if re.fullmatch(rf"\s*{pattern}\s*", stripped, re.DOTALL):
+            return True, "内容整体为工具调用 JSON"
 
     return False, ""
 
@@ -1287,6 +1421,17 @@ def compact_project_context_for_file(file_path: str, project_context: Dict[str, 
     generated_signatures = project_context.get("generated_signatures")
     if isinstance(generated_signatures, dict) and generated_signatures:
         compact["already_generated"] = generated_signatures
+    original_content = str(project_context.get("original_content") or "")
+    if not original_content and isinstance(generation_contract, dict):
+        original_content = str(generation_contract.get("original_content") or "")
+    if original_content:
+        compact["original_content"] = original_content[:8000]
+        compact["is_modification"] = True
+        compact["modification_reason"] = str(
+            project_context.get("modification_reason")
+            or (generation_contract.get("modification_reason") if isinstance(generation_contract, dict) else "")
+            or ""
+        )
     return json.dumps(compact, ensure_ascii=False)
 
 
@@ -1341,6 +1486,9 @@ def validate_content_quality(file_path: str, content: str) -> str:
     ext = Path(file_path).suffix.lower()
     stripped = content.strip()
 
+    # 文档/文本文件的首行本来就是散文，不能据此判为思考过程泄漏。
+    is_doc_file = _is_documentation_file(file_path)
+
     # 检测 LLM 思考过程泄漏（中英文描述性文本混入代码文件）
     thinking_patterns = [
         # 中文思考泄漏
@@ -1350,7 +1498,6 @@ def validate_content_quality(file_path: str, content: str) -> str:
         r'^已成功完成',
         r'^以下是.*?总结',
         r'^✅',
-        r'^---\s*$',
         r'^###\s+✅',
         # 英文思考泄漏
         r'^Let me think about',
@@ -1370,14 +1517,18 @@ def validate_content_quality(file_path: str, content: str) -> str:
         r'^In this file,',
         r'^The purpose of this',
     ]
-    for pattern in thinking_patterns:
-        if re.match(pattern, stripped, re.IGNORECASE | re.MULTILINE):
-            return f"内容疑似 LLM 思考过程泄漏（匹配模式: {pattern[:30]}）"
+    # 说明：原先的 r'^---\s*$' 已移除。该模式只在内容首行匹配，而首行 `---`
+    # 是 YAML 文档分隔符/Markdown front matter 的合法写法，属于必然误报。
+    if not is_doc_file:
+        for pattern in thinking_patterns:
+            if re.match(pattern, stripped, re.IGNORECASE | re.MULTILINE):
+                return f"内容疑似 LLM 思考过程泄漏（匹配模式: {pattern[:30]}）"
 
     # CSS 文件内容校验
     if ext == '.css':
-        # CSS 不应包含大段中文描述（排除注释）
-        lines = [l.strip() for l in stripped.split('\n') if l.strip() and not l.strip().startswith('/*')]
+        # CSS 不应包含大段中文描述（先剥离注释，中文注释是合法内容）
+        no_comments = re.sub(r'/\*.*?\*/', '', stripped, flags=re.DOTALL)
+        lines = [l.strip() for l in no_comments.split('\n') if l.strip()]
         chinese_lines = sum(1 for l in lines if len(re.findall(r'[\u4e00-\u9fff]', l)) > 10)
         if chinese_lines > len(lines) * 0.3 and chinese_lines > 3:
             return f"CSS 文件包含大量中文文本（{chinese_lines}/{len(lines)} 行），疑似非代码内容"

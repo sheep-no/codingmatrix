@@ -20,6 +20,15 @@ from app.agent.dependency_graph import DependencyGraph, FileNode
 from app.agent.cross_validator import CrossValidator
 
 
+def _assigned_context(requirement, tmp_path):
+    ctx = SharedContext(requirement, tmp_path)
+    ctx.model_assignment = {
+        "architect_model": "test-architect",
+        "backend_model": "test-backend",
+    }
+    return ctx
+
+
 # ==================== SharedContext Tests ====================
 
 class TestSharedContext:
@@ -263,24 +272,23 @@ More text'''
 
     @pytest.mark.asyncio
     async def test_validate_and_select_fallback(self, tmp_path):
-        """当 LLM 返回空内容时，默认使用版本 A"""
+        """当 LLM 返回空内容时，交叉验证应失败"""
         ctx = SharedContext("test", tmp_path)
         cv = CrossValidator(ctx)
 
         with patch("app.agent.cross_validator.call_llm", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {"choices": [{"message": {"content": ""}}]}
-            result_code, winner = await cv.validate_and_select(
-                file_path="auth.py",
-                file_type="api",
-                description="Auth API",
-                version_a="code A",
-                model_a="model-A",
-                version_b="code B",
-                model_b="model-B",
-                judge_model="judge"
-            )
-            assert result_code == "code A"
-            assert winner == "model-A"
+            with pytest.raises(ValueError, match="cross validator judge was empty"):
+                await cv.validate_and_select(
+                    file_path="auth.py",
+                    file_type="api",
+                    description="Auth API",
+                    version_a="code A",
+                    model_a="model-A",
+                    version_b="code B",
+                    model_b="model-B",
+                    judge_model="judge"
+                )
 
 
 # ==================== SpecFirstGenerator Tests ====================
@@ -290,7 +298,7 @@ class TestSpecFirstGenerator:
 
     def test_extract_json(self, tmp_path):
         from app.agent.spec_first_generator import SpecFirstGenerator
-        ctx = SharedContext("test", tmp_path)
+        ctx = _assigned_context("test", tmp_path)
         gen = SpecFirstGenerator(ctx)
 
         text = '```json\n{"openapi": "3.0.0"}\n```'
@@ -300,7 +308,7 @@ class TestSpecFirstGenerator:
 
     def test_clean_code_block(self, tmp_path):
         from app.agent.spec_first_generator import SpecFirstGenerator
-        ctx = SharedContext("test", tmp_path)
+        ctx = _assigned_context("test", tmp_path)
         gen = SpecFirstGenerator(ctx)
 
         text = '```python\nprint("hello")\n```'
@@ -309,7 +317,7 @@ class TestSpecFirstGenerator:
 
     def test_clean_code_block_no_marker(self, tmp_path):
         from app.agent.spec_first_generator import SpecFirstGenerator
-        ctx = SharedContext("test", tmp_path)
+        ctx = _assigned_context("test", tmp_path)
         gen = SpecFirstGenerator(ctx)
 
         text = 'print("hello")'
@@ -318,7 +326,7 @@ class TestSpecFirstGenerator:
 
     def test_get_spec_context_for_api(self, tmp_path):
         from app.agent.spec_first_generator import SpecFirstGenerator
-        ctx = SharedContext("test", tmp_path)
+        ctx = _assigned_context("test", tmp_path)
         ctx.save_spec("openapi", {"paths": {"/api/users": {"get": {}}}}, "model")
         gen = SpecFirstGenerator(ctx)
 
@@ -334,7 +342,7 @@ class TestRefinementLoop:
 
     def test_validate_python_syntax_valid(self, tmp_path):
         from app.agent.refinement_loop import RefinementLoop
-        ctx = SharedContext("test", tmp_path)
+        ctx = _assigned_context("test", tmp_path)
         rl = RefinementLoop(ctx)
 
         issues = rl._validate_python_syntax("def hello():\n    return 'world'", "test.py")
@@ -342,7 +350,7 @@ class TestRefinementLoop:
 
     def test_validate_python_syntax_invalid(self, tmp_path):
         from app.agent.refinement_loop import RefinementLoop
-        ctx = SharedContext("test", tmp_path)
+        ctx = _assigned_context("test", tmp_path)
         rl = RefinementLoop(ctx)
 
         issues = rl._validate_python_syntax("def hello(\n    return 'world'", "test.py")
@@ -351,7 +359,7 @@ class TestRefinementLoop:
 
     def test_validate_json_valid(self, tmp_path):
         from app.agent.refinement_loop import RefinementLoop
-        ctx = SharedContext("test", tmp_path)
+        ctx = _assigned_context("test", tmp_path)
         rl = RefinementLoop(ctx)
 
         issues = rl._validate_json_syntax('{"key": "value"}')
@@ -359,7 +367,7 @@ class TestRefinementLoop:
 
     def test_validate_json_invalid(self, tmp_path):
         from app.agent.refinement_loop import RefinementLoop
-        ctx = SharedContext("test", tmp_path)
+        ctx = _assigned_context("test", tmp_path)
         rl = RefinementLoop(ctx)
 
         issues = rl._validate_json_syntax('{"key": "value"')
@@ -368,15 +376,15 @@ class TestRefinementLoop:
 
     def test_validate_js_bracket_mismatch(self, tmp_path):
         from app.agent.refinement_loop import RefinementLoop
-        ctx = SharedContext("test", tmp_path)
+        ctx = _assigned_context("test", tmp_path)
         rl = RefinementLoop(ctx)
 
-        issues = rl._validate_js_basic("function test() { return true")
+        issues = rl._validate_js_source("function test() { return true", ".js")
         assert any(i.type == "syntax" for i in issues)
 
     def test_build_error_summary(self, tmp_path):
         from app.agent.refinement_loop import RefinementLoop, ValidationIssue
-        ctx = SharedContext("test", tmp_path)
+        ctx = _assigned_context("test", tmp_path)
         rl = RefinementLoop(ctx)
 
         issues = [

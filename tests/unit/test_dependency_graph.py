@@ -265,6 +265,145 @@ class TestDependencyGraph:
         assert adapter.infer_file_type("src/index.ts") == "entry"
         assert adapter.infer_file_type("src/server.js") == "entry"
 
+    def test_common_files_are_not_inferred_as_unknown(self):
+        """适配器不认识的常见文件要回落到路径规则与扩展名映射，而非 unknown。"""
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        js_graph = DependencyGraph(language_adapter=JavaScriptLanguageAdapter())
+
+        assert js_graph._infer_file_type("index.html") == "frontend_page"
+        assert js_graph._infer_file_type("src/App.tsx") == "frontend_component"
+        assert js_graph._infer_file_type("src/App.vue") == "frontend_component"
+        assert js_graph._infer_file_type("src/style.css") == "frontend_style"
+        assert js_graph._infer_file_type("src/styles/index.css") == "frontend_style"
+
+        py_graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+
+        assert py_graph._infer_file_type("conftest.py") == "test"
+
+    def test_common_files_without_declared_type_do_not_block_generation(self):
+        import asyncio
+
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+        from app.agent.orchestrator_generation.spec_first_generate import (
+            SpecFirstGenerateMixin,
+        )
+
+        architecture = {"file_plan": [
+            {"path": "index.html", "priority": 1},
+            {"path": "src/main.tsx", "priority": 1},
+            {"path": "src/App.tsx", "priority": 2},
+            {"path": "src/styles/index.css", "priority": 4},
+            {"path": "package.json", "priority": 4},
+        ]}
+        graph = DependencyGraph(language_adapter=JavaScriptLanguageAdapter())
+        graph.build_from_architecture(architecture)
+
+        pending = graph.get_unknown_type_files()
+
+        # 未知类型必须可以用确定性规则补齐，否则 _infer_unknown_file_types 会硬失败。
+        asyncio.run(SpecFirstGenerateMixin()._infer_unknown_file_types(
+            graph, pending, architecture, "javascript"
+        ))
+
+    def test_extensionless_project_files_are_kept_in_plan(self):
+        """Dockerfile / Makefile 这类无扩展名项目文件不能被当成包名丢弃。"""
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": "Dockerfile", "priority": 4},
+            {"path": "Dockerfile.dev", "priority": 4},
+            {"path": "Makefile", "priority": 4},
+            {"path": "main.py", "priority": 1},
+        ]})
+
+        assert graph.nodes["Dockerfile"].file_type == "dockerfile"
+        assert graph.nodes["Dockerfile.dev"].file_type == "dockerfile"
+        assert graph.nodes["Makefile"].file_type == "config"
+
+    def test_bare_package_names_are_still_dropped_from_plan(self):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": "moment", "priority": 3},
+            {"path": "axios", "priority": 3},
+            {"path": "main.py", "priority": 1},
+        ]})
+
+        assert "moment" not in graph.nodes
+        assert "axios" not in graph.nodes
+        assert "main.py" in graph.nodes
+
+    def test_root_files_sharing_stdlib_names_are_kept(self):
+        """types.py / secrets.py 等与标准库同名的本地文件不能被当成外部库丢弃。
+
+        标准库名字是通用词；第三方包名（fastapi.py）仍按外部库丢弃。
+        """
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        planned = ["main.py", "types.py", "secrets.py", "logging.py", "email.py", "config.py"]
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": path, "priority": 2} for path in planned
+        ]})
+
+        assert sorted(graph.nodes) == sorted(planned)
+
+    def test_multi_package_init_files_are_not_deduplicated(self):
+        """包入口文件每包唯一，同名不代表重复；去重会丢掉多包项目的入口。"""
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        planned = [
+            "app/__init__.py",
+            "app/routers/__init__.py",
+            "app/models/__init__.py",
+            "tests/__init__.py",
+            "app/main.py",
+            "app/routers/users.py",
+        ]
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": path, "priority": 2} for path in planned
+        ]})
+
+        assert sorted(graph.nodes) == sorted(planned)
+
+    def test_multi_directory_index_files_are_not_deduplicated(self):
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        planned = ["src/index.js", "src/components/index.js", "src/utils/index.js", "src/App.jsx"]
+        graph = DependencyGraph(language_adapter=JavaScriptLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": path, "priority": 2} for path in planned
+        ]})
+
+        assert sorted(graph.nodes) == sorted(planned)
+
+    def test_non_entry_duplicate_files_are_still_deduplicated(self):
+        """护栏：非入口同名同类型文件仍按原逻辑去重。"""
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": "models.py", "priority": 2},
+            {"path": "src/models/models.py", "priority": 2},
+            {"path": "main.py", "priority": 1},
+        ]})
+
+        assert "src/models/models.py" in graph.nodes
+        assert "models.py" not in graph.nodes
+
     def test_generic_utils_file_types_are_inferred_from_paths(self, graph):
         architecture = {
             "file_plan": [
@@ -281,6 +420,136 @@ class TestDependencyGraph:
         assert graph.nodes["crud.py"].file_type == "repository"
         assert graph.adjacency["models.py"] == {"database.py"}
         assert graph.adjacency["crud.py"] == {"models.py", "database.py"}
+
+    def test_declared_utils_is_kept_when_path_rules_cannot_refine(self):
+        """架构师显式声明的 utils 在路径规则无法细化时必须保留。
+
+        原实现把 utils 一律推翻重推断，推断不出就降级为 unknown，使
+        _infer_unknown_file_types 对这些文件硬失败。
+        """
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": "app/__init__.py", "file_type": "config", "priority": 1},
+            {"path": "app/deps.py", "file_type": "utils", "priority": 2},
+            {"path": "myapp/urls.py", "file_type": "utils", "priority": 2},
+        ]})
+
+        assert graph.nodes["app/deps.py"].file_type == "utils"
+        assert graph.nodes["myapp/urls.py"].file_type == "utils"
+        assert graph.get_unknown_type_files() == []
+
+    def test_unknown_type_files_excludes_utils(self):
+        """utils 是确定类型，不属于待推断的未知类型。"""
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph()
+        graph.add_file("app/deps.py", file_type="utils")
+        graph.add_file("mystery.py", file_type="unknown")
+        graph.add_file("blank.py", file_type="")
+
+        assert graph.get_unknown_type_files() == ["mystery.py", "blank.py"]
+
+    def test_config_and_dotfiles_are_not_unknown(self):
+        """常见配置/元文件必须有确定性类型，否则 _infer_unknown_file_types 硬失败。"""
+        import asyncio
+
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+        from app.agent.orchestrator_generation.spec_first_generate import (
+            SpecFirstGenerateMixin,
+        )
+
+        planned = [
+            ".gitignore", ".editorconfig", ".dockerignore",
+            "nginx.conf", "setup.cfg", "poetry.lock", "alembic.ini",
+            "schema.graphql", "proto/user.proto", "infra/main.tf",
+            "requirements.txt", "app/main.py",
+        ]
+        architecture = {"file_plan": [
+            {"path": path, "priority": 2} for path in planned
+        ]}
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture(architecture)
+
+        pending = graph.get_unknown_type_files()
+        asyncio.run(SpecFirstGenerateMixin()._infer_unknown_file_types(
+            graph, pending, architecture, "python"
+        ))
+
+        assert graph.get_unknown_type_files() == []
+        assert "nginx.conf" in graph.nodes
+        assert "schema.graphql" in graph.nodes
+
+    def test_tool_named_config_files_are_kept_in_plan(self):
+        """以工具名命名的配置文件（vite.config.js、alembic.ini）不能被当外部库丢弃。"""
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        js_graph = DependencyGraph(language_adapter=JavaScriptLanguageAdapter())
+        js_graph.build_from_architecture({"file_plan": [
+            {"path": "vite.config.js", "priority": 2},
+            {"path": "src/main.js", "priority": 1},
+        ]})
+        assert "vite.config.js" in js_graph.nodes
+
+        py_graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        py_graph.build_from_architecture({"file_plan": [
+            {"path": "alembic.ini", "priority": 2},
+            {"path": "app/main.py", "priority": 1},
+        ]})
+        assert "alembic.ini" in py_graph.nodes
+
+    def test_external_package_source_trees_are_still_dropped(self):
+        """护栏：真正的第三方包源码路径仍按外部库丢弃。"""
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        py_graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        py_graph.build_from_architecture({"file_plan": [
+            {"path": "sqlalchemy/orm/session.py", "priority": 2},
+            {"path": "fastapi.py", "priority": 2},
+            {"path": "app/main.py", "priority": 1},
+        ]})
+        assert "sqlalchemy/orm/session.py" not in py_graph.nodes
+        assert "fastapi.py" not in py_graph.nodes
+
+        js_graph = DependencyGraph(language_adapter=JavaScriptLanguageAdapter())
+        js_graph.build_from_architecture({"file_plan": [
+            {"path": "react/index.js", "priority": 2},
+            {"path": "src/main.js", "priority": 1},
+        ]})
+        assert "react/index.js" not in js_graph.nodes
+
+    def test_dotted_module_paths_are_converted(self):
+        """点号分隔的模块路径（src.app.utils.py）仍要转换成目录路径。"""
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": "src.app.utils.py", "priority": 2},
+            {"path": "main.py", "priority": 1},
+        ]})
+
+        assert "src/app/utils.py" in graph.nodes
+
+    def test_dotted_file_names_are_not_converted(self):
+        """点号文件名（vite.config.js、index.test.js）不能被改写成目录路径。"""
+        from app.agent.adapters.javascript import JavaScriptLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        planned = ["vite.config.js", "index.test.js", "main.min.js", "types.d.ts", "src/main.js"]
+        graph = DependencyGraph(language_adapter=JavaScriptLanguageAdapter())
+        graph.build_from_architecture({"file_plan": [
+            {"path": path, "priority": 2} for path in planned
+        ]})
+
+        assert sorted(graph.nodes) == sorted(planned)
     
     def test_extract_dependencies_from_content_python(self, graph):
         """测试从 Python 内容中提取依赖"""
@@ -616,3 +885,84 @@ import UserCard from '../components/User.vue';
         assert graph.adjacency["src/main/java/com/example/TodoController.java"] == {
             "src/main/java/com/example/Todo.java"
         }
+
+
+class TestEnrichFromSource:
+    def test_unknown_only_depended_by_entry_becomes_utils(self, tmp_path):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        (tmp_path / "calc.py").write_text(
+            "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "main.py").write_text(
+            '"""CLI entry."""\nfrom calc import add\nprint(add(1, 2))\n',
+            encoding="utf-8",
+        )
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.add_file("calc.py")
+        graph.add_file("main.py")
+        graph.add_dependency("main.py", "calc.py")
+
+        assert graph.nodes["calc.py"].file_type == "unknown"
+        assert graph.nodes["main.py"].file_type == "entry"
+
+        changed = graph.enrich_from_source(tmp_path)
+
+        assert changed is True
+        assert graph.nodes["calc.py"].file_type == "utils"
+        assert "add" in graph.nodes["calc.py"].description
+        assert "subtract" in graph.nodes["calc.py"].description
+        assert graph.nodes["main.py"].description == "CLI entry."
+
+    def test_does_not_overwrite_existing_metadata(self, tmp_path):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.add_file("calc.py", file_type="model", description="keep me")
+
+        changed = graph.enrich_from_source(tmp_path)
+
+        assert changed is False
+        assert graph.nodes["calc.py"].file_type == "model"
+        assert graph.nodes["calc.py"].description == "keep me"
+
+    def test_enrich_and_save_persists_to_disk(self, tmp_path):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+        (tmp_path / "main.py").write_text("from calc import add\n", encoding="utf-8")
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        graph.add_file("calc.py")
+        graph.add_file("main.py")
+        graph.add_dependency("main.py", "calc.py")
+
+        assert graph.enrich_and_save(tmp_path) is True
+
+        loaded = DependencyGraph.load(str(tmp_path / ".dep_graph.json"), language_adapter=PythonLanguageAdapter())
+        assert loaded is not None
+        assert loaded.nodes["calc.py"].file_type == "utils"
+        assert "add" in loaded.nodes["calc.py"].description
+
+    @pytest.mark.asyncio
+    async def test_build_from_existing_project_fills_empty_descriptions(self, tmp_path):
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+
+        (tmp_path / "calc.py").write_text(
+            '"""Arithmetic helpers."""\ndef add(a, b):\n    return a + b\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "main.py").write_text("from calc import add\nprint(add(1, 2))\n", encoding="utf-8")
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+        await graph.build_from_existing_project(tmp_path)
+
+        assert graph.nodes["calc.py"].file_type == "utils"
+        assert graph.nodes["calc.py"].description == "Arithmetic helpers."
+        assert "add" in graph.nodes["main.py"].description or graph.nodes["main.py"].file_type == "entry"

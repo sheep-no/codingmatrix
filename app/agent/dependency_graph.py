@@ -26,6 +26,44 @@ from app.agent.generation_plan import GenerationPlan
 
 logger = logging.getLogger(__name__)
 
+# 常见无扩展名项目文件。这些名称与 npm/pypi 包名无法区分，
+# 但它们是真实的项目文件，不能在清理 file_plan 时被当成包名丢弃。
+_EXTENSIONLESS_PROJECT_FILES = frozenset({
+    "dockerfile",
+    "makefile",
+    "gnumakefile",
+    "justfile",
+    "procfile",
+    "gemfile",
+    "rakefile",
+    "vagrantfile",
+    "jenkinsfile",
+    "cmakelists",
+    "license",
+    "licence",
+    "notice",
+    "readme",
+    "changelog",
+    "contributing",
+    "authors",
+    "codeowners",
+})
+
+
+def _normalize_extensionless_name(name: str) -> str:
+    """归一化无扩展名文件名，使 `Dockerfile.dev` 也能命中已知规则。"""
+    lowered = str(name or "").strip().lower()
+    if lowered.startswith("dockerfile"):
+        return "dockerfile"
+    return lowered
+
+
+# 非源码类型：这些类型一定是项目文件，与第三方包同名也不能按外部库丢弃。
+_META_PLAN_FILE_TYPES = frozenset({
+    "config", "env", "dockerfile", "docker_compose",
+    "readme", "docs", "schema",
+})
+
 
 def summarize_dependency_context(context: str) -> Dict[str, Any]:
     """返回依赖上下文的可审计摘要，避免日志记录完整源码。"""
@@ -67,6 +105,13 @@ class DependencyGraph:
     DEPENDENCY_RULES = DEPENDENCY_RULES
     PATH_TYPE_RULES = PATH_TYPE_RULES
 
+    _ENRICH_SOURCE_SUFFIXES = frozenset({
+        ".py", ".pyw", ".pyi",
+        ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue",
+        ".java", ".kt", ".go", ".rs", ".rb", ".php", ".cs",
+    })
+    _MAX_ENRICH_BYTES = 256 * 1024
+
     def __init__(self, language_adapter=None):
         self.nodes: Dict[str, FileNode] = {}
         self.adjacency: Dict[str, Set[str]] = defaultdict(set)  # file -> set of files it depends on
@@ -89,8 +134,13 @@ class DependencyGraph:
             logger.warning(f"拒绝含特殊字符的文件路径: {path}")
             return
         
-        # 包名检查：拒绝无扩展名且无目录分隔符的路径（如 "moment", "axios", "models"）
-        if '/' not in path and '.' not in path:
+        # 包名检查：拒绝无扩展名且无目录分隔符的路径（如 "moment", "axios", "models"），
+        # 但 Dockerfile / Makefile 等常见项目文件必须保留。
+        if (
+            '/' not in path
+            and '.' not in path
+            and _normalize_extensionless_name(path) not in _EXTENSIONLESS_PROJECT_FILES
+        ):
             logger.warning(f"拒绝包名/目录名作为文件路径: {path}")
             return
         
@@ -231,8 +281,13 @@ class DependencyGraph:
                 logger.warning(f"跳过含特殊字符的文件路径: {path}")
                 continue
             
-            # 包名检查：跳过无扩展名且无目录分隔符的路径（如 "moment", "axios", "models"）
-            if '/' not in path and '.' not in path:
+            # 包名检查：跳过无扩展名且无目录分隔符的路径（如 "moment", "axios", "models"），
+            # 但 Dockerfile / Makefile 等常见项目文件必须保留，否则会被静默丢弃。
+            if (
+                '/' not in path
+                and '.' not in path
+                and _normalize_extensionless_name(path) not in _EXTENSIONLESS_PROJECT_FILES
+            ):
                 logger.warning(f"跳过包名/目录名作为文件路径: {path}")
                 continue
 
@@ -243,7 +298,11 @@ class DependencyGraph:
             # 点号路径转换：无斜杠但有多段点号（如 src.app.utils.py）
             if '/' not in path and '.' in path:
                 dot_segments = path.split('.')
-                if len(dot_segments) >= 3:
+                # 点号文件名（vite.config.js、index.test.js、main.min.js、foo.d.ts）
+                # 也是 3 段以上，但它们是文件名而非点号分隔的模块路径，转换会
+                # 凭空造出目录（vite/config.js）。倒数第二段是常见元词时保持原样。
+                meta_segments = {'config', 'conf', 'test', 'spec', 'min', 'd', 'module', 'setup'}
+                if len(dot_segments) >= 3 and dot_segments[-2].lower() not in meta_segments:
                     known_exts = {'py','js','ts','jsx','tsx','css','html','json','md','yaml','yml','toml','cfg','ini','sh','sql','go','rs','java','rb','php'}
                     last = dot_segments[-1].lower()
                     if last in known_exts:
@@ -288,7 +347,17 @@ class DependencyGraph:
             priority = file_info.get("priority", 3)
             file_type = file_info.get("file_type")
             if not file_type or file_type in {"unknown", "other", "utils"}:
-                file_type = self._infer_file_type(path)
+                inferred_type = self._infer_file_type(path)
+                if inferred_type and inferred_type not in ("unknown", ""):
+                    file_type = inferred_type
+                elif file_type == "utils":
+                    # 架构师显式标注的 utils 是有效类型。路径规则能细化时已在上
+                    # 一步改写；无法细化时保留 utils，避免被降级为 unknown 后
+                    # _infer_unknown_file_types 硬失败。缺失/unknown/other 仍保
+                    # 留显式失败语义。
+                    file_type = "utils"
+                else:
+                    file_type = inferred_type
 
             if not path:
                 continue
@@ -461,10 +530,18 @@ class DependencyGraph:
         """
         from collections import defaultdict
 
+        init_filename = (
+            self.language_adapter.package_init_filename if self.language_adapter else ""
+        )
+
         # 按 (文件名, file_type) 分组
         name_type_to_paths: Dict[tuple, List[str]] = defaultdict(list)
         for path in list(self.nodes.keys()):
             filename = Path(path).name
+            # 包入口文件（Python __init__.py、JS index.js、Rust lib.rs）在每个包里
+            # 都是独立模块，同名不代表功能重复；分组去重会误删多包项目的入口文件。
+            if init_filename and filename == init_filename:
+                continue
             node = self.nodes.get(path)
             file_type = node.file_type if node else 'unknown'
             name_type_to_paths[(filename, file_type)].append(path)
@@ -522,10 +599,14 @@ class DependencyGraph:
                 logger.info(f"  移除 {old_path} (score={score}), 保留 {best_path}")
 
     def get_unknown_type_files(self) -> List[str]:
-        """返回所有 file_type 为 unknown 或 utils 或空字符串的文件路径列表"""
+        """返回所有 file_type 为空或 unknown 的文件路径列表。
+
+        utils 是架构师可显式声明的有效类型（build_from_architecture 已尝试用
+        路径规则细化它），不属于「未知类型」，不应参与二次推断并触发硬失败。
+        """
         return [
             path for path, node in self.nodes.items()
-            if node.file_type in ('unknown', 'utils', '')
+            if node.file_type in ('unknown', '')
         ]
 
     def update_file_type(self, path: str, new_type: str):
@@ -626,11 +707,40 @@ class DependencyGraph:
             del self.reverse_adjacency[path]
 
     def _is_external_plan_path(self, path: str) -> bool:
+        """判断 file_plan 路径是否是外部库源码，而非本项目要生成的文件。
+        `is_known_external_module` 是按 import 字符串设计的。直接把它套在
+        file_plan 路径上，会把与标准库同名的本地文件（types.py、secrets.py、
+        logging.py、crypto.js、path.js 等）当成外部库静默丢弃，导致计划中的
+        文件既不生成也不报错。
+
+        标准库名字是通用词，经常被用作本地文件名，因此按项目文件保留；
+        第三方包名（fastapi.py、sqlalchemy/orm/session.py）仍按外部库丢弃。
+        """
         adapter = self.language_adapter
         if not path or adapter is None:
             return False
+        normalized = str(path).replace("\\", "/").strip().strip("/")
+        if not normalized:
+            return False
+
+        # 配置文件常以工具名命名（vite.config.js、alembic.ini、schema.graphql），
+        # 顶层名会与第三方包同名。它们按类型判定是项目文件，不能当外部库丢弃，
+        # 否则计划中的配置既不生成也不报错。
+        if self._infer_file_type(normalized) in _META_PLAN_FILE_TYPES:
+            return False
+
+        top = normalized.split("/")[0]
+        top_path = Path(top)
+        from .adapters.language_adapter import _EXTERNAL_SOURCE_SUFFIXES
+
+        if top_path.suffix.lower() in _EXTERNAL_SOURCE_SUFFIXES:
+            top = str(top_path.with_suffix(""))
+        for attr in ("PYTHON_BUILTINS", "NODE_BUILTINS", "STDLIB_MODULES"):
+            stdlib = getattr(adapter, attr, None)
+            if stdlib and top in stdlib:
+                return False
         checker = getattr(adapter, "is_known_external_module", None)
-        return bool(checker and checker(path))
+        return bool(checker and checker(normalized))
 
     def _import_to_file_path(self, import_path: str) -> Optional[str]:
         """将 import 路径转换为文件路径"""
@@ -761,58 +871,6 @@ class DependencyGraph:
             added_by_rules,
             replaced_reverse_edges,
         )
-
-    def ensure_package_files(self) -> List[str]:
-        """
-        确保所有包都有入口文件（如 __init__.py）
-
-        使用 language_adapter 检查包结构，添加缺失的文件。
-
-        Returns:
-            添加的文件路径列表
-        """
-        added_files = []
-
-        # 收集所有包路径
-        packages = set()
-        init_file_name = self.language_adapter.package_init_filename if self.language_adapter else '__init__.py'
-        for path in self.nodes:
-            if '/' in path:
-                parts = path.rsplit('/', 1)
-                if len(parts) == 2:
-                    pkg = parts[0]
-                    # 检查是否是包（有文件但没有入口文件）
-                    if not path.endswith(init_file_name):
-                        packages.add(pkg)
-
-         # 检查每个包
-        for pkg in packages:
-            if self.language_adapter:
-                missing = self.language_adapter.validate_package_structure(
-                    pkg, {p: "" for p in self.nodes}
-                )
-                for init_path in missing:
-                    if init_path not in self.nodes:
-                        self.add_file(init_path, file_type="config", priority=5,
-                                     description=f"Package init file for {pkg}")
-                        added_files.append(init_path)
-                        # Make __init__.py depend on all other files in the same package
-                        for other_path in self.nodes:
-                            if other_path != init_path and other_path.startswith(pkg + '/') and not other_path.endswith(init_file_name):
-                                self.add_dependency(init_path, other_path)
-            else:
-                # Fallback: 通用规则
-                init_path = f"{pkg}/{init_file_name}"
-                if init_path not in self.nodes:
-                    self.add_file(init_path, file_type="config", priority=5,
-                                 description=f"Package init file for {pkg}")
-                    added_files.append(init_path)
-                    # Make __init__.py depend on all other files in the same package
-                    for other_path in self.nodes:
-                        if other_path != init_path and other_path.startswith(pkg + '/') and not other_path.endswith(init_file_name):
-                            self.add_dependency(init_path, other_path)
-
-        return added_files
 
     def get_generation_order(self) -> List[str]:
         """
@@ -1148,10 +1206,16 @@ class DependencyGraph:
     # ==================== 辅助方法 ====================
 
     def _infer_file_type(self, path: str) -> str:
-        """根据文件路径推断文件类型"""
-        # 优先使用语言适配器
+        """根据文件路径推断文件类型。
+        语言适配器只覆盖自己认识的路径；返回 unknown 时继续回落到通用路径
+        规则与扩展名映射，避免 index.html / App.tsx / style.css 这类常见文件
+        被判为未知类型并中断生成。扩展名映射里没有的类型仍然返回 unknown，
+        保留“无法确定类型”的显式失败语义。
+        """
         if self.language_adapter:
-            return self.language_adapter.infer_file_type(path)
+            inferred = self.language_adapter.infer_file_type(path)
+            if inferred and inferred not in ("unknown", ""):
+                return inferred
 
         # 使用硬编码规则作为 fallback
         for pattern, file_type in self.PATH_TYPE_RULES:
@@ -1166,7 +1230,10 @@ class DependencyGraph:
 
         # 根据扩展名推断
         ext = Path(path).suffix.lower()
-        return EXTENSION_TYPE_MAP.get(ext, 'utils')
+        if ext in EXTENSION_TYPE_MAP:
+            return EXTENSION_TYPE_MAP[ext]
+        # 有语言适配器时保留 unknown，让“类型无法确定”继续显式失败
+        return 'unknown' if self.language_adapter else 'utils'
 
     def _path_to_api_file(self, api_path: str) -> str:
         """将 API 路径转换为文件路径"""
@@ -1279,6 +1346,8 @@ class DependencyGraph:
             for dep in dep_paths:
                 self.add_dependency(file_path, dep)
 
+        self.enrich_from_source(project_path)
+
         order = self.get_generation_order()
 
         logger.info(
@@ -1292,6 +1361,159 @@ class DependencyGraph:
             "edges": sum(len(d) for d in self.adjacency.values()),
             "order": order
         }
+
+    def enrich_from_source(self, project_path: Path) -> bool:
+        """Fill empty descriptions and unknown types from source. No LLM.
+
+        Returns True if any node changed.
+        """
+        project_path = Path(project_path)
+        changed = False
+        for path, node in list(self.nodes.items()):
+            abs_path = project_path / path
+            if not abs_path.is_file():
+                continue
+            if self._enrich_unknown_file_type(path, node):
+                changed = True
+            if self._enrich_empty_description(path, node, abs_path):
+                changed = True
+        if changed:
+            logger.info("依赖图已从源码轻量补全 description / unknown type")
+        return changed
+
+    def enrich_and_save(self, project_path: Path, graph_path: Optional[str] = None) -> bool:
+        """Enrich from source and persist when anything changed."""
+        changed = self.enrich_from_source(project_path)
+        if changed:
+            target = graph_path or str(Path(project_path) / ".dep_graph.json")
+            self.save(target)
+        return changed
+
+    def _enrich_unknown_file_type(self, path: str, node: FileNode) -> bool:
+        if node.file_type not in ("unknown", ""):
+            return False
+        inferred = self._infer_file_type(path)
+        if inferred and inferred not in ("unknown", ""):
+            self.update_file_type(path, inferred)
+            return node.file_type == inferred
+        dependents = self.reverse_adjacency.get(path, set())
+        dep_types = {
+            self.nodes[dep].file_type
+            for dep in dependents
+            if dep in self.nodes
+        }
+        dep_types.discard("")
+        if dependents and dep_types and dep_types <= {"entry"}:
+            self.update_file_type(path, "utils")
+            return node.file_type == "utils"
+        return False
+
+    def _enrich_empty_description(self, path: str, node: FileNode, abs_path: Path) -> bool:
+        if (node.description or "").strip():
+            return False
+        if abs_path.suffix.lower() not in self._ENRICH_SOURCE_SUFFIXES:
+            return False
+        desc = self._description_from_source(abs_path, path)
+        if not desc:
+            return False
+        node.description = desc
+        return True
+
+    def _description_from_source(self, abs_path: Path, rel_path: str) -> str:
+        try:
+            size = abs_path.stat().st_size
+        except OSError:
+            return ""
+        if size <= 0:
+            return ""
+        try:
+            content = abs_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return ""
+        if not content.strip():
+            return ""
+        if len(content) > self._MAX_ENRICH_BYTES:
+            content = content[: self._MAX_ENRICH_BYTES]
+
+        suffix = abs_path.suffix.lower()
+        if suffix in {".py", ".pyw", ".pyi"}:
+            doc = self._python_module_docstring(content)
+            if doc:
+                return doc
+
+        exported = self._exported_symbol_names(content)
+        if exported:
+            return f"定义 {', '.join(exported[:8])}"
+
+        comment = self._first_comment_line(content)
+        if comment:
+            return comment
+
+        inferred = self._infer_file_description(rel_path)
+        if inferred and inferred != "自动补充的模块文件":
+            return inferred
+        return ""
+
+    def _exported_symbol_names(self, content: str) -> List[str]:
+        if not self.language_adapter:
+            return []
+        try:
+            defs = self.language_adapter.extract_definitions(content) or {}
+        except Exception:
+            return []
+        ranked: List[str] = []
+        fallback: List[str] = []
+        for name, definition in defs.items():
+            if not getattr(definition, "is_exported", True):
+                continue
+            symbol_type = getattr(definition, "symbol_type", "")
+            if symbol_type in ("function", "class"):
+                ranked.append(name)
+            else:
+                fallback.append(name)
+        return ranked or fallback
+
+    @staticmethod
+    def _python_module_docstring(content: str) -> str:
+        import ast
+
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return ""
+        doc = ast.get_docstring(tree)
+        if not doc:
+            return ""
+        first = doc.strip().splitlines()[0].strip()
+        return first[:200]
+
+    @staticmethod
+    def _first_comment_line(content: str) -> str:
+        for raw in content.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith("#!"):
+                continue
+            if line.startswith("#"):
+                if "coding:" in line or "coding=" in line:
+                    continue
+                text = line.lstrip("#").strip()
+                if text:
+                    return text[:200]
+                continue
+            if line.startswith("//"):
+                text = line[2:].strip()
+                if text:
+                    return text[:200]
+                continue
+            if line.startswith("/*") or line.startswith("/**"):
+                text = line.lstrip("/*").rstrip("*/").strip().lstrip("*").strip()
+                if text:
+                    return text[:200]
+                continue
+            return ""
+        return ""
 
     def _parse_python_imports(self, file_path: Path, project_path: Path) -> List[str]:
         """解析 Python 文件的 import 语句，映射到项目内的文件路径"""
@@ -1569,7 +1791,6 @@ class DependencyGraph:
 
         重要：__init__.py 必须为 priority=5（最后生成），
         因为工程师生成 __init__.py 时需要先读取同包内其他文件。
-        这与 ensure_package_files() 中 priority=5 一致。
         """
         # 检查是否是包入口文件
         if self.language_adapter and self.language_adapter.package_init_filename:

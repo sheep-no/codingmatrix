@@ -203,7 +203,8 @@ class ReActEngine:
         except (ValueError, Exception):
             pass
 
-        return None
+        from app.agent.json_parser import parse_tool_call
+        return parse_tool_call(text, known_tools=set(self.tool_names) or None)
 
     async def _execute_tool(self, tool_name: str, tool_params: Dict, timeout: float = 120.0) -> Tuple[bool, Any]:
         """执行工具（同步和异步函数统一处理），带超时保护"""
@@ -294,7 +295,7 @@ class ReActEngine:
                 result = {"continue": True, "task_complete": False, "reflection": response}
         except Exception as e:
             logger.error(f"反思阶段失败: {e}")
-            result = {"continue": True, "task_complete": False, "reflection": f"反思失败: {e}"}
+            raise RuntimeError(f"{self.role_name} ReAct reflection LLM call failed: {e}") from e
 
         return result
 
@@ -329,10 +330,14 @@ class ReActEngine:
         )
         try:
             response = await self._call_llm_with_heartbeat(prompt, clean_system)
+            if not response or not str(response).strip():
+                raise RuntimeError(f"{self.role_name} ReAct final answer was empty")
             return response
         except Exception as e:
             logger.error(f"生成最终答案失败: {e}")
-            return f"任务执行完成。执行了 {len(steps)} 个步骤。"
+            if isinstance(e, RuntimeError) and "ReAct final answer" in str(e):
+                raise
+            raise RuntimeError(f"{self.role_name} ReAct final answer failed: {e}") from e
 
     async def run(
         self,
@@ -365,7 +370,7 @@ class ReActEngine:
                     self.role_name,
                     self.heartbeat_timeout,
                 )
-                return ""
+                raise
 
         logger.info(f"{self.role_name} ReAct: 使用 {self.mode} 模式 (project_path={self.project_path}, tools={self.tool_names})")
 
@@ -390,7 +395,7 @@ class ReActEngine:
             await self._emit_event("react_timeout", {
                 "message": f"执行超时（{self.heartbeat_timeout}s 无模型活动）",
             })
-            return ""
+            raise
 
     def _build_history_text(self) -> str:
         """构建工具历史文本（滑动窗口：最近 N 条完整，更早的摘要）
@@ -483,6 +488,8 @@ class ReActEngine:
                     f"{current_prompt}\n\n### 注意：已达到工具调用上限，请直接生成最终代码。",
                     clean_system
                 )
+                if not final_response or not str(final_response).strip():
+                    raise RuntimeError(f"{self.role_name} ReAct forced generate returned empty")
                 self._add_step(ReActStep("final", final_response))
                 return final_response
 
@@ -490,7 +497,7 @@ class ReActEngine:
                 response = await self.call_llm_fn(current_prompt, enhanced_system)
             except Exception as e:
                 logger.error(f"{self.role_name} ReAct LLM 调用失败: {e}")
-                return ""
+                raise RuntimeError(f"{self.role_name} ReAct LLM call failed: {e}") from e
             if not response:
                 # 空响应重试
                 for retry in range(2):
@@ -504,7 +511,7 @@ class ReActEngine:
                         break
                 if not response:
                     logger.error(f"{self.role_name} ReAct LLM 连续 3 次返回空响应")
-                    return ""
+                    raise RuntimeError(f"{self.role_name} ReAct LLM returned empty after 3 attempts")
 
             tool_call = self._parse_tool_call(response)
             if not tool_call:
@@ -550,7 +557,7 @@ class ReActEngine:
                 if isinstance(e, MCPError):
                     logger.error(f"{self.role_name} MCP 连接断开，终止 ReAct 循环: {e}")
                     await self._emit_event("react_error", {"error": f"MCP 连接断开: {e}"})
-                    return ""
+                    raise RuntimeError(f"{self.role_name} MCP connection lost: {e}") from e
                 raise
 
             self.steps[-1].tool_result = tool_result
@@ -577,7 +584,7 @@ class ReActEngine:
                 f"成功={success}, 结果 {len(result_str)} 字符"
             )
 
-        return ""
+        raise RuntimeError(f"{self.role_name} ReAct ended without a final response")
 
     async def _run_full(self, prompt: str, enhanced_system: str) -> str:
         """完整模式：Thought→Action→Observation→Reflection→Final，反射终止
@@ -615,7 +622,7 @@ class ReActEngine:
                     "message": f"第 {iteration + 1} 轮执行超时（{self.heartbeat_timeout}s 无活动）",
                     "round": iteration + 1
                 })
-                return self._build_final_result(task)
+                raise
 
         return self._build_final_result(task)
 
@@ -694,7 +701,9 @@ class ReActEngine:
             thought = await self._call_llm_with_heartbeat(thought_prompt, self._enhanced_system)
         except Exception as e:
             logger.error(f"{self.role_name} ReAct 全模式 LLM 调用失败: {e}")
-            return ""
+            raise RuntimeError(f"{self.role_name} ReAct thought LLM call failed: {e}") from e
+        if not thought or not str(thought).strip():
+            raise RuntimeError(f"{self.role_name} ReAct thought was empty")
         self._add_step(ReActStep("thought", thought))
         await self._stream(f"[思考] {thought}\n\n")
 
@@ -714,7 +723,9 @@ class ReActEngine:
             action_response = await self._call_llm_with_heartbeat(action_prompt, self._enhanced_system)
         except Exception as e:
             logger.error(f"{self.role_name} ReAct 全模式 Action LLM 调用失败: {e}")
-            return ""
+            raise RuntimeError(f"{self.role_name} ReAct action LLM call failed: {e}") from e
+        if not action_response or not str(action_response).strip():
+            raise RuntimeError(f"{self.role_name} ReAct action was empty")
         tool_call = self._parse_tool_call(action_response)
 
         if not tool_call:
@@ -748,7 +759,7 @@ class ReActEngine:
             if isinstance(e, MCPError):
                 logger.error(f"{self.role_name} MCP 连接断开，终止 ReAct 循环: {e}")
                 await self._emit_event("react_error", {"error": f"MCP 连接断开: {e}"})
-                return ""
+                raise RuntimeError(f"{self.role_name} MCP connection lost: {e}") from e
             raise
         self.steps[-1].tool_result = tool_result
         self.steps[-1].success = success
@@ -777,7 +788,7 @@ class ReActEngine:
             observation = await self._call_llm_with_heartbeat(observe_prompt, self._enhanced_system)
         except Exception as e:
             logger.error(f"{self.role_name} ReAct 全模式 Observation LLM 调用失败: {e}")
-            observation = f"观察失败: {e}"
+            raise RuntimeError(f"{self.role_name} ReAct observation LLM call failed: {e}") from e
         self._add_step(ReActStep("observation", observation))
         await self._stream(f"[观察] {observation}\n\n")
 

@@ -6,10 +6,12 @@ RefinementLoop - 迭代修复循环
 
 循环流程：
 1. Generate: 使用 LLM 生成代码
-2. Validate: 语法检查、导入检查、规范一致性检查
+2. Validate: 语法检查、规范一致性检查
 3. Analyze: 分析错误类型和原因
 4. Fix: 将错误信息注入 prompt，重新生成
 5. Repeat: 最多 N 次，直到验证通过或达到最大次数
+
+说明：只有 error 级别的问题会驱动修复循环；warning 只作为诊断信息返回。
 """
 
 import json
@@ -23,6 +25,8 @@ from dataclasses import dataclass
 
 from app.utils import call_llm
 from app.agent.shared_context import SharedContext
+from app.agent.js_syntax import check_js_source, check_ts_source, vue_script_source
+from app.agent.markup_syntax import css_structure_errors, html_structure_errors
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +88,10 @@ class RefinementLoop:
         self.context = context
         self.api_key_token = api_key_token
         self._pending_tasks: set = set()
-        from app.agent.models import DEFAULT_CODE_MODEL
-        self.default_model = context.model_assignment.get("backend_model", DEFAULT_CODE_MODEL) if context.model_assignment else DEFAULT_CODE_MODEL
+        assignment = context.model_assignment or {}
+        self.default_model = assignment.get("backend_model") if isinstance(assignment, dict) else getattr(assignment, "backend_model", None)
+        if not self.default_model:
+            raise RuntimeError("model assignment is required for refinement")
         from app.agent.orchestrator import LayeredModelRouter
         self.model_config = LayeredModelRouter.get_model_config(self.default_model)
         self._complexity = complexity
@@ -131,32 +137,37 @@ class RefinementLoop:
             # Step 1: 验证当前代码
             issues = await self._validate_code(file_path, content, file_type)
 
-            if not issues:
-                # 验证通过
+            all_issues.extend(issues)
+
+            # 只有 error 级别的缺陷才需要修复。warning 是提示性信息（规范建议等），
+            # 既不阻塞文件通过，也不该触发整文件重写：修复循环重写的是当前文件，
+            # 无法解决文件之外的提示，反复重写只会消耗轮次并可能改坏代码。
+            blocking = [issue for issue in issues if issue.severity == "error"]
+
+            if not blocking:
+                # 无阻塞缺陷即视为通过，warning 作为诊断信息保留
                 return RefinementResult(
                     success=True,
                     final_content=content,
                     attempts=attempt,
                     issues_found=all_issues,
                     issues_fixed=issues_fixed,
-                    remaining_issues=[]
+                    remaining_issues=[issue for issue in issues if issue.severity != "error"]
                 )
 
-            all_issues.extend(issues)
-
             # Step 2: 分析错误（含错误行 ±10 行代码上下文）
-            error_summary = self._build_error_summary(issues, content)
+            error_summary = self._build_error_summary(blocking, content)
 
             # Step 3: 如果是最后一次尝试，记录结果并返回
             if attempt == self.MAX_ATTEMPTS:
-                logger.warning(f"文件 {file_path} 经过 {attempt} 次修复仍有 {len(issues)} 个问题")
+                logger.warning(f"文件 {file_path} 经过 {attempt} 次修复仍有 {len(blocking)} 个问题")
                 return RefinementResult(
                     success=False,
                     final_content=content,
                     attempts=attempt,
                     issues_found=all_issues,
                     issues_fixed=issues_fixed,
-                    remaining_issues=issues
+                    remaining_issues=blocking
                 )
 
             # Step 4: 构建修复 prompt
@@ -185,21 +196,21 @@ class RefinementLoop:
                 new_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
                 if not new_content or not new_content.strip():
                     logger.warning(f"修复尝试 {attempt} 返回空内容，消耗一次尝试")
-                    break
+                    continue
 
                 new_content = self._clean_code_block(new_content)
 
                 # Step 6: 验证修复是否有效（内容确实改变了）
                 if new_content.strip() == content.strip():
                     logger.warning(f"修复尝试 {attempt} 未改变代码内容，消耗一次尝试")
-                    break
+                    continue
 
                 content = new_content
-                issues_fixed += len(issues)
+                issues_fixed += len(blocking)
 
             except Exception as e:
                 logger.error(f"修复尝试 {attempt} 失败: {e}")
-                break
+                continue
 
         # 理论上不会到这里（最后一次尝试会提前返回）
         return RefinementResult(
@@ -208,7 +219,7 @@ class RefinementLoop:
             attempts=self.MAX_ATTEMPTS,
             issues_found=all_issues,
             issues_fixed=issues_fixed,
-            remaining_issues=[]
+            remaining_issues=blocking or all_issues
         )
 
     # ==================== 验证方法 ====================
@@ -222,12 +233,11 @@ class RefinementLoop:
         # Python 文件验证
         if ext == '.py':
             issues.extend(self._validate_python_syntax(content, file_path))
-            issues.extend(self._validate_python_imports(content))
             issues.extend(self._validate_spec_consistency(content, file_type))
 
         # JavaScript/TypeScript 文件验证
-        elif ext in ('.js', '.ts', '.vue'):
-            issues.extend(self._validate_js_basic(content))
+        elif ext in ('.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.vue'):
+            issues.extend(self._validate_js_source(content, ext))
 
         # JSON 文件验证
         elif ext == '.json':
@@ -256,60 +266,6 @@ class RefinementLoop:
                 line=e.lineno,
                 suggestion="检查括号匹配、缩进和语法正确性"
             ))
-        return issues
-
-    def _validate_python_imports(self, content: str) -> List[ValidationIssue]:
-        """验证 Python 导入语句"""
-        issues = []
-        standard_libs = {
-            'os', 'sys', 'json', 're', 'datetime', 'pathlib', 'typing', 'asyncio',
-            'logging', 'collections', 'functools', 'itertools', 'math', 'string',
-            'io', 'copy', 'time', 'enum', 'dataclasses', 'abc', 'contextlib',
-            'urllib', 'http', 'email', 'hashlib', 'hmac', 'secrets', 'base64',
-            'struct', 'textwrap', 'unittest', 'pdb', 'traceback', 'warnings',
-            'weakref', 'types', 'importlib', 'sqlite3', 'decimal', 'uuid',
-            'argparse', 'configparser', 'csv', 'html', 'xml', 'zipfile', 'tarfile',
-            'glob', 'shutil', 'tempfile', 'subprocess', 'signal', 'threading',
-            'multiprocessing', 'socket', 'ssl', 'select', 'selectors'
-        }
-
-        imports = set()
-        for line in content.split('\n'):
-            line = line.strip()
-            if line.startswith('import '):
-                parts = line[7:].split()
-                if parts:
-                    module = parts[0].split('.')[0].split(',')[0].strip()
-                    if module:
-                        imports.add(module)
-            elif line.startswith('from '):
-                parts = line[5:].split()
-                if parts:
-                    module = parts[0].split('.')[0].strip()
-                    if module and module != '.':
-                        imports.add(module)
-
-        # 检查非标准库导入
-        missing_imports = []
-        for imp in imports:
-            if imp in standard_libs:
-                continue
-            if imp.startswith('_') or imp.startswith('app.') or imp.startswith('src.'):
-                continue  # 项目内部导入
-            try:
-                import importlib
-                importlib.import_module(imp)
-            except ImportError:
-                missing_imports.append(imp)
-
-        if missing_imports:
-            issues.append(ValidationIssue(
-                type="import",
-                severity="warning",
-                message=f"可能存在缺失的依赖: {', '.join(missing_imports[:5])}",
-                suggestion=f"确保这些包在 requirements.txt 中: {', '.join(missing_imports[:3])}"
-            ))
-
         return issues
 
     def _validate_spec_consistency(self, content: str, file_type: str) -> List[ValidationIssue]:
@@ -345,61 +301,38 @@ class RefinementLoop:
 
         return issues
 
-    def _validate_js_basic(self, content: str) -> List[ValidationIssue]:
-        """基础 JavaScript 验证"""
-        issues = []
-        
-        # 尝试使用 node -c 进行语法检查
-        try:
-            import subprocess
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
-                f.write(content)
-                tmp_path = f.name
-            
-            result = subprocess.run(
-                ['node', '-c', tmp_path],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            
-            if result.returncode != 0:
-                # 解析错误信息
-                error_msg = result.stderr.strip()
-                if error_msg:
-                    # 尝试提取行号
-                    line_match = re.search(r':(\d+)', error_msg)
-                    line_num = int(line_match.group(1)) if line_match else None
-                    issues.append(ValidationIssue(
-                        type="syntax",
-                        severity="error",
-                        message=f"JavaScript 语法错误: {error_msg}",
-                        line=line_num,
-                        suggestion="检查语法错误"
-                    ))
-            
-            # 清理临时文件
-            Path(tmp_path).unlink(missing_ok=True)
-            
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            # node 不可用，回退到基本检查
-            if content.count('{') != content.count('}'):
-                issues.append(ValidationIssue(
-                    type="syntax",
-                    severity="error",
-                    message="花括号不匹配",
-                    suggestion="检查所有 { 和 } 的配对"
-                ))
-            if content.count('(') != content.count(')'):
-                issues.append(ValidationIssue(
-                    type="syntax",
-                    severity="error",
-                    message="圆括号不匹配",
-                    suggestion="检查所有 ( 和 ) 的配对"
-                ))
-        
-        return issues
+    def _validate_js_source(self, content: str, ext: str) -> List[ValidationIssue]:
+        """校验 JS/TS 家族源码，包括 .vue 的 <script> 块与 JSX/TSX。
+
+        `node -c` 无法解析 JSX、类型注解和 Vue 单文件组件，整体送检会误报；
+        按扩展名选择共享校验器（见 app/agent/js_syntax.py）。
+        """
+        use_ts = ext in ('.ts', '.tsx')
+        use_jsx = ext in ('.jsx', '.tsx')
+        source = content
+        if ext == '.vue':
+            source, use_ts, use_jsx = vue_script_source(content)
+        if not source.strip():
+            return []
+
+        if use_ts:
+            ok, error = check_ts_source(source, jsx=use_jsx)
+            label = "TypeScript"
+        else:
+            ok, error = check_js_source(source)
+            label = "JavaScript"
+        if ok:
+            return []
+
+        error = error or "语法检查未通过"
+        line_match = re.search(r':(\d+)', error)
+        return [ValidationIssue(
+            type="syntax",
+            severity="error",
+            message=f"{label} 语法错误: {error}",
+            line=int(line_match.group(1)) if line_match else None,
+            suggestion="检查语法错误",
+        )]
 
     def _validate_json_syntax(self, content: str) -> List[ValidationIssue]:
         """验证 JSON 语法"""
@@ -417,65 +350,28 @@ class RefinementLoop:
         return issues
 
     def _validate_html_basic(self, content: str) -> List[ValidationIssue]:
-        """HTML 基础验证"""
-        issues = []
-        # 检查基本标签闭合
-        for tag in ['html', 'head', 'body']:
-            open_count = len(re.findall(rf'<{tag}[\s>]', content, re.IGNORECASE))
-            close_count = len(re.findall(rf'</{tag}>', content, re.IGNORECASE))
-            if open_count > close_count:
-                issues.append(ValidationIssue(
-                    type="syntax",
-                    severity="error",
-                    message=f"<{tag}> 标签未闭合: 开始 {open_count} 个，结束 {close_count} 个",
-                    suggestion=f"添加 </{tag}> 闭合标签"
-                ))
-        # 检查 script 标签
-        script_opens = len(re.findall(r'<script[\s>]', content, re.IGNORECASE))
-        script_closes = len(re.findall(r'</script>', content, re.IGNORECASE))
-        if script_opens > script_closes:
-            issues.append(ValidationIssue(
+        """HTML 基础验证（复用共享结构校验：注释和原始文本元素里的标签不算）"""
+        return [
+            ValidationIssue(
                 type="syntax",
                 severity="error",
-                message=f"<script> 标签未闭合: 开始 {script_opens} 个，结束 {script_closes} 个",
-                suggestion="添加 </script> 闭合标签"
-            ))
-        # 检查 style 标签
-        style_opens = len(re.findall(r'<style[\s>]', content, re.IGNORECASE))
-        style_closes = len(re.findall(r'</style>', content, re.IGNORECASE))
-        if style_opens > style_closes:
-            issues.append(ValidationIssue(
-                type="syntax",
-                severity="error",
-                message=f"<style> 标签未闭合: 开始 {style_opens} 个，结束 {style_closes} 个",
-                suggestion="添加 </style> 闭合标签"
-            ))
-        return issues
+                message=error,
+                suggestion="检查标签配对，补全缺失的闭合标签",
+            )
+            for error in html_structure_errors(content)
+        ]
 
     def _validate_css_basic(self, content: str) -> List[ValidationIssue]:
-        """CSS 基础验证"""
-        issues = []
-        # 检查大括号匹配
-        brace_open = content.count('{')
-        brace_close = content.count('}')
-        if brace_open != brace_close:
-            issues.append(ValidationIssue(
+        """CSS 基础验证（复用共享结构校验：注释和字符串里的定界符不算）"""
+        return [
+            ValidationIssue(
                 type="syntax",
                 severity="error",
-                message=f"CSS 大括号不匹配: {{ 有 {brace_open} 个，}} 有 {brace_close} 个",
-                suggestion="检查所有 { 和 } 的配对"
-            ))
-        # 检查小括号匹配
-        paren_open = content.count('(')
-        paren_close = content.count(')')
-        if paren_open != paren_close:
-            issues.append(ValidationIssue(
-                type="syntax",
-                severity="error",
-                message=f"CSS 小括号不匹配: ( 有 {paren_open} 个，) 有 {paren_close} 个",
-                suggestion="检查所有 ( 和 ) 的配对"
-            ))
-        return issues
+                message=error,
+                suggestion="检查括号配对与声明闭合",
+            )
+            for error in css_structure_errors(content, check_parentheses=True)
+        ]
 
     # ==================== Prompt 构建 ====================
 

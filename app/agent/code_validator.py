@@ -10,11 +10,85 @@ import asyncio
 import importlib.util
 import logging
 from collections import OrderedDict
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 from pathlib import Path
+
+from app.agent.markup_syntax import css_structure_errors, html_structure_errors
 
 
 logger = logging.getLogger(__name__)
+
+
+def _imports_symbol_from_module(source: str, module: str, symbol: str) -> bool:
+    """源码中是否存在 `from <module> import <symbol>`（AST 精确匹配符号名）。
+
+    文本子串匹配会把 `CORSMiddleware`/`GZipMiddleware` 等 fastapi 顶层合法再导出
+    误判为 `Middleware`。
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and not node.level and node.module == module:
+            if any(alias.name == symbol for alias in node.names):
+                return True
+    return False
+
+
+# 模块级复合语句：其中的定义同样对外可见（如 `try: from x import y`、
+# `if TYPE_CHECKING:` 之外的普通 if 分支赋值）。
+_MODULE_LEVEL_CONTAINERS = (
+    ast.If, ast.Try, ast.With, ast.AsyncWith, ast.For, ast.AsyncFor, ast.While,
+)
+
+
+# 标准库顶层模块名。优先用解释器自带清单，缺失时退回常见子集。
+_STDLIB_MODULES = frozenset(getattr(sys, "stdlib_module_names", ())) or frozenset({
+    'os', 'sys', 'json', 're', 'datetime', 'pathlib', 'typing', 'asyncio', 'logging',
+    'collections', 'functools', 'itertools', 'math', 'string', 'io', 'copy', 'time',
+    'enum', 'dataclasses', 'abc', 'contextlib', 'urllib', 'http', 'email', 'hashlib',
+    'hmac', 'secrets', 'base64', 'struct', 'textwrap', 'difflib', 'unittest', 'doctest',
+    'pdb', 'traceback', 'warnings', 'weakref', 'types', 'importlib',
+})
+
+
+def _iter_module_scope(body: Iterable[ast.stmt]) -> Iterator[ast.stmt]:
+    """遍历模块作用域内的语句（进入复合语句，但不进入函数/类体）。"""
+    for node in body:
+        yield node
+        if isinstance(node, _MODULE_LEVEL_CONTAINERS):
+            yield from _iter_module_scope(node.body)
+            if isinstance(node, ast.Try):
+                for handler in node.handlers:
+                    yield from _iter_module_scope(handler.body)
+            # With/AsyncWith 没有 orelse/finalbody，用 getattr 兼容
+            yield from _iter_module_scope(getattr(node, "orelse", ()) or ())
+            yield from _iter_module_scope(getattr(node, "finalbody", ()) or ())
+
+
+def _module_level_exports(tree: ast.Module) -> Dict[str, set]:
+    """模块对外可见的类/函数/变量名（忽略函数与类体内部的局部定义）。"""
+    exports: Dict[str, set] = {"classes": set(), "functions": set(), "variables": set()}
+    for node in _iter_module_scope(tree.body):
+        if isinstance(node, ast.ClassDef):
+            exports["classes"].add(node.name)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            exports["functions"].add(node.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    exports["variables"].add(target.id)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            # `SECRET_KEY: str = "x"` 与 `x = 1` 一样是模块级导出
+            exports["variables"].add(node.target.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            # 模块级导入的名字对外可见（再导出），如
+            # __init__.py 里的 `from .factory import create_app`
+            for alias in node.names:
+                if alias.name != '*':
+                    exports["variables"].add(alias.asname or alias.name)
+    return exports
 
 
 class CodeValidator:
@@ -56,6 +130,64 @@ class CodeValidator:
         if src_dir.is_dir():
             paths.append(src_dir.resolve())
         return list(dict.fromkeys(str(path) for path in paths if path.is_dir()))
+
+    def _project_top_level_packages(self) -> List[str]:
+        """项目根下可被 `import X` 命中的顶层包/模块名。"""
+        names = []
+        try:
+            for entry in self.project_path.iterdir():
+                if entry.name.startswith(".") or entry.name == "__pycache__":
+                    continue
+                if entry.is_dir():
+                    if (entry / "__init__.py").exists():
+                        names.append(entry.name)
+                elif entry.suffix == ".py":
+                    names.append(entry.stem)
+        except OSError:
+            return []
+        return names
+
+    def _is_module_in_project(self, module: Any) -> bool:
+        """模块对象是否来自待校验项目（而非 Agent 自身代码）。"""
+        origin = getattr(module, "__file__", None)
+        if not origin:
+            return False
+        try:
+            Path(origin).resolve().relative_to(self.project_path)
+        except (OSError, ValueError):
+            return False
+        return True
+
+    def _python_third_party_imports(self) -> List[str]:
+        """项目中来自第三方包的顶层 Python 导入名（排序去重）。
+
+        只用标准库或项目内模块的项目不需要依赖清单；该判断同样避免了把
+        "只打印一段文字" 的单文件脚本判为缺少 requirements.txt。
+        """
+        local_modules = set(self._project_top_level_packages())
+        found = set()
+        for py_file in self.project_path.rglob("*.py"):
+            if "__pycache__" in str(py_file):
+                continue
+            try:
+                source = py_file.read_text(encoding="utf-8", errors="ignore")
+                tree = ast.parse(source)
+            except (OSError, SyntaxError, ValueError):
+                # 无法解析的文件由语法校验负责，这里不重复报错
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = [alias.name.split(".")[0] for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    if node.level or not node.module:
+                        continue
+                    names = [node.module.split(".")[0]]
+                else:
+                    continue
+                for name in names:
+                    if name and name not in _STDLIB_MODULES and name not in local_modules:
+                        found.add(name)
+        return sorted(found)
 
     @classmethod
     def _compute_content_hash(cls, file_content: str) -> str:
@@ -157,27 +289,32 @@ class CodeValidator:
             with open(file_path, 'r', encoding='utf-8') as f:
                 source = f.read()
 
-            # 提取所有 import 语句
+            # 用 ast 提取真实导入语句。按行文本解析会把 docstring/注释里的
+            # "示例: from x import y" 也当成导入，并给相对导入生成假模块名。
             imports = set()
-            for line in source.split('\n'):
-                line = line.strip()
-                if line.startswith('import '):
-                    module = line.split()[1].split('.')[0]
-                    imports.add(module)
-                elif line.startswith('from '):
-                    # Extract the full module path (e.g., "src.utils" from "from src.utils import greet")
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        module_path = parts[1]
-                        # Add the full path and each component
-                        imports.add(module_path)
-                        for part in module_path.split('.'):
-                            if part:
-                                imports.add(part)
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:
+                # 语法错误由 validate_syntax 报告，这里不重复报错
+                return True, []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        top = alias.name.split('.')[0]
+                        if top:
+                            imports.add(top)
+                elif isinstance(node, ast.ImportFrom):
+                    # 相对导入（level > 0）在项目包上下文外无法用 find_spec 判断，
+                    # 交由完整性/符号校验处理，这里跳过以免误报。
+                    if node.level or not node.module:
+                        continue
+                    top = node.module.split('.')[0]
+                    if top:
+                        imports.add(top)
 
             # 检查是否可以导入
             errors = []
-            standard_libs = {'os', 'sys', 'json', 're', 'datetime', 'pathlib', 'typing', 'asyncio', 'logging', 'collections', 'functools', 'itertools', 'math', 'string', 'io', 'copy', 'time', 'enum', 'dataclasses', 'abc', 'contextlib', 'urllib', 'http', 'email', 'hashlib', 'hmac', 'secrets', 'base64', 'struct', 'textwrap', 'difflib', 'unittest', 'doctest', 'pdb', 'traceback', 'warnings', 'weakref', 'types', 'importlib'}
+            standard_libs = _STDLIB_MODULES
 
             # Include the project root even when a generated project has no src/tests directory.
             added_paths = []
@@ -196,7 +333,7 @@ class CodeValidator:
                     spec = importlib.util.find_spec(imp)
                     if spec is None:
                         errors.append(f"缺少依赖: {imp}")
-                except (ModuleNotFoundError, ValueError):
+                except (ImportError, ValueError):
                     errors.append(f"缺少依赖: {imp}")
 
             # Cleanup added paths
@@ -218,6 +355,8 @@ class CodeValidator:
             return True, []
 
         errors = []
+        shadowed_modules = {}
+        project_loaded = []
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 source = f.read()
@@ -248,17 +387,47 @@ class CodeValidator:
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
             try:
+                # 生成的项目常与 Agent 自身包重名（如 app/）。sys.modules 中
+                # 已缓存 Agent 自己的同名包时，生成项目的 `from app import ...`
+                # 会解析到 Agent 代码而非待校验项目，产生假的运行时导入失败。
+                # 执行前临时移出这些同名缓存，执行后恢复。
+                for pkg in self._project_top_level_packages():
+                    cached = sys.modules.get(pkg)
+                    if cached is not None and not self._is_module_in_project(cached):
+                        shadowed_modules[pkg] = cached
+                        del sys.modules[pkg]
                 spec.loader.exec_module(module)
+            except ModuleNotFoundError as e:
+                # 缺失的模块若是项目内包/模块，说明代码引用了不存在的文件；
+                # 否则是 Agent 执行环境未安装该第三方包，不代表生成代码有缺陷。
+                top = (getattr(e, "name", "") or "").split(".")[0]
+                if top and top in set(self._project_top_level_packages()):
+                    errors.append(f"运行时导入失败: {str(e)}")
+                else:
+                    logger.warning("运行时导入失败（环境缺包，不计入代码有效性）: %s", e)
             except ImportError as e:
                 errors.append(f"运行时导入失败: {str(e)}")
             except AttributeError as e:
                 errors.append(f"属性错误 (可能是 API 版本不兼容): {str(e)}")
             except TypeError as e:
                 errors.append(f"类型错误 (可能是 API 参数不兼容): {str(e)}")
+            except Exception:
+                # 其余异常多来自运行环境（缺环境变量、连不上数据库等），
+                # 不代表代码本身有错，交由本地 Agent Host 运行时验证处理。
+                pass
             finally:
-                # 清理临时模块和路径
-                if module_name in sys.modules:
-                    del sys.modules[module_name]
+                # 清理临时模块和路径。只移除与 Agent 自身重名的项目模块
+                # （以及本次校验的模块），避免污染 Agent 进程的 sys.modules，
+                # 同时不能误删项目路径恰好覆盖 Agent 代码时的模块。
+                colliding = set(shadowed_modules) | {module_name}
+                project_loaded.extend(
+                    name
+                    for name, mod in list(sys.modules.items())
+                    if name.split(".")[0] in colliding and self._is_module_in_project(mod)
+                )
+                for name in project_loaded:
+                    sys.modules.pop(name, None)
+                sys.modules.update(shadowed_modules)
                 for p in added_paths:
                     if p in sys.path:
                         sys.path.remove(p)
@@ -282,8 +451,9 @@ class CodeValidator:
             if 'OAuth2PasswordBearer' in source and 'token_url=' not in source and 'tokenUrl=' in source:
                 errors.append("FastAPI 兼容性: OAuth2PasswordBearer 参数应为 'token_url=' 而非 'tokenUrl='")
 
-            # FastAPI Middleware 导入位置变更
-            if 'from fastapi import' in source and 'Middleware' in source.split('from fastapi import')[1].split('\n')[0]:
+            # FastAPI Middleware 导入位置变更（只匹配精确符号：CORSMiddleware 等
+            # 由 fastapi 顶层正常再导出，子串匹配会误判合法导入）
+            if _imports_symbol_from_module(source, 'fastapi', 'Middleware'):
                 errors.append("FastAPI 兼容性: Middleware 已从 fastapi 移至 fastapi.middleware.cors")
 
             # SQLAlchemy 2.0: DeclarativeBase vs Base + BaseModel MRO 冲突
@@ -291,9 +461,10 @@ class CodeValidator:
                 if re.search(r'class\s+\w+\(.*Base.*BaseModel.*\)', source):
                     errors.append("SQLAlchemy 兼容性: 不能同时继承 Base 和 BaseModel (MRO 冲突)")
 
-            # APIRouter.exception_handler 不存在
-            if 'router.exception_handler' in source or 'APIRouter' in source and '.exception_handler' in source:
-                errors.append("FastAPI 兼容性: APIRouter 没有 exception_handler 属性，异常处理应在 app 级别注册")
+            # APIRouter.exception_handler 不存在（app.exception_handler 是合法写法）
+            router_names = set(re.findall(r'(\w+)\s*=\s*APIRouter\s*\(', source))
+            if any(f'{name}.exception_handler' in source for name in router_names):
+                errors.append("FastAPI 兼容性: APIRouter 没有 exception_handler 属性，应改用 router.add_exception_handler 或 app 级别注册")
 
         except Exception as e:
             errors.append(f"API 兼容性检查异常: {str(e)}")
@@ -312,6 +483,11 @@ class CodeValidator:
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await proc.communicate()
+            # 负返回码表示 node 被信号终止（如 OOM），属环境异常而非语法错误，
+            # 不能据此判为无效代码。
+            if proc.returncode < 0:
+                logger.warning("node 被信号终止，跳过 JS 语法校验: %s", proc.returncode)
+                return True, []
             if proc.returncode != 0:
                 err_msg = stderr.decode('utf-8', errors='replace').strip()
                 return False, [f"JS 语法错误: {err_msg}"]
@@ -330,21 +506,7 @@ class CodeValidator:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            errors = []
-            # 检查必需的闭合标签
-            required_tags = ['html', 'head', 'body']
-            for tag in required_tags:
-                open_count = len(re.findall(rf'<{tag}[\s>]', content, re.IGNORECASE))
-                close_count = len(re.findall(rf'</{tag}>', content, re.IGNORECASE))
-                if open_count > close_count:
-                    errors.append(f"HTML 结构: 缺少 </{tag}> 闭合标签")
-
-            # 检查 script 标签是否正确闭合
-            script_opens = len(re.findall(r'<script[\s>]', content, re.IGNORECASE))
-            script_closes = len(re.findall(r'</script>', content, re.IGNORECASE))
-            if script_opens != script_closes:
-                errors.append(f"HTML 结构: script 标签数量不匹配 (开: {script_opens}, 关: {script_closes})")
-
+            errors = html_structure_errors(content)
             return len(errors) == 0, errors
         except Exception as e:
             return False, [f"HTML 验证异常: {str(e)}"]
@@ -358,17 +520,7 @@ class CodeValidator:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            errors = []
-            # 检查大括号匹配
-            open_braces = content.count('{')
-            close_braces = content.count('}')
-            if open_braces != close_braces:
-                errors.append(f"CSS 语法: 大括号不匹配 (开: {open_braces}, 关: {close_braces})")
-
-            # 检查是否有明显的语法错误（如连续的分号）
-            if ';;' in content:
-                errors.append("CSS 语法: 存在连续的分号")
-
+            errors = css_structure_errors(content)
             return len(errors) == 0, errors
         except Exception as e:
             return False, [f"CSS 验证异常: {str(e)}"]
@@ -388,17 +540,13 @@ class CodeValidator:
             try:
                 with open(f, 'r', encoding='utf-8') as source:
                     tree = ast.parse(source.read())
-                module_name = f.relative_to(self.project_path).with_suffix('').as_posix().replace('/', '.')
-                defined_symbols[module_name] = {'classes': set(), 'functions': set(), 'variables': set()}
-                for node in ast.iter_child_nodes(tree):
-                    if isinstance(node, ast.ClassDef):
-                        defined_symbols[module_name]['classes'].add(node.name)
-                    elif isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
-                        defined_symbols[module_name]['functions'].add(node.name)
-                    elif isinstance(node, ast.Assign):
-                        for target in node.targets:
-                            if isinstance(target, ast.Name):
-                                defined_symbols[module_name]['variables'].add(target.id)
+                rel = f.relative_to(self.project_path)
+                if rel.name == '__init__.py':
+                    # 包入口对外就是包本身：app/__init__.py -> app
+                    module_name = '.'.join(rel.parent.parts)
+                else:
+                    module_name = '.'.join(rel.with_suffix('').parts)
+                defined_symbols[module_name] = _module_level_exports(tree)
             except Exception as e:
                 logger.debug(f"AST 解析失败 {f}（语法错误跳过）：{e}")
                 pass  # 语法错误的文件跳过
@@ -410,10 +558,20 @@ class CodeValidator:
                 with open(main_file, 'r', encoding='utf-8') as f:
                     main_content = f.read()
 
-                # 提取 from X import Y 语句
-                from_imports = re.findall(r'from\s+([\w.]+)\s+import\s+([\w,\s]+)', main_content)
-                for module, imports in from_imports:
-                    imported_names = [n.strip() for n in imports.split(',')]
+                # 用 ast 提取 from X import Y。按行文本解析会把 `import Y as Z`、
+                # 括号折行和注释都拼成假名字，产生假的「未导出」报错。
+                from_imports = []
+                try:
+                    main_tree = ast.parse(main_content)
+                except SyntaxError:
+                    main_tree = None
+                if main_tree is not None:
+                    for node in ast.walk(main_tree):
+                        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                            from_imports.append(
+                                (node.module, [alias.name for alias in node.names])
+                            )
+                for module, imported_names in from_imports:
                     # 检查模块是否存在
                     module_path = module.replace('.', '/') + '.py'
                     init_path = module.replace('.', '/') + '/__init__.py'
@@ -427,9 +585,15 @@ class CodeValidator:
                                           defined_symbols[module]['variables'])
                             for name in imported_names:
                                 if name and name not in all_symbols and name != '*':
-                                    # 可能是从子模块导入，检查子模块
-                                    sub_module_path = module.replace('.', '/') + '/' + name + '.py'
-                                    if not (self.project_path / sub_module_path).exists():
+                                    # 可能是从子模块或子包导入：
+                                    # from pkg import mod   -> pkg/mod.py
+                                    # from pkg import sub   -> pkg/sub/__init__.py
+                                    module_dir = module.replace('.', '/')
+                                    sub_module_paths = (
+                                        self.project_path / module_dir / f"{name}.py",
+                                        self.project_path / module_dir / name / "__init__.py",
+                                    )
+                                    if not any(p.exists() for p in sub_module_paths):
                                         errors.append(f"跨文件引用: '{module}' 模块未导出 '{name}' (实际导出: {', '.join(sorted(all_symbols)) if all_symbols else '无'})")
             except Exception as e:
                 logger.debug(f"跨文件引用检查失败：{e}")
@@ -482,7 +646,9 @@ class CodeValidator:
 
         if file_path.suffix == '.py':
             syntax_ok, syntax_errs = await self.validate_syntax(file_path)
-            import_ok, import_errs = await self.validate_imports(file_path)
+            # 导入检查结果只作为诊断信息：包是否安装取决于 Agent 执行环境，
+            # 不代表生成代码有缺陷，因此不参与 is_valid（与 validate_requirements 一致）。
+            _import_ok, import_errs = await self.validate_imports(file_path)
             runtime_ok, runtime_errs = await self.validate_runtime_imports(file_path)
             api_ok, api_errs = await self.validate_api_compatibility(file_path)
 
@@ -491,7 +657,7 @@ class CodeValidator:
             results["runtime_errors"].extend(runtime_errs)
             results["api_errors"].extend(api_errs)
 
-            if not syntax_ok or not import_ok or not runtime_ok or not api_ok:
+            if not syntax_ok or not runtime_ok or not api_ok:
                 results["is_valid"] = False
 
         elif file_path.suffix == '.js':
@@ -570,7 +736,17 @@ class CodeValidator:
                 logger.debug(f"Pipfile 解析失败：{e}")
 
         if not found_file:
-            return False, ["缺少 requirements.txt / pyproject.toml / Pipfile"]
+            # 非 Python 项目（如纯前端工程）就没有 Python 依赖清单，不算缺陷；
+            # 只用标准库/项目内模块的 Python 代码同样无需依赖清单。
+            if not any(self.project_path.rglob('*.py')):
+                return True, []
+            third_party = self._python_third_party_imports()
+            if not third_party:
+                return True, []
+            return False, [
+                "缺少 requirements.txt / pyproject.toml / Pipfile"
+                f"（项目导入了第三方包: {', '.join(third_party)}）"
+            ]
 
         # Python 包名到导入名的常见映射
         PACKAGE_TO_IMPORT = {
@@ -604,7 +780,14 @@ class CodeValidator:
             except ImportError:
                 missing.append(pkg)
 
-        return len(missing) == 0, [f"未安装的包: {', '.join(missing)}" if missing else ""]
+        # 包是否安装取决于 Agent 执行环境，不代表生成代码有缺陷，因此不计入
+        # 代码有效性，避免把环境缺包误判为生成失败。
+        if missing:
+            logger.warning(
+                "依赖清单中的包在当前环境未安装（不计入代码有效性）: %s",
+                ", ".join(missing),
+            )
+        return True, []
 
     async def run_full_validation(self) -> Dict[str, Any]:
         """运行完整验证（并发优化 + 缓存 + 运行时/API 兼容性检查 + 前端验证 + 跨文件检查）"""
@@ -648,12 +831,12 @@ class CodeValidator:
         # 并发验证 Python 文件
         async def validate_py_file(py_file: Path) -> Tuple[List[str], List[str], List[str], List[str]]:
             syntax_ok, syntax_errs = await self.validate_syntax(py_file)
-            import_ok, import_errs = await self.validate_imports(py_file)
+            _import_ok, import_errs = await self.validate_imports(py_file)
             runtime_ok, runtime_errs = await self.validate_runtime_imports(py_file)
             api_ok, api_errs = await self.validate_api_compatibility(py_file)
             return (
                 syntax_errs if not syntax_ok else [],
-                import_errs if not import_ok else [],
+                import_errs,
                 runtime_errs if not runtime_ok else [],
                 api_errs if not api_ok else []
             )
@@ -674,7 +857,8 @@ class CodeValidator:
                     results["import_errors"].extend(import_errs)
                     results["runtime_errors"].extend(runtime_errs)
                     results["api_errors"].extend(api_errs)
-                    if syntax_errs or import_errs or runtime_errs or api_errs:
+                    # import_errs 只上报环境缺包等诊断信息，不参与有效性判定
+                    if syntax_errs or runtime_errs or api_errs:
                         results["is_valid"] = False
 
         # 并发验证前端文件

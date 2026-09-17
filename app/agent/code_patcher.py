@@ -83,8 +83,7 @@ class CodePatcher:
             unified diff patch 字符串，或 None
         """
         if not self.llm_call_fn:
-            logger.warning("未提供 LLM 调用函数，无法生成 patch")
-            return None
+            raise RuntimeError("LLM call function is not configured for patch generation")
 
         system_prompt = """你是一位代码补丁生成专家。
 
@@ -132,10 +131,14 @@ class CodePatcher:
         try:
             response = await self.llm_call_fn(prompt, system_prompt)
             patch = self._extract_patch_from_response(response)
+            if not patch:
+                raise RuntimeError(f"LLM patch generation returned no patch for {file_path}")
             return patch
+        except RuntimeError:
+            raise
         except Exception as e:
             logger.error(f"生成 patch 失败: {e}")
-            return None
+            raise RuntimeError(f"LLM patch generation failed: {e}") from e
 
     def generate_diff_from_content(
         self,
@@ -465,15 +468,7 @@ async def apply_incremental_change(
     patcher = CodePatcher(llm_call_fn=llm_call_fn)
 
     if not file_path.exists():
-        return PatchResult(
-            success=False,
-            file_path=str(file_path),
-            original_content="",
-            patched_content="",
-            diff="",
-            errors=["文件不存在"],
-            warnings=[]
-        )
+        raise RuntimeError(f"incremental patch target does not exist: {file_path}")
 
     original_content = file_path.read_text(encoding='utf-8')
 
@@ -486,18 +481,16 @@ async def apply_incremental_change(
     )
 
     if not patch:
-        return PatchResult(
-            success=False,
-            file_path=str(file_path),
-            original_content=original_content,
-            patched_content="",
-            diff="",
-            errors=["生成 patch 失败"],
-            warnings=[]
-        )
+        raise RuntimeError(f"LLM patch generation returned no patch for {file_path}")
 
     # 应用 patch
-    return await patcher.apply_patch(str(file_path), original_content, patch)
+    result = await patcher.apply_patch(str(file_path), original_content, patch)
+    if not result.success:
+        raise RuntimeError(
+            f"incremental patch apply failed for {file_path}: "
+            + "; ".join(result.errors)
+        )
+    return result
 
 
 @dataclass
@@ -554,9 +547,9 @@ class CrossFilePatcher:
                 try:
                     content = (project_path / changed_file).read_text(encoding="utf-8", errors="ignore")
                 except Exception as e:
-                    logger.debug(f"读取变更文件失败 {changed_file}：{e}")
-                    result.failed_patches.append(changed_file)
-                    continue
+                    raise RuntimeError(f"failed to read changed file {changed_file}: {e}") from e
+            if not content:
+                raise RuntimeError(f"changed file is empty or missing: {changed_file}")
 
             project_context = {
                 "requirement": requirement,
@@ -574,10 +567,10 @@ class CrossFilePatcher:
                 if patch_result.success:
                     result.primary_result = patch_result
                 else:
-                    result.failed_patches.append(changed_file)
-                    result.primary_result = patch_result
+                    errors = "; ".join(patch_result.errors or ["apply_patch failed"])
+                    raise RuntimeError(f"failed to apply patch to {changed_file}: {errors}")
             else:
-                result.failed_patches.append(changed_file)
+                raise RuntimeError(f"LLM returned empty patch for {changed_file}")
 
         for source_file, dependents in affected_files.items():
             for dep_file in dependents:
@@ -589,9 +582,9 @@ class CrossFilePatcher:
                     try:
                         dep_content = (project_path / dep_file).read_text(encoding="utf-8", errors="ignore")
                     except Exception as e:
-                        logger.debug(f"读取依赖文件失败 {dep_file}：{e}")
-                        result.failed_patches.append(dep_file)
-                        continue
+                        raise RuntimeError(f"failed to read dependent file {dep_file}: {e}") from e
+                if not dep_content:
+                    raise RuntimeError(f"dependent file is empty or missing: {dep_file}")
 
                 dep_requirement = (
                     f"文件 {source_file} 已修改（需求：{requirement}），"
@@ -615,9 +608,10 @@ class CrossFilePatcher:
                     if dep_result.success:
                         result.dependent_results.append(dep_result)
                     else:
-                        result.failed_patches.append(dep_file)
+                        errors = "; ".join(dep_result.errors or ["apply_patch failed"])
+                        raise RuntimeError(f"failed to apply patch to {dep_file}: {errors}")
                 else:
-                    result.failed_patches.append(dep_file)
+                    raise RuntimeError(f"LLM returned empty patch for {dep_file}")
 
         logger.info(
             f"跨文件 patch 生成完成: "
@@ -626,4 +620,10 @@ class CrossFilePatcher:
             f"failed={len(result.failed_patches)}"
         )
 
+        if result.failed_patches:
+            raise RuntimeError(
+                "cross-file patch failed for "
+                f"{len(result.failed_patches)} file(s): "
+                + ", ".join(result.failed_patches)
+            )
         return result

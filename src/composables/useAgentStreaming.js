@@ -44,6 +44,42 @@ export function markThinkingStreamEnded(messages, { agent, phase } = {}) {
   return messages
 }
 
+export function resolveIncrementalStreamOptions(hasExistingFiles, currentProjectPath) {
+  const incremental = Boolean(hasExistingFiles && currentProjectPath)
+  if (!incremental) return { incremental: false }
+  return {
+    incremental: true,
+    engine: 'core',
+    is_resume: false,
+    project_path: currentProjectPath,
+  }
+}
+
+export function parseAgentSettings(raw) {
+  try {
+    const parsed = JSON.parse(raw || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+export function resolveCrossValidationFallback(settings) {
+  return settings?.crossValidationFallback === true
+}
+
+export function resolveGenerationFlags(settings) {
+  // Persisted toggles default to enabled so an unset value keeps current behavior.
+  const enabled = (key) => settings?.[key] !== false
+  return {
+    enable_review: enabled('enableReview'),
+    enable_validation: enabled('enableValidation'),
+    enable_error_recovery: enabled('enableErrorRecovery'),
+    enable_memory: enabled('enableMemory'),
+    spec_first: enabled('specFirst'),
+  }
+}
+
 export function useAgentStreaming(projectApi, workspace, files, generation, session, taskFeedback = null) {
   // 注意：workspace 和 files 是 reactive() 对象，ref 属性会被自动解包
   // 不能解构后使用 .value，必须通过对象访问（如 workspace.currentAgent）
@@ -338,6 +374,21 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       case 'log':
         addLog('info', data.data?.message || data.message || '')
         break
+      case 'pipeline_mode': {
+        workspace.pipelineMode = {
+          engine: data.engine || '',
+          incremental: Boolean(data.incremental),
+          tools: data.tools || '',
+          skillsInjected: Boolean(data.skills_injected),
+          enableSkills: data.enable_skills !== false,
+          frozenContract: Boolean(data.frozen_contract),
+          message: data.message || '',
+          timestamp: normalizeEventTimestamp(data.timestamp)
+        }
+        addLog('info', data.message || '管线模式已确定')
+        addDetail('管线模式', data.message || `${data.engine || ''} ${data.tools || ''}`)
+        break
+      }
       case 'react_tool_call': {
         const toolMsg = data.message || `调用工具: ${data.tool || '未知'}`
         addLog('info', toolMsg)
@@ -398,7 +449,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         })
         if (session.currentSessionId) {
           const doneData = data.data || data
-          const dirName = doneData.output_dir || session.currentSessionId
+          const dirName = doneData.project_path || doneData.output_dir || session.currentSessionId
           workspace.currentProjectPath = dirName
         }
         if (data.data?.performance) {
@@ -465,25 +516,24 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     
     // 自动判断模式：有已生成文件则为增量更新，否则为新建
     const hasExistingFiles = files.generatedFiles.length > 0
-    const isIncremental = hasExistingFiles && workspace.currentProjectPath
+    const incrementalOptions = resolveIncrementalStreamOptions(
+      hasExistingFiles,
+      workspace.currentProjectPath,
+    )
+    const savedSettings = parseAgentSettings(
+      typeof localStorage !== 'undefined' ? localStorage.getItem('agent_settings') : null,
+    )
     
     return {
       requirement,
       session_id: sessionId,
-      enable_review: true,
-      enable_validation: true,
-      enable_error_recovery: true,
-      enable_memory: true,
-      spec_first: true,
-      dependency_graph: true,
-      incremental: isIncremental,
+      ...resolveGenerationFlags(savedSettings),
+      cross_validation_fallback: resolveCrossValidationFallback(savedSettings),
       require_approval: false,
       api_key_token: selectedApiKeyToken ? selectedApiKeyToken.token : undefined,
       provider_id: providerId,
       project_name: projectName || undefined,
-      ...(isIncremental ? {
-        project_path: workspace.currentProjectPath
-      } : {})
+      ...incrementalOptions,
     }
   }
 
@@ -559,7 +609,10 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
 
     // 自动判断模式
     const hasExistingFiles = files.generatedFiles.length > 0
-    const isIncremental = hasExistingFiles && workspace.currentProjectPath
+    const isIncremental = resolveIncrementalStreamOptions(
+      hasExistingFiles,
+      workspace.currentProjectPath,
+    ).incremental
     const mode = isIncremental ? '增量更新' : '新建项目'
     
     if (!isIncremental) {
@@ -568,6 +621,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     }
     workspace.logs = []
     workspace.toolEvents = []
+    workspace.pipelineMode = null
     generation.isGenerating = true
     taskFeedback?.start({ stage: isIncremental ? '准备增量更新' : '准备生成项目', progress: 0 })
     addLog('info', `开始${mode}...`)

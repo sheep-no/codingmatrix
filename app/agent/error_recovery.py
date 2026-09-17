@@ -13,7 +13,6 @@ from pathlib import Path
 from app.utils import call_llm
 from app.agent.code_validator import CodeValidator
 from app.agent.specialists import CodeReviewer
-from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL, DEFAULT_FAST_MODEL
 from app.agent.dynamic_model_router import LayeredModelRouter
 from app.agent.test_runner import TestRunner
 from app.agent.error_classifier import error_classifier, ErrorClassification
@@ -41,22 +40,6 @@ class ErrorRecoveryLoop:
 
     MAX_FIX_ATTEMPTS = 3  # 智能修正循环最多尝试 3 次（捕获深层问题）
 
-    # 默认模型降级链（硬编码兜底，SiliconFlow 模型）
-    DEFAULT_FALLBACK_CHAIN = [
-        DEFAULT_CODE_MODEL,        # 代码修复首选
-        DEFAULT_REASONING_MODEL,   # 通用修复
-        DEFAULT_FAST_MODEL,        # 快速降级
-    ]
-
-    # 供应商级降级链（当用户使用非 SiliconFlow Key 时，用同供应商模型）
-    _PROVIDER_FALLBACK_CHAINS = {
-        "dashscope": ["qwen-plus", "qwen-turbo"],
-        "zhipu": ["glm-4", "glm-4-flash"],
-        "deepseek": ["deepseek-chat", "deepseek-reasoner"],
-        "openai": ["gpt-4o", "gpt-4o-mini"],
-        "anthropic": ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"],
-    }
-
     def __init__(self, validator: CodeValidator, reviewer: CodeReviewer, api_key_token: Optional[str] = None, cancel_event=None):
         self.validator = validator
         self.reviewer = reviewer
@@ -68,13 +51,12 @@ class ErrorRecoveryLoop:
         self.MODEL_FALLBACK_CHAIN = self._load_fallback_chain("error_recovery")
 
     def _load_fallback_chain(self, chain_name: str = "error_recovery") -> List[str]:
-        """从配置文件加载降级链（供应商感知 + 用户偏好）
+        """加载错误恢复降级链。
 
         优先级：
         1. 用户偏好（disabled → 空链；custom → 用户自定义链）
         2. 配置文件中的降级链
-        3. 供应商级降级链
-        4. 硬编码默认链
+        无用户/管理员配置时返回空链，不换弱模型。
         """
         from app.agent.dynamic_model_router import load_agent_model_config, resolve_model_key
 
@@ -99,30 +81,7 @@ class ErrorRecoveryLoop:
             if chain:
                 resolved = [resolve_model_key(m) for m in chain]
                 return resolved
-
-        # 3. 检测用户供应商，使用同供应商的降级链
-        user_provider = self._detect_user_provider()
-        if user_provider and user_provider != "siliconflow":
-            provider_chain = self._PROVIDER_FALLBACK_CHAINS.get(user_provider, [])
-            if provider_chain:
-                logger.debug(f"使用 {user_provider} 供应商降级链: {provider_chain}")
-                return provider_chain
-
-        # 4. 硬编码默认链
-        return self.DEFAULT_FALLBACK_CHAIN.copy()
-
-    def _detect_user_provider(self) -> Optional[str]:
-        """从 api_key_token 检测用户 Key 所属供应商"""
-        if not self.api_key_token:
-            return None
-        try:
-            from app.services.apikey_manager import get_metadata_by_token
-            meta = get_metadata_by_token(self.api_key_token)
-            if meta:
-                return meta.get("provider", "").lower()
-        except Exception as e:
-            logger.debug(f"获取供应商元数据失败（非致命，使用默认）: {e}")
-        return None
+        return []
 
     def _get_user_fallback_preference(self) -> Optional[Dict]:
         """获取用户的降级链偏好配置"""
@@ -171,8 +130,7 @@ class ErrorRecoveryLoop:
             return fix_result["success"], fix_result["fixed_content"]
 
         except Exception as e:
-            logger.error(f"验证修复异常: {e}")
-            return False, content
+            raise RuntimeError(f"error recovery failed: {e}") from e
 
         finally:
             if temp_file.exists():
@@ -436,9 +394,12 @@ class ErrorRecoveryLoop:
             if validation["is_valid"]:
                 return 1.0
             else:
-                # 根据错误数量计算质量分数
+                # 根据错误数量计算质量分数。import_errors 反映的是 Agent 执行环境
+                # 是否安装了第三方包，不代表生成代码有缺陷（validate_single_file
+                # 同样不把它计入 is_valid），因此不参与评分，避免环境缺包污染
+                # 修复策略的质量评分。
                 error_count = 0
-                for key in ["syntax_errors", "import_errors", "runtime_errors", "api_errors", "frontend_errors"]:
+                for key in ["syntax_errors", "runtime_errors", "api_errors", "frontend_errors"]:
                     error_count += len(validation.get(key, []))
 
                 # 最多5个错误，超过5个按5算
@@ -450,22 +411,17 @@ class ErrorRecoveryLoop:
             return 0.5  # 默认中等质量
 
     def _build_default_fix_template(self) -> str:
-        """构建默认修复模板"""
-        return """请修复以下代码中的错误。
+        """默认修复策略。
 
-【当前代码】
-```
-{content}
-```
-
-【发现的错误】
-{error_context}
-
-【修复要求】
-1. {suggested_fix_strategy}
-2. 仅修复指出的问题，保持其他代码不变
-3. 确保修复后的代码能通过语法、导入和依赖验证
-4. 返回完整修复后的代码，不要省略任何部分"""
+        该文本只作为【修复策略】注入系统提示，必须是策略说明本身。此前的默认值
+        是一整份带 {content}/{error_context} 占位符的提示词模板，占位符从未被
+        填充，导致系统提示与【发现的错误】段落里出现字面量 {content}，并把完整
+        提示词框架重复嵌进错误上下文。需要注入错误上下文的策略模板请通过
+        strategy_evaluator 提供并在其中显式写 {error_context}。
+        """
+        return """1. 依据【发现的错误】逐条定位并修复，只改动导致错误的那几处代码
+2. 不要删除或重写与错误无关的代码、导入、函数与配置
+3. 修复后返回完整文件内容，不得省略、不得使用 "..." 或占位符代替代码"""
 
     def _build_targeted_error_context_with_template(
         self,
@@ -491,26 +447,14 @@ class ErrorRecoveryLoop:
         from app.agent.dynamic_model_router import load_agent_model_config, resolve_model_key
         config = load_agent_model_config()
 
-        # 默认映射（硬编码兜底）
-        DEFAULT_ERROR_MODEL_MAPPING = {
-            "NameError": DEFAULT_FAST_MODEL,       # 简单变量错误，快速模型即可
-            "AttributeError": DEFAULT_CODE_MODEL,  # 需要理解对象结构
-            "ImportError": DEFAULT_CODE_MODEL,     # 需要理解模块系统
-            "SyntaxError": DEFAULT_FAST_MODEL,     # 语法错误，简单修复
-            "TypeError": DEFAULT_CODE_MODEL,       # 类型系统理解
-            "KeyError": DEFAULT_FAST_MODEL,        # 简单字典操作
-            "IndexError": DEFAULT_FAST_MODEL,      # 简单索引操作
-            "LogicError": DEFAULT_CODE_MODEL       # 复杂逻辑需要强推理
-        }
-
-        # 尝试从配置文件加载
-        ERROR_MODEL_MAPPING = DEFAULT_ERROR_MODEL_MAPPING.copy()
+        ERROR_MODEL_MAPPING = {}
         if config and "error_type_models" in config:
             for error_type_key, model_id in config["error_type_models"].items():
                 ERROR_MODEL_MAPPING[error_type_key] = resolve_model_key(model_id)
 
-        # 获取推荐模型
-        recommended_model = ERROR_MODEL_MAPPING.get(error_type, models_to_try[0])
+        if not models_to_try:
+            raise RuntimeError("error recovery has no models to try")
+        recommended_model = ERROR_MODEL_MAPPING.get(error_type)
 
         # 如果推荐模型不在可用模型列表中，使用第一个模型
         if recommended_model in models_to_try:
@@ -523,6 +467,11 @@ class ErrorRecoveryLoop:
         """构建针对性的错误上下文（基于错误分类）"""
         context_parts = []
 
+        # import_errors 来自 validate_single_file 对 Agent 执行环境的 find_spec 探测，
+        # 绝大多数是环境未安装第三方包（见 CodeValidator.validate_single_file 注释），
+        # 不代表代码缺陷，也不参与 is_valid/质量评分。把它写进修复提示会让模型去改
+        # 本来正确的 import，因此不注入提示，仅保留在日志与错误记录里。
+
         # 添加错误分类信息
         context_parts.append(f"## 错误类型\n{classification.error_type}: {classification.description}")
         context_parts.append(f"**针对性修复建议**: {classification.suggested_fix_strategy}")
@@ -532,11 +481,6 @@ class ErrorRecoveryLoop:
             context_parts.append("## 语法错误\n" + "\n".join(f"- {e}" for e in errors["syntax_errors"]))
             if classification.error_type == "SyntaxError":
                 context_parts.append("**重点检查**: 括号匹配、缩进、冒号、引号闭合等基本语法")
-
-        if errors.get("import_errors"):
-            context_parts.append("## 导入错误\n" + "\n".join(f"- {e}" for e in errors["import_errors"]))
-            if classification.error_type == "ImportError":
-                context_parts.append("**重点检查**: 模块已安装、导入路径正确、__init__.py 存在")
 
         if errors.get("dependency_errors"):
             context_parts.append("## 依赖错误\n" + "\n".join(f"- {e}" for e in errors["dependency_errors"]))
@@ -566,78 +510,6 @@ class ErrorRecoveryLoop:
 
             if fix_suggestions:
                 context_parts.append("**针对性修复建议**:\n" + "\n".join(f"- {s}" for s in fix_suggestions))
-
-        if errors.get("api_errors"):
-            api_errs = errors["api_errors"]
-            context_parts.append("## API 兼容性错误\n" + "\n".join(f"- {e}" for e in api_errs))
-            fix_suggestions = []
-            for e in api_errs:
-                if "tokenUrl" in e:
-                    fix_suggestions.append("将 `OAuth2PasswordBearer(tokenUrl=...)` 改为 `OAuth2PasswordBearer(token_url=...)`")
-                elif "Middleware" in e:
-                    fix_suggestions.append("将 `from fastapi import Middleware` 改为 `from fastapi.middleware.cors import CORSMiddleware`")
-                elif "MRO" in e or "BaseModel" in e:
-                    fix_suggestions.append("SQLAlchemy 模型不应同时继承 Base 和 BaseModel，选择其一或使用 Pydantic v2 的模型验证")
-                elif "exception_handler" in e:
-                    fix_suggestions.append("异常处理器应在 app 级别注册: `app.exception_handler(Exception)(handler)`，而非 router 级别")
-            if fix_suggestions:
-                context_parts.append("**修复建议**:\n" + "\n".join(f"- {s}" for s in fix_suggestions))
-
-        if errors.get("frontend_errors"):
-            frontend_errs = errors["frontend_errors"]
-            context_parts.append("## 前端错误\n" + "\n".join(f"- {e}" for e in frontend_errs))
-            fix_suggestions = []
-            for e in frontend_errs:
-                if "JS 语法错误" in e:
-                    fix_suggestions.append("检查 JavaScript 语法：分号、括号匹配、变量声明等")
-                elif "HTML 结构" in e:
-                    fix_suggestions.append("检查 HTML 标签是否正确闭合，确保 html/head/body 标签完整")
-                elif "CSS 语法" in e:
-                    fix_suggestions.append("检查 CSS 大括号匹配、选择器语法、属性值格式")
-            if fix_suggestions:
-                context_parts.append("**修复建议**:\n" + "\n".join(f"- {s}" for s in fix_suggestions))
-
-        if errors.get("cross_file_errors"):
-            cross_errs = errors["cross_file_errors"]
-            context_parts.append("## 跨文件一致性错误\n" + "\n".join(f"- {e}" for e in cross_errs))
-            context_parts.append("**修复建议**: 确保导入的模块存在且导出了所需的符号，检查文件路径是否正确")
-
-        if attempt > 0:
-            context_parts.append(f"\n## 注意\n此前已尝试修复 {attempt} 次但未通过验证，请检查是否有遗漏的错误或逻辑问题。")
-
-        return "\n".join(context_parts) if context_parts else "未知验证错误"
-
-    def _build_error_context(self, errors: Dict, content: str, attempt: int) -> str:
-        """构建详细的错误上下文（包含修复建议）"""
-        context_parts = []
-
-        if errors.get("syntax_errors"):
-            context_parts.append("## 语法错误\n" + "\n".join(f"- {e}" for e in errors["syntax_errors"]))
-            context_parts.append("**修复建议**: 检查括号匹配、缩进、冒号、引号闭合等基本语法")
-
-        if errors.get("import_errors"):
-            context_parts.append("## 导入错误\n" + "\n".join(f"- {e}" for e in errors["import_errors"]))
-            context_parts.append("**修复建议**: 确认模块已安装，检查导入路径是否正确，确保 __init__.py 存在")
-
-        if errors.get("dependency_errors"):
-            context_parts.append("## 依赖错误\n" + "\n".join(f"- {e}" for e in errors["dependency_errors"]))
-            context_parts.append("**修复建议**: 运行 `pip install <包名>` 或在 requirements.txt 中添加缺失的包")
-
-        if errors.get("runtime_errors"):
-            runtime_errs = errors["runtime_errors"]
-            context_parts.append("## 运行时错误\n" + "\n".join(f"- {e}" for e in runtime_errs))
-            fix_suggestions = []
-            for e in runtime_errs:
-                if "passlib" in e:
-                    fix_suggestions.append("将 `import passlib.hash.bcrypt` 改为 `from passlib.hash import bcrypt`")
-                elif "运行时导入失败" in e:
-                    fix_suggestions.append(f"检查导入路径和模块是否存在: {e}")
-                elif "属性错误" in e or "API 版本" in e:
-                    fix_suggestions.append("检查库的 API 是否与已安装版本兼容，查阅官方文档确认正确的属性名")
-                elif "类型错误" in e or "API 参数" in e:
-                    fix_suggestions.append("检查函数调用参数名和类型是否与 API 定义匹配")
-            if fix_suggestions:
-                context_parts.append("**修复建议**:\n" + "\n".join(f"- {s}" for s in fix_suggestions))
 
         if errors.get("api_errors"):
             api_errs = errors["api_errors"]

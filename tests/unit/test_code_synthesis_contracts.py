@@ -337,6 +337,41 @@ def test_contract_index_freezes_shared_contracts() -> None:
         )
 
 
+def test_contract_index_tolerates_non_public_duplicate_symbols() -> None:
+    """private/internal 同名符号是合法的，不能让契约索引硬失败。"""
+    plan = ProjectGenerationPlan.build(
+        [{"path": "app/a.py"}, {"path": "app/b.py"}],
+        interfaces=InterfaceRegistry.build([
+            {"module": "app/a.py", "owner": "app/a.py",
+             "symbols": [{"name": "router", "visibility": "private"}]},
+            {"module": "app/b.py", "owner": "app/b.py",
+             "symbols": [{"name": "router", "visibility": "internal"}]},
+        ]),
+    )
+
+    index = ContractIndex.from_generation_plan(plan)
+
+    assert index.entries == ()
+    assert index.get("router") is None
+
+
+def test_contract_index_keeps_first_entry_for_duplicate_names() -> None:
+    """接口符号与文件契约重名时保留接口条目，不再抛 ValidationError。"""
+    plan = ProjectGenerationPlan.build(
+        [{"path": "src/api.py", "contract": {"name": "create_app"}}],
+        interfaces=InterfaceRegistry.build([{
+            "module": "src/api.py",
+            "owner": "src/api.py",
+            "symbols": [{"name": "create_app", "return_type": "FastAPI"}],
+        }]),
+    )
+
+    index = ContractIndex.from_generation_plan(plan)
+
+    assert tuple(entry.name for entry in index.entries) == ("create_app",)
+    assert index.get("create_app").kind == "interface"
+
+
 @pytest.mark.parametrize("collection", ["routes", "endpoints"])
 def test_http_body_contract_index_roundtrip_and_digest(collection):
     from app.agent.code_synthesis_contracts import HttpContract

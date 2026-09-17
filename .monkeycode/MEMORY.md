@@ -55,6 +55,9 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 根配置 `playwright.config.js` 的 `testDir` 为 `./tests/e2e`；运行时用根 CLI + `src/node_modules/@playwright/test`，并设置 `PLAYWRIGHT_EXECUTABLE_PATH` 指向 ms-playwright chromium。
   - 智谱免费档并发：`glm-4.7-flash=1`，`glm-4-flash-250414=20`，`glm-z1-flash` 未单独限流（代码默认 6，受全局 LLM 信号量 6 约束）。
   - Agent 实测用 `TEST_API_KEY`（供应商 `glm`）+ 超管 `mr_yang@example.com` 改角色；流式请求走 `preferredAgentKey`，测完恢复 YAML 角色。
+  - `tests/e2e/agent-semi-import-live.spec.js` 的增量架构师用 `glm-4.7-flash`，该模型易触发上游 429（code 1305），会在 `_analyze_changes_with_architect` 硬失败而非降级；重跑前需冷却数分钟。
+  - 切角色做实测前先备份角色快照：`set_roles.py` 的 `set` 模式会用「当前角色」覆盖 `orig_roles.json`，连续两次 `set` 后快照变成 GLM 值，`restore` 就回不到默认值。默认值为 architect `qwen3-8b` / frontend `deepseek-r1` / backend `qwen3.5-4b` / reviewer `glm-z1-9b` / fallback `qwen3-8b`；跑全量 unit 前必须处于默认值，否则 `test_multi_model_agent` 会多一条失败。
+  - 活管线重试要把上游 429（code 1305）、流式 180s 超时、架构师输出缺 `project_spec` 都按瞬时错误处理，否则单次抖动就会中断实测。
 
 ### 扫描文件先定作用与状态再深入
 - Date: 2026-08-26
@@ -88,6 +91,23 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - async fixtures 必须使用 `@pytest_asyncio.fixture` 装饰器，不能用 `@pytest.fixture`
   - 集成测试需添加 `@pytest.mark.skipif` 检查服务器可用性
   - 测试运行命令：`python3 -m pytest tests/unit/ -v`
+  - 项目使用自定义 pytest 标记：`unit`, `integration`, `database`, `security`, `agent`, `monitoring`, `logging`, `guardian`；这些标记未在 `pyproject.toml` 注册，只产生警告不影响执行。
+  - 测试目录：单元 `tests/unit/`、集成 `tests/integration/`、E2E `tests/e2e/`、前端配置 `tests/frontend/`（需 Vitest）；测试状态报告在 `testing/TEST-STATUS-UPDATE-*.md`。
+
+### 误报类修复的验证与回归流程
+- Date: 2026-09-15
+- Context: Agent 在审计 Agent 生成管线误报（跨文件校验、内容门禁、依赖图、符号表）时总结
+- Category: 测试方法
+- Instructions:
+  - 每处误报先写确定性探针复现（不依赖 LLM / Playwright），再用单测固化"正确产物不被拒 + 真实错误仍被拒"两类断言。
+  - 用 `git stash push <源文件>` 回退源码后跑新增用例，必须确认新增误报用例失败，证明修复非空；恢复后再核对文件内容一致。
+  - 每处修复跑定向测试 + 全量 `pytest tests/unit -q`，并把 `FAILED` 集合与失败基线做 `diff`，只允许失败集合不变。
+  - 全量单测存在 Agent 验收范围外的既有失败基线（PPT 18 项、Flutter 3 项、Kolors 1 项，共 22 项），出现新失败必须归因到本次改动。
+  - 内存紧张时用 API / 确定性探针替代 Playwright，不启动浏览器。
+  - 每个 commit 单独切分支提交推送，合入 master 后重启后端（`PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000`）并复核 `:8000/docs` 与 `:3000`。
+  - 写前语法门禁调用 `node -c` / `tsc` 时，返回码为负表示 node 被信号终止（如 OOM），属环境异常而非源码语法错误；此类情况应退回括号平衡启发式，不能判生成代码语法失败。
+  - `CodeValidator` 会在后端进程内 `exec` 生成项目代码做运行时校验。生成项目若与 Agent 自身包同名（如 `app/`），`sys.modules` 已缓存 Agent 同名包会导致假的 "cannot import name ... from 'app'"；排查此类报错时先确认校验是否受同名缓存影响。
+  - 门禁类误报的高频模式是把「Agent 执行环境状态」当成「代码缺陷」：未安装的第三方 import、依赖清单中未安装的包、node 被信号终止都属环境状态，不计入代码有效性；只有项目内模块/符号缺失才算缺陷。修一处后要顺带核对同类检查（静态导入、运行时导入、node/tsc 门禁、依赖清单）是否一致。
 
 ### bcrypt 密码处理限制
 - Date: 2026-05-12
@@ -97,26 +117,6 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - bcrypt 算法限制密码最大 72 字节
   - `hash_password` 和 `verify_password` 都需要对密码进行 `[:72]` 截断
   - 未截断会抛出 `ValueError: password cannot be longer than 72 bytes`
-
-### 项目测试目录结构
-- Date: 2026-05-12
-- Context: Agent 在执行测试修复任务时发现
-- Category: 代码结构
-- Instructions:
-  - 单元测试：`tests/unit/`
-  - 集成测试：`tests/integration/`
-  - E2E 测试：`tests/e2e/`
-  - 前端测试配置：`tests/frontend/`（需要 Vitest 环境）
-  - 测试状态报告：`testing/TEST-STATUS-UPDATE-*.md`
-
-### pytest 自定义标记
-- Date: 2026-05-12
-- Context: Agent 在执行测试运行时发现
-- Category: 测试方法
-- Instructions:
-  - 项目使用自定义 pytest 标记：`unit`, `integration`, `database`, `security`, `agent`, `monitoring`, `logging`, `guardian`
-  - 这些标记未在 `pyproject.toml` 中注册，会产生警告但不影响测试执行
-  - 建议在 `pyproject.toml` 中注册这些标记以消除警告
 
 ### Agent 增量修改与测试验证
 - Date: 2026-05-13
@@ -208,12 +208,13 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 遇到会改变任务方向或结果的真实歧义时，再向用户请求澄清。
 
 ### Agent 工程能力实测
-- Date: 2026-09-11
-  - Context: 用户要求用当前模型配置做 Agent 实测，并纠正管线不得写死语言和技术栈
+- Date: 2026-09-13
+  - Context: 用户要求用当前模型配置做 Agent 实测；纠正管线不得写死语言和技术栈；并明确验收范围只看 Agent
   - Instructions:
     - 实测使用当前已配置的模型分工，评估工程能力上限。
     - 禁止为某个单一语言或技术栈新增或调整门禁。
     - 入口骨架仅在架构明确框架时生成；依赖扫描保留未映射的第三方包名；关键决策和 Spec-First 仅在需求或复杂度出现鉴权、后端、存储信号时触发。
+    - 用户只要 Agent 验收时，关注 Agent 页、代码生成管线，以及 Agent 相关功能（工程师工具调用、MCP、沙箱、Skills、Host）。图表、能力中心独立页、PPT/绘画/工作流、超管面板不算进范围。
 
 ### 既有数据库接入 Alembic
 - Date: 2026-09-03

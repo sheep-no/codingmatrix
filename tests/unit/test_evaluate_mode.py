@@ -18,8 +18,9 @@ import tempfile
 import shutil
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
 
-from app.agent.orchestrator_generation.evaluate_mixin import EvaluationMixin, EVALUATION_MODEL
+from app.agent.orchestrator_generation.evaluate_mixin import EvaluationMixin
 from app.agent.orchestrator_requirements import AssociationResult, AssociationItem
 
 
@@ -35,6 +36,7 @@ class FakeOrchestrator(EvaluationMixin):
         self.model_assignment = None
         self.complexity = None
         self.evaluation_only = False
+        self.api_key_token = None
 
     def _report_progress(self, step, current, total, **kwargs):
         pass
@@ -60,13 +62,32 @@ class TestEvaluationParsing:
         assert result.get("completeness", {}).get("score") == 85
 
     def test_parse_evaluation_json_invalid(self, mixin):
-        result = mixin._parse_evaluation_json("not json", "requirement")
-        assert result.get("error") is not None
+        with pytest.raises(RuntimeError, match="was not valid JSON"):
+            mixin._parse_evaluation_json("not json", "requirement")
+
+    def test_parse_architecture_json(self, mixin):
+        response = json.dumps({
+            "architecture_quality": {"score": 80},
+            "recommendations": ["拆模块"],
+        })
+        result = mixin._parse_evaluation_json(response, "architecture")
+        assert result["architecture_quality"]["score"] == 80
 
     def test_fallback_evaluation(self, mixin):
-        result = mixin._fallback_evaluation("architecture", "模型调用失败")
-        assert result.get("score") == 0
-        assert "architecture" in result.get("error", "")
+        with pytest.raises(RuntimeError, match="architecture evaluation failed"):
+            mixin._fallback_evaluation("architecture", "模型调用失败")
+
+    @pytest.mark.asyncio
+    async def test_evaluate_requirement_llm_failure_raises(self, mixin):
+        mixin.model_assignment = SimpleNamespace(architect_model="eval-model")
+        with patch("app.utils.call_llm", AsyncMock(side_effect=ConnectionError("boom"))):
+            with pytest.raises(RuntimeError, match="requirement evaluation failed"):
+                await mixin._evaluate_requirement("req", {"project_type": "cli"})
+
+    @pytest.mark.asyncio
+    async def test_evaluate_requirement_requires_assignment(self, mixin):
+        with pytest.raises(RuntimeError, match="model assignment is required for evaluation"):
+            await mixin._evaluate_requirement("req", {"project_type": "cli"})
 
 
 class TestEvaluateRisks:

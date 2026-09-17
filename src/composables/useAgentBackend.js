@@ -42,8 +42,9 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
       architecture: 'Qwen3-Plus', frontend: 'Qwen3-Coder',
       backend: 'Qwen3-Coder', test: 'Qwen3-Coder', review: 'Qwen3-Plus'
     },
-    maxConcurrent: 3, enableReview: true, enableValidation: true,
-    enableErrorRecovery: true, enableMemory: true, specFirst: true, dependencyGraph: true
+    enableReview: true, enableValidation: true,
+    enableErrorRecovery: true, enableMemory: true, specFirst: true,
+    crossValidationFallback: false
   })
 
   const loadSavedProjects = async () => {
@@ -74,6 +75,24 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
     } catch (error) {
       console.error('加载 Skills 失败:', error)
     }
+  }
+
+  const persistImportedFiles = async (importedFiles, projectName) => {
+    const payload = (importedFiles || []).map((file) => ({
+      path: file.path,
+      content: file.content || '',
+    })).filter((file) => file.path)
+    if (!payload.length) return null
+    const result = await projectApi.importProjectFiles({
+      files: payload,
+      project_name: projectName || undefined,
+    })
+    if (!result?.project_path) {
+      throw new Error('导入未返回项目路径')
+    }
+    workspace.currentProjectPath = result.project_path
+    addLog('success', `项目已写入工作区: ${result.project_path}`)
+    return result.project_path
   }
 
   const saveProjectToBackend = async () => {
@@ -395,6 +414,7 @@ export function useAgentBackend(projectApi, workspace, files, generation) {
     userSkills, workspaceSkills,
     uploadingZip, importProgress, fileInput, settings,
     loadSavedProjects, saveProjectToBackend, downloadProject, deleteFileFromBackend,
+    persistImportedFiles,
     loadPerformanceMetrics, openPerformancePanel, loadSnapshots, rollbackToSnapshot,
     loadBackendSettings, clearBackendCache, exportPerformanceData,
     saveSettings, loadSettings, copySettingsToClipboard,

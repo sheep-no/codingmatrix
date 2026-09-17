@@ -140,9 +140,56 @@ class FrontendEngineer(Specialist):
                 "- 先用 read_file / list_files / search_files 等工具探索项目结构和已有代码，了解上下文"
             )
 
-        prompt = f"""【严格约束】你必须严格按文件路径指定的语言编写代码，禁止自行添加或修改扩展名。
+        has_frozen_generation_context = isinstance(
+            project_context.get("generation_contract"), dict
+        )
+        if has_frozen_generation_context:
+            exploration_rule = (
+                "- 冻结生成契约和已生成依赖已经包含在上下文中，直接依据这些事实生成完整文件"
+            )
+        import_validation_rules = (
+            """【跨文件导入验证 - 必须执行】
+生成代码前，依据冻结文件集合、接口契约和已生成依赖源码核对每个项目内导入。只导入上下文中已声明的文件与公共符号。"""
+            if has_frozen_generation_context
+            else """【跨文件导入验证 - 必须执行】
+在生成代码前，你必须验证所有跨文件导入的正确性：
+1. 用 read_symbols 或 read_file 查看目标模块实际导出了哪些符号（函数、类、变量）
+2. 用 search_files 搜索你要导入的符号名是否在目标文件中正确定义
+   示例：search_files(pattern="export function|export const|export class", file_pattern="*.js")
+3. 如果目标文件中不存在该符号，你必须：
+   a) 修正导入路径（找到真正定义该符号的文件），或
+   b) 在目标文件中添加该符号的定义
+4. 确认所有跨文件导入正确后再返回代码
+不要凭猜测导入不存在的符号。每次导入项目内模块前，先验证再使用。"""
+        )
+        original_content = str(project_context.get("original_content") or "")
+        is_modification = bool(is_existing_file or project_context.get("is_modification") or original_content)
+        modification_reason = str(project_context.get("modification_reason") or description)
+        if is_modification:
+            task_header = f"""请修改以下已有文件：
 
-请创建以下文件：
+文件路径：{file_path}
+文件描述：{description}
+此文件的语言：{file_actual_language}
+项目主语言：{project_language}
+文件类型：{file_type}
+本文件修改原因：{modification_reason}
+
+【任务约束 - 最高优先级】
+- 你本次任务只修改 {file_path} 这一个文件，返回该文件的完整内容
+- 用户总需求可能涉及多个文件；其他文件上的缺陷不要在本文件里一并实现
+- 保留原文件中指向项目内其他文件的导入，不要把那些模块的实现复制进本文件
+- 保持本文件原有职责与导出边界，做最小必要修改
+{exploration_rule}
+- 不要尝试创建或修改其他文件
+
+【原文件内容】
+```
+{original_content[:8000]}
+```
+"""
+        else:
+            task_header = f"""请创建以下文件：
 
 文件路径：{file_path}
 文件描述：{description}
@@ -155,6 +202,11 @@ class FrontendEngineer(Specialist):
 {exploration_rule}
 - 探索完成后，直接以纯文本形式返回 {file_path} 的完整内容
 - 不要尝试创建或修改其他文件
+"""
+
+        prompt = f"""【严格约束】你必须严格按文件路径指定的语言编写代码，禁止自行添加或修改扩展名。
+
+{task_header}
 
 {spec_constraints}
 
@@ -173,16 +225,7 @@ class FrontendEngineer(Specialist):
 - 只能使用 DOM 操作：getElementById, querySelector, addEventListener
 - 禁止使用后端 API：fs, path, process, http, 数据库 ORM, Express, Flask, FastAPI
 
-【跨文件导入验证 - 必须执行】
-在生成代码前，你必须验证所有跨文件导入的正确性：
-1. 用 read_symbols 或 read_file 查看目标模块实际导出了哪些符号（函数、类、变量）
-2. 用 search_files 搜索你要导入的符号名是否在目标文件中正确定义
-   示例：search_files(pattern="export function|export const|export class", file_pattern="*.js")
-3. 如果目标文件中不存在该符号，你必须：
-   a) 修正导入路径（找到真正定义该符号的文件），或
-   b) 在目标文件中添加该符号的定义
-4. 确认所有跨文件导入正确后再返回代码
-不要凭猜测导入不存在的符号。每次导入项目内模块前，先验证再使用。
+{import_validation_rules}
 
 项目上下文：{compact_project_context_for_file(file_path, project_context)}
 """
@@ -200,8 +243,16 @@ class FrontendEngineer(Specialist):
 """
 
         if is_existing_file:
-            prompt += f"""
-这是一个已有文件的增量修改任务。
+            if has_frozen_generation_context:
+                prompt += f"""
+【输出格式 - 严格遵守】
+- 直接返回修改后的 {file_actual_language} 完整文件内容
+- 不要包裹在 JSON 对象中，不要返回元数据
+- 第一行必须是实际代码
+"""
+            else:
+                prompt += f"""
+这是一个已有文件的增量修改任务。原文件内容已在上方给出。
 
 你可以使用以下工具进行精准编辑：
 - partial_update: 替换指定函数或代码块（推荐，按函数名精准替换）
@@ -210,10 +261,10 @@ class FrontendEngineer(Specialist):
 - execute_code: 验证修改后的代码是否正确
 
 编辑规则：
-1. 先用 read_file 读取文件现有内容，理解结构
-2. 用 partial_update 或 insert_content 做精准编辑，不要重写整个文件
+1. 以原文件内容为基准做最小修改，不要重写整个文件
+2. 用 partial_update 或 insert_content 做精准编辑
 3. 编辑完成后，返回 JSON：{{"action": "edited", "files": ["{file_path}"], "summary": "修改摘要"}}
-4. 如果改动太大无法局部修改，用 write_file 重写整个文件，返回完整内容
+4. 如果改动太大无法局部修改，返回完整文件内容
 """
         elif '__init__' in file_path:
             prompt += """
@@ -239,7 +290,6 @@ class FrontendEngineer(Specialist):
 请返回完整的文件内容，使用 {file_actual_language} 语法编写，不要省略任何部分。"""
 
         # 有项目路径时使用 ReAct 工具调用，否则退化为普通 call_llm
-        # 编码阶段限制 thinking：省 token 留给代码输出，同时保留少量思考给用户展示
         if heartbeat_tracker:
             heartbeat_tracker.touch()
         if project_path:
@@ -255,10 +305,9 @@ class FrontendEngineer(Specialist):
                 prompt, self.SYSTEM_PROMPT, tools=read_only_tools,
                 project_path=project_path, callback=callback,
                 heartbeat_tracker=heartbeat_tracker, enable_streaming_thinking=True,
-                thinking_budget=50,
             )
         else:
-            result = await self.call_llm(prompt, self.SYSTEM_PROMPT, thinking_budget=50)
+            result = await self.call_llm(prompt, self.SYSTEM_PROMPT)
         if heartbeat_tracker:
             heartbeat_tracker.touch()
         return result
