@@ -5,8 +5,6 @@
 > 路径：`app/utils/review/code_review_agent.py`（582 行）
 > 索引：[TASKS.md](../TASKS.md)，第 161 轮
 
-> 后续变更（2026-09-16）：`app/utils/review/code_review_agent.py` 已确认零生产引用并删除，正文保留扫描时的判定与行号。
-
 ## 1. 模块定位与三态判定
 
 ### 1.1 模块作用

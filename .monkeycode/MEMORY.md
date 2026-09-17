@@ -19,7 +19,8 @@
 ### 协作范围与前端优先
 - Date: 2026-09-09 / 2026-08-29 / 2026-09-16
 - Instructions:
-  - 负责范围为除 Agent、Flutter、VS Code 插件以外的全部模块；`app/agent/`、`flutter_client/`、`vscode-extension/` 不在范围内，不主动改动。
+  - 负责范围为除 Agent 子系统、Flutter、VS Code 插件以外的全部模块，这三类不主动改动、不清理、不重构。
+  - 「Agent」指所有 Agent 子系统，不限于 `app/agent/` 目录。已知归属：`app/agent/**`、`app/utils/agent_core.py`、`app/utils/review/code_review_agent.py`、`app/utils/agent_skills.py`、`app/services/agent_memory_service.py`、`src/components/agent/**`、`src/composables/useAgent*`、`src/stores/agentSession.js`、`src/stores/agentWorkspace.js`、`src/views/AgentDashboard.vue`、`tests/e2e/agent-*.spec.js`、`.claude/skills/` 下 Agent 能力相关 Skill。判断存疑时按「属于 Agent 子系统」处理并先问。
   - 前端优先指功能实现的侧重方向，重点是设置页、供应商与 API Key 状态、模型选择、流式展示、错误反馈、响应式布局、前端测试；范围上限不是前端，后端（非 Agent 部分，含 `app/utils/`）同样在范围内。
   - 前端深扫分入口认证、状态组合逻辑、视图 API、构建测试部署四批；每批用全库引用、后端路由与配置交叉核验，最后跨批去重并修订优先级。
   - 修改前读项目记忆和 Git 状态，保留已有改动；手动编辑一律用 apply_patch。

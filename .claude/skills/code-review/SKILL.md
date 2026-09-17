@@ -126,31 +126,28 @@
 
 ## 使用方式
 
-### 在 CodeReviewer 中使用
-
-审查维度由审查器的系统提示词承载，默认提示词来自 `orchestrator/enhanced_code_reviewer_prompt.md`：
+### 在 CodeReviewAgent 中使用
 
 ```python
-from app.agent.code_reviewer import CodeReviewer
+from app.utils.review.code_review_agent import CodeReviewAgent
 
-reviewer = CodeReviewer(role_name="审查员", model_name="<审查模型>", task_type="review")
+# 启用特定 skills
+agent = CodeReviewAgent(skills=["production", "security"])
 
 # 执行审查
-result = await reviewer.review_code(code, file_path)
+issues = await agent.review_code(file_path)
 ```
 
-如需覆盖内置提示词，可在 `skill_registry` 中以 `code_reviewer_prompt` 注册自定义版本。
+### 可用的 Skill ID
 
-### 审查维度
-
-| Skill ID | 名称 |
-|----------|------|
-| production | 生产就绪 |
-| security | 安全优先 |
-| performance | 性能优化 |
-| testing | 测试驱动 |
-| accessibility | 无障碍 |
-| documentation | 文档完善 |
+| Skill ID | 名称 | 权重 |
+|----------|------|------|
+| production | 生产就绪 | 1.5 |
+| security | 安全优先 | 2.0 |
+| performance | 性能优化 | 1.3 |
+| testing | 测试驱动 | 1.2 |
+| accessibility | 无障碍 | 1.0 |
+| documentation | 文档完善 | 0.8 |
 
 ---
 
