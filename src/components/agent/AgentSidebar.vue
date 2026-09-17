@@ -1,7 +1,5 @@
 <template>
   <div class="agent-sidebar">
-    <WorkbenchNav class="agent-primary-navigation" />
-
     <!-- 会话历史 -->
     <div class="sidebar-section">
       <div class="section-header">
@@ -88,12 +86,12 @@
 
     <div class="sidebar-section skills-section">
       <div class="section-header">
-        <span class="section-title">可用 Skills</span>
+        <span class="section-title">可用 Skills/技能</span>
         <span class="file-count">{{ userSkills.length + workspaceSkills.length }}</span>
       </div>
-      <div v-if="userSkills.length === 0 && workspaceSkills.length === 0" class="session-empty">暂无可用 Skills</div>
+      <div v-if="userSkills.length === 0 && workspaceSkills.length === 0" class="session-empty">暂无可用 Skills/技能</div>
       <div v-for="skill in userSkills" :key="`user-${skill.name}`" class="skill-item">
-        <span class="skill-name">user:{{ skill.name }}</span>
+        <span class="skill-name">{{ skill.name }}</span>
         <span class="skill-source">个人</span>
       </div>
       <div v-for="skill in workspaceSkills" :key="skill.name" class="skill-item">
@@ -106,7 +104,6 @@
 
 <script setup>
 import { computed } from 'vue'
-import WorkbenchNav from '@/components/WorkbenchNav.vue'
 
 const props = defineProps({
   sessionId: { type: String, default: '' },
@@ -179,10 +176,6 @@ function getFileName(filePath) {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-}
-.agent-primary-navigation {
-  margin: var(--spacing-3);
-  flex: 0 0 auto;
 }
 .sidebar-section {
   display: flex;

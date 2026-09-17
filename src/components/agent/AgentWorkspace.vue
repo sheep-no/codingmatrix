@@ -278,7 +278,7 @@
           </div>
         </div>
         <div v-if="testResults.duration" class="duration-info">
-          耗时: {{ formatDuration(testResults.duration) }}
+          耗时：{{ formatDuration(testResults.duration) }}
         </div>
       </div>
     </div>
@@ -314,7 +314,7 @@
           <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
       </div>
-      <span class="empty-eyebrow">AGENT 工作台</span>
+      <span class="empty-eyebrow">Agent 工作台</span>
       <h2 class="empty-title">从一个想法，开始构建</h2>
       <p class="empty-text">描述目标、使用场景和技术偏好，在这里跟进每一步执行。</p>
       <ol class="empty-guide">
@@ -1048,6 +1048,9 @@ watch(
 .empty-guide li > span { font-size: 11px; color: var(--primary); font-variant-numeric: tabular-nums; }
 .empty-guide strong { font-size: 13px; color: var(--text-primary); font-weight: 500; }
 .empty-guide small { font-size: 12px; color: var(--text-secondary); }
+@media (max-width: 600px) {
+  .empty-guide { grid-template-columns: 1fr; }
+}
 @media (max-width: 480px) {
   .empty-state { padding: 28px 12px; }
   .empty-guide { gap: 12px; }

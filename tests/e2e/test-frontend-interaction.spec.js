@@ -23,18 +23,18 @@ test.describe('前端 Code 接口完整交互测试', () => {
     console.log('页面标题:', await page.title())
   })
 
-  test('2. 导航到设置页面检查 API Key 管理', async ({ page }) => {
+  test('2. 导航到设置页面检查 API Key/接口密钥管理', async ({ page }) => {
     await page.goto('/settings')
     await page.waitForTimeout(2000)
     
     await page.screenshot({ path: 'test-results/02-settings.png', fullPage: true })
     
-    // 检查是否有 API Key 管理 Tab
-    const apiKeyTab = page.locator('text=API Key 管理')
+    // 检查是否有 API Key/接口密钥管理 Tab
+    const apiKeyTab = page.locator('text=API Key/接口密钥管理')
     const hasApiKeyTab = await apiKeyTab.count() > 0
-    console.log('找到 API Key 管理 Tab:', hasApiKeyTab)
+    console.log('找到 API Key/接口密钥管理 Tab:', hasApiKeyTab)
     
-    // 点击 API Key 管理 Tab
+    // 点击 API Key/接口密钥管理 Tab
     if (hasApiKeyTab) {
       await apiKeyTab.click()
       await page.waitForTimeout(1000)
@@ -68,8 +68,8 @@ test.describe('前端 Code 接口完整交互测试', () => {
       
       // 检查弹窗内容
       const modalContent = await page.locator('body').innerText()
-      const hasApiKeyConfig = modalContent.includes('API Key') || modalContent.includes('前往 API Key 管理')
-      console.log('设置弹窗包含 API Key 配置:', hasApiKeyConfig)
+      const hasApiKeyConfig = modalContent.includes('API Key/接口密钥') || modalContent.includes('前往 API Key/接口密钥管理')
+      console.log('设置弹窗包含 API Key/接口密钥配置:', hasApiKeyConfig)
     }
   })
 

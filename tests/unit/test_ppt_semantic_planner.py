@@ -1,5 +1,10 @@
 from app.schema.ppt_outline import ContentBlock, OutlineDraft, OutlineSlide
-from app.utils.pptx.semantic_planner import plan_outline, split_content_blocks
+from app.utils.pptx.semantic_planner import (
+    infer_slide_type_from_parts,
+    plan_outline,
+    slide_capacity,
+    split_content_blocks,
+)
 
 
 def make_outline(slides):
@@ -45,3 +50,25 @@ def test_split_content_blocks_keeps_source_order():
     blocks = [{"content": str(index)} for index in range(7)]
     chunks = split_content_blocks(blocks, 3)
     assert [[item["content"] for item in chunk] for chunk in chunks] == [["0", "1", "2"], ["3", "4", "5"], ["6"]]
+
+
+def test_slide_capacity_reads_renderer_slide_dicts():
+    image_slide = {
+        "slide_type": "image",
+        "title": "图示",
+        "content_blocks": [{"content": str(index)} for index in range(6)],
+    }
+    assert slide_capacity(image_slide)["max_items"] == 4
+
+    points_slide = {"slide_type": "content", "title": "要点", "content_blocks": [{"content": "A"}]}
+    assert slide_capacity(points_slide)["max_items"] == 4
+
+    unknown_slide = {"title": "未标注", "content_blocks": []}
+    assert slide_capacity(unknown_slide)["max_items"] == 4
+
+
+def test_infer_slide_type_parts_accepts_legacy_labels():
+    assert infer_slide_type_from_parts("chart") == "data"
+    assert infer_slide_type_from_parts("content") == "key_points"
+    assert infer_slide_type_from_parts(None, "时间规划") == "timeline"
+    assert infer_slide_type_from_parts("data_chart") == "data"

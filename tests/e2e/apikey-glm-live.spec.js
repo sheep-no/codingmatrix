@@ -101,7 +101,7 @@ test.describe('API Key 管理 - 智谱 GLM 实测', () => {
       const confirm = page.locator('.el-message-box .el-button--primary')
       await expect(confirm).toBeVisible({ timeout: 5000 })
       await confirm.click()
-      await expect(page.locator('.el-message--success').filter({ hasText: 'Key 已清除' })).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('.el-message--success').filter({ hasText: 'API Key/接口密钥已清除' })).toBeVisible({ timeout: 10000 })
       await page.waitForTimeout(400)
     }
   }
@@ -109,7 +109,7 @@ test.describe('API Key 管理 - 智谱 GLM 实测', () => {
   test('打开设置页 API Key Tab 并添加智谱 GLM Key', async ({ page }) => {
     await apiLogin(page)
     await expect(page.locator('#settings-tab-apikey')).toHaveClass(/active/)
-    await expect(page.locator('.section-title')).toHaveText('API Key 管理')
+    await expect(page.locator('.section-title')).toHaveText('API Key/接口密钥管理')
     await expect(page.locator('.provider-name', { hasText: '硅基流动' })).toBeVisible()
 
     await clearExistingGlmKeys(page)
@@ -128,7 +128,7 @@ test.describe('API Key 管理 - 智谱 GLM 实测', () => {
     const submit = await submitResp
     expect(submit.ok(), `提交 Key HTTP ${submit.status()}`).toBeTruthy()
 
-    await expect(page.locator('.el-message--success').filter({ hasText: '智谱 GLM Key 已添加' })).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.el-message--success').filter({ hasText: '智谱 GLM API Key/接口密钥已添加' })).toBeVisible({ timeout: 10000 })
     await expect(glmCards(page).first()).toBeVisible()
     await expect(glmCards(page).first().locator('.key-remark')).toContainText('E2E GLM')
   })
@@ -168,11 +168,11 @@ test.describe('API Key 管理 - 智谱 GLM 实测', () => {
     await toggle.click()
     const disableResp = await disableRespPromise
     expect(disableResp.ok()).toBeTruthy()
-    await expect(page.locator('.el-message--success').filter({ hasText: 'Key 已禁用' })).toBeVisible({ timeout: 8000 })
+    await expect(page.locator('.el-message--success').filter({ hasText: 'API Key/接口密钥已禁用' })).toBeVisible({ timeout: 8000 })
     await expect(toggle).toHaveText('启用')
 
     await toggle.click()
-    await expect(page.locator('.el-message--success').filter({ hasText: 'Key 已启用' })).toBeVisible({ timeout: 8000 })
+    await expect(page.locator('.el-message--success').filter({ hasText: 'API Key/接口密钥已启用' })).toBeVisible({ timeout: 8000 })
     await expect(toggle).toHaveText('禁用')
   })
 
@@ -187,7 +187,7 @@ test.describe('API Key 管理 - 智谱 GLM 实测', () => {
 
     await card.locator('.delete-btn').click()
     await page.locator('.el-message-box .el-button--primary').click()
-    await expect(page.locator('.el-message--success').filter({ hasText: 'Key 已清除' })).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.el-message--success').filter({ hasText: 'API Key/接口密钥已清除' })).toBeVisible({ timeout: 10000 })
     await expect(glmCards(page).filter({ hasText: 'E2E GLM' })).toHaveCount(0)
   })
 })

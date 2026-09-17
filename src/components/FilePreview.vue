@@ -163,7 +163,7 @@
   .file-name {
     font-size: 13px;
     font-weight: 500;
-    color: #1e293b;
+    color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

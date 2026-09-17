@@ -14,13 +14,14 @@
         <h1>AI 绘画</h1>
       </div>
       <div class="header-actions">
-        <span class="header-hint">基于 Kolors 模型</span>
+        <span class="header-hint">基于 Kolors/可图 模型</span>
       </div>
     </header>
 
     <div class="page-content">
       <!-- 左侧配置面板 -->
       <aside class="config-panel">
+        <div class="config-scroll">
         <!-- 模式切换 -->
         <div class="mode-tabs" role="group" aria-label="生成模式">
           <button :class="['mode-tab', { active: mode === 'text2img' }]" :aria-pressed="mode === 'text2img'" :disabled="isGenerating" @click="mode = 'text2img'">文生图</button>
@@ -37,7 +38,7 @@
                 <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
               </svg>
               <span>点击或拖拽上传图片</span>
-              <span class="upload-hint">支持 JPG/PNG/WEBP，最大 10MB</span>
+              <span class="upload-hint">支持 JPG、PNG、WEBP，最大 10MB</span>
             </div>
             <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp" aria-label="上传参考图片" :disabled="isGenerating" class="file-input" @change="onFileSelect" />
           </label>
@@ -86,11 +87,11 @@
           <label class="form-label" for="image-resolution">分辨率</label>
           <select id="image-resolution" v-model="resolution" class="form-select" :disabled="isGenerating">
             <option v-if="mode === 'img2img'" value="keep">保持原图</option>
-            <option value="512x512">512 x 512</option>
-            <option value="768x768">768 x 768</option>
-            <option value="1024x1024">1024 x 1024</option>
-            <option value="512x768">512 x 768 (竖)</option>
-            <option value="768x512">768 x 512 (横)</option>
+            <option value="512x512">512 × 512</option>
+            <option value="768x768">768 × 768</option>
+            <option value="1024x1024">1024 × 1024</option>
+            <option value="512x768">512 × 768（竖版）</option>
+            <option value="768x512">768 × 512（横版）</option>
           </select>
         </div>
 
@@ -107,10 +108,10 @@
             </div>
             <div v-if="mode === 'text2img'" class="slider-item">
               <div class="slider-header">
-                <span>CFG Scale</span>
+                <span>引导系数</span>
                 <span class="slider-value">{{ cfgScale }}</span>
               </div>
-              <input v-model.number="cfgScale" aria-label="CFG Scale" type="range" min="1" max="20" step="0.5" :disabled="isGenerating" />
+              <input v-model.number="cfgScale" aria-label="引导系数" type="range" min="1" max="20" step="0.5" :disabled="isGenerating" />
             </div>
             <div v-if="mode === 'img2img'" class="slider-item">
               <div class="slider-header">
@@ -121,7 +122,7 @@
             </div>
             <div class="slider-item">
               <div class="slider-header">
-                <span>种子 (-1 随机)</span>
+                <span>种子（-1 随机）</span>
                 <button class="btn-random" aria-label="随机生成种子" :disabled="isGenerating" @click="seed = Math.floor(Math.random() * 999999999)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
                     <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
@@ -131,9 +132,10 @@
               <input v-model.number="seed" aria-label="随机种子" type="number" class="seed-input" :disabled="isGenerating" />
             </div>
           </div>
-        </details>
-
-        <!-- 生成按钮 -->
+         </details>
+         </div>
+         <div class="config-footer">
+         <!-- 生成按钮 -->
         <button
           class="btn-generate"
           :disabled="!canGenerate || isGenerating"
@@ -175,6 +177,7 @@
           :actions="taskFeedbackActions"
           @action="handleTaskFeedbackAction"
         />
+        </div>
       </aside>
 
       <!-- 右侧结果展示 -->
@@ -388,8 +391,8 @@
     
     // 检查 API Key 配置
     if (!apiKeyStore.hasSiliconflowKey) {
-      error.value = '请先配置 API Key 后再使用'
-      taskFeedback.fail(error.value, { stage: mode.value === 'img2img' ? '图生图' : '文生图', nextAction: '配置 API Key 后重新生成' })
+      error.value = '请先配置 API Key/接口密钥后再使用'
+      taskFeedback.fail(error.value, { stage: mode.value === 'img2img' ? '图生图' : '文生图', nextAction: '配置 API Key/接口密钥后重新生成' })
       return
     }
     
@@ -543,8 +546,8 @@
     
     // 检查 API Key 配置
     if (!apiKeyStore.hasSiliconflowKey) {
-      error.value = '请先配置 API Key 后再使用'
-      taskFeedback.fail(error.value, { stage: '等待生成配置', nextAction: '配置 API Key 后重新生成' })
+      error.value = '请先配置 API Key/接口密钥后再使用'
+      taskFeedback.fail(error.value, { stage: '等待生成配置', nextAction: '配置 API Key/接口密钥后重新生成' })
       return
     }
     
@@ -701,6 +704,7 @@
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     backdrop-filter: blur(20px);
+    flex-wrap: nowrap;
   }
 
   .back-btn {
@@ -719,7 +723,7 @@
   .back-btn:hover { background: var(--hover-bg); color: var(--text-primary); }
   .back-btn svg { width: 16px; height: 16px; }
 
-  .header-title { display: flex; align-items: center; gap: 12px; font-size: 18px; font-weight: 600; }
+  .header-title { display: flex; align-items: center; gap: 12px; font-size: 18px; font-weight: 600; white-space: nowrap; }
   .header-title svg { width: 28px; height: 28px; color: var(--teal-hover); }
   .header-hint { font-size: 13px; color: var(--text-tertiary); }
 
@@ -737,13 +741,30 @@
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
     padding: 24px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .config-scroll {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 24px;
   }
 
-  .config-panel > * { flex-shrink: 0; }
+  .config-footer {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+  }
 
   .mode-tabs { display: flex; gap: 8px; }
 
@@ -1102,6 +1123,7 @@
     .header-actions { display: none; }
     .page-content { display: flex; flex-direction: column; overflow: visible; flex: none; }
     .config-panel { padding: 20px 16px; border-right: 0; border-bottom: 1px solid var(--border-color); overflow: visible; gap: 20px; }
+    .config-scroll { overflow: visible; min-height: auto; }
     .result-panel { padding: 24px 16px; overflow: visible; }
   }
   @media (prefers-reduced-motion: reduce) {

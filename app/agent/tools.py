@@ -190,6 +190,7 @@ def _tool_list_files(project_path: str, directory: str = ".",
                      max_depth: int = 2) -> Dict:
     """列出目录结构"""
     try:
+        project_resolved = Path(project_path).resolve()
         target = _safe_join(project_path, directory)
         if not target.exists():
             return {"error": f"目录不存在: {directory}"}
@@ -1109,23 +1110,19 @@ def _tool_git_log(project_path: str, count: int = 10, file_path: str = None) -> 
 
 
 async def _tool_web_search(project_path: str, query: str, limit: int = 5) -> Dict:
-    """搜索网络信息（DuckDuckGo）"""
-    import httpx as _httpx
+    """搜索网络信息（无 Key 的 Bing/DuckDuckGo HTML 检索）"""
     try:
-        async with _httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(
-                "https://api.duckduckgo.com/",
-                params={"q": query, "format": "json", "no_html": 1}
-            )
-        data = response.json()
-        results = []
-        if "RelatedTopics" in data:
-            for item in data["RelatedTopics"][:limit]:
-                if "Text" in item:
-                    results.append(item["Text"])
+        from app.utils.web_search import FreeWebSearch
+
+        hits = await FreeWebSearch().search(query, count=limit)
+        results = [
+            f"{item.title} | {item.url}\n{item.snippet}".strip()
+            for item in hits
+            if item.url
+        ]
         return {"success": True, "results": results, "query": query}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": str(e), "results": [], "query": query}
 
 
 async def _tool_http_request(project_path: str, method: str, url: str,

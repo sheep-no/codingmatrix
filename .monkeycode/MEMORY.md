@@ -1,10 +1,11 @@
 # 用户指令记忆
 
-本文件记录了用户的指令、偏好和教导，用于在未来的交互中提供参考。
+本文件记录用户指令、偏好与项目知识，供后续交互参考。
 
 ## 格式
 
 ### 用户指令条目
+
 用户指令条目应遵循以下格式：
 
 [用户指令摘要]
@@ -14,7 +15,8 @@
   - [用户教导或指示的内容，逐行描述]
 
 ### 项目知识条目
-Agent 在任务执行过程中发现的条目应遵循以下格式：
+
+Agent 在执行任务过程中发现的条目应遵循以下格式：
 
 [项目知识摘要]
 - Date: [YYYY-MM-DD]
@@ -71,6 +73,7 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 每个待扫描文件先弄清「在项目中的实际作用」，结合当前代码库状态判定三态：**活跃**（路由已挂载且有生产消费方）/ **未接入**（设计存在但路由未挂载或符号零消费，属能力未接线）/ **废弃**（被新体系取代的残留）
   - 三态决定缺陷定级与修复方向：活跃面缺陷正常定 P 级；未接入/废弃面缺陷不按活跃定 P 级，标注「未接入/废弃代码内逻辑缺陷」，修复方向是接线或迁移仍活跃的部分后整体退役，而非逐条修缺陷
   - 判定要点：router 是否被 main.py 或上游 router include、文件内定义符号全库引用数、是否存在新副本（双轨）、文件头注释路径与实际路径是否一致（如 `# /api/agent.py` vs 实际 AiProjectCode.py）、是否被新体系取代
+  - 前端零引用确认：grep 无引用不足以下结论，需再排除 `import.meta.glob`、`require()`、自动导入插件（unplugin-auto-import/components）与额外构建入口；最终以生产构建产物检索该文件独有的字符串字面量为准，并用确定存活模块的字面量做阳性对照（压缩会重命名符号，符号名不可作判据）。
   - 每个文件建档时先写明「模块定位与状态判定」，再列活跃面/未接入面/废弃面，最后才是缺陷清单
 - Date: 2026-05-29
 - Context: Agent 在执行异常场景分析和防护实现时发现
@@ -98,6 +101,7 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 测试运行命令：`python3 -m pytest tests/unit/ -v`
   - 项目使用自定义 pytest 标记：`unit`, `integration`, `database`, `security`, `agent`, `monitoring`, `logging`, `guardian`；这些标记未在 `pyproject.toml` 注册，只产生警告不影响执行。
   - 测试目录：单元 `tests/unit/`、集成 `tests/integration/`、E2E `tests/e2e/`、前端配置 `tests/frontend/`（需 Vitest）；测试状态报告在 `testing/TEST-STATUS-UPDATE-*.md`。
+  - `pyproject.toml` 的 `testpaths` 只收集 `tests/unit/` 与 `tests/integration/`，放在被测模块旁的测试文件（如 `app/utils/aicloud/test_*.py`）永远不会被执行；新增测试一律放 `tests/unit/`，迁移后用 `python3 -m pytest <路径> -q` 确认已被收集。
 
 ### 误报类修复的验证与回归流程
 - Date: 2026-09-15
@@ -124,7 +128,7 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 未截断会抛出 `ValueError: password cannot be longer than 72 bytes`
 
 ### Agent 增量修改与测试验证
-- Date: 2026-05-13
+- Date: 2026-05-29
 - Context: Agent 在执行多模型 Agent 架构分析和增强时发现
 - Category: 代码模式
 - Instructions:
@@ -138,7 +142,7 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 测试命令自动检测：pytest / npx playwright test / npm run test
 
 ### 文档管理规范
-- Date: 2026-05-13
+- Date: 2026-06-09
 - Context: 用户要求整理文档，所有 md 文档集中在 docs/ 目录下
 - Category: 代码结构
 - Instructions:
@@ -152,7 +156,7 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 过时文档（BADGES.md, COMPREHENSIVE-TEST-REPORT, GIRL_AI_V2_UPGRADE_COMPLETE 等）应删除
 
 ### 前端 AgentDashboard 重构模式
-- Date: 2026-05-22
+- Date: 2026-05-29
 - Context: Agent 在执行前端组件重构任务时发现
 - Category: 代码结构
 - Instructions:
@@ -168,9 +172,10 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
 - Date: 2026-05-29
 - Context: 用户在审查 git log 时发现推送到远程的命令过长
 - Instructions:
-  - 用户明确了 `--set-upstream` 的快捷方式：`git push -u origin <branch> -o merge_request.create -o merge_request.title="..." -o merge_request.description="..."`
+  - 用户明确了 `--set-upstream` 的快捷方式：`git push -u origin <branch> -o merge_request.create -o merge_request.title="..." -o merge_request.description="..."`（GitLab 远端可用）。
   - 用户演示了正确用法：`git push -u origin HEAD`（使用 HEAD 而不是完整分支名）
   - 这条是行为指令：以后推送到远程时使用 `-u origin HEAD` 的简洁写法
+  - GitHub 远端不支持 GitLab 风格的字符串 push options（会 500）；推 GitHub 用 `git push -u origin HEAD`，PR 走 GitHub API 创建。
 
 ### 每个 commit 单独分支推送
 - Date: 2026-05-29
@@ -290,15 +295,17 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 客户端位于 `flutter_client/`，验证命令为 `FLUTTER_ALLOW_ROOT=1 flutter analyze` 和 `FLUTTER_ALLOW_ROOT=1 flutter test`。
   - 当前客户端测试覆盖 Widget workbench、SSE 分帧解析、认证客户端和统一模型序列化；静态分析与测试均已通过。
 
-### 前端优先协作范围
-- Date: 2026-09-09
-- Context: 用户明确后续工作重点
+### 协作范围与前端优先
+- Date: 2026-09-09 / 2026-08-29 / 2026-09-16
+- Context: 用户明确负责范围与优先方向
 - Instructions:
-  - 后续功能分析和实现以前端为主，重点关注设置页、供应商与 API Key 状态、模型选择、流式展示、错误反馈、响应式布局和前端测试。
-  - 后端改动控制在前端链路必需的最小范围。
+  - 负责范围为除 Agent 子系统、Flutter、VS Code 插件以外的全部模块，这三类不主动改动、不清理、不重构。
+  - 「Agent」指所有 Agent 子系统，不限于 `app/agent/` 目录。已知归属：`app/agent/**`、`app/utils/agent_core.py`、`app/utils/review/code_review_agent.py`、`app/utils/agent_skills.py`、`app/services/agent_memory_service.py`、`src/components/agent/**`、`src/composables/useAgent*`、`src/stores/agentSession.js`、`src/stores/agentWorkspace.js`、`src/views/AgentDashboard.vue`、`tests/e2e/agent-*.spec.js`、`.claude/skills/` 下 Agent 能力相关 Skill。判断存疑时按「属于 Agent 子系统」处理并先问。
+  - 前端优先是功能实现的侧重方向：设置页、供应商与 API Key 状态、模型选择、流式展示、错误反馈、响应式布局、前端测试；范围上限不是前端，后端（非 Agent 部分，含 `app/utils/`）同样在范围内。
+  - 合并上游后，若 Agent 子系统文件已含功能修复或全局文案规范落地（如 `app/agent/ppt_agent.py` 的 PPT 修复、`app/agent/tools.py` 的无 Key 检索、Agent 界面中英并列文案），保留现状不回退；冲突文件仍取上游。
   - 修改前读取项目记忆和 Git 状态，保留已有改动；所有手动编辑使用 apply_patch。
-  - 测试前调用 background_terminal_list，测试和构建通过受控后台终端执行，命令先进入 `/workspace/flutter_client`。
-  - 修改后执行 dart format、flutter analyze、定向测试和全量 flutter test，修复失败后再返回；未经用户明确要求不提交或推送。
+  - 测试前调用 background_terminal_list，测试和构建通过受控后台终端执行；未经用户明确要求不提交或推送。
+
 ### 多语言 Profile 项目验证
 - Date: 2026-09-04
 - Context: Agent 在补齐 Core 多语言生成成功门禁时发现
@@ -307,3 +314,30 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 声明式 `FrameworkProfile` 的 `build_command`、`test_command` 和 `validation_steps` 是项目级验证的统一来源。
   - Go `stdlib` Profile 使用 `go build ./...` 与 `go test ./...` 作为生成成功门禁。
   - 运行 Profile 验证前需确认生成目录可作为命令工作目录，并保留命令输出用于诊断。
+
+### 产品术语中英并列
+- Date: 2026-09-13
+- Context: 用户要求用户可见文案中产品与技术术语保持中英并列
+- Instructions:
+  - 用户可见的产品/技术术语用「英文/中文」并列，如 Skills/技能、Agent Host/主会话、API Key/接口密钥、OCR/文字识别、Token/令牌、Key/密钥。
+  - 保留用户已熟悉的英文原名，同时给出中文释义。
+
+### PPT 生成页真实端到端验收
+- Date: 2026-09-16
+- Context: Agent 在验收 PPT 大纲与成片内容质量时发现；2026-09-17 按 Key 失效修复更新
+- Category: 测试方法
+- Instructions:
+  - `/ppt-generate` 点「一键生成 PPT」会先校验前端 SiliconFlow Key 状态，缺失时直接跳转 `/settings`，脚本会误判为「点击无效」；须在 `addInitScript` 中写入 `localStorage.codingmatrix_apikeys`（`provider=siliconflow`、`enabled=true`、`expires_at` 未过期）才能进入大纲流程。
+  - 不传 `api_key_token`（字段缺省或 `null`）时后端跳过用户 Key 分支，回退到系统默认路由，无需真实供应商 Key 即可完成大纲与成片验收；真实大纲约 10 秒、成片约数秒。
+  - 传了无效/过期 `api_key_token`（如少于 30 字符的探针值）时后端返回 401，SSE 给出 `{"type":"error","message":"用户 API Key 未找到或已过期，请重新配置"}`，前端弹出对应错误且不生成大纲；这是预期契约，不要再据此预期「静默成功」。
+  - 验收 Key 失效路径时用反向探针：断言 SSE 含 `"type": "error"`、`.outline-slide-editor` 数量为 0、错误提示 3 秒左右即出现（无 3 次重试）。
+  - 生成完成后 `workflowStep` 仍为 3，进度是否「不丢」以外层容器判断：生成中为 `.generation-live`，完成为 `.success-container`。
+
+### 本地服务重启
+- Date: 2026-09-14
+- Context: Agent 在迭代后端代码时明确本地服务重启方式
+- Category: 环境配置
+- Instructions:
+  - 后端 Uvicorn：`cd /workspace && PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000`。
+  - 改后端代码需重启 Uvicorn：用 `background_terminal_kill` 停旧终端后再 `background_terminal_create` 起新的，不要 `pkill`。
+  - 重启 Uvicorn 时不要动 Vite（:3000）、Redis（:6379）、Celery（-Q ppt）这些常驻服务。

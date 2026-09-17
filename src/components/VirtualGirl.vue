@@ -96,7 +96,7 @@
 
             <!-- 角色选择栏 -->
             <div class="character-selector">
-              <div class="character-label">选择角色:</div>
+              <div class="character-label">选择角色：</div>
               <select
                 v-model="selectedCharacter"
                 class="character-select"
@@ -136,8 +136,8 @@
             </div>
 
             <div class="companion-status" aria-live="polite">
-              <span class="companion-status-label">当前状态</span>
-              <span class="companion-emotion">{{ companionState.emotion.label }}</span>
+              <span class="companion-status-label">当前状态：</span>
+              <span class="companion-emotion">{{ companionEmotionLabel }}</span>
               <span v-if="companionState.degradedCapabilities.length" class="companion-degraded">
                 文字模式
               </span>
@@ -271,11 +271,11 @@
           </div>
           <div class="form-field">
             <label>性格</label>
-            <input v-model="newCharacter.personality" type="text" maxlength="200" placeholder="如：温柔、活泼、傲娇" />
+            <input v-model="newCharacter.personality" type="text" maxlength="200" placeholder="例如：温柔、活泼、傲娇" />
           </div>
           <div class="form-field">
             <label>说话风格</label>
-            <input v-model="newCharacter.speaking_style" type="text" maxlength="200" placeholder="如：语气温柔，常用语气词" />
+            <input v-model="newCharacter.speaking_style" type="text" maxlength="200" placeholder="例如：语气温柔，常用语气词" />
           </div>
           <div class="form-field">
             <label>开场白</label>
@@ -322,6 +322,21 @@
     deleteMemory: deleteCompanionMemory
   } = useGirlAiCompanion(api)
   const storageKey = computed(() => `virtualGirlChatHistory:${userStore.email || userStore.username || 'anonymous'}`)
+  const EMOTION_LABELS = {
+    neutral: '平静',
+    happy: '开心',
+    sad: '难过',
+    focused: '专注',
+    angry: '生气',
+    calm: '放松',
+    excited: '兴奋',
+    anxious: '紧张',
+    playful: '俏皮'
+  }
+  const companionEmotionLabel = computed(() => {
+    const raw = companionState.emotion?.label || 'neutral'
+    return EMOTION_LABELS[raw] || raw
+  })
 
   // 本地窗口显示状态
   const showWindow = ref(props.visible)
@@ -462,7 +477,7 @@
       selectedCharacter.value = 'custom_' + data.id
       await onCharacterChange()
     } catch (e) {
-      ElMessage.error('创建失败: ' + e.message)
+      ElMessage.error('创建失败：' + e.message)
     }
   }
 
@@ -476,7 +491,7 @@
         ElMessage.info('未找到匹配的对话')
       }
     } catch (e) {
-      ElMessage.error('搜索失败: ' + e.message)
+      ElMessage.error('搜索失败：' + e.message)
     }
   }
 
@@ -502,7 +517,7 @@
       const role = m.role === 'user' ? '你' : characterDisplayName.value
       return `[${role}]\n${m.content}\n`
     })
-    const text = `=== ${characterDisplayName.value} 对话记录 ===\n导出时间: ${new Date().toLocaleString('zh-CN')}\n\n${lines.join('\n')}`
+    const text = `=== ${characterDisplayName.value} 对话记录 ===\n导出时间：${new Date().toLocaleString('zh-CN')}\n\n${lines.join('\n')}`
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -734,7 +749,7 @@
   // 切换到 PiP 模式
   const launchPiP = async () => {
     if (!hasPiPSupport.value) {
-      ElMessage.warning('您的浏览器不支持 Document Picture-in-Picture API，请使用 Chrome 116+ 或 Safari 17+')
+      ElMessage.warning('你的浏览器不支持画中画窗口，请使用 Chrome 116+ 或 Safari 17+')
       return
     }
 
@@ -937,7 +952,7 @@ window.opener.postMessage({type:'girlai-ready'},'*');
   // 切换 PiP 模式
   const togglePiPMode = () => {
     if (!hasPiPSupport.value) {
-      ElMessage.warning('您的浏览器不支持 Document Picture-in-Picture API，请使用 Chrome 116+ 或 Safari 17+')
+      ElMessage.warning('你的浏览器不支持画中画窗口，请使用 Chrome 116+ 或 Safari 17+')
       return
     }
 
@@ -1299,8 +1314,8 @@ window.opener.postMessage({type:'girlai-ready'},'*');
     const screenWidth = window.innerWidth
     const screenHeight = window.innerHeight
     windowPosition.value = {
-      x: screenWidth - windowSize.value.width - 20,
-      y: screenHeight - windowSize.value.height - 100
+      x: Math.max(16, screenWidth - windowSize.value.width - 24),
+      y: Math.max(16, screenHeight - windowSize.value.height - 24)
     }
 
     document.addEventListener('mousemove', checkAutoHide)
@@ -1342,6 +1357,7 @@ window.opener.postMessage({type:'girlai-ready'},'*');
   /* 窗口主容器 */
   .virtual-girl-window {
     position: fixed;
+    box-sizing: border-box;
     background: linear-gradient(135deg, var(--bg-secondary) 0%, #f1f5f9 100%);
     border-radius: 20px;
     box-shadow:

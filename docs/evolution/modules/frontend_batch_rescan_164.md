@@ -4,6 +4,7 @@
 > 归属：前端应用第 164 轮只读复核
 > 基线：`frontend_batch_rescan.md`、`frontend_bootstrap.md`、`frontend_state.md`、`frontend_surface.md`
 > 范围：组件交互、API 契约、构建测试部署、认证会话边界
+> 后续变更（2026-09-16）：文中引用的 `src/utils/request.ts` 已确认零生产引用并删除，正文保留扫描时的判定与行号。
 
 ## 1. 扫描方法
 

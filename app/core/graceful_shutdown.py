@@ -184,7 +184,7 @@ class GracefulShutdownManager:
         try:
             from app.services.websocket_manager import get_ws_manager
             ws_manager = get_ws_manager()
-            connection_count = await ws_manager.get_connection_count()
+            connection_count = ws_manager.get_connection_count()
 
             if connection_count > 0:
                 logger.info(f"正在关闭 {connection_count} 个 WebSocket 连接...")

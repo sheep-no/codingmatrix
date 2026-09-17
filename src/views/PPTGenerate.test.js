@@ -83,6 +83,7 @@ describe('PPTGenerate workflow', () => {
     vi.stubGlobal('WebSocket', vi.fn(function () { return { close: vi.fn() } }))
     route.query = {}
     api.ppt.getTemplates.mockResolvedValue({ templates: [] })
+    api.ppt.getHistory.mockResolvedValue({ records: [] })
     sessionStorage.clear()
   })
 
@@ -95,17 +96,16 @@ describe('PPTGenerate workflow', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('用于经营复盘')
     expect(wrapper.text()).toContain('场景：商务汇报')
-    expect(wrapper.text()).toContain('色彩示意')
+    expect(wrapper.text()).toContain('按主题推荐')
     await wrapper.find('.template-auto').trigger('click')
     await wrapper.find('.form-group textarea').setValue('季度经营汇报')
     await wrapper.find('.generate-btn').trigger('click')
     await flushPromises()
     expect(createOutline).toHaveBeenCalledWith(expect.objectContaining({ template_id: 'auto' }), expect.objectContaining({ onEvent: expect.any(Function) }))
     expect(wrapper.find('.template-result').text()).toContain('自动选择结果：商务报告')
-    expect(wrapper.find('.template-result').text()).toContain('模板 ID：business_report')
     expect(wrapper.find('.template-result').text()).toContain('推荐模板：商务报告、minimal')
     expect(api.ppt.getTemplates).toHaveBeenLastCalledWith(null, { topic: '季度经营汇报', scenario: 'business' })
-    expect(wrapper.find('.template-grid .selected').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.template-grid').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -155,7 +155,7 @@ describe('PPTGenerate workflow', () => {
       type: 'completed', progress: 1, step: 'completed', result: { ppt_id: 'revised-task' },
     }) })
     await flushPromises()
-    expect(wrapper.text()).toContain('生成成功!')
+    expect(wrapper.text()).toContain('生成成功！')
     expect(wrapper.find('.preview-placeholder').exists()).toBe(false)
     await wrapper.find('.preview-btn').trigger('click')
     expect(push).toHaveBeenCalledWith('/ppt-preview/revised-task')
@@ -202,6 +202,24 @@ describe('PPTGenerate workflow', () => {
     expect(approveOutline).toHaveBeenCalledWith('outline-1')
   })
 
+  it('offers only canonical slide types in the outline type selector', async () => {
+    const wrapper = mount(PPTGenerate, { attachTo: document.body })
+    await openOutline(wrapper)
+
+    // 与后端 app/utils/pptx/semantic_renderer.py::SLIDE_TYPES 保持一致
+    const canonicalTypes = [
+      'cover', 'agenda', 'section', 'key_points', 'image_text', 'data',
+      'comparison', 'timeline', 'process', 'summary', 'closing',
+    ]
+    const options = wrapper.find('.outline-type-select').findAll('option')
+    expect(options.length).toBeGreaterThan(0)
+    options.forEach(option => {
+      expect(canonicalTypes).toContain(option.element.value)
+    })
+    expect(options.map(option => option.element.value)).toContain('data')
+    wrapper.unmount()
+  })
+
   it('keeps outline approval disabled until every slide has required content', async () => {
     const wrapper = mount(PPTGenerate, { attachTo: document.body })
     await openOutline(wrapper, [{
@@ -216,6 +234,7 @@ describe('PPTGenerate workflow', () => {
     expect(wrapper.text()).toContain('请填写页面核心结论')
     const approveButton = wrapper.find('.outline-approve-btn')
     expect(approveButton.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.outline-review-actions .outline-approve-btn').exists()).toBe(true)
   })
 
   it('uploads material before creating its versioned outline', async () => {
@@ -251,7 +270,7 @@ describe('PPTGenerate workflow', () => {
     await openOutline(wrapper)
     await wrapper.find('.outline-approve-btn').trigger('click')
     await flushPromises()
-    await wrapper.find('.quality-mode-panel .generate-btn').trigger('click')
+    await wrapper.find('.outline-generate-btn').trigger('click')
     await flushPromises()
 
     expect(generateFromOutline).toHaveBeenCalledWith('outline-1', 'standard', 2, {
@@ -260,6 +279,48 @@ describe('PPTGenerate workflow', () => {
     expect(wrapper.find('.generation-live').exists()).toBe(true)
     expect(wrapper.text()).toContain('正在生成 PPT')
     expect(wrapper.text()).toContain('机会判断')
+  })
+
+  it('uses the left quality selection when generating from the outline panel', async () => {
+    updateOutline.mockImplementation(async (id, payload) => ({ id, version: 2, slides: payload.slides }))
+    approveOutline.mockImplementation(async id => ({ id, version: 2, slides: validSlides }))
+    generateFromOutline.mockResolvedValue({ task_id: 'task-refined' })
+    const wrapper = mount(PPTGenerate, { attachTo: document.body })
+    await openOutline(wrapper)
+    await wrapper.find('.outline-approve-btn').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.config-footer .quality-mode-panel').exists()).toBe(true)
+    expect(wrapper.find('.outline-approve-btn').exists()).toBe(false)
+    expect(wrapper.find('.quality-mode-panel .generate-btn').exists()).toBe(false)
+    expect(wrapper.text()).toContain('第 3 步：确认质量并开始生成')
+    await wrapper.findAll('.quality-mode-option input')[1].setValue()
+    await wrapper.find('.outline-generate-btn').trigger('click')
+    await flushPromises()
+
+    expect(generateFromOutline).toHaveBeenCalledWith('outline-1', 'refined', 2, expect.objectContaining({
+      api_key_token: 'test-token',
+    }))
+    expect(wrapper.find('.generation-live').exists()).toBe(true)
+  })
+
+  it('renders every outline content block for review', async () => {
+    const slides = validSlides.map(slide => ({
+      ...slide,
+      content_blocks: [
+        { type: 'text', content: `${slide.title}论点一`, metadata: {} },
+        { type: 'text', content: `${slide.title}论点二`, metadata: {} },
+        { type: 'text', content: `${slide.title}论点三`, metadata: {} },
+        { type: 'text', content: `${slide.title}论点四`, metadata: {} },
+      ],
+    }))
+    const wrapper = mount(PPTGenerate, { attachTo: document.body })
+    await openOutline(wrapper, slides)
+    const firstEditor = wrapper.findAll('.outline-slide-editor')[0]
+    expect(firstEditor.findAll('.outline-content-input')).toHaveLength(4)
+    expect(firstEditor.findAll('.outline-content-input')[1].element.value).toBe('机会判断论点二')
+    await firstEditor.find('.outline-add-block').trigger('click')
+    expect(firstEditor.findAll('.outline-content-input')).toHaveLength(5)
   })
 
   it('shows outline drafting stages in the main panel while waiting', async () => {
@@ -372,6 +433,25 @@ describe('PPTGenerate workflow', () => {
     expect(wrapper.text()).toContain('正在生成第 1 页')
     wrapper.unmount()
     vi.unstubAllGlobals()
+  })
+
+  it('hides the quality panel once generation completes', async () => {
+    sessionStorage.setItem('ppt-generate-session-v1', JSON.stringify({
+      workflowStep: 3,
+      topic: '已完成的主题',
+      generating: false,
+      currentTaskId: 'task-done',
+      outlineSlides: validSlides,
+      generatedFileUrl: '/api/v1/pptx/download/task-done',
+      generatedSlides: [],
+      progressState: { progress: 1, step: 'complete', message: 'PPT 生成完成' },
+    }))
+    const wrapper = mount(PPTGenerate, { attachTo: document.body })
+    await flushPromises()
+
+    expect(wrapper.find('.success-container').exists()).toBe(true)
+    expect(wrapper.find('.config-footer .quality-mode-panel').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('shows history titles from the backend and opens preview', async () => {

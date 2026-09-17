@@ -17,7 +17,7 @@ from app.schema.ppt_outline import OutlineCreateRequest, OutlineDraft, OutlineSl
 from app.services.unified_state_service import StateNotFoundError, StateOwnershipError
 from app.utils.aicloud.knowledge_processor import parse_document
 from app.utils.web_search import FreeWebSearch
-from app.utils.pptx.commercial_content import build_commercial_page_blueprint
+from app.utils.pptx.commercial_content import build_commercial_page_blueprint, key_message_repeats_body
 from app.utils.pptx.scenario import classify_scenario
 
 
@@ -106,7 +106,7 @@ async def _load_materials(
 def _agent_slides(outline: PresentationOutline) -> list[dict[str, Any]]:
     slides = []
     for index, slide in enumerate(outline.slides):
-        key_message = next((item.strip() for item in slide.bullets if item.strip()), slide.title.strip())
+        key_message = (slide.key_message or "").strip()
         content_blocks = slide.content_blocks or [
             {"type": "text", "content": item, "metadata": {}}
             for item in slide.bullets
@@ -127,7 +127,7 @@ def _agent_slides(outline: PresentationOutline) -> list[dict[str, Any]]:
                 "position": index,
                 "slide_type": _SEMANTIC_SLIDE_TYPES.get(slide.type, slide.type),
                 "title": slide.title or outline.title,
-                "key_message": key_message or outline.title,
+                "key_message": key_message,
                 "content_blocks": content_blocks,
                 "asset_intent": asset_intent,
                 "narrative_role": slide.narrative_role or "opportunity_map",
@@ -142,7 +142,216 @@ def _editable_agent_slides(outline: PresentationOutline) -> list[dict[str, Any]]
     """Keep editable pages while the renderer owns the presentation cover."""
     slides = _agent_slides(outline)
     if slides and slides[0]["slide_type"] == "cover":
-        return slides[1:]
+        slides = slides[1:]
+    slides = [slide for slide in slides if not _is_closing_slide(slide)]
+    if not slides:
+        slides = _blueprint_slides(outline.title, 5)
+    return _sanitize_editable_slides(slides, outline.title)
+
+
+def _is_closing_slide(slide: dict[str, Any]) -> bool:
+    if slide.get("slide_type") in {"closing", "end"}:
+        return True
+    text = f"{slide.get('title') or ''} {slide.get('key_message') or ''}"
+    return any(marker in text for marker in ("谢谢", "感谢聆听", "谢谢观看"))
+
+
+_CHART_MARKERS = (
+    "饼图",
+    "柱状图",
+    "折线图",
+    "甘特图",
+    "热力图",
+    "矩阵图",
+    "示意图",
+    "架构图",
+    "趋势图",
+    "对比图",
+    "分布图",
+    "流程图",
+    "结构图",
+)
+
+_VISUAL_SUFFIXES = (
+    "数据表格",
+    "分布表",
+    "对比表",
+    "增长曲线",
+    "时间轴",
+    "路径图",
+    "曲线",
+    "列表",
+    "表格",
+    "模型",
+    "矩阵",
+    "清单",
+)
+
+_CLAIM_MARKERS = (
+    "将",
+    "已从",
+    "已将",
+    "已经",
+    "已把",
+    "需要",
+    "必须",
+    "应当",
+    "完成",
+    "导致",
+    "引发",
+    "提升",
+    "降低",
+    "升级",
+    "实现",
+    "建立",
+    "打破",
+    "超过",
+    "达到",
+    "可以",
+    "能够",
+    "建议",
+    "优先",
+    "聚焦",
+)
+
+
+def _contains_chart_marker(text: str) -> bool:
+    return any(marker in (text or "") for marker in _CHART_MARKERS)
+
+
+def _looks_like_visual_placeholder(text: str) -> bool:
+    raw = _strip_instruction_prefix(text).rstrip("。；！、 ")
+    if not raw:
+        return True
+    if _contains_chart_marker(raw):
+        return True
+    if any(raw.endswith(suffix) for suffix in _VISUAL_SUFFIXES) and len(raw) <= 24:
+        return True
+    if raw.endswith("图") and len(raw) <= 24:
+        return True
+    if len(raw) < 12:
+        return True
+    if ("，" in raw or "、" in raw or "," in raw) and len(raw) >= 12:
+        return False
+    return len(raw) <= 18 and not any(marker in raw for marker in _CLAIM_MARKERS)
+
+
+def _strip_instruction_prefix(text: str) -> str:
+    raw = (text or "").strip()
+    for prefix in ("列出", "展示"):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix):].lstrip("：:，, ")
+            break
+    return raw.strip("，, ：:、 ")
+
+
+def _noun_phrase_core(text: str) -> str:
+    raw = (text or "").strip().rstrip("。；！、 ")
+    for suffix in _VISUAL_SUFFIXES:
+        if raw.endswith(suffix):
+            raw = raw[: -len(suffix)]
+            break
+    if raw.endswith("图"):
+        raw = raw[:-1]
+    for marker in _CHART_MARKERS:
+        raw = raw.replace(marker, "")
+    return raw.strip("，, ：:、 ")
+
+
+def _normalize_claim_text(text: str) -> str:
+    raw = (text or "").strip().rstrip("。；！、 ")
+    for marker in _CLAIM_MARKERS:
+        raw = raw.replace(marker, "")
+    for token in ("的", "与", "和", "及", " "):
+        raw = raw.replace(token, "")
+    for suffix in ("成果", "情况", "分析", "建设", "案例"):
+        if raw.endswith(suffix):
+            raw = raw[: -len(suffix)]
+    return raw
+
+
+def _is_redundant_core(core: str, claim: str) -> bool:
+    left = _normalize_claim_text(core)
+    right = _normalize_claim_text(claim)
+    if not left or not right:
+        return True
+    return left in right or right in left
+
+
+def _expand_visual_placeholder(text: str, title: str, fallback: str) -> str:
+    """Turn a chart or label placeholder into a page-specific statement.
+
+    The page conclusion is deliberately kept out of the rewritten body, otherwise
+    it would be rendered twice on the same page.
+    """
+    raw = (text or "").strip()
+    remainder = ""
+    for sep in ("，", ",", "：", ":"):
+        if sep in raw:
+            left, right = raw.split(sep, 1)
+            visual_left = (
+                _contains_chart_marker(left)
+                or left.endswith("图")
+                or any(left.endswith(suffix) for suffix in _VISUAL_SUFFIXES)
+            )
+            if visual_left:
+                remainder = _strip_instruction_prefix(right)
+            break
+    cleaned = _strip_instruction_prefix(raw)
+    for marker in _CHART_MARKERS:
+        cleaned = cleaned.replace(marker, "")
+    cleaned = cleaned.strip("，, ：:、 ")
+    if remainder and not _contains_chart_marker(remainder) and len(remainder) >= 16:
+        return remainder if remainder.endswith(("。", "；", "！")) else f"{remainder}。"
+    if remainder and not _contains_chart_marker(remainder) and len(remainder) >= 8:
+        return f"{title}已能用{remainder}说明本页判断。"
+    core = _noun_phrase_core(cleaned)
+    if core and not _is_redundant_core(core, title):
+        return f"{title}要把{core}转成可验收结果。"
+    if fallback and len(fallback) >= 16:
+        return fallback
+    return f"{title}需要用可量化证据支撑下一阶段决策。"
+
+
+def _sanitize_editable_slides(slides: list[dict[str, Any]], topic: str) -> list[dict[str, Any]]:
+    blueprint = build_commercial_page_blueprint(topic)
+    for index, slide in enumerate(slides):
+        page = blueprint[index % len(blueprint)]
+        fallback_blocks = page["blocks"]
+        blocks = list(slide.get("content_blocks") or [])
+        title = str(slide.get("title") or page["title"])
+        key_message = str(slide.get("key_message") or "").strip()
+        if key_message.startswith(("列出", "展示")):
+            stripped = _strip_instruction_prefix(key_message)
+            if stripped:
+                key_message = stripped
+        block_texts = [str(block.get("content") or "") for block in blocks]
+        if (
+            not key_message
+            or _looks_like_visual_placeholder(key_message)
+            or key_message_repeats_body(key_message, block_texts)
+        ):
+            key_message = page["key_message"]
+        slide["key_message"] = key_message
+        sanitized: list[dict[str, Any]] = []
+        target = max(len(blocks), 4)
+        for i in range(target):
+            fallback = fallback_blocks[i % len(fallback_blocks)]
+            block = dict(blocks[i]) if i < len(blocks) else dict(fallback)
+            content = str(block.get("content") or "").strip()
+            if content.startswith(("列出", "展示")):
+                stripped = _strip_instruction_prefix(content)
+                if stripped:
+                    content = stripped
+                    block["content"] = content
+            if _looks_like_visual_placeholder(content):
+                block["content"] = _expand_visual_placeholder(
+                    content, title, str(fallback.get("content") or "")
+                )
+            sanitized.append(block)
+        slide["content_blocks"] = sanitized[:6]
+        if not slide.get("asset_intent"):
+            slide["asset_intent"] = page.get("asset_intent")
     return slides
 
 
@@ -165,6 +374,7 @@ def _preview_from_raw_agent_slide(raw: dict[str, Any], index: int) -> Optional[d
             SlideOutline(
                 type=slide_type,
                 title=str(raw.get("title") or "").strip(),
+                key_message=str(raw.get("key_message") or ""),
                 bullets=bullets,
                 image_keywords=list(raw.get("image_keywords") or [])[:3],
                 notes=str(raw.get("notes") or ""),
@@ -179,6 +389,8 @@ def _preview_from_raw_agent_slide(raw: dict[str, Any], index: int) -> Optional[d
     if not converted:
         return None
     slide = converted[0]
+    if _is_closing_slide(slide):
+        return None
     slide["id"] = f"slide-{index + 1}"
     slide["position"] = index
     return slide

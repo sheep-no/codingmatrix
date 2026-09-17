@@ -5,10 +5,10 @@
         <h2>多服务 Docker 配置</h2>
         <div class="header-actions">
           <button class="import-btn" title="导入配置" @click="importConfig">
-            <span>[IMPORT]</span> Import
+            导入
           </button>
           <button class="export-btn" title="导出配置" @click="exportConfig">
-            <span>📤</span> 导出
+            导出
           </button>
           <button class="close-btn" @click="$emit('close')">×</button>
         </div>
@@ -35,7 +35,7 @@
             <div class="section-actions">
               <button class="add-service-btn" @click="addService"><span>+</span> 添加服务</button>
               <button class="apply-template-btn" @click="showTemplates = !showTemplates">
-                <span>[LIST]</span> Apply Template
+                应用模板
               </button>
             </div>
           </div>
@@ -113,8 +113,8 @@
             >
               <div class="service-card-header">
                 <div class="service-info">
-                  <span class="service-icon">{{ getAppIcon(service.appType) }}</span>
-                  <span class="service-name">{{ service.name || `服务 ${index + 1}` }}</span>
+                  <span class="service-icon" :class="'type-' + service.appType" aria-hidden="true"></span>
+                  <span class="service-name" :title="service.name || `服务 ${index + 1}`">{{ service.name || `服务 ${index + 1}` }}</span>
                   <span class="service-type-badge">{{ appTypeLabels[service.appType] }}</span>
                 </div>
                 <div class="service-actions">
@@ -126,7 +126,7 @@
                   </button>
                   <button
                     class="icon-btn"
-                    title="Duplicate service"
+                    title="复制服务"
                     @click.stop="duplicateService(index)"
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -136,7 +136,7 @@
                   </button>
                   <button
                     class="icon-btn delete-btn"
-                    title="Delete service"
+                    title="删除服务"
                     @click.stop="removeService(index)"
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -152,12 +152,12 @@
               <!-- 服务配置预览 -->
               <div class="service-preview">
                 <div class="preview-item">
-                  <span class="label">镜像:</span>
+                  <span class="label">镜像：</span>
                   <code class="value">{{ service.image }}</code>
                 </div>
                 <div v-if="service.ports" class="preview-item">
-                  <span class="label">端口:</span>
-                  <span class="value">{{ service.ports }}</span>
+                  <span class="label">端口：</span>
+                  <span class="value">{{ formatPorts(service.ports) }}</span>
                 </div>
                 <div class="service-preview-hint">点击配置详情</div>
               </div>
@@ -187,9 +187,9 @@
                 <label>网络模式</label>
                 <select v-model="projectInfo.networkMode">
                   <option value="">使用自定义网络</option>
-                  <option value="bridge">bridge (默认)</option>
-                  <option value="host">host (主机网络)</option>
-                  <option value="none">none (无网络)</option>
+                  <option value="bridge">bridge（默认）</option>
+                  <option value="host">host（主机网络）</option>
+                  <option value="none">none（无网络）</option>
                 </select>
               </div>
             </div>
@@ -233,7 +233,7 @@
         <!-- 服务详情配置面板 -->
         <div v-if="activeService" class="service-detail-panel">
           <div class="detail-header">
-            <h3>当前服务: {{ activeService.name }}</h3>
+            <h3>当前服务：{{ activeService.name }}</h3>
             <div class="detail-actions">
               <button class="toggle-accordion-btn" @click="showDetailConfig = !showDetailConfig">
                 {{ showDetailConfig ? '收起' : '展开' }}
@@ -263,7 +263,7 @@
                     placeholder="node:18-alpine"
                     class="wide-input"
                   />
-                  <small class="help-text">如 node:18-alpine, python:3.9, nginx:alpine</small>
+                  <small class="help-text">例如 node:18-alpine、python:3.9、nginx:alpine</small>
                 </div>
                 <div class="form-group">
                   <label>镜像标签（可选）</label>
@@ -293,7 +293,7 @@
                     placeholder="npm start"
                     class="wide-input"
                   />
-                  <small class="help-text">如 npm start, python app.py, java -jar app.jar</small>
+                  <small class="help-text">例如 npm start、python app.py、java -jar app.jar</small>
                 </div>
               </div>
             </div>
@@ -403,8 +403,8 @@
                   <div v-if="volume.type === 'bind'" class="volume-mode">
                     <label>模式</label>
                     <select v-model="volume.mode">
-                      <option value="rw">读写 (rw)</option>
-                      <option value="ro">只读 (ro)</option>
+                       <option value="rw">读写（rw）</option>
+                       <option value="ro">只读（ro）</option>
                     </select>
                   </div>
                   <button
@@ -491,7 +491,7 @@
                   class="code-input"
                 />
                 <small class="help-text"
-                  >例如: ["CMD-SHELL", "curl -f http://localhost || exit 1"]</small
+                  >例如：["CMD-SHELL", "curl -f http://localhost || exit 1"]</small
                 >
               </div>
 
@@ -612,7 +612,7 @@
     },
     {
       id: 2,
-      name: '后端API',
+      name: '后端 API',
       appType: 'api',
       image: 'python:3.9-slim',
       imageTag: '',
@@ -636,7 +636,7 @@
     },
     {
       id: 3,
-      name: 'MySQL数据库',
+      name: 'MySQL 数据库',
       appType: 'database',
       image: 'mysql:8.0',
       imageTag: '',
@@ -698,18 +698,9 @@
     queue: '队列'
   }
 
-  // 应用图标
-  const getAppIcon = appType => {
-    const icons = {
-      web: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
-      api: '[API]',
-      worker: '[WORKER]',
-      database: '[DATABASE]',
-      proxy: '[PROXY]',
-      cache: '[CACHE]',
-      queue: '[QUEUE]'
-    }
-    return icons[appType] || ''
+  const formatPorts = ports => {
+    if (!Array.isArray(ports) || !ports.length) return ''
+    return ports.map(p => `${p.host}:${p.container}`).join(', ')
   }
 
   // 模板
@@ -1387,7 +1378,7 @@
       validationMessage.value = '✓ 配置已复制到剪贴板'
       scheduleMessageClear(3000)
     } catch (err) {
-      validationMessage.value = '✗ 复制失败: ' + err.message
+       validationMessage.value = '✗ 复制失败：' + err.message
     }
   }
 
@@ -1436,7 +1427,7 @@
           validationMessage.value = '✓ 配置文件已读取（仅 JSON 格式的多服务配置导入）'
         }
       } catch (error) {
-        validationMessage.value = '✗ 导入失败: ' + error.message
+         validationMessage.value = '✗ 导入失败：' + error.message
       }
 
       scheduleMessageClear(3000)
@@ -1492,7 +1483,9 @@
     width: 95%;
     max-width: 1400px;
     max-height: 95vh;
-    overflow-y: auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   }
 
@@ -1569,6 +1562,9 @@
 
   .modal-body {
     padding: 30px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
   }
 
   /* 配置类型选择 */
@@ -1622,6 +1618,13 @@
     justify-content: space-between;
     align-items: center;
     margin: 0 0 20px 0;
+    gap: 12px;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 8px 0;
+    background: var(--bg-primary);
   }
 
   .section-header h3 {
@@ -1634,13 +1637,15 @@
   .section-actions {
     display: flex;
     gap: 10px;
+    flex-shrink: 0;
+    align-items: center;
   }
 
   .add-service-btn {
     padding: 10px 20px;
-    background: var(--gradient-success);
-    color: white;
-    border: none;
+    background: #059669;
+    color: #fff;
+    border: 2px solid #047857;
     border-radius: 6px;
     cursor: pointer;
     font-size: 14px;
@@ -1649,10 +1654,11 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-shrink: 0;
   }
 
   .add-service-btn:hover {
-    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    background: #047857;
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
   }
@@ -1730,7 +1736,7 @@
   /* 服务卡片 */
   .service-cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 15px;
     margin-bottom: 20px;
   }
@@ -1767,22 +1773,42 @@
     padding: 15px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
+    gap: 8px;
+    flex-wrap: wrap;
   }
 
   .service-info {
     display: flex;
     align-items: center;
     gap: 8px;
+    min-width: max-content;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
   }
 
   .service-icon {
-    font-size: 24px;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    background: #64748b;
   }
+  .service-icon.type-web { background: #3b82f6; }
+  .service-icon.type-api { background: #8b5cf6; }
+  .service-icon.type-worker { background: #f59e0b; }
+  .service-icon.type-database { background: #10b981; }
+  .service-icon.type-proxy { background: #06b6d4; }
+  .service-icon.type-cache { background: #ec4899; }
+  .service-icon.type-queue { background: #6366f1; }
 
   .service-name {
     font-size: 16px;
     font-weight: 600;
     color: var(--text-primary);
+    white-space: nowrap;
+    flex: 0 0 auto;
+    overflow-wrap: normal;
+    word-break: keep-all;
   }
 
   .service-type-badge {
@@ -1792,11 +1818,15 @@
     border-radius: 12px;
     font-size: 12px;
     font-weight: 500;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .service-actions {
     display: flex;
     gap: 5px;
+    flex-shrink: 0;
+    margin-left: auto;
   }
 
   .icon-btn {

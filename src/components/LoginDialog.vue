@@ -67,7 +67,7 @@
               </svg>
             </div>
             <h3>欢迎回来</h3>
-            <p>登录到您的账户</p>
+            <p>登录你的账户</p>
           </div>
 
           <div class="login-body">
@@ -119,7 +119,7 @@
                 <span class="checkmark"></span>
                 <span>记住我</span>
               </label>
-              <a href="#" class="forgot-link">忘记密码?</a>
+              <a href="#" class="forgot-link">忘记密码？</a>
             </div>
           </div>
 

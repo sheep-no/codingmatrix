@@ -3,8 +3,8 @@
     <!-- 顶部区域 -->
     <div id="top-login" :class="{ collapsed: isCollapsed }">
       <div class="logo-wrapper">
-        <img id="logo" src="../img/logo.jpg" alt="AI助手 Logo" />
-        <span v-if="!isCollapsed" class="logo-text">AI助手</span>
+        <img id="logo" src="../img/logo.jpg" alt="CodingMatrix Logo" />
+        <span v-if="!isCollapsed" class="logo-text">CodingMatrix</span>
       </div>
       <button
         id="collapse-btn"
@@ -124,6 +124,29 @@
           <circle cx="16" cy="17" r="1" fill="currentColor"></circle>
         </svg>
         <span>Docker 配置</span>
+      </div>
+      <div
+        role="menuitem"
+        tabindex="0"
+        class="toolkit-item"
+        @click.stop="useTool('nginxConfig')"
+        @keydown.enter="useTool('nginxConfig')"
+        @keydown.space.prevent="useTool('nginxConfig')"
+      >
+        <svg
+          class="tool-icon-svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <rect x="3" y="4" width="18" height="8" rx="2"></rect>
+          <rect x="3" y="14" width="8" height="6" rx="1"></rect>
+          <rect x="13" y="14" width="8" height="6" rx="1"></rect>
+          <path d="M12 12v2"></path>
+        </svg>
+        <span>Nginx 配置</span>
       </div>
       <!-- 管理员工具 - 仅超级用户可见 -->
       <div
@@ -280,7 +303,7 @@
 
       <!-- 错误状态 -->
       <div v-else-if="loadError" role="alert" class="error-state">
-        <p>加载失败: {{ loadError }}</p>
+        <p>加载失败：{{ loadError }}</p>
         <button @click="fetchHistory">重试</button>
       </div>
 
@@ -894,13 +917,14 @@
   }
 
   .logo-text {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
     background: linear-gradient(135deg, var(--primary-600) 0%, var(--teal) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
     white-space: nowrap;
+    letter-spacing: -0.02em;
     opacity: 1;
     transition: opacity var(--transition-base);
   }
@@ -1133,14 +1157,14 @@
     position: relative;
     z-index: 100;
     pointer-events: auto;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     min-height: 0;
-    max-height: min(52vh, 420px);
+    max-height: min(72vh, 640px);
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--content-muted) 70%, transparent) transparent;
+    scrollbar-color: color-mix(in srgb, var(--content-muted) 85%, transparent) transparent;
   }
 
   .toolkit-menu::-webkit-scrollbar {

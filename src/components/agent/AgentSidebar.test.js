@@ -1,5 +1,4 @@
 import { mount } from '@vue/test-utils'
-import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 import AgentSidebar from './AgentSidebar.vue'
 
@@ -12,20 +11,8 @@ const baseProps = {
 }
 
 describe('AgentSidebar accessibility', () => {
-  it('supports shared navigation, keyboard session switching and native file controls', async () => {
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/', component: { template: '<div />' } },
-        { path: '/agent', component: { template: '<div />' } },
-        { path: '/capabilities', component: { template: '<div />' } },
-        { path: '/docs', component: { template: '<div />' } },
-        { path: '/settings', component: { template: '<div />' } }
-      ]
-    })
-    await router.push('/agent')
-    await router.isReady()
-    const wrapper = mount(AgentSidebar, { props: baseProps, global: { plugins: [router] } })
+  it('supports keyboard session switching and native file controls', async () => {
+    const wrapper = mount(AgentSidebar, { props: baseProps })
 
     await wrapper.find('.session-item').trigger('keydown', { key: 'Enter' })
 
@@ -33,7 +20,7 @@ describe('AgentSidebar accessibility', () => {
     expect(wrapper.find('.category-header').element.tagName).toBe('BUTTON')
     expect(wrapper.find('.category-header').attributes('aria-expanded')).toBe('true')
     expect(wrapper.find('.file-item').element.tagName).toBe('BUTTON')
-    expect(wrapper.findAll('.workbench-nav-link')).toHaveLength(5)
+    expect(wrapper.find('.workbench-nav').exists()).toBe(false)
     expect(wrapper.find('.session-lifecycle').exists()).toBe(false)
 
     await wrapper.find('.session-delete').trigger('click')

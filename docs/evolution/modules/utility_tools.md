@@ -4,6 +4,8 @@
 >
 > 结论：**log_archiver 被 db/scheduler 消费、math_utils 被 session_manager/feedback_learner 消费、pagination 零消费死代码——余弦相似度全库三轨实现（math_utils/knowledge_processor/memory + spec_cache batch 版），日志轮转双套机制并存**。
 
+> 后续变更（2026-09-16）：`app/utils/pagination.py` 已确认零生产引用并删除（`log_archiver.py`、`math_utils.py` 仍活跃），正文保留扫描时的判定与行号。
+
 ## 一、模块定位
 
 | 组件 | 位置 | 消费状态 |

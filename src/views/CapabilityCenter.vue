@@ -4,7 +4,7 @@
       <button class="back" type="button" @click="$router.push('/')">返回</button>
       <div>
         <h1>能力中心</h1>
-        <p>从素材处理到项目管理，在这里找到需要的工具。</p>
+        <p>视觉、知识库、沙箱、Skills/技能 与 Agent Host/主机会话都在这里。</p>
       </div>
     </header>
 
@@ -28,7 +28,7 @@
     <div id="capability-panel" class="panel-content" role="tabpanel" :aria-labelledby="`tab-${activeTab}`" tabindex="0">
     <section v-if="activeTab === 'vision'" class="panel">
       <h2>视觉工具</h2>
-      <p class="panel-description">上传一张图片，选择分析、文字识别或代码生成。</p>
+      <p class="panel-description">上传一张图片，选择分析、OCR/文字识别或代码生成。</p>
        <label class="drop-zone" @dragover.prevent @drop.prevent="dropVisionFile">
          <strong>{{ visionFile ? visionFile.name : '拖入图片，或点击选择文件' }}</strong>
          <span>{{ visionFile ? '已选择图片，点击可更换' : '选择设备中的图片，开始处理' }}</span>
@@ -40,39 +40,49 @@
        <ErrorState v-else-if="panelStates.vision.error" :message="panelStates.vision.error" @retry="runVision(lastVisionOperation)" />
        <div class="actions">
         <button class="primary" :disabled="!visionFile || panelStates.vision.loading" @click="runVision('analyze')">分析图片</button>
-        <button :disabled="!visionFile || panelStates.vision.loading" @click="runVision('ocr')">OCR 识别</button>
+        <button :disabled="!visionFile || panelStates.vision.loading" @click="runVision('ocr')">OCR/文字识别</button>
         <button :disabled="!visionFile || panelStates.vision.loading" @click="runVision('code')">截图转代码</button>
         <button :disabled="!visionFile || panelStates.vision.loading" @click="runVision('safety')">安全检查</button>
       </div>
        <pre v-if="result && !panelStates.vision.error">{{ result }}</pre>
     </section>
 
-    <section v-else-if="activeTab === 'skills'" class="panel">
-      <div class="panel-title"><h2>Skills</h2><button @click="loadSkills(true)">刷新</button></div>
+      <section v-else-if="activeTab === 'skills'" class="panel">
+      <div class="panel-title"><h2>Skills/技能</h2><button @click="loadSkills(true)">刷新</button></div>
       <div class="form-grid">
         <label class="field-label">名称<input v-model="skill.name" placeholder="为 Skill 命名" /></label>
-        <label class="field-label">分类<input v-model="skill.category" placeholder="如 workflow" /></label>
+        <label class="field-label">分类
+          <select v-model="skill.category" aria-label="Skill/技能分类">
+            <option value="workflow">工作流</option>
+            <option value="tool">工具</option>
+            <option value="api">API 层</option>
+            <option value="reviewer">审查</option>
+            <option value="validation">验证与修复</option>
+            <option value="orchestrator">编排</option>
+            <option value="other">其他</option>
+          </select>
+        </label>
         <label class="field-label full-width">描述<input v-model="skill.description" placeholder="说明它的用途" /></label>
-        <label class="field-label full-width">Markdown 内容<textarea v-model="skill.content" placeholder="编写技能说明和执行步骤"></textarea></label>
+        <label class="field-label full-width">说明内容<textarea v-model="skill.content" placeholder="编写技能说明和执行步骤"></textarea></label>
       </div>
-      <button class="primary" :disabled="busy || !skill.name || !skill.content" @click="saveSkill">上传 Skill</button>
-       <LoadingState v-if="panelStates.skills.loading" label="正在加载 Skills..." />
+      <button class="primary" :disabled="busy || !skill.name || !skill.content" @click="saveSkill">上传 Skill/技能</button>
+       <LoadingState v-if="panelStates.skills.loading" label="正在加载 Skills/技能..." />
        <ErrorState v-else-if="panelStates.skills.error" :message="panelStates.skills.error" @retry="loadSkills(true)" />
        <div v-for="item in skills" :key="item.name" class="list-row">
          <span>{{ item.name }} · {{ item.category }}</span>
          <button @click="removeSkill(item.name)">删除</button>
        </div>
-       <div v-if="!panelStates.skills.loading && !panelStates.skills.error && skills.length === 0" class="empty">暂无 Skills</div>
+       <div v-if="!panelStates.skills.loading && !panelStates.skills.error && skills.length === 0" class="empty">暂无 Skills/技能</div>
     </section>
 
     <section v-else-if="activeTab === 'host'" class="panel">
-      <div class="panel-title"><h2>Agent Host 会话</h2><button @click="loadHosts(true)">刷新</button></div>
-       <LoadingState v-if="panelStates.host.loading" label="正在加载 Host 会话..." />
+      <div class="panel-title"><h2>Agent Host/主机会话</h2><button @click="loadHosts(true)">刷新</button></div>
+       <LoadingState v-if="panelStates.host.loading" label="正在加载 Agent Host/主机会话..." />
        <ErrorState v-else-if="panelStates.host.error" :message="panelStates.host.error" @retry="loadHosts(true)" />
-       <div v-else-if="hosts.length === 0" class="empty">暂无在线 Host 会话</div>
+       <div v-else-if="hosts.length === 0" class="empty">暂无在线 Agent Host/主机会话</div>
       <div v-for="host in hosts" :key="host.session_id" class="list-row column">
         <strong>{{ host.workspace_id }}</strong>
-        <span>{{ host.session_id }} · {{ host.control_status }}</span>
+        <span>{{ host.session_id }} · {{ hostStatusLabel(host.control_status) }}</span>
         <div class="actions">
           <button @click="controlHost(host.session_id, 'pause')">暂停</button>
           <button @click="controlHost(host.session_id, 'resume')">恢复</button>
@@ -118,7 +128,9 @@
       <textarea v-model="sandboxCode" class="code-input" aria-label="要执行的代码" placeholder="输入要执行的代码" spellcheck="false"></textarea>
        <LoadingState v-if="panelStates.sandbox.loading" label="正在执行代码..." />
        <ErrorState v-else-if="panelStates.sandbox.error" :message="panelStates.sandbox.error" @retry="executeSandboxCode" />
-       <button class="primary" :disabled="panelStates.sandbox.loading || !sandboxCode.trim()" @click="executeSandboxCode">运行代码</button>
+       <div class="actions">
+         <button class="primary" :disabled="panelStates.sandbox.loading || !sandboxCode.trim()" @click="executeSandboxCode">运行代码</button>
+       </div>
        <pre v-if="sandboxResult && !panelStates.sandbox.error">{{ sandboxResult }}</pre>
     </section>
     </div>
@@ -136,8 +148,8 @@ const tabs = [
   { id: 'vision', label: '视觉工具', description: '分析图片与提取文字' },
   { id: 'knowledge', label: '知识库', description: '管理与检索参考文档' },
   { id: 'sandbox', label: '代码沙箱', description: '运行代码片段' },
-  { id: 'skills', label: 'Skills', description: '管理可复用技能' },
-  { id: 'host', label: 'Agent Host', description: '查看会话与执行状态' }
+  { id: 'skills', label: 'Skills/技能', description: '管理可复用技能' },
+  { id: 'host', label: 'Agent Host/主机会话', description: '查看会话与执行状态' }
 ]
 const activeTab = ref('vision')
 function navigateTabs(event, id) {
@@ -157,6 +169,10 @@ const result = ref('')
 const visionFile = ref(null)
 const visionPrompt = ref('请详细描述这张图片的内容')
 const lastVisionOperation = ref('analyze')
+const hostStatusMap = { active: '运行中', paused: '已暂停', cancelled: '已取消' }
+function hostStatusLabel(status) {
+  return hostStatusMap[status] || status || '未知'
+}
 const skills = ref([])
 const hosts = ref([])
 const hostActions = ref('')
@@ -212,7 +228,7 @@ async function loadSkills(force = false) {
     skills.value = await api.listSkills()
     loadedPanels.add('skills')
   } catch (error) {
-    panelStates.skills.error = error.message || 'Skills 加载失败，请重试。'
+    panelStates.skills.error = error.message || 'Skills/技能加载失败，请重试。'
   } finally { panelStates.skills.loading = false }
 }
 async function saveSkill() { busy.value = true; try { await api.uploadSkill(skill.value); skill.value = { name: '', category: 'other', description: '', content: '' }; await loadSkills() } finally { busy.value = false } }
@@ -229,7 +245,7 @@ async function loadHosts(force = false) {
     hosts.value = await api.listAgentHostSessions()
     loadedPanels.add('host')
   } catch (error) {
-    panelStates.host.error = error.message || 'Host 会话加载失败，请重试。'
+    panelStates.host.error = error.message || 'Agent Host/主机会话加载失败，请重试。'
   } finally { panelStates.host.loading = false }
 }
 async function controlHost(sessionId, action) { await api.controlAgentHostSession(sessionId, action); await loadHosts(true) }
@@ -303,9 +319,9 @@ watch(activeTab, tab => {
 .back:disabled, button:disabled { cursor: not-allowed; opacity: 0.55; }
 .capability-layout { max-width: 1100px; margin: auto; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 28px; align-items: start; }
 .tabs { display: flex; flex-direction: column; gap: 8px; }
-.tabs button { text-align: left; padding: 14px 16px; border-color: transparent; background: transparent; }
+.tabs button { text-align: left; padding: 14px 16px; border-color: transparent; background: transparent; overflow-wrap: break-word; }
 .tabs button span { display: block; font-weight: 600; }
-.tabs button small { display: block; margin-top: 6px; color: var(--content-secondary); font-size: 12px; line-height: 1.5; }
+.tabs button small { display: block; margin-top: 6px; color: var(--content-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: break-word; }
 .panel-content { min-width: 0; }
 .panel-content:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 4px; border-radius: 12px; }
 .panel-description { color: var(--content-secondary); font-size: 14px; line-height: 1.7; margin: 10px 0 24px; }
@@ -323,7 +339,7 @@ button.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.08); }
 input, textarea, select { width: 100%; box-sizing: border-box; padding: 10px; margin: 12px 0; border: 1px solid var(--control-border); border-radius: 8px; background: var(--surface-app); color: inherit; }
 textarea { min-height: 100px; resize: vertical; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
-.list-row { justify-content: space-between; padding: 18px 0; border-top: 1px solid var(--control-border); overflow-wrap: anywhere; }
+.list-row { justify-content: space-between; padding: 18px 0; border-top: 1px solid var(--control-border); overflow-wrap: break-word; }
 .list-row button { flex-shrink: 0; }
 .list-row.column { align-items: flex-start; flex-direction: column; }
 pre { overflow: auto; overflow-wrap: anywhere; padding: 20px; border-radius: 8px; background: #111827; color: #d1fae5; white-space: pre-wrap; font-size: 13px; line-height: 1.8; }
@@ -332,16 +348,12 @@ pre { overflow: auto; overflow-wrap: anywhere; padding: 20px; border-radius: 8px
 .search-results h3 { margin: 0 0 8px; }
 .result-row { padding: 14px 0; border-top: 1px solid var(--control-border); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
 .code-input { min-height: 220px; font-family: monospace; }
-.drop-zone { display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; min-height: 140px; margin: 20px 0; padding: 20px; text-align: center; overflow-wrap: anywhere; border: 1px dashed var(--control-border); border-radius: 10px; color: var(--content-secondary); background: var(--surface-app); cursor: pointer; transition: border-color var(--motion-fast), color var(--motion-fast), background var(--motion-fast); }
+.drop-zone { position: relative; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; min-height: 140px; margin: 20px 0; padding: 20px; text-align: center; overflow-wrap: break-word; border: 1px dashed var(--control-border); border-radius: 10px; color: var(--content-secondary); background: var(--surface-app); cursor: pointer; transition: border-color var(--motion-fast), color var(--motion-fast), background var(--motion-fast); }
 .drop-zone strong { color: var(--content-primary); max-width: 100%; }
 .drop-zone span { font-size: 13px; }
 .drop-zone:hover, .drop-zone:focus-within { border-color: var(--control-border-focus); color: var(--accent-primary); background: var(--surface-subtle); }
 .drop-zone input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-@media (max-width: 600px) {
-  .capability-page { padding: 16px; }
-  .panel { padding: 16px; }
-  .page-header { align-items: flex-start; flex-direction: column; }
-  .list-row { align-items: flex-start; flex-direction: column; }
+@media (max-width: 900px) {
   .capability-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .tabs button { padding: 10px; min-height: 44px; }
@@ -349,6 +361,12 @@ pre { overflow: auto; overflow-wrap: anywhere; padding: 20px; border-radius: 8px
   .form-grid { grid-template-columns: minmax(0, 1fr); }
   .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
   .actions button { min-width: 0; padding: 10px 6px; }
+}
+@media (max-width: 600px) {
+  .capability-page { padding: 16px; }
+  .panel { padding: 16px; }
+  .page-header { align-items: flex-start; flex-direction: column; }
+  .list-row { align-items: flex-start; flex-direction: column; }
   .drop-zone { min-height: 120px; padding: 16px; }
 }
 </style>

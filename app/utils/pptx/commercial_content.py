@@ -30,6 +30,22 @@ TOPIC_TEMPLATE_BY_PROFILE = {
 }
 
 
+def key_message_repeats_body(key_message: str, body_texts) -> bool:
+    """Return True when a page conclusion merely repeats one of its body lines."""
+
+    def fold(text: str) -> str:
+        return "".join(char for char in str(text or "") if char.isalnum())
+
+    claim = fold(key_message)
+    if not claim:
+        return False
+    for body in body_texts:
+        folded = fold(body)
+        if folded and (claim == folded or claim in folded):
+            return True
+    return False
+
+
 def resolve_topic_template(topic: str, requested_template: str) -> str:
     """Resolve the default template from topic semantics while honoring explicit choices."""
     if isinstance(requested_template, str) and requested_template not in {"", "auto"}:

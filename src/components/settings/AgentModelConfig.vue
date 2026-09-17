@@ -98,7 +98,7 @@
 
         <div class="error-type-grid">
           <div v-for="(modelId, errorType) in configData.error_type_models" :key="errorType" class="error-type-item">
-            <span class="error-type-name">{{ errorType }}</span>
+            <span class="error-type-name">{{ errorTypeLabel(errorType) }}</span>
             <div class="error-type-select">
               <ModelSelector
                 :models="availableModels"
@@ -115,10 +115,6 @@
 
       <!-- 配置信息 -->
       <div class="config-info">
-        <div class="info-item">
-          <span class="info-label">配置文件：</span>
-          <span class="info-value">data/agent_model_config.yaml</span>
-        </div>
         <div class="info-item">
           <span class="info-label">最后更新：</span>
           <span class="info-value">{{ configData.last_updated || '未配置' }}</span>
@@ -175,6 +171,20 @@ const configData = ref({
 function getModelName(modelId) {
   const m = availableModels.value.find(m => m.id === modelId)
   return m ? m.name : modelId
+}
+
+function errorTypeLabel(errorType) {
+  return ({
+    NameError: '名称错误',
+    AttributeError: '属性错误',
+    ImportError: '导入错误',
+    SyntaxError: '语法错误',
+    TypeError: '类型错误',
+    KeyError: '键错误',
+    IndexError: '索引错误',
+    LogicError: '逻辑错误',
+    timeout: '超时'
+  }[errorType] || errorType)
 }
 
 function getThinkingBudgetDisplay(roleKey) {
@@ -248,10 +258,10 @@ async function updateModel(role, modelId) {
       }
     } else {
       const err = await resp.json().catch(() => ({}))
-      ElMessage.error('更新失败: ' + (err.detail || resp.statusText))
+      ElMessage.error('更新失败：' + (err.detail || resp.statusText))
     }
   } catch (e) {
-    ElMessage.error('更新失败: ' + e.message)
+    ElMessage.error('更新失败：' + e.message)
   }
 }
 
@@ -286,10 +296,10 @@ async function saveChain() {
       }
     } else {
       const err = await resp.json().catch(() => ({}))
-      ElMessage.error('保存失败: ' + (err.detail || resp.statusText))
+      ElMessage.error('保存失败：' + (err.detail || resp.statusText))
     }
   } catch (e) {
-    ElMessage.error('保存失败: ' + e.message)
+    ElMessage.error('保存失败：' + e.message)
   } finally {
     chainSaving.value = false
   }
@@ -315,10 +325,10 @@ async function updateErrorTypeModel(errorType, modelId) {
       }
     } else {
       const err = await resp.json().catch(() => ({}))
-      ElMessage.error('更新失败: ' + (err.detail || resp.statusText))
+      ElMessage.error('更新失败：' + (err.detail || resp.statusText))
     }
   } catch (e) {
-    ElMessage.error('更新失败: ' + e.message)
+    ElMessage.error('更新失败：' + e.message)
   }
 }
 
@@ -334,10 +344,10 @@ async function reloadConfig() {
       }
     } else {
       const err = await resp.json().catch(() => ({}))
-      ElMessage.error('重新加载失败: ' + (err.detail || resp.statusText))
+      ElMessage.error('重新加载失败：' + (err.detail || resp.statusText))
     }
   } catch (e) {
-    ElMessage.error('重新加载失败: ' + e.message)
+    ElMessage.error('重新加载失败：' + e.message)
   } finally {
     reloading.value = false
   }

@@ -16,7 +16,7 @@ class ConnectedRequest:
 
 @pytest.mark.asyncio
 async def test_history_payload_and_bounded_query(monkeypatch):
-    session = SimpleNamespace(session_id="session", requirement="app", status="completed", output_dir="42/app", files_generated=2, files_total=2, error_message=None, created_at=None, last_activity_at=None)
+    session = SimpleNamespace(session_id="session", requirement="app", status="completed", output_dir="42/app", files_generated=2, files_total=2, error_message=None, created_at=None, last_activity_at=None, lifecycle_status="active", retention_class="standard", pinned=False, archived_at=None, purge_after=None)
     result = MagicMock()
     result.scalars.return_value.all.return_value = [session]
     db = SimpleNamespace(execute=AsyncMock(return_value=result))
@@ -47,7 +47,7 @@ async def test_explicit_reconnect_consumes_existing_queue(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("connected", [True, False])
 async def test_detail_reconnectable_matches_subscription_state(monkeypatch, connected):
-    session = SimpleNamespace(session_id="session", requirement="app", status="running", output_dir="42/app", files_generated=0, files_total=2, error_message=None, created_at=None, last_activity_at=None)
+    session = SimpleNamespace(session_id="session", requirement="app", status="running", output_dir="42/app", files_generated=0, files_total=2, error_message=None, created_at=None, last_activity_at=None, lifecycle_status="active", retention_class="standard", pinned=False, archived_at=None, purge_after=None)
     ownership = AsyncMock(return_value=session)
     monkeypatch.setattr(endpoints, "verify_session_ownership", ownership)
     monkeypatch.setattr(endpoints, "_active_tasks", {"session": {"gen_task": SimpleNamespace(done=lambda: False), "connected": connected}})

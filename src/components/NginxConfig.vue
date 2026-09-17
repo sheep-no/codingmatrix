@@ -1,16 +1,20 @@
 <template>
-  <div v-if="visible" class="nginx-config-overlay" @click.self="$emit('close')">
+  <div
+    v-if="visible || embedded"
+    :class="embedded ? 'nginx-config-embedded' : 'nginx-config-overlay'"
+    @click.self="!embedded && $emit('close')"
+  >
     <div class="nginx-config-modal">
       <div class="modal-header">
         <h2>Nginx 配置工具</h2>
         <div class="header-actions">
           <button class="import-btn" title="导入配置" @click="importConfig">
-            <span>[IMPORT]</span> Import
+            导入
           </button>
           <button class="export-btn" title="导出配置" @click="exportConfig">
-            <span>📤</span> 导出
+            导出
           </button>
-          <button class="close-btn" @click="$emit('close')">×</button>
+          <button v-if="!embedded" class="close-btn" @click="$emit('close')">×</button>
         </div>
       </div>
 
@@ -85,16 +89,14 @@
               class="path-input"
             />
             <button class="path-hint-btn" @click="fillDefaultPath">
-              <span class="icon">[PROXY]</span>
               使用默认值
             </button>
           </div>
           <div class="path-description">
-            <span class="icon">[INFO]</span>
             <span class="text">
-              您的 Nginx 安装目录路径。配置文件（如 mime.types）将从此目录加载。
-              <code v-if="currentPlatform === 'windows'">默认: C:/nginx</code>
-              <code v-else>默认: /etc/nginx</code>
+              你的 Nginx 安装目录路径。配置文件（例如 mime.types）将从此目录加载。
+              <code v-if="currentPlatform === 'windows'">默认：C:/nginx</code>
+              <code v-else>默认：/etc/nginx</code>
             </span>
           </div>
         </div>
@@ -110,7 +112,7 @@
             <div class="accordion-content" :class="{ expanded: accordions.basic }">
               <div class="config-form">
                 <div class="form-group">
-                  <label>服务器名称 (Server Name)</label>
+                  <label>服务器名称</label>
                   <input
                     v-model="formData.serverName"
                     type="text"
@@ -120,7 +122,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>监听端口 (Port)</label>
+                  <label>监听端口</label>
                   <input v-model="formData.port" type="number" placeholder="80 / 443" />
                 </div>
 
@@ -143,7 +145,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>代理目标 (Upstream)</label>
+                  <label>代理目标</label>
                   <input
                     v-model="formData.upstream"
                     type="text"
@@ -191,7 +193,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>Worker Rlimit 数量</label>
+                  <label>Worker 文件描述符上限</label>
                   <input v-model="formData.workerRlimitNofile" type="number" placeholder="65535" />
                   <small class="help-text">最大文件描述符数量</small>
                 </div>
@@ -252,7 +254,7 @@
                 <div class="checkbox-group">
                   <label>
                     <input v-model="formData.logNotFound" type="checkbox" />
-                    记录未找到的请求 (log_not_found)
+                    记录未找到的请求
                   </label>
                 </div>
               </div>
@@ -268,37 +270,37 @@
             <div class="accordion-content" :class="{ expanded: accordions.timeout }">
               <div class="config-form">
                 <div class="form-group">
-                  <label>保持连接超时 (秒)</label>
+                  <label>保持连接超时（秒）</label>
                   <input v-model="formData.keepaliveTimeout" type="number" placeholder="65" />
                   <small class="help-text">保持连接的时间</small>
                 </div>
 
                 <div class="form-group">
-                  <label>Client Body 超时 (秒)</label>
+                  <label>请求体超时（秒）</label>
                   <input v-model="formData.clientBodyTimeout" type="number" placeholder="60" />
                   <small class="help-text">读取请求体超时时间</small>
                 </div>
 
                 <div class="form-group">
-                  <label>Client Header 超时 (秒)</label>
+                  <label>请求头超时（秒）</label>
                   <input v-model="formData.clientHeaderTimeout" type="number" placeholder="60" />
                   <small class="help-text">读取请求头超时时间</small>
                 </div>
 
                 <div class="form-group">
-                  <label>发送超时 (秒)</label>
+                  <label>发送超时（秒）</label>
                   <input v-model="formData.sendTimeout" type="number" placeholder="60" />
                   <small class="help-text">响应发送超时时间</small>
                 </div>
 
                 <div class="form-group">
-                  <label>Client Header Buffer 大小 (KB)</label>
+                  <label>请求头缓冲区大小（KB）</label>
                   <input v-model="formData.clientHeaderBufferSize" type="number" placeholder="1" />
                   <small class="help-text">请求头缓冲区大小</small>
                 </div>
 
                 <div class="form-group">
-                  <label>大 Client Header Buffer 数</label>
+                   <label>大请求头缓冲区数量</label>
                   <input
                     v-model="formData.largeClientHeaderBuffersNum"
                     type="number"
@@ -307,7 +309,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>大 Client Header Buffer 大小 (KB)</label>
+                   <label>大请求头缓冲区大小（KB）</label>
                   <input
                     v-model="formData.largeClientHeaderBuffersSize"
                     type="number"
@@ -345,7 +347,7 @@
               </div>
 
               <div class="form-group" style="margin-top: 15px">
-                <label>重试等待时间 (毫秒)</label>
+                 <label>重试等待时间（毫秒）</label>
                 <input
                   v-model="formData.resetDelayedConnectionTimeout"
                   type="number"
@@ -354,12 +356,12 @@
               </div>
 
               <div class="form-group">
-                <label>Output Buffer 数量</label>
+                 <label>输出缓冲区数量</label>
                 <input v-model="formData.outputBuffersNum" type="number" placeholder="1" />
               </div>
 
               <div class="form-group">
-                <label>Output Buffer 大小 (KB)</label>
+                 <label>输出缓冲区大小（KB）</label>
                 <input v-model="formData.outputBufferSize" type="number" placeholder="32" />
               </div>
 
@@ -402,24 +404,24 @@
               </div>
 
               <div class="form-group" style="margin-top: 15px">
-                <label>Gzip 压缩级别 (1-9)</label>
+                 <label>Gzip 压缩级别（1-9）</label>
                 <input v-model="formData.gzipLevel" type="number" min="1" max="9" placeholder="6" />
                 <small class="help-text">级别越高压缩率越高但消耗更多 CPU</small>
               </div>
 
               <div class="form-group">
-                <label>最小压缩文件大小 (字节)</label>
+                 <label>最小压缩文件大小（字节）</label>
                 <input v-model="formData.gzipMinLength" type="number" placeholder="1024" />
                 <small class="help-text">小于此值的文件不压缩</small>
               </div>
 
               <div class="form-group">
-                <label>压缩缓冲区 (数量)</label>
+                 <label>压缩缓冲区数量</label>
                 <input v-model="formData.gzipBuffersNum" type="number" placeholder="16" />
               </div>
 
               <div class="form-group">
-                <label>压缩缓冲区 (大小 KB)</label>
+                 <label>压缩缓冲区大小（KB）</label>
                 <input v-model="formData.gzipBuffersSize" type="number" placeholder="8" />
               </div>
 
@@ -457,17 +459,17 @@
               </div>
 
               <div class="form-group">
-                <label>代理发送超时 (秒)</label>
+                 <label>代理发送超时（秒）</label>
                 <input v-model="formData.proxySendTimeout" type="number" placeholder="60" />
               </div>
 
               <div class="form-group">
-                <label>代理读取超时 (秒)</label>
+                 <label>代理读取超时（秒）</label>
                 <input v-model="formData.proxyReadTimeout" type="number" placeholder="60" />
               </div>
 
               <div class="form-group">
-                <label>代理缓冲大小 (KB)</label>
+                 <label>代理缓冲大小（KB）</label>
                 <input v-model="formData.proxyBufferSize" type="number" placeholder="4" />
               </div>
 
@@ -477,7 +479,7 @@
               </div>
 
               <div class="form-group">
-                <label>代理缓冲每个大小 (KB)</label>
+                 <label>单个代理缓冲大小（KB）</label>
                 <input v-model="formData.proxyBuffersSize" type="number" placeholder="4" />
               </div>
 
@@ -493,7 +495,7 @@
               </div>
 
               <div class="form-group" style="margin-top: 15px">
-                <label>代理最大临时文件大小 (MB)</label>
+                 <label>代理最大临时文件大小（MB）</label>
                 <input v-model="formData.proxyMaxTempFileSize" type="number" placeholder="1024" />
               </div>
             </div>
@@ -528,12 +530,12 @@
               </div>
 
               <div class="form-group">
-                <label>SSL 会话缓存 (MB)</label>
+                 <label>SSL 会话缓存（MB）</label>
                 <input v-model="formData.sslSessionCacheSize" type="number" placeholder="10" />
               </div>
 
               <div class="form-group">
-                <label>SSL 会话超时 (分钟)</label>
+                 <label>SSL 会话超时（分钟）</label>
                 <input v-model="formData.sslSessionTimeout" type="number" placeholder="10" />
               </div>
 
@@ -544,12 +546,12 @@
                 </label>
                 <label>
                   <input v-model="formData.sslSessionTickets" type="checkbox" />
-                  启用 Session Tickets
+                   启用会话票据
                 </label>
               </div>
 
               <div class="form-group" style="margin-top: 15px">
-                <label>OCSP Stapling URL</label>
+                <label>OCSP 装订</label>
                 <input v-model="formData.sslStapling" type="text" placeholder="on" />
               </div>
 
@@ -636,7 +638,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>代理缓存大小 (MB)</label>
+                   <label>代理缓存大小（MB）</label>
                   <input v-model="formData.proxyCacheSize" type="number" placeholder="100" />
                 </div>
 
@@ -646,7 +648,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>代理缓存使用情况最大占用 (%)</label>
+                   <label>代理缓存最大占用（%）</label>
                   <input v-model="formData.proxyCacheMaxSize" type="number" placeholder="80" />
                 </div>
               </div>
@@ -661,7 +663,7 @@
             </div>
             <div class="accordion-content" :class="{ expanded: accordions.ratelimit }">
               <div v-if="currentPlatform === 'windows'" class="platform-warning">
-                <span class="warning-icon">[WARN]</span>
+                <span class="warning-icon">!</span>
                 <span>Windows 版 Nginx 不支持限流功能</span>
               </div>
 
@@ -680,7 +682,7 @@
                   </div>
 
                   <div class="form-group">
-                    <label>限流速率 (请求数/秒)</label>
+                     <label>限流速率（请求数/秒）</label>
                     <input v-model="formData.rateLimitRate" type="number" placeholder="10" />
                   </div>
 
@@ -701,7 +703,7 @@
                   </div>
 
                   <div class="form-group">
-                    <label>限流区域大小 (MB)</label>
+                     <label>限流区域大小（MB）</label>
                     <input v-model="formData.rateLimitZoneSize" type="number" placeholder="10" />
                   </div>
                 </div>
@@ -744,13 +746,13 @@
 
               <div v-if="formData.corsEnabled" style="margin-top: 15px">
                 <div class="form-group">
-                  <label>允许的源 (Access-Control-Allow-Origin)</label>
+                   <label>允许的源</label>
                   <input v-model="formData.corsOrigin" type="text" placeholder="*" />
                   <small class="help-text">使用 * 允许所有源，或指定多个源</small>
                 </div>
 
                 <div class="form-group">
-                  <label>允许的方法 (Access-Control-Allow-Methods)</label>
+                   <label>允许的方法</label>
                   <input
                     v-model="formData.corsMethods"
                     type="text"
@@ -760,7 +762,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>允许的请求头 (Access-Control-Allow-Headers)</label>
+                   <label>允许的请求头</label>
                   <input
                     v-model="formData.corsHeaders"
                     type="text"
@@ -770,7 +772,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>暴露的响应头 (Access-Control-Expose-Headers)</label>
+                   <label>暴露的响应头</label>
                   <input
                     v-model="formData.corsExposeHeaders"
                     type="text"
@@ -787,7 +789,7 @@
                 <div class="checkbox-group">
                   <label>
                     <input v-model="formData.corsAllowCredentials" type="checkbox" />
-                    允许凭证 (Allow-Credentials)
+                     允许凭证
                   </label>
                 </div>
               </div>
@@ -810,7 +812,7 @@
 
               <div v-if="formData.securityHeaders" style="margin-top: 15px">
                 <div class="form-group">
-                  <label>X-Frame-Options</label>
+                  <label>X-Frame-Options/点击劫持防护</label>
                   <select v-model="formData.xFrameOptions">
                     <option value="SAMEORIGIN">SAMEORIGIN</option>
                     <option value="DENY">DENY</option>
@@ -828,7 +830,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>X-Content-Type-Options</label>
+                  <label>X-Content-Type-Options/内容类型嗅探防护</label>
                   <select v-model="formData.xContentTypeOptions">
                     <option value="nosniff">nosniff</option>
                     <option value="">禁用</option>
@@ -836,7 +838,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>X-XSS-Protection</label>
+                  <label>X-XSS-Protection/跨站脚本防护</label>
                   <select v-model="formData.xXssProtection">
                     <option value="1; mode=block">1; mode=block</option>
                     <option value="1">1</option>
@@ -845,7 +847,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>Content-Security-Policy</label>
+                  <label>Content-Security-Policy/内容安全策略</label>
                   <input
                     v-model="formData.contentSecurityPolicy"
                     type="text"
@@ -855,7 +857,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>Referrer-Policy</label>
+                  <label>Referrer-Policy/来源策略</label>
                   <select v-model="formData.referrerPolicy">
                     <option value="strict-origin-when-cross-origin">
                       strict-origin-when-cross-origin
@@ -871,7 +873,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label>Permissions-Policy</label>
+                  <label>Permissions-Policy/权限策略</label>
                   <input
                     v-model="formData.permissionsPolicy"
                     type="text"
@@ -889,9 +891,9 @@
           <div class="preview-header">
             <h3>配置预览</h3>
             <div class="preview-actions">
-              <button class="action-btn" @click="copyConfig"><span>[LIST]</span> Copy</button>
+              <button class="action-btn" @click="copyConfig">复制</button>
               <button class="action-btn" @click="downloadConfig">
-                <span>[SAVE]</span> Download
+                下载
               </button>
               <button class="action-btn" @click="validateConfig"><span>✓</span> 本地验证</button>
               <button
@@ -899,7 +901,6 @@
                 :disabled="isApiValidating"
                 @click="validateWithApi"
               >
-                <span>{{ isApiValidating ? '[LOADING]' : '[FIND]' }}</span>
                 {{ isApiValidating ? 'API 验证中...' : 'API 验证' }}
               </button>
             </div>
@@ -909,7 +910,6 @@
             {{ validationMessage }}
           </div>
         </div>
-      </div>
 
       <!-- 配置模板 -->
       <div class="templates-section">
@@ -952,7 +952,7 @@
         </div>
       </div>
     </div>
-
+    </div>
     <!-- 隐藏的文件输入，用于导入配置 -->
     <input
       ref="fileInput"
@@ -973,6 +973,10 @@
 
   const props = defineProps({
     visible: {
+      type: Boolean,
+      default: false
+    },
+    embedded: {
       type: Boolean,
       default: false
     }
@@ -1642,7 +1646,7 @@
       validationStatus.value = 'success'
       scheduleMessageClear(3000)
     } catch (err) {
-      validationMessage.value = '✗ 复制失败: ' + err.message
+       validationMessage.value = '✗ 复制失败：' + err.message
       validationStatus.value = 'error'
     }
   }
@@ -1691,7 +1695,7 @@
     }
 
     if (errors.length > 0) {
-      validationMessage.value = '✗ 验证失败: ' + errors.join('; ')
+       validationMessage.value = '✗ 验证失败：' + errors.join('；')
       validationStatus.value = 'error'
     } else {
       validationMessage.value = '✓ 配置验证通过'
@@ -1760,7 +1764,7 @@
             '检查后端服务是否正在运行',
             '确认 API 基础 URL 配置是否正确',
             '联系管理员确认 API 端点是否已部署',
-            `当前请求路径: ${apiUrl}`
+            `当前请求路径：${apiUrl}`
           ]
           isApiValidating.value = false
           return
@@ -1842,13 +1846,13 @@
     } catch (error) {
       console.error('API 验证错误:', error)
       apiValidationStatus.value = 'error'
-      apiValidationOutput.value = `验证请求失败: ${error.message}`
+       apiValidationOutput.value = `验证请求失败：${error.message}`
       apiValidationSuggestions.value = [
         '检查网络连接是否正常',
         '确认后端服务是否运行',
         '检查 API 基础 URL 配置是否正确',
         '确认 token 是否有效',
-        `详细错误: ${error?.message || '未知错误'}`
+         `详细错误：${error?.message || '未知错误'}`
       ]
     } finally {
       isApiValidating.value = false
@@ -1913,7 +1917,7 @@
           validationStatus.value = 'success'
         }
       } catch (error) {
-        validationMessage.value = '✗ 导入失败: ' + error.message
+         validationMessage.value = '✗ 导入失败：' + error.message
         validationStatus.value = 'error'
       }
 
@@ -2346,13 +2350,34 @@
     z-index: 1000;
   }
 
+  .nginx-config-embedded {
+    display: block;
+    width: 100%;
+  }
+
+  .nginx-config-embedded .nginx-config-modal {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    border-radius: 12px;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .nginx-config-embedded .modal-body {
+    overflow: visible;
+    flex: none;
+  }
+
   .nginx-config-modal {
     background: var(--bg-primary);
     border-radius: 12px;
     width: 90%;
     max-width: 1200px;
     max-height: 90vh;
-    overflow-y: auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   }
 
@@ -2364,6 +2389,7 @@
     border-bottom: 1px solid var(--border-color);
     background: var(--gradient-primary);
     color: white;
+    flex-shrink: 0;
   }
 
   .modal-header h2 {
@@ -2429,6 +2455,9 @@
 
   .modal-body {
     padding: 30px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
   }
 
   .config-type-selector h3 {
@@ -2539,6 +2568,11 @@
     margin-bottom: 10px;
     flex-wrap: wrap;
     gap: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 8px 0;
+    background: var(--bg-primary);
   }
 
   .preview-header h3 {
@@ -2609,6 +2643,7 @@
 
   .templates-section {
     padding: 20px 30px;
+    margin: 20px -30px -30px;
     border-top: 1px solid var(--border-color);
     background: var(--bg-secondary);
   }

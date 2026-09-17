@@ -27,14 +27,14 @@ LAYOUTS_BY_TYPE = {
 
 CAPACITY_BY_TYPE = {
     "cover": {"max_items": 1, "max_title_chars": 40, "max_body_chars": 80},
-    "agenda": {"max_items": 6, "max_title_chars": 32, "max_body_chars": 240},
+    "agenda": {"max_items": 4, "max_title_chars": 32, "max_body_chars": 240},
     "section": {"max_items": 1, "max_title_chars": 32, "max_body_chars": 120},
-    "key_points": {"max_items": 6, "max_title_chars": 32, "max_body_chars": 360},
+    "key_points": {"max_items": 4, "max_title_chars": 32, "max_body_chars": 360},
     "image_text": {"max_items": 4, "max_title_chars": 32, "max_body_chars": 260},
-    "data": {"max_items": 8, "max_title_chars": 32, "max_body_chars": 300},
-    "comparison": {"max_items": 6, "max_title_chars": 32, "max_body_chars": 300},
-    "timeline": {"max_items": 6, "max_title_chars": 32, "max_body_chars": 280},
-    "process": {"max_items": 6, "max_title_chars": 32, "max_body_chars": 280},
+    "data": {"max_items": 4, "max_title_chars": 32, "max_body_chars": 300},
+    "comparison": {"max_items": 4, "max_title_chars": 32, "max_body_chars": 300},
+    "timeline": {"max_items": 4, "max_title_chars": 32, "max_body_chars": 280},
+    "process": {"max_items": 4, "max_title_chars": 32, "max_body_chars": 280},
     "summary": {"max_items": 4, "max_title_chars": 32, "max_body_chars": 240},
     "closing": {"max_items": 1, "max_title_chars": 32, "max_body_chars": 120},
 }
@@ -98,23 +98,43 @@ def _layout_score(
     return round(score, 3)
 
 
-def infer_slide_type(slide: OutlineSlide) -> str:
+def infer_slide_type_from_parts(slide_type: str | None, title: str = "", key_message: str = "") -> str:
     """Map legacy or semantic slide labels to the supported type set."""
-    candidate = (slide.slide_type or "").lower().replace("-", "_")
+    candidate = (slide_type or "").lower().replace("-", "_")
     aliases = {
         "title": "cover", "title_slide": "cover", "toc": "agenda",
         "content": "key_points", "bullet": "key_points", "image": "image_text",
-        "chart": "data", "end": "closing", "thank_you": "closing",
+        "chart": "data", "data_chart": "data", "end": "closing", "thank_you": "closing",
     }
     if candidate in SLIDE_TYPES:
         return candidate
     if candidate in aliases:
         return aliases[candidate]
-    combined = f"{slide.title} {slide.key_message}".lower()
+    combined = f"{title} {key_message}".lower()
     for keyword, slide_type in (("对比", "comparison"), ("流程", "process"), ("时间", "timeline"), ("数据", "data")):
         if keyword in combined:
             return slide_type
     return "key_points"
+
+
+def infer_slide_type(slide: OutlineSlide) -> str:
+    """Map an outline slide to the supported type set."""
+    return infer_slide_type_from_parts(slide.slide_type, slide.title, slide.key_message)
+
+
+def slide_capacity(slide: dict[str, Any]) -> dict[str, int]:
+    """Capacity budget for a renderer slide dict, consumed by production QA."""
+    slide_type = infer_slide_type_from_parts(
+        slide.get("slide_type") or slide.get("type"),
+        str(slide.get("title", "")),
+        str(slide.get("key_message", "")),
+    )
+    rules = CAPACITY_BY_TYPE[slide_type]
+    return {
+        "max_items": rules["max_items"],
+        "max_title_chars": rules["max_title_chars"],
+        "max_body_chars": rules["max_body_chars"],
+    }
 
 
 def _capacity(slide: OutlineSlide, slide_type: str) -> CapacityBudget:

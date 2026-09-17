@@ -7,7 +7,7 @@
       </div>
       <button class="btn btn-sm btn-primary" @click="showAddForm = true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        添加 Server
+        添加服务
       </button>
     </div>
 
@@ -16,8 +16,8 @@
 
     <!-- 空状态 -->
     <div v-else-if="servers.length === 0 && !showAddForm" class="mcp-empty">
-      <p>暂无 MCP Server 配置</p>
-      <p class="mcp-empty-hint">点击上方"添加 Server"按钮接入外部工具</p>
+      <p>暂无 MCP 服务配置</p>
+      <p class="mcp-empty-hint">点击上方「添加服务」接入外部工具</p>
     </div>
 
     <!-- Server 列表 -->
@@ -26,7 +26,7 @@
         <div class="server-card-header">
           <div class="server-card-left">
             <span class="server-name">{{ server.name }}</span>
-            <span class="server-transport">{{ server.transport }}</span>
+            <span class="server-transport">{{ transportLabel(server.transport) }}</span>
             <span v-if="server.enabled" class="server-status enabled">已启用</span>
             <span v-else class="server-status disabled">已禁用</span>
           </div>
@@ -48,10 +48,10 @@
           <p v-if="server.description" class="server-description">{{ server.description }}</p>
           <div class="server-detail">
             <span v-if="server.transport === 'stdio' && server.command" class="detail-item">
-              <span class="detail-label">命令:</span> {{ server.command }} {{ (server.args || []).join(' ') }}
+              <span class="detail-label">命令：</span> {{ server.command }} {{ (server.args || []).join(' ') }}
             </span>
             <span v-if="server.transport === 'http' && server.url" class="detail-item">
-              <span class="detail-label">URL:</span> {{ server.url }}
+              <span class="detail-label">地址：</span> {{ server.url }}
             </span>
           </div>
           <!-- 测试结果 -->
@@ -59,7 +59,7 @@
             <span v-if="testResults[server.name].success">
               连接成功，发现 {{ testResults[server.name].tools_count }} 个工具
             </span>
-            <span v-else>连接失败: {{ testResults[server.name].error }}</span>
+            <span v-else>连接失败：{{ testResults[server.name].error }}</span>
           </div>
         </div>
       </div>
@@ -67,11 +67,11 @@
 
     <!-- 添加表单 -->
     <div v-if="showAddForm" class="mcp-add-form">
-      <h4>添加 MCP Server</h4>
+      <h4>添加 MCP 服务</h4>
       <div class="form-grid">
         <div class="form-item">
           <label>名称 <span class="required">*</span></label>
-          <input v-model="newServer.name" type="text" placeholder="如: filesystem, database, search" class="form-input" />
+          <input v-model="newServer.name" type="text" placeholder="例如 filesystem、database、search" class="form-input" />
         </div>
         <div class="form-item">
           <label>传输方式</label>
@@ -87,7 +87,7 @@
         <template v-if="newServer.transport === 'stdio'">
           <div class="form-item full-width">
             <label>命令 <span class="required">*</span></label>
-            <input v-model="newServer.command" type="text" placeholder="如: npx, uvx, python, /usr/local/bin/server" class="form-input" />
+            <input v-model="newServer.command" type="text" placeholder="例如 npx、uvx、python" class="form-input" />
           </div>
           <div class="form-item full-width">
             <label>参数（每行一个）</label>
@@ -100,7 +100,7 @@
         </template>
         <template v-else>
           <div class="form-item full-width">
-            <label>URL <span class="required">*</span></label>
+            <label>地址 <span class="required">*</span></label>
             <input v-model="newServer.url" type="text" placeholder="http://localhost:8080/mcp" class="form-input" />
           </div>
         </template>
@@ -142,6 +142,10 @@ const newServer = ref({
   enabled: true,
 })
 
+function transportLabel(transport) {
+  return ({ stdio: '本地进程', http: '远程服务' }[transport] || transport)
+}
+
 async function loadServers() {
   loading.value = true
   try {
@@ -160,7 +164,7 @@ async function addServer() {
   const s = newServer.value
   if (!s.name.trim()) { addError.value = '请输入名称'; return }
   if (s.transport === 'stdio' && !s.command.trim()) { addError.value = '请输入命令'; return }
-  if (s.transport === 'http' && !s.url.trim()) { addError.value = '请输入 URL'; return }
+  if (s.transport === 'http' && !s.url.trim()) { addError.value = '请输入地址'; return }
 
   const body = {
     name: s.name.trim(),
@@ -183,12 +187,12 @@ async function addServer() {
     const res = await api.post(`${API}/servers`, body)
     const data = await res.json()
     if (!res.ok) { addError.value = data.detail || '添加失败'; return }
-    ElMessage.success(`MCP Server "${s.name}" 已添加`)
+    ElMessage.success(`MCP 服务「${s.name}」已添加`)
     showAddForm.value = false
     newServer.value = { name: '', transport: 'stdio', description: '', command: '', argsText: '', envText: '', url: '', enabled: true }
     await loadServers()
   } catch (e) {
-    addError.value = `请求失败: ${e.message}`
+    addError.value = `请求失败：${e.message}`
   } finally {
     adding.value = false
   }
@@ -209,7 +213,7 @@ async function toggleServer(name) {
 
 async function deleteServer(name) {
   try {
-    await ElMessageBox.confirm(`确定删除 MCP Server "${name}"？`, '确认删除', { type: 'warning' })
+    await ElMessageBox.confirm(`确定删除 MCP 服务「${name}」？`, '确认删除', { type: 'warning' })
     const res = await api.delete(`${API}/servers/${name}`)
     if (res.ok) {
       ElMessage.success(`已删除 ${name}`)
@@ -239,7 +243,7 @@ onMounted(loadServers)
 
 <style scoped>
 .mcp-settings { margin-top: 4px; }
-.mcp-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.mcp-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px; flex-wrap: wrap; }
 .mcp-header h4 { margin: 0; font-size: 14px; color: var(--text-primary); }
 .mcp-header-left { display: flex; flex-direction: column; gap: 2px; }
 .mcp-desc { margin: 0; font-size: 11px; color: var(--text-secondary); }
@@ -251,8 +255,8 @@ onMounted(loadServers)
 .mcp-server-list { display: flex; flex-direction: column; gap: 8px; }
 .mcp-server-card { background: var(--bg-tertiary); border-radius: 8px; padding: 12px; border: 1px solid var(--border-color); transition: opacity 0.2s; }
 .mcp-server-card.disabled { opacity: 0.5; }
-.server-card-header { display: flex; align-items: center; justify-content: space-between; }
-.server-card-left { display: flex; align-items: center; gap: 8px; }
+.server-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.server-card-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .server-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .server-transport { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: var(--bg-secondary); color: var(--text-secondary); }
 .server-status { font-size: 10px; padding: 2px 6px; border-radius: 4px; }
@@ -285,4 +289,7 @@ textarea.form-input { resize: vertical; }
 
 .spin-icon { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@media (max-width: 600px) {
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+}
 </style>

@@ -77,7 +77,7 @@
         <div class="model-card-id">{{ model.id }}</div>
         <div class="model-card-desc">{{ model.description }}</div>
         <div class="model-card-caps">
-          <span v-for="cap in model.capabilities" :key="cap" class="cap-tag">{{ cap }}</span>
+          <span v-for="cap in model.capabilities" :key="cap" class="cap-tag">{{ capabilityLabel(cap) }}</span>
         </div>
         <div class="model-card-tags">
           <span v-for="tag in model.tags" :key="tag" class="tag-chip">{{ tag }}</span>
@@ -100,7 +100,7 @@
         <input
           v-model="contextSearch"
           type="text"
-          placeholder="搜索模型 Key..."
+          placeholder="搜索模型标识..."
           class="search-input"
         />
         <button class="sort-btn" @click="toggleSort">
@@ -120,8 +120,8 @@
         <table class="context-table">
           <thead>
             <tr>
-              <th>模型 Key</th>
-              <th>上下文长度 (token)</th>
+              <th>模型标识</th>
+              <th>上下文长度（token）</th>
               <th>来源</th>
               <th>操作</th>
             </tr>
@@ -170,7 +170,7 @@
         <input
           v-model="newModelKey"
           type="text"
-          placeholder="模型 Key (如 Qwen/Qwen3-8B)"
+          placeholder="模型标识，例如 Qwen/Qwen3-8B"
           class="ctx-input add-input"
         />
         <input
@@ -316,7 +316,7 @@ async function confirmSwitchDefault(model) {
     const resp = await api.post('/api/v2/models/default', { model_id: model.id })
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}))
-      ElMessage.error('切换失败: ' + (err.detail || resp.statusText))
+      ElMessage.error('切换失败：' + (err.detail || resp.statusText))
       return
     }
     const data = await resp.json()
@@ -325,7 +325,7 @@ async function confirmSwitchDefault(model) {
       ElMessage.success(`默认模型已切换为 ${data.new_default}`)
     }
   } catch (e) {
-    ElMessage.error('切换失败: ' + e.message)
+    ElMessage.error('切换失败：' + e.message)
   }
 }
 
@@ -364,6 +364,19 @@ function getHealthStatusText(model) {
   return texts[status] || '未知'
 }
 
+function capabilityLabel(cap) {
+  return ({
+    chat: '对话',
+    embedding: '嵌入',
+    vision: '视觉',
+    image: '图像',
+    audio: '音频',
+    reasoning: '推理',
+    tool: '工具',
+    tools: '工具'
+  }[cap] || cap)
+}
+
 function getHealthClass(score) {
   if (score === undefined) return 'unknown'
   if (score >= 80) return 'good'
@@ -396,7 +409,7 @@ async function saveContextLength(key) {
     })
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}))
-      ElMessage.error('保存失败: ' + (err.detail || resp.statusText))
+      ElMessage.error('保存失败：' + (err.detail || resp.statusText))
       return
     }
     const data = await resp.json()
@@ -407,7 +420,7 @@ async function saveContextLength(key) {
       ElMessage.success(`已更新 ${key} 上下文长度`)
     }
   } catch (e) {
-    ElMessage.error('保存失败: ' + e.message)
+    ElMessage.error('保存失败：' + e.message)
   }
 }
 
@@ -416,7 +429,7 @@ async function deleteContextLength(key) {
     const resp = await api.delete(`/api/v2/models/context-length/${key}`)
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}))
-      ElMessage.error('删除失败: ' + (err.detail || resp.statusText))
+      ElMessage.error('删除失败：' + (err.detail || resp.statusText))
       return
     }
     const data = await resp.json()
@@ -425,13 +438,13 @@ async function deleteContextLength(key) {
       ElMessage.success(data.message)
     }
   } catch (e) {
-    ElMessage.error('删除失败: ' + e.message)
+    ElMessage.error('删除失败：' + e.message)
   }
 }
 
 async function addContextLength() {
   if (!newModelKey.value || !newContextLength.value) {
-    ElMessage.warning('请填写模型 Key 和上下文长度')
+    ElMessage.warning('请填写模型标识和上下文长度')
     return
   }
   try {
@@ -441,7 +454,7 @@ async function addContextLength() {
     })
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}))
-      ElMessage.error('添加失败: ' + (err.detail || resp.statusText))
+      ElMessage.error('添加失败：' + (err.detail || resp.statusText))
       return
     }
     const data = await resp.json()
@@ -457,7 +470,7 @@ async function addContextLength() {
       ElMessage.success('添加成功')
     }
   } catch (e) {
-    ElMessage.error('添加失败: ' + e.message)
+    ElMessage.error('添加失败：' + e.message)
   }
 }
 

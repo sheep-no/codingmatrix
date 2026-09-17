@@ -147,7 +147,7 @@ export function useAgentFiles() {
   }
 
   function getLanguage(filePath) {
-    if (!filePath) return 'Unknown'
+    if (!filePath) return '未知'
     const fileName = filePath.split('/').pop().toLowerCase()
     const ext = fileName.split('.').pop().toLowerCase()
     if (fileName === 'dockerfile') return 'Dockerfile'

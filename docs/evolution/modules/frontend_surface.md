@@ -4,6 +4,7 @@
 > 归属：前端表面 / FESURF
 > 路径：`src/views/`、`src/components/`、`src/utils/api/`、`src/api/`、关键 utils、`tests/frontend/test_components.py`
 > 规划参照：[`AGENT-FRONTEND.md`](../AGENT-FRONTEND.md)；本文记录实际实现、调用关系与缺陷
+> 后续变更（2026-09-16）：文中引用的 `src/utils/request.ts`、`src/utils/taskNotification.js`、`src/utils/errorHandler.js` 已确认零生产引用并删除，正文保留扫描时的判定与行号。
 
 ## 1. 模块作用与功能
 

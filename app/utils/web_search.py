@@ -100,13 +100,18 @@ def extract_query_terms(query: str) -> Dict[str, List[str]]:
         for word in re.findall(r"[A-Za-z][A-Za-z0-9+\-]{1,}", text)
         if word.lower() not in _EN_STOP
     ]
+    cjk_runs = re.findall(r"[\u4e00-\u9fff]+", text)
     cjk: List[str] = []
-    for run in re.findall(r"[\u4e00-\u9fff]+", text):
+    for run in cjk_runs:
         cjk.extend(_split_cjk_run(run))
+    # Keep the trailing CJK text contiguous so phrase matching stays aligned;
+    # reconstructed bigrams drift for runs with an odd character count.
+    phrase = cjk_runs[-1][-4:] if cjk_runs else ""
     return {
         "versions": _unique(versions),
         "english": _unique(english),
         "cjk": _unique([piece for piece in cjk if piece not in _CJK_STOP]),
+        "phrase": phrase,
     }
 
 
@@ -387,8 +392,8 @@ def relevance_score(result: SearchResult, terms: Dict[str, List[str]]) -> float:
         if terms.get("require_phrase", True):
             cjk_terms = terms.get("cjk") or []
             if not version_ok and len(cjk_terms) >= 2:
-                phrase = cjk_terms[-2] + cjk_terms[-1]
-                if phrase.lower() not in blob:
+                phrase = terms.get("phrase") or (cjk_terms[-2] + cjk_terms[-1])
+                if phrase and phrase.lower() not in blob:
                     return min(score, 0.2)
     return score
 
@@ -437,6 +442,13 @@ def search_query_variants(query: str) -> List[str]:
     variants.append(query)
     if expanded != query:
         variants.append(expanded)
+    # Bing 的 HTML 抓取在查询以裸年份开头时会返回无关的日历/节假日页面，
+    # 因此额外检索去掉前导年份后的主题词。
+    leading_year = re.match(r"^\s*20\d{2}年?\s*", query or "")
+    if leading_year:
+        topical = query[leading_year.end():].strip()
+        if len(topical) >= 2:
+            variants.append(topical)
     terms = extract_query_terms(query)
     if (
         terms["versions"]

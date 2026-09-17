@@ -23,7 +23,7 @@
         <span>{{ fileSize }}</span>
         <span>{{ language }}</span>
         <span v-if="fileComplexity" class="complexity-badge" :class="`complexity-${fileComplexity.level}`">
-          复杂度: {{ fileComplexity.level }}
+          复杂度：{{ complexityLabel[fileComplexity.level] || fileComplexity.level }}
         </span>
       </div>
     </div>
@@ -37,7 +37,7 @@
         </svg>
       </div>
       <h2 class="empty-title">项目产物</h2>
-      <p class="empty-text">从左侧文件列表选择文件<br>在这里查看代码与版本变更</p>
+      <p class="empty-text">从左侧文件列表选择文件，在这里查看代码与版本变更。</p>
     </div>
   </div>
 </template>
@@ -48,12 +48,14 @@ defineProps({
   highlightedCode: { type: String, default: '' },
   lineCount: { type: Number, default: 0 },
   fileSize: { type: String, default: '0 B' },
-  language: { type: String, default: 'Unknown' },
+  language: { type: String, default: '未知' },
   hasDiff: { type: Boolean, default: false },
   fileComplexity: { type: Object, default: null }
 })
 
 defineEmits(['show-diff', 'save-version', 'version-history', 'copy', 'download', 'delete-file'])
+
+const complexityLabel = { low: '低', medium: '中', high: '高' }
 </script>
 
 <style scoped>

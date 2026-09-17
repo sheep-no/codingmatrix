@@ -5,6 +5,8 @@
 > 路径：`app/utils/agent_core.py`（2627 行）
 > 索引：[TASKS.md](../TASKS.md)
 
+> 后续变更（2026-09-16）：AC10 提到的 `app/utils/project_validator.py` 已确认零外部引用并删除（`agent_core.py` 内同名 `ProjectValidator` 为实际活跃实现），正文保留扫描时的判定与行号。
+
 ## 1. 模块定位
 
 项目生成 Agent 核心，包含五个部分：

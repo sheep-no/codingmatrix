@@ -4,6 +4,7 @@
 > 归属：前端 / 状态层与 AgentDashboard 组装链
 > 路径：`src/stores/`、`src/composables/`（9 个 store、13 个 composable）
 > 索引：`docs/evolution/TASKS.md`（本次未修改）
+> 后续变更（2026-09-16）：本文判定为「未接入/废弃」的 `src/stores/task.js`、`src/stores/agentWorkspace.js`、`src/composables/useClipboard.js`、`src/composables/useMarkdown.js`、`src/utils/taskNotification.js` 已确认零生产引用并删除，正文保留扫描时的判定与行号。
 
 ## 扫描边界与证据标记
 

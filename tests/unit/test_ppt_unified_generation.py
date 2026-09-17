@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from app.api.v1.aiGeneratorPptx import (
     _content_slides_for_total,
     _fit_editorial_text,
+    _item_at,
     _normalize_approved_outline,
     generate_pptx_file_enhanced,
     PPT_TEMPLATES,
@@ -38,6 +39,48 @@ def test_editorial_text_fits_long_copy_into_fixed_box():
 
     assert size < 16
     assert text.endswith("…") or len(text) < 64
+
+
+def test_item_at_returns_blank_out_of_range_without_repeating_last():
+    items = ["第一点", "第二点"]
+
+    assert _item_at(items, 0) == "第一点"
+    assert _item_at(items, 1) == "第二点"
+    assert _item_at(items, 2) == ""
+    assert _item_at(items, 3) == ""
+    assert _item_at([], 0) == ""
+
+
+@pytest.mark.asyncio
+async def test_renderer_does_not_repeat_last_item_for_underfilled_slide():
+    request = MagicMock()
+    request.template = "modern"
+    request.language = "zh-CN"
+    request.style = "professional"
+    request.api_key_token = None
+    outline = {
+        "title": "密度校验",
+        "slides": [{
+            "slide_type": "key_points",
+            "title": "两点内容",
+            "key_message": "只提供两个要点",
+            "layout_variant": 2,
+            "content_blocks": [
+                {"type": "signal", "content": "第一点"},
+                {"type": "signal", "content": "第二点"},
+            ],
+        }],
+    }
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        filepath = Path(tmpdir) / "underfilled.pptx"
+        await generate_pptx_file_enhanced(filepath, outline, request)
+        presentation = Presentation(filepath)
+
+    page_text = "\n".join(
+        shape.text for shape in presentation.slides[-1].shapes if hasattr(shape, "text")
+    )
+    assert page_text.count("第二点") == 1
 
 
 class TestTemplateMapping:
@@ -512,6 +555,54 @@ class TestUnifiedGeneration:
 
         assert normalized["slides"][0]["content_blocks"][0]["metadata"]["roi"] == "≥3.0"
         assert normalized["slides"][0]["key_message"] == "两周内验证"
+
+    def test_normalization_drops_key_message_that_repeats_body(self):
+        body = "等待和重复录入构成体验损耗的主要来源"
+        outline = {
+            "title": "重复结论修复",
+            "slides": [{
+                "title": "现状与机会",
+                "key_message": body,
+                "slide_type": "data",
+                "narrative_role": "evidence_story",
+                "content_blocks": [{"type": "evidence", "content": body, "metadata": {}}],
+            }],
+        }
+
+        normalized = _normalize_approved_outline(outline)
+
+        assert normalized["slides"][0]["key_message"] == ""
+
+    @pytest.mark.asyncio
+    async def test_renderer_does_not_repeat_key_message_in_body(self):
+        conclusion = "等待和重复录入构成体验损耗的主要来源"
+        outline = {
+            "title": "重复结论渲染",
+            "slides": [{
+                "title": "现状与机会",
+                "key_message": conclusion,
+                "slide_type": "data",
+                "narrative_role": "evidence_story",
+                "content_blocks": [
+                    {"type": "evidence", "content": conclusion, "metadata": {}},
+                    {"type": "evidence", "content": "高价值用户更关注结果确定性。", "metadata": {}},
+                ],
+            }],
+        }
+        req = MagicMock(template="modern", api_key_token=None)
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "app.api.v1.aiGeneratorPptx.visual_analyzer.analyze_ppt_content",
+            new=AsyncMock(return_value=None),
+        ):
+            filepath = Path(tmpdir) / "no_repeat.pptx"
+            await generate_pptx_file_enhanced(filepath, outline, req)
+            presentation = Presentation(filepath)
+
+        slide_text = "\n".join(
+            shape.text for shape in presentation.slides[1].shapes if hasattr(shape, "text")
+        )
+        assert slide_text.count(conclusion) == 1
 
     def test_normalization_repairs_repeated_commercial_roles(self):
         outline = {

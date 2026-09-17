@@ -53,7 +53,7 @@
       </div>
     </div>
     <div class="input-hint">
-      <span v-if="!generating">Ctrl+Enter 发送，Esc 停止</span>
+      <span v-if="!generating">Ctrl + Enter 发送，Esc 停止</span>
       <span v-else class="generating-hint">正在生成...</span>
       <div v-if="hasFiles" class="input-actions">
         <button class="action-btn" @click="$emit('regenerate')">重新生成</button>

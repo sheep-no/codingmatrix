@@ -38,9 +38,9 @@
         <!-- Hero -->
         <section id="overview" class="section">
           <div class="hero-card">
-            <div class="hero-kicker">Workbench Guide</div>
+            <div class="hero-kicker">工作台指南</div>
             <h1 class="hero-heading">CodingMatrix 智能工作台</h1>
-            <p class="hero-desc">首页对话、按需联网、Agent 项目生成、PPT 成片、AI 绘画、虚拟姬和图表编辑都在同一套工作台里完成。</p>
+            <p class="hero-desc">首页对话、联网检索、Agent 项目、PPT 成片、绘画和图表都在同一套工作台完成。</p>
             <div class="hero-stats">
               <div class="stat">
                 <div class="stat-num">对话</div>
@@ -127,26 +127,26 @@
         <!-- API Key -->
         <section id="apikey" class="section">
           <div class="section-head">
-            <h2>API Key 管理</h2>
+            <h2>API Key/接口密钥管理</h2>
           </div>
           <div class="content-card">
-            <p>对话、PPT、绘画和 Agent 都走你在设置里提交的硅基流动 Key。原始 Key 只在浏览器提交，经 RSA 加密后由服务端写入 Redis，不会写进仓库。</p>
+            <p>对话、PPT、绘画和 Agent 都走你在设置里提交的硅基流动 Key/密钥。原始 Key/密钥只在浏览器提交，经 RSA 加密后由服务端写入 Redis，不会写进仓库。</p>
             <div class="two-col">
               <div>
                 <h4>安全机制</h4>
                 <ul>
                   <li>RSA 公钥加密传输</li>
                   <li>服务端 Redis 存储，支持 TTL</li>
-                  <li>前端只保留 token 与元数据，不回显原始 Key</li>
-                  <li>聊天刷新续流时也不会把 Key 写入本地快照</li>
+                  <li>前端只保留 Token/令牌与元数据，不回显原始 Key/密钥</li>
+                  <li>聊天刷新续流时也不会把 Key/密钥写入本地快照</li>
                 </ul>
               </div>
               <div>
                 <h4>配置步骤</h4>
                 <ol>
-                  <li>打开「设置 → API Key 管理」</li>
-                  <li>提交硅基流动 Key，系统自动加密上传</li>
-                  <li>需要兼容 OpenAI 接口时，再到「自定义供应商」填写 base_url</li>
+                  <li>打开「设置 → API Key/接口密钥管理」</li>
+                  <li>提交硅基流动 Key/密钥，系统自动加密上传</li>
+                  <li>需要兼容 OpenAI 接口时，再到「自定义供应商」填写接口地址</li>
                   <li>Agent 页面可在「Agent 模型配置」里指定会话模型</li>
                 </ol>
               </div>
@@ -228,7 +228,7 @@
                 <ol>
                   <li>打开工具集「项目」，进入 Agent 工作台</li>
                   <li>输入需求并发送，云端以 SSE 流式返回思考和文件</li>
-                  <li>需要本地执行时，Agent Host 会弹出审批</li>
+                  <li>需要本地执行时，Agent Host/主机会话会弹出审批</li>
                   <li>工作区展示进度、文件树、验证结果和待决策项</li>
                   <li>完成后可预览、下载或继续改需求</li>
                 </ol>
@@ -236,9 +236,9 @@
               <div>
                 <h4>工作台能力</h4>
                 <ul>
-                  <li>会话历史、模型上下文和 Skills 同步</li>
+                  <li>会话历史、模型上下文和 Skills/技能同步</li>
                   <li>手机端单列布局，会话和文件从抽屉打开</li>
-                  <li>VS Code 扩展可承接本地验证和 Host 动作</li>
+                  <li>VS Code 扩展可承接本地验证和 Agent Host/主机会话动作</li>
                   <li>删除会话前会确认，确认后立即清记录</li>
                 </ul>
               </div>
@@ -266,7 +266,7 @@
                 <ul>
                   <li>Docker 配置、临时工作流</li>
                   <li>搜索历史：按关键词筛选侧栏对话，请求 POST /api/v1/history</li>
-                  <li>能力中心五个面板：视觉工具、知识库、代码沙箱、Skills、Agent Host</li>
+                  <li>能力中心五个面板：视觉工具、知识库、代码沙箱、Skills/技能、Agent Host/主机会话</li>
                   <li>超级用户可从工具集打开管理员面板；admin 也可访问 /admin</li>
                   <li>管理后台：监控、日志、用户、Nginx、服务管理、资源配置；超级管理员另有模型管理与并发仪表板</li>
                   <li>外观支持白天、夜晚、随系统</li>
@@ -280,7 +280,7 @@
         <section id="agent" class="section">
           <div class="section-head">
             <h2>Agent 工作台</h2>
-            <p class="section-sub">云端流式编排 + 本地 Host 执行，会话、文件和验证在同一页完成</p>
+            <p class="section-sub">云端流式编排 + 本地 Agent Host/主机会话执行，会话、文件和验证在同一页完成</p>
           </div>
           <div class="layer-stack">
             <div class="layer" style="--layer-color: #818cf8">
@@ -290,13 +290,13 @@
             </div>
             <div class="layer" style="--layer-color: #34d399">
               <div class="layer-badge" style="background: rgba(52,211,153,0.12); color: #34d399">本地</div>
-              <h4>Agent Host</h4>
+              <h4>Agent Host/主机会话</h4>
               <p>读写工作区、跑终端和本地验证前会先审批。断线后的验证结果会排队，恢复连接再回传。</p>
             </div>
             <div class="layer" style="--layer-color: #fbbf24">
-              <div class="layer-badge" style="background: rgba(251,191,36,0.12); color: #fbbf24">技能</div>
-              <h4>Skills</h4>
-              <p>系统、用户和工作区 Skills 按命名空间隔离，可在能力中心管理并同步到工作台。</p>
+              <div class="layer-badge" style="background: rgba(251,191,36,0.12); color: #fbbf24">Skills/技能</div>
+              <h4>Skills/技能</h4>
+              <p>系统、用户和工作区 Skills/技能按命名空间隔离，可在能力中心管理并同步到工作台。</p>
             </div>
             <div class="layer" style="--layer-color: #f87171">
               <div class="layer-badge" style="background: rgba(248,113,113,0.12); color: #f87171">反馈</div>
@@ -306,7 +306,7 @@
           </div>
           <div class="content-card" style="margin-top: 16px">
             <h4>能力中心</h4>
-            <p>工具集「能力」打开 /capabilities。视觉工具调用 /api/v1/vision；知识库走 /api/v1/aicloud/knowledge；代码沙箱执行 /api/v1/aicloud/execute；Skills 走 /api/v1/skills；Agent Host 列出 /api/v1/agent/host/sessions。</p>
+            <p>工具集「能力」打开 /capabilities。视觉工具调用 /api/v1/vision；知识库走 /api/v1/aicloud/knowledge；代码沙箱执行 /api/v1/aicloud/execute；Skills/技能走 /api/v1/skills；Agent Host/主机会话列出 /api/v1/agent/host/sessions。</p>
           </div>
         </section>
 
@@ -317,7 +317,6 @@
           </div>
           <div class="icon-grid">
             <div v-for="s in specials" :key="s.title" class="icon-card">
-              <div class="icon-card-icon">{{ s.icon }}</div>
               <div class="icon-card-title">{{ s.title }}</div>
               <div class="icon-card-desc">{{ s.desc }}</div>
             </div>
@@ -350,7 +349,7 @@
                 <ul>
                   <li>Python 3.10+</li>
                   <li>Node.js 18+（前端构建）</li>
-                  <li>Redis 6+（缓存和 Key 存储）</li>
+                  <li>Redis 6+（缓存和 Key/密钥存储）</li>
                   <li>SQLite 3.35+（默认数据库）</li>
                 </ul>
               </div>
@@ -386,15 +385,15 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4</code></pre>
             <div class="info-card">
               <h4>认证与授权</h4>
               <ul>
-                <li>JWT 双 Token 机制</li>
+                <li>JWT 双 Token/令牌机制</li>
                 <li>角色权限：superadmin / admin / normal</li>
-                <li>WebSocket Token 认证</li>
+                <li>WebSocket Token/令牌认证</li>
               </ul>
             </div>
             <div class="info-card">
               <h4>数据安全</h4>
               <ul>
-                <li>RSA 加密传输 API Key</li>
+                <li>RSA 加密传输 API Key/接口密钥</li>
                 <li>bcrypt 密码哈希</li>
                 <li>CSP 安全策略头</li>
                 <li>敏感信息不出日志</li>
@@ -419,7 +418,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4</code></pre>
           <div class="notice-box">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             <div>
-              <strong>代码沙箱：</strong>能力中心可在线运行 <strong>Python</strong>、<strong>JavaScript</strong> 和 <strong>Go</strong>。Agent 生成的其他语言由 Host 在本地验证。
+              <strong>代码沙箱：</strong>能力中心可在线运行 <strong>Python</strong>、<strong>JavaScript</strong> 和 <strong>Go</strong>。Agent 生成的其他语言由 Agent Host/主机会话在本地验证。
             </div>
           </div>
           <div class="lang-chips">
@@ -501,7 +500,7 @@ const nav = [
   ]},
   { label: '使用指南', items: [
     { id: 'quickstart', name: '快速开始' },
-    { id: 'apikey', name: 'API Key 管理' },
+    { id: 'apikey', name: 'API Key/接口密钥管理' },
     { id: 'chat', name: '首页对话' },
     { id: 'ppt', name: 'PPT 生成' },
     { id: 'project', name: '项目生成' },
@@ -532,61 +531,62 @@ const filteredNav = computed(() => {
 })
 
 const features = [
-  { id: 'chat', icon: '💬', title: '首页对话与联网', brief: '流式问答，按需检索，刷新后续上搜索或回答',
+  { id: 'chat', icon: '01', title: '首页对话与联网', brief: '流式问答，按需检索，刷新后续上搜索或回答',
     blocks: [
       { title: '怎么用', text: '在首页输入问题。可开关联网、选择浅搜索或两轮搜索，并附带文件或图片。' },
       { title: '联网', list: ['按需联网由快模型判断', '强制开启或关闭联网', '空结果会换词再搜', '搜索中或回答中刷新会自动续请'] },
     ]},
-  { id: 'collab', icon: '🤖', title: 'Agent 项目生成', brief: '云端流式编排，本地 Host 审批执行',
+  { id: 'collab', icon: '02', title: 'Agent 项目生成', brief: '云端流式编排，本地 Agent Host/主机会话审批执行',
     blocks: [
       { title: '工作流程', text: '在工具集打开「项目」，发送需求后查看思考、文件和验证结果。本地动作需审批。' },
-      { title: '同步', text: 'Skills 可在能力中心管理。VS Code 扩展可承接本地验证。' },
+      { title: '同步', text: 'Skills/技能可在能力中心管理。VS Code 扩展可承接本地验证。' },
     ]},
-  { id: 'provider', icon: '☁️', title: '模型接入', brief: '硅基流动内置，自定义供应商可补 OpenAI 兼容接口',
+  { id: 'provider', icon: '03', title: '模型接入', brief: '硅基流动内置，自定义供应商可补 OpenAI 兼容接口',
     blocks: [
-      { title: '内置', text: '硅基流动提供对话、推理、代码、绘画和 OCR 等模型，例如 DeepSeek R1、Qwen、GLM、Kolors。' },
-      { title: '自定义', text: '设置 → 自定义供应商，填写兼容 OpenAI 的 base_url。' },
+      { title: '内置', text: '硅基流动提供对话、推理、代码、绘画和 OCR/文字识别等模型，例如 DeepSeek R1、Qwen、GLM、Kolors。' },
+      { title: '自定义', text: '设置 → 自定义供应商，填写兼容 OpenAI 的接口地址。' },
     ]},
-  { id: 'projgen', icon: '📂', title: 'PPT 与成片', brief: '流式大纲、审阅改稿、WebSocket 导出',
+  { id: 'projgen', icon: '04', title: 'PPT 与成片', brief: '流式大纲、审阅改稿、WebSocket 导出',
     blocks: [
       { title: '流程', text: '主题 → 流式大纲 → 增删重排 → 导出。页数默认自动。' },
       { title: '进度', text: '起草和导出刷新后都能续上。历史删除立即清文件，产物默认保留 30 天。' },
     ]},
-  { id: 'keym', icon: '🔑', title: 'API Key 管理', brief: 'RSA 加密提交，Redis 存储 token',
+  { id: 'keym', icon: '05', title: 'API Key/接口密钥管理', brief: 'RSA 加密提交，Redis 存储 Token/令牌',
     blocks: [
-      { title: '安全机制', text: '浏览器提交原始 Key，服务端只存加密结果和 token。刷新续流不会把 Key 写入本地。' },
-      { title: '入口', text: '设置 → API Key 管理。未配置 Key 时对话会引导到设置页。' },
+      { title: '安全机制', text: '浏览器提交原始 Key/密钥，服务端只存加密结果和 Token/令牌。刷新续流不会把 Key/密钥写入本地。' },
+      { title: '入口', text: '设置 → API Key/接口密钥管理。未配置密钥时对话会引导到设置页。' },
     ]},
-  { id: 'more', icon: '✨', title: '工具与能力', brief: '绘画、虚拟姬、图表、知识库和沙箱',
+  { id: 'more', icon: '06', title: '工具与能力', brief: '绘画、虚拟姬、图表、知识库和沙箱',
     blocks: [
-      { title: '工具集', list: ['AI 绘画 — Kolors 文生图', '虚拟姬 — 回合式陪伴对话', '图表编辑器 — 表格导入与 PNG 导出', '能力中心 — 视觉、知识库、沙箱、Skills、Host', '搜索历史 — 按关键词筛选侧栏对话', '管理员面板 — 监控、日志、用户与系统配置'] },
+      { title: '工具集', list: ['AI 绘画 — Kolors/可图 文生图', '虚拟姬 — 回合式陪伴对话', '图表编辑器 — 表格导入与 PNG 导出', 'Docker 配置 — 多服务容器编排', 'Nginx 配置 — 反向代理与站点配置', '能力中心 — 视觉、知识库、沙箱、Skills/技能、Agent Host/主机会话', '搜索历史 — 按关键词筛选侧栏对话', '管理员面板 — 监控、日志、用户与系统配置'] },
     ]},
 ]
 
 const providers = [
-  { name: '硅基流动', desc: '默认对话、推理、代码、绘画入口', models: 'DeepSeek R1 / Qwen / GLM / Kolors' },
-  { name: '自定义供应商', desc: '设置里填写 OpenAI 兼容 base_url', models: '按你接入的服务而定' },
+  { name: '硅基流动', desc: '默认对话、推理、代码、绘画入口', models: 'DeepSeek R1 / Qwen / GLM / Kolors/可图' },
+  { name: '自定义供应商', desc: '设置里填写 OpenAI 兼容接口地址', models: '按你接入的服务而定' },
 ]
 
 const steps = [
   { title: '登录工作台', text: '打开首页，用已有账号登录。未登录时发送消息会弹出登录。' },
-  { title: '配置硅基流动 Key', text: '进入「设置 → API Key 管理」，提交 Key。系统用 RSA 加密上传。' },
+  { title: '配置硅基流动密钥', text: '进入「设置 → API Key/接口密钥管理」，提交密钥。系统用 RSA 加密上传。' },
   { title: '先在首页提问', text: '需要查资料时打开联网。按需模式由模型判断；搜索或回答中刷新会自动续上。' },
-  { title: '按任务打开工具', text: 'PPT、绘画、虚拟姬、图表、项目都在侧栏工具集。能力页管理视觉、知识库、沙箱、Skills 和 Host。搜索历史用来筛选侧栏对话。超级用户可从工具集打开管理员面板，admin 也可访问 /admin。' },
+  { title: '按任务打开工具', text: 'PPT、绘画、虚拟姬、图表、Docker、Nginx、项目都在侧栏工具集。能力页管理视觉、知识库、沙箱、Skills/技能和 Agent Host/主机会话。搜索历史用来筛选侧栏对话。超级用户可从工具集打开管理员面板，admin 也可访问 /admin。' },
   { title: '查看结果', text: '对话在首页继续；PPT 和绘画可看历史；Agent 在工作台预览文件。删除都是永久删除。' },
 ]
 
 const specials = [
-  { icon: '📊', title: 'PPT 生成', desc: '流式大纲、审阅改稿、导出成片，刷新不丢进度' },
-  { icon: '🎨', title: 'AI 绘画', desc: 'Kolors 文生图，历史可删，产物默认保留 30 天' },
-  { icon: '💬', title: '虚拟姬', desc: '回合式陪伴对话，使用当前用户的 API Key' },
-  { icon: '📚', title: '知识库', desc: '在能力中心上传文档，供检索增强' },
-  { icon: '🐳', title: 'Docker 配置', desc: '工具集里打开容器相关配置' },
-  { icon: '📈', title: '图表编辑器', desc: '导入表格数据，六类图表，导出 PNG' },
-  { icon: '🛠️', title: '能力中心', desc: '视觉、知识库、沙箱、Skills 与 Host' },
-  { icon: '🔍', title: '搜索历史', desc: '按提示词关键词筛选侧栏对话，清除后恢复全部记录' },
-  { icon: '🔧', title: '管理员面板', desc: '监控、日志、用户、Nginx、服务与资源配置；超级管理员另有模型管理与并发仪表板' },
-  { icon: '🔄', title: '临时工作流', desc: '短任务编排，状态与重试跟 Agent 同一套反馈' },
+  { title: 'PPT 生成', desc: '流式大纲、审阅改稿、导出成片，刷新不丢进度' },
+  { title: 'AI 绘画', desc: 'Kolors/可图 文生图，历史可删，产物默认保留 30 天' },
+  { title: '虚拟姬', desc: '回合式陪伴对话，使用当前用户的 API Key/接口密钥' },
+  { title: '知识库', desc: '在能力中心上传文档，供检索增强' },
+  { title: 'Docker 配置', desc: '工具集里打开容器相关配置' },
+  { title: 'Nginx 配置', desc: '工具集里打开反向代理与站点配置' },
+  { title: '图表编辑器', desc: '导入表格数据，六类图表，导出 PNG' },
+  { title: '能力中心', desc: '视觉、知识库、沙箱、Skills/技能与 Agent Host/主机会话' },
+  { title: '搜索历史', desc: '按提示词关键词筛选侧栏对话，清除后恢复全部记录' },
+  { title: '管理员面板', desc: '监控、日志、用户、Nginx、服务与资源配置；超级管理员另有模型管理与并发仪表板' },
+  { title: '临时工作流', desc: '短任务编排，状态与重试跟 Agent 同一套反馈' },
 ]
 
 const stack = [
@@ -599,13 +599,13 @@ const stack = [
 const langs = ['Rust', 'Java', 'C/C++', 'PHP', 'Ruby', 'Swift', 'Kotlin', 'C#', 'TypeScript', 'Shell', 'SQL', 'HTML/CSS']
 
 const faqs = [
-  { q: '为什么一提问就让我去设置？', a: ['对话、PPT 和绘画都要先有硅基流动 Key。', '打开「设置 → API Key 管理」提交后即可。'] },
+  { q: '为什么一提问就让我去设置？', a: ['对话、PPT 和绘画都要先有硅基流动密钥。', '打开「设置 → API Key/接口密钥管理」提交后即可。'] },
   { q: '按需联网会不会每句都搜？', a: ['按需模式由快模型判断。空消息和打招呼会跳过。', '需要稳定检索时把联网改成开启；只要模型时改成关闭。'] },
   { q: '搜索或回答到一半刷新会丢吗？', a: ['不会。首页会恢复当前阶段并自动再请求。', 'PPT 大纲起草和成片导出同样会按本地会话续上。'] },
   { q: 'PPT 一定要指定页数吗？', a: ['默认自动。需要大致篇幅时再选约 8 / 12 / 16 / 20 页。'] },
   { q: '删掉的对话或 PPT 还能找回吗？', a: ['不能。删除前会确认，确认后立即清记录和文件。'] },
   { q: '怎么找以前的对话？', a: ['登录后侧栏列出最近会话，点击即可继续。', '工具集「搜索历史」按提示词关键词筛选；清除关键词后恢复全部列表。'] },
-  { q: 'API Key 存在哪？', a: ['浏览器用 RSA 加密提交，服务端放 Redis。', '前端本地只留 token 和元数据，原始 Key 不入库、不进仓库。'] },
+  { q: 'API Key/接口密钥存在哪？', a: ['浏览器用 RSA 加密提交，服务端放 Redis。', '前端本地只留 Token/令牌和元数据，原始密钥不入库、不进仓库。'] },
   { q: '支持私有部署吗？', a: ['支持。需要 Python 3.10+、Node.js 18+、Redis 6+。参考「部署指南」。'] },
 ]
 </script>
@@ -868,7 +868,15 @@ const faqs = [
   text-align: left;
   color: inherit;
 }
-.expand-icon { font-size: 24px; flex-shrink: 0; }
+.expand-icon {
+  flex-shrink: 0;
+  min-width: 28px;
+  color: var(--primary, #14b8a6);
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
 .expand-info { flex: 1; min-width: 0; }
 .expand-title {
   display: block;
@@ -1103,7 +1111,7 @@ const faqs = [
   border: 1px solid var(--border-color, #e2e8f0);
   border-radius: 10px;
   padding: 18px;
-  text-align: center;
+  text-align: left;
   transition: all 0.15s;
 }
 .icon-card:hover {
@@ -1111,7 +1119,6 @@ const faqs = [
   transform: translateY(-1px);
   box-shadow: 0 4px 12px var(--shadow-color, rgba(0,0,0,0.06));
 }
-.icon-card-icon { font-size: 24px; margin-bottom: 8px; }
 .icon-card-title {
   font-size: 13px;
   font-weight: 600;

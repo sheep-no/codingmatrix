@@ -15,28 +15,51 @@
 
     <div class="section-header" :class="{ collapsed: !showHeader }">
       <h3>
-        <span class="icon">📋</span>
+        <span class="icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <line x1="10" y1="9" x2="8" y2="9"/>
+          </svg>
+        </span>
         系统日志
       </h3>
       <div class="header-actions">
         <button class="auto-scroll-btn" :class="{ active: autoScroll }" @click="toggleAutoScroll">
-          <span class="icon">{{ autoScroll ? '[LOCK]' : '[UNLOCK]' }}</span>
-          {{ autoScroll ? 'Auto scroll' : 'Stop scroll' }}
+          <svg v-if="autoScroll" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <rect x="3" y="11" width="18" height="11" rx="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <rect x="3" y="11" width="18" height="11" rx="2"/>
+            <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+          </svg>
+          {{ autoScroll ? '自动滚动' : '暂停滚动' }}
         </button>
         <button class="clear-btn" @click="clearLogs">
-          <span class="icon">[DEL]</span>
-          Clear
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+          清空
         </button>
         <span :class="['status-dot', { connected: connected, disconnected: !connected }]"></span>
-        <span class="status-text">{{ connected ? 'Connected' : 'Disconnected' }}</span>
+        <span class="status-text">{{ connected ? '已连接' : '未连接' }}</span>
       </div>
     </div>
 
     <!-- 日志过滤器切换 -->
     <div v-if="showHeader" class="logs-filter-toggle-wrapper">
       <button class="filter-toggle-btn" @click="showFilters = !showFilters">
-        <span :class="['toggle-icon', { active: showFilters }]">[FIND]</span>
-        <span>Log Filter</span>
+        <span :class="['toggle-icon', { active: showFilters }]" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </span>
+        <span>日志筛选</span>
         <span :class="['arrow-icon', { open: showFilters }]">▼</span>
       </button>
     </div>
@@ -55,11 +78,11 @@
         <label>日志级别：</label>
         <select v-model="filterLevel" @change="applyFilters">
           <option value="">全部</option>
-          <option value="DEBUG">DEBUG</option>
-          <option value="INFO">INFO</option>
-          <option value="WARNING">WARNING</option>
-          <option value="ERROR">ERROR</option>
-          <option value="CRITICAL">CRITICAL</option>
+          <option value="DEBUG">调试（DEBUG）</option>
+          <option value="INFO">信息（INFO）</option>
+          <option value="WARNING">警告（WARNING）</option>
+          <option value="ERROR">错误（ERROR）</option>
+          <option value="CRITICAL">严重（CRITICAL）</option>
         </select>
       </div>
       <div class="filter-group">
@@ -80,8 +103,14 @@
     <!-- Database monitor panel -->
     <div v-if="enableDbMonitor && dbStatus" class="db-monitor">
       <h4>
-        <span class="icon">[DATABASE]</span>
-        Database Monitor
+        <span class="icon" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/>
+            <path d="M3 5v6c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+            <path d="M3 11v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6"/>
+          </svg>
+        </span>
+        数据库监控
       </h4>
       <div class="db-stats-grid">
         <div class="db-stat-item">
@@ -128,7 +157,14 @@
         <button class="retry-btn" @click="connect">重试连接</button>
       </div>
       <div v-else-if="filteredLogs.length === 0" class="empty-logs">
-        <span class="icon">📋</span>
+        <span class="icon" aria-hidden="true">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+        </span>
         <p>暂无日志</p>
       </div>
       <div v-else ref="logsListRef" class="logs-list">
@@ -426,7 +462,7 @@
   }
 
   .section-header .icon {
-    font-size: 26px;
+    display: inline-flex;
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
   }
 
@@ -954,7 +990,8 @@
   }
 
   .empty-logs .icon {
-    font-size: 64px;
+    display: inline-flex;
+    color: var(--text-tertiary);
     opacity: 0.3;
   }
 

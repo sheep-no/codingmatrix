@@ -41,6 +41,7 @@ describe('Docs workbench guide', () => {
     expect(text).toContain('PPT 生成')
     expect(text).toContain('虚拟姬')
     expect(text).toContain('Kolors')
+    expect(text).toContain('Nginx 配置')
     expect(text.includes('Architect Agent')).toBe(false)
     expect(text.includes('GirlAI')).toBe(false)
   })

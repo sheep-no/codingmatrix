@@ -24,17 +24,17 @@
           </svg>
           历史
         </button>
-        <span class="header-hint">Agent 驱动自然语言生成</span>
       </div>
     </header>
 
     <div class="page-content">
       <aside class="config-panel">
+        <div class="config-scroll">
         <div class="form-group">
           <label>主题 / 描述 <span class="required">*</span></label>
           <textarea
             v-model="topic"
-            placeholder="请输入 PPT 主题，例如：'帮我做一个关于 2026 年人工智能发展趋势的技术汇报'"
+            placeholder="请输入 PPT 主题，例如：帮我做一个关于 2026 年人工智能发展趋势的技术汇报"
             rows="4"
             :disabled="generating"
           ></textarea>
@@ -43,7 +43,7 @@
 
         <!-- 文件上传区域 -->
         <div class="form-group">
-          <label>上传文件生成 <span class="optional">(可选)</span></label>
+          <label>上传文件生成 <span class="optional">（可选）</span></label>
           <div
             class="file-upload-area"
             :class="{ 'has-file': uploadedFile }"
@@ -57,7 +57,8 @@
                 <line x1="12" y1="3" x2="12" y2="15"/>
               </svg>
               <p>拖拽文件到此处，或点击上传</p>
-              <span class="upload-hint">支持 PDF、Word、TXT、Markdown、代码文件</span>
+              <span class="upload-hint">支持 PDF、Word、TXT、Markdown 与代码</span>
+
             </div>
             <div v-else class="file-info">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="24" height="24">
@@ -80,42 +81,44 @@
 
         <div class="form-group">
           <label>选择模板</label>
-          <button type="button" class="template-card template-auto" :class="{ selected: selectedTemplate === 'auto' }"
-            :disabled="outlineSaving || workflowStep !== 1" :aria-pressed="selectedTemplate === 'auto'" @click="selectedTemplate = 'auto'">
-            自动推荐 · 根据主题与场景选择
-          </button>
-           <p class="template-hint">样张来自固定 PPTX 的真实 PDF/PNG 渲染；样张生成中或不可用时显示色彩示意。</p>
-          <div class="template-grid">
-            <button
-              v-for="tpl in templates"
-              :key="tpl.id"
-              type="button"
-              class="template-card"
-              :disabled="outlineSaving || workflowStep !== 1"
-              :aria-pressed="selectedTemplate === tpl.id"
-              :class="{ selected: selectedTemplate === tpl.id }"
-              @click="selectedTemplate = tpl.id"
-            >
-               <div class="template-preview" :style="{ background: tpl.color }">
-                 <img v-if="tpl.sample?.status === 'available'" :src="tpl.sample.slides[0]" :alt="`${tpl.name} 封面样张`" loading="lazy">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <rect x="3" y="3" width="18" height="18" rx="2"/>
-                  <line x1="8" y1="8" x2="16" y2="8"/>
-                  <line x1="8" y1="12" x2="16" y2="12"/>
-                  <line x1="8" y1="16" x2="12" y2="16"/>
-                </svg>
-              </div>
-              <div class="template-name">{{ tpl.name }}</div>
-              <p class="template-description">{{ tpl.description || '模板描述暂缺' }}</p>
-              <p class="template-description">场景：{{ tpl.scenarios?.length ? tpl.scenarios.map(scenarioLabel).join('、') : '场景信息暂缺' }}</p>
+          <template v-if="workflowStep === 1">
+            <button type="button" class="template-card template-auto" :class="{ selected: selectedTemplate === 'auto' }"
+              :disabled="outlineSaving" :aria-pressed="selectedTemplate === 'auto'" @click="selectedTemplate = 'auto'">
+              自动推荐 · 根据主题与场景选择
             </button>
-          </div>
-          <p v-if="templateListError" class="template-hint" role="status">模板注册表暂不可用，当前显示备用配色。
-            <button type="button" @click="loadTemplates">重新加载模板</button>
-          </p>
+            <p class="template-hint">选择一种风格，或交给系统按主题推荐。</p>
+            <div class="template-grid">
+              <button
+                v-for="tpl in templates"
+                :key="tpl.id"
+                type="button"
+                class="template-card"
+                :disabled="outlineSaving"
+                :aria-pressed="selectedTemplate === tpl.id"
+                :class="{ selected: selectedTemplate === tpl.id }"
+                @click="selectedTemplate = tpl.id"
+                :title="tpl.description"
+              >
+                <div class="template-preview" :style="{ background: tpl.color }">
+                  <img v-if="tpl.sample?.status === 'available'" :src="tpl.sample.slides[0]" :alt="`${tpl.name} 封面样张`" loading="lazy">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    <line x1="8" y1="8" x2="16" y2="8"/>
+                    <line x1="8" y1="12" x2="16" y2="12"/>
+                    <line x1="8" y1="16" x2="12" y2="16"/>
+                  </svg>
+                </div>
+                <div class="template-name">{{ tpl.name }}</div>
+                <p class="template-description">{{ tpl.description || '模板描述暂缺' }}</p>
+                <p class="template-description template-scene">场景：{{ tpl.scenarios?.length ? tpl.scenarios.map(scenarioLabel).join('、') : '场景信息暂缺' }}</p>
+              </button>
+            </div>
+            <p v-if="templateListError" class="template-hint" role="status">模板注册表暂不可用，当前显示备用配色。
+              <button type="button" @click="loadTemplates">重新加载模板</button>
+            </p>
+          </template>
           <div v-if="outlineDraft?.template_id" class="template-result" role="status">
             <strong>{{ automaticSelection ? '自动选择结果' : '已采用模板' }}：{{ templateName(outlineDraft.template_id) }}</strong>
-            <p>模板 ID：{{ outlineDraft.template_id }}</p>
             <p v-if="templateRecommendation">场景：{{ scenarioLabel(templateRecommendation.scenario) }}；推荐模板：{{ templateRecommendation.templates.map(templateName).join('、') }}</p>
             <p v-else-if="recommendationLoading">正在加载场景推荐...</p>
             <p v-else>推荐信息暂不可用，已采用模板保持有效。<button type="button" @click="loadRecommendation">重试推荐</button></p>
@@ -142,9 +145,9 @@
               <label class="option-label">
                 <span>输出格式</span>
                 <select v-model="outputFormat" class="option-select">
-                  <option value="pptx">PPTX (PowerPoint)</option>
-                  <option value="html">HTML (在线预览)</option>
-                  <option value="markdown">Markdown (文档)</option>
+                  <option value="pptx">PPTX（幻灯片文件）</option>
+                  <option value="html">HTML（在线预览）</option>
+                  <option value="markdown">Markdown（文档）</option>
                 </select>
               </label>
             </div>
@@ -163,15 +166,8 @@
           </div>
         </div>
 
-        <div v-if="workflowStep === 3" class="quality-mode-panel">
-          <div class="workflow-heading"><span>第 3 步：选择质量模式</span></div>
-          <label v-for="mode in qualityModes" :key="mode.id" class="quality-mode-option">
-            <input v-model="qualityMode" type="radio" :value="mode.id" />
-            <span><strong>{{ mode.name }}</strong><small>{{ mode.description }}</small></span>
-          </label>
-          <button class="generate-btn" :disabled="generating" @click="generateApprovedOutline">开始生成 PPT</button>
         </div>
-
+        <div class="config-footer">
         <button
           v-if="!generating && workflowStep === 1"
           class="generate-btn"
@@ -189,6 +185,15 @@
           取消生成
         </button>
 
+        <div v-else-if="workflowStep === 3 && !generatedFileUrl" class="quality-mode-panel">
+          <div class="workflow-heading"><span>第 3 步：选择质量模式</span></div>
+          <label v-for="mode in qualityModes" :key="mode.id" class="quality-mode-option">
+            <input v-model="qualityMode" type="radio" :value="mode.id" />
+            <span><strong>{{ mode.name }}</strong><small>{{ mode.description }}</small></span>
+          </label>
+          <p class="quality-mode-hint">选择后点击下方「开始生成 PPT」。</p>
+        </div>
+
         <TaskFeedbackPanel
           :feedback="taskFeedbackState"
           :connection-status="taskFeedbackConnection"
@@ -196,6 +201,7 @@
           :actions="taskFeedbackActions"
           @action="handleTaskFeedbackAction"
         />
+        </div>
       </aside>
 
       <main class="preview-panel">
@@ -218,7 +224,7 @@
 
         <div v-else-if="workflowStep >= 2 && !generating && !generatedFileUrl" class="outline-review-panel">
           <div class="workflow-heading">
-            <span>第 2 步：审阅大纲</span>
+            <span>{{ workflowStep === 3 ? '第 3 步：确认质量并开始生成' : '第 2 步：审阅大纲' }}</span>
             <div class="workflow-heading-actions">
               <span class="outline-total">当前 {{ outlineSlides.length }} 页内容（另加封面）</span>
               <span class="workflow-version">v{{ outlineDraft?.version || 1 }}</span>
@@ -231,14 +237,32 @@
               <div class="outline-fields">
                 <select v-model="slide.slide_type" class="outline-type-select" aria-label="页面类型">
                   <option value="key_points">要点页</option>
+                  <option value="data">数据图表</option>
                   <option value="comparison">对比页</option>
                   <option value="timeline">时间线</option>
-                  <option value="data_chart">数据图表</option>
+                  <option value="process">流程页</option>
+                  <option value="image_text">图文页</option>
+                  <option value="summary">总结页</option>
                   <option value="closing">结论页</option>
                 </select>
                 <input v-model="slide.title" class="outline-title-input" placeholder="页面标题" />
                 <input v-model="slide.key_message" class="outline-message-input" placeholder="页面核心结论" />
-                <textarea v-model="slide.content_blocks[0].content" class="outline-content-input" rows="3" placeholder="页面内容"></textarea>
+                <textarea
+                  v-for="(block, blockIndex) in slide.content_blocks"
+                  :key="`${slide.id}-block-${blockIndex}`"
+                  v-model="block.content"
+                  class="outline-content-input"
+                  rows="3"
+                  :placeholder="`要点 ${blockIndex + 1}`"
+                ></textarea>
+                <button
+                  class="outline-add-block"
+                  type="button"
+                  :disabled="slide.content_blocks.length >= 6"
+                  @click="addContentBlock(slide)"
+                >
+                  增加要点
+                </button>
                 <div v-if="slideValidationMessages(slide).length" class="outline-validation">
                   {{ slideValidationMessages(slide).join('；') }}
                 </div>
@@ -250,16 +274,26 @@
               </div>
             </div>
           </div>
-          <button class="generate-btn outline-approve-btn" :disabled="outlineSaving || !outlineCanApprove" @click="approveOutline">
-            {{ outlineSaving ? '正在保存...' : '批准大纲并继续' }}
-          </button>
+          <div class="outline-review-actions">
+            <button v-if="workflowStep === 2" class="generate-btn outline-approve-btn" :disabled="outlineSaving || !outlineCanApprove" @click="approveOutline">
+              {{ outlineSaving ? '正在保存...' : '批准大纲并继续' }}
+            </button>
+            <button
+              v-if="workflowStep === 3"
+              class="generate-btn outline-generate-btn"
+              :disabled="generating"
+              @click="generateApprovedOutline"
+            >
+              开始生成 PPT
+            </button>
+          </div>
         </div>
 
         <div v-else-if="!generatedSlides.length && !generating && !generatedFileUrl" class="preview-placeholder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
           </svg>
-          <p>描述您的想法，AI Agent 将自动完成大纲、排版和配图</p>
+          <p>输入主题后，系统会生成大纲、排版和配图</p>
         </div>
 
         <div v-else-if="generating && !generatedFileUrl" class="generation-live">
@@ -287,7 +321,7 @@
         </div>
 
         <div v-else-if="generatedFileUrl" class="success-container">
-          <h3>生成成功!</h3>
+          <h3>生成成功！</h3>
           <div class="success-actions">
             <button class="download-link" @click="downloadPpt">
               下载 PPTX 文件
@@ -349,8 +383,8 @@
         <div v-else-if="generatedSlides.length" class="slides-preview">
           <div v-for="(slide, index) in generatedSlides" :key="index" class="slide-card">
             <div class="slide-header">
-              <span class="slide-number">Slide {{ index + 1 }}</span>
-              <span class="slide-type">{{ slide.type || 'content' }}</span>
+              <span class="slide-number">第 {{ index + 1 }} 页</span>
+              <span class="slide-type">{{ slideTypeLabel(slide.type || slide.slide_type) }}</span>
             </div>
             <h3>{{ slide.title }}</h3>
             <ul v-if="slide.bullets && slide.bullets.length">
@@ -527,7 +561,7 @@ async function downloadPpt() {
   try {
     await downloadBlob(await api.ppt.downloadPPT(currentTaskId.value), `presentation_${currentTaskId.value}.pptx`)
   } catch (error) {
-    ElMessage.error('PPTX 下载失败: ' + error.message)
+    ElMessage.error('PPTX 下载失败：' + error.message)
   }
 }
 
@@ -535,7 +569,7 @@ async function downloadHistory(taskId) {
   try {
     await downloadBlob(await api.ppt.downloadPPT(taskId), `presentation_${taskId}.pptx`)
   } catch (error) {
-    ElMessage.error('下载失败: ' + error.message)
+    ElMessage.error('下载失败：' + error.message)
   }
 }
 
@@ -559,6 +593,26 @@ const currentRenderingIndex = computed(() => {
 })
 
 let localSlideSequence = 0
+
+const SLIDE_TYPE_LABELS = {
+  cover: '封面',
+  title: '封面',
+  agenda: '目录',
+  section: '章节',
+  key_points: '要点',
+  content: '内容',
+  image_text: '图文',
+  data: '数据',
+  comparison: '对比',
+  timeline: '时间线',
+  process: '流程',
+  summary: '总结',
+  closing: '结束',
+  chart: '数据'
+}
+function slideTypeLabel(type) {
+  return SLIDE_TYPE_LABELS[type] || type || '内容'
+}
 
 function normalizeOutlineSlides(slides) {
   return (slides || []).map((slide, position) => ({
@@ -610,6 +664,12 @@ function addOutlineSlide() {
   })
 }
 
+function addContentBlock(slide) {
+  if (!slide.content_blocks) slide.content_blocks = []
+  if (slide.content_blocks.length >= 6) return
+  slide.content_blocks.push({ type: 'text', content: '', metadata: {} })
+}
+
 function removeOutlineSlide(index) {
   if (outlineSlides.value.length <= 1) return
   outlineSlides.value.splice(index, 1)
@@ -648,7 +708,7 @@ async function downloadPdf() {
     URL.revokeObjectURL(url)
   } catch (e) {
     console.error('PDF 下载失败:', e)
-    ElMessage.error('PDF 下载失败: ' + e.message)
+    ElMessage.error('PDF 下载失败：' + e.message)
   }
 }
 
@@ -783,7 +843,7 @@ async function deleteHistory(taskId) {
     historyList.value = historyList.value.filter(h => h.task_id !== taskId)
     ElMessage.success('已删除')
   } catch (e) {
-    ElMessage.error('删除失败: ' + e.message)
+    ElMessage.error('删除失败：' + e.message)
   }
 }
 
@@ -874,12 +934,12 @@ function connectWebSocket(taskId) {
         generating.value = false
         applyPptResult(resultFromPptEvent(data))
         closeWebSocket()
-        ElMessage.success('PPT 生成完成!')
+        ElMessage.success('PPT 生成完成！')
       } else if (normalized.status === 'failed') {
         taskFeedback.fail(normalized.error || '生成失败', { stage: 'PPT 生成失败', nextAction: '检查内容后重新生成' })
         generating.value = false
         closeWebSocket()
-        ElMessage.error('生成失败: ' + (data.error || data.message || '未知错误'))
+        ElMessage.error('生成失败：' + (data.error || data.message || '未知错误'))
       } else if (normalized.status === 'paused' && ['cancelled', 'canceled', 'stopped'].includes(
         String(data.status ?? data.step ?? data.payload?.status ?? data.payload?.step ?? '').toLowerCase()
       )) {
@@ -931,7 +991,7 @@ function isOutlineRequestCanceled(error) {
 async function handleGenerate({ resume = false } = {}) {
   if (!canGenerate.value || generating.value) return
   if (!apiKeyStore.hasSiliconflowKey) {
-    ElMessage.error('请先配置 API Key 后再使用')
+    ElMessage.error('请先配置 API Key/接口密钥后再使用')
     router.push('/settings')
     return
   }
@@ -973,7 +1033,7 @@ async function handleGenerate({ resume = false } = {}) {
       ElMessage.success('大纲已生成，请审阅页面结构')
     } catch (e) {
       if (isOutlineRequestCanceled(e)) return
-      ElMessage.error('大纲生成失败: ' + e.message)
+      ElMessage.error('大纲生成失败：' + e.message)
     } finally {
       if (requestId === outlineRequestId) {
         stopOutlineStages()
@@ -995,9 +1055,9 @@ async function approveOutline() {
     outlineDraft.value = approved
     outlineSlides.value = normalizeOutlineSlides(approved.slides)
     workflowStep.value = 3
-    ElMessage.success('大纲已批准，请选择质量模式')
+    ElMessage.success('大纲已批准，请确认质量后开始生成')
   } catch (e) {
-    ElMessage.error('大纲审批失败: ' + e.message)
+    ElMessage.error('大纲审批失败：' + e.message)
   } finally {
     outlineSaving.value = false
   }
@@ -1073,7 +1133,7 @@ async function generateApprovedOutline() {
     }
   } catch (e) {
     console.error('PPT 生成失败:', e)
-    ElMessage.error('生成失败: ' + e.message)
+    ElMessage.error('生成失败：' + e.message)
     taskFeedback.fail(e, { stage: '任务创建失败', nextAction: '检查内容后重新生成' })
     progressState.value = null
     generating.value = false
@@ -1117,7 +1177,7 @@ async function handleAnalyze() {
       ElMessage.success('分析完成，可在下方输入修改需求')
     }
   } catch (e) {
-    ElMessage.error('分析失败: ' + e.message)
+    ElMessage.error('分析失败：' + e.message)
   }
 }
 
@@ -1145,12 +1205,12 @@ async function handleModify() {
       })
 
       modifyInput.value = ''
-      ElMessage.success('修改成功!')
+      ElMessage.success('修改成功！')
     } else {
       ElMessage.warning(result.message || '修改失败')
     }
   } catch (e) {
-    ElMessage.error('修改失败: ' + e.message)
+    ElMessage.error('修改失败：' + e.message)
   } finally {
     isModifying.value = false
   }
@@ -1306,6 +1366,14 @@ onUnmounted(() => {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.back-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .header-title {
@@ -1314,10 +1382,11 @@ onUnmounted(() => {
   gap: 8px;
   font-size: 18px;
   font-weight: 600;
+  min-width: 0;
 }
 
 .header-title svg { width: 20px; height: 20px; }
-.header-actions { margin-left: auto; }
+.header-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .header-hint { font-size: 13px; color: var(--text-secondary); }
 
 .page-content {
@@ -1336,7 +1405,35 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  overflow: hidden;
+}
+
+.config-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 12px;
+}
+
+.config-footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  overflow-y: auto;
+  max-height: 46vh;
+}
+
+.config-footer .quality-mode-panel {
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 
 .form-group { display: flex; flex-direction: column; gap: 8px; }
@@ -1358,7 +1455,7 @@ onUnmounted(() => {
 
 .template-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
@@ -1370,7 +1467,7 @@ onUnmounted(() => {
   font: inherit;
   border: 2px solid var(--border-color);
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -1379,15 +1476,33 @@ onUnmounted(() => {
 .template-card.selected { border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2); }
 .template-card:disabled { cursor: default; }
 .template-auto { width: 100%; padding: 10px; }
-.template-description, .template-hint, .template-result { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.template-description { margin: 6px 8px; text-align: left; }
+.template-description, .template-hint, .template-result { font-size: 12px; line-height: 1.5; overflow-wrap: break-word; }
+.template-description {
+  margin: 6px 8px 8px;
+  text-align: left;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.template-scene {
+  margin-top: 0;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .template-result { margin-top: 12px; padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; }
 
 .template-preview {
-  height: 60px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+  border-radius: 6px 6px 0 0;
 }
 
 .template-preview svg { width: 24px; height: 24px; color: rgba(255,255,255,0.9); }
@@ -1481,6 +1596,7 @@ onUnmounted(() => {
 }
 
 .outline-add-btn,
+.outline-add-block,
 .outline-slide-actions button {
   padding: 5px 8px;
   border: 1px solid var(--border-color);
@@ -1492,6 +1608,7 @@ onUnmounted(() => {
 }
 
 .outline-add-btn:disabled,
+.outline-add-block:disabled,
 .outline-slide-actions button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -1512,17 +1629,40 @@ onUnmounted(() => {
   background: transparent;
   border: none;
   padding: 0;
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
 }
 
 .outline-board {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  max-width: 760px;
+  padding-bottom: 72px;
 }
 
-.outline-approve-btn {
-  align-self: flex-start;
-  min-width: 220px;
+.outline-review-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  max-width: 760px;
+  padding: 12px 0 4px;
+  background: linear-gradient(180deg, transparent, var(--bg-primary) 24%);
+}
+
+.outline-approve-btn,
+.outline-generate-btn {
+  width: 100%;
+  min-width: 0;
+}
+
+.preview-panel .outline-review-panel .workflow-heading {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  padding-bottom: 8px;
+  background: var(--bg-primary);
 }
 
 .outline-drafting,
@@ -1530,7 +1670,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-width: 720px;
+  max-width: 760px;
+  margin-inline: auto;
 }
 
 .outline-drafting h3 {
@@ -1617,6 +1758,13 @@ onUnmounted(() => {
   font: inherit;
 }
 
+.outline-content-input {
+  min-height: 4.8em;
+  resize: vertical;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+}
+
 .outline-slide-actions {
   grid-column: 2;
   justify-content: flex-end;
@@ -1650,6 +1798,13 @@ onUnmounted(() => {
 
 .quality-mode-option small {
   color: var(--text-secondary);
+}
+
+.quality-mode-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .generate-btn {
@@ -1752,7 +1907,7 @@ onUnmounted(() => {
 
 .slide-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
 .slide-number { font-size: 12px; color: var(--text-secondary); }
-.slide-type { font-size: 12px; color: var(--color-primary); text-transform: capitalize; }
+.slide-type { font-size: 12px; color: var(--color-primary); }
 .slide-card h3 { font-size: 16px; margin-bottom: 8px; }
 .slide-card ul { list-style-position: inside; font-size: 14px; color: var(--text-secondary); }
 
@@ -2121,6 +2276,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   .header-hint { display: none; }
   .page-content { display: flex; flex-direction: column; overflow: auto; }
   .config-panel { width: 100%; min-width: 0; border-right: 0; border-bottom: 1px solid var(--border-color); padding: 20px 16px; overflow: visible; }
+  .config-scroll { overflow: visible; min-height: auto; }
   .result-panel { min-height: 420px; padding: 20px 16px; }
   .template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

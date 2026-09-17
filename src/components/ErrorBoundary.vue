@@ -46,7 +46,7 @@
 <template>
   <div v-if="showError" class="error-boundary-fallback">
     <div class="error-content">
-      <div class="error-icon">[WARNING]</div>
+      <div class="error-icon">出错了</div>
       <h3>{{ componentName }} 加载失败</h3>
       <p v-if="isDev" class="error-message">
         {{ error?.message || '未知错误' }}
@@ -79,7 +79,10 @@
   }
 
   .error-icon {
-    font-size: 3rem;
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--color-text-secondary, #666);
     margin-bottom: 1rem;
   }
 
