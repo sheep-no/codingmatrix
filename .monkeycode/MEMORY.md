@@ -133,7 +133,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Context: Agent 在收敛 Agent 沙箱体系时确认
 - Category: 环境配置
 - Instructions:
-  - 本环境无 `docker` 库与守护进程，`DockerRunner` 构造即抛错；docker 测试分支不是可选优化而是恒回退，勿据此判断「已用容器验证」。
+  - docker 沙箱已整体移除（`app/utils/docker_runner.py` 与仅有的两个不可达 celery 任务 `execute_code`/`validate_project` 均已删除），不要再到仓库里找 `DockerRunner`；本环境无 `docker` 库与守护进程，任何「容器验证」结果都不可信。
   - 语法门禁不需要隔离：`syntax` 级只解析不执行，已用本地解析器（Python `ast.parse`、`app/agent/js_syntax.py`、`app/agent/markup_syntax.py`）替代 bwrap 脚本生成，`bwrap` 缺失时才跳过未覆盖扩展名。
   - aicloud 用户沙箱（`/sandbox/{user_id}/workspace`）无进程隔离，文件路径安全统一由 `FileOperator._validate_path`（`resolve()` + base_path 归属）负责，`SandboxFileOperator` 不再覆盖校验。
   - 真正执行代码的沙箱在 `app/agent/tools.py`（`ENABLE_CODE_SANDBOX`/`SANDBOX_LANGUAGES` 控制）。
@@ -154,7 +154,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Instructions:
   - OrchestratorAgent 支持 `incremental=True` 增量修改模式
   - 增量修改通过 SessionManager 检测变更文件，CodePatcher 生成 unified diff patch
-  - 测试验证优先使用 DockerRunner（容器化运行+自动释放资源），回退到 IsolatedTestRunner（venv隔离+白名单依赖+安全扫描）
+  - 测试验证现由 IsolatedTestRunner 作为唯一执行路径（venv隔离+白名单依赖+安全扫描）；原 DockerRunner 路径已随 docker 沙箱移除，`method=docker` 不再产生。
   - IsolatedTestRunner 创建临时 venv 和项目副本运行测试，完成后删除所有临时资源
   - 每次生成/修改后自动 git commit 保存快照（_git_save_snapshot 方法）
   - 新增 `/api/v1/agent/modify` 端点连接上传项目到增量修改流程
