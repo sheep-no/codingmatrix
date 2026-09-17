@@ -31,10 +31,22 @@ if token_count >= max_keys then
     return -1  -- 超过限制
 end
 
+local existed = redis.call('EXISTS', index_key)
 local added = redis.call('SADD', index_key, token)
+
+-- 索引过期时间取当前值与目标值的较大者。若每次都用新 key 的 TTL 覆盖，
+-- 先存的长效 key 会因为后存的短效 key 缩短索引寿命，索引过期后彻底
+-- 从 list_keys 消失（key 本体仍在 Redis，成为不可管理的幽灵）。
+local desired_ttl = ttl_seconds + 86400
+local current_ttl = redis.call('TTL', index_key)
+-- current_ttl == -1 且索引此前已存在，说明索引被设为永久，不再附加过期
+if existed == 0 or current_ttl ~= -1 then
+    if desired_ttl > current_ttl then
+        redis.call('EXPIRE', index_key, desired_ttl)
+    end
+end
+
 if added == 1 then
-    -- 设置索引的过期时间（比最长 TTL 多一天）
-    redis.call('EXPIRE', index_key, ttl_seconds + 86400)
     return 1  -- 添加成功
 end
 return 0  -- Token 已存在
