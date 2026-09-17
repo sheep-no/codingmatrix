@@ -4,19 +4,25 @@ HTTP Request Node - HTTP 请求节点
 发送 HTTP 请求调用外部 API
 """
 
-import ipaddress
 import logging
 import json
-import socket
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin
 
 import httpx
 
 from app.schema.workflow import TaskType
+from app.utils.url_safety import check_outbound_url
 from app.utils.workflow.node_types.base import TaskNodeBase, NodeResult
 
 logger = logging.getLogger(__name__)
+
+_MAX_REDIRECTS = 5
+_REDIRECT_STATUS = (301, 302, 303, 307, 308)
+# 响应头中不进入上下文的敏感字段
+_SENSITIVE_HEADERS = {
+    "set-cookie", "authorization", "proxy-authorization", "www-authenticate",
+}
 
 
 class HTTPRequestNode(TaskNodeBase):
@@ -81,27 +87,49 @@ class HTTPRequestNode(TaskNodeBase):
 
         return errors
 
-    def _check_ssrf(self, url: str) -> Optional[str]:
-        """检查 URL 是否存在 SSRF 风险"""
-        try:
-            parsed = urlparse(url)
-            hostname = parsed.hostname
-            if not hostname:
-                return "URL 缺少主机名"
+    def _check_ssrf(self, url: str, strict: bool = False) -> Optional[str]:
+        """检查 URL 是否存在 SSRF 风险。
 
-            # 解析 DNS
-            try:
-                resolved = socket.gethostbyname(hostname)
-            except socket.gaierror:
-                return None  # DNS 解析失败会在执行时报错
+        strict=True 时 DNS 解析失败即拒绝，用于执行期已替换为实际值的 URL。
+        """
+        error = check_outbound_url(url, fail_closed_on_dns_error=strict)
+        if error:
+            logger.warning(f"[{self.node_id}] URL 安全校验未通过 | {url} | {error}")
+        return error
 
-            ip = ipaddress.ip_address(resolved)
-            if ip.is_private or ip.is_loopback or ip.is_link_local:
-                return f"不允许访问内网地址: {hostname} ({resolved})"
+    async def _request_with_redirects(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        url: str,
+        **kwargs,
+    ):
+        """手动跟随重定向，逐跳校验目标地址，避免跳转绕过 SSRF 检查。"""
+        for _ in range(_MAX_REDIRECTS + 1):
+            response = await client.request(
+                method=method, url=url, follow_redirects=False, **kwargs
+            )
+            if response.status_code not in _REDIRECT_STATUS:
+                return response, None
 
-            return None
-        except Exception:
-            return None
+            location = response.headers.get("location")
+            if not location:
+                return response, None
+
+            target = urljoin(url, location)
+            error = self._check_ssrf(target, strict=True)
+            if error:
+                return None, f"重定向目标被拒绝: {error}"
+
+            if response.status_code == 303 or (
+                response.status_code in (301, 302) and method not in ("GET", "HEAD")
+            ):
+                method = "GET"
+                kwargs.pop("content", None)
+                kwargs.pop("json", None)
+            url = target
+
+        return None, "重定向次数超过上限"
 
     async def execute(self, context: Dict[str, Any]) -> NodeResult:
         """
@@ -128,20 +156,27 @@ class HTTPRequestNode(TaskNodeBase):
         if params and isinstance(params, dict):
             params = {k: self._replace_variables(str(v), context) for k, v in params.items()}
 
+        # 变量替换后目标可能已经指向内网，必须重新校验
+        ssrf_error = self._check_ssrf(url, strict=True)
+        if ssrf_error:
+            return NodeResult.error_result(error=f"URL 安全校验未通过: {ssrf_error}")
+
         logger.info(f"[{self.node_id}] HTTP 请求 | {method} {url}")
 
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.request(
-                    method=method,
-                    url=url,
+                response, redirect_error = await self._request_with_redirects(
+                    client,
+                    method,
+                    url,
                     headers=headers,
                     json=body if body and isinstance(body, (dict, list)) else None,
                     content=body if body and isinstance(body, str) else None,
                     params=params,
                     timeout=timeout,
-                    follow_redirects=True,
                 )
+                if redirect_error:
+                    return NodeResult.error_result(error=redirect_error)
 
                 # 解析响应
                 try:
@@ -152,7 +187,11 @@ class HTTPRequestNode(TaskNodeBase):
                 result_data = {
                     "status_code": response.status_code,
                     "data": response_data,
-                    "headers": dict(response.headers),
+                    "headers": {
+                        key: value
+                        for key, value in response.headers.items()
+                        if key.lower() not in _SENSITIVE_HEADERS
+                    },
                     "output_variable": output_variable,
                 }
 
