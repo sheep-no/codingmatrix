@@ -503,229 +503,6 @@ class SandboxValidator:
         raise NotImplementedError
 
 
-class PythonSandboxValidator(SandboxValidator):
-    """Python 沙箱验证器"""
-    extensions = ['.py']
-
-    def build_validation_script(self, files: dict, level: str = "import") -> str:
-        py_files = self.filter_files(files)
-        if not py_files:
-            return ""
-
-        files_repr = repr(py_files)
-        level_repr = repr(level)
-
-        return f'''
-import sys, ast, os, importlib, tempfile, inspect, traceback, re
-from pathlib import Path
-
-files = {files_repr}
-level = {level_repr}
-errors = []
-
-# 1. 语法验证（所有级别）
-for file_path, content in files.items():
-    try:
-        ast.parse(content)
-    except SyntaxError as e:
-        errors.append(f"{{file_path}}: SyntaxError: {{e}}")
-
-if errors:
-    for err in errors:
-        print(err, file=sys.stderr)
-    sys.exit(1)
-
-if level == "syntax":
-    print("OK")
-    sys.exit(0)
-
-# 2. 写入临时目录
-tmp_dir = os.environ.get("SANDBOX_TMP_DIR", tempfile.mkdtemp())
-project_dir = os.path.join(tmp_dir, "project")
-os.makedirs(project_dir, exist_ok=True)
-
-for file_path, content in files.items():
-    full_path = Path(project_dir) / file_path
-    full_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(full_path, 'w') as f:
-        f.write(content)
-
-sys.path.insert(0, project_dir)
-
-# 3. 验证导入（import 和 run 级别）
-modules = {{}}
-for file_path in files:
-    if not file_path.endswith('.py') or file_path.endswith('__init__.py'):
-        continue
-    module_name = file_path.replace('/', '.').replace('\\\\', '.').replace('.py', '')
-    try:
-        mod = importlib.import_module(module_name)
-        modules[file_path] = mod
-    except ImportError as e:
-        errors.append(f"{{file_path}}: ImportError: {{e}}")
-    except Exception as e:
-        # 尝试提取行号
-        import traceback
-        tb = traceback.format_exc()
-        line_match = re.search(r'File ".*", line (\d+)', tb)
-        line_info = f" (line {{line_match.group(1)}})" if line_match else ""
-        errors.append(f"{{file_path}}: Import Error: {{type(e).__name__}}: {{e}}{{line_info}}")
-
-if errors:
-    for err in errors:
-        print(err, file=sys.stderr)
-    sys.exit(1)
-
-if level == "import":
-    print("OK")
-    sys.exit(0)
-
-# 4. 运行时验证（run 级别）：尝试调用函数和实例化类
-for file_path, mod in modules.items():
-    for name, obj in inspect.getmembers(mod):
-        # 跳过私有成员和模块导入
-        if name.startswith('_'):
-            continue
-
-        # 尝试调用函数（无参数）
-        if inspect.isfunction(obj) or inspect.ismethod(obj):
-            try:
-                sig = inspect.signature(obj)
-                # 构造默认参数
-                kwargs = {{}}
-                for param_name, param in sig.parameters.items():
-                    if param_name == 'self':
-                        continue
-                    if param.default is not inspect.Parameter.empty:
-                        continue
-                    # 给参数一个默认值
-                    if param.annotation == str or param.annotation == inspect.Parameter.empty:
-                        kwargs[param_name] = ""
-                    elif param.annotation == int:
-                        kwargs[param_name] = 0
-                    elif param.annotation == list:
-                        kwargs[param_name] = []
-                    elif param.annotation == dict:
-                        kwargs[param_name] = {{}}
-                    else:
-                        kwargs[param_name] = None
-                obj(**kwargs)
-            except NameError as e:
-                tb = traceback.format_exc()
-                line_match = re.search(r'File ".*", line (\d+)', tb)
-                line_info = f" (line {{line_match.group(1)}})" if line_match else ""
-                errors.append(f"{{file_path}}.{{name}}(): NameError: {{e}}{{line_info}}")
-            except TypeError:
-                pass  # 参数不匹配，跳过
-            except Exception:
-                pass  # 其他运行时错误，跳过
-
-        # 尝试实例化类
-        if inspect.isclass(obj):
-            try:
-                instance = obj()
-                # 尝试调用类的方法
-                for method_name, method in inspect.getmembers(instance, predicate=inspect.ismethod):
-                    if method_name.startswith('_'):
-                        continue
-                    try:
-                        sig = inspect.signature(method)
-                        kwargs = {{}}
-                        for param_name, param in sig.parameters.items():
-                            if param_name == 'self':
-                                continue
-                            if param.default is not inspect.Parameter.empty:
-                                continue
-                            if param.annotation == str or param.annotation == inspect.Parameter.empty:
-                                kwargs[param_name] = ""
-                            elif param.annotation == int:
-                                kwargs[param_name] = 0
-                            elif param.annotation == list:
-                                kwargs[param_name] = []
-                            elif param.annotation == dict:
-                                kwargs[param_name] = {{}}
-                            else:
-                                kwargs[param_name] = None
-                        method(**kwargs)
-                    except NameError as e:
-                        tb = traceback.format_exc()
-                        line_match = re.search(r'File ".*", line (\d+)', tb)
-                        line_info = f" (line {{line_match.group(1)}})" if line_match else ""
-                        errors.append(f"{{file_path}}.{{name}}.{{method_name}}(): NameError: {{e}}{{line_info}}")
-                    except TypeError:
-                        pass
-                    except Exception:
-                        pass
-            except NameError as e:
-                tb = traceback.format_exc()
-                line_match = re.search(r'File ".*", line (\d+)', tb)
-                line_info = f" (line {{line_match.group(1)}})" if line_match else ""
-                errors.append(f"{{file_path}}.{{name}}(): NameError: {{e}}{{line_info}}")
-            except TypeError:
-                pass
-            except Exception:
-                pass
-
-if errors:
-    for err in errors:
-        print(err, file=sys.stderr)
-    sys.exit(1)
-else:
-    print("OK")
-'''
-
-
-class JavaScriptSandboxValidator(SandboxValidator):
-    """JavaScript/TypeScript 沙箱验证器"""
-    extensions = ['.js', '.ts', '.jsx', '.tsx']
-
-    def build_validation_script(self, files: dict, level: str = "import") -> str:
-        js_files = self.filter_files(files)
-        if not js_files:
-            return ""
-
-        files_repr = repr(js_files)
-
-        return f'''
-import sys, os, subprocess, tempfile
-from pathlib import Path
-
-files = {files_repr}
-errors = []
-
-tmp_dir = os.environ.get("SANDBOX_TMP_DIR", tempfile.mkdtemp())
-project_dir = os.path.join(tmp_dir, "project")
-os.makedirs(project_dir, exist_ok=True)
-
-for file_path, content in files.items():
-    full_path = Path(project_dir) / file_path
-    full_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(full_path, 'w') as f:
-        f.write(content)
-
-for file_path in files:
-    full_path = Path(project_dir) / file_path
-    try:
-        result = subprocess.run(
-            ['node', '--check', str(full_path)],
-            capture_output=True, text=True, timeout=10
-        )
-        if result.returncode != 0:
-            errors.append(f"{{file_path}}: SyntaxError: {{result.stderr.strip()}}")
-    except FileNotFoundError:
-        pass
-    except Exception as e:
-        errors.append(f"{{file_path}}: Error: {{e}}")
-
-if errors:
-    for err in errors:
-        print(err, file=sys.stderr)
-    sys.exit(1)
-else:
-    print("OK")
-'''
-
-
 class GoSandboxValidator(SandboxValidator):
     """Go 沙箱验证器"""
     extensions = ['.go']
@@ -832,45 +609,13 @@ else:
 '''
 
 
-class GenericSandboxValidator(SandboxValidator):
-    """通用沙箱验证器 - 仅做语法检查（括号匹配等）"""
-    extensions = []  # 接受所有文件
-
-    def build_validation_script(self, files: dict, level: str = "import") -> str:
-        if not files:
-            return ""
-
-        files_repr = repr(files)
-
-        return f'''
-import sys
-files = {files_repr}
-errors = []
-
-for file_path, content in files.items():
-    # 括号匹配检查
-    for open_b, close_b in [('(', ')'), ('[', ']'), ('{{', '}}')]:
-        if content.count(open_b) != content.count(close_b):
-            errors.append(f"{{file_path}}: Unmatched {{open_b}}{{close_b}}")
-
-if errors:
-    for err in errors:
-        print(err, file=sys.stderr)
-    sys.exit(1)
-else:
-    print("OK")
-'''
-
-
 # ============ 验证器自动注册表（按扩展名） ============
 
-# 预定义验证器实例
+# 仅保留用真实编译器校验的语言。Python 与 JS/TS 家族已由本地解析器覆盖
+# （见 _SHARED_SYNTAX_EXTENSIONS），无需在此注册。
 _VALIDATOR_INSTANCES = [
-    PythonSandboxValidator(),
-    JavaScriptSandboxValidator(),
     GoSandboxValidator(),
     RustSandboxValidator(),
-    GenericSandboxValidator(),  # 兜底
 ]
 
 # 按扩展名自动建立映射
@@ -878,12 +623,6 @@ _EXTENSION_VALIDATORS = {}
 for _v in _VALIDATOR_INSTANCES:
     for _ext in _v.extensions:
         _EXTENSION_VALIDATORS[_ext] = _v
-
-
-def _get_validator_for_file(file_path: str) -> SandboxValidator:
-    """根据文件扩展名获取验证器"""
-    ext = Path(file_path).suffix.lower()
-    return _EXTENSION_VALIDATORS.get(ext, GenericSandboxValidator())
 
 
 def register_sandbox_validator(validator: SandboxValidator):
@@ -916,17 +655,6 @@ def _decide_level(context: dict = None) -> str:
 
     # 默认：语法验证
     return "syntax"
-
-
-def _group_files_by_extension(files: dict) -> dict:
-    """按文件扩展名分组"""
-    groups = {}
-    for file_path, content in files.items():
-        ext = Path(file_path).suffix.lower()
-        if ext not in groups:
-            groups[ext] = {}
-        groups[ext][file_path] = content
-    return groups
 
 
 # 统一语法门禁覆盖的扩展名。这些文件不再送 bwrap 生成脚本：
@@ -996,8 +724,9 @@ def validate_in_sandbox(
     """执行云端基础语法验证。
 
     运行时、依赖、构建和 E2E 验证属于 VS Code Agent Host 的本地职责。
-    `syntax` 级用本地解析器完成，不执行代码、不依赖 bwrap；本地解析器不覆盖
-    的扩展名才构造 bwrap 脚本，bwrap 缺失时跳过。
+    `syntax` 级用本地解析器完成，不执行代码、不依赖 bwrap。只有注册了真实
+    编译器验证器的语言（Go/Rust）才构造 bwrap 脚本，bwrap 缺失时跳过；其余
+    扩展名交由 VS Code Agent Host 本地验证。
 
     Args:
         project_dir: 项目目录路径
@@ -1048,14 +777,18 @@ def validate_in_sandbox(
     if not remaining_files:
         return True, []
 
-    # 3. 按扩展名分组。本地解析器不覆盖的扩展名才构造 bwrap 脚本，
-    #    未注册扩展名用通用验证器，不再调用 LLM 生成脚本。
-    groups = _group_files_by_extension(remaining_files)
+    # 3. 只有注册了真实编译器验证器的语言才构造 bwrap 脚本；其余扩展名
+    #    （如 .rb/.php/.java）不在此处做启发式检查，交由 VS Code Agent Host
+    #    本地验证，避免朴素括号计数把字符串/注释判成结构错误。
+    groups = {}
+    for file_path, content in remaining_files.items():
+        groups.setdefault(Path(file_path).suffix.lower(), {})[file_path] = content
 
-    # 4. 每组选择验证器，生成脚本
     scripts = []
     for ext, group_files in groups.items():
-        validator = _EXTENSION_VALIDATORS.get(ext) or GenericSandboxValidator()
+        validator = _EXTENSION_VALIDATORS.get(ext)
+        if validator is None:
+            continue
         script = validator.build_validation_script(group_files, level)
         if script:
             scripts.append(script)
@@ -1063,10 +796,10 @@ def validate_in_sandbox(
     if not scripts:
         return True, []
 
-    # 5. 合并脚本
+    # 4. 合并脚本
     combined_script = "\n# === 分组分隔 ===\n".join(scripts)
 
-    # 6. 云端基础语法验证需要 bwrap；本地运行验证由 Agent Host 执行。
+    # 5. 编译器级验证需要 bwrap；本地运行验证由 Agent Host 执行。
     if shutil.which("bwrap") is None:
         logger.info("云端语法验证跳过：bwrap 不可用，等待 VS Code Agent Host 本地验证")
         return True, []

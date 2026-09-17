@@ -124,3 +124,29 @@ def test_markup_uses_structure_gate_not_raw_counting():
 
     assert passed is True
     assert errors == []
+
+
+def test_uncovered_language_is_delegated_not_naively_counted():
+    """未注册语言不做括号计数启发式，交由 Agent Host 本地验证。"""
+    passed, errors = utils.validate_in_sandbox(
+        project_dir="/tmp/project",
+        files={"app.rb": 'puts "}"\n# {: not a real open brace\n'},
+        level="syntax",
+    )
+
+    assert passed is True
+    assert errors == []
+
+
+def test_compiler_backed_language_still_routes_through_registry(monkeypatch):
+    """Go/Rust 仍走真实编译器验证器；bwrap 缺失时如实跳过，不误判。"""
+    monkeypatch.setattr(shutil, "which", lambda command: None)
+
+    passed, errors = utils.validate_in_sandbox(
+        project_dir="/tmp/project",
+        files={"main.go": "package main\n\nfunc broken( {\n"},
+        level="syntax",
+    )
+
+    assert passed is True
+    assert errors == []
