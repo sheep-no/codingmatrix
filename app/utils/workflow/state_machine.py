@@ -247,6 +247,9 @@ class WorkflowStateMachine:
         })
 
         self._check_workflow_completion()
+        # 该节点完成后原本不可执行的后续节点可能仍被失败节点阻塞，
+        # 此处复查避免工作流以 RUNNING 状态永久挂起
+        self._check_workflow_stuck()
 
     def fail_node(self, node_id: str, error: str) -> None:
         """
@@ -285,6 +288,9 @@ class WorkflowStateMachine:
 
         当有失败节点且没有可执行的节点时，工作流应该标记为失败
         """
+        if self._status != WorkflowStatus.RUNNING:
+            return
+
         has_failed = any(
             state.status == TaskStatus.FAILED
             for state in self._nodes.values()

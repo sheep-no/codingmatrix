@@ -50,6 +50,18 @@ _session_workflows = {}
 _session_lock = asyncio.Lock()
 
 _MAX_WORKFLOWS = 500  # 最大缓存工作流数
+_MAX_SESSION_WORKFLOWS = 200  # 最大缓存会话工作流数
+
+
+def _remember_session_workflow(user_id, session_id, record) -> None:
+    """记录会话工作流，超限时淘汰最旧的会话（调用方需持有 _session_lock）。"""
+    if len(_session_workflows) >= _MAX_SESSION_WORKFLOWS:
+        oldest_key = min(
+            _session_workflows,
+            key=lambda key: _session_workflows[key].get("updated_at", ""),
+        )
+        _session_workflows.pop(oldest_key, None)
+    _session_workflows[(user_id, session_id)] = record
 
 
 async def _drain_event_queue(event_queue: asyncio.Queue, timeout: float = 0.05):
@@ -242,29 +254,36 @@ async def execute_workflow(
                         record["status"] = task.result()["status"]
             executor_task.add_done_callback(record_terminal)
 
-            async for event in _drain_event_queue(event_queue):
-                yield event
-
-            while not executor_task.done():
+            try:
                 async for event in _drain_event_queue(event_queue):
                     yield event
-                await asyncio.sleep(0.05)
 
-            async for event in _drain_event_queue(event_queue):
-                yield event
+                while not executor_task.done():
+                    async for event in _drain_event_queue(event_queue):
+                        yield event
+                    await asyncio.sleep(0.05)
 
-            result = await executor_task
-            async with _workflows_lock:
-                _workflows[task_graph.workflow_id]["status"] = result["status"]
+                async for event in _drain_event_queue(event_queue):
+                    yield event
 
-            yield json.dumps({
-                "event": "workflow_completed",
-                "workflow_id": task_graph.workflow_id,
-                "status": result["status"],
-                "summary": result["summary"],
-                "session_id": session_id,
-                "timestamp": datetime.now().isoformat(),
-            }) + "\n"
+                result = await executor_task
+                async with _workflows_lock:
+                    _workflows[task_graph.workflow_id]["status"] = result["status"]
+
+                yield json.dumps({
+                    "event": "workflow_completed",
+                    "workflow_id": task_graph.workflow_id,
+                    "status": result["status"],
+                    "summary": result["summary"],
+                    "session_id": session_id,
+                    "timestamp": datetime.now().isoformat(),
+                }) + "\n"
+            finally:
+                # 客户端断开（generator 关闭）时取消仍在运行的执行，
+                # 否则 LLM/节点会在后台继续跑完
+                if not executor_task.done():
+                    executor.cancel()
+                    executor_task.cancel()
 
             try:
                 history_record = WorkflowHistory(
@@ -291,13 +310,13 @@ async def execute_workflow(
 
             if session_id:
                 async with _session_lock:
-                    _session_workflows[(user_id, session_id)] = {
+                    _remember_session_workflow(user_id, session_id, {
                         "workflow_id": task_graph.workflow_id,
                         "request": request.natural_language_request,
                         "task_graph": task_graph.model_dump() if hasattr(task_graph, 'model_dump') else None,
                         "user_id": user_id,
                         "updated_at": datetime.now().isoformat(),
-                    }
+                    })
 
         except TaskDecomposerError as e:
             logger.error(f"任务分解失败: {e}")
