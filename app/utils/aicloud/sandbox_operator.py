@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
-from app.utils.file_operator import FileOperator, PathSecurityError
+from app.utils.file_operator import FileOperator
 
 
 class SandboxFileOperator(FileOperator):
@@ -37,26 +37,6 @@ class SandboxFileOperator(FileOperator):
         self.user_id = user_id
         base_path = os.path.join(self.SANDBOX_BASE_DIR, str(user_id), workspace_subdir)
         super().__init__(base_path=base_path)
-
-    def validate_sandbox_path(self, requested_path: str) -> bool:
-        """
-        验证路径是否在沙箱内
-
-        `write_with_review` 只靠这一层校验（`read_with_review` 另有基类
-        `_validate_path` 兜底），必须用 `realpath` 解析符号链接，否则沙箱内
-        指向外部的 symlink 能把写入带出工作目录。
-
-        Args:
-            requested_path: 请求的路径
-
-        Returns:
-            True if path is within sandbox
-        """
-        normalized_requested = os.path.realpath(requested_path)
-        normalized_sandbox = os.path.realpath(str(self.base_path))
-
-        return normalized_requested.startswith(normalized_sandbox + os.sep) or \
-               normalized_requested == normalized_sandbox
 
     def get_absolute_path(self, relative_path: str) -> str:
         """
@@ -88,11 +68,6 @@ class SandboxFileOperator(FileOperator):
         Returns:
             包含内容和元数据的字典
         """
-        abs_path = self.get_absolute_path(path)
-
-        if not self.validate_sandbox_path(abs_path):
-            raise PathSecurityError(f"路径超出沙箱范围: {path}")
-
         self._validate_path(path, must_exist=True, check_extension=False)
 
         content = await self.read_async(path)
@@ -127,10 +102,9 @@ class SandboxFileOperator(FileOperator):
         Returns:
             包含审查结果的字典
         """
-        abs_path = self.get_absolute_path(path)
-
-        if not self.validate_sandbox_path(abs_path):
-            raise PathSecurityError(f"路径超出沙箱范围: {path}")
+        # 归属与符号链接校验交给基类，且在内容分析前完成，避免对越界路径
+        # 触发 LLM 审查。
+        self._validate_path(path, must_exist=False, check_extension=False)
 
         from app.utils.aicloud.content_analyzer import deep_content_analysis
 

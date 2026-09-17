@@ -39,6 +39,7 @@ from app.utils.aicloud.content_analyzer import (
     MALICIOUS_PATTERNS,
     DANGEROUS_FILE_EXTENSIONS,
 )
+from app.utils.file_operator import PathSecurityError
 
 
 class TestSensitiveFilter:
@@ -242,24 +243,42 @@ class TestSandbox:
 
 
 class TestSandboxFileOperator:
-    """SandboxFileOperator 路径归属校验测试"""
+    """SandboxFileOperator 路径归属校验测试（复用 FileOperator 基类实现）"""
 
-    def test_symlink_escape_is_rejected(self, tmp_path, monkeypatch):
-        """沙箱内指向外部的符号链接必须被拒绝"""
+    def _operator(self, tmp_path, monkeypatch):
         from app.utils.aicloud.sandbox_operator import SandboxFileOperator
 
         monkeypatch.setattr(SandboxFileOperator, "SANDBOX_BASE_DIR", str(tmp_path))
         operator = SandboxFileOperator(user_id=1)
-
         workspace = tmp_path / "1" / "workspace"
-        workspace.mkdir(parents=True)
+        workspace.mkdir(parents=True, exist_ok=True)
+        return operator, workspace
+
+    def test_symlink_escape_is_rejected(self, tmp_path, monkeypatch):
+        """沙箱内指向外部的符号链接必须被拒绝"""
+        operator, workspace = self._operator(tmp_path, monkeypatch)
         outside = tmp_path / "outside.txt"
         outside.write_text("secret")
-        escape_link = workspace / "escape.txt"
-        escape_link.symlink_to(outside)
+        (workspace / "escape.txt").symlink_to(outside)
 
-        assert operator.validate_sandbox_path(str(escape_link)) is False
-        assert operator.validate_sandbox_path(str(workspace / "normal.txt")) is True
+        with pytest.raises(PathSecurityError):
+            operator.read("escape.txt")
+
+    def test_paths_outside_sandbox_are_rejected(self, tmp_path, monkeypatch):
+        """父目录逃逸与绝对路径越界必须被拒绝"""
+        operator, _ = self._operator(tmp_path, monkeypatch)
+
+        with pytest.raises(PathSecurityError):
+            operator.read("../outside.txt")
+        with pytest.raises(PathSecurityError):
+            operator.read("/etc/passwd")
+
+    def test_normal_file_is_readable(self, tmp_path, monkeypatch):
+        """沙箱内普通文件正常读取"""
+        operator, workspace = self._operator(tmp_path, monkeypatch)
+        (workspace / "normal.txt").write_text("ok")
+
+        assert operator.read("normal.txt")["content"] == "ok"
 
 
 class TestContentAnalyzer:
