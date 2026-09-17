@@ -241,8 +241,10 @@ def check_artifact_success_gate(
     manifest_paths = tuple(sorted(manifest))
     completed_events = tuple(completion_events)
     completed_paths = tuple(sorted(event.path for event in completed_events))
+    expected = set(planned_paths)
+    expected_disk = expected | set(preserved_paths)
     try:
-        disk_paths = _business_disk_paths(output_dir)
+        disk_paths = _business_disk_paths(output_dir, expected_disk)
     except OSError as exc:
         return _gate_failure(
             planned_paths,
@@ -253,8 +255,6 @@ def check_artifact_success_gate(
             details={"error": str(exc)},
         )
 
-    expected = set(planned_paths)
-    expected_disk = expected | set(preserved_paths)
     sets = {
         "manifest": set(manifest_paths),
         "completed_events": set(completed_paths),
@@ -340,18 +340,27 @@ def check_artifact_success_gate(
     )
 
 
-def _business_disk_paths(output_dir: Path) -> Tuple[str, ...]:
+def _business_disk_paths(output_dir: Path, include: Iterable[str] = ()) -> Tuple[str, ...]:
+    """Enumerate artifact files on disk, ignoring hidden metadata and runtime noise.
+
+    ``include`` lists paths that are part of the frozen plan, so a planned
+    dotfile such as ``.gitignore`` is counted even though unplanned hidden
+    files stay excluded.
+    """
     if not output_dir.exists():
         return ()
+    include_set = set(include)
     paths = []
     for path in output_dir.rglob("*"):
         relative = path.relative_to(output_dir)
-        if any(part.startswith(".") for part in relative.parts):
-            continue
-        if is_runtime_artifact(relative):
-            continue
+        as_posix = relative.as_posix()
+        if as_posix not in include_set:
+            if any(part.startswith(".") for part in relative.parts):
+                continue
+            if is_runtime_artifact(relative):
+                continue
         if path.is_file():
-            paths.append(relative.as_posix())
+            paths.append(as_posix)
     return tuple(sorted(paths))
 
 

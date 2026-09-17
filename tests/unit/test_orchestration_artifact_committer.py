@@ -339,3 +339,21 @@ def test_success_gate_rejects_artifact_before_validation_terminal(tmp_path: Path
     assert result.diagnostic is not None
     assert result.diagnostic.code == ARTIFACT_CONSISTENCY_FAILED
     assert "validation" in result.diagnostic.message
+
+
+def test_success_gate_includes_planned_dotfile(tmp_path: Path) -> None:
+    """计划内的点号文件（如 .gitignore）必须计入磁盘集合，不能误报缺失。"""
+    plan = build_file_plan(
+        [{"path": ".gitignore"}, {"path": "main.py"}],
+        requested_paths=[".gitignore", "main.py"],
+    )
+    committer, context = make_committer(tmp_path)
+    events = [
+        commit_valid_file(committer, context, ".gitignore", "node_modules/\n"),
+        commit_valid_file(committer, context, "main.py", "print('ok')\n"),
+    ]
+
+    result = check_artifact_success_gate(plan, context.get_artifact_manifest(), events, tmp_path)
+
+    assert result.success is True
+    assert ".gitignore" in result.disk_paths
