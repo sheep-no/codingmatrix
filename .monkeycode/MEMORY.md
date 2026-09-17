@@ -128,6 +128,16 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - `CodeValidator` 会在后端进程内 `exec` 生成项目代码做运行时校验。生成项目若与 Agent 自身包同名（如 `app/`），`sys.modules` 已缓存 Agent 同名包会导致假的 "cannot import name ... from 'app'"；排查此类报错时先确认校验是否受同名缓存影响。
   - 门禁类误报的高频模式是把「Agent 执行环境状态」当成「代码缺陷」：未安装的第三方 import、依赖清单中未安装的包、node 被信号终止都属环境状态，不计入代码有效性；只有项目内模块/符号缺失才算缺陷。修一处后要顺带核对同类检查（静态导入、运行时导入、node/tsc 门禁、依赖清单）是否一致。
 
+### 沙箱能力现状与语法门禁决策
+- Date: 2026-09-17
+- Context: Agent 在收敛 Agent 沙箱体系时确认
+- Category: 环境配置
+- Instructions:
+  - 本环境无 `docker` 库与守护进程，`DockerRunner` 构造即抛错；docker 测试分支不是可选优化而是恒回退，勿据此判断「已用容器验证」。
+  - 语法门禁不需要隔离：`syntax` 级只解析不执行，已用本地解析器（Python `ast.parse`、`app/agent/js_syntax.py`、`app/agent/markup_syntax.py`）替代 bwrap 脚本生成，`bwrap` 缺失时才跳过未覆盖扩展名。
+  - aicloud 用户沙箱（`/sandbox/{user_id}/workspace`）无进程隔离，文件路径安全统一由 `FileOperator._validate_path`（`resolve()` + base_path 归属）负责，`SandboxFileOperator` 不再覆盖校验。
+  - 真正执行代码的沙箱在 `app/agent/tools.py`（`ENABLE_CODE_SANDBOX`/`SANDBOX_LANGUAGES` 控制）。
+
 ### bcrypt 密码处理限制
 - Date: 2026-05-12
 - Context: Agent 在执行修复密码哈希测试时发现
