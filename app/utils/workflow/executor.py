@@ -185,7 +185,8 @@ class WorkflowExecutor:
         executable = []
 
         for node in self.task_graph.nodes:
-            if node.id in completed or node.id in running:
+            # failed 节点必须排除，否则会被反复调度并触发状态机异常
+            if node.id in completed or node.id in failed or node.id in running:
                 continue
 
             deps_completed = all(dep in completed for dep in node.depends_on)
@@ -368,6 +369,11 @@ class WorkflowExecutor:
                                 break
 
                         if node_id:
+                            if task.cancelled():
+                                # 任务被 cancel() 主动取消，本次执行按取消收尾
+                                self._running_tasks.pop(node_id, None)
+                                running.discard(node_id)
+                                continue
                             result = task.result()
                             self._running_tasks.pop(node_id)
                             running.remove(node_id)
@@ -430,6 +436,12 @@ class WorkflowExecutor:
         """取消工作流执行"""
         if self._cancel_event:
             self._cancel_event.set()
+
+        # 仅置位事件时，运行中的节点任务（LLM/HTTP 调用）会继续跑完，
+        # 造成资源与计费泄漏，这里同步取消它们
+        for task in self._running_tasks.values():
+            if not task.done():
+                task.cancel()
 
     def get_state_machine(self) -> Optional[WorkflowStateMachine]:
         """获取状态机"""
