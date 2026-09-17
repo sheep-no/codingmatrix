@@ -41,6 +41,7 @@ async def _generate_ppt(
     )
     from app.services.ppt_quality_orchestrator import run_quality_pipeline, review_rendered_deck
     from app.utils.pptx.semantic_renderer import build_render_metadata
+    from app.utils.pptx.semantic_planner import slide_capacity
     from app.db.database import async_session
 
     request = PPTGenerationRequest.model_validate(request_data)
@@ -109,6 +110,7 @@ async def _generate_ppt(
                 **slide,
                 "id": slide.get("id", f"slide-{index + 1}"),
                 "elements": slide.get("elements", []),
+                "capacity": slide.get("capacity") or slide_capacity(slide),
                 "render_metadata": build_render_metadata(slide, token_version=str(trace["template_version"])),
             }
             for index, slide in enumerate(context["outline"].get("slides", []))

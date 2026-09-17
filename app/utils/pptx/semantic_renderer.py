@@ -37,7 +37,10 @@ class ImagePlacement:
 
 def normalize_slide_type(slide_type: str | None) -> str:
     value = (slide_type or "key_points").strip().lower()
-    aliases = {"title": "cover", "content": "key_points", "chart": "data", "end": "closing"}
+    aliases = {
+        "title": "cover", "content": "key_points", "chart": "data",
+        "data_chart": "data", "end": "closing",
+    }
     return aliases.get(value, value if value in SLIDE_TYPES else "key_points")
 
 

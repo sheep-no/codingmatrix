@@ -8,7 +8,7 @@
       </button>
       <button id="settings-tab-apikey" :class="['tab', { active: currentTab === 'apikey' }]" role="tab" aria-controls="settings-panel" :aria-selected="currentTab === 'apikey'" :tabindex="currentTab === 'apikey' ? 0 : -1" @click="currentTab = 'apikey'" @keydown="handleTabKey">
         <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-        API Key 管理
+        API Key/接口密钥管理
       </button>
       <button id="settings-tab-agent" :class="['tab', { active: currentTab === 'agent' }]" role="tab" aria-controls="settings-panel" :aria-selected="currentTab === 'agent'" :tabindex="currentTab === 'agent' ? 0 : -1" @click="currentTab = 'agent'" @keydown="handleTabKey">
         <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
@@ -24,7 +24,7 @@
       </button>
       <button v-if="isSuperUser" id="settings-tab-unified" :class="['tab', { active: currentTab === 'unified' }]" role="tab" aria-controls="settings-panel" :aria-selected="currentTab === 'unified'" :tabindex="currentTab === 'unified' ? 0 : -1" @click="currentTab = 'unified'" @keydown="handleTabKey">
         <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/></svg>
-        统一模型配置 (v2)
+        统一模型配置
       </button>
     </div>
     <div id="settings-panel" class="settings-content" role="tabpanel" :aria-labelledby="`settings-tab-${currentTab}`" tabindex="0">
@@ -91,7 +91,7 @@ onMounted(() => {
   box-sizing: border-box;
   color: var(--text-primary);
 }
-.page-title { font-size: 24px; margin-bottom: 24px; color: #303133; }
+.page-title { font-size: 24px; margin-bottom: 24px; color: var(--text-primary); }
 .settings-tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--border-color); overflow-x: auto; scrollbar-width: thin; }
 .tab { flex: 0 0 auto; padding: 13px 18px; background: transparent; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-size: 15px; color: var(--text-secondary); transition: all 0.2s; display: flex; align-items: center; gap: 8px; }
 .tab:hover { color: #409eff; }

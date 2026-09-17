@@ -107,12 +107,12 @@
             !userStore.isLoggedIn
               ? '请先登录以发送消息...'
               : props.editMessage
-                ? '编辑消息... (Ctrl+Enter 保存，Esc 取消)'
+                ? '编辑消息...（Ctrl + Enter 保存，Esc 取消）'
                 : props.isStreaming
                    ? '正在生成，请稍候...'
                   : useReasoning
                     ? '深度思考模式，请输入需求...'
-                    : '输入消息，按 Ctrl+Enter 发送...'
+                    : '输入消息，按 Ctrl + Enter 发送...'
           "
           :disabled="props.isStreaming"
           :aria-label="props.editMessage ? '编辑消息输入框' : '消息输入框'"
@@ -359,7 +359,7 @@
 
   async function processFile(file) {
     if (file.size > MAX_FILE_SIZE) {
-      showError(`文件大小超过 100MB 限制: ${file.name}`)
+      showError(`文件大小超过 100MB 限制：${file.name}`)
       return
     }
 
@@ -389,11 +389,11 @@
         fileObj.serverPath = result.file_path
         fileObj.downloadUrl = result.download_url
         fileObj.uploading = false
-        success(`图片上传成功: ${file.name}`)
+        success(`图片上传成功：${file.name}`)
       } catch (err) {
         fileObj.uploading = false
         fileObj.uploadError = true
-        showError(`图片上传失败: ${file.name}`)
+        showError(`图片上传失败：${file.name}`)
       }
     } else if (isCodeFile(file)) {
       const fileObj = {
@@ -412,11 +412,11 @@
         fileObj.serverId = result.id
         fileObj.serverPath = result.file_path
         fileObj.uploading = false
-        success(`代码文件上传成功: ${file.name}`)
+        success(`代码文件上传成功：${file.name}`)
       } catch (err) {
         fileObj.uploading = false
         fileObj.uploadError = true
-        showError(`代码文件上传失败: ${file.name}`)
+        showError(`代码文件上传失败：${file.name}`)
       }
     } else {
       const fileObj = {
@@ -435,11 +435,11 @@
         fileObj.serverId = result.id
         fileObj.serverPath = result.file_path
         fileObj.uploading = false
-        success(`文件上传成功: ${file.name}`)
+        success(`文件上传成功：${file.name}`)
       } catch (err) {
         fileObj.uploading = false
         fileObj.uploadError = true
-        showError(`文件上传失败: ${file.name}`)
+        showError(`文件上传失败：${file.name}`)
       }
     }
     adjustTextareaHeight()

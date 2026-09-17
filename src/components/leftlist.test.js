@@ -82,6 +82,15 @@ describe('搜索历史记录', () => {
     wrapper.unmount()
   })
 
+  it('lists Nginx config in the toolkit menu', async () => {
+    const wrapper = mountLeftlist()
+    await wrapper.get('#toolkit').trigger('click')
+    const labels = wrapper.findAll('[role="menuitem"]').map(node => node.text())
+    expect(labels.some(text => text.includes('Nginx 配置'))).toBe(true)
+    expect(labels.some(text => text.includes('Docker 配置'))).toBe(true)
+    wrapper.unmount()
+  })
+
   it('posts prompt_keyword to /history and renders matches', async () => {
     apiMock.post.mockResolvedValue(jsonResponse({
       items: [{ id: 11, conversation_id: 3, title: '检索规划', prompt: '怎么做检索规划' }],

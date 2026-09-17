@@ -84,8 +84,8 @@
               <option value="512x512">512 × 512</option>
               <option value="768x768">768 × 768</option>
               <option value="1024x1024">1024 × 1024</option>
-              <option value="512x768">512 × 768 (竖版)</option>
-              <option value="768x512">768 × 512 (横版)</option>
+              <option value="512x768">512 × 768（竖版）</option>
+              <option value="768x512">768 × 512（横版）</option>
             </select>
           </div>
           <div class="form-section half">
@@ -106,7 +106,7 @@
 
         <div class="form-row">
           <div class="form-section half">
-            <label class="form-label">引导系数 (CFG Scale)</label>
+            <label class="form-label">引导系数</label>
             <div class="slider-container">
               <input
                 v-model.number="text2imgForm.cfg_scale"
@@ -631,7 +631,7 @@
 
         // 检查 API Key 配置
         if (!apiKeyStore.hasSiliconflowKey) {
-          error.value = '请先配置 API Key 后再使用'
+          error.value = '请先配置 API Key/接口密钥后再使用'
           return
         }
 

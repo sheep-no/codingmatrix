@@ -19,6 +19,7 @@ import sys
 import uuid
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
@@ -47,8 +48,13 @@ def client():
 
 @pytest.fixture
 def tmp_output(tmp_path):
-    """临时 PPT 输出目录"""
-    with patch("app.api.v1.aiGeneratorPptx.PPT_OUTPUT_DIR", tmp_path):
+    """临时 PPT 输出目录（含归属注册目录）"""
+    owner_dir = tmp_path / ".owners"
+    owner_dir.mkdir(parents=True, exist_ok=True)
+    with (
+        patch("app.api.v1.aiGeneratorPptx.PPT_OUTPUT_DIR", tmp_path),
+        patch("app.api.v1.aiGeneratorPptx.PPT_OWNER_DIR", owner_dir),
+    ):
         yield tmp_path
 
 
@@ -86,6 +92,16 @@ def _create_pptx_file(path):
     slide = prs.slides.add_slide(prs.slide_layouts[0])
     slide.shapes.title.text = "Test"
     prs.save(str(path))
+
+
+def _register_owner(output_dir, ppt_id, user_id="test_user"):
+    """写入归属文件，user_id 与测试 token 的 sub 一致"""
+    owner_dir = output_dir / ".owners"
+    owner_dir.mkdir(parents=True, exist_ok=True)
+    (owner_dir / f"{ppt_id}.json").write_text(
+        json.dumps({"ppt_id": ppt_id, "user_id": str(user_id)}),
+        encoding="utf-8",
+    )
 
 
 # ===========================================================================
@@ -149,6 +165,7 @@ class TestDownloadPpt:
     def test_download_pptx_success(self, client, tmp_output):
         ppt_id = str(uuid.uuid4())
         _create_pptx_file(tmp_output / f"{ppt_id}.pptx")
+        _register_owner(tmp_output, ppt_id)
         resp = client.get(f"/api/v1/pptx/download/{ppt_id}")
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -160,6 +177,7 @@ class TestDownloadPpt:
     def test_download_html_format(self, client, tmp_output):
         ppt_id = str(uuid.uuid4())
         (tmp_output / f"{ppt_id}.html").write_text("<html>test</html>")
+        _register_owner(tmp_output, ppt_id)
         resp = client.get(f"/api/v1/pptx/download/{ppt_id}?format=html")
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
@@ -185,6 +203,7 @@ class TestUpdatePpt:
         # 创建中间状态 JSON
         with open(tmp_output / f"{task_id}_slides.json", "w") as f:
             json.dump(sample_outline["slides"], f)
+        _register_owner(tmp_output, task_id)
 
         mock_outline.return_value = sample_outline
         mock_create.return_value = str(uuid.uuid4())
@@ -225,6 +244,7 @@ class TestModifyPpt:
     def test_modify_success(self, mock_modify, client, tmp_output):
         ppt_id = str(uuid.uuid4())
         _create_pptx_file(tmp_output / f"{ppt_id}.pptx")
+        _register_owner(tmp_output, ppt_id)
 
         mock_modify.return_value = {
             "success": True,
@@ -251,6 +271,7 @@ class TestModifyPpt:
     def test_modify_failure(self, mock_modify, client, tmp_output):
         ppt_id = str(uuid.uuid4())
         _create_pptx_file(tmp_output / f"{ppt_id}.pptx")
+        _register_owner(tmp_output, ppt_id)
 
         mock_modify.return_value = {"success": False, "message": "修改失败"}
 
@@ -264,6 +285,7 @@ class TestModifyPpt:
     def test_modify_exception(self, mock_modify, client, tmp_output):
         ppt_id = str(uuid.uuid4())
         _create_pptx_file(tmp_output / f"{ppt_id}.pptx")
+        _register_owner(tmp_output, ppt_id)
 
         mock_modify.side_effect = RuntimeError("内部错误")
 
@@ -284,6 +306,7 @@ class TestAnalyzePpt:
     def test_analyze_success(self, mock_analyze, client, tmp_output):
         ppt_id = str(uuid.uuid4())
         _create_pptx_file(tmp_output / f"{ppt_id}.pptx")
+        _register_owner(tmp_output, ppt_id)
 
         mock_analyze.return_value = {
             "success": True,
@@ -303,6 +326,7 @@ class TestAnalyzePpt:
     def test_analyze_with_slide_number(self, mock_analyze, client, tmp_output):
         ppt_id = str(uuid.uuid4())
         _create_pptx_file(tmp_output / f"{ppt_id}.pptx")
+        _register_owner(tmp_output, ppt_id)
 
         mock_analyze.return_value = {"success": True}
 
@@ -334,8 +358,13 @@ class TestListTemplates:
     def test_list_templates_with_category(self, client):
         resp = client.get("/api/v1/pptx/templates?category=business")
         assert resp.status_code == 200
-        for tpl in resp.json()["templates"]:
-            assert tpl["id"].startswith("business")
+        templates = resp.json()["templates"]
+        assert templates
+        # 过滤应返回真子集，且每项分类与查询一致（id 前缀与分类无对应关系）
+        all_templates = client.get("/api/v1/pptx/templates").json()["templates"]
+        assert len(templates) < len(all_templates)
+        for tpl in templates:
+            assert tpl["category"] == "business"
 
 
 # ===========================================================================
@@ -357,6 +386,7 @@ class TestListHistory:
         ppt_id = str(uuid.uuid4())
         with open(tmp_output / f"{ppt_id}_slides.json", "w") as f:
             json.dump(sample_outline["slides"], f)
+        _register_owner(tmp_output, ppt_id)
 
         resp = client.get("/api/v1/pptx/history")
         assert resp.status_code == 200
@@ -370,6 +400,7 @@ class TestListHistory:
             ppt_id = str(uuid.uuid4())
             with open(tmp_output / f"{ppt_id}_slides.json", "w") as f:
                 json.dump(sample_outline["slides"], f)
+            _register_owner(tmp_output, ppt_id)
 
         resp = client.get("/api/v1/pptx/history?page=1&page_size=2")
         assert resp.status_code == 200
@@ -391,6 +422,7 @@ class TestDeleteHistory:
         with open(tmp_output / f"{ppt_id}_slides.json", "w") as f:
             json.dump(sample_outline["slides"], f)
         _create_pptx_file(tmp_output / f"{ppt_id}.pptx")
+        _register_owner(tmp_output, ppt_id)
 
         resp = client.delete(f"/api/v1/pptx/history/{ppt_id}")
         assert resp.status_code == 200
@@ -409,6 +441,7 @@ class TestDeleteHistory:
             json.dump(sample_outline["slides"], f)
         (tmp_output / f"{ppt_id}.html").write_text("<html>")
         (tmp_output / f"{ppt_id}.md").write_text("# md")
+        _register_owner(tmp_output, ppt_id)
 
         resp = client.delete(f"/api/v1/pptx/history/{ppt_id}")
         assert resp.status_code == 200
@@ -435,6 +468,7 @@ class TestPptStats:
         with open(tmp_output / f"{ppt_id}_slides.json", "w") as f:
             json.dump(sample_outline["slides"], f)
         _create_pptx_file(tmp_output / f"{ppt_id}.pptx")
+        _register_owner(tmp_output, ppt_id)
 
         resp = client.get("/api/v1/pptx/history/stats")
         assert resp.status_code == 200
@@ -450,10 +484,29 @@ class TestPptStats:
 class TestGenerateText:
     """大纲生成端点测试"""
 
-    @patch("app.agent.ppt_agent.PPTAgent")
-    def test_generate_text_success(self, MockAgent, client, mock_outline_obj):
-        mock_instance = MockAgent.return_value
-        mock_instance.generate_outline = AsyncMock(return_value=mock_outline_obj)
+    @staticmethod
+    def _draft():
+        from app.schema.ppt_outline import ContentBlock
+
+        slide = SimpleNamespace(
+            slide_type="key_points",
+            title="概述",
+            content_blocks=[ContentBlock(type="text", content="要点1")],
+            asset_intent=None,
+            speaker_notes="",
+            narrative_role="opportunity_map",
+        )
+        return SimpleNamespace(
+            id="outline-1",
+            version=1,
+            status="draft",
+            title="AI 发展趋势",
+            slides=[slide],
+        )
+
+    @patch("app.api.v1.aiGeneratorPptx.persist_create_ppt_outline", new_callable=AsyncMock)
+    def test_generate_text_success(self, mock_persist, client):
+        mock_persist.return_value = self._draft()
 
         resp = client.post("/api/v1/generate-text", json={
             "topic": "AI 发展趋势",
@@ -461,14 +514,13 @@ class TestGenerateText:
         })
         assert resp.status_code == 200
         data = resp.json()
-        assert "title" in data
+        assert data["title"] == "AI 发展趋势"
         assert "slides" in data
         assert data["total_slides"] > 0
 
-    @patch("app.agent.ppt_agent.PPTAgent")
-    def test_generate_text_agent_failure(self, MockAgent, client):
-        mock_instance = MockAgent.return_value
-        mock_instance.generate_outline = AsyncMock(side_effect=RuntimeError("LLM 失败"))
+    @patch("app.api.v1.aiGeneratorPptx.persist_create_ppt_outline", new_callable=AsyncMock)
+    def test_generate_text_agent_failure(self, mock_persist, client):
+        mock_persist.side_effect = RuntimeError("LLM 失败")
 
         resp = client.post("/api/v1/generate-text", json={
             "topic": "测试",

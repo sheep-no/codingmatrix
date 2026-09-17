@@ -1,7 +1,7 @@
 <template>
   <div class="dynamic-provider-manager">
     <h2 class="section-title">自定义供应商管理</h2>
-    <p class="section-desc">通过 Base URL 和协议类型添加任意支持的供应商，系统自动拉取模型列表</p>
+    <p class="section-desc">通过接口地址和协议类型添加任意支持的供应商，系统自动拉取模型列表</p>
 
     <div v-if="loadError" class="load-error" role="alert">
       <span>{{ loadError }}</span>
@@ -17,7 +17,7 @@
           <input v-model="form.name" type="text" placeholder="例如：Claude 代理" class="form-input" />
         </div>
         <div class="form-group">
-          <label>Base URL</label>
+          <label>接口地址</label>
           <input v-model="form.base_url" type="text" placeholder="https://api.example.com/v1" class="form-input" />
         </div>
         <div class="form-group">
@@ -28,8 +28,8 @@
           </select>
         </div>
         <div class="form-group">
-          <label>API Key</label>
-          <input v-model="form.api_key" type="password" placeholder="输入 API Key" class="form-input" />
+          <label>API Key/接口密钥</label>
+          <input v-model="form.api_key" type="password" placeholder="输入 API Key/接口密钥" class="form-input" />
         </div>
       </div>
       <button
@@ -43,7 +43,7 @@
 
     <!-- 供应商列表 -->
     <div v-if="providers.length > 0" class="provider-list">
-      <h3 class="list-title">已添加的供应商 ({{ providers.length }})</h3>
+      <h3 class="list-title">已添加的供应商（{{ providers.length }}）</h3>
       
       <div v-for="p in providers" :key="p.id" class="provider-card">
         <div class="provider-header">
@@ -52,7 +52,7 @@
             <span class="provider-url">{{ p.base_url }}</span>
           </div>
           <div class="provider-meta">
-            <span :class="['protocol-badge', p.protocol]">{{ p.protocol }}</span>
+            <span :class="['protocol-badge', p.protocol]">{{ p.protocol === 'anthropic' ? 'Anthropic 原生' : 'OpenAI 兼容' }}</span>
             <span :class="['status-badge', p.enabled ? 'enabled' : 'disabled']">
               {{ p.enabled ? '已启用' : '已禁用' }}
             </span>
@@ -62,7 +62,7 @@
         <!-- 模型列表 -->
         <div class="models-section">
           <div class="models-header">
-            <span class="models-title">模型列表 ({{ (p.models || []).length }})</span>
+            <span class="models-title">模型列表（{{ (p.models || []).length }}）</span>
             <div class="models-actions">
               <button class="btn-sm sync-btn" :disabled="isBusy(p.id, 'sync')" @click="syncModelsAction(p.id)">
                 {{ isBusy(p.id, 'sync') ? '同步中...' : '同步模型' }}
@@ -307,6 +307,7 @@ function formatTime(ts) {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -394,6 +395,7 @@ function formatTime(ts) {
   color: var(--text-tertiary);
   display: block;
   margin-top: 4px;
+  overflow-wrap: anywhere;
 }
 
 .provider-meta {
@@ -529,6 +531,9 @@ function formatTime(ts) {
 }
 @media (max-width: 600px) {
   .load-error { align-items: flex-start; flex-direction: column; }
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .provider-header { flex-direction: column; gap: 8px; }
+  .models-header { flex-direction: column; align-items: stretch; gap: 8px; }
 }
 
 .sync-info {
@@ -588,19 +593,6 @@ function formatTime(ts) {
 .toggle-btn {
   background: var(--primary-50);
   color: var(--primary);
-}
-
-.toggle-btn:hover:not(:disabled) {
-  background: var(--primary-100);
-}
-
-.delete-btn {
-  background: var(--danger-bg);
-  color: var(--danger);
-}
-
-.delete-btn:hover:not(:disabled) {
-  background: var(--danger-100);
 }
 
 .toggle-btn:hover:not(:disabled) {

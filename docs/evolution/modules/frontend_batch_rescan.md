@@ -4,6 +4,7 @@
 > 归属：前端应用第 163 轮分批复核
 > 基线：第 162 轮 `frontend_bootstrap.md`、`frontend_state.md`、`frontend_surface.md`
 > 范围：入口认证、状态组合逻辑、视图组件 API、构建测试部署
+> 后续变更（2026-09-16）：文中引用的 `src/utils/websocketPool.js`、`src/utils/request.ts` 已确认零生产引用并删除，正文保留扫描时的判定与行号。
 
 ## 1. 扫描方法
 
@@ -24,7 +25,7 @@
 | FEBOOT-02 | 保留 P1，范围收窄为 Vite/后端使用 `/workspace/dist`，启动脚本、Nginx、Compose、CI 使用 `src/dist` | `src/vite.config.js:77-80`、`app/main.py:334-348`、`scripts/start.sh:61-71`、`configs/nginx.conf:91-93`、`.github/workflows/frontend-ci.yml:57-64` |
 | FEBOOT-03 | 保留 P2，重复恢复链由两处扩大为入口、`LoginDialog`、`leftlist` 三处 | `src/main.js:27-32`、`src/composables/useAuth.js:6-13`、`src/components/leftlist.vue:742-755` |
 | FEBOOT-05 | 保留 P3，主题正常加载时变量存在，问题属于条件性 fallback 健壮性风险 | `src/App.vue:28-35`、`src/styles/variables.css` |
-| FEBOOT-06 | 保留 P3 信息项，仓库内无消费方，外部显式 `--config` 调用待确认 | `src/vite-temp.config.js:1-25`、全库引用扫描 |
+| FEBOOT-06 | 2026-09-16 已处置：确认无外部显式 `--config` 调用，文件已删除 | `src/vite-temp.config.js:1-25`、全库引用扫描 |
 | FESTATE-04 | 保留 P2，当前后端单行 `data: ` 兼容，解析器仍缺标准 SSE 空行、多行和尾帧处理 | `src/composables/useAgentStreaming.js:284-315`、`app/api/v1/ai_agent/orchestrate_endpoints.py:763-820` |
 | FESURF-004 | 保留 P1，并扩大为多组管理 API 缺少 `/Controller` 前缀，参数和返回形状也存在错位 | `src/utils/api/admin.js:66-164`、`app/api/v2/guardian_router.py:25,85-196` |
 

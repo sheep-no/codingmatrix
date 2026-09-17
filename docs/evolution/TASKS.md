@@ -5,6 +5,8 @@
 > 索引结构：**总索引（本文件）→ 大系统演化文件 → 子系统演化文件 + 具体演化路径**。
 > 每个大系统一份演化文件，大系统文件内列出其子系统演化文件与演化路径。详见「大系统索引」。
 
+> 后续变更（2026-09-16）：经生产入口可达性审计（入口含 `app/main.py`、`app/celery_app.py` 的字符串 `include`、`migrations/env.py` 路径加载与 CLI 入口），`app/agent/constrained_generation.py`、`app/utils/project_validator.py`、`app/utils/review/code_review_agent.py`、`app/utils/api_response.py`、`app/utils/error_codes.py`、`app/utils/pagination.py`、`app/utils/task_dispatcher.py` 与 `app/utils/validators/`（5 模块 + `__init__`）共 13 个文件已确认零生产引用并删除。正文条目保留扫描时的判定与行号；AC10（第 188 行）「`project_validator.py` 活跃版」的判定已随删除失效，真实活跃实现是 `app/utils/agent_core.py` 内的同名 `ProjectValidator`。
+
 ## SSD 规范：任务、文件与验证边界
 
 ### 当前 StateGraph/RAG 规格

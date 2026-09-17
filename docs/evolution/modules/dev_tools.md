@@ -4,6 +4,8 @@
 >
 > 结论：**三模块全部零业务消费——死代码家族累计第 9/10/11 处——且 project_validator.py 与 agent_core.py:795 存在同名 ProjectValidator 类（第十三处双轨）；dynamic_package_manager 的 filter_packages 未评估包直接放行（安全机制可被 bypass，因零消费未暴露）**。
 
+> 后续变更（2026-09-16）：`app/utils/project_validator.py` 已确认零外部引用并删除（同名 `ProjectValidator` 实际活跃于 `app/utils/agent_core.py` 内的独立实现），正文保留扫描时的判定与行号。
+
 ## 一、模块定位
 
 | 组件 | 位置 | 消费状态 |

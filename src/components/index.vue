@@ -531,7 +531,7 @@
 
     // 检查 API Key 配置
     if (!apiKeyStore.hasSiliconflowKey && !messageData.model) {
-      showError('请先配置 API Key 后再使用')
+      showError('请先配置 API Key/接口密钥后再使用')
       // 跳转到设置页面
       router.push('/settings')
       return
@@ -761,12 +761,12 @@
             lastMessage.thinkingClosed = true
           }
 
-          if (!existingResponse.includes('[PAUSE] Output stopped')) {
-            lastMessage.response += `\n\n[PAUSE] Project generation stopped (user interrupted)`
+          if (!existingResponse.includes('已暂停：项目生成已停止')) {
+            lastMessage.response += `\n\n已暂停：项目生成已停止`
           }
-          if (existingReasoning && !existingReasoning.includes('[PAUSE] Reasoning stopped')) {
+          if (existingReasoning && !existingReasoning.includes('已暂停：思考已停止')) {
             lastMessage.reasoning =
-              existingReasoning + '\n\n[PAUSE] Reasoning stopped (user interrupted)'
+              existingReasoning + '\n\n已暂停：思考已停止'
           }
         } else {
           const requestError = normalizeRequestError(error)
@@ -783,15 +783,15 @@
             const existingResponse = lastMessage.response || ''
             const existingReasoning = lastMessage.reasoning || ''
 
-            if (!existingResponse.includes('[ERR] Response error')) {
-              lastMessage.response = existingResponse + `\n\n[ERR] Response error: ${getRequestErrorMessage(error)}`
+            if (!existingResponse.includes('出错：')) {
+              lastMessage.response = existingResponse + `\n\n出错：${getRequestErrorMessage(error)}`
             }
-            if (existingReasoning && !existingReasoning.includes('[ERR] Reasoning error')) {
+            if (existingReasoning && !existingReasoning.includes('思考出错：')) {
               lastMessage.reasoning =
-                existingReasoning + `\n\n[ERR] Reasoning error: ${getRequestErrorMessage(error)}`
+                existingReasoning + `\n\n思考出错：${getRequestErrorMessage(error)}`
               }
           } else {
-            lastMessage.response = `[ERR] Request failed: ${requestError.message}`
+            lastMessage.response = `请求失败：${requestError.message}`
           }
           lastMessage.requestError = requestError
           lastMessage.retryRequest = requestError.retryable ? createRetryRequest(currentMessageData) : null
@@ -878,52 +878,52 @@
 
       case 'step_end':
         message.isProjectGenerator = true
-        message.response += `[SUCCESS] ${data.message}\n\n`
+        message.response += `完成：${data.message}\n\n`
         break
 
       case 'file_create_start':
         message.isProjectGenerator = true
-        message.response += `[CREATE] ${data.file_path}\n\n`
+        message.response += `创建：${data.file_path}\n\n`
         break
 
       case 'file_created':
         message.isProjectGenerator = true
         message.filesCreated = (message.filesCreated || 0) + 1
-        message.response += `[SUCCESS] ${data.file_path} (${data.file_size || ''})\n\n`
+        message.response += `完成：${data.file_path} (${data.file_size || ''})\n\n`
         break
 
       case 'file_error':
         message.isProjectGenerator = true
-        message.response += `[ERROR] ${data.file_path}\n\n`
+        message.response += `失败：${data.file_path}\n\n`
         break
 
       case 'file_skipped':
         message.isProjectGenerator = true
-        message.response += `[SKIP] ${data.file_path}\n\n`
+        message.response += `跳过：${data.file_path}\n\n`
         break
 
       case 'validation':
         message.isProjectGenerator = true
         if (data.status === 'passed') {
-          message.response += `[SUCCESS] ${data.message}\n\n`
+          message.response += `完成：${data.message}\n\n`
         } else if (data.status === 'failed') {
-          message.response += `[WARNING] ${data.message}\n\n`
+          message.response += `警告：${data.message}\n\n`
           if (data.missing_deps) {
-            message.response += `[WARNING] 缺失依赖: ${data.missing_deps.join(', ')}\n\n`
+            message.response += `警告：缺失依赖：${data.missing_deps.join(', ')}\n\n`
           }
         } else {
-          message.response += `[INFO] ${data.message}\n\n`
+          message.response += `提示：${data.message}\n\n`
         }
         break
 
       case 'validation_progress':
         message.isProjectGenerator = true
-        message.response += `[INFO] ${data.message}\n\n`
+        message.response += `提示：${data.message}\n\n`
         break
 
       case 'validation_complete':
         message.isProjectGenerator = true
-        message.response += `[SUCCESS] 验证完成\n\n`
+        message.response += `完成：验证完成\n\n`
         break
 
       case 'complete': {
@@ -935,37 +935,37 @@
         message.filesCreated = totalFiles
         message.currentStep = data.step ?? data.total_steps ?? 0
         message.maxSteps = data.max_steps ?? data.total_steps ?? 0
-        message.response += `\n---\n\n**[COMPLETE] 项目生成完成**\n\n`
-        message.response += `- 创建文件: ${totalFiles} 个\n`
-        message.response += `- 输出目录: ${data.result?.output_dir ?? data.output_dir ?? '未知'}\n\n`
+        message.response += `\n---\n\n**项目生成完成**\n\n`
+        message.response += `- 创建文件：${totalFiles} 个\n`
+        message.response += `- 输出目录：${data.result?.output_dir ?? data.output_dir ?? '未知'}\n\n`
         message.isStreaming = false
         break
       }
 
       case 'error':
         message.isProjectGenerator = true
-        message.response += `[ERROR] 生成失败: ${data.message}\n\n`
+         message.response += `失败：生成失败：${data.message}\n\n`
         message.isStreaming = false
         break
 
       case 'dependency_check':
         message.isProjectGenerator = true
-        message.response += `[INFO] 依赖检查: ${data.message}\n\n`
+        message.response += `提示：依赖检查：${data.message}\n\n`
         break
 
       case 'structure_check':
         message.isProjectGenerator = true
-        message.response += `[INFO] 结构检查: ${data.message}\n\n`
+        message.response += `提示：结构检查：${data.message}\n\n`
         break
 
       case 'tool_start':
         message.isProjectGenerator = true
-        message.response += `[INFO] 执行工具: ${data.tool_name || data.message}\n\n`
+        message.response += `提示：执行工具：${data.tool_name || data.message}\n\n`
         break
 
       case 'tool_result':
         message.isProjectGenerator = true
-        message.response += `[SUCCESS] ${data.message}\n\n`
+        message.response += `完成：${data.message}\n\n`
         break
     }
   }
@@ -999,7 +999,7 @@
     if (data.error) {
       streamUpdateBatcher.flush()
       if (history[lastIndex]) {
-        history[lastIndex].response = (history[lastIndex].response || '') + `\n\n[ERROR] ${data.error}`
+        history[lastIndex].response = (history[lastIndex].response || '') + `\n\n出错：${data.error}`
         Object.assign(history[lastIndex], { response: history[lastIndex].response })
         if (String(currentConversationId.value) === String(streamConversationId) && conversationHistory.value[lastIndex]) {
           Object.assign(conversationHistory.value[lastIndex], { response: history[lastIndex].response })

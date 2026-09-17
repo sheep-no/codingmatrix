@@ -10,7 +10,8 @@ async def test_text_to_image_cache_hit_skips_provider():
     request = TextToImageRequest(prompt="a red bird")
 
     with (
-        patch("app.api.v1.kolors_api.get_cached_image", new=AsyncMock(return_value="/tmp/cached.png")) as get_cache,
+        # 首次为宽匹配查询，第二次为精确指纹查询并命中
+        patch("app.api.v1.kolors_api.get_cached_image", new=AsyncMock(side_effect=[None, "/tmp/cached.png"])) as get_cache,
         patch("app.api.v1.kolors_api.text_to_image", new=AsyncMock()) as provider,
     ):
         result = await text_to_image_api(request, token={"sub": "7"}, db=AsyncMock())

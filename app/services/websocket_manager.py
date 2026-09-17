@@ -195,6 +195,15 @@ class WebSocketManager:
         """Check if user has any active connections."""
         return user_id in self._connections and len(self._connections[user_id]) > 0
 
+    async def get_connection_info(self) -> dict:
+        """Get current WebSocket connection statistics."""
+        current = self.get_connection_count()
+        return {
+            "current": current,
+            "max": self._max_connections,
+            "available": max(self._max_connections - current, 0),
+        }
+
 
 # Global WebSocket manager instance
 ws_manager = WebSocketManager()

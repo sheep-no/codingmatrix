@@ -111,7 +111,7 @@ export function useAgentWorkspace({
       addLog('success', `导入项目: ${file.name} (${projectFiles.length} 个文件)`)
     } catch (error) {
       console.error('ZIP 导入失败:', error)
-      ElMessage.error(`导入失败: ${error.message}`)
+      ElMessage.error(`导入失败：${error.message}`)
     } finally {
       importing.uploadingZip = false
       importing.importProgress = { current: 0, total: 0, currentFile: '' }

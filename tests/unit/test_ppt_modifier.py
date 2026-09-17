@@ -128,9 +128,9 @@ class TestPPTModifier:
                 ModifyTarget(slide_number=999, property_name="font", property_value="Arial")
             ]
         )
-        # 不应该抛出异常，只是警告
+        # 无任何修改生效时返回 False（不抛出异常，仅记录警告）
         success = modifier.apply_modifications(intent, self.output_path)
-        assert success is True
+        assert success is False
 
     def test_modify_with_element_type_title(self):
         """测试按元素类型修改 - 标题"""
@@ -171,7 +171,7 @@ class TestPPTModifier:
         modifier = PPTModifier(self.input_path)
         intent = ModifyIntent(raw_text="test", targets=[])
         success = modifier.apply_modifications(intent, self.output_path)
-        assert success is True
+        assert success is False
 
 
 class TestModifyPPTFunction:

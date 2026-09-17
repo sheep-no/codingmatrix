@@ -11,7 +11,7 @@
       <p class="idle-kicker">{{ greeting }} · CodingMatrix</p>
       <h1 class="idle-title">从一句需求开始</h1>
       <p class="idle-lead">
-        把问题写进下方输入框。写代码、拆原理、改缺陷、起草文档，都可以从这里起手。
+        在下方输入问题。写代码、拆原理、改缺陷、起草文档都可以从这里开始。
       </p>
 
       <div class="idle-prompts">
@@ -31,7 +31,7 @@
         </button>
       </div>
 
-      <p class="idle-hint">Enter 发送 · Shift + Enter 换行</p>
+      <p class="idle-hint">Ctrl + Enter 发送 · Shift + Enter 换行</p>
     </div>
   </div>
 </template>
@@ -177,10 +177,11 @@
 
   .idle-lead {
     margin: 18px 0 32px;
-    max-width: 36em;
+    max-width: 42em;
     color: var(--text-secondary);
     font-size: clamp(15px, 1.7vw, 18px);
     line-height: 1.7;
+    text-wrap: pretty;
   }
 
   .idle-prompts {

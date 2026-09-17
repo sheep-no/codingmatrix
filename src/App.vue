@@ -31,7 +31,7 @@
 </script>
 
 <template>
-  <div id="app" class="app-container" role="application" aria-label="AI 助手应用">
+  <div id="app" class="app-container" role="application" aria-label="CodingMatrix">
     <AppLoading
       ref="appLoadingRef"
       :visible="isLoading"

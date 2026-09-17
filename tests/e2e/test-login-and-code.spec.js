@@ -88,11 +88,11 @@ test.describe('用户登录并测试 Code API', () => {
       
       // 检查设置页面的 Tab
       const settingsText = await page.locator('body').innerText()
-      console.log('设置页面包含 API Key 管理:', settingsText.includes('API Key 管理'))
+      console.log('设置页面包含 API Key/接口密钥管理:', settingsText.includes('API Key/接口密钥管理'))
       console.log('设置页面包含 Agent 模型配置:', settingsText.includes('Agent 模型配置'))
       
-      // 点击 API Key 管理 Tab
-      const apiKeyTab = page.locator('button:has-text("API Key 管理"), [class*="tab"]:has-text("API Key")').first()
+      // 点击 API Key/接口密钥管理 Tab
+      const apiKeyTab = page.locator('button:has-text("API Key/接口密钥管理"), #settings-tab-apikey').first()
       if (await apiKeyTab.count() > 0) {
         await apiKeyTab.click()
         await page.waitForTimeout(1000)

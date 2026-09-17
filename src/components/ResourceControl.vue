@@ -70,7 +70,7 @@
               <input
                 v-model="configs.docker_max_memory"
                 type="text"
-                placeholder="如: 512m, 1g"
+                placeholder="例如 512m、1g"
                 class="config-input"
               />
               <span class="input-hint">容器最大可用内存</span>
@@ -78,12 +78,12 @@
           </div>
 
           <div class="config-item">
-            <label>初始内存（Reservation）</label>
+            <label>初始预留内存</label>
             <div class="input-group">
               <input
                 v-model="configs.docker_initial_memory"
                 type="text"
-                placeholder="如: 256m, 512m"
+                placeholder="例如 256m、512m"
                 class="config-input"
               />
               <span class="input-hint">容器启动时预留内存</span>
@@ -268,13 +268,13 @@
                 class="config-select"
                 @change="handleLogLevelChange"
               >
-                <option value="DEBUG">DEBUG - 调试（最详细）</option>
-                <option value="INFO">INFO - 信息</option>
-                <option value="WARNING">WARNING - 警告</option>
-                <option value="ERROR">ERROR - 错误</option>
-                <option value="CRITICAL">CRITICAL - 严重</option>
+                <option value="DEBUG">调试（DEBUG，最详细）</option>
+                <option value="INFO">信息（INFO）</option>
+                <option value="WARNING">警告（WARNING）</option>
+                <option value="ERROR">错误（ERROR）</option>
+                <option value="CRITICAL">严重（CRITICAL）</option>
               </select>
-              <span class="input-hint">生产环境建议 WARNING，可减少 70% 日志量</span>
+              <span class="input-hint">生产环境建议警告级别，可减少 70% 日志量</span>
             </div>
           </div>
 
@@ -365,7 +365,7 @@
                 min="1"
                 max="3600"
                 class="config-input-small"
-                placeholder="窗口(秒)"
+                placeholder="窗口（秒）"
               />
               <button class="config-btn" @click="updateGlobalRateLimit">更新</button>
             </div>
@@ -387,7 +387,7 @@
                 min="1"
                 max="3600"
                 class="config-input-small"
-                placeholder="窗口(秒)"
+                placeholder="窗口（秒）"
               />
               <button class="config-btn" @click="updateIpRateLimit">更新</button>
             </div>
@@ -409,7 +409,7 @@
                 min="1"
                 max="3600"
                 class="config-input-small"
-                placeholder="窗口(秒)"
+                placeholder="窗口（秒）"
               />
               <button class="config-btn" @click="updateUserRateLimit">更新</button>
             </div>
@@ -494,7 +494,7 @@
               <div class="fuse-detail">
                 <span class="detail-label">熔断冷却</span>
                 <span class="detail-value">{{
-                  fuse.cooldown_remaining ? `${fuse.cooldown_remaining}秒` : 'N/A'
+                  fuse.cooldown_remaining ? `${fuse.cooldown_remaining}秒` : '无'
                 }}</span>
               </div>
               <div class="fuse-detail">
@@ -546,7 +546,16 @@
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-header">
-              <span class="stat-icon">[PC]</span>
+              <span class="stat-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="4" y="4" width="16" height="16" rx="2"/>
+                  <rect x="9" y="9" width="6" height="6"/>
+                  <line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/>
+                  <line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/>
+                  <line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="15" x2="4" y2="15"/>
+                  <line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="15" x2="23" y2="15"/>
+                </svg>
+              </span>
               <span class="stat-label">CPU</span>
             </div>
             <div class="stat-value" :class="getStatusClass(serverStats.cpu_percent)">
@@ -563,7 +572,13 @@
 
           <div class="stat-card">
             <div class="stat-header">
-              <span class="stat-icon">🧠</span>
+              <span class="stat-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="4" y="6" width="16" height="12" rx="2"/>
+                  <line x1="8" y1="10" x2="16" y2="10"/>
+                  <line x1="8" y1="14" x2="13" y2="14"/>
+                </svg>
+              </span>
               <span class="stat-label">内存</span>
             </div>
             <div class="stat-value" :class="getStatusClass(serverStats.memory?.percent)">
@@ -584,7 +599,13 @@
 
           <div class="stat-card">
             <div class="stat-header">
-              <span class="stat-icon">[STORAGE]</span>
+              <span class="stat-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <ellipse cx="12" cy="6" rx="8" ry="3"/>
+                  <path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/>
+                  <path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>
+                </svg>
+              </span>
               <span class="stat-label">磁盘</span>
             </div>
             <div class="stat-value" :class="getStatusClass(serverStats.disk?.percent)">
@@ -605,7 +626,13 @@
 
           <div class="stat-card">
             <div class="stat-header">
-              <span class="stat-icon">[PKG]</span>
+              <span class="stat-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                  <line x1="12" y1="22.08" x2="12" y2="12"/>
+                </svg>
+              </span>
               <span class="stat-label">Docker 容器</span>
             </div>
             <div class="stat-value">
@@ -623,7 +650,14 @@
 
           <div class="stat-card">
             <div class="stat-header">
-              <span class="stat-icon">[API]</span>
+              <span class="stat-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+                  <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+                  <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+                  <circle cx="12" cy="20" r="1"/>
+                </svg>
+              </span>
               <span class="stat-label">WebSocket</span>
             </div>
             <div class="stat-value">{{ wsStats.current || 0 }} / {{ wsStats.max || 50 }}</div>
@@ -641,7 +675,11 @@
         <!-- 内存详细监控 -->
         <div v-if="memoryStats.process" class="memory-details">
           <h4 class="memory-title">
-            <span>🧠</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="4" y="6" width="16" height="12" rx="2"/>
+              <line x1="8" y1="10" x2="16" y2="10"/>
+              <line x1="8" y1="14" x2="13" y2="14"/>
+            </svg>
             内存详细监控
             <button class="refresh-btn-small" title="刷新" @click="loadMemoryStats">
               <svg
@@ -1227,14 +1265,14 @@
             configKey,
             featureSwitches[key].enabled ? 'true' : 'false'
           )
-          if (!result || result.status !== 'success') throw new Error(`保存功能开关失败: ${configKey}`)
+           if (!result || result.status !== 'success') throw new Error(`保存功能开关失败：${configKey}`)
         }
       }
 
       showMessage('配置保存成功', 'success')
     } catch (error) {
       console.error('保存配置失败:', error)
-      showMessage('保存配置失败: ' + (error.message || '未知错误'), 'error')
+       showMessage('保存配置失败：' + (error.message || '未知错误'), 'error')
     } finally {
       saving.value = false
     }
@@ -1246,7 +1284,7 @@
         featureKeys[feature],
         enabled ? 'true' : 'false'
       )
-      if (!result || result.status !== 'success') throw new Error(`保存功能开关失败: ${feature}`)
+       if (!result || result.status !== 'success') throw new Error(`保存功能开关失败：${feature}`)
       configs[featureKeys[feature]] = enabled
       showMessage(`功能已${enabled ? '启用' : '禁用'}`, 'success')
     } catch (error) {
@@ -1297,7 +1335,7 @@
     try {
       const result = await adminApi.createBackup()
       if (result && result.status === 'success') {
-        showBackupMessage(`备份创建成功: ${result.config_count} 项配置`, 'success')
+         showBackupMessage(`备份创建成功：${result.config_count} 项配置`, 'success')
         await loadBackupList()
       } else {
         showBackupMessage('备份创建失败', 'error')
@@ -1356,7 +1394,7 @@
       if (data) {
         const result = await adminApi.restoreBackup(data)
         if (result && result.status === 'success') {
-          showBackupMessage(`恢复成功: ${result.restored_count} 项配置`, 'success')
+           showBackupMessage(`恢复成功：${result.restored_count} 项配置`, 'success')
           await loadConfig()
         } else {
           showBackupMessage('恢复配置失败', 'error')
@@ -1429,13 +1467,13 @@
   .header-left h2 {
     margin: 0;
     font-size: 24px;
-    color: var(--text-primary);
+    color: #f8fafc;
   }
 
   .header-desc {
     margin: 4px 0 0;
     font-size: 14px;
-    color: var(--text-tertiary);
+    color: #94a3b8;
   }
 
   .action-btn {
@@ -1461,7 +1499,7 @@
     justify-content: center;
     padding: 60px;
     gap: 16px;
-    color: var(--text-tertiary);
+    color: #94a3b8;
   }
 
   .spinner {
@@ -1657,7 +1695,14 @@
   }
 
   .stat-icon {
-    font-size: 18px;
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    color: var(--text-secondary);
+  }
+  .stat-icon svg {
+    width: 18px;
+    height: 18px;
   }
 
   .stat-label {

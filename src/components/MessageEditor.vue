@@ -67,7 +67,7 @@
           ></textarea>
 
           <div class="editor-footer">
-            <span class="editor-hint">Ctrl+Enter 保存，Esc 取消</span>
+            <span class="editor-hint">Ctrl + Enter 保存，Esc 取消</span>
             <div class="editor-actions">
               <button class="btn btn-cancel" @click="handleCancel">取消</button>
               <button class="btn btn-save" :disabled="!editMessage.trim()" @click="handleSave">

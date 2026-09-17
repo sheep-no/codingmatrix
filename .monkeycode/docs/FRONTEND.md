@@ -4,7 +4,7 @@
 
 前端位于 `src/`，使用 Vue 3、Vite、Vue Router、Pinia、Element Plus 和 Vitest。入口 `src/main.js` 创建 Vue 应用，注册 Pinia 持久化插件、路由、Element Plus 和全局样式，然后通过 `window.__appInitialization` 暴露用户状态恢复 Promise，供 `AppLoading` 管理首屏状态。
 
-共享 Web 工作台基础位于 `src/styles/variables.css`、`src/styles/base.css` 和 `src/components/`：语义令牌覆盖 surface、content、accent、status、control 与 motion；`LoadingState`、`ErrorState`、`TaskStatus` 和 `NextAction` 统一反馈契约；全局焦点态、40px 最小交互尺寸和 reduced-motion 规则由基础样式提供。`src/utils/taskFeedback.js` 将 Agent、Workflow、PPT 和绘图的异构事件归一为 `status`、`stage`、`progress`、`elapsedMs`、`error` 和 `nextAction` 六字段模型，并兼容 PPT 事件回放与 `snapshot_recovery` 快照。`WorkbenchNav` 定义会话、项目、能力、文档和设置五个一级入口，首页侧栏与 Agent 会话侧栏复用同一导航顺序、活动态和折叠态可访问名称。
+共享 Web 工作台基础位于 `src/styles/variables.css`、`src/styles/base.css` 和 `src/components/`：语义令牌覆盖 surface、content、accent、status、control 与 motion；`LoadingState`、`ErrorState`、`TaskStatus` 和 `NextAction` 统一反馈契约；全局焦点态、40px 最小交互尺寸和 reduced-motion 规则由基础样式提供。`src/utils/taskFeedback.js` 将 Agent、Workflow、PPT 和绘图的异构事件归一为 `status`、`stage`、`progress`、`elapsedMs`、`error` 和 `nextAction` 六字段模型，并兼容 PPT 事件回放与 `snapshot_recovery` 快照。一级导航由首页侧栏 `src/components/leftlist.vue` 的 `workbenchTools` 提供，包含「项目」「能力」「文档」「设置」四个入口，并保留折叠态与活动态可访问名称。
 
 ## 路由
 
@@ -46,7 +46,7 @@
 - `useAgentStreaming`：SSE 事件解析、生成生命周期和模型上下文同步。
 - `useAgentBackend`：设置、性能、学习、快照和后端管理操作。
 - `AgentTopBar`：桌面端状态、费用、导入、设置和更多操作。
-- `AgentSidebar`：共享一级导航、会话历史、搜索、文件树和 Skills。
+- `AgentSidebar`：会话历史、搜索、文件树和可用 Skills/技能。
 - `AgentWorkspace`：进度、思考过程、执行日志、验证和审批内容。
 - `AgentInputBar`：需求输入、模型选择、生成和停止操作。
 

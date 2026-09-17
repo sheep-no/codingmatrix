@@ -249,6 +249,37 @@ class TestWebSocketManager:
 
         await manager.send_personal_message(user_id=999, message={"type": "test"})
 
+    @pytest.mark.asyncio
+    async def test_get_connection_info_reports_usage(self):
+        """连接统计返回当前数、上限与剩余可用"""
+        from app.services.websocket_manager import WebSocketManager
+
+        manager = WebSocketManager(max_connections=10)
+        mock_ws = AsyncMock()
+        mock_ws.accept = AsyncMock()
+
+        await manager.connect(user_id=1, websocket=mock_ws)
+
+        info = await manager.get_connection_info()
+
+        assert info["current"] == 1
+        assert info["max"] == 10
+        assert info["available"] == 9
+
+    @pytest.mark.asyncio
+    async def test_get_connection_info_available_never_negative(self):
+        """达到上限时剩余可用不为负数"""
+        from app.services.websocket_manager import WebSocketManager
+
+        manager = WebSocketManager(max_connections=1)
+        manager._connections[1] = [object()]
+        manager._connections[2] = [object()]
+
+        info = await manager.get_connection_info()
+
+        assert info["current"] == 2
+        assert info["available"] == 0
+
 
 class TestProgressCallback:
     """测试进度回调"""

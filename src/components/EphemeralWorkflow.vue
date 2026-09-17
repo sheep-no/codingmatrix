@@ -4,8 +4,8 @@
       <!-- 输入区域 -->
       <div class="input-section">
         <div class="input-header">
-          <h3>描述您的任务</h3>
-          <p class="input-hint">用自然语言描述您想要执行的任务，系统会自动拆解为可执行的工作流</p>
+          <h3>描述你的任务</h3>
+          <p class="input-hint">用自然语言描述你想要执行的任务，系统会自动拆解为可执行的工作流</p>
         </div>
         <textarea
           v-model="userRequest"
@@ -50,9 +50,9 @@
         <div class="section-header">
           <h3>工作流计划</h3>
           <div class="workflow-meta">
-            <span class="workflow-id">ID: {{ workflowGraph.workflow_id }}</span>
+            <span class="workflow-id">ID：{{ workflowGraph.workflow_id }}</span>
             <span v-if="isExecuting" class="workflow-progress">
-              执行进度: {{ completedNodes }}/{{ workflowGraph.nodes.length }}
+              执行进度：{{ completedNodes }}/{{ workflowGraph.nodes.length }}
             </span>
           </div>
         </div>
@@ -81,15 +81,15 @@
               <pre>{{ formatParams(node.params) }}</pre>
             </div>
             <div v-if="node.depends_on && node.depends_on.length > 0" class="node-depends">
-              <span class="depends-label">依赖:</span>
+              <span class="depends-label">依赖：</span>
               <span v-for="dep in node.depends_on" :key="dep" class="depends-item">{{ dep }}</span>
             </div>
             <div v-if="node.result" class="node-result">
-              <div class="result-header">结果:</div>
+              <div class="result-header">结果：</div>
               <pre class="result-content">{{ formatResult(node.result) }}</pre>
             </div>
             <div v-if="node.error" class="node-error">
-              <div class="error-header">错误:</div>
+              <div class="error-header">错误：</div>
               <pre class="error-content">{{ node.error }}</pre>
             </div>
           </div>
@@ -221,7 +221,7 @@
         } else {
           taskFeedback.fail(error, { event: 'workflow_error', nextAction: '检查输入后重新执行' })
         }
-        ElMessage.error('工作流执行失败: ' + error.message)
+        ElMessage.error('工作流执行失败：' + error.message)
       }
     } finally {
       isExecuting.value = false
@@ -293,7 +293,7 @@
       showRawJson.value = true
     } catch (error) {
       console.error('获取工作流计划失败:', error)
-      ElMessage.error('获取工作流计划失败: ' + error.message)
+      ElMessage.error('获取工作流计划失败：' + error.message)
     } finally {
       isExplaining.value = false
     }
@@ -324,7 +324,7 @@
       showRawJson.value = true
       showImportDialog.value = false
     } catch (error) {
-      ElMessage.error('JSON 格式错误: ' + error.message)
+      ElMessage.error('JSON 格式错误：' + error.message)
     }
   }
 
@@ -386,7 +386,7 @@
       addToHistory(workflowGraph.value)
     } else if (data.event === 'workflow_error') {
       console.error('Workflow error:', data.message || data.error)
-      ElMessage.error('工作流执行失败: ' + (data.message || data.error))
+      ElMessage.error('工作流执行失败：' + (data.message || data.error))
       workflowStatus.value = 'error'
     }
     const feedbackEvent = data.event === 'workflow_completed'

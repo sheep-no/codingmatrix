@@ -104,29 +104,35 @@ app.include_router(modelAdminRouter, prefix="/api/v2", tags=["model-admin"])
 
 `get_version_router()`、`include_all_version_routers()` 和 `create_versioned_app_setup()` 当前属于预留基础设施，`app/main.py` 的生产挂载链路未调用这些函数。
 
-## 错误码规范
+## 错误响应规范
 
-错误码分为五类，详见 `app/utils/error_codes.py`:
-
-| 分类 | 范围 | 前缀 | 说明 |
-|------|------|------|------|
-| 认证错误 | 1000-1999 | AUTH_ | 认证和授权相关 |
-| 验证错误 | 2000-2999 | VAL_ | 输入验证相关 |
-| 资源错误 | 3000-3999 | RES_ | 资源操作相关 |
-| 业务错误 | 4000-4999 | BIZ_ | 业务逻辑相关 |
-| 系统错误 | 5000-5999 | SYS_ | 系统基础设施相关 |
-
-### 错误响应格式
+统一错误响应由 `app/utils/error_handler.py` 的全局异常处理器产出，字段为 `code`、`message`、`details`：
 
 ```json
 {
- "success": false,
- "code": "AUTH_1001",
- "message": "需要认证",
- "details": {},
- "timestamp": "2024-01-01T00:00:00+00:00"
+ "code": "VALIDATION_ERROR",
+ "message": "参数校验失败",
+ "details": {}
 }
 ```
+
+`code` 为字符串错误码，按 HTTP 状态映射：
+
+| HTTP 状态 | code |
+|------|------|
+| 400 | `BAD_REQUEST` |
+| 401 | `UNAUTHORIZED` |
+| 403 | `FORBIDDEN` |
+| 404 | `NOT_FOUND` |
+| 405 | `METHOD_NOT_ALLOWED` |
+| 409 | `CONFLICT` |
+| 422 | `VALIDATION_ERROR` |
+| 429 | `RATE_LIMITED` |
+| 500 | `INTERNAL_ERROR` |
+| 502 | `BAD_GATEWAY` |
+| 503 | `SERVICE_UNAVAILABLE` |
+
+未在映射表中的状态码统一返回 `HTTP_ERROR`；`429` 响应附带 `Retry-After: 60`。
 
 ## 分页规范
 

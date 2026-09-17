@@ -9,7 +9,7 @@
         </div>
         <div class="welcome-text">
           <h3>AI 云助手</h3>
-          <p>安全的 AI 助手，10 天记忆持久化，所有操作均有审计日志。</p>
+          <p>安全的云端对话，10 天记忆持久化，所有操作均有审计日志。</p>
         </div>
       </div>
 
@@ -35,15 +35,15 @@
       <div v-if="activeTab === 'chat'">
         <div class="memory-status">
           <div class="status-item">
-            <span class="status-label">会话记忆:</span>
+            <span class="status-label">会话记忆：</span>
             <span class="status-value">{{ memoryDays }} 天</span>
           </div>
           <div class="status-item">
-            <span class="status-label">消息数量:</span>
+            <span class="status-label">消息数量：</span>
             <span class="status-value">{{ messageCount }} 条</span>
           </div>
           <div class="status-item">
-            <span class="status-label">审查状态:</span>
+            <span class="status-label">审查状态：</span>
             <span class="status-value" :class="reviewEnabled ? 'enabled' : 'disabled'">
               {{ reviewEnabled ? '人工审查开启' : '人工审查关闭' }}
             </span>
@@ -57,12 +57,25 @@
             </div>
             <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.role]">
               <div class="message-avatar">
-                <span v-if="msg.role === 'user'">[USER]</span>
-                <span v-else>🤖</span>
+                <span v-if="msg.role === 'user'" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                  </svg>
+                </span>
+                <span v-else aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="10" rx="2"/>
+                    <circle cx="12" cy="5" r="2"/>
+                    <path d="M12 7v4"/>
+                    <line x1="8" y1="16" x2="8" y2="16"/>
+                    <line x1="16" y1="16" x2="16" y2="16"/>
+                  </svg>
+                </span>
               </div>
               <div class="message-content">
                 <div class="message-header">
-                  <span class="sender">{{ msg.role === 'user' ? '你' : 'AI 助手' }}</span>
+                  <span class="sender">{{ msg.role === 'user' ? '你' : '云助手' }}</span>
                   <span class="time">{{ formatTime(msg.created_at) }}</span>
                 </div>
                 <div class="message-text">{{ msg.content }}</div>
@@ -77,22 +90,22 @@
             <line x1="12" y1="8" x2="12" y2="12" />
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
-          <span>您有待审查的内容，请前往审查队列查看。</span>
+          <span>你有待审查的内容，请前往审查队列查看。</span>
         </div>
 
         <div class="input-section">
           <div class="model-selector">
-            <label>模型:</label>
+            <label>模型：</label>
             <select v-model="selectedModel" class="model-select">
               <option v-for="model in availableModels" :key="model.id" :value="model.id">
-                {{ model.name }}{{ model.is_default ? ' (默认)' : '' }}
+                {{ model.name }}{{ model.is_default ? '（默认）' : '' }}
               </option>
             </select>
           </div>
           <textarea
             v-model="inputMessage"
             class="message-input"
-            placeholder="输入消息... (Ctrl+Enter 发送)"
+            placeholder="输入消息...（Ctrl + Enter 发送）"
             rows="3"
             :disabled="isSending"
             @keydown.enter.ctrl="sendMessage"
@@ -236,7 +249,7 @@
                 >{{ doc.chunk_count }} 块 | {{ formatTime(doc.created_at) }}</span
               >
             </div>
-            <div class="doc-status" :class="doc.status">{{ doc.status }}</div>
+            <div class="doc-status" :class="doc.status">{{ formatDocStatus(doc.status) }}</div>
             <button class="doc-delete" @click="deleteDoc(doc.id)">×</button>
           </div>
         </div>
@@ -527,7 +540,7 @@
 
     // 检查 API Key 配置
     if (!apiKeyStore.hasSiliconflowKey) {
-      ElMessage.warning('请先配置 API Key 后再使用')
+      ElMessage.warning('请先配置 API Key/接口密钥后再使用')
       router.push('/settings')
       return
     }
@@ -618,7 +631,7 @@
       }
     } catch (error) {
       console.error('发送消息失败:', error)
-      messages.value[aiMessageIndex].content = `错误: ${error.message}`
+      messages.value[aiMessageIndex].content = `错误：${error.message}`
     } finally {
       isSending.value = false
       scrollToBottom()
@@ -680,6 +693,15 @@
     const date = new Date(timeString)
     return date.toLocaleString()
   }
+
+  const DOC_STATUS_LABELS = {
+    pending: '等待处理',
+    processing: '处理中',
+    completed: '已完成',
+    failed: '失败'
+  }
+
+  const formatDocStatus = status => DOC_STATUS_LABELS[status] || status || '未知'
 
   const getSessionPreview = session => {
     if (!session.messages || session.messages.length === 0) {

@@ -41,12 +41,12 @@ describe('CapabilityCenter', () => {
     const wrapper = mountCapabilityCenter()
 
     expect(apiMock.listSkills).not.toHaveBeenCalled()
-    await openTab(wrapper, 'Skills')
+    await openTab(wrapper, 'Skills/技能')
     expect(apiMock.listSkills).toHaveBeenCalledOnce()
-    expect(wrapper.text()).toContain('暂无 Skills')
+    expect(wrapper.text()).toContain('暂无 Skills/技能')
 
     await openTab(wrapper, '视觉工具')
-    await openTab(wrapper, 'Skills')
+    await openTab(wrapper, 'Skills/技能')
     expect(apiMock.listSkills).toHaveBeenCalledOnce()
   })
 
@@ -56,7 +56,7 @@ describe('CapabilityCenter', () => {
       .mockResolvedValueOnce([{ name: 'review', category: 'workflow' }])
     const wrapper = mountCapabilityCenter()
 
-    await openTab(wrapper, 'Skills')
+    await openTab(wrapper, 'Skills/技能')
     expect(wrapper.text()).toContain('服务暂不可用')
 
     await wrapper.get('.state-action').trigger('click')
@@ -70,7 +70,7 @@ describe('CapabilityCenter', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
     const wrapper = mountCapabilityCenter()
 
-    await openTab(wrapper, 'Skills')
+    await openTab(wrapper, 'Skills/技能')
     const deleteButton = wrapper.findAll('button').find(button => button.text() === '删除')
     await deleteButton.trigger('click')
     expect(apiMock.deleteSkill).not.toHaveBeenCalled()

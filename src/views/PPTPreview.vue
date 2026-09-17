@@ -62,8 +62,8 @@
               class="slide-card"
             >
               <div class="slide-header">
-                <div class="slide-number">幻灯片 {{ index + 1 }}</div>
-                <div class="slide-type">{{ slide.type || '内容' }}</div>
+                <div class="slide-number">第 {{ index + 1 }} 页</div>
+                <div class="slide-type">{{ slideTypeLabel(slide.type || slide.slide_type) }}</div>
               </div>
               <div class="slide-body">
                 <div class="slide-title">{{ slide.title }}</div>
@@ -103,10 +103,10 @@
         {{ Object.keys(qualityReport.reflow_attempts || {}).length }} 页执行过重排
       </div>
       <div v-if="Object.keys(qualityReport.slide_scores || {}).length" class="quality-slide-scores">
-        <span v-for="(score, slideId) in qualityReport.slide_scores" :key="slideId">{{ slideId }} {{ score }} 分</span>
+        <span v-for="(score, slideId) in qualityReport.slide_scores" :key="slideId">{{ formatSlideRef(slideId) }} {{ score }} 分</span>
       </div>
       <div v-if="manualReviewSlides.length" class="quality-manual-review">
-        需人工复核：{{ manualReviewSlides.join('、') }}
+        需人工复核：{{ manualReviewSlides.map(formatSlideRef).join('、') }}
       </div>
       <div v-if="visualReviewDegraded" class="quality-report-warning" role="alert">
         <p>视觉复审未完成，当前保留规则检查结果。请下载成品人工复核排版、文字和图片。</p>
@@ -117,7 +117,7 @@
       <ul v-if="qualityReport.issues?.length" class="quality-report-issues">
         <li v-for="(issue, index) in qualityReport.issues.slice(0, 5)" :key="`${issue.slide_id || 'deck'}-${index}`">
           <strong>{{ formatIssueType(issue.issue_type) }}</strong>
-          <span>{{ issue.issue_type === 'vision_review_unavailable' ? '视觉复审未完成，请按上方提示处理。' : `${issue.slide_id ? `${issue.slide_id}: ` : ''}${issue.message || issue.issue_type}` }}</span>
+          <span>{{ issue.issue_type === 'vision_review_unavailable' ? '视觉复审未完成，请按上方提示处理。' : `${issue.slide_id ? `${formatSlideRef(issue.slide_id)}：` : ''}${issue.message || formatIssueType(issue.issue_type)}` }}</span>
           <span v-if="issue.fix_action && issue.issue_type !== 'vision_review_unavailable'" class="quality-fix-action">修复动作：{{ formatFixAction(issue.fix_action) }}</span>
         </li>
       </ul>
@@ -146,7 +146,9 @@
             <label><input v-model="editOptions.enable_animation" type="checkbox">页面切换动画</label>
           </fieldset>
           <p v-if="editError" role="alert">{{ editError }}</p>
-          <button class="btn btn-primary quality-regenerate-btn" :disabled="savingSlide" type="submit">{{ savingSlide ? '正在创建导出任务...' : savedVersion ? '重试导出已保存版本' : '保存修改并导出整份新文件' }}</button>
+          <div class="slide-edit-actions">
+            <button class="btn btn-primary quality-regenerate-btn" :disabled="savingSlide" type="submit">{{ savingSlide ? '正在创建导出任务...' : savedVersion ? '重试导出已保存版本' : '保存修改并导出整份新文件' }}</button>
+          </div>
         </form>
       </template>
     </section>
@@ -184,6 +186,35 @@ const savingSlide = ref(false)
 const savedVersion = ref(null)
 const editError = ref('')
 const editOptions = ref({ auto_images: true, enable_animation: true })
+
+const SLIDE_TYPE_LABELS = {
+  cover: '封面',
+  title: '封面',
+  agenda: '目录',
+  section: '章节',
+  key_points: '要点',
+  content: '内容',
+  image_text: '图文',
+  data: '数据',
+  comparison: '对比',
+  timeline: '时间线',
+  process: '流程',
+  summary: '总结',
+  closing: '结束',
+  chart: '数据'
+}
+function slideTypeLabel(type) {
+  return SLIDE_TYPE_LABELS[type] || type || '内容'
+}
+
+function formatSlideRef(slideId) {
+  if (!slideId) return ''
+  const text = String(slideId)
+  if (/cover|title/i.test(text) && !/\d/.test(text)) return '封面'
+  const match = text.match(/(\d+)\s*$/)
+  if (match) return `第 ${Number(match[1])} 页`
+  return '该页'
+}
 
 function selectSlide() {
   const slide = editableOutline.value?.slides.find(page => page.id === selectedSlideId.value)
@@ -303,7 +334,7 @@ async function loadHtmlPreview() {
       return true
     }
   } catch (error) {
-    console.error('加载 HTML 预览失败:', error)
+    console.error('加载 HTML 预览失败：', error)
   }
   return false
 }
@@ -318,7 +349,7 @@ async function loadSlides() {
       slides.value = data.slides
     }
   } catch (error) {
-    console.error('加载幻灯片失败:', error)
+    console.error('加载幻灯片失败：', error)
   } finally {
     isLoading.value = false
   }
@@ -363,7 +394,7 @@ async function downloadPDF() {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   } catch (error) {
-    console.error('下载失败:', error)
+    console.error('下载失败：', error)
     ElMessage.error('下载失败：' + error.message)
   }
 }
@@ -394,7 +425,16 @@ onBeforeUnmount(() => {
 .slide-edit-panel textarea,
 .slide-edit-panel select { display: block; box-sizing: border-box; width: 100%; padding: 8px; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; }
 .slide-edit-panel textarea { min-height: 70px; resize: vertical; }
-.slide-edit-panel p { line-height: 1.6; overflow-wrap: anywhere; }
+.slide-edit-panel p { line-height: 1.6; overflow-wrap: break-word; }
+
+.slide-edit-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: 12px;
+  padding: 12px 0 4px;
+  background: linear-gradient(180deg, transparent, var(--bg-primary) 24%);
+}
 
 .quality-report-card {
   margin: 0 0 16px;
@@ -402,14 +442,16 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-color);
   border-radius: 12px;
   background: var(--bg-primary);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .quality-report-heading,
 .quality-report-meta {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+  word-break: keep-all;
 }
 
 .quality-report-meta {
@@ -463,7 +505,7 @@ onBeforeUnmount(() => {
 }
 
 .quality-regenerate-btn {
-  margin-top: 12px;
+  margin-top: 0;
   width: 100%;
   border: 0;
   border-radius: 8px;
@@ -491,6 +533,8 @@ onBeforeUnmount(() => {
   padding: 16px 24px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
+  flex-wrap: nowrap;
+  gap: 12px;
 }
 
 .back-btn {
@@ -525,6 +569,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 
 .header-actions .btn {
@@ -675,6 +721,8 @@ onBeforeUnmount(() => {
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 12px;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .slide-content {
@@ -682,7 +730,7 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
   line-height: 1.6;
   white-space: pre-line;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 @media (max-width: 960px) {

@@ -269,7 +269,7 @@
           <div v-if="knowledgeSearchResults.length > 0" class="knowledge-results">
             <div v-for="result in knowledgeSearchResults" :key="result.id" class="knowledge-result">
               <p>{{ result.content }}</p>
-              <span class="knowledge-score">相似度: {{ (result.score * 100).toFixed(1) }}%</span>
+              <span class="knowledge-score">相似度：{{ (result.score * 100).toFixed(1) }}%</span>
             </div>
           </div>
           <div v-else class="knowledge-list">
@@ -727,9 +727,9 @@
       ElMessage.error(`最多只能保存 ${MAX_SAVED_PROJECTS} 个项目，请先删除不需要的项目`)
       return
     }
-    const name = prompt('请输入项目名称:', `项目_${Date.now()}`)
+    const name = prompt('请输入项目名称：', `项目_${Date.now()}`)
     if (!name) return
-    const description = prompt('请输入项目描述（可选）:', '')
+    const description = prompt('请输入项目描述（可选）：', '')
     try {
       const projectData = JSON.stringify({
         requirement: form.value.requirement,
@@ -782,7 +782,7 @@
         const projectData = JSON.parse(result.project_data)
         form.value.requirement = projectData.requirement || ''
         form.value.sessionId = projectData.sessionId || ''
-        ElMessage.success(`已加载项目: ${result.name}`)
+        ElMessage.success(`已加载项目：${result.name}`)
       }
     } catch (error) {
       // 忽略加载失败
@@ -833,7 +833,7 @@
 
     // 检查 API Key 配置
     if (!apiKeyStore.hasSiliconflowKey) {
-      ElMessage.error('请先配置 API Key 后再使用')
+      ElMessage.error('请先配置 API Key/接口密钥后再使用')
       router.push('/settings')
       return
     }
@@ -851,8 +851,8 @@
     if (isIncrementalMode.value) {
       form.value.sessionId = form.value.sessionId || `project_${Date.now()}`
       addLog('info', '开始增量修改')
-      addLog('info', `修改需求: ${form.value.requirement}`)
-      addLog('info', `会话ID: ${form.value.sessionId}`)
+      addLog('info', `修改需求：${form.value.requirement}`)
+      addLog('info', `会话 ID：${form.value.sessionId}`)
 
       try {
         const response = await api.modifyProjectStream(
@@ -878,7 +878,7 @@
         addLog('success', '增量修改完成！')
       } catch (error) {
         if (error.name !== 'AbortError') {
-          addLog('error', `修改失败: ${error.message}`)
+           addLog('error', `修改失败：${error.message}`)
         } else {
           addLog('warning', '修改已取消')
         }
@@ -891,10 +891,10 @@
     form.value.sessionId = `project_${Date.now()}`
 
     addLog('info', '开始项目生成')
-    addLog('info', `需求: ${form.value.requirement}`)
-    addLog('info', '模型: 自动分配')
-    addLog('info', `会话ID: ${form.value.sessionId}`)
-    addLog('info', '模式: 单会话（新会话将清理旧资源）')
+    addLog('info', `需求：${form.value.requirement}`)
+    addLog('info', '模型：自动分配')
+    addLog('info', `会话 ID：${form.value.sessionId}`)
+    addLog('info', '模式：单会话（新会话将清理旧资源）')
 
     try {
       const response = await api.stream(
@@ -929,7 +929,7 @@
       addLog('success', '项目生成完成！')
     } catch (error) {
       if (error.name !== 'AbortError') {
-        addLog('error', `生成失败: ${error.message}`)
+         addLog('error', `生成失败：${error.message}`)
       } else {
         addLog('warning', '生成已取消')
       }
@@ -963,7 +963,7 @@
             logMsg += ` - ${eventData.file_path}`
           }
           if (eventData.complexity) {
-            logMsg = `复杂度: ${eventData.complexity}`
+            logMsg = `复杂度：${eventData.complexity}`
           }
           if (eventData.file_count) {
             logMsg += `（${eventData.file_count} 个文件）`
@@ -1018,22 +1018,22 @@
         addLog('success', eventData.message || '')
         break
       case 'file_create_start':
-        addLog('info', `开始创建文件: ${eventData.file_path || ''}`)
+        addLog('info', `开始创建文件：${eventData.file_path || ''}`)
         break
       case 'file_created':
         filesCreated.value++
-        addLog('success', `文件创建成功: ${eventData.file_path || ''}`)
+         addLog('success', `文件创建成功：${eventData.file_path || ''}`)
         break
       case 'file_error':
-        addLog('error', `文件创建失败: ${eventData.file_path || ''} - ${eventData.error || ''}`)
+         addLog('error', `文件创建失败：${eventData.file_path || ''} - ${eventData.error || ''}`)
         break
       case 'validation':
         progressMessage.value = eventData.message || ''
         addLog('info', eventData.message || '')
         if (eventData.status === 'failed') {
-          addLog('warning', `验证失败: ${eventData.message || ''}`)
+           addLog('warning', `验证失败：${eventData.message || ''}`)
           if (eventData.missing_deps) {
-            addLog('warning', `缺失依赖: ${eventData.missing_deps.join(', ')}`)
+            addLog('warning', `缺失依赖：${eventData.missing_deps.join(', ')}`)
           }
         } else {
           addLog('success', '验证通过')
@@ -1051,12 +1051,12 @@
         break
       case 'cache_loaded':
         progressMessage.value = '使用缓存架构...'
-        addLog('info', `加载缓存: ${eventData.file_count || 0} 个文件`)
+        addLog('info', `加载缓存：${eventData.file_count || 0} 个文件`)
         break
       case 'incremental_analysis':
         progressMessage.value = '分析变更...'
-        addLog('info', `需重新生成: ${eventData.files_to_regenerate || 0} 个文件`)
-        addLog('info', `可复用: ${eventData.files_reusable || 0} 个文件`)
+        addLog('info', `需重新生成：${eventData.files_to_regenerate || 0} 个文件`)
+        addLog('info', `可复用：${eventData.files_reusable || 0} 个文件`)
         break
       case 'incremental_no_changes':
         progressMessage.value = '无变更，无需重新生成'
@@ -1064,20 +1064,20 @@
         generationComplete.value = true
         break
       case 'dependency_graph':
-        addLog('info', `依赖图: ${eventData.file_count || 0} 个文件, ${eventData.layers?.length || 0} 个层级`)
+        addLog('info', `依赖图：${eventData.file_count || 0} 个文件，${eventData.layers?.length || 0} 个层级`)
         break
       case 'pause_for_approval':
         progressMessage.value = '等待审批...'
-        addLog('warning', `关键文件等待确认: ${eventData.file_path || ''}`)
+        addLog('warning', `关键文件等待确认：${eventData.file_path || ''}`)
         break
       case 'file_rejected':
-        addLog('warning', `文件被拒绝: ${eventData.file_path || ''}`)
+        addLog('warning', `文件被拒绝：${eventData.file_path || ''}`)
         break
       case 'tests_finished': {
         const testSummary = []
-        if (eventData.total) testSummary.push(`总计: ${eventData.total}`)
-        if (eventData.passed) testSummary.push(`通过: ${eventData.passed}`)
-        if (eventData.failed) testSummary.push(`失败: ${eventData.failed}`)
+        if (eventData.total) testSummary.push(`总计：${eventData.total}`)
+        if (eventData.passed) testSummary.push(`通过：${eventData.passed}`)
+         if (eventData.failed) testSummary.push(`失败：${eventData.failed}`)
         if (testSummary.length > 0) {
           if (eventData.success) {
             addLog('success', `测试完成 - ${testSummary.join(', ')}`)
@@ -1186,7 +1186,7 @@
     try {
       await api.rollbackToSnapshot(form.value.sessionId, tag)
       ElMessage.success(`已回滚到快照 ${tag}`)
-      addLog('info', `回滚到快照: ${tag}`)
+      addLog('info', `回滚到快照：${tag}`)
       await loadSnapshots()
     } catch (error) {
       ElMessage.error('回滚失败')

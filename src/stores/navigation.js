@@ -1,19 +1,6 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 
-const TOOL_KEYS = [
-  'showNginxConfig',
-  'showDockerConfig',
-  'showSystemInfo',
-  'showSystemMonitor',
-  'showVirtualGirl',
-  'showServiceManager',
-  'showTaskQueue',
-  'showImageGenerator',
-  'showEphemeralWorkflow',
-  'showAicloud'
-]
-
 function getStoredToolState() {
   try {
     const saved = localStorage.getItem('navigationState')
@@ -38,8 +25,6 @@ export const useNavigationStore = defineStore(
   () => {
     const showNginxConfig = ref(getDefaultValue('showNginxConfig'))
     const showDockerConfig = ref(getDefaultValue('showDockerConfig'))
-    const showSystemInfo = ref(getDefaultValue('showSystemInfo'))
-    const showSystemMonitor = ref(getDefaultValue('showSystemMonitor'))
     const showVirtualGirl = ref(getDefaultValue('showVirtualGirl'))
     const showServiceManager = ref(getDefaultValue('showServiceManager'))
     const showProjectGenerator = ref(false)
@@ -58,8 +43,6 @@ export const useNavigationStore = defineStore(
     const toolRefs = {
       showNginxConfig,
       showDockerConfig,
-      showSystemInfo,
-      showSystemMonitor,
       showVirtualGirl,
       showServiceManager,
       showTaskQueue,
@@ -79,12 +62,6 @@ export const useNavigationStore = defineStore(
           break
         case 'dockerConfig':
           showDockerConfig.value = true
-          break
-        case 'systemInfo':
-          showSystemInfo.value = true
-          break
-        case 'systemMonitor':
-          showSystemMonitor.value = true
           break
         case 'virtualGirl':
           showVirtualGirl.value = true
@@ -118,12 +95,6 @@ export const useNavigationStore = defineStore(
           break
         case 'dockerConfig':
           showDockerConfig.value = false
-          break
-        case 'systemInfo':
-          showSystemInfo.value = false
-          break
-        case 'systemMonitor':
-          showSystemMonitor.value = false
           break
         case 'virtualGirl':
           showVirtualGirl.value = false
@@ -179,8 +150,6 @@ export const useNavigationStore = defineStore(
         const state = {
           showNginxConfig: Boolean(showNginxConfig.value),
           showDockerConfig: Boolean(showDockerConfig.value),
-          showSystemInfo: Boolean(showSystemInfo.value),
-          showSystemMonitor: Boolean(showSystemMonitor.value),
           showVirtualGirl: Boolean(showVirtualGirl.value),
           showServiceManager: Boolean(showServiceManager.value),
           showTaskQueue: Boolean(showTaskQueue.value),
@@ -229,8 +198,6 @@ export const useNavigationStore = defineStore(
     const activeTool = computed(() => {
       if (showNginxConfig.value) return 'nginxConfig'
       if (showDockerConfig.value) return 'dockerConfig'
-      if (showSystemInfo.value) return 'systemInfo'
-      if (showSystemMonitor.value) return 'systemMonitor'
       if (showVirtualGirl.value) return 'virtualGirl'
       if (showServiceManager.value) return 'serviceManager'
       if (showTaskQueue.value) return 'taskQueue'
@@ -243,8 +210,6 @@ export const useNavigationStore = defineStore(
     return {
       showNginxConfig,
       showDockerConfig,
-      showSystemInfo,
-      showSystemMonitor,
       showVirtualGirl,
       showServiceManager,
       showProjectGenerator,

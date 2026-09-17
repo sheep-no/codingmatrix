@@ -157,7 +157,7 @@ async def prometheus_metrics(token: dict = Depends(verify_token)):
     try:
         from app.services.websocket_manager import get_ws_manager
         ws_manager = get_ws_manager()
-        count = await ws_manager.get_connection_count()
+        count = ws_manager.get_connection_count()
         prometheus_metrics.set_websocket_connections(count)
         prometheus_metrics.set_health_status("websocket", True)
     except Exception:

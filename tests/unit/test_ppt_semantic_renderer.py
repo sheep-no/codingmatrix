@@ -64,6 +64,16 @@ def test_type_and_chart_fallbacks_are_stable():
     assert select_chart_type(None) == "bar"
 
 
+def test_data_chart_alias_maps_to_canonical_data_type():
+    assert normalize_slide_type("data_chart") == "data"
+    assert normalize_slide_type("chart") == "data"
+    metadata = build_render_metadata({
+        "id": "s1", "slide_type": "data_chart", "content_blocks": [{"content": "a"}],
+    })
+    assert metadata["slide_type"] == "data"
+    assert metadata["chart_type"] is not None
+
+
 @pytest.mark.parametrize(
     ("slide_type", "expected"),
     [("cover", LayoutType.TITLE_SLIDE), ("comparison", LayoutType.TWO_COLUMN), ("summary", LayoutType.CENTER_FOCUS)],

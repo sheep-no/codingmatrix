@@ -17,7 +17,7 @@
         </svg>
       </div>
       <h2>访问被拒绝</h2>
-      <p>您没有权限访问管理员面板</p>
+      <p>你没有权限访问管理员面板</p>
       <p class="hint">页面将在 2 秒后关闭或跳转到主页...</p>
     </div>
   </div>
@@ -45,10 +45,10 @@
             </h1>
             <span class="logo-subtitle">{{
               isSuperUser
-                ? 'System Management Console'
+                ? '全站运维'
                 : isAdmin
-                  ? 'Admin Console'
-                  : 'Nginx Configuration Tool'
+                  ? '监控与配置'
+                  : '反向代理配置'
             }}</span>
           </div>
         </div>
@@ -178,7 +178,7 @@
         <!-- 功能菜单 -->
         <nav class="sidebar-nav">
           <div class="section-title">所有功能</div>
-          <div v-for="group in menuGroups" :key="group.name" class="nav-group">
+          <div v-for="group in visibleMenuGroups" :key="group.name" class="nav-group">
             <div class="group-header">
               <svg
                 width="16"
@@ -255,7 +255,7 @@
               <circle cx="12" cy="12" r="10"></circle>
               <polyline points="12 6 12 12 16 14"></polyline>
             </svg>
-            <span class="status-time">最后更新: {{ lastUpdate }}</span>
+            <span class="status-time">最后更新：{{ lastUpdate }}</span>
           </div>
           <div class="stats-summary">
             <div class="mini-stat">
@@ -336,7 +336,7 @@
                   <h3>CPU 使用率</h3>
                   <div class="card-value">{{ systemData.cpu?.total_percent?.toFixed(1) }}%</div>
                   <div class="card-detail">
-                    <span>核心数: {{ systemData.cpu?.core_count || 0 }}</span>
+                    <span>核心数：{{ systemData.cpu?.core_count || 0 }}</span>
                     <span :class="['status-badge', getStatusClass(systemData.cpu?.total_percent)]">
                       {{ getStatusText(systemData.cpu?.total_percent) }}
                     </span>
@@ -363,8 +363,8 @@
                   <h3>内存使用</h3>
                   <div class="card-value">{{ systemData.memory?.percent?.toFixed(1) }}%</div>
                   <div class="card-detail">
-                    <span>已用: {{ systemData.memory?.used_gb?.toFixed(2) }} GB</span>
-                    <span>总计: {{ systemData.memory?.total_gb?.toFixed(2) }} GB</span>
+                    <span>已用：{{ systemData.memory?.used_gb?.toFixed(2) }} GB</span>
+                    <span>总计：{{ systemData.memory?.total_gb?.toFixed(2) }} GB</span>
                   </div>
                 </div>
               </div>
@@ -387,8 +387,8 @@
                   <h3>磁盘使用</h3>
                   <div class="card-value">{{ systemData.disk?.percent?.toFixed(1) }}%</div>
                   <div class="card-detail">
-                    <span>已用: {{ systemData.disk?.used_gb?.toFixed(2) }} GB</span>
-                    <span>总计: {{ systemData.disk?.total_gb?.toFixed(2) }} GB</span>
+                    <span>已用：{{ systemData.disk?.used_gb?.toFixed(2) }} GB</span>
+                    <span>总计：{{ systemData.disk?.total_gb?.toFixed(2) }} GB</span>
                   </div>
                 </div>
               </div>
@@ -449,7 +449,7 @@
                       <rect x="4" y="4" width="16" height="16" rx="2"></rect>
                       <rect x="9" y="9" width="6" height="6"></rect>
                     </svg>
-                    <span>CPU 使用趋势</span>
+                    <span>CPU 使用率</span>
                   </div>
                   <div class="panel-value">{{ systemData.cpu?.total_percent?.toFixed(1) }}%</div>
                 </div>
@@ -533,7 +533,7 @@
 
           <!-- Nginx配置 -->
           <div v-else-if="activeMenu === 'nginx'" class="content-section">
-            <NginxConfig />
+            <NginxConfig :embedded="true" />
           </div>
 
           <!-- 服务管理 -->
@@ -557,41 +557,68 @@
     <!-- 页脚 -->
     <footer class="admin-footer">
       <div class="footer-left">
-        <span>系统状态: </span>
+        <span>系统状态：</span>
         <span :class="['system-status', isConnected ? 'online' : 'offline']">
           {{ isConnected ? '正常运行' : '离线' }}
         </span>
       </div>
       <div class="footer-right">
-        <span>版本: v2.0.0</span>
-        <span>© 2024 系统管理控制台</span>
+        <span>© 2026 CodingMatrix</span>
       </div>
     </footer>
   </div>
 </template>
 
 <script setup>
-  import { ref, computed, onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
+  import { ref, computed, onBeforeUnmount, onMounted, watch, nextTick, defineAsyncComponent, h } from 'vue'
   import { ElMessageBox } from 'element-plus'
   import { useRouter } from 'vue-router'
   import { useUserStore } from '@/stores/user'
   import * as echarts from 'echarts'
-  import { defineAsyncComponent } from 'vue'
   import { WebSocketManager, API_CONFIG } from '../utils/api/index'
 
-  const UserManagement = defineAsyncComponent(() => import('./UserManagement.vue'))
-  const SystemLogs = defineAsyncComponent(() => import('./SystemLogs.vue'))
-  const NginxConfig = defineAsyncComponent(() => import('./NginxConfig.vue'))
-  const ServiceManager = defineAsyncComponent(() => import('./ServiceManager.vue'))
-  const ResourceControl = defineAsyncComponent(() => import('./ResourceControl.vue'))
-  const AdminModelManager = defineAsyncComponent(() => import('./settings/AdminModelManager.vue'))
+  const AdminAsyncLoading = {
+    setup() {
+      return () => h('p', { class: 'async-panel-fallback' }, '正在加载...')
+    }
+  }
+
+  const AdminAsyncError = {
+    setup() {
+      return () => h('p', { class: 'async-panel-fallback' }, '面板加载失败，请刷新页面')
+    }
+  }
+
+  function loadAdminPanel(loader) {
+    return defineAsyncComponent({
+      loader,
+      loadingComponent: AdminAsyncLoading,
+      errorComponent: AdminAsyncError,
+      delay: 0
+    })
+  }
+
+  const UserManagement = loadAdminPanel(() => import('./UserManagement.vue'))
+  const SystemLogs = loadAdminPanel(() => import('./SystemLogs.vue'))
+  const NginxConfig = loadAdminPanel(() => import('./NginxConfig.vue'))
+  const ServiceManager = loadAdminPanel(() => import('./ServiceManager.vue'))
+  const ResourceControl = loadAdminPanel(() => import('./ResourceControl.vue'))
+  const AdminModelManager = loadAdminPanel(() => import('./settings/AdminModelManager.vue'))
 
   // echarts 图表颜色常量
   const CHART_COLORS = {
-    cpu: { safe: '#67e0e3', warn: '#37a2da', danger: '#fd666d', label: '#464646' },
-    memory: { used: '#5470c6', available: '#91cc75' },
+    cpu: { safe: '#67e0e3', warn: '#37a2da', danger: '#fd666d', label: '#94a3b8' },
+    memory: { used: '#22d3ee', available: '#1e293b' },
     disk: { start: '#83bff6', end: '#188df0' },
-    network: { sent: '#5470c6', recv: '#91cc75', tooltipBg: '#6a7985' }
+    network: { sent: '#38bdf8', recv: '#34d399', tooltipBg: '#1e293b' },
+    text: '#94a3b8',
+    textStrong: '#e2e8f0'
+  }
+
+  const cpuProgressColor = percent => {
+    if (percent > 90) return CHART_COLORS.cpu.danger
+    if (percent > 70) return CHART_COLORS.cpu.warn
+    return CHART_COLORS.cpu.safe
   }
 
   const router = useRouter()
@@ -656,7 +683,7 @@
           {
             id: 'monitor',
             name: '系统监控',
-            description: '实时监控 CPU、内存、磁盘和网络',
+            description: 'CPU、内存、磁盘、网络',
             viewBox: '0 0 24 24',
             path: 'M3 3v18h18'
           }
@@ -795,6 +822,20 @@
     )
   })
 
+  const visibleMenuGroups = computed(() => {
+    const groups = menuGroups.value
+    if (searchKeyword.value.trim()) return groups
+    const quickIds = new Set(quickAccessItems.value.map(item => item.id))
+    const result = {}
+    Object.keys(groups).forEach(key => {
+      const items = groups[key].items.filter(item => !quickIds.has(item.id))
+      if (items.length > 0) {
+        result[key] = { ...groups[key], items }
+      }
+    })
+    return result
+  })
+
   // WebSocket 相关
   const isConnected = ref(false)
   const lastUpdate = ref('')
@@ -904,7 +945,7 @@
     const k = 1024
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
     const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i]
+    return `${(bytes / Math.pow(k, i)).toFixed(2)}\u00A0${sizes[i]}`
   }
 
   // 更新最后更新时间
@@ -985,52 +1026,39 @@
           endAngle: 0,
           min: 0,
           max: 100,
-          splitNumber: 8,
+          radius: '100%',
+          center: ['50%', '68%'],
           axisLine: {
             lineStyle: {
-              width: 8,
+              width: 14,
               color: [
-                [0.3, CHART_COLORS.cpu.safe],
-                [0.7, CHART_COLORS.cpu.warn],
-                [1, CHART_COLORS.cpu.danger]
+                [1, 'rgba(148, 163, 184, 0.2)']
               ]
             }
           },
-          pointer: {
-            length: '12%',
-            width: 20,
-            offsetCenter: [0, '-60%'],
+          progress: {
+            show: true,
+            overlap: false,
+            width: 14,
+            roundCap: true,
             itemStyle: {
-              color: 'auto'
+              color: cpuProgressColor(systemData.value.cpu?.total_percent || 0)
             }
           },
-          axisTick: {
-            length: 12,
-            lineStyle: {
-              color: 'auto',
-              width: 2
-            }
-          },
-          splitLine: {
-            length: 20,
-            lineStyle: {
-              color: 'auto',
-              width: 5
-            }
-          },
-          axisLabel: {
-            color: CHART_COLORS.cpu.label,
-            fontSize: 16,
-            distance: -60
-          },
+          pointer: { show: false },
+          axisTick: { show: false },
+          splitLine: { show: false },
+          axisLabel: { show: false },
+          title: { show: false },
           detail: {
-            fontSize: 48,
-            offsetCenter: [0, '0%'],
+            fontSize: 28,
+            fontWeight: 700,
+            offsetCenter: [0, '-8%'],
             valueAnimation: true,
             formatter: function (value) {
               return Math.round(value) + '%'
             },
-            color: 'auto'
+            color: CHART_COLORS.textStrong
           },
           data: [
             {
@@ -1056,6 +1084,11 @@
 
     memoryChart = echarts.init(memoryChartRef.value)
 
+    const usedGb = systemData.value.memory?.used_gb || 0
+    const totalGb = systemData.value.memory?.total_gb || 0
+    const availableGb = Math.max(totalGb - usedGb, 0)
+    const usedPercent = totalGb > 0 ? ((usedGb / totalGb) * 100).toFixed(1) : '0.0'
+
     const option = {
       tooltip: {
         trigger: 'item',
@@ -1063,52 +1096,53 @@
       },
       legend: {
         orient: 'vertical',
-        left: 'left',
+        left: 0,
         top: 'middle',
+        itemWidth: 10,
+        itemHeight: 10,
         textStyle: {
-          fontSize: 14
+          fontSize: 12,
+          color: CHART_COLORS.text
+        }
+      },
+      title: {
+        text: `${usedPercent}%`,
+        subtext: '已使用',
+        left: '62%',
+        top: '38%',
+        textAlign: 'center',
+        textStyle: {
+          color: CHART_COLORS.textStrong,
+          fontSize: 26,
+          fontWeight: 700
+        },
+        subtextStyle: {
+          color: CHART_COLORS.text,
+          fontSize: 12
         }
       },
       series: [
         {
           name: '内存使用',
           type: 'pie',
-          radius: ['40%', '70%'],
-          center: ['60%', '50%'],
-          avoidLabelOverlap: false,
+          radius: ['58%', '78%'],
+          center: ['62%', '50%'],
           itemStyle: {
-            borderRadius: 12,
-            borderColor: '#fff',
-            borderWidth: 3
+            borderColor: '#151525',
+            borderWidth: 2
           },
           label: {
-            show: true,
-            position: 'outside',
-            formatter: '{b}: {d}%',
-            fontSize: 14,
-            fontWeight: 'bold'
+            show: false
           },
-          emphasis: {
-            label: {
-              show: true,
-              fontSize: 18,
-              fontWeight: 'bold'
-            },
-            itemStyle: {
-              shadowBlur: 10,
-              shadowOffsetX: 0,
-              shadowColor: 'rgba(0, 0, 0, 0.5)'
-            }
-          },
+          labelLine: { show: false },
           data: [
             {
-              value: systemData.value.memory?.used_gb || 0,
+              value: usedGb,
               name: '已使用',
               itemStyle: { color: CHART_COLORS.memory.used }
             },
             {
-              value:
-                (systemData.value.memory?.total_gb || 0) - (systemData.value.memory?.used_gb || 0),
+              value: availableGb,
               name: '可用',
               itemStyle: { color: CHART_COLORS.memory.available }
             }
@@ -1149,14 +1183,16 @@
         type: 'value',
         max: 100,
         axisLabel: {
-          formatter: '{value}%'
+          formatter: '{value}%',
+          color: CHART_COLORS.text
         }
       },
       yAxis: {
         type: 'category',
         data: ['磁盘使用'],
         axisLabel: {
-          fontSize: 14
+          fontSize: 14,
+          color: CHART_COLORS.text
         }
       },
       series: [
@@ -1178,7 +1214,8 @@
             position: 'right',
             formatter: '{c}%',
             fontSize: 18,
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            color: CHART_COLORS.textStrong
           }
         }
       ]
@@ -1227,7 +1264,8 @@
         data: ['发送', '接收'],
         top: 0,
         textStyle: {
-          fontSize: 14
+          fontSize: 12,
+          color: CHART_COLORS.text
         }
       },
       grid: {
@@ -1239,14 +1277,17 @@
       xAxis: {
         type: 'category',
         boundaryGap: false,
-        data: networkHistory.value.times
+        data: networkHistory.value.times,
+        axisLabel: { color: CHART_COLORS.text },
+        axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } }
       },
       yAxis: {
         type: 'value',
         axisLabel: {
           formatter: function (value) {
             return formatBytes(value)
-          }
+          },
+          color: CHART_COLORS.text
         }
       },
       series: [
@@ -1314,6 +1355,11 @@
       cpuChart.setOption({
         series: [
           {
+            progress: {
+              itemStyle: {
+                color: cpuProgressColor(systemData.value.cpu?.total_percent || 0)
+              }
+            },
             data: [
               {
                 value: systemData.value.cpu?.total_percent || 0,
@@ -1326,19 +1372,23 @@
     }
 
     if (memoryChart) {
+      const usedGb = systemData.value.memory?.used_gb || 0
+      const totalGb = systemData.value.memory?.total_gb || 0
       memoryChart.setOption({
+        title: {
+          text: `${totalGb > 0 ? ((usedGb / totalGb) * 100).toFixed(1) : '0.0'}%`
+        },
         series: [
           {
             data: [
               {
-                value: systemData.value.memory?.used_gb || 0,
+                value: usedGb,
                 name: '已使用',
                 itemStyle: { color: CHART_COLORS.memory.used }
               },
               {
                 value:
-                  (systemData.value.memory?.total_gb || 0) -
-                  (systemData.value.memory?.used_gb || 0),
+                  Math.max(totalGb - usedGb, 0),
                 name: '可用',
                 itemStyle: { color: CHART_COLORS.memory.available }
               }
@@ -2227,6 +2277,8 @@
     font-size: 11px;
     color: var(--admin-text-faint);
     transition: all 0.2s ease;
+    line-height: 1.4;
+    word-break: keep-all;
   }
 
   .nav-item.active .nav-desc {
@@ -2376,7 +2428,9 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 20px;
+    padding: 16px 20px 20px;
+    display: flex;
+    flex-direction: column;
     background: transparent;
   }
 
@@ -2400,7 +2454,16 @@
 
   /* 内容区域 */
   .content-section {
-    height: 100%;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+  }
+
+  .async-panel-fallback {
+    margin: 24px 0;
+    padding: 20px 4px;
+    color: #e2e8f0;
+    font-size: 15px;
   }
 
   .monitor-section,
@@ -2408,7 +2471,11 @@
   .users-section {
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 16px;
+  }
+
+  .monitor-section {
+    min-height: 100%;
   }
 
   /* 区块头部 */
@@ -2416,7 +2483,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 18px 20px;
+    padding: 14px 18px;
     background: var(--admin-bg-card);
     backdrop-filter: blur(20px);
     border-radius: 14px;
@@ -2504,13 +2571,15 @@
     backdrop-filter: blur(20px);
     border: 1px solid var(--admin-border-faint);
     border-radius: 14px;
-    padding: 18px;
+    padding: 16px;
     display: flex;
     gap: 14px;
     box-shadow: 0 4px 16px var(--admin-shadow-md);
     transition: all 0.3s ease;
     position: relative;
     overflow: hidden;
+    align-items: flex-start;
+    min-width: 0;
   }
 
   .overview-card::before {
@@ -2630,6 +2699,7 @@
     flex: 1;
     position: relative;
     z-index: 1;
+    min-width: 0;
   }
 
   .card-content h3 {
@@ -2654,13 +2724,15 @@
 
   .card-value-network {
     display: flex;
-    gap: 20px;
+    gap: 12px;
+    min-width: 0;
   }
 
   .network-metric {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    min-width: 0;
   }
 
   .metric-label {
@@ -2672,9 +2744,11 @@
   }
 
   .metric-value {
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 700;
     color: var(--admin-text-primary);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
   }
 
   .card-detail {
@@ -2733,6 +2807,8 @@
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 16px;
+    flex: none;
+    min-height: 0;
   }
 
   .chart-panel {
@@ -2745,6 +2821,7 @@
     flex-direction: column;
     box-shadow: 0 4px 16px var(--admin-shadow-md);
     transition: all 0.3s ease;
+    min-height: 0;
   }
 
   .chart-panel:hover {
@@ -2791,7 +2868,7 @@
 
   .chart-container {
     flex: 1;
-    min-height: 240px;
+    min-height: 160px;
   }
 
   /* 页脚 */

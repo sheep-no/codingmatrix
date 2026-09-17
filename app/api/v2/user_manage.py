@@ -20,6 +20,16 @@ router = APIRouter()
 
 # 辅助函数 ====================
 
+def _ensure_superadmin_scope(actor_level: str, target_level: str) -> None:
+    """非超级管理员不得创建、提升、修改或删除超级管理员账号。
+
+    仅校验 is_admin 时，管理员可以创建 superadmin 用户、把任意账号提升为
+    superadmin，或重置/删除超管账号，从而绕过全部 superadmin 门禁。
+    """
+    if is_superadmin(target_level) and not is_superadmin(actor_level):
+        raise HTTPException(status_code=403, detail="只有超级管理员可以管理超级管理员账号")
+
+
 async def _get_user_with_permission(db: AsyncSession, user_id: int):
     """
     获取用户及其权限信息（带异常处理）
@@ -125,7 +135,9 @@ async def create_user(
     """
     if not is_admin(token.get("permission_level", "")):
         raise HTTPException(status_code=403, detail="需要管理员权限")
-    
+
+    _ensure_superadmin_scope(token.get("permission_level", ""), body.permission_level)
+
     # 验证密码强度
     is_valid, message = validate_password_strength(body.password)
     if not is_valid:
@@ -181,6 +193,12 @@ async def update_user(
     
     # 使用辅助函数获取用户
     user: User = await _get_user_with_permission(db, user_id)
+    actor_level = token.get("permission_level", "")
+    _ensure_superadmin_scope(
+        actor_level, user.permission.permission_level if user.permission else "normal"
+    )
+    if body.permission_level is not None:
+        _ensure_superadmin_scope(actor_level, body.permission_level)
     if body.username is not None:
         await db.execute(
             update(User).where(User.id == user_id).values(username=body.username)
@@ -252,6 +270,10 @@ async def delete_user(
     
     # 使用辅助函数获取用户
     user = await _get_user_with_permission(db, user_id)
+    _ensure_superadmin_scope(
+        token.get("permission_level", ""),
+        user.permission.permission_level if user.permission else "normal",
+    )
     await db.execute(delete(Permission).where(Permission.user_id==user_id))
     await db.delete(user)
     await db.commit()
@@ -275,10 +297,11 @@ async def reset_password(
 ):
     if not is_admin(token.get("permission_level", "")):
         raise HTTPException(status_code=403, detail="需要管理员权限")
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar()
-    if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
+    user = await _get_user_with_permission(db, user_id)
+    _ensure_superadmin_scope(
+        token.get("permission_level", ""),
+        user.permission.permission_level if user.permission else "normal",
+    )
     await db.execute(
         update(User).where(User.id == user_id).values(
             hashed_password=hash_password(body.new_password)
