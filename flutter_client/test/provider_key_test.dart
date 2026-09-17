@@ -30,6 +30,7 @@ class RecordingApi extends AuthenticatedClient {
     String path, {
     String method = 'GET',
     Object? body,
+    Duration? timeout,
   }) => handler(path, method, body);
 }
 

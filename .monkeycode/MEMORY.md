@@ -57,9 +57,13 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 根配置 `playwright.config.js` 的 `testDir` 为 `./tests/e2e`；运行时用根 CLI + `src/node_modules/@playwright/test`，并设置 `PLAYWRIGHT_EXECUTABLE_PATH` 指向 ms-playwright chromium。
   - 智谱免费档并发：`glm-4.7-flash=1`，`glm-4-flash-250414=20`，`glm-z1-flash` 未单独限流（代码默认 6，受全局 LLM 信号量 6 约束）。
   - Agent 实测用 `TEST_API_KEY`（供应商 `glm`）+ 超管 `mr_yang@example.com` 改角色；流式请求走 `preferredAgentKey`，测完恢复 YAML 角色。
-  - `tests/e2e/agent-semi-import-live.spec.js` 的增量架构师用 `glm-4.7-flash`，该模型易触发上游 429（code 1305），会在 `_analyze_changes_with_architect` 硬失败而非降级；重跑前需冷却数分钟。
+  - `tests/e2e/agent-semi-import-live.spec.js` 的增量架构师用 `glm-4.7-flash`，会在 `_analyze_changes_with_architect` 硬失败而非降级；重跑前需冷却数分钟。
+  - 模型级并发上限在 `app/agent/llm_client.py`：`MODEL_CONCURRENCY_LIMITS` 定义上限，`get_model_semaphore` 提供信号量，缓存键必须与 `concurrency_limit_for` 同源归一化（小写、去 provider 前缀），否则同一模型的不同写法会各建一个信号量，上限形同虚设。
+  - 流式调用的并发额度必须覆盖整个消费期：迭代器一返回上游连接仍在持续输出 token。若只在获取迭代器时持有额度，第二个请求会立即插入，免费档必现 429（code 1305）。排查 429 时先确认本地并发是否真的被压到上限，再怀疑上游拥塞。
   - 切角色做实测前先备份角色快照：`set_roles.py` 的 `set` 模式会用「当前角色」覆盖 `orig_roles.json`，连续两次 `set` 后快照变成 GLM 值，`restore` 就回不到默认值。默认值为 architect `qwen3-8b` / frontend `deepseek-r1` / backend `qwen3.5-4b` / reviewer `glm-z1-9b` / fallback `qwen3-8b`；跑全量 unit 前必须处于默认值，否则 `test_multi_model_agent` 会多一条失败。
   - 活管线重试要把上游 429（code 1305）、流式 180s 超时、架构师输出缺 `project_spec` 都按瞬时错误处理，否则单次抖动就会中断实测。
+  - `tests/unit/test_tools.py::TestWriteSyntaxWarning::test_real_defects_are_still_reported` 在内存紧张的全量 run 中会偶发失败：`check_js_source` 依赖 `node -c` 子进程，node 被信号终止时退回的括号启发式抓不到 `const x = ;`。单独复跑通过即属环境性偶发，不是回归。
+  - 架构师输出缺 `project_spec` 时 `architect.py` 硬抛是被测试固定的契约（`test_canonicalize_missing_project_spec_raises`、`test_design_architecture_missing_project_spec_raises`），不要当误报门禁改掉；`_build_default_project_spec` 只服务「架构完全失败」的默认路径。
 
 ### 扫描文件先定作用与状态再深入
 - Date: 2026-08-26

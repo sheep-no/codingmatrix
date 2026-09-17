@@ -382,6 +382,38 @@ async def test_explicit_repair_strategy_keeps_evidence_and_contract_validation(t
 
 
 @pytest.mark.asyncio
+async def test_contract_declaration_tolerates_architect_style_contract_fields(tmp_path):
+    """架构师把断言和常规契约字段写在一起时，门禁应继续按断言校验。"""
+    adapter = SpecFirstAdapter(_CoreFileAgent(tmp_path))
+    await adapter.create_plan(GenerationRequest(
+        requirement="build declared constants", task_id="contract-shape", session_id="contract-shape",
+        metadata={"specification": {"language": "python", "file_plan": [{
+            "path": "constants.py",
+            "role": "entry",
+            "exports": ["VALUE"],
+            "required_imports": [],
+            "contract": {
+                "schema_version": 1,
+                "role": "entry",
+                "exports": ["VALUE"],
+                "assertions": [{
+                    "fact": "symbols",
+                    "operator": "contains_all",
+                    "expected": ["VALUE"],
+                    "note": "入口常量",
+                }],
+            },
+        }]}},
+    ))
+
+    _, diagnostics = adapter._validate_candidate_contract("constants.py", "VALUE = 1\n")
+    assert not any("invalid contract declaration" in item for item in diagnostics)
+
+    _, diagnostics = adapter._validate_candidate_contract("constants.py", "OTHER = 1\n")
+    assert any("contract assertion failed for symbols" in item for item in diagnostics)
+
+
+@pytest.mark.asyncio
 async def test_cli_task_tracker_uses_specification_and_architect(tmp_path, monkeypatch):
     generate_specs = AsyncMock(return_value=True)
     monkeypatch.setattr(

@@ -57,6 +57,7 @@ class GithubClient {
                 'use_github': config.useGithub,
               },
           },
+          timeout: const Duration(seconds: 90),
         )
         as Map,
   );

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/application/chat_controller.dart';
 import 'package:codingmatrix_desktop/infrastructure/chat/chat_client.dart';
+import 'package:codingmatrix_desktop/domain/models/chat_models.dart';
 import 'package:codingmatrix_desktop/presentation/chat_page.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -48,6 +50,8 @@ class ChatApi extends DeliveryApi {
   Map<String, dynamic>? body;
   String? endpoint;
   Future<Map<String, dynamic>> Function(String)? upload;
+  List<Map<String, dynamic>>? conversationItems;
+  List<Map<String, dynamic>>? historyItems;
 
   @override
   Future<Map<String, dynamic>> uploadFile(String path) async {
@@ -74,9 +78,29 @@ class ChatApi extends DeliveryApi {
     String path, {
     String method = 'GET',
     Object? body,
+    Duration? timeout,
   }) async {
     this.body = body as Map<String, dynamic>;
-    return super.requestJson(path, method: method, body: body);
+    endpoint = path;
+    if (path == '/api/v1/conversation/history') {
+      return {
+        'conversation_id': this.body!['conversation_id'],
+        'items': conversationItems ??
+            [
+              {'role': 'user', 'content': '问题'},
+              {'role': 'assistant', 'content': '你好'},
+            ],
+      };
+    }
+    if (path == '/api/v1/history') {
+      return {
+        'items': historyItems ??
+            [
+              {'conversation_id': 42, 'prompt': '问题'},
+            ],
+      };
+    }
+    return super.requestJson(path, method: method, body: body, timeout: timeout);
   }
 }
 
@@ -316,6 +340,66 @@ void main() {
     expect(state.loading, false);
   });
 
+  test('发送中切换到另一会话后忽略旧流', () async {
+    final pending = controller.send('当前问题', streaming: true);
+    await flush();
+    api.chunks.add(utf8.encode('{"conversation_id":1}\n{"delta":"旧回复"}\n'));
+    await flush();
+    expect(container.read(chatControllerProvider).messages.last.text, '旧回复');
+
+    api.conversationItems = [
+      {'role': 'user', 'content': '另一会话'},
+      {'role': 'assistant', 'content': '历史回答'},
+    ];
+    await controller.loadConversation(
+      const ChatHistoryItem(id: 99, title: '另一会话'),
+    );
+    api.chunks.add(utf8.encode('{"delta":"不应写入"}\n'));
+    await flush();
+    await pending;
+
+    final state = container.read(chatControllerProvider);
+    expect(state.conversationId, 99);
+    expect(state.loading, false);
+    expect(state.messages.map((message) => message.text), [
+      '另一会话',
+      '历史回答',
+    ]);
+  });
+
+  test('发送完成后退出再进入会从详情恢复消息', () async {
+    final pending = controller.send('问题', streaming: true);
+    await flush();
+    api.chunks.add(utf8.encode('{"conversation_id":42}\n{"delta":"你好"}\n'));
+    await api.chunks.close();
+    await pending;
+    expect(container.read(chatControllerProvider).conversationId, 42);
+    expect(container.read(chatControllerProvider).messages.last.text, '你好');
+
+    container.dispose();
+    final returning = ChatApi();
+    returning.conversationItems = [
+      {'role': 'user', 'content': '问题'},
+      {'role': 'assistant', 'content': '你好'},
+    ];
+    container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(returning)],
+    );
+    api = returning;
+    controller = container.read(chatControllerProvider.notifier);
+
+    expect(container.read(chatControllerProvider).messages, isEmpty);
+    await controller.loadConversation(
+      const ChatHistoryItem(id: 42, title: '问题'),
+    );
+    final state = container.read(chatControllerProvider);
+    expect(state.conversationId, 42);
+    expect(state.loading, false);
+    expect(state.messages.map((message) => message.text), ['问题', '你好']);
+    expect(state.messages.first.fromUser, true);
+    expect(state.messages.last.fromUser, false);
+  });
+
   testWidgets('选择多个附件、去重、移除、上传并展示流式内容及取消', (tester) async {
     picker.result = FilePickerResult([
       PlatformFile(name: 'a.txt', path: '/tmp/a.txt', size: 10),
@@ -379,5 +463,134 @@ void main() {
           .text,
       '分析',
     );
+  });
+
+  testWidgets('发送完成后从历史切换到另一会话', (tester) async {
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '当前问题');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    api.chunks.add(utf8.encode('{"conversation_id":1}\n{"delta":"旧回复"}\n'));
+    await tester.pump();
+    await api.chunks.close();
+    await tester.pumpAndSettle();
+    expect(find.text('旧回复'), findsOneWidget);
+
+    api.historyItems = [
+      {'conversation_id': 99, 'prompt': '历史标题'},
+    ];
+    api.conversationItems = [
+      {'role': 'user', 'content': '历史用户'},
+      {'role': 'assistant', 'content': '历史回答'},
+    ];
+    await tester.tap(find.byKey(const Key('chatHistoryButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('历史标题'));
+    await tester.pumpAndSettle();
+    expect(find.text('历史回答'), findsOneWidget);
+    expect(find.text('历史用户'), findsOneWidget);
+    expect(find.text('旧回复'), findsNothing);
+  });
+
+  testWidgets('发送完成后退出再进入仍显示当前会话', (tester) async {
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '问题');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    api.chunks.add(utf8.encode('{"conversation_id":42}\n{"delta":"你好"}\n'));
+    await tester.pump();
+    await api.chunks.close();
+    await tester.pumpAndSettle();
+    expect(find.text('你好'), findsOneWidget);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开聊天'))),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('你好'), findsNothing);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('你好'), findsOneWidget);
+    expect(find.text('问题'), findsOneWidget);
+  });
+
+  test('上传中网络断开会退出忙碌并显示错误', () async {
+    api.upload = (_) async => throw const SocketException('connection lost');
+    await controller.send('分析', streaming: true, filePaths: ['/tmp/a.txt']);
+    final state = container.read(chatControllerProvider);
+    expect(api.body, isNull);
+    expect(state.error, contains('connection lost'));
+    expect(state.loading, false);
+    expect(state.uploading, false);
+    expect(state.messages.last.text, '分析');
+  });
+
+  testWidgets('上传中退出再进入会看到后台完成的回复', (tester) async {
+    final upload = Completer<Map<String, dynamic>>();
+    api.upload = (_) => upload.future;
+    picker.result = FilePickerResult([
+      PlatformFile(name: 'a.txt', path: '/tmp/a.txt', size: 10),
+    ]);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('chatAttachButton')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('chatPromptField')), '分析');
+    await tester.tap(find.byKey(const Key('chatSendButton')));
+    await tester.pump();
+    expect(container.read(chatControllerProvider).uploading, true);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('离开聊天'))),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('离开聊天'), findsOneWidget);
+
+    upload.complete({
+      'server_path': 'uploads/a.txt',
+      'name': 'a.txt',
+      'type': 'text/plain',
+    });
+    await tester.pump();
+    api.chunks.add(utf8.encode('{"delta":"回答"}\n'));
+    await api.chunks.close();
+    await tester.pump();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('回答'), findsOneWidget);
+    expect(find.text('分析'), findsOneWidget);
+    expect(find.text('a.txt'), findsNothing);
   });
 }

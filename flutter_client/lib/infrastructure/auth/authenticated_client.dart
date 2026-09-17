@@ -14,6 +14,14 @@ class AuthenticatedClient extends http.BaseClient {
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    return _send(request);
+  }
+
+  Future<http.StreamedResponse> _send(
+    http.BaseRequest request, {
+    Duration? timeout,
+  }) async {
+    final limit = timeout ?? auth.timeout;
     final session = auth.session;
     if (session == null) throw CloudAuthException('请重新登录');
     final ref = session.accessTokenRef;
@@ -31,13 +39,13 @@ class AuthenticatedClient extends http.BaseClient {
     request.followRedirects = false;
     retry?.headers.addAll(request.headers);
     try {
-      final response = await transport.send(request).timeout(auth.timeout);
+      final response = await transport.send(request).timeout(limit);
       if (auth.session?.accessTokenRef != ref) {
-        await response.stream.drain<void>().timeout(auth.timeout);
+        await response.stream.drain<void>().timeout(limit);
         throw CloudAuthException('认证上下文已切换');
       }
-      if (response.statusCode != 401) return await _checked(response, safe);
-      await response.stream.drain<void>().timeout(auth.timeout);
+      if (response.statusCode != 401) return await _checked(response, safe, limit);
+      await response.stream.drain<void>().timeout(limit);
       if (auth.session?.accessTokenRef != ref) {
         throw CloudAuthException('认证上下文已切换');
       }
@@ -47,17 +55,17 @@ class AuthenticatedClient extends http.BaseClient {
       }
       retry.headers.addAll(await auth.headers(retry.url, ref));
       retry.followRedirects = false;
-      final retried = await transport.send(retry).timeout(auth.timeout);
+      final retried = await transport.send(retry).timeout(limit);
       if (auth.session?.accessTokenRef != ref) {
-        await retried.stream.drain<void>().timeout(auth.timeout);
+        await retried.stream.drain<void>().timeout(limit);
         throw CloudAuthException('认证上下文已切换');
       }
       if (retried.statusCode == 401) {
-        await retried.stream.drain<void>().timeout(auth.timeout);
+        await retried.stream.drain<void>().timeout(limit);
         await auth.logout();
         throw CloudAuthException('登录已失效，请重新登录', statusCode: 401);
       }
-      return await _checked(retried, safe);
+      return await _checked(retried, safe, limit);
     } on CloudAuthException {
       rethrow;
     } catch (_) {
@@ -70,16 +78,17 @@ class AuthenticatedClient extends http.BaseClient {
   Future<http.StreamedResponse> _checked(
     http.StreamedResponse response,
     bool safe,
+    Duration limit,
   ) async {
     if (response.statusCode >= 300) {
-      await response.stream.drain<void>().timeout(auth.timeout);
+      await response.stream.drain<void>().timeout(limit);
       throw CloudAuthException(
         '请求失败（HTTP ${response.statusCode}）${safe ? '' : '，请确认任务状态后手动恢复'}',
         statusCode: response.statusCode,
       );
     }
     return http.StreamedResponse(
-      response.stream.timeout(auth.timeout).handleError((Object _) {
+      response.stream.timeout(limit).handleError((Object _) {
         throw CloudAuthException('响应连接中断，请确认任务状态后手动恢复');
       }),
       response.statusCode,
@@ -94,6 +103,7 @@ class AuthenticatedClient extends http.BaseClient {
     String path, {
     String method = 'GET',
     Object? body,
+    Duration? timeout,
   }) async {
     final request = http.Request(method, Uri.parse(auth.baseUrl).resolve(path));
     request.headers['Accept'] = 'application/json';
@@ -101,7 +111,9 @@ class AuthenticatedClient extends http.BaseClient {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
     }
-    final response = await http.Response.fromStream(await send(request));
+    final response = await http.Response.fromStream(
+      await _send(request, timeout: timeout),
+    );
     try {
       return jsonDecode(response.body);
     } on FormatException {
