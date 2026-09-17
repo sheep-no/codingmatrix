@@ -42,14 +42,18 @@ class SandboxFileOperator(FileOperator):
         """
         验证路径是否在沙箱内
 
+        `write_with_review` 只靠这一层校验（`read_with_review` 另有基类
+        `_validate_path` 兜底），必须用 `realpath` 解析符号链接，否则沙箱内
+        指向外部的 symlink 能把写入带出工作目录。
+
         Args:
             requested_path: 请求的路径
 
         Returns:
             True if path is within sandbox
         """
-        normalized_requested = os.path.normpath(requested_path)
-        normalized_sandbox = os.path.normpath(str(self.base_path))
+        normalized_requested = os.path.realpath(requested_path)
+        normalized_sandbox = os.path.realpath(str(self.base_path))
 
         return normalized_requested.startswith(normalized_sandbox + os.sep) or \
                normalized_requested == normalized_sandbox
