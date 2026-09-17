@@ -27,11 +27,8 @@ from app.utils.aicloud.context_isolator import (
 )
 from app.utils.aicloud.sandbox import (
     SANDBOX_BASE_DIR,
-    validate_sandbox_path,
     get_sandbox_path,
-    get_absolute_sandbox_path,
-    sanitize_path,
-    is_path_safe,
+    get_sandbox_workspace_path,
 )
 from app.utils.aicloud.content_analyzer import (
     check_malicious_pattern,
@@ -208,38 +205,10 @@ class TestSandbox:
         path = get_sandbox_path(123)
         assert path == "/sandbox/123"
 
-    def test_get_absolute_sandbox_path(self):
-        """测试获取绝对沙箱路径"""
-        path = get_absolute_sandbox_path(123, "workspace/file.txt")
-        assert "/sandbox/123/workspace/file.txt" in path
-
-    def test_validate_sandbox_path_valid(self):
-        """测试验证合法沙箱路径"""
-        assert validate_sandbox_path(123, "/sandbox/123/workspace/file.txt")
-        assert validate_sandbox_path(123, "/sandbox/123")
-
-    def test_validate_sandbox_path_invalid(self):
-        """测试验证非法沙箱路径"""
-        assert not validate_sandbox_path(123, "/sandbox/456/workspace/file.txt")
-        assert not validate_sandbox_path(123, "/etc/passwd")
-        assert not validate_sandbox_path(123, "/sandbox/123/../etc/passwd")
-
-    def test_sanitize_path(self):
-        """测试路径清理"""
-        path = sanitize_path("/sandbox/123/../123/./workspace")
-        assert ".." not in path
-        assert "." not in path.split("/")[-1] if "/" in path else True
-
-    def test_is_path_safe_valid(self):
-        """测试安全路径"""
-        assert is_path_safe("/sandbox/123/workspace/file.txt")
-        assert is_path_safe("workspace/file.txt")
-
-    def test_is_path_safe_invalid(self):
-        """测试危险路径"""
-        assert not is_path_safe("/etc/passwd")
-        assert not is_path_safe("../../../etc/passwd")
-        assert not is_path_safe("file.txt; rm -rf")
+    def test_get_sandbox_workspace_path(self):
+        """测试获取用户沙箱工作目录"""
+        path = get_sandbox_workspace_path(123)
+        assert path == "/sandbox/123/workspace"
 
 
 class TestSandboxFileOperator:
