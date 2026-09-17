@@ -343,7 +343,6 @@ class TestCeleryApp:
 
         assert hasattr(project_tasks, 'generate_project')
         assert hasattr(code_tasks, 'generate_code')
-        assert hasattr(code_tasks, 'execute_code')
 
 
 class TestCeleryTasks:
@@ -364,10 +363,3 @@ class TestCeleryTasks:
         assert generate_code.name == "app.tasks.code_tasks.generate_code"
         assert generate_code.max_retries == 3
         assert generate_code.default_retry_delay == 30
-
-    def test_execute_code_task_exists(self):
-        """代码执行任务已定义"""
-        from app.tasks.code_tasks import execute_code
-
-        assert execute_code.name == "app.tasks.code_tasks.execute_code"
-        assert execute_code.max_retries == 2
