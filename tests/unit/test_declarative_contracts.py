@@ -224,3 +224,47 @@ def test_generic_gate_source_contains_no_fixture_or_stack_constants():
         "/health",
     ):
         assert forbidden not in source
+
+
+def test_declaration_ignores_contract_fields_owned_by_other_validators():
+    """架构师把断言和常规契约字段写在一起时，声明仍应生效。"""
+    declaration = ContractDeclaration.from_mapping({
+        "role": "entry",
+        "exports": ["main"],
+        "required_imports": ["pkg.config"],
+        "assertions": [{
+            "fact": "exports",
+            "operator": "contains_all",
+            "expected": ["main"],
+        }],
+    })
+
+    assert len(declaration.assertions) == 1
+    assert declaration.assertions[0].fact == "exports"
+
+
+def test_declaration_ignores_descriptive_assertion_fields():
+    declaration = ContractDeclaration.from_mapping({
+        "assertions": [{
+            "fact": "exports",
+            "operator": "equals",
+            "expected": ["main"],
+            "note": "入口导出",
+        }],
+    })
+
+    assert declaration.assertions[0].expected == ("main",)
+
+
+def test_declaration_without_assertions_is_empty():
+    """没有 assertions（含空列表）时不应解析出任何断言，也不该报错。"""
+    assert ContractDeclaration.from_mapping({"role": "entry", "exports": ["main"]}).assertions == ()
+    assert ContractDeclaration.from_mapping({"assertions": [], "exports": ["main"]}).assertions == ()
+
+
+def test_declaration_still_rejects_malformed_assertions():
+    """字段清洗不能掩盖真实的格式错误。"""
+    with pytest.raises(ValueError):
+        ContractDeclaration.from_mapping({"assertions": [{"fact": "exports"}]})
+    with pytest.raises(ValueError):
+        ContractDeclaration.from_mapping({"assertions": "not-a-list"})
