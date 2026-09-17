@@ -132,9 +132,9 @@ class HealthChecker:
                     message="Celery 未配置"
                 )
 
-            inspect = celery_app.control.inspect()
-            stats = inspect.stats()
-            active = inspect.active()
+            # Celery control inspect 是同步网络 RPC，直接调用会阻塞事件循环，
+            # 而 /health /ready 探针调用频繁，必须放到线程中执行
+            stats, active = await asyncio.to_thread(self._inspect_celery, celery_app)
 
             queue_size = 0
             if stats:
@@ -160,6 +160,12 @@ class HealthChecker:
                 response_time_ms=round(elapsed, 2),
                 message=f"Celery 检查失败: {str(e)}"
             )
+
+    @staticmethod
+    def _inspect_celery(celery_app):
+        """同步采集 Celery worker 状态，供 check_celery 在线程中调用"""
+        inspect = celery_app.control.inspect()
+        return inspect.stats(), inspect.active()
 
     async def check_websocket(self) -> HealthCheckResult:
         """检查 WebSocket 连接统计"""
@@ -231,28 +237,41 @@ class HealthChecker:
         """执行所有健康检查"""
         checks = {}
 
-        api_result = await self.check_api()
+        # 各检查相互独立且多为 I/O 等待，并行执行避免探针耗时累加
+        (
+            api_result,
+            db_result,
+            redis_result,
+            celery_result,
+            ws_result,
+            system_result,
+        ) = await asyncio.gather(
+            self.check_api(),
+            self.check_database(),
+            self.check_redis(),
+            self.check_celery(),
+            self.check_websocket(),
+            self.check_system(),
+        )
+
         checks["api"] = {
             "status": api_result.status,
             "response_time_ms": api_result.response_time_ms,
             "details": api_result.details
         }
 
-        db_result = await self.check_database()
         checks["database"] = {
             "status": db_result.status,
             "response_time_ms": db_result.response_time_ms,
             "message": db_result.message
         }
 
-        redis_result = await self.check_redis()
         checks["redis"] = {
             "status": redis_result.status,
             "response_time_ms": redis_result.response_time_ms,
             "message": redis_result.message
         }
 
-        celery_result = await self.check_celery()
         checks["celery"] = {
             "status": celery_result.status,
             "response_time_ms": celery_result.response_time_ms,
@@ -260,7 +279,6 @@ class HealthChecker:
             "details": celery_result.details
         }
 
-        ws_result = await self.check_websocket()
         checks["websocket"] = {
             "status": ws_result.status,
             "response_time_ms": ws_result.response_time_ms,
@@ -268,7 +286,6 @@ class HealthChecker:
             "details": ws_result.details
         }
 
-        system_result = await self.check_system()
         checks["system"] = {
             "status": system_result.status,
             "response_time_ms": system_result.response_time_ms,
