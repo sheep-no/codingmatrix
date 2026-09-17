@@ -4,7 +4,7 @@ Ephemeral Workflow Schema - Pydantic 数据模型
 定义临时工作流的请求、响应和内部数据结构
 """
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Literal, Optional
 from enum import Enum
 from datetime import datetime
 
@@ -58,7 +58,9 @@ class TaskNode(BaseModel):
     result: Optional[Any] = Field(None, description="节点执行结果")
     error: Optional[str] = Field(None, description="节点执行错误信息")
     retry: Optional[RetryConfig] = Field(None, description="重试配置")
-    on_failure: str = Field(default="fail", description="失败策略: fail, skip, fallback")
+    on_failure: Literal["fail", "skip", "fallback"] = Field(
+        default="fail", description="失败策略: fail, skip, fallback"
+    )
 
 
 class TaskGraph(BaseModel):

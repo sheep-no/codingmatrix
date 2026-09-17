@@ -66,10 +66,16 @@ class FileProcessingNode(TaskNodeBase):
 
         try:
             if operation in ("read", "write", "delete", "create_dir", "list_dir"):
-                self._operator._validate_path(self.params["path"], check_extension=False)
+                if "path" not in self.params:
+                    errors.append("Missing required parameter: path")
+                else:
+                    self._operator._validate_path(self.params["path"], check_extension=False)
             elif operation in ("copy", "move"):
-                self._operator._validate_path(self.params["source"], check_extension=False)
-                self._operator._validate_path(self.params["destination"], check_extension=False)
+                for key in ("source", "destination"):
+                    if key not in self.params:
+                        errors.append(f"Missing required parameter: {key}")
+                    else:
+                        self._operator._validate_path(self.params[key], check_extension=False)
         except PathSecurityError as e:
             errors.append(str(e))
 

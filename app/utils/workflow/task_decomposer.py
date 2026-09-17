@@ -18,9 +18,20 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = DEFAULT_REASONING_MODEL
 
+_VALID_ON_FAILURE = ("fail", "skip", "fallback")
+
 # 提示词文件路径
 _SKILL_DIR = Path(__file__).parent.parent.parent.parent / "skills" / "workflow-planner"
 _PROMPT_FILE = _SKILL_DIR / "system_prompt.md"
+
+
+def _normalize_on_failure(value: Any, node_id: Any = None) -> str:
+    """把 LLM 给出的失败策略归一化到受支持取值，未知值回落 fail。"""
+    if value in _VALID_ON_FAILURE:
+        return value
+    if value is not None:
+        logger.warning(f"节点 {node_id} 的 on_failure 取值非法: {value!r}，回落 fail")
+    return "fail"
 
 
 def _load_system_prompt() -> str:
@@ -222,7 +233,9 @@ class TaskDecomposer:
                 params=node_data.get("params", {}),
                 depends_on=node_data.get("depends_on", []),
                 retry=node_data.get("retry"),
-                on_failure=node_data.get("on_failure", "fail"),
+                on_failure=_normalize_on_failure(
+                    node_data.get("on_failure"), node_data.get("id")
+                ),
             )
             nodes.append(node)
 
