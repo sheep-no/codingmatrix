@@ -46,18 +46,21 @@ class PerformanceMonitorMiddleware(BaseHTTPMiddleware):
             
             # 计算耗时
             process_time = time.time() - start_time
+
+            # 指标标签使用路由模板，带参路径会把 UUID/ID 带进 label 造成高基数
+            metric_path = self._metric_path(request)
             
             # 记录到响应头
             response.headers["X-Process-Time"] = str(round(process_time, 4))
             response.headers["X-Request-ID"] = request_id
             
             # 记录性能指标
-            await self._record_metric(path, method, process_time, response.status_code)
+            await self._record_metric(metric_path, method, process_time, response.status_code)
 
             # 记录到 Prometheus 指标
             try:
                 from app.services.prometheus_metrics import prometheus_metrics
-                prometheus_metrics.record_request(method, path, response.status_code, process_time)
+                prometheus_metrics.record_request(method, metric_path, response.status_code, process_time)
             except Exception:
                 pass
             
@@ -78,6 +81,18 @@ class PerformanceMonitorMiddleware(BaseHTTPMiddleware):
                 f"time={process_time:.3f}s | error={str(e)}"
             )
             raise
+
+    @staticmethod
+    def _metric_path(request: Request) -> str:
+        """返回用于指标标签的路径。
+
+        已匹配路由取路由模板（如 /items/{item_id}），使同一端点的不同参数
+        归并到同一指标；未匹配路由统一归为 <unmatched>，避免被任意路径扫描
+        撑爆指标基数。
+        """
+        route = request.scope.get("route")
+        route_path = getattr(route, "path", None)
+        return route_path or "<unmatched>"
     
     async def _record_metric(self, path: str, method: str, duration: float, status_code: int):
         """记录性能指标"""
