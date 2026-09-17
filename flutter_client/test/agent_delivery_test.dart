@@ -36,6 +36,7 @@ class DeliveryApi extends AuthenticatedClient {
     String path, {
     String method = 'GET',
     Object? body,
+    Duration? timeout,
   }) => handle(path, method, body);
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async =>
