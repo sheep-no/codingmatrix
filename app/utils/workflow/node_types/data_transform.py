@@ -97,7 +97,7 @@ class DataTransformNode(TaskNodeBase):
         logger.info(f"[{self.node_id}] 数据转换 | op={operation} | input={input_variable}")
 
         try:
-            result = self._apply_operation(operation, input_data, config)
+            result = self._apply_operation(operation, input_data, config, context)
 
             logger.info(
                 f"[{self.node_id}] 转换完成 | result_type={type(result).__name__} | "
@@ -118,7 +118,13 @@ class DataTransformNode(TaskNodeBase):
             logger.error(f"[{self.node_id}] {error_msg}")
             return NodeResult.error_result(error=error_msg)
 
-    def _apply_operation(self, operation: str, data: Any, config: Dict) -> Any:
+    def _apply_operation(
+        self,
+        operation: str,
+        data: Any,
+        config: Dict,
+        context: Optional[Dict] = None,
+    ) -> Any:
         """应用转换操作"""
 
         if operation == "map":
@@ -167,11 +173,13 @@ class DataTransformNode(TaskNodeBase):
             raise ValueError("rename requires dict input")
 
         elif operation == "merge":
-            # 合并多个对象
+            # 合并多个对象：变量名指向上下文中的上游结果
             variables = config.get("variables", [])
             merged = dict(data) if isinstance(data, dict) else {}
             for var_name in variables:
-                var_value = config.get(var_name)
+                var_value = (context or {}).get(var_name)
+                if var_value is None:
+                    var_value = config.get(var_name)
                 if isinstance(var_value, dict):
                     merged.update(var_value)
             return merged

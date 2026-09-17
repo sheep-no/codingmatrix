@@ -6,7 +6,7 @@ Code Execution Node - 代码执行节点
 
 import logging
 import asyncio
-import subprocess
+import signal
 import tempfile
 import os
 from typing import Any, Dict, List, Optional
@@ -16,6 +16,9 @@ from app.schema.workflow import TaskType
 from app.utils.workflow.node_types.base import TaskNodeBase, NodeResult
 
 logger = logging.getLogger(__name__)
+
+# 单个进程流（stdout/stderr）保留的最大字节数，超出部分丢弃但继续读完
+_MAX_OUTPUT_BYTES = 1_000_000
 
 
 class CodeExecutionNode(TaskNodeBase):
@@ -151,27 +154,7 @@ class CodeExecutionNode(TaskNodeBase):
             temp_file = f.name
 
         try:
-            process = await asyncio.create_subprocess_exec(
-                'python3', temp_file,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=timeout
-                )
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-                raise
-
-            return {
-                "stdout": stdout.decode('utf-8', errors='replace'),
-                "stderr": stderr.decode('utf-8', errors='replace'),
-                "exit_code": process.returncode,
-            }
+            return await self._run_command(['python3', temp_file], timeout)
         finally:
             os.unlink(temp_file)
 
@@ -186,26 +169,62 @@ class CodeExecutionNode(TaskNodeBase):
             temp_file = f.name
 
         try:
-            process = await asyncio.create_subprocess_exec(
-                'node', temp_file,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=timeout
-                )
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-                raise
-
-            return {
-                "stdout": stdout.decode('utf-8', errors='replace'),
-                "stderr": stderr.decode('utf-8', errors='replace'),
-                "exit_code": process.returncode,
-            }
+            return await self._run_command(['node', temp_file], timeout)
         finally:
             os.unlink(temp_file)
+
+    async def _run_command(self, command: List[str], timeout: int) -> Dict[str, Any]:
+        """运行子进程并收集有上限的输出。
+
+        子进程放入独立进程组：超时后杀掉整个进程组，避免脚本派生的孙进程逃逸；
+        输出超过 _MAX_OUTPUT_BYTES 时只保留前若干字节，但继续读到 EOF，
+        防止管道写满导致子进程阻塞。
+        """
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+
+        try:
+            stdout, stderr, _ = await asyncio.wait_for(
+                asyncio.gather(
+                    self._read_limited(process.stdout, _MAX_OUTPUT_BYTES),
+                    self._read_limited(process.stderr, _MAX_OUTPUT_BYTES),
+                    process.wait(),
+                ),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                process.kill()
+            await process.wait()
+            raise
+
+        return {
+            "stdout": stdout.decode('utf-8', errors='replace'),
+            "stderr": stderr.decode('utf-8', errors='replace'),
+            "exit_code": process.returncode,
+        }
+
+    @staticmethod
+    async def _read_limited(stream, limit: int) -> bytes:
+        """读取流直至 EOF，仅保留前 limit 字节。"""
+        if stream is None:
+            return b""
+
+        chunks: List[bytes] = []
+        size = 0
+        while True:
+            chunk = await stream.read(8192)
+            if not chunk:
+                break
+            if size < limit:
+                keep = chunk[: limit - size]
+                chunks.append(keep)
+                size += len(keep)
+
+        return b"".join(chunks)
