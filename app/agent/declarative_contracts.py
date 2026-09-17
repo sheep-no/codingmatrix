@@ -23,6 +23,10 @@ class ContractAssertion(BaseModel):
     reference: str = ""
 
 
+_DECLARATION_KEYS = ("schema_version", "assertions")
+_ASSERTION_KEYS = ("fact", "operator", "expected", "reference")
+
+
 class ContractDeclaration(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -36,7 +40,21 @@ class ContractDeclaration(BaseModel):
         declaration = payload.get("declaration", payload)
         if not isinstance(declaration, Mapping) or "assertions" not in declaration:
             return cls()
-        return cls.model_validate(declaration)
+        # 架构师会按 file_plan 的 contract 规范把断言和常规契约字段
+        # （exports、required_imports 等）写在一起，断言项里也常带说明字段。
+        # 那些字段由其它校验器消费，在这里丢弃即可，不该让整份声明失效。
+        normalized = {
+            key: declaration[key] for key in _DECLARATION_KEYS if key in declaration
+        }
+        assertions = normalized.get("assertions")
+        if isinstance(assertions, list):
+            normalized["assertions"] = [
+                {key: item[key] for key in _ASSERTION_KEYS if key in item}
+                if isinstance(item, Mapping)
+                else item
+                for item in assertions
+            ]
+        return cls.model_validate(normalized)
 
 
 class FactSet(BaseModel):
