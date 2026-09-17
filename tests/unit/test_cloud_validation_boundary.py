@@ -150,3 +150,17 @@ def test_compiler_backed_language_still_routes_through_registry(monkeypatch):
 
     assert passed is True
     assert errors == []
+
+
+def test_empty_package_entry_passes_file_gate():
+    """空 __init__.py 是合法包标记，单文件门禁不应判为「内容为空」。"""
+    assert utils.validate_file_in_sandbox("app/__init__.py", "") == (True, "")
+    assert utils.validate_file_in_sandbox("pkg/sub/__init__.py", "   \n") == (True, "")
+
+
+def test_empty_non_package_file_still_rejected():
+    """空普通代码文件仍视为无效，避免放宽成「空即合法」。"""
+    passed, reason = utils.validate_file_in_sandbox("app/main.py", "")
+
+    assert passed is False
+    assert reason == "内容为空"

@@ -760,7 +760,7 @@ def validate_in_sandbox(
 
     # 2. 统一门禁：Python 与 JS/TS 家族、标记语言按扩展名走本地解析器；
     #    文档/文本类文件的正确内容本就是散文或数据，不做代码语法门禁；
-    #    其余扩展名（本地解析器不覆盖）继续走 bwrap 脚本。
+    #    其余扩展名先收集，仅当注册了真实编译器验证器时才处理（见步骤 3）。
     shared_errors = []
     remaining_files = {}
     for file_path, content in files.items():
@@ -858,6 +858,9 @@ def validate_file_in_sandbox(file_path: str, content: str) -> tuple:
         (is_valid, reason): 有效返回 (True, "")，无效返回 (False, "原因")
     """
     if not content or not content.strip():
+        # 空 __init__.py 是合法的包标记，与 is_valid_code_content 判定保持一致
+        if is_package_entry_file(file_path):
+            return True, ""
         return False, "内容为空"
 
     ok, errors = validate_in_sandbox(
