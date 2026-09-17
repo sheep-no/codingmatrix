@@ -30,6 +30,8 @@ def _load_system_prompt() -> str:
             return _PROMPT_FILE.read_text(encoding="utf-8").strip()
     except Exception as e:
         logger.warning(f"加载提示词文件失败: {e}，使用内置默认")
+    else:
+        logger.warning(f"提示词文件不存在: {_PROMPT_FILE}，使用内置默认")
 
     # 内置默认提示词（兜底）
     return """你是一个任务规划专家。你的任务是将用户的自然语言请求分解为结构化的任务图。
@@ -91,8 +93,6 @@ class TaskDecomposer:
     使用 LLM 将自然语言请求分解为结构化任务图
     """
 
-    SYSTEM_PROMPT = _load_system_prompt()
-
     USER_PROMPT_TEMPLATE = """将以下自然语言请求分解为任务图：
 
 "{request}"
@@ -107,6 +107,8 @@ class TaskDecomposer:
             model: 使用的模型
         """
         self.model = model
+        # 提示词文件读取推迟到实例化时，避免模块导入副作用
+        self.system_prompt = _load_system_prompt()
 
     async def decompose(self, request: str) -> TaskGraph:
         """
@@ -150,7 +152,7 @@ class TaskDecomposer:
         Returns:
             完整提示词
         """
-        return f"{self.SYSTEM_PROMPT}\n\n{self.USER_PROMPT_TEMPLATE.format(request=request)}"
+        return f"{self.system_prompt}\n\n{self.USER_PROMPT_TEMPLATE.format(request=request)}"
 
     def _parse_response(self, response: Any, original_request: str) -> TaskGraph:
         """
@@ -167,14 +169,15 @@ class TaskDecomposer:
             choices = response.get('choices')
             if choices and len(choices) > 0:
                 message = choices[0].get('message', {})
-                content = message.get('content', '')
+                content = message.get('content', '') or ''
             else:
-                content = str(response)
+                content = json.dumps(response, ensure_ascii=False)
         elif hasattr(response, 'choices'):
             content = response.choices[0].message.content
         else:
             content = str(response)
 
+        content = content or ''
         content = content.strip()
 
         if content.startswith("```json"):
@@ -189,8 +192,20 @@ class TaskDecomposer:
         try:
             data = json.loads(content)
         except json.JSONDecodeError as e:
-            logger.error(f"JSON 解析失败，原始内容: {content[:500]}")
-            raise TaskDecomposerError(f"无法解析 LLM 响应为 JSON: {e}")
+            # 兼容模型在 JSON 前后附带说明文字的情况，尝试提取首个完整对象
+            start = content.find("{")
+            end = content.rfind("}")
+            if start != -1 and end > start:
+                try:
+                    data = json.loads(content[start:end + 1])
+                except json.JSONDecodeError:
+                    data = None
+            else:
+                data = None
+
+            if data is None:
+                logger.error(f"JSON 解析失败，原始内容: {content[:500]}")
+                raise TaskDecomposerError(f"无法解析 LLM 响应为 JSON: {e}")
 
         nodes = []
         for node_data in data.get("nodes", []):
@@ -206,8 +221,23 @@ class TaskDecomposer:
                 type=node_type,
                 params=node_data.get("params", {}),
                 depends_on=node_data.get("depends_on", []),
+                retry=node_data.get("retry"),
+                on_failure=node_data.get("on_failure", "fail"),
             )
             nodes.append(node)
+
+        node_ids = [node.id for node in nodes]
+        duplicates = sorted({nid for nid in node_ids if node_ids.count(nid) > 1})
+        if duplicates:
+            raise TaskDecomposerError(f"任务图存在重复节点 ID: {duplicates}")
+
+        known_ids = set(node_ids)
+        for node in nodes:
+            missing = [dep for dep in node.depends_on if dep not in known_ids]
+            if missing:
+                raise TaskDecomposerError(
+                    f"节点 {node.id} 依赖不存在的节点: {missing}"
+                )
 
         workflow_id = f"wf_{uuid.uuid4().hex[:8]}"
 
