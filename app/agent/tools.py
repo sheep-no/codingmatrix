@@ -897,8 +897,9 @@ def _tool_write_file(project_path: str, path: str, content: str) -> Dict:
         # 依赖图白名单校验：只允许写入依赖图中的文件
         global _allowed_file_paths
         if _allowed_file_paths is not None:
-            # 规范化路径：去除开头的 ./ 和 /
-            normalized = path.replace('\\', '/').lstrip('./').lstrip('/')
+            # 规范化路径：仅剥离开头的 "./" 与前导 "/"。不能直接 lstrip('./')，
+            # 那会把 .gitignore 这类点号文件名吞成 gitignore 而与白名单失配。
+            normalized = re.sub(r'^(?:\./)+', '', path.replace('\\', '/')).lstrip('/')
             if normalized not in _allowed_file_paths:
                 import logging
                 logger = logging.getLogger(__name__)
@@ -907,8 +908,8 @@ def _tool_write_file(project_path: str, path: str, content: str) -> Dict:
 
         # 文件名验证：拒绝无效文件名
         filename = Path(path).name
-        if not filename or filename.startswith('=') or filename.startswith('.') or re.search(r'[<>:"|?*]', filename):
-            return {"success": False, "error": f"无效的文件名: '{filename}'。文件名不能以 '=' 或 '.' 开头，不能包含特殊字符"}
+        if not filename or filename in ('.', '..') or filename.startswith('=') or re.search(r'[<>:"|?*]', filename):
+            return {"success": False, "error": f"无效的文件名: '{filename}'。文件名不能为 '.' 或 '..'，不能以 '=' 开头，不能包含特殊字符"}
         if re.match(r'^=\d', filename):
             return {"success": False, "error": f"无效的文件名: '{filename}'。这看起来像版本号，不是有效的文件名"}
 
