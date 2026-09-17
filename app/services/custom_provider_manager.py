@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from fastapi import HTTPException
 
+from app.utils.url_safety import check_outbound_url
+
 logger = logging.getLogger(__name__)
 
 # 模型缓存时间（秒）
@@ -56,6 +58,10 @@ class CustomProviderManager:
     
     def add_provider(self, name: str, base_url: str, protocol: str, api_key: str) -> CustomProvider:
         """添加自定义供应商"""
+        url_error = check_outbound_url(base_url)
+        if url_error:
+            raise ValueError(url_error)
+
         # 生成唯一 ID
         provider_id = f"custom_{int(time.time())}_{hash(name + base_url) & 0xFFFFFFFF:08x}"
         

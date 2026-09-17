@@ -25,6 +25,7 @@ from app.utils.aicloud.adapters.dynamic import DynamicAdapter
 from app.utils.rate_limiter import limiter
 from app.utils.security import verify_token
 from app.utils.crypto import get_rsa_key_manager
+from app.utils.url_safety import check_outbound_url
 import time
 import httpx
 
@@ -78,7 +79,11 @@ async def add_provider(request: Request, body: AddProviderRequest, token: dict =
     
     if body.protocol not in ("openai", "anthropic"):
         raise HTTPException(status_code=400, detail="protocol 必须是 openai 或 anthropic")
-    
+
+    url_error = check_outbound_url(body.base_url)
+    if url_error:
+        raise HTTPException(status_code=400, detail=url_error)
+
     try:
         api_key = get_rsa_key_manager().decrypt(body.encrypted_api_key).strip()
     except Exception:
