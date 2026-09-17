@@ -81,7 +81,10 @@ class ResultAggregator:
         Returns:
             节点执行上下文
         """
-        return self._node_contexts.get(node_id, {})
+        # 节点启动时尚未 record 结果，这里按需构建，否则执行期拿不到上游数据
+        context = self._build_node_context(node_id)
+        self._node_contexts[node_id] = context
+        return context
 
     def get_upstream_results(self, node_id: str) -> Dict[str, NodeResult]:
         """
@@ -189,12 +192,22 @@ class ResultAggregator:
         }
 
         node = self._node_map.get(node_id)
+        inject_ids = []
         if node:
             context["node_type"] = node.type.value
-            context["params"] = node.params
+            context["params"] = dict(node.params)
             context["depends_on"] = node.depends_on
+            # 只注入直接依赖的结果，避免每次记录全量遍历已有结果
+            inject_ids.extend(node.depends_on)
 
-        for dep_id, result in self._node_results.items():
+        # 节点自身已有结果时一并注入，保持既有上下文契约
+        if node_id in self._node_results:
+            inject_ids.append(node_id)
+
+        for dep_id in inject_ids:
+            result = self._node_results.get(dep_id)
+            if result is None:
+                continue
             if result.success:
                 context[f"{dep_id}_result"] = result.data
                 context[f"{dep_id}_error"] = None
@@ -224,7 +237,7 @@ class ResultAggregator:
             "successful_nodes": successful,
             "failed_nodes": failed,
             "completion_rate": self.get_completion_rate(),
-            "execution_order": self._completed_order,
+            "execution_order": self._completed_order.copy(),
         }
 
     async def stream_results(
@@ -244,25 +257,27 @@ class ResultAggregator:
 
         last_count = 0
 
-        while not self.is_complete():
+        while True:
+            # 先补发增量再判断完成，否则最后一个节点的完成事件会丢失
             current_count = len(self._node_results)
+            for node_id in self._completed_order[last_count:current_count]:
+                result = self._node_results[node_id]
 
-            if current_count > last_count:
-                last_count = current_count
+                yield {
+                    "event": "node_completed",
+                    "workflow_id": self.workflow_id,
+                    "node_id": node_id,
+                    "success": result.success,
+                    "data": result.data if result.success else None,
+                    "error": result.error if not result.success else None,
+                    "completion_rate": self.get_completion_rate(),
+                    "timestamp": datetime.now().isoformat(),
+                }
 
-                for node_id in self._completed_order[last_count - 1:]:
-                    result = self._node_results[node_id]
+            last_count = current_count
 
-                    yield {
-                        "event": "node_completed",
-                        "workflow_id": self.workflow_id,
-                        "node_id": node_id,
-                        "success": result.success,
-                        "data": result.data if result.success else None,
-                        "error": result.error if not result.success else None,
-                        "completion_rate": self.get_completion_rate(),
-                        "timestamp": datetime.now().isoformat(),
-                    }
+            if self.is_complete():
+                break
 
             await asyncio.sleep(interval)
 
