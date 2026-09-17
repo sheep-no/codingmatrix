@@ -47,25 +47,36 @@ def get_global_semaphore() -> asyncio.Semaphore:
     return _global_semaphore
 
 
+def _normalized_model_key(model_name: str) -> str:
+    """把模型名归一化为并发限制表的键（小写、去空白、去 provider 前缀）。"""
+    key = (model_name or "").strip().lower()
+    for name in MODEL_CONCURRENCY_LIMITS:
+        if key == name or key.endswith("/" + name):
+            return name
+    return key
+
+
 def concurrency_limit_for(model_name: str) -> int:
     """返回指定模型的并发上限。"""
-    key = (model_name or "").strip().lower()
+    key = _normalized_model_key(model_name)
     if key in MODEL_CONCURRENCY_LIMITS:
         return MODEL_CONCURRENCY_LIMITS[key]
-    for name, limit in MODEL_CONCURRENCY_LIMITS.items():
-        if key.endswith("/" + name):
-            return limit
     return MAX_CONCURRENT_PER_MODEL
 
 
 def get_model_semaphore(model_name: str) -> asyncio.Semaphore:
-    """获取按模型的并发信号量。"""
+    """获取按模型的并发信号量。
+
+    缓存键须与并发上限同源归一化，否则同一模型的大小写或带 provider 前缀写法
+    会各自建一个信号量，免费档的并发上限形同虚设。
+    """
+    key = _normalized_model_key(model_name)
     limit = concurrency_limit_for(model_name)
-    existing = _model_semaphores.get(model_name)
-    if existing is None or _model_semaphore_limits.get(model_name) != limit:
-        _model_semaphores[model_name] = asyncio.Semaphore(limit)
-        _model_semaphore_limits[model_name] = limit
-    return _model_semaphores[model_name]
+    existing = _model_semaphores.get(key)
+    if existing is None or _model_semaphore_limits.get(key) != limit:
+        _model_semaphores[key] = asyncio.Semaphore(limit)
+        _model_semaphore_limits[key] = limit
+    return _model_semaphores[key]
 
 
 class LLMClientError(Exception):
@@ -171,9 +182,20 @@ class LLMClient:
         await (await get_dynamic_router()).start_call(self.model_name)
 
         try:
-            full_content, full_reasoning, response = await self._consume_stream(
-                prompt, system_prompt, on_chunk, thinking_budget=thinking_budget
-            )
+            # 流式消费全程必须持有模型额度：迭代器一旦返回，上游连接仍在持续
+            # 输出 token，若此时释放额度，并发=1 的免费档会被并发流打穿。
+            if self._semaphore:
+                if self._cancel_event and self._cancel_event.is_set():
+                    raise asyncio.CancelledError("请求已取消")
+                async with self._semaphore:
+                    async with self._model_semaphore:
+                        full_content, full_reasoning, response = await self._consume_stream(
+                            prompt, system_prompt, on_chunk, thinking_budget=thinking_budget
+                        )
+            else:
+                full_content, full_reasoning, response = await self._consume_stream(
+                    prompt, system_prompt, on_chunk, thinking_budget=thinking_budget
+                )
             latency_ms = (time.time() - start_time) * 1000
             await (await get_dynamic_router()).record_call(
                 self.model_name, success=True, latency_ms=latency_ms
@@ -245,15 +267,8 @@ class LLMClient:
 
         call_timeout = self._model_config.get("timeout", 300)
 
-        if self._semaphore:
-            if self._cancel_event and self._cancel_event.is_set():
-                raise asyncio.CancelledError("请求已取消")
-            # 嵌套上下文确保等待模型额度时被取消也会释放全局额度。
-            async with self._semaphore:
-                async with self._model_semaphore:
-                    stream_iter = await asyncio.wait_for(_do_call_stream(), timeout=call_timeout)
-        else:
-            stream_iter = await asyncio.wait_for(_do_call_stream(), timeout=call_timeout)
+        # 并发额度由 call_stream 在整个消费期间持有，这里不再重复获取。
+        stream_iter = await asyncio.wait_for(_do_call_stream(), timeout=call_timeout)
 
         # stream_iter 可能是 AsyncIterator[str] 或 coroutine
         if asyncio.iscoroutine(stream_iter):

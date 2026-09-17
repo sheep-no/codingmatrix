@@ -9,6 +9,7 @@
 """
 
 import asyncio
+import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -295,6 +296,47 @@ class TestLLMClientCall:
         mock_router.start_call.assert_awaited_once_with("test-model")
         mock_router.record_call.assert_awaited_once()
         assert mock_router.record_call.await_args.kwargs["error"] == "cancelled"
+
+
+    @pytest.mark.asyncio
+    @patch("app.agent.llm_client.LayeredModelRouter")
+    @patch("app.agent.llm_client.get_dynamic_router")
+    @patch("app.agent.llm_client.call_llm")
+    async def test_stream_holds_model_slot_for_whole_consumption(
+        self, mock_call_llm, mock_get_router, mock_router_cls
+    ):
+        """并发=1 的模型在流式消费期间不得被第二个请求插入。"""
+        mock_router_cls.get_model_config.return_value = {
+            "max_tokens": 4096, "thinking_budget": 0,
+            "temperature": 0.7, "timeout": 300,
+        }
+        mock_router = AsyncMock()
+        mock_get_router.return_value = mock_router
+        active = 0
+        peak = 0
+
+        async def slow_stream():
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            try:
+                for index in range(3):
+                    await asyncio.sleep(0.01)
+                    yield json.dumps(
+                        {"choices": [{"delta": {"content": f"chunk-{index}"}}]}
+                    )
+            finally:
+                active -= 1
+
+        mock_call_llm.side_effect = lambda *args, **kwargs: slow_stream()
+
+        client = LLMClient(model_name="glm-4.7-flash")
+        await asyncio.gather(
+            client.call_stream("first", on_chunk=AsyncMock()),
+            client.call_stream("second", on_chunk=AsyncMock()),
+        )
+
+        assert peak == 1
 
 
 class TestLLMClientError:
