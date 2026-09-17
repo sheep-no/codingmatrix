@@ -341,3 +341,13 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 后端 Uvicorn：`cd /workspace && PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000`。
   - 改后端代码需重启 Uvicorn：用 `background_terminal_kill` 停旧终端后再 `background_terminal_create` 起新的，不要 `pkill`。
   - 重启 Uvicorn 时不要动 Vite（:3000）、Redis（:6379）、Celery（-Q ppt）这些常驻服务。
+
+### 知识库上传的阻塞与死循环陷阱
+- Date: 2026-09-17
+- Context: Agent 在核查非 Agent 范围已建档缺陷（知识库上传同步阻塞）时总结
+- Category: 排查与调试
+- Instructions:
+  - `app/utils/aicloud/knowledge_processor.chunk_text` 用 `start = end - chunk_overlap` 推进，`chunk_size <= 0` 或 `chunk_overlap >= chunk_size` 时起始位置不前进会原地死循环；调用方必须先校验分块参数，分块器自身也做了钳制（`chunk_size <= 0` 抛 `ValueError`，overlap 收敛到 `chunk_size - 1`）。
+  - `parse_document`、`chunk_text` 是同步函数，放进 async 端点时用 `asyncio.to_thread` 包裹；`embed_chunks` 本身已是 async，不要重复包裹。
+  - 上传大小上限按 1MB 分块写入时累计校验，超限删除半成品文件；范式参考 `app/api/v1/aiGeneratorPptx.py` 的 `_stream_upload_to_path(file, destination, max_size)`。
+  - 验证死循环类防护做回退验证时给 pytest 加 `--timeout=5`，让旧代码的挂起表现为超时失败，避免卡死整个测试进程。
