@@ -15,11 +15,17 @@ logger = logging.getLogger(__name__)
 _ALLOWED_SCHEMES = ("http", "https")
 
 
-def check_outbound_url(url: str) -> Optional[str]:
+def check_outbound_url(
+    url: str,
+    fail_closed_on_dns_error: bool = False,
+) -> Optional[str]:
     """校验出站 URL 是否可以安全请求。
 
     Args:
         url: 待校验的完整 URL
+        fail_closed_on_dns_error: DNS 解析失败时是否视为不允许。
+            自托管 base_url 场景为 False（连接时自会失败）；
+            完全用户可控的 URL（如工作流 http_request 节点）应传 True。
 
     Returns:
         不可请求时返回中文错误描述，可请求时返回 None
@@ -40,6 +46,9 @@ def check_outbound_url(url: str) -> Optional[str]:
         addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
     except (socket.gaierror, UnicodeError):
         # 无法解析的域名在真正连接时自会失败，不构成 SSRF
+        if fail_closed_on_dns_error:
+            logger.warning("SSRF 阻止：无法解析主机名 %s", hostname)
+            return f"无法解析主机名: {hostname}"
         return None
 
     for *_, sockaddr in addr_info:
