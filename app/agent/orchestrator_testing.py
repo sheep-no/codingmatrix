@@ -1,7 +1,5 @@
-import json
 import logging
 from typing import Dict, Any, Optional, List
-from pathlib import Path
 
 from app.agent.test_runner import IsolatedTestRunner
 from app.agent.impact_analyzer import ImpactAnalyzer
@@ -29,12 +27,6 @@ class TestingMixin:
 
         # 智能测试选择
         test_files = await self._select_tests(modified_files, project_profile)
-
-        test_cmd = self._detect_test_command(self.output_dir, test_files)
-
-        docker_result = await self._run_tests_in_docker(test_cmd)
-        if docker_result is not None:
-            return docker_result
 
         try:
             result = await runner.run_tests()
@@ -157,150 +149,9 @@ class TestingMixin:
             logger.error(f"测试失败聚类失败：{e}")
             return []
 
-    def _detect_test_command(self, project_path: Path, test_files: Optional[List[str]] = None) -> str:
-        pkg_json = project_path / "package.json"
-        if pkg_json.exists():
-            try:
-                data = json.loads(pkg_json.read_text(encoding='utf-8'))
-                scripts = data.get("scripts", {})
-                if "test" in scripts:
-                    if test_files:
-                        # 指定测试文件
-                        files_str = ' '.join(test_files)
-                        return f"cd /app && npm run test -- {files_str}"
-                    return "cd /app && npm run test"
-            except Exception as e:
-                logger.debug(f"测试执行失败：{e}")
-
-        playwright_config = None
-        for name in ("playwright.config.js", "playwright.config.ts"):
-            candidate = project_path / name
-            if candidate.exists():
-                playwright_config = candidate
-                break
-        if playwright_config:
-            if test_files:
-                files_str = ' '.join(test_files)
-                return f"cd /app && npx playwright test --reporter=list {files_str}"
-            return "cd /app && npx playwright test --reporter=list"
-
-        pytest_dir = None
-        for name in ("tests", "test"):
-            candidate = project_path / name
-            if candidate.exists():
-                pytest_dir = candidate
-                break
-        if pytest_dir.exists() or list(project_path.glob("test_*.py")):
-            if test_files:
-                files_str = ' '.join(test_files)
-                return f"cd /app && python -m pytest -v --tb=short -q --color=no {files_str}"
-            return "cd /app && python -m pytest -v --tb=short -q --color=no"
-
-        if test_files:
-            files_str = ' '.join(test_files)
-            return f"cd /app && python -m pytest -v --tb=short -q --color=no {files_str}"
-        return "cd /app && python -m pytest -v --tb=short -q --color=no"
-
     def _collect_all_tests(self) -> List[str]:
         """收集所有测试文件"""
         test_files = []
         for pattern in ["test_*.py", "tests/**/*.py", "test/**/*.py", "**/*.test.js", "**/*.spec.js"]:
             test_files.extend(str(f) for f in self.output_dir.glob(pattern))
         return test_files
-
-    async def _run_tests_in_docker(self, test_command: str) -> Optional[Dict[str, Any]]:
-        try:
-            from app.utils.docker_runner import (
-                DockerRunner, DockerSecurityConfig,
-                DOCKER_AVAILABLE, ValidationResult
-            )
-            from app.utils.service_container_manager import detect_project_services
-        except ImportError:
-            logger.info("DockerRunner 不可用，回退到本地 TestRunner")
-            return None
-
-        if not DOCKER_AVAILABLE:
-            logger.info("Docker 库未安装，回退到本地 TestRunner")
-            return None
-
-        try:
-            from app.agent.framework_detector import FrameworkDetector
-
-            required_services = detect_project_services(self.output_dir)
-            detected_config = FrameworkDetector().detect(self.output_dir)
-
-            config = DockerSecurityConfig(
-                network_enabled=len(required_services) > 0,
-                remove=True
-            )
-            docker_runner = DockerRunner(config=config, timeout=120)
-
-            req_path = self.output_dir / "requirements.txt"
-            pkg_path = self.output_dir / "package.json"
-
-            install_deps = req_path.exists() or pkg_path.exists()
-
-            try:
-                result: ValidationResult = await docker_runner.run_validation(
-                    project_path=self.output_dir,
-                    requirements_path=req_path if req_path.exists() else None,
-                    test_command=test_command,
-                    install_deps=install_deps,
-                    auto_detect_framework=True,
-                    required_services=required_services,
-                )
-            finally:
-                try:
-                    await docker_runner.cleanup()
-                except Exception as e:
-                    logger.debug(f"Docker 清理失败：{e}")
-
-            summary = {
-                "success": result.success,
-                "total": 0,
-                "passed": 0,
-                "failed": 0,
-                "errors": len(result.errors),
-                "failed_tests": [],
-                "logs_preview": "\n".join(result.logs[:50])[:1000],
-                "method": "docker"
-            }
-
-            from app.agent.output_parser import OutputParser
-
-            output_format = "pytest_xml"
-            if detected_config:
-                output_format = detected_config.output_format
-
-            raw_output = "\n".join(result.logs)
-            parsed = OutputParser.parse(raw_output, output_format)
-            summary["passed"] = parsed.passed
-            summary["failed"] = parsed.failed
-            summary["total"] = parsed.passed + parsed.failed
-            if parsed.errors:
-                summary["errors"] = len(parsed.errors)
-                summary["failed_tests"] = [e[:100] for e in parsed.errors[:20]]
-
-            self._report_progress(
-                PROGRESS_LABELS.get("tests_finished", "测试完成"),
-                1, 1,
-                phase="testing",
-                **summary
-            )
-
-            if not result.success:
-                self.warnings.append(f"Docker 测试失败: {result.error or 'exit_code=' + str(result.exit_code)}")
-                self._report_progress(
-                    PROGRESS_LABELS.get("tests_failed_recovering", "测试失败"),
-                    1, 1, phase="testing"
-                )
-
-            logger.info(f"Docker 测试完成 | success={result.success} | 容器已自动释放")
-            return summary
-
-        except RuntimeError as e:
-            logger.warning(f"Docker 不可用: {e}，回退到本地 TestRunner")
-            return None
-        except Exception as e:
-            logger.error(f"Docker 测试异常: {e}，回退到本地 TestRunner")
-            return None
