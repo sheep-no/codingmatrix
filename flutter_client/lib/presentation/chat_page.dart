@@ -265,10 +265,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   Future<void> _showHistory() async {
     if (_historyBusy) return;
+    // Captured so an account switch while the request is in flight cannot open
+    // the previous account's sheet over the next one.
+    final version = _sendVersion;
     setState(() => _historyBusy = true);
     try {
       await ref.read(chatControllerProvider.notifier).loadHistory();
-      if (!mounted) return;
+      if (!mounted || version != _sendVersion) return;
       final history = ref.read(chatControllerProvider).history;
       await showModalBottomSheet<void>(
         context: context,

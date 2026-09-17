@@ -929,4 +929,39 @@ void main() {
     expect(find.text('暂无历史会话'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('切账号后旧账号的历史弹层不会弹出', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final scoped = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+    addTearDown(scoped.dispose);
+    api.historyGate = Completer<Object?>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: scoped,
+        child: const MaterialApp(home: ChatPage()),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('chatHistoryButton')));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    api.historyGate!.complete({
+      'items': [
+        {'conversation_id': 1, 'prompt': '上一账号的会话'},
+      ],
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.text('上一账号的会话'), findsNothing);
+    expect(find.text('暂无历史会话'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }
