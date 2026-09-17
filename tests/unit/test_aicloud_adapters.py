@@ -100,7 +100,7 @@ class TestBaseProviderAdapter:
         messages = [{"role": "user", "content": "test"}]
         
         body = adapter._build_request_body(
-            model="deepseek-ai/DeepSeek-R1",
+            model="deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
             messages=messages,
             stream=False,
             temperature=0.7,
@@ -112,14 +112,14 @@ class TestBaseProviderAdapter:
         assert body["extra_body"]["thinking_budget"] == 4096
     
     def test_is_reasoning_model(self):
-        """测试 reasoning 模型判断"""
+        """测试 reasoning 模型判断（由 data/agent_model_config.yaml 驱动）"""
         from app.utils.aicloud.adapters.siliconflow import SiliconFlowAdapter
-        
+
         adapter = SiliconFlowAdapter()
-        
-        assert adapter._is_reasoning_model("deepseek-ai/DeepSeek-R1") is True
-        assert adapter._is_reasoning_model("deepseek-reasoner") is True
-        assert adapter._is_reasoning_model("THUDM/GLM-Z1-9B-0414-thinking") is True
+
+        assert adapter._is_reasoning_model("deepseek-ai/DeepSeek-R1-0528-Qwen3-8B") is True
+        assert adapter._is_reasoning_model("glm-z1-flash") is True
+        assert adapter._is_reasoning_model("THUDM/GLM-Z1-9B-0414") is False
         assert adapter._is_reasoning_model("Qwen/Qwen3.5-4B") is False
         assert adapter._is_reasoning_model("gpt-4o") is False
 

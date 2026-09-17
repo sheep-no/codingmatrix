@@ -31,6 +31,11 @@ PPT_DEFAULT_MODEL = DEFAULT_PPT_MODEL
 AUTO_SLIDE_MAX = 20
 
 
+def _is_api_key_error(exc: Exception) -> bool:
+    """Key 缺失或失效属配置类错误，重试与模板降级都会掩盖真实原因。"""
+    return getattr(exc, "status_code", None) == 401
+
+
 def extract_completed_slide_objects(buffer: str) -> List[Dict[str, Any]]:
     """Return fully closed objects from a partial JSON `slides` array."""
     if not buffer:
@@ -221,6 +226,9 @@ class PPTAgent:
                     return outline
 
             except Exception as e:
+                if _is_api_key_error(e):
+                    logger.error(f"LLM 调用失败（配置类错误，不重试）: {e}")
+                    raise
                 logger.warning(f"LLM 调用失败 (尝试 {attempt}/{self.MAX_RETRIES}): {e}")
                 if attempt < self.MAX_RETRIES:
                     await asyncio.sleep(2 ** attempt)
@@ -291,6 +299,9 @@ class PPTAgent:
                     yield {"type": "complete", "outline": outline}
                     return
             except Exception as exc:
+                if _is_api_key_error(exc):
+                    logger.error(f"流式大纲失败（配置类错误，不重试）: {exc}")
+                    raise
                 logger.warning(f"流式大纲失败 (尝试 {attempt}/{self.MAX_RETRIES}): {exc}")
                 if attempt < self.MAX_RETRIES:
                     await asyncio.sleep(2 ** attempt)

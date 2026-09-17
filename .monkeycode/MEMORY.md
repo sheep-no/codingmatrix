@@ -96,6 +96,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 测试运行命令：`python3 -m pytest tests/unit/ -v`
   - 项目使用自定义 pytest 标记：`unit`, `integration`, `database`, `security`, `agent`, `monitoring`, `logging`, `guardian`；这些标记未在 `pyproject.toml` 注册，只产生警告不影响执行。
   - 测试目录：单元 `tests/unit/`、集成 `tests/integration/`、E2E `tests/e2e/`、前端配置 `tests/frontend/`（需 Vitest）；测试状态报告在 `testing/TEST-STATUS-UPDATE-*.md`。
+  - `pyproject.toml` 的 `testpaths` 只收集 `tests/unit/` 与 `tests/integration/`，放在被测模块旁的测试文件（如 `app/utils/aicloud/test_*.py`）永远不会被执行；新增测试一律放 `tests/unit/`，迁移后用 `python3 -m pytest <路径> -q` 确认已被收集。
 
 ### 误报类修复的验证与回归流程
 - Date: 2026-09-15
@@ -318,11 +319,13 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 
 ### PPT 生成页真实端到端验收
 - Date: 2026-09-16
-- Context: Agent 在验收 PPT 大纲与成片内容质量时发现
+- Context: Agent 在验收 PPT 大纲与成片内容质量时发现；2026-09-17 按 Key 失效修复更新
 - Category: 测试方法
 - Instructions:
   - `/ppt-generate` 点「一键生成 PPT」会先校验前端 SiliconFlow Key 状态，缺失时直接跳转 `/settings`，脚本会误判为「点击无效」；须在 `addInitScript` 中写入 `localStorage.codingmatrix_apikeys`（`provider=siliconflow`、`enabled=true`、`expires_at` 未过期）才能进入大纲流程。
-  - 后端在没有有效 `api_key_token` 时会回退到全局模型配置，因此无需真实供应商 Key 即可完成大纲与成片验收；真实大纲约 10 秒、成片约数秒。
+  - 不传 `api_key_token`（字段缺省或 `null`）时后端跳过用户 Key 分支，回退到系统默认路由，无需真实供应商 Key 即可完成大纲与成片验收；真实大纲约 10 秒、成片约数秒。
+  - 传了无效/过期 `api_key_token`（如少于 30 字符的探针值）时后端返回 401，SSE 给出 `{"type":"error","message":"用户 API Key 未找到或已过期，请重新配置"}`，前端弹出对应错误且不生成大纲；这是预期契约，不要再据此预期「静默成功」。
+  - 验收 Key 失效路径时用反向探针：断言 SSE 含 `"type": "error"`、`.outline-slide-editor` 数量为 0、错误提示 3 秒左右即出现（无 3 次重试）。
   - 生成完成后 `workflowStep` 仍为 3，进度是否「不丢」以外层容器判断：生成中为 `.generation-live`，完成为 `.success-container`。
 
 ### 本地服务重启

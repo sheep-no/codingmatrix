@@ -67,6 +67,7 @@ from app.services.ppt_generation_persistence import (
 )
 from app.services.ppt_quality_orchestrator import run_quality_pipeline
 from app.utils.pptx.semantic_renderer import build_render_metadata
+from app.utils.aicloud.llm_caller import LLMCallError
 from app.utils.pptx.semantic_renderer import normalize_slide_type
 from app.utils.pptx.templates.manager import TemplateManager
 from app.utils.pptx.commercial_content import (
@@ -136,6 +137,8 @@ async def create_ppt_outline(
                 yield f"data: {json.dumps({'type': 'error', 'message': '素材文件不存在'}, ensure_ascii=False)}\n\n"
             except ValueError as exc:
                 yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
+            except LLMCallError as exc:
+                yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
             except Exception:
                 logger.exception("PPT outline stream failed")
                 yield f"data: {json.dumps({'type': 'error', 'message': '大纲生成失败'}, ensure_ascii=False)}\n\n"
@@ -151,6 +154,8 @@ async def create_ppt_outline(
         raise HTTPException(status_code=404, detail="素材文件不存在")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except LLMCallError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
 
 
 @router.get("/pptx/outlines/{outline_id}", response_model=OutlineDraft)
