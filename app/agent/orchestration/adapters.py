@@ -15,7 +15,7 @@ from .models import OrchestrationState
 from .plan import GenerationPlan, build_file_plan, normalize_plan_path
 from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan, add_profile_components
 from app.agent.contract_index import ContractIndex
-from app.agent.change_plan import ChangePlan
+from app.agent.change_plan import ChangePlan, collapse_change_items, expand_change_plan_for_missing_exports
 from app.agent.project_snapshot import ProjectSnapshot
 from app.agent.declarative_contracts import ContractDeclaration, validate_candidate
 from app.agent.languages import get_language_adapter
@@ -45,6 +45,101 @@ class AdapterResult:
 
     success: bool
     result: Mapping[str, Any]
+
+
+def preserved_local_import_gaps(
+    language_adapter: Any,
+    file_path: str,
+    original_content: str,
+    new_content: str,
+    known_files: Sequence[str],
+) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+    """Return diagnostics and original import lines dropped from a modify candidate."""
+    known = {str(path).replace("\\", "/") for path in known_files}
+
+    def local_imports(content: str) -> Tuple[set[str], list[str]]:
+        paths: set[str] = set()
+        raw_lines: list[str] = []
+        if not content or language_adapter is None:
+            return paths, raw_lines
+        for info in language_adapter.parse_imports(content, file_path):
+            for candidate in language_adapter.resolve_import_to_file(info, file_path):
+                normalized = str(candidate).replace("\\", "/")
+                if normalized in known:
+                    paths.add(normalized)
+                    raw = str(getattr(info, "raw_line", "") or "").strip()
+                    if raw and raw not in raw_lines:
+                        raw_lines.append(raw)
+        return paths, raw_lines
+
+    original_paths, original_lines = local_imports(original_content)
+    new_paths, _ = local_imports(new_content)
+    missing_paths = original_paths - new_paths
+    missing_lines = tuple(
+        line for line in original_lines
+        if line not in new_content
+    )
+    if not missing_paths and not missing_lines:
+        return (), ()
+    diagnostics = tuple(
+        f"incremental modify dropped local import of {path}"
+        for path in sorted(missing_paths)
+    )
+    if missing_lines and not missing_paths:
+        diagnostics = ("incremental modify narrowed local import",)
+    return diagnostics, missing_lines
+
+
+def restore_dropped_import_lines(content: str, missing_lines: Sequence[str]) -> str:
+    """Reinsert dropped local import lines at the top of a modified file."""
+    lines = [str(line).strip() for line in missing_lines if str(line).strip()]
+    lines = [line for line in lines if line not in content]
+    if not lines:
+        return content
+    content_lines = content.splitlines(True)
+    used: set[str] = set()
+    for missing in lines:
+        key = _import_statement_key(missing)
+        for idx, existing in enumerate(content_lines):
+            body, ending = _split_line_ending(existing)
+            stripped = body.lstrip()
+            leading = body[: len(body) - len(stripped)] if stripped else ""
+            if _import_statement_key(stripped) == key:
+                content_lines[idx] = f"{leading}{missing}{ending}"
+                used.add(missing)
+                break
+    content = "".join(content_lines)
+    remaining = [line for line in lines if line not in used and line not in content]
+    if not remaining:
+        return content
+    prefix = "\n".join(remaining) + "\n"
+    if content.startswith("#!") or content.startswith("# -*-") or content.startswith("# coding"):
+        first, _, rest = content.partition("\n")
+        return f"{first}\n{prefix}{rest}"
+    return prefix + content
+
+
+def _import_statement_key(line: str) -> str:
+    text = line.strip()
+    if text.startswith("from ") and " import " in text:
+        return text.split(" import ", 1)[0].strip() + " import"
+    if text.startswith("import ") and " from " in text:
+        return "from " + text.rsplit(" from ", 1)[1].strip()
+    if text.startswith("import "):
+        rest = text[len("import "):]
+        return "import " + rest.split(" as ", 1)[0].strip()
+    if "require(" in text:
+        start = text.find("require(")
+        return text[start:]
+    return text
+
+
+def _split_line_ending(line: str) -> Tuple[str, str]:
+    if line.endswith("\r\n"):
+        return line[:-2], "\r\n"
+    if line.endswith("\n"):
+        return line[:-1], "\n"
+    return line, ""
 
 
 class GenerationModeAdapter(Protocol):
@@ -353,6 +448,27 @@ class _PlannedAgentAdapter:
         names = ("architect_model", "frontend_model", "backend_model", "reviewer_model", "fallback_model")
         return {name: str(getattr(assignment, name)) for name in names if getattr(assignment, name, None)}
 
+    def _emit_generated_file_events(
+        self,
+        file_path: str,
+        content: str,
+        file_info: Mapping[str, Any],
+        original_content: str = "",
+    ) -> None:
+        if not content:
+            return
+        action = str(file_info.get("action") or "modify")
+        operation = "create" if action == "add" else "modify"
+        description = str(file_info.get("description") or file_info.get("reason") or "")
+        file_type = str(file_info.get("file_type") or "")
+        reporter = getattr(self.agent, "_report_file_event", None)
+        if callable(reporter):
+            reporter(file_path, content, description, file_type, operation=operation)
+        if original_content and original_content != content:
+            diff_reporter = getattr(self.agent, "_report_file_diff_event", None)
+            if callable(diff_reporter):
+                diff_reporter(file_path, original_content, content, operation=operation)
+
     def _freeze_plan(
         self,
         entries: Sequence[Mapping[str, Any]],
@@ -587,6 +703,24 @@ class _PlannedAgentAdapter:
                 "Frozen HTTP contracts are authoritative: implement their method, path, status, fields, and serialization exactly; report contract_gap for missing details instead of inventing changes.",
             ],
         }
+        original_content = str(file_info.get("original_content") or "")
+        if original_content and str(file_info.get("action") or "modify") != "add":
+            contract_context["original_content"] = original_content[:8000]
+            contract_context["modification_reason"] = str(
+                file_info.get("reason") or file_info.get("description") or ""
+            )
+            contract_context["rules"].extend([
+                "This is an incremental modify of target_file. Apply only modification_reason to this file.",
+                "Keep existing local imports to other project files, including the original imported symbol lists; do not copy those modules' implementations into this file.",
+                "Keep this file's original role and export boundary.",
+            ])
+            self._project_context["original_content"] = original_content
+            self._project_context["modification_reason"] = contract_context["modification_reason"]
+            self._project_context["is_modification"] = True
+        else:
+            self._project_context.pop("original_content", None)
+            self._project_context.pop("modification_reason", None)
+            self._project_context.pop("is_modification", None)
         previous_diagnostics = tuple(getattr(context, "previous_diagnostics", ()))
         if previous_diagnostics:
             contract_context["retry_feedback"] = list(previous_diagnostics)
@@ -692,10 +826,29 @@ class _PlannedAgentAdapter:
             _, contract_diagnostics = self._validate_candidate_contract(
                 context.file_path, content
             )
+        original_content = str(file_info.get("original_content") or "")
+        if language_adapter is not None and original_content and str(file_info.get("action") or "modify") != "add":
+            known_files = tuple(self._file_entries) + tuple(self.preserved_paths)
+            dropped, missing_lines = preserved_local_import_gaps(
+                language_adapter, context.file_path, original_content, content, known_files,
+            )
+            if missing_lines:
+                restored = restore_dropped_import_lines(content, missing_lines)
+                if restored != content:
+                    content = restored
+                    self._generated_contents[context.file_path] = content
+                    dropped, _ = preserved_local_import_gaps(
+                        language_adapter, context.file_path, original_content, content, known_files,
+                    )
+            if dropped:
+                contract_diagnostics = contract_diagnostics + dropped
         if contract_diagnostics:
             validation_passed = False
         if validation_passed and hasattr(self.agent, "_validate_content_syntax"):
             validation_passed = bool(await self.agent._validate_content_syntax(context.file_path, content))
+        self._emit_generated_file_events(
+            context.file_path, content, file_info, original_content,
+        )
         return GeneratedContent(
             content=content,
             model_name=str(result.get("model") or model_name),
@@ -964,6 +1117,8 @@ class IncrementalAdapter(_PlannedAgentAdapter):
             if not graph.nodes:
                 raise RuntimeError("incremental Core generation could not rebuild the dependency graph")
             graph.save(str(self.output_dir / ".dep_graph.json"))
+        if isinstance(graph, DependencyGraph):
+            graph.enrich_and_save(self.output_dir)
         self._dependency_graph = graph
         adjacency = getattr(graph, "adjacency", {})
 
@@ -987,12 +1142,22 @@ class IncrementalAdapter(_PlannedAgentAdapter):
                 for change in changes
                 if normalize_plan_path(str(change.get("path", ""))) in allowed_files
             ]
-        if not changes:
-            raise ValueError("incremental change plan must contain at least one affected file")
         snapshot = ProjectSnapshot.scan(
             self.output_dir,
             revision=str(request.metadata.get("base_revision") or "working-tree"),
         )
+        changes = collapse_change_items(changes, known_paths=snapshot.hashes())
+        adapter = getattr(graph, "language_adapter", None)
+        if adapter is None:
+            adapter = LanguageAdapterRegistry.get_adapter(language)
+        changes = expand_change_plan_for_missing_exports(
+            changes,
+            output_dir=self.output_dir,
+            language_adapter=adapter,
+            known_files=snapshot.hashes(),
+        )
+        if not changes:
+            raise ValueError("incremental change plan must contain at least one affected file")
         try:
             self.change_plan = ChangePlan.build(snapshot, changes)
         except ValueError as exc:

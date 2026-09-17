@@ -421,3 +421,46 @@ class TestExtByLang:
     def test_go_mappings(self):
         assert _EXT_BY_LANG["go"] == ".go"
         assert _EXT_BY_LANG["golang"] == ".go"
+
+
+class TestWriteSyntaxWarning:
+    """写前语法警告复用共享校验器，不能把合法 TS/Vue/HTML 片段判为错误。"""
+
+    def test_typescript_type_annotations_are_accepted(self):
+        from app.agent.tools import _validate_file_syntax
+
+        assert _validate_file_syntax("src/api.ts", "export const n: number = 1;\n") == ""
+
+    def test_vue_single_file_component_is_accepted(self):
+        from app.agent.tools import _validate_file_syntax
+
+        content = (
+            "<template><div>hi</div></template>\n"
+            "<script>export default { name: 'A' }</script>\n"
+        )
+
+        assert _validate_file_syntax("src/App.vue", content) == ""
+
+    def test_html_fragment_with_markup_inside_script_string_is_accepted(self):
+        from app.agent.tools import _validate_file_syntax
+
+        content = '<script>\nconst t = "<body>";\n</script>\n'
+
+        assert _validate_file_syntax("partial.html", content) == ""
+
+    def test_css_delimiters_inside_strings_and_comments_are_accepted(self):
+        from app.agent.tools import _validate_file_syntax
+
+        content = '/* } */\nbody::after {\n  content: "}";\n  background: url("a(b");\n}\n'
+
+        assert _validate_file_syntax("styles.css", content) == ""
+
+    def test_real_defects_are_still_reported(self):
+        from app.agent.tools import _validate_file_syntax
+
+        assert _validate_file_syntax("app.py", "def f(:\n").startswith("Python 语法错误")
+        assert "JavaScript 语法错误" in _validate_file_syntax("a.js", "const x = ;\n")
+        assert "</script>" in _validate_file_syntax(
+            "broken.html", "<html><body><script>var a=1;</body></html>"
+        )
+        assert "大括号不匹配" in _validate_file_syntax("broken.css", "body {\n  margin: 0;\n")

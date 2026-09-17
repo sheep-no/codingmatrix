@@ -71,6 +71,7 @@
           :validation-results="workspace.validationResults"
           :generated-files="generatedFiles"
           :tool-events="workspace.toolEvents"
+          :pipeline-mode="workspace.pipelineMode"
           @select-decision="(id, label) => workspace.decisionAnswers[id] = label"
           @select-file="selectFile"
           @use-default="(id) => { const d = workspace.pendingDecisions.find(x => x.id === id); if (d?.default) workspace.decisionAnswers[id] = d.default }"
@@ -131,7 +132,7 @@
 
     <!-- Modals -->
     <UploadModal v-model="backend.showUploadModal" @upload="(f) => handleFileSelect(f)" />
-    <SettingsModal v-model="backend.showSettingsModal" :settings="backend.settings" :concurrent-limits="backend.concurrentLimits" :cache-stats="backend.cacheStats" @save="saveSettings" @copy="copySettingsToClipboard" @export="exportPerformanceData" @clear-cache="clearBackendCache" @open-api-key="goToApiKeySettings" @open-model-config="goToModelConfig" />
+    <SettingsModal v-model="backend.showSettingsModal" :settings="backend.settings" :concurrent-limits="backend.concurrentLimits" :cache-stats="backend.cacheStats" @save="saveSettings" @copy="copySettingsToClipboard" @export="exportPerformanceData" @clear-cache="clearBackendCache" @open-api-key="goToApiKeySettings" @open-model-config="goToModelConfig" @open-github="goToGithubConfig" />
     <LearningModal v-model="backend.showLearningModal" :learning-stats="backend.learningStats" />
     <PerformanceModal v-model="backend.showPerformanceModal" :performance-stats="backend.performanceStats" />
     <VersionHistoryModal v-model="backend.showVersionHistoryModal" :file="selectedFile" :file-versions="backend.fileVersions" :snapshots="backend.backendSnapshots" @restore="(i) => restoreVersion(i)" @view-diff="(i) => viewVersionDiff(i)" @rollback="rollback" />
@@ -258,6 +259,11 @@ const goToModelConfig = () => {
   router.push('/settings?tab=agent')
 }
 
+const goToGithubConfig = () => {
+  backend.showSettingsModal = false
+  router.push('/settings?tab=github')
+}
+
 // ========== Unwrapped values ==========
 const sessionId = computed(() => session.currentSessionId)
 const sessionHistory = computed(() => session.sessionHistory)
@@ -348,6 +354,7 @@ const clearAllState = () => {
   workspace.executionDetails = []
   workspace.logs = []
   workspace.toolEvents = []
+  workspace.pipelineMode = null
   session.currentSessionId = null
   workspace.currentProjectPath = null
   session.projectPrompt = ''
@@ -513,11 +520,7 @@ const openPerformancePanel = () => backend.openPerformancePanel()
 const analyzeRequirementComplexity = (p) => backend.analyzeRequirementComplexity(p)
 const doOpenVersionHistory = (f) => backend.openVersionHistoryWithBackend(f, session.currentSessionId)
 const saveProjectToBackend = () => backend.saveProjectToBackend()
-const handleFileSelect = (f) => workspace.handleFileSelect(f, {
-  zip: backend.uploadingZip,
-  progress: backend.importProgress,
-  show: backend.showUploadModal
-})
+const handleFileSelect = (f) => workspace.handleFileSelect(f, backend)
 const saveSettings = (localSettings) => {
   backend.settings = localSettings
   backend.saveSettings()

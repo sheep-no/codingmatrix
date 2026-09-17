@@ -40,6 +40,13 @@ class _Agent:
         self.complexity = object()
         self.callback = None
         self.output_dir = Path(tmp_path)
+        self.model_assignment = SimpleNamespace(
+            architect_model="test-architect",
+            frontend_model="test-frontend",
+            backend_model="test-backend",
+            reviewer_model="test-reviewer",
+            fallback_model="test-fallback",
+        )
 
     async def _initialize_components(self, requirement):
         self.initialized_requirement = requirement
@@ -100,6 +107,171 @@ async def test_typescript_syntax_validation_rejects_invalid_syntax():
     content = "export class Broken { check(: string { return 'bad'; } }\n"
 
     assert not await SpecFirstGenerateMixin()._validate_content_syntax("src/main.ts", content)
+
+
+@pytest.mark.asyncio
+async def test_js_syntax_validation_accepts_es_module_and_class():
+    content = "import { api } from './api'\n\nexport class App {\n  run() { return api }\n}\n"
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("web/app.js", content)
+
+
+@pytest.mark.asyncio
+async def test_js_syntax_validation_rejects_python_code():
+    content = "def main():\n    return 1\n"
+
+    assert not await SpecFirstGenerateMixin()._validate_content_syntax("web/app.js", content)
+
+
+@pytest.mark.asyncio
+async def test_js_syntax_validation_survives_node_timeout(monkeypatch):
+    """node 超时时必须走启发式回退而非崩溃（回退分支曾引用未定义的 re）。"""
+    import subprocess
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="node", timeout=5)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    content = "import { api } from './api'\n\nexport class App {\n  run() { return api }\n}\n"
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("web/app.js", content)
+
+
+@pytest.mark.asyncio
+async def test_js_syntax_validation_survives_node_signal_kill(monkeypatch):
+    """node 被信号终止（如 OOM，返回码为负）属环境异常，不能判为语法错误。"""
+    import subprocess
+
+    def fake_run(*args, **kwargs):
+        return SimpleNamespace(returncode=-9, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    content = "export class App {\n  run() { return 1 }\n}\n"
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("web/app.js", content)
+
+
+@pytest.mark.asyncio
+async def test_js_syntax_validation_fallback_still_rejects_python_code(monkeypatch):
+    """启发式回退仍须拦截 Python 专有语法。"""
+    import subprocess
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="node", timeout=5)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert not await SpecFirstGenerateMixin()._validate_content_syntax(
+        "web/app.js", "def main():\n    return 1\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_js_family_extensions_accept_valid_sources():
+    """mjs/cjs/jsx/tsx 必须走 JS/TS 校验，而不是被静默跳过。"""
+    mixin = SpecFirstGenerateMixin()
+
+    assert await mixin._validate_content_syntax("src/a.mjs", "export const x = 1\n")
+    assert await mixin._validate_content_syntax("src/a.cjs", "module.exports = 1\n")
+    assert await mixin._validate_content_syntax(
+        "src/App.jsx", 'export default function App() { return <div className="a">hi</div> }\n'
+    )
+    assert await mixin._validate_content_syntax(
+        "src/App.tsx", "export const A = (): JSX.Element => <div>hi</div>\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_js_family_extensions_reject_python_code():
+    mixin = SpecFirstGenerateMixin()
+    python_source = "def main():\n    return 1\n"
+
+    for path in ("src/a.mjs", "src/a.cjs", "src/App.jsx", "src/App.tsx"):
+        assert not await mixin._validate_content_syntax(path, python_source), path
+
+
+@pytest.mark.asyncio
+async def test_mjs_and_cjs_use_real_node_syntax_check():
+    """括号平衡、非 Python 的 JS 语法错误只能由 node -c 拦截。"""
+    mixin = SpecFirstGenerateMixin()
+
+    for path in ("src/a.mjs", "src/a.cjs"):
+        assert not await mixin._validate_content_syntax(path, "const x = ;\n"), path
+
+
+@pytest.mark.asyncio
+async def test_html5_optional_closing_tags_are_accepted():
+    """HTML5 允许省略 </head>/</body>，只要文档以 </html> 结束。"""
+    content = (
+        '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <title>x</title>\n'
+        "<body>\n  <p>hi</p>\n</html>\n"
+    )
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("templates/index.html", content)
+
+
+@pytest.mark.asyncio
+async def test_html_markup_inside_script_string_is_not_a_structure_error():
+    content = '<script>\nconst t = "<body>";\n</script>\n'
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("templates/partial.html", content)
+
+
+@pytest.mark.asyncio
+async def test_html_and_css_real_defects_are_still_rejected():
+    mixin = SpecFirstGenerateMixin()
+
+    assert not await mixin._validate_content_syntax(
+        "templates/broken.html", "<html><body><script>var a=1;</body></html>"
+    )
+    assert not await mixin._validate_content_syntax("static/broken.css", "body {\n  margin: 0;\n")
+
+
+@pytest.mark.asyncio
+async def test_css_delimiters_inside_strings_and_comments_are_accepted():
+    content = '/* } */\nbody::after {\n  content: "}";\n  background: url("a(b");\n}\n'
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("static/styles.css", content)
+
+
+@pytest.mark.asyncio
+async def test_vue_tsx_script_block_is_validated():
+    """<script lang="tsx"> 的 JSX 内容不应被误判为语法失败。"""
+    content = '<script lang="tsx">export const A = () => <div>x</div></script>\n'
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("src/App.vue", content)
+
+
+@pytest.mark.asyncio
+async def test_vue_syntax_validation_accepts_single_file_component():
+    content = (
+        "<template>\n  <div>{{ msg }}</div>\n</template>\n\n"
+        "<script>\nexport default {\n  data() { return { msg: 'hi' } }\n}\n</script>\n\n"
+        "<style scoped>\ndiv { color: red; }\n</style>\n"
+    )
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("src/App.vue", content)
+
+
+@pytest.mark.asyncio
+async def test_vue_syntax_validation_rejects_broken_script_block():
+    content = "<template><div/></template>\n<script>\nconst x = ;\n</script>\n"
+
+    assert not await SpecFirstGenerateMixin()._validate_content_syntax("src/App.vue", content)
+
+
+@pytest.mark.asyncio
+async def test_css_syntax_validation_accepts_braces_inside_comments_and_strings():
+    content = '/*\n * 这段注释用于说明整体样式设计思路\n * 以及响应式断点的处理方式说明\n * 还有更多补充说明文字用于描述样式\n * 最后再补充一行说明用于触发检测阈值\n */\nbody::after {\n  content: "}";\n}\n'
+
+    assert await SpecFirstGenerateMixin()._validate_content_syntax("src/styles.css", content)
+
+
+@pytest.mark.asyncio
+async def test_css_syntax_validation_rejects_unbalanced_braces():
+    content = "body {\n  margin: 0;\n"
+
+    assert not await SpecFirstGenerateMixin()._validate_content_syntax("src/styles.css", content)
 
 
 @pytest.mark.asyncio
@@ -1537,3 +1709,289 @@ async def test_runtime_feedback_survives_transaction_rollback_and_checkpoint(tmp
     assert set(hashes) == {"changed.py", "stable.py"}
     assert hashes["changed.py"] == hashlib.sha256(b"# changed.py\n").hexdigest()
     assert feedback["candidate_fingerprint"] == hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
+
+
+def test_preserved_local_import_gaps_restore_dropped_calc_import():
+    from app.agent.adapters.python import PythonLanguageAdapter
+    from app.agent.orchestration.adapters import (
+        preserved_local_import_gaps,
+        restore_dropped_import_lines,
+    )
+
+    adapter = PythonLanguageAdapter()
+    original = "from calc import add, subtract, multiply\nprint(add(1, 2)\n"
+    collapsed = (
+        "def add(a, b):\n    return a + b\n"
+        "def subtract(a, b):\n    return a - b\n"
+        "print(add(1, 2))\n"
+    )
+    diagnostics, missing = preserved_local_import_gaps(
+        adapter, "main.py", original, collapsed, ("main.py", "calc.py"),
+    )
+    assert diagnostics == ("incremental modify dropped local import of calc.py",)
+    assert missing == ("from calc import add, subtract, multiply",)
+    restored = restore_dropped_import_lines(collapsed, missing)
+    assert restored.startswith("from calc import add, subtract, multiply\n")
+    remaining, _ = preserved_local_import_gaps(
+        adapter, "main.py", original, restored, ("main.py", "calc.py"),
+    )
+    assert remaining == ()
+
+
+def test_preserved_local_import_gaps_restore_narrowed_symbols():
+    from app.agent.adapters.python import PythonLanguageAdapter
+    from app.agent.orchestration.adapters import (
+        preserved_local_import_gaps,
+        restore_dropped_import_lines,
+    )
+
+    adapter = PythonLanguageAdapter()
+    original = "from calc import add, subtract, multiply\nprint(add(1, 2))\n"
+    narrowed = (
+        "from calc import add, subtract\n"
+        "print(add(1, 2))\n"
+        "print(subtract(5, 3))\n"
+        "print(4 * 6)\n"
+    )
+    diagnostics, missing = preserved_local_import_gaps(
+        adapter, "main.py", original, narrowed, ("main.py", "calc.py"),
+    )
+    assert diagnostics == ("incremental modify narrowed local import",)
+    assert missing == ("from calc import add, subtract, multiply",)
+    restored = restore_dropped_import_lines(narrowed, missing)
+    assert restored.splitlines()[0] == "from calc import add, subtract, multiply"
+    assert restored.count("from calc import") == 1
+    remaining, leftover = preserved_local_import_gaps(
+        adapter, "main.py", original, restored, ("main.py", "calc.py"),
+    )
+    assert remaining == ()
+    assert leftover == ()
+
+
+@pytest.mark.asyncio
+async def test_incremental_adapter_restores_dropped_local_imports(tmp_path):
+    (tmp_path / "calc.py").write_text(
+        "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    pass\n",
+        encoding="utf-8",
+    )
+    original_main = "from calc import add, subtract, multiply\n\nprint(add(1, 2)\n"
+    (tmp_path / "main.py").write_text(original_main, encoding="utf-8")
+    collapsed = (
+        "def add(a, b):\n    return a + b\n"
+        "def subtract(a, b):\n    return a - b\n"
+        "def multiply(a, b):\n    return a * b\n"
+        "print(add(1, 2))\n"
+    )
+    agent = _CoreFileAgent(tmp_path)
+    agent._generate_file_with_model = AsyncMock(return_value=collapsed)
+    adapter = IncrementalAdapter(agent)
+    await adapter.create_plan(GenerationRequest(
+        requirement="fix subtract and add multiply to the python calculator",
+        task_id="semi-calc",
+        session_id="semi-calc",
+        metadata={
+            "architecture": {"language": "python"},
+            "change_plan": [{
+                "path": "main.py",
+                "action": "modify",
+                "reason": "fix missing parenthesis",
+            }],
+        },
+    ))
+
+    generated = await adapter.generate_file(SimpleNamespace(
+        file_path="main.py", upstream_contents={}, previous_diagnostics=(),
+    ))
+
+    assert generated.content.startswith("from calc import add, subtract, multiply\n")
+    rules = "\n".join(adapter._project_context["generation_contract"]["rules"])
+    assert "Keep existing local imports to other project files, including the original imported symbol lists" in rules
+    assert adapter._project_context["original_content"] == original_main
+    assert adapter._project_context["is_modification"] is True
+
+
+@pytest.mark.asyncio
+async def test_incremental_adapter_emits_file_sse_events(tmp_path):
+    original_main = "from calc import add\nprint(add(1, 2)\n"
+    (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    (tmp_path / "main.py").write_text(original_main, encoding="utf-8")
+    updated = "from calc import add\nprint(add(1, 2))\n"
+    file_events = []
+    diff_events = []
+    agent = _CoreFileAgent(tmp_path)
+    agent._generate_file_with_model = AsyncMock(return_value=updated)
+    agent._report_file_event = lambda *args, **kwargs: file_events.append((args, kwargs))
+    agent._report_file_diff_event = lambda *args, **kwargs: diff_events.append((args, kwargs))
+    adapter = IncrementalAdapter(agent)
+    await adapter.create_plan(GenerationRequest(
+        requirement="fix the missing parenthesis in main.py",
+        task_id="semi-calc-sse",
+        session_id="semi-calc-sse",
+        metadata={
+            "architecture": {"language": "python"},
+            "change_plan": [{
+                "path": "main.py",
+                "action": "modify",
+                "reason": "fix missing parenthesis",
+                "file_type": "entry",
+            }],
+        },
+    ))
+
+    generated = await adapter.generate_file(SimpleNamespace(
+        file_path="main.py", upstream_contents={}, previous_diagnostics=(),
+    ))
+
+    assert generated.content == updated
+    assert file_events == [
+        (("main.py", updated, "fix missing parenthesis", "entry"), {"operation": "modify"}),
+    ]
+    assert diff_events == [
+        (("main.py", original_main, updated), {"operation": "modify"}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_incremental_adapter_expands_missing_export_provider(tmp_path):
+    (tmp_path / "calc.py").write_text(
+        "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    pass\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "main.py").write_text(
+        "from calc import add, subtract, multiply\nprint(add(1, 2)\n",
+        encoding="utf-8",
+    )
+    adapter = IncrementalAdapter(_CoreFileAgent(tmp_path))
+    plan = await adapter.create_plan(GenerationRequest(
+        requirement="implement subtract and multiply",
+        task_id="semi-calc-export",
+        session_id="semi-calc-export",
+        metadata={
+            "architecture": {"language": "python"},
+            "change_plan": [{
+                "path": "main.py",
+                "action": "modify",
+                "reason": "fix parenthesis and call multiply",
+            }],
+        },
+    ))
+
+    assert {item.path for item in plan.files} == {"calc.py", "main.py"}
+    calc_change = next(item for item in adapter.change_plan.changes if item.path == "calc.py")
+    assert calc_change.action.value == "modify"
+    assert "multiply" in calc_change.reason
+
+
+@pytest.mark.asyncio
+async def test_incremental_adapter_restores_narrowed_local_imports(tmp_path):
+    (tmp_path / "calc.py").write_text(
+        "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    pass\n",
+        encoding="utf-8",
+    )
+    original_main = "from calc import add, subtract, multiply\n\nprint(add(1, 2)\n"
+    (tmp_path / "main.py").write_text(original_main, encoding="utf-8")
+    narrowed = (
+        "from calc import add, subtract\n"
+        "print(add(1, 2))\n"
+        "print(subtract(5, 3))\n"
+        "print(4 * 6)\n"
+    )
+    agent = _CoreFileAgent(tmp_path)
+    agent._generate_file_with_model = AsyncMock(return_value=narrowed)
+    adapter = IncrementalAdapter(agent)
+    await adapter.create_plan(GenerationRequest(
+        requirement="fix subtract and add multiply to the python calculator",
+        task_id="semi-calc-narrow",
+        session_id="semi-calc-narrow",
+        metadata={
+            "architecture": {"language": "python"},
+            "change_plan": [{
+                "path": "main.py",
+                "action": "modify",
+                "reason": "fix missing parenthesis",
+            }],
+        },
+    ))
+
+    generated = await adapter.generate_file(SimpleNamespace(
+        file_path="main.py", upstream_contents={}, previous_diagnostics=(),
+    ))
+
+    assert "from calc import add, subtract, multiply" in generated.content
+    assert generated.content.count("from calc import") == 1
+
+
+@pytest.mark.asyncio
+async def test_analyze_changes_reraises_architect_llm_failure(tmp_path):
+    from app.agent.orchestrator_generation.incremental_modify import IncrementalModifyMixin
+
+    mixin = IncrementalModifyMixin()
+    mixin.output_dir = tmp_path
+    mixin.architect = SimpleNamespace(
+        call_llm=AsyncMock(side_effect=RuntimeError("LLM 调用失败: glm-4.7-flash - 429")),
+    )
+
+    with pytest.raises(RuntimeError, match="429"):
+        await mixin._analyze_changes_with_architect(
+            "add divide",
+            "existing calculator",
+            SimpleNamespace(nodes={"calc.py": {}, "main.py": {}}),
+            None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_incremental_adapter_propagates_architect_llm_failure(tmp_path):
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    agent = _Agent(tmp_path)
+    agent._build_project_summary_from_graph = Mock(return_value="existing project")
+    agent._analyze_changes_with_architect = AsyncMock(
+        side_effect=RuntimeError("LLM 调用失败: glm-4.7-flash - 429"),
+    )
+    adapter = IncrementalAdapter(agent)
+
+    with pytest.raises(RuntimeError, match="429"):
+        await adapter.create_plan(GenerationRequest(
+            requirement="add divide",
+            task_id="architect-429",
+            session_id="architect-429",
+            metadata={"architecture": {"language": "python"}},
+        ))
+
+
+@pytest.mark.asyncio
+async def test_analyze_changes_raises_on_architect_non_json(tmp_path):
+    from app.agent.orchestrator_generation.incremental_modify import IncrementalModifyMixin
+
+    mixin = IncrementalModifyMixin()
+    mixin.output_dir = tmp_path
+    mixin.architect = SimpleNamespace(
+        call_llm=AsyncMock(return_value="I cannot produce a change plan right now."),
+    )
+
+    with pytest.raises(ValueError, match="not a JSON array"):
+        await mixin._analyze_changes_with_architect(
+            "add divide",
+            "existing calculator",
+            SimpleNamespace(nodes={"calc.py": {}, "main.py": {}}),
+            None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_incremental_adapter_propagates_architect_json_failure(tmp_path):
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    agent = _Agent(tmp_path)
+    agent._build_project_summary_from_graph = Mock(return_value="existing project")
+    agent._analyze_changes_with_architect = AsyncMock(
+        side_effect=ValueError("architect change plan was not a JSON array: sorry"),
+    )
+    adapter = IncrementalAdapter(agent)
+
+    with pytest.raises(ValueError, match="not a JSON array"):
+        await adapter.create_plan(GenerationRequest(
+            requirement="add divide",
+            task_id="architect-json",
+            session_id="architect-json",
+            metadata={"architecture": {"language": "python"}},
+        ))

@@ -41,6 +41,48 @@ def test_generation_plan_rejects_missing_dependency_and_unsafe_path() -> None:
         ])
 
 
+def test_generation_plan_resolves_module_style_dependencies() -> None:
+    """架构师按提示词在 dependencies 写模块名时，冻结不能误判计划损坏。"""
+    plan = GenerationPlan.from_architecture({
+        "language": "python",
+        "file_plan": [
+            {"path": "app/main.py", "dependencies": ["app.database", "app.routers.users"]},
+            {"path": "app/database.py"},
+            {"path": "app/routers/users.py", "dependencies": ["app.schemas"]},
+            {"path": "app/schemas.py"},
+        ],
+    })
+    dependencies = {item.path: list(item.dependencies) for item in plan.files}
+
+    assert dependencies["app/main.py"] == ["app/database.py", "app/routers/users.py"]
+    assert dependencies["app/routers/users.py"] == ["app/schemas.py"]
+
+
+def test_generation_plan_drops_external_and_self_dependencies() -> None:
+    plan = GenerationPlan.from_architecture({
+        "language": "python",
+        "file_plan": [
+            {"path": "app/main.py", "dependencies": ["fastapi", "sqlalchemy", "os", "app.main"]},
+        ],
+    })
+
+    assert list(plan.files[0].dependencies) == []
+
+
+def test_generation_plan_prefers_package_entry_for_directory_dependency() -> None:
+    plan = GenerationPlan.from_architecture({
+        "language": "javascript",
+        "file_plan": [
+            {"path": "src/index.js", "dependencies": ["src/components"]},
+            {"path": "src/components/index.js"},
+            {"path": "src/components/Card.jsx"},
+        ],
+    })
+
+    dependencies = {item.path: list(item.dependencies) for item in plan.files}
+    assert dependencies["src/index.js"] == ["src/components/index.js"]
+
+
 def test_profile_components_extend_only_extensible_plans() -> None:
     context = {"capability_policy": {"component_file_plan": [
         {"path": "game/rules.py", "component": "rules"},
@@ -78,6 +120,71 @@ def test_interface_registry_rejects_duplicate_public_owner() -> None:
             {"module": "a.py", "owner": "a.py", "exports": ["Todo"]},
             {"module": "b.py", "owner": "b.py", "exports": ["Todo"]},
         ])
+
+
+def test_interface_registry_merges_repeated_module_entries() -> None:
+    """架构师按类逐条输出时同一文件会重复出现，须合并而非中断生成。"""
+    registry = InterfaceRegistry.build([
+        {"module": "app/models.py", "owner": "app/models.py", "exports": ["User"]},
+        {"module": "app/models.py", "owner": "app/models.py", "exports": ["User", "Todo"]},
+    ])
+
+    assert [item.module for item in registry.entries] == ["app/models.py"]
+    assert [symbol.name for symbol in registry.symbols_for("app/models.py")] == ["User", "Todo"]
+
+
+def test_generation_plan_accepts_repeated_module_interfaces() -> None:
+    plan = GenerationPlan.from_architecture({
+        "project_spec": {"language": "python"},
+        "file_plan": [{"path": "app/models.py", "role": "models", "file_type": "models"}],
+        "interfaces": [
+            {"module": "app/models.py", "owner": "app/models.py", "symbols": [{"name": "User"}]},
+            {"module": "app/models.py", "owner": "app/models.py", "symbols": [{"name": "Todo"}]},
+        ],
+    })
+
+    assert [symbol.name for symbol in plan.interfaces.symbols_for("app/models.py")] == ["User", "Todo"]
+
+
+def test_interface_registry_tolerates_architect_symbol_shapes() -> None:
+    """架构师提示未固定 symbol schema，描述性字段与对象形参数不能中断生成。"""
+    registry = InterfaceRegistry.build([
+        {
+            "module": "app/api.py",
+            "owner": "app/api.py",
+            "symbols": [
+                {"name": "get_user", "signature": "get_user(uid: int) -> User", "description": "fetch"},
+                {"name": "find_user", "parameters": [{"name": "uid", "type": "int"}], "return_type": "User"},
+            ],
+        },
+    ])
+
+    assert [(symbol.name, symbol.parameters, symbol.return_type) for symbol in registry.symbols_for("app/api.py")] == [
+        ("get_user", (), None),
+        ("find_user", ("uid: int",), "User"),
+    ]
+
+
+def test_interface_registry_coerces_parameter_mapping() -> None:
+    registry = InterfaceRegistry.build([
+        {"module": "app/api.py", "owner": "app/api.py",
+         "symbols": [{"name": "get_user", "parameters": {"uid": "int"}, "return_type": "User"}]},
+    ])
+
+    assert registry.symbols_for("app/api.py")[0].parameters == ("uid: int",)
+
+
+def test_generation_plan_accepts_architect_symbol_shapes() -> None:
+    plan = GenerationPlan.from_architecture({
+        "project_spec": {"language": "python"},
+        "file_plan": [{"path": "app/api.py", "role": "api", "file_type": "api"}],
+        "interfaces": [
+            {"module": "app/api.py", "owner": "app/api.py",
+             "symbols": [{"name": "get_user", "signature": "get_user(uid: int) -> User"}]},
+        ],
+    })
+
+    assert [symbol.name for symbol in plan.interfaces.symbols_for("app/api.py")] == ["get_user"]
 
 
 def test_dependency_manifest_rejects_forbidden_and_duplicate_dependencies() -> None:

@@ -197,6 +197,16 @@ class SaveProjectRequest(BaseModel):
     project_data: str = Field(..., description="项目数据 (JSON 字符串)")
 
 
+class ImportedProjectFile(BaseModel):
+    path: str = Field(..., min_length=1, max_length=512)
+    content: str = Field("", max_length=1024 * 1024)
+
+
+class ImportProjectFilesRequest(BaseModel):
+    files: List[ImportedProjectFile] = Field(..., min_length=1, max_length=200)
+    project_name: Optional[str] = Field(None, max_length=80)
+
+
 class SaveProjectResponse(BaseModel):
     id: int
     name: str
@@ -244,6 +254,13 @@ class OrchestratorRequest(BaseModel):
     enable_skills: bool = Field(True, description="是否注入按需求匹配的 Skill 上下文")
     spec_first: bool = Field(True, description="是否启用 Spec-First 模式")
     dependency_graph: bool = Field(True, description="是否启用依赖图分层生成")
+    cross_validation_fallback: bool = Field(
+        False,
+        description=(
+            "没有可用的不同模型进行交叉验证时是否退化：True 时退化为单模型审查，"
+            "False 时视为明确失败"
+        ),
+    )
     session_id: Optional[str] = Field(None, description="会话ID（用于增量生成/续传）")
     is_resume: Optional[bool] = Field(None, description="True 仅重连指定存活任务；False 明确新生成；省略保留旧客户端行为")
     incremental: bool = Field(False, description="是否启用增量生成")

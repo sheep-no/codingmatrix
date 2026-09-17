@@ -67,8 +67,9 @@ export const useAgentWorkspaceStore = defineStore('agentWorkspace', () => {
       architecture: 'Qwen3-Plus', frontend: 'Qwen3-Coder',
       backend: 'Qwen3-Coder', test: 'Qwen3-Coder', review: 'Qwen3-Plus'
     },
-    maxConcurrent: 3, enableReview: true, enableValidation: true,
-    enableErrorRecovery: true, enableMemory: true, specFirst: true, dependencyGraph: true
+    enableReview: true, enableValidation: true,
+    enableErrorRecovery: true, enableMemory: true, specFirst: true,
+    crossValidationFallback: false
   })
 
   const pendingApproval = ref(null)

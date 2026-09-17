@@ -56,7 +56,7 @@ const router = createRouter({
     },
     {
       path: '/github-config',
-      redirect: '/agent'
+      redirect: '/settings?tab=github'
     },
     {
       path: '/settings',

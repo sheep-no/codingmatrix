@@ -78,6 +78,7 @@ class PythonLanguageAdapter(LanguageAdapter):
         ("pyproject.toml", "config"),
         ("setup.py", "config"),
         ("Makefile", "config"),
+        ("conftest.py", "test"),
 
         # 应用入口
         ("main.py", "entry"),
@@ -740,7 +741,8 @@ class PythonLanguageAdapter(LanguageAdapter):
 
             # 变量定义（模块级别）
             if not line.startswith(' ') and not line.startswith('\t'):
-                var_match = re.match(r'^(\w+)\s*=', stripped)
+                # 兼容带类型注解的赋值：NAME: Final[str] = value
+                var_match = re.match(r'^(\w+)\s*(?::[^=\n]+)?=', stripped)
                 if var_match:
                     var_name = var_match.group(1)
                     # 跳过导入的模块名
@@ -786,11 +788,24 @@ class PythonLanguageAdapter(LanguageAdapter):
         return False
 
     def validate_package_structure(self, package_path: str, files: Dict[str, str]) -> List[str]:
-        """验证 Python 包结构"""
+        """验证 Python 包结构
+
+        只对包含 Python 源码的目录要求 `__init__.py`。资源目录（static/、
+        templates/、docs/ 等）不是 Python 包，要求入口文件会产生误报并生成
+        多余的 `__init__.py`。
+        """
         missing = []
         init_path = self.get_package_init_file(package_path)
 
-        if init_path not in files:
+        if init_path in files:
+            return missing
+
+        prefix = f"{package_path}/"
+        has_python_source = any(
+            file_path.startswith(prefix) and Path(file_path).suffix in self.extensions
+            for file_path in files
+        )
+        if has_python_source:
             missing.append(init_path)
 
         return missing

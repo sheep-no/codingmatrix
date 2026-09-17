@@ -148,4 +148,105 @@ void main() {
       expect(saved.verified, false);
     },
   );
+  test('verify and list contracts map repos branches and commits', () async {
+    final client = GithubClient(
+      DeliveryApi((path, method, body) async {
+        if (path == '/api/v1/github/verify') {
+          expect(method, 'POST');
+          return {
+            'success': true,
+            'verified': true,
+            'login': 'alice',
+            'message': 'GitHub 凭据有效',
+          };
+        }
+        if (path == '/api/v1/github/repos') {
+          return {
+            'repos': [
+              {
+                'full_name': 'alice/demo',
+                'name': 'demo',
+                'owner': 'alice',
+                'private': false,
+                'default_branch': 'main',
+              },
+            ],
+          };
+        }
+        if (path.endsWith('/branches')) {
+          return {
+            'branches': [
+              {'name': 'main', 'sha': 'abc1234', 'protected': false},
+            ],
+          };
+        }
+        expect(path.contains('sha=main'), true);
+        return {
+          'commits': [
+            {
+              'sha': 'abc1234def',
+              'message': 'init',
+              'author': 'Alice',
+              'date': '2026-09-12T00:00:00Z',
+            },
+          ],
+        };
+      }),
+    );
+    final verified = await client.verify();
+    expect(verified['verified'], true);
+    expect(verified.containsKey('token'), false);
+    final repos = await client.listRepos();
+    expect(repos.single.fullName, 'alice/demo');
+    final branches = await client.listBranches('alice', 'demo');
+    expect(branches.single.name, 'main');
+    final commits = await client.listCommits('alice', 'demo', sha: 'main');
+    expect(commits.single.message, 'init');
+  });
+  test('verify copies verified onto binding without retaining token', () async {
+    final controller = GithubController(
+      GithubClient(
+        DeliveryApi((path, method, _) async {
+          if (method == 'GET') return stored;
+          expect(path, '/api/v1/github/verify');
+          return {
+            'success': true,
+            'verified': true,
+            'message': 'GitHub 凭据有效',
+          };
+        }),
+      ),
+    );
+    await controller.load();
+    expect(controller.state.binding!.verified, false);
+    expect(await controller.verify(), true);
+    expect(controller.state.binding!.verified, true);
+    expect(controller.state.binding!.token, isEmpty);
+    controller.dispose();
+  });
+  test('saveProject omits github_config when using stored credentials', () async {
+    final client = GithubClient(
+      DeliveryApi((path, method, body) async {
+        expect(path, '/api/v1/github/save');
+        expect(method, 'POST');
+        expect((body as Map).containsKey('github_config'), false);
+        return {
+          'success': true,
+          'message': 'ok',
+          'commit_id': 'abc',
+        };
+      }),
+    );
+    final result = await client.saveProject(
+      projectName: 'demo',
+      projectDescription: '',
+      projectData: '{"README.md":"# demo"}',
+    );
+    expect(result['success'], true);
+  });
+
+  test('githubRepoNameFromProject uses last path segment', () {
+    expect(githubRepoNameFromProject('42/demo-app'), 'demo-app');
+    expect(githubRepoNameFromProject('42/项目'), 'project');
+  });
 }

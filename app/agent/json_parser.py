@@ -49,15 +49,16 @@ def safe_parse_json(text: str) -> Union[Dict, list]:
     return _get_parser().safe_parse_json(text)
 
 
-def parse_tool_call(content: str) -> Optional[Dict]:
+def parse_tool_call(content: str, known_tools: Optional[set] = None) -> Optional[Dict]:
     """从 LLM 回复中解析工具调用
 
-    格式: {"tool": "tool_name", "params": {...}}
+    支持标准 JSON ``{"tool": "...", "params": {...}}``，以及 GLM Flash
+    常见的分行格式 ``read_file\\n{"file_path": "a.py"}``。
 
     Returns:
         工具调用 dict 或 None
     """
-    return _get_parser().parse_tool_call(content)
+    return _get_parser().parse_tool_call(content, known_tools=known_tools)
 
 
 def extract_json_field(text: str, field: str, default=None):
@@ -133,9 +134,13 @@ class _JsonParser:
 
         raise ValueError(f"无法解析 JSON: {text[:200]}...")
 
-    def parse_tool_call(self, content: str) -> Optional[Dict]:
+    def parse_tool_call(self, content: str, known_tools: Optional[set] = None) -> Optional[Dict]:
         """解析工具调用 JSON"""
+        if not content:
+            return None
         cleaned = self._clean_thinking(content).strip()
+        if not cleaned:
+            return None
 
         # 策略 1: 代码块中的 JSON
         json_match = re.search(r'```json\s*(\{.*?\})\s*```', cleaned, re.DOTALL)
@@ -187,7 +192,56 @@ class _JsonParser:
                             return json.loads(cleaned[start:i + 1])
                         except json.JSONDecodeError:
                             break
-        return None
+        return self._parse_split_tool_call(cleaned, known_tools)
+
+    def _parse_split_tool_call(
+        self, cleaned: str, known_tools: Optional[set] = None
+    ) -> Optional[Dict]:
+        """Parse GLM-style read_file + params JSON, or read_file({...})."""
+        allowed = known_tools
+        if allowed is None:
+            from app.agent.tools import SPECIALIST_TOOLS
+            allowed = set(SPECIALIST_TOOLS)
+
+        text = cleaned.strip()
+        call_match = re.fullmatch(
+            r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*(\{[\s\S]*\})\s*\)",
+            text,
+        )
+        if call_match:
+            name, raw_params = call_match.group(1), call_match.group(2)
+        else:
+            start = text.find("{")
+            end = text.rfind("}")
+            if start == -1 or end <= start:
+                return None
+            if text[end + 1:].strip():
+                return None
+            prefix = text[:start].strip()
+            if not prefix:
+                return None
+            name_line = prefix.splitlines()[-1].strip()
+            name_line = re.sub(
+                r"^(?:调用工具|tool)\s*[:=]?\s*", "", name_line, flags=re.IGNORECASE
+            ).strip()
+            if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", name_line):
+                return None
+            name, raw_params = name_line, text[start:end + 1]
+
+        if name not in allowed:
+            return None
+        try:
+            params = json.loads(raw_params)
+        except json.JSONDecodeError:
+            try:
+                params = self.safe_parse_json(raw_params)
+            except ValueError:
+                return None
+        if not isinstance(params, dict):
+            return None
+        if "tool" in params and isinstance(params.get("params"), dict):
+            return params
+        return {"tool": name, "params": params}
 
     @staticmethod
     def _clean_thinking(text: str) -> str:

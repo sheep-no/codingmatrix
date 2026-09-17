@@ -8,6 +8,7 @@ JavaScriptLanguageAdapter - JavaScript/TypeScript 语言适配器
 - 符号定义提取
 """
 
+import os
 import re
 from typing import Dict, List
 from pathlib import Path
@@ -253,19 +254,22 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
         # 相对导入
         if import_info.is_relative:
             current_dir = str(Path(current_file).parent)
-            base_path = current_dir if current_dir != '.' else ''
+            base_dir = current_dir if current_dir not in ('', '.') else ''
+            # 规范化 `./` 与 `../`，避免拼出 `src/./components/x`、
+            # `src/../shared/env.js` 这类永远匹配不上文件集合的候选路径。
+            base = os.path.normpath(f"{base_dir}/{module}" if base_dir else module)
 
-            if base_path:
-                base = f"{base_path}/{module}"
-            else:
-                base = module
+            # 显式扩展名（`./Card.vue`、`./card.css`）不能走补全，否则会被拼成
+            # `Card.vue.js` 之类，合法导入永远匹配不上。
+            if Path(module).suffix:
+                candidates.append(base)
 
             # 尝试多种扩展名
-            for ext in ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']:
+            for ext in ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.vue']:
                 candidates.append(f"{base}{ext}")
 
             # index 文件
-            for ext in ['.js', '.jsx', '.ts', '.tsx']:
+            for ext in ['.js', '.jsx', '.ts', '.tsx', '.vue']:
                 candidates.append(f"{base}/index{ext}")
 
             return candidates
@@ -283,7 +287,11 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
                 if clean_module.endswith(ext):
                     clean_module = clean_module[:-len(ext)]
                     break
-            for ext in ['.js', '.jsx', '.ts', '.tsx']:
+            # 非 JS/TS 的显式扩展名（.vue/.css/.json 等）必须按原样解析：下面的
+            # 扩展名补全会把 `@/x.vue` 拼成 `x.vue.js`，导致合法导入永远匹配不上。
+            if Path(clean_module).suffix:
+                candidates.append(f"src/{clean_module}")
+            for ext in ['.js', '.jsx', '.ts', '.tsx', '.vue']:
                 candidates.append(f"src/{clean_module}{ext}")
                 candidates.append(f"src/{clean_module}/index{ext}")
 
@@ -339,8 +347,25 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
             if stripped.startswith('//') or stripped.startswith('/*'):
                 continue
 
-            # 函数定义: function xxx() / async function xxx()
-            func_match = re.match(r'^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\((.*?)\)', stripped)
+            # export default 的符号名就是 default；不登记它会让声明了 default
+            # 的组件契约永远报 missing frozen symbol。
+            if re.match(r'^export\s+default\b', stripped):
+                definitions['default'] = SymbolDefinition(
+                    name='default',
+                    symbol_type="export",
+                    line_number=i,
+                    is_exported=True
+                )
+                # export default { ... } 是对象字面量，不是具名导出列表，
+                # 继续往下走会把对象的属性当成导出符号。
+                if stripped.startswith('export default {'):
+                    continue
+
+            # 函数定义: function xxx() / async function xxx() / export default function xxx()
+            func_match = re.match(
+                r'^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)\s*\((.*?)\)',
+                stripped
+            )
             if func_match:
                 func_name = func_match.group(1)
                 signature = func_match.group(2)
@@ -404,8 +429,8 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
                 )
                 continue
 
-            # export default / export { xxx }
-            export_match = re.match(r'^export\s+(?:default\s+)?{([^}]+)}', stripped)
+            # export { xxx }
+            export_match = re.match(r'^export\s*{([^}]+)}', stripped)
             if export_match:
                 symbols = [s.strip().split(' as ')[-1].strip() for s in export_match.group(1).split(',')]
                 for symbol in symbols:
@@ -462,24 +487,18 @@ class JavaScriptLanguageAdapter(LanguageAdapter):
         return False
 
     def validate_package_structure(self, package_path: str, files: Dict[str, str]) -> List[str]:
-        """验证 JS 模块结构"""
-        missing = []
+        """验证 JS 模块结构
 
-        # 检查是否有入口文件
-        index_ts = f"{package_path}/index.ts"
-        index_js = f"{package_path}/index.js"
-
-        if index_ts not in files and index_js not in files:
-            missing.append(index_ts)  # 默认推荐 TypeScript
-
-        return missing
+        JS/TS 没有目录级包入口要求：程序入口点由 file_plan 的 entry 文件决定，
+        普通目录（components/、hooks/、api/ 等）不需要 index 文件。强制补 barrel
+        文件会为标准项目生成多余文件，且 `export * from` 对 default export 无效。
+        因此这里不做强制检查。
+        """
+        return []
 
     def get_required_package_files(self, package_path: str) -> List[str]:
-        """获取 JS 包所需的文件"""
-        return [
-            f"{package_path}/index.ts",
-            f"{package_path}/index.js",
-        ]
+        """JS/TS 不要求目录级入口文件"""
+        return []
 
 
 # 注册适配器

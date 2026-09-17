@@ -78,8 +78,12 @@ class IncrementalGenerateMixin:
                 self.generated_files.append(result)
 
         # 增量生成失败时回滚
-        if has_failure and stashed:
-            logger.warning("[增量生成] 存在失败文件，回滚到备份版本")
-            _git_stash_pop(str(self.output_dir))
-        elif stashed:
+        if has_failure:
+            if stashed:
+                logger.warning("[增量生成] 存在失败文件，回滚到备份版本")
+                _git_stash_pop(str(self.output_dir))
+            raise RuntimeError(
+                "incremental file generation failed: " + "; ".join(self.errors)
+            )
+        if stashed:
             _git_stash_drop(str(self.output_dir))

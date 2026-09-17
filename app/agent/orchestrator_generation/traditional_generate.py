@@ -284,13 +284,10 @@ class TraditionalGenerateMixin:
         completeness = await self._validate_project_completeness_traditional(
             file_plan, generated_files_dict
         )
-        if not completeness["is_complete"]:
-            completeness_error = (
-                f"项目文件不完整: 缺失 {completeness['missing_files']}，"
-                f"无效 {completeness['invalid_files']}"
-            )
-            logger.error(completeness_error)
-            self.errors.append(completeness_error)
+        from app.agent.orchestrator_generation.spec_first_generate import (
+            _require_project_complete,
+        )
+        _require_project_complete(completeness)
         logger.info(
             "项目生成完成: %s/%s 文件",
             completeness["total_generated"],
@@ -419,7 +416,7 @@ class TraditionalGenerateMixin:
                 "is_complete": bool
             }
         """
-        from app.agent.utils import is_valid_code_content
+        from app.agent.utils import is_package_entry_file, is_valid_code_content
 
         planned_files = {f["path"] for f in file_plan}
         generated_set = set(generated_files.keys())
@@ -428,7 +425,8 @@ class TraditionalGenerateMixin:
 
         empty_files = [
             f for f, c in generated_files.items()
-            if not c or len(c.strip()) < 10
+            # 只有真正空白的文件才算「空」；内容质量交给 is_valid_code_content。
+            if not (c or "").strip() and not is_package_entry_file(f)
         ]
 
         invalid_files = []
@@ -445,5 +443,9 @@ class TraditionalGenerateMixin:
             "missing_files": missing_files,
             "empty_files": empty_files,
             "invalid_files": invalid_files,
-            "is_complete": len(missing_files) == 0 and len(invalid_files) == 0,
+            "is_complete": (
+                len(missing_files) == 0
+                and len(empty_files) == 0
+                and len(invalid_files) == 0
+            ),
         }

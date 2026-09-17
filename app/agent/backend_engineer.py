@@ -128,6 +128,7 @@ class BackendEngineer(Specialist):
             f"- 架构声明的完整文件集合：{', '.join(planned_files)}",
             "- 项目内模块只能从上述文件集合导入。",
             "- 所需路由、端点和业务逻辑必须在上述文件集合内实现。",
+            "- 每个文件只承担自己的职责，禁止把其他文件的实现合并进当前文件。",
             f"- {import_style}",
         ])
 
@@ -492,9 +493,34 @@ class BackendEngineer(Specialist):
                 "\n- 只能在 Base 上声明模型类；禁止导入或调用 declarative_base()，禁止创建第二个 Base。"
             )
 
-        prompt = f"""【严格约束】你必须严格按文件路径指定的语言编写代码，禁止自行添加或修改扩展名。
+        original_content = str(project_context.get("original_content") or "")
+        is_modification = bool(is_existing_file or project_context.get("is_modification") or original_content)
+        modification_reason = str(project_context.get("modification_reason") or description)
+        if is_modification:
+            task_header = f"""请修改以下已有文件：
 
-请创建以下文件：
+文件路径：{file_path}
+文件描述：{description}
+此文件的语言：{file_actual_language}
+项目主语言：{project_language}
+文件类型：{file_type}
+本文件修改原因：{modification_reason}
+
+【任务约束 - 最高优先级】
+- 你本次任务只修改 {file_path} 这一个文件，返回该文件的完整内容
+- 用户总需求可能涉及多个文件；其他文件上的缺陷不要在本文件里一并实现
+- 保留原文件中指向项目内其他文件的导入，不要把那些模块的实现复制进本文件
+- 保持本文件原有职责与导出边界，做最小必要修改
+{exploration_rule}
+- 不要尝试创建或修改其他文件
+
+【原文件内容】
+```
+{original_content[:8000]}
+```
+"""
+        else:
+            task_header = f"""请创建以下文件：
 
 文件路径：{file_path}
 文件描述：{description}
@@ -509,6 +535,11 @@ class BackendEngineer(Specialist):
 {exploration_rule}
 - 探索完成后，直接以纯文本形式返回 {file_path} 的完整内容
 - 不要尝试创建或修改其他文件
+"""
+
+        prompt = f"""【严格约束】你必须严格按文件路径指定的语言编写代码，禁止自行添加或修改扩展名。
+
+{task_header}
 
 {spec_constraints}
 
@@ -562,8 +593,16 @@ class BackendEngineer(Specialist):
 """
 
         if is_existing_file:
-            prompt += f"""
-这是一个已有文件的增量修改任务。
+            if has_frozen_generation_context:
+                prompt += f"""
+【输出格式 - 严格遵守】
+- 直接返回修改后的 {file_actual_language} 完整文件内容
+- 不要包裹在 JSON 对象中，不要返回元数据
+- 第一行必须是实际代码
+"""
+            else:
+                prompt += f"""
+这是一个已有文件的增量修改任务。原文件内容已在上方给出。
 
 你可以使用以下工具进行精准编辑：
 - partial_update: 替换指定函数或代码块（推荐，按函数名精准替换）
@@ -572,10 +611,10 @@ class BackendEngineer(Specialist):
 - execute_code: 验证修改后的代码是否正确（仅 Python）
 
 编辑规则：
-1. 先用 read_file 读取文件现有内容，理解结构
-2. 用 partial_update 或 insert_content 做精准编辑，不要重写整个文件
+1. 以原文件内容为基准做最小修改，不要重写整个文件
+2. 用 partial_update 或 insert_content 做精准编辑
 3. 编辑完成后，返回 JSON：{{"action": "edited", "files": ["{file_path}"], "summary": "修改摘要"}}
-4. 如果改动太大无法局部修改，用 write_file 重写整个文件，返回完整内容
+4. 如果改动太大无法局部修改，返回完整文件内容
 """
         elif '__init__' in file_path:
             prompt += """
@@ -606,8 +645,6 @@ from .utils import greet, farewell
 请返回完整的文件内容，使用 {file_actual_language} 语法编写，不要省略任何部分。"""
 
         # 有项目路径时使用 ReAct 工具调用，否则退化为普通 call_llm
-        # 编码阶段限制 thinking：省 token 留给代码输出，同时保留少量思考给用户展示
-        # 报错修复场景（error_recovery/_fix_sandbox_errors）走独立路径，保持默认 thinking
         logger.info(f"BackendEngineer.generate_file: project_path={project_path}, callback={callback is not None}")
         if heartbeat_tracker:
             heartbeat_tracker.touch()
@@ -640,7 +677,6 @@ from .utils import greet, farewell
                 prompt, self.SYSTEM_PROMPT, tools=read_only_tools,
                 project_path=project_path, react_mode="simple", callback=callback,
                 heartbeat_tracker=heartbeat_tracker, enable_streaming_thinking=True,
-                thinking_budget=50,
                 required_tool_names=(
                     {"read_symbols"}
                     if dependency_files and "read_symbols" not in preverified_tool_names
@@ -649,7 +685,7 @@ from .utils import greet, farewell
                 preverified_tool_names=preverified_tool_names,
             )
         else:
-            result = await self.call_llm(prompt, self.SYSTEM_PROMPT, thinking_budget=50)
+            result = await self.call_llm(prompt, self.SYSTEM_PROMPT)
         if heartbeat_tracker:
             heartbeat_tracker.touch()
         return result

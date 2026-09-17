@@ -58,7 +58,7 @@ class IntegrityValidator:
 
     验证内容：
     1. 导入验证：所有导入的模块都存在
-    2. 包完整性：包有入口文件（Python: __init__.py, JS: index.js/ts）
+    2. 包完整性：Python 包有 __init__.py（JS/TS 无目录级入口要求）
     3. 导入路径：导入路径与实际文件路径匹配
     4. API 契约：前端请求与后端响应一致（可选）
     """
@@ -426,14 +426,7 @@ class IntegrityValidator:
                 elif missing.endswith('index.js') or missing.endswith('index.ts'):
                     fixes[missing] = self._generate_index_content(missing, generated_files)
                 else:
-                    # 根据文件扩展名生成正确的内容
-                    ext = Path(missing).suffix
-                    if ext == '.py':
-                        default_content = f'"""Module: {missing}"""\n'
-                    elif ext in ('.js', '.ts'):
-                        default_content = f'// Module: {missing}\n'
-                    else:
-                        default_content = ''
+                    continue
                 result.fixed_files.append(missing)
                 logger.info(f"自动生成修复文件: {missing}")
 

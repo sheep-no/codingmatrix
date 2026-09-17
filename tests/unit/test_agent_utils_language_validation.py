@@ -19,6 +19,24 @@ def test_strip_leading_file_label_preserves_regular_first_line():
     assert utils.strip_leading_file_label(content, "app/main.py") == content
 
 
+def test_clean_code_block_strips_leading_think_block():
+    content = "<think>let me plan</think>\n```python\nx = 1\n```"
+
+    assert utils.clean_code_block(content) == "x = 1"
+
+
+def test_clean_code_block_keeps_think_literal_inside_code():
+    content = 'PROMPT = "<think>请思考</think>"\ndef build():\n    return PROMPT\n'
+
+    assert utils.clean_code_block(content) == content.strip()
+
+
+def test_clean_code_block_keeps_thinking_literal_in_docstring():
+    content = '"""解释 <thinking> 标签的用法"""\ndef doc():\n    pass\n'
+
+    assert utils.clean_code_block(content) == content.strip()
+
+
 def test_reusable_existing_file_content_accepts_complete_python():
     content = "def main():\n    print('Hello World')\n\nif __name__ == '__main__':\n    main()\n"
     reusable, reason = utils.reusable_existing_file_content("hello.py", content)
@@ -44,6 +62,54 @@ def test_extract_rejects_tool_call_json_before_persistence(tmp_path):
     assert utils.is_placeholder_content(content, "app/models.py")[0] is True
 
 
+def test_placeholder_accepts_tool_registry_data():
+    """工具注册表里的 {"tool": ..., "params": ...} 是合法业务数据，不是泄漏。"""
+    content = (
+        "TOOLS = [\n"
+        '    {"tool": "search", "params": {"q": "text"}},\n'
+        '    {"tool": "calc", "params": {"expr": "1+1"}},\n'
+        "]\n"
+        "\n"
+        "\n"
+        "def get_tool(name):\n"
+        '    return next((t for t in TOOLS if t["tool"] == name), None)\n'
+    )
+
+    assert utils.is_placeholder_content(content, "app/tools.py")[0] is False
+
+
+def test_placeholder_accepts_llm_function_schema():
+    content = (
+        'SCHEMA = {"tool": "get_weather", "params": {"city": "beijing"}}\n'
+        "\n"
+        "\n"
+        "def build_prompt(schema):\n"
+        "    return str(schema)\n"
+    )
+
+    assert utils.is_placeholder_content(content, "app/llm.py")[0] is False
+
+
+def test_placeholder_rejects_whole_content_tool_call_json():
+    assert utils.is_placeholder_content('{"tool": "search"}\n', "app/x.py")[0] is True
+
+
+def test_placeholder_accepts_module_docstring_with_reexports():
+    content = '"""Module: app.services"""\nfrom .auth import login\n'
+
+    assert utils.is_placeholder_content(content, "app/__init__.py")[0] is False
+
+
+def test_placeholder_accepts_small_implementation_with_todo_comment():
+    content = "# TODO: 支持环境变量\ndef get():\n    return 1\n"
+
+    assert utils.is_placeholder_content(content, "app/config.py")[0] is False
+
+
+def test_placeholder_rejects_todo_without_effective_code():
+    assert utils.is_placeholder_content("# TODO: implement\n", "app/mod.py")[0] is True
+
+
 def test_placeholder_rejects_truncated_llm_output():
     content = '''import json
 from fastapi import FastAPI
@@ -62,6 +128,47 @@ async def login():
     assert reason
 
 
+def test_placeholder_accepts_comment_about_unchanged_code():
+    """注释里说明「其余代码保持不变」是完整代码的一部分，不是截断声明。"""
+    content = "# 其余代码保持不变\ndef run():\n    return 1\n"
+
+    assert utils.is_placeholder_content(content, "app/svc.py")[0] is False
+
+
+def test_placeholder_accepts_english_comment_about_unchanged_code():
+    content = "# rest of the code remains the same\ndef run():\n    return 1\n"
+
+    assert utils.is_placeholder_content(content, "app/svc.py")[0] is False
+
+
+def test_placeholder_still_rejects_truncation_tail():
+    content = "def a():\n    return 1\n\n# 其余代码保持不变\n"
+
+    assert utils.is_placeholder_content(content, "app/svc.py")[0] is True
+
+
+def test_placeholder_accepts_pass_only_package_entry():
+    """仅含 pass 的 __init__.py 是合法的空包声明。"""
+    for content in ("pass\n", '"""App package."""\n\npass\n'):
+        assert utils.is_placeholder_content(content, "app/__init__.py")[0] is False
+
+
+def test_placeholder_still_rejects_pass_only_regular_module():
+    assert utils.is_placeholder_content("pass\n", "app/service.py")[0] is True
+
+
+def test_placeholder_accepts_docs_with_changelog_prose():
+    content = "# 更新日志\n\n## v1.2\n\n- 新增登录接口\n- 其他代码保持不变\n"
+
+    assert utils.is_placeholder_content(content, "README.md")[0] is False
+
+
+def test_placeholder_accepts_docs_with_english_truncation_prose():
+    content = "# Guide\n\nAfter the change, the rest of the code remains the same.\n"
+
+    assert utils.is_placeholder_content(content, "docs/guide.md")[0] is False
+
+
 def test_compact_project_context_keeps_current_file_only():
     context = {
         "requirement": "工单服务",
@@ -78,6 +185,24 @@ def test_compact_project_context_keeps_current_file_only():
     assert "models.py" not in compact
     assert "工单服务" in compact
     assert "entry" in compact
+
+
+def test_compact_project_context_keeps_original_content_for_modify():
+    context = {
+        "requirement": "补全 subtract 和 multiply",
+        "original_content": "from calc import add, subtract, multiply\nprint(add(1, 2)\n",
+        "modification_reason": "补上 main.py 缺失的右括号",
+        "architecture": {
+            "language": "python",
+            "file_plan": [
+                {"path": "main.py", "file_type": "entry", "description": "入口"},
+            ],
+        },
+    }
+    compact = utils.compact_project_context_for_file("main.py", context)
+    assert "from calc import add, subtract, multiply" in compact
+    assert "is_modification" in compact
+    assert "补上 main.py 缺失的右括号" in compact
 
 
 @pytest.mark.asyncio

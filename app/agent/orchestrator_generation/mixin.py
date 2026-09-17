@@ -12,7 +12,6 @@ from app.agent.dynamic_model_router import LayeredModelRouter
 from app.agent.tracing import traced
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.specialist_base import get_global_llm_semaphore
-from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_CODE_MODEL, DEFAULT_REASONING_MODEL
 
 from .coverage_checker import check_requirement_coverage
 from .feature_extractor import extract_and_save_feature_list
@@ -63,29 +62,30 @@ class GenerationMixin(
             self.model_assignment = self.model_router.get_assignment()
         else:
             self.model_router = None
-            self.model_assignment = None
 
-        # 安全获取模型名称（model_assignment 可能为 None）
-        def _get_model(attr: str, default: str) -> str:
-            return getattr(self.model_assignment, attr, default) if self.model_assignment else default
+        def _require_model(attr: str) -> str:
+            value = getattr(self.model_assignment, attr, None) if self.model_assignment else None
+            if not value:
+                raise RuntimeError("model assignment is required to initialize components")
+            return value
 
         self._report_progress(
             PROGRESS_LABELS["assigning_models"],
             2, 5,
-            architect=_get_model("architect_model", DEFAULT_ARCHITECT_MODEL),
-            frontend=_get_model("frontend_model", DEFAULT_CODE_MODEL),
-            backend=_get_model("backend_model", DEFAULT_CODE_MODEL),
-            reviewer=_get_model("reviewer_model", DEFAULT_ARCHITECT_MODEL)
+            architect=_require_model("architect_model"),
+            frontend=_require_model("frontend_model"),
+            backend=_require_model("backend_model"),
+            reviewer=_require_model("reviewer_model")
         )
 
         semaphore = get_global_llm_semaphore()
         cost_tracker = getattr(self, 'cost_tracker', None)
         complexity_level = self.complexity.level.value if self.complexity else "medium"
 
-        self.architect = Architect("架构师", _get_model("architect_model", DEFAULT_ARCHITECT_MODEL), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
-        self.frontend_engineer = FrontendEngineer("前端工程师", _get_model("frontend_model", DEFAULT_CODE_MODEL), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
-        self.backend_engineer = BackendEngineer("后端工程师", _get_model("backend_model", DEFAULT_CODE_MODEL), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
-        self.reviewer = CodeReviewer("审查员", _get_model("reviewer_model", DEFAULT_ARCHITECT_MODEL), task_type="review", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
+        self.architect = Architect("架构师", _require_model("architect_model"), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
+        self.frontend_engineer = FrontendEngineer("前端工程师", _require_model("frontend_model"), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
+        self.backend_engineer = BackendEngineer("后端工程师", _require_model("backend_model"), task_type="generate", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
+        self.reviewer = CodeReviewer("审查员", _require_model("reviewer_model"), task_type="review", api_key_token=self.api_key_token, provider_id=self.provider_id, semaphore=semaphore, cost_tracker=cost_tracker, complexity=complexity_level, cancel_event=self.cancel_event)
         self.validator = CodeValidator(self.output_dir)
         self.error_recovery = ErrorRecoveryLoop(self.validator, self.reviewer, api_key_token=self.api_key_token, cancel_event=self.cancel_event)
         self.api_contract_checker = APIContractChecker()
@@ -115,6 +115,9 @@ class GenerationMixin(
     async def generate(self, requirement: str) -> Dict[str, Any]:
         if self.evaluation_only:
             return await self.evaluate(requirement)
+
+        if self.incremental:
+            return await self.generate_incremental(requirement, self.callback)
 
         if self.spec_first:
             return await self.generate_with_spec_first(requirement, self.callback)

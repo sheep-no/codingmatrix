@@ -42,6 +42,7 @@
           需要具备仓库权限的个人访问令牌。
           <a href="https://github.com/settings/tokens" target="_blank">创建 Token/令牌</a>
         </p>
+        <p v-if="hasStoredToken" class="help-text">已保存 Token/令牌，留空表示继续使用当前凭据。</p>
       </div>
 
       <div class="status-section">
@@ -58,6 +59,13 @@
         </div>
       </div>
 
+      <button
+        class="save-button"
+        :disabled="!githubUsername"
+        @click="persistConfig()"
+      >
+        保存配置
+      </button>
       <button 
         class="test-button"
         :disabled="!isConfigured"
@@ -65,6 +73,29 @@
       >
         测试连接
       </button>
+      <ul v-if="repos.length" class="repo-list">
+        <li v-for="repo in repos" :key="repo.full_name">
+          <button type="button" class="repo-button" @click="loadBranches(repo)">
+            {{ repo.full_name }}
+          </button>
+        </li>
+      </ul>
+      <div v-if="branches.length" class="branch-list">
+        <button
+          v-for="branch in branches"
+          :key="branch.name"
+          type="button"
+          class="branch-button"
+          @click="loadCommits(branch.name)"
+        >
+          {{ branch.name }}
+        </button>
+      </div>
+      <ul v-if="commits.length" class="commit-list">
+        <li v-for="commit in commits" :key="commit.sha">
+          {{ commit.message }}
+        </li>
+      </ul>
     </div>
 
     <div v-else class="offline-info">
@@ -77,17 +108,25 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useGithubStore } from '@/stores/github'
 import { ElMessage } from 'element-plus'
+import { createGithubClient } from '@/utils/api/github'
 
 const githubStore = useGithubStore()
+const githubClient = createGithubClient()
 
 const useGithub = ref(false)
 const githubUsername = ref('')
 const githubToken = ref('')
 const connectionStatus = ref(null)
+const hasStoredToken = ref(false)
+
+const repos = ref([])
+const branches = ref([])
+const commits = ref([])
+const selectedRepo = ref(null)
 
 // 计算属性
 const isConfigured = computed(() => {
-  return useGithub.value && githubUsername.value && githubToken.value
+  return useGithub.value && githubUsername.value && (githubToken.value || hasStoredToken.value)
 })
 
 // 监听配置变化，自动测试连接
@@ -98,109 +137,152 @@ watch(isConfigured, async (newVal) => {
 })
 
 // 生命周期钩子
+async function loadServerConfig() {
+  try {
+    const cfg = await githubClient.getGithubConfig()
+    if (!cfg) return
+    useGithub.value = cfg.use_github === true
+    githubStore.setUseGithub(useGithub.value)
+    if (cfg.username) {
+      githubUsername.value = cfg.username
+      githubStore.setGithubUsername(cfg.username)
+    }
+    hasStoredToken.value = cfg.has_token === true
+  } catch {
+    connectionStatus.value = {
+      type: 'warning',
+      message: '未能读取已保存的 GitHub 配置'
+    }
+  }
+}
+
 onMounted(() => {
   useGithub.value = githubStore.useGithub
   githubUsername.value = githubStore.githubUsername
-  githubToken.value = githubStore.githubToken
 
-  // 如果已配置，自动测试连接
-  if (isConfigured.value) {
-    autoTestConnection()
-  }
+  loadServerConfig()
 })
 
 // 方法
-const onUseGithubChange = () => {
-  githubStore.setUseGithub(useGithub.value)
+const persistConfig = async ({ notify = true } = {}) => {
+  if (useGithub.value && !githubUsername.value) {
+    if (notify) ElMessage.warning('请先填写 GitHub 用户名')
+    return false
+  }
+  try {
+    const result = await githubClient.setGithubConfig({
+      username: githubUsername.value,
+      token: githubToken.value || '',
+      use_github: useGithub.value
+    })
+    githubStore.setUseGithub(useGithub.value)
+    githubStore.setGithubUsername(githubUsername.value)
+    if (githubToken.value) hasStoredToken.value = true
+    githubToken.value = ''
+    githubStore.setGithubToken('')
+    if (notify) ElMessage.success(result.message || 'GitHub 配置已保存')
+    return true
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || 'GitHub 配置保存失败')
+    return false
+  }
+}
+
+const onUseGithubChange = async () => {
+  const previous = githubStore.useGithub
+  if (useGithub.value && !githubUsername.value) {
+    ElMessage.warning('请先填写 GitHub 用户名')
+    useGithub.value = false
+    githubStore.setUseGithub(false)
+    return
+  }
+  const ok = await persistConfig({ notify: false })
+  if (!ok) {
+    useGithub.value = previous
+    githubStore.setUseGithub(previous)
+  }
 }
 
 const saveUsername = () => {
   githubStore.setGithubUsername(githubUsername.value)
-  if (isConfigured.value) {
-    autoTestConnection()
-  }
+  if (githubUsername.value) persistConfig({ notify: false })
 }
 
 const saveToken = () => {
   githubStore.setGithubToken(githubToken.value)
-  if (isConfigured.value) {
-    autoTestConnection()
-  }
+  if (githubToken.value) persistConfig({ notify: false })
 }
 
 const autoTestConnection = async () => {
   try {
-    const response = await fetch('https://api.github.com/user', {
-      headers: {
-        'Authorization': `token ${githubToken.value}`,
-        'Accept': 'application/vnd.github.v3+json'
-      }
-    })
-
-    if (response.ok) {
-      const userData = await response.json()
-      if (userData.login === githubUsername.value) {
-        connectionStatus.value = {
-          type: 'success',
-          message: '✓ GitHub 连接正常'
-        }
-      } else {
-        connectionStatus.value = {
-          type: 'warning',
-          message: '用户名与 Token/令牌不匹配'
-        }
-      }
-    } else {
-      connectionStatus.value = {
-        type: 'error',
-        message: '✗ GitHub 连接失败'
-      }
+    if (githubUsername.value && githubToken.value) {
+      await githubClient.setGithubConfig({
+        username: githubUsername.value,
+        token: githubToken.value,
+        use_github: useGithub.value
+      })
+      hasStoredToken.value = true
+      githubToken.value = ''
+      githubStore.setGithubToken('')
     }
+    const result = await githubClient.verifyGithub()
+    connectionStatus.value = {
+      type: result.verified ? 'success' : 'warning',
+      message: result.message || (result.verified ? 'GitHub 连接正常' : '用户名与 Token/令牌不匹配')
+    }
+    return result.verified === true
   } catch (error) {
     connectionStatus.value = {
       type: 'error',
-      message: '✗ 网络连接错误'
+      message: error.response?.data?.detail || 'GitHub 验证失败，请先保存配置'
     }
+    return false
   }
 }
 
 const testConnection = async () => {
+  repos.value = []
+  branches.value = []
+  commits.value = []
+  selectedRepo.value = null
+  const verified = await autoTestConnection()
+  if (!verified) {
+    ElMessage.warning(connectionStatus.value?.message || 'GitHub 验证未通过')
+    return
+  }
   try {
-    const response = await fetch('https://api.github.com/user', {
-      headers: {
-        'Authorization': `token ${githubToken.value}`,
-        'Accept': 'application/vnd.github.v3+json'
-      }
-    })
-
-    if (response.ok) {
-      const userData = await response.json()
-      if (userData.login === githubUsername.value) {
-        ElMessage.success('GitHub 连接测试成功！')
-        connectionStatus.value = {
-          type: 'success',
-          message: '✓ GitHub 连接正常'
-        }
-      } else {
-        ElMessage.warning('用户名与 Token/令牌不匹配')
-        connectionStatus.value = {
-          type: 'warning',
-          message: '用户名与 Token/令牌不匹配'
-        }
-      }
-    } else {
-      ElMessage.error('GitHub 连接失败，请检查 Token/令牌')
-      connectionStatus.value = {
-        type: 'error',
-        message: '✗ GitHub 连接失败'
-      }
-    }
+    const data = await githubClient.listRepos()
+    repos.value = data.repos || []
+    ElMessage.success('GitHub 连接测试成功')
   } catch (error) {
-    ElMessage.error('网络错误：' + error.message)
-    connectionStatus.value = {
-      type: 'error',
-      message: '✗ 网络连接错误'
-    }
+    ElMessage.error(error.response?.data?.detail || '仓库列表读取失败')
+  }
+}
+
+const loadBranches = async (repo) => {
+  selectedRepo.value = repo
+  branches.value = []
+  commits.value = []
+  try {
+    const data = await githubClient.listBranches(repo.owner, repo.name)
+    branches.value = data.branches || []
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '分支列表读取失败')
+  }
+}
+
+const loadCommits = async (sha) => {
+  if (!selectedRepo.value) return
+  commits.value = []
+  try {
+    const data = await githubClient.listCommits(
+      selectedRepo.value.owner,
+      selectedRepo.value.name,
+      sha
+    )
+    commits.value = data.commits || []
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '提交列表读取失败')
   }
 }
 </script>
@@ -343,6 +425,26 @@ input:checked + .slider:before {
   font-weight: 500;
 }
 
+.save-button {
+  margin-right: 8px;
+  padding: 8px 16px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.save-button:hover:not(:disabled) {
+  border-color: #409eff;
+}
+
+.save-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .test-button:hover:not(:disabled) {
   background: #3488e7;
 }
@@ -357,5 +459,17 @@ input:checked + .slider:before {
   background: var(--bg-secondary);
   border-radius: 6px;
   color: var(--text-secondary);
+}
+.repo-list,
+.commit-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.repo-button,
+.branch-button {
+  margin: 4px 8px 0 0;
+  padding: 4px 8px;
+  cursor: pointer;
 }
 </style>

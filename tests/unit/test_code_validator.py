@@ -59,6 +59,607 @@ class TestCodeValidator:
 
         assert result["is_valid"] is True
 
+    @pytest.mark.asyncio
+    async def test_validate_imports_skips_relative_imports(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "services.py"
+        target.write_text(
+            "from .models import Item\nfrom ..shared import util\n\nVALUE = 1\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_imports(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_validate_imports_ignores_docstring_examples(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "docs.py"
+        target.write_text(
+            '"""\nUsage:\n    import def_not_installed_lib\n    from other_missing import x\n"""\n'
+            "\nVALUE = 1\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_imports(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_validate_imports_still_flags_missing_module(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "bad.py"
+        target.write_text("import definitely_not_installed_lib_xyz\n", encoding="utf-8")
+
+        ok, errors = await validator.validate_imports(target)
+
+        assert ok is False
+        assert any("definitely_not_installed_lib_xyz" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_runtime_imports_ignore_environment_errors(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "env_required.py"
+        target.write_text(
+            'import os\n\nDB_URL = os.environ["AGENT_TEST_MISSING_ENV"]\n',
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_runtime_imports(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_api_compatibility_allows_app_level_exception_handler(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "main.py"
+        target.write_text(
+            "from fastapi import APIRouter, FastAPI\n\n"
+            "router = APIRouter()\n"
+            "app = FastAPI()\n\n"
+            "@app.exception_handler(Exception)\n"
+            "async def handler(request, exc):\n    return None\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_api_compatibility(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_api_compatibility_flags_router_exception_handler(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "routes.py"
+        target.write_text(
+            "from fastapi import APIRouter\n\nrouter = APIRouter()\nrouter.exception_handler(Exception)\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_api_compatibility(target)
+
+        assert ok is False
+        assert any("exception_handler" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_api_compatibility_allows_fastapi_top_level_middleware_exports(self, tmp_path):
+        """fastapi 顶层再导出的 CORSMiddleware 等是合法写法，不能被子串匹配误判。"""
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "main.py"
+        target.write_text(
+            "from fastapi import FastAPI, CORSMiddleware\n\napp = FastAPI()\n"
+            "app.add_middleware(CORSMiddleware, allow_origins=['*'])\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_api_compatibility(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_api_compatibility_still_flags_fastapi_middleware_base_import(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "main.py"
+        target.write_text("from fastapi import Middleware\n", encoding="utf-8")
+
+        ok, errors = await validator.validate_api_compatibility(target)
+
+        assert ok is False
+        assert any("Middleware" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_css_braces_inside_strings_and_comments_are_ignored(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "styles.css"
+        target.write_text(
+            '/* } */\nbody::after {\n  content: "}";\n}\n',
+            encoding="utf-8",
+        )
+
+        ok, errors = await validator.validate_css_syntax(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_css_unbalanced_braces_still_flagged(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+        validator = CodeValidator(tmp_path)
+        target = tmp_path / "broken.css"
+        target.write_text("body {\n  margin: 0;\n", encoding="utf-8")
+
+        ok, errors = await validator.validate_css_syntax(target)
+
+        assert ok is False
+        assert any("大括号不匹配" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_js_syntax_signal_kill_is_not_a_syntax_error(self, tmp_path, monkeypatch):
+        """node 被信号终止（如 OOM，返回码为负）属环境异常，不能判为语法错误。"""
+        import asyncio
+
+        from app.agent.code_validator import CodeValidator
+
+        class _Proc:
+            returncode = -9
+
+            async def communicate(self):
+                return (b"", b"")
+
+        async def fake_exec(*args, **kwargs):
+            return _Proc()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+        target = tmp_path / "app.js"
+        target.write_text("export class App {}\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_js_syntax(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_js_syntax_real_error_still_flagged(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "broken.js"
+        target.write_text("const x = ;\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_js_syntax(target)
+
+        assert ok is False
+        assert errors
+
+    @pytest.mark.asyncio
+    async def test_runtime_imports_survive_shadowing_module_name(self, tmp_path):
+        """生成项目与 Agent 自身包同名（app/）时不能解析到 Agent 自己的代码。"""
+        import sys
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text(
+            "from .factory import create_app\n", encoding="utf-8"
+        )
+        (tmp_path / "app" / "factory.py").write_text(
+            "def create_app():\n    return None\n", encoding="utf-8"
+        )
+        target = tmp_path / "main.py"
+        target.write_text("from app import create_app\n\napp = create_app()\n", encoding="utf-8")
+
+        Validator = CodeValidator
+        validator = Validator(tmp_path)
+        backend_app = sys.modules.get("app")
+        assert backend_app is not None, "Agent 自身 app 包应在 sys.modules 中"
+
+        ok, errors = await validator.validate_runtime_imports(target)
+
+        assert ok is True, errors
+        assert sys.modules["app"] is backend_app
+
+    @pytest.mark.asyncio
+    async def test_requirements_skip_manifest_for_non_python_project(self, tmp_path):
+        """纯前端工程没有 requirements.txt 不算缺陷。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "package.json").write_text('{"name": "demo"}\n', encoding="utf-8")
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "index.js").write_text("export default 1;\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_requirements()
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_requirements_missing_manifest_still_flagged_for_python_project(self, tmp_path):
+        """导入了第三方包的 Python 工程仍必须提供依赖清单。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "main.py").write_text("import fastapi\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_requirements()
+
+        assert ok is False
+        assert any("缺少 requirements.txt" in err for err in errors)
+        assert any("fastapi" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_requirements_skip_manifest_for_stdlib_only_script(self, tmp_path):
+        """只用标准库的单文件脚本没有依赖清单不算缺陷。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "hello.py").write_text(
+            'import json\n\ndef main():\n    print(json.dumps({"hello": "world"}))\n',
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_requirements()
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_requirements_skip_manifest_for_project_local_imports(self, tmp_path):
+        """只导入项目内模块时同样不需要依赖清单。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text("", encoding="utf-8")
+        (tmp_path / "app" / "main.py").write_text("from app import models\n", encoding="utf-8")
+        (tmp_path / "app" / "models.py").write_text("x = 1\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_requirements()
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_requirements_uninstalled_package_is_environment_not_defect(self, tmp_path):
+        """依赖清单里的包在当前环境未安装，不能判为生成代码无效。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "main.py").write_text("x = 1\n", encoding="utf-8")
+        (tmp_path / "requirements.txt").write_text(
+            "definitely_not_installed_pkg_xyz\n", encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_requirements()
+
+        assert ok is True
+
+    @pytest.mark.asyncio
+    async def test_cross_file_accepts_alias_and_reexport_imports(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "utils.py").write_text(
+            "def helper():\n    return 1\n\n\nclass Thing:\n    pass\n", encoding="utf-8"
+        )
+        (tmp_path / "config.py").write_text(
+            "from .base import settings\n", encoding="utf-8"
+        )
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text(
+            "from .factory import create_app\n", encoding="utf-8"
+        )
+        (tmp_path / "app" / "factory.py").write_text(
+            "def create_app():\n    return None\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text(
+            "from utils import helper as h\n"
+            "from utils import (helper,\n                   Thing)\n"
+            "from config import settings\n"
+            "from app import create_app\n"
+            "from app.factory import create_app as factory\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is True, errors
+
+    @pytest.mark.asyncio
+    async def test_cross_file_still_flags_missing_symbol(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text(
+            "from .factory import create_app\n", encoding="utf-8"
+        )
+        (tmp_path / "app" / "factory.py").write_text(
+            "def create_app():\n    return None\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text("from app import nope\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is False
+        assert any("nope" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_cross_file_accepts_annotated_module_constants(self, tmp_path):
+        """`SECRET_KEY: str = "x"` 是模块级导出，不能被当成未导出符号。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "config.py").write_text(
+            'SECRET_KEY: str = "x"\nTIMEOUT: int = 30\n', encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text(
+            "from config import SECRET_KEY, TIMEOUT\n", encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is True, errors
+
+    @pytest.mark.asyncio
+    async def test_cross_file_accepts_definitions_inside_module_level_try_and_if(self, tmp_path):
+        """模块级 try/except 与 if 分支里的导入/赋值同样对外可见。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "compat.py").write_text(
+            "try:\n    from ujson import loads\nexcept ImportError:\n    from json import loads\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "flags.py").write_text(
+            "DEBUG = True\nif DEBUG:\n    LEVEL = 'debug'\nelse:\n    LEVEL = 'info'\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "locked.py").write_text(
+            "with open(__file__) as handle:\n    LOCK_NAME = 'x'\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text(
+            "from compat import loads\nfrom flags import LEVEL\nfrom locked import LOCK_NAME\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is True, errors
+
+    @pytest.mark.asyncio
+    async def test_cross_file_does_not_treat_locals_as_exports(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "utils.py").write_text(
+            "def build():\n    helper = 1\n    return helper\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text("from utils import helper\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is False
+        assert any("helper" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_cross_file_accepts_subpackage_import(self, tmp_path):
+        """`from pkg import subpkg` 应解析到 subpkg/__init__.py，而非只找 subpkg.py。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app" / "routers" / "users").mkdir(parents=True)
+        (tmp_path / "app" / "__init__.py").write_text('"""pkg"""\n', encoding="utf-8")
+        (tmp_path / "app" / "routers" / "__init__.py").write_text('"""pkg"""\n', encoding="utf-8")
+        (tmp_path / "app" / "routers" / "users" / "__init__.py").write_text(
+            "from .router import router\n", encoding="utf-8"
+        )
+        (tmp_path / "app" / "routers" / "users" / "router.py").write_text(
+            "router = object()\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text(
+            "from app.routers import users\nfrom app import routers\n", encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is True, errors
+
+    @pytest.mark.asyncio
+    async def test_cross_file_still_flags_missing_subpackage(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "app" / "routers").mkdir(parents=True)
+        (tmp_path / "app" / "__init__.py").write_text('"""pkg"""\n', encoding="utf-8")
+        (tmp_path / "app" / "routers" / "__init__.py").write_text('"""pkg"""\n', encoding="utf-8")
+        (tmp_path / "main.py").write_text(
+            "from app.routers import nonexistent\n", encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_cross_file_consistency()
+
+        assert ok is False
+        assert any("nonexistent" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_uninstalled_third_party_import_is_not_a_code_defect(self, tmp_path):
+        """环境未安装的第三方包不代表生成代码有缺陷，不应判为无效。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+        target = tmp_path / "main.py"
+        target.write_text(
+            "import definitely_not_installed_lib_xyz\n\n\ndef run():\n    return 1\n",
+            encoding="utf-8",
+        )
+
+        result = await CodeValidator(tmp_path).validate_single_file(target)
+
+        assert result["is_valid"] is True
+        # 缺包信息仍作为诊断保留
+        assert any("definitely_not_installed_lib_xyz" in err for err in result["import_errors"])
+
+    @pytest.mark.asyncio
+    async def test_missing_project_module_is_still_a_defect(self, tmp_path):
+        """项目内模块缺失才是代码缺陷，仍需判为无效。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app" / "__init__.py").write_text('"""pkg"""\n', encoding="utf-8")
+        target = tmp_path / "main.py"
+        target.write_text(
+            "from app.missing import X\n\n\ndef run():\n    return 1\n", encoding="utf-8"
+        )
+
+        result = await CodeValidator(tmp_path).validate_single_file(target)
+
+        assert result["is_valid"] is False
+        assert any("运行时导入失败" in err for err in result["runtime_errors"])
+
+    @pytest.mark.asyncio
+    async def test_full_validation_ignores_environment_missing_packages(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+        (tmp_path / "main.py").write_text(
+            "import definitely_not_installed_lib_xyz\n\n\ndef run():\n    return 1\n",
+            encoding="utf-8",
+        )
+
+        result = await CodeValidator(tmp_path).run_full_validation()
+
+        assert result["is_valid"] is True
+
+    @pytest.mark.asyncio
+    async def test_full_validation_exposes_failure_categories(self, tmp_path):
+        """失败原因必须出现在具名类别里，供上层汇总后推送。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+        (tmp_path / "main.py").write_text("def run(\n", encoding="utf-8")
+
+        result = await CodeValidator(tmp_path).run_full_validation()
+
+        assert result["is_valid"] is False
+        for key in (
+            "syntax_errors",
+            "dependency_errors",
+            "api_errors",
+            "runtime_errors",
+            "frontend_errors",
+            "cross_file_errors",
+        ):
+            assert key in result
+        assert result["syntax_errors"]
+
+
+class TestHtmlCssStructureGate:
+    @pytest.mark.asyncio
+    async def test_html5_optional_closing_tags_are_accepted(self, tmp_path):
+        """HTML5 允许省略 </head>/</body>，文档以 </html> 结束即合法。"""
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "index.html"
+        target.write_text(
+            '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <title>x</title>\n'
+            "<body>\n  <p>hi</p>\n</html>\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_html_structure(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_html_fragment_without_root_tags_is_accepted(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "partial.html"
+        target.write_text('<div class="card">\n  <span>hi</span>\n</div>\n', encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_html_structure(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_script_tag_text_inside_string_is_not_a_tag(self, tmp_path):
+        """JS 字符串里的 "<script ...>" 不是标签，不能据它判 script 未闭合。"""
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "page.html"
+        target.write_text(
+            '<html><head></head><body><script>\nconst t = "<script src=x>";\n'
+            "</script></body></html>\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_html_structure(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_truncated_html_is_still_flagged(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "truncated.html"
+        target.write_text(
+            "<!DOCTYPE html>\n<html>\n<head>\n</head>\n<body>\n  <p>hi</p>\n",
+            encoding="utf-8",
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_html_structure(target)
+
+        assert ok is False
+        assert any("</body>" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_unclosed_script_is_still_flagged(self, tmp_path):
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "broken.html"
+        target.write_text(
+            "<html><head></head><body><script>var a=1;</body></html>", encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_html_structure(target)
+
+        assert ok is False
+        assert any("</script>" in err for err in errors)
+
+    @pytest.mark.asyncio
+    async def test_structure_tag_inside_script_string_is_not_a_tag(self, tmp_path):
+        """片段里 JS 字符串中的 "<body>" 不是标签，不能判为缺少闭合标签。"""
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "fragment.html"
+        target.write_text(
+            '<script>\nconst t = "<body>";\n</script>\n', encoding="utf-8"
+        )
+
+        ok, errors = await CodeValidator(tmp_path).validate_html_structure(target)
+
+        assert ok is True
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_css_empty_declarations_are_accepted(self, tmp_path):
+        """空声明（连续或孤立的分号）在 CSS 中是合法的。"""
+        from app.agent.code_validator import CodeValidator
+
+        target = tmp_path / "styles.css"
+        target.write_text("a {\n  color: red;;\n}\n", encoding="utf-8")
+
+        ok, errors = await CodeValidator(tmp_path).validate_css_syntax(target)
+
+        assert ok is True
+        assert errors == []
+
+
 class TestCodeValidatorLRU:
     def test_lru_cache_limit(self):
         from app.agent.code_validator import CodeValidator

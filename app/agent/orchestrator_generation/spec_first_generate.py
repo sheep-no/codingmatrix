@@ -8,6 +8,16 @@ import os
 
 from app.agent.spec_first_generator import SpecFirstGenerator
 from app.agent.refinement_loop import RefinementLoop
+from app.agent.js_syntax import (
+    vue_script_source,
+    check_js_source as _shared_check_js_source,
+    check_ts_source as _shared_check_ts_source,
+)
+from app.agent.markup_syntax import (
+    css_structure_errors,
+    html_structure_errors,
+    strip_css_noise,
+)
 from app.agent.dependency_graph import DependencyGraph, summarize_dependency_context
 from app.agent.cross_validator import CrossValidator
 from app.agent.shared_context import SharedContext
@@ -18,7 +28,6 @@ from app.agent.architecture_inspector import ArchitectureInspector
 from app.agent.orchestrator_progress import MAX_CONTENT_FOR_CONTEXT
 from app.agent.adapters import LanguageAdapterRegistry
 from app.agent.dynamic_model_router import get_context_length
-from app.agent.models import DEFAULT_FAST_MODEL
 from app.agent.utils import extract_engineer_content, write_file_atomic, cleanup_temp_files, reusable_existing_file_content
 from app.agent.dependency_graph_validator import DependencyGraphValidator
 from app.agent.generation_plan import GenerationPlan, add_profile_components
@@ -35,20 +44,70 @@ def sync_generation_architecture(project_context: Dict[str, Any], architecture: 
 
 
 def _skipped_refinement(content: str):
-    from app.agent.refinement_loop import RefinementResult
+    from app.agent.refinement_loop import RefinementResult, ValidationIssue
 
+    issue = ValidationIssue(
+        type="review_skipped",
+        severity="warning",
+        message="cross-file or refinement review was skipped",
+    )
     return RefinementResult(
         success=True,
         final_content=content or "",
         attempts=0,
-        issues_found=[],
+        issues_found=[issue],
         issues_fixed=0,
-        remaining_issues=[],
+        remaining_issues=[issue],
     )
 
 
 def _is_adapter_owned_file(file_path: str, file_type: str, architecture: Dict[str, Any]) -> bool:
     return bool(LanguageAdapterRegistry.scaffold_file(file_path, file_type, architecture or {}))
+
+
+def _package_entry_content(
+    missing_file: str,
+    integrity_validator,
+    language_adapter,
+    generated_files_dict: Dict[str, str],
+):
+    init_filename = language_adapter.package_init_filename if language_adapter else "__init__.py"
+    if init_filename and (
+        missing_file.endswith(init_filename) or missing_file.endswith("__init__.py")
+    ):
+        return integrity_validator._generate_init_content(missing_file, generated_files_dict)
+    if missing_file.endswith("index.js") or missing_file.endswith("index.ts"):
+        return integrity_validator._generate_index_content(missing_file, generated_files_dict)
+    return None
+
+
+def _require_project_complete(completeness: Dict[str, Any]) -> None:
+    if completeness.get("is_complete"):
+        return
+    parts = []
+    missing = completeness.get("missing_files") or []
+    empty = completeness.get("empty_files") or []
+    invalid = completeness.get("invalid_files") or []
+    placeholder = completeness.get("placeholder_files") or []
+    if missing:
+        parts.append("missing=" + ", ".join(missing))
+    if empty:
+        parts.append("empty=" + ", ".join(empty))
+    if invalid:
+        parts.append(
+            "invalid="
+            + ", ".join(item[0] if isinstance(item, (tuple, list)) else str(item) for item in invalid)
+        )
+    if placeholder:
+        parts.append(
+            "placeholder="
+            + ", ".join(
+                item[0] if isinstance(item, (tuple, list)) else str(item) for item in placeholder
+            )
+        )
+    raise RuntimeError(
+        "project completeness check failed: " + ("; ".join(parts) or "incomplete")
+    )
 
 
 class SpecFirstGenerateMixin:
@@ -148,7 +207,8 @@ class SpecFirstGenerateMixin:
 
         if not specs_success:
             self._report_progress("specs_failed", 2, 6, callback=callback)
-            self._report_step_detail("规格书生成失败，将回退到默认架构", category="规格书")
+            self._report_step_detail("规格书生成失败", category="规格书")
+            raise RuntimeError("spec generation failed")
         else:
             self._report_progress("specs_completed", 2, 6, callback=callback)
             self._report_step_detail("规格书已生成（API 契约 + 数据模型）", category="规格书")
@@ -180,13 +240,8 @@ class SpecFirstGenerateMixin:
             architecture = await self.architect.design_architecture(requirement, self.complexity, callback=callback)
             file_plan = architecture.get("file_plan", [])
 
-        # 如果 file_plan 为空，使用默认架构
         if not file_plan:
-            logger.warning("架构师未返回 file_plan，使用默认架构")
-            architecture = self.architect._get_requirement_aware_default_architecture(
-                requirement, self.complexity
-            )
-            file_plan = architecture.get("file_plan", [])
+            raise RuntimeError("architect architecture did not include a file_plan")
 
         # 分批规划：如果 file_plan 文件数不足复杂度预期，自动扩展
         estimated_files = ctx.complexity.get("estimated_files", len(file_plan)) if isinstance(ctx.complexity, dict) else (ctx.complexity.estimated_files if ctx.complexity else len(file_plan))
@@ -248,10 +303,18 @@ class SpecFirstGenerateMixin:
                         logger.info(f"用户决策已应用: {user_decisions}")
                     else:
                         logger.warning("用户决策为空或格式错误，使用默认值")
+                        self.warnings.append("user decision was empty; using architecture defaults")
                 except asyncio.TimeoutError:
                     logger.warning("决策等待超时（120s），使用默认值继续")
+                    self.warnings.append("user decision timed out; using architecture defaults")
+                    self._report_progress(
+                        "user_decision_timeout", 4, 6,
+                        message="decision wait timed out; using defaults",
+                        callback=callback,
+                    )
                 except Exception as e:
                     logger.error(f"获取用户决策失败: {e}，使用默认值")
+                    self.warnings.append(f"user decision failed: {e}; using architecture defaults")
         elif decision_questions:
             logger.info("simple 需求跳过决策等待，使用默认值")
             decision_extractor.skip_remaining_decisions()
@@ -292,11 +355,10 @@ class SpecFirstGenerateMixin:
                 )
             architecture["file_plan"] = project_plan.file_entries()
         except ValueError as exc:
-            project_plan = None
-            logger.warning("Spec-First 项目计划暂未冻结，保留兼容生成流程: %s", exc)
+            raise RuntimeError(f"generation plan could not be frozen: {exc}") from exc
         if project_plan is not None:
             project_context["generation_plan"] = project_plan.model_dump(mode="json")
-        allow_plan_expansion = project_plan is None or project_plan.policy != "strict"
+        allow_plan_expansion = project_plan.policy != "strict"
         if forced_file_count == 8:
             allow_plan_expansion = False
         validation_plan = ValidationCoordinator().build_plan(
@@ -336,7 +398,7 @@ class SpecFirstGenerateMixin:
                 logger.info("依赖图静态校验通过")
             else:
                 logger.warning(
-                    "依赖图静态校验未通过 (%s 个问题)，补入默认文件计划，不再重跑架构师",
+                    "依赖图静态校验未通过 (%s 个问题)",
                     len(validation_result.issues),
                 )
                 for issue in validation_result.issues:
@@ -344,22 +406,13 @@ class SpecFirstGenerateMixin:
                 if forced_file_count == 8:
                     logger.warning("强制 8 文件计划，跳过默认 file_plan 回落")
                 else:
-                    default = self.architect._get_requirement_aware_default_architecture(
-                        requirement,
-                        self.complexity,
-                        language=architecture.get("language", "python"),
-                        frontend_language=architecture.get("frontend_language"),
+                    details = "; ".join(
+                        f"[{issue.issue_type}] {issue.message}"
+                        for issue in validation_result.issues
                     )
-                    architecture["file_plan"] = default["file_plan"]
-                    architecture["used_default_file_plan"] = True
-                    if not architecture.get("project_spec"):
-                        architecture["project_spec"] = default.get("project_spec")
-                    if not architecture.get("db_schema") and default.get("db_schema"):
-                        architecture["db_schema"] = default.get("db_schema")
-                    self.architect._drop_stale_file_plan_aliases(architecture)
-                    file_plan = sync_generation_architecture(project_context, architecture)
-                    dep_graph = DependencyGraph(language_adapter=language_adapter)
-                    dep_graph.build_from_architecture(architecture)
+                    raise RuntimeError(
+                        "dependency graph static validation failed: " + details
+                    )
             file_plan = sync_generation_architecture(project_context, architecture)
 
             logger.info(f"依赖图构建完成: {len(dep_graph.nodes)} 个文件节点, file_plan={len(file_plan)} 个文件")
@@ -393,17 +446,21 @@ class SpecFirstGenerateMixin:
                     dep_graph, scope="incremental", new_files=new_files, architecture=architecture
                 )
                 if not validation_result.passed:
-                    logger.warning(f"增量依赖图验证未通过: {len(validation_result.issues)} 个问题")
-                    for issue in validation_result.issues:
-                        logger.warning(f"  [{issue.issue_type}] {issue.message}")
+                    details = "; ".join(
+                        f"[{issue.issue_type}] {issue.message}"
+                        for issue in validation_result.issues
+                    )
+                    raise RuntimeError(
+                        "incremental dependency graph validation failed: " + details
+                    )
 
             # 保存更新后的依赖图
             dep_graph.save(str(dep_graph_path))
 
-        # LLM 批量推断未知 file_type（通用，不依赖语言）
+        # 路径规则推断未知 file_type（无 LLM）
         unknown_files = dep_graph.get_unknown_type_files()
         if unknown_files:
-            logger.info(f"发现 {len(unknown_files)} 个未知 file_type 文件，启动 LLM 批量推断")
+            logger.info(f"发现 {len(unknown_files)} 个未知 file_type 文件，使用路径规则推断")
             await self._infer_unknown_file_types(dep_graph, unknown_files, architecture, detected_language)
             dep_graph.save(str(dep_graph_path))
 
@@ -452,7 +509,12 @@ class SpecFirstGenerateMixin:
 
             state_lock = asyncio.Lock()
 
-            cross_validator = CrossValidator(ctx, language_adapter=language_adapter, api_key_token=self.api_key_token)
+            cross_validator = CrossValidator(
+                ctx,
+                language_adapter=language_adapter,
+                api_key_token=self.api_key_token,
+                review_enabled=getattr(self, "enable_review", True),
+            )
 
             async def generate_single_file(
                 file_path: str,
@@ -466,20 +528,8 @@ class SpecFirstGenerateMixin:
                 if not ctx.are_dependencies_ready(file_path):
                     dependencies = sorted(dep_graph.adjacency.get(file_path, set()))
                     message = f"上游产物未通过校验: {', '.join(dependencies)}"
-                    logger.warning("跳过文件生成: %s (%s)", file_path, message)
-                    return {
-                        "path": file_path,
-                        "description": description,
-                        "file_type": file_type,
-                        "success": False,
-                        "size": 0,
-                        "refinement_attempts": 0,
-                        "issues_fixed": 0,
-                        "content": "",
-                        "model_name": "blocked",
-                        "validation_passed": False,
-                        "validation_issues": [message],
-                    }
+                    logger.warning("文件生成被阻断: %s (%s)", file_path, message)
+                    raise RuntimeError(f"file generation blocked for {file_path}: {message}")
 
                 # 断点续传：检查文件是否已存在且完整
                 normalized = self._strip_output_dir_prefix(file_path)
@@ -590,14 +640,13 @@ class SpecFirstGenerateMixin:
                     if recovered:
                         initial_content = recovered
                     else:
-                        # 恢复失败，重试+升级模型
                         initial_content = await self._retry_generate_file(
                             file_path, description, project_context, spec_context, dep_context,
                             engineer, callback, reason=invalid_reason
                         )
                         if not initial_content:
-                            logger.error(f"所有重试均失败，跳过文件: {file_path}")
-                            return {"path": file_path, "success": False, "error": f"文件生成失败: {invalid_reason}"}
+                            logger.error(f"所有重试均失败: {file_path}")
+                            raise ValueError(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
 
                 architecture_for_file = project_context.get("architecture", {}) or {}
                 if _is_adapter_owned_file(file_path, file_type, architecture_for_file):
@@ -613,66 +662,77 @@ class SpecFirstGenerateMixin:
                     )
 
                     alt_model = self._select_alternative_model(model_name)
-                    alt_engineer = self._select_engineer_for_model(alt_model)
-                    alt_content = await alt_engineer.generate_file(
-                        file_path, description, project_context, spec_context, dep_context,
-                        project_path=str(self.output_dir), callback=callback,
-                        is_existing_file=(self.output_dir / normalized).exists()
-                     )
-                    if asyncio.iscoroutine(alt_content):
-                        logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
-                        alt_content = await alt_content
-                    if alt_content:
-                        target_language = project_context.get("architecture", {}).get("language", "")
-                        from app.agent.utils import get_expected_language_for_file
-                        file_expected_language = get_expected_language_for_file(file_path, target_language)
-                        alt_content = await extract_engineer_content(
-                            alt_content, alt_engineer, self.output_dir, file_path,
-                            expected_language=file_expected_language,
-                            llm_caller=self._quick_llm_check,
+                    if alt_model is None:
+                        result = await self._degrade_cross_validation(
+                            refinement_loop=refinement_loop_instance,
+                            file_path=file_path,
+                            file_type=file_type,
+                            description=description,
+                            model_name=model_name,
+                            initial_content=initial_content,
+                            project_context=project_context,
+                            callback=callback,
+                            progress_current=4 + file_index,
+                            progress_total=total_files + 5,
                         )
-
-                        from app.agent.models import DEFAULT_ARCHITECT_MODEL
-                        judge_model = self.model_assignment.reviewer_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL
-
-                        try:
-                            result = await cross_validator.cross_validate_with_refinement(
-                                file_path=file_path,
-                                file_type=file_type,
-                                description=description,
-                                content_a=initial_content,
-                                model_a=model_name,
-                                content_b=alt_content,
-                                model_b=alt_model,
-                                judge_model=judge_model,
-                                refinement_loop=refinement_loop_instance,
-                                project_context=project_context,
-                                callback=callback
-                            )
-                        except Exception as exc:
-                            from app.agent.cross_validator import is_review_timeout
-                            if is_review_timeout(exc):
-                                logger.warning("交叉验证超时，跳过审查: %s", file_path)
-                                result = _skipped_refinement(initial_content)
-                            else:
-                                raise
                     else:
-                        try:
-                            result = await refinement_loop_instance.refine(
-                                file_path=file_path,
-                                file_type=file_type,
-                                description=description,
-                                initial_content=initial_content,
-                                model_name=model_name,
-                                project_context=project_context,
-                                callback=callback
+                        alt_engineer = self._select_engineer_for_model(alt_model)
+                        alt_content = await alt_engineer.generate_file(
+                            file_path, description, project_context, spec_context, dep_context,
+                            project_path=str(self.output_dir), callback=callback,
+                            is_existing_file=(self.output_dir / normalized).exists()
+                         )
+                        if asyncio.iscoroutine(alt_content):
+                            logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
+                            alt_content = await alt_content
+                        if alt_content:
+                            target_language = project_context.get("architecture", {}).get("language", "")
+                            from app.agent.utils import get_expected_language_for_file
+                            file_expected_language = get_expected_language_for_file(file_path, target_language)
+                            alt_content = await extract_engineer_content(
+                                alt_content, alt_engineer, self.output_dir, file_path,
+                                expected_language=file_expected_language,
+                                llm_caller=self._quick_llm_check,
                             )
-                        except Exception as exc:
-                            from app.agent.cross_validator import is_review_timeout
-                            if is_review_timeout(exc):
-                                logger.warning("审查超时，跳过并保留初稿: %s", file_path)
-                                result = _skipped_refinement(initial_content)
-                            else:
+
+                            if not self.model_assignment or not self.model_assignment.reviewer_model:
+                                raise RuntimeError("model assignment is required for cross-validation judge")
+                            judge_model = self.model_assignment.reviewer_model
+
+                            try:
+                                result = await cross_validator.cross_validate_with_refinement(
+                                    file_path=file_path,
+                                    file_type=file_type,
+                                    description=description,
+                                    content_a=initial_content,
+                                    model_a=model_name,
+                                    content_b=alt_content,
+                                    model_b=alt_model,
+                                    judge_model=judge_model,
+                                    refinement_loop=refinement_loop_instance,
+                                    project_context=project_context,
+                                    callback=callback
+                                )
+                            except Exception as exc:
+                                from app.agent.cross_validator import is_review_timeout
+                                if is_review_timeout(exc):
+                                    logger.warning("交叉验证超时: %s", file_path)
+                                raise
+                        else:
+                            try:
+                                result = await refinement_loop_instance.refine(
+                                    file_path=file_path,
+                                    file_type=file_type,
+                                    description=description,
+                                    initial_content=initial_content,
+                                    model_name=model_name,
+                                    project_context=project_context,
+                                    callback=callback
+                                )
+                            except Exception as exc:
+                                from app.agent.cross_validator import is_review_timeout
+                                if is_review_timeout(exc):
+                                    logger.warning("审查超时: %s", file_path)
                                 raise
                 else:
                     try:
@@ -688,10 +748,8 @@ class SpecFirstGenerateMixin:
                     except Exception as exc:
                         from app.agent.cross_validator import is_review_timeout
                         if is_review_timeout(exc):
-                            logger.warning("审查超时，跳过并保留初稿: %s", file_path)
-                            result = _skipped_refinement(initial_content)
-                        else:
-                            raise
+                            logger.warning("审查超时: %s", file_path)
+                        raise
 
                 final_content = result.final_content
 
@@ -721,6 +779,11 @@ class SpecFirstGenerateMixin:
                         if not retry_warning and retry_content:
                             final_content = retry_content
                             logger.info(f"内容质量重试成功: {file_path}")
+                    remaining_warning = validate_content_quality(file_path, final_content or "")
+                    if remaining_warning:
+                        raise RuntimeError(
+                            f"content quality validation failed for {file_path}: {remaining_warning}"
+                        )
 
                 # 原子写入
                 write_file_atomic(self.output_dir, file_path, final_content)
@@ -765,7 +828,7 @@ class SpecFirstGenerateMixin:
                 for i, result in enumerate(results):
                     file_path = layer[i]
                     if isinstance(result, Exception):
-                        self.errors.append(f"文件生成失败: {file_path}（内部异常）")
+                        self.errors.append(f"文件生成失败: {file_path}（{result}）")
                         ctx.add_error(f"文件生成失败: {file_path}")
                         files_failed += 1
                         continue
@@ -805,6 +868,13 @@ class SpecFirstGenerateMixin:
 
                 current_index += layer_size
 
+        if files_failed:
+            failed = [err for err in self.errors if "文件生成失败" in err]
+            raise RuntimeError(
+                f"file generation failed for {files_failed} file(s): "
+                + "; ".join(failed or self.errors[-files_failed:])
+            )
+
         self._report_progress("files_generated", total_files + 4, total_files + 5, callback=callback)
 
         # ============ 完整性验证（新增） ============
@@ -841,33 +911,38 @@ class SpecFirstGenerateMixin:
                 architecture = dep_graph.add_missing_files(architecture)
                 # 为新发现的文件生成内容
                 from app.agent.utils import write_file_atomic as _wf_atomic
+                unfilled = []
                 for missing_file in missing_files:
-                    if missing_file not in generated_files_dict:
-                        # 使用 IntegrityValidator 生成真实内容
-                        init_filename = language_adapter.package_init_filename if language_adapter else '__init__.py'
-                        if init_filename and (missing_file.endswith(init_filename) or missing_file.endswith('__init__.py')):
-                            default_content = integrity_validator._generate_init_content(missing_file, generated_files_dict)
-                        elif missing_file.endswith('index.js') or missing_file.endswith('index.ts'):
-                            default_content = integrity_validator._generate_index_content(missing_file, generated_files_dict)
-                        else:
-                            # 根据文件扩展名生成正确的内容
-                            ext = Path(missing_file).suffix
-                            if ext == '.py':
-                                default_content = f'"""Module: {missing_file}"""\n'
-                            elif ext in ('.js', '.ts'):
-                                default_content = f'// Module: {missing_file}\n'
-                            else:
-                                default_content = ''
-
-                        _wf_atomic(self.output_dir, missing_file, default_content, skip_placeholder_check=True)
-                        ctx.save_file_content(missing_file, default_content, "integrity_fix")
-                        logger.info(f"自动补充完整性文件: {missing_file}")
-                        self._report_file_event(missing_file, default_content, "自动补充的模块文件", detected_language)
-                        files_generated += 1
+                    if missing_file in generated_files_dict:
+                        continue
+                    default_content = _package_entry_content(
+                        missing_file,
+                        integrity_validator,
+                        language_adapter,
+                        generated_files_dict,
+                    )
+                    if default_content is None:
+                        unfilled.append(missing_file)
+                        continue
+                    _wf_atomic(self.output_dir, missing_file, default_content, skip_placeholder_check=True)
+                    ctx.save_file_content(missing_file, default_content, "integrity_fix")
+                    logger.info(f"自动补充完整性文件: {missing_file}")
+                    self._report_file_event(missing_file, default_content, "自动补充的模块文件", detected_language)
+                    files_generated += 1
+                if unfilled:
+                    raise RuntimeError(
+                        "dependency graph missing files were not generated: "
+                        + ", ".join(unfilled)
+                    )
 
         # 3. CrossValidator 跨文件一致性验证
         if hasattr(self, 'model_assignment') and self.model_assignment:
-            cross_validator = CrossValidator(ctx, language_adapter=language_adapter, api_key_token=self.api_key_token)
+            cross_validator = CrossValidator(
+                ctx,
+                language_adapter=language_adapter,
+                api_key_token=self.api_key_token,
+                review_enabled=getattr(self, "enable_review", True),
+            )
             fix_model = self.model_assignment.reviewer_model
 
             # 更新生成文件字典
@@ -880,10 +955,8 @@ class SpecFirstGenerateMixin:
             except Exception as exc:
                 from app.agent.cross_validator import is_review_timeout
                 if is_review_timeout(exc):
-                    logger.warning("跨文件审查超时，跳过 LLM 修复并继续收尾")
-                    fixed_files, cross_issues = generated_files_dict, []
-                else:
-                    raise
+                    logger.warning("跨文件审查超时")
+                raise
 
             if cross_issues:
                 logger.warning(f"跨文件一致性验证发现 {len(cross_issues)} 个问题")
@@ -933,8 +1006,10 @@ class SpecFirstGenerateMixin:
                 )
                 if sandbox_ok:
                     logger.info("沙箱验证修复后通过")
-                else:
-                    logger.warning(f"沙箱验证修复后仍有 {len(sandbox_errors)} 个错误")
+            if not sandbox_ok:
+                raise RuntimeError(
+                    "sandbox validation failed: " + "; ".join(sandbox_errors)
+                )
         else:
             logger.info("项目级沙箱验证通过")
 
@@ -944,11 +1019,24 @@ class SpecFirstGenerateMixin:
         if self.enable_validation:
             final_validation = await self.validator.run_full_validation()
 
+            # 汇总各校验类别的失败原因供前端展示。import_errors 只含环境缺包等
+            # 诊断信息，不代表代码缺陷，不计入 issues。
+            issues = []
+            for issue_key in (
+                "syntax_errors",
+                "dependency_errors",
+                "api_errors",
+                "runtime_errors",
+                "frontend_errors",
+                "cross_file_errors",
+            ):
+                issues.extend(final_validation.get(issue_key) or [])
+
             # 推送验证结果事件
             self._report_validation_results({
                 "passed": final_validation.get("is_valid", False),
                 "checks": final_validation.get("checks", []),
-                "issues": final_validation.get("issues", []),
+                "issues": issues,
                 "score": final_validation.get("score", 0)
             })
 
@@ -998,6 +1086,11 @@ class SpecFirstGenerateMixin:
 
         if not architecture_check.passed:
             self.warnings.append(f"架构检查发现问题: {len(architecture_check.violations)} 个违规")
+
+        completeness = await self._validate_project_completeness(
+            file_plan, {f: ctx.get_file_content(f) for f in ctx.files.keys()}
+        )
+        _require_project_complete(completeness)
 
         # 记录跳过的文件数
         if files_skipped > 0:
@@ -1070,7 +1163,12 @@ class SpecFirstGenerateMixin:
         from app.agent.tools import set_allowed_file_paths
         set_allowed_file_paths(set(dep_graph.nodes.keys()))
 
-        cross_validator = CrossValidator(ctx, language_adapter=language_adapter, api_key_token=self.api_key_token)
+        cross_validator = CrossValidator(
+            ctx,
+            language_adapter=language_adapter,
+            api_key_token=self.api_key_token,
+            review_enabled=getattr(self, "enable_review", True),
+        )
         refinement_loop = RefinementLoop(ctx, complexity=self.complexity.level.value if self.complexity else "medium", api_key_token=self.api_key_token)
 
         files_generated = 0
@@ -1212,83 +1310,93 @@ class SpecFirstGenerateMixin:
                 if recovered:
                     initial_content = recovered
                 else:
-                    # 恢复失败，重试+升级模型
                     initial_content = await self._retry_generate_file(
                         file_path, description, combined_context, spec_context, dep_context,
                         engineer, callback, heartbeat_tracker=tracker, reason=invalid_reason
                     )
-                    if not initial_content:
-                        logger.error(f"所有重试均失败，跳过文件: {file_path}")
-                        raise ValueError(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
+                if not initial_content:
+                    logger.error(f"所有重试均失败: {file_path}")
+                    raise ValueError(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
 
             if _is_adapter_owned_file(file_path, file_type, architecture):
                 logger.info("适配器骨架文件跳过审查: %s", file_path)
                 result = _skipped_refinement(initial_content)
             elif cross_validator.is_critical_file(file_path, file_type, file_priority):
                 alt_model = self._select_alternative_model(model_name)
-                alt_engineer = self._select_engineer_for_model(alt_model)
-                if tracker:
-                    tracker.touch()
-                alt_content = await alt_engineer.generate_file(
-                    file_path, description, combined_context, spec_context, dep_context,
-                    project_path=str(self.output_dir), callback=callback,
-                    is_existing_file=(self.output_dir / normalized).exists(),
-                    heartbeat_tracker=tracker
-                )
-                if tracker:
-                    tracker.touch()
-                if asyncio.iscoroutine(alt_content):
-                    logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
-                    alt_content = await alt_content
-                if alt_content:
-                    # 检查替代工程师是否已通过工具直接编辑了文件
-                    if alt_engineer.get_edited_files():
-                        full = self.output_dir / normalized
-                        if full.exists():
-                            alt_content = full.read_text(encoding='utf-8')
-                    else:
-                        alt_content = self._clean_code_block(alt_content)
-                    from app.agent.models import DEFAULT_ARCHITECT_MODEL
-                    judge_model = self.model_assignment.reviewer_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL
-
-                    try:
-                        result = await cross_validator.cross_validate_with_refinement(
-                            file_path=file_path,
-                            file_type=file_type,
-                            description=description,
-                            content_a=initial_content,
-                            model_a=model_name,
-                            content_b=alt_content,
-                            model_b=alt_model,
-                            judge_model=judge_model,
-                            refinement_loop=refinement_loop,
-                            project_context=combined_context,
-                            callback=callback
-                        )
-                    except Exception as exc:
-                        from app.agent.cross_validator import is_review_timeout
-                        if is_review_timeout(exc):
-                            logger.warning("交叉验证超时，跳过审查: %s", file_path)
-                            result = _skipped_refinement(initial_content)
-                        else:
-                            raise
+                if alt_model is None:
+                    result = await self._degrade_cross_validation(
+                        refinement_loop=refinement_loop,
+                        file_path=file_path,
+                        file_type=file_type,
+                        description=description,
+                        model_name=model_name,
+                        initial_content=initial_content,
+                        project_context=combined_context,
+                        callback=callback,
+                        progress_current=files_generated,
+                        progress_total=total_files + 5,
+                    )
                 else:
-                    try:
-                        result = await refinement_loop.refine(
-                            file_path=file_path,
-                            file_type=file_type,
-                            description=description,
-                            initial_content=initial_content,
-                            model_name=model_name,
-                            project_context=combined_context,
-                            callback=callback
-                        )
-                    except Exception as exc:
-                        from app.agent.cross_validator import is_review_timeout
-                        if is_review_timeout(exc):
-                            logger.warning("审查超时，跳过并保留初稿: %s", file_path)
-                            result = _skipped_refinement(initial_content)
+                    alt_engineer = self._select_engineer_for_model(alt_model)
+                    if tracker:
+                        tracker.touch()
+                    alt_content = await alt_engineer.generate_file(
+                        file_path, description, combined_context, spec_context, dep_context,
+                        project_path=str(self.output_dir), callback=callback,
+                        is_existing_file=(self.output_dir / normalized).exists(),
+                        heartbeat_tracker=tracker
+                    )
+                    if tracker:
+                        tracker.touch()
+                    if asyncio.iscoroutine(alt_content):
+                        logger.warning(f"alt generate_file 返回协程，自动 await: {file_path}")
+                        alt_content = await alt_content
+                    if alt_content:
+                        # 检查替代工程师是否已通过工具直接编辑了文件
+                        if alt_engineer.get_edited_files():
+                            full = self.output_dir / normalized
+                            if full.exists():
+                                alt_content = full.read_text(encoding='utf-8')
                         else:
+                            alt_content = self._clean_code_block(alt_content)
+                        if not self.model_assignment or not self.model_assignment.reviewer_model:
+                            raise RuntimeError("model assignment is required for cross-validation judge")
+                        judge_model = self.model_assignment.reviewer_model
+
+                        try:
+                            result = await cross_validator.cross_validate_with_refinement(
+                                file_path=file_path,
+                                file_type=file_type,
+                                description=description,
+                                content_a=initial_content,
+                                model_a=model_name,
+                                content_b=alt_content,
+                                model_b=alt_model,
+                                judge_model=judge_model,
+                                refinement_loop=refinement_loop,
+                                project_context=combined_context,
+                                callback=callback
+                            )
+                        except Exception as exc:
+                            from app.agent.cross_validator import is_review_timeout
+                            if is_review_timeout(exc):
+                                logger.warning("交叉验证超时: %s", file_path)
+                            raise
+                    else:
+                        try:
+                            result = await refinement_loop.refine(
+                                file_path=file_path,
+                                file_type=file_type,
+                                description=description,
+                                initial_content=initial_content,
+                                model_name=model_name,
+                                project_context=combined_context,
+                                callback=callback
+                            )
+                        except Exception as exc:
+                            from app.agent.cross_validator import is_review_timeout
+                            if is_review_timeout(exc):
+                                logger.warning("审查超时: %s", file_path)
                             raise
             else:
                 try:
@@ -1304,10 +1412,8 @@ class SpecFirstGenerateMixin:
                 except Exception as exc:
                     from app.agent.cross_validator import is_review_timeout
                     if is_review_timeout(exc):
-                        logger.warning("审查超时，跳过并保留初稿: %s", file_path)
-                        result = _skipped_refinement(initial_content)
-                    else:
-                        raise
+                        logger.warning("审查超时: %s", file_path)
+                    raise
 
             final_content = result.final_content
 
@@ -1345,8 +1451,14 @@ class SpecFirstGenerateMixin:
                             engineer, callback, heartbeat_tracker=tracker, reason="内容质量校验失败"
                         )
                         if not final_content:
-                            logger.error(f"所有重试均失败，跳过文件: {file_path}")
-                            result.success = False
+                            raise RuntimeError(
+                                f"content quality validation failed for {file_path}: {quality_warning}"
+                            )
+            remaining_quality = validate_content_quality(file_path, final_content or "")
+            if remaining_quality:
+                raise RuntimeError(
+                    f"content quality validation failed for {file_path}: {remaining_quality}"
+                )
 
             # 写入前语法验证：精炼循环可能未能修复语法错误
             syntax_ok = await self._validate_content_syntax(file_path, final_content)
@@ -1358,30 +1470,33 @@ class SpecFirstGenerateMixin:
                     full_path.parent.mkdir(parents=True, exist_ok=True)
                     from app.agent.utils import write_file_atomic as _wf_atomic
                     _wf_atomic(self.output_dir, normalized, final_content, skip_placeholder_check=True)
-                    try:
-                        backend_model = getattr(self, 'model_assignment', None)
-                        backend_model = backend_model.backend_model if backend_model else DEFAULT_FAST_MODEL
-                        er_success, er_content = await self.error_recovery.validate_and_fix(
-                            file_path=full_path,
-                            content=final_content,
-                            file_description=description,
-                            backend_model=backend_model,
-                            callback=callback
-                        )
-                        if er_success and er_content:
-                            final_content = er_content
-                            syntax_ok = True
-                    except Exception as e:
-                        logger.warning(f"error_recovery 修复失败: {e}")
+                    assignment = getattr(self, "model_assignment", None)
+                    if not assignment or not assignment.backend_model:
+                        raise RuntimeError("model assignment is required for error recovery")
+                    er_success, er_content = await self.error_recovery.validate_and_fix(
+                        file_path=full_path,
+                        content=final_content,
+                        file_description=description,
+                        backend_model=assignment.backend_model,
+                        callback=callback,
+                    )
+                    if er_success and er_content:
+                        final_content = er_content
+                        syntax_ok = True
                 if not syntax_ok:
-                    logger.warning(f"语法验证未通过，尝试重试+升级模型: {file_path}")
+                    logger.warning(f"语法验证未通过，尝试重试: {file_path}")
                     final_content = await self._retry_generate_file(
                         file_path, description, combined_context, spec_context, dep_context,
                         engineer, callback, heartbeat_tracker=tracker, reason="语法验证失败"
                     )
                     if not final_content:
-                        logger.error(f"所有重试均失败，跳过文件: {file_path}")
-                        result.success = False
+                        raise RuntimeError(f"syntax validation failed for {file_path}")
+            if not syntax_ok:
+                syntax_ok = bool(final_content) and await self._validate_content_syntax(
+                    file_path, final_content
+                )
+            if not syntax_ok:
+                raise RuntimeError(f"syntax validation failed for {file_path}")
 
             # 原子写入（统一使用 write_file_atomic）
             persisted = False
@@ -1402,7 +1517,8 @@ class SpecFirstGenerateMixin:
 
             async with state_lock:
                 ctx.save_file_content(file_path, final_content, model_name)
-                ctx.update_file_validation(file_path, result.success, [])
+                remaining = [f"{i.type}: {i.message}" for i in result.remaining_issues]
+                ctx.update_file_validation(file_path, result.success, remaining)
                 generated_contents[file_path] = final_content[:MAX_CONTENT_FOR_CONTEXT]
                 from app.agent.symbol_table import remember_generated_file
                 for issue in remember_generated_file(project_context, file_path, final_content, architecture):
@@ -1419,6 +1535,7 @@ class SpecFirstGenerateMixin:
 
                 if not result.success:
                     warnings_list.append(f"文件验证未完全通过: {file_path}")
+                warnings_list.extend(remaining)
 
             return final_content
 
@@ -1434,6 +1551,12 @@ class SpecFirstGenerateMixin:
         for failed_file in result.get("failed_files", []):
             errors_list.append(f"文件生成失败: {failed_file}")
             ctx.add_error(f"文件生成失败: {failed_file}")
+
+        if files_failed:
+            raise RuntimeError(
+                f"file generation failed for {files_failed} file(s): "
+                + "; ".join(errors_list)
+            )
 
         generated_files_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
 
@@ -1612,30 +1735,30 @@ class SpecFirstGenerateMixin:
             if missing_files and allow_plan_expansion:
                 architecture = dep_graph.add_missing_files(architecture)
                 from app.agent.utils import write_file_atomic as _wf_atomic
+                unfilled = []
                 for missing_file in missing_files:
-                    if missing_file not in generated_files_dict:
-                        # 使用 IntegrityValidator 生成真实内容
-                        init_filename = language_adapter.package_init_filename if language_adapter else '__init__.py'
-                        if missing_file.endswith(init_filename) or missing_file.endswith('__init__.py'):
-                            default_content = integrity_validator._generate_init_content(missing_file, generated_files_dict)
-                        elif missing_file.endswith('index.js') or missing_file.endswith('index.ts'):
-                            default_content = integrity_validator._generate_index_content(missing_file, generated_files_dict)
-                        else:
-                            # 根据文件扩展名生成正确的内容
-                            ext = Path(missing_file).suffix
-                            if ext == '.py':
-                                default_content = f'"""Module: {missing_file}"""\n'
-                            elif ext in ('.js', '.ts'):
-                                default_content = f'// Module: {missing_file}\n'
-                            else:
-                                default_content = ''
-
-                        _wf_atomic(self.output_dir, missing_file, default_content, skip_placeholder_check=True)
-                        ctx.save_file_content(missing_file, default_content, "auto_generated")
-                        logger.info(f"自动生成缺失文件: {missing_file}")
-                        lang_for_report = language_adapter.language if language_adapter else "python"
-                        self._report_file_event(missing_file, default_content, "自动补充的模块文件", lang_for_report)
-                        files_generated += 1
+                    if missing_file in generated_files_dict:
+                        continue
+                    default_content = _package_entry_content(
+                        missing_file,
+                        integrity_validator,
+                        language_adapter,
+                        generated_files_dict,
+                    )
+                    if default_content is None:
+                        unfilled.append(missing_file)
+                        continue
+                    _wf_atomic(self.output_dir, missing_file, default_content, skip_placeholder_check=True)
+                    ctx.save_file_content(missing_file, default_content, "auto_generated")
+                    logger.info(f"自动生成缺失文件: {missing_file}")
+                    lang_for_report = language_adapter.language if language_adapter else "python"
+                    self._report_file_event(missing_file, default_content, "自动补充的模块文件", lang_for_report)
+                    files_generated += 1
+                if unfilled:
+                    raise RuntimeError(
+                        "dependency graph missing files were not generated: "
+                        + ", ".join(unfilled)
+                    )
 
         self._report_progress("integrity_validated", total_files + 4, total_files + 5, callback=callback)
 
@@ -1672,8 +1795,10 @@ class SpecFirstGenerateMixin:
                 )
                 if sandbox_ok:
                     logger.info("沙箱验证修复后通过")
-                else:
-                    logger.warning(f"沙箱验证修复后仍有 {len(sandbox_errors)} 个错误")
+            if not sandbox_ok:
+                raise RuntimeError(
+                    "sandbox validation failed: " + "; ".join(sandbox_errors)
+                )
         else:
             logger.info("项目级沙箱验证通过")
 
@@ -1684,36 +1809,10 @@ class SpecFirstGenerateMixin:
             file_plan = architecture.get("file_plan", [])
         final_generated_dict = {f: ctx.get_file_content(f) for f in ctx.files.keys()}
         completeness = await self._validate_project_completeness(file_plan, final_generated_dict)
-
-        if not completeness["is_complete"] and allow_plan_expansion:
-            logger.warning(
-                f"项目完整性检查未通过: "
-                f"缺失 {len(completeness['missing_files'])} 个文件, "
-                f"无效 {len(completeness['invalid_files'])} 个文件"
-            )
-
-            # 尝试补充缺失文件
-            for missing_file in completeness["missing_files"]:
-                logger.info(f"尝试补充缺失文件: {missing_file}")
-                desc = next((f["description"] for f in file_plan if f["path"] == missing_file), "")
-                content = await self._direct_llm_generate_file(missing_file, desc, project_context)
-                if content:
-                    from app.agent.utils import is_valid_code_content, write_file_atomic as _wf_atomic
-                    is_valid, _ = is_valid_code_content(missing_file, content)
-                    if is_valid:
-                        _wf_atomic(self.output_dir, missing_file, content)
-                        ctx.save_file_content(missing_file, content, "completeness_fix")
-                        logger.info(f"缺失文件已补充: {missing_file}")
-                        files_generated += 1
-
-        if not completeness["is_complete"] and not allow_plan_expansion:
-            logger.info(
-                "严格计划跳过项目完整性补充: "
-                f"缺失 {len(completeness['missing_files'])} 个文件, "
-                f"无效 {len(completeness['invalid_files'])} 个文件"
-            )
-
-        logger.info(f"项目生成完成: {completeness['total_generated']}/{completeness['total_planned']} 文件")
+        _require_project_complete(completeness)
+        logger.info(
+            f"项目生成完成: {completeness['total_generated']}/{completeness['total_planned']} 文件"
+        )
 
         # 统计跳过的文件数
         files_skipped = sum(1 for f in generated_files_list if f.get("skipped"))
@@ -1746,81 +1845,55 @@ class SpecFirstGenerateMixin:
             except SyntaxError:
                 return False
 
-        elif ext == '.ts':
+        elif ext in ('.ts', '.tsx'):
             # TypeScript syntax (including decorators and annotations) cannot be
             # parsed by `node -c`; use the installed compiler's parser only.
-            import shutil
-            import tempfile
-            import subprocess
-            tsc_path = shutil.which('tsc')
-            if not tsc_path:
-                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
-            typescript_module = Path(tsc_path).resolve().parent.parent / 'lib' / 'typescript.js'
-            if not typescript_module.is_file():
-                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
-            try:
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.ts', delete=False) as f:
-                    f.write(content)
-                    tmp_path = f.name
-                script = (
-                    "const ts=require(process.argv[1]);const fs=require('fs');"
-                    "const source=fs.readFileSync(process.argv[2],'utf8');"
-                    "const result=ts.transpileModule(source,{reportDiagnostics:true,compilerOptions:{"
-                    "target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,"
-                    "experimentalDecorators:true,emitDecoratorMetadata:true}});"
-                    "process.exit(result.diagnostics?.some(d=>d.category===ts.DiagnosticCategory.Error)?1:0);"
-                )
-                result = subprocess.run(
-                    ['node', '-e', script, str(typescript_module), tmp_path],
-                    capture_output=True, text=True, timeout=5
-                )
-                Path(tmp_path).unlink(missing_ok=True)
-                return result.returncode == 0
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
+            # .tsx additionally requires the parser's jsx option for JSX.
+            return self._check_ts_source(content, jsx=(ext == '.tsx'))
 
-        elif ext in ('.js', '.vue'):
-            # 检测 Python 代码混入 JS 文件
-            python_indicators = ['def ', 'import ', 'from ', 'class ', 'self.', 'print(']
-            python_count = sum(1 for ind in python_indicators if ind in content)
-            if python_count >= 3:
-                return False
-            import tempfile
-            import subprocess
-            try:
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
-                    f.write(content)
-                    tmp_path = f.name
-                result = subprocess.run(
-                    ['node', '-c', tmp_path],
-                    capture_output=True, text=True, timeout=5
-                )
-                Path(tmp_path).unlink(missing_ok=True)
-                return result.returncode == 0
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                return content.count('{') == content.count('}') and content.count('(') == content.count(')')
+        elif ext in ('.js', '.jsx', '.mjs', '.cjs', '.vue'):
+            source = content
+            # JSX 语法 `node -c` 无法解析，需交给 TS parser。
+            use_ts = ext == '.jsx'
+            use_jsx = use_ts
+            if ext == '.vue':
+                # .vue 是单文件组件：模板和样式不是 JS，只校验 <script> 块。
+                source, use_ts, use_jsx = vue_script_source(content)
+                if not source:
+                    return True
+            if use_ts:
+                return self._check_ts_source(source, jsx=use_jsx)
+            return self._check_js_source(source)
 
-        elif ext == '.html':
-            for tag in ['html', 'head', 'body']:
-                open_count = len(re.findall(rf'<{tag}[\s>]', content, re.IGNORECASE))
-                close_count = len(re.findall(rf'</{tag}>', content, re.IGNORECASE))
-                if open_count > close_count:
-                    return False
-            script_opens = len(re.findall(r'<script[\s>]', content, re.IGNORECASE))
-            script_closes = len(re.findall(r'</script>', content, re.IGNORECASE))
-            return script_opens == script_closes
+        elif ext in ('.html', '.htm', '.xhtml'):
+            # 复用共享结构校验：HTML5 允许省略 </head>/</body>，且注释与
+            # script/style 字符串里的标签写法不算结构错误。
+            return not html_structure_errors(content)
 
         elif ext == '.css':
-            if content.count('{') != content.count('}'):
+            if css_structure_errors(content):
                 return False
             # 检测非 CSS 内容（大段中文描述文本）
-            lines = [l.strip() for l in content.split('\n') if l.strip() and not l.strip().startswith('/*')]
+            sanitized = strip_css_noise(content)
+            lines = [l.strip() for l in sanitized.split('\n') if l.strip()]
             chinese_lines = sum(1 for l in lines if len(re.findall(r'[\u4e00-\u9fff]', l)) > 10)
             if chinese_lines > len(lines) * 0.3 and chinese_lines > 3:
                 return False
             return True
 
         return True
+
+    def _check_ts_source(self, source: str, *, jsx: bool = False) -> bool:
+        """校验 TypeScript/TSX 源码（node -c 无法解析装饰器/类型注解/JSX）。"""
+        ok, _ = _shared_check_ts_source(source, jsx=jsx)
+        return ok
+
+    def _check_js_source(self, source: str) -> bool:
+        """校验 JS 源码。node 不可用时退回启发式，只把 Python 专有语法判为失败。"""
+        ok, error = _shared_check_js_source(source)
+        if not ok and error:
+            logger.warning("JS 语法校验未通过: %s", error)
+        return ok
 
     def _strip_output_dir_prefix(self, file_path: str) -> str:
         """去除 file_path 中可能的 output_dir 前缀，避免路径重复"""
@@ -1842,11 +1915,14 @@ class SpecFirstGenerateMixin:
         """创建验证器用的 LLM 调用函数"""
         from app.agent.llm_client import LLMClient
 
-        # 使用 reviewer 模型进行验证（轻量任务，不需要生成模型）
-        model_name = self.model_assignment.reviewer_model if self.model_assignment else None
+        assignment = getattr(self, "model_assignment", None)
+        if not assignment:
+            raise RuntimeError("model assignment is required for dependency graph validation")
+        model_name = assignment.reviewer_model or assignment.architect_model
         if not model_name:
-            # fallback 到 architect 模型
-            model_name = self.model_assignment.architect_model if self.model_assignment else "glm-z1-9b"
+            raise RuntimeError(
+                "reviewer or architect model is required for dependency graph validation"
+            )
 
         client = LLMClient(
             model_name=model_name,
@@ -1861,104 +1937,66 @@ class SpecFirstGenerateMixin:
         return llm_caller
 
     async def _infer_unknown_file_types(self, dep_graph, unknown_files: list, architecture: dict, language: str):
-        """LLM 批量推断未知 file_type（语言无关通用方法）
-
-        将所有 unknown 文件一次性发给 LLM，让它根据文件路径、描述和项目上下文
-        推断每个文件的类型。语言无关：不依赖任何语言特定的硬编码规则。
-
-        Args:
-            dep_graph: 依赖图实例
-            unknown_files: 未知类型的文件路径列表
-            architecture: 架构设计字典
-            language: 项目语言
-        """
-        file_plan = architecture.get("file_plan", [])
-        file_descriptions = {f["path"]: f.get("description", "") for f in file_plan}
-
-        # 构建文件信息列表
-        file_info_lines = []
-        for path in unknown_files:
-            node = dep_graph.nodes.get(path)
-            desc = file_descriptions.get(path, node.description if node else "")
-            # 获取入度/出度信息辅助推断
-            in_deg = len(dep_graph.reverse_adjacency.get(path, set()))
-            out_deg = len(dep_graph.adjacency.get(path, set()))
-            # 获取直接依赖的文件类型
-            dep_types = []
-            for dep in dep_graph.adjacency.get(path, set()):
-                dep_node = dep_graph.nodes.get(dep)
-                if dep_node:
-                    dep_types.append(dep_node.file_type)
-            dep_info = f", 依赖的文件类型: {dep_types}" if dep_types else ""
-            file_info_lines.append(
-                f"- {path} (描述: {desc}, 被{in_deg}个文件依赖, 依赖{out_deg}个文件{dep_info})"
+        """Infer unknown file_type from path rules and reverse dependents. No LLM."""
+        updated = 0
+        pending = [path for path in unknown_files if dep_graph.nodes.get(path)]
+        while pending:
+            progressed = False
+            remaining = []
+            for path in pending:
+                if dep_graph._enrich_unknown_file_type(path, dep_graph.nodes[path]):
+                    updated += 1
+                    progressed = True
+                elif dep_graph.nodes[path].file_type in ("unknown", ""):
+                    remaining.append(path)
+            pending = remaining
+            if not progressed:
+                break
+        if pending:
+            raise RuntimeError(
+                "unknown file types were not inferred: " + ", ".join(pending)
             )
+        if updated:
+            logger.info("路径规则推断完成: %s/%s 个文件类型已更新", updated, len(unknown_files))
 
-        valid_types = "entry, model, api, service, repository, types, database, config, middleware, frontend_component, frontend_page, frontend_style, template, test, utils, docs"
-
-        prompt = f"""你是一个代码架构分析器。请根据以下信息，推断每个文件的 file_type。
-
-项目语言: {language}
-项目描述: {architecture.get('project_type', '')}
-
-待推断的文件列表:
-{chr(10).join(file_info_lines)}
-
-有效的 file_type 值: {valid_types}
-
-请返回一个 JSON 数组，每个元素包含 path 和 file_type 两个字段。
-只输出 JSON，不要任何解释。
-示例: [{{"path": "src/config.py", "file_type": "config"}}, ...]"""
-
-        try:
-            from app.utils import call_llm
-            # 获取 backend_model，如果 model_assignment 不存在则使用默认值
-            backend_model = getattr(self.model_assignment, 'backend_model', None) if self.model_assignment else None
-            if not backend_model:
-                from app.agent.models import DEFAULT_CODE_MODEL
-                backend_model = DEFAULT_CODE_MODEL
-            
-            response = await call_llm(
-                model=backend_model,
-                prompt=prompt,
-                system_prompt="你是一个代码文件类型推断器。只输出 JSON 数组。",
-                api_key_token=getattr(self, 'api_key_token', None)
-            )
-
-            if response:
-                # 处理可能的 dict 响应
-                if isinstance(response, dict):
-                    response = response.get("content", "") or response.get("text", "") or str(response)
-                if not response.strip():
-                    return
-                import json as _json
-                # 清理可能的 markdown 包裹
-                text = response.strip()
-                if text.startswith('```'):
-                    text = text.split('\n', 1)[-1]
-                if text.endswith('```'):
-                    text = text.rsplit('```', 1)[0]
-                text = text.strip()
-
-                # 尝试解析 JSON
-                inferred = _json.loads(text)
-                if isinstance(inferred, list):
-                    valid_type_set = set(valid_types.split(', '))
-                    updated = 0
-                    for item in inferred:
-                        if isinstance(item, dict):
-                            path = item.get("path", "")
-                            ftype = item.get("file_type", "")
-                            if path and ftype and ftype in valid_type_set:
-                                dep_graph.update_file_type(path, ftype)
-                                updated += 1
-                    logger.info(f"LLM 批量推断完成: {updated}/{len(inferred)} 个文件类型已更新")
-                else:
-                    logger.warning(f"LLM 推断返回非数组格式: {type(inferred).__name__}")
-            else:
-                logger.warning("LLM 推断返回空响应")
-        except Exception as e:
-            logger.warning(f"LLM 批量推断失败: {e}，保留原有 file_type")
+    async def _degrade_cross_validation(
+        self,
+        *,
+        refinement_loop: RefinementLoop,
+        file_path: str,
+        file_type: str,
+        description: str,
+        model_name: str,
+        initial_content: str,
+        project_context: Dict,
+        callback: Optional[Callable],
+        progress_current: int,
+        progress_total: int,
+    ):
+        """Fall back to single-model review when no distinct model is available."""
+        reason = (
+            f"{file_path}: 无可用不同模型，交叉验证已按用户开关退化为单模型审查"
+        )
+        logger.warning(reason)
+        self.warnings.append(reason)
+        self._report_progress(
+            "cross_validation_skipped",
+            progress_current,
+            progress_total,
+            file_path=file_path,
+            reason="no_distinct_model",
+            message=reason,
+            callback=callback,
+        )
+        return await refinement_loop.refine(
+            file_path=file_path,
+            file_type=file_type,
+            description=description,
+            initial_content=initial_content,
+            model_name=model_name,
+            project_context=project_context,
+            callback=callback,
+        )
 
     async def _retry_generate_file(
         self,
@@ -1972,7 +2010,7 @@ class SpecFirstGenerateMixin:
         heartbeat_tracker=None,
         reason: str = "",
     ) -> Optional[str]:
-        """重试生成文件：先用当前模型重试，失败后升级到更强模型
+        """Retry file generation with the current engineer model.
 
         替代原来的 _generate_placeholder，不再生成占位符文件。
 
@@ -1988,7 +2026,7 @@ class SpecFirstGenerateMixin:
             reason: 失败原因
 
         Returns:
-            生成的内容，失败返回 None
+            Generated content. Raises if retries fail.
         """
         from app.agent.utils import is_valid_code_content, clean_code_block, validate_language_with_llm, get_expected_language_for_file
 
@@ -2016,7 +2054,7 @@ class SpecFirstGenerateMixin:
             if heartbeat_tracker:
                 heartbeat_tracker.touch()
 
-            content = await engineer.call_llm(retry_prompt, engineer.SYSTEM_PROMPT, thinking_budget=50)
+            content = await engineer.call_llm(retry_prompt, engineer.SYSTEM_PROMPT)
             if heartbeat_tracker:
                 heartbeat_tracker.touch()
 
@@ -2037,41 +2075,9 @@ class SpecFirstGenerateMixin:
                     logger.info(f"重试成功 (当前模型): {file_path}")
                     return content
 
-        # 第二轮：升级到更强模型
-        if hasattr(self, 'model_assignment') and self.model_assignment:
-            alt_model = self._select_alternative_model(
-                getattr(engineer, 'model_name', None) or self.model_assignment.backend_model
-            )
-            alt_engineer = self._select_engineer_for_model(alt_model)
-            if alt_engineer and alt_engineer is not engineer:
-                logger.info(f"升级模型重试: {file_path} -> {alt_model}")
-                for attempt in range(2):
-                    if heartbeat_tracker:
-                        heartbeat_tracker.touch()
-
-                    content = await alt_engineer.call_llm(retry_prompt, alt_engineer.SYSTEM_PROMPT, thinking_budget=50)
-                    if heartbeat_tracker:
-                        heartbeat_tracker.touch()
-
-                    if not content or not content.strip():
-                        continue
-
-                    content = clean_code_block(content)
-                    is_valid, new_reason = is_valid_code_content(file_path, content)
-                    if is_valid:
-                        if file_expected_language and self._quick_llm_check:
-                            lang_ok, _ = await validate_language_with_llm(
-                                file_path, content, file_expected_language, self._quick_llm_check
-                            )
-                            if lang_ok:
-                                logger.info(f"重试成功 (升级模型 {alt_model}): {file_path}")
-                                return content
-                        else:
-                            logger.info(f"重试成功 (升级模型 {alt_model}): {file_path}")
-                            return content
-
-        logger.error(f"所有重试均失败: {file_path}，文件将不会被生成")
-        return None
+        raise RuntimeError(
+            f"file generation retry failed for {file_path}: {reason or 'invalid content'}"
+        )
 
     async def _fix_sandbox_errors(
         self,
@@ -2324,7 +2330,7 @@ class SpecFirstGenerateMixin:
                 heartbeat_tracker.touch()
 
             # 直接调用 LLM，不走 ReAct（上下文已齐全，只需生成代码）
-            content = await engineer.call_llm(recovery_prompt, engineer.SYSTEM_PROMPT, thinking_budget=50)
+            content = await engineer.call_llm(recovery_prompt, engineer.SYSTEM_PROMPT)
             if heartbeat_tracker:
                 heartbeat_tracker.touch()
 
@@ -2392,7 +2398,7 @@ class SpecFirstGenerateMixin:
                 "is_complete": bool
             }
         """
-        from app.agent.utils import is_valid_code_content
+        from app.agent.utils import is_package_entry_file, is_valid_code_content
 
         planned_files = {f["path"] for f in file_plan}
         generated_set = set(generated_files.keys())
@@ -2403,13 +2409,18 @@ class SpecFirstGenerateMixin:
             for planned in planned_files:
                 relative = self._strip_output_dir_prefix(planned)
                 disk = Path(output_dir) / relative
-                if (not disk.exists()) or disk.stat().st_size == 0:
+                # 空的 __init__.py 是合法的包标记，不算缺失
+                if not disk.exists():
+                    missing_files.add(planned)
+                elif disk.stat().st_size == 0 and not is_package_entry_file(planned):
                     missing_files.add(planned)
         missing_files = sorted(missing_files)
 
         empty_files = [
             f for f, c in generated_files.items()
-            if not c or len(c.strip()) < 10
+            # 只有真正空白的文件才算「空」；内容质量交给 is_valid_code_content，
+            # 避免把单行依赖/短样式等合法短文件误判为空。
+            if not (c or "").strip() and not is_package_entry_file(f)
         ]
 
         invalid_files = []
@@ -2434,19 +2445,21 @@ class SpecFirstGenerateMixin:
             "empty_files": empty_files,
             "invalid_files": invalid_files,
             "placeholder_files": placeholder_files,
-            "is_complete": len(missing_files) == 0 and len(invalid_files) == 0 and len(placeholder_files) == 0,
+            "is_complete": (
+                not missing_files
+                and not empty_files
+                and not invalid_files
+                and not placeholder_files
+            ),
         }
 
     async def _quick_llm_check(self, prompt: str) -> str:
         """快速 LLM 检查（用于语言校验等轻量任务）"""
         from app.utils import call_llm
+        backend_model = getattr(self.model_assignment, 'backend_model', None) if self.model_assignment else None
+        if not backend_model:
+            raise RuntimeError("model assignment is required for LLM check")
         try:
-            # 获取 backend_model，如果 model_assignment 不存在则使用默认值
-            backend_model = getattr(self.model_assignment, 'backend_model', None) if self.model_assignment else None
-            if not backend_model:
-                from app.agent.models import DEFAULT_CODE_MODEL
-                backend_model = DEFAULT_CODE_MODEL
-            
             response = await call_llm(
                 model=backend_model,
                 prompt=prompt,
@@ -2530,8 +2543,7 @@ old_file_action: delete 表示删除原文件，keep 表示保留（如只读包
         from app.utils import call_llm
         backend_model = getattr(self.model_assignment, 'backend_model', None) if self.model_assignment else None
         if not backend_model:
-            from app.agent.models import DEFAULT_CODE_MODEL
-            backend_model = DEFAULT_CODE_MODEL
+            raise RuntimeError("model assignment is required for file refactor")
 
         response = await call_llm(
             model=backend_model,

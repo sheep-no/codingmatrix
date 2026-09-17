@@ -11,10 +11,11 @@ CrossValidator - 交叉验证器
 4. 如果两份代码都有问题，要求裁判生成最终版本
 """
 
+import ast
 import json
 import re
 import logging
-from typing import Optional, Dict, Any, List, Tuple, Set
+from typing import Optional, Dict, Any, List, Tuple, Set, Iterator
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -167,10 +168,36 @@ class CrossValidator:
   "final_code": "最终选用的代码（仅当winner为merged时提供）"
 }"""
 
-    def __init__(self, context: SharedContext, language_adapter=None, api_key_token: Optional[str] = None):
+    # 前端在响应对象/数组/字符串上访问的运行时成员，不是后端响应字段。
+    # 字段级对比只看 JSON 负载字段，这类成员必须先排除，否则会误报 api_mismatch。
+    NON_FIELD_PROPERTY_NAMES = frozenset({
+        # fetch Response / Request / Headers
+        'json', 'text', 'blob', 'arrayBuffer', 'formData', 'clone',
+        'ok', 'status', 'statusText', 'headers', 'body', 'bodyUsed',
+        'redirected', 'type', 'url', 'method', 'mode', 'credentials',
+        # Promise
+        'then', 'catch', 'finally',
+        # Array / String / Object / Map / Set
+        'length', 'size', 'map', 'filter', 'reduce', 'reduceRight', 'forEach',
+        'find', 'findIndex', 'some', 'every', 'includes', 'indexOf', 'lastIndexOf',
+        'push', 'pop', 'shift', 'unshift', 'splice', 'slice', 'concat', 'join',
+        'split', 'trim', 'trimStart', 'trimEnd', 'replace', 'replaceAll',
+        'toLowerCase', 'toUpperCase', 'toString', 'valueOf', 'padStart', 'padEnd',
+        'keys', 'values', 'entries', 'has', 'get', 'set', 'add', 'delete', 'clear',
+        'sort', 'reverse', 'flat', 'flatMap', 'fill', 'at',
+    })
+
+    def __init__(
+        self,
+        context: SharedContext,
+        language_adapter=None,
+        api_key_token: Optional[str] = None,
+        review_enabled: bool = True,
+    ):
         self.context = context
         self.language_adapter = language_adapter
         self.api_key_token = api_key_token
+        self.review_enabled = review_enabled
 
         # 从配置加载关键文件模式
         config = _load_cross_validation_config()
@@ -186,7 +213,7 @@ class CrossValidator:
             file_type: 文件类型
             priority: 文件优先级（1-5，1为最高）
         """
-        if not self.enabled:
+        if not self.enabled or not self.review_enabled:
             return False
         
         # priority=1 自动加入交叉验证
@@ -261,21 +288,18 @@ class CrossValidator:
                 logger.warning(f"交叉验证裁判返回空内容 (尝试 {attempt + 1}/2)")
             except Exception as e:
                 if is_review_timeout(e):
-                    logger.warning("交叉验证裁判超时，跳过审查并使用版本 A: %s", file_path)
-                    return version_a, model_a
+                    raise
                 logger.warning(f"交叉验证裁判调用失败 (尝试 {attempt + 1}/2): {e}")
 
         if not content:
-            logger.warning("交叉验证裁判最终返回空内容，默认使用版本 A")
-            return version_a, model_a
+            raise ValueError("cross validator judge was empty")
 
         try:
             result = self._extract_json(content)
             if not result:
-                logger.warning("交叉验证结果解析失败，默认使用版本 A")
-                return version_a, model_a
+                raise ValueError("cross validator judge was not JSON")
 
-            winner = result.get("winner", "A")
+            winner = result.get("winner")
             reason = result.get("reason", "")
 
             if winner == "A":
@@ -285,15 +309,19 @@ class CrossValidator:
                 logger.info(f"交叉验证选择版本 B ({model_b}): {reason}")
                 return version_b, model_b
             elif winner == "merged":
-                final_code = result.get("final_code", version_a)
+                final_code = result.get("final_code")
+                if not final_code:
+                    raise ValueError("cross validator merged result had no final_code")
                 logger.info(f"交叉验证选择合并版本: {reason}")
                 return final_code, f"{model_a}+{model_b}"
             else:
-                return version_a, model_a
+                raise ValueError(f"cross validator judge winner was invalid: {winner}")
 
         except Exception as e:
-            logger.error(f"交叉验证失败: {e}，默认使用版本 A")
-            return version_a, model_a
+            if isinstance(e, ValueError) and str(e).startswith("cross validator"):
+                raise
+            logger.error(f"交叉验证失败: {e}")
+            raise ValueError("cross validator judge failed") from e
 
     async def cross_validate_with_refinement(
         self,
@@ -423,12 +451,21 @@ class CrossValidator:
         # 提取所有符号使用
         all_usages = self._extract_all_usages(files)
 
+        # 标准库/第三方导入的符号无法用项目文件校验，跳过
+        external_symbols = {
+            file_path: self._external_imported_symbols(content, file_path)
+            for file_path, content in files.items()
+        }
+
         # 检查每个使用是否对应一个定义
         for usage in all_usages:
             symbol_name = usage.name
 
             # 跳过内置函数和常见第三方库符号
             if self._is_builtin_symbol(symbol_name):
+                continue
+
+            if symbol_name in external_symbols.get(usage.file_path, set()):
                 continue
 
             # 检查是否有对应的定义
@@ -517,13 +554,13 @@ class CrossValidator:
 
         # 通用函数定义正则
         func_pattern = re.compile(
-            r'^(?:(?:pub|public|private|protected|static|async|virtual|override|export)\s+)*'
+            r'^(?:(?:pub|public|private|protected|static|async|virtual|override|export|default)\s+)*'
             r'(?:fn|func|function|def|sub|void|int|string|bool|fn)\s+(\w+)\s*\(([^)]*)\)',
             re.IGNORECASE
         )
         # 通用类型定义正则
         class_pattern = re.compile(
-            r'^(?:(?:pub|public|private|protected|abstract|static|final|export)\s+)*'
+            r'^(?:(?:pub|public|private|protected|abstract|static|final|export|default)\s+)*'
             r'(?:class|struct|interface|enum|type|trait|module)\s+(\w+)',
             re.IGNORECASE
         )
@@ -593,11 +630,15 @@ class CrossValidator:
     def _extract_all_usages(self, files: Dict[str, str]) -> List[SymbolUsage]:
         """提取所有文件中的符号使用
 
-        不按扩展名过滤，对所有文件扫描。GenericLanguageAdapter 的 extensions 为空，
-        如果按扩展名过滤会跳过所有文件。
+        按适配器扩展名过滤，与 _extract_all_definitions 保持一致。否则全栈项目里
+        JS 文件会被 Python 适配器当成"符号未定义"，产生跨语言误报。
+        GenericLanguageAdapter 的 extensions 为空，此时不过滤。
         """
         usages = []
+        supported_extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
         for file_path, content in files.items():
+            if supported_extensions and Path(file_path).suffix not in supported_extensions:
+                continue
             file_usages = self._extract_file_usages(content, file_path)
             usages.extend(file_usages)
         return usages
@@ -608,10 +649,16 @@ class CrossValidator:
         lines = content.split('\n')
 
         # 通用定义行检测（跳过定义行本身，避免把定义当成使用）
+        # 覆盖 export default function/class 这类带 default 修饰的定义
         _DEF_LINE_RE = re.compile(
-            r'^\s*(?:(?:pub|public|private|protected|static|async|virtual|override|export)\s+)*'
+            r'^\s*(?:(?:pub|public|private|protected|static|async|virtual|override|export|default)\s+)*'
             r'(?:fn|func|function|def|class|struct|interface|enum|type|trait|module)\s+\w+',
             re.IGNORECASE
+        )
+        # JS/TS 方法定义：可选修饰符 + 名称 + 参数列表 + 行尾 `{`
+        _METHOD_DEF_RE = re.compile(
+            r'^\s*(?:(?:public|private|protected|static|async|readonly|override)\s+)*'
+            r'(?:get\s+|set\s+)?\w+\s*\([^)]*\)\s*\{$'
         )
 
         for i, line in enumerate(lines, 1):
@@ -624,35 +671,28 @@ class CrossValidator:
                 continue
             if _DEF_LINE_RE.match(stripped):
                 continue
+            # JS/TS 方法定义与对象方法简写（`increment() {`、`async run() {`、
+            # `get value() {`）不是调用，末尾的 `{` 用来与普通调用区分。
+            if _METHOD_DEF_RE.match(stripped):
+                continue
 
-            # 匹配函数调用
-            func_calls = re.findall(r'(\w+)\s*\(', stripped)
-            for func_name in func_calls:
-                if not self._is_builtin_symbol(func_name):
+            # 匹配函数调用与类实例化。
+            # 带点号的调用（obj.method()、module.func()、@app.route()）是成员
+            # 引用，无法用文件级定义校验，跳过以免误报。
+            for match in re.finditer(r'(\w+)\s*\(', stripped):
+                name = match.group(1)
+                if match.start() > 0 and stripped[match.start() - 1] == '.':
+                    continue
+                if name[0].isupper():
                     usages.append(SymbolUsage(
-                        name=func_name,
+                        name=name,
                         file_path=file_path,
                         line_number=i,
                         context=stripped[:100]
                     ))
-
-            # 匹配类实例化
-            class_instantiations = re.findall(r'(\w+)\s*\(', stripped)
-            for class_name in class_instantiations:
-                if class_name[0].isupper():  # 类名通常大写开头
+                elif not self._is_builtin_symbol(name):
                     usages.append(SymbolUsage(
-                        name=class_name,
-                        file_path=file_path,
-                        line_number=i,
-                        context=stripped[:100]
-                    ))
-
-            # 匹配属性访问（obj.attr）
-            attr_accesses = re.findall(r'\.(\w+)', stripped)
-            for attr_name in attr_accesses:
-                if not attr_name.startswith('_'):
-                    usages.append(SymbolUsage(
-                        name=attr_name,
+                        name=name,
                         file_path=file_path,
                         line_number=i,
                         context=stripped[:100]
@@ -700,6 +740,22 @@ class CrossValidator:
             'useState', 'useEffect', 'useContext', 'useCallback', 'useMemo',
             'createElement', 'createApp', 'createVNode', 'h', 'Fragment',
             'PropTypes', 'Component', 'PureComponent', 'memo', 'forwardRef',
+            # 浏览器/JS 运行时全局（非项目定义，文件级校验无法覆盖）
+            'fetch', 'console', 'document', 'window', 'navigator', 'location',
+            'localStorage', 'sessionStorage', 'history', 'screen',
+            'alert', 'confirm', 'prompt', 'setTimeout', 'clearTimeout',
+            'setInterval', 'clearInterval', 'requestAnimationFrame',
+            'cancelAnimationFrame', 'queueMicrotask', 'structuredClone',
+            'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent',
+            'decodeURIComponent', 'encodeURI', 'decodeURI', 'btoa', 'atob',
+            'Promise', 'JSON', 'Object', 'Array', 'Number', 'String', 'Boolean',
+            'Math', 'Date', 'RegExp', 'Error', 'TypeError', 'RangeError',
+            'Map', 'Set', 'WeakMap', 'WeakSet', 'Symbol', 'Proxy', 'Reflect',
+            'URL', 'URLSearchParams', 'Blob', 'File', 'FileReader', 'FormData',
+            'Headers', 'Response', 'Request', 'AbortController', 'EventSource',
+            'WebSocket', 'IntersectionObserver', 'ResizeObserver', 'MutationObserver',
+            'require', 'module', 'exports', 'process', 'global', 'Buffer',
+            'axios', 'swr', 'dayjs', 'moment',
             # CSS/HTML 常见属性
             'className', 'style', 'id', 'innerHTML', 'textContent',
             'addEventListener', 'removeEventListener', 'querySelector',
@@ -717,6 +773,16 @@ class CrossValidator:
             'logger', 'logging', 'getLogger', 'info', 'debug', 'warning', 'error',
             # 异步相关
             'async', 'await', 'asyncio', 'aiohttp', 'async_session',
+            # 语句关键字（不是用户定义的符号）
+            # Python
+            'not', 'and', 'or', 'is', 'lambda', 'del', 'global', 'nonlocal',
+            'pass', 'raise', 'from', 'as', 'elif', 'except',
+            # JS/TS
+            'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default',
+            'try', 'catch', 'finally', 'throw', 'return', 'break', 'continue',
+            'typeof', 'instanceof', 'new', 'void', 'in', 'of', 'with', 'yield',
+            'function', 'class', 'const', 'let', 'var', 'import', 'export',
+            'extends', 'static', 'this', 'super',
             # 类型注解
             'Optional', 'List', 'Dict', 'Tuple', 'Set', 'Union', 'Any',
             'Literal', 'Type', 'ClassVar', 'Final', 'Annotated',
@@ -726,6 +792,25 @@ class CrossValidator:
             'Path', 'PurePath', 'PosixPath', 'WindowsPath',
         }
         return name in builtins
+
+    def _external_imported_symbols(self, content: str, file_path: str) -> Set[str]:
+        """本文件从标准库/第三方导入的符号名，这些符号无法用项目文件校验。"""
+        adapter = self.language_adapter
+        if not adapter or not content:
+            return set()
+        try:
+            imports = adapter.parse_imports(content, file_path)
+        except Exception as exc:
+            logger.debug(f"parse_imports 失败，跳过外部导入判定: {exc}")
+            return set()
+        symbols: Set[str] = set()
+        for imp in imports:
+            if imp.is_relative or adapter.is_project_module(imp.module):
+                continue
+            symbols.update(imp.symbols or [])
+            if imp.alias:
+                symbols.add(imp.alias)
+        return symbols
 
     def _find_symbol_source(self, symbol_name: str, usage_file: str, files: Dict[str, str]) -> Optional[str]:
         """查找符号的源文件"""
@@ -851,54 +936,78 @@ class CrossValidator:
         """
         issues = []
 
-        # 提取所有函数定义
-        func_definitions = {}
+        # 按文件收集函数定义：跨文件同名函数签名的定义不同，
+        # 只按名字汇总会让后一个文件覆盖前一个，导致调用点用错签名而误报。
+        defs_by_file: Dict[str, Dict[str, Any]] = {}
+        name_owners: Dict[str, List[str]] = {}
         for file_path, content in files.items():
             if self.language_adapter:
                 defs = self.language_adapter.extract_definitions(content)
-                for name, info in defs.items():
-                    if info.symbol_type == "function":
-                        func_definitions[name] = info
             else:
                 # Fallback: 通用规则
                 supported_extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
                 if Path(file_path).suffix not in supported_extensions:
                     continue
                 defs = self._extract_file_definitions(content, file_path)
-                for name, info in defs.items():
-                    if info.symbol_type == "function":
-                        func_definitions[name] = info
+
+            local = {
+                name: info
+                for name, info in defs.items()
+                if info.symbol_type == "function"
+            }
+            if not local:
+                continue
+            defs_by_file[file_path] = local
+            for name in local:
+                name_owners.setdefault(name, []).append(file_path)
 
         # 检查函数调用
         for file_path, content in files.items():
-            # 匹配函数调用
-            for match in re.finditer(r'(\w+)\s*\((.*?)\)', content, re.DOTALL):
-                func_name = match.group(1)
-                call_args = match.group(2)
+            for func_name, call_args in self._iter_call_sites(content, file_path):
+                local_defs = defs_by_file.get(file_path, {})
+                if func_name in local_defs:
+                    func_info = local_defs[func_name]
+                else:
+                    # 本文件没有定义时，只有全项目唯一同名定义才能确定签名，
+                    # 多个候选无法判定，宁可跳过也不要误报。
+                    owners = name_owners.get(func_name, [])
+                    if len(owners) != 1:
+                        continue
+                    func_info = defs_by_file[owners[0]][func_name]
 
-                if func_name not in func_definitions:
+                if not func_info.signature:
                     continue
 
-                func_info = func_definitions[func_name]
-                if not func_info.signature:
+                # 调用点使用 *args / **kwargs 展开时，实参个数静态未知，
+                # 无法判断是否缺参，跳过本次数量校验。
+                if any(arg.startswith('*') for arg in self._split_top_level_args(call_args)):
                     continue
 
                 # 提取定义中的参数
                 defined_params = self._extract_function_params(func_info.signature)
                 # 提取调用中的参数
                 call_params = self._extract_call_params(call_args)
+                positional_count = self._count_positional_args(call_args)
 
                 # 检查必需参数是否都已提供
+                # 位置参数按定义顺序占用必需参数，避免把 f(x) 误报为缺少参数
+                has_varargs = 'kwargs' in defined_params or 'args' in defined_params
                 for param_name, param_default in defined_params.items():
-                    if param_default is None and param_name not in call_params and param_name != 'self':
-                        # 检查是否有 **kwargs 或 *args
-                        if 'kwargs' not in ''.join(defined_params.keys()) and 'args' not in ''.join(defined_params.keys()):
-                            issues.append({
-                                "type": "missing_argument",
-                                "file": file_path,
-                                "message": f"函数 '{func_name}' 缺少必需参数: {param_name}",
-                                "suggestion": f"在调用 {func_name}() 时提供参数 '{param_name}'"
-                            })
+                    if param_default is not None or param_name == 'self':
+                        continue
+                    if param_name in call_params:
+                        continue
+                    if positional_count > 0:
+                        positional_count -= 1
+                        continue
+                    if has_varargs:
+                        continue
+                    issues.append({
+                        "type": "missing_argument",
+                        "file": file_path,
+                        "message": f"函数 '{func_name}' 缺少必需参数: {param_name}",
+                        "suggestion": f"在调用 {func_name}() 时提供参数 '{param_name}'"
+                    })
 
         return issues
 
@@ -925,12 +1034,85 @@ class CrossValidator:
 
         return params
 
+    _CALL_NAME_RE = re.compile(r'([A-Za-z_]\w*)\s*\(')
+
+    def _iter_call_sites(self, content: str, file_path: str) -> Iterator[Tuple[str, str]]:
+        """产出真实调用点的 (函数名, 实参文本)。
+
+        三处与朴素正则的区别，都是为了消除误报：
+        1. 先屏蔽注释与字符串字面量中的示例调用（Python 可 tokenize）；
+        2. 跳过属性/方法调用 `obj.method()` 与装饰器，它们不是模块级函数调用；
+        3. 用括号配对截取完整实参，`f(g(1), 2)` 不会被第一个 `)` 提前截断。
+        """
+        # 字符串实参填充为 'x'，保留"这是一个参数"的结构，只是不解析其内容
+        masked = self._mask_python_noncode(content, file_path, fill='x')
+        for match in self._CALL_NAME_RE.finditer(masked):
+            start = match.start()
+            if start > 0 and masked[start - 1] in ('.', '@'):
+                continue
+            # 跳过 `def name(` / `async def name(` 声明本身
+            line_start = masked.rfind('\n', 0, start) + 1
+            if masked[line_start:start].strip() in ('def', 'async def'):
+                continue
+
+            depth = 0
+            end = None
+            for index in range(match.end() - 1, len(masked)):
+                char = masked[index]
+                if char == '(':
+                    depth += 1
+                elif char == ')':
+                    depth -= 1
+                    if depth == 0:
+                        end = index
+                        break
+            if end is None:
+                continue
+            yield match.group(1), masked[match.end():end]
+
+    def _split_top_level_args(self, call_args: str) -> List[str]:
+        """按顶层逗号切分实参，忽略嵌套括号与字符串内的逗号。"""
+        args: List[str] = []
+        chunk: List[str] = []
+        depth = 0
+        quote = ''
+        index = 0
+        while index < len(call_args):
+            char = call_args[index]
+            if quote:
+                chunk.append(char)
+                if char == '\\' and index + 1 < len(call_args):
+                    chunk.append(call_args[index + 1])
+                    index += 2
+                    continue
+                if char == quote:
+                    quote = ''
+                index += 1
+                continue
+            if char in ('"', "'", '`'):
+                quote = char
+            elif char in '([{':
+                depth += 1
+            elif char in ')]}':
+                depth -= 1
+            elif char == ',' and depth == 0:
+                args.append(''.join(chunk).strip())
+                chunk = []
+                index += 1
+                continue
+            chunk.append(char)
+            index += 1
+
+        tail = ''.join(chunk).strip()
+        if tail:
+            args.append(tail)
+        return [arg for arg in args if arg]
+
     def _extract_call_params(self, call_args: str) -> Set[str]:
         """提取调用参数"""
         params = set()
 
-        # 简单分割（不处理嵌套括号）
-        for arg in call_args.split(','):
+        for arg in self._split_top_level_args(call_args):
             arg = arg.strip()
             if not arg:
                 continue
@@ -944,6 +1126,16 @@ class CrossValidator:
                 pass
 
         return params
+
+    def _count_positional_args(self, call_args: str) -> int:
+        """统计位置参数个数（关键字参数与 * 展开不计入）"""
+        count = 0
+        for arg in self._split_top_level_args(call_args):
+            arg = arg.strip()
+            if not arg or arg.startswith('*') or '=' in arg:
+                continue
+            count += 1
+        return count
 
     def _validate_imports(self, files: Dict[str, str]) -> List[Dict[str, str]]:
         """验证导入语句
@@ -965,6 +1157,8 @@ class CrossValidator:
                     # 检查导入的模块是否存在
                     candidates = self.language_adapter.resolve_import_to_file(imp, file_path)
                     exists = any(c in files for c in candidates)
+                    if not exists:
+                        exists = self._package_dir_exists_in_files(imp.module, files)
 
                     if not exists:
                         issues.append({
@@ -1082,7 +1276,22 @@ class CrossValidator:
 
         # 通用 fallback：从项目文件中推断扩展名
         result = self._find_module_in_files(module, files)
-        return result is not None
+        if result is not None:
+            return True
+        # 没有 __init__ 的目录在 Python 3 中是合法的命名空间包
+        return self._package_dir_exists_in_files(module, files)
+
+    def _package_dir_exists_in_files(self, module: str, files: Dict[str, str]) -> bool:
+        """模块路径是否对应一个包含已生成文件的包目录。
+
+        没有 __init__.py 的目录在 Python 3 中是合法的命名空间包，
+        `from app import models` 在 app/models.py 存在时即可导入，
+        因此不能因为缺少包入口文件就判定导入的模块不存在。
+        """
+        if not module:
+            return False
+        prefix = module.replace('.', '/') + '/'
+        return any(path.startswith(prefix) for path in files)
 
     def _validate_api_contracts(
         self,
@@ -1156,7 +1365,12 @@ class CrossValidator:
         return apis
 
     def _extract_frontend_api_calls(self, files: Dict[str, str]) -> List[Dict]:
-        """提取前端 API 调用"""
+        """提取前端 API 调用及其响应字段访问。
+
+        字段访问只统计响应体变量上的属性。此前对端点后 500 字符内所有 `.xxx`
+        都当作响应字段，会把 fetch 之后无关对象的属性（如 `config.pageTitle`、
+        `navigator.userAgent`）误报成后端未返回的字段。
+        """
         calls = []
 
         for file_path, content in files.items():
@@ -1175,17 +1389,27 @@ class CrossValidator:
                     if '${' in endpoint:
                         continue
 
-                    # 查找该调用附近的字段访问
-                    start_pos = match.end()
-                    surrounding = content[start_pos:start_pos + 500]
-                    # 匹配 data.xxx 或 response.data.xxx
-                    field_patterns = [
-                        r'\.(\w+)\s*[,;\)\}\]]',
-                        r'\["(\w+)"\]',
-                    ]
+                    # 只在该调用附近的代码里识别响应体变量
+                    surrounding = content[match.end():match.end() + 800]
+                    body_vars: Dict[str, str] = {}
+                    # fetch: data = await res.json() / const data = await res.json()
+                    for var in re.findall(
+                        r'(\w+)\s*=\s*await\s+[\w.$]+\.json\s*\(\s*\)', surrounding
+                    ):
+                        body_vars[var] = var
+                    # axios: res = await axios.get(...)，响应字段在 res.data 上
+                    for var in re.findall(
+                        r'(\w+)\s*=\s*await\s+axios\b', surrounding
+                    ):
+                        body_vars[var] = f'{var}.data'
+
                     fields = []
-                    for fp in field_patterns:
-                        fields.extend(re.findall(fp, surrounding))
+                    for prefix in set(body_vars.values()):
+                        for field in re.findall(
+                            rf'\b{re.escape(prefix)}\s*\.\s*(\w+)', surrounding
+                        ):
+                            if field not in self.NON_FIELD_PROPERTY_NAMES:
+                                fields.append(field)
 
                     calls.append({
                         'endpoint': endpoint,
@@ -1196,21 +1420,38 @@ class CrossValidator:
         return calls
 
     def _find_matching_api(self, endpoint: str, apis: List[Dict]) -> Optional[Dict]:
-        """查找匹配的后端 API"""
+        """查找匹配的后端 API
+
+        三级匹配，先精确后宽松，避免被顺序影响：
+        1. 忽略末尾斜杠的精确匹配
+        2. 路径参数匹配（/api/items/{id} 匹配 /api/items/5）
+        3. 前端路径落在某条路由的子路径下
+        """
+        target = endpoint.rstrip('/')
 
         for api in apis:
-            api_path = api['path']
-            # 处理路径参数
-            api_pattern = re.sub(r'\{[^}]+\}', r'[^/]+', api_path)
-            if re.match(f'^{api_pattern}$', endpoint):
+            if api['path'].rstrip('/') == target:
                 return api
-            # 前缀匹配
-            if endpoint.startswith(api_path) or api_path.startswith(endpoint):
+
+        for api in apis:
+            api_pattern = re.sub(r'\{[^}]+\}', r'[^/]+', api['path'].rstrip('/'))
+            if re.match(f'^{api_pattern}$', target):
                 return api
+
+        for api in apis:
+            api_path = api['path'].rstrip('/')
+            if api_path and target.startswith(f'{api_path}/'):
+                return api
+
         return None
 
     def _validate_model_consistency(self, files: Dict[str, str]) -> List[Dict[str, str]]:
-        """验证数据模型一致性"""
+        """验证数据模型一致性
+
+        只比较模型调用顶层的关键字实参。此前用非贪婪 `([\s\S]*?)\)` 提取实参，
+        会在第一个右括号处截断，字段值里的嵌套调用（`Item(id=parse(raw=1))`）
+        会把内层参数误判为模型字段。
+        """
         issues = []
 
         # 提取所有模型定义
@@ -1222,26 +1463,90 @@ class CrossValidator:
             if Path(file_path).suffix not in supported_extensions:
                 continue
 
+            # 屏蔽注释与字符串，避免把示例代码当成真实实例化
+            scan_content = self._mask_python_noncode(content, file_path)
+
             # 检查模型实例化的字段是否与定义一致
             for model_name, model_info in model_defs.items():
-                if model_name in content:
-                    defined_fields = model_info['fields']
-                    # 查找模型实例化
-                    init_pattern = rf'{model_name}\s*\(([\s\S]*?)\)'
-                    for match in re.finditer(init_pattern, content):
-                        init_body = match.group(1)
-                        # 提取使用的字段
-                        used_fields = re.findall(r'(\w+)\s*=', init_body)
-                        for field in used_fields:
-                            if field not in defined_fields and field != 'self':
-                                issues.append({
-                                    "type": "model_mismatch",
-                                    "file": file_path,
-                                    "message": f"模型 {model_name} 未定义字段: {field}",
-                                    "suggestion": f"在 {model_info['file']} 中添加 {field} 字段定义"
-                                })
+                if model_name not in scan_content:
+                    continue
+
+                defined_fields = model_info['fields']
+                # 用完整标识符匹配，避免 LineItem(...) 被当成 Item(...)
+                init_pattern = rf'\b{re.escape(model_name)}\s*\('
+                for match in re.finditer(init_pattern, scan_content):
+                    init_body = self._balanced_paren_body(scan_content, match.end() - 1)
+                    if init_body is None:
+                        continue
+                    # 只看顶层关键字实参，跳过字段值里嵌套调用的参数
+                    for arg in self._split_top_level_args(init_body):
+                        if '=' not in arg:
+                            continue
+                        field = arg.split('=', 1)[0].strip()
+                        if not field.isidentifier() or field == 'self':
+                            continue
+                        if field not in defined_fields:
+                            issues.append({
+                                "type": "model_mismatch",
+                                "file": file_path,
+                                "message": f"模型 {model_name} 未定义字段: {field}",
+                                "suggestion": f"在 {model_info['file']} 中添加 {field} 字段定义"
+                            })
 
         return issues
+
+    @staticmethod
+    def _balanced_paren_body(content: str, open_index: int) -> Optional[str]:
+        """返回 open_index 处 '(' 配对括号内的文本，未配对时返回 None"""
+        depth = 0
+        for index in range(open_index, len(content)):
+            char = content[index]
+            if char == '(':
+                depth += 1
+            elif char == ')':
+                depth -= 1
+                if depth == 0:
+                    return content[open_index + 1:index]
+        return None
+
+    def _mask_python_noncode(
+        self, content: str, file_path: str, fill: str = ' '
+    ) -> str:
+        """把 Python 注释与字符串字面量替换为空白，保留代码结构。
+
+        注释或文档字符串里的示例调用会被正则误判为真实实例化，先在扫描前屏蔽。
+        非 Python 文件或无法 tokenize 时原样返回。
+
+        fill 用于字符串字面量的填充字符。调用点提取需要把字符串实参保留为一个
+        参数（例如 `connect('localhost')`），此时传 fill='x'，否则位置参数会
+        被抹掉而错报缺少参数。
+        """
+        if Path(file_path).suffix not in {'.py', '.pyw', '.pyi'} or not content:
+            return content
+        import io
+        import tokenize
+
+        try:
+            tokens = list(tokenize.generate_tokens(io.StringIO(content).readline))
+        except (tokenize.TokenError, IndentationError, SyntaxError, ValueError):
+            return content
+
+        grid = [list(line) for line in content.splitlines(keepends=True)]
+        for tok in tokens:
+            if tok.type not in (tokenize.COMMENT, tokenize.STRING):
+                continue
+            replacement = fill if tok.type == tokenize.STRING else ' '
+            (start_row, start_col), (end_row, end_col) = tok.start, tok.end
+            for row in range(start_row, end_row + 1):
+                if row - 1 >= len(grid):
+                    continue
+                line = grid[row - 1]
+                begin = start_col if row == start_row else 0
+                stop = end_col if row == end_row else len(line)
+                for col in range(begin, min(stop, len(line))):
+                    if line[col] != '\n':
+                        line[col] = replacement
+        return ''.join(''.join(line) for line in grid)
 
     def _extract_model_definitions(self, files: Dict[str, str]) -> Dict[str, Dict]:
         """提取模型定义"""
@@ -1264,12 +1569,18 @@ class CrossValidator:
                     'type': 'pydantic'
                 }
 
-            # SQLAlchemy 模型
-            pattern = r'class\s+(\w+)\s*\([^)]*Base[^)]*\):([\s\S]*?)(?=class|\Z)'
+            # SQLAlchemy 模型（Base 需为独立标识符，排除 BaseModel）
+            pattern = (
+                r'class\s+(\w+)\s*\((?![^)]*BaseModel)[^)]*\bBase\b[^)]*\):'
+                r'([\s\S]*?)(?=class|\Z)'
+            )
             for match in re.finditer(pattern, content):
                 model_name = match.group(1)
                 model_body = match.group(2)
-                fields = re.findall(r'(\w+)\s*=\s*Column', model_body)
+                fields = re.findall(r'(\w+)\s*=\s*(?:\w+\.)?Column', model_body)
+                if not fields:
+                    # 基类名含 Base 但无 Column 字段，说明是别的模型基类
+                    continue
                 models[model_name] = {
                     'fields': fields,
                     'file': file_path,
@@ -1329,8 +1640,7 @@ class CrossValidator:
             fixed_files = await self._fix_with_llm(generated_files, selected, fix_model)
         except Exception as exc:
             if is_review_timeout(exc):
-                logger.warning("跨文件审查超时，跳过 LLM 修复")
-                return generated_files, issues
+                logger.warning("跨文件审查超时")
             raise
 
         return fixed_files, issues
@@ -1374,72 +1684,17 @@ class CrossValidator:
         model: Optional[str] = None
     ) -> Dict[str, str]:
         """生成缺失的模块文件"""
-        if not model:
-            # 如果没有指定模型，跳过生成
-            extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
-            default_ext = list(extensions)[0] if extensions else '.py'
-            for module in missing_modules:
-                file_path = module.replace('.', '/') + default_ext
-                if file_path not in files:
-                    logger.warning(f"跳过缺失模块生成（无模型）: {file_path} (模块: {module})")
-            return files
-
-        # 使用 LLM 生成模块内容
         extensions = self.language_adapter.extensions if self.language_adapter else {'.py'}
         default_ext = list(extensions)[0] if extensions else '.py'
-        language_name = self.language_adapter.language if self.language_adapter else "Python"
-
+        missing_paths = []
         for module in missing_modules:
             file_path = module.replace('.', '/') + default_ext
-            if file_path in files:
-                continue
-
-            # 跳过不在已有文件列表中的路径（避免创建依赖图外的文件）
-            logger.warning(f"跳过缺失模块生成（不在已有文件中）: {file_path} (模块: {module})")
-            continue
-
-            # 收集引用该模块的文件
-            referencing_files = []
-            for f_path, content in files.items():
-                if module in content:
-                    referencing_files.append(f_path)
-
-            # 构建提示词
-            prompt = f"""请为以下 {language_name} 模块生成代码：
-
-模块路径: {module}
-项目架构: {json.dumps(architecture.get('tech_stack', []), ensure_ascii=False)}
-
-引用该模块的文件:
-{self._format_referencing_files(files, referencing_files)}
-
-要求：
-1. 生成完整的模块代码
-2. 确保导出被引用的函数/类/变量
-3. 遵循 {language_name} 最佳实践
-4. 添加必要的类型注解（如果语言支持）
-
-只输出代码，不要解释。"""
-
-            try:
-                response = await call_llm(
-                    model=model,
-                    prompt=prompt,
-                    stream=False,
-                    max_tokens=4096,
-                    api_key_token=self.api_key_token
-                )
-
-                content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-                if content:
-                    content = self._clean_code_block(content)
-                    files[file_path] = content
-                    logger.info(f"生成缺失模块（LLM）: {file_path}")
-            except Exception as e:
-                logger.error(f"生成模块 {module} 失败: {e}")
-                # 使用默认内容
-                files[file_path] = f'"""Module: {module}"""\n\n# TODO: Implement this module\n'
-
+            if file_path not in files:
+                missing_paths.append(file_path)
+        if missing_paths:
+            raise RuntimeError(
+                "missing modules were not generated: " + ", ".join(missing_paths)
+            )
         return files
 
     def _format_referencing_files(self, files: Dict[str, str], referencing_files: List[str]) -> str:
@@ -1529,13 +1784,16 @@ class CrossValidator:
                     # 解析批量修复结果
                     fixed_batch = self._parse_batch_fix_result(content, batch_paths)
                     for file_path, fixed_content in fixed_batch.items():
-                        if fixed_content:
-                            fixed_files[file_path] = fixed_content
+                        accepted = self._accept_llm_fix(
+                            file_path, fixed_content, fixed_files.get(file_path, "")
+                        )
+                        if accepted:
+                            fixed_files[file_path] = accepted
                             logger.info(f"已修复文件: {file_path}")
             except Exception as e:
                 if is_review_timeout(e):
                     logger.warning("跨文件审查超时，跳过剩余 LLM 修复")
-                    break
+                    raise
                 logger.error(f"批量修复失败: {e}")
                 # 回退到单文件修复
                 for file_path in batch_paths:
@@ -1568,13 +1826,16 @@ class CrossValidator:
 
                         fixed_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
                         if fixed_content:
-                            fixed_content = self._clean_code_block(fixed_content)
-                            fixed_files[file_path] = fixed_content
-                            logger.info(f"已修复文件（单文件回退）: {file_path}")
+                            accepted = self._accept_llm_fix(
+                                file_path, fixed_content, current_content
+                            )
+                            if accepted:
+                                fixed_files[file_path] = accepted
+                                logger.info(f"已修复文件（单文件回退）: {file_path}")
                     except Exception as e2:
                         if is_review_timeout(e2):
                             logger.warning("跨文件审查超时，跳过剩余 LLM 修复")
-                            return fixed_files
+                            raise
                         logger.error(f"修复文件 {file_path} 失败: {e2}")
 
         return fixed_files
@@ -1602,12 +1863,27 @@ class CrossValidator:
         return result
 
     def _clean_code_block(self, content: str) -> str:
-        """清理代码块标记"""
-        # 移除 ```python ... ``` 包裹
-        content = re.sub(r'^```\w*\n?', '', content, flags=re.MULTILINE)
-        content = re.sub(r'\n?```$', '', content, flags=re.MULTILINE)
-        # 移除 ===文件路径=== ... ===END=== 格式
-        content = re.sub(r'===文件路径===\s*\n.*?===END===\s*\n?', '', content, flags=re.DOTALL)
-        # 移除 "修复后的完整代码" 等说明文字
-        content = re.sub(r'^修复后的完整代码\s*\n?', '', content, flags=re.MULTILINE)
-        return content.strip()
+        from app.agent.utils import clean_code_block
+
+        cleaned = clean_code_block(content)
+        cleaned = re.sub(r'===文件路径===\s*\n.*?===END===\s*\n?', '', cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r'^修复后的完整代码\s*\n?', '', cleaned, flags=re.MULTILINE)
+        return cleaned.strip()
+
+    def _accept_llm_fix(self, file_path: str, candidate: str, original: str) -> Optional[str]:
+        """Keep original file when the LLM fix is thinking text or invalid source."""
+        cleaned = self._clean_code_block(candidate or "")
+        if not cleaned:
+            logger.warning("拒绝覆盖 %s：修复结果为空", file_path)
+            return None
+        leading = cleaned.lstrip()
+        if leading.startswith("<think>") or leading.startswith("<thinking>"):
+            logger.warning("拒绝覆盖 %s：修复结果含思考标签", file_path)
+            return None
+        if file_path.endswith(".py"):
+            try:
+                ast.parse(cleaned)
+            except SyntaxError:
+                logger.warning("拒绝覆盖 %s：修复结果无法解析为 Python", file_path)
+                return None
+        return cleaned

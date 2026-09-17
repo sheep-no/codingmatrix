@@ -8,11 +8,8 @@ from app.agent.complexity import ComplexityAnalyzer
 from app.agent.specialists import Architect, CodeReviewer
 from app.agent.dynamic_model_router import LayeredModelRouter
 from app.agent.tracing import traced
-from app.agent.models import DEFAULT_ARCHITECT_MODEL
 
 logger = logging.getLogger(__name__)
-
-EVALUATION_MODEL = DEFAULT_ARCHITECT_MODEL
 
 
 class EvaluationMixin:
@@ -38,14 +35,15 @@ class EvaluationMixin:
             self.model_assignment = self.model_router.get_assignment()
         else:
             self.model_router = None
-            self.model_assignment = None
 
-        self.architect = Architect("评价架构师", self.model_assignment.architect_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL,
+        architect_model = self._require_evaluation_model("architect_model")
+        reviewer_model = self._require_evaluation_model("reviewer_model")
+        self.architect = Architect("评价架构师", architect_model,
                                 task_type="review",
                                 api_key_token=self.api_key_token,
                                 provider_id=getattr(self, 'provider_id', None),
                                 cancel_event=self.cancel_event)
-        self.reviewer = CodeReviewer("评价审查员", self.model_assignment.reviewer_model if self.model_assignment else DEFAULT_ARCHITECT_MODEL,
+        self.reviewer = CodeReviewer("评价审查员", reviewer_model,
                                      task_type="review",
                                      api_key_token=self.api_key_token,
                                      provider_id=getattr(self, 'provider_id', None),
@@ -114,19 +112,15 @@ class EvaluationMixin:
     async def _evaluate_requirement(
         self, requirement: str, architecture: Dict
     ) -> Dict[str, Any]:
-        prompt = f"""你是一位资深需求分析专家。请对以下需求进行全面评价，只评价不修改。
-
-需求描述：
-{requirement}
-
-架构设计摘要：
-- 项目类型：{architecture.get('project_type', 'unknown')}
-- 技术栈：{architecture.get('tech_stack', [])}
-- 规划文件数：{len(architecture.get('file_plan', []))}
-
-请从以下维度评价需求，严格按照 JSON 格式输出：
-
-{
+        prompt = (
+            "你是一位资深需求分析专家。请对以下需求进行全面评价，只评价不修改。\n\n"
+            f"需求描述：\n{requirement}\n\n"
+            "架构设计摘要：\n"
+            f"- 项目类型：{architecture.get('project_type', 'unknown')}\n"
+            f"- 技术栈：{architecture.get('tech_stack', [])}\n"
+            f"- 规划文件数：{len(architecture.get('file_plan', []))}\n\n"
+            "请从以下维度评价需求，严格按照 JSON 格式输出：\n\n"
+            """{
   "completeness": {
     "score": 0-100,
     "missing_items": ["缺失的功能点1", "缺失的功能点2"],
@@ -150,18 +144,20 @@ class EvaluationMixin:
   },
   "recommendations": ["建议1", "建议2", "建议3"]
 }"""
+        )
 
         try:
             from app.utils import call_llm
             response = await call_llm(
-                model=EVALUATION_MODEL,
+                model=self._require_evaluation_model("architect_model"),
                 prompt=prompt,
                 api_key_token=self.api_key_token,
             )
             return self._parse_evaluation_json(response, "requirement")
+        except RuntimeError:
+            raise
         except Exception as e:
-            logger.warning(f"需求评价调用失败: {e}")
-            return self._fallback_evaluation("requirement", str(e))
+            raise RuntimeError(f"requirement evaluation failed: {e}") from e
 
     async def _evaluate_architecture(
         self, requirement: str, architecture: Dict
@@ -175,20 +171,15 @@ class EvaluationMixin:
             for f in file_plan[:30]
         )
 
-        prompt = f"""你是一位资深架构审查专家。请对以下架构设计进行全面评价，只评价不修改。
-
-原始需求：
-{requirement}
-
-架构设计：
-- 项目类型：{project_type}
-- 技术栈：{tech_stack}
-- 规划文件：
-{file_summary}
-
-请从以下维度评价架构，严格按照 JSON 格式输出：
-
-{
+        prompt = (
+            "你是一位资深架构审查专家。请对以下架构设计进行全面评价，只评价不修改。\n\n"
+            f"原始需求：\n{requirement}\n\n"
+            "架构设计：\n"
+            f"- 项目类型：{project_type}\n"
+            f"- 技术栈：{tech_stack}\n"
+            f"- 规划文件：\n{file_summary}\n\n"
+            "请从以下维度评价架构，严格按照 JSON 格式输出：\n\n"
+            """{
   "architecture_quality": {
     "score": 0-100,
     "layering": "分层评价说明",
@@ -220,18 +211,20 @@ class EvaluationMixin:
   },
   "recommendations": ["建议1", "建议2"]
 }"""
+        )
 
         try:
             from app.utils import call_llm
             response = await call_llm(
-                model=EVALUATION_MODEL,
+                model=self._require_evaluation_model("reviewer_model"),
                 prompt=prompt,
                 api_key_token=self.api_key_token,
             )
             return self._parse_evaluation_json(response, "architecture")
+        except RuntimeError:
+            raise
         except Exception as e:
-            logger.warning(f"架构评价调用失败: {e}")
-            return self._fallback_evaluation("architecture", str(e))
+            raise RuntimeError(f"architecture evaluation failed: {e}") from e
 
     def _evaluate_risks(
         self, requirement: str,
@@ -334,18 +327,34 @@ class EvaluationMixin:
     def _parse_evaluation_json(self, response: str, eval_type: str) -> Dict[str, Any]:
         try:
             json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                parsed = json.loads(json_match.group())
-                if parsed.get("score") or parsed.get("completeness"):
-                    return parsed
-        except json.JSONDecodeError:
-            pass
+            if not json_match:
+                raise RuntimeError(f"{eval_type} evaluation was not valid JSON")
+            parsed = json.loads(json_match.group())
+            if not isinstance(parsed, dict):
+                raise RuntimeError(
+                    f"{eval_type} evaluation was not a JSON object: {type(parsed).__name__}"
+                )
+            if (
+                parsed.get("score")
+                or parsed.get("completeness")
+                or parsed.get("architecture_quality")
+            ):
+                return parsed
+        except RuntimeError:
+            raise
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"{eval_type} evaluation was not valid JSON") from e
 
-        return self._fallback_evaluation(eval_type, "LLM 输出非 JSON")
+        raise RuntimeError(
+            f"{eval_type} evaluation JSON did not include score, completeness, or architecture_quality"
+        )
+
+    def _require_evaluation_model(self, attr: str) -> str:
+        assignment = getattr(self, "model_assignment", None)
+        value = getattr(assignment, attr, None) if assignment else None
+        if not value:
+            raise RuntimeError("model assignment is required for evaluation")
+        return value
 
     def _fallback_evaluation(self, eval_type: str, reason: str) -> Dict[str, Any]:
-        return {
-            "score": 0,
-            "error": f"{eval_type} 评价降级: {reason}",
-            "recommendations": [f"建议手动进行 {eval_type} 评价"],
-        }
+        raise RuntimeError(f"{eval_type} evaluation failed: {reason}")

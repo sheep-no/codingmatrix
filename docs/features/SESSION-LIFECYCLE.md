@@ -48,11 +48,29 @@ TTL 清理还会把运行中的数据库 `ProjectSession` 标记为 `expired`。
 
 `POST /api/v1/agent/orchestrate/stream` 按用户串行化创建检查。入口先清理该用户 `running` 状态且最后活动超过 7 天，或内存中缺少 `SessionState` 的僵尸会话，并将其标记为 `failed`。随后每个用户只允许一个 `running` 会话：同一 Token 对同一 `session_id`/task 且原生成任务仍活跃时，复用原任务队列并继续 SSE 重连；已有其他运行任务时返回 HTTP 429。`MAX_PROJECT_SESSIONS_PER_USER=2` 控制历史会话及其文件资源的保留数量，属于历史资源清理阈值。
 
+客户端断开 SSE 后，生成任务继续在当前进程运行；`_watch_stream_disconnect` 只把 `connected` 标为 `false`。显式取消才会停止生成。`GET /api/v1/agent/sessions` 与 `GET /api/v1/agent/sessions/{session_id}` 的 `reconnectable` 为 true 时，表示该会话在本进程 `_active_tasks` 中仍有未完成任务且当前无订阅连接。`is_resume=true` 可挂回原队列；已消费事件、决策重放和进程重启后续跑暂不支持，`recovery_note` 会说明该边界。
+
 `complete_session` 和 `cancel_session` 会写 JSON，并通过数据库会话工厂同步 `ProjectSession`。普通文件状态更新主要写入 JSON。
 
 ## ProjectSession
 
 Agent 编排端点使用 `ProjectSession` 进行身份校验、状态查询、输出目录定位和运行结果记录。会话 action 执行前会校验当前用户所有权。
+
+### 托管项目生命周期 API
+
+`app/api/v1/ai_agent/lifecycle_endpoints.py` 挂载在 `/api/v1/agent/projects`：
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| POST | `/{session_id}/archive` | 归档；项目 `running` 或存在 pending/running/recovering 任务时返回 409 |
+| DELETE | `/{session_id}` | 立即删除托管目录、`ProjectSession` 和保留记录 |
+| POST | `/{session_id}/restore` | 从归档恢复；`purged` 不可恢复 |
+| POST | `/{session_id}/pin` | 固定，阻止自动清理 |
+| DELETE | `/{session_id}/pin` | 取消固定 |
+
+立即删除由 `permanently_delete_project` 执行。拦截条件是内存中仍有未完成的生成任务（`_generation_is_active`），或数据库中仍有 `pending`/`running`/`recovering` 任务。仅 `ProjectSession.status=running`、内存生成任务已结束的项目可以删除。`user_owned`、`external`、`pinned` 以及超出 `PROJECTS_BASE_DIR` 的目录会触发 `PermissionError`，接口返回 409。
+
+前端 `src/utils/api/project.js` 的 `reclaimProject` 调用该 DELETE。`AgentDashboard.vue` 在用户确认「删除并清理」后调用；404 视为已不存在并继续清本地会话，其他错误保留会话。
 
 取消操作会触发运行取消事件、清理活跃任务、尝试清理输出目录、更新 JSON/DB 状态并释放并发计数。该操作具有文件清理副作用，客户端应在用户确认后调用。
 
@@ -124,6 +142,7 @@ Host 能力集合：`workspace`、`file`、`terminal`、`diagnostics`、`validat
 - 模型上下文通过独立 Task 恢复，避免与图 revision 相互覆盖。
 - Host JSON 恢复动作队列、事件和本地控制状态。
 - Workflow API 使用另一套进程内注册表，其恢复边界见 `docs/features/WORKFLOW.md`。
+- SSE 断线后的后台生成与 `reconnectable` 只覆盖当前进程 `_active_tasks`；进程重启后需要重新发起生成。
 
 ## 代码索引
 
@@ -134,5 +153,8 @@ Host 能力集合：`workspace`、`file`、`terminal`、`diagnostics`、`validat
 - `app/services/agent_state_adapter.py`
 - `app/services/model_context_service.py`
 - `app/api/v1/ai_agent/model_context_endpoints.py`
+- `app/api/v1/ai_agent/lifecycle_endpoints.py`
+- `app/services/state_migration_service.py`
+- `src/utils/api/project.js`
 - `app/api/v1/agent_host.py`
 - `vscode-extension/src/agent-host-runtime.ts`

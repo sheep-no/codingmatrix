@@ -180,6 +180,14 @@ export function createProjectClient(baseClient) {
       throw new Error('保存项目失败')
     },
 
+    async importProjectFiles(data) {
+      const response = await client.post('/agent/import-files', data)
+      if (response.ok) {
+        return await response.json()
+      }
+      throw new Error('导入项目文件失败')
+    },
+
     async getProjectFiles(params) {
       const response = await client.get('/agent/generate/files', params)
       if (response.ok) {
