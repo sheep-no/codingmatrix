@@ -101,7 +101,8 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 测试运行命令：`python3 -m pytest tests/unit/ -v`
   - 项目使用自定义 pytest 标记：`unit`, `integration`, `database`, `security`, `agent`, `monitoring`, `logging`, `guardian`；这些标记未在 `pyproject.toml` 注册，只产生警告不影响执行。
   - 测试目录：单元 `tests/unit/`、集成 `tests/integration/`、E2E `tests/e2e/`、前端配置 `tests/frontend/`（需 Vitest）；测试状态报告在 `testing/TEST-STATUS-UPDATE-*.md`。
-  - `pyproject.toml` 的 `testpaths` 只收集 `tests/unit/` 与 `tests/integration/`，放在被测模块旁的测试文件（如 `app/utils/aicloud/test_*.py`）永远不会被执行；新增测试一律放 `tests/unit/`，迁移后用 `python3 -m pytest <路径> -q` 确认已被收集。
+  - `pyproject.toml` 的 `testpaths` 只收集 `tests/unit/` 与 `tests/integration/`，放在被测模块旁的测试文件（如 `app/utils/aicloud/test_*.py`）永远不会被执行；不依赖外部服务的测试放 `tests/unit/`，依赖外部服务的（如真实 Redis）放 `tests/integration/` 并加可用性 `skipif`，迁移后用 `python3 -m pytest <路径> -q` 确认已被收集。
+  - 需要真实 Redis 的集成测试可直接连 `127.0.0.1:6379` 的 `db=15`，fixture 前后 `flushdb()` 隔离，并用 `pytestmark = pytest.mark.skipif(not redis_available, ...)` 兜住无 Redis 环境。
 
 ### 误报类修复的验证与回归流程
 - Date: 2026-09-15
@@ -111,7 +112,16 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 每处误报先写确定性探针复现（不依赖 LLM / Playwright），再用单测固化"正确产物不被拒 + 真实错误仍被拒"两类断言。
   - 用 `git stash push <源文件>` 回退源码后跑新增用例，必须确认新增误报用例失败，证明修复非空；恢复后再核对文件内容一致。
   - 每处修复跑定向测试 + 全量 `pytest tests/unit -q`，并把 `FAILED` 集合与失败基线做 `diff`，只允许失败集合不变。
-  - 全量单测存在 Agent 验收范围外的既有失败基线（PPT 18 项、Flutter 3 项、Kolors 1 项，共 22 项），出现新失败必须归因到本次改动。
+  - 后端全量命令为 `python3 -m pytest -q -p no:randomly`（`testpaths` 覆盖 unit + integration）。截至 2026-09-17，`tests/unit` 无失败，`tests/integration/test_health_api.py` 的 `test_health_detailed_exists` 与 `test_health_metrics_exists` 恒因 `/api/v1/health/metrics` 返回 401 失败，属既有基线（master 72633a0 复现）；出现其他失败必须归因到本次改动。
+
+### 服务端出站请求与 SSRF 防护
+- Date: 2026-09-17
+- Context: Agent 在修复自定义供应商 base_url 的 SSRF 面时总结
+- Category: 安全
+- Instructions:
+  - 用户可控 URL 的出站校验统一走 `app/utils/url_safety.py` 的 `check_outbound_url`：仅允许 http/https，DNS 解析后要求所有地址 `ip.is_global`，解析失败放行以交由连接阶段报错。
+  - 项目内另有 4 处独立 SSRF 校验（`app/utils/pptx/image_search.py` 的 `_is_safe_url`、`app/utils/workflow/node_types/http_request.py` 的 `_check_ssrf`、`app/api/v1/aiGeneratorPptx.py` 图片下载、`app/agent/tools.py` http 工具），属同一能力的重复实现，后续收敛到该工具。
+  - 该校验会拒绝解析到内网的地址（含本机 Ollama/vLLM）；自托管场景需要显式白名单，不要为了兼容而放开内网校验。
   - 内存紧张时用 API / 确定性探针替代 Playwright，不启动浏览器。
   - 每个 commit 单独切分支提交推送，合入 master 后重启后端（`PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000`）并复核 `:8000/docs` 与 `:3000`。
   - 写前语法门禁调用 `node -c` / `tsc` 时，返回码为负表示 node 被信号终止（如 OOM），属环境异常而非源码语法错误；此类情况应退回括号平衡启发式，不能判生成代码语法失败。
