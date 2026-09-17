@@ -881,12 +881,15 @@ def _tool_search_files(
 def _tool_write_file(project_path: str, path: str, content: str) -> Dict:
     """写入文件内容（创建或覆盖）"""
     try:
-        # 空内容校验：拒绝空文件写入
-        if not content or not content.strip():
+        from app.agent.utils import is_package_entry_file, is_placeholder_content
+
+        # 空内容校验：拒绝空文件写入；空 __init__.py 是合法的包标记
+        if (not content or not content.strip()) and not (
+            isinstance(content, str) and is_package_entry_file(path)
+        ):
             return {"success": False, "error": "内容为空，拒绝写入。请提供实际的文件内容"}
 
         # 统一占位符检测
-        from app.agent.utils import is_placeholder_content
         is_ph, ph_reason = is_placeholder_content(content, path)
         if is_ph:
             return {"success": False, "error": f"检测到占位符代码，拒绝写入。{ph_reason}。请提供完整的实现代码"}

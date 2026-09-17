@@ -464,3 +464,24 @@ class TestWriteSyntaxWarning:
             "broken.html", "<html><body><script>var a=1;</body></html>"
         )
         assert "大括号不匹配" in _validate_file_syntax("broken.css", "body {\n  margin: 0;\n")
+
+
+class TestWriteFileEmptyContentGate:
+    """空内容门禁：拒绝普通空文件，放行空 __init__.py 包标记。"""
+
+    def test_empty_package_entry_is_written(self, tmp_path):
+        from app.agent.tools import _tool_write_file
+
+        result = _tool_write_file(str(tmp_path), "pkg/__init__.py", "")
+
+        assert result["success"] is True
+        assert (tmp_path / "pkg" / "__init__.py").read_text(encoding="utf-8") == ""
+
+    def test_empty_regular_file_is_rejected(self, tmp_path):
+        from app.agent.tools import _tool_write_file
+
+        result = _tool_write_file(str(tmp_path), "pkg/main.py", "")
+
+        assert result["success"] is False
+        assert "内容为空" in result["error"]
+        assert not (tmp_path / "pkg" / "main.py").exists()
