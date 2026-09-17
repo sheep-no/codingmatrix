@@ -7,7 +7,7 @@
         :href="originalUrl(file)"
         target="_blank"
         rel="noopener noreferrer"
-        :aria-label="`查看原图: ${file.name || '图片附件'}`"
+        :aria-label="`查看原图：${file.name || '图片附件'}`"
       >
         <img
           v-if="thumbnailUrl(file) && !failedImages.has(fileKey(file, index))"

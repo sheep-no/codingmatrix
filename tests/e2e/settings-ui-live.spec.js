@@ -148,7 +148,7 @@ test.describe('设置界面 - 超管实测', () => {
     const panel = page.locator('.api-key-manager')
     await expect(panel).toBeVisible({ timeout: 15000 })
     await expect(page.locator('.load-error')).toHaveCount(0)
-    await expect(panel.locator('.section-title')).toHaveText('API Key 管理')
+    await expect(panel.locator('.section-title')).toHaveText('API Key/接口密钥管理')
     await expect(panel.locator('.provider-name', { hasText: '硅基流动' })).toBeVisible()
     await expect(panel.locator('.required-badge')).toHaveText('必填')
 

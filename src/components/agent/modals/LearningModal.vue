@@ -6,8 +6,8 @@
           <div v-if="learningStats.total_feedbacks" class="learning-stats-grid">
             <div class="learning-stat-card"><div class="learning-stat-label">总反馈数</div><div class="learning-stat-value">{{ learningStats.total_feedbacks }}</div></div>
             <div class="learning-stat-card"><div class="learning-stat-label">已修复问题</div><div class="learning-stat-value">{{ learningStats.fixed_count || 0 }}</div></div>
-            <div class="learning-stat-card"><div class="learning-stat-label">平均修复时间</div><div class="learning-stat-value">{{ learningStats.avg_fix_time || 'N/A' }}</div></div>
-            <div class="learning-stat-card"><div class="learning-stat-label perf-success">{{ learningStats.accuracy_improvement || '0' }}%</div></div>
+            <div class="learning-stat-card"><div class="learning-stat-label">平均修复时间</div><div class="learning-stat-value">{{ learningStats.avg_fix_time || '暂无' }}</div></div>
+            <div class="learning-stat-card"><div class="learning-stat-label">准确率提升</div><div class="learning-stat-value perf-success">{{ learningStats.accuracy_improvement || '0' }}%</div></div>
           </div>
           <div v-if="!learningStats.total_feedbacks" class="empty-learning"><p>暂无学习数据</p></div>
         </div>

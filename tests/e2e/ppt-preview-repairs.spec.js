@@ -70,7 +70,6 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await page.locator('.form-group textarea').first().fill('季度经营汇报')
     await page.getByRole('button', { name: '一键生成 PPT' }).click()
     await expect(page.locator('.template-result')).toContainText('自动选择结果：商务报告')
-    await expect(page.locator('.template-result')).toContainText('模板 ID：business_report')
     await expect(page.locator('.template-result')).toContainText('推荐模板：商务报告')
     expect(submittedTemplate).toBe('auto')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)

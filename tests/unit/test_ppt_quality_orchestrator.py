@@ -1,6 +1,21 @@
 import pytest
 
 from app.services.ppt_quality_orchestrator import run_quality_pipeline
+from app.utils.pptx.semantic_planner import slide_capacity
+
+
+def _density_slide(block_count, preserve=None):
+    slide = {
+        "id": "slide-1",
+        "slide_type": "image_text",
+        "title": "容量",
+        "content_blocks": [{"content": f"要点 {index}"} for index in range(block_count)],
+        "elements": [],
+    }
+    if preserve is not None:
+        slide["preserve_content"] = preserve
+    slide["capacity"] = slide_capacity(slide)
+    return slide
 
 
 @pytest.mark.asyncio
@@ -76,3 +91,27 @@ async def test_pipeline_returns_reflowed_slide_artifact():
     assert slides[0]["elements"][0]["left"] == 0.5
     assert slides[0]["elements"][0]["top"] == 0.5
     assert report.reflow_attempts["slide-1"] == 1
+
+
+@pytest.mark.asyncio
+async def test_content_density_refolds_unapproved_overflow():
+    slides, report = await run_quality_pipeline([_density_slide(6, preserve=False)], "standard")
+
+    assert any(issue.issue_type == "content_density" for issue in report.issues)
+    assert len(slides[0]["content_blocks"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_content_density_keeps_approved_blocks_for_review():
+    slides, report = await run_quality_pipeline([_density_slide(6, preserve=True)], "standard")
+
+    assert any(issue.issue_type == "content_density" for issue in report.issues)
+    assert len(slides[0]["content_blocks"]) == 6
+    assert report.manual_review_slides == ["slide-1"]
+
+
+@pytest.mark.asyncio
+async def test_content_density_ignores_slides_within_capacity():
+    _, report = await run_quality_pipeline([_density_slide(4)], "standard")
+
+    assert not any(issue.issue_type == "content_density" for issue in report.issues)

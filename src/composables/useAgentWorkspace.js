@@ -99,7 +99,7 @@ export function useAgentWorkspace({
       }
     } catch (error) {
       console.error('ZIP 导入失败:', error)
-      ElMessage.error(`导入失败: ${error.message}`)
+      ElMessage.error(`导入失败：${error.message}`)
     } finally {
       importing.zip.value = false
       importing.progress.value = { current: 0, total: 0, currentFile: '' }

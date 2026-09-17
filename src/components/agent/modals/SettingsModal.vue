@@ -4,10 +4,10 @@
       <div class="modal-content settings-modal">
         <div class="modal-header"><h3>设置</h3><button class="modal-close" @click="$emit('update:modelValue', false)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button></div>
         <div class="modal-body">
-          <div class="settings-section"><h4>API Key 配置</h4>
+          <div class="settings-section"><h4>API Key/接口密钥配置</h4>
             <div class="api-key-hint">
-              <p>项目生成需要 SiliconFlow API Key，请在下方配置。</p>
-              <button class="btn btn-sm btn-primary" @click="$emit('open-api-key')">前往 API Key 管理</button>
+              <p>项目生成需要硅基流动 API Key/接口密钥，请在下方配置。</p>
+              <button class="btn btn-sm btn-primary" @click="$emit('open-api-key')">前往 API Key/接口密钥管理</button>
             </div>
           </div>
           <div class="settings-section"><h4>AI 模型配置</h4>
@@ -25,7 +25,7 @@
               <div class="setting-item toggle-item"><label>代码审查</label><input v-model="localSettings.enableReview" type="checkbox" /></div>
               <div class="setting-item toggle-item"><label>验证检查</label><input v-model="localSettings.enableValidation" type="checkbox" /></div>
               <div class="setting-item toggle-item"><label>错误恢复</label><input v-model="localSettings.enableErrorRecovery" type="checkbox" /></div>
-              <div class="setting-item toggle-item"><label>Spec-First</label><input v-model="localSettings.specFirst" type="checkbox" /></div>
+              <div class="setting-item toggle-item"><label>规范先行</label><input v-model="localSettings.specFirst" type="checkbox" /></div>
               <div class="setting-item toggle-item"><label>依赖图构建</label><input v-model="localSettings.dependencyGraph" type="checkbox" /></div>
               <div class="setting-item toggle-item"><label>记忆增强</label><input v-model="localSettings.enableMemory" type="checkbox" /></div>
             </div>
@@ -36,7 +36,7 @@
           <div v-if="cacheStats.total_keys !== undefined" class="settings-section"><h4>缓存统计</h4>
             <div class="settings-grid">
               <div class="setting-item"><label>总缓存键数</label><div class="limit-value">{{ cacheStats.total_keys || 0 }}</div></div>
-              <div class="setting-item"><label>命中率</label><div class="limit-value">{{ cacheStats.hit_rate ? Math.round(cacheStats.hit_rate * 100) + '%' : 'N/A' }}</div></div>
+              <div class="setting-item"><label>命中率</label><div class="limit-value">{{ cacheStats.hit_rate ? Math.round(cacheStats.hit_rate * 100) + '%' : '暂无' }}</div></div>
             </div>
             <button class="btn btn-sm btn-danger" @click="$emit('clear-cache')">清除缓存</button>
           </div>

@@ -66,7 +66,7 @@
              :aria-label="`节点 ${index + 1}：${node.name}`"
            >
              <div class="node-header">
-               <span class="node-type">{{ node.type }}</span>
+               <span class="node-type">{{ workflowNodeTypeLabel(node.type) }}</span>
                <span class="node-name">{{ node.name }}</span>
              </div>
              <p class="node-desc">{{ node.description }}</p>
@@ -75,7 +75,7 @@
         <div v-if="history.length" class="history-list">
           <h4>最近工作流</h4>
            <button v-for="item in history" :key="item.workflow_id" type="button" class="history-item" @click="loadHistory(item.workflow_id)">
-            {{ item.workflow_id }} · {{ item.status }}
+            {{ item.workflow_id }} · {{ workflowStatusLabel(item.status) }}
           </button>
         </div>
       </aside>
@@ -95,7 +95,7 @@
             class="canvas-node"
              :aria-label="`画布节点 ${index + 1}：${node.name}`"
            >
-            <div class="node-badge">{{ node.type }}</div>
+            <div class="node-badge">{{ workflowNodeTypeLabel(node.type) }}</div>
             <h3>{{ node.name }}</h3>
             <p>{{ node.description }}</p>
              <div v-if="node.output" class="node-output">
@@ -118,7 +118,6 @@ import { useTaskFeedback } from '@/composables/useTaskFeedback'
 import TaskFeedbackPanel from '@/components/TaskFeedbackPanel.vue'
 
 const router = useRouter()
-const userStore = useUserStore()
 const prompt = ref('')
 const executing = ref(false)
 const workflowNodes = ref([])
@@ -143,6 +142,34 @@ const canExecute = computed(() => prompt.value.trim().length > 0)
 
 function goBack() {
   router.push('/')
+}
+
+function workflowStatusLabel(status) {
+  return ({
+    failed: '失败',
+    completed: '完成',
+    imported: '已导入',
+    running: '执行中',
+    pending: '等待中',
+    deleted: '已删除',
+    waiting_approval: '待确认',
+    skipped: '已跳过',
+    created: '已创建'
+  }[status] || status || '未知')
+}
+
+function workflowNodeTypeLabel(type) {
+  return ({
+    web_search: '网页搜索',
+    code_execution: '代码执行',
+    chart_generation: '图表生成',
+    file_processing: '文件处理',
+    llm_call: '模型调用',
+    conditional: '条件分支',
+    human_approval: '人工确认',
+    http_request: '网络请求',
+    data_transform: '数据转换'
+  }[type] || type || '节点')
 }
 
 async function handleExecute() {
@@ -171,7 +198,7 @@ async function handleExecute() {
     } else {
       taskFeedback.fail(e, { event: 'workflow_error', nextAction: '检查输入后重新执行' })
     }
-    if (e.name !== 'AbortError') ElMessage.error('执行失败: ' + e.message)
+    if (e.name !== 'AbortError') ElMessage.error('执行失败：' + e.message)
   } finally {
     abortController = null
     executing.value = false
@@ -253,7 +280,7 @@ async function importWorkflow(event) {
     workflowId.value = imported.workflow_id
     workflowNodes.value = data.nodes || []
     ElMessage.success('工作流导入成功')
-  } catch (error) { ElMessage.error(`导入失败: ${error.message}`) }
+  } catch (error) { ElMessage.error(`导入失败：${error.message}`) }
   event.target.value = ''
 }
 
@@ -295,6 +322,7 @@ onMounted(async () => {
   padding: 16px 24px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
+  flex-wrap: nowrap;
 }
 
 .back-btn {
@@ -307,6 +335,14 @@ onMounted(async () => {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.back-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .header-title {
@@ -315,6 +351,7 @@ onMounted(async () => {
   gap: 8px;
   font-size: 18px;
   font-weight: 600;
+  white-space: nowrap;
 }
 .header-title h1 { margin: 0; font: inherit; }
 
@@ -325,6 +362,16 @@ onMounted(async () => {
 
 .header-actions {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-direction: row;
+  flex-wrap: nowrap;
+}
+
+.header-actions input {
+  display: none;
 }
 
 .export-btn {
@@ -337,6 +384,8 @@ onMounted(async () => {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .export-btn:disabled {
@@ -456,12 +505,15 @@ onMounted(async () => {
 .node-name {
   font-size: 13px;
   font-weight: 500;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .node-desc {
   font-size: 12px;
   color: var(--text-secondary);
   margin: 0;
+  overflow-wrap: break-word;
 }
 
 .preview-panel {
@@ -515,6 +567,8 @@ onMounted(async () => {
 .canvas-node h3 {
   font-size: 15px;
   margin: 0 0 8px;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .canvas-node p {
@@ -522,6 +576,7 @@ onMounted(async () => {
   color: var(--text-secondary);
   margin: 0 0 12px;
   line-height: 1.5;
+  overflow-wrap: break-word;
 }
 
 .node-output {
@@ -542,7 +597,7 @@ onMounted(async () => {
 @media (max-width: 768px) {
   .page-header { padding: 14px 16px; flex-wrap: wrap; gap: 12px; }
   .header-title { font-size: 16px; }
-  .header-actions { width: 100%; margin-left: 0; display: flex; gap: 8px; }
+  .header-actions { width: 100%; margin-left: 0; display: flex; flex-direction: row; flex-wrap: nowrap; gap: 8px; }
   .export-btn { flex: 1; justify-content: center; }
   .page-content {
     grid-template-columns: 1fr;
@@ -554,5 +609,4 @@ onMounted(async () => {
   .preview-placeholder { min-height: 320px; height: auto; text-align: center; line-height: 1.6; }
 }
 button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 3px; }
-.canvas-node, .node-item { overflow-wrap: anywhere; }
 </style>

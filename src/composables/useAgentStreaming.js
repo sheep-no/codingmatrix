@@ -251,7 +251,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
         const failed = testSummary.failed || 0
         const total = passed + failed
         addLog(failed > 0 ? 'warning' : 'success', `测试结果: ${passed}/${total} 通过`)
-        addDetail('测试结果', `通过: ${passed}, 失败: ${failed}, 跳过: ${testSummary.skipped || 0}`)
+         addDetail('测试结果', `通过：${passed}，失败：${failed}，跳过：${testSummary.skipped || 0}`)
         // 保存测试结果到 workspace
         workspace.testResults = {
           passed,
@@ -288,7 +288,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
           modelCosts: data.model_costs || {},
           modelTokens: data.model_tokens || {}
         }
-        addLog('info', `Token 用量: ${data.total_tokens || 0} (费用: $${(data.total_cost_usd || 0).toFixed(4)})`)
+        addLog('info', `Token 用量：${data.total_tokens || 0}（费用：$${(data.total_cost_usd || 0).toFixed(4)}）`)
         break
       case 'performance_metrics':
         workspace.performanceMetrics = {
@@ -304,7 +304,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       case 'critical_decisions':
         workspace.pendingDecisions = data.data?.decisions || []
         workspace.decisionAnswers = {}
-        addLog('warning', '需要您确认架构决策')
+        addLog('warning', '需要你确认架构决策')
         break
       case 'cancelled':
         thinkingBatcher.flush()
@@ -538,7 +538,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
           // 清除当前会话，让用户可以重新创建
           session.currentSessionId = null
         } catch (stopError) {
-          ElMessage.error('停止项目失败: ' + stopError.message)
+          ElMessage.error('停止项目失败：' + stopError.message)
         }
       }
     } catch (action) {
@@ -553,7 +553,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
     }
     // 检查是否有 SiliconFlow API Key 或动态供应商
     if (!apiKeyStore.hasSiliconflowKey && !apiKeyStore.hasGlmKey && !selectedProviderModel) {
-      ElMessage.warning('请先配置 SiliconFlow 或智谱 GLM API Key，或选择自定义供应商模型')
+      ElMessage.warning('请先配置硅基流动或智谱 GLM 的 API Key/接口密钥，或选择自定义供应商模型')
       return
     }
 
@@ -627,7 +627,7 @@ export function useAgentStreaming(projectApi, workspace, files, generation, sess
       } else {
         taskFeedback?.fail(error, { stage: '项目生成失败', nextAction: '检查配置后重新生成' })
       }
-      addLog('error', `${mode}失败: ${error.message}`)
+      addLog('error', `${mode}失败：${error.message}`)
       ElMessage.error(`${mode}失败`)
     } finally {
       thinkingBatcher.flush()

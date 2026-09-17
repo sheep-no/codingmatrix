@@ -637,6 +637,8 @@ const isValidNewLimit = computed(() => {
 function showNotification(message, type = 'success') {
   if (type === 'error') {
     ElMessage.error(message)
+  } else if (type === 'warning') {
+    ElMessage.warning(message)
   } else {
     ElMessage.success(message)
   }
@@ -646,13 +648,17 @@ async function refreshAllData() {
   try {
     const [usersRes, config] = await Promise.all([
       adminApi.getUsers(),
-      adminApi.getSystemConfig()
+      adminApi.getSystemConfig().catch(() => null)
     ])
     applyUsers(usersRes, config)
     applyRoleLimits(config)
     applySystemConfig(config)
     await loadChangeHistory()
-    showNotification('数据已刷新')
+    if (config) {
+      showNotification('数据已刷新')
+    } else {
+      showNotification('系统配置需要超级管理员权限，已仅加载用户限制', 'warning')
+    }
   } catch (error) {
     showNotification('刷新数据失败', 'error')
   }
@@ -662,7 +668,7 @@ async function loadUsers() {
   try {
     const [usersRes, config] = await Promise.all([
       adminApi.getUsers(),
-      adminApi.getSystemConfig()
+      adminApi.getSystemConfig().catch(() => null)
     ])
     applyUsers(usersRes, config)
   } catch (error) {
@@ -1027,7 +1033,7 @@ onMounted(() => {
 .stat-value {
   font-size: 2rem;
   font-weight: 700;
-  color: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .stat-label {
@@ -1095,7 +1101,7 @@ onMounted(() => {
   font-size: 1.125rem;
   font-weight: 600;
   margin: 0;
-  color: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .panel-actions {
@@ -1804,7 +1810,7 @@ onMounted(() => {
 .modal-header h3 {
   margin: 0;
   font-size: 1.125rem;
-  color: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .modal-close {

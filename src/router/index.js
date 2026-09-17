@@ -52,15 +52,11 @@ const router = createRouter({
     },
     {
       path: '/aicloud',
-      name: 'aicloud',
-      component: () => import('../components/Aicloud.vue'),
-      meta: { requiresAuth: true }
+      redirect: '/capabilities'
     },
     {
       path: '/github-config',
-      name: 'github-config',
-      component: () => import('../components/GithubConfigPanel.vue'),
-      meta: { requiresAuth: true }
+      redirect: '/agent'
     },
     {
       path: '/settings',
@@ -78,7 +74,7 @@ const router = createRouter({
       path: '/admin/dashboard',
       name: 'admin-dashboard',
       component: () => import('../views/AdminDashboard.vue'),
-      meta: { requiresAuth: true, requiresSuper: true }
+      meta: { requiresAuth: true, requiresSuper: true, requiresSuperAdmin: true }
     },
     {
       path: '/docs',
@@ -113,6 +109,11 @@ export function resolveRouteAccess(to, token, permissionLevel) {
 
   if (to.meta.requiresSuper && !['admin', 'superadmin'].includes(permissionLevel)) {
     return { name: 'home' }
+  }
+
+  // 仅超级管理员可访问的页面：管理员降级到管理台，其余回首页
+  if (to.meta.requiresSuperAdmin && permissionLevel !== 'superadmin') {
+    return permissionLevel === 'admin' ? { name: 'admin' } : { name: 'home' }
   }
 
   return true

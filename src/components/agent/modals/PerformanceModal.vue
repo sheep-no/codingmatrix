@@ -6,9 +6,9 @@
           <div class="perf-stats-grid">
             <div class="perf-stat-card"><div class="perf-stat-label">开始时间</div><div class="perf-stat-value">{{ performanceStats.startTime }}</div></div>
             <div class="perf-stat-card"><div class="perf-stat-label">总文件数</div><div class="perf-stat-value">{{ performanceStats.totalFiles }}</div></div>
-            <div class="perf-stat-card"><div class="perf-stat-label">总 Token 数</div><div class="perf-stat-value">{{ (performanceStats.totalTokens || 0).toLocaleString() }}</div></div>
+            <div class="perf-stat-card"><div class="perf-stat-label">总 Token/令牌数</div><div class="perf-stat-value">{{ (performanceStats.totalTokens || 0).toLocaleString() }}</div></div>
             <div class="perf-stat-card"><div class="perf-stat-label">错误次数</div><div class="perf-stat-value perf-error">{{ performanceStats.errorCount }}</div></div>
-            <div class="perf-stat-card"><div class="perf-stat-label perf-success">{{ performanceStats.successRate }}%</div></div>
+            <div class="perf-stat-card"><div class="perf-stat-label">成功率</div><div class="perf-stat-value perf-success">{{ performanceStats.successRate }}%</div></div>
           </div>
           <div class="perf-stage-section"><h4>阶段进度</h4>
             <div class="perf-stages-list">

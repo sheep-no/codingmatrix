@@ -18,7 +18,7 @@
           </svg>
         </div>
         <p class="drop-title">拖拽文件到此处</p>
-        <p class="drop-hint">支持的文件类型: {{ supportedTypesText }}</p>
+        <p class="drop-hint">支持的文件类型：{{ supportedTypesText }}</p>
         <p v-if="draggedFiles.length > 0" class="drop-files-count">
           已检测到 {{ draggedFiles.length }} 个文件
         </p>
@@ -136,7 +136,7 @@
   .drop-title {
     font-size: 20px;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--text-primary);
     margin: 0 0 8px;
   }
 

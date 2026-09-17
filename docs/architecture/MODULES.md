@@ -24,14 +24,13 @@ codingmatrix/
 │   ├── schema/                  # Pydantic Schema
 │   ├── services/                # 服务层 (38 个 Python 文件)
 │   ├── tasks/                   # 异步任务
-│   └── utils/                   # 工具函数 (65+ 文件, 15,734 行)
+│   └── utils/                   # 工具函数 (53 文件, 15,659 行)
 │       ├── aicloud/             # AI Cloud 子包 (28 文件)
 │       ├── workflow/            # 工作流引擎子包
-│       ├── pptx/                # PPT 生成子包 (11 文件)
-│       └── validators/          # 验证器子包
+│       └── pptx/                # PPT 生成子包 (11 文件)
 ├── src/                         # 前端 (Vue 3, 71 个 Vue 文件)
 │   ├── components/              # Vue 组件 (61 个，含 13 个 Agent 组件)
-│   │   ├── agent/               # Agent 子组件 (7 layout + 6 modal)
+│   │   ├── agent/               # Agent 子组件 (5 layout + 6 modal)
 │   │   ├── settings/            # 设置相关
 │   │   └── ui/                  # 通用 UI
 │   ├── composables/             # 组合式 API (14 个)
@@ -90,12 +89,12 @@ codingmatrix/
 | 维度 | 数量 | 备注 |
 |------|------|------|
 | Vue 文件 | **71** | `src/**/*.vue` |
-| Pinia Stores | **10** | `src/stores` |
-| Composables | **14** | `src/composables` |
+| Pinia Stores | **7** | `src/stores` |
+| Composables | **13** | `src/composables` |
 | API 客户端模块 | **19** | `src/utils/api/*.js`，排除 4 个 `*.test.js` |
 | 视图页面 | **9** | v5.14.0 报告 8, **多出 `Docs.vue`** |
 | 路由 | **16** | 含 1 通配、1 重定向、1 别名 |
-| Agent 子组件 | **7 layout + 6 modal** | 新模块文档化 |
+| Agent 子组件 | **5 layout + 6 modal** | 新模块文档化 |
 
 ### Flutter 客户端规模
 
@@ -131,13 +130,10 @@ codingmatrix/
    - `app/utils/rate_limiter.py` (slowapi) vs `app/middleware/rate_limiter.py` (自研)
    - `app/db/models.py` vs `app/models/` (业务表分散)
    - `src/utils/crypto.js` vs `src/utils/encryption.js` (前端加密重复)
-   - `src/composables/useAgentSession.js` 是 `stores/agentSession.js` 的薄包装 (死代码)
-3. **废弃前端组件** (`src/components/agent/`):
-   - `AgentHeader.vue` (114 行) 与 `AgentTopBar.vue` (180 行) 重叠
-   - `AgentInputPanel.vue` (322 行) 与 `AgentInputBar.vue` (213 行) 重叠
-4. **生产清理**: 前端 213 处 `console.*` 调用未通过 terser 清理
-5. **双层架构**: `app/api/v1/aicloud.py` (928 行) 与 `app/utils/aicloud/` (28 文件) 职责重叠
-6. **TODO 占位**: `spec_first_generate.py:1291-1297`, `cross_validator.py:1145,1199`
+   - `src/composables/useAgentSession.js` 是 `stores/agentSession.js` 的向后兼容薄包装
+3. **生产清理**: 前端 213 处 `console.*` 调用未通过 terser 清理
+4. **双层架构**: `app/api/v1/aicloud.py` (928 行) 与 `app/utils/aicloud/` (28 文件) 职责重叠
+5. **TODO 占位**: `spec_first_generate.py:1291-1297`, `cross_validator.py:1145,1199`
 
 ## 2026-09 新增核心模块
 
@@ -566,7 +562,6 @@ dependencies.get_affected_files(['models/user.py'])
 | `aicloud/` | 28 文件 | AI Cloud 完整子模块 |
 | `workflow/` | - | 工作流引擎子包 |
 | `pptx/` | 11 文件 | PPT 生成子包 |
-| `validators/` | - | 验证器子包 |
 | `dynamic_package_manager.py` | - | 动态依赖管理 |
 
 ### 数据模型 (app/models/) - 15 个 Python 文件 / 34 张表
@@ -622,36 +617,34 @@ dependencies.get_affected_files(['models/user.py'])
 
 > 守卫逻辑：`requiresAuth` 未满足时重定向到首页并携带原始路径, `requiresSuper` 检查 `permissionLevel` 为 `admin` 或 `superadmin`
 
-### Pinia Stores (src/stores/) - 10 stores
+### Pinia Stores (src/stores/) - 7 stores
 
 | Store | 行数 | 风格 | 核心 State | 关键 Actions |
 |-------|------|------|-----------|---------------|
-| `agentSession` | 194 | setup | `currentSessionId`/`projectPrompt`/`sessionHistory`(≤10)/`isGenerating`/`workflowStages`/`modelAssignments`/`roles` | `createNewSession`/`deleteSession`/`switchSession`/`fetchRoles`/`getETA` |
-| `agentWorkspace` | 236 | setup | `generatedFiles`/`selectedFile`/`fileDiffs`/`logs`/`executionDetails`/`thinkingMessages`/`pendingDecisions`/`costData`/`performanceMetrics`/`testResults`/`validationResults` | `getLanguage`(27 种扩展名)/`getHighlightedCode`/`addLog`/`clearWorkspace` |
-| `apikey` | 307 | setup | `tokens`/`publicKey`/`modelOverrides`/`loading` | `submitKey`(RSA 加密)/`testKey`/`deleteKey`/`listKeys`/`toggleEnabled`/`updateContextLengths` |
-| `providers` | **142** | setup | `providers`/`loading` | `listProviders`/`addProvider`/`deleteProvider`/`syncModels`/`testProvider`/`getAllDynamicModels` |
-| `github` | 100 | options + persist | `githubUsername`/`githubToken`(hex 编码)/`useGithub` | `setGithubToken`(hex 编/解码)/`isGithubConfigured` |
+| `agentSession` | 340 | setup | `currentSessionId`/`projectPrompt`/`sessionHistory`(≤10)/`isGenerating`/`workflowStages`/`modelAssignments`/`roles` | `createNewSession`/`deleteSession`/`switchSession`/`fetchRoles`/`getETA` |
+| `apikey` | 329 | setup | `tokens`/`publicKey`/`modelOverrides`/`loading` | `submitKey`(RSA 加密)/`testKey`/`deleteKey`/`listKeys`/`toggleEnabled`/`updateContextLengths` |
+| `providers` | **179** | setup | `providers`/`loading` | `listProviders`/`addProvider`/`deleteProvider`/`syncModels`/`testProvider`/`getAllDynamicModels` |
+| `github` | 116 | options + persist | `githubUsername`/`githubToken`(hex 编码)/`useGithub` | `setGithubToken`(hex 编/解码)/`isGithubConfigured` |
 | `logs` | 194 | setup | `systemLogs`(≤500)/`filteredLogs`/`logType`/`filterLevel`/`filterKeyword` | `addLog`/`applyFilters`/`saveLogsToStorage`/`restoreLogsFromStorage` |
-| `navigation` | 277 | setup + persist | 11 个 `show*` 标志 + `isCollapsed` | `showTool`/`hideTool`(互斥)/`activeTool` |
-| `task` | 211 | options API | `tasks`(Map)/`activeTasks`/`completedTasks`(≤50) | `initNotifications`(订阅)/`handleTaskUpdate` |
-| `user` | 159 | setup + persist | `isLoggedIn`/`username`/`email`/`permissionLevel` | `setUser`/`clearUser`/`restoreUser`/`refreshAccessToken` |
+| `navigation` | 242 | setup + persist | 11 个 `show*` 标志 + `isCollapsed` | `showTool`/`hideTool`(互斥)/`activeTool` |
+| `user` | 170 | setup + persist | `isLoggedIn`/`username`/`email`/`permissionLevel` | `setUser`/`clearUser`/`restoreUser`/`refreshAccessToken` |
 
-### Composables (src/composables/) - 14 个
+### Composables (src/composables/) - 13 个
 
 | Composable | 行数 | 职责 |
 |------------|------|------|
-| `useAgentBackend` | 332 | 后端操作: 项目列表/保存/下载/删除/性能指标/快照/缓存/设置/复杂度分析/停止/决策提交 |
+| `useAgentBackend` | 361 | 后端操作: 项目列表/保存/下载/删除/性能指标/快照/缓存/设置/复杂度分析/停止/决策提交 |
 | `useAgentFiles` | 213 | 文件状态: `generatedFiles`/`selectedFile`/`fileCategories`(前端/后端/测试/配置 4 类)/6 个快速模板 |
-| `useAgentGeneration` | 118 | 生成状态: `isGenerating`/`workflowStages`/`currentPhase`/`roles`/`modelAssignments`/`recoveryAttempts` |
-| `useAgentSession` | 30 | **Pinia store 的薄包装** (向后兼容, `saveSessionState` 等 no-op) |
-| `useAgentStreaming` | **423** | SSE 流处理核心: 18 种消息类型, `AGENT_ROLE_ALIAS` 映射, 429 处理 |
-| `useAgentWorkspace` | 207 | 工作区状态: 日志/执行详情/思考消息/待决策/版本历史/成本/性能, `importZipFile` |
+| `useAgentGeneration` | 48 | 生成状态: `isGenerating`/`workflowStages`/`currentPhase`/`roles`/`modelAssignments`/`recoveryAttempts` |
+| `useAgentSession` | 37 | **Pinia store 的薄包装** (向后兼容, `saveSessionState` 等 no-op) |
+| `useAgentStreaming` | **644** | SSE 流处理核心: 18 种消息类型, `AGENT_ROLE_ALIAS` 映射, 429 处理 |
+| `useAgentWorkspace` | 209 | 工作区状态: 日志/执行详情/思考消息/待决策/版本历史/成本/性能, `importZipFile` |
 | `useAuth` | 92 | 登录/注册/登出/刷新 token/更新资料 |
-| `useClipboard` | 45 | 复制到剪贴板 (`navigator.clipboard` + `execCommand` fallback) |
 | `useFileDrop` | 139 | 全局拖拽监听, 类型/大小校验 |
+| `useGirlAiCompanion` | 101 | AI 女友对话状态: 情绪/意图/记忆归并、能力降级标记 |
 | `useKeyboardShortcuts` | 118 | 快捷键注册 (普通 + 序列, 1.5s 超时) |
-| `useMarkdown` | 37 | markdown-it + DOMPurify + highlight.js |
 | `useOfflineQueue` | 110 | 断网队列: online/offline 事件 + localStorage 持久化 |
+| `useTaskFeedback` | 151 | 任务反馈状态: 阶段/进度归并、连接状态、终态收敛 |
 | `useToast` | 39 | 全局 toast, 最多 10 条 (FIFO) |
 
 ### 视图页面 (src/views/) - 9 视图
@@ -670,17 +663,15 @@ dependencies.get_affected_files(['models/user.py'])
 
 ### Agent 子组件 (src/components/agent/)
 
-**Layout 子组件 (7 个)**
+**Layout 子组件 (5 个)**
 
 | 组件 | 行数 | 用途 |
 |------|------|------|
-| `AgentWorkspace.vue` | 770 | 主工作区: 进度条 + 时间线 (带 thinking 展开) + 决策面板 + 测试/验证结果 |
-| `AgentSidebar.vue` | 303 | 会话历史列表 + 项目文件树 + 搜索/类型过滤 |
-| `AgentInputPanel.vue` | 322 | 输入面板 (带 6 个快速模板 + 模型选择 + 项目名) — **与 InputBar 重叠, 建议废弃** |
-| `AgentInputBar.vue` | 213 | 底部输入条: 模型选择 + 提示词 + 发送/停止 |
-| `AgentTopBar.vue` | 180 | 顶部栏: 状态徽标 + token 费用/速度 + 导入/设置/更多菜单 |
-| `AgentFilePanel.vue` | 162 | 文件预览: 代码高亮 + 变更/保存/历史/复制/下载/删除 |
-| `AgentHeader.vue` | 114 | 旧版页面头 — **与 TopBar 重叠, 建议废弃** |
+| `AgentWorkspace.vue` | 1043 | 主工作区: 进度条 + 时间线 (带 thinking 展开) + 决策面板 + 测试/验证结果 |
+| `AgentSidebar.vue` | 359 | 会话历史列表 + 项目文件树 + 搜索/类型过滤 |
+| `AgentInputBar.vue` | 244 | 底部输入条: 模型选择 + 提示词 + 发送/停止 |
+| `AgentTopBar.vue` | 210 | 顶部栏: 状态徽标 + token 费用/速度 + 导入/设置/更多菜单 |
+| `AgentFilePanel.vue` | 177 | 文件预览: 代码高亮 + 变更/保存/历史/复制/下载/删除 |
 
 **Modals (6 个)**
 
@@ -689,7 +680,7 @@ dependencies.get_affected_files(['models/user.py'])
 | `SettingsModal.vue` | 85 | Agent 设置 (角色/模型/并发/各开关) |
 | `PerformanceModal.vue` | 48 | 性能统计弹窗 |
 | `LearningModal.vue` | 31 | 学习反馈统计 |
-| `UploadModal.vue` | 29 | ZIP 导入 |
+| `UploadModal.vue` | 73 | ZIP 导入 |
 | `DiffModal.vue` | 26 | 文件 diff |
 | `VersionHistoryModal.vue` | 26 | 文件版本历史/快照 |
 
@@ -711,7 +702,7 @@ dependencies.get_affected_files(['models/user.py'])
 | `utils/api/aicloud.js` | AI Cloud |
 | `utils/api/admin.js` | 管理 |
 | `utils/api/github.js` | GitHub |
-| `utils/api/websocket.js` | WebSocket (websocketPool 546 行) |
+| `utils/api/websocket.js` | WebSocket |
 | `utils/api/config.js` | 配置 |
 | `utils/api/skills.js` | Skill 管理 |
 | `utils/api/client.js` | 客户端工厂与配置封装 |

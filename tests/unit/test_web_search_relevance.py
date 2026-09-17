@@ -300,3 +300,32 @@ def test_employment_result_survives_relevance_filter():
     )
     kept = filter_relevant_results([official], query)
     assert kept and kept[0].url.endswith("/employment")
+
+
+def test_topic_tail_phrase_survives_for_odd_length_cjk_query():
+    """The query tail must match contiguous text, not misaligned bigrams."""
+    query = "大模型发展趋势"
+    terms = extract_query_terms(query)
+    assert terms["phrase"] == "发展趋势"
+
+    topical = _item(
+        "大模型发展趋势：2026年技术展望",
+        "https://blog.51cto.com/u_1/1",
+        "从能力竞赛转向价值落地",
+    )
+    assert relevance_score(topical, terms) >= 0.4
+    assert [item.url for item in filter_relevant_results([topical], query)] == [topical.url]
+
+
+def test_phrase_check_still_drops_generic_cjk_prefix():
+    query = "大模型发展趋势"
+    generic = _item("大模型是什么", "https://example.test/a", "入门介绍")
+    assert filter_relevant_results([generic], query) == []
+
+
+def test_search_query_variants_strips_leading_year():
+    from app.utils.web_search import search_query_variants
+    variants = search_query_variants("2026 大模型发展趋势")
+    assert "大模型发展趋势" in variants
+    variants_zh = search_query_variants("2026年大模型发展趋势")
+    assert "大模型发展趋势" in variants_zh

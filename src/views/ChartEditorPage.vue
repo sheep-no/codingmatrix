@@ -19,13 +19,13 @@
         </div>
       </div>
       <div class="header-right">
-        <button class="header-btn" :disabled="!canUndo" aria-label="撤销" title="撤销 (Ctrl/⌘ + Z)" @click="undo">
+        <button class="header-btn" :disabled="!canUndo" aria-label="撤销" title="撤销（Ctrl + Z）" @click="undo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <polyline points="9 14 4 9 9 4" />
             <path d="M4 9h9a7 7 0 0 1 7 7v1" />
           </svg>
         </button>
-        <button class="header-btn" :disabled="!canRedo" aria-label="重做" title="重做 (Ctrl/⌘ + Shift + Z)" @click="redo">
+        <button class="header-btn" :disabled="!canRedo" aria-label="重做" title="重做（Ctrl + Shift + Z）" @click="redo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <polyline points="15 14 20 9 15 4" />
             <path d="M20 9h-9a7 7 0 0 0-7 7v1" />
@@ -72,7 +72,7 @@
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
             <p>拖拽或点击上传</p>
-            <span class="upload-hint">支持 xlsx, xls, csv, json，单文件不超过 2 MB</span>
+            <span class="upload-hint">支持：xlsx、xls、csv、json，单文件不超过 2 MB</span>
           </div>
           <div v-if="dataSources.length > 0" class="data-list">
             <div
@@ -224,7 +224,7 @@
             <div class="chart-preview-header">
               <span class="chart-preview-title">{{ chart.title || '图表 ' + (index + 1) }}</span>
               <div class="chart-preview-actions">
-                <button class="chart-action" aria-label="导出此图表" title="导出 PNG" @click.stop="exportSingleChart(index)">
+                <button class="chart-action" aria-label="导出此图表" title="导出为 PNG" @click.stop="exportSingleChart(index)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                     <polyline points="7 10 12 15 17 10" />
@@ -268,7 +268,7 @@
             <line x1="8" y1="12" x2="16" y2="12" />
           </svg>
           <span>添加图表</span>
-          <kbd v-if="currentDataSource" class="toolbar-kbd">Ctrl/⌘ + Enter</kbd>
+          <kbd v-if="currentDataSource" class="toolbar-kbd">Ctrl + Enter</kbd>
         </button>
         <button
           class="toolbar-btn"
@@ -1148,6 +1148,7 @@ onBeforeUnmount(() => {
   background: var(--bg-secondary);
   flex-shrink: 0;
   height: 64px;
+  overflow: hidden;
 }
 
 .header-left {
@@ -1208,6 +1209,9 @@ onBeforeUnmount(() => {
 .header-stats {
   display: flex;
   gap: 8px;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .stat-badge {
@@ -1216,6 +1220,7 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   font-size: 12px;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .header-right {
@@ -1324,6 +1329,10 @@ onBeforeUnmount(() => {
 .upload-hint {
   font-size: 12px;
   color: var(--text-tertiary);
+  display: block;
+  line-height: 1.5;
+  padding: 0 8px;
+  text-align: center;
 }
 
 /* 数据列表 */
@@ -1584,6 +1593,7 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   gap: 16px;
   box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+  overflow-x: auto;
 }
 
 .toolbar-left {
@@ -1625,6 +1635,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   flex: 1;
   justify-content: center;
+  flex-wrap: wrap;
 }
 
 .toolbar-right {
@@ -1741,6 +1752,10 @@ onBeforeUnmount(() => {
   .editor-bottom-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
   .toolbar-center { justify-content: stretch; }
   .toolbar-center .toolbar-btn { flex: 1; justify-content: center; }
+}
+
+@media (max-width: 1280px) {
+  .toolbar-kbd { display: none; }
 }
 
 @media (max-width: 600px) {

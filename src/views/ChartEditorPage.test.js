@@ -196,7 +196,7 @@ describe('ChartEditorPage', () => {
     await wrapper.findAll('.data-remove')[0].trigger('click')
 
     expect(wrapper.get('.data-item.active .data-name').text()).toBe('second.json')
-    expect(wrapper.get('.toolbar-kbd').text()).toBe('Ctrl/⌘ + Enter')
+    expect(wrapper.get('.toolbar-kbd').text()).toBe('Ctrl + Enter')
   })
 
   it('exports the selected chart from its id-keyed ECharts instance', async () => {

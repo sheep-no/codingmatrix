@@ -29,12 +29,12 @@ test.describe('能力中心', () => {
     await openCapabilityCenter(page)
     expect(skillRequests).toBe(0)
 
-    await page.getByRole('tab', { name: 'Skills' }).click()
+    await page.getByRole('tab', { name: 'Skills/技能' }).click()
     await expect(page.getByText('review · workflow')).toBeVisible()
     expect(skillRequests).toBe(1)
 
     await page.getByRole('tab', { name: '视觉工具' }).click()
-    await page.getByRole('tab', { name: 'Skills' }).click()
+    await page.getByRole('tab', { name: 'Skills/技能' }).click()
     expect(skillRequests).toBe(1)
 
     const dimensions = await page.evaluate(() => ({

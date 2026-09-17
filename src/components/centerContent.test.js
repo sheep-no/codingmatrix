@@ -151,7 +151,7 @@ describe('chat source rendering', () => {
     expect(wrapper.get('.message-ai .sender-ai').text()).toBe('CodingMatrix')
     expect(wrapper.get('.user-text').text()).toContain('解释闭包')
     expect(wrapper.get('.message-meta').text()).toContain('demo-model')
-    expect(wrapper.get('.message-meta').text()).toContain('42 tokens')
+    expect(wrapper.get('.message-meta').text()).toContain('42 Token/令牌')
     wrapper.unmount()
   })
 })

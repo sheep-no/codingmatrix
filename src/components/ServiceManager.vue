@@ -161,7 +161,7 @@
             <div class="service-header">
               <div class="service-info">
                 <h4 class="service-name">{{ service.display_name || service.name }}</h4>
-                <span class="service-port">端口: {{ service.port }}</span>
+                <span class="service-port">端口：{{ service.port }}</span>
                 <span class="service-status" :class="getServiceStatusClass(service)">
                   {{ getServiceStatusText(service) }}
                 </span>
@@ -228,15 +228,15 @@
             </div>
             <div class="service-details">
               <div class="detail-item">
-                <span class="detail-label">重启命令:</span>
-                <span class="detail-value">{{ service.restart_cmd || 'N/A' }}</span>
+                <span class="detail-label">重启命令：</span>
+                <span class="detail-value">{{ service.restart_cmd || '暂无' }}</span>
               </div>
               <div class="detail-item">
-                <span class="detail-label">进程签名:</span>
-                <span class="detail-value">{{ service.process_signature || 'N/A' }}</span>
+                <span class="detail-label">进程签名：</span>
+                <span class="detail-value">{{ service.process_signature || '暂无' }}</span>
               </div>
               <div v-if="service.fuse_enabled !== undefined" class="detail-item">
-                <span class="detail-label">熔断状态:</span>
+                <span class="detail-label">熔断状态：</span>
                 <span class="detail-value" :class="service.fuse_enabled ? 'enabled' : 'disabled'">
                   {{ service.fuse_enabled ? '已启用' : '已禁用' }}
                 </span>
@@ -364,17 +364,17 @@
         <div class="modal-body">
           <div class="status-grid">
             <div class="status-item">
-              <span class="status-label">状态:</span>
+              <span class="status-label">状态：</span>
               <span class="status-value" :class="fuseStatusData.state">{{
                 fuseStatusData.state
               }}</span>
             </div>
             <div class="status-item">
-              <span class="status-label">重启次数:</span>
+              <span class="status-label">重启次数：</span>
               <span class="status-value">{{ fuseStatusData.restart_count }}</span>
             </div>
             <div class="status-item">
-              <span class="status-label">熔断启用:</span>
+              <span class="status-label">熔断启用：</span>
               <span
                 class="status-value"
                 :class="fuseStatusData.fuse_enabled ? 'enabled' : 'disabled'"
@@ -383,15 +383,15 @@
               </span>
             </div>
             <div class="status-item">
-              <span class="status-label">当前重试次数:</span>
+              <span class="status-label">当前重试次数：</span>
               <span class="status-value">{{ fuseStatusData.fuse_retry_count }}</span>
             </div>
             <div class="status-item">
-              <span class="status-label">最大重试次数:</span>
+              <span class="status-label">最大重试次数：</span>
               <span class="status-value">{{ fuseStatusData.fuse_retry_times }}</span>
             </div>
             <div class="status-item">
-              <span class="status-label">冷却剩余时间:</span>
+              <span class="status-label">冷却剩余时间：</span>
               <span class="status-value">{{ fuseStatusData.cooldown_remaining }} 秒</span>
             </div>
           </div>
@@ -470,7 +470,7 @@
       showMessage('刷新成功', 'success')
     } catch (error) {
       console.error('刷新服务失败:', error)
-      showMessage('刷新失败: ' + error.message, 'error')
+      showMessage('刷新失败：' + error.message, 'error')
     } finally {
       loading.value = false
     }
@@ -497,7 +497,7 @@
       refreshServices()
     } catch (error) {
       console.error('启动监控失败:', error)
-      showMessage('启动失败: ' + error.message, 'error')
+      showMessage('启动失败：' + error.message, 'error')
     }
   }
 
@@ -537,7 +537,7 @@
       }
     } catch (error) {
       console.error('更新熔断配置失败:', error)
-      showMessage('更新失败: ' + error.message, 'error')
+      showMessage('更新失败：' + error.message, 'error')
     } finally {
       fuseSaving.value = false
     }
@@ -580,7 +580,7 @@
       }
     } catch (error) {
       console.error('重命名失败:', error)
-      showMessage('重命名失败: ' + error.message, 'error')
+      showMessage('重命名失败：' + error.message, 'error')
     } finally {
       renameSaving.value = false
     }
@@ -601,7 +601,7 @@
       showStatusModal.value = true
     } catch (error) {
       console.error('获取熔断状态失败:', error)
-      showMessage('获取状态失败: ' + error.message, 'error')
+      showMessage('获取状态失败：' + error.message, 'error')
     }
   }
 
@@ -616,12 +616,12 @@
     try {
       const data = await adminApi.checkHealth(service.port)
       showMessage(
-        `健康检查: ${data.status === 'open' ? '正常' : '异常'}`,
+        `健康检查：${data.status === 'open' ? '正常' : '异常'}`,
         data.status === 'open' ? 'success' : 'error'
       )
     } catch (error) {
       console.error('健康检查失败:', error)
-      showMessage('健康检查失败: ' + error.message, 'error')
+      showMessage('健康检查失败：' + error.message, 'error')
     }
   }
 
@@ -684,17 +684,21 @@
     gap: 12px;
   }
 
+  .header-left svg {
+    color: #67e8f9;
+  }
+
   .header-left h2 {
     margin: 0;
     font-size: 24px;
     font-weight: 600;
-    color: var(--text-primary);
+    color: #f8fafc;
   }
 
   .header-desc {
     margin: 2px 0 0 0;
     font-size: 14px;
-    color: var(--text-secondary);
+    color: #94a3b8;
   }
 
   .header-actions {
@@ -713,8 +717,8 @@
     font-size: 14px;
     font-weight: 500;
     transition: all 0.2s;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
   }
 
   .action-btn:hover {
@@ -743,8 +747,8 @@
   }
 
   .stat-card {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
+    background: rgba(30, 41, 59, 0.92);
+    border: 1px solid rgba(148, 163, 184, 0.22);
     border-radius: 8px;
     padding: 20px;
     display: flex;
@@ -777,19 +781,19 @@
   .stat-value {
     font-size: 32px;
     font-weight: 700;
-    color: var(--text-primary);
+    color: #f8fafc;
     line-height: 1;
   }
 
   .stat-label {
     font-size: 14px;
-    color: var(--text-secondary);
+    color: #94a3b8;
     margin-top: 4px;
   }
 
   .card {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
+    background: rgba(30, 41, 59, 0.92);
+    border: 1px solid rgba(148, 163, 184, 0.22);
     border-radius: 8px;
     margin-bottom: 24px;
   }
@@ -803,12 +807,12 @@
     margin: 0 0 4px 0;
     font-size: 18px;
     font-weight: 600;
-    color: var(--text-primary);
+    color: #f8fafc;
   }
 
   .card-subtitle {
     font-size: 14px;
-    color: var(--text-secondary);
+    color: #94a3b8;
   }
 
   .card-body {
@@ -830,12 +834,14 @@
   .form-group label {
     font-size: 14px;
     font-weight: 500;
-    color: var(--text-primary);
+    color: #e2e8f0;
   }
 
   .form-input {
     padding: 10px 12px;
-    border: 1px solid var(--border-color);
+    background: rgba(15, 23, 42, 0.85);
+    color: #e2e8f0;
+    border: 1px solid rgba(148, 163, 184, 0.28);
     border-radius: 6px;
     font-size: 14px;
     transition: all 0.2s;
@@ -891,6 +897,7 @@
     align-items: center;
     gap: 16px;
     padding: 40px;
+    color: #94a3b8;
   }
 
   .spinner {
@@ -917,7 +924,7 @@
     align-items: center;
     gap: 16px;
     padding: 40px;
-    color: var(--text-tertiary);
+    color: #94a3b8;
   }
 
   .service-list {

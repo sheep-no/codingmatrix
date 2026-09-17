@@ -90,7 +90,7 @@
                 <time class="message-time" :datetime="message.createdAt ? new Date(message.createdAt).toISOString() : ''">{{ formatMessageTime(message.createdAt) }}</time>
                 <button
                   class="message-action-btn"
-                  :aria-label="'编辑消息: ' + message.prompt"
+                  :aria-label="'编辑消息：' + message.prompt"
                   title="编辑消息"
                   @click="$emit('edit-message', message)"
                 >
@@ -156,7 +156,7 @@
               <div v-if="message.model || message.usage" class="message-meta">
                 <span v-if="message.model" class="chat-model meta-chip">{{ message.model }}</span>
                 <span v-if="message.usage" class="chat-usage meta-chip" aria-label="模型用量">
-                  {{ message.usage.total_tokens ?? ((message.usage.prompt_tokens || 0) + (message.usage.completion_tokens || 0)) }} tokens
+                  {{ message.usage.total_tokens ?? ((message.usage.prompt_tokens || 0) + (message.usage.completion_tokens || 0)) }} Token/令牌
                 </span>
               </div>
               <details v-if="message.toolCalls?.length" class="chat-tool-calls">
@@ -409,8 +409,8 @@
     updateVisibleRange()
   }
 
-  const FULL_TITLE = '欢迎使用 AI 助手'
-  const FULL_SUBTITLE = '您的智能编程伙伴，让创意触手可及'
+  const FULL_TITLE = '欢迎使用 CodingMatrix'
+  const FULL_SUBTITLE = '把想法写成可运行的项目'
 
   const typingTitle = ref('')
   const typingSubtitle = ref('')

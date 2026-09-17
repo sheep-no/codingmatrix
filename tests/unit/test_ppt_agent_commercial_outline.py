@@ -150,6 +150,8 @@ def test_agent_auto_prompt_does_not_force_exact_count():
     prompt = PPTAgent()._build_prompt("业务增长", "", None)
     assert "页数: 自动" in prompt
     assert "总页数必须等于" not in prompt
+    assert "完整判断或事实" in prompt
+    assert "分布图" in prompt
 
 
 def test_agent_auto_fallback_uses_blueprint_length():

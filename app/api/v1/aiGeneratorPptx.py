@@ -74,6 +74,7 @@ from app.utils.pptx.commercial_content import (
     build_commercial_page_blueprint,
     build_expanded_commercial_page_blueprint,
     format_commercial_metadata,
+    key_message_repeats_body,
     resolve_topic_template,
 )
 from app.utils.pptx.composition_pool import select_cover_variant, select_layout_variants
@@ -650,6 +651,8 @@ def _fit_editorial_text(text, width, height, size):
 
 
 def _add_editorial_text(slide, text, left, top, width, height, style, size=18, color=None, bold=False, align=None, anchor=None):
+    if not str(text or "").strip():
+        return None
     fitted_text, fitted_size = _fit_editorial_text(text, width, height, size)
     box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     box.text_frame.word_wrap = True
@@ -826,7 +829,7 @@ def _soften_rounded_rect(shape) -> None:
 
 
 def _item_at(items: List[str], index: int) -> str:
-    return items[index] if index < len(items) else items[-1]
+    return items[index] if 0 <= index < len(items) else ""
 
 
 def _split_commercial_item(item: str) -> tuple[str, str]:
@@ -864,7 +867,7 @@ def _render_slide_academic(prs, blank_layout, style, slide_data, idx, total_slid
     role = _slide_role(slide_data)
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
-    key_message = slide_data.get("key_message") or "以证据回答一个明确问题"
+    key_message = slide_data.get("key_message") or ""
     _add_editorial_text(slide, _cover_kicker(style), 0.7, 0.34, 2.7, 0.28, style, 9, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, _role_kicker(style, role, idx), 8.8, 0.34, 3.8, 0.28, style, 9, style.PRIMARY_COLOR, True, PP_ALIGN.RIGHT)
     rule = slide.shapes.add_shape(1, Inches(0.7), Inches(0.83), Inches(11.9), Inches(0.025))
@@ -929,7 +932,7 @@ def _render_slide_education(prs, blank_layout, style, slide_data, idx, total_sli
     role = _slide_role(slide_data)
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
-    key_message = slide_data.get("key_message") or "先理解，再练习，最后带走行动"
+    key_message = slide_data.get("key_message") or ""
     chapter = slide.shapes.add_shape(5, Inches(0.68), Inches(0.38), Inches(1.35), Inches(0.42))
     chapter.fill.solid(); chapter.fill.fore_color.rgb = style.PRIMARY_COLOR; chapter.line.fill.background()
     _add_editorial_text(slide, _chrome(style, f"课时 {idx:02d}", f"LESSON {idx:02d}"), 0.68, 0.46, 1.35, 0.22, style, 9, style.TEXT_WHITE, True, PP_ALIGN.CENTER)
@@ -992,7 +995,7 @@ def _render_slide_medical(prs, blank_layout, style, slide_data, idx, total_slide
     role = _slide_role(slide_data)
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
-    key_message = slide_data.get("key_message") or "以证据明确判断，以路径推进照护"
+    key_message = slide_data.get("key_message") or ""
     _add_editorial_text(slide, _cover_kicker(style), 0.72, 0.42, 2.4, 0.28, style, 10, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, _chrome(style, f"病例 / {idx:02d}", f"CASE / {idx:02d}"), 10.75, 0.42, 1.8, 0.28, style, 9, style.TEXT_GRAY, True, PP_ALIGN.RIGHT)
     _add_editorial_text(slide, title, 0.72, 0.98, 8.4, 0.7, style, 28, style.TEXT_DARK, True)
@@ -1063,7 +1066,7 @@ def _render_slide_elegant(prs, blank_layout, style, slide_data, idx, total_slide
     role = _slide_role(slide_data)
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
-    key_message = slide_data.get("key_message") or "聚焦关键判断，形成清晰决议"
+    key_message = slide_data.get("key_message") or ""
     _add_editorial_text(slide, _cover_kicker(style), 0.72, 0.42, 2.7, 0.28, style, 9, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, f"{idx + 1:02d}", 11.78, 0.36, 0.8, 0.38, style, 16, style.PRIMARY_COLOR, True, PP_ALIGN.RIGHT)
     _add_editorial_text(slide, title, 0.72, 0.95, 8.4, 0.72, style, 29, style.TEXT_DARK, True)
@@ -1138,7 +1141,7 @@ def _render_slide_modern(prs, blank_layout, style, slide_data, idx, total_slides
     role = _slide_role(slide_data)
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
-    key_message = slide_data.get("key_message") or "用清晰证据推动下一步决策"
+    key_message = slide_data.get("key_message") or ""
     add_page_number(slide, prs, idx + 1, total_slides, style)
     _add_editorial_text(slide, _role_kicker(style, role, idx), 0.72, 0.38, 4.8, 0.28, style, 10, style.PRIMARY_COLOR, True)
     _add_editorial_text(slide, title, 0.72, 0.72, 8.6, 0.58, style, 28, style.TEXT_DARK, True)
@@ -1198,7 +1201,7 @@ def _render_slide_modern_variant(prs, blank_layout, style, slide_data, idx, tota
     role = _slide_role(slide_data)
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
-    key_message = slide_data.get("key_message") or "把价值判断落到可参与的行动"
+    key_message = slide_data.get("key_message") or ""
     add_page_number(slide, prs, idx + 1, total_slides, style)
     band = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(1.45))
     band.fill.solid(); band.fill.fore_color.rgb = style.PRIMARY_COLOR; band.line.fill.background()
@@ -1227,7 +1230,7 @@ def _modern_variant_base(prs, blank_layout, style, slide_data, idx, total_slides
     add_slide_background(slide, prs, style, light=True)
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
-    key_message = slide_data.get("key_message") or "把价值判断落到可参与的行动"
+    key_message = slide_data.get("key_message") or ""
     add_page_number(slide, prs, idx + 1, total_slides, style)
     return slide, items, title, key_message
 
@@ -1368,7 +1371,7 @@ def _render_slide_minimal(prs, blank_layout, style, slide_data, idx, total_slide
     role = _slide_role(slide_data)
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
-    key_message = slide_data.get("key_message") or "一个页面，一个明确判断"
+    key_message = slide_data.get("key_message") or ""
     _add_editorial_text(slide, f"{idx:02d}", 0.65, 0.42, 0.7, 0.4, style, 12, style.TEXT_DARK, True)
     _add_editorial_text(slide, _role_kicker(style, role), 1.5, 0.42, 4.4, 0.4, style, 10, style.TEXT_GRAY, True)
     _add_editorial_text(slide, f"{idx + 1} / {total_slides}", 11.8, 0.42, 0.85, 0.4, style, 10, style.TEXT_GRAY, False, PP_ALIGN.RIGHT)
@@ -1452,7 +1455,7 @@ def _render_slide_tech(prs, blank_layout, style, slide_data, idx, total_slides):
     role = _slide_role(slide_data)
     items = _commercial_slide_items(slide_data)
     title = slide_data.get("title", f"第 {idx} 页")
-    key_message = slide_data.get("key_message") or "从信号进入可执行决策"
+    key_message = slide_data.get("key_message") or ""
     _add_editorial_text(slide, _cover_kicker(style), 0.7, 0.35, 3.0, 0.25, style, 9, style.ACCENT_LIGHT, True)
     _add_editorial_text(slide, _chrome(style, f"节点 {idx:02d}", f"NODE {idx:02d}"), 10.9, 0.35, 1.7, 0.25, style, 9, style.ACCENT_LIGHT, True, PP_ALIGN.RIGHT)
     _add_editorial_text(slide, title, 0.7, 0.72, 8.75, 0.62, style, 28, style.TEXT_WHITE, True)
@@ -1698,7 +1701,7 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
             "content_blocks": [
                 {{
                     "type": "signal|evidence|case|implication|option|recommendation|criteria|stage|gate|decision|action|request|success_metric",
-                    "content": "简洁、可展示的论点",
+                    "content": "20 到 40 字的完整论点，含对象、变化和依据",
                     "metadata": {{"metric": "指标名称", "target": "目标值"}}
                 }}
             ],
@@ -1723,6 +1726,7 @@ async def generate_ppt_outline(req: PPTGenerationRequest, user_id: str = None) -
 - execution_roadmap 的三个 stage 提供 deliverable、metric、target、gate
 - decision_close 的 decision、action、request 提供 owner、deadline、priority，success_metric 提供 metric、target
 - 每页输出 4 个 content_blocks，并让 content 与 content_blocks 的 content 保持一致
+- 正文必须是可宣讲的完整句子，禁止用「分布图」「热力图」「甘特图」「矩阵」等图表标题代替论点
 {domain_guidance}
 
 请直接返回 JSON 格式，不要有多余解释。
@@ -1812,6 +1816,15 @@ def _normalize_approved_outline(outline: Dict[str, Any]) -> Dict[str, Any]:
                 for block in slide["content_blocks"]
                 if block.get("content", "")
             ]
+        key_message = slide.get("key_message", "")
+        body_texts = [
+            str(block.get("content") or "")
+            for block in (slide.get("content_blocks") or [])
+            if isinstance(block, dict)
+        ] or ([content] if isinstance(content, list) else [content])
+        if key_message_repeats_body(key_message, body_texts):
+            # The page conclusion is already carried by the body; keep it out of the render.
+            key_message = ""
         normalized_slides.append({
             "id": slide.get("id", f"slide-{index}"),
             "position": slide.get("position", index - 1),
@@ -1820,7 +1833,7 @@ def _normalize_approved_outline(outline: Dict[str, Any]) -> Dict[str, Any]:
             "title": slide.get("title", f"第 {index} 页"),
             "content": content,
             "content_blocks": slide.get("content_blocks", []),
-            "key_message": slide.get("key_message", ""),
+            "key_message": key_message,
             "slide_type": slide.get("slide_type", "content"),
             "notes": slide.get("notes", slide.get("speaker_notes", "")),
             "asset_intent": slide.get("asset_intent"),
@@ -3047,6 +3060,7 @@ async def modify_ppt_visual_endpoint(
 async def analyze_ppt_endpoint(
     task_id: str,
     slide_number: Optional[int] = Query(None, description="指定幻灯片编号"),
+    api_key_token: Optional[str] = Query(None, description="用户 API Key Token"),
     token: dict = Depends(verify_token),
 ):
     """
@@ -3054,7 +3068,8 @@ async def analyze_ppt_endpoint(
 
     返回 PPT 的布局、字体、颜色等信息，用于了解当前状态。
     """
-    _verify_ppt_owner(task_id, token.get("sub", "anonymous"))
+    user_id = token.get("sub", "anonymous")
+    _verify_ppt_owner(task_id, user_id)
     output_dir = PPT_OUTPUT_DIR
     pptx_path = output_dir / f"{task_id}.pptx"
 
@@ -3412,7 +3427,7 @@ async def generate_ppt_from_text(
             ),
         )
 
-        if not outline or not outline.slides:
+        if not draft or not draft.slides:
             raise HTTPException(status_code=500, detail="大纲生成失败：无法生成有效大纲")
 
         return OutlineGenerationResponse(

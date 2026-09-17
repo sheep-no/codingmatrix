@@ -165,14 +165,14 @@ test.describe('管理员界面浏览器场景', () => {
     await expect(admin.locator('.nav-item', { hasText: '用户管理' }).first()).toHaveClass(/active/)
     await expectSeedUserVisible(admin)
 
-    await admin.locator('.nav-item', { hasText: '系统日志' }).first().click()
+    await admin.locator('.quick-link, .nav-item', { hasText: '系统日志' }).first().click()
     await expect(admin.locator('.logs-section')).toBeVisible()
     await expect(admin.getByText('日志面板')).toBeVisible()
 
     admin = await returnAndReopen(page, admin)
     await expect(admin.locator('.logs-section')).toBeVisible()
     await expect(admin.getByText('日志面板')).toBeVisible()
-    await expect(admin.locator('.nav-item', { hasText: '系统日志' }).first()).toHaveClass(/active/)
+    await expect(admin.locator('.quick-link, .nav-item', { hasText: '系统日志' }).first()).toHaveClass(/active/)
     await admin.locator('.nav-item', { hasText: '用户管理' }).click()
     await expect(admin.locator('.users-section')).toBeVisible()
     await expect(admin.locator('.create-user-btn')).toBeEnabled()

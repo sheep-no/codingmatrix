@@ -4,6 +4,7 @@
 > 归属：前端应用 / FEBOOT
 > 路径：`src/main.js`、`src/App.vue`、`src/router/index.js`、`src/vite.config.js`、`src/vite-temp.config.js`、`src/index.html`、`src/package.json`、`src/eslint.config.js`（435 行）
 > 索引：`[TASKS.md](tasks.md)`
+> 后续变更（2026-09-16）：`FEBOOT-06` 已处置，`src/vite-temp.config.js` 确认无仓库内消费方、无 `--config` 显式调用（含 Dockerfile/CI/脚本）后删除，正文保留扫描时的判定与行号。
 
 ## 1. 模块作用与功能
 
@@ -195,7 +196,9 @@ const response = await api.put('/auth/profile', updates)
 - **触发条件**：渐变变量缺失或主题变量初始化异常。
 - **验证方式**：在浏览器删除 `--gradient-bg`，检查应用根节点计算后的背景值；补充主题变量缺失的组件测试。
 
-### FEBOOT-06 [P3，废弃候选配置] `vite-temp.config.js` 形成未接入的构建双轨
+### FEBOOT-06 [2026-09-16 已删除，原 P3 废弃候选配置] `vite-temp.config.js` 形成未接入的构建双轨
+
+> 处置结果（2026-09-16）：已复核全库引用、`--config` 调用、Dockerfile/CI/shell 入口，均无消费方，文件已删除。以下为扫描时的原始判定。
 
 - **状态**：废弃候选；全库 `rg` 未发现该文件的消费方，重复职责属于实码可证，外部显式 `--config` 调用待实测。
 - **现象**：文件保留独立的 Vue/Vite 构建配置，但缺少活跃 `vite.config.js` 中的开发服务器、代理、测试和 `allowedHosts` 契约；若被外部命令选用，构建/开发行为会与默认配置分叉。
@@ -248,7 +251,7 @@ export default defineConfig({
 | 3 | P2 | 保留一个全局 `restoreUser` 调用；移除 `useAuth` 的挂载恢复，或由 composable 接收已初始化状态 | 消除重复 refresh 和初始化竞态 | `src/main.js:27-32`、`src/composables/useAuth.js:6-13` | FEBOOT-03 |
 | 4 | P2 | 让 `useAuth` 复用 `api.register`，将资料更新改为 `/user/profile`；在未接入功能明确前完成接线或整体退役 | 修正 API 路径并收敛认证职责 | `src/composables/useAuth.js:28-30,64-66`、`src/utils/api/auth.js:52-59` | FEBOOT-04 |
 | 5 | P3 | 将背景声明改为明确 fallback 方案，并补充主题变量契约 | 保证主题变量异常时仍有稳定背景 | `src/App.vue:29-34` | FEBOOT-05 |
-| 6 | P3 | 确认 `vite-temp.config.js` 的外部调用后删除重复配置或标注唯一用途 | 减少双轨构建配置和误用风险 | `src/vite-temp.config.js` | FEBOOT-06 |
+| 6 | ~~P3~~ 已完成 | 已确认 `vite-temp.config.js` 无外部调用并在 2026-09-16 删除重复配置 | 减少双轨构建配置和误用风险 | `src/vite-temp.config.js` | FEBOOT-06 |
 
 ## 6. 演化方向关联
 

@@ -1,6 +1,6 @@
 <template>
   <div class="api-key-manager">
-    <h2 class="section-title">API Key 管理</h2>
+    <h2 class="section-title">API Key/接口密钥管理</h2>
     <div v-if="loadError" class="load-error" role="alert">
       <span>{{ loadError }}</span>
       <button class="action-btn" type="button" @click="loadKeys">重新加载</button>
@@ -10,7 +10,7 @@
     <div class="key-card required-key">
       <div class="key-card-header">
         <svg class="provider-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-        <span class="provider-name">硅基流动 (SiliconFlow)</span>
+        <span class="provider-name">硅基流动</span>
         <span class="required-badge">必填</span>
         <span :class="['status-badge', siliconflowKey?.status || 'unverified']">
           {{ getStatusText(siliconflowKey?.status) }}
@@ -19,11 +19,11 @@
       
       <div v-if="!siliconflowKey" class="key-card-body">
         <p class="guide-text">
-          配置硅基流动 API Key 以使用 Agent 功能。
+          配置硅基流动 API Key/接口密钥以使用 Agent 功能。
           <a href="https://cloud.siliconflow.cn/" target="_blank" class="guide-link">前往注册</a>
         </p>
         <div class="add-key-form">
-          <input v-model="siliconflowForm.key" type="password" placeholder="输入 API Key" class="key-input" data-testid="siliconflow-key-input" />
+          <input v-model="siliconflowForm.key" type="password" placeholder="输入 API Key/接口密钥" class="key-input" data-testid="siliconflow-key-input" />
           <select v-model="siliconflowForm.ttl" class="ttl-select" @change="onTTLChange(siliconflowForm)">
             <option value="24h">24 小时</option>
             <option value="7d">7 天</option>
@@ -39,8 +39,8 @@
       </div>
       
       <div v-else class="key-card-body">
-        <div class="key-info">
-          <span class="key-remark">{{ siliconflowKey.remark || '主 Key' }}</span>
+          <div class="key-info">
+          <span class="key-remark">{{ siliconflowKey.remark === '主 Key' || !siliconflowKey.remark ? '主 Key/密钥' : siliconflowKey.remark }}</span>
           <span class="key-expiry">剩余：{{ getRemainingTime(siliconflowKey) }}</span>
         </div>
         <div class="key-actions">
@@ -52,7 +52,7 @@
     
     <!-- 其他供应商 Key -->
     <div class="other-keys-section">
-      <h3 class="subsection-title">其他供应商 (可选)</h3>
+      <h3 class="subsection-title">其他供应商（可选）</h3>
       
       <!-- 添加新 Key 表单 -->
       <div class="add-key-form-expanded">
@@ -64,8 +64,8 @@
           <option value="glm">智谱 GLM</option>
           <option value="deepseek">DeepSeek</option>
         </select>
-        <input v-model="newKeyForm.key" type="password" placeholder="输入 API Key" class="key-input" />
-        <input v-model="newKeyForm.remark" type="text" placeholder="备注 (可选)" class="remark-input" />
+        <input v-model="newKeyForm.key" type="password" placeholder="输入 API Key/接口密钥" class="key-input" />
+        <input v-model="newKeyForm.remark" type="text" placeholder="备注（可选）" class="remark-input" />
         <select v-model="newKeyForm.ttl" class="ttl-select" @change="onTTLChange(newKeyForm)">
           <option value="1h">1 小时</option>
           <option value="24h">24 小时</option>
@@ -123,9 +123,9 @@
                   type="number"
                   min="1"
                   class="context-input"
-                  placeholder="context length"
+                  placeholder="上下文长度"
                 />
-                <span class="context-unit">tokens</span>
+                <span class="context-unit">token</span>
                 <button class="action-btn delete-btn" @click="removeContextLength(key, model)">删除</button>
               </div>
               <div v-if="!key.context_lengths || Object.keys(key.context_lengths).length === 0" class="empty-context">
@@ -133,8 +133,8 @@
               </div>
             </div>
             <div class="context-config-add">
-              <input v-model="newContextLengths[key.token].model" type="text" placeholder="模型名称 (如 gpt-4o)" class="context-input model-input" />
-              <input v-model.number="newContextLengths[key.token].value" type="number" min="1" placeholder="context length" class="context-input" />
+              <input v-model="newContextLengths[key.token].model" type="text" placeholder="模型名称，例如 gpt-4o" class="context-input model-input" />
+              <input v-model.number="newContextLengths[key.token].value" type="number" min="1" placeholder="上下文长度" class="context-input" />
               <button class="action-btn" @click="addContextLength(key)">添加</button>
               <button class="action-btn save-btn" @click="saveContextLengths(key)">保存全部</button>
             </div>
@@ -167,7 +167,7 @@
                   <input
                     :value="modelId"
                     class="context-input"
-                    placeholder="模型名称 (如 Qwen/Qwen3-8B)"
+                    placeholder="模型名称，例如 Qwen/Qwen3-8B"
                     @change="updateCustomChainModel(key, idx, $event.target.value)"
                   />
                   <button class="action-btn delete-btn" @click="removeCustomChainModel(key, idx)">删除</button>
@@ -191,7 +191,7 @@
       </div>
       
       <div v-else class="empty-state">
-        <p>暂无其他供应商 Key</p>
+        <p>暂无其他供应商 API Key/接口密钥</p>
       </div>
     </div>
     
@@ -202,31 +202,31 @@
         安全说明
       </h4>
       <ul class="notice-list">
-        <li>Key 使用 RSA 加密传输</li>
+        <li>API Key/接口密钥使用 RSA 加密传输</li>
         <li>仅存储在 Redis 内存中，不落库</li>
         <li>到期自动清除，可随时手动删除</li>
-        <li>前端不保存任何 Key，仅保存无意义 Token</li>
+        <li>前端不保存任何 API Key/接口密钥，仅保存无意义 Token/令牌</li>
       </ul>
     </div>
 
     <!-- Token 使用统计 -->
     <div class="token-usage-section">
-      <h3 class="subsection-title">Token 使用统计</h3>
+      <h3 class="subsection-title">Token/令牌使用统计</h3>
       <div v-if="tokenUsage" class="token-usage-stats">
         <div class="stat-card">
           <div class="stat-label">今日使用</div>
           <div class="stat-value">{{ formatNumber(tokenUsage.today_tokens) }}</div>
-          <div class="stat-unit">tokens</div>
+          <div class="stat-unit">Token/令牌</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">本月使用</div>
           <div class="stat-value">{{ formatNumber(tokenUsage.this_month_tokens) }}</div>
-          <div class="stat-unit">tokens</div>
+          <div class="stat-unit">Token/令牌</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">总使用量</div>
           <div class="stat-value">{{ formatNumber(tokenUsage.total_tokens) }}</div>
-          <div class="stat-unit">tokens</div>
+          <div class="stat-unit">Token/令牌</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">消息总数</div>
@@ -238,7 +238,7 @@
         <h4 class="model-usage-title">按模型统计</h4>
         <div v-for="(tokens, model) in tokenUsage.by_model" :key="model" class="model-usage-item">
           <span class="model-name">{{ model }}</span>
-          <span class="model-tokens">{{ formatNumber(tokens) }} tokens</span>
+          <span class="model-tokens">{{ formatNumber(tokens) }} Token/令牌</span>
         </div>
       </div>
       <div v-if="!tokenUsage" class="loading-text">加载中...</div>
@@ -297,7 +297,7 @@ async function loadKeys() {
   try {
     await Promise.all([store.listKeys(), loadTokenUsage()])
   } catch (e) {
-    loadError.value = e.message || 'API Key 列表加载失败，请重试'
+    loadError.value = e.message || 'API Key/接口密钥列表加载失败，请重试'
   }
 }
 
@@ -330,15 +330,15 @@ const otherKeys = computed(() => store.otherKeys)
 // Methods
 async function submitSiliconflowKey() {
   if (!siliconflowForm.key) {
-    ElMessage.warning('请输入 API Key')
+    ElMessage.warning('请输入 API Key/接口密钥')
     return
   }
   
   loading.value = true
   try {
     const ttlSeconds = getTTLSeconds(siliconflowForm)
-    await store.submitKey('siliconflow', siliconflowForm.key, ttlSeconds, '主 Key')
-    ElMessage.success('硅基流动 Key 已保存')
+    await store.submitKey('siliconflow', siliconflowForm.key, ttlSeconds, '主 Key/密钥')
+    ElMessage.success('硅基流动 API Key/接口密钥已保存')
     siliconflowForm.key = ''
     siliconflowForm.ttl = '24h'
     siliconflowForm.customHours = null
@@ -351,7 +351,7 @@ async function submitSiliconflowKey() {
 
 async function submitNewKey() {
   if (!newKeyForm.provider || !newKeyForm.key) {
-    ElMessage.warning('请选择供应商并输入 Key')
+    ElMessage.warning('请选择供应商并输入 API Key/接口密钥')
     return
   }
   
@@ -359,7 +359,7 @@ async function submitNewKey() {
   try {
     const ttlSeconds = getTTLSeconds(newKeyForm)
     await store.submitKey(newKeyForm.provider, newKeyForm.key, ttlSeconds, newKeyForm.remark)
-    ElMessage.success(`${getProviderName(newKeyForm.provider)} Key 已添加`)
+    ElMessage.success(`${getProviderName(newKeyForm.provider)} API Key/接口密钥已添加`)
     newKeyForm.provider = ''
     newKeyForm.key = ''
     newKeyForm.remark = ''
@@ -391,11 +391,11 @@ async function testKey(token) {
 
 async function deleteKey(token) {
   try {
-    await ElMessageBox.confirm('确定要清除此 API Key 吗？此操作不可恢复。', '确认删除', {
+    await ElMessageBox.confirm('确定要清除此 API Key/接口密钥吗？此操作不可恢复。', '确认删除', {
       type: 'warning',
     })
     await store.deleteKey(token)
-    ElMessage.success('Key 已清除')
+    ElMessage.success('API Key/接口密钥已清除')
   } catch (e) {
     if (e !== 'cancel') {
       ElMessage.error('删除失败：' + (e.message || '未知错误'))
@@ -407,7 +407,7 @@ async function toggleEnabled(key) {
   try {
     const nextEnabled = !key.enabled
     await store.toggleEnabled(key.token, nextEnabled)
-    ElMessage.success(`Key 已${nextEnabled ? '启用' : '禁用'}`)
+    ElMessage.success(`API Key/接口密钥已${nextEnabled ? '启用' : '禁用'}`)
   } catch (e) {
     ElMessage.error('操作失败：' + (e.message || '未知错误'))
   }
@@ -429,7 +429,7 @@ function addContextLength(key) {
   const token = key.token
   const input = newContextLengths[token]
   if (!input.model || !input.value) {
-    ElMessage.warning('请输入模型名称和 context length')
+    ElMessage.warning('请输入模型名称和上下文长度')
     return
   }
   if (!key.context_lengths) {
@@ -584,6 +584,7 @@ function getRemainingTime(key) {
 .section-title {
   font-size: 20px;
   margin-bottom: 20px;
+  color: var(--text-primary);
 }
 
 .key-card {

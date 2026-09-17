@@ -13,7 +13,7 @@
       </label>
       <span class="switch-label">使用 GitHub 保存项目</span>
       <p class="help-text">
-        启用后，项目将保存到您的 GitHub 仓库。禁用时使用本地 Git。
+        启用后，项目将保存到你的 GitHub 仓库。禁用时使用本地 Git。
       </p>
     </div>
 
@@ -24,13 +24,13 @@
           id="github-username"
           v-model="githubUsername"
           type="text"
-          placeholder="your-github-username"
+          placeholder="填写 GitHub 用户名"
           @blur="saveUsername"
         />
       </div>
 
       <div class="form-group">
-        <label for="github-token">GitHub Personal Access Token</label>
+        <label for="github-token">GitHub 个人访问令牌</label>
         <input
           id="github-token"
           v-model="githubToken"
@@ -39,8 +39,8 @@
           @blur="saveToken"
         />
         <p class="help-text">
-          需要 repo 权限的 Personal Access Token。
-          <a href="https://github.com/settings/tokens" target="_blank">创建 Token</a>
+          需要具备仓库权限的个人访问令牌。
+          <a href="https://github.com/settings/tokens" target="_blank">创建 Token/令牌</a>
         </p>
       </div>
 
@@ -49,7 +49,7 @@
           ✓ GitHub 配置已完成
         </div>
         <div v-else class="status warning">
-          [WARNING] 请完成 GitHub 配置
+          请完成 GitHub 配置
         </div>
         
         <!-- 连接状态显示 -->
@@ -147,7 +147,7 @@ const autoTestConnection = async () => {
       } else {
         connectionStatus.value = {
           type: 'warning',
-          message: '[WARNING] 用户名与 Token 不匹配'
+          message: '用户名与 Token/令牌不匹配'
         }
       }
     } else {
@@ -182,14 +182,14 @@ const testConnection = async () => {
           message: '✓ GitHub 连接正常'
         }
       } else {
-        ElMessage.warning('用户名与 Token 不匹配')
+        ElMessage.warning('用户名与 Token/令牌不匹配')
         connectionStatus.value = {
           type: 'warning',
-          message: '[WARNING] 用户名与 Token 不匹配'
+          message: '用户名与 Token/令牌不匹配'
         }
       }
     } else {
-      ElMessage.error('GitHub 连接失败，请检查 Token')
+      ElMessage.error('GitHub 连接失败，请检查 Token/令牌')
       connectionStatus.value = {
         type: 'error',
         message: '✗ GitHub 连接失败'

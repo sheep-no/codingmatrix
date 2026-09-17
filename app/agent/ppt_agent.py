@@ -132,6 +132,7 @@ class SlideOutline:
     """单页幻灯片大纲"""
     type: str
     title: str
+    key_message: str = ""
     bullets: List[str] = field(default_factory=list)
     image_keywords: List[str] = field(default_factory=list)
     notes: str = ""
@@ -310,11 +311,12 @@ class PPTAgent:
 2. 第一页必须是 "title" 类型 (封面页)
 3. 最后一页必须是 "end" 类型 (结束页)
 4. {page_rule}
-5. 每页 bullets 数量不超过 6 条，每条不超过 40 字
+5. 每页 4 到 6 条 bullets，每条 20 到 40 字，必须是完整判断或事实，禁止只写图表名称、指标名称或空泛标签
 6. 封面和结束页之外的页面按 opportunity_map、evidence_story、strategic_choice、execution_roadmap、decision_close 组织商业叙事
-7. 每个内容页输出 4 个 content_blocks，bullets 与 content_blocks 的 content 保持一致
+7. 每个内容页输出 4 个 content_blocks，与 bullets 一一对应；图表意图写入 image_keywords，不要把「分布图」「热力图」「甘特图」当作正文
 8. opportunity_map 提供 ROI、优先级和验证周期；strategic_choice 提供成本、周期、风险和推荐依据
 9. execution_roadmap 提供阶段交付物、指标和门槛；decision_close 提供负责人、时限和优先级
+10. 每个内容页额外输出一句 key_message，作为本页唯一核心结论 (15 到 30 字)，必须是独立判断，禁止与任何 bullet 或 content_block 重复
 
 JSON Schema:
 {{
@@ -323,6 +325,7 @@ JSON Schema:
     {{
       "type": "title|chapter|content|bullet|image|chart|end",
       "title": "页面标题",
+      "key_message": "本页唯一核心结论 (独立于 bullets)",
       "bullets": ["要点1", "要点2"],
       "image_keywords": ["关键词1", "关键词2"],
       "notes": "备注 (可选)",
@@ -401,6 +404,7 @@ JSON Schema:
 4. slides 数组中的每个对象必须包含 type 和 title 字段
 5. type 只能是：title, chapter, content, bullet, image, chart, end
 6. 保留 narrative_role 和 content_blocks 字段及其中的 metadata
+7. 保留每个内容页的 key_message (本页唯一核心结论)
 
 JSON Schema：
 {{
@@ -409,6 +413,7 @@ JSON Schema：
     {{
       "type": "title|chapter|content|bullet|image|chart|end",
       "title": "页面标题",
+      "key_message": "本页唯一核心结论",
       "bullets": ["要点1", "要点2"],
       "image_keywords": ["关键词1"],
       "notes": "备注",
@@ -478,6 +483,7 @@ JSON Schema：
                 slide = SlideOutline(
                     type=slide_type,
                     title=s.get("title", ""),
+                    key_message=str(s.get("key_message") or ""),
                     bullets=bullets,
                     image_keywords=s.get("image_keywords", [])[:3],
                     notes=s.get("notes", ""),
@@ -518,6 +524,7 @@ JSON Schema：
                     slides.insert(-1, SlideOutline(
                         type=page["slide_type"],
                         title=page["title"],
+                        key_message=page["key_message"],
                         bullets=[block["content"] for block in page["blocks"]],
                         image_keywords=page["asset_intent"]["keywords"],
                         narrative_role=page["role"],
@@ -549,6 +556,7 @@ JSON Schema：
             slides.append(SlideOutline(
                 type=page["slide_type"],
                 title=page["title"],
+                key_message=page["key_message"],
                 bullets=[block["content"] for block in page["blocks"]],
                 image_keywords=page["asset_intent"]["keywords"],
                 narrative_role=page["role"],

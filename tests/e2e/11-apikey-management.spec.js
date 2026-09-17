@@ -16,7 +16,7 @@ test.describe('API Key Management', () => {
     expect(page.url()).toContain('/settings')
     
     // 检查 Tab 存在
-    await expect(page.locator('text=API Key 管理')).toBeVisible()
+    await expect(page.locator('text=API Key/接口密钥管理')).toBeVisible()
     await expect(page.locator('text=Agent 模型配置')).toBeVisible()
   })
 

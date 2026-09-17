@@ -1,6 +1,10 @@
 <template>
   <div class="agent-topbar">
     <div class="topbar-left">
+      <button class="topbar-back" type="button" aria-label="返回首页" @click="$emit('back')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        返回
+      </button>
       <h1 class="topbar-title">CodingMatrix <span>Agent</span></h1>
       <div class="topbar-status" :class="`status-${status}`" role="status">
         <span class="status-dot"></span>
@@ -9,11 +13,11 @@
     </div>
     <div class="topbar-right">
       <div v-if="costData && costData.totalTokens > 0" class="topbar-cost">
-        <span class="cost-tokens">{{ formatNumber(costData.totalTokens) }} tokens</span>
+        <span class="cost-tokens">{{ formatNumber(costData.totalTokens) }} Token/令牌</span>
         <span class="cost-divider">|</span>
         <span class="cost-usd">${{ costData.totalCostUsd?.toFixed(4) || '0.0000' }}</span>
         <span v-if="costData.tokensPerSecond" class="cost-divider">|</span>
-        <span v-if="costData.tokensPerSecond" class="cost-speed">{{ costData.tokensPerSecond?.toFixed(0) }} tok/s</span>
+        <span v-if="costData.tokensPerSecond" class="cost-speed">{{ costData.tokensPerSecond?.toFixed(0) }} Token/令牌/秒</span>
       </div>
       <button class="topbar-btn" title="导入项目" aria-label="导入项目" @click="$emit('open-upload')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -46,7 +50,7 @@ const props = defineProps({
   prompt: { type: String, default: '' }
 })
 
-defineEmits(['open-upload', 'open-settings', 'save-project', 'open-performance', 'open-learning', 'analyze-complexity'])
+defineEmits(['back', 'open-upload', 'open-settings', 'save-project', 'open-performance', 'open-learning', 'analyze-complexity'])
 
 const showMore = ref(false)
 const moreRef = ref(null)
@@ -88,6 +92,20 @@ onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
   gap: 12px;
 }
 .topbar-left { display: flex; align-items: center; gap: 16px; }
+.topbar-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.topbar-back:hover { background: var(--hover-bg, var(--surface-raised)); color: var(--text-primary); }
 .topbar-title {
   font-size: 18px;
   font-weight: 700;

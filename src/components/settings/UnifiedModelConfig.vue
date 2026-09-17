@@ -9,16 +9,16 @@
       <div class="add-form">
         <div class="form-row">
           <div class="form-group">
-            <label>模型 ID</label>
-            <input v-model="newModel.id" type="text" placeholder="如: gpt-4o" class="form-input" />
+            <label>模型标识</label>
+            <input v-model="newModel.id" type="text" placeholder="例如 gpt-4o" class="form-input" />
           </div>
           <div class="form-group">
             <label>API 名称</label>
-            <input v-model="newModel.name" type="text" placeholder="如: gpt-4o" class="form-input" />
+            <input v-model="newModel.name" type="text" placeholder="例如 gpt-4o" class="form-input" />
           </div>
           <div class="form-group">
             <label>显示名称</label>
-            <input v-model="newModel.display_name" type="text" placeholder="如: GPT-4o" class="form-input" />
+            <input v-model="newModel.display_name" type="text" placeholder="例如 GPT-4o" class="form-input" />
           </div>
         </div>
         <div class="form-row">
@@ -99,16 +99,16 @@
 
           <div class="model-details">
             <div class="detail-item">
-              <span class="label">API:</span>
+              <span class="label">接口：</span>
               <span class="value">{{ model.name }}</span>
             </div>
             <div class="detail-item">
-              <span class="label">温度:</span>
+              <span class="label">温度：</span>
               <span class="value">{{ model.temperature }}</span>
             </div>
             <div class="detail-item">
-              <span class="label">超时:</span>
-              <span class="value">{{ model.timeout }}s</span>
+              <span class="label">超时：</span>
+              <span class="value">{{ model.timeout }} 秒</span>
             </div>
           </div>
 
@@ -249,7 +249,7 @@ async function loadAgentConfig() {
 
 async function addModel() {
   if (!newModel.value.id || !newModel.value.name || !newModel.value.display_name) {
-    ElMessage.warning('请填写模型 ID、API 名称和显示名称')
+    ElMessage.warning('请填写模型标识、API 名称和显示名称')
     return
   }
   
@@ -265,7 +265,7 @@ async function addModel() {
       ElMessage.error(err.detail || '添加失败')
     }
   } catch (e) {
-    ElMessage.error('添加失败: ' + e.message)
+    ElMessage.error('添加失败：' + e.message)
   } finally {
     adding.value = false
   }

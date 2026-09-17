@@ -5,6 +5,8 @@
 > 路径：app/schema/（13 文件 828 行：aicloud 164 + codeRequest 172 + workflow 106 + nginxConf 88 + task_schema 71 + file_schema 69 + girl_request 45 + manageUser 34 + history 31 + user 25 + ppxRequest 11 + token 8 + guardian 4）
 > 索引：[TASKS.md](../TASKS.md)
 
+> 后续变更（2026-09-16）：文中引用的 `app/utils/pagination.py` 已确认零生产引用并删除，正文保留扫描时的判定与行号。
+
 ## 0. 模块定位与状态判定（三态）
 
 | 文件 | 状态 | 判定依据 |

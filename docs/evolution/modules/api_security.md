@@ -4,6 +4,8 @@
 >
 > 结论：**API 安全家族——JWT 认证（security.py）+ CSRF 防护（csrf.py）+ 审计日志（security_audit.py）+ 统一响应（api_response.py）**——核心风险在 CSRF Token 内存态多 worker 失效与 bcrypt 密码截断。
 
+> 后续变更（2026-09-16）：`app/utils/api_response.py` 已确认零生产引用并删除（家族中 `security.py`、`security_audit.py`、`csrf.py` 仍活跃），正文保留扫描时的判定与行号。
+
 ## 一、模块定位
 
 | 模块 | 职责 | 使用规模 |

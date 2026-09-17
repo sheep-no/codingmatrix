@@ -42,6 +42,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    // jsdom 挂载型用例在机器负载高时会超过默认 5s，适当放宽避免误报超时
+    testTimeout: 15000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

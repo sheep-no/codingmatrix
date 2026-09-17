@@ -276,7 +276,7 @@ test.describe('Agent 智谱 GLM Flash 实测', () => {
       const confirm = page.locator('.el-message-box .el-button--primary')
       await expect(confirm).toBeVisible({ timeout: 5000 })
       await confirm.click()
-      await expect(page.locator('.el-message--success').filter({ hasText: 'Key 已清除' })).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('.el-message--success').filter({ hasText: 'API Key/接口密钥已清除' })).toBeVisible({ timeout: 10000 })
       await page.waitForTimeout(400)
     }
   }
@@ -297,7 +297,7 @@ test.describe('Agent 智谱 GLM Flash 实测', () => {
     await page.locator('.add-key-form-expanded .submit-btn').click()
     const submit = await submitResp
     expect(submit.ok(), `提交 Key HTTP ${submit.status()}`).toBeTruthy()
-    await expect(page.locator('.el-message--success').filter({ hasText: '智谱 GLM Key 已添加' })).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.el-message--success').filter({ hasText: '智谱 GLM API Key/接口密钥已添加' })).toBeVisible({ timeout: 10000 })
     await expect(glmCards(page).first()).toBeVisible({ timeout: 15000 })
   }
 

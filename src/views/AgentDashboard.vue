@@ -12,6 +12,7 @@
       @open-performance="openPerformancePanel"
       @open-learning="openLearningPanel"
       @analyze-complexity="analyzeRequirementComplexity(projectPrompt)"
+      @back="router.push('/')"
       />
 
     <div class="agent-mobile-toolbar">
@@ -438,7 +439,7 @@ const doSwitchSession = async (id) => {
     workspace.currentAgent = generation.currentAgent
   } catch (error) {
     if (requestId === sessionSwitchRequest && session.currentSessionId === id) {
-      workspace.addLog('warning', `恢复后端模型上下文失败，使用本地快照: ${error.message}`)
+      workspace.addLog('warning', `恢复后端模型上下文失败，使用本地快照：${error.message}`)
     }
   }
   return true

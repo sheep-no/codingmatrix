@@ -4,6 +4,8 @@
 >
 > 结论：**任务分发设计断裂——task_manager 真实消费（aiGeneratorPptx 六个生成任务）、task_dispatcher 与 resume_manager 均为零消费死代码——task_type 注册表从未接入 task_manager 的执行链路（调用方直接传 func），Redis 故障时任务状态内存/Redis 分裂双轨**。
 
+> 后续变更（2026-09-16）：`app/utils/task_dispatcher.py` 已确认零生产引用并删除（`task_manager.py`、`resume_manager.py` 保留），正文保留扫描时的判定与行号。
+
 ## 一、模块定位
 
 | 组件 | 位置 | 消费状态 |
