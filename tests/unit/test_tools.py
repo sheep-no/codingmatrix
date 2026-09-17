@@ -485,3 +485,45 @@ class TestWriteFileEmptyContentGate:
         assert result["success"] is False
         assert "内容为空" in result["error"]
         assert not (tmp_path / "pkg" / "main.py").exists()
+
+
+class TestWriteFileDotfileGate:
+    """点号文件名（.gitignore 等）不应被误判为无效名或被白名单吞掉。"""
+
+    def test_dotfile_is_written(self, tmp_path):
+        from app.agent.tools import _tool_write_file
+
+        result = _tool_write_file(str(tmp_path), ".gitignore", "node_modules/\n")
+
+        assert result["success"] is True
+        assert (tmp_path / ".gitignore").read_text(encoding="utf-8") == "node_modules/\n"
+
+    def test_dotfile_matches_dependency_graph_whitelist(self, tmp_path):
+        from app.agent.tools import _tool_write_file, set_allowed_file_paths
+
+        set_allowed_file_paths({".gitignore", "app/main.py"})
+        try:
+            result = _tool_write_file(str(tmp_path), ".gitignore", "node_modules/\n")
+            assert result["success"] is True
+            assert (tmp_path / ".gitignore").exists()
+        finally:
+            set_allowed_file_paths(None)
+
+    def test_path_outside_whitelist_is_still_rejected(self, tmp_path):
+        from app.agent.tools import _tool_write_file, set_allowed_file_paths
+
+        set_allowed_file_paths({"app/main.py"})
+        try:
+            result = _tool_write_file(str(tmp_path), ".gitignore", "node_modules/\n")
+            assert result["success"] is False
+            assert "不在依赖图中" in result["error"]
+        finally:
+            set_allowed_file_paths(None)
+
+    def test_dot_dot_filename_is_rejected(self, tmp_path):
+        from app.agent.tools import _tool_write_file
+
+        result = _tool_write_file(str(tmp_path), "..", "x")
+
+        assert result["success"] is False
+        assert "无效的文件名" in result["error"]
