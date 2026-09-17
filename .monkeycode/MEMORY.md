@@ -58,7 +58,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 智谱免费档并发：`glm-4.7-flash=1`，`glm-4-flash-250414=20`，`glm-z1-flash` 未单独限流（代码默认 6，受全局 LLM 信号量 6 约束）。
   - Agent 实测用 `TEST_API_KEY`（供应商 `glm`）+ 超管 `mr_yang@example.com` 改角色；流式请求走 `preferredAgentKey`，测完恢复 YAML 角色。
   - `tests/e2e/agent-semi-import-live.spec.js` 的增量架构师用 `glm-4.7-flash`，会在 `_analyze_changes_with_architect` 硬失败而非降级；重跑前需冷却数分钟。
-  - `glm-4.7-flash` 被上游全局限流时（独立单请求也 429 code 1305），可用同族可用免费档 `glm-4-flash-250414` 临时顶替 architect 角色跑活管线验证；同族模型同样能产出含 `project_spec` 的架构。测完必须恢复默认角色。
+  - `glm-4.7-flash` 被上游全局限流时（独立单请求也 429 code 1305），可用同族可用免费档 `glm-4-flash-250414` 临时顶替 architect 角色跑活管线验证；同族模型同样能产出含 `project_spec` 的架构。测完必须恢复默认角色。其免费档可用性在时间窗口间波动（同一小时内 200 与 429 code 1305 交替），非关键验证优先用稳定的 `glm-4-flash-250414`。
   - 模型级并发上限在 `app/agent/llm_client.py`：`MODEL_CONCURRENCY_LIMITS` 定义上限，`get_model_semaphore` 提供信号量，缓存键必须与 `concurrency_limit_for` 同源归一化（小写、去 provider 前缀），否则同一模型的不同写法会各建一个信号量，上限形同虚设。
   - 流式调用的并发额度必须覆盖整个消费期：迭代器一返回上游连接仍在持续输出 token。若只在获取迭代器时持有额度，第二个请求会立即插入，免费档必现 429（code 1305）。排查 429 时先确认本地并发是否真的被压到上限，再怀疑上游拥塞。
   - 切角色做实测前先备份角色快照：`set_roles.py` 的 `set` 模式会用「当前角色」覆盖 `orig_roles.json`，连续两次 `set` 后快照变成 GLM 值，`restore` 就回不到默认值。默认值为 architect `qwen3-8b` / frontend `deepseek-r1` / backend `qwen3.5-4b` / reviewer `glm-z1-9b` / fallback `qwen3-8b`；跑全量 unit 前必须处于默认值，否则 `test_multi_model_agent` 会多一条失败。
