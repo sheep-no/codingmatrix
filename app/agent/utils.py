@@ -473,10 +473,6 @@ HARDCODED_RULES = {
     "final_validation": "run",
 }
 
-# 缓存 AI 生成的验证脚本
-_ai_script_cache = {}
-
-
 class SandboxValidator:
     """沙箱验证器基类
 
@@ -933,67 +929,62 @@ def _group_files_by_extension(files: dict) -> dict:
     return groups
 
 
-def _generate_script_with_ai(ext: str, files: dict, llm_caller=None) -> str:
-    """为未注册语言生成验证脚本
+# 统一语法门禁覆盖的扩展名。这些文件不再送 bwrap 生成脚本：
+# `ast.parse` / 共享解析器就能给出确定性判断，语法检查不执行代码，无需隔离。
+# `node --check` 无法解析 TS 类型注解、JSX 与 Vue 单文件组件，纯定界符计数
+# 又会把注释和字符串里的括号当成结构错误。
+_SHARED_SYNTAX_EXTENSIONS = frozenset({
+    '.py', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.vue',
+    '.html', '.htm', '.xhtml', '.css',
+})
 
-    Args:
-        ext: 文件扩展名
-        files: 文件字典
-        llm_caller: LLM 调用函数（可选）
 
-    Returns:
-        验证脚本字符串，失败返回 None
+def _shared_syntax_errors(file_path: str, content: str) -> list:
+    """用本地解析器校验 Python、JS/TS 家族与标记语言文件。
+
+    检查只做语法解析、不执行代码，因此无需 bwrap。Python 用 `ast.parse`，
+    JS/TS 家族与标记语言走 app/agent/js_syntax.py 与 app/agent/markup_syntax.py，
+    与写入门禁保持同源。
     """
-    global _ai_script_cache
+    import ast
 
-    # 检查缓存
-    cache_key = f"ai_script_{ext}"
-    if cache_key in _ai_script_cache:
-        return _ai_script_cache[cache_key]
+    from app.agent.js_syntax import check_js_source, check_ts_source, vue_script_source
+    from app.agent.markup_syntax import css_structure_errors, html_structure_errors
 
-    # 如果没有 LLM 调用器，使用通用验证器
-    if not llm_caller:
-        logger.debug(f"无 LLM 调用器，使用通用验证器: {ext}")
-        return GenericSandboxValidator().build_validation_script(files)
+    ext = Path(file_path).suffix.lower()
 
-    # 构建 prompt
-    file_list = "\n".join(f"- {f}" for f in files.keys())
-    prompt = f"""为 {ext} 文件生成语法验证脚本。
+    if ext == '.py':
+        try:
+            ast.parse(content)
+            return []
+        except SyntaxError as e:
+            return [f"{file_path}: Python 语法错误: {e}"]
 
-文件列表：
-{file_list}
-
-要求：
-1. 返回一个 Python 脚本，验证这些文件的语法正确性
-2. 验证通过输出 "OK"，失败输出错误到 stderr 并 sys.exit(1)
-3. 使用该语言的编译器/解释器进行语法检查
-4. 如果编译器不可用，跳过该文件（不要报错）
-5. 只返回代码，不要解释
-6. 脚本中使用 os.environ.get("SANDBOX_TMP_DIR") 获取临时目录"""
-
-    try:
-        # 调用 LLM 生成脚本
-        import asyncio
-        if asyncio.iscoroutinefunction(llm_caller):
-            # 异步调用需要在事件循环中
-            loop = asyncio.get_event_loop()
-            script = loop.run_until_complete(llm_caller(prompt))
+    if ext in ('.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.vue'):
+        source = content
+        use_ts = ext in ('.ts', '.tsx')
+        use_jsx = ext in ('.jsx', '.tsx')
+        if ext == '.vue':
+            source, use_ts, use_jsx = vue_script_source(content)
+        if not source.strip():
+            return []
+        if use_ts:
+            ok, error = check_ts_source(source, jsx=use_jsx)
+            label = "TypeScript"
         else:
-            script = llm_caller(prompt)
+            ok, error = check_js_source(source)
+            label = "JavaScript"
+        if ok:
+            return []
+        return [f"{file_path}: {label} 语法错误: {(error or '语法检查未通过')[:200]}"]
 
-        if script:
-            # 清理代码块标记
-            script = clean_code_block(script)
-            # 缓存结果
-            _ai_script_cache[cache_key] = script
-            logger.info(f"AI 生成验证脚本成功: {ext}")
-            return script
+    if ext in ('.html', '.htm', '.xhtml'):
+        return [f"{file_path}: {error}" for error in html_structure_errors(content)]
 
-    except Exception as e:
-        logger.warning(f"AI 生成验证脚本失败: {ext} - {e}")
+    if ext == '.css':
+        return [f"{file_path}: {error}" for error in css_structure_errors(content)]
 
-    # 降级到通用验证器
-    return GenericSandboxValidator().build_validation_script(files)
+    return []
 
 
 def validate_in_sandbox(
@@ -1001,18 +992,18 @@ def validate_in_sandbox(
     files: dict,
     level: str = "auto",
     context: dict = None,
-    llm_caller=None,
 ) -> tuple:
     """执行云端基础语法验证。
 
     运行时、依赖、构建和 E2E 验证属于 VS Code Agent Host 的本地职责。
+    `syntax` 级用本地解析器完成，不执行代码、不依赖 bwrap；本地解析器不覆盖
+    的扩展名才构造 bwrap 脚本，bwrap 缺失时跳过。
 
     Args:
         project_dir: 项目目录路径
         files: 文件字典 {file_path: content}
         level: "syntax"|"import"|"contract"|"run"|"auto"
         context: 上下文信息 {trigger, modified_files, config, ...}
-        llm_caller: LLM 调用函数（用于 AI 生成验证脚本）
 
     Returns:
         (is_valid, errors): 有效返回 (True, [])，无效返回 (False, [错误列表])
@@ -1038,31 +1029,44 @@ def validate_in_sandbox(
 
     logger.info(f"云端语法验证: level={level}, files={len(files)}")
 
-    # 2. 按扩展名分组
-    groups = _group_files_by_extension(files)
+    # 2. 统一门禁：Python 与 JS/TS 家族、标记语言按扩展名走本地解析器；
+    #    文档/文本类文件的正确内容本就是散文或数据，不做代码语法门禁；
+    #    其余扩展名（本地解析器不覆盖）继续走 bwrap 脚本。
+    shared_errors = []
+    remaining_files = {}
+    for file_path, content in files.items():
+        ext = Path(file_path).suffix.lower()
+        if ext in _SHARED_SYNTAX_EXTENSIONS:
+            shared_errors.extend(_shared_syntax_errors(file_path, content))
+        elif _is_documentation_file(file_path):
+            continue
+        else:
+            remaining_files[file_path] = content
 
-    # 3. 每组选择验证器，生成脚本
+    if shared_errors:
+        return False, shared_errors
+    if not remaining_files:
+        return True, []
+
+    # 3. 按扩展名分组。本地解析器不覆盖的扩展名才构造 bwrap 脚本，
+    #    未注册扩展名用通用验证器，不再调用 LLM 生成脚本。
+    groups = _group_files_by_extension(remaining_files)
+
+    # 4. 每组选择验证器，生成脚本
     scripts = []
     for ext, group_files in groups.items():
-        validator = _EXTENSION_VALIDATORS.get(ext)
-
-        if validator:
-            # 已注册：使用预定义脚本
-            script = validator.build_validation_script(group_files, level)
-        else:
-            # 未注册：AI 生成脚本
-            script = _generate_script_with_ai(ext, group_files, llm_caller)
-
+        validator = _EXTENSION_VALIDATORS.get(ext) or GenericSandboxValidator()
+        script = validator.build_validation_script(group_files, level)
         if script:
             scripts.append(script)
 
     if not scripts:
         return True, []
 
-    # 4. 合并脚本
+    # 5. 合并脚本
     combined_script = "\n# === 分组分隔 ===\n".join(scripts)
 
-    # 5. 云端基础语法验证需要 bwrap；本地运行验证由 Agent Host 执行。
+    # 6. 云端基础语法验证需要 bwrap；本地运行验证由 Agent Host 执行。
     if shutil.which("bwrap") is None:
         logger.info("云端语法验证跳过：bwrap 不可用，等待 VS Code Agent Host 本地验证")
         return True, []
