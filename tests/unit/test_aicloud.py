@@ -241,6 +241,27 @@ class TestSandbox:
         assert not is_path_safe("file.txt; rm -rf")
 
 
+class TestSandboxFileOperator:
+    """SandboxFileOperator 路径归属校验测试"""
+
+    def test_symlink_escape_is_rejected(self, tmp_path, monkeypatch):
+        """沙箱内指向外部的符号链接必须被拒绝"""
+        from app.utils.aicloud.sandbox_operator import SandboxFileOperator
+
+        monkeypatch.setattr(SandboxFileOperator, "SANDBOX_BASE_DIR", str(tmp_path))
+        operator = SandboxFileOperator(user_id=1)
+
+        workspace = tmp_path / "1" / "workspace"
+        workspace.mkdir(parents=True)
+        outside = tmp_path / "outside.txt"
+        outside.write_text("secret")
+        escape_link = workspace / "escape.txt"
+        escape_link.symlink_to(outside)
+
+        assert operator.validate_sandbox_path(str(escape_link)) is False
+        assert operator.validate_sandbox_path(str(workspace / "normal.txt")) is True
+
+
 class TestContentAnalyzer:
     """AI 内容分析器测试"""
 
