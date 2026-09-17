@@ -15,6 +15,31 @@ from app.utils.cache import get_cache_manager
 logger = logging.getLogger(__name__)
 
 
+def _extract_user_identity(kwargs: dict) -> Optional[str]:
+    """从路由参数中提取用户身份，用于按用户隔离缓存。
+
+    身份参数被排除在普通参数遍历之外，若不单独提取，不同用户会命中
+    同一缓存条目并读到彼此的响应。
+    """
+    token = kwargs.get("token")
+    if isinstance(token, dict):
+        subject = token.get("sub") or token.get("user_id")
+        if subject is not None:
+            return str(subject)
+
+    user_id = kwargs.get("user_id")
+    if isinstance(user_id, (int, str)) and not isinstance(user_id, bool):
+        return str(user_id)
+
+    current_user = kwargs.get("current_user")
+    if current_user is not None:
+        for attr in ("id", "user_id", "username"):
+            value = getattr(current_user, attr, None)
+            if isinstance(value, (int, str)) and not isinstance(value, bool):
+                return str(value)
+    return None
+
+
 def _generate_cache_key(
     key_prefix: str,
     func_name: str,
@@ -23,6 +48,10 @@ def _generate_cache_key(
     request: Optional[Request] = None,
 ) -> str:
     parts = [key_prefix, func_name]
+
+    identity = _extract_user_identity(kwargs)
+    if identity is not None:
+        parts.append(f"user={identity}")
 
     if request:
         url_path = str(request.url.path)

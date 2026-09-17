@@ -91,7 +91,8 @@ async def execute_workflow(
             previous_workflow = None
             if session_id:
                 async with _session_lock:
-                    previous_workflow = _session_workflows.get(session_id)
+                    # 会话键按用户隔离，避免同名字 session_id 读到他人历史请求
+                    previous_workflow = _session_workflows.get((user_id, session_id))
 
             yield json.dumps({
                 "event": "workflow_started",
@@ -290,7 +291,7 @@ async def execute_workflow(
 
             if session_id:
                 async with _session_lock:
-                    _session_workflows[session_id] = {
+                    _session_workflows[(user_id, session_id)] = {
                         "workflow_id": task_graph.workflow_id,
                         "request": request.natural_language_request,
                         "task_graph": task_graph.model_dump() if hasattr(task_graph, 'model_dump') else None,

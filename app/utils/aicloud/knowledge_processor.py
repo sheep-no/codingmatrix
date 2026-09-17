@@ -124,6 +124,11 @@ def chunk_text(
     """
     if not text.strip():
         return []
+
+    if chunk_size <= 0:
+        raise ValueError("chunk_size 必须大于 0")
+    # 重叠必须小于块大小，否则起始位置不前进会死循环
+    chunk_overlap = max(0, min(chunk_overlap, chunk_size - 1))
     
     chunks = []
     start = 0

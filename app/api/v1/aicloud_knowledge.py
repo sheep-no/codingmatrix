@@ -8,6 +8,7 @@ AI Cloud 知识库 API 端点
 - POST /api/v1/aicloud/knowledge/search - 检索知识库
 """
 
+import asyncio
 import logging
 import os
 import uuid
@@ -47,6 +48,9 @@ class KnowledgeSearchRequest(BaseModel):
 KNOWLEDGE_STORAGE_PATH = "/workspace/data/knowledge"
 os.makedirs(KNOWLEDGE_STORAGE_PATH, exist_ok=True)
 
+# 单文档上传上限，避免超大文件读入内存并阻塞解析
+MAX_DOCUMENT_SIZE = 20 * 1024 * 1024
+
 
 async def get_current_user_id(token: dict = Depends(verify_token)) -> int:
     """从 JWT token 获取当前用户 ID"""
@@ -81,6 +85,13 @@ async def upload_document(
     5. 存储到数据库
     """
     await check_aicloud_permission(user_id, db)
+
+    # 分块参数非法会让分块器原地打转，必须在写入任何文件前拦下
+    if chunk_size <= 0 or chunk_overlap < 0 or chunk_overlap >= chunk_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="分块参数无效：chunk_size 需大于 0，chunk_overlap 需大于等于 0 且小于 chunk_size",
+        )
     
     # 验证文件类型
     allowed_extensions = {".txt", ".md", ".pdf", ".docx", ".py", ".js", ".ts", ".json", ".yaml", ".yml", ".csv", ".log"}
@@ -97,12 +108,24 @@ async def upload_document(
     
     # 保存文件
     try:
-        content = await file.read()
+        file_size = 0
         with open(file_path, "wb") as f:
-            f.write(content)
-        file_size = len(content)
+            while chunk := await file.read(1024 * 1024):
+                file_size += len(chunk)
+                if file_size > MAX_DOCUMENT_SIZE:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"文件过大，最大支持 {MAX_DOCUMENT_SIZE // 1024 // 1024}MB",
+                    )
+                f.write(chunk)
+    except HTTPException:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise
     except Exception as e:
         logger.error(f"文件保存失败: {e}")
+        if os.path.exists(file_path):
+            os.remove(file_path)
         raise HTTPException(status_code=500, detail="文件保存失败")
     
     # 创建文档记录
@@ -124,11 +147,13 @@ async def upload_document(
     
     # 异步处理文档（解析、分块、向量化）
     try:
-        # 1. 解析文档
-        text_content = parse_document(file_path)
+        # 1. 解析文档（同步解析器放线程池，避免阻塞事件循环）
+        text_content = await asyncio.to_thread(parse_document, file_path)
         
         # 2. 文本分块
-        chunks = chunk_text(text_content, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        chunks = await asyncio.to_thread(
+            chunk_text, text_content, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        )
         
         if not chunks:
             doc.status = "failed"
