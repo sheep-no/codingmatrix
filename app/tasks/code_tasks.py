@@ -79,58 +79,6 @@ def generate_code(self, task_id: str, prompt: str, language: str, user_id: int, 
 @celery_app.task(
     bind=True,
     base=BaseTask,
-    name="app.tasks.code_tasks.execute_code",
-    max_retries=2,
-    default_retry_delay=30,
-    acks_late=True
-)
-def execute_code(self, task_id: str, code: str, language: str, user_id: int, **kwargs):
-    """
-    Execute code in Docker sandbox.
-
-    Args:
-        task_id: Unique task identifier
-        code: Code to execute
-        language: Programming language
-        user_id: User ID for WebSocket notifications
-        **kwargs: Additional parameters (timeout, etc.)
-
-    Returns:
-        dict with execution result
-    """
-    async def _execute():
-        from app.utils.docker_runner import DockerRunner
-
-        progress_cb = self._get_progress_callback(task_id, user_id)
-
-        await progress_cb.update(10, "准备执行环境...")
-
-        runner = DockerRunner()
-        timeout = kwargs.get("timeout", 60)
-
-        await progress_cb.update(30, "执行代码...")
-        result = await runner.run_validation(
-            code=code,
-            language=language,
-            timeout=timeout
-        )
-
-        await progress_cb.update(100, "执行完成")
-        return result
-
-    try:
-        return asyncio.run(_execute())
-    except SoftTimeLimitExceeded:
-        logger.error(f"Task {task_id} soft time limit exceeded")
-        raise Exception("代码执行超时")
-    except Exception as e:
-        logger.error(f"Task {task_id} failed: {e}")
-        raise
-
-
-@celery_app.task(
-    bind=True,
-    base=BaseTask,
     name="app.tasks.code_tasks.modify_with_test",
     max_retries=3,
     default_retry_delay=30,
