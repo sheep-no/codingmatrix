@@ -326,6 +326,38 @@ class TestDependencyGraph:
         assert graph.nodes["Dockerfile.dev"].file_type == "dockerfile"
         assert graph.nodes["Makefile"].file_type == "config"
 
+    def test_dotfile_placeholders_are_not_inferred_as_unknown(self):
+        """无扩展名的点号占位文件（.gitkeep）是合法元文件，不能判为 unknown。"""
+        import asyncio
+
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+        from app.agent.orchestrator_generation.spec_first_generate import (
+            SpecFirstGenerateMixin,
+        )
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+
+        assert graph._infer_file_type("src/.gitkeep") == "config"
+        assert graph._infer_file_type(".gitignore") == "config"
+        assert graph._infer_file_type(".env") == "env"
+
+        architecture = {"file_plan": [
+            {"path": "src/.gitkeep", "priority": 3},
+            {"path": ".gitignore", "priority": 4},
+            {"path": "main.py", "priority": 1},
+        ]}
+        graph.build_from_architecture(architecture)
+
+        assert "src/.gitkeep" in graph.nodes
+        assert graph.nodes["src/.gitkeep"].file_type == "config"
+        # 未知类型必须已被确定性补齐，否则 _infer_unknown_file_types 会硬失败。
+        pending = graph.get_unknown_type_files()
+        assert pending == []
+        asyncio.run(SpecFirstGenerateMixin()._infer_unknown_file_types(
+            graph, pending, architecture, "python"
+        ))
+
     def test_bare_package_names_are_still_dropped_from_plan(self):
         from app.agent.adapters.python import PythonLanguageAdapter
         from app.agent.dependency_graph import DependencyGraph
