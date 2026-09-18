@@ -9,6 +9,7 @@ RSA 加密工具模块
 import os
 import base64
 import logging
+import threading
 from pathlib import Path
 from typing import Optional, Tuple
 from cryptography.hazmat.primitives import hashes, serialization
@@ -17,13 +18,24 @@ from cryptography.hazmat.backends import default_backend
 
 logger = logging.getLogger(__name__)
 
+# 密钥目录环境变量；未设置时使用仓库根下 keys/，避免 CWD 漂移导致密钥位置漂移
+KEY_DIR_ENV = "RSA_KEY_DIR"
+
+
+def _default_key_dir() -> Path:
+    """返回默认密钥目录（绝对路径）"""
+    env_dir = os.getenv(KEY_DIR_ENV)
+    if env_dir:
+        return Path(env_dir).expanduser().resolve()
+    return Path(__file__).resolve().parents[2] / "keys"
+
 
 class RSAKeyManager:
     """RSA 密钥管理器"""
     
     def __init__(self, key_dir: Optional[Path] = None, key_size: int = 2048):
         self.key_size = key_size
-        self.key_dir = key_dir or Path("keys")
+        self.key_dir = Path(key_dir).expanduser().resolve() if key_dir else _default_key_dir()
         self.private_key_path = self.key_dir / "rsa_private.pem"
         self.public_key_path = self.key_dir / "rsa_public.pem"
         
@@ -35,7 +47,7 @@ class RSAKeyManager:
     
     def _initialize_keys(self):
         """加载或生成密钥对"""
-        if self.private_key_path.exists() and self.public_key_path.exists():
+        if self.private_key_path.exists():
             self._load_keys()
             logger.info("RSA 密钥对已从文件加载")
         else:
@@ -54,7 +66,11 @@ class RSAKeyManager:
         logger.info(f"生成 {self.key_size}-bit RSA 密钥对")
     
     def _load_keys(self):
-        """从文件加载密钥对"""
+        """从文件加载密钥对
+
+        私钥加载失败时抛错而非静默重生成，避免覆盖与 encryption.py 共用的密钥文件。
+        公钥文件缺失或与私钥不匹配时，按私钥重建，不轮换私钥。
+        """
         try:
             with open(self.private_key_path, "rb") as f:
                 self._private_key = serialization.load_pem_private_key(
@@ -62,16 +78,23 @@ class RSAKeyManager:
                     password=None,
                     backend=default_backend()
                 )
-            
-            with open(self.public_key_path, "rb") as f:
-                self._public_key = serialization.load_pem_public_key(
-                    f.read(),
-                    backend=default_backend()
-                )
         except Exception as e:
-            logger.error(f"加载 RSA 密钥失败：{e}")
-            # 如果加载失败，重新生成
-            self._generate_keys()
+            raise RuntimeError(
+                f"加载 RSA 私钥失败（{self.private_key_path}），拒绝覆盖既有密钥：{e}"
+            ) from e
+
+        self._public_key = self._private_key.public_key()
+
+        try:
+            with open(self.public_key_path, "rb") as f:
+                stored_public = serialization.load_pem_public_key(
+                    f.read(), backend=default_backend()
+                )
+            if stored_public.public_numbers() != self._public_key.public_numbers():
+                logger.warning("公钥文件与私钥不匹配，按私钥重建公钥文件")
+                self._save_keys()
+        except Exception as e:
+            logger.warning(f"公钥文件不可用（{e}），按私钥重建")
             self._save_keys()
     
     def _save_keys(self):
@@ -94,7 +117,11 @@ class RSAKeyManager:
             f.write(public_pem)
         
         # 设置私钥文件权限（仅所有者可读）
-        os.chmod(self.private_key_path, 0o600)
+        try:
+            os.chmod(self.private_key_path, 0o600)
+            os.chmod(self.key_dir, 0o700)
+        except OSError as e:
+            logger.warning(f"收紧密钥文件权限失败：{e}")
         logger.info("RSA 密钥对已保存到文件")
     
     def decrypt(self, encrypted_base64: str) -> str:
@@ -149,13 +176,16 @@ class RSAKeyManager:
 
 # 全局单例
 _rsa_key_manager: Optional[RSAKeyManager] = None
+_rsa_key_manager_lock = threading.Lock()
 
 
 def get_rsa_key_manager() -> RSAKeyManager:
     """获取全局 RSAKeyManager 实例"""
     global _rsa_key_manager
     if _rsa_key_manager is None:
-        _rsa_key_manager = RSAKeyManager()
+        with _rsa_key_manager_lock:
+            if _rsa_key_manager is None:
+                _rsa_key_manager = RSAKeyManager()
     return _rsa_key_manager
 
 
