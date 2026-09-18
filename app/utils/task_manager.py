@@ -6,6 +6,7 @@
 import asyncio
 import json
 import logging
+import threading
 import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Callable, Any
@@ -41,21 +42,27 @@ class TaskManager:
     """
 
     _instance: Optional['TaskManager'] = None
-    _lock = asyncio.Lock()
+    # __new__ 是同步方法，用线程锁保护首次构造（asyncio.Lock 无法在 __new__ 中 await）
+    _instance_lock = threading.Lock()
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._redis: Optional[redis.Redis] = None
-            cls._instance._tasks: Dict[str, dict] = {}  # 仅保留运行中的任务
-            cls._instance._running_tasks: Dict[str, asyncio.Task] = {}
-            cls._instance._cleanup_task: Optional[asyncio.Task] = None
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._redis: Optional[redis.Redis] = None
+                    cls._instance._tasks: Dict[str, dict] = {}  # 仅保留运行中的任务
+                    cls._instance._running_tasks: Dict[str, asyncio.Task] = {}
+                    cls._instance._cleanup_task: Optional[asyncio.Task] = None
         return cls._instance
 
     async def _get_redis(self) -> redis.Redis:
         """获取 Redis 连接（懒加载）"""
         if self._redis is None:
-            self._redis = redis.from_url(REDIS_URL, decode_responses=True)
+            # redis.from_url 是同步且不建立连接的，用线程锁即可避免并发创建
+            with self._instance_lock:
+                if self._redis is None:
+                    self._redis = redis.from_url(REDIS_URL, decode_responses=True)
         return self._redis
 
     async def _ensure_started(self):
@@ -410,27 +417,26 @@ class TaskManager:
 
         try:
             r = await self._get_redis()
-            # 遍历所有任务键
-            keys = await r.keys(f"{TASK_PREFIX}*")
+            # 用 SCAN 游标迭代，避免 KEYS 全库扫描阻塞 Redis 主线程
+            keys = [key async for key in r.scan_iter(match=f"{TASK_PREFIX}*")]
             for key in keys:
-                if key.startswith(f"{TASK_PREFIX}"):
-                    task_id = key.replace(TASK_PREFIX, "")
-                    data = await r.get(key)
-                    if data:
-                        task_info = json.loads(data)
-                        completed_at = task_info.get("completed_at")
-                        if completed_at:
-                            try:
-                                completed_time = datetime.fromisoformat(completed_at)
-                                if completed_time < cutoff:
-                                    await r.delete(key)
-                                    # 从用户任务列表中移除
-                                    user_id = task_info.get("user_id")
-                                    if user_id:
-                                        await r.srem(f"user_tasks:{user_id}", task_id)
-                                    logger.info(f"清理过期任务 | task_id={task_id}")
-                            except:
-                                pass
+                task_id = key.replace(TASK_PREFIX, "")
+                data = await r.get(key)
+                if data:
+                    task_info = json.loads(data)
+                    completed_at = task_info.get("completed_at")
+                    if completed_at:
+                        try:
+                            completed_time = datetime.fromisoformat(completed_at)
+                            if completed_time < cutoff:
+                                await r.delete(key)
+                                # 从用户任务列表中移除
+                                user_id = task_info.get("user_id")
+                                if user_id:
+                                    await r.srem(f"user_tasks:{user_id}", task_id)
+                                logger.info(f"清理过期任务 | task_id={task_id}")
+                        except (ValueError, TypeError):
+                            pass
         except Exception as e:
             logger.error(f"清理过期任务失败: {e}")
 

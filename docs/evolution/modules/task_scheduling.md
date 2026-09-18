@@ -50,3 +50,19 @@
 ## 四、测试状态
 
 零单元测试。Redis 故障降级、内存/Redis 状态一致性、并发分片上传、KEYS 阻塞均无测试约束。修复建议：① 单例/Redis 懒加载加锁；② Redis 优先单写源 + 降级告警测试（Redis down 场景断言查询一致性）；③ cleanup 改 SCAN；④ save_chunk_state 原子写 + 并发测试；⑤ upload_id 白名单校验。
+
+## 五、状态更新（2026-09-18 核实）
+
+逐条对照当前代码后，本模块结论修正如下：
+
+- **TM1 已修复**：`TaskManager.__new__` 改用 `_instance_lock = threading.Lock()` 双检锁。`__new__` 是同步方法，无法 `await` 既有的 `asyncio.Lock`，改用线程锁是正确的实现方式。
+- **TM2 已修复**：`_get_redis` 懒加载纳入同一把 `_instance_lock` 双检，避免并发创建多个连接。
+- **TM5 已修复**：`cleanup_old_tasks` 的 `await r.keys(...)` 改为 `async for key in r.scan_iter(match=...)`，消除 KEYS 全库阻塞。
+- **TM8 部分修复**：`cleanup_old_tasks` 内裸 `except:` 收窄为 `except (ValueError, TypeError):`（仅吞 datetime 解析错误）。同步 `get_task_info` 路径的裸 except 未动。
+- **RM1 已修复**：`ResumeManager.save_chunk_state` 增加按 `upload_id` 的 `asyncio.Lock`，并用「写 `.tmp` + `os.replace`」原子替换；`clear_state` 同锁保护。
+- **RM2 已修复**：新增 `_UPLOAD_ID_RE` 白名单（`^[A-Za-z0-9_-]{1,64}$`），`_state_file` 对非法 `upload_id` 抛 `ValueError`，阻断 `../` 与绝对路径穿越。
+- **RM3 已修复**：`save_chunk_state` 用 `if chunk_index not in completed` 去重，同一分片重复上报不再重复追加。
+- **TD1 已消解**：`task_dispatcher.py` 已删除，注册表/分发双轨不复存在。
+- **TM3/TM4/TM6/TM9、RM4/RM5/RM6/RM7 仍存在**：Redis 故障降级双轨、同步查询恒 None、`task_type` 未参与分发、`REDIS_URL` 硬编码、MD5 完整性、async 内同步 I/O、状态文件残留、默认相对路径均未改动。TM9/RM7 需与全库 Redis/路径配置统一收敛时一并处理。
+
+新增回归测试 `tests/unit/test_task_scheduling_utils.py`（8 项）：回退源码后 `test_invalid_upload_id_rejected`、`test_duplicate_chunk_index_not_appended_twice`、`test_cleanup_uses_scan_and_removes_old_tasks` 三项失败。
