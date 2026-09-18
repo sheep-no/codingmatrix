@@ -26,18 +26,29 @@ CODE_BLOCK_PATTERN = re.compile(
     re.DOTALL
 )
 
-# 沙箱文件操作代码白名单（只允许安全操作）
-SAFE_OPERATIONS = {
-    "open", "print", "os.path", "os.listdir", "os.walk",
-    "pathlib", "json", "csv", "html", "re", "string",
-    "datetime", "math", "collections", "itertools"
-}
+# 危险操作模式。子串匹配可被多余空白、大小写与换行绕过，改用忽略大小写的
+# 词边界正则；真正拦截仍由 CodeExecutor 的 AST 检查兜底。
+DANGEROUS_PATTERNS = [
+    r"\bimport\s+os\b",
+    r"\bimport\s+sys\b",
+    r"\bimport\s+subprocess\b",
+    r"\bimport\s+socket\b",
+    r"\bimport\s+requests\b",
+    r"\bimport\s+urllib\b",
+    r"\bfrom\s+os\s+import\b",
+    r"\bfrom\s+subprocess\s+import\b",
+    r"\bfrom\s+pathlib\s+import\b",
+    r"\bexec\s*\(",
+    r"\beval\s*\(",
+    r"\bcompile\s*\(",
+    r"\bopen\s*\(",
+    r"__import__",
+    r"\bimportlib\b",
+]
 
-DANGEROUS_KEYWORDS = {
-    "import os", "import sys", "import subprocess", "import socket",
-    "import requests", "import urllib", "exec(", "eval(", "compile(",
-    "__import__", "importlib"
-}
+COMPILED_DANGEROUS_PATTERNS = [
+    re.compile(pattern, re.IGNORECASE) for pattern in DANGEROUS_PATTERNS
+]
 
 
 def extract_code_blocks(text: str) -> List[str]:
@@ -47,16 +58,10 @@ def extract_code_blocks(text: str) -> List[str]:
 
 def is_safe_code(code: str) -> Tuple[bool, str]:
     """检查代码是否安全"""
-    # 检查危险关键字
-    for keyword in DANGEROUS_KEYWORDS:
-        if keyword in code:
-            return False, f"检测到危险操作: {keyword}"
-    
-    # 检查文件操作是否在沙箱范围内
-    if "open(" in code and "/sandbox" not in code:
-        # 如果是相对路径，默认假设在沙箱 workspace 下
-        pass
-    
+    for pattern in COMPILED_DANGEROUS_PATTERNS:
+        if pattern.search(code):
+            return False, f"检测到危险操作: {pattern.pattern}"
+
     return True, "安全"
 
 

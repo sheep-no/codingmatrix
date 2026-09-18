@@ -2,12 +2,15 @@
 安全代码执行器 - AICloud 代码执行沙箱
 
 支持 Python, Node.js, Go 代码的安全执行。
-使用 subprocess 隔离，限制时间、内存，禁用网络访问。
+使用 subprocess 隔离并限制 CPU、内存与运行时间，静态拦截网络与系统调用。
+
+说明：本模块只做进程级约束与静态拦截，不等同于内核级隔离。
 """
 
 import ast
 import asyncio
 import os
+import re
 import tempfile
 import time
 import uuid
@@ -34,14 +37,29 @@ class CodeExecutionResult:
 BANNED_PYTHON_MODULES = {
     "os", "sys", "subprocess", "multiprocessing", "socket",
     "http", "urllib", "requests", "ftplib", "smtplib",
-    "pickle", "shelve", "ctypes", "importlib"
+    "pickle", "shelve", "ctypes", "importlib",
+    # 文件系统与本地资源访问
+    "pathlib", "io", "shutil", "tempfile", "glob", "mmap",
+    "pty", "dbm", "sqlite3", "webbrowser",
 }
 
-BANNED_JS_MODULES = {
-    "child_process", "fs", "net", "http", "https", "os", "path",
-    "crypto", "cluster", "dgram", "dns", "readline", "repl",
-    "stream", "tls", "tty", "v8", "vm", "zlib"
-}
+# JavaScript 侧禁止的语法/全局对象。子串检查可被空格、大小写与动态拼接绕过，
+# 因此统一用忽略大小写的正则匹配关键标识符。
+JS_FORBIDDEN_PATTERNS = [
+    (r"\brequire\s*\(", "禁止使用 require"),
+    (r"\bimport\s*\(", "禁止使用动态 import"),
+    (r"\bprocess\b", "禁止访问 process"),
+    (r"\bglobalThis\b", "禁止访问 globalThis"),
+    (r"\bfetch\s*\(", "禁止使用 fetch"),
+    (r"\bXMLHttpRequest\b", "禁止使用 XMLHttpRequest"),
+    (r"\bWebSocket\b", "禁止使用 WebSocket"),
+    (r"\bchild_process\b", "禁止使用 child_process"),
+]
+
+COMPILED_JS_FORBIDDEN = [
+    (re.compile(pattern, re.IGNORECASE), message)
+    for pattern, message in JS_FORBIDDEN_PATTERNS
+]
 
 
 class CodeExecutor:
@@ -53,6 +71,34 @@ class CodeExecutor:
 
     def __init__(self, workspace_path: Optional[str] = None):
         self.workspace_path = workspace_path or tempfile.gettempdir()
+
+    @staticmethod
+    def _child_limits(cpu_seconds: int, limit_address_space: bool = False):
+        """
+        生成 preexec_fn，在子进程 exec 前设置资源上限。
+
+        Args:
+            cpu_seconds: CPU 时间上限（秒）
+            limit_address_space: 是否限制虚拟地址空间（仅 Python 解释器安全，
+                Node/Go 运行时会预留大量虚拟内存，限制后会无法启动）
+        """
+        cpu = max(1, int(cpu_seconds))
+        memory_bytes = CodeExecutor.MAX_MEMORY_MB * 1024 * 1024
+
+        def _apply() -> None:
+            try:
+                import resource
+
+                resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
+                if limit_address_space:
+                    resource.setrlimit(
+                        resource.RLIMIT_AS, (memory_bytes, memory_bytes)
+                    )
+            except Exception:
+                # 资源限制为 best-effort，缺少 resource 或不支持时不影响执行
+                pass
+
+        return _apply
 
     async def execute(
         self,
@@ -131,7 +177,8 @@ class CodeExecutor:
                     "PYTHONDONTWRITEBYTECODE": "1",
                     "LANG": os.environ.get("LANG", "en_US.UTF-8"),
                 },
-                cwd=self.workspace_path
+                cwd=self.workspace_path,
+                preexec_fn=self._child_limits(timeout, limit_address_space=True),
             )
 
             try:
@@ -186,24 +233,13 @@ class CodeExecutor:
         import time
         start_time = time.time()
 
-        # 简单静态分析检查危险模块（包含拼接绕过检测）
-        dangerous_modules = ['fs', 'child_process', 'os', 'net', 'http', 'https', 'cluster', 'worker_threads', 'dgram', 'readline', 'crypto']
-        for mod in dangerous_modules:
-            # 直接 require 检测
-            if f"require('{mod}')" in code or f'require("{mod}")' in code:
+        # 静态拦截 require/process/fetch 等逃逸与出网入口，避免依赖易绕过的子串匹配
+        for pattern, message in COMPILED_JS_FORBIDDEN:
+            if pattern.search(code):
                 return CodeExecutionResult(
-                    success=False, output="", error=f"禁止使用模块: {mod}",
+                    success=False, output="", error=message,
                     exit_code=1, execution_time=0.0, language="javascript"
                 )
-        # 检测字符串拼接绕过 require
-        if re.search(r"require\s*\(\s*['\"][^'\"]*['\"]", code):
-            pass  # 已在上面检测
-        elif "require(" in code:
-            # 检测动态 require（如 require(variable) 或 require(expr)）
-            return CodeExecutionResult(
-                success=False, output="", error="禁止使用动态 require",
-                exit_code=1, execution_time=0.0, language="javascript"
-            )
 
         file_name = f"exec_{uuid.uuid4().hex[:8]}.js"
         file_path = os.path.join(self.workspace_path, file_name)
@@ -214,10 +250,12 @@ class CodeExecutor:
 
             proc = await asyncio.create_subprocess_exec(
                 "node",
+                f"--max-old-space-size={self.MAX_MEMORY_MB}",
                 file_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self.workspace_path
+                cwd=self.workspace_path,
+                preexec_fn=self._child_limits(timeout),
             )
 
             try:
@@ -281,7 +319,8 @@ class CodeExecutor:
                 "go", "build", "-o", bin_path, file_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self.workspace_path
+                cwd=self.workspace_path,
+                preexec_fn=self._child_limits(timeout),
             )
             _, compile_err = await asyncio.wait_for(
                 compile_proc.communicate(), timeout=timeout
@@ -300,7 +339,12 @@ class CodeExecutor:
                 bin_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self.workspace_path
+                cwd=self.workspace_path,
+                env={
+                    **os.environ,
+                    "GOMEMLIMIT": f"{self.MAX_MEMORY_MB}MiB",
+                },
+                preexec_fn=self._child_limits(timeout),
             )
             try:
                 stdout, stderr = await asyncio.wait_for(
