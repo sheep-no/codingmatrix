@@ -17,6 +17,16 @@ class FileResponse:
 
 _CODE_KEYS = ("content", "code", "file_content", "source", "body", "implementation")
 _TOOL_KEYS = ("tool", "tool_calls", "function_call", "function", "action", "operation")
+_JSON_FILE_SUFFIXES = (".json", ".jsonc")
+
+
+def _is_json_path(expected_path: str) -> bool:
+    """A JSON file's own content is a JSON object, not wrapper metadata.
+
+    ``is_valid_code_content`` skips JSON files for the same reason: a
+    package.json or tsconfig.json payload is the file itself.
+    """
+    return expected_path.lower().endswith(_JSON_FILE_SUFFIXES)
 
 
 def parse_file_response(raw: Any, *, expected_path: str = "") -> FileResponse:
@@ -49,11 +59,15 @@ def parse_file_response(raw: Any, *, expected_path: str = "") -> FileResponse:
                     return FileResponse("structured", content=value.strip())
             if any(key in payload for key in _TOOL_KEYS):
                 return FileResponse("tool_call", diagnostic="model returned tool-call JSON")
+            if _is_json_path(expected_path):
+                return FileResponse("code", content=candidate)
             return FileResponse("metadata", diagnostic="model returned JSON metadata instead of file content")
 
     if stripped_candidate.startswith("[") and stripped_candidate.endswith("]"):
         try:
             json.loads(stripped_candidate)
+            if _is_json_path(expected_path):
+                return FileResponse("code", content=candidate)
             return FileResponse("metadata", diagnostic="model returned a JSON array instead of file content")
         except json.JSONDecodeError:
             pass
