@@ -47,3 +47,22 @@ cache_response 使用方（app/api/v1/auth.py）：`/history`（:289，ttl 60）
 ## 四、测试状态
 
 零单元测试。CA12 跨用户泄露（最高危）无任何测试约束——三处使用方无 auth 集成测试覆盖缓存命中场景。修复建议：① 用户隔离缓存键参数化测试（不同 token 同参数断言不命中）；② Redis 降级恢复切换一致性测试；③ Response 对象序列化测试；④ 多 worker 失效同步测试。
+
+## 五、状态更新（2026-09-18 核实）
+
+按行号逐条核实代码现状后的结论（以当前代码为准，原文档行号已漂移）：
+
+- **CA12 [P1] 已失效（已修）**：`cache_decorator.py` 现含 `_extract_user_identity`（token.sub / user_id / current_user），缓存键强制并入 `user=<identity>`。既有回归 `tests/unit/test_cache_response_user_isolation.py` 覆盖。
+- **CA1 [P2] 已修**：`RedisCacheManager.get` Redis 未命中时回退读 memory 并回填 Redis；`set` 在 Redis 写成功后删除 memory 影子值，避免 Redis 淘汰后读到旧值。
+- **CA11 [P2] 已修**：`cache_response` 检测到 `Response` 实例时跳过写缓存（Redis 后端 `default=str` 会把它降级为字符串），双后端行为一致。
+- **CA18 [P2] 已修**：新增 `_serialize_cache_param`，dict/list/tuple/set 与 Pydantic 模型（含名为 `request` 的请求体）进入缓存键；仅 FastAPI 注入的 `Request` 实例被排除。修复前 `/history` 的不同 `HistoryRequest` 会命中同一缓存。
+- **CA3 [P3] 已修**：`cached` 用 `{"_cached_value": ...}` 包装区分「未命中」与「缓存 None」。
+- **CA16 [P3] 已修**：`invalidate_cache` 改为 `try/finally`，被装饰函数抛异常也执行失效。
+- **CA5 [P3] 已修**：`RedisCache._ensure_connection` 失败后进入 5s 冷却期，避免 Redis 全宕时每次操作重连 ping（2s）拖慢降级路径。
+- **CA19 [P3] 已修**：`RedisCache.clear` 由 `flushdb` 改为按 `key_prefix` 扫删（`invalidate_pattern("*")`），不再清空共享 Redis 中其他应用的数据。
+- **新发现（原文档未列，已修）**：缓存键原为纯 md5 十六进制，不含 `key_prefix`，导致 `invalidate_pattern(f"{key_prefix}:*")`、`invalidate_cache_by_prefix`、`invalidate_on` 全部失配（失效是空操作）。现 `_generate_cache_key` 与 `cached` 均返回 `{prefix}:{md5}`，按前缀失效恢复可用。
+- **CA13 [P3] 判定为设计如此**：前缀失效与 `key_prefix` 对齐后，`invalidate_on` 清整个路由族前缀即其语义（同族不同用户一并失效属可接受的过度失效，非正确性缺陷）。
+- **CA2 [P2] 未修（架构级）**：跨进程 `MemoryCache` 失效仍不同步。当前 memory 仅在 Redis 不可用时的降级期参与读命中，且 `get` 回填后由 Redis 承载后续读；彻底解决需 Redis pub/sub 或内存层不参与写一致性，留待专项。
+- **`invalidate_user_cache` 仍为无效调用**：其 pattern 为 `user:{user_id}:*`/`profile:{user_id}:*`，与 `{prefix}:user=<identity>:<md5>` 键格式不匹配，且三个调用方传入的是 email 而键身份取自 `token.sub`（用户 id）。调用点均紧随其后调用 `invalidate_cache_by_prefix("profile")`，profile 失效实际由前缀路径兜住，故暂不改动。
+
+新增回归 `tests/unit/test_cache_consistency.py`（10 项，覆盖 CA1/CA11/CA18/CA3/CA16/CA5/CA19/前缀失效）。
