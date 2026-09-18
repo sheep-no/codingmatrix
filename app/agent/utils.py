@@ -44,6 +44,16 @@ def is_package_entry_file(file_path: str) -> bool:
     return Path(file_path).name == "__init__.py"
 
 
+def is_metadata_file(file_path: str) -> bool:
+    """判断文件是否为点号开头的配置/占位文件（.gitignore/.gitkeep/.env.example 等）。
+
+    这类文件的正确内容天然可以是极短的（.gitignore 只写 `*.log`）甚至为空
+    （.gitkeep 就是空占位），「空内容」与「最小长度」门禁对它们不适用。
+    """
+    name = Path(file_path).name
+    return name.startswith(".") and name not in {".", ".."}
+
+
 def clean_code_block(content: str) -> str:
     """从 LLM 输出中提取代码块
 
@@ -324,18 +334,21 @@ def is_valid_code_content(file_path: str, content: str) -> tuple:
         (is_valid, reason): 有效返回 (True, "")，无效返回 (False, "原因")
     """
     if not content:
-        # 空 __init__.py 是合法的包标记，不算无效内容
-        if is_package_entry_file(file_path):
+        # 空 __init__.py 是合法的包标记，空 .gitkeep 是合法的目录占位，
+        # 都不算无效内容
+        if is_package_entry_file(file_path) or is_metadata_file(file_path):
             return True, ""
         return False, "内容为空"
 
     stripped = content.strip()
 
     # 包入口文件可以只含 __all__ 或一句 docstring；文档/文本文件的正确内容
-    # 也可以很短（如单行 requirements.txt、短 README），都不受最小长度限制。
+    # 也可以很短（如单行 requirements.txt、短 README）；点号配置文件同理
+    # （.gitignore 可能只有一行 `*.log`），都不受最小长度限制。
     if (
         len(stripped) < 10
         and not is_package_entry_file(file_path)
+        and not is_metadata_file(file_path)
         and not _is_documentation_file(file_path)
     ):
         return False, "内容过短（<10 字符）"
@@ -858,8 +871,9 @@ def validate_file_in_sandbox(file_path: str, content: str) -> tuple:
         (is_valid, reason): 有效返回 (True, "")，无效返回 (False, "原因")
     """
     if not content or not content.strip():
-        # 空 __init__.py 是合法的包标记，与 is_valid_code_content 判定保持一致
-        if is_package_entry_file(file_path):
+        # 空 __init__.py 是合法的包标记、空 .gitkeep 是合法的目录占位，
+        # 与 is_valid_code_content 判定保持一致
+        if is_package_entry_file(file_path) or is_metadata_file(file_path):
             return True, ""
         return False, "内容为空"
 
@@ -970,8 +984,9 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
         (is_placeholder, reason): 是占位符返回 (True, "原因"), 否则返回 (False, "")
     """
     if not content or not content.strip():
-        # 空的 __init__.py 是合法的包标记，不是占位符
-        if is_package_entry_file(file_path):
+        # 空的 __init__.py 是合法的包标记、空的 .gitkeep 是合法的目录占位，
+        # 都不是占位符
+        if is_package_entry_file(file_path) or is_metadata_file(file_path):
             return False, ""
         return True, "内容为空"
 
