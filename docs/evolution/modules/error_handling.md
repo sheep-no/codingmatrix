@@ -39,3 +39,12 @@
 ## 四、测试状态
 
 零单元测试。EH1 原始错误泄露、JP1 正则损坏、JP3 部分数据无告警均无测试约束。修复建议：① 含撇号/冒号 JSON 修复测试（don't/time: 12:30 样本断言不损坏）；② integrity handler 响应不含 original_error 断言；③ 多 JSON 对象拼接提取测试；④ 错误码统一断言。
+
+## 状态更新（2026-09-18 核实）
+
+- **JP1 [P2] 已修复**：`_fix_common_errors` 改为单遍扫描、跟踪字符串字面量的修复器，撇号、冒号、`,}` 等只在字符串之外被处理。旧实现实测会静默篡改数据：`{'note': "a,}b"}` → `{"note": "a}b"}`，以及把 `"don't"` 改坏。
+- **JP2 [P3] 已修复**：`_extract_json_object` / `_extract_json_array` 与 `extract_json_from_llm` 策略 3 改为按首个「配平」的括号截取（跳过字符串内括号），多个 JSON 对象拼接时不再跨对象截取。
+- **EH1 [P2] 已修复**：`integrity_error_handler` 的响应 details 去掉 `original_error`（表名/约束名/字段名/SQL 片段），仅保留日志记录；details 统一为 `{"path": ...}`，与同文件其他 handler 的信息隐藏策略一致。
+- **仍存在**：JP3（容错解析成功后无「已修复」标记，下游无法区分完整数据与修补数据；需先定义消费方口径）；EH2（429 `Retry-After` 仍硬编码 60，限流中间件本身返回 `window // 2`，两处口径不同）；EH3/EC1（字符串错误码与枚举错误码双轨，属跨模块重构）。
+
+新增 `tests/unit/test_error_handling_regressions.py`（9 项）；回退源码后 7 项失败。

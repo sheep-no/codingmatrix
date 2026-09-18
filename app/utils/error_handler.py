@@ -141,7 +141,7 @@ async def integrity_error_handler(
         code="DATABASE_INTEGRITY_ERROR",
         message="数据库操作违反约束条件",
         status_code=status.HTTP_409_CONFLICT,
-        details={"original_error": str(exc.orig)},
+        details={"path": request.url.path},
     )
 
 

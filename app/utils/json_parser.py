@@ -11,6 +11,38 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 
+def _find_balanced_end(text: str, start: int, opener: str, closer: str) -> int:
+    """从 start 处的 opener 开始，返回与之配对的 closer 下标。
+
+    扫描时跳过字符串字面量，避免把值里的括号当成结构括号。找不到配对返回 -1。
+    """
+    depth = 0
+    quote_char = ''
+    i = start
+    while i < len(text):
+        ch = text[i]
+        if quote_char:
+            if ch == '\\':
+                i += 2
+                continue
+            if ch == quote_char:
+                quote_char = ''
+            i += 1
+            continue
+        if ch == '"' or ch == "'":
+            quote_char = ch
+            i += 1
+            continue
+        if ch == opener:
+            depth += 1
+        elif ch == closer:
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
 class RobustJSONParser:
     """
     容错 JSON 解析器
@@ -80,22 +112,26 @@ class RobustJSONParser:
         raise ValueError(f"Cannot parse JSON: {text[:100]}")
 
     def _extract_json_object(self, text: str) -> Optional[str]:
-        """从文本中提取 JSON 对象"""
+        """从文本中提取第一个完整 JSON 对象"""
         start = text.find('{')
-        end = text.rfind('}')
+        if start == -1:
+            return None
 
-        if start != -1 and end != -1 and end > start:
+        end = _find_balanced_end(text, start, '{', '}')
+        if end != -1:
             candidate = text[start:end + 1]
             if self._looks_like_json(candidate):
                 return candidate
         return None
 
     def _extract_json_array(self, text: str) -> Optional[str]:
-        """从文本中提取 JSON 数组"""
+        """从文本中提取第一个完整 JSON 数组"""
         start = text.find('[')
-        end = text.rfind(']')
+        if start == -1:
+            return None
 
-        if start != -1 and end != -1 and end > start:
+        end = _find_balanced_end(text, start, '[', ']')
+        if end != -1:
             candidate = text[start:end + 1]
             if self._looks_like_json_array(candidate):
                 return candidate
@@ -116,14 +152,90 @@ class RobustJSONParser:
         return text.startswith('[') and text.endswith(']')
 
     def _fix_common_errors(self, text: str) -> str:
-        """修复常见的 JSON 错误"""
+        """修复常见的 JSON 错误。
+
+        所有修复只在字符串字面量之外生效。旧实现用全局正则替换，会把值里的
+        撇号/冒号/`,}` 也当作语法错误处理，例如把 `"a,}b"` 改成 `"a}b"`，
+        静默篡改合法数据。这里改为单遍扫描，同时跟踪当前是否处于字符串中。
+        """
         text = text.replace('\ufeff', '')
-        text = re.sub(r',(\s*[}\]])', r'\1', text)
-        text = re.sub(r"'([^']*)'", r'"\1"', text)
-        text = re.sub(r'//[^\n]*\n', '\n', text)
-        text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
-        text = re.sub(r'(\s)([a-zA-Z_][a-zA-Z0-9_]*)(\s*):', r'\1"\2"\3:', text)
-        return text
+        out = []
+        i = 0
+        length = len(text)
+        quote_char = ''
+
+        while i < length:
+            ch = text[i]
+
+            if quote_char:
+                if ch == '\\' and i + 1 < length:
+                    nxt = text[i + 1]
+                    if quote_char == "'" and nxt == "'":
+                        out.append("'")
+                    else:
+                        out.append(ch)
+                        out.append(nxt)
+                    i += 2
+                    continue
+                if ch == quote_char:
+                    out.append('"')
+                    quote_char = ''
+                    i += 1
+                    continue
+                # 单引号字符串转成双引号字符串时，内部裸双引号需要转义
+                if quote_char == "'" and ch == '"':
+                    out.append('\\"')
+                    i += 1
+                    continue
+                out.append(ch)
+                i += 1
+                continue
+
+            if ch == '"' or ch == "'":
+                quote_char = ch
+                out.append('"')
+                i += 1
+                continue
+
+            # 行注释
+            if ch == '/' and i + 1 < length and text[i + 1] == '/':
+                newline = text.find('\n', i)
+                i = length if newline == -1 else newline + 1
+                continue
+            # 块注释
+            if ch == '/' and i + 1 < length and text[i + 1] == '*':
+                end = text.find('*/', i + 2)
+                i = length if end == -1 else end + 2
+                continue
+
+            # 尾部逗号（对象/数组最后一个元素后的逗号）
+            if ch == ',':
+                lookahead = i + 1
+                while lookahead < length and text[lookahead] in ' \t\r\n':
+                    lookahead += 1
+                if lookahead < length and text[lookahead] in '}]':
+                    i += 1
+                    continue
+
+            # 无引号 key 补引号（仅当其后紧跟冒号）
+            if ch.isalpha() or ch == '_':
+                key_end = i
+                while key_end < length and (text[key_end].isalnum() or text[key_end] == '_'):
+                    key_end += 1
+                lookahead = key_end
+                while lookahead < length and text[lookahead] in ' \t\r\n':
+                    lookahead += 1
+                if lookahead < length and text[lookahead] == ':':
+                    out.append('"')
+                    out.append(text[i:key_end])
+                    out.append('"')
+                    i = key_end
+                    continue
+
+            out.append(ch)
+            i += 1
+
+        return ''.join(out)
 
 
 def parse_json(text: str, default: Any = None) -> Any:
@@ -168,10 +280,10 @@ def extract_json_from_llm(text: str) -> Optional[Any]:
     except json.JSONDecodeError:
         pass
 
-    # 策略 3: 提取第一个 { 到最后一个 }
+    # 策略 3: 提取第一个完整的 JSON 对象（跳过字符串内的括号）
     start = text.find('{')
-    end = text.rfind('}')
-    if start != -1 and end != -1 and end > start:
+    end = _find_balanced_end(text, start, '{', '}') if start != -1 else -1
+    if end != -1:
         try:
             return json.loads(text[start:end + 1])
         except json.JSONDecodeError:
