@@ -259,22 +259,28 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 对当前任务范围内的明确后续步骤持续推进。
   - 遇到会改变任务方向或结果的真实歧义时，再向用户请求澄清。
 
-### Agent 工程能力实测
-- Date: 2026-09-13
-  - Context: 用户要求用当前模型配置做 Agent 实测；纠正管线不得写死语言和技术栈；并明确验收范围只看 Agent
+### Agent 工程能力实测与 Web 端边界
+- Date: 2026-09-13 / 2026-09-18
+  - Context: 用户要求用当前模型配置做 Agent 实测；纠正管线不得写死语言和技术栈；明确验收范围只看 Agent；并纠正对比范围只覆盖 Web 端
   - Instructions:
     - 实测使用当前已配置的模型分工，评估工程能力上限。
     - 禁止为某个单一语言或技术栈新增或调整门禁。
     - 入口骨架仅在架构明确框架时生成；依赖扫描保留未映射的第三方包名；关键决策和 Spec-First 仅在需求或复杂度出现鉴权、后端、存储信号时触发。
-    - 用户只要 Agent 验收时，关注 Agent 页、代码生成管线，以及 Agent 相关功能（工程师工具调用、MCP、沙箱、Skills、Host）。图表、能力中心独立页、PPT/绘画/工作流、超管面板不算进范围。
+    - Agent 的调研、对比与验收只覆盖 Web 端：Agent 页、代码生成管线，以及云端 Agent 相关功能（工程师工具调用、MCP、Skills、模型路由、记忆与状态、云端验证）。图表、能力中心独立页、PPT/绘画/工作流、超管面板不算进范围。
+    - 桌面端运行时、本地执行能力与 VS Code Agent Host 属其他负责范围，可作为形态背景记录，不纳入 Web 端能力对标与改进建议。
+    - 市场同类产品运行时在本地（CLI 或桌面）时，其本地文件、终端、系统级沙箱属部署形态差异，不能作为能力差距计入对比。
+    - 做市场对标时主样本取同为云端运行时的产品（如 OpenHands、Claude Code on the web、Devin）；本地运行时产品（如 DeepSeek Harness、ZCode、AutoClaw、MiMo Code）只作背景单列。两组不得混在同一张表打分。
 
 ### 既有数据库接入 Alembic
-- Date: 2026-09-03
-- Context: Agent 在完成 PPT 状态迁移收尾时发现
+- Date: 2026-09-03 / 2026-09-18
+- Context: Agent 在完成 PPT 状态迁移收尾、以及修复 tasks.task_id 唯一索引时发现
 - Category: 构建方法
 - Instructions:
   - 应用已初始化过的既有数据库首次接入 Alembic 时，先执行 `alembic stamp 20260902_ppt_quality_state` 登记当前基线。
   - 基线登记后执行 `alembic upgrade head` 验证迁移可幂等通过。
+  - Alembic 配置在 `configs/alembic.ini`，命令须带 `-c configs/alembic.ini`；`migrations/env.py` 硬编码操作 `app.db`，不受 `DATABASE_URL` 影响。
+  - 本地 `app.db` 由 `Base.metadata.create_all` 初始化且无 `alembic_version` 表，接入时用 `alembic stamp <head>...` 登记而非重跑历史迁移。
+  - 迁移链存在多个 head 时 `upgrade head` 会失败，先用 `alembic stamp <head1> <head2>` 登记每个 head，再用 merge 迁移或 `upgrade heads` 收敛。
 ### Core RAG 验证与全量测试
 - Date: 2026-09-03
 - Context: Agent 在推进多语言代码生成编排和 RAG 接入时发现
