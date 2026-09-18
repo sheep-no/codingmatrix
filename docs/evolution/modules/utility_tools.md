@@ -46,3 +46,12 @@
 ## 四、测试状态
 
 零单元测试。多进程归档竞态、双套轮转冲突、游标伪造、分页越界均无测试约束。修复建议：① LA2 文件锁并发测试（双进程同时归档断言无丢失）；② LA3 统一轮转方案；③ PG1 游标签名测试（篡改 cursor 断言拒绝）；④ MT1 相似度收敛测试。
+
+## 状态更新（2026-09-18 核实）
+
+- **LA2 [P2] 已修复**：`archive_all` 增 `fcntl.flock` 跨进程互斥（锁文件 `logs/.archive.lock`，非 Unix 平台退化为无锁）。修复前用 6 线程并发归档同一超限日志实测稳定复现数据丢失：多个进程以同秒时间戳生成同名归档互相覆盖，先 `unlink` 成功后其余进程 `unlink` 抛 `FileNotFoundError`，`except` 分支又删掉刚写好的归档，最终 0 份归档且 5 条 error。
+- **LA1 [P3] 已修复**：`get_log_archiver` 补 `threading.Lock` 双检，构造逻辑抽为 `_build_log_archiver`。
+- **LA3 [P2，非活跃冲突] 未改**：`LogRotationHandler` 全库零实例化零引用（`app/core/logging_config.py` 用的是 `logging.handlers` 的 `RotatingFileHandler`/`TimedRotatingFileHandler`），与 `LogArchiver` 并不存在实际双套并存。「双套轮转」是死代码层面的重复而非运行期冲突，删除属清理决策，未动。
+- **PG1/PG2/PG3 消解**：`pagination.py` 已于 2026-09-16 随零消费确认删除。
+- **LA5 [P3] 未改**：`log_dir="logs"` 与 `logging_config.LOG_DIR = Path("logs")` 两处同为相对路径，单独改归档器会与实际写入日志的 `logging_config` 目录分离，需与日志初始化一并调整，属跨模块变更。
+- **测试状态**：新增 `tests/unit/test_log_archiver.py`（5 项）；回退源码后 LA2 两项失败（并发归档丢失、锁未生效）。
