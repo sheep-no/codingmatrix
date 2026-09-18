@@ -91,6 +91,29 @@ def test_commit_rejects_invalid_path_empty_content_and_oversized_file(
     assert context.get_artifact_manifest() == {}
 
 
+def test_commit_accepts_empty_dotfile_placeholder(tmp_path: Path) -> None:
+    """空 .gitkeep 是合法的目录占位，core 提交不应判为空产物。"""
+    committer, context = make_committer(tmp_path)
+
+    result = committer.commit("assets/.gitkeep", "", model_name="model-a")
+
+    assert result.success is True
+    assert result.completion_event is not None
+    assert result.completion_event.size_bytes == 0
+    assert (tmp_path / "assets" / ".gitkeep").read_text(encoding="utf-8") == ""
+    assert "assets/.gitkeep" in context.get_artifact_manifest()
+
+
+def test_commit_still_rejects_empty_regular_file(tmp_path: Path) -> None:
+    committer, context = make_committer(tmp_path)
+
+    result = committer.commit("assets/keep.py", "", model_name="model-a")
+
+    assert result.success is False
+    assert result.diagnostic is not None
+    assert result.diagnostic.code == ARTIFACT_COMMIT_FAILED
+
+
 @pytest.mark.parametrize(
     "writer",
     [

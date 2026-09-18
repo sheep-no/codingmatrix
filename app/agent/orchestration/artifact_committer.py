@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.agent.shared_context import SharedContext
 from app.agent.project_snapshot import is_runtime_artifact
-from app.agent.utils import write_file_atomic
+from app.agent.utils import is_metadata_file, is_package_entry_file, write_file_atomic
 
 from .plan import GenerationPlan, normalize_plan_path
 
@@ -35,7 +35,7 @@ class ArtifactCompletionEvent(BaseModel):
     event_type: str = "file_completed"
     path: str = Field(min_length=1)
     content_hash: str = Field(min_length=64, max_length=64)
-    size_bytes: int = Field(ge=1)
+    size_bytes: int = Field(ge=0)
 
 
 class ArtifactCommitResult(BaseModel):
@@ -101,7 +101,13 @@ class ArtifactCommitter:
         except (TypeError, ValueError) as exc:
             return self._failure(None, f"invalid artifact path: {exc}")
 
-        if not isinstance(content, str) or not content.strip():
+        if not isinstance(content, str):
+            return self._failure(normalized_path, "artifact content must be non-empty")
+        # 空 __init__.py 是合法的包标记、空 .gitkeep 是合法的目录占位，
+        # 与 is_valid_code_content 的判定保持一致。
+        if not content.strip() and not (
+            is_package_entry_file(normalized_path) or is_metadata_file(normalized_path)
+        ):
             return self._failure(normalized_path, "artifact content must be non-empty")
 
         encoded = content.encode("utf-8")
@@ -186,7 +192,9 @@ class ArtifactCommitter:
             disk_bytes = self._reader(full_path)
         except Exception as exc:
             return self._failure(normalized_path, f"artifact disk read failed: {exc}")
-        if not disk_bytes or not disk_bytes.strip():
+        if not disk_bytes.strip() and not (
+            is_package_entry_file(normalized_path) or is_metadata_file(normalized_path)
+        ):
             return self._failure(normalized_path, "artifact disk content is empty")
         return disk_bytes, hashlib.sha256(disk_bytes).hexdigest()
 

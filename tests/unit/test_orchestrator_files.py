@@ -2867,6 +2867,28 @@ async def test_validate_project_completeness_accepts_package_entry_and_short_fil
     assert completeness["is_complete"] is True
 
 
+@pytest.mark.asyncio
+async def test_validate_project_completeness_accepts_empty_dotfile_placeholder(tmp_path):
+    """空 .gitkeep 是合法的目录占位，不算缺失也不算什么都没写的空文件。"""
+    from app.agent.orchestrator_generation.spec_first_generate import SpecFirstGenerateMixin
+
+    mixin = object.__new__(SpecFirstGenerateMixin)
+    mixin.output_dir = tmp_path
+    mixin._relative_output_dir = None
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / ".gitkeep").write_text("", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text("*.log\n", encoding="utf-8")
+
+    completeness = await mixin._validate_project_completeness(
+        [{"path": "assets/.gitkeep"}, {"path": ".gitignore"}],
+        {"assets/.gitkeep": "", ".gitignore": "*.log\n"},
+    )
+
+    assert completeness["missing_files"] == []
+    assert completeness["empty_files"] == []
+    assert completeness["is_complete"] is True
+
+
 def test_spec_first_does_not_fill_missing_files_with_direct_llm():
     from pathlib import Path
 

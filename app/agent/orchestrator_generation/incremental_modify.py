@@ -524,7 +524,13 @@ class IncrementalModifyMixin:
     ) -> Dict[str, Any]:
         """增量模式的动态拓扑调度生成 — 支持并行生成无依赖文件"""
 
-        from app.agent.utils import extract_engineer_content, is_valid_code_content, write_file_atomic
+        from app.agent.utils import (
+            extract_engineer_content,
+            is_metadata_file,
+            is_package_entry_file,
+            is_valid_code_content,
+            write_file_atomic,
+        )
         from app.agent.spec_first_generator import SpecFirstGenerator
 
         files_generated = 0
@@ -968,7 +974,12 @@ class IncrementalModifyMixin:
             llm_caller=self._quick_llm_check,
         )
 
-        if initial_content is None or not initial_content.strip():
+        # 空 __init__.py / 空 .gitkeep 是合法的空占位文件，提取到空字符串
+        # 就是正确结果，不应触发恢复或重试。
+        empty_placeholder_ok = is_package_entry_file(file_path) or is_metadata_file(file_path)
+        if (initial_content is None or not initial_content.strip()) and not (
+            initial_content is not None and empty_placeholder_ok
+        ):
             _, invalid_reason = is_valid_code_content(file_path, raw_content or "")
             if not invalid_reason:
                 from app.agent.utils import is_placeholder_content
