@@ -111,6 +111,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Instructions:
   - 每处误报先写确定性探针复现（不依赖 LLM / Playwright），再用单测固化"正确产物不被拒 + 真实错误仍被拒"两类断言。
   - 用 `git stash push <源文件>` 回退源码后跑新增用例，必须确认新增误报用例失败，证明修复非空；恢复后再核对文件内容一致。
+  - 新增用例若在模块顶层 `import` 只存在于修复后的私有符号（如新增的 `_keyword_safety_check`、`_normalize_on_failure`），回退源码会让整个测试模块 collection error 得到 `0 collected`，看不到逐条失败；把对新增符号的 import 放进用到的测试函数内，才能在回退态观察到预期条数的 FAILED。
   - 每处修复跑定向测试 + 全量 `pytest tests/unit -q`，并把 `FAILED` 集合与失败基线做 `diff`，只允许失败集合不变。
   - 后端全量命令为 `python3 -m pytest -q -p no:randomly`（`testpaths` 覆盖 unit + integration）。截至 2026-09-17，`tests/unit` 无失败，`tests/integration/test_health_api.py` 的 `test_health_detailed_exists` 与 `test_health_metrics_exists` 恒因 `/api/v1/health/metrics` 返回 401 失败，属既有基线（master 72633a0 复现）；出现其他失败必须归因到本次改动。
 
@@ -120,7 +121,9 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Category: 安全
 - Instructions:
   - 用户可控 URL 的出站校验统一走 `app/utils/url_safety.py` 的 `check_outbound_url`：仅允许 http/https，DNS 解析后要求所有地址 `ip.is_global`，解析失败放行以交由连接阶段报错。
-  - 项目内另有 4 处独立 SSRF 校验（`app/utils/pptx/image_search.py` 的 `_is_safe_url`、`app/utils/workflow/node_types/http_request.py` 的 `_check_ssrf`、`app/api/v1/aiGeneratorPptx.py` 图片下载、`app/agent/tools.py` http 工具），属同一能力的重复实现，后续收敛到该工具。
+  - 完全由用户/外部控制的 URL（工作流 http_request 执行期、web_search 抓页、生图 URL 下载）传 `fail_closed_on_dns_error=True`，DNS 解析失败按拒绝处理；自托管 base_url 等场景保持默认 `False`。
+  - 逐跳重定向必须手工跟随（`follow_redirects=False` + 每跳先校验再请求），否则初始 URL 过检、跳转目标绕过校验。
+  - 项目内仍有独立 SSRF 校验未收敛（`app/utils/pptx/image_search.py` 的 `_is_safe_url`、`app/api/v1/aiGeneratorPptx.py` 图片下载、`app/agent/tools.py` http 工具）；`http_request.py`、`web_search.py`、`image_generation.py` 已改用 `check_outbound_url`。
   - 该校验会拒绝解析到内网的地址（含本机 Ollama/vLLM）；自托管场景需要显式白名单，不要为了兼容而放开内网校验。
   - 内存紧张时用 API / 确定性探针替代 Playwright，不启动浏览器。
   - 每个 commit 单独切分支提交推送，合入 master 后重启后端（`PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000`）并复核 `:8000/docs` 与 `:3000`。
@@ -139,6 +142,15 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 语法门禁不需要隔离：`syntax` 级只解析不执行，已用本地解析器（Python `ast.parse`、`app/agent/js_syntax.py`、`app/agent/markup_syntax.py`）替代 bwrap 脚本生成，`bwrap` 缺失时才跳过未覆盖扩展名。
   - aicloud 用户沙箱（`/sandbox/{user_id}/workspace`）无进程隔离，文件路径安全统一由 `FileOperator._validate_path`（`resolve()` + base_path 归属）负责，`SandboxFileOperator` 不再覆盖校验。
   - 真正执行代码的沙箱在 `app/agent/tools.py`（`ENABLE_CODE_SANDBOX`/`SANDBOX_LANGUAGES` 控制）。
+
+### Celery 任务派发契约
+- Date: 2026-09-18
+- Context: Agent 修复 `app/tasks` 与 `app/api/v1/task_queue.py` 的任务派发缺陷时确认
+- Category: 排障与调试
+- Instructions:
+  - `celery_app.send_task(name, **options)` 只识别 Celery 自身选项；其余关键字（如 `requirement`/`prompt`/`language`/`user_id`）会落到 AMQP message properties 被静默丢弃，Worker 实际收到 `args=()/kwargs={}`。业务参数必须写成 `send_task(name, kwargs={...})`；业务 `task_id` 与 Celery 消息 id 是两个独立概念。
+  - 正确实现可参考 `app/services/worker_recovery_service.py` 的 `send_task(task_name, kwargs=send_kwargs)` 与 `app/services/ppt_dispatch_service.py`。
+  - `app/tasks/code_tasks.py::_run_tests` 运行在 `asyncio.run(_execute())` 的事件循环内，任何嵌套 `asyncio.run` 必抛 RuntimeError；异步运行器必须 `await`，宿主回退用 `asyncio.to_thread` 包装 `subprocess.run`。
 
 ### bcrypt 密码处理限制
 - Date: 2026-05-12
