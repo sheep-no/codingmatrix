@@ -9,7 +9,7 @@ from typing import Optional, Dict, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.server_config import ServerConfig, ServerStats
+from app.models.server_config import ServerConfig
 from app.db.database import async_session
 
 logger = logging.getLogger(__name__)
