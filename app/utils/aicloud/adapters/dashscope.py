@@ -23,6 +23,7 @@ class DashScopeAdapter(BaseProviderAdapter):
     """阿里百炼 (DashScope) 供应商适配器"""
     
     provider = ModelProvider.DASHSCOPE
+    SUPPORTS_THINKING_TOGGLE = True
     
     BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     
@@ -68,7 +69,8 @@ class DashScopeAdapter(BaseProviderAdapter):
                         "POST",
                         f"{base_url}/chat/completions",
                         headers=headers,
-                        json=data
+                        json=data,
+                        timeout=timeout,
                     ) as response:
                         async for line in response.aiter_lines():
                             if cancel_event and cancel_event.is_set():
@@ -91,7 +93,8 @@ class DashScopeAdapter(BaseProviderAdapter):
                     return await client.post(
                         f"{base_url}/chat/completions",
                         headers=headers,
-                        json=data
+                        json=data,
+                        timeout=timeout,
                     )
                 
                 resp = await call_with_retry(request_func, max_retries=3)
@@ -127,7 +130,8 @@ class DashScopeAdapter(BaseProviderAdapter):
                 return await client.post(
                     f"{base_url}/embeddings",
                     headers=headers,
-                    json=data
+                    json=data,
+                    timeout=timeout,
                 )
             
             resp = await call_with_retry(request_func, max_retries=3)

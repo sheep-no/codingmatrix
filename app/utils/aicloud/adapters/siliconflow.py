@@ -27,6 +27,7 @@ class SiliconFlowAdapter(BaseProviderAdapter):
     """SiliconFlow 供应商适配器"""
 
     provider = ModelProvider.SILICONFLOW
+    SUPPORTS_THINKING_TOGGLE = True
 
     def __init__(self, config: Optional[ProviderConfig] = None):
         if config is None:

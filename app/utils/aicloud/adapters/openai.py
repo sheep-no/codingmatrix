@@ -65,7 +65,8 @@ class OpenAIAdapter(BaseProviderAdapter):
                         "POST",
                         f"{base_url}/chat/completions",
                         headers=headers,
-                        json=data
+                        json=data,
+                        timeout=timeout,
                     ) as response:
                         async for line in response.aiter_lines():
                             if cancel_event and cancel_event.is_set():
@@ -88,7 +89,8 @@ class OpenAIAdapter(BaseProviderAdapter):
                     return await client.post(
                         f"{base_url}/chat/completions",
                         headers=headers,
-                        json=data
+                        json=data,
+                        timeout=timeout,
                     )
                 
                 resp = await call_with_retry(request_func, max_retries=3)
@@ -124,7 +126,8 @@ class OpenAIAdapter(BaseProviderAdapter):
                 return await client.post(
                     f"{base_url}/embeddings",
                     headers=headers,
-                    json=data
+                    json=data,
+                    timeout=timeout,
                 )
             
             resp = await call_with_retry(request_func, max_retries=3)

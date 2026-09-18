@@ -5,6 +5,7 @@ Anthropic Claude API 格式与 OpenAI 不同，需要特殊处理。
 """
 
 import asyncio
+import json
 import logging
 from typing import AsyncIterator, Optional, Union
 
@@ -12,7 +13,10 @@ import httpx
 from httpx import Timeout
 from fastapi import HTTPException
 
-from app.utils.aicloud.adapters.base import BaseProviderAdapter
+from app.utils.aicloud.adapters.base import (
+    BaseProviderAdapter,
+    anthropic_sse_to_openai_chunk,
+)
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 from app.utils.aicloud.http_client import get_http_client, call_with_retry, _max_concurrent_calls
 
@@ -70,7 +74,8 @@ class AnthropicAdapter(BaseProviderAdapter):
                         "POST",
                         f"{base_url}/messages",
                         headers=headers,
-                        json=data
+                        json=data,
+                        timeout=timeout,
                     ) as response:
                         async for line in response.aiter_lines():
                             if cancel_event and cancel_event.is_set():
@@ -80,8 +85,14 @@ class AnthropicAdapter(BaseProviderAdapter):
                                 chunk = line[6:]
                                 if chunk == "[DONE]":
                                     break
-                                # Anthropic SSE 格式不同
-                                yield f"{chunk}\n"
+                                # Anthropic SSE 结构不同，转换为 OpenAI 兼容 chunk
+                                try:
+                                    payload = json.loads(chunk)
+                                except json.JSONDecodeError:
+                                    continue
+                                converted = anthropic_sse_to_openai_chunk(payload)
+                                if converted:
+                                    yield f"{converted}\n"
             
             return generate()
         else:
@@ -94,7 +105,8 @@ class AnthropicAdapter(BaseProviderAdapter):
                     return await client.post(
                         f"{base_url}/messages",
                         headers=headers,
-                        json=data
+                        json=data,
+                        timeout=timeout,
                     )
                 
                 resp = await call_with_retry(request_func, max_retries=3)

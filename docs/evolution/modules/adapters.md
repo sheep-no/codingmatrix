@@ -57,3 +57,15 @@
 ## 四、测试状态
 
 `test_adapters.py`（198 行）覆盖：base 模板方法（_build_messages/_parse_response_content/_build_request_body/_is_reasoning_model）、SiliconFlow 默认/自定义配置、Anthropic _get_headers 与 call_embedding NotImplementedError。**零覆盖**：各适配器 call_llm/call_embedding 真实 HTTP 路径、timeout 参数生效性、Anthropic 流式格式、_validate_api_key 生命周期、_max_concurrent_calls 并发限流——ADP1/ADP2/ADP3/ADP4 全部实码可证无任何用例保护，且测试测的模板方法在生产多不执行（ADP13）。修复建议：① ADP1 适配器构造请求时显式传 `timeout=self.timeout`（或删除失效参数）；② ADP2 base._build_request_body 只加各供应商官方字段，enable_thinking/extra_body 收敛进 SiliconFlowAdapter；③ ADP3 Anthropic 流式逐 chunk 转 OpenAI 兼容格式；④ ADP4 统一 base_url 单源（_get_provider_base_url 补 `/v1` 或直接引用各适配器 BASE_URL）；⑤ ADP5 删 _validate_api_key 或强制子类调用并统一错误类型；⑥ 下轮转 pptx/ 12 文件或 validators/ 5 文件。
+
+## 五、状态更新（2026-09-18 核实）
+
+按行号逐条核实代码现状后的结论（以当前代码为准，原文档行号已漂移）：
+
+- **ADP1 [P2] 已修**：openai/deepseek/dashscope/zhipu/anthropic/dynamic 的 `client.post(...)`、`client.stream(...)` 与 embedding 请求全部显式传入 `timeout=timeout`（httpx 支持按请求覆盖共享客户端超时）。`llm_caller` 的 `adapter.timeout = timeout` 赋值链路现已生效。
+- **ADP2 [P2] 已修（按供应商收敛）**：`base._build_request_body` 仅在 `SUPPORTS_THINKING_TOGGLE=True` 的适配器注入 `enable_thinking`/`extra_body`（现为 SiliconFlow、DashScope，二者确为 Qwen 系开关）；OpenAI/DeepSeek/Zhipu 官方适配器不再收到非标准字段。既有的 `test_aicloud_adapters.py` 通过 `SiliconFlowAdapter` 间接验证基类方法，设置类属性后原断言（非 reasoning 无 `extra_body`、reasoning 有 `extra_body`）保持通过。未验证官方接口是否确以 400 拒收该字段（无供应商 Key 实测），但发送非标准字段本身即缺陷。
+- **ADP3 [P2] 已修**：新增 `base.anthropic_sse_to_openai_chunk`，把 Anthropic 的 `content_block_delta.text_delta` 转为 `{"choices":[{"delta":{"content":...}}]}`、`message_delta.stop_reason` 转为 `finish_reason`，其余事件（message_start/ping/content_block_stop/input_json_delta）跳过。`anthropic.py` 与 `dynamic.py._call_anthropic` 的流式路径均已接入，下游 `aicloud.py` 的 `choices[0].delta.content` 解析不再恒空。
+- **ADP4 [P2] 已修**：`llm_caller._get_provider_base_url` 的 ANTHROPIC 由 `https://api.anthropic.com` 改为 `https://api.anthropic.com/v1`，与 `AnthropicAdapter.BASE_URL` 对齐，用户自带 Key 路径不再 404。
+- **ADP5 [P2] 已修（删除死方法）**：删除 `base._validate_api_key`（全库零调用），并修正抽象 `call_llm` docstring 中「子类应调用 `self._validate_api_key()`」的失效说明。子类仍各自 `raise RuntimeError`，空 Key 的 401 语义继续由 `llm_caller` 的 `ProviderAPIKeyNotConfiguredError` 兜底。
+- **新增回归**：`tests/unit/test_aicloud_adapter_regressions.py`（6 项：OpenAI timeout、Anthropic timeout+流式转换、Dynamic Anthropic 流式、SSE 转换函数、ANTHROPIC base_url、按供应商注入字段）。回退全部源文件后 6/6 失败。
+- **ADP6–ADP14 [P3] 未处理**：其中 ADP6（`_max_concurrent_calls` 误判修正）已在原文保留；ADP11（官方适配器流式路径无非 200 检查）本轮未改（`call_with_retry` 不覆盖流式，需单独设计）；ADP13（测试用 SiliconFlowAdapter 测基类方法）现状保留。

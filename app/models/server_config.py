@@ -1,8 +1,6 @@
-from sqlalchemy.orm import relationship
-
 from app.models.base import Base
 from sqlalchemy.sql import func
-from sqlalchemy import Column, String, Integer, DateTime, Text, BigInteger, Float
+from sqlalchemy import Column, String, Integer, DateTime, Text
 
 
 class ServerConfig(Base):
@@ -74,19 +72,3 @@ class ServerConfig(Base):
             "description": "是否写入日志文件"
         }
     }
-
-
-class ServerStats(Base):
-    __tablename__ = "server_stats"
-
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    cpu_percent = Column(Float, default=0.0)
-    memory_total = Column(BigInteger, default=0)
-    memory_used = Column(BigInteger, default=0)
-    memory_percent = Column(Float, default=0.0)
-    disk_total = Column(BigInteger, default=0)
-    disk_used = Column(BigInteger, default=0)
-    disk_percent = Column(Float, default=0.0)
-    docker_running_containers = Column(Integer, default=0)
-    docker_max_containers = Column(Integer, default=5)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)

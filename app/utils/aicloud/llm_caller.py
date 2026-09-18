@@ -782,6 +782,7 @@ def _get_provider_base_url(provider: ModelProvider) -> str:
         ModelProvider.ZHIPU: "https://open.bigmodel.cn/api/paas/v4",
         ModelProvider.DEEPSEEK: "https://api.deepseek.com/v1",
         ModelProvider.OPENAI: "https://api.openai.com/v1",
-        ModelProvider.ANTHROPIC: "https://api.anthropic.com",
+        # AnthropicAdapter 会在 base_url 后拼接 /messages，缺 /v1 会 404
+        ModelProvider.ANTHROPIC: "https://api.anthropic.com/v1",
     }
     return urls.get(provider, "https://api.siliconflow.cn/v1")
