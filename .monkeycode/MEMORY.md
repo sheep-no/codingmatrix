@@ -103,6 +103,8 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 测试目录：单元 `tests/unit/`、集成 `tests/integration/`、E2E `tests/e2e/`、前端配置 `tests/frontend/`（需 Vitest）；测试状态报告在 `testing/TEST-STATUS-UPDATE-*.md`。
   - `pyproject.toml` 的 `testpaths` 只收集 `tests/unit/` 与 `tests/integration/`，放在被测模块旁的测试文件（如 `app/utils/aicloud/test_*.py`）永远不会被执行；不依赖外部服务的测试放 `tests/unit/`，依赖外部服务的（如真实 Redis）放 `tests/integration/` 并加可用性 `skipif`，迁移后用 `python3 -m pytest <路径> -q` 确认已被收集。
   - 需要真实 Redis 的集成测试可直接连 `127.0.0.1:6379` 的 `db=15`，fixture 前后 `flushdb()` 隔离，并用 `pytestmark = pytest.mark.skipif(not redis_available, ...)` 兜住无 Redis 环境。
+  - `tests/unit/conftest.py` 的 `test_db` 用 `sqlite+aiosqlite:///:memory:` + `StaticPool`，同一连接在整轮 session 内复用：`setup_database` 每个用例都 `create_all`，但**不会清表**，上一用例写入的行会残留并撞主键。新增用例要么用唯一 ID，要么加一个依赖 `test_db` 的 autouse 夹具在用例前 `delete(模型)` 清表。
+  - 测试 FastAPI 端点可直接调用被 `@router.get/post` 装饰的协程函数（装饰器原样返回函数），显式传入 `db`/`user_id` 并 `monkeypatch.setattr("app.api.v1.<模块>.check_xxx", async_noop)` 绕过鉴权，无需起 ASGI 客户端。
 
 ### 误报类修复的验证与回归流程
 - Date: 2026-09-15
@@ -146,6 +148,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 语法门禁不需要隔离：`syntax` 级只解析不执行，已用本地解析器（Python `ast.parse`、`app/agent/js_syntax.py`、`app/agent/markup_syntax.py`）替代 bwrap 脚本生成，`bwrap` 缺失时才跳过未覆盖扩展名。
   - aicloud 用户沙箱（`/sandbox/{user_id}/workspace`）无进程隔离，文件路径安全统一由 `FileOperator._validate_path`（`resolve()` + base_path 归属）负责，`SandboxFileOperator` 不再覆盖校验。
   - 真正执行代码的沙箱在 `app/agent/tools.py`（`ENABLE_CODE_SANDBOX`/`SANDBOX_LANGUAGES` 控制）。
+  - `app/utils/aicloud/code_executor.py` 用 `asyncio.create_subprocess_exec(..., preexec_fn=...)` 施加资源上限是可行的；但 `RLIMIT_AS` 会让 Node 与 Go 无法启动（运行时预留大量虚拟内存），内存限制必须分运行时：Python 用 `RLIMIT_AS`，Node 用 `--max-old-space-size=N`，Go 用 `GOMEMLIMIT=NMiB`；`RLIMIT_CPU` 三语言通用。
 
 ### Celery 任务派发契约
 - Date: 2026-09-18
