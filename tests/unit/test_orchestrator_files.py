@@ -2117,6 +2117,18 @@ def test_extract_strict_paths_ignores_dotted_prose_abbreviations():
     assert Architect._extract_strict_file_paths(requirement) == {"main.py"}
 
 
+def test_extract_strict_paths_ignores_glob_suffixes():
+    """`.gitignore` 正文里的 `*.log` 是忽略规则，不是要生成的文件。"""
+    requirement = (
+        "只要 2 个文件：.gitignore 和 main.py，.gitignore 里写 *.log 和 *.tmp。"
+    )
+
+    assert Architect._extract_strict_file_paths(requirement) == {
+        ".gitignore",
+        "main.py",
+    }
+
+
 def test_requirement_aware_default_architecture_preserves_todo_sqlite_contract():
     architect = object.__new__(Architect)
     complexity = types.SimpleNamespace(
