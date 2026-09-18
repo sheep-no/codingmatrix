@@ -55,3 +55,28 @@
 ## 四、测试状态
 
 零单元测试（grep tests/ 无 workflow/executor/state_machine/graph_validator 引用）。WFE1（stuck 卡 RUNNING）、WF2（越权）、WF3（status 恒 running）、GV1（缺参数放行）全部实码可证但无任何用例保护。修复建议：① WFE1 补 stuck 复查 + break 前标记 FAILED 测试；② WFE2 取消运行中任务测试；③ WF2 所有权校验；④ WF3 注册活跃 executor 到 _workflows；⑤ WF1/WF5 TTL 清理或落库；⑥ GV1 参数 schema 校验；⑦ 后续轮次扫 result_aggregator/task_decomposer 与 node_types/ 10 节点。
+
+## 五、状态更新（2026-09-18 核实）
+
+按当前代码逐条核实。文档成文后本模块已被大幅修复，实际状态如下：
+
+**已修复**
+
+- **WFE1 已修**：`WorkflowStateMachine.complete_node` 末尾新增 `self._check_workflow_stuck()`（state_machine.py:249-252），节点完成后复查失败节点是否阻塞全部剩余路径，避免以 RUNNING 永久挂起。
+- **WFE2 已修**：`WorkflowExecutor.cancel()` 除置位 `_cancel_event` 外，同步 `task.cancel()` 运行中节点任务（executor.py:435-444）。
+- **WF2 已修**：`get_workflow_status`/`export_workflow`/`delete_workflow` 均校验 `workflow_data["user_id"]` 与 token 主体一致，不一致返回 404（workflow.py:364-366/:583-590 等）。
+- **WF3 已修**：status 端点优先从 `workflow_data["executor"].get_aggregator()` 取聚合器，`status` 取 `workflow_data["status"]`（execute 流程收尾回写），不再每次新建空 executor（workflow.py:369-375）。
+- **WF4 已修**：流式响应 `finally` 块调用 `executor.cancel()` 并 `executor_task.cancel()`（workflow.py:281-286）。
+- **GV2 已修**：`TaskNode.on_failure` 已改为 `Literal["fail", "skip", "fallback"]`（app/schema/workflow.py:61），`TaskDecomposer` 另有 `_normalize_on_failure` 兜底非法取值。
+
+**本轮修复**
+
+- **GV3 已修**：`_check_node_id_uniqueness` 由 `node_ids.count(id)` 的 O(N^2) 改为 `Counter` 单次遍历（graph_validator.py:60-66）。行为不变，纯复杂度优化。新增 `tests/unit/test_workflow_graph_validator.py`（2 项）；因属行为保持的重构，回退源码后测试仍通过。
+
+**仍存在（需产品口径或较大改动）**
+
+- **WF1**：`_workflows`/`_session_workflows` 仍为进程内 dict，无 TTL/容量清理。
+- **WF5**：进程内存态在多 worker 部署下仍不可用、重启即丢失（与 WF1 同根）。
+- **STM2**：`check_node_timeout` 仍全库零调用，节点超时由 executor 侧 `asyncio.timeout` 承担，状态机侧方法为死代码。
+- **GV1**：`GraphValidator` 仍只做结构校验（ID 唯一/依赖存在/类型合法/环/条件分支引用），不校验各节点类型的必填 `params`。
+- **GV4**：仍无节点数/图规模上限。

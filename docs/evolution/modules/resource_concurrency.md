@@ -44,3 +44,14 @@
 ## 四、测试状态
 
 零单元测试。DCC2 并发超限、DCC1 构造竞态、SL2 队列双重计数、RG1 失真均无测试约束。修复建议：① 并发限额原子性压力测试（N 并发 register 断言不超过 limit）；② 队列深度去重测试（active+reserved 同 task id）；③ 资源缺失指标测试（非 psutil 环境断言标记缺失）；④ 会话泄漏兜底测试。
+
+## 五、状态更新（2026-09-18 核实）
+
+本模块按用户划定的修复范围整体**跳过**，原因是消费链归属判断如下：
+
+- **dynamic_concurrent.py（DCC1/DCC2/DCC3/DCC4/DCC5）**：消费方在 `app/api/v1/ai_agent/**`，属 Agent 子系统范围，不主动改动。
+- **system_load.py（SL1/SL2/SL3）**：消费方为 `app/agent/dynamic_model_router.py` 与 `app/utils/dynamic_concurrent.py`，同样落在 Agent 消费链，不主动改动。
+- **resource_guard.py（RG1/RG2）**：全库唯一引用来自 `app/utils/system_load.py`（:179-180），间接同属 Agent 消费链，不主动改动。
+- **dynamic_chunker.py（DC1/DC2）**：全库零生产引用，属被取代/未接线型死代码；按既定策略不主动删除或重构，故其缺陷不被触发。
+
+若后续放宽 Agent 范围或做死代码收敛，再回到本模块。
