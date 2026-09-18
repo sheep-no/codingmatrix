@@ -2081,6 +2081,42 @@ def test_extract_strict_paths_ignores_bare_filenames_mentioned_later():
     }
 
 
+def test_extract_strict_paths_includes_dotfiles():
+    """点号文件没有白名单扩展名，仍必须算作严格文件集的一部分。"""
+    requirement = (
+        "生成一个最小的 Vue 2 待办清单应用。\n\n"
+        "Generate exactly these files and no others: "
+        ".gitignore, App.vue, main.js, package.json"
+    )
+
+    assert Architect._extract_strict_file_paths(requirement) == {
+        ".gitignore",
+        "App.vue",
+        "main.js",
+        "package.json",
+    }
+
+
+def test_extract_strict_paths_keeps_nested_dotfile_directory():
+    requirement = (
+        "Generate exactly these files and no others: "
+        "config/.gitignore, src/App.vue, package.json. Keep imports local."
+    )
+
+    assert Architect._extract_strict_file_paths(requirement) == {
+        "config/.gitignore",
+        "src/App.vue",
+        "package.json",
+    }
+
+
+def test_extract_strict_paths_ignores_dotted_prose_abbreviations():
+    """正文里的 e.g / 域名不能因为带点就被当成点号文件。"""
+    requirement = "只要 1 个文件：main.py，例如使用 e.g. 写法，参考 www.example.com 页面。"
+
+    assert Architect._extract_strict_file_paths(requirement) == {"main.py"}
+
+
 def test_requirement_aware_default_architecture_preserves_todo_sqlite_contract():
     architect = object.__new__(Architect)
     complexity = types.SimpleNamespace(

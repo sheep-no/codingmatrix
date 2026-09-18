@@ -53,6 +53,17 @@ def test_legacy_requirement_preserves_structured_allowed_file_boundary() -> None
     assert Architect._extract_strict_file_paths(requirement) == set(allowed_files)
 
 
+def test_legacy_requirement_preserves_dotfile_in_allowed_files() -> None:
+    allowed_files = [".gitignore", "App.vue", "main.js", "package.json"]
+
+    requirement = _legacy_requirement_with_allowed_files(
+        "Create a minimal Vue app.",
+        allowed_files,
+    )
+
+    assert Architect._extract_strict_file_paths(requirement) == set(allowed_files)
+
+
 def test_legacy_requirement_is_unchanged_without_allowed_files() -> None:
     requirement = "Create a project."
 
