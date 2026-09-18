@@ -7,6 +7,7 @@
 """
 
 import asyncio
+from collections import OrderedDict
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 import json
@@ -112,7 +113,7 @@ ADAPTER_FACTORIES = {
 # _adapter_cache: 平台默认 config（无用户 Key），按 provider 缓存
 # _user_adapter_cache: 用户自定义 config（带用户 Key），按 (provider, api_key_hash) 缓存
 _adapter_cache: Dict[ModelProvider, BaseProviderAdapter] = {}
-_user_adapter_cache: Dict[tuple, BaseProviderAdapter] = {}
+_user_adapter_cache: "OrderedDict[tuple, BaseProviderAdapter]" = OrderedDict()
 _USER_ADAPTER_CACHE_MAX = 256
 _adapter_cache_lock = asyncio.Lock()
 
@@ -231,11 +232,7 @@ class _LLMSemaphoreLease:
         except BaseException:
             self.release()
             raise
-        logger.info(
-            f"[信号量] 已获取 {model} 信号量 "
-            f"(global={self.global_sem._value if self.global_sem else 'N/A'}, "
-            f"model={self.model_sem._value if self.model_sem else 'N/A'})"
-        )
+        logger.debug("[信号量] 已获取 %s 信号量", model)
 
     def release(self) -> None:
         if self.model_acquired and self.model_sem:
@@ -312,7 +309,7 @@ async def _invoke_adapter_with_retry(
                     global_sem,
                     model_sem,
                 )
-            logger.info(f"[信号量] 释放 {model} 信号量 (非流式)")
+            logger.debug("[信号量] 释放 %s 信号量 (非流式)", model)
             lease.release()
             return result
         except asyncio.CancelledError:
@@ -387,18 +384,18 @@ async def get_adapter(provider: ModelProvider, config: Optional[ProviderConfig] 
     # 自定义 config（用户 API Key），按 (provider, api_key_hash) 缓存
     cache_key = _make_user_cache_key(provider, config.api_key)
     async with _adapter_cache_lock:
-        if cache_key in _user_adapter_cache:
-            return _user_adapter_cache[cache_key]
+        cached = _user_adapter_cache.get(cache_key)
+        if cached is not None:
+            _user_adapter_cache.move_to_end(cache_key)
+            return cached
 
         adapter = ADAPTER_FACTORIES[provider](config)
-
-        # LRU 淘汰：超过上限时清掉一半
-        if len(_user_adapter_cache) >= _USER_ADAPTER_CACHE_MAX:
-            half = _USER_ADAPTER_CACHE_MAX // 2
-            for _ in range(half):
-                _user_adapter_cache.pop(next(iter(_user_adapter_cache)))
-
         _user_adapter_cache[cache_key] = adapter
+
+        # 真 LRU：超限时逐个淘汰最久未使用的条目
+        while len(_user_adapter_cache) > _USER_ADAPTER_CACHE_MAX:
+            _user_adapter_cache.popitem(last=False)
+
         return adapter
 
 
@@ -454,7 +451,7 @@ class SemaphoreHeldStream:
             return
         self._released = True
         _release_llm_semaphores(self._global_sem, self._model_sem)
-        logger.info("[信号量] 流式结束，已释放信号量")
+        logger.debug("[信号量] 流式结束，已释放信号量")
 
     def __aiter__(self):
         return self
@@ -705,7 +702,8 @@ async def call_llm(
                 fallback_global_acquired = False
                 fallback_model_acquired = False
                 try:
-                    fallback_adapter = await get_adapter(fallback, user_config)
+                    # fallback 供应商没有对应用户 Key，统一使用平台默认配置
+                    fallback_adapter = await get_adapter(fallback)
                     fallback_adapter.timeout = timeout
                     logger.info(f"Stream fallback to {fallback.value}")
                     if global_sem is None:
