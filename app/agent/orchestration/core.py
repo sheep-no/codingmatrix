@@ -25,6 +25,7 @@ from .artifact_committer import (
 )
 from .adapters import GenerationRequest
 from .generation_scheduler import GenerationScheduleResult, GenerationScheduleStatus, GenerationScheduler
+from .model_gateway import ModelGateway
 from .models import (
     OrchestrationCommand,
     OrchestrationResult,
@@ -224,9 +225,11 @@ class OrchestratorCore:
             shared_context,
             task_id=command.task_id,
         )
+        model_gateway = ModelGateway()
         schedule = await GenerationScheduler(
             committer,
             max_concurrent=max_concurrent,
+            model_gateway=model_gateway,
         ).run(
             plan,
             adapter.generate_file,
@@ -241,7 +244,13 @@ class OrchestratorCore:
             OrchestrationStage.PERSISTING,
             event_id=f"{command.task_id}:4:persisting",
             expected_revision=state.revision,
-            metadata={"schedule": schedule.model_dump(mode="json")},
+            metadata={
+                "schedule": schedule.model_dump(mode="json"),
+                "model_telemetry": {
+                    call_id: telemetry.model_dump(mode="json")
+                    for call_id, telemetry in model_gateway.telemetry_snapshot().items()
+                },
+            },
         )).state
         state = (await self.advance(
             command.task_id,

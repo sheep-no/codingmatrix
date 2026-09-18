@@ -177,6 +177,10 @@ class ModelGateway:
     def telemetry_for(self, call_id: str) -> Optional[ModelCallTelemetry]:
         return self._telemetry.get(call_id)
 
+    def telemetry_snapshot(self) -> Dict[str, ModelCallTelemetry]:
+        """Return a copy of every recorded call so callers can surface it."""
+        return dict(self._telemetry)
+
     async def call(
         self,
         context: ModelCallContext,

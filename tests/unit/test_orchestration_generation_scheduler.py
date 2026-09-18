@@ -454,3 +454,66 @@ async def test_scheduler_converges_cycle_to_blocked_without_waiting_forever(tmp_
     assert result.status is GenerationScheduleStatus.FAILED
     assert all(node.status is GenerationNodeStatus.BLOCKED for node in result.nodes.values())
     assert scheduler.active_task_count == 0
+
+
+@pytest.mark.asyncio
+async def test_scheduler_binds_model_call_scope_when_gateway_present(tmp_path: Path) -> None:
+    from app.agent.model_call_scope import current_model_call_scope
+    from app.agent.orchestration import ModelGateway
+
+    context = SharedContext("generate files", tmp_path)
+    committer = ArtifactCommitter(tmp_path, context, task_id="task-1")
+    gateway = ModelGateway()
+    scheduler = GenerationScheduler(
+        committer,
+        max_concurrent=1,
+        max_retries=0,
+        model_gateway=gateway,
+    )
+    plan = build_file_plan([{"path": "main.py"}], requested_paths=["main.py"])
+    observed = []
+
+    async def generator(file_context):
+        observed.append((file_context.file_path, current_model_call_scope()))
+        return GeneratedContent(content="# main\n", model_name="test-model")
+
+    result = await scheduler.run(
+        plan,
+        generator,
+        make_budget(),
+        task_id="task-1",
+        stage_id="stage-1",
+    )
+
+    assert result.status is GenerationScheduleStatus.COMPLETED
+    path, scope = observed[0]
+    assert path == "main.py"
+    assert scope is not None
+    assert scope.gateway is gateway
+    assert scope.file_path == "main.py"
+    assert scope.file_elapsed_seconds >= 0.0
+    assert current_model_call_scope() is None
+
+
+@pytest.mark.asyncio
+async def test_scheduler_leaves_model_call_scope_unset_without_gateway(tmp_path: Path) -> None:
+    from app.agent.model_call_scope import current_model_call_scope
+
+    scheduler = make_scheduler(tmp_path, max_concurrent=1)
+    plan = build_file_plan([{"path": "main.py"}], requested_paths=["main.py"])
+    observed = []
+
+    async def generator(file_context):
+        observed.append(current_model_call_scope())
+        return GeneratedContent(content="# main\n", model_name="test-model")
+
+    result = await scheduler.run(
+        plan,
+        generator,
+        make_budget(),
+        task_id="task-1",
+        stage_id="stage-1",
+    )
+
+    assert result.status is GenerationScheduleStatus.COMPLETED
+    assert observed == [None]

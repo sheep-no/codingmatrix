@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
@@ -10,12 +11,15 @@ from typing import Any, Awaitable, Callable, Dict, Literal, Mapping, Optional, S
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.agent.model_call_scope import ModelCallScope, model_call_scope
+
 from .artifact_committer import (
     ArtifactCommitter,
     ArtifactCompletionEvent,
     ArtifactDiagnostic,
 )
 from .budget import ExecutionBudget
+from .model_gateway import ModelGateway
 from .plan import GenerationPlan, PlannedFile
 from ..contract_index import ContractEntry, ContractIndex
 from ..synthesis_protocol import ModelOperation, ModelOperationKind
@@ -174,6 +178,7 @@ class GenerationScheduler:
         *,
         max_concurrent: int = 5,
         max_retries: int = 2,
+        model_gateway: Optional[ModelGateway] = None,
     ) -> None:
         if max_concurrent < 1:
             raise ValueError("max_concurrent must be positive")
@@ -182,6 +187,7 @@ class GenerationScheduler:
         self.committer = committer
         self.max_concurrent = max_concurrent
         self.max_retries = max_retries
+        self.model_gateway = model_gateway
         self.nodes: Dict[str, _MutableNode] = {}
         self._active_tasks: Set[asyncio.Task[None]] = set()
         self._max_parallelism = 0
@@ -422,8 +428,23 @@ class GenerationScheduler:
                         )),
                         previous_diagnostics=validation_feedback,
                     )
+                    # Bind model calls made by the shared specialist clients to
+                    # this file's budget for the duration of the attempt.
+                    scope = (
+                        model_call_scope(ModelCallScope(
+                            gateway=self.model_gateway,
+                            budget=budget,
+                            task_id=task_id,
+                            stage_id=stage_id,
+                            file_path=path,
+                            file_elapsed_seconds=max(0.0, budget.file_seconds - remaining),
+                        ))
+                        if self.model_gateway is not None
+                        else nullcontext()
+                    )
                     async with asyncio.timeout(remaining):
-                        generated = await generator(context)
+                        with scope:
+                            generated = await generator(context)
                     if not isinstance(generated, GeneratedContent):
                         raise TypeError("generator must return GeneratedContent")
 

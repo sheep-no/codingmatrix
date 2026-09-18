@@ -15,10 +15,12 @@ import time
 import asyncio
 import json
 import logging
+from uuid import uuid4
 from typing import Optional, Dict, Any, Callable, Awaitable, AsyncIterator, Union
 
 import httpx
 from app.utils import call_llm
+from app.agent.model_call_scope import current_model_call_scope
 from app.agent.dynamic_model_router import get_dynamic_router, LayeredModelRouter
 
 logger = logging.getLogger(__name__)
@@ -84,6 +86,20 @@ class LLMClientError(Exception):
     pass
 
 
+def _gateway_cancelled(exc: BaseException) -> bool:
+    """True when the exception is the gateway's structured cancellation.
+
+    ModelGateway raises its own cancellation type instead of asyncio's so that
+    the diagnostic carries the call context; translate it back so callers see a
+    normal CancelledError.
+    """
+    try:
+        from app.agent.orchestration.model_gateway import ModelCallCancelled
+    except Exception:
+        return False
+    return isinstance(exc, ModelCallCancelled)
+
+
 class LLMClient:
     """统一 LLM 客户端
 
@@ -135,6 +151,46 @@ class LLMClient:
         except Exception as e:
             logger.debug(f"检查降级链偏好失败（非致命）: {e}")
         return False
+
+    def _model_call_binding(self):
+        """Return (gateway, ModelCallContext) when a budgeted scope covers this call.
+
+        The Core generation path installs the scope per file task; without it the
+        client keeps calling ``call_llm`` directly as before.
+        """
+        scope = current_model_call_scope()
+        if scope is None or scope.gateway is None or scope.budget is None:
+            return None
+        from app.agent.orchestration.model_gateway import ModelCallContext
+
+        context = ModelCallContext.from_budget(
+            scope.budget,
+            task_id=scope.task_id,
+            stage_id=scope.stage_id,
+            call_id=f"{scope.task_id}:{scope.stage_id}:{self.model_name}:{uuid4().hex[:12]}",
+            file_path=scope.file_path,
+            file_elapsed_seconds=scope.file_elapsed_seconds,
+        )
+        return scope.gateway, context
+
+    def _gateway_kwargs(self, prompt: str, system_prompt: str, thinking_budget: int) -> Dict[str, Any]:
+        """call_llm kwargs for a gateway-managed call.
+
+        The gateway injects ``stream``, ``timeout`` and ``cancel_event`` so they
+        are deliberately absent here.
+        """
+        return {
+            "model": self.model_name,
+            "prompt": prompt,
+            "system_prompt": system_prompt,
+            "max_tokens": self._model_config["max_tokens"],
+            "thinking_budget": thinking_budget,
+            "temperature": self._model_config["temperature"],
+            "api_key_token": self.api_key_token,
+            "provider_id": self.provider_id,
+            "disable_fallback": self._disable_fallback,
+            "_skip_semaphore": True,
+        }
 
     async def call(self, prompt: str, system_prompt: str = "", stream: bool = False, thinking_budget: Optional[int] = None) -> str:
         """调用 LLM
@@ -229,6 +285,9 @@ class LLMClient:
             )
             logger.error(f"LLM 流式调用失败: {self.model_name} - [{type(e).__name__}] {e}")
 
+            if _gateway_cancelled(e):
+                raise asyncio.CancelledError(str(e)) from e
+
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in (401, 403):
                 raise LLMClientError(
                     f"认证失败 (HTTP {e.response.status_code})，请检查 API Key 配置"
@@ -266,13 +325,23 @@ class LLMClient:
             )
 
         call_timeout = self._model_config.get("timeout", 300)
+        binding = self._model_call_binding()
 
         # 并发额度由 call_stream 在整个消费期间持有，这里不再重复获取。
-        stream_iter = await asyncio.wait_for(_do_call_stream(), timeout=call_timeout)
+        if binding is None:
+            stream_iter = await asyncio.wait_for(_do_call_stream(), timeout=call_timeout)
 
-        # stream_iter 可能是 AsyncIterator[str] 或 coroutine
-        if asyncio.iscoroutine(stream_iter):
-            stream_iter = await stream_iter
+            # stream_iter 可能是 AsyncIterator[str] 或 coroutine
+            if asyncio.iscoroutine(stream_iter):
+                stream_iter = await stream_iter
+        else:
+            # 网关在同一个 deadline 下完成模型获取与流消费。
+            gateway, model_context = binding
+            stream_iter = gateway.stream(
+                model_context,
+                cancel_event=self._cancel_event,
+                **self._gateway_kwargs(prompt, system_prompt, effective_thinking_budget),
+            )
 
         full_content = ""
         full_reasoning = ""
@@ -407,6 +476,17 @@ class LLMClient:
                 )
 
             call_timeout = self._model_config.get("timeout", 300)
+            binding = self._model_call_binding()
+
+            async def _run():
+                if binding is None:
+                    return await asyncio.wait_for(_do_call(), timeout=call_timeout)
+                gateway, model_context = binding
+                return await gateway.call(
+                    model_context,
+                    cancel_event=self._cancel_event,
+                    **self._gateway_kwargs(prompt, system_prompt, effective_thinking_budget),
+                )
 
             if self._semaphore:
                 if self._cancel_event and self._cancel_event.is_set():
@@ -414,9 +494,9 @@ class LLMClient:
                 # 嵌套上下文确保等待模型额度时被取消也会释放全局额度。
                 async with self._semaphore:
                     async with self._model_semaphore:
-                        response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
+                        response = await _run()
             else:
-                response = await asyncio.wait_for(_do_call(), timeout=call_timeout)
+                response = await _run()
 
             choices = response.get("choices", [])
             message = choices[0].get("message") if choices else None
@@ -451,6 +531,9 @@ class LLMClient:
                 self.model_name, success=False, latency_ms=latency_ms, error=error_msg
             )
             logger.error(f"LLM 调用失败: {self.model_name} - [{type(e).__name__}] {e}")
+
+            if _gateway_cancelled(e):
+                raise asyncio.CancelledError(str(e)) from e
 
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in (401, 403):
                 raise LLMClientError(
