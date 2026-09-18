@@ -12,9 +12,16 @@ import gzip
 import logging
 import os
 import shutil
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - 非 Unix 平台退化为无锁
+    fcntl = None
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +154,26 @@ class LogArchiver:
         Returns:
             归档统计信息
         """
+        with self._archive_lock():
+            return self._archive_all_locked()
+
+    @contextmanager
+    def _archive_lock(self):
+        """跨进程互斥，避免多 worker 同时轮转/清理同一日志目录"""
+        if fcntl is None:
+            yield
+            return
+
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.log_dir / ".archive.lock", "w") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    def _archive_all_locked(self) -> dict:
+        """归档任务实际逻辑，调用方须已持有归档锁"""
         stats = {
             "rotated": [],
             "archived": [],
@@ -211,33 +238,40 @@ class LogArchiver:
 
 
 _log_archiver: Optional[LogArchiver] = None
+_log_archiver_lock = threading.Lock()
 
 
 def get_log_archiver() -> LogArchiver:
     """获取日志归档器单例"""
     global _log_archiver
     if _log_archiver is None:
-        from app.core.config import settings
-
-        log_dir = getattr(settings, 'LOG_DIR', 'logs')
-        log_level = getattr(settings, 'LOG_LEVEL', 'INFO')
-
-        if log_level == 'DEBUG':
-            retention_days = 3
-        elif log_level == 'WARNING':
-            retention_days = 14
-        elif log_level == 'ERROR':
-            retention_days = 30
-        else:
-            retention_days = 7
-
-        _log_archiver = LogArchiver(
-            log_dir=log_dir,
-            retention_days=retention_days,
-            compression_enabled=True
-        )
-
+        with _log_archiver_lock:
+            if _log_archiver is None:
+                _log_archiver = _build_log_archiver()
     return _log_archiver
+
+
+def _build_log_archiver() -> LogArchiver:
+    """按日志级别构造归档器"""
+    from app.core.config import settings
+
+    log_dir = getattr(settings, 'LOG_DIR', 'logs')
+    log_level = getattr(settings, 'LOG_LEVEL', 'INFO')
+
+    if log_level == 'DEBUG':
+        retention_days = 3
+    elif log_level == 'WARNING':
+        retention_days = 14
+    elif log_level == 'ERROR':
+        retention_days = 30
+    else:
+        retention_days = 7
+
+    return LogArchiver(
+        log_dir=log_dir,
+        retention_days=retention_days,
+        compression_enabled=True
+    )
 
 
 async def run_archive_task():
