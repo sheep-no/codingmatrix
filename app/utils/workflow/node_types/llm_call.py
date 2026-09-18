@@ -4,6 +4,7 @@ LLM Call Node - LLM 调用节点
 调用大语言模型进行文本生成、分析、翻译等任务
 """
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -101,9 +102,14 @@ class LLMCallNode(TaskNodeBase):
         if input_variable and input_variable in context:
             input_value = context[input_variable]
             if isinstance(input_value, (dict, list)):
-                import json
                 input_value = json.dumps(input_value, ensure_ascii=False, indent=2)
-            prompt = prompt.replace("{{input}}", str(input_value))
+            # 兼容 {{input}} / {input} 等常见写法；都没有时追加，避免输入被静默丢弃
+            placeholders = ("{{input}}", "{{ input }}", "{input}")
+            if any(placeholder in prompt for placeholder in placeholders):
+                for placeholder in placeholders:
+                    prompt = prompt.replace(placeholder, str(input_value))
+            else:
+                prompt = f"{prompt}\n\n{input_value}"
 
         # 构建完整 prompt
         full_prompt = prompt
@@ -129,7 +135,18 @@ class LLMCallNode(TaskNodeBase):
             if hasattr(response, "choices"):
                 content = response.choices[0].message.content
             elif isinstance(response, dict):
-                content = response.get("content", response.get("text", str(response)))
+                # call_llm 非流式返回 OpenAI 兼容结构 {"choices": [...]}，
+                # 直接 get("content") 拿不到内容会退化成整段 JSON 字符串
+                content = None
+                choices = response.get("choices")
+                if choices:
+                    first = choices[0]
+                    if isinstance(first, dict):
+                        content = (first.get("message") or {}).get("content")
+                if content is None:
+                    content = response.get("content", response.get("text"))
+                if content is None:
+                    content = json.dumps(response, ensure_ascii=False)
 
             result_data = {
                 "content": str(content),
