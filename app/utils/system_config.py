@@ -7,6 +7,7 @@ SystemConfigManager - 系统配置管理器
 
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -15,12 +16,18 @@ logger = logging.getLogger(__name__)
 
 class SystemConfigManager:
     _instance = None
+    # __new__ 是同步方法，用线程锁保护首次构造
+    _instance_lock = threading.Lock()
+    # save_config 可能在多线程（管理员热更新）并发触发
+    _config_lock = threading.RLock()
     _config: Dict[str, Any] = {}
     _config_file: Path = Path("./configs/system_config.json")
     
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
         return cls._instance
     
     def __init__(self):
@@ -47,14 +54,15 @@ class SystemConfigManager:
     
     def save_config(self):
         """保存系统配置"""
-        try:
-            self._config_file.parent.mkdir(parents=True, exist_ok=True)
-            self._config["system_config"]["last_updated"] = datetime.now().isoformat()
-            with open(self._config_file, 'w', encoding='utf-8') as f:
-                json.dump(self._config, f, ensure_ascii=False, indent=2)
-            logger.info("系统配置保存成功")
-        except Exception as e:
-            logger.error(f"保存系统配置失败: {e}")
+        with self._config_lock:
+            try:
+                self._config_file.parent.mkdir(parents=True, exist_ok=True)
+                self._config["system_config"]["last_updated"] = datetime.now().isoformat()
+                with open(self._config_file, 'w', encoding='utf-8') as f:
+                    json.dump(self._config, f, ensure_ascii=False, indent=2)
+                logger.info("系统配置保存成功")
+            except Exception as e:
+                logger.error(f"保存系统配置失败: {e}")
     
     def _get_default_config(self) -> Dict[str, Any]:
         """获取默认系统配置"""
@@ -93,13 +101,23 @@ class SystemConfigManager:
     
     def get_user_concurrent_limit(self, user_id: str, user_role: str = "free") -> int:
         """获取用户的并发项目限制"""
-        # 检查用户覆盖配置
-        overrides = self._config.get("system_config", {}).get("user_concurrent_limits", {}).get("user_overrides", {})
+        sys_limits = self._config.get("system_config", {}).get("user_concurrent_limits", {})
+        top_limits = self._config.get("user_concurrent_limits", {})
+
+        # 检查用户覆盖配置（update_user_override 写入 system_config 内，兼容顶层旧结构）
+        overrides = sys_limits.get("user_overrides") or top_limits.get("user_overrides") or {}
         if user_id in overrides:
             return overrides[user_id].get("limit", 1)
-        
+
         # 根据用户角色获取限制
-        default_tiers = self._config.get("system_config", {}).get("user_concurrent_limits", {}).get("default_tiers", {})
+        # _get_default_config 用顶层 role_defaults，既有部署文件用 system_config 内 default_tiers
+        default_tiers = (
+            top_limits.get("role_defaults")
+            or sys_limits.get("role_defaults")
+            or sys_limits.get("default_tiers")
+            or top_limits.get("default_tiers")
+            or {}
+        )
         return default_tiers.get(user_role, default_tiers.get("free", 1))
     
     async def get_active_sessions_for_user(self, user_id: str) -> list:

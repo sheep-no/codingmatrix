@@ -38,3 +38,18 @@
 ## 四、测试状态
 
 零单元测试。SC1 配置读取路径、PER1 权限时效、SM1 异常冒泡均无测试约束。修复建议：① get_user_concurrent_limit 读取默认 role_defaults 断言（free=1/premium=5）；② 用户覆盖配置生效测试；③ 权限降级 token 失效测试；④ system_monitor 无 psutil 环境降级测试。
+
+## 五、状态更新（2026-09-18 核实）
+
+按当前代码逐条核实后的结论：
+
+- **SC1 [P2] 已修**：`get_user_concurrent_limit` 改为同时兼容两种结构——`_get_default_config()` 的顶层 `user_concurrent_limits.role_defaults`，以及既有部署文件的 `system_config.user_concurrent_limits.default_tiers`；`user_overrides` 同样回退读取顶层。核实要点：仓库内实际部署文件 `configs/system_config.json` 用的是 `system_config.user_concurrent_limits.default_tiers`，因此现网路径原本可用，真正失效的是「文件不存在 → 默认配置」的新库（读 `default_tiers` 恒 miss → 恒返回 1）。修复后两种结构均命中。
+- **SC2 [P3] 已修**：`SystemConfigManager.__new__` 用 `_instance_lock = threading.Lock()` 双检锁。`__new__` 为同步方法，线程锁是正确实现。
+- **SC5 [P3] 已修**：`save_config` 纳入 `_config_lock = threading.RLock()`，避免多管理员并发写文件交错。
+- **SC4 [P3] 经核实不成立**：`load_config` 的异常分支（:44-46）只把 `_config` 置为默认值，**不调用** `save_config`；只有「文件不存在」分支（:40-43）才写盘，属首次创建。损坏配置不会被静默覆盖。
+- **SM1 [P3] 已修**：`system_monitor` 改为 `try: import psutil` + `_HAS_PSUTIL`，`get_system_stats` 内部 try/except；psutil 缺失或采集异常时返回结构与正常路径一致的降级数据（含 `error` 说明），不再冒泡导致监控 API 500。
+- **SC3 [P3] 未处理**：`_config_file = Path("./configs/system_config.json")` 仍依赖 CWD，留待与 RM7/CRY3 的路径统一收敛批次一并处理。
+- **PER1 [P2] 未处理**：权限等级仍内嵌 JWT payload，校验不二次查询 DB。修复需引入权限版本号或二次查询，涉及认证体系口径，未改。
+- **PER2 [P3] 未处理**：`get_permission_level` 未知级别返回 0 属 fail-closed，保留。
+
+新增回归测试 `tests/unit/test_permissions_config.py`（9 项）；回退 `system_config.py`/`system_monitor.py` 后 3 项失败（默认结构 role_defaults、psutil 异常降级、psutil 缺失降级）。
