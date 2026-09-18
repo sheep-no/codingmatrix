@@ -7,8 +7,21 @@ from typing import Optional, Dict, List
 from pathlib import Path
 
 from app.agent.project_profiler import ProjectProfiler, ProjectProfile, detect_project_language
+from app.agent.dependency_rules import EXTENSION_TYPE_MAP
 
 logger = logging.getLogger(__name__)
+
+# 计划文件允许的扩展名。在原白名单之外并入依赖图的权威扩展名表，
+# 否则 MANIFEST.in / docs/*.rst 这类合法规划文件会被静默丢弃，
+# 使冻结的文件集在传统路径上少一个文件。无扩展名（''）始终放行，
+# 交给后续按类型推断处理。
+_SUPPORTED_PLAN_EXTENSIONS = frozenset(EXTENSION_TYPE_MAP) | frozenset({
+    '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.vue', '.html', '.css', '.scss', '.sass',
+    '.less', '.md', '.txt', '.json', '.yaml', '.yml', '.toml', '.env', '.sql',
+    '.sh', '.bat', '.ps1', '.dockerfile', '.gitignore', '.editorconfig',
+    '.graphql', '.proto', '.xml', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.ico',
+    '',
+})
 
 
 class UtilsMixin:
@@ -73,14 +86,7 @@ class UtilsMixin:
                 file_info["path"] = path
 
             ext = Path(path).suffix.lower()
-            valid_extensions = {
-                '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.vue', '.html', '.css', '.scss', '.sass',
-                '.less', '.md', '.txt', '.json', '.yaml', '.yml', '.toml', '.env', '.sql',
-                '.sh', '.bat', '.ps1', '.dockerfile', '.gitignore', '.editorconfig',
-                '.graphql', '.proto', '.xml', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.ico',
-                '',
-            }
-            if ext not in valid_extensions:
+            if ext not in _SUPPORTED_PLAN_EXTENSIONS:
                 self.warnings.append(f"跳过不支持的文件类型: {path}")
                 continue
 

@@ -1865,6 +1865,43 @@ def _fix_absolute_imports(
     return '\n'.join(fixed_lines)
 
 
+def _format_review_issues(issues: object) -> str:
+    """把审查建议渲染成单行文本。
+
+    `reviewer.review_code` 返回的 `issues` 可能是字符串列表，也可能是模型
+    给出的结构化字典列表；直接 `'; '.join(...)` 会在字典上抛 TypeError，
+    让一次审查建议变成整层生成失败。
+    """
+    if isinstance(issues, str):
+        return issues
+    if not isinstance(issues, (list, tuple)):
+        return str(issues) if issues else ""
+    rendered = []
+    for issue in issues:
+        if isinstance(issue, str):
+            rendered.append(issue)
+            continue
+        if isinstance(issue, dict):
+            summary = next(
+                (
+                    str(issue[key])
+                    for key in ("issue", "message", "description", "detail", "text", "reason")
+                    if issue.get(key)
+                ),
+                "",
+            )
+            severity = str(issue.get("severity") or issue.get("risk_level") or "").strip()
+            if severity and summary:
+                rendered.append(f"[{severity}] {summary}")
+            elif summary:
+                rendered.append(summary)
+            else:
+                rendered.append(json.dumps(issue, ensure_ascii=False))
+            continue
+        rendered.append(str(issue))
+    return "; ".join(part for part in rendered if part)
+
+
 class FilesMixin:
 
     async def _generate_files_small_project(
@@ -2734,7 +2771,7 @@ router = APIRouter()
                 context=description
             )
             if review_result.get("needs_fix") and review_result.get("risk_level") in ["high", "medium"]:
-                review_warning = f"审查建议 {file_path}: {'; '.join(review_result.get('issues', []))}"
+                review_warning = f"审查建议 {file_path}: {_format_review_issues(review_result.get('issues'))}"
                 self.warnings.append(review_warning)
                 self._report_warning(
                     message=review_warning,
@@ -2749,12 +2786,11 @@ router = APIRouter()
             try:
                 import ast
                 ast.parse(content)
-                self.validator._validation_cache[cache_key] = {
+                CodeValidator.store_validation(cache_key, {
                     "is_valid": True,
                     "syntax_errors": [],
                     "import_errors": []
-                }
-                CodeValidator._clear_old_cache()
+                })
             except SyntaxError as e:
                 validation_success = False
                 logger.warning(f"文件语法错误: {file_path}: {e}")

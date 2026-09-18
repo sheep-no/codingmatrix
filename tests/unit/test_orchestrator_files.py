@@ -35,6 +35,7 @@ from app.agent.backend_engineer import BackendEngineer
 from app.agent.shared_context import SharedContext
 from app.agent.orchestration.artifact_committer import ArtifactCommitter
 from app.agent.orchestrator_utils import UtilsMixin
+from app.agent.orchestrator_files import _format_review_issues
 
 
 def test_sync_project_call_does_not_use_await():
@@ -2822,6 +2823,46 @@ def test_validate_file_plan_keeps_valid_paths():
         [{"path": "main.py", "description": "entry", "priority": 1}]
     )
     assert result[0]["path"] == "main.py"
+
+
+def test_validate_file_plan_keeps_extensionless_and_cold_suffix_meta_files():
+    """LICENSE / MANIFEST.in / docs/*.rst 是合法规划文件，不能被扩展名白名单丢掉。"""
+    helper = UtilsMixin()
+    helper.warnings = []
+    plan = [
+        {"path": "src/greeting.py"},
+        {"path": "main.py"},
+        {"path": "LICENSE"},
+        {"path": "NOTICE"},
+        {"path": "MANIFEST.in"},
+        {"path": "README.md"},
+        {"path": "docs/guide.rst"},
+    ]
+
+    result = helper._validate_file_plan(plan)
+
+    assert [item["path"] for item in result] == [item["path"] for item in plan]
+    assert helper.warnings == []
+
+
+def test_format_review_issues_accepts_string_and_structured_entries():
+    """审查建议可能是结构化字典；渲染成文本不能抛 TypeError。"""
+    assert _format_review_issues(["缺少类型注解", "未处理异常"]) == "缺少类型注解; 未处理异常"
+    assert _format_review_issues("单一问题") == "单一问题"
+    assert _format_review_issues([]) == ""
+    assert _format_review_issues(None) == ""
+
+    rendered = _format_review_issues(
+        [
+            {"severity": "high", "message": "SQL 注入风险"},
+            {"issue": "函数过长"},
+            {"description": "缺少文档", "risk_level": "low"},
+        ]
+    )
+    assert rendered == "[high] SQL 注入风险; 函数过长; [low] 缺少文档"
+
+    # 未知结构的字典退化为紧凑 JSON，而不是崩溃或产生空文本
+    assert _format_review_issues([{"unexpected": 1}]) == '{"unexpected": 1}'
 
 
 @pytest.mark.asyncio

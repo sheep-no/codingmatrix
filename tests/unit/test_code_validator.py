@@ -661,6 +661,33 @@ class TestHtmlCssStructureGate:
 
 
 class TestCodeValidatorLRU:
+    def test_in_memory_store_keeps_tuple_shape(self):
+        """校验缓存条目必须是 (result, timestamp) 元组。
+
+        调用方在文件落盘前先用内存内容写缓存，绕开 tuple 约定会让
+        `_clear_old_cache` 在 `entry[0]` 处抛 KeyError(0)，把合法文件判为验证失败。
+        """
+        from app.agent.code_validator import CodeValidator
+
+        saved_cache = dict(CodeValidator._lru_cache)
+        saved_size = CodeValidator._cache_size_bytes
+        try:
+            CodeValidator._lru_cache.clear()
+            CodeValidator._cache_size_bytes = 0
+            result = {"is_valid": True, "syntax_errors": [], "import_errors": []}
+
+            CodeValidator.store_validation("app/agent/utils.py:cafebabe", result)
+
+            entry = CodeValidator._lru_cache["app/agent/utils.py:cafebabe"]
+            assert entry[0] is result
+            assert isinstance(entry[1], float)
+            # 形状正确时缓存清理不得抛错
+            CodeValidator._clear_old_cache()
+        finally:
+            CodeValidator._lru_cache.clear()
+            CodeValidator._lru_cache.update(saved_cache)
+            CodeValidator._cache_size_bytes = saved_size
+
     def test_lru_cache_limit(self):
         from app.agent.code_validator import CodeValidator
         import tempfile

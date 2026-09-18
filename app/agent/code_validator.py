@@ -241,16 +241,26 @@ class CodeValidator:
                 content = f.read()
             content_hash = self._compute_content_hash(content)
             cache_key = f"{file_path}:{content_hash}"
-            if cache_key in CodeValidator._lru_cache:
-                old_entry = CodeValidator._lru_cache.pop(cache_key)
-                CodeValidator._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(old_entry)
-            entry = (result, time.time())
-            CodeValidator._lru_cache[cache_key] = entry
-            CodeValidator._lru_cache.move_to_end(cache_key)
-            CodeValidator._cache_size_bytes += sys.getsizeof(cache_key) + sys.getsizeof(entry)
-            CodeValidator._clear_old_cache()
+            CodeValidator.store_validation(cache_key, result)
         except Exception as e:
             logger.debug(f"缓存写入失败 {cache_key or file_path}：{e}")
+
+    @classmethod
+    def store_validation(cls, cache_key: str, result: Dict):
+        """按内容哈希键写入校验缓存。
+
+        调用方可能已持有内存中的内容、文件尚未落盘，因此这里按 key 直接写入，
+        不再读盘。缓存条目统一为 `(result, timestamp)` 元组，任何绕开本方法
+        的裸结果写入都会让 `_clear_old_cache` 在 `entry[0]` 处抛错。
+        """
+        if cache_key in cls._lru_cache:
+            old_entry = cls._lru_cache.pop(cache_key)
+            cls._cache_size_bytes -= sys.getsizeof(cache_key) + sys.getsizeof(old_entry)
+        entry = (result, time.time())
+        cls._lru_cache[cache_key] = entry
+        cls._lru_cache.move_to_end(cache_key)
+        cls._cache_size_bytes += sys.getsizeof(cache_key) + sys.getsizeof(entry)
+        cls._clear_old_cache()
 
     @classmethod
     def get_cache_stats(cls) -> Dict[str, Any]:
