@@ -7,6 +7,7 @@
 - PaddlePaddle/PaddleOCR-VL-1.5: 文档视觉理解与 OCR
 """
 import base64
+import json
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -28,6 +29,17 @@ SUPPORTED_IMAGE_FORMATS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']
 
 # 最大图片大小（10MB）
 MAX_IMAGE_SIZE = 10 * 1024 * 1024
+
+# 内容审核的不安全关键词（中英双语）
+_UNSAFE_KEYWORDS = [
+    "色情", "暴力", "血腥", "敏感", "侵权", "违法", "不当", "恐怖",
+    "porn", "violence", "violent", "nsfw", "explicit", "illegal",
+    "inappropriate", "sensitive", "copyright",
+]
+_NEGATION_MARKERS = [
+    "不包含", "不含", "没有", "未发现", "不涉及", "未包含",
+    "not contain", "does not", "doesn't", "no ", "none", "without",
+]
 
 
 def image_to_base64(image_path: str) -> str:
@@ -107,7 +119,18 @@ async def _call_vision_model(
         api_key_token=api_key_token,
     )
 
-    return result["choices"][0]["message"]["content"]
+    content = None
+    if isinstance(result, dict):
+        choices = result.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0]
+            if isinstance(first, dict):
+                message = first.get("message")
+                if isinstance(message, dict):
+                    content = message.get("content")
+    if content is None:
+        raise ValueError(f"视觉模型返回结构异常: {type(result).__name__}")
+    return content
 
 
 async def analyze_image(
@@ -144,7 +167,7 @@ async def analyze_image(
 
     # 显式指定模型用于单模型诊断；未指定时才启用自动降级。
     fallback_models = [model] if model else VISION_MODEL_FALLBACK
-    last_error = None
+    last_error: Optional[Exception] = None
     for fallback_model in fallback_models:
         try:
             logger.info(f"尝试视觉模型: {fallback_model}")
@@ -160,16 +183,19 @@ async def analyze_image(
                 "model_used": fallback_model
             }
 
-        except HTTPException as e:
-            logger.warning(f"视觉模型 {fallback_model} 调用失败: {e.detail}")
+        except Exception as e:
+            # 网络错误、结构异常、LLMCallError 等都应触发降级，而非直接 500
+            detail = getattr(e, "detail", None) or str(e)
+            logger.warning(f"视觉模型 {fallback_model} 调用失败: {detail}")
             last_error = e
             continue
 
     # 所有模型都失败
     logger.error("所有视觉模型均失败")
+    last_detail = getattr(last_error, "detail", None) or (str(last_error) if last_error else "未知错误")
     raise HTTPException(
         status_code=503,
-        detail=f"所有视觉模型均失败：{last_error.detail if last_error else '未知错误'}"
+        detail=f"所有视觉模型均失败：{last_detail}"
     )
 
 
@@ -261,6 +287,38 @@ async def generate_code_from_image(
     }
 
 
+def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
+    """从模型输出中提取第一个合法 JSON 对象，失败返回 None。"""
+    decoder = json.JSONDecoder()
+    start = text.find("{")
+    while start != -1:
+        try:
+            obj, _ = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            start = text.find("{", start + 1)
+            continue
+        if isinstance(obj, dict):
+            return obj
+        start = text.find("{", start + 1)
+    return None
+
+
+def _keyword_safety_check(description: str) -> tuple[bool, list[str]]:
+    """关键词兜底：剔除被否定词修饰的命中，返回 (safe, flags)。"""
+    lowered = description.lower()
+    flags = []
+    for keyword in _UNSAFE_KEYWORDS:
+        needle = keyword.lower()
+        idx = lowered.find(needle)
+        while idx != -1:
+            window = lowered[max(0, idx - 24):idx]
+            if not any(marker in window for marker in _NEGATION_MARKERS):
+                flags.append(keyword)
+                break
+            idx = lowered.find(needle, idx + 1)
+    return (not flags), sorted(set(flags))
+
+
 async def check_image_safety(image_path: str) -> Dict[str, Any]:
     """
     检查图片安全性（内容审核）
@@ -280,17 +338,30 @@ async def check_image_safety(image_path: str) -> Dict[str, Any]:
 2. 侵权或版权内容
 3. 违法信息
 
-如果包含任何不当内容，请详细说明。如果没有，请回复"图片内容安全"。"""
-    
+只输出一个 JSON 对象，不要有任何其他文字，格式如下：
+{"safe": true 或 false, "reason": "判断理由", "flags": ["命中的敏感标签"]}
+
+安全时 safe 为 true、flags 为空数组；不安全时 safe 为 false 并给出理由与标签。"""
+
     result = await analyze_image(image_path, prompt, model=VISION_MODEL)
-    
-    is_safe = "安全" in result["description"] or not any(
-        keyword in result["description"].lower()
-        for keyword in ["色情", "暴力", "敏感", "侵权", "违法", "不当"]
-    )
-    
+
+    description = result["description"]
+
+    # 优先使用模型返回的结构化判定，避免关键词匹配的误判/漏判
+    parsed = _extract_json_object(description)
+    if parsed is not None and isinstance(parsed.get("safe"), bool):
+        is_safe = parsed["safe"]
+        reason = str(parsed.get("reason") or description)
+        raw_flags = parsed.get("flags")
+        flags = [str(flag) for flag in raw_flags] if isinstance(raw_flags, list) else []
+        if not is_safe and not flags:
+            flags = ["需要人工审核"]
+        return {"safe": is_safe, "reason": reason, "flags": flags}
+
+    # 模型未按 JSON 输出时回退到中英双语关键词兜底
+    is_safe, flags = _keyword_safety_check(description)
     return {
         "safe": is_safe,
-        "reason": result["description"],
-        "flags": [] if is_safe else ["需要人工审核"]
+        "reason": description,
+        "flags": [] if is_safe else (flags or ["需要人工审核"]),
     }
