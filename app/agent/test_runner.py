@@ -220,7 +220,12 @@ class IsolatedTestRunner:
 
                     await self._create_venv()
                     if not self._venv_python:
-                        result.logs = "无法创建虚拟环境"
+                        # 隔离环境属于宿主能力（依赖 venv/ensurepip）。宿主无法创建时
+                        # 跳过动态测试，不能把宿主环境缺失当成生成代码的缺陷。
+                        result.success = True
+                        result.method = "skipped_no_venv"
+                        result.logs = "无法创建虚拟环境（宿主缺少 venv/ensurepip），跳过动态测试"
+                        logger.warning(result.logs)
                         return result
 
                     await self._copy_project()
@@ -435,7 +440,9 @@ class IsolatedTestRunner:
             else:
                 self._venv_python = str(self._venv_dir / "bin" / "python")
             logger.info(f"venv 创建成功: {self._venv_python}")
-        except Exception as e:
+        except (Exception, SystemExit) as e:
+            # venv.create(with_pip=True) 在 ensurepip 不可用时调用 sys.exit(1)，
+            # SystemExit 不属于 Exception，必须显式接住，否则会中断整个生成请求。
             logger.error(f"venv 创建失败: {e}")
             self._venv_python = None
 

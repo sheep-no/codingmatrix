@@ -79,7 +79,12 @@ class TestingMixin:
                 PROGRESS_LABELS.get("tests_finished", "测试完成"),
                 1, 1,
                 phase="testing",
-                **summary
+                # 不能直接展开 summary：其中 total 与 _report_progress 的
+                # 位置参数 total 冲突，会抛 TypeError 并把测试误判为失败。
+                tests_total=summary["total"],
+                tests_passed=summary["passed"],
+                tests_failed=summary["failed"],
+                tests_errors=summary["errors"],
             )
 
             if not result.success:

@@ -309,3 +309,52 @@ class TestReActEngine:
 
         assert success is False
         assert "工具不存在" in result["error"]
+
+
+class TestDynamicTestProgressReporting:
+    """动态测试阶段的事件上报不得与进度参数冲突，更不得把上报错误当成测试失败。"""
+
+    @pytest.mark.asyncio
+    async def test_dynamic_tests_report_progress_and_keep_success(self, tmp_path):
+        import time
+
+        from app.agent.orchestrator_progress import ProgressMixin
+        from app.agent.orchestrator_testing import TestingMixin
+        from app.agent.test_runner import TestResult
+
+        class _Stub(TestingMixin, ProgressMixin):
+            def __init__(self):
+                self.output_dir = tmp_path
+                self.warnings = []
+                self.callback = events.append
+                self.progress = []
+                self._start_time = time.time()
+                self._current_phase = "testing"
+
+            def _update_phase(self, phase):
+                self._current_phase = phase
+
+            def _report_warning(self, **kwargs):
+                self.warnings.append(kwargs.get("message"))
+
+            def _report_test_results(self, payload):
+                self.test_results_payload = payload
+
+        events = []
+        stub = _Stub()
+        runner = MagicMock()
+        runner.run_tests = AsyncMock(return_value=TestResult(
+            success=True, total_tests=2, passed=2,
+            failed=0, errors=0, logs="2 passed",
+            failed_tests=[], language="python", framework="pytest",
+        ))
+
+        summary = await stub._run_dynamic_tests(runner)
+
+        assert summary["success"] is True
+        progress_events = [
+            json.loads(event) for event in events
+            if json.loads(event).get("step") == "测试完成"
+        ]
+        assert progress_events and progress_events[0]["tests_total"] == 2
+        assert summary["passed"] == 2

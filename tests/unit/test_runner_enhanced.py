@@ -113,6 +113,55 @@ class TestSecurityScanPolicy:
         assert "中止" not in result.logs
 
 
+class TestVenvUnavailableIsEnvironmentState:
+    """REQ: 宿主缺少 venv/ensurepip 属于环境状态，不算生成代码缺陷。"""
+
+    def setup_method(self):
+        self.temp_project = Path(tempfile.mkdtemp(prefix="test_venv_"))
+        (self.temp_project / "main.py").write_text("print('ok')\n")
+
+    def teardown_method(self):
+        shutil.rmtree(str(self.temp_project), ignore_errors=True)
+
+    @pytest.mark.asyncio
+    async def test_missing_venv_skips_dynamic_tests_successfully(self):
+        runner = IsolatedTestRunner(
+            project_path=self.temp_project,
+            enable_security_scan=False,
+        )
+        runner._framework_detector = MagicMock()
+        runner._framework_detector.detect = MagicMock(
+            return_value=MagicMock(
+                language="python",
+                framework="pytest",
+                test_command="pytest -v",
+                output_format="pytest_xml",
+            )
+        )
+
+        async def _no_venv():
+            runner._venv_python = None
+
+        with patch.object(runner, '_create_venv', side_effect=_no_venv):
+            result = await runner.run_tests(test_command="pytest")
+
+        assert result.success is True
+        assert result.method == "skipped_no_venv"
+        assert "跳过动态测试" in result.logs
+
+    @pytest.mark.asyncio
+    async def test_venv_create_system_exit_is_contained(self):
+        runner = IsolatedTestRunner(
+            project_path=self.temp_project,
+            enable_security_scan=False,
+        )
+
+        with patch('app.agent.test_runner.venv_mod.create', side_effect=SystemExit(1)):
+            await runner._create_venv()
+
+        assert runner._venv_python is None
+
+
 class TestMultiLanguageSupport:
     """REQ: 多语言 subprocess 执行"""
 
