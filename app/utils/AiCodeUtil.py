@@ -55,6 +55,13 @@ def _get_embedding_cache_key(text: str, model: str) -> str:
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()[:16]
 
 
+def _evict_memory_cache() -> None:
+    """内存缓存超限时按 LRU 强制淘汰，不因最旧项未过期而停止。"""
+    while len(_embedding_memory_cache) > _EMBEDDING_CACHE_MAXSIZE:
+        oldest_key, _ = _embedding_memory_cache.popitem(last=False)
+        _embedding_memory_expiry.pop(oldest_key, None)
+
+
 def _load_embedding_from_disk(cache_key: str) -> list:
     """从磁盘加载 embedding 缓存"""
     cache_file = _embedding_cache_dir / f"{cache_key}.json"
@@ -120,9 +127,15 @@ async def get_embedding(text: str, model: str = DEFAULT_EMBEDDING_MODEL) -> list
         # 加载到内存缓存
         _embedding_memory_cache[cache_key] = disk_vector
         _embedding_memory_expiry[cache_key] = time.time() + _embedding_memory_ttl
+        _evict_memory_cache()
         return disk_vector
 
     # 3. 调用 API
+    if not settings.SILICONFLOW_API_KEY:
+        raise HTTPException(
+            status_code=401,
+            detail="SiliconFlow API Key 未配置，请在 Settings → API Key 管理中添加（用于文本向量化）",
+        )
     headers = {
         "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
         "Content-Type": "application/json"
@@ -131,29 +144,24 @@ async def get_embedding(text: str, model: str = DEFAULT_EMBEDDING_MODEL) -> list
         "model": model,
         "input": text
     }
-    async with httpx.AsyncClient(timeout=Timeout(30.0, connect=10.0)) as client:
-        resp = await client.post(
-            f"{settings.SILICONFLOW_BASE_URL}/embeddings",
-            headers=headers,
-            json=data
-        )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=resp.status_code, detail=f"Embedding 失败: {resp.text}")
-        result = resp.json()
-        vector = result["data"][0]["embedding"]
+    # 复用模块级共享客户端，避免每次调用都建连/断连
+    client = await get_http_client()
+    resp = await client.post(
+        f"{settings.SILICONFLOW_BASE_URL}/embeddings",
+        headers=headers,
+        json=data,
+        timeout=Timeout(30.0, connect=10.0),
+    )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=f"Embedding 失败: {resp.text}")
+    result = resp.json()
+    vector = result["data"][0]["embedding"]
 
     # 4. 保存到缓存
     _embedding_memory_cache[cache_key] = vector
     _embedding_memory_cache.move_to_end(cache_key)
     _embedding_memory_expiry[cache_key] = time.time() + _embedding_memory_ttl
-    # 淘汰最久未使用的过期条目
-    while len(_embedding_memory_cache) > _EMBEDDING_CACHE_MAXSIZE:
-        oldest_key = next(iter(_embedding_memory_cache))
-        if time.time() >= _embedding_memory_expiry.get(oldest_key, 0):
-            del _embedding_memory_cache[oldest_key]
-            _embedding_memory_expiry.pop(oldest_key, None)
-        else:
-            break
+    _evict_memory_cache()
     _save_embedding_to_disk(cache_key, vector)
 
     # 定期清理过期磁盘缓存（每 100 次调用清理一次）
