@@ -387,3 +387,12 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - `parse_document`、`chunk_text` 是同步函数，放进 async 端点时用 `asyncio.to_thread` 包裹；`embed_chunks` 本身已是 async，不要重复包裹。
   - 上传大小上限按 1MB 分块写入时累计校验，超限删除半成品文件；范式参考 `app/api/v1/aiGeneratorPptx.py` 的 `_stream_upload_to_path(file, destination, max_size)`。
   - 验证死循环类防护做回退验证时给 pytest 加 `--timeout=5`，让旧代码的挂起表现为超时失败，避免卡死整个测试进程。
+
+### SQLite 外键约束与父实体删除
+- Date: 2026-09-18
+- Context: Agent 在修复用户删除级联缺陷（models.md MD1）时确认
+- Category: 排查与调试
+- Instructions:
+  - `app/db/database.py` 已为 SQLite 每个连接开启 `PRAGMA foreign_keys=ON`（并启用 WAL/busy_timeout），DB 级 `ondelete=CASCADE` 现已实际生效；改动涉及父实体删除的代码时不能再假定「SQLite 不校验外键」。
+  - 删除 `User` 这类父实体前，凡是没有 ORM cascade 的关系（如 `User.histories`、`File.uploader`/`Task.user` 的 backref），SQLAlchemy 会把子表外键置空并触发 `NOT NULL constraint failed`；只有无 `ondelete` 外键的表会直接报 `FOREIGN KEY constraint failed`；`user_id` 为裸列的表会静默残留孤儿。需按依赖顺序显式清理，范式见 `app/api/v2/user_manage.py::_purge_user_owned_data`。
+  - `ToolExecutionLog` 无 ORM 关系且 `session_id` 外键无 `ondelete`，删除 Agent 会话时会阻断删除用户；清理需按会话归属先删工具日志。
