@@ -14,6 +14,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# 每个模块保留的原始指标点上限，避免长运行服务内存无限增长
+_MAX_METRIC_POINTS_PER_MODULE = 1000
+
 
 @dataclass
 class MetricPoint:
@@ -131,6 +134,19 @@ class MetricsCollector:
     def get_all_metrics(self) -> Dict[str, ModuleMetrics]:
         """获取所有模块指标"""
         return self.module_metrics
+
+    def get_last_duration(self, module: str, metric_name: str = "execution_time") -> float:
+        """获取指定模块/指标最近一次记录的耗时（毫秒）；无记录返回 0。
+
+        调用方可能在 `end_timer` 之前读取（如测试结果事件），此时返回的是上一次的耗时。
+        """
+        points = self.metrics.get(module)
+        if not points:
+            return 0.0
+        for point in reversed(points):
+            if point.metric_name == metric_name:
+                return point.value
+        return 0.0
     
     def export_metrics(self) -> Dict:
         """导出指标为 JSON 格式"""
@@ -164,10 +180,11 @@ class MetricsCollector:
             logger.error(f"保存性能指标失败：{e}")
     
     def _record_metric(self, point: MetricPoint):
-        """记录指标点"""
-        if point.module not in self.metrics:
-            self.metrics[point.module] = []
-        self.metrics[point.module].append(point)
+        """记录指标点；每个模块仅保留最近的 _MAX_METRIC_POINTS_PER_MODULE 条。"""
+        points = self.metrics.setdefault(point.module, [])
+        points.append(point)
+        if len(points) > _MAX_METRIC_POINTS_PER_MODULE:
+            del points[:-_MAX_METRIC_POINTS_PER_MODULE]
     
     def _update_module_metrics(self, module: str, elapsed_ms: float):
         """更新模块指标"""
