@@ -46,7 +46,12 @@ from app.utils.aicloud.context_isolator import is_protected_path, is_protected_f
 from app.utils.aicloud.sandbox import ensure_user_sandbox
 from app.utils.aicloud.sandbox_operator import SandboxFileOperator
 from app.utils.file_operator import PathSecurityError
-from app.utils.aicloud.review_queue import create_review, approve_review, reject_review
+from app.utils.aicloud.review_queue import (
+    create_review,
+    get_review,
+    approve_review,
+    reject_review,
+)
 from app.utils.aicloud.audit_logger import log_operation, log_file_read, log_file_write
 from app.models.aicloud import AicloudSession, AicloudMessage, AicloudReview, AicloudAuditLog
 from app.utils import call_llm
@@ -488,18 +493,6 @@ async def write_file(
         await log_file_write(db, user_id, request.file_path, False, error=str(e))
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
-    if result.get("review_status") == "approved":
-        await log_file_write(
-            db, user_id, operator.get_absolute_path(request.file_path),
-            True, len(request.content)
-        )
-        return FileWriteResponse(
-            success=True,
-            review_status="approved",
-            review_id=result.get("review", {}).get("id"),
-            message="File written successfully"
-        )
-
     review = await create_review(
         db=db,
         operation_type="write",
@@ -650,7 +643,7 @@ async def get_reviews(
     """
     await check_aicloud_permission(user_id, db)
 
-    query = select(AicloudReview)
+    query = select(AicloudReview).where(AicloudReview.requested_by == user_id)
 
     if status_filter:
         query = query.where(AicloudReview.status == status_filter)
@@ -689,22 +682,33 @@ async def approve_review_endpoint(
     """
     await check_aicloud_permission(user_id, db)
 
-    review = await approve_review(db, request.review_id, user_id)
+    review = await get_review(db, request.review_id)
+    if not review:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="review not found")
 
+    if review.requested_by != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="review belongs to another user"
+        )
+
+    review = await approve_review(db, review.id, user_id)
     if not review:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="review not found")
 
     if review.operation_type == "write" and review.content:
-        sandbox_path = review.file_path
+        # 落盘统一走沙箱文件操作器，复用符号链接与越界路径校验
+        operator = SandboxFileOperator(review.requested_by)
+        relative_path = os.path.relpath(review.file_path, str(operator.base_path))
         try:
-            import os
-            os.makedirs(os.path.dirname(sandbox_path), exist_ok=True)
-            with open(sandbox_path, "w", encoding="utf-8") as f:
-                f.write(review.content)
+            await operator.write_async(relative_path, review.content)
 
-            await log_file_write(db, user_id, sandbox_path, True, len(review.content))
+            await log_file_write(db, user_id, review.file_path, True, len(review.content))
+        except PathSecurityError as e:
+            await log_file_write(db, user_id, review.file_path, False, error=str(e))
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
         except Exception as e:
-            await log_file_write(db, user_id, sandbox_path, False, error=str(e))
+            await log_file_write(db, user_id, review.file_path, False, error=str(e))
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
     return {"status": "approved", "review_id": review.id}
@@ -723,8 +727,17 @@ async def reject_review_endpoint(
     """
     await check_aicloud_permission(user_id, db)
 
-    review = await reject_review(db, request.review_id, user_id, request.reason)
+    review = await get_review(db, request.review_id)
+    if not review:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="review not found")
 
+    if review.requested_by != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="review belongs to another user"
+        )
+
+    review = await reject_review(db, review.id, user_id, request.reason)
     if not review:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="review not found")
 
