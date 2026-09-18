@@ -7,14 +7,20 @@ v4.8.0 新增：
 - 恢复前验证已上传分片的完整性
 """
 
+import asyncio
 import hashlib
 import json
 import logging
+import os
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+# upload_id 白名单：仅允许字母/数字/下划线/连字符，防止 ../ 或绝对路径穿越
+_UPLOAD_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 @dataclass
@@ -38,10 +44,27 @@ class ResumeManager:
     def __init__(self, resume_dir: Optional[Path] = None):
         self.resume_dir = resume_dir or Path("uploads/.resume")
         self.resume_dir.mkdir(parents=True, exist_ok=True)
+        self._locks: Dict[str, asyncio.Lock] = {}
 
     def _state_file(self, upload_id: str) -> Path:
         """获取状态文件路径"""
+        if not _UPLOAD_ID_RE.match(upload_id or ""):
+            raise ValueError(f"非法 upload_id: {upload_id!r}")
         return self.resume_dir / f"{upload_id}.json"
+
+    def _lock_for(self, upload_id: str) -> asyncio.Lock:
+        """获取单个 upload_id 的异步锁（同进程内串行化读-改-写）"""
+        lock = self._locks.get(upload_id)
+        if lock is None:
+            lock = self._locks[upload_id] = asyncio.Lock()
+        return lock
+
+    @staticmethod
+    def _atomic_write(path: Path, content: str) -> None:
+        """先写临时文件再原子替换，避免读到半写状态"""
+        tmp_path = path.with_name(path.name + ".tmp")
+        tmp_path.write_text(content)
+        os.replace(tmp_path, path)
 
     def compute_chunk_hash(self, data: bytes) -> str:
         """计算分片数据的 MD5 hash"""
@@ -63,19 +86,22 @@ class ResumeManager:
         """
         state_file = self._state_file(upload_id)
 
-        if state_file.exists():
-            data = json.loads(state_file.read_text())
-        else:
-            data = {
-                "upload_id": upload_id,
-                "completed_chunks": [],
-                "chunk_hashes": {},
-            }
+        async with self._lock_for(upload_id):
+            if state_file.exists():
+                data = json.loads(state_file.read_text())
+            else:
+                data = {
+                    "upload_id": upload_id,
+                    "completed_chunks": [],
+                    "chunk_hashes": {},
+                }
 
-        data["completed_chunks"].append(chunk_index)
-        data["chunk_hashes"][chunk_index] = chunk_hash
+            completed = data.setdefault("completed_chunks", [])
+            if chunk_index not in completed:
+                completed.append(chunk_index)
+            data.setdefault("chunk_hashes", {})[chunk_index] = chunk_hash
 
-        state_file.write_text(json.dumps(data))
+            self._atomic_write(state_file, json.dumps(data))
 
     async def get_resume_state(self, upload_id: str, total_chunks: int) -> ResumeState:
         """
@@ -157,5 +183,6 @@ class ResumeManager:
     async def clear_state(self, upload_id: str) -> None:
         """清除上传状态（合并完成后调用）"""
         state_file = self._state_file(upload_id)
-        if state_file.exists():
-            state_file.unlink()
+        async with self._lock_for(upload_id):
+            if state_file.exists():
+                state_file.unlink()
