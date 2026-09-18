@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, String, Integer, ForeignKey, UniqueConstraint
 from sqlalchemy import func
 from sqlalchemy.orm import relationship
 
@@ -16,3 +16,9 @@ class Permission(Base):
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False, index=True)
     permission_level = Column(String(20), default="normal", nullable=False, index=True)
     user=relationship("User", back_populates="permission", uselist=False)
+
+    # user.permission 是 uselist=False，一个用户出现多行权限会让读取
+    # 抛 MultipleResultsFound；在数据库层保证唯一。
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_permission_user_id"),
+    )

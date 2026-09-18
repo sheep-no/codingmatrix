@@ -78,4 +78,8 @@ app/middleware 4 文件（912 行：rate_limiter 429 / input_validator 297 / fea
   - 决策：项目无迁移框架，故不改 schema（未给 Aicloud 三表补 `ondelete`、未给 KnowledgeDoc 补 FK），改用显式事务清理以兼容既有 SQLite/MySQL 库；Agent 子系统模型未改动，仅在删除路径清理其从属数据。
 - **新发现（原文档未列，已修）**：`ToolExecutionLog`（AME1 补充证据）在 PR #18 后同样阻断删除用户——它无 ORM 关系、`session_id` 外键无 `ondelete`，`User.agent_sessions` 级联删会话时触发外键错误。现已纳入 `_purge_user_owned_data`。
 - **新增回归**：`tests/unit/test_user_deletion_cascade.py`（1 项，覆盖 18 张表的清理与另一用户数据不受影响）；回退 `user_manage.py` 后该测试失败。
-- **MD2–MD8 未处理**：本轮仅核实并修复 MD1。
+- **MD2 [P3] 已修（唯一约束部分）**：`Permission.__table_args__` 增加 `UniqueConstraint("user_id", name="uq_permission_user_id")`。`user.permission` 为 `uselist=False`，同用户多行会让读取抛 `MultipleResultsFound`。新增回归 `tests/unit/test_permission_unique_constraint.py`，回退模型后测试失败。
+  - **未加 CHECK 约束**：代码库测试与 token 仍在使用 `"super"`/`"user"` 等不在 `PERMISSION_LEVELS` 内的级别（如 `tests/unit/test_database_services.py`、`tests/conftest.py`），加 `permission_level IN (...)` 会直接破坏既有用例；且生产代码只用三级值，CHECK 属可选的防御加固，留待与权限级别口径统一时处理。
+  - **既有库不受约束保护**：项目无迁移框架，`create_all` 不会为已存在的 `permission` 表补约束，仅新库生效；`PermissionService.create_permission` 仍是裸插入，并发下可能 IntegrityError 而非静默重复（较重复行更可取）。
+- **MD5 [P3] 已修**：删除 `ServerConfig` 文件末尾的 `ServerStats` 死表（零写入零读取），同时移除 `app/services/resource_config.py` 的未使用导入及 `server_config.py` 中随之失效的 `relationship`/`BigInteger`/`Float` 导入。
+- **MD3/MD4/MD6/MD7/MD8 未处理**：其中 MD6 建议的 `UserPreference(user_id, preference_key)` 唯一约束与 `CompanionMemoryService` 的软删除语义冲突（`status="deleted"` 行会保留、同 key 允许再建 candidate），不可直接添加；MD8 的「响应携带全量 parsed_content」经核实不成立（`FileUploadResponse` 未声明该字段，Pydantic v2 默认忽略额外键）。其余待后续。
