@@ -28,8 +28,13 @@ _MARKUP_EXTENSIONS = frozenset({
 })
 
 
-def _is_documentation_file(file_path: str) -> bool:
-    """判断文件是否为文档/文本类文件（扩展名或无扩展名的常见文档名）。"""
+def is_documentation_file(file_path: str) -> bool:
+    """判断文件是否为文档/文本类文件（扩展名或无扩展名的常见文档名）。
+
+    供内容质量启发式与代码审查硬门禁共用：文档/文本类产物的正确内容本来
+    就是散文或 Markdown，按「代码形态」判错或按「高风险代码」禁止落盘都会
+    造成误报（典型：README 描述源码布局被判为缺少 __init__.py）。
+    """
     path = Path(file_path)
     if path.suffix.lower() in _DOCUMENTATION_EXTENSIONS:
         return True
@@ -349,7 +354,7 @@ def is_valid_code_content(file_path: str, content: str) -> tuple:
         len(stripped) < 10
         and not is_package_entry_file(file_path)
         and not is_metadata_file(file_path)
-        and not _is_documentation_file(file_path)
+        and not is_documentation_file(file_path)
     ):
         return False, "内容过短（<10 字符）"
 
@@ -391,7 +396,7 @@ def is_valid_code_content(file_path: str, content: str) -> tuple:
         ext not in ('.py', '.pyw', '.pyi', '.json')
         and ext not in _MARKUP_EXTENSIONS
         and name != 'pom.xml'
-        and not _is_documentation_file(file_path)
+        and not is_documentation_file(file_path)
     ):
         # 检查是否是 Markdown 文档（用特征模式而非单个 #）
         md_patterns = ['## ', '### ', '- ', '* ', '1. ', '```', '> ']
@@ -780,7 +785,7 @@ def validate_in_sandbox(
         ext = Path(file_path).suffix.lower()
         if ext in _SHARED_SYNTAX_EXTENSIONS:
             shared_errors.extend(_shared_syntax_errors(file_path, content))
-        elif _is_documentation_file(file_path):
+        elif is_documentation_file(file_path):
             continue
         else:
             remaining_files[file_path] = content
@@ -1005,7 +1010,7 @@ def is_placeholder_content(content: str, file_path: str = "") -> tuple:
     ]
     # 文档/文本文件里这些短语是正常行文（如更新日志「其他代码保持不变」），
     # 不能据此判为截断，否则合法的 README/说明文件会被反复重生成。
-    if not _is_documentation_file(file_path):
+    if not is_documentation_file(file_path):
         for pattern, desc in truncation_patterns:
             for match in re.finditer(pattern, stripped, re.IGNORECASE):
                 # 短语之后若还有实质代码，说明输出没有在短语处被砍断，
@@ -1242,7 +1247,7 @@ def validate_content_quality(file_path: str, content: str) -> str:
     stripped = content.strip()
 
     # 文档/文本文件的首行本来就是散文，不能据此判为思考过程泄漏。
-    is_doc_file = _is_documentation_file(file_path)
+    is_doc_file = is_documentation_file(file_path)
 
     # 检测 LLM 思考过程泄漏（中英文描述性文本混入代码文件）
     thinking_patterns = [

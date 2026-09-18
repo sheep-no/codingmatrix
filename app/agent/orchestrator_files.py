@@ -18,7 +18,7 @@ from app.agent.complexity import ProjectComplexity
 from app.agent.code_validator import CodeValidator
 from app.agent.orchestrator_progress import PROGRESS_LABELS
 from app.agent.models import DEFAULT_CODE_MODEL, DEFAULT_FAST_MODEL
-from app.agent.utils import extract_engineer_content, write_file_atomic
+from app.agent.utils import extract_engineer_content, is_documentation_file, write_file_atomic
 from app.agent.dependency_graph import summarize_dependency_context
 from app.agent.topology_scheduler import HeartbeatTracker
 
@@ -2779,7 +2779,10 @@ router = APIRouter()
                     file_path=file_path,
                     risk_level=review_result.get("risk_level"),
                 )
-                if review_result.get("risk_level") == "high":
+                # 高风险审查只对源代码文件禁止落盘。文档/文本类产物的正确内容
+                # 不是代码，审查器按代码口径给出的结构性结论（例如 README 描述
+                # 的源码布局被判为缺少 __init__.py）不能回滚整个依赖层。
+                if review_result.get("risk_level") == "high" and not is_documentation_file(file_path):
                     validation_success = False
 
         if self.validator and file_path.endswith('.py'):

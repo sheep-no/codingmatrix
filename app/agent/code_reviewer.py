@@ -6,6 +6,7 @@ from typing import Dict, List
 from app.agent.specialist_base import Specialist
 from app.utils.prompt_loader import load_code_reviewer_prompt
 from app.agent.tracing import traced
+from app.agent.utils import is_documentation_file
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +57,31 @@ class CodeReviewer(Specialist):
     @traced("reviewer.review_code", attributes={"component": "specialist", "role": "reviewer"})
     async def review_code(self, code: str, file_path: str, context: str = "") -> Dict:
         """审查代码"""
-        # 先进行版本兼容性检查
-        version_issues = await self._check_version_compatibility(code)
+        # 文档/文本类文件不是代码：不对其做基于 import 语句的版本兼容性检查，
+        # 也要求审查器只评估文件自身内容，不得把文中提到的其他文件、目录或包
+        # 结构（如 README 描述的源码布局与 __init__.py）判为本文件的高风险问题。
+        if is_documentation_file(file_path):
+            version_issues = []
+            prompt = f"""请审查以下文档/文本文件自身的内容：
 
-        prompt = f"""请审查以下代码：
+文件路径：{file_path}
+上下文：{context}
+
+内容：
+```
+{code}
+```
+
+只评估该文件自身内容的质量（如事实错误、未替换的占位符、敏感信息泄漏、
+格式损坏）。文档中描述或引用的其他文件、目录与包结构不属于本文件的内容，
+不得据此判定本文件存在高风险。
+
+请输出审查结果。"""
+        else:
+            # 先进行版本兼容性检查
+            version_issues = await self._check_version_compatibility(code)
+
+            prompt = f"""请审查以下代码：
 
 文件路径：{file_path}
 上下文：{context}

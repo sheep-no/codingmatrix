@@ -500,6 +500,21 @@ class TestCodeValidator:
         # 缺包信息仍作为诊断保留
         assert any("definitely_not_installed_lib_xyz" in err for err in result["import_errors"])
 
+    def test_src_layout_namespace_package_is_not_third_party(self, tmp_path):
+        """`src/` 布局没有 __init__.py 也是本地命名空间包，不算第三方依赖。"""
+        from app.agent.code_validator import CodeValidator
+
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "greeting.py").write_text(
+            "def greet(name):\n    return f'Hello, {name}'\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text(
+            "import fastapi\nfrom src.greeting import greet\n\nprint(greet('World'))\n",
+            encoding="utf-8",
+        )
+
+        assert CodeValidator(tmp_path)._python_third_party_imports() == ["fastapi"]
+
     @pytest.mark.asyncio
     async def test_missing_project_module_is_still_a_defect(self, tmp_path):
         """项目内模块缺失才是代码缺陷，仍需判为无效。"""
