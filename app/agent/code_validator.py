@@ -132,14 +132,19 @@ class CodeValidator:
         return list(dict.fromkeys(str(path) for path in paths if path.is_dir()))
 
     def _project_top_level_packages(self) -> List[str]:
-        """项目根下可被 `import X` 命中的顶层包/模块名。"""
+        """项目根下可被 `import X` 命中的顶层包/模块名。
+
+        含 `__init__.py` 的目录是常规包；不含 `__init__.py` 但含 `.py` 文件的
+        目录是 PEP 420 命名空间包（典型 `src/` 布局），同样可被 `import src.x`
+        命中，不能当作第三方依赖。
+        """
         names = []
         try:
             for entry in self.project_path.iterdir():
                 if entry.name.startswith(".") or entry.name == "__pycache__":
                     continue
                 if entry.is_dir():
-                    if (entry / "__init__.py").exists():
+                    if (entry / "__init__.py").exists() or any(entry.glob("*.py")):
                         names.append(entry.name)
                 elif entry.suffix == ".py":
                     names.append(entry.stem)

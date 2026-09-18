@@ -1,5 +1,6 @@
 import ast
 import types
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -130,6 +131,9 @@ class _FilesTestOrchestrator(FilesMixin):
         return None
 
     def _report_file_event(self, *_args, **_kwargs):
+        return None
+
+    def _report_warning(self, *_args, **_kwargs):
         return None
 
     def _is_frontend_file(self, _file_path):
@@ -3150,6 +3154,47 @@ async def test_validate_and_review_syntax_error_is_failure(tmp_path):
     success, _content = await orchestrator._validate_and_review_file(
         "main.py", "def (\n", "entry"
     )
+    assert success is False
+
+
+def _orchestrator_with_high_risk_review(tmp_path):
+    orchestrator = _FilesTestOrchestrator(tmp_path)
+    orchestrator.enable_validation = True
+    orchestrator.enable_review = True
+    orchestrator.enable_error_recovery = False
+    orchestrator.validator = types.SimpleNamespace(_validation_cache={})
+    orchestrator.reviewer = types.SimpleNamespace(
+        review_code=AsyncMock(return_value={
+            "needs_fix": True,
+            "risk_level": "high",
+            "issues": [{"severity": "high", "message": "缺少必要的 __init__.py"}],
+        })
+    )
+    return orchestrator
+
+
+@pytest.mark.asyncio
+async def test_high_risk_review_does_not_block_documentation_file(tmp_path):
+    """文档类文件被审查器按代码口径判高风险时只告警，不回滚依赖层。"""
+    orchestrator = _orchestrator_with_high_risk_review(tmp_path)
+
+    success, content = await orchestrator._validate_and_review_file(
+        "README.md", "# 项目\n\n包含 src/greeting.py 与 main.py。\n", "一行项目说明"
+    )
+
+    assert success is True
+    assert content.startswith("# 项目")
+    assert any("README.md" in warning for warning in orchestrator.warnings)
+
+
+@pytest.mark.asyncio
+async def test_high_risk_review_still_blocks_source_file(tmp_path):
+    orchestrator = _orchestrator_with_high_risk_review(tmp_path)
+
+    success, _content = await orchestrator._validate_and_review_file(
+        "main.py", "print('ok')\n", "entry"
+    )
+
     assert success is False
 
 
