@@ -40,6 +40,39 @@ def _extract_user_identity(kwargs: dict) -> Optional[str]:
     return None
 
 
+def _serialize_cache_param(value: Any) -> Optional[str]:
+    """把路由参数序列化成稳定的字符串片段。
+
+    无法稳定序列化的对象（如数据库会话、Request）返回 None，由调用方跳过。
+    旧实现直接忽略 dict/list，导致不同请求体命中同一条缓存。
+    """
+    if isinstance(value, bool):
+        return f"bool:{value}"
+    if isinstance(value, (int, float, str)):
+        return str(value)
+    if isinstance(value, (set, frozenset)):
+        try:
+            return json.dumps(sorted(value, key=str), default=str)
+        except (TypeError, ValueError):
+            return None
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            return json.dumps(value, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            return None
+    if hasattr(value, "model_dump"):
+        try:
+            return json.dumps(value.model_dump(), sort_keys=True, default=str)
+        except Exception:
+            return None
+    if hasattr(value, "dict"):
+        try:
+            return json.dumps(value.dict(), sort_keys=True, default=str)
+        except Exception:
+            return None
+    return None
+
+
 def _generate_cache_key(
     key_prefix: str,
     func_name: str,
@@ -61,38 +94,26 @@ def _generate_cache_key(
             parts.append(json.dumps(query_params, sort_keys=True))
 
     for arg in args:
-        if isinstance(arg, (int, str, float, bool)):
-            parts.append(str(arg))
-        elif hasattr(arg, 'model_dump'):
-            # Pydantic v2 model
-            try:
-                parts.append(json.dumps(arg.model_dump(), sort_keys=True, default=str))
-            except Exception:
-                pass
-        elif hasattr(arg, 'dict'):
-            # Pydantic v1 model
-            try:
-                parts.append(json.dumps(arg.dict(), sort_keys=True, default=str))
-            except Exception:
-                pass
+        if isinstance(arg, Request):
+            continue
+        serialized = _serialize_cache_param(arg)
+        if serialized is not None:
+            parts.append(serialized)
 
     for k, v in sorted(kwargs.items()):
-        if k not in ("request", "db", "token", "current_user", "user_id", "background_tasks"):
-            if isinstance(v, (int, str, float, bool)):
-                parts.append(f"{k}={v}")
-            elif hasattr(v, 'model_dump'):
-                try:
-                    parts.append(f"{k}={json.dumps(v.model_dump(), sort_keys=True, default=str)}")
-                except Exception:
-                    pass
-            elif hasattr(v, 'dict'):
-                try:
-                    parts.append(f"{k}={json.dumps(v.dict(), sort_keys=True, default=str)}")
-                except Exception:
-                    pass
+        if k in ("db", "token", "current_user", "user_id", "background_tasks"):
+            continue
+        # FastAPI 注入的 Request 不参与键；名为 request 的业务请求体模型必须参与，
+        # 否则不同请求体（如历史记录查询参数）会命中同一条缓存。
+        if isinstance(v, Request):
+            continue
+        serialized = _serialize_cache_param(v)
+        if serialized is not None:
+            parts.append(f"{k}={serialized}")
 
     key_str = ":".join(parts)
-    return hashlib.md5(key_str.encode("utf-8")).hexdigest()
+    # 保留 key_prefix 作为可匹配前缀，供 invalidate_pattern/按前缀失效使用。
+    return f"{key_prefix}:{hashlib.md5(key_str.encode('utf-8')).hexdigest()}"
 
 
 def _should_cache_response(status_code: int, condition: Optional[Callable] = None) -> bool:
@@ -169,6 +190,11 @@ def cache_response(
                 if result is None and not cache_none:
                     return result
 
+                # Response 对象无法跨进程序列化：Redis 后端 json.dumps(default=str)
+                # 会把它降级成字符串，命中后返回字符串会破坏响应结构。
+                if isinstance(result, Response):
+                    return result
+
                 cache_data = {
                     "_cached_response": result,
                     "_cached_at": None,
@@ -200,14 +226,14 @@ def invalidate_cache(key_prefix: str, pattern: Optional[str] = None):
     def decorator(func: Callable[..., Awaitable[Any]]):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
-            result = await func(*args, **kwargs)
-
-            cache = await get_cache_manager()
-            invalidate_pattern = pattern or f"{key_prefix}:*"
-            count = await cache.invalidate_pattern(invalidate_pattern)
-            logger.info(f"缓存失效 key_prefix={key_prefix} pattern={invalidate_pattern} count={count}")
-
-            return result
+            try:
+                return await func(*args, **kwargs)
+            finally:
+                # 即使被装饰函数抛异常也要清缓存，避免残留过期数据。
+                cache = await get_cache_manager()
+                invalidate_pattern = pattern or f"{key_prefix}:*"
+                count = await cache.invalidate_pattern(invalidate_pattern)
+                logger.info(f"缓存失效 key_prefix={key_prefix} pattern={invalidate_pattern} count={count}")
         return wrapper
     return decorator
 

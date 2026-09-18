@@ -5,6 +5,7 @@ Redis 缓存管理层
 import json
 import hashlib
 import logging
+import time
 from typing import Any, Optional, List, Union
 from datetime import datetime, timedelta
 from collections import OrderedDict
@@ -105,11 +106,16 @@ class RedisCache:
         self._retry_on_timeout = retry_on_timeout
         self._is_connected = False
         self._lock = asyncio.Lock()
+        # Redis 不可用时避免每次操作都重连（ping 超时 2s），设置冷却期。
+        self._retry_cooldown = 5.0
+        self._next_connect_attempt = 0.0
 
     async def _ensure_connection(self) -> bool:
         if self._redis is None:
             async with self._lock:
                 if self._redis is None:
+                    if time.monotonic() < self._next_connect_attempt:
+                        return False
                     try:
                         self._redis = aioredis.from_url(
                             self._redis_url,
@@ -126,6 +132,7 @@ class RedisCache:
                         logger.error(f"Redis 连接失败: {e}")
                         self._is_connected = False
                         self._redis = None
+                        self._next_connect_attempt = time.monotonic() + self._retry_cooldown
                         return False
         return self._is_connected
 
@@ -192,15 +199,9 @@ class RedisCache:
             return 0
 
     async def clear(self) -> bool:
-        if not await self._ensure_connection():
-            return False
-        try:
-            await self._redis.flushdb()
-            return True
-        except Exception as e:
-            logger.error(f"Redis 清空失败: {e}")
-            self._is_connected = False
-            return False
+        # 按 key_prefix 扫删，避免 flushdb 清空共享 Redis 中其他应用的数据。
+        await self.invalidate_pattern("*")
+        return True
 
     async def close(self) -> None:
         if self._redis:
@@ -248,16 +249,23 @@ class RedisCacheManager:
             value = await self._redis_cache.get(key)
             if value is not None:
                 return value
-            if self._redis_cache._is_connected:
-                return None
+            # Redis 未命中：可能是降级期间写入 memory 的值，或 Redis 刚恢复。
+            # 回退读 memory 并回填 Redis，避免降级期写入的缓存瞬间不可见。
+            mem_value = await self._memory_cache.get(key)
+            if mem_value is not None:
+                await self._redis_cache.set(key, mem_value)
+                return mem_value
+            return None
         return await self._memory_cache.get(key)
 
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
-        success = False
         if self._use_redis and self._redis_cache:
             success = await self._redis_cache.set(key, value, ttl)
-        if not success:
-            await self._memory_cache.set(key, value, ttl)
+            if success:
+                # 清除降级期残留的 memory 影子值，避免 Redis 淘汰后读到旧值。
+                await self._memory_cache.delete(key)
+                return True
+        await self._memory_cache.set(key, value, ttl)
         return True
 
     async def delete(self, key: str) -> bool:
@@ -334,16 +342,19 @@ def cached(ttl: int = 3600, prefix: str = ""):
                 cache_key_parts.append(str(arg))
             for k, v in sorted(kwargs.items()):
                 cache_key_parts.append(f"{k}={v}")
-            cache_key = hashlib.md5(":".join(cache_key_parts).encode()).hexdigest()
+            digest = hashlib.md5(":".join(cache_key_parts).encode()).hexdigest()
+            cache_key = f"{prefix}:{digest}"
 
             cache = await get_cache_manager()
             cached_value = await cache.get(cache_key)
-            if cached_value is not None:
-                return cached_value
+            # 用包装 dict 区分「缓存未命中」与「缓存值为 None」，
+            # 否则返回 None 的函数每次都会击穿缓存重算。
+            if isinstance(cached_value, dict) and "_cached_value" in cached_value:
+                return cached_value["_cached_value"]
 
             result = await func(*args, **kwargs)
 
-            await cache.set(cache_key, result, ttl)
+            await cache.set(cache_key, {"_cached_value": result}, ttl)
             return result
         return wrapper
     return decorator
