@@ -102,6 +102,16 @@
 - **CE5/CE7**：Python AST 仍不拦 attribute 链逃逸；执行脚本仍明文落盘（P3）。
 - **AE2/AE3/AE5**：`CodeExecutor` 默认落 `/tmp`；循环记录截断无标记；`conversation_history` 收集后无消费（P3）。
 - **CI1**：`context_isolator.setup_sandbox` 产出的 `sandbox_env` 仍未注入 `CodeExecutor`（后者使用固定环境字典）（P3）。
-- **CA6/CA7、RQ2、CI3、SF1、KP2/KP3/KP4**：内容分析正则覆盖面、死代码、单例无锁、密码正则、零向量占位等 P3 项未处理。
+- **CA6/CA7、CI3、SF1、KP2/KP3/KP4**：内容分析正则覆盖面、死代码、单例无锁、密码正则、零向量占位等 P3 项未处理。
 
 > 本次未触及 Agent 子系统、Flutter 与 VS Code 插件范围。
+
+### 已修复（PR #27：260918-fix-aicloud-review-isolation）
+
+- **RQ1 已修复**：`GET /reviews` 增加 `requested_by == 当前用户` 过滤，不再泄露他人待审内容；`approve`/`reject` 先校验 `review.requested_by`，非归属返回 403；审批写回改走 `SandboxFileOperator.write_async`，复用符号链接与越界路径校验，不再用 `open()` 直写 `review.file_path`（越界路径返回 403）。
+- **SO1/CA5 已修复（删死分支）**：确认 `deep_content_analysis` 对 write 恒返回 `require_human_review`，删除 `write_with_review` 中不可达的 `auto_approve` 分支，以及 `write_file` 端点中同样不可达的 `review_status == "approved"` 分支。
+- **RQ2 已修复（删死代码）**：删除零消费的 `get_pending_reviews`/`get_user_review_preferences`/`process_review_request`。
+- **SO4 更正**：`SandboxFileOperator.PROTECTED_PATHS` 并非死字段，`FileOperator._validate_path` 通过 `self.PROTECTED_PATHS` 读取子类覆盖值（子类清单不含 `/tmp`），故建档「死字段」判断不成立。
+- 新增 `tests/unit/test_aicloud_review_isolation.py`（5 项），回退源码后 4 项失败。
+
+> **SO2 未处理**：`raw_content` 仍原样入库与写回。review 需要原文才能审阅与回写，改动涉及产品口径，暂保留现状。

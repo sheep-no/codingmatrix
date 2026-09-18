@@ -110,15 +110,11 @@ class SandboxFileOperator(FileOperator):
 
         analysis = await deep_content_analysis(content, "write", self.user_id)
 
-        if analysis.get("action") == "auto_approve":
-            result = await self.write_async(path, content)
-            result["review_status"] = "approved"
-            result["analysis"] = analysis
-            return result
-        else:
-            return {
-                "success": False,
-                "review_status": "pending",
-                "analysis": analysis,
-                "path": path,
-            }
+        # 写操作一律进入人工审查（content_analyzer 对 write 恒要求审查），
+        # 审批通过后由 /reviews/approve 端点真正落盘。
+        return {
+            "success": False,
+            "review_status": "pending",
+            "analysis": analysis,
+            "path": path,
+        }

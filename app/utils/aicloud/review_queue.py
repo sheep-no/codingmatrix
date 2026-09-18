@@ -9,7 +9,7 @@
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -148,95 +148,3 @@ async def reject_review(
 
     return review
 
-
-async def get_user_review_preferences(
-    db: AsyncSession,
-    user_id: int
-) -> Dict[str, Any]:
-    """
-    获取用户审查偏好
-
-    Args:
-        db: 数据库会话
-        user_id: 用户 ID
-
-    Returns:
-        用户偏好字典
-    """
-    return {
-        "human_review_enabled": True,
-        "auto_approve_reads": False,
-        "auto_approve_safe_content": True,
-    }
-
-
-async def get_pending_reviews(
-    db: AsyncSession,
-    user_id: Optional[int] = None,
-    limit: int = 50
-) -> List[AicloudReview]:
-    """
-    获取待处理的审查列表
-
-    Args:
-        db: 数据库会话
-        user_id: 可选的用户 ID 过滤
-        limit: 返回数量限制
-
-    Returns:
-        待处理审查列表
-    """
-    query = select(AicloudReview).where(AicloudReview.status == "pending")
-
-    if user_id:
-        query = query.where(AicloudReview.requested_by == user_id)
-
-    query = query.order_by(AicloudReview.created_at.desc()).limit(limit)
-
-    result = await db.execute(query)
-    return list(result.scalars().all())
-
-
-async def process_review_request(
-    operation_type: str,
-    file_path: str,
-    content: Optional[str],
-    user_id: int,
-    db: AsyncSession,
-    ai_passed: bool = True
-) -> Dict[str, Any]:
-    """
-    处理审查请求
-
-    Args:
-        operation_type: 操作类型
-        file_path: 文件路径
-        content: 文件内容
-        user_id: 用户 ID
-        db: 数据库会话
-        ai_passed: AI 分析是否通过
-
-    Returns:
-        处理结果
-    """
-    user_prefs = await get_user_review_preferences(db, user_id)
-    human_required = user_prefs.get("human_review_enabled", True)
-
-    review = await create_review(
-        db=db,
-        operation_type=operation_type,
-        file_path=file_path,
-        content=content,
-        requested_by=user_id,
-        ai_filter_passed=ai_passed
-    )
-
-    if ai_passed and not human_required:
-        await approve_review(db, review.id, user_id)
-        return {"status": "approved", "review_id": review.id}
-
-    return {
-        "status": "pending",
-        "review_id": review.id,
-        "ai_warning": not ai_passed
-    }
