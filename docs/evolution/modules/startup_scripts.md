@@ -94,3 +94,11 @@ verify-integration.sh ────► 仅本地文件与源码文本检查
 - `start.sh` 应收敛为唯一生产式编排入口，`dev.sh` 保留为明确的开发入口，`start-backend.sh` 需要转为受控诊断工具或并入开发入口；三者共享项目根目录、API 地址和健康检查配置。
 - `stop.sh` 与 `status.sh` 应围绕同一服务清单生成操作和报告，覆盖 Gunicorn/Uvicorn、Celery、Nginx、Redis 与前端入口，形成“启动声明什么、状态观察什么、停止回收什么”的对称生命周期。
 - `migrate.sh` 与 `test.sh` 应进入可重复的工程命令层，明确执行目录、配置来源、测试分类和失败语义；`verify-integration.sh` 应定位为静态门禁或补齐真实集成执行链。
+
+## 七、状态更新（2026-09-18 核实）
+
+- **SS1 [P2] 已修复**：`start.sh:17` 的 `PROJECT_DIR` 改为脚本目录的父目录（`$(dirname "${BASH_SOURCE[0]}")/..`）。修复前 `PROJECT_DIR=/workspace/scripts`，导致 `build_frontend` 找 `scripts/src/package.json`（不存在，前端静默跳过）、`start_api` 在 `scripts/` 下无法导入 `app.main`、`start_nginx` 找 `scripts/configs/nginx.conf`（不存在，退回默认配置）、日志与数据写入 `scripts/logs|data`。新增测试从任意 CWD 解析该赋值并断言等于仓库根。
+- **SS2 [P2] 未改**：健康 URL 已统一为 `/api/v1/health`，与主启动链一致；实际启动行为需运行环境验证，本次未执行脚本。
+- **SS3 [P2] 未改**：进程生命周期收敛（PID/进程组、移除宽泛 `pkill -f`）属启动编排重构，且会与 `stop.sh`/`start-backend.sh` 联动，风险高于本次缺陷修复范围。
+- **SS4 [P2] 未改**：8000/8080 双端口契约需产品定义 development/production 单一端口后统一脚本、Compose、Nginx 与 README，非单点缺陷。
+- **测试状态**：新增 `tests/unit/test_startup_scripts.py`（2 项）；回退 `scripts/start.sh` 后根目录断言失败（解析为 `/workspace/scripts`）。
