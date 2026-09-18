@@ -2398,7 +2398,11 @@ class SpecFirstGenerateMixin:
                 "is_complete": bool
             }
         """
-        from app.agent.utils import is_package_entry_file, is_valid_code_content
+        from app.agent.utils import (
+            is_metadata_file,
+            is_package_entry_file,
+            is_valid_code_content,
+        )
 
         planned_files = {f["path"] for f in file_plan}
         generated_set = set(generated_files.keys())
@@ -2409,10 +2413,13 @@ class SpecFirstGenerateMixin:
             for planned in planned_files:
                 relative = self._strip_output_dir_prefix(planned)
                 disk = Path(output_dir) / relative
-                # 空的 __init__.py 是合法的包标记，不算缺失
+                # 空的 __init__.py 是合法的包标记、空的 .gitkeep 是合法的
+                # 目录占位，都不算缺失
                 if not disk.exists():
                     missing_files.add(planned)
-                elif disk.stat().st_size == 0 and not is_package_entry_file(planned):
+                elif disk.stat().st_size == 0 and not (
+                    is_package_entry_file(planned) or is_metadata_file(planned)
+                ):
                     missing_files.add(planned)
         missing_files = sorted(missing_files)
 
@@ -2420,7 +2427,8 @@ class SpecFirstGenerateMixin:
             f for f, c in generated_files.items()
             # 只有真正空白的文件才算「空」；内容质量交给 is_valid_code_content，
             # 避免把单行依赖/短样式等合法短文件误判为空。
-            if not (c or "").strip() and not is_package_entry_file(f)
+            if not (c or "").strip()
+            and not (is_package_entry_file(f) or is_metadata_file(f))
         ]
 
         invalid_files = []
