@@ -57,10 +57,24 @@ class RateLimitConfig:
     def enabled(self) -> bool:
         return self._enabled
 
+    def resolve_endpoint_key(self, endpoint: str) -> Optional[str]:
+        """返回匹配 endpoint 的最长前缀规则键（按路径段边界），无匹配返回 None。
+
+        规则表里的是前缀意图（如 ``/api/v1/code``），真实请求常带路径参数
+        （``/api/v1/code/execute/abc``），因此必须按段边界前缀匹配而非精确相等。
+        """
+        matched: Optional[str] = None
+        for rule_key in self._endpoint_rules:
+            if endpoint == rule_key or endpoint.startswith(rule_key + "/"):
+                if matched is None or len(rule_key) > len(matched):
+                    matched = rule_key
+        return matched
+
     def get_endpoint_rule(self, endpoint: str) -> Tuple[int, int]:
-        """获取端点限流规则"""
-        if endpoint in self._endpoint_rules:
-            rule = self._endpoint_rules[endpoint]
+        """获取端点限流规则（最长前缀匹配）"""
+        matched = self.resolve_endpoint_key(endpoint)
+        if matched is not None:
+            rule = self._endpoint_rules[matched]
             return (rule.limit, rule.window)
         return (60, 60)
 

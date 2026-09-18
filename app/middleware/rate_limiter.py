@@ -31,6 +31,16 @@ class RateLimitTier:
     ENDPOINT = "endpoint"
 
 
+def _endpoint_bucket(endpoint: str) -> str:
+    """端点限流桶 key：命中规则时按规则前缀聚合，否则退回原始路径。
+
+    若始终用完整 raw path 作 key，带路径参数的请求会各自成桶，
+    既永远凑不满端点配额，也让 _history 随 URL 多样性膨胀。
+    """
+    matched = rate_limit_config.resolve_endpoint_key(endpoint)
+    return matched if matched is not None else endpoint
+
+
 class RateLimiter:
     """
     内存中的速率限制器
@@ -124,11 +134,12 @@ class RateLimiter:
         ip_limit, ip_window = self._config.ip_limit
         user_limit, user_window = self._config.user_limit
         endpoint_limit, endpoint_window = self._config.get_endpoint_rule(endpoint)
+        endpoint_bucket = _endpoint_bucket(endpoint)
 
         global_key = f"global:{int(current_time / global_window)}"
         ip_key = f"ip:{ip}:{int(current_time / ip_window)}"
         user_key = f"user:{user_id}:{int(current_time / user_window)}" if user_id else None
-        endpoint_key = f"ep:{endpoint}:{int(current_time / endpoint_window)}"
+        endpoint_key = f"ep:{endpoint_bucket}:{int(current_time / endpoint_window)}"
 
         with self._lock:
             self._cleanup_old_records(global_key, current_time - global_window)
@@ -330,7 +341,7 @@ class RateLimitMiddleware:
 
         # 包装 send 注入剩余配额响应头
         endpoint_limit, endpoint_window = rate_limit_config.get_endpoint_rule(endpoint)
-        endpoint_key = f"ep:{endpoint}:{int(time.time() / endpoint_window)}"
+        endpoint_key = f"ep:{_endpoint_bucket(endpoint)}:{int(time.time() / endpoint_window)}"
         with rate_limiter._lock:
             count = len(rate_limiter._history.get(endpoint_key, []))
         remaining = max(0, endpoint_limit - count)
