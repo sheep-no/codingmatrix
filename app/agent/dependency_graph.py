@@ -1232,6 +1232,11 @@ class DependencyGraph:
         ext = Path(path).suffix.lower()
         if ext in EXTENSION_TYPE_MAP:
             return EXTENSION_TYPE_MAP[ext]
+        # 点号开头的占位/配置文件（.gitkeep 等）没有可识别扩展名，但属于合法
+        # 项目元文件，不能判为 unknown 并中断生成。
+        name = Path(path).name
+        if name.startswith(".") and name not in {".", ".."}:
+            return "config"
         # 有语言适配器时保留 unknown，让“类型无法确定”继续显式失败
         return 'unknown' if self.language_adapter else 'utils'
 
