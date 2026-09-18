@@ -43,3 +43,18 @@
 ## 四、测试状态
 
 零单元测试。CS1 多 worker 失效、SEC1 密码截断、AR2 除零均无测试约束。修复建议：① CSRF 多进程验证测试（跨实例 validate 断言）；② 72+ 字节密码拒绝测试；③ size=0 分页断言 400 而非 500；④ 审计事件 JSON 完整性测试。
+
+## 五、状态更新（2026-09-18 核实）
+
+按代码现状逐条核实后的结论：
+
+- **SEC1 [P2] 已修**：新增 `BCRYPT_MAX_PASSWORD_BYTES = 72`；`validate_password_strength` 增加字节上限校验（>72 拒绝）；`hash_password` 超限抛 `ValueError`（不再静默截断）；`verify_password` 对超限输入直接返回 False（截断比较会让仅前 72 字节相同的不同密码通过）。`reset_password` 端点原直接调用 `hash_password` 未做强度校验，已补 `validate_password_strength` 校验并返回 400。
+- **SEC3 [P3] 已修**：`create_access_token` 的 `refresh_until` 由固定 `now + 5 天` 改为 `max(now + 5 天, expire)`，避免 `ACCESS_TOKEN_EXPIRE_MINUTES` > 5 天时刷新窗口早于 exp 导致语义反转。
+- **SEC4 [P3] 已修**：`_decode_and_validate_token` 异常分支不再把异常文本拼进响应，改为固定「Token 无效」并记 WARNING 日志。
+- **AR1/AR2 [P3] 已随文件删除失效**：`app/utils/api_response.py` 已删除（见文首「后续变更」），`paginated_response` 除零问题不复存在。
+- **CS1 [P2] 未修（需确认边界）**：进程内 `_tokens` dict 在多 worker 下仍是可用性故障点。修复需改为无状态 HMAC 签名 token，会丧失服务端吊销（`invalidate_token`）能力，属安全语义变更，待确认后单独处理。
+- **SEC2 [P3] 未修**：refresh 子密钥仍由 `SECRET_KEY` 字符串拼接派生。更换派生方式会使全部已签发 refresh token 失效，需配合迁移方案。
+- **CS2 [P3] 未修**：`csrf_protect_optional` 未在生产使用，保持现状。
+- **SA2 [P3] 未修**：`log_security_event` 仍为「async 无实质异步」。日志写入本身为同步 I/O，改线程池会增加每事件线程开销，收益有限，暂缓。
+
+新增回归 `tests/unit/test_password_and_token_hardening.py`（7 项，覆盖 SEC1/SEC3/SEC4）。

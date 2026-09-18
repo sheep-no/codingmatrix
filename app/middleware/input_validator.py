@@ -31,30 +31,41 @@ ALLOWED_CONTENT_TYPES = {
     "text/event-stream",
 }
 
+# 检测口径：只匹配「注入组合特征」，而非 SQL/JS 单词黑名单。
+# 本平台是 AI 代码生成平台，需求文本天然包含 select/create/delete/update/eval 等词，
+# 单词级黑名单会把正常业务文本判成攻击（IV1）。
 SQL_INJECTION_PATTERNS = [
-    r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|CREATE|EXEC|EXECUTE)\b)",
-    r"(--|;|/\*|\*/)",
-    r"(\b(OR|AND)\b\s+\d+\s*=\s*\d+)",
-    r"(\b(OR|AND)\b\s+['\"]?\w+['\"]?\s*=\s*['\"]?\w+['\"]?)",
-    r"(\bUNION\b\s+\b(SELECT|ALL)\b)",
-    r"(\'\s*(OR|AND)\s*\')",
-    r"(1\s*=\s*1)",
-    r"(\'\s*=\s*\')",
+    # 引号闭合后的布尔注入：' OR 1=1、admin' AND '1'='1
+    r"['\"]\s*(or|and)\s+['\"]?\w+['\"]?\s*=\s*['\"]?\w+",
+    # 布尔恒等式（含引号或数字形式）
+    r"\b\d+\s*=\s*\d+\b",
+    r"['\"]\s*=\s*['\"]",
+    # UNION [ALL] SELECT
+    r"\bunion\b\s+(all\s+)?\bselect\b",
+    # 堆叠语句：'; DROP / '; DELETE / '; INSERT ...
+    r"['\"]\s*;\s*(drop|delete|insert|update|select|union|alter|truncate|exec|execute)\b",
+    r";\s*(drop|truncate)\b",
+    # SQL 行注释或块注释（-- 后必须紧跟空白，避免命中 well--known）
+    r"--\s",
+    r"/\*[\s\S]*?\*/",
+    # 引号内闭合注入：' OR '、' AND '
+    r"['\"]\s*(or|and)\s*['\"]",
 ]
 
+# XSS 只保留明确的标签/协议/事件属性 payload，移除 eval()、document.* 这类
+# 代码语义词汇（代码生成/解释场景的正常输入，见 IV1）。
 XSS_PATTERNS = [
-    r"<script[^>]*>",
+    r"<\s*script",
+    r"<\s*/\s*script",
     r"javascript\s*:",
-    r"on(load|error|click|mouse|focus|blur|change|submit|key)\s*=",
-    r"<iframe[^>]*>",
-    r"<object[^>]*>",
-    r"<embed[^>]*>",
-    r"<form[^>]*>",
-    r"<input[^>]*type\s*=\s*[\"']?file[\"']?",
-    r"eval\s*\(",
-    r"document\.(cookie|write|location)",
-    r"window\.(location|open|alert)",
-    r"<img[^>]+onerror\s*=",
+    r"\bon(error|load|click|mouse\w*|focus|blur|change|submit|key\w*)\s*=",
+    r"<\s*iframe",
+    r"<\s*object",
+    r"<\s*embed",
+    r"<\s*form",
+    r"<\s*input[^>]*type\s*=\s*[\"']?file[\"']?",
+    r"<\s*img[^>]+onerror\s*=",
+    r"<\s*svg[^>]+onload\s*=",
 ]
 
 SQL_INJECTION_REGEXES = [re.compile(p, re.IGNORECASE) for p in SQL_INJECTION_PATTERNS]
@@ -156,9 +167,12 @@ class InputValidatorMiddleware:
             await self.app(scope, receive, send)
             return
 
-        if any(path.startswith(p) for p in SKIP_SECURITY_CHECK_PATHS):
-            await self.app(scope, receive, send)
-            return
+        # AI 主链路只跳过 SQL/XSS 内容扫描，仍必须通过 Content-Type 与请求体大小校验。
+        # 采用路径段边界匹配，避免 /api/v1/agent/generate-evil 这类前缀碰撞。
+        skip_content_scan = any(
+            path == p or path.startswith(p + "/")
+            for p in SKIP_SECURITY_CHECK_PATHS
+        )
 
         if method not in ("POST", "PUT", "PATCH", "DELETE"):
             await self.app(scope, receive, send)
@@ -221,7 +235,7 @@ class InputValidatorMiddleware:
             )
             return
 
-        if body:
+        if body and not skip_content_scan:
             try:
                 data = json.loads(body)
             except json.JSONDecodeError:

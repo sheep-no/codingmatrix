@@ -302,6 +302,9 @@ async def reset_password(
         token.get("permission_level", ""),
         user.permission.permission_level if user.permission else "normal",
     )
+    is_valid, message = validate_password_strength(body.new_password)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=message)
     await db.execute(
         update(User).where(User.id == user_id).values(
             hashed_password=hash_password(body.new_password)
