@@ -138,6 +138,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 空内容门禁只对普通代码文件成立：空 `__init__.py` 是合法包标记，`is_valid_code_content`、`is_placeholder_content`、`validate_file_in_sandbox`、`_tool_write_file` 都必须经 `is_package_entry_file` 放行；只有 Python/JS 注册验证器需要编译器，其余扩展名交给 Agent Host。
   - 第三类门禁误报是「把内部状态/生命周期违反当成代码缺陷」：异常字符串可能只剩一个索引（`str(e) == "0"`），后端日志表现为 `文件语法校验异常: <path>: 0`，实际是缓存条目结构不一致。`CodeValidator` 的校验缓存条目约定为 `(result, timestamp)` 元组，写入必须走 `CodeValidator.store_validation`；直接在 `orchestrator_files._validate_and_review_file` 里写裸 dict 会让 `_clear_old_cache` 在 `entry[0]` 抛 `KeyError: 0`，随后把合法文件判负并回滚整层。同类地，审查建议 `issues` 可能是结构化 dict 列表，禁止直接 `'; '.join`（`_format_review_issues` 负责兼容 str/list/dict）。排查这类报错先核对日志里 `str(e)` 是否是缓存/索引/元组的残留，再怀疑生成代码本身。
   - 第四类污染是「内部提示词/占位产物泄漏到用户可见文件」：端点用 `[Pipeline Mode]` 横幅（engine/tools 说明）前缀需求，`boilerplate._project_title` 必须剥离该块再取标题，否则 README 标题和项目 slug 会变成 `[Pipeline Mode]`。同时 `scaffold_for_language` 只能对真正的 README（文件名或显式 `readme` 类型）套用 README 骨架，不能把 `docs` 类型一律当 README，否则 `LICENSE`/`MANIFEST.in`/`CHANGELOG` 会被写成 README 内容。判断依据：确定性骨架的返回值会短路 LLM 生成，一旦判错文件类型就直接产出错误内容。
+  - 第五类是「管线自身的上报/隔离失败被当成生成结果」：`venv.create(with_pip=True)` 在宿主缺 `ensurepip` 时调用 `sys.exit(1)` 抛 `SystemExit`，`except Exception` 接不住，会一路冲出生成请求并终止 uvicorn 进程；宿主缺少隔离环境属环境状态，应跳过动态测试而非判代码失败。`_run_dynamic_tests` 上报完成事件时若把 `summary` 直接 `**` 展开，其 `total` 会与 `_report_progress(step, current, total, ...)` 的位置参数冲突抛 `TypeError`，被同一层 `except Exception` 吞掉后返回 `success=False`，把成功生成判成 `生成流程未达到成功终态`。排查"成功终态"类报错时先区分：环境能力缺失、事件上报签名冲突，都属管线自身问题，不是生成产物缺陷。
 
 ### 沙箱能力现状与语法门禁决策
 - Date: 2026-09-17
