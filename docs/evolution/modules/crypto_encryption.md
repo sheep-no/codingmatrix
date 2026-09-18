@@ -43,3 +43,14 @@
 ## 四、测试状态
 
 零单元测试。CRY2 私钥权限、CRY3 路径漂移、CRY1 文件损坏恢复均无测试约束。修复建议：密钥管理测试——① 生成→落盘权限断言（0o600）；② 文件损坏→加载失败→禁止覆盖（抛错断言）；③ CWD 不同路径下密钥路径一致性；④ 双模块共用文件对加载同一密钥断言。
+
+## 状态更新（2026-09-18 核实）
+
+- **第四节「零单元测试」已过时**：`tests/unit/test_crypto.py` 存在（11 项，覆盖 crypto 生成/解密/持久化/权限/单例），但未覆盖 CRY1（损坏不覆盖）、CRY2（encryption 权限）、CRY3（路径漂移）、CRY7（路径配置校验）。
+- **CRY1 [P2] 已修复**：两模块 `_load_keys` 原先在加载失败时静默重生成并覆盖共用密钥文件。改为私钥加载失败抛 `RuntimeError` 且不写盘；公钥文件缺失或与私钥不匹配时按私钥重建，不轮换私钥。区分了 FileNotFoundError（首次生成，正常）与其他异常（拒绝覆盖）。
+- **CRY2 [P2] 已修复**：`encryption.py save_keys` 补齐目录创建与 `os.chmod(private_key_path, 0o600)` + 目录 `0o700`；此前现网 `keys/rsa_private.pem` 实测权限为 644。
+- **CRY3 [P2] 已修复**：默认密钥目录改为环境变量 `RSA_KEY_DIR` 优先、否则仓库根绝对路径；两个模块的默认路径均不再随 CWD 漂移。
+- **CRY6 [P3] 已修复**：`get_rsa_key_manager` 补 `threading.Lock` 双检，与 encryption 侧对称。
+- **CRY7 [P3] 已修复**：`encryption.RSAKeyManager.__init__` 对只传单个路径抛 `ValueError`；`get_key_manager`/`init_encryption` 默认参数改 `None` 并解析为默认绝对路径（不再用相对字符串默认值）。
+- **未改**：CRY4（私钥口令保护，需产品定义口令注入方式）；CRY5（解密错误上下文，属跨模块错误码治理）。
+- **测试状态**：新增 `tests/unit/test_crypto_key_lifecycle.py`（11 项）；回退两处源码后 9 项失败（其余 2 项不依赖本次修复）。

@@ -18,7 +18,7 @@ import asyncio
 import base64
 import json
 import hashlib
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -26,8 +26,22 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import padding as sym_padding
 import os
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# 密钥目录环境变量；未设置时使用仓库根下 keys/，避免 CWD 漂移导致密钥位置漂移
+KEY_DIR_ENV = "RSA_KEY_DIR"
+
+
+def _default_key_paths() -> Tuple[str, str]:
+    """返回默认私钥/公钥绝对路径"""
+    env_dir = os.getenv(KEY_DIR_ENV)
+    if env_dir:
+        base = Path(env_dir).expanduser().resolve()
+    else:
+        base = Path(__file__).resolve().parents[2] / "keys"
+    return str(base / "rsa_private.pem"), str(base / "rsa_public.pem")
 
 
 class RSAKeyManager:
@@ -38,6 +52,9 @@ class RSAKeyManager:
         self.public_key = None
         self.private_key_path = private_key_path
         self.public_key_path = public_key_path
+
+        if bool(private_key_path) != bool(public_key_path):
+            raise ValueError("private_key_path 与 public_key_path 必须同时提供或同时省略")
         
         # 如果没有提供路径，使用内存中的密钥
         if not private_key_path or not public_key_path:
@@ -58,7 +75,11 @@ class RSAKeyManager:
         logger.info("已生成新的 RSA 密钥对（2048 位）")
     
     def _load_keys(self):
-        """从文件加载密钥对"""
+        """从文件加载密钥对
+
+        私钥加载失败时抛错而非静默重生成，避免覆盖与 crypto.py 共用的密钥文件。
+        公钥文件缺失或与私钥不匹配时，按私钥重建，不轮换私钥。
+        """
         try:
             # 加载私钥
             with open(self.private_key_path, "rb") as f:
@@ -67,27 +88,38 @@ class RSAKeyManager:
                     password=None,
                     backend=default_backend()
                 )
-            
-            # 加载公钥
-            with open(self.public_key_path, "rb") as f:
-                self.public_key = serialization.load_pem_public_key(
-                    f.read(),
-                    backend=default_backend()
-                )
-            
-            logger.info(f"已从文件加载 RSA 密钥对")
         except FileNotFoundError:
             logger.warning("密钥文件不存在，生成新的密钥对")
             self._generate_keys()
             self.save_keys()
+            return
         except Exception as e:
-            logger.error(f"加载密钥失败：{e}")
-            self._generate_keys()
+            raise RuntimeError(
+                f"加载 RSA 私钥失败（{self.private_key_path}），拒绝覆盖既有密钥：{e}"
+            ) from e
+
+        logger.info("已从文件加载 RSA 密钥对")
+        self.public_key = self.private_key.public_key()
+
+        try:
+            with open(self.public_key_path, "rb") as f:
+                stored_public = serialization.load_pem_public_key(
+                    f.read(), backend=default_backend()
+                )
+            if stored_public.public_numbers() != self.public_key.public_numbers():
+                logger.warning("公钥文件与私钥不匹配，按私钥重建公钥文件")
+                self.save_keys()
+        except Exception as e:
+            logger.warning(f"公钥文件不可用（{e}），按私钥重建")
+            self.save_keys()
     
     def save_keys(self):
         """保存密钥到文件"""
         if not self.private_key_path or not self.public_key_path:
             return
+
+        for key_path in (self.private_key_path, self.public_key_path):
+            os.makedirs(os.path.dirname(os.path.abspath(key_path)), exist_ok=True)
         
         # 保存私钥
         with open(self.private_key_path, "wb") as f:
@@ -103,7 +135,14 @@ class RSAKeyManager:
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             ))
-        
+
+        # 收紧私钥文件与目录权限，避免明文私钥被其他用户读取
+        try:
+            os.chmod(self.private_key_path, 0o600)
+            os.chmod(os.path.dirname(os.path.abspath(self.private_key_path)), 0o700)
+        except OSError as e:
+            logger.warning(f"收紧密钥文件权限失败：{e}")
+
         logger.info(f"密钥已保存到：{self.private_key_path}, {self.public_key_path}")
     
     def get_public_key_pem(self) -> str:
@@ -200,21 +239,23 @@ _key_manager: Optional[RSAKeyManager] = None
 _key_lock = asyncio.Lock()
 
 
-async def get_key_manager(private_key_path: str = "keys/rsa_private.pem",
-                          public_key_path: str = "keys/rsa_public.pem") -> RSAKeyManager:
+async def get_key_manager(private_key_path: str = None,
+                          public_key_path: str = None) -> RSAKeyManager:
     """获取密钥管理器单例"""
     global _key_manager
 
     if _key_manager is None:
         async with _key_lock:
             if _key_manager is None:
+                if not private_key_path and not public_key_path:
+                    private_key_path, public_key_path = _default_key_paths()
                 _key_manager = RSAKeyManager(private_key_path, public_key_path)
 
     return _key_manager
 
 
-async def init_encryption(private_key_path: str = "keys/rsa_private.pem",
-                   public_key_path: str = "keys/rsa_public.pem"):
+async def init_encryption(private_key_path: str = None,
+                   public_key_path: str = None):
     """
     初始化加密模块
 
