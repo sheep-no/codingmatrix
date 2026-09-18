@@ -160,3 +160,13 @@
 ## 7. 下轮候选
 
 app/models（12 文件，含 agent_memory cascade 确认）/ app/db（12）/ app/schema（13）/ app/middleware（rate_limiter 传参确认 RLC2）/ app/tasks（3）/ app/core/config settings 全量复核。
+
+## 8. 状态更新（2026-09-18 核实）
+
+仅针对 P2 清单逐条核实（P3 未逐条复核）。结论：**P2 五项均已在代码中修复**，本文档相关条目已过时。
+
+- **AKM1 已修**：`_CHECK_AND_ADD_SCRIPT`（apikey_manager.py:21-52）改为在 Lua 内比较 `current_ttl` 与 `desired_ttl`，取较大者设置索引过期；`current_ttl == -1`（永久）时不附加过期。注释明确说明避免长效 key 被短效 key 缩短索引寿命。
+- **CPM4 已修**：`CustomProviderManager.add_provider` 调用 `check_outbound_url(base_url)`（custom_provider_manager.py:61-63），非法 URL 抛 `ValueError`；下游 `_fetch_openai_models`/`_test_*` 均使用校验后的 `provider.base_url`。
+- **PM2 已修**：`app/utils/performance_monitor.py` 提供 `_resolve_metric_path`（:93-95）从 `request.scope["route"].path` 取路由模板，未匹配时回落 `"<unmatched>"`，不再把原始 URL 作为指标标签。
+- **CSK1 已修**：`app/api/v1/skills.py` 的 `author` 取自 token（`str(token.get("sub", ""))`，:77/:217），列表查询传入 `owner_user_id`（:101），归属校验已接入真实用户身份。
+- **HC1 已修**：`app/services/health_checker.py` 用 `asyncio.to_thread(self._inspect_celery, celery_app)` 包装同步 Celery control inspect（:135-137，`_inspect_celery` 定义于 :165-168），不再阻塞事件循环。

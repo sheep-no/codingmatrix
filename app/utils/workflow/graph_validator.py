@@ -9,7 +9,7 @@ Graph Validator - 任务图验证器
 
 import logging
 from typing import List, Dict, Set, Tuple, Optional
-from collections import deque
+from collections import Counter, deque
 
 from app.schema.workflow import TaskGraph, TaskNode, TaskType
 
@@ -61,7 +61,9 @@ class GraphValidator:
         """检查节点 ID 唯一性"""
         node_ids = [node.id for node in task_graph.nodes]
         if len(node_ids) != len(set(node_ids)):
-            duplicate_ids = set([id for id in node_ids if node_ids.count(id) > 1])
+            # Counter 单次遍历，避免每个元素都对整个列表 count 造成 O(N^2)
+            counts = Counter(node_ids)
+            duplicate_ids = {node_id for node_id, count in counts.items() if count > 1}
             self.errors.append(f"Duplicate node ID found: {duplicate_ids}")
 
     def _check_dependency_existence(self, task_graph: TaskGraph) -> None:
