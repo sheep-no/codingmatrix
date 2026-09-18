@@ -1044,11 +1044,12 @@ language 字段要求：
         # 截成 `package.js`，`App.tsx`/`Card.jsx` 也会被截成 `.ts`/`.js`，
         # 严格文件集随后会拿这些错名字去重写 file_plan。
         # 点号文件（.gitignore/.dockerignore/.editorconfig 等）没有白名单扩展名，
-        # 需要独立分支；前缀用负向后顾挡住 `e.g`/`www.example.com` 这类正文缩写。
+        # 需要独立分支；前缀用负向后顾挡住 `e.g`/`www.example.com` 这类正文缩写，
+        # 以及 `*.log` 这类通配模式的后缀（它描述的是忽略规则，不是文件）。
         file_pat = (
             r"[\w./-]+\.(?:py|js|ts|jsx|tsx|mjs|cjs|vue|html|css|scss"
             r"|json|yaml|yml|toml|xml|go|java|rs|txt|md|ini|cfg)(?![A-Za-z0-9])"
-            r"|(?<![\w.])(?:[\w-]+/)*\.[A-Za-z][\w.-]*(?![A-Za-z0-9])"
+            r"|(?<![\w.*])(?:[\w-]+/)*\.[A-Za-z][\w.-]*(?![A-Za-z0-9])"
         )
         match = re.search(
             r"(?:只需要|仅需要|只要|only)\s*(.{1,300}?)(?:个|份)?\s*文件",
