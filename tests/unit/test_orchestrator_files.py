@@ -1998,6 +1998,40 @@ def test_extract_strict_paths_from_only_generate_following_expression():
     assert result["strict_file_paths"] == ["main.py", "models.py"]
 
 
+def test_extensionless_meta_files_survive_normalization_and_freeze():
+    """LICENSE 这类无扩展名元文件不能被归一化当成包名丢弃，否则冻结失败。"""
+    from app.agent.generation_plan import GenerationPlan
+
+    plan = [
+        {"path": "src/greeting.py", "file_type": "utils", "imports": []},
+        {"path": "main.py", "file_type": "entry", "imports": []},
+        {"path": "LICENSE", "file_type": "docs", "imports": []},
+        {"path": "NOTICE", "file_type": "docs", "imports": []},
+        {"path": "MANIFEST.in", "file_type": "config", "imports": []},
+        {"path": "README.md", "file_type": "readme", "imports": []},
+    ]
+
+    normalized = Architect._normalize_file_plan(plan, "python")
+    assert [item["path"] for item in normalized] == [
+        "src/greeting.py",
+        "main.py",
+        "LICENSE",
+        "NOTICE",
+        "MANIFEST.in",
+        "README.md",
+    ]
+
+    frozen = GenerationPlan.from_architecture(
+        {
+            "file_plan": normalized,
+            "strict_file_paths": [item["path"] for item in plan],
+        }
+    )
+    assert [item.path for item in frozen.files] == sorted(
+        item["path"] for item in plan
+    )
+
+
 def test_extract_strict_paths_只要这一个文件():
     requirement = (
         "写一个 Python 文件 hello.py，运行后打印 Hello World。"
@@ -2107,6 +2141,39 @@ def test_extract_strict_paths_keeps_nested_dotfile_directory():
         "config/.gitignore",
         "src/App.vue",
         "package.json",
+    }
+
+
+def test_extract_strict_paths_keeps_extensionless_and_cold_suffix_files():
+    """冻结清单是权威列表：LICENSE / MANIFEST.in 不受扩展名白名单限制。"""
+    requirement = (
+        "生成一个 Python 项目。\n\n"
+        "Generate exactly these files and no others: "
+        "src/greeting.py, main.py, LICENSE, MANIFEST.in, README.md"
+    )
+
+    assert Architect._extract_strict_file_paths(requirement) == {
+        "src/greeting.py",
+        "main.py",
+        "LICENSE",
+        "MANIFEST.in",
+        "README.md",
+    }
+
+
+def test_extract_strict_paths_keeps_dotfiles_from_frozen_list():
+    """空点号占位（src/.gitkeep）与点号配置同样来自冻结清单。"""
+    requirement = (
+        "生成一个最小项目。\n\n"
+        "Generate exactly these files and no others: "
+        ".gitignore, src/.gitkeep, main.py, README.md"
+    )
+
+    assert Architect._extract_strict_file_paths(requirement) == {
+        ".gitignore",
+        "src/.gitkeep",
+        "main.py",
+        "README.md",
     }
 
 

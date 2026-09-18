@@ -11,6 +11,7 @@ from app.utils.prompt_loader import load_architect_prompt
 from app.agent.tracing import traced
 from app.agent.language_detector import LanguageDetector, LanguageDetectionResult
 from app.agent.architect_json_parser import ArchitectJsonParser
+from app.agent.dependency_graph import _EXTENSIONLESS_PROJECT_FILES
 
 logger = logging.getLogger(__name__)
 
@@ -466,10 +467,12 @@ language 字段要求：
         path = path.strip().replace("\\", "/")
         if not path or path in {".", ".."}:
             return None
+        # 无扩展名不代表不是文件：LICENSE / NOTICE / CHANGELOG 这类项目
+        # 元文件必须保留，否则严格文件集与 file_plan 会因少一个路径而不等。
         looks_like_file = (
             "." in Path(path).name
             or "/" in path
-            or path.lower() in {"makefile", "dockerfile", "gemfile", "go.mod", "cargo.toml"}
+            or path.lower() in _EXTENSIONLESS_PROJECT_FILES
         )
         if not looks_like_file:
             return None
@@ -1051,6 +1054,25 @@ language 字段要求：
             r"|json|yaml|yml|toml|xml|go|java|rs|txt|md|ini|cfg)(?![A-Za-z0-9])"
             r"|(?<![\w.*])(?:[\w-]+/)*\.[A-Za-z][\w.-]*(?![A-Za-z0-9])"
         )
+        # 结构化 allowed_files 会被投影成固定的冻结句子，形如
+        # "Generate exactly these files and no others: <path>, <path>"。
+        # 它是权威清单，按逗号切分即可，不受扩展名白名单限制，因此
+        # LICENSE / MANIFEST.in 这类无扩展名或冷门扩展名的规划文件不会被丢弃。
+        frozen = re.search(
+            r"Generate exactly these files and no others:\s*(.+)",
+            requirement,
+            re.IGNORECASE,
+        )
+        if frozen:
+            tail = frozen.group(1)
+            # 冻结清单由内部生成，通常到行尾结束；需求在其后追加正文时截到句末。
+            sentence_end = re.search(r"\.\s+(?=[A-Z])", tail)
+            if sentence_end:
+                tail = tail[:sentence_end.start()]
+            tokens = (t.strip().rstrip(".") for t in tail.split(","))
+            paths = {t for t in tokens if t and re.fullmatch(r"[\w./-]+", t)}
+            if paths:
+                return Architect._prefer_most_specific_paths(paths) or None
         match = re.search(
             r"(?:只需要|仅需要|只要|only)\s*(.{1,300}?)(?:个|份)?\s*文件",
             requirement,
