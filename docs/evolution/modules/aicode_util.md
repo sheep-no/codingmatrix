@@ -38,3 +38,13 @@
 ## 四、测试状态
 
 零单元测试。缓存淘汰、连接复用、api_key 预校验均无测试约束。修复建议：① AIU3 缓存上限强制淘汰测试（超 512 断言不增长）；② AIU1 改用共享 client 连接复用测试；③ AIU5 key 缺失时快速失败测试。
+
+## 五、状态更新（2026-09-18 核实）
+
+按行号逐条核实代码现状后的结论（以当前代码为准，原文档行号已漂移）：
+
+- **AIU1 [P2] 已修**：`get_embedding` 的 API 调用由 `async with httpx.AsyncClient(...)` 改为复用模块级 `get_http_client()`（带锁 + `is_closed` 重建），并在 `client.post` 上按请求传 `Timeout(30.0, connect=10.0)`，既复用连接池又保留 embedding 原有的 30s 短超时语义。模块内 `get_http_client` 不再是死函数。
+- **AIU3 [P2] 已修**：新增 `_evict_memory_cache()`，超过 `_EMBEDDING_CACHE_MAXSIZE` 即 `popitem(last=False)` 强制淘汰最久未用键（忽略 TTL），不再因最旧项未过期而 `break`。内存缓存写入路径与磁盘命中回填路径均调用该函数，两条路径都不会无界增长。
+- **AIU5 [P2] 已修**：调用 API 前校验 `settings.SILICONFLOW_API_KEY`，缺失时抛 `HTTPException(401, ...)`（与已删除的 `base._validate_api_key` 语义一致），不再发出 `Authorization: Bearer None` 请求。
+- **新增回归**：`tests/unit/test_aicode_util.py`（3 项：共享客户端复用 + 请求超时、Key 缺失快速失败、超上限 LRU 淘汰）。回退 `app/utils/AiCodeUtil.py` 后 3/3 失败。
+- **AIU2 / AIU4 / AIU6 / AIU7 / AIU8 [P3] 未处理**：CWD 相对路径、无锁竞态、64-bit 缓存键、磁盘清理触发条件与磁盘无上限保留原状。
