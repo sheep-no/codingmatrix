@@ -180,7 +180,8 @@ class AgentMemoryService:
         knowledge_key: str = None,
         category: str = "general",
         source: str = "agent",
-        importance: float = 0.5
+        importance: float = 0.5,
+        tags: List[str] = None
     ) -> KnowledgeEntry:
         """添加知识"""
         knowledge = KnowledgeEntry(
@@ -189,7 +190,8 @@ class AgentMemoryService:
             content=content,
             category=category,
             source=source,
-            importance=importance
+            importance=importance,
+            tags=tags or []
         )
         self.db.add(knowledge)
         await self.db.commit()
