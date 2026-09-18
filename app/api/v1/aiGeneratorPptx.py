@@ -3723,19 +3723,20 @@ async def upload_custom_template(
     try:
         from app.utils.pptx.custom_template import CustomTemplateParser
         parser = CustomTemplateParser()
-        config = parser.parse(str(template_path))
+        config = parser.parse_template_file(str(template_path))
 
         # 保存配置
         config_path = template_dir / f"{template_id}.json"
         import json as _json
+        config_dict = config.to_dict()
         with open(config_path, 'w', encoding='utf-8') as f:
-            _json.dump(config, f, ensure_ascii=False, indent=2)
+            _json.dump(config_dict, f, ensure_ascii=False, indent=2)
 
         return {
             "template_id": template_id,
             "name": name,
             "description": description,
-            "config": config,
+            "config": config_dict,
             "message": "模板上传成功",
         }
     except Exception as e:

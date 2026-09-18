@@ -78,3 +78,11 @@
 ## 下轮候选
 
 app/utils/pptx/ 已闭合。转 app/utils/visual/（3 文件，layout_decider 是 PPT5 双轨下游）或 app/api/v2/ 8 文件。
+
+## 状态更新（2026-09-18 核实）
+
+- **PPX1 [P2] 已修复**：`POST /pptx/templates/upload` 改调 `parse_template_file`；新增 `TemplateConfig.to_dict()`（`templates/base.py`）将 dataclass 与 `SlideLayout` 枚举键转为 JSON 安全结构，替换直接 `json.dump(config)`。修复前该端点恒返回 `config: None`（AttributeError 被兜底捕获）。实测上传真实 .pptx 后返回 41 字段配置。
+- **PPX2 [P2] 已修复**：`_apply_colors_to_presentation` 与 `_apply_default_font_to_presentation` 原先均取 `master.theme`（python-pptx 1.0.2 的 `SlideMaster` 无此属性），异常被 `except` 吞掉后主题色与字体从未生效。改为按关系遍历取主题 part、解析其 blob、在 `themeElements` 下查找 `clrScheme`/`fontScheme` 并写回。原位 `clr.find(qn("a:srgbClr"))` 自查找属同族错误的第二层（外层 `findall` 也取不到 `clrScheme` 直接子级）。
+- **PPX4 [P2] 已修复**：`ModifyIntentParser` 新增 `_extract_size`（`字号改成 24` / `字体大小: 18` / `20pt` 等模式）与 `_value_for_type`，size 类型不再恒 `None`；`PPTModifier._apply_font_size` 的 `property_value` 分支恢复可达，端到端验证「把第1页字号改成24」写入 `para.font.size = Pt(24)`。
+- **PPX3 [非缺陷，未改]**：`analysis` 经 `modify_ppt_visual_endpoint`（aiGeneratorPptx.py:3048）原样返回调用方，并非「零消费」；确存浪费的是 `_generate_previews` 渲染的字节仅用于 `preview_count`，但接口已另提供 `preview_url`，删减属产品取舍。
+- **测试状态**：新增 `tests/unit/test_ppt_template_regressions.py`（7 项）；回退四处源码后 7 项全部失败。

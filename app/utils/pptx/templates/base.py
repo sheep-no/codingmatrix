@@ -86,6 +86,18 @@ class TemplateConfig:
     image: Dict[str, Any] = field(default_factory=dict)
     chart: Dict[str, Any] = field(default_factory=dict)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """序列化为 JSON 安全的 dict（枚举键与枚举值转为字符串）"""
+        from dataclasses import asdict
+
+        data = asdict(self)
+        data["category"] = self.category.value
+        data["layouts"] = {
+            (key.value if isinstance(key, SlideLayout) else str(key)): value
+            for key, value in data["layouts"].items()
+        }
+        return data
+
     def copy(self) -> "TemplateConfig":
         """复制模板配置"""
         return TemplateConfig(
