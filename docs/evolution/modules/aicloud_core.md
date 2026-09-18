@@ -67,3 +67,21 @@
 ## 四、测试状态
 
 零单元测试。PAPI1（无 admin 校验）、MR1（model_key vs id 路由失配）、PR1（前缀误路由）、MR2（free_only 双处失效）、ADT1（details 字符串化）全部实码可证无任何用例保护。修复建议：① PAPI1/PAPI3 供应商按 user_id 归属隔离（路由仅查当前用户的供应商，勿用 admin 门禁替代）；② PAPI2/DP2 加 base_url 白名单（https + 域名）+ 内网 IP 阻断；③ MR1/PR1 统一模型名来源（route 直接吃 registry model_key 或配置对齐）并删除前缀模糊匹配改精确匹配；④ MR2 补 is_free 数据或删 free_only 参数；⑤ ADT1 用 JSON 序列化 details；⑥ ADT2 收敛审计模块；⑦ 下轮转 code_executor + auto_executor + sandbox + sandbox_operator + content_analyzer + context_isolator + sensitive_filter + review_queue + knowledge_processor。
+
+## 五、状态更新（2026-09-18 核实）
+
+按行号逐条核实代码现状后的结论（以当前代码为准，原文档行号已漂移）：
+
+- **PAPI1 [P2] 已缓解（admin 门禁 + owner 隔离）**：`app/api/v1/providers.py` 的 `add_provider` 现要求 `permission_level in ("admin","superadmin")`，普通用户无法添加供应商；`manager.add/get/list/delete/toggle` 均带 `owner_id`，管理面已按所有者隔离。`get_by_model` 仍全局搜索，但供应商只能由 admin 添加，全局生效即 admin 配置全站供应商的预期语义，普通用户投毒路径已阻断。
+- **PAPI2 / DP2 [P2] 已修（在库函数层补纵深防御）**：`add_provider` 原本已用 `check_outbound_url(body.base_url)` 校验。本轮在 `fetch_models_openai` 内再加一次 `check_outbound_url`，校验失败抛 `ValueError`，使「库函数被其他调用方误用时」也不会向非公网地址发请求。DNS 解析失败按自托管场景放行（`fail_closed_on_dns_error=False`）。
+- **PAPI3 [P3] 已修（owner 校验到位）**：delete/toggle/sync/test 端点均先 `manager.get(pid, owner_id)` 再操作；delete/toggle/sync 另加 admin 门禁。`toggle` 端点随后的 `manager.get(pid)`（无 owner）取的是刚校验过的同一 provider，不构成越权。
+- **PAPI4 [P3] 维持**：api_key `len >= 10` 弱校验保留。
+- **MR1 [P2] 已修**：`_load_provider_map` 同时写入 `result[model_id]` 与 `result[name]`，config 的 `name` 即 registry `model_key`（如 `Qwen/Qwen3-8B`），registry 驱动路径现可精确匹配，不再全部兜底 SiliconFlow。
+- **PR1 [P2] 已修**：`route()` 删除双向 `startswith` 前缀模糊匹配，改为精确匹配后直接兜底 `SILICONFLOW`。避免 `deepseek-ai/DeepSeek-R1-...-Qwen3-8B` 之类托管模型名被误路由到官方供应商。既有测试（`test_aicloud_providers.py` / `test_provider_router.py`）全部为精确名校验，不受影响。
+- **MR2 [P2] 部分已修/数据缺失**：`model_manager.list_models` 现已在 `:81` 检查 `free_only and not model.is_free`（文档所述「接受参数却从不检查」已过时）；`model_registry.MODEL_REGISTRY` 全部 `is_free=False` 导致 `free_only=True` 返回空，属数据缺失（需产品决定哪些模型标免费），未改。
+- **ADT1 [P2] 已修**：`log_operation` 的 `details` 由 `str(details)` 改为 `json.dumps(details, ensure_ascii=False)`，落库为合法 JSON 而非 Python repr 单引号字符串，可结构化查询。
+- **ADT2 [P2] 未处理**：`app/utils/aicloud/audit_logger.py` 与 `app/services/audit_logger.py` 双轨并存，收敛涉及 schema 与写入语义，需单独设计。
+- **PR2 / DP1 / DP4 / DP5 等 [P3] 未处理**：模块级 import 读盘、内存单例无持久化、Anthropic 假拉取、add 无格式校验保持原状。
+- **HC2 [P3] 判定为误判**：`http_client._max_concurrent_calls` 被 6 个适配器真实消费（`async with _max_concurrent_calls`），非死常量。
+- **PERM1 [P3] 已核实为零消费，保留**：`require_aicloud_permission` 全库仅 `permission.py` 自身定义与 docstring 示例出现，确为未接线依赖项。因是模块公开导出（可能作为 FastAPI `Depends` 预留），本轮不删除，仅核实结论。
+- **新增回归**：`tests/unit/test_aicloud_core_regressions.py`（3 项：details JSON 序列化、未知模型不再前缀误路由、fetch 内网 base_url 被拒）。回退三个源文件后 3/3 失败。

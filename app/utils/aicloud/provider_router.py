@@ -125,11 +125,10 @@ class ProviderRouter:
         provider = MODEL_PROVIDER_MAP.get(model_name)
         if provider:
             return provider
-        
-        for model_key, provider in MODEL_PROVIDER_MAP.items():
-            if model_name.startswith(model_key.split("/")[0]) or model_key.startswith(model_name.split("/")[0]):
-                return provider
-        
+
+        # 未知模型统一兜底 SILICONFLOW；不做前缀模糊匹配，避免把
+        # "deepseek-ai/DeepSeek-R1-...-Qwen3-8B" 之类的托管模型名
+        # 误路由到官方供应商。
         logger.warning(f"Unknown model {model_name}, defaulting to SiliconFlow")
         return ModelProvider.SILICONFLOW
     

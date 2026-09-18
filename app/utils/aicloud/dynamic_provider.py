@@ -116,6 +116,14 @@ def get_dynamic_provider_manager() -> DynamicProviderManager:
 async def fetch_models_openai(provider: DynamicProvider) -> List[ModelInfo]:
     """从 OpenAI 兼容端点 /v1/models 拉取"""
     url = f"{provider.base_url}/models"
+    # 库函数层的 SSRF 防线：即使调用方漏校验 base_url，也不向非公网地址发请求。
+    # DNS 解析失败按自托管场景放行（连接时自会失败）。
+    from app.utils.url_safety import check_outbound_url
+
+    url_error = check_outbound_url(url)
+    if url_error:
+        raise ValueError(f"供应商 base_url 不安全：{url_error}")
+
     headers = {"Authorization": f"Bearer {provider.api_key}"}
     
     async with httpx.AsyncClient(timeout=10.0) as client:

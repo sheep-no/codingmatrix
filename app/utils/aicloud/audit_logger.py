@@ -9,6 +9,7 @@
 """
 
 from datetime import datetime, timedelta
+import json
 from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -46,7 +47,7 @@ async def log_operation(
         file_path=file_path,
         url=url,
         status=status,
-        details=str(details) if details else None
+        details=json.dumps(details, ensure_ascii=False) if details else None
     )
 
     db.add(log)
