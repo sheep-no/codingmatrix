@@ -25,7 +25,9 @@ def scaffold_for_language(
     architecture = architecture or {}
     name = Path(file_path).name.lower()
     kind = (file_type or "").lower()
-    if name in README_NAMES or kind in {"docs", "readme"}:
+    # `docs` 类型的文件可能是 LICENSE / MANIFEST.in 等文本元文件，只有
+    # 真正的 README（按文件名或显式 readme 类型）才套用 README 骨架。
+    if name in README_NAMES or kind == "readme":
         return scaffold_readme(architecture, language)
     if name in MANIFEST_NAMES:
         return scaffold_manifest(language, name, architecture)
@@ -140,10 +142,28 @@ def _file_plan(architecture: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _project_title(architecture: Dict[str, Any]) -> str:
-    requirement = str(architecture.get("requirement") or architecture.get("project_name") or "").strip()
+    requirement = _strip_pipeline_banner(
+        str(architecture.get("requirement") or architecture.get("project_name") or "")
+    )
     if requirement:
         return requirement.splitlines()[0][:80]
     return "Generated Project"
+
+
+def _strip_pipeline_banner(requirement: str) -> str:
+    """去掉需求开头的 Agent 管线横幅，避免它被当成项目标题。
+
+    端点会把 `[Pipeline Mode]` 说明块前缀到需求上供模型遵循，这属于提示词
+    而非项目内容；骨架里的标题必须取块后的真实需求。
+    """
+    text = (requirement or "").lstrip()
+    if not text.startswith("[Pipeline Mode]"):
+        return text.strip()
+    lines = text.split("\n")
+    for index in range(1, len(lines)):
+        if not lines[index].strip():
+            return "\n".join(lines[index + 1:]).strip()
+    return ""
 
 
 def _slug(architecture: Dict[str, Any]) -> str:

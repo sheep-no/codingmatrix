@@ -63,6 +63,43 @@ def test_python_config_module_is_not_scaffolded():
     assert content is None
 
 
+def test_non_readme_docs_files_are_not_scaffolded_as_readme():
+    """LICENSE / MANIFEST.in 常被规划为 docs 类型，不能套用 README 骨架。"""
+    architecture = {
+        "language": "python",
+        "requirement": "生成一个 Python 命令行项目",
+        "file_plan": [{"path": "LICENSE", "file_type": "docs"}],
+    }
+    assert scaffold_for_language("python", "LICENSE", "docs", architecture) is None
+    assert scaffold_for_language("python", "MANIFEST.in", "docs", architecture) is None
+    assert scaffold_for_language("python", "CHANGELOG", "docs", architecture) is None
+    assert scaffold_for_language(
+        "python", "docs/guide.md", "docs", architecture
+    ) is None
+
+
+def test_readme_title_ignores_pipeline_banner():
+    from app.agent.adapters.boilerplate import scaffold_readme
+
+    architecture = {
+        "language": "python",
+        "requirement": (
+            "[Pipeline Mode]\n"
+            "engine=legacy incremental=false tools=explore skills_injected=false\n"
+            "If tools=frozen, do not call list_files or read_file; edit only contracted files.\n"
+            "If tools=explore, inspect existing files before writing.\n\n"
+            "生成一个 Python 命令行项目\n"
+            "- src/greeting.py：定义 greet(name)"
+        ),
+        "file_plan": [{"path": "src/greeting.py", "file_type": "backend"}],
+    }
+
+    readme = scaffold_readme(architecture, "python")
+
+    assert readme.startswith("# 生成一个 Python 命令行项目")
+    assert "[Pipeline Mode]" not in readme
+
+
 def test_python_entry_uses_canonical_file_plan_only():
     architecture = {
         "language": "python",
