@@ -20,6 +20,8 @@ class AsyncProcessGuardian:
         self.service_state: Dict[str, dict] = {}
         self.logger = logger
         self.config_manager = None  # 由子类注入
+        # 前台常驻重启命令的管道排空任务，避免其写满缓冲区后阻塞
+        self._background_tasks: set = set()
 
     async def is_port_open(self, port: int, host: str = "127.0.0.1") -> bool:
         """异步端口检测"""
@@ -112,7 +114,12 @@ class AsyncProcessGuardian:
             port: Optional[int] = None,
             startup_timeout: int = 30
     ) -> bool:
-        """重启服务并等待其真正就绪"""
+        """重启服务并等待其真正就绪
+
+        重启命令可能在前台常驻（例如直接 `python app.py`），此时它不会退出、
+        管道也不会关闭。因此不能无限等待命令结束，否则监控循环与熔断机制会
+        永久失效。这里让「命令退出」与「端口就绪」并行等待，先到者为准。
+        """
         try:
             self.logger.info(f"执行重启命令: {restart_cmd}")
             start_time = datetime.now()
@@ -124,28 +131,56 @@ class AsyncProcessGuardian:
                 stderr=asyncio.subprocess.PIPE
             )
 
-            stdout, stderr = await proc.communicate()
+            if port is None:
+                return await self._restart_without_port(proc, startup_timeout)
 
-            if proc.returncode != 0:
-                self.logger.error(f"重启命令失败，返回码: {proc.returncode}")
-                if stderr:
-                    self.logger.error(f"错误信息: {stderr.decode().strip()}")
-                return False
+            exit_task = asyncio.ensure_future(proc.communicate())
+            port_task = asyncio.ensure_future(
+                self._wait_for_service_ready(port, startup_timeout)
+            )
+            done, _ = await asyncio.wait(
+                {exit_task, port_task}, return_when=asyncio.FIRST_COMPLETED
+            )
 
-            self.logger.info("重启命令执行完成，开始等待服务就绪...")
+            if exit_task in done:
+                _, stderr = exit_task.result()
+                if proc.returncode != 0:
+                    self._log_restart_failure(proc.returncode, stderr)
+                    port_task.cancel()
+                    return False
 
-            if port:
-                if await self._wait_for_service_ready(port, startup_timeout):
+                self.logger.info("重启命令执行完成，开始等待服务就绪...")
+                if port_task in done:
+                    ready = port_task.result()
+                else:
+                    port_task.cancel()
+                    ready = await self._wait_for_service_ready(port, startup_timeout)
+
+                if ready:
                     elapsed = (datetime.now() - start_time).total_seconds()
                     self.logger.info(f"服务已就绪，总耗时: {elapsed:.2f}秒")
                     return True
-                else:
-                    self.logger.error(f"服务在 {startup_timeout} 秒内未能就绪")
-                    return False
-            else:
-                self.logger.warning(f"未提供端口，无法主动探测，等待 {min(startup_timeout, 5)} 秒")
-                await asyncio.sleep(min(startup_timeout, 5))
+                self.logger.error(f"服务在 {startup_timeout} 秒内未能就绪")
+                return False
+
+            if port_task.result():
+                # 命令仍在运行，说明它本身就是前台常驻的服务进程
+                if not exit_task.done():
+                    self._detach_subprocess(proc, exit_task)
+                elapsed = (datetime.now() - start_time).total_seconds()
+                self.logger.info(f"服务已就绪，总耗时: {elapsed:.2f}秒")
                 return True
+
+            # 命令既未退出、端口也未就绪，终止它以免监控循环卡死
+            self.logger.error(
+                f"重启命令在 {startup_timeout} 秒内未退出且端口 {port} 未就绪，终止命令"
+            )
+            proc.kill()
+            # kill 后立刻 await wait() 在部分事件循环实现下会漏收 SIGCHLD 而挂起，
+            # 先让出一次控制权，再把剩余管道收尾交给后台任务
+            await asyncio.sleep(0.1)
+            self._detach_subprocess(proc, exit_task)
+            return False
 
         except asyncio.TimeoutError:
             self.logger.error(f"重启命令超时")
@@ -153,6 +188,38 @@ class AsyncProcessGuardian:
         except (ValueError, TypeError, RuntimeError, OSError) as e:
             self.logger.error(f"重启过程异常: {e}")
             return False
+
+    async def _restart_without_port(self, proc, startup_timeout: int) -> bool:
+        """无端口可探测时的重启收尾"""
+        try:
+            _, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=startup_timeout
+            )
+        except asyncio.TimeoutError:
+            self._detach_subprocess(proc)
+            self.logger.warning(
+                f"未提供端口，重启命令在 {startup_timeout} 秒内未退出，按已启动处理"
+            )
+            return True
+
+        if proc.returncode != 0:
+            self._log_restart_failure(proc.returncode, stderr)
+            return False
+
+        self.logger.warning(f"未提供端口，无法主动探测，等待 {min(startup_timeout, 5)} 秒")
+        await asyncio.sleep(min(startup_timeout, 5))
+        return True
+
+    def _log_restart_failure(self, returncode: int, stderr: bytes) -> None:
+        self.logger.error(f"重启命令失败，返回码: {returncode}")
+        if stderr:
+            self.logger.error(f"错误信息: {stderr.decode(errors='replace').strip()}")
+
+    def _detach_subprocess(self, proc, communicate_task=None) -> None:
+        """让前台常驻进程继续运行，同时在后台排空其输出管道"""
+        task = communicate_task or asyncio.ensure_future(proc.communicate())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _wait_for_service_ready(self, port: int, timeout: int) -> bool:
         """循环等待服务端口开放"""
