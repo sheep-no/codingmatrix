@@ -145,13 +145,14 @@ def modify_with_test(
         # Step 4: 运行关联测试
         retry_count = 0
         test_logs = []
+        progress_denominator = max(1, max_retries)
         while retry_count <= max_retries:
             await progress_cb.update(
-                50 + int(40 * retry_count / max_retries),
+                50 + int(40 * retry_count / progress_denominator),
                 f"运行测试 (第 {retry_count + 1}/{max_retries + 1} 轮)..."
             )
 
-            test_result = _run_tests(test_files)
+            test_result = await _run_tests(test_files)
             test_logs.append(test_result)
 
             if test_result.get("success", False):
@@ -161,7 +162,7 @@ def modify_with_test(
             # 测试失败，收集日志回传 Agent 修复
             if retry_count < max_retries:
                 await progress_cb.update(
-                    50 + int(40 * retry_count / max_retries),
+                    50 + int(40 * retry_count / progress_denominator),
                     f"测试失败，正在修复 ({retry_count + 1}/{max_retries})..."
                 )
                 modification_result = await _agent_fix_from_test_logs(
@@ -296,7 +297,7 @@ async def _agent_fix_from_test_logs(test_logs: List[Dict], original_result: Dict
     return {"content": result.get("content", ""), "status": "fixed", "retry": len(test_logs)}
 
 
-def _run_tests(test_files: List[str]) -> Dict:
+async def _run_tests(test_files: List[str]) -> Dict:
     """运行测试文件（安全隔离版，使用 IsolatedTestRunner）"""
     if not test_files:
         return {"success": True, "message": "无测试文件"}
@@ -312,9 +313,9 @@ def _run_tests(test_files: List[str]) -> Dict:
             enable_security_scan=False,
         )
 
-        result = asyncio.run(
-            runner.run_tests(test_paths=test_files)
-        )
+        # 该函数运行在 modify_with_test 的事件循环内，必须 await，
+        # 否则 asyncio.run 会抛 RuntimeError 并退化为宿主 subprocess。
+        result = await runner.run_tests(test_paths=test_files)
 
         return {
             "success": result.success,
@@ -330,7 +331,8 @@ def _run_tests(test_files: List[str]) -> Dict:
         logger.error(f"IsolatedTestRunner 执行失败，回退到直接调用: {e}")
         cmd = ["pytest", "-v", "--tb=short", "--maxfail=3"] + test_files
         try:
-            proc_result = subprocess.run(
+            proc_result = await asyncio.to_thread(
+                subprocess.run,
                 cmd,
                 capture_output=True,
                 text=True,

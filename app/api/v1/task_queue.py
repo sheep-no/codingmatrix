@@ -4,6 +4,7 @@
 提供基于 Celery + Redis 的分布式任务队列功能。
 """
 import logging
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -35,6 +36,32 @@ from app.services.unified_state_service import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tasks", tags=["任务管理"])
+
+# 任务类型到 Celery 任务名的唯一映射源；create/retry/recover 三处共用，避免漂移。
+TASK_NAMES = {
+    "project_generate": "app.tasks.project_tasks.generate_project",
+    "code_generate": "app.tasks.code_tasks.generate_code",
+    "modify_with_test": "app.tasks.code_tasks.modify_with_test",
+    "ppt_generate": "app.tasks.ppt_tasks.generate_ppt",
+}
+
+
+def _build_task_kwargs(task_type: str, task_id: str, user_id: int, params: dict) -> dict:
+    """按任务签名组装业务参数；这些参数必须经 `kwargs=` 下发。"""
+    params = params or {}
+    kwargs = {"task_id": task_id, "user_id": user_id}
+    if task_type == "project_generate":
+        kwargs["requirement"] = params.get("requirement", "")
+    elif task_type == "code_generate":
+        kwargs["prompt"] = params.get("prompt", "")
+        kwargs["language"] = params.get("language", "python")
+    elif task_type == "modify_with_test":
+        kwargs["requirement"] = params.get("requirement", "")
+        kwargs["target_files"] = params.get("target_files")
+        kwargs["max_retry_loops"] = params.get("max_retry_loops")
+    elif task_type == "ppt_generate":
+        kwargs["request_data"] = params
+    return kwargs
 
 
 def _merge_task_runtime_state(task_record, celery_state, celery_info):
@@ -70,7 +97,6 @@ async def create_task(
     - project_generate: 项目生成
     - code_generate: 代码生成
     - ppt_generate: PPT 生成
-    - file_process: 文件处理
     - modify_with_test: 修改+自动测试（P1 新增）
     """
     user_id = int(token.get("sub"))
@@ -81,13 +107,7 @@ async def create_task(
     priority_value = parse_priority(body.priority.value)
     timeout_value = parse_timeout(body.timeout)
 
-    task_map = {
-        "project_generate": "app.tasks.project_tasks.generate_project",
-        "code_generate": "app.tasks.code_tasks.generate_code",
-        "modify_with_test": "app.tasks.code_tasks.modify_with_test",  # P1 新增
-    }
-
-    celery_task_name = task_map.get(task_type)
+    celery_task_name = TASK_NAMES.get(task_type)
     if not celery_task_name:
         raise HTTPException(
             status_code=400,
@@ -95,7 +115,7 @@ async def create_task(
         )
 
     task_record = Task(
-            task_id=f"task_{user_id}_{id(body)}",
+            task_id=str(uuid.uuid4()),
             task_type=task_type,
             status="pending",
             priority=priority_value,
@@ -112,11 +132,8 @@ async def create_task(
 
     result = celery_app.send_task(
         celery_task_name,
+        kwargs=_build_task_kwargs(task_type, task_record.task_id, user_id, body.params),
         task_id=task_record.task_id,
-        requirement=body.params.get("requirement", ""),
-        prompt=body.params.get("prompt", ""),
-        language=body.params.get("language", "python"),
-        user_id=user_id,
         priority=priority_value,
         time_limit=timeout_value
     )
@@ -375,23 +392,18 @@ async def retry_task(
     task_record.error_message = None
     task_record.progress = 0
 
-    task_map = {
-        "project_generate": "app.tasks.project_tasks.generate_project",
-        "code_generate": "app.tasks.code_tasks.generate_code",
-    }
-
-    celery_task_name = task_map.get(task_record.task_type)
-    if celery_task_name and task_record.celery_task_id:
-        celery_app.send_task(
+    celery_task_name = TASK_NAMES.get(task_record.task_type)
+    if celery_task_name:
+        # 重试必须使用新的 Celery ID：复用旧 ID 会让结果后端与历史执行混淆。
+        result = celery_app.send_task(
             celery_task_name,
-            task_id=task_record.task_id,
-            requirement=task_record.params.get("requirement", ""),
-            prompt=task_record.params.get("prompt", ""),
-            language=task_record.params.get("language", "python"),
-            user_id=user_id,
+            kwargs=_build_task_kwargs(
+                task_record.task_type, task_record.task_id, user_id, task_record.params
+            ),
             priority=task_record.priority,
             time_limit=task_record.timeout
         )
+        task_record.celery_task_id = result.id
 
     await db.commit()
 
@@ -430,18 +442,13 @@ async def recover_task(
             raise HTTPException(status_code=400, detail=f"任务状态为 {task_record.status}，无法恢复")
         await transition_task(db, task_id, user_id, "pending", progress=0, error_message=None, allow_recovery=True)
         await append_task_event(db, task_id, user_id, "task.recovered", status="pending")
-        task_map = {
-            "project_generate": "app.tasks.project_tasks.generate_project",
-            "code_generate": "app.tasks.code_tasks.generate_code",
-            "modify_with_test": "app.tasks.code_tasks.modify_with_test",
-        }
-        celery_task_name = task_map.get(task_record.task_type)
+        celery_task_name = TASK_NAMES.get(task_record.task_type)
         if celery_task_name:
             result = celery_app.send_task(
                 celery_task_name,
-                task_id=task_record.task_id,
-                **(task_record.params or {}),
-                user_id=user_id,
+                kwargs=_build_task_kwargs(
+                    task_record.task_type, task_record.task_id, user_id, task_record.params
+                ),
                 priority=task_record.priority,
                 time_limit=task_record.timeout,
             )
