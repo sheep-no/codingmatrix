@@ -26,6 +26,14 @@ from app.models.unified_state import (
     StateReconciliationRecord,
 )
 from app.models.Permission import Permission
+from app.models.agent_memory import (
+    AgentSession,
+    MemoryEntry,
+    AgentReflection,
+    KnowledgeEntry,
+    ToolExecutionLog,
+    ModelUsageStats,
+)
 
 # 初始化配置
 config = context.config
