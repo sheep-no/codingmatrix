@@ -5,10 +5,28 @@ from sqlalchemy.orm import joinedload
 
 from app.models.Permission import Permission
 from app.models.user import User
+from app.models.history import History
+from app.models.file import File
+from app.models.task import Task
+from app.models.aicloud import (
+    AicloudSession,
+    AicloudMessage,
+    AicloudReview,
+    AicloudAuditLog,
+)
+from app.models.aicloud_knowledge import AicloudKnowledgeDoc, AicloudKnowledgeChunk
+from app.models.github_config import GithubUserConfig
+from app.models.agent_memory import AgentSession, ToolExecutionLog
+from app.db.database import get_db
+from app.db.models import (
+    ProjectSession,
+    WorkflowHistory,
+    ImageGenerationHistory,
+    ConversationMessage,
+)
 from app.utils.security import verify_token, hash_password, validate_password_strength
 from app.utils.permissions import is_admin, is_superadmin
 
-from app.db.database import get_db
 from app.schema.manageUser import *
 from app.utils.cache import invalidate_user_cache
 from app.utils.cache_decorator import invalidate_cache_by_prefix
@@ -51,6 +69,57 @@ async def _get_user_with_permission(db: AsyncSession, user_id: int):
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     return user
+
+
+async def _purge_user_owned_data(db: AsyncSession, user_id: int) -> None:
+    """显式清理用户在各业务表中的数据。
+
+    User 的 ORM 关系只覆盖部分表：history/files/tasks 在 ORM 层未声明级联，
+    直接删除 User 时 SQLAlchemy 会把子表外键置空并触发 NOT NULL 报错；
+    aicloud 系列与 github 配置只有无 ondelete 的外键（MySQL 报约束错误），
+    aicloud 知识库及 db/models 的历史表 user_id 为裸列（静默残留孤儿）。
+    因此这里按外键依赖顺序逐表清理，再删除 User 本体。
+    """
+    # aicloud 消息通过会话关联用户，需在删除会话前清理
+    owned_session_ids = select(AicloudSession.id).where(AicloudSession.user_id == user_id)
+    await db.execute(
+        delete(AicloudMessage).where(AicloudMessage.session_id.in_(owned_session_ids))
+    )
+    await db.execute(
+        delete(AicloudKnowledgeChunk).where(AicloudKnowledgeChunk.user_id == user_id)
+    )
+    await db.execute(
+        delete(AicloudKnowledgeDoc).where(AicloudKnowledgeDoc.user_id == user_id)
+    )
+    await db.execute(delete(AicloudSession).where(AicloudSession.user_id == user_id))
+    await db.execute(
+        delete(AicloudReview).where(
+            (AicloudReview.requested_by == user_id) | (AicloudReview.reviewed_by == user_id)
+        )
+    )
+    await db.execute(delete(AicloudAuditLog).where(AicloudAuditLog.user_id == user_id))
+    # 工具执行日志无 ORM 关系且外键无 ondelete，需先于会话级联删除
+    owned_agent_session_ids = select(AgentSession.id).where(AgentSession.user_id == user_id)
+    await db.execute(
+        delete(ToolExecutionLog).where(ToolExecutionLog.session_id.in_(owned_agent_session_ids))
+    )
+    await db.execute(delete(History).where(History.user_id == user_id))
+    await db.execute(delete(Task).where(Task.user_id == user_id))
+    await db.execute(delete(File).where(File.user_id == user_id))
+    await db.execute(delete(GithubUserConfig).where(GithubUserConfig.user_id == user_id))
+
+    # db 层历史表的 user_id 是字符串列，按字符串形式比对
+    text_user_id = str(user_id)
+    await db.execute(
+        delete(ConversationMessage).where(ConversationMessage.user_id == text_user_id)
+    )
+    await db.execute(
+        delete(ImageGenerationHistory).where(ImageGenerationHistory.user_id == text_user_id)
+    )
+    await db.execute(
+        delete(WorkflowHistory).where(WorkflowHistory.user_id == text_user_id)
+    )
+    await db.execute(delete(ProjectSession).where(ProjectSession.user_id == text_user_id))
 
 
 @router.get("/Controller/users", response_model=UserListResponse,
@@ -275,6 +344,7 @@ async def delete_user(
         user.permission.permission_level if user.permission else "normal",
     )
     await db.execute(delete(Permission).where(Permission.user_id==user_id))
+    await _purge_user_owned_data(db, user_id)
     await db.delete(user)
     await db.commit()
     await invalidate_user_cache(user.email)
