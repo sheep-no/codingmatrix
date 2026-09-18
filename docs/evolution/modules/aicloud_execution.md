@@ -71,3 +71,37 @@
 ## 四、测试状态
 
 零单元测试。CE2/CE3（沙箱逃逸）、AE1（is_safe_code 绕过）、SB1（symlink 逃逸）、SO1（write 恒 pending）、RQ1（跨用户审批）、CI1（sandbox_env 未应用）、KP1（chunk_text 死循环）全部实码可证无任何用例保护。修复建议：① CE2/CE3/CE5 沙箱改为真实隔离（docker_runner/bwrap + rlimit 内存 + 进程组 + 白名单 API），或明确降低承诺；② CE4 MAX_MEMORY_MB 用 resource.setrlimit 落地；③ AE1 用 AST/运行时拦截替代子串；④ SB1 统一 realpath 校验并解析 symlink；⑤ SO1/CA5 补安全内容自动通过路径或删死分支；⑥ RQ1 审查按 requested_by 隔离 + approve 校验所有权 + 写回走 SandboxFileOperator；⑦ CI1 将 sandbox_env 注入 subprocess 或删声明；⑧ KP1 校验 chunk_overlap < chunk_size 并设上限；⑨ 下轮转 aicloud/adapters/ 8 文件。
+
+## 五、状态更新（2026-09-18 核实）
+
+对建档条目逐条对照当前代码核实，结论如下。
+
+### 已修复（本 PR：260918-fix-aicloud-execution-hardening）
+
+- **CE2 已修复**：`BANNED_PYTHON_MODULES` 补入 `pathlib`/`io`/`shutil`/`tempfile`/`glob`/`mmap`/`pty`/`dbm`/`sqlite3`/`webbrowser`，`from pathlib import Path` 等文件系统读取在 AST 阶段即被拒绝。
+- **CE3 已修复**：删除 `BANNED_JS_MODULES` 子串匹配，改为忽略大小写的正则拦截 `require(`/动态 `import(`/`process`/`globalThis`/`fetch`/`XMLHttpRequest`/`WebSocket`/`child_process`，空格与大小写变体不再绕过。
+- **CE4 已修复**：`MAX_MEMORY_MB` 不再是死配置。Python 子进程经 `preexec_fn` 设置 `RLIMIT_AS=256MB` 与 `RLIMIT_CPU`；Node 追加 `--max-old-space-size=256`；Go 运行进程注入 `GOMEMLIMIT=256MiB`；三语言均设置 CPU 上限。实测 `RLIMIT_AS` 会直接压垮 Node/Go 启动，故未对这两者使用地址空间限制。
+- **AE1 已修复**：`is_safe_code` 由大小写敏感子串改为忽略大小写的词边界正则；删除 `if "open(" in code and "/sandbox" not in code: pass` 空操作分支，`open(` 现会被拒绝；未被消费的 `SAFE_OPERATIONS` 死常量一并移除。
+- 新增 `tests/unit/test_aicloud_execution_regressions.py`（14 项），覆盖上述四项；回退源码后 11 项失败。
+
+### 建档时存在、现已消解（此前重构，非本 PR）
+
+- **SB1 已消解**：`SandboxFileOperator` 不再自建 `normpath` 校验，统一走 `FileOperator._validate_path`（`Path.resolve()` 解析符号链接 + 前缀校验），并由 `tests/unit/test_aicloud.py::TestSandboxFileOperator::test_symlink_escape_is_rejected` 守护。
+- **SB3/SB4 已消解**：`sandbox.py` 已重构，`get_absolute_sandbox_path`/`sanitize_path`/`is_path_safe` 及其 `".."`/`"~"` 子串误伤逻辑均已删除。
+- **KP1 已消解**：`chunk_text` 已有 `chunk_overlap = max(0, min(chunk_overlap, chunk_size - 1))`，起始位置必然前进。
+- **CI2 不成立**：`PROTECTED_PATHS` 全部以 `/` 结尾，走 `startswith` 分支，`pattern in normalized_path` 分支对当前清单不可达，`/workspace/opt/...` 不会被误伤。
+- **建档「零单元测试」表述已过时**：`tests/unit/test_aicloud.py` 已覆盖敏感过滤、上下文隔离与沙箱路径校验。
+
+### 仍存在、留待后续
+
+- **RQ1**：`get_reviews` 未按 `requested_by` 过滤；`approve_review_endpoint` 不校验归属且用 `open()` 直写 `review.file_path`。留待审查队列专项 PR。
+- **SO1/CA5**：`analyze_content` 对 write 恒追加 “File write requires review”，`deep_content_analysis` 恒返回 `require_human_review`，`write_with_review` 的 `auto_approve` 分支仍不可达。
+- **SO2**：`raw_content` 仍原样入库与写回。
+- **SO4**：`SandboxFileOperator.PROTECTED_PATHS` 仍为基类不消费的死字段（基类用自身清单）。
+- **SB2**：`ensure_user_sandbox` 仍声明 `async` 但仅同步 `os.makedirs`（P3）。
+- **CE5/CE7**：Python AST 仍不拦 attribute 链逃逸；执行脚本仍明文落盘（P3）。
+- **AE2/AE3/AE5**：`CodeExecutor` 默认落 `/tmp`；循环记录截断无标记；`conversation_history` 收集后无消费（P3）。
+- **CI1**：`context_isolator.setup_sandbox` 产出的 `sandbox_env` 仍未注入 `CodeExecutor`（后者使用固定环境字典）（P3）。
+- **CA6/CA7、RQ2、CI3、SF1、KP2/KP3/KP4**：内容分析正则覆盖面、死代码、单例无锁、密码正则、零向量占位等 P3 项未处理。
+
+> 本次未触及 Agent 子系统、Flutter 与 VS Code 插件范围。
