@@ -44,3 +44,13 @@
 ## 四、测试状态
 
 零单元测试。get_last_duration 缺失、无锁统计竞态、metrics 无限增长、BaseHTTPMiddleware 缓冲流式响应均无测试约束。修复建议：① **优先修复 PMC8（运行时会炸）**——补 get_last_duration 或改调用方；② 并发 end_timer 统计一致性测试；③ metrics 内存上限测试；④ 流式响应中间件测试（SSE 不被缓冲）。
+
+## 五、状态更新（2026-09-18 核实）
+
+按行号逐条核实代码现状后的结论（以当前代码为准，原文档行号已漂移）：
+
+- **PMC8 [P2] 已修（在非 Agent 侧补齐 API）**：`MetricsCollector` 新增 `get_last_duration(module, metric_name="execution_time")`，从 `self.metrics` 逆序查找该指标最近一条记录并返回 `value`，无记录返回 `0.0`。调用方 `orchestrator_testing.py:73` 在 `finally` 的 `end_timer` 之前读取，因此返回的是上一次耗时，语义与调用位置自洽。调用不再抛 `AttributeError`，真实通过的测试不会被误报为失败。未改 `app/agent/orchestrator_testing.py`（Agent 范围）。
+- **PMC2 [P2] 已修**：新增 `_MAX_METRIC_POINTS_PER_MODULE = 1000`，`_record_metric` 超限时 `del points[:-N]` 仅保留最近 N 条，`self.metrics` 不再逐调用无限累积。`self.metrics` 全库无外部直接读取（仅 `performance_metrics.py` 内部），裁剪无消费方影响。
+- **PMC1 [P2] 判定不修**：`MetricsCollector` 的写入方法（`end_timer` / `record_cache_hit` / `record_cache_miss` / `_update_module_metrics`）均为同步、内部无 `await`，在单事件循环 asyncio 模型下协程不会被中途打断，不构成读改写竞态；多线程访问不是当前运行模型。
+- **PM1 / PM2 / PMC3 / PMC4 / PMC5 / PMC6 [P2/P3] 未处理**：`performance_monitor.py` 的 BaseHTTPMiddleware→纯 ASGI 迁移、request_id 与 `logging.py` 统一，以及告警去重、metrics 文件轮转、阈值硬编码、相对路径等保持原状。
+- **新增回归**：`tests/unit/test_performance_metrics.py`（2 项：`get_last_duration` 读取最近耗时、单模块指标点数量受上限约束）。回退 `app/utils/performance_metrics.py` 后 2/2 失败。
