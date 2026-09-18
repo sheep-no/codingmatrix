@@ -48,3 +48,17 @@
 ## 四、测试状态
 
 零单元测试。HTTP 客户端四轨、retry.py 死代码、enable_jitter 死分支、callback 未调用均无测试约束。修复建议：① 统一 HTTP 客户端单例（is_closed 重建）测试；② jitter 分支行为测试（enable_jitter 切换断言等待时间分布）；③ 熔断并发创建竞态测试；④ cb.call 超时包裹测试。
+
+## 状态更新（2026-09-18 核实）
+
+- **CB0 [P2]（本轮新发现，原文档未记录）熔断器一旦 OPEN 永不恢复——已修复**：`state` 属性只在读取时派生 HALF_OPEN，从不写回 `_stats.state`，因此 `_on_success`/`_on_failure` 里 `_stats.state == CircuitState.HALF_OPEN` 的分支恒不成立。实测：超时后探测成功，`state` 仍停留在 HALF_OPEN，永远回不到 CLOSED（熔断等价于永久关停）。新增 `_reconcile_state()`，在 `state` 读取与 `call()` 入口把超时的 OPEN 真正落实为 HALF_OPEN；新增 `_transition()` 统一状态更新与回调。
+- **CB2/CB3 已修复**：半开探测名额改为在 `finally` 中归还（此前只增不减，`success_threshold > half_open_max_calls` 时熔断器会被永久卡在 HALF_OPEN），增减均在 `_lock` 内。未按原修复方向引入 `asyncio.wait_for` 硬超时，避免改变长调用（LLM/慢 API）的既有语义。
+- **CB4 已修复**：新增 `_notify()`，状态变更时以 `(name, old_state, new_state)` 调用回调，回调异常被捕获，不影响请求主流程。
+- **CB1 已修复**：`get_circuit_breaker` 改用模块级 `threading.Lock` 保护创建。该函数同步且无 await，单事件循环内本无竞态，此改动消除的是多线程首调竞态。
+- **HTTP1 已修复**：`HTTPClientPool.get_client` 增加 `is_closed` 判断并在锁内重建。
+- **HTTP4 已修复**：`get_http_client_pool` 同样用 `threading.Lock` 保护单例创建。
+- **RET2 已修复**：`enable_jitter=True` 改用 `tenacity.wait_random_exponential`。当前环境 tenacity 的 `wait_exponential` 无 `jitter` 参数，原文档给出的修复方向不可行。
+- **RET3 已修复**：删除 `retry_with_circuit_breaker` 中两个分支等价的 `except`。
+- **仍存在**：RET1（retry.py 仍零业务消费，删除或接入统一重试体系需先与产品确认）；HTTP2（`__aexit__` 空操作，共享连接池不应在此关闭，保留现状）；HTTP3/HTTP5（默认 `follow_redirects=True` 与固定 30s 超时为设计取舍，未改）。
+
+新增 `tests/unit/test_http_resilience.py`（9 项）；回退源码后 5 项失败，验证测试确实覆盖修复点。

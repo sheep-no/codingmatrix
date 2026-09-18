@@ -5,7 +5,6 @@
 适用于外部 API 调用、数据库操作等易失败场景
 """
 import logging
-import random
 from functools import wraps
 from typing import Optional, Callable, Any
 
@@ -13,6 +12,7 @@ from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential,
+    wait_random_exponential,
     retry_if_exception_type,
     before_log,
     after_log,
@@ -50,7 +50,8 @@ def retry_on_failure(
     """
     def decorator(func: Callable) -> Callable:
         if enable_jitter:
-            wait_strategy = wait_exponential(
+            # wait_exponential 没有 jitter 参数，真正带抖动的是 wait_random_exponential
+            wait_strategy = wait_random_exponential(
                 multiplier=1,
                 min=min_wait,
                 max=max_wait
@@ -101,19 +102,12 @@ def retry_with_circuit_breaker(
         log_level: 日志级别
     """
     def decorator(func: Callable) -> Callable:
-        from app.utils.circuit_breaker import get_circuit_breaker, CircuitBreakerError
+        from app.utils.circuit_breaker import get_circuit_breaker
 
         @wraps(func)
         async def wrapper(*args, **kwargs):
             cb = get_circuit_breaker(circuit_breaker_name)
-            try:
-                return await cb.call(func, *args, **kwargs)
-            except CircuitBreakerError:
-                raise
-            except Exception as e:
-                if isinstance(e, exceptions):
-                    raise
-                raise
+            return await cb.call(func, *args, **kwargs)
 
         return wrapper
 

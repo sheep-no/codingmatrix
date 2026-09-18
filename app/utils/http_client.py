@@ -5,6 +5,7 @@ HTTP 客户端连接池
 """
 import asyncio
 import httpx
+import threading
 from typing import Optional
 from contextlib import asynccontextmanager
 
@@ -34,9 +35,10 @@ class HTTPClientPool:
 
     async def get_client(self) -> httpx.AsyncClient:
         """获取或创建客户端"""
-        if self._client is None:
+        # 客户端可能因异常被外部关闭，此时必须重建，否则会持续复用已关闭连接
+        if self._client is None or self._client.is_closed:
             async with self._init_lock:
-                if self._client is None:
+                if self._client is None or self._client.is_closed:
                     self._client = httpx.AsyncClient(
                         limits=self._limits,
                         timeout=httpx.Timeout(self._timeout),
@@ -67,18 +69,20 @@ class HTTPClientPool:
 
 
 _http_client_pool: Optional[HTTPClientPool] = None
+_http_client_pool_lock = threading.Lock()
 
 
 def get_http_client_pool() -> HTTPClientPool:
     """获取 HTTP 客户端池单例"""
     global _http_client_pool
-    if _http_client_pool is None:
-        _http_client_pool = HTTPClientPool(
-            max_connections=20,
-            max_keepalive_connections=10,
-            timeout=30.0
-        )
-    return _http_client_pool
+    with _http_client_pool_lock:
+        if _http_client_pool is None:
+            _http_client_pool = HTTPClientPool(
+                max_connections=20,
+                max_keepalive_connections=10,
+                timeout=30.0
+            )
+        return _http_client_pool
 
 
 async def get_http_client() -> httpx.AsyncClient:
