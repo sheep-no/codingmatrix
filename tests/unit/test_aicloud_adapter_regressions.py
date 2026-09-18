@@ -1,0 +1,203 @@
+"""适配器 P2 缺陷回归测试（adapters.md）。
+覆盖：
+- 每个请求都带上适配器自身的 timeout（此前 Timeout 构造后从不使用，
+  所有请求落到共享客户端的 300s 超时）。
+- Anthropic 流式事件转换为 OpenAI 兼容 chunk（此前原样透传，下游
+  choices[0].delta.content 恒空）。
+- Anthropic 供应商 base_url 带 /v1（此前缺 /v1 → 用户自带 Key 404）。
+- 非标准字段注入按供应商收敛（此前给 OpenAI/DeepSeek 注入
+  enable_thinking/extra_body 等非标准字段）。
+"""
+
+import pytest
+
+from app.utils.aicloud.providers import ModelProvider, ProviderConfig
+
+
+class _FakeResponse:
+    status_code = 200
+    text = "{}"
+
+    def json(self):
+        return {"choices": [{"message": {"content": "ok"}}], "usage": {}}
+
+    def raise_for_status(self):
+        return None
+
+
+class _FakeStreamResponse:
+    status_code = 200
+
+    def __init__(self, lines):
+        self._lines = lines
+
+    async def aiter_lines(self):
+        for line in self._lines:
+            yield line
+
+    async def aclose(self):
+        return None
+
+
+class _FakeStreamContext:
+    def __init__(self, response):
+        self._response = response
+
+    async def __aenter__(self):
+        return self._response
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+
+class _FakeClient:
+    def __init__(self, lines=None):
+        self.calls = []
+        self._lines = lines or []
+
+    async def post(self, url, **kwargs):
+        self.calls.append(("POST", url, kwargs))
+        return _FakeResponse()
+
+    def stream(self, method, url, **kwargs):
+        self.calls.append((method, url, kwargs))
+        return _FakeStreamContext(_FakeStreamResponse(self._lines))
+
+
+def _patch_client(monkeypatch, module, client):
+    async def _get_client():
+        return client
+
+    monkeypatch.setattr(module, "get_http_client", _get_client)
+
+
+def _openai_config(provider=ModelProvider.OPENAI, timeout=42.0):
+    return ProviderConfig(
+        provider=provider,
+        api_key="test-key",
+        base_url="https://example.com/v1",
+        timeout=timeout,
+    )
+
+
+@pytest.mark.asyncio
+async def test_openai_adapter_passes_timeout(monkeypatch):
+    from app.utils.aicloud.adapters import openai as openai_module
+    from app.utils.aicloud.adapters.openai import OpenAIAdapter
+
+    client = _FakeClient()
+    _patch_client(monkeypatch, openai_module, client)
+    adapter = OpenAIAdapter(_openai_config(timeout=42.0))
+
+    await adapter.call_llm(model="gpt-4o", prompt="hi")
+    method, url, kwargs = client.calls[-1]
+    assert method == "POST"
+    assert kwargs["timeout"].read == 42.0
+
+    await adapter.call_llm(model="gpt-4o", prompt="hi", stream=True)
+    method, url, kwargs = client.calls[-1]
+    assert kwargs["timeout"].read == 42.0
+
+
+@pytest.mark.asyncio
+async def test_anthropic_adapter_passes_timeout_and_converts_stream(monkeypatch):
+    from app.utils.aicloud.adapters import anthropic as anthropic_module
+    from app.utils.aicloud.adapters.anthropic import AnthropicAdapter
+
+    lines = [
+        'event: content_block_delta',
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}',
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" world"}}',
+        'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{}}',
+        'data: {"type":"ping"}',
+    ]
+    client = _FakeClient(lines=lines)
+    _patch_client(monkeypatch, anthropic_module, client)
+    adapter = AnthropicAdapter(_openai_config(ModelProvider.ANTHROPIC, timeout=55.0))
+
+    stream = await adapter.call_llm(model="claude-3", prompt="hi", stream=True)
+    chunks = [chunk async for chunk in stream]
+
+    assert any('"Hello"' in chunk for chunk in chunks)
+    assert any('" world"' in chunk for chunk in chunks)
+    assert any('"finish_reason": "end_turn"' in chunk for chunk in chunks)
+    # ping 事件不应产出 chunk
+    assert all("ping" not in chunk for chunk in chunks)
+    assert client.calls[-1][2]["timeout"].read == 55.0
+
+
+@pytest.mark.asyncio
+async def test_dynamic_anthropic_adapter_converts_stream(monkeypatch):
+    from app.utils.aicloud.adapters import dynamic as dynamic_module
+    from app.utils.aicloud.adapters.dynamic import DynamicAdapter
+    from app.utils.aicloud.dynamic_provider import DynamicProvider, Protocol
+
+    lines = [
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}',
+    ]
+    client = _FakeClient(lines=lines)
+    _patch_client(monkeypatch, dynamic_module, client)
+    adapter = DynamicAdapter(
+        DynamicProvider(
+            id="dyn",
+            name="dyn",
+            base_url="https://example.com",
+            api_key="test-key",
+            protocol=Protocol.ANTHROPIC,
+        )
+    )
+
+    stream = await adapter.call_llm(model="claude-3", prompt="hi", stream=True)
+    chunks = [chunk async for chunk in stream]
+
+    assert any('"Hi"' in chunk for chunk in chunks)
+    assert client.calls[-1][2]["timeout"].read == adapter.timeout
+
+
+def test_anthropic_sse_converter_ignores_non_text_events():
+    from app.utils.aicloud.adapters.base import anthropic_sse_to_openai_chunk
+
+    assert anthropic_sse_to_openai_chunk({"type": "message_start"}) is None
+    assert anthropic_sse_to_openai_chunk({"type": "ping"}) is None
+    assert anthropic_sse_to_openai_chunk(
+        {"type": "content_block_delta", "delta": {"type": "input_json_delta"}}
+    ) is None
+    converted = anthropic_sse_to_openai_chunk(
+        {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "x"}}
+    )
+    assert converted is not None and '"x"' in converted
+
+
+def test_anthropic_provider_base_url_has_v1():
+    from app.utils.aicloud.llm_caller import _get_provider_base_url
+
+    assert _get_provider_base_url(ModelProvider.ANTHROPIC).endswith("/v1")
+
+
+def test_request_body_only_injects_thinking_fields_for_supporting_providers():
+    from app.utils.aicloud.adapters.dashscope import DashScopeAdapter
+    from app.utils.aicloud.adapters.openai import OpenAIAdapter
+    from app.utils.aicloud.adapters.siliconflow import SiliconFlowAdapter
+
+    messages = [{"role": "user", "content": "hi"}]
+
+    official = OpenAIAdapter(_openai_config())._build_request_body(
+        model="gpt-4o", messages=messages
+    )
+    assert "enable_thinking" not in official
+    assert "extra_body" not in official
+
+    official_reasoning = OpenAIAdapter(_openai_config())._build_request_body(
+        model="o1-reasoner", messages=messages
+    )
+    assert "extra_body" not in official_reasoning
+
+    dashscope = DashScopeAdapter(
+        _openai_config(ModelProvider.DASHSCOPE)
+    )._build_request_body(model="qwen3-8b", messages=messages)
+    assert dashscope["enable_thinking"] is False
+
+    siliconflow = SiliconFlowAdapter(
+        _openai_config(ModelProvider.SILICONFLOW)
+    )._build_request_body(model="Qwen/Qwen3.5-4B", messages=messages)
+    assert siliconflow["enable_thinking"] is False
