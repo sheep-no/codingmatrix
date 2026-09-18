@@ -467,7 +467,7 @@ class TestWriteSyntaxWarning:
 
 
 class TestWriteFileEmptyContentGate:
-    """空内容门禁：拒绝普通空文件，放行空 __init__.py 包标记。"""
+    """空内容门禁：拒绝普通空文件，放行空包标记与空点号占位文件。"""
 
     def test_empty_package_entry_is_written(self, tmp_path):
         from app.agent.tools import _tool_write_file
@@ -485,6 +485,14 @@ class TestWriteFileEmptyContentGate:
         assert result["success"] is False
         assert "内容为空" in result["error"]
         assert not (tmp_path / "pkg" / "main.py").exists()
+
+    def test_empty_dotfile_placeholder_is_written(self, tmp_path):
+        from app.agent.tools import _tool_write_file
+
+        result = _tool_write_file(str(tmp_path), "assets/.gitkeep", "")
+
+        assert result["success"] is True
+        assert (tmp_path / "assets" / ".gitkeep").read_text(encoding="utf-8") == ""
 
 
 class TestWriteFileDotfileGate:

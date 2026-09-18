@@ -164,3 +164,30 @@ def test_empty_non_package_file_still_rejected():
 
     assert passed is False
     assert reason == "内容为空"
+
+
+def test_empty_metadata_placeholder_passes_file_gate():
+    """空 .gitkeep 是合法的目录占位，不应判为「内容为空」。"""
+    assert utils.validate_file_in_sandbox(".gitkeep", "") == (True, "")
+    assert utils.validate_file_in_sandbox("assets/.gitkeep", "  \n") == (True, "")
+
+
+def test_short_metadata_file_passes_content_gate():
+    """`.gitignore` 只写一行 `*.log` 是合法内容，不受最小长度限制。"""
+    valid, reason = utils.is_valid_code_content(".gitignore", "*.log\n")
+
+    assert valid is True
+    assert reason == ""
+
+
+def test_empty_metadata_not_treated_as_placeholder():
+    """空占位文件不是占位符代码，写入路径不应因此拒绝。"""
+    assert utils.is_placeholder_content("", ".gitkeep") == (False, "")
+
+
+def test_empty_hidden_directory_placeholder_still_rejected():
+    """`.gitkeep` 之外的空普通文件仍拒绝，放行只针对点号文件。"""
+    passed, reason = utils.validate_file_in_sandbox("src/keep.py", "")
+
+    assert passed is False
+    assert reason == "内容为空"
