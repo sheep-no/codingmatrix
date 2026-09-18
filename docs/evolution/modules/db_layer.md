@@ -321,3 +321,15 @@ tasks = (await db.execute(select(Task).where(Task.input_file_id == file.id))).sc
 - **平台化**：DB2/DB3 决定 SQLite 形态能否支撑多 worker——长期方向是 PG 化（ondelete 级联 + advisory lock 已就绪）+ 调度独立进程（或改用 celery beat，与现有 celery 栈收敛）
 - **「定时任务三态」主线**：ChatArchiver（活跃但零容差 DB4/DB5）、scheduler（活跃但双跑 DB2）、log_server（活跃半接 DB9）——与 DR7「验证任务从不验证」同属「调度存在 ≠ 任务正确」家族
 - **死代码家族**：DB8 为第 38 处（get_recent_context 零生产消费）；clear.py/init_workflow.py 两个一次性脚本建议随 DB12 收敛一并归位 scripts/
+
+## 7. 状态更新（2026-09-18 核实）
+
+按代码现状逐条核实后的结论：
+
+- **DB1 [P2] 已修**：`app/db/database.py` 为 SQLite 增加 `connect` 事件钩子，每个连接执行 `PRAGMA foreign_keys=ON`，主库外键与级联矩阵在默认部署下生效。
+- **DB3 [P2] 已修**：`connect_args` 增加 `timeout=30`，连接钩子增加 `PRAGMA journal_mode=WAL` 与 `PRAGMA busy_timeout=30000`。更正原文一处事实：Python `sqlite3.connect` 默认 `timeout=5.0s`（非 0），但主库此前从未设置显式超时，WAL 亦未开启；本次统一收敛到主库一处。
+- **DB2 [P2] 已缓解（非本次改动）**：`settings.ENABLE_SCHEDULER` 默认 `False`，`main.py:133` 据此 gate `start_scheduler()`，默认单进程部署不再双跑。若在多 worker 下显式开启，`AsyncIOScheduler` 仍会每 worker 一份，需独立调度进程/分布式锁，保留。
+- **DB5 [P3] 已失效**：`chat_archiver._generate_summary_with_ai` 现对 `choices`、`message`、`content` 逐层做空值防护（`choices[0].get("message") or {}`、`(message.get("content") or "").strip()`），`content=None` 不再抛 `AttributeError` 中止整轮归档。
+- **DB4/DB6/DB7/DB8/DB9/DB10/DB11/DB12/DB13 [P3] 未处理**：归档水位线、会话 id 唯一约束、搜索语义统一、`get_recent_context` 死方法、日志流轮转感知、Permission 唯一约束、时间语义、schema 单轨、cleanup N+1/路径校验等仍待专项；`clear.py`/`init_workflow.py` 两脚本删除需先确认。
+
+新增回归 `tests/unit/test_sqlite_engine_config.py`（2 项，覆盖 DB1/DB3）。同时 `.gitignore` 补充 `*.db-wal`/`*.db-shm`/`*.db-journal`，避免 WAL 边车文件误入版本库。
