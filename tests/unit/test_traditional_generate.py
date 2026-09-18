@@ -25,6 +25,32 @@ def test_small_project_without_dependencies_keeps_parallel_generation():
     assert _requires_layered_generation(2, graph) is False
 
 
+def test_strict_file_set_drops_unplanned_package_init():
+    """冻结文件集生效时不得补出计划外的 src/__init__.py。"""
+    from app.agent.orchestrator_generation.traditional_generate import (
+        _filter_planned_integrity_fixes,
+    )
+
+    fixes = {"src/__init__.py": "", "main.py": "print('x')"}
+    architecture = {
+        "strict_file_paths": ["src/greeting.py", "main.py", "LICENSE", "MANIFEST.in", "README.md"],
+    }
+
+    assert _filter_planned_integrity_fixes(fixes, architecture) == {"main.py": "print('x')"}
+
+
+def test_non_strict_plan_keeps_package_init_fix():
+    """没有冻结契约时保留既有的包入口补充行为。"""
+    from app.agent.orchestrator_generation.traditional_generate import (
+        _filter_planned_integrity_fixes,
+    )
+
+    fixes = {"src/__init__.py": ""}
+    architecture = {"file_plan": [{"path": "src/greeting.py", "file_type": "backend"}]}
+    assert _filter_planned_integrity_fixes(fixes, architecture) == fixes
+    assert _filter_planned_integrity_fixes(fixes, None) == fixes
+
+
 @pytest.mark.asyncio
 async def test_traditional_completeness_treats_empty_content_as_incomplete(tmp_path):
     from app.agent.orchestrator_generation.traditional_generate import (

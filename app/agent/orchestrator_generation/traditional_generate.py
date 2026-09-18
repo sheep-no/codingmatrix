@@ -18,6 +18,30 @@ def _requires_layered_generation(total_files: int, dep_graph: DependencyGraph) -
     return total_files > 5 or any(dep_graph.adjacency.values())
 
 
+def _filter_planned_integrity_fixes(
+    fixes: Dict[str, str],
+    architecture: Optional[Dict[str, Any]],
+) -> Dict[str, str]:
+    """按冻结文件集过滤完整性修复产物。
+
+    需求里出现 `Generate exactly these files and no others:` 时，架构会记录
+    `strict_file_paths` 作为权威清单；此时任何计划外的 `__init__.py` 补充都
+    违反用户契约（`src/greeting.py` 这类目录在 Python 3 是可用的命名空间包，
+    不需要入口文件）。非冻结场景保持原行为，继续补充包入口文件。
+    """
+    strict_paths = architecture.get("strict_file_paths") if isinstance(architecture, dict) else None
+    if not strict_paths:
+        return fixes
+    allowed = {str(path).replace("\\", "/") for path in strict_paths}
+    kept: Dict[str, str] = {}
+    for fix_path, fix_content in fixes.items():
+        if str(fix_path).replace("\\", "/") in allowed:
+            kept[fix_path] = fix_content
+        else:
+            logger.info("严格文件集合生效，跳过计划外完整性补充: %s", fix_path)
+    return kept
+
+
 class TraditionalGenerateMixin:
 
     @traced("orchestrator.traditional", attributes={"component": "orchestrator"})
@@ -253,7 +277,10 @@ class TraditionalGenerateMixin:
             integrity_validator = IntegrityValidator(language_adapter=language_adapter)
             integrity_result = integrity_validator.validate(generated_files_dict)
             if not integrity_result.passed:
-                fixes = integrity_validator.generate_fixes(integrity_result, generated_files_dict)
+                fixes = _filter_planned_integrity_fixes(
+                    integrity_validator.generate_fixes(integrity_result, generated_files_dict),
+                    architecture,
+                )
                 for fix_path, fix_content in fixes.items():
                     full_path = self.output_dir / fix_path
                     full_path.parent.mkdir(parents=True, exist_ok=True)
