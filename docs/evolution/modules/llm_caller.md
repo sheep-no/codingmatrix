@@ -132,3 +132,14 @@ for fallback in fallback_providers:
 - **§10.1（26 文件直连）**：LCL1 是直连路径的信号量缺陷，与 llm_client LC2/LC5 同根——**信号量缺陷两条路径都存在**，统一收敛时应合并修复
 - **LLMClient 嵌套**：LLMClient 用 `_skip_semaphore=True` 避免嵌套，但 call_llm 的 fallback 内部重新 acquire（:365-376）——嵌套边界需在收敛时统一
 - **Backlog 关联**：#12，新增 LCL1-LCL5
+
+## 7. 状态更新（2026-09-18 核实）
+
+按行号逐条核实代码现状后的结论（文件已重构至 788 行，原行号全部漂移）：
+
+- **LCL1 [P0] 泄漏部分已修、饿死部分已缓解**：信号量获取重构为 `_acquire_llm_semaphores`（try + `asyncio.timeout(30s)`），取消/超时会释放已获取额度并抛 `LLMCallError(503)`；`_LLMSemaphoreLease.acquire` 在 `BaseException` 时 `release()`，acquire 不再位于 try 之外。获取顺序仍为 global→model，但没有再换序（换序只是把饿死方向对调），30s 超时把「跨模型无限等待」限制为可控失败。
+- **LCL2 / LCL3 [P1] 已修**：流式 fallback 的 `get_adapter(fallback, user_config)` 改为 `get_adapter(fallback)`（:705）。`user_config` 是 primary 供应商的 Key/base_url，传给 fallback 供应商必然 401/404；改为平台默认后与非流式 fallback（:640 `get_adapter(fallback)`）语义一致。由于 `get_fallback_providers` 只会返回与 primary 不同的供应商（`PROVIDER_FALLBACK` 不含自身，且 `MODEL_PROVIDER_MAP` 绑定模型时会被过滤为空），fallback 供应商没有对应用户 Key，平台默认是唯一可用配置。
+- **LCL4 [P2] 已修**：删除对 `asyncio.Semaphore._value` 私有属性的访问，获取/释放信号量日志由 info 降为 debug。
+- **LCL5 [P2] 已修**：`_user_adapter_cache` 改为 `OrderedDict`，命中时 `move_to_end` 刷新，超限时 `popitem(last=False)` 逐个淘汰最久未使用，替换原先「超限清一半」的 FIFO 批量淘汰。
+- **LCL6 / LCL7 [P2] 未处理**：流式迭代中途的 429 重试与流式/非流式 fallback 触发时机差异属设计层面，需单独设计后处理。
+- **新增回归**：`tests/unit/test_llm_caller_regressions.py`（3 项：信号量对象无需 `_value`、用户适配器缓存真 LRU、流式 fallback 不复用 primary 用户配置）。回退 `app/utils/aicloud/llm_caller.py` 后 3/3 失败。
