@@ -11,15 +11,7 @@ import re
 from datetime import datetime
 from typing import List
 
-
-class SearchResult:
-    """搜索结果项（用于类型提示的简化版本）"""
-    def __init__(self, title: str, url: str, snippet: str, source: str = None, summary: str = None):
-        self.title = title
-        self.url = url
-        self.snippet = snippet
-        self.source = source
-        self.summary = summary
+from app.utils.web_search import SearchResult
 
 
 # ============================================================================
@@ -155,119 +147,20 @@ def enhance_query(query: str, prompt: str = "", enable_enhance: bool = True) -> 
 
 
 def _extract_school_name(query: str) -> str:
-    """
-    从查询词中提取学校名（通用方法）
-    
-    原则：
-    1. 只提取第一个匹配的学校名
-    2. 去掉后续可能的专业/描述词
-    3. 太短（<4 字）或太长（>20 字）则认为无效
-    """
-    # 常见学校名结尾
-    school_endings = ['职业技术学院', '学院', '大学', '学校']
-    
-    for ending in school_endings:
-        if ending in query:
-            # 找到学校名结尾的位置
-            idx = query.find(ending)
-            school_name = query[:idx + len(ending)]
-            
-            # 长度检查
-            if 4 <= len(school_name) <= 20:
-                return school_name
-    
-    return ""
-    
-    # 检查是否匹配学校关键词
-    is_school_query = any(kw in query for kw in school_keywords)
-    
-    if is_school_query:
-        # 策略：只提取学校名，不加专业名（避免 Bing 跑偏到旅游）
-        # 例如："广州铁路职业技术学院计算机应用技术专业" → "广州铁路职业技术学院"
-        school_name = _extract_school_name(query)
-        if school_name:
-            return f"{school_name} 官网"
-        if "官网" not in query:
-            return f"{query} 官网"
-        return query
-    
-    # ========== 2. 政府/政策类查询 ==========
-    gov_keywords = ['政府', '政策', '规定', '办法', '条例', '通知', '公告', '国务院', '发改委']
-    if any(kw in query for kw in gov_keywords):
-        if "site:gov.cn" not in query:
-            return f"{query} site:gov.cn"
-        return query
-    
-    # ========== 3. 企业/商业类查询 ==========
-    company_keywords = ['公司', '企业', '集团', '股份', '有限', '注册资本', '法人']
-    if any(kw in query for kw in company_keywords):
-        if "官网" not in query:
-            return f"{query} 官网"
-        return query
-    
-    # ========== 4. 医疗/健康类查询 ==========
-    medical_keywords = ['病', '症状', '治疗', '药物', '医院', '医生', '健康', '医学']
-    if any(kw in query for kw in medical_keywords):
-        if "治疗" not in query:
-            return f"{query} 治疗方法"
-        return query
-    
-    # ========== 5. 错误/异常问题 ==========
-    if is_error_query(query):
-        if "site:stackoverflow.com" not in query:
-            return f"{query} site:stackoverflow.com solutions error fix"
-        return query
-    
-    # ========== 5b. 技术问题 ==========
-    if is_technical_query(full_text):
-        # 代码相关 → GitHub
-        if any(kw in full_text for kw in ['代码', '源码', 'code', 'github', 'repository', '项目']):
-            if "site:github.com" not in query:
-                return f"{query} site:github.com"
-            return query
-        # API/框架 → 官方文档
-        if any(kw in full_text for kw in ['api', 'framework', '库', 'library', 'sdk']):
-            if "official" not in query and "site:github.com" not in query:
-                return f"{query} official documentation OR site:github.com"
-            return query
-        # 一般技术问题 → GitHub + SO
-        if "site:github.com" not in query and "site:stackoverflow.com" not in query:
-            return f"{query} tutorial site:github.com OR site:stackoverflow.com"
-        return query
-    
-    # ========== 6. 教程/学习类 ==========
-    if any(kw in query for kw in ['教程', 'tutorial', '入门', 'guide', '学习', '怎么学']):
-        if "guide" not in query.lower():
-            current_year = datetime.now().year
-            return f"{query} complete guide {current_year} {current_year-1}"
-        return query
-    
-    # ========== 7. 新闻/时效类 ==========
-    news_keywords = ['新闻', 'news', '最新', 'recent', 'break']
-    if any(kw in query for kw in news_keywords):
-        if "site:reuters.com" not in query and "site:bloomberg.com" not in query:
-            return f"{query} site:reuters.com OR site:bloomberg.com OR site:theguardian.com"
-        return query
-    
-    # ========== 8. 一般查询 ==========
-    return query
-
-
-def _extract_school_name(query: str) -> str:
     """从查询词中提取学校名（去掉专业名等后缀）"""
     # 常见学校名结尾
     school_endings = ['学院', '大学', '学校', '职业技术学院']
-    
+
     for ending in school_endings:
         if ending in query:
             # 找到学校名结尾的位置
             idx = query.find(ending)
             school_name = query[:idx + len(ending)]
-            
+
             # 如果学校名太短（少于 4 字），说明提取失败
             if len(school_name) >= 4:
                 return school_name
-    
+
     return ""
 
 
