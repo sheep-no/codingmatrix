@@ -112,3 +112,13 @@ app/middleware/ 是 FastAPI 应用的**HTTP 中间件层**——请求进入路�
 - **app/db 12 文件 1,351 行**（PRAGMA foreign_keys 终审 + scheduler.py）——MD1 级联矩阵的 DB 层验证
 - app/schema 13 文件 828 行
 - app/core 5 文件 1,044 行 + 顶层散件 7 文件 1,104 行
+
+## 八、状态更新（2026-09-18 核实）
+
+以当前代码为准逐条核实并修复：
+
+- **RLM1 已修复**：`RateLimitConfig.get_endpoint_rule` 改最长前缀匹配（新增 `resolve_endpoint_key`，按路径段边界判断），中间件端点桶 key 由完整 raw path 归一为匹配到的规则前缀。六项 AI 主链路前缀规则恢复生效，带路径参数请求不再各自成桶。
+- **IV1 已部分修复**：SQL 正则从单词黑名单改为组合特征（引号布尔注入、`UNION SELECT`、堆叠 DDL、`--` 注释、`1=1`），消除 `create`/`delete`/`select`/`update` 日常文本误报；XSS 移除 `eval(`、`document.*` 等代码语义模式，保留标签/协议/事件属性 payload；`SKIP_SECURITY_CHECK_PATHS` 的空转范围收窄为「仅跳过内容扫描」，Content-Type 与请求体大小校验对 AI 主链路重新生效，并顺带用路径段边界匹配修掉 `startswith` 前缀碰撞。
+- **仍存权衡**：AI 主链路仍不做 SQL/XSS 内容扫描（代码生成场景下把代码文本当攻击 payload 拦截本身不成立，正确防护是输入侧提示词注入检测）；XSS 对 `<script>` 等标签仍会在非白名单端点拦截含字面标签的文本。
+- **仍未处理**：RLM2–RLM5、IV2、FSW1、SH1、SH2（P3）。
+- **测试**：新增 `tests/unit/test_middleware_hardening.py`(15)；回退源码后 8 项失败。
