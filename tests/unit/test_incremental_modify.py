@@ -211,3 +211,57 @@ async def test_initialize_components_fast_requires_assignment(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="model assignment is required to initialize incremental components"):
         await _Harness()._initialize_components_fast("add shout")
+
+
+@pytest.mark.asyncio
+async def test_generate_file_with_model_accepts_empty_dotfile(tmp_path, monkeypatch):
+    """空 .gitkeep 提取到空字符串就是正确结果，不应触发恢复或重试。"""
+    import app.agent.utils as agent_utils
+
+    async def _empty_extract(*_args, **_kwargs):
+        return ""
+
+    monkeypatch.setattr(agent_utils, "extract_engineer_content", _empty_extract)
+
+    class _Engineer:
+        name = "engineer"
+
+        async def generate_file(self, *_args, **_kwargs):
+            return ""
+
+    class _DepGraph:
+        def get_context_for_file(self, *_args, **_kwargs):
+            return {}
+
+    class _Harness(IncrementalModifyMixin):
+        def __init__(self, output_dir):
+            self.output_dir = output_dir
+            self._quick_llm_check = None
+
+        def _report_model_info(self, *_args, **_kwargs):
+            return None
+
+        def _get_context_length(self, _model_name):
+            return 8000
+
+        def _emit_generated_file_events(self, *_args, **_kwargs):
+            return None
+
+        def _strip_output_dir_prefix(self, path):
+            return path
+
+    harness = _Harness(tmp_path)
+
+    content = await harness._generate_file_with_model(
+        "assets/.gitkeep",
+        {"action": "add", "description": "empty placeholder"},
+        _Engineer(),
+        "test-model",
+        {},
+        {},
+        None,
+        _DepGraph(),
+    )
+
+    assert content == ""
+    assert (tmp_path / "assets" / ".gitkeep").read_text(encoding="utf-8") == ""

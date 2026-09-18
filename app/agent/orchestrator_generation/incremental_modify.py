@@ -524,13 +524,7 @@ class IncrementalModifyMixin:
     ) -> Dict[str, Any]:
         """增量模式的动态拓扑调度生成 — 支持并行生成无依赖文件"""
 
-        from app.agent.utils import (
-            extract_engineer_content,
-            is_metadata_file,
-            is_package_entry_file,
-            is_valid_code_content,
-            write_file_atomic,
-        )
+        from app.agent.utils import extract_engineer_content, is_valid_code_content, write_file_atomic
         from app.agent.spec_first_generator import SpecFirstGenerator
 
         files_generated = 0
@@ -895,7 +889,13 @@ class IncrementalModifyMixin:
         persist: bool = True,
     ) -> Optional[str]:
         """使用指定模型生成单个文件"""
-        from app.agent.utils import extract_engineer_content, is_valid_code_content, write_file_atomic
+        from app.agent.utils import (
+            extract_engineer_content,
+            is_metadata_file,
+            is_package_entry_file,
+            is_valid_code_content,
+            write_file_atomic,
+        )
         from app.agent.spec_first_generator import SpecFirstGenerator
 
         action = file_info.get("action", "add")
