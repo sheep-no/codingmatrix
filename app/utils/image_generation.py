@@ -10,9 +10,12 @@ Kolors 图像生成工具 - 支持文生图和图生图
 import asyncio
 import base64
 import logging
+import time
+import uuid
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 import io
+from urllib.parse import urljoin
 
 import httpx
 from httpx import Timeout
@@ -20,6 +23,7 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.services.image_resource_service import generation_concurrency
+from app.utils.url_safety import check_outbound_url
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,11 @@ DEFAULT_CONFIG = {
     "guidance_scale": 7.5,
     "num_images": 1,
 }
+
+# 单张图片下载上限与重定向跳数
+_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
+_MAX_DOWNLOAD_REDIRECTS = 3
+_REDIRECT_STATUS = {301, 302, 303, 307, 308}
 
 OUTPUT_DIR = Path("./generated_images")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -71,7 +80,40 @@ async def close_http_client():
         _http_client = None
 
 
-def _save_images_from_response(
+async def _download_image_bytes(url: str, timeout: float = 60.0) -> bytes:
+    """异步下载图片：逐跳校验目标地址，避免阻塞事件循环与 SSRF。"""
+    client = await get_http_client()
+    for _ in range(_MAX_DOWNLOAD_REDIRECTS + 1):
+        error = check_outbound_url(url, fail_closed_on_dns_error=True)
+        if error:
+            raise ValueError(f"图片下载地址被拒绝: {error}")
+
+        async with client.stream(
+            "GET", url, timeout=timeout, follow_redirects=False
+        ) as resp:
+            if resp.status_code in _REDIRECT_STATUS:
+                location = resp.headers.get("location")
+                if not location:
+                    raise ValueError("图片下载重定向缺少 Location")
+                url = urljoin(url, location)
+                continue
+
+            resp.raise_for_status()
+
+            chunks: List[bytes] = []
+            size = 0
+            async for chunk in resp.aiter_bytes():
+                if size >= _MAX_DOWNLOAD_BYTES:
+                    break
+                keep = chunk[: _MAX_DOWNLOAD_BYTES - size]
+                chunks.append(keep)
+                size += len(keep)
+            return b"".join(chunks)
+
+    raise ValueError("图片下载重定向次数超过上限")
+
+
+async def _save_images_from_response(
     result: dict,
     prefix: str,
     output_format: str
@@ -84,11 +126,6 @@ def _save_images_from_response(
     返回 (images_data_url_list, image_paths_list)
     images_data_url_list 包含 data:image/xxx;base64,... 格式，可直接用于 <img src>
     """
-    import time
-    import uuid
-    import httpx
-    import asyncio
-
     images = []
     image_paths = []
     mime = "jpeg" if output_format in ("jpg", "jpeg") else output_format
@@ -108,17 +145,14 @@ def _save_images_from_response(
             image_paths.append(str(img_path))
         elif url:
             try:
-                resp = httpx.get(url, timeout=60.0, follow_redirects=True)
-                resp.raise_for_status()
-                img_path.write_bytes(resp.content)
-                b64_from_file = base64.b64encode(resp.content).decode('utf-8')
+                content = await _download_image_bytes(url)
+                img_path.write_bytes(content)
+                b64_from_file = base64.b64encode(content).decode('utf-8')
                 images.append(f"data:image/{mime};base64,{b64_from_file}")
                 image_paths.append(str(img_path))
                 logger.info(f"从 URL 下载图片成功: {url[:80]}...")
             except Exception as e:
                 logger.error(f"从 URL 下载图片失败: {url[:80]}... | error: {e}")
-
-    return images, image_paths
 
     return images, image_paths
 
@@ -225,7 +259,7 @@ async def text_to_image(
 
     logger.info(f"文生图请求 | prompt={prompt[:50]}... | size={width}x{height}")
     result = await _call_kolors_api(data, timeout, api_key_token=api_key_token)
-    images, image_paths = _save_images_from_response(result, "kolors", output_format)
+    images, image_paths = await _save_images_from_response(result, "kolors", output_format)
     logger.info(f"文生图成功 | 生成 {len(images)} 张图片")
 
     return {
@@ -302,7 +336,7 @@ async def image_to_image(
 
     logger.info(f"图生图请求 | ref={image_path} | prompt={prompt[:50]}... | strength={strength}")
     result = await _call_kolors_api(data, timeout, api_key_token=api_key_token)
-    images, image_paths = _save_images_from_response(result, "kolors_img2img", output_format)
+    images, image_paths = await _save_images_from_response(result, "kolors_img2img", output_format)
     logger.info(f"图生图成功 | 生成 {len(images)} 张图片")
 
     return {
@@ -367,7 +401,7 @@ async def inpaint_image(
 
     logger.info(f"图像修复请求 | image={image_path} | mask={mask_path}")
     result = await _call_kolors_api(data, timeout, api_key_token=api_key_token)
-    images, image_paths = _save_images_from_response(result, "kolors_inpaint", output_format)
+    images, image_paths = await _save_images_from_response(result, "kolors_inpaint", output_format)
 
     return {"success": True, "images": images, "paths": image_paths, "prompt": prompt}
 
