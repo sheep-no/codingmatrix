@@ -102,3 +102,15 @@
 2. 拆分「代码片段执行」与「项目验证」接口，分别修复 TSK2、TSK3、TSK5。
 3. 将 `_run_tests` 改为异步调用或在线程中运行，并移除不受控宿主回退，处理 TSK4。
 4. 重试生成新 Celery ID，保存映射并为任务执行增加幂等约束，处理 TSK6。
+
+## 状态更新（2026-09-18 核实）
+
+以当前代码为准逐条核实，以下条目已失效或已修复：
+
+- **TSK1 失效**：`base.py` 已实现 `_get_progress_callback`（`app/tasks/base.py:58`）。
+- **TSK2 / TSK3 失效**：`execute_code` 与 `validate_project` Celery 任务已整体删除，相关调用链不再存在。
+- **TSK4 已修复**：`_run_tests` 改为 async，在既有事件循环内 `await runner.run_tests(...)`；宿主回退改用 `asyncio.to_thread`。
+- **TSK5 已修复**：`task_queue` 的 create/retry/recover 统一以 `kwargs=` 下发业务参数（原先作为 AMQP options 被丢弃，实测消息体为 `args=()/kwargs={}`）；`TaskTypeEnum` 与真实任务对齐（新增 `modify_with_test`、支持 `ppt_generate`、移除无实现的 `file_process`）。
+- **TSK6 已修复**：重试/恢复生成并保存新的 Celery ID，三个入口共用 `TASK_NAMES` 映射源。
+- **TSK13 已加固**：测试进度分母做非零保护，`MAX_RETRY_LOOPS=0` 不再除零。
+- **仍未处理**：TSK7–TSK12、TSK14–TSK26（P3）。

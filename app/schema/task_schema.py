@@ -21,7 +21,7 @@ class TaskTypeEnum(str, Enum):
     PROJECT_GENERATE = "project_generate"
     CODE_GENERATE = "code_generate"
     PPT_GENERATE = "ppt_generate"
-    FILE_PROCESS = "file_process"
+    MODIFY_WITH_TEST = "modify_with_test"
 
 
 class TaskPriorityEnum(str, Enum):
