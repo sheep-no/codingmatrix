@@ -4,6 +4,7 @@
 根据 base_url 和协议类型（OpenAI兼容 / Anthropic原生）自动路由调用。
 """
 import asyncio
+import json
 import logging
 from typing import AsyncIterator, Optional, Union
 
@@ -11,7 +12,10 @@ import httpx
 from httpx import Timeout
 from fastapi import HTTPException
 
-from app.utils.aicloud.adapters.base import BaseProviderAdapter
+from app.utils.aicloud.adapters.base import (
+    BaseProviderAdapter,
+    anthropic_sse_to_openai_chunk,
+)
 from app.utils.aicloud.providers import ModelProvider, ProviderConfig
 from app.utils.aicloud.dynamic_provider import Protocol, DynamicProvider
 from app.utils.aicloud.http_client import get_http_client, call_with_retry, _max_concurrent_calls
@@ -89,6 +93,7 @@ class DynamicAdapter(BaseProviderAdapter):
                         f"{self.base_url}/chat/completions",
                         headers=headers,
                         json=data,
+                        timeout=timeout,
                     ) as response:
                         async for line in response.aiter_lines():
                             if cancel_event and cancel_event.is_set():
@@ -110,6 +115,7 @@ class DynamicAdapter(BaseProviderAdapter):
                     return await client.post(
                         f"{self.base_url}/chat/completions",
                         headers=headers, json=data,
+                        timeout=timeout,
                     )
                 
                 resp = await call_with_retry(request_func, max_retries=3)
@@ -152,6 +158,7 @@ class DynamicAdapter(BaseProviderAdapter):
                         f"{self.base_url}/messages",
                         headers=headers,
                         json=data,
+                        timeout=timeout,
                     ) as response:
                         async for line in response.aiter_lines():
                             if cancel_event and cancel_event.is_set():
@@ -161,7 +168,13 @@ class DynamicAdapter(BaseProviderAdapter):
                                 chunk = line[6:]
                                 if chunk == "[DONE]":
                                     break
-                                yield f"{chunk}\n"
+                                try:
+                                    payload = json.loads(chunk)
+                                except json.JSONDecodeError:
+                                    continue
+                                converted = anthropic_sse_to_openai_chunk(payload)
+                                if converted:
+                                    yield f"{converted}\n"
             return generate()
         else:
             async with _max_concurrent_calls:
@@ -173,6 +186,7 @@ class DynamicAdapter(BaseProviderAdapter):
                     return await client.post(
                         f"{self.base_url}/messages",
                         headers=headers, json=data,
+                        timeout=timeout,
                     )
                 
                 resp = await call_with_retry(request_func, max_retries=3)
