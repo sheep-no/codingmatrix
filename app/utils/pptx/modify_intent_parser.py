@@ -108,12 +108,15 @@ class ModifyIntentParser:
         # 提取具体值
         font_value = self._extract_font(text)
         color_value = self._extract_color(text)
+        size_value = self._extract_size(text)
 
         # 如果提取到了字体/颜色值但没有对应的修改类型，自动补充
         if font_value and "font" not in modify_types:
             modify_types.append("font")
         if color_value and "color" not in modify_types:
             modify_types.append("color")
+        if size_value and "size" not in modify_types:
+            modify_types.append("size")
 
         # 只有有明确修改类型或具体值时才创建目标
         if not modify_types:
@@ -127,7 +130,9 @@ class ModifyIntentParser:
                         slide_number=slide_num,
                         property_name=modify_type,
                         element_type=element_types[0] if element_types else None,
-                        property_value=font_value if modify_type == "font" else color_value if modify_type == "color" else None
+                        property_value=self._value_for_type(
+                            modify_type, font_value, color_value, size_value
+                        )
                     )
                     intent.targets.append(target)
         else:
@@ -137,7 +142,9 @@ class ModifyIntentParser:
                     slide_number=None,
                     property_name=modify_type,
                     element_type=element_types[0] if element_types else None,
-                    property_value=font_value if modify_type == "font" else color_value if modify_type == "color" else None
+                    property_value=self._value_for_type(
+                        modify_type, font_value, color_value, size_value
+                    )
                 )
                 intent.targets.append(target)
 
@@ -188,6 +195,36 @@ class ModifyIntentParser:
         for color in self.COLORS:
             if color in text:
                 return color
+        return None
+
+    # 字号值：`字号改成 24`、`字体大小: 18`、`20pt`、`24 磅`
+    SIZE_PATTERNS = [
+        r"(?:字号|字体大小|大小)\s*[:：=]?\s*(?:改成|改为|设为|调整到|到|为)?\s*(\d{1,3})",
+        r"(\d{1,3})\s*(?:pt|磅|号|像素|px)",
+    ]
+
+    def _extract_size(self, text: str) -> Optional[str]:
+        """提取字号（返回数字字符串，供 PPTModifier 解析）"""
+        for pattern in self.SIZE_PATTERNS:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        return None
+
+    @staticmethod
+    def _value_for_type(
+        modify_type: str,
+        font_value: Optional[str],
+        color_value: Optional[str],
+        size_value: Optional[str],
+    ) -> Optional[str]:
+        """按修改类型返回对应的具体值"""
+        if modify_type == "font":
+            return font_value
+        if modify_type == "color":
+            return color_value
+        if modify_type == "size":
+            return size_value
         return None
 
     def _calculate_confidence(self, intent: ModifyIntent) -> float:

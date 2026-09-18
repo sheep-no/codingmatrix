@@ -856,14 +856,15 @@ class TemplateConverter:
 
     def _apply_colors_to_presentation(self, prs, config: TemplateConfig):
         """将主题色应用到演示文稿的母版中"""
+        from lxml import etree
         from pptx.oxml.ns import qn
 
         if not prs.slide_masters:
             return
 
         master = prs.slide_masters[0]
-        theme_el = master.theme._element if hasattr(master.theme, "_element") else None
-        if theme_el is None:
+        theme_part = self._get_theme_part(prs)
+        if theme_part is None:
             return
 
         color_map = {
@@ -874,17 +875,34 @@ class TemplateConverter:
             4: config.light_text_color,
             6: config.background_color,
         }
+        scheme_order = [
+            "dk1", "lt1", "dk2", "lt2", "accent1", "accent2",
+            "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink",
+        ]
 
         try:
-            theme_colors_el = theme_el.find(qn("a:clrScheme"))
-            if theme_colors_el is not None:
-                colors = theme_colors_el.findall(qn("a:srgbClr"))
-                for i, clr in enumerate(colors):
-                    if i in color_map:
-                        val_el = clr.find(qn("a:srgbClr"))
-                        if val_el is not None:
-                            val_el.set("val", color_map[i])
-                            break
+            theme_el = etree.fromstring(theme_part.blob)
+            clr_scheme = theme_el.find(".//" + qn("a:clrScheme"))
+            if clr_scheme is None:
+                return
+
+            changed = False
+            for index, slot in enumerate(scheme_order):
+                if index not in color_map:
+                    continue
+                slot_el = clr_scheme.find(qn("a:" + slot))
+                if slot_el is None:
+                    continue
+                for child in list(slot_el):
+                    slot_el.remove(child)
+                color_el = etree.SubElement(slot_el, qn("a:srgbClr"))
+                color_el.set("val", str(color_map[index]).lstrip("#").upper())
+                changed = True
+
+            if changed:
+                theme_part.blob = etree.tostring(
+                    theme_el, xml_declaration=True, encoding="UTF-8", standalone=True
+                )
         except Exception as e:
             logger.debug(f"通过 XML 修改主题色失败：{e}")
 
@@ -902,21 +920,23 @@ class TemplateConverter:
 
     def _apply_default_font_to_presentation(self, prs, config: TemplateConfig):
         """设置演示文稿的默认字体"""
+        from lxml import etree
         from pptx.oxml.ns import qn
 
         if not prs.slide_masters:
             return
 
-        master = prs.slide_masters[0]
-        theme_el = master.theme._element if hasattr(master.theme, "_element") else None
-        if theme_el is None:
-            return
-
-        font_scheme = theme_el.find(qn("a:fontScheme"))
-        if font_scheme is None:
+        theme_part = self._get_theme_part(prs)
+        if theme_part is None:
             return
 
         try:
+            theme_el = etree.fromstring(theme_part.blob)
+            font_scheme = theme_el.find(".//" + qn("a:fontScheme"))
+            if font_scheme is None:
+                return
+
+            changed = False
             for tag, en_font, ea_font in [
                 ("a:majorFont", config.title_font_en, config.title_font),
                 ("a:minorFont", config.body_font_en, config.body_font),
@@ -926,11 +946,28 @@ class TemplateConverter:
                     latin = font_el.find(qn("a:latin"))
                     if latin is not None:
                         latin.set("typeface", en_font)
+                        changed = True
                     ea = font_el.find(qn("a:ea"))
                     if ea is not None:
                         ea.set("typeface", ea_font)
+                        changed = True
+
+            if changed:
+                theme_part.blob = etree.tostring(
+                    theme_el, xml_declaration=True, encoding="UTF-8", standalone=True
+                )
         except Exception as e:
             logger.debug(f"通过 XML 修改字体失败：{e}")
+
+    @staticmethod
+    def _get_theme_part(prs):
+        """获取首个母版关联的主题 part（python-pptx 未暴露主题编辑接口）"""
+        if not prs.slide_masters:
+            return None
+        for rel in prs.slide_masters[0].part.rels.values():
+            if rel.reltype.endswith("/theme"):
+                return rel.target_part
+        return None
 
     def _apply_decorations(self, prs, config: TemplateConfig):
         """在母版上应用装饰元素"""
