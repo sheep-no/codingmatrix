@@ -8,18 +8,26 @@ from pydantic import ValidationError
 from starlette import status
 import bcrypt
 import re
+import logging
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
 WS_TOKEN_EXPIRED = 4001
 WS_TOKEN_REFRESH_EXPIRED = 4003
+# bcrypt 只使用输入的前 72 字节，超出部分被静默丢弃会导致不同密码碰撞。
+BCRYPT_MAX_PASSWORD_BYTES = 72
 
 
 def validate_password_strength(password: str) -> tuple[bool, str]:
     """验证密码强度"""
     if len(password) < 8:
         return False, "密码长度至少为 8 个字符"
+
+    if len(password.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+        return False, f"密码长度不能超过 {BCRYPT_MAX_PASSWORD_BYTES} 字节"
     
     if not re.search(r'[A-Z]', password):
         return False, "密码必须包含大写字母"
@@ -50,7 +58,9 @@ def validate_password_strength(password: str) -> tuple[bool, str]:
 
 
 def hash_password(password: str) -> str:
-    password_bytes = password.encode("utf-8")[:72]
+    password_bytes = password.encode("utf-8")
+    if len(password_bytes) > BCRYPT_MAX_PASSWORD_BYTES:
+        raise ValueError(f"密码长度不能超过 {BCRYPT_MAX_PASSWORD_BYTES} 字节")
     salt = bcrypt.gensalt(rounds=12)
     hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode("utf-8")
@@ -59,7 +69,10 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed_password: str) -> bool:
     if not hashed_password or not hashed_password.startswith("$2b$"):
         return False
-    password_bytes = password.encode('utf-8')[:72]
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > BCRYPT_MAX_PASSWORD_BYTES:
+        # 截断比较会让仅前 72 字节相同的不同密码通过校验，直接拒绝。
+        return False
     hashed_password_bytes = hashed_password.encode('utf-8')
     return bcrypt.checkpw(password_bytes, hashed_password_bytes)
 
@@ -69,8 +82,10 @@ def create_access_token(sub: str, permission_level: str,
                         role: str = "user",
                         extra_claims: Optional[dict] = None) -> str:
     now = datetime.now(timezone.utc)
-    refresh_until = now + timedelta(days=5)
     expire = now + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+    # refresh_until 是过期 access token 的刷新窗口上限；当配置的 access 有效期
+    # 超过默认 5 天时，不得让刷新窗口早于 token 自身的 exp，否则语义反转。
+    refresh_until = max(now + timedelta(days=5), expire)
     payload = {
         "sub": sub, 
         "exp": expire, 
@@ -106,7 +121,8 @@ def _decode_and_validate_token(token: str, verify_expiry: bool = True) -> tuple[
         except JWTError:
             return False, None, status.WS_1008_POLICY_VIOLATION, "Token 无效"
         except (ValueError, TypeError, RuntimeError, OSError) as e:
-            return False, None, status.WS_1008_POLICY_VIOLATION, f"Token 无效：{e}"
+            logger.warning(f"Token 解析异常: {e}")
+            return False, None, status.WS_1008_POLICY_VIOLATION, "Token 无效"
 
     if verify_expiry:
         now = datetime.now(timezone.utc).timestamp()

@@ -39,7 +39,6 @@ class TestPasswordHashing:
         "test_password_123",
         "P@ssw0rd!",
         "12345678",
-        "a" * 100,  # 长密码
     ])
     def test_hash_password_output_format(self, password: str):
         """测试密码哈希输出格式"""
@@ -49,6 +48,11 @@ class TestPasswordHashing:
         assert hashed != password
         assert hashed.startswith("$2b$")
         assert len(hashed) == 60  # bcrypt 哈希长度固定
+
+    def test_hash_password_rejects_over_72_bytes(self):
+        """超过 bcrypt 72 字节上限的密码必须被拒绝，而非静默截断"""
+        with pytest.raises(ValueError):
+            hash_password("a" * 100)
 
     @pytest.mark.parametrize("password", [
         "simple_password",
