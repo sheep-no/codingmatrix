@@ -34,6 +34,7 @@ _EXTENSIONLESS_PROJECT_FILES = frozenset({
     "gnumakefile",
     "justfile",
     "procfile",
+    "pipfile",
     "gemfile",
     "rakefile",
     "vagrantfile",
@@ -43,6 +44,18 @@ _EXTENSIONLESS_PROJECT_FILES = frozenset({
     "licence",
     "notice",
     "readme",
+    "changelog",
+    "contributing",
+    "authors",
+    "codeowners",
+})
+
+# 无扩展名项目文件里的文档类清单，推断为 docs；其余按 config 处理。
+_DOCUMENTATION_PROJECT_NAMES = frozenset({
+    "readme",
+    "license",
+    "licence",
+    "notice",
     "changelog",
     "contributing",
     "authors",
@@ -1232,11 +1245,16 @@ class DependencyGraph:
         ext = Path(path).suffix.lower()
         if ext in EXTENSION_TYPE_MAP:
             return EXTENSION_TYPE_MAP[ext]
+        name = Path(path).name
         # 点号开头的占位/配置文件（.gitkeep 等）没有可识别扩展名，但属于合法
         # 项目元文件，不能判为 unknown 并中断生成。
-        name = Path(path).name
         if name.startswith(".") and name not in {".", ".."}:
             return "config"
+        # 常见无扩展名项目文件（LICENSE / Jenkinsfile / Procfile 等）同样没有
+        # 扩展名条目，但已在 _EXTENSIONLESS_PROJECT_FILES 中声明为合法规划文件。
+        normalized = _normalize_extensionless_name(name)
+        if normalized in _EXTENSIONLESS_PROJECT_FILES:
+            return "docs" if normalized in _DOCUMENTATION_PROJECT_NAMES else "config"
         # 有语言适配器时保留 unknown，让“类型无法确定”继续显式失败
         return 'unknown' if self.language_adapter else 'utils'
 

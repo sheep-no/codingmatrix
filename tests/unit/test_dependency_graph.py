@@ -373,6 +373,37 @@ class TestDependencyGraph:
         assert "axios" not in graph.nodes
         assert "main.py" in graph.nodes
 
+    def test_extensionless_meta_files_are_inferred_not_unknown(self):
+        """LICENSE / Jenkinsfile / Procfile 等无扩展名合法文件不能判为 unknown。"""
+        import asyncio
+
+        from app.agent.adapters.python import PythonLanguageAdapter
+        from app.agent.dependency_graph import DependencyGraph
+        from app.agent.orchestrator_generation.spec_first_generate import (
+            SpecFirstGenerateMixin,
+        )
+
+        graph = DependencyGraph(language_adapter=PythonLanguageAdapter())
+
+        assert graph._infer_file_type("LICENSE") == "docs"
+        assert graph._infer_file_type("README") == "docs"
+        assert graph._infer_file_type("Jenkinsfile") == "config"
+        assert graph._infer_file_type("Procfile") == "config"
+        assert graph._infer_file_type("Justfile") == "config"
+
+        architecture = {"file_plan": [
+            {"path": "LICENSE", "priority": 4},
+            {"path": "Jenkinsfile", "priority": 4},
+            {"path": "main.py", "priority": 1},
+        ]}
+        graph.build_from_architecture(architecture)
+
+        pending = graph.get_unknown_type_files()
+        assert pending == []
+        asyncio.run(SpecFirstGenerateMixin()._infer_unknown_file_types(
+            graph, pending, architecture, "python"
+        ))
+
     def test_root_files_sharing_stdlib_names_are_kept(self):
         """types.py / secrets.py 等与标准库同名的本地文件不能被当成外部库丢弃。
 
@@ -499,6 +530,8 @@ class TestDependencyGraph:
             "nginx.conf", "setup.cfg", "poetry.lock", "alembic.ini",
             "schema.graphql", "proto/user.proto", "infra/main.tf",
             "requirements.txt", "app/main.py",
+            "LICENSE", "CHANGELOG", "Jenkinsfile", "Procfile", "Pipfile",
+            "MANIFEST.in", "docs/guide.rst", "docs/manual.adoc", "config.xml",
         ]
         architecture = {"file_plan": [
             {"path": path, "priority": 2} for path in planned
