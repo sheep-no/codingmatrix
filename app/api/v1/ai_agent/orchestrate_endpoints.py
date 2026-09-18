@@ -19,6 +19,7 @@ from app.db.database import get_db, async_session
 from app.db.models import ProjectSession
 from app.agent import OrchestratorAgent
 from app.agent.workflow_registry import build_legacy_workflow, get_legacy_result, run_workflow
+from app.agent.orchestration.routing import select_engine
 from app.agent.orchestration import (
     IncrementalAdapter,
     SpecFirstAdapter,
@@ -51,12 +52,10 @@ def _pipeline_mode_payload(request, skill_context: str = "", *, incremental: boo
     requested_engine = getattr(request, "engine", None)
     if incremental is None:
         incremental = bool(getattr(request, "incremental", False))
-    if requested_engine in {"core", "legacy"}:
-        engine = requested_engine
-    elif incremental:
-        engine = "core"
-    else:
-        engine = "legacy"
+    # Report the engine the workflow actually runs. run_workflow resolves the
+    # same value through engine_metadata/select_engine, so the banner can no
+    # longer claim "core" while build_legacy_workflow selects the legacy handler.
+    engine = select_engine(requested_engine)
     frozen_tools = incremental and engine == "core"
     enable_skills = bool(getattr(request, "enable_skills", True))
     skills_injected = bool(skill_context)

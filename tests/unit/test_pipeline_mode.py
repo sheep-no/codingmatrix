@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from app.agent.orchestration.routing import select_engine
 from app.api.v1.ai_agent.orchestrate_endpoints import (
     PASSTHROUGH_SSE_EVENTS,
     _pipeline_mode_banner,
@@ -41,6 +42,21 @@ def test_core_incremental_freezes_tools_when_skills_injected():
     assert payload["skills_injected"] is True
     assert "冻结后直写" in payload["message"]
     assert "If tools=frozen" in _pipeline_mode_banner(payload)
+
+
+def test_incremental_without_explicit_engine_reports_selected_engine():
+    """The banner must match the engine build_legacy_workflow will actually run."""
+    request = SimpleNamespace(
+        engine=None,
+        incremental=True,
+        spec_first=True,
+        enable_skills=True,
+    )
+    payload = _pipeline_mode_payload(request, "")
+    selected = select_engine(None)
+    assert payload["engine"] == selected
+    assert payload["tools"] == ("frozen" if selected == "core" else "explore")
+    assert payload["frozen_contract"] is (selected == "core")
 
 
 def test_enable_skills_false_is_visible():
