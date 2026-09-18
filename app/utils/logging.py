@@ -229,10 +229,43 @@ class RequestLoggingMiddleware:
             clear_request_context()
 
 
+_MASKED_VALUE = "***"
+_SENSITIVE_KEY_MARKERS = (
+    "token",
+    "password",
+    "passwd",
+    "secret",
+    "api_key",
+    "apikey",
+    "authorization",
+    "credential",
+    "signature",
+)
+_SENSITIVE_KEYS = {"key", "code", "auth", "pwd", "sig", "session", "cookie"}
+
+
+def _is_sensitive_key(key: str) -> bool:
+    """判断查询参数名是否可能携带凭据"""
+    lowered = key.lower()
+    return lowered in _SENSITIVE_KEYS or any(
+        marker in lowered for marker in _SENSITIVE_KEY_MARKERS
+    )
+
+
 def _parse_query(query_string: bytes) -> Optional[dict]:
-    """解析 ASGI scope 中的 query_string 为 dict"""
+    """解析 ASGI scope 中的 query_string 为 dict
+
+    查询串可能携带 token/api_key/password 等敏感参数，值在写日志前必须打码，
+    避免凭据随日志轮转长期落盘。
+    """
     if not query_string:
         return None
     from urllib.parse import parse_qs
     parsed = parse_qs(query_string.decode("utf-8", errors="replace"))
-    return {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
+    result = {}
+    for key, values in parsed.items():
+        value = values[0] if len(values) == 1 else values
+        if _is_sensitive_key(key):
+            value = [_MASKED_VALUE for _ in values] if len(values) > 1 else _MASKED_VALUE
+        result[key] = value
+    return result

@@ -37,3 +37,10 @@
 ## 四、测试状态
 
 零单元测试。LOG1 敏感参数落盘、SLG1 嵌套 JSON、SLG2 格式不一致均无测试约束。修复建议：① 敏感参数脱敏测试（token/api_key 值打码断言）；② JSON 日志单层解析测试（message 字段为纯文本）；③ request_id 全链路串联测试；④ user_id 注入测试。
+
+## 状态更新（2026-09-18 核实）
+
+- **LOG1 [P2] 已修复**：`_parse_query` 新增敏感参数打码，命中 token/password/secret/api_key/authorization/credential/signature 子串，或 key/code/auth/pwd/sig/session/cookie 等精确键时，值统一替换为 `***`（重复参数同样处理）。「请求开始」日志不再写入凭据明文。
+- **仍存在**：LOG2/SLG1/LOG3（`JsonFormatter().format(...)` 结果作为 msg 二次序列化、绕过 handler 链，属日志链路重构）；LOG4（中间件未注入 user_id，需认证层配合）；SLG2（三套日志 schema 并存）；SLG3（`datetime.utcnow()` 弃用）。
+
+新增 `tests/unit/test_logging_redaction.py`（4 项）；回退源码后 3 项失败。
