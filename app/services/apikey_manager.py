@@ -10,6 +10,7 @@ import json
 import uuid
 import time
 import logging
+import threading
 from typing import Optional, List, Dict
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -283,7 +284,12 @@ class APIKeyManager:
         if meta_json is None:
             return None
         
-        meta_dict = json.loads(meta_json)
+        try:
+            meta_dict = json.loads(meta_json)
+        except (ValueError, TypeError, KeyError) as e:
+            # 单个损坏的元数据不应拖垮 list_keys/get_metadata 整体
+            logger.warning(f"API Key 元数据损坏，已跳过: {e}")
+            return None
         
         # 检查是否过期
         expires_at = datetime.fromisoformat(meta_dict["expires_at"])
@@ -293,6 +299,19 @@ class APIKeyManager:
             return None
         
         return KeyMetadata(**meta_dict)
+
+    def _save_meta(self, user_id: str, token: str, meta: KeyMetadata) -> None:
+        """持久化元数据，保留原 TTL。
+
+        `ttl == -1` 表示该元数据被设为无过期时间，此时必须用 SET 而非跳过，
+        否则更新会被静默丢弃（`ttl > 0` 的旧逻辑只覆盖有过期时间的键）。
+        """
+        meta_name = self._key_meta(user_id, token)
+        ttl = self.redis.ttl(meta_name)
+        if ttl == -1:
+            self.redis.set(meta_name, json.dumps(asdict(meta)))
+        elif ttl > 0:
+            self.redis.setex(meta_name, ttl, json.dumps(asdict(meta)))
     
     def list_keys(self, user_id: str) -> List[KeyMetadata]:
         """
@@ -449,13 +468,7 @@ class APIKeyManager:
             return False
         
         meta.status = status
-        
-        # 更新元数据
-        meta_name = self._key_meta(user_id, token)
-        ttl = self.redis.ttl(meta_name)
-        if ttl > 0:
-            self.redis.setex(meta_name, ttl, json.dumps(asdict(meta)))
-        
+        self._save_meta(user_id, token, meta)
         return True
     
     def update_enabled(self, user_id: str, token: str, enabled: bool) -> bool:
@@ -475,12 +488,7 @@ class APIKeyManager:
             return False
         
         meta.enabled = enabled
-        
-        meta_name = self._key_meta(user_id, token)
-        ttl = self.redis.ttl(meta_name)
-        if ttl > 0:
-            self.redis.setex(meta_name, ttl, json.dumps(asdict(meta)))
-        
+        self._save_meta(user_id, token, meta)
         return True
     
     def update_context_lengths(self, user_id: str, token: str, context_lengths: dict) -> bool:
@@ -499,12 +507,8 @@ class APIKeyManager:
             return False
         
         meta.context_lengths = context_lengths or {}
-        
-        meta_name = self._key_meta(user_id, token)
-        ttl = self.redis.ttl(meta_name)
-        if ttl > 0:
-            self.redis.setex(meta_name, ttl, json.dumps(asdict(meta)))
-        
+        self._save_meta(user_id, token, meta)
+
         logger.info(f"用户 {user_id} 更新 Key {token[:8]}... context_lengths: {list(context_lengths.keys())}")
         return True
 
@@ -537,10 +541,7 @@ class APIKeyManager:
         elif preference != "custom":
             meta.custom_fallback_chain = []
 
-        meta_name = self._key_meta(user_id, token)
-        ttl = self.redis.ttl(meta_name)
-        if ttl > 0:
-            self.redis.setex(meta_name, ttl, json.dumps(asdict(meta)))
+        self._save_meta(user_id, token, meta)
 
         logger.info(f"用户 {user_id} 更新 Key {token[:8]}... fallback_preference: {preference}")
         return True
@@ -609,16 +610,19 @@ class APIKeyManager:
 
 # 全局单例
 _apikey_manager: Optional[APIKeyManager] = None
+_apikey_manager_lock = threading.Lock()
 
 
 def get_apikey_manager(redis_client: Optional[redis.Redis] = None) -> APIKeyManager:
     """获取全局 APIKeyManager 实例"""
     global _apikey_manager
     if _apikey_manager is None:
-        if redis_client is None:
-            # 默认 Redis 连接
-            redis_client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=False)
-        _apikey_manager = APIKeyManager(redis_client)
+        with _apikey_manager_lock:
+            if _apikey_manager is None:
+                if redis_client is None:
+                    # 默认 Redis 连接
+                    redis_client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=False)
+                _apikey_manager = APIKeyManager(redis_client)
     return _apikey_manager
 
 
