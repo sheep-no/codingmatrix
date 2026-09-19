@@ -72,14 +72,20 @@ class GraphValidator:
     任务图验证器
 
     验证任务图的：
+    - 图规模上限
     - 循环依赖检测
     - 节点 ID 唯一性
     - 依赖节点存在性
     - 节点类型有效性
     """
 
-    def __init__(self):
+    # 单图节点数上限。LLM 分解与外部导入的图都不应达到该量级，
+    # 设上限用于阻断超大图带来的校验/调度资源耗尽。
+    MAX_NODES = 200
+
+    def __init__(self, max_nodes: int = MAX_NODES):
         self.errors: List[str] = []
+        self.max_nodes = max_nodes
 
     def validate(
         self,
@@ -100,6 +106,7 @@ class GraphValidator:
         """
         self.errors = []
 
+        self._check_graph_size(task_graph)
         self._check_node_id_uniqueness(task_graph)
         self._check_dependency_existence(task_graph)
         self._check_task_type_validity(task_graph)
@@ -109,6 +116,14 @@ class GraphValidator:
             self._check_node_params(task_graph)
 
         return len(self.errors) == 0, self.errors
+
+    def _check_graph_size(self, task_graph: TaskGraph) -> None:
+        """检查节点总数是否超过上限"""
+        node_count = len(task_graph.nodes)
+        if node_count > self.max_nodes:
+            self.errors.append(
+                f"Task graph has {node_count} nodes, exceeding the limit of {self.max_nodes}"
+            )
 
     def _check_node_params(self, task_graph: TaskGraph) -> None:
         """校验各节点 params 是否满足其节点类型声明的必填项与取值约束"""

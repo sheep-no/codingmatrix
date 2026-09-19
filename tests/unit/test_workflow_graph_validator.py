@@ -3,6 +3,7 @@
 覆盖 docs/evolution/modules/workflow_core.md 中核实的缺陷：
 - GV3：节点 ID 唯一性检查由 O(N^2) 改为 Counter 单次遍历
 - GV1：check_semantics=True 时校验节点 params 的必填项与取值
+- GV4：图规模上限校验
 """
 from app.schema.workflow import TaskGraph, TaskNode, TaskType
 from app.utils.workflow.graph_validator import GraphValidator
@@ -39,12 +40,46 @@ class TestNodeIdUniqueness:
             for i in range(500)
         ]
 
-        valid, errors = GraphValidator().validate(
+        # 该用例关注唯一性而非规模上限，显式放宽上限以保留 500 节点构造
+        valid, errors = GraphValidator(max_nodes=1000).validate(
             TaskGraph(workflow_id="w2", nodes=nodes)
         )
 
         assert valid is True
         assert errors == []
+
+
+class TestGraphSizeLimit:
+    """GV4：超大图应被拒绝，避免校验/调度资源耗尽"""
+
+    def test_graph_over_limit_rejected(self):
+        nodes = [_node(f"n{i}") for i in range(5)]
+
+        valid, errors = GraphValidator(max_nodes=3).validate(
+            TaskGraph(workflow_id="w6", nodes=nodes)
+        )
+
+        assert valid is False
+        assert any("exceeding the limit" in err for err in errors)
+
+    def test_graph_at_limit_passes(self):
+        nodes = [_node(f"n{i}") for i in range(3)]
+
+        valid, errors = GraphValidator(max_nodes=3).validate(
+            TaskGraph(workflow_id="w7", nodes=nodes)
+        )
+
+        assert valid is True
+        assert errors == []
+
+    def test_default_limit_is_generous_for_real_graphs(self):
+        nodes = [_node(f"n{i}") for i in range(50)]
+
+        valid, errors = GraphValidator().validate(
+            TaskGraph(workflow_id="w8", nodes=nodes)
+        )
+
+        assert valid is True
 
 
 class TestSemanticValidation:
