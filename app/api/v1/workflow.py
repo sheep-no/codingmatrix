@@ -411,7 +411,8 @@ async def import_workflow(
     user_id = token.get("sub") or token.get("user_id")
 
     validator = GraphValidator()
-    is_valid, errors = validator.validate(task_graph)
+    # 导入的是外部 JSON，额外校验各节点 params 的必填项与取值
+    is_valid, errors = validator.validate(task_graph, check_semantics=True)
 
     if not is_valid:
         logger.warning(f"工作流验证失败 | user_id={user_id} | errors={errors}")

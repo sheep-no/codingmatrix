@@ -72,11 +72,11 @@
 **本轮修复**
 
 - **GV3 已修**：`_check_node_id_uniqueness` 由 `node_ids.count(id)` 的 O(N^2) 改为 `Counter` 单次遍历（graph_validator.py:60-66）。行为不变，纯复杂度优化。新增 `tests/unit/test_workflow_graph_validator.py`（2 项）；因属行为保持的重构，回退源码后测试仍通过。
+- **GV1 已修（导入入口）**：`GraphValidator.validate` 新增 `check_semantics` 开关（默认 False，保持既有结构校验契约），开启时调用 `_check_node_params`——按 `TaskType` 延迟加载对应节点类并复用其 `validate_params()`，校验必填项与取值。`POST /workflow/import` 显式传入 `check_semantics=True`，外部 JSON 缺 `query`/`code`/`prompt` 等必填参数在导入即被拦截，不再放行到运行时报错。自然语言 `execute` 流程与 executor 逐节点校验保持原状，未改动其行为。新增 3 项回归测试（缺参数拦截、合法参数通过、默认关闭）。
 
 **仍存在（需产品口径或较大改动）**
 
 - **WF1**：`_workflows`/`_session_workflows` 仍为进程内 dict，无 TTL/容量清理。
 - **WF5**：进程内存态在多 worker 部署下仍不可用、重启即丢失（与 WF1 同根）。
 - **STM2**：`check_node_timeout` 仍全库零调用，节点超时由 executor 侧 `asyncio.timeout` 承担，状态机侧方法为死代码。
-- **GV1**：`GraphValidator` 仍只做结构校验（ID 唯一/依赖存在/类型合法/环/条件分支引用），不校验各节点类型的必填 `params`。
 - **GV4**：仍无节点数/图规模上限。
