@@ -356,6 +356,52 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('添加中切账号不会清空新账号输入的表单', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (method == 'POST' && path == '/api/v2/mcp/servers') {
+              return pending.future;
+            }
+            return {'servers': []};
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: McpAdminPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).first, 'alice-mcp');
+    await tester.tap(find.text('添加'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).first, 'bob-mcp');
+    expect(find.text('bob-mcp'), findsOneWidget);
+
+    pending.complete(const <String, Object?>{});
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller?.text,
+      'bob-mcp',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('启停网络断开显示失败原文', (tester) async {
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1;

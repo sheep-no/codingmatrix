@@ -30,7 +30,9 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
 
   void _send() {
     final value = input.text.trim();
-    if (value.isEmpty) return;
+    // Enter bypasses the disabled send button, so keep the draft whenever the
+    // controller would refuse it (an in-flight reply already owns the turn).
+    if (value.isEmpty || ref.read(girlAiControllerProvider).loading) return;
     input.clear();
     ref.read(girlAiControllerProvider.notifier).send(value);
   }
@@ -39,6 +41,9 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
     _epoch++;
     closeAccountOverlays(context);
     input.clear();
+    // The account-scoped controller drops its role list on rebuild, so fetch
+    // it again for the account that just became active.
+    ref.read(girlAiControllerProvider.notifier).load();
   }
 
   Future<void> _showHistory() async {

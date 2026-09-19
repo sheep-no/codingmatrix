@@ -639,6 +639,48 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('切账号后旧账号的测试连接成功提示不会出现', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        providerKeyControllerProvider.overrideWith(
+          (_) => ProviderKeyController(
+            ProviderKeyClient(
+              RecordingApi((path, method, body) async {
+                if (path == '/api/v1/agent/apikeys') return [listedKey()];
+                if (path == '/api/v1/agent/apikey/test') return pending.future;
+                throw StateError('unexpected $method $path');
+              }),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ProviderSettingsPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('测试连接'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete({'success': true});
+    await tester.pumpAndSettle();
+
+    expect(find.text('连接测试通过'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('删除网络断开显示删除失败', (tester) async {
     final container = ProviderContainer(
       overrides: [

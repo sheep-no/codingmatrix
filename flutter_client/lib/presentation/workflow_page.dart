@@ -65,19 +65,20 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       ),
     );
     if (accepted != true || !mounted) return;
+    final epoch = _epoch;
     try {
       final graph = jsonDecode(importController.text);
       if (graph is! Map) throw const FormatException('工作流必须是 JSON 对象');
       final result = await client.importWorkflow(
         Map<String, dynamic>.from(graph),
       );
-      if (mounted)
+      if (mounted && epoch == _epoch)
         setState(
           () => input.text =
               '${result['requirement'] ?? result['name'] ?? '已导入工作流'}',
         );
     } catch (e) {
-      if (mounted)
+      if (mounted && epoch == _epoch)
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('导入失败：$e')));
@@ -115,7 +116,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                         ),
                       );
                     } catch (e) {
-                      if (mounted)
+                      if (mounted && epoch == _epoch)
                         ScaffoldMessenger.of(
                           context,
                         ).showSnackBar(SnackBar(content: Text('历史读取失败：$e')));
@@ -203,13 +204,14 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                       onPressed: toolsBusy
                           ? null
                           : () async {
+                              final epoch = _epoch;
                               final messenger = ScaffoldMessenger.of(context);
                               setState(() => toolsBusy = true);
                               try {
                                 final value = await client.exportWorkflow(
                                   snapshot.id!,
                                 );
-                                if (!context.mounted) return;
+                                if (!context.mounted || epoch != _epoch) return;
                                 showDialog<void>(
                                   context: context,
                                   builder: (dialogContext) => AlertDialog(
@@ -229,7 +231,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                                   ),
                                 );
                               } catch (e) {
-                                if (!context.mounted) return;
+                                if (!context.mounted || epoch != _epoch) return;
                                 messenger.showSnackBar(
                                   SnackBar(content: Text('导出失败：$e')),
                                 );

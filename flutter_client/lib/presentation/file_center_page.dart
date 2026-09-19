@@ -72,6 +72,10 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
     });
   }
 
+  // FileUploadResponse exposes `filename`; resumable/legacy payloads may use `name`.
+  String _displayName(Map<String, dynamic> file, String id) =>
+      '${file['name'] ?? file['filename'] ?? 'file-$id'}';
+
   Future<void> download(Map<String, dynamic> file) async {
     final id = '${file['file_id'] ?? file['id'] ?? ''}';
     if (id.isEmpty || busy) return;
@@ -90,10 +94,10 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
       );
       if (response.statusCode != 200) throw StateError('文件下载失败');
       final folder = await getApplicationDocumentsDirectory();
-      final name = '${file['name'] ?? 'file-$id'}'.replaceAll(
-        RegExp(r'[^A-Za-z0-9._-]'),
-        '_',
-      );
+      final name = _displayName(
+        file,
+        id,
+      ).replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
       final output = File('${folder.path}/$name');
       await output.writeAsBytes(await response.stream.toBytes(), flush: true);
       if (mounted && epoch == _epoch) {
@@ -127,9 +131,10 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
           const Divider(),
           for (final file in files)
             ListTile(
-              title: Text('${file['name'] ?? '文件'}'),
+              title: Text('${file['name'] ?? file['filename'] ?? '文件'}'),
               subtitle: Text(
-                '${file['file_id'] ?? file['id'] ?? ''}\n${file['server_path'] ?? ''}',
+                '${file['file_id'] ?? file['id'] ?? ''}\n'
+                '${file['file_path'] ?? file['server_path'] ?? file['download_url'] ?? ''}',
               ),
               isThreeLine: true,
               trailing: IconButton(

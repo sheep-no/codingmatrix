@@ -207,6 +207,49 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('切换账号后重新加载角色列表', (tester) async {
+    var calls = 0;
+    api = GirlApi((path, _, __) async {
+      if (path == '/api/v1/GirlAi/characters') {
+        calls++;
+        return {
+          'characters': [
+            {'id': 'gentle', 'name': '温柔'},
+          ],
+        };
+      }
+      fail('unexpected $path');
+    });
+    container.dispose();
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+      ],
+    );
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(calls, 1);
+    expect(find.text('温柔'), findsOneWidget);
+
+    auth.switchAccount('bob');
+    await tester.pumpAndSettle();
+
+    // The account-scoped controller drops its state, so the role list has to
+    // be fetched again for the next account.
+    expect(calls, 2);
+    expect(find.text('温柔'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   test('切账号后历史读取仍会写入新账号', () async {
     var calls = 0;
     api = GirlApi((path, _, __) async {
@@ -410,6 +453,55 @@ void main() {
     expect(find.text('你好'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsNothing);
     expect(find.text('嗨'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('生成回复中按回车不会丢掉还没发送的草稿', (tester) async {
+    final pending = Completer<Object?>();
+    api = GirlApi((path, _, __) async {
+      if (path == '/api/v1/GirlAi/characters') {
+        return {
+          'characters': [
+            {'id': 'gentle', 'name': '温柔'},
+          ],
+        };
+      }
+      if (path == '/api/v1/GirlAi/companion/turn') {
+        return pending.future;
+      }
+      fail('unexpected $path');
+    });
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [authenticatedClientProvider.overrideWithValue(api)],
+    );
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), '第一条');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+    expect(container.read(girlAiControllerProvider).loading, true);
+
+    // The send button is disabled while a reply streams, but the field is
+    // still editable: pressing enter must keep the draft instead of dropping
+    // a message the controller refuses to send.
+    await tester.enterText(find.byType(TextField), '第二条');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(find.text('第二条'), findsOneWidget);
+    expect(find.text('第一条'), findsOneWidget);
+
+    pending.complete(turnReply(text: '嗨'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('嗨'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

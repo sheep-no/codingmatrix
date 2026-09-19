@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../infrastructure/provider/dynamic_provider_client.dart';
+import 'account_overlays.dart';
 
 class DynamicProviderPage extends ConsumerStatefulWidget {
   const DynamicProviderPage({super.key});
@@ -39,6 +40,7 @@ class _DynamicProviderPageState extends ConsumerState<DynamicProviderPage> {
 
   void _resetAccount() {
     _epoch++;
+    closeAccountOverlays(context);
     name.clear();
     url.clear();
     key.clear();
@@ -123,12 +125,14 @@ class _DynamicProviderPageState extends ConsumerState<DynamicProviderPage> {
             onPressed: loading
                 ? null
                 : () => run(() async {
+                    final epoch = _epoch;
                     await client.add(
                       name: name.text.trim(),
                       baseUrl: url.text.trim(),
                       protocol: protocol,
                       apiKey: key.text.trim(),
                     );
+                    if (!mounted || epoch != _epoch) return;
                     name.clear();
                     url.clear();
                     key.clear();

@@ -639,6 +639,91 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('切账号后旧账号的密码重置成功提示不会出现', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path.contains('reset-password')) return pending.future;
+            return usersPayload;
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('用户管理'));
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('重置密码'));
+    await tester.tap(find.byTooltip('重置密码'));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'newpass');
+    await tester.tap(find.text('重置'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete(const <String, Object?>{});
+    await tester.pumpAndSettle();
+
+    expect(find.text('密码已重置'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切账号后旧账号的系统配置弹层不会弹出', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, _, __) async {
+            if (path == '/api/v2/admin/config') return pending.future;
+            throw StateError('unexpected $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('系统配置'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete(const <String, Object?>{'token_ttl': 3600});
+    await tester.pumpAndSettle();
+
+    expect(find.text('系统配置'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.textContaining('token_ttl'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('系统配置网络断开显示失败原文', (tester) async {
     final container = ProviderContainer(
       overrides: [

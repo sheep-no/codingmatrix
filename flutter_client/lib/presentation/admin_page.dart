@@ -239,6 +239,7 @@ class _AdminPageState extends ConsumerState<AdminPage> {
     final value = password.text;
     password.dispose();
     if (confirmed != true) return;
+    final epoch = _epoch;
     await run('密码重置失败', () async {
       await ref
           .read(authenticatedClientProvider)
@@ -247,7 +248,7 @@ class _AdminPageState extends ConsumerState<AdminPage> {
             method: 'POST',
             body: {'new_password': value},
           );
-      if (mounted) {
+      if (mounted && epoch == _epoch) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('密码已重置')));
@@ -258,11 +259,12 @@ class _AdminPageState extends ConsumerState<AdminPage> {
   Future<void> loadUsers() => run('用户列表读取失败', fetchUsers);
 
   Future<void> loadConfig() async {
+    final epoch = _epoch;
     await run('配置读取失败', () async {
       final value = await ref
           .read(authenticatedClientProvider)
           .requestJson('/api/v2/admin/config');
-      if (mounted) {
+      if (mounted && epoch == _epoch) {
         showDialog<void>(
           context: context,
           builder: (dialogContext) => AlertDialog(
@@ -281,11 +283,12 @@ class _AdminPageState extends ConsumerState<AdminPage> {
   }
 
   Future<void> showEndpoint(String title, String path) async {
+    final epoch = _epoch;
     await run('$title读取失败', () async {
       final value = await ref
           .read(authenticatedClientProvider)
           .requestJson(path);
-      if (!mounted) return;
+      if (!mounted || epoch != _epoch) return;
       showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(

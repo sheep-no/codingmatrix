@@ -72,6 +72,7 @@ class _AgentHistoryPageState extends ConsumerState<AgentHistoryPage> {
   }
 
   Future<void> clearCache() => run('缓存清理失败', () async {
+    final epoch = _epoch;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -93,7 +94,7 @@ class _AgentHistoryPageState extends ConsumerState<AgentHistoryPage> {
     await ref
         .read(authenticatedClientProvider)
         .requestJson('/api/v1/agent/cache/clear', method: 'POST');
-    if (mounted)
+    if (mounted && epoch == _epoch)
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('缓存清理请求已提交')));

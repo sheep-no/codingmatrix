@@ -313,18 +313,62 @@ void main() {
     expect(find.text('Anthropic 协议'), findsNothing);
   });
 
+  testWidgets('切换账号会关闭供应商操作菜单', (tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((_, __, ___) async => [providerItem]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.ensureVisible(find.byType(PopupMenuButton<String>));
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(PopupMenuItem<String>), findsNWidgets(4));
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byType(PopupMenuItem<String>), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('添加网络断开显示失败原文', (tester) async {
     final container = ProviderContainer(
       overrides: [
         authenticatedClientProvider.overrideWithValue(
           DeliveryApi((path, method, body) async {
+            if (path == '/api/v1/agent/apikey/public-key') {
+              return {'public_key': testPublicPem};
+            }
             if (method == 'POST' && path == '/api/v1/providers') {
-              expect(body, {
-                'name': 'custom',
-                'base_url': 'https://llm.example.com',
-                'protocol': 'openai',
-                'api_key': 'sk-test',
-              });
+              final payload = body as Map;
+              expect(payload['name'], 'custom');
+              expect(payload['base_url'], 'https://llm.example.com');
+              expect(payload['protocol'], 'openai');
+              expect(payload.containsKey('api_key'), isFalse);
+              expect(
+                decryptApiKey(payload['encrypted_api_key'] as String),
+                'sk-test',
+              );
               throw const SocketException('connection lost');
             }
             return [providerItem];
@@ -367,6 +411,9 @@ void main() {
       overrides: [
         authenticatedClientProvider.overrideWithValue(
           DeliveryApi((path, method, _) async {
+            if (path == '/api/v1/agent/apikey/public-key') {
+              return {'public_key': testPublicPem};
+            }
             if (method == 'POST' && path == '/api/v1/providers') {
               return pending.future;
             }
@@ -412,6 +459,55 @@ void main() {
     expect(find.textContaining('connection lost'), findsNothing);
     expect(find.text('自定义 GLM'), findsOneWidget);
     expect(lists, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('添加中切账号不会清空新账号输入的表单', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path == '/api/v1/agent/apikey/public-key') {
+              return {'public_key': testPublicPem};
+            }
+            if (method == 'POST' && path == '/api/v1/providers') {
+              return pending.future;
+            }
+            return [providerItem];
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: DynamicProviderPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(0), 'alice-provider');
+    await tester.tap(find.text('添加供应商'));
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(0), 'bob-provider');
+    expect(find.text('bob-provider'), findsOneWidget);
+
+    pending.complete(const <String, Object?>{});
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+      'bob-provider',
+    );
     expect(tester.takeException(), isNull);
   });
 

@@ -495,6 +495,47 @@ void main() {
     expect(find.textContaining('connection lost'), findsOneWidget);
   });
 
+  testWidgets('切账号后旧账号的缓存清理完成提示不会出现', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        agentSessionsProvider.overrideWith((_) async => []),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path == '/api/v1/agent/cache/clear') return pending.future;
+            throw StateError('unexpected $method $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentHistoryPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('清理缓存'));
+    await tester.pump();
+    await tester.tap(find.text('清理'));
+    await tester.pump();
+    await tester.pump();
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete(const <String, Object?>{});
+    await tester.pumpAndSettle();
+
+    expect(find.text('缓存清理请求已提交'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('查看快照进行中无法再次触发并发请求', (tester) async {
     var calls = 0;
     final pending = Completer<Object?>();

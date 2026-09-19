@@ -625,6 +625,42 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('切账号后旧账号导入的工作流名不会写进输入框', (tester) async {
+    final auth = ModuleAuth(Fixture())..switchAccount('alice');
+    final pending = Completer<Object?>();
+    final api = DeliveryApi((path, _, __) async {
+      if (path == '/api/v1/workflow/import') return pending.future;
+      fail('unexpected $path');
+    });
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith((_) => auth),
+        authenticatedClientProvider.overrideWithValue(api),
+        workflowControllerProvider.overrideWith(
+          (_) => WorkflowController(WorkflowClient(api)),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: WorkflowPage()),
+      ),
+    );
+    await submitImport(tester);
+
+    auth.switchAccount('bob');
+    await tester.pump();
+    await tester.pump();
+
+    pending.complete(const <String, Object?>{'requirement': '上一账号导入的任务'});
+    await tester.pumpAndSettle();
+
+    expect(find.text('上一账号导入的任务'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('读取历史中退出再进入会丢掉错误', (tester) async {
     final pending = Completer<Object?>();
     final api = DeliveryApi((path, _, __) async {

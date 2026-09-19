@@ -96,6 +96,7 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
   Future<void> add() async {
     final name = nameController.text.trim();
     if (name.isEmpty) return;
+    final epoch = _epoch;
     await mutate('MCP 服务添加失败', () async {
       await ref
           .read(mcpAdminClientProvider)
@@ -105,6 +106,7 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
             command: commandController.text.trim(),
             url: urlController.text.trim(),
           );
+      if (!mounted || epoch != _epoch) return;
       nameController.clear();
       commandController.clear();
       urlController.clear();
