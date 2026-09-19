@@ -308,12 +308,23 @@ class ModelConfigManager:
         model = self._models.get(model_id)
         if not model:
             return False
-        
-        for key, value in updates.items():
-            if hasattr(model, key):
-                setattr(model, key, value)
-        
+
+        self._apply_updates(model, updates)
         return self.save_config()
+
+    @staticmethod
+    def _apply_updates(target: Any, updates: Dict[str, Any]) -> None:
+        """把 updates 应用到配置对象，忽略对 id 的修改。
+
+        id 是对象在 _models/_providers 字典中的键，允许改写会让键与对象
+        自带的 id 不一致，故一并忽略。
+        """
+        for key, value in updates.items():
+            if key == "id":
+                logger.warning("忽略对配置 id 字段的修改请求")
+                continue
+            if hasattr(target, key):
+                setattr(target, key, value)
     
     def delete_model(self, model_id: str) -> bool:
         """删除模型"""
@@ -350,19 +361,27 @@ class ModelConfigManager:
         provider = self._providers.get(provider_id)
         if not provider:
             return False
-        
-        for key, value in updates.items():
-            if hasattr(provider, key):
-                setattr(provider, key, value)
-        
+
+        self._apply_updates(provider, updates)
         return self.save_config()
     
     def delete_provider(self, provider_id: str) -> bool:
-        """删除供应商"""
-        if provider_id in self._providers:
-            del self._providers[provider_id]
-            return self.save_config()
-        return False
+        """删除供应商（仍有模型引用时拒绝，避免产生孤儿模型）"""
+        if provider_id not in self._providers:
+            return False
+
+        referencing = [
+            model.id for model in self._models.values()
+            if model.provider == provider_id
+        ]
+        if referencing:
+            logger.warning(
+                f"供应商 {provider_id} 仍被模型引用，拒绝删除: {referencing}"
+            )
+            return False
+
+        del self._providers[provider_id]
+        return self.save_config()
     
     # ==================== Agent 配置 ====================
     
