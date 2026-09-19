@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.schema import CreateTable
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 # 添加项目路径
 project_root = Path(__file__).resolve().parents[1]
@@ -65,6 +65,10 @@ async def run_async_migrations():
             if table_name not in existing_tables:
                 await conn.execute(CreateTable(table))
                 print(f"✅ 创建表: {table_name}")
+                # CreateTable 只建表结构，不建索引；tasks.task_id 等唯一索引是其他表外键的解析目标
+                for index in table.indexes:
+                    await conn.execute(CreateIndex(index))
+                    print(f"✅ 创建索引: {index.name}")
             else:
                 print(f"⏭ 表已存在，跳过: {table_name}")
 
