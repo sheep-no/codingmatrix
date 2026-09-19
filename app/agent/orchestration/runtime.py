@@ -13,9 +13,44 @@ from app.agent.shared_context import SharedContext
 
 from .adapters import GenerationModeAdapter
 from .core import OrchestratorCore
-from .models import OrchestrationCommand
+from .models import OrchestrationCommand, OrchestrationState
 from .routing import CORE_ENGINE_VERSION
 from .store import OrchestrationCheckpointStore
+
+
+def _workflow_projection(state: OrchestrationState) -> Dict[str, Any]:
+    """Project the frozen workflow control plane onto the API payload.
+
+    Core writes ``WorkflowIR`` to the scheduling checkpoint. Exposing its digest
+    and node graph lets API consumers audit a run against the exact frozen plan
+    it executed instead of re-deriving the plan after the fact.
+    """
+    workflow = state.metadata.get("workflow_ir") or {}
+    if not workflow:
+        return {}
+    return {
+        "workflow_id": workflow.get("workflow_id"),
+        "name": workflow.get("name"),
+        "mode": workflow.get("mode"),
+        "digest": workflow.get("digest"),
+        "languages": list(workflow.get("languages") or ()),
+        "frameworks": list(workflow.get("frameworks") or ()),
+        "runtimes": list(workflow.get("runtimes") or ()),
+        "nodes": [
+            {
+                "node_id": node.get("node_id"),
+                "kind": node.get("kind"),
+                "handler_ref": node.get("handler_ref"),
+                "agent_role": node.get("agent_role"),
+                "budget_scope": node.get("budget_scope"),
+                "preferred_models": list(
+                    (node.get("model_policy") or {}).get("preferred_models") or ()
+                ),
+                "technology": dict(node.get("technology") or {}),
+            }
+            for node in workflow.get("nodes") or ()
+        ],
+    }
 
 
 def _checkpoint_task_id(task_id: str, mode: str) -> str:
@@ -72,6 +107,9 @@ async def execute_core_generation(
     )
     finalized = await adapter.finalize(result.state)
     payload = dict(finalized.result)
+    workflow = _workflow_projection(result.state)
+    if workflow:
+        payload["workflow"] = workflow
     diagnostics = list(result.state.diagnostics)
     validation = result.state.metadata.get("candidate_validation")
     if validation and validation.get("status") != "waiting_local_validation" and not validation.get("passed", True) and not any(
