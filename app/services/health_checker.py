@@ -5,6 +5,7 @@
 """
 import asyncio
 import logging
+import threading
 import psutil
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -174,7 +175,7 @@ class HealthChecker:
             from app.services.websocket_manager import get_ws_manager
             ws_manager = get_ws_manager()
             current = ws_manager.get_connection_count()
-            max_conn = ws_manager._max_connections
+            max_conn = ws_manager.max_connections
 
             elapsed = (asyncio.get_running_loop().time() - start) * 1000
             return HealthCheckResult(
@@ -310,7 +311,13 @@ class HealthChecker:
         checks = {}
         all_ready = True
 
-        db_result = await self.check_database()
+        # 三项检查相互独立，并行执行避免就绪探针延迟叠加
+        db_result, redis_result, system_result = await asyncio.gather(
+            self.check_database(),
+            self.check_redis(),
+            self.check_system(),
+        )
+
         checks["database"] = {
             "status": db_result.status,
             "message": db_result.message,
@@ -319,7 +326,6 @@ class HealthChecker:
         if db_result.status != "healthy":
             all_ready = False
 
-        redis_result = await self.check_redis()
         checks["redis"] = {
             "status": redis_result.status,
             "message": redis_result.message,
@@ -328,7 +334,6 @@ class HealthChecker:
         if redis_result.status not in ("healthy", "skipped"):
             all_ready = False
 
-        system_result = await self.check_system()
         checks["system"] = {
             "status": system_result.status,
             "details": system_result.details,
@@ -351,13 +356,16 @@ class HealthChecker:
 
 
 _health_checker_instance: Optional[HealthChecker] = None
+_health_checker_lock = threading.Lock()
 
 
 def get_health_checker() -> HealthChecker:
     """获取健康检查器单例"""
     global _health_checker_instance
     if _health_checker_instance is None:
-        _health_checker_instance = HealthChecker()
+        with _health_checker_lock:
+            if _health_checker_instance is None:
+                _health_checker_instance = HealthChecker()
     return _health_checker_instance
 
 

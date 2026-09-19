@@ -30,9 +30,8 @@ class WebSocketManager:
     Features:
     - User-based connection grouping (multiple connections per user)
     - Task-specific subscriptions
-    - Automatic reconnection handling
-    - Connection health monitoring
     - Connection limit enforcement
+    - Failed-connection cleanup on send failures
     """
 
     def __init__(self, max_connections: int = 50):
@@ -69,7 +68,10 @@ class WebSocketManager:
                 self._connections[user_id] = []
             self._connections[user_id].append(conn_info)
 
-        logger.info(f"WebSocket connected: user_id={user_id} | total={current_count + 1}")
+        logger.info(
+            f"WebSocket connected: user_id={user_id} | "
+            f"total={self.get_connection_count()}"
+        )
 
     async def disconnect(self, user_id: int, websocket: Optional[WebSocket] = None):
         """
@@ -186,6 +188,11 @@ class WebSocketManager:
     def get_connection_count(self) -> int:
         """Get total number of active connections."""
         return sum(len(conns) for conns in self._connections.values())
+
+    @property
+    def max_connections(self) -> int:
+        """Configured upper bound of concurrent connections."""
+        return self._max_connections
 
     def get_user_count(self) -> int:
         """Get number of connected users."""
