@@ -7,10 +7,11 @@ pytest-xdist==3.5.0  # 并行测试
 pytest-timeout==2.2.0
 
 # HTTP 测试
-requests==2.31.0
+requests==2.33.1
 
-# 加密测试
+# 加密与令牌测试
 cryptography==46.0.7
+PyJWT==2.13.0
 
 # Selenium
 selenium==4.16.0
