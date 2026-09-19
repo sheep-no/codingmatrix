@@ -15,6 +15,50 @@ from app.schema.workflow import TaskGraph, TaskNode, TaskType
 
 logger = logging.getLogger(__name__)
 
+# TaskType -> 节点类 的缓存。节点类构造与 validate_params 均为纯本地逻辑，
+# 延迟 import 是为了避免在 graph_validator 模块加载时连带引入 matplotlib 等重量依赖。
+_NODE_CLASS_CACHE: Optional[Dict[TaskType, type]] = None
+
+
+def _get_node_classes() -> Dict[TaskType, type]:
+    """延迟构建 TaskType -> 节点类 的映射"""
+    global _NODE_CLASS_CACHE
+    if _NODE_CLASS_CACHE is not None:
+        return _NODE_CLASS_CACHE
+
+    classes: Dict[TaskType, type] = {}
+    try:
+        from app.utils.workflow.node_types import (
+            WebSearchNode,
+            CodeExecutionNode,
+            ChartGenerationNode,
+            FileProcessingNode,
+            LLMCallNode,
+            ConditionalNode,
+            HumanApprovalNode,
+            HTTPRequestNode,
+            DataTransformNode,
+        )
+
+        for node_cls in (
+            WebSearchNode,
+            CodeExecutionNode,
+            ChartGenerationNode,
+            FileProcessingNode,
+            LLMCallNode,
+            ConditionalNode,
+            HumanApprovalNode,
+            HTTPRequestNode,
+            DataTransformNode,
+        ):
+            if node_cls.task_type is not None:
+                classes[node_cls.task_type] = node_cls
+    except Exception as e:  # 依赖缺失时不阻断结构校验
+        logger.warning(f"加载节点类型失败，跳过参数语义校验: {e}")
+
+    _NODE_CLASS_CACHE = classes
+    return classes
+
 
 class GraphValidationError(Exception):
     """任务图验证异常"""
@@ -37,12 +81,19 @@ class GraphValidator:
     def __init__(self):
         self.errors: List[str] = []
 
-    def validate(self, task_graph: TaskGraph) -> Tuple[bool, List[str]]:
+    def validate(
+        self,
+        task_graph: TaskGraph,
+        check_semantics: bool = False,
+    ) -> Tuple[bool, List[str]]:
         """
         验证任务图
 
         Args:
             task_graph: 要验证的任务图
+            check_semantics: 是否额外校验各节点 params 的语义（必填项/取值）。
+                默认关闭以保持结构校验的既有契约；外部导入等需要拦截坏图
+                的入口应显式开启。
 
         Returns:
             (是否有效, 错误列表)
@@ -54,8 +105,28 @@ class GraphValidator:
         self._check_task_type_validity(task_graph)
         self._check_circular_dependency(task_graph)
         self._check_conditional_branches(task_graph)
+        if check_semantics:
+            self._check_node_params(task_graph)
 
         return len(self.errors) == 0, self.errors
+
+    def _check_node_params(self, task_graph: TaskGraph) -> None:
+        """校验各节点 params 是否满足其节点类型声明的必填项与取值约束"""
+        node_classes = _get_node_classes()
+
+        for node in task_graph.nodes:
+            node_cls = node_classes.get(node.type)
+            if node_cls is None:
+                # 类型非法已由 _check_task_type_validity 覆盖
+                continue
+            try:
+                instance = node_cls(node.id, node.params)
+                for error in instance.validate_params():
+                    self.errors.append(
+                        f"Node '{node.id}' ({node.type.value}): {error}"
+                    )
+            except Exception as e:
+                self.errors.append(f"Node '{node.id}' 参数校验异常: {e}")
 
     def _check_node_id_uniqueness(self, task_graph: TaskGraph) -> None:
         """检查节点 ID 唯一性"""
