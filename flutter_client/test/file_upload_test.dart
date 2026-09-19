@@ -49,9 +49,16 @@ Map<String, dynamic> initResponse({List<int> uploadedChunks = const []}) => {
 };
 
 Map<String, dynamic> mergeResponse() => {
-  'file_id': 'f1',
-  'name': 'cm_upload_resume.bin',
-  'server_path': 'uploads/cm_upload_resume.bin',
+  'success': true,
+  'message': '分片合并成功',
+  'file': {
+    'id': 3,
+    'filename': 'cm_upload_resume.bin',
+    'file_size': 8,
+    'content_type': 'application/octet-stream',
+    'created_at': '2026-01-01T00:00:00',
+    'download_url': '/api/v1/files/3/download',
+  },
 };
 
 class FileApi extends DeliveryApi {
@@ -62,7 +69,14 @@ class FileApi extends DeliveryApi {
   @override
   Future<Map<String, dynamic>> uploadFile(String path) async {
     return upload == null
-        ? {'name': 'a.txt', 'server_path': 'uploads/a.txt', 'file_id': '1'}
+        ? {
+            'id': 1,
+            'filename': 'a.txt',
+            'file_size': 10,
+            'content_type': 'text/plain',
+            'created_at': '2026-01-01T00:00:00',
+            'download_url': '/api/v1/files/1/download',
+          }
         : await upload!(path);
   }
 
@@ -119,8 +133,36 @@ void main() {
 
     final result = await api.uploadFileResumable(file.path);
     expect(api.uploaded, [1]);
-    expect(result['server_path'], 'uploads/cm_upload_resume.bin');
-    expect(result['file_id'], 'f1');
+    // The merge endpoint wraps the record in `file`; callers must still get the
+    // flat FileUploadResponse shape (filename/download_url/id).
+    expect(result['filename'], 'cm_upload_resume.bin');
+    expect(result['download_url'], '/api/v1/files/3/download');
+    expect(result['id'], 3);
+  });
+
+  test('秒传命中时展开 existing_file 返回扁平文件记录', () async {
+    final file = await sampleFile();
+    final api = ChunkApi((path, method, body) async {
+      expect(path.startsWith('/api/v1/files/upload/init'), true);
+      return {
+        'file_id': '9',
+        'status': 'exists',
+        'message': '文件已存在，支持秒传',
+        'existing_file': {
+          'id': 9,
+          'filename': 'cm_upload_resume.bin',
+          'file_size': 8,
+          'content_type': 'application/octet-stream',
+          'created_at': '2026-01-01T00:00:00',
+          'download_url': '/api/v1/files/9/download',
+        },
+      };
+    });
+
+    final result = await api.uploadFileResumable(file.path);
+    expect(api.uploaded, isEmpty);
+    expect(result['id'], 9);
+    expect(result['filename'], 'cm_upload_resume.bin');
   });
 
   test('分片上传网络断开后再次上传从已上传分片续传', () async {
@@ -155,7 +197,7 @@ void main() {
     api.failIndex = null;
     final result = await api.uploadFileResumable(file.path);
     expect(api.uploaded, [0, 1]);
-    expect(result['server_path'], 'uploads/cm_upload_resume.bin');
+    expect(result['filename'], 'cm_upload_resume.bin');
   });
 
   testWidgets('选择文件进行中无法再次打开选择器', (tester) async {
@@ -253,9 +295,12 @@ void main() {
     expect(find.text('a.txt'), findsNothing);
 
     pending.complete({
-      'name': 'a.txt',
-      'server_path': 'uploads/a.txt',
-      'file_id': '1',
+      'id': 1,
+      'filename': 'a.txt',
+      'file_size': 10,
+      'content_type': 'text/plain',
+      'created_at': '2026-01-01T00:00:00',
+      'download_url': '/api/v1/files/1/download',
     });
     await tester.pump();
     await tester.pump();
@@ -323,9 +368,12 @@ void main() {
     await tester.pump();
 
     upload.complete({
-      'name': 'a.txt',
-      'server_path': 'uploads/a.txt',
-      'file_id': '1',
+      'id': 1,
+      'filename': 'a.txt',
+      'file_size': 10,
+      'content_type': 'text/plain',
+      'created_at': '2026-01-01T00:00:00',
+      'download_url': '/api/v1/files/1/download',
     });
     await tester.pump();
 
@@ -349,9 +397,12 @@ void main() {
       ..upload = (_) async {
         uploads += 1;
         return {
-          'name': 'a.txt',
-          'server_path': 'uploads/a.txt',
-          'file_id': '1',
+          'id': 1,
+          'filename': 'a.txt',
+          'file_size': 10,
+          'content_type': 'text/plain',
+          'created_at': '2026-01-01T00:00:00',
+          'download_url': '/api/v1/files/1/download',
         };
       };
     await tester.pumpWidget(
@@ -374,9 +425,12 @@ void main() {
       ..upload = (_) async {
         uploads += 1;
         return {
-          'name': 'a.txt',
-          'server_path': 'uploads/a.txt',
-          'file_id': '1',
+          'id': 1,
+          'filename': 'a.txt',
+          'file_size': 10,
+          'content_type': 'text/plain',
+          'created_at': '2026-01-01T00:00:00',
+          'download_url': '/api/v1/files/1/download',
         };
       };
     await tester.pumpWidget(

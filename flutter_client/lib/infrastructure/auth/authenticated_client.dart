@@ -161,7 +161,9 @@ class AuthenticatedClient extends http.BaseClient {
             )
             as Map;
     final fileId = '${init['file_id']}';
-    if (init['status'] == 'exists') return Map<String, dynamic>.from(init);
+    if (init['status'] == 'exists') {
+      return _flattenFileRecord(init['existing_file']);
+    }
     final chunkSize = (init['chunk_size'] as num?)?.toInt() ?? 5 * 1024 * 1024;
     final total =
         (init['total_chunks'] as num?)?.toInt() ??
@@ -192,14 +194,20 @@ class AuthenticatedClient extends http.BaseClient {
         throw CloudAuthException('分片上传失败：${response.statusCode}');
       }
     }
-    return Map<String, dynamic>.from(
-      await requestJson(
-            '/api/v1/files/upload/merge/$fileId?filename=${Uri.encodeQueryComponent(name)}&file_hash=$digest&file_size=$length',
-            method: 'POST',
-          )
-          as Map,
-    );
+    final merged =
+        await requestJson(
+              '/api/v1/files/upload/merge/$fileId?filename=${Uri.encodeQueryComponent(name)}&file_hash=$digest&file_size=$length',
+              method: 'POST',
+            )
+            as Map;
+    return _flattenFileRecord(merged['file'] ?? merged);
   }
+
+  // The resumable endpoints wrap the file record in an envelope; uploadFile
+  // returns it flat. Callers always get the same flat shape, whose `id` is the
+  // database id used by GET /api/v1/files/{id}/download.
+  Map<String, dynamic> _flattenFileRecord(Object? record) =>
+      record is Map ? Map<String, dynamic>.from(record) : <String, dynamic>{};
 
   // The provider owns the shared transport.
   @override
