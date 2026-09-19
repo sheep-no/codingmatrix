@@ -164,6 +164,8 @@ Core 同步响应增加 `repair_feedback`：`task_id` 关联检查点，`status`
 
 `app.agent.state.models` 定义 `State`、`StateDelta` 和 `MessageEnvelope`。State 包含 session/task 标识、revision、status、消息、计划变更、生成文件、验证结果、待执行动作、错误和 metadata。该模型已实现为可序列化契约，完整多阶段生产编排仍在迁移中。
 
+Core 同步响应增加 `workflow`：Core 在生成前将冻结的 `WorkflowIR` 写入调度检查点 `metadata.workflow_ir`，`execute_core_generation()` 将其投影为 `workflow_id`、`name`、`mode`、`digest`、`languages`、`frameworks`、`runtimes` 和各节点的 `node_id`、`kind`、`handler_ref`、`agent_role`、`budget_scope`、`preferred_models`、`technology`，由 `OrchestratorResponse` 保留。消费方据此按实际执行的冻结计划审计一次运行，无需事后重新推导计划；未形成 `WorkflowIR` 时字段缺省为空对象。
+
 云端生成编排使用 `app.agent.shared_context.SharedContext` 保存单文件 `FileArtifact`。产物清单通过 `get_artifact_manifest()` 输出路径、内容 hash、导入、导出、语言、依赖、状态和诊断，`is_file_ready()` 与 `are_dependencies_ready()` 用于阻止无效上游释放下游生成。
 
 修复编排使用 `app.agent.repair_router.RepairRouter` 和 `RepairBudget`。基础语法、导入、名称和类型错误进入自动修复；业务逻辑、测试断言和未知错误进入用户确认；默认单类错误最多 3 次、任务累计最多 5 次。

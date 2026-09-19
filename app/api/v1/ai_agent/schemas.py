@@ -365,6 +365,7 @@ class OrchestratorResponse(BaseModel):
     session_id: Optional[str] = None
     generation_metrics: Dict[str, Any] = Field(default_factory=dict)
     repair_feedback: Dict[str, Any] = Field(default_factory=dict)
+    workflow: Dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("context_summary", mode="before")
     @classmethod
