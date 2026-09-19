@@ -31,13 +31,13 @@
 - `../specs/2026-08-30-user-scoped-skills/`：系统、用户和工作区 Skills 的命名空间、用户隔离与跨工作台同步设计。
 - `../specs/2026-08-31-multilanguage-generation-orchestration/`：多语言代码生成稳定性与 Orchestrator Core 重构主规格，统一生命周期、文件计划、执行预算、GenerationScheduler、产物成功门禁，以及 Python、TypeScript、Java、Go、Rust 的语言 Adapter、官方脚手架导入、Toolchain 自动探测和工作区 Profile 晋级门禁已实现；受约束代码合成控制面已完成动态 IR、策略路由、Core 计划投影、Profile/语言/脚手架能力桥接、FastAPI/Express/Go/Spring 独立 Stack Adapter，以及 V0-V6 分层验证、候选预算、确定性重排和最小诊断反馈，Spec-First 与增量生产分支已接入 Core。
 - `../../docs/evolution/TASKS.md`：全项目演化任务索引、SSD 规范和第 156-161 轮运行时补扫记录。
-- `../specs/2026-08-29-followup-module-state-migration/`：AICloud、GirlAI、Agent、Workflow 及兼容映射、归档和切换的后续模块迁移 SDD。
+- AICloud、GirlAI、Agent、Workflow 及兼容映射、归档和切换的后续模块迁移 SDD（规格目录为历史资料，当前工作树未包含）。
 - GirlAI 接口、双写状态和真实验证说明分别见 `INTERFACES.md`、`ARCHITECTURE.md` 和 `DEVELOPER_GUIDE.md`。
 - `../specs/2026-09-01-agent-model-context/`：Agent 会话模型配置、当前模型、调用统计和降级记录的后端 Checkpoint 管理设计。
 - `../specs/2026-09-01-mobile-agent-interface/`：Agent Dashboard 手机端单列布局、会话抽屉和文件抽屉设计。
 - `../specs/2026-09-03-girlai-companion-enhancement/`：GirlAI 纯对话伙伴回合、记忆、情绪意图和语音适配的需求、设计与实施计划。
-- `../specs/2026-09-06-flutter-desktop-agent-client/`：Flutter Windows 桌面 Agent 客户端的需求、设计与实施计划；当前已完成工程骨架和认证基础层。
-- `../specs/2026-09-18-flutter-capability-registry/`：Flutter 桌面端能力注册表、分组导航与生成开关的需求与设计，待实施。
+- `../specs/2026-09-08-flutter-client-completion/`：Flutter Windows 桌面 Agent 客户端的需求、设计与任务清单；客户端已接入对话、GirlAI、PPT、图片、工作流、文件、模型、动态供应商、任务、Agent 历史、GitHub 与管理面。
+- `../specs/2026-09-18-flutter-capability-registry/`：Flutter 桌面端能力注册表、分组导航与生成开关的需求与设计；已实施，落地为 `lib/application/capability_registry.dart`、`lib/presentation/capability_nav.dart` 与生成开关控制器。
 
 ## 2026-09-12 增量
 
