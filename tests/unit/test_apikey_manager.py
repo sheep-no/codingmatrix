@@ -10,8 +10,10 @@ API Key Manager 单元测试
 - Key 验证 TTL
 """
 import pytest
+import json
+from dataclasses import asdict
 from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -195,3 +197,47 @@ class TestGetAPIKeyManager:
         
         # 清理
         ak_module._apikey_manager = None
+
+
+def _meta_json(token: str) -> bytes:
+    now = datetime.now(timezone.utc)
+    meta = KeyMetadata(
+        token=token,
+        provider="openai",
+        remark="",
+        status="unverified",
+        created_at=now.isoformat(),
+        expires_at=(now + timedelta(days=1)).isoformat(),
+        ttl_seconds=86400,
+    )
+    return json.dumps(asdict(meta)).encode("utf-8")
+
+
+class TestMetadataResilience:
+    """AKM2：损坏元数据容错与无过期元数据更新。"""
+
+    def test_get_metadata_corrupted_json_returns_none(self, mock_redis):
+        mock_redis.get = Mock(return_value=b"{ this is not json")
+
+        # 单个损坏 meta 不应抛出，否则 list_keys/get_metadata 整体失败
+        assert APIKeyManager(redis_client=mock_redis).get_metadata("u1", "tok") is None
+
+    def test_update_status_persists_when_meta_has_no_expiry(self, mock_redis):
+        mock_redis.get = Mock(return_value=_meta_json("tok"))
+        mock_redis.ttl = Mock(return_value=-1)  # 无过期时间的元数据
+
+        manager = APIKeyManager(redis_client=mock_redis)
+
+        assert manager.update_status("u1", "tok", "verified") is True
+        mock_redis.set.assert_called_once()
+        mock_redis.setex.assert_not_called()
+
+    def test_update_status_keeps_ttl_when_present(self, mock_redis):
+        mock_redis.get = Mock(return_value=_meta_json("tok"))
+        mock_redis.ttl = Mock(return_value=3600)
+
+        manager = APIKeyManager(redis_client=mock_redis)
+
+        assert manager.update_status("u1", "tok", "verified") is True
+        mock_redis.setex.assert_called_once()
+        mock_redis.set.assert_not_called()
