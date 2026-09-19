@@ -66,6 +66,13 @@ class ResumeManager:
         tmp_path.write_text(content)
         os.replace(tmp_path, path)
 
+    @staticmethod
+    def _load_state(path: Path) -> Optional[dict]:
+        """读取状态文件，缺失时返回 None"""
+        if not path.exists():
+            return None
+        return json.loads(path.read_text())
+
     def compute_chunk_hash(self, data: bytes) -> str:
         """计算分片数据的 MD5 hash"""
         return hashlib.md5(data).hexdigest()
@@ -87,21 +94,20 @@ class ResumeManager:
         state_file = self._state_file(upload_id)
 
         async with self._lock_for(upload_id):
-            if state_file.exists():
-                data = json.loads(state_file.read_text())
-            else:
-                data = {
+            def _read_modify_write():
+                data = self._load_state(state_file) or {
                     "upload_id": upload_id,
                     "completed_chunks": [],
                     "chunk_hashes": {},
                 }
+                completed = data.setdefault("completed_chunks", [])
+                if chunk_index not in completed:
+                    completed.append(chunk_index)
+                data.setdefault("chunk_hashes", {})[chunk_index] = chunk_hash
+                self._atomic_write(state_file, json.dumps(data))
 
-            completed = data.setdefault("completed_chunks", [])
-            if chunk_index not in completed:
-                completed.append(chunk_index)
-            data.setdefault("chunk_hashes", {})[chunk_index] = chunk_hash
-
-            self._atomic_write(state_file, json.dumps(data))
+            # 文件 I/O 放到线程，避免阻塞事件循环
+            await asyncio.to_thread(_read_modify_write)
 
     async def get_resume_state(self, upload_id: str, total_chunks: int) -> ResumeState:
         """
@@ -116,7 +122,8 @@ class ResumeManager:
         """
         state_file = self._state_file(upload_id)
 
-        if not state_file.exists():
+        data = await asyncio.to_thread(self._load_state, state_file)
+        if data is None:
             return ResumeState(
                 upload_id=upload_id,
                 total_chunks=total_chunks,
@@ -125,7 +132,6 @@ class ResumeManager:
                 next_chunk_index=0,
             )
 
-        data = json.loads(state_file.read_text())
         completed = data.get("completed_chunks", [])
         hashes = data.get("chunk_hashes", {})
 
@@ -157,32 +163,34 @@ class ResumeManager:
         """
         state_file = self._state_file(upload_id)
 
-        if not state_file.exists():
+        data = await asyncio.to_thread(self._load_state, state_file)
+        if data is None:
             return []
 
-        data = json.loads(state_file.read_text())
         hashes = data.get("chunk_hashes", {})
-        invalid_chunks = []
 
-        for chunk_index, expected_hash in hashes.items():
-            chunk_file = chunks_dir / f"{upload_id}_chunk_{chunk_index}"
-            if not chunk_file.exists():
-                invalid_chunks.append(int(chunk_index))
-                continue
+        def _verify():
+            invalid_chunks = []
+            for chunk_index, expected_hash in hashes.items():
+                chunk_file = chunks_dir / f"{upload_id}_chunk_{chunk_index}"
+                if not chunk_file.exists():
+                    invalid_chunks.append(int(chunk_index))
+                    continue
 
-            actual_hash = self.compute_chunk_hash(chunk_file.read_bytes())
-            if actual_hash != expected_hash:
-                invalid_chunks.append(int(chunk_index))
-                logger.warning(
-                    f"分片 {chunk_index} hash 不匹配: "
-                    f"expected={expected_hash}, actual={actual_hash}"
-                )
+                actual_hash = self.compute_chunk_hash(chunk_file.read_bytes())
+                if actual_hash != expected_hash:
+                    invalid_chunks.append(int(chunk_index))
+                    logger.warning(
+                        f"分片 {chunk_index} hash 不匹配: "
+                        f"expected={expected_hash}, actual={actual_hash}"
+                    )
+            return invalid_chunks
 
-        return invalid_chunks
+        # 逐分片读文件 + 哈希同样是阻塞 I/O，整体放到线程
+        return await asyncio.to_thread(_verify)
 
     async def clear_state(self, upload_id: str) -> None:
         """清除上传状态（合并完成后调用）"""
         state_file = self._state_file(upload_id)
         async with self._lock_for(upload_id):
-            if state_file.exists():
-                state_file.unlink()
+            await asyncio.to_thread(state_file.unlink, missing_ok=True)

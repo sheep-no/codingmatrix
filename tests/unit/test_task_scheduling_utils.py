@@ -9,6 +9,11 @@
 """
 import asyncio
 import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
 
 import pytest
 
@@ -135,3 +140,79 @@ class TestTaskManagerCleanup:
         from app.utils.task_manager import TaskManager
 
         assert TaskManager() is TaskManager()
+
+
+class TestResumeManagerNonBlocking:
+    """RM5：async 函数内的文件 I/O 不得阻塞事件循环。"""
+
+    @pytest.mark.asyncio
+    async def test_save_chunk_state_does_not_block_event_loop(self, tmp_path, monkeypatch):
+        manager = ResumeManager(resume_dir=tmp_path / "resume")
+        original_write_text = Path.write_text
+
+        def slow_write_text(self, content, *args, **kwargs):
+            time.sleep(0.2)
+            return original_write_text(self, content, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "write_text", slow_write_text)
+
+        ticks = 0
+
+        async def heartbeat():
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        task = asyncio.create_task(heartbeat())
+        try:
+            await manager.save_chunk_state("up-io", 0, "h0")
+        finally:
+            task.cancel()
+
+        # 同步 I/O 会让心跳在写盘期间停摆；线程化后应持续跳动
+        assert ticks >= 5
+
+    @pytest.mark.asyncio
+    async def test_clear_state_removes_file_and_tolerates_missing(self, tmp_path):
+        manager = ResumeManager(resume_dir=tmp_path / "resume")
+        await manager.save_chunk_state("up-clear", 0, "h0")
+        state_file = manager._state_file("up-clear")
+        assert state_file.exists()
+
+        await manager.clear_state("up-clear")
+        assert not state_file.exists()
+
+        # 重复清理不应抛异常
+        await manager.clear_state("up-clear")
+
+    @pytest.mark.asyncio
+    async def test_validate_detects_corrupted_chunk(self, tmp_path):
+        manager = ResumeManager(resume_dir=tmp_path / "resume")
+        chunks_dir = tmp_path / "chunks"
+        chunks_dir.mkdir()
+        data = b"hello"
+        await manager.save_chunk_state("up-val", 0, manager.compute_chunk_hash(data))
+        (chunks_dir / "up-val_chunk_0").write_bytes(data)
+        assert await manager.validate_completed_chunks("up-val", chunks_dir) == []
+
+        (chunks_dir / "up-val_chunk_0").write_bytes(b"tampered")
+        assert await manager.validate_completed_chunks("up-val", chunks_dir) == [0]
+
+
+class TestRedisUrlConfigurable:
+    """TM9：REDIS_URL 应可由环境变量配置。"""
+
+    def test_redis_url_reads_env(self):
+        env = dict(os.environ)
+        env["REDIS_URL"] = "redis://custom-host:6380/3"
+        result = subprocess.run(
+            [sys.executable, "-c", "import app.utils.task_manager as t; print(t.REDIS_URL)"],
+            cwd=str(Path(__file__).resolve().parents[2]),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "redis://custom-host:6380/3"

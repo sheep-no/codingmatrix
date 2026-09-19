@@ -6,6 +6,7 @@
 import asyncio
 import json
 import logging
+import os
 import threading
 import uuid
 from datetime import datetime, timedelta
@@ -16,7 +17,8 @@ import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
 
-REDIS_URL = "redis://localhost:6379/0"
+# 与 app/celery_app.py 保持一致：优先读环境变量，未配置时回落到本地默认
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 TASK_PREFIX = "task:"
 TASK_TTL = 86400 * 7  # 任务状态保留 7 天
 
