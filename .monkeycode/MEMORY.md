@@ -269,12 +269,15 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
     - 用户只要 Agent 验收时，关注 Agent 页、代码生成管线，以及 Agent 相关功能（工程师工具调用、MCP、沙箱、Skills、Host）。图表、能力中心独立页、PPT/绘画/工作流、超管面板不算进范围。
 
 ### 既有数据库接入 Alembic
-- Date: 2026-09-03
-- Context: Agent 在完成 PPT 状态迁移收尾时发现
+- Date: 2026-09-19
+- Context: Agent 在修复记忆 tags 契约与 tasks.task_id 唯一索引时发现
 - Category: 构建方法
 - Instructions:
   - 应用已初始化过的既有数据库首次接入 Alembic 时，先执行 `alembic stamp 20260902_ppt_quality_state` 登记当前基线。
   - 基线登记后执行 `alembic upgrade head` 验证迁移可幂等通过。
+  - `migrations/env.py` 把连接串固定为 `BASE_DIR/app.db`，会忽略 `DATABASE_URL`，因此 `alembic upgrade head` 永远作用于 `/workspace/app.db`；想用临时库验证迁移需改 `env.py`，不要依赖环境变量。
+  - 运行时迁移 `migrations/runner.py` 与 Alembic 是两条独立路径：应用启动走 runner，`scripts/migrate.sh` 走 Alembic。runner 用 `CreateTable` 建表并按 `table.indexes` 补建索引，Alembic 覆盖不到 runner 建的库。
+  - 迁移 revision 必须保持单头；新增迁移若跨分支互相引用 `down_revision`，单独任一分支 `alembic upgrade head` 都会报找不到 revision，需合并到同一分支。
 ### Core RAG 验证与全量测试
 - Date: 2026-09-03
 - Context: Agent 在推进多语言代码生成编排和 RAG 接入时发现
