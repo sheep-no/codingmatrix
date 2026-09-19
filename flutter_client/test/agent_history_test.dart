@@ -857,6 +857,66 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('恢复时服务端拒绝显示恢复未成功而不是假装成功', (tester) async {
+    final store = CredentialStore();
+    final tokenRef = store.storeAccessToken('access');
+    var streamCalls = 0;
+    final container = ProviderContainer(
+      overrides: [
+        credentialStoreProvider.overrideWithValue(store),
+        authControllerProvider.overrideWith(
+          (_) => AuthController(
+            CloudAuthClient(
+              baseUrl: 'https://example.com',
+              httpClient: MockClient((_) async => http.Response('', 500)),
+              credentialStore: store,
+            ),
+            store,
+            session: AuthSession(
+              username: 'alice',
+              permissionLevel: 'normal',
+              accessTokenRef: tokenRef,
+            ),
+          ),
+        ),
+        agentSessionClientProvider.overrideWithValue(
+          AgentSessionClient(DeliveryApi((_, __, ___) async => livePayload())),
+        ),
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi(
+            (_, __, ___) async => livePayload(),
+            sendHandle: (_) async {
+              streamCalls++;
+              return http.StreamedResponse(
+                const Stream<List<int>>.empty(),
+                409,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AgentSessionDetailPage(id: 's1')),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('恢复 SSE 连接'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('断开并重连'));
+    await tester.pump();
+    await tester.pump();
+    expect(streamCalls, 1);
+    expect(find.text('恢复未成功，请刷新详情后重试'), findsOneWidget);
+    expect(find.textContaining('HTTP 409'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('恢复中退出再进入会丢掉错误', (tester) async {
     var details = 0;
     final pending = Completer<Object?>();

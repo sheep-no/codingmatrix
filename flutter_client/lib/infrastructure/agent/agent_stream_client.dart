@@ -28,7 +28,12 @@ class AgentStreamClient {
   final CredentialStore credentialStore;
   final String streamPath;
 
-  Stream<String> generate({
+  /// Opens the SSE response and returns its decoded chunks.
+  ///
+  /// Unlike [generate], a rejected request (for example a 409 because the task
+  /// ended or another subscription is still attached) throws here instead of
+  /// surfacing later on the stream, so callers can report the failure.
+  Future<Stream<String>> open({
     required String accessTokenRef,
     required String requirement,
     String? projectName,
@@ -38,12 +43,13 @@ class AgentStreamClient {
     bool enableValidation = true,
     bool enableErrorRecovery = true,
     bool enableMemory = true,
+    bool enableSkills = true,
     bool specFirst = true,
     bool dependencyGraph = true,
     bool incremental = false,
     String? apiKeyToken,
     String? providerId,
-  }) async* {
+  }) async {
     final token = credentialStore.read(accessTokenRef);
     if (token == null || token.isEmpty) {
       throw AgentStreamException('登录凭据已失效，请重新登录');
@@ -63,6 +69,7 @@ class AgentStreamClient {
         'enable_validation': enableValidation,
         'enable_error_recovery': enableErrorRecovery,
         'enable_memory': enableMemory,
+        'enable_skills': enableSkills,
         'spec_first': specFirst,
         'dependency_graph': dependencyGraph,
         'incremental': incremental,
@@ -79,7 +86,43 @@ class AgentStreamClient {
       );
     }
 
-    yield* response.stream.transform(utf8.decoder);
+    return response.stream.transform(utf8.decoder);
+  }
+
+  Stream<String> generate({
+    required String accessTokenRef,
+    required String requirement,
+    String? projectName,
+    String? sessionId,
+    bool isResume = false,
+    bool enableReview = true,
+    bool enableValidation = true,
+    bool enableErrorRecovery = true,
+    bool enableMemory = true,
+    bool enableSkills = true,
+    bool specFirst = true,
+    bool dependencyGraph = true,
+    bool incremental = false,
+    String? apiKeyToken,
+    String? providerId,
+  }) async* {
+    yield* await open(
+      accessTokenRef: accessTokenRef,
+      requirement: requirement,
+      projectName: projectName,
+      sessionId: sessionId,
+      isResume: isResume,
+      enableReview: enableReview,
+      enableValidation: enableValidation,
+      enableErrorRecovery: enableErrorRecovery,
+      enableMemory: enableMemory,
+      enableSkills: enableSkills,
+      specFirst: specFirst,
+      dependencyGraph: dependencyGraph,
+      incremental: incremental,
+      apiKeyToken: apiKeyToken,
+      providerId: providerId,
+    );
   }
 
   Future<void> stop({

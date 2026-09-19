@@ -532,6 +532,23 @@ void main() {
     workbench.dispose();
   });
 
+  test('Agent 事件日志只保留最近 100 条', () {
+    final workbench = WorkbenchController();
+    workbench.bindTask(const Task(taskId: 'task-1', status: 'running'));
+    for (var i = 0; i < 150; i++) {
+      workbench.ingestSseChunk(
+        'data: {"type":"log","data":{"message":"$i"}}\n\n',
+      );
+    }
+    final messages = workbench.state.events
+        .map((event) => event.data?['message'])
+        .toList();
+    expect(messages.length, 100);
+    expect(messages.first, '50');
+    expect(messages.last, '149');
+    workbench.dispose();
+  });
+
   test('断开时取消订阅抛错不会逃逸', () async {
     final store = CredentialStore();
     final token = store.storeAccessToken('test-access');

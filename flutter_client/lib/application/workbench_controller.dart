@@ -87,6 +87,9 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
   final SseParser _parser;
   final AgentStreamClient? _streamClient;
   final AgentProjectClient? _projectClient;
+  // A long generation emits thousands of frames; the UI only needs the tail,
+  // and keeping every raw frame would grow the event log without bound.
+  static const maxEvents = 100;
   int _generation = 0;
   int _decisionVersion = 0;
   StreamSubscription<String>? _streamSubscription;
@@ -141,8 +144,11 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
     final logged = parsed.where((event) => event.type != 'heartbeat').toList();
     if (logged.isEmpty) return parsed;
 
+    final events = [...state.events, ...logged];
     state = state.copyWith(
-      events: [...state.events, ...logged],
+      events: events.length > maxEvents
+          ? events.sublist(events.length - maxEvents)
+          : events,
       task: task,
       artifacts: artifacts,
       decisions: decisions,
@@ -195,49 +201,66 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
         stage: 'connecting',
       ),
     );
-    _streamSubscription = client
-        .generate(
-          accessTokenRef: accessTokenRef,
-          requirement: requirement,
-          projectName: projectName,
-          sessionId: sessionId,
-          isResume: resumeSessionId != null,
-          apiKeyToken: providerKey?.isUsable == true
-              ? providerKey!.token
-              : null,
-          providerId: providerKey?.isUsable == true
-              ? providerKey!.provider
-              : null,
-        )
-        .listen(
-          (chunk) {
-            if (mounted && generation == _generation) ingestSseChunk(chunk);
-          },
-          onError: (Object error) {
-            if (!mounted || generation != _generation || !state.active) return;
-            state = state.copyWith(
-              task: state.task?.copyWith(
-                status: 'disconnected',
-                errorJson: const <String, dynamic>{'error': '连接中断，服务端任务状态待确认'},
-              ),
-            );
-          },
-          onDone: () {
-            if (mounted &&
-                generation == _generation &&
-                state.active &&
-                state.task?.status != 'stopping') {
-              state = state.copyWith(
-                task: state.task?.copyWith(
-                  status: 'disconnected',
-                  errorJson: const <String, dynamic>{
-                    'error': '事件流已断开，请从会话历史刷新状态后手动重连',
-                  },
-                ),
-              );
-            }
-          },
+    final Stream<String> stream;
+    try {
+      stream = await client.open(
+        accessTokenRef: accessTokenRef,
+        requirement: requirement,
+        projectName: projectName,
+        sessionId: sessionId,
+        isResume: resumeSessionId != null,
+        apiKeyToken: providerKey?.isUsable == true ? providerKey!.token : null,
+        providerId: providerKey?.isUsable == true
+            ? providerKey!.provider
+            : null,
+      );
+    } catch (_) {
+      // A superseded attempt stays silent; a current one records the disconnect
+      // and rethrows so the caller can tell the user the recovery failed.
+      if (!mounted || generation != _generation) return;
+      if (state.active) {
+        state = state.copyWith(
+          task: state.task?.copyWith(
+            status: 'disconnected',
+            errorJson: const <String, dynamic>{'error': '连接中断，服务端任务状态待确认'},
+          ),
         );
+      }
+      rethrow;
+    }
+    if (!mounted || generation != _generation) {
+      unawaited(stream.listen(null).cancel());
+      return;
+    }
+    _streamSubscription = stream.listen(
+      (chunk) {
+        if (mounted && generation == _generation) ingestSseChunk(chunk);
+      },
+      onError: (Object error) {
+        if (!mounted || generation != _generation || !state.active) return;
+        state = state.copyWith(
+          task: state.task?.copyWith(
+            status: 'disconnected',
+            errorJson: const <String, dynamic>{'error': '连接中断，服务端任务状态待确认'},
+          ),
+        );
+      },
+      onDone: () {
+        if (mounted &&
+            generation == _generation &&
+            state.active &&
+            state.task?.status != 'stopping') {
+          state = state.copyWith(
+            task: state.task?.copyWith(
+              status: 'disconnected',
+              errorJson: const <String, dynamic>{
+                'error': '事件流已断开，请从会话历史刷新状态后手动重连',
+              },
+            ),
+          );
+        }
+      },
+    );
   }
 
   Future<void> stopGeneration({bool markCancelled = true}) async {
