@@ -2,7 +2,9 @@
 
 **AI 驱动的全栈代码生成与开发平台**
 
-> 版本：v5.10.0 | 技术栈：FastAPI (Python 3.11) + Vue 3 + SQLite + Playwright
+> 版本：见 [CHANGELOG.md](CHANGELOG.md) | 技术栈：FastAPI (Python 3.11) + Vue 3 + SQLite + Flutter (Riverpod) + Playwright
+
+当前项目基线（代码规模、能力状态、API 口径）以 [`docs/README.md`](docs/README.md) 为单一来源。
 
 ## 🚀 快速开始
 
@@ -42,12 +44,15 @@ pytest tests/integration/ -v
 - [系统架构](docs/architecture/ARCHITECTURE.md)
 - [模块说明](docs/architecture/MODULES.md)
 - [模型系统](docs/architecture/MODELS.md)
+- [项目结构](docs/PROJECT-STRUCTURE.md)
+- [根目录文件说明](docs/ROOT-FILES.md)
 
 ### API
 - [API 文档](docs/api/API-DOCUMENTATION.md)
 
 ### 功能
 - [Agent 系统](docs/features/AGENT.md)
+- [Flutter 桌面客户端](docs/features/FLUTTER-CLIENT.md)
 - [AI 云管理](docs/features/AICLOUD.md)
 - [SSE 优化](docs/features/SSE-DISPLAY-OPTIMIZATION.md)
 
@@ -63,14 +68,16 @@ pytest tests/integration/ -v
 
 | 目录 | 说明 | 代码量 |
 |------|------|--------|
-| `app/` | 后端 (FastAPI) | ~50K LOC |
-| `app/api/v1/` | API 路由 (19 个端点) | ~8.6K LOC |
+| `app/` | 后端 (FastAPI) | 423 个 Python 文件 / ~118K 行 |
+| `app/api/v1/` | v1 API 路由 | 20 个挂载 Router / 201 条路由 |
 | `app/agent/` | Agent 系统 | ~15K LOC |
 | `app/utils/aicloud/` | 多供应商模型 | ~3K LOC |
-| `src/` | 前端 (Vue 3) | ~162K LOC |
-| `src/views/` | 页面组件 (8 个主视图) | ~120K LOC |
-| `src/components/` | 组件库 (62 个) | ~42K LOC |
-| `tests/` | 测试 (136 文件) | ~1100+ 测试 |
+| `src/` | 前端 (Vue 3) | ~71K 行源码（不含 `src/node_modules`） |
+| `src/views/` | 页面组件 | 9 个主视图 |
+| `src/components/` | 组件库 | 54 个组件 |
+| `flutter_client/` | Flutter 桌面 Agent 客户端 | 68 个 Dart 文件 / ~11K 行 |
+| `vscode-extension/` | VS Code 本地验证扩展 | 协议包 + E2E |
+| `tests/` | 测试 | 后端单元 144 文件 + 浏览器 E2E 77 spec |
 | `docs/` | 项目文档 | 50+ 文档 |
 
 完整的目录职责、入口关系和配置边界见 [`docs/PROJECT-STRUCTURE.md`](docs/PROJECT-STRUCTURE.md)。
@@ -91,15 +98,21 @@ pytest tests/integration/ -v
 | **视觉分析** | ✅ 完成 | OCR、图像理解 |
 | **用户管理** | ✅ 完成 | 三级权限、RSA 加密 |
 | **系统监控** | ✅ 完成 | 健康检查、熔断限流 |
+| **Flutter 桌面客户端** | ✅ 完成 | 16 个能力页、能力注册表分组导航、生成开关按账号保持 |
+| **VS Code 扩展** | ✅ 完成 | 本地验证协议包、动作队列与 Skill 同步 |
+| **会话恢复** | ✅ 完成 | SSE 断线续跑、`reconnectable` / `is_resume` 挂回 |
 
-## 🎯 测试覆盖率
+## 🎯 测试规模
 
-| 类型 | 文件数 | 测试用例 | 通过率 |
-|------|--------|----------|--------|
-| 单元测试 | 50+ | 600+ | ~95% |
-| 集成测试 | 30+ | 250+ | ~90% |
-| **E2E 测试** | **56** | **250+** | **100% (冒烟)** |
-| **总计** | **136** | **1100+** | **~94%** |
+| 类型 | 数量 | 位置 |
+|------|------|------|
+| 后端单元 | 144 文件 / 1,848 用例 | `tests/unit/` |
+| 后端集成 | 4 文件 / 31 用例 | `tests/integration/` |
+| 前端 Vitest | 15 文件 | `src/**/*.test.js` |
+| 浏览器 E2E | 77 spec / 433 用例 | `tests/e2e/` |
+| Flutter | 32 文件 | `flutter_client/test/` |
+
+数量为静态定义口径，实际执行受参数化、skip 与运行依赖影响；运行结果以 [测试指南](docs/testing/TESTING.md) 为准。
 
 ## 🛠️ 开发指南
 
@@ -107,6 +120,7 @@ pytest tests/integration/ -v
 - Python 3.11+
 - Node.js 18+
 - SQLite 3.35+
+- Flutter SDK（构建桌面客户端时需要，Dart SDK ^3.9.2）
 - Docker (可选)
 
 ### 配置环境变量
@@ -136,12 +150,12 @@ http://localhost:8000/api/v1/health
 
 | 指标 | 数值 |
 |------|------|
-| 后端代码 | ~50,000 LOC |
-| 前端代码 | ~162,000 LOC |
-| API 端点 | 26 (v1=19, v2=7) |
-| Agent 工具 | 21 |
-| 测试文件 | 136 |
-| 测试用例 | 1100+ |
+| 后端代码 | 423 文件 / ~118K 行 |
+| 前端源码 | ~71K 行（不含 `src/node_modules`） |
+| Flutter 客户端 | 68 文件 / ~11K 行 / 16 个能力页 |
+| API 业务路由 | 275 条（28 个挂载 Router） |
+| ORM 表 | 34 |
+| 测试文件 | 后端单元 144 / 浏览器 E2E 77 spec / Flutter 32 |
 | 文档数量 | 50+ |
 
 ## 🔗 相关资源
@@ -153,4 +167,4 @@ http://localhost:8000/api/v1/health
 
 ---
 
-**许可证**: MIT | **最后更新**: 2026-05-29
+**许可证**: MIT | **最后更新**: 2026-09-19
