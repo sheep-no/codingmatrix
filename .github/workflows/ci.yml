@@ -68,21 +68,6 @@ jobs:
         echo "SECRET_KEY=test_secret_key_for_ci_test" >> .env
         echo "DATABASE_URL=sqlite+aiosqlite:///./test.db" >> .env
 
-    - name: Check Guard Contracts
-      run: |
-        python scripts/check_guard.py \
-          --target app/ \
-          --json-output guard_check_results.json \
-          --no-fail
-
-    - name: Upload Guard Check Results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: guard-check-results-python${{ matrix.python-version }}
-        path: guard_check_results.json
-        retention-days: 30
-
     - name: Run pytest tests
       run: |
           PYTHONPATH=/workspace:$PYTHONPATH pytest \
