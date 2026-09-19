@@ -258,3 +258,60 @@ async def test_disconnect_watcher_propagates_asgi_disconnect():
         generation_task.cancel()
         await asyncio.gather(generation_task, return_exceptions=True)
         orchestrate_endpoints._active_tasks.pop("watch-session", None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("engine,expected_engine", [("core", "core"), (None, None)])
+async def test_modify_forwards_engine_so_the_core_branch_is_reachable(
+    monkeypatch, tmp_path, engine, expected_engine
+):
+    from app.agent import workflow_registry
+    from app.api.v1.ai_agent.schemas import ModifyRequest
+
+    monkeypatch.setenv("AGENT_ORCHESTRATION_ENGINE", "legacy")
+    result = dict(success=True, output_dir=str(tmp_path), total_files_created=0,
+                  files=[], validation={}, errors=[], warnings=[], elapsed_time=0)
+    captured = {}
+
+    async def fake_run_workflow(workflow, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(orchestrate_endpoints, "run_workflow", fake_run_workflow)
+    monkeypatch.setattr(orchestrate_endpoints, "get_legacy_result", lambda state: result)
+    monkeypatch.setattr(orchestrate_endpoints, "check_rate_limit", lambda key: (True, ""))
+    monkeypatch.setattr(orchestrate_endpoints, "check_disk_space", lambda path: (True, ""))
+    monkeypatch.setattr(orchestrate_endpoints, "_is_analyze_intent", lambda req: False)
+    monkeypatch.setattr(orchestrate_endpoints, "_create_project_session", AsyncMock())
+    monkeypatch.setattr(orchestrate_endpoints, "log_tool_execution", AsyncMock())
+    monkeypatch.setattr(orchestrate_endpoints, "execute_core_generation", AsyncMock(return_value=result))
+    monkeypatch.setattr(
+        orchestrate_endpoints, "OrchestratorAgent", lambda **kw: SimpleNamespace(output_dir=str(tmp_path))
+    )
+    monkeypatch.setattr(orchestrate_endpoints, "get_conversation_store", lambda: SimpleNamespace(
+        get_history_async=AsyncMock(return_value=[]),
+        append_message=AsyncMock(),
+        truncate_history=lambda history: history,
+    ))
+    monkeypatch.setattr(
+        orchestrate_endpoints, "get_session_manager",
+        AsyncMock(return_value=SimpleNamespace(complete_session=AsyncMock())),
+    )
+    monkeypatch.setattr(orchestrate_endpoints, "get_spec_cache", AsyncMock(return_value=SimpleNamespace()))
+    monkeypatch.setattr(orchestrate_endpoints, "get_feedback_learner", AsyncMock(return_value=SimpleNamespace()))
+    monkeypatch.setattr(workflow_registry, "_checkpoint_store", SimpleNamespace(save=lambda *a: None))
+    monkeypatch.setattr(workflow_registry, "_active_workflows", {})
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None)),
+        commit=AsyncMock(),
+    )
+    request = ModifyRequest(requirement="add a field", project_path=str(tmp_path), engine=engine)
+
+    response = await orchestrate_endpoints.modify_project(request, {"sub": "1"}, db)
+    async for _chunk in response.body_iterator:
+        pass
+
+    assert captured["metadata"].get("engine") == expected_engine
+    # Display and execution must resolve to the same engine.
+    displayed = orchestrate_endpoints._pipeline_mode_payload(request, incremental=True)["engine"]
+    assert displayed == (expected_engine or "legacy")

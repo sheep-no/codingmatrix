@@ -85,6 +85,8 @@ GirlAI 分类阈值由 `GIRLAI_EMOTION_CONFIDENCE_THRESHOLD` 和 `GIRLAI_INTENT_
 
 VS Code 工作台使用 `POST /api/v1/agent/orchestrate/stream` 接收 SSE Agent 事件。Agent Host 使用独立的握手会话完成本地动作协作；工作台界面提供需求输入和会话控制，Web 工作台继续提供完整的会话历史、文件管理和模型配置 UI。
 
+`/modify` 与 `/orchestrate` 共用同一套引擎契约：`ModifyRequest` 提供可选 `engine`（`legacy|core`，省略时沿用服务端配置）与 `cross_validation_fallback`，端点把 `engine` 写入 workflow metadata，使 `run_incremental_core` 分支在显式请求 core 时可达。`_pipeline_mode_payload` 与执行路径同源调用 `select_engine()`，因此 SSE `pipeline_mode` 横幅报告的引擎始终等于 `run_workflow` 实际执行的引擎；省略 `engine` 时二者同为服务端配置值（缺省 `legacy`），不再出现横幅宣称 core、实际执行 legacy 的分歧。
+
 ## PPT API
 
 - `POST /api/v1/pptx/outlines`：创建可编辑 PPT 大纲草稿；支持主题和素材文件 ID 输入。`num_slides=N` 表示包含系统封面的最终总页数，响应包含 `N-1` 个可编辑内容页。

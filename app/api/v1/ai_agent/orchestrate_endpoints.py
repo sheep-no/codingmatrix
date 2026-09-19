@@ -24,6 +24,7 @@ from app.agent.orchestration import (
     SpecFirstAdapter,
     TraditionalAdapter,
     execute_core_generation,
+    select_engine,
 )
 from app.agent.multi_model_agent import MultiModelAgent
 from app.agent.models import DEFAULT_ARCHITECT_MODEL, DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
@@ -51,12 +52,9 @@ def _pipeline_mode_payload(request, skill_context: str = "", *, incremental: boo
     requested_engine = getattr(request, "engine", None)
     if incremental is None:
         incremental = bool(getattr(request, "incremental", False))
-    if requested_engine in {"core", "legacy"}:
-        engine = requested_engine
-    elif incremental:
-        engine = "core"
-    else:
-        engine = "legacy"
+    # Same source as the execution path, so the banner never claims an engine
+    # other than the one the workflow will actually run.
+    engine = select_engine(requested_engine)
     frozen_tools = incremental and engine == "core"
     enable_skills = bool(getattr(request, "enable_skills", True))
     skills_injected = bool(skill_context)
@@ -692,7 +690,10 @@ async def modify_project(
                         workflow,
                         session_id=session_id,
                         task_id=session_id,
-                        metadata={"project_path": str(project_dir)},
+                        metadata={
+                            **({"engine": request.engine} if request.engine is not None else {}),
+                            "project_path": str(project_dir),
+                        },
                         db=db,
                         user_id=int(user_id),
                     )
