@@ -5,6 +5,7 @@ from app.api.v1.ai_agent.orchestrate_endpoints import (
     _pipeline_mode_banner,
     _pipeline_mode_payload,
 )
+from app.agent.orchestration import select_engine
 
 
 def test_new_project_explores_and_skips_unmatched_skills():
@@ -41,6 +42,24 @@ def test_core_incremental_freezes_tools_when_skills_injected():
     assert payload["skills_injected"] is True
     assert "冻结后直写" in payload["message"]
     assert "If tools=frozen" in _pipeline_mode_banner(payload)
+
+
+def test_incremental_without_engine_reports_the_engine_that_will_run(monkeypatch):
+    monkeypatch.setenv("AGENT_ORCHESTRATION_ENGINE", "legacy")
+    request = SimpleNamespace(
+        engine=None,
+        incremental=True,
+        spec_first=True,
+        enable_skills=True,
+    )
+
+    payload = _pipeline_mode_payload(request, "")
+
+    # The banner must echo the executed engine instead of presuming core.
+    assert payload["engine"] == select_engine(None) == "legacy"
+    assert payload["tools"] == "explore"
+    assert payload["frozen_contract"] is False
+    assert "引擎 legacy" in payload["message"]
 
 
 def test_enable_skills_false_is_visible():

@@ -375,6 +375,7 @@ class OrchestratorResponse(BaseModel):
 
 
 class ModifyRequest(BaseModel):
+    engine: Optional[Literal["legacy", "core"]] = Field(None, description="编排引擎；省略时沿用服务端配置")
     requirement: Optional[str] = Field(None, description="修改需求描述（分析类请求必填，修改类可选）", max_length=5000)
     project_path: Optional[str] = Field(None, description="已有项目路径（相对于 projects 目录）")
     output_dir: Optional[str] = Field(None, description="输出目录（绝对路径或相对于 projects 目录）")
@@ -383,6 +384,13 @@ class ModifyRequest(BaseModel):
     enable_validation: bool = Field(True, description="是否启用代码验证")
     enable_error_recovery: bool = Field(True, description="是否启用错误恢复")
     enable_memory: bool = Field(True, description="是否启用记忆系统")
+    cross_validation_fallback: bool = Field(
+        False,
+        description=(
+            "没有可用的不同模型进行交叉验证时是否退化：True 时退化为单模型审查，"
+            "False 时视为明确失败"
+        ),
+    )
     dependency_graph: bool = Field(True, description="是否启用依赖图")
     enable_cross_file_analysis: bool = Field(True, description="是否启用跨文件依赖分析（v4.8.0）")
     max_dependency_depth: int = Field(3, description="最大传递依赖深度（v4.8.0）", ge=1, le=10)
