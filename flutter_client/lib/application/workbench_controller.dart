@@ -8,6 +8,7 @@ import '../domain/models/unified_models.dart';
 import '../infrastructure/sse/sse_parser.dart';
 import '../domain/models/provider_key.dart';
 import '../domain/models/agent_decision.dart';
+import '../domain/models/generation_flags.dart';
 import '../infrastructure/agent/agent_project_client.dart';
 
 class WorkbenchState {
@@ -180,6 +181,7 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
     String? projectName,
     ProviderKeySummary? providerKey,
     String? resumeSessionId,
+    GenerationFlags flags = GenerationFlags.defaults,
   }) async {
     final client = _streamClient;
     if (client == null) {
@@ -209,6 +211,13 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
         projectName: projectName,
         sessionId: sessionId,
         isResume: resumeSessionId != null,
+        enableReview: flags.enableReview,
+        enableValidation: flags.enableValidation,
+        enableErrorRecovery: flags.enableErrorRecovery,
+        enableMemory: flags.enableMemory,
+        enableSkills: flags.enableSkills,
+        specFirst: flags.specFirst,
+        dependencyGraph: flags.dependencyGraph,
         apiKeyToken: providerKey?.isUsable == true ? providerKey!.token : null,
         providerId: providerKey?.isUsable == true
             ? providerKey!.provider

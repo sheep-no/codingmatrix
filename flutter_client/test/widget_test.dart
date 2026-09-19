@@ -299,7 +299,7 @@ void main() {
     await tester.tap(find.byKey(const Key('startGenerationButton')));
     await tester.pump();
     expect(find.byKey(const Key('startGenerationButton')), findsOneWidget);
-    expect(find.text('连接已断开，服务端任务状态待确认。会话恢复尚未接入。'), findsNothing);
+    expect(find.text('连接已断开，服务端任务状态待确认。可在「会话历史」中选择该会话恢复连接。'), findsNothing);
   });
 
   testWidgets('事件流断开显示待确认不泄露连接细节', (tester) async {
@@ -329,7 +329,7 @@ void main() {
     await tester.tap(find.byKey(const Key('startGenerationButton')));
     await tester.pump();
     await tester.pump();
-    expect(find.text('连接已断开，服务端任务状态待确认。会话恢复尚未接入。'), findsOneWidget);
+    expect(find.text('连接已断开，服务端任务状态待确认。可在「会话历史」中选择该会话恢复连接。'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsNothing);
     expect(find.text('disconnected'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -381,7 +381,7 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.text('连接已断开，服务端任务状态待确认。会话恢复尚未接入。'), findsOneWidget);
+    expect(find.text('连接已断开，服务端任务状态待确认。可在「会话历史」中选择该会话恢复连接。'), findsOneWidget);
     expect(find.textContaining('connection lost'), findsNothing);
     expect(
       tester

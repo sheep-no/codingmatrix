@@ -36,7 +36,7 @@ class ModuleAuth extends AuthController {
 }
 
 void main() {
-  testWidgets('320px workbench opens all three modules from menu', (
+  testWidgets('320px workbench opens modules from the navigation drawer', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(320, 800);
@@ -57,15 +57,19 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    for (final title in ['图片生成', '工作流执行', 'GitHub 设置']) {
-      await tester.tap(find.byTooltip('更多模块'));
+    const modules = <String, String>{
+      'image': '图片生成',
+      'workflow': '工作流执行',
+      'github': 'GitHub 设置',
+    };
+    for (final entry in modules.entries) {
+      await tester.tap(find.byIcon(Icons.menu));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(PopupMenuItem<String>, title));
+      await tester.ensureVisible(find.byKey(Key('capabilityNav_${entry.key}')));
+      await tester.tap(find.byKey(Key('capabilityNav_${entry.key}')));
       await tester.pumpAndSettle();
-      expect(find.widgetWithText(AppBar, title), findsOneWidget);
+      expect(find.widgetWithText(AppBar, entry.value), findsOneWidget);
       expect(tester.takeException(), isNull);
-      await tester.pageBack();
-      await tester.pumpAndSettle();
     }
   });
   test(
