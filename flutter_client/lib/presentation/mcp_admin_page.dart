@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../infrastructure/mcp/mcp_admin_client.dart';
 import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 final mcpAdminClientProvider = Provider<McpAdminClient>((ref) {
   return McpAdminClient(ref.watch(authenticatedClientProvider));
@@ -238,16 +239,14 @@ class _McpAdminPageState extends ConsumerState<McpAdminPage> {
       (_, __) => _resetAccount(),
     );
     ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('MCP 服务管理'),
-        actions: [
-          IconButton(
-            onPressed: loading ? null : load,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
+    return ShellScaffold(
+      title: 'MCP 服务管理',
+      actions: [
+        IconButton(
+          onPressed: loading ? null : load,
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

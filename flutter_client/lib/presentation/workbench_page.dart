@@ -7,6 +7,7 @@ import '../application/workbench_controller.dart';
 import '../domain/models/capability.dart';
 import 'account_overlays.dart';
 import 'capability_nav.dart';
+import 'shell_scaffold.dart';
 
 /// Application shell: renders the grouped capability navigation and keeps the
 /// opened capability pages alive in an [IndexedStack].
@@ -81,14 +82,16 @@ class _WorkbenchPageState extends ConsumerState<WorkbenchPage> {
       activeId: _activeId,
       onSelected: (capability) => _select(capability, wide: wide),
     );
-    final content = IndexedStack(
-      index: _openIds.indexOf(_activeId),
-      children: [for (final id in _openIds) _panes[id]!],
+    final content = ShellScope(
+      child: IndexedStack(
+        index: _openIds.indexOf(_activeId),
+        children: [for (final id in _openIds) _panes[id]!],
+      ),
     );
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('工作台'),
+        title: Text(active.label),
         actions: [
           if (session != null && MediaQuery.sizeOf(context).width >= 720)
             Center(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../infrastructure/provider/dynamic_provider_client.dart';
 import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 class DynamicProviderPage extends ConsumerStatefulWidget {
   const DynamicProviderPage({super.key});
@@ -90,8 +91,8 @@ class _DynamicProviderPageState extends ConsumerState<DynamicProviderPage> {
       (_, __) => _resetAccount(),
     );
     ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
-    return Scaffold(
-      appBar: AppBar(title: const Text('动态 Provider')),
+    return ShellScaffold(
+      title: '动态 Provider',
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

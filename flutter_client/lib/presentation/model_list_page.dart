@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../infrastructure/model/model_client.dart';
+import 'shell_scaffold.dart';
 
 class ModelListPage extends ConsumerStatefulWidget {
   const ModelListPage({super.key});
@@ -67,16 +68,14 @@ class _ModelListPageState extends ConsumerState<ModelListPage> {
       (_, __) => _resetAccount(),
     );
     ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('模型列表'),
-        actions: [
-          IconButton(
-            onPressed: loading ? null : load,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
+    return ShellScaffold(
+      title: '模型列表',
+      actions: [
+        IconButton(
+          onPressed: loading ? null : load,
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
       body: loading
           ? const Center(child: CircularProgressIndicator())
           : error != null

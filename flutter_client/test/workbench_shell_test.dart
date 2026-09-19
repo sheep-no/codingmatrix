@@ -143,4 +143,21 @@ void main() {
     expect(find.byType(PptPage), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('能力页嵌入外壳后只保留一层标题栏', (tester) async {
+    useSize(tester, const Size(1200, 900));
+    await tester.pumpWidget(
+      shell(ShellAuth(Fixture())..switchAccount('alice')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(AppBar), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('capabilityNav_chat')));
+    await tester.tap(find.byKey(const Key('capabilityNav_chat')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppBar), findsOneWidget);
+    expect(find.widgetWithText(AppBar, '聊天'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

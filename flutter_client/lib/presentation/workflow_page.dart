@@ -6,6 +6,7 @@ import '../application/auth_controller.dart';
 import '../application/workflow_controller.dart';
 import '../infrastructure/workflow/workflow_client.dart';
 import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 class WorkflowPage extends ConsumerStatefulWidget {
   const WorkflowPage({super.key});
@@ -95,39 +96,37 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     final state = ref.watch(workflowControllerProvider);
     final controller = ref.read(workflowControllerProvider.notifier);
     final snapshot = state.snapshot;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('工作流执行'),
-        actions: [
-          IconButton(
-            onPressed: toolsBusy
-                ? null
-                : () async {
-                    final epoch = _epoch;
-                    setState(() => toolsBusy = true);
-                    try {
-                      final items = await client.history();
-                      if (!context.mounted || epoch != _epoch) return;
-                      showModalBottomSheet<void>(
-                        context: context,
-                        builder: (_) => _WorkflowHistorySheet(
-                          items: items,
-                          onDelete: client.deleteHistory,
-                        ),
-                      );
-                    } catch (e) {
-                      if (mounted && epoch == _epoch)
-                        ScaffoldMessenger.of(
-                          context,
-                        ).showSnackBar(SnackBar(content: Text('历史读取失败：$e')));
-                    } finally {
-                      if (mounted) setState(() => toolsBusy = false);
-                    }
-                  },
-            icon: const Icon(Icons.history),
-          ),
-        ],
-      ),
+    return ShellScaffold(
+      title: '工作流执行',
+      actions: [
+        IconButton(
+          onPressed: toolsBusy
+              ? null
+              : () async {
+                  final epoch = _epoch;
+                  setState(() => toolsBusy = true);
+                  try {
+                    final items = await client.history();
+                    if (!context.mounted || epoch != _epoch) return;
+                    showModalBottomSheet<void>(
+                      context: context,
+                      builder: (_) => _WorkflowHistorySheet(
+                        items: items,
+                        onDelete: client.deleteHistory,
+                      ),
+                    );
+                  } catch (e) {
+                    if (mounted && epoch == _epoch)
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text('历史读取失败：$e')));
+                  } finally {
+                    if (mounted) setState(() => toolsBusy = false);
+                  }
+                },
+          icon: const Icon(Icons.history),
+        ),
+      ],
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 960),

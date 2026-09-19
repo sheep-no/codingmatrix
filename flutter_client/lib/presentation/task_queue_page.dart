@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../infrastructure/task/task_client.dart';
 import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 class TaskQueuePage extends ConsumerStatefulWidget {
   const TaskQueuePage({super.key});
@@ -117,16 +118,14 @@ class _TaskQueuePageState extends ConsumerState<TaskQueuePage> {
       (_, __) => _resetAccount(),
     );
     ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('任务队列'),
-        actions: [
-          IconButton(
-            onPressed: (busy || loading) ? null : load,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
+    return ShellScaffold(
+      title: '任务队列',
+      actions: [
+        IconButton(
+          onPressed: (busy || loading) ? null : load,
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
       body: loading
           ? const Center(child: CircularProgressIndicator())
           : error != null

@@ -7,6 +7,7 @@ import '../application/workbench_controller.dart';
 import '../infrastructure/agent/agent_session_client.dart';
 import 'account_overlays.dart';
 import 'project_files_page.dart';
+import 'shell_scaffold.dart';
 
 class AgentHistoryPage extends ConsumerStatefulWidget {
   const AgentHistoryPage({super.key});
@@ -158,34 +159,30 @@ class _AgentHistoryPageState extends ConsumerState<AgentHistoryPage> {
       (_, __) => _resetAccount(),
     );
     ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('会话历史'),
-        actions: [
-          IconButton(
-            tooltip: 'Agent 统计',
-            icon: const Icon(Icons.analytics_outlined),
-            onPressed: busy ? null : showStats,
-          ),
-          IconButton(
-            tooltip: '清理缓存',
-            icon: const Icon(Icons.cleaning_services_outlined),
-            onPressed: busy ? null : clearCache,
-          ),
-          IconButton(
-            tooltip: '并发限制',
-            icon: const Icon(Icons.tune),
-            onPressed: busy ? null : updateLimit,
-          ),
-          IconButton(
-            tooltip: '刷新',
-            icon: const Icon(Icons.refresh),
-            onPressed: busy
-                ? null
-                : () => ref.invalidate(agentSessionsProvider),
-          ),
-        ],
-      ),
+    return ShellScaffold(
+      title: '会话历史',
+      actions: [
+        IconButton(
+          tooltip: 'Agent 统计',
+          icon: const Icon(Icons.analytics_outlined),
+          onPressed: busy ? null : showStats,
+        ),
+        IconButton(
+          tooltip: '清理缓存',
+          icon: const Icon(Icons.cleaning_services_outlined),
+          onPressed: busy ? null : clearCache,
+        ),
+        IconButton(
+          tooltip: '并发限制',
+          icon: const Icon(Icons.tune),
+          onPressed: busy ? null : updateLimit,
+        ),
+        IconButton(
+          tooltip: '刷新',
+          icon: const Icon(Icons.refresh),
+          onPressed: busy ? null : () => ref.invalidate(agentSessionsProvider),
+        ),
+      ],
       body: ref
           .watch(agentSessionsProvider)
           .when(

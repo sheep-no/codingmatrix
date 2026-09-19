@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 class AdminPage extends ConsumerStatefulWidget {
   const AdminPage({super.key});
@@ -312,16 +313,14 @@ class _AdminPageState extends ConsumerState<AdminPage> {
       (_, __) => _resetAccount(),
     );
     ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('管理员后台'),
-        actions: [
-          IconButton(
-            onPressed: loading ? null : loadUsers,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
+    return ShellScaffold(
+      title: '管理员后台',
+      actions: [
+        IconButton(
+          onPressed: loading ? null : loadUsers,
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

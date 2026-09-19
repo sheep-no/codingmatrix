@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import '../application/chat_controller.dart';
 import '../application/auth_controller.dart';
 import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
   const ChatPage({super.key});
@@ -107,29 +108,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
     ref.listen(apiBaseUrlProvider, (_, __) => _resetDraft());
     final chat = ref.watch(chatControllerProvider);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('聊天'),
-        actions: [
-          IconButton(
-            key: const Key('newChatButton'),
-            tooltip: '新会话',
-            onPressed: chat.loading
-                ? null
-                : () {
-                    _sendVersion++;
-                    ref.read(chatControllerProvider.notifier).reset();
-                  },
-            icon: const Icon(Icons.add_comment_outlined),
-          ),
-          IconButton(
-            key: const Key('chatHistoryButton'),
-            tooltip: '历史会话',
-            onPressed: chat.loading || _historyBusy ? null : _showHistory,
-            icon: const Icon(Icons.history),
-          ),
-        ],
-      ),
+    return ShellScaffold(
+      title: '聊天',
+      actions: [
+        IconButton(
+          key: const Key('newChatButton'),
+          tooltip: '新会话',
+          onPressed: chat.loading
+              ? null
+              : () {
+                  _sendVersion++;
+                  ref.read(chatControllerProvider.notifier).reset();
+                },
+          icon: const Icon(Icons.add_comment_outlined),
+        ),
+        IconButton(
+          key: const Key('chatHistoryButton'),
+          tooltip: '历史会话',
+          onPressed: chat.loading || _historyBusy ? null : _showHistory,
+          icon: const Icon(Icons.history),
+        ),
+      ],
       body: Column(
         children: [
           Expanded(

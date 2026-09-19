@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../infrastructure/ppt/ppt_client.dart';
 import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 class PptPage extends ConsumerStatefulWidget {
   const PptPage({super.key});
@@ -277,16 +278,14 @@ class _PptPageState extends ConsumerState<PptPage> {
       (_, __) => _resetAccount(),
     );
     ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('PPT 生成'),
-        actions: [
-          IconButton(
-            onPressed: busy ? null : history,
-            icon: const Icon(Icons.history),
-          ),
-        ],
-      ),
+    return ShellScaffold(
+      title: 'PPT 生成',
+      actions: [
+        IconButton(
+          onPressed: busy ? null : history,
+          icon: const Icon(Icons.history),
+        ),
+      ],
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(

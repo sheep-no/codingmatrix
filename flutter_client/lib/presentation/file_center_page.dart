@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../application/auth_controller.dart';
+import 'shell_scaffold.dart';
 
 class FileCenterPage extends ConsumerStatefulWidget {
   const FileCenterPage({super.key});
@@ -117,8 +118,8 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
       (_, __) => _resetAccount(),
     );
     ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
-    return Scaffold(
-      appBar: AppBar(title: const Text('文件中心')),
+    return ShellScaffold(
+      title: '文件中心',
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

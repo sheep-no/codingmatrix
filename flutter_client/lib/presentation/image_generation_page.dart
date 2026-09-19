@@ -7,6 +7,7 @@ import '../application/image_generation_controller.dart';
 import '../application/provider_key_controller.dart';
 import '../domain/models/image_generation.dart';
 import 'provider_settings_page.dart';
+import 'shell_scaffold.dart';
 
 class ImageGenerationPage extends ConsumerStatefulWidget {
   const ImageGenerationPage({super.key});
@@ -87,8 +88,8 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
     final key = ref.watch(providerKeyControllerProvider).selected;
     final controller = ref.read(imageGenerationControllerProvider.notifier);
     final enabled = !state.busy && state.saving == null && !picking;
-    return Scaffold(
-      appBar: AppBar(title: const Text('图片生成')),
+    return ShellScaffold(
+      title: '图片生成',
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),

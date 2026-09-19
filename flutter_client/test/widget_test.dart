@@ -187,7 +187,7 @@ void main() {
       ),
     );
 
-    expect(find.text('工作台'), findsOneWidget);
+    expect(find.text('Agent 工作台'), findsOneWidget);
     expect(find.text('alice'), findsOneWidget);
     expect(find.textContaining('sess-1'), findsOneWidget);
     expect(find.textContaining('log:'), findsOneWidget);

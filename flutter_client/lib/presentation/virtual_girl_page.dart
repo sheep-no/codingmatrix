@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../application/girl_ai_controller.dart';
 import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 class VirtualGirlPage extends ConsumerStatefulWidget {
   const VirtualGirlPage({super.key});
@@ -71,17 +72,15 @@ class _VirtualGirlPageState extends ConsumerState<VirtualGirlPage> {
     );
     ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
     final state = ref.watch(girlAiControllerProvider);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('虚拟姬'),
-        actions: [
-          IconButton(
-            tooltip: '历史记录',
-            onPressed: historyBusy ? null : _showHistory,
-            icon: const Icon(Icons.history),
-          ),
-        ],
-      ),
+    return ShellScaffold(
+      title: '虚拟姬',
+      actions: [
+        IconButton(
+          tooltip: '历史记录',
+          onPressed: historyBusy ? null : _showHistory,
+          icon: const Icon(Icons.history),
+        ),
+      ],
       body: SafeArea(
         child: Column(
           children: [

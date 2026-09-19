@@ -5,6 +5,7 @@ import '../application/auth_controller.dart';
 import '../application/provider_key_controller.dart';
 import '../infrastructure/provider/provider_key_client.dart';
 import 'account_overlays.dart';
+import 'shell_scaffold.dart';
 
 class ProviderSettingsPage extends ConsumerStatefulWidget {
   const ProviderSettingsPage({super.key});
@@ -56,8 +57,8 @@ class _ProviderSettingsPageState extends ConsumerState<ProviderSettingsPage> {
     ref.listen(apiBaseUrlProvider, (_, __) => _resetAccount());
     final state = ref.watch(providerKeyControllerProvider);
     final controller = ref.read(providerKeyControllerProvider.notifier);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Provider 设置')),
+    return ShellScaffold(
+      title: 'Provider 设置',
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
