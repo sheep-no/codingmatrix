@@ -276,19 +276,13 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 真实 Provider Key 流程为：获取 `/api/v1/agent/apikey/public-key`，使用 RSA OAEP SHA-256 加密原始 Key，提交 `/api/v1/agent/apikey`，再将返回的 `api_key_token` 传给生图接口。
   - 直接设置 `SILICONFLOW_API_KEY` 只验证原始 Provider Key 配置路径，不能证明前端加密提交和 Redis token 解析流程正常。
   - 生图端到端测试可使用 `512x512`、20 步、1 张图片；相同 fingerprint 的第二次请求应返回 `cached=true`，并在约毫秒级完成。
-
-### Flutter 桌面客户端验证
-- Date: 2026-09-08
-- Context: 用户要求保留既有修改，并明确 Flutter 开发验证流程
-- Category: 测试方法
-- Instructions:
-  - 客户端位于 `flutter_client/`，验证命令为 `FLUTTER_ALLOW_ROOT=1 flutter analyze` 和 `FLUTTER_ALLOW_ROOT=1 flutter test`。
-  - 当前客户端测试覆盖 Widget workbench、SSE 分帧解析、认证客户端和统一模型序列化；静态分析与测试均已通过。
+  - 动态供应商添加走同一条加密链路：`app/api/v1/providers.py` 的 `POST /api/v1/providers` 只认 `encrypted_api_key`（`AddProviderRequest` 必填），客户端必须先用 `/api/v1/agent/apikey/public-key` 的公钥加密再提交；发明文 `api_key` 会因缺字段被拒。客户端与测试都要按加密字段名断言。
 
 ### 前端优先协作范围
-- Date: 2026-09-09
-- Context: 用户明确后续工作重点
+- Date: 2026-09-08 / 2026-09-09
+- Context: 用户要求保留既有修改，并明确后续工作重点与 Flutter 验证流程
 - Instructions:
+  - 客户端位于 `flutter_client/`，也可以用 `FLUTTER_ALLOW_ROOT=1 flutter analyze` / `FLUTTER_ALLOW_ROOT=1 flutter test` 直接验证。
   - 后续功能分析和实现以前端为主，重点关注设置页、供应商与 API Key 状态、模型选择、流式展示、错误反馈、响应式布局和前端测试。
   - 后端改动控制在前端链路必需的最小范围。
   - 修改前读取项目记忆和 Git 状态，保留已有改动；所有手动编辑使用 apply_patch。
@@ -296,6 +290,31 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 修改后执行 dart format、flutter analyze、定向测试和全量 flutter test，修复失败后再返回；未经用户明确要求不提交或推送。
   - `dart format` 只格式化本次改动的文件；对整个 `lib test` 运行会因本地 SDK 与仓库既有格式不一致产生无关改动，并触发新的 `curly_braces_in_flow_control_structures` 告警。
   - 账号切换竞态的统一守卫是自增 epoch 快照：`NotifierProvider` 重建时复用 notifier 实例，在 `ref.onDispose` 里置位的一次性布尔（如 `_disposed`）会永久生效并静默屏蔽后续请求；`StateNotifierProvider` 重建会新建实例，`mounted` 判断即可。
+  - 服务端枚举型契约要按「字段各自独立」校验：`critical_decisions` 的 `default` 与 `options[].label` 不同源，`app/agent/critical_decision.py` 的 `state_management` 模板默认 `Pinia` 而选项只有 `Pinia/Vuex`，客户端下拉直接拿 `default` 当选中值会触发 Flutter 断言。
+  - FastAPI 路由的参数位置和字段名都要和客户端保持一致：`app/api/v1/kolors_api.py` 的 `/text-to-image`、`/image-to-image`、`/inpaint` 用 Pydantic 模型收 JSON body，而 `/avatar`、`/landscape`、`/icon` 把 `prompt`、`style` 声明成标量参数（即 query 参数），客户端给这三个快捷路由发 JSON body 会直接 422。
+  - Pydantic 模型只有显式声明 `alias` + `populate_by_name` 才接受别名：`aiGeneratorPptx.py` 的 `PPTGenerationRequest.topic` 带 `alias="prompt"`，发 `prompt` 或 `topic` 都通过；而 `app/schema/ppt_outline.py` 的 `OutlineCreateRequest.topic` 无别名，客户端发 `prompt` 会 422，必须发 `topic`。核对 body 字段名时要区分这两种模型。
+  - 响应字段名要对照后端返回结构：`GET /pptx/history` 返回 `records`，客户端只读 `items` 会永远得到空列表；`POST /api/v1/history` 和 `POST /api/v1/conversation/history` 返回 `items`，且每条记录是 `prompt` + `response`（没有 `role`/`content`），会话详情必须展开成提问与回答两条消息，否则历史会话只剩提问。测试 fixture 要用后端真实 payload，伪造字段会让缺陷逃过测试。
+  - 下载路由要区分「取已有文件」和「按需转换」：`GET /api/v1/pptx/download/{ppt_id}?format=pdf` 只服务于已存在的 `.pdf`，而本应用创建任务时固定 `output_format: 'pptx'`（`aiGeneratorPptx.py:2525` 仅在 `output_format == PDF` 时才生成 PDF），因此该分支必然 404；PDF 必须走专用转换端点 `GET /api/v1/pptx/download/{ppt_id}/pdf`。
+  - 后端会用 HTTP 200 + `error` 字段表达「业务失败但请求成功」：`POST /api/v1/chat` 在模型回复为空时返回 `{response: "", conversation_id: null, error: "AI 生成响应为空，未保存历史记录"}`，流式分支同样以 `{"error": ...}` 帧表达。客户端必须读取 `error` 并展示；只读 `response` 会得到一个空白气泡且错误被静默吞掉。
+  - 文件上传响应是 `File.to_dict()`（字段 `id`/`filename`/`file_size`/`content_type`/`created_at`/`download_url`），既没有 `server_path` 也没有 `name`；分片续传的 `/upload/init`（命中秒传时把文件放在 `existing_file` 下）和 `/upload/merge`（把文件放在 `file` 下）都带一层信封，客户端应统一展平成同样结构。下载按数据库 `id`（后端契约是 `GET /files/{file_id}/download` 的整型 id），切不可用分片 uuid。附件发给 `/chat` 时，`FileAttachment.server_path` 可填 `filename`，后端 `verify_file_access` 在精确匹配 `file_path` 失败后按 `File.filename == Path(server_path).name` 兜底。
+  - 页面级 `_resetAccount()` 的职责是「清本地草稿 + 重新拉取当前账号数据」：切账号会重建 `watch(accessTokenRef)` 的 controller 并清空其 state，因此依赖列表数据的页面在 `_resetAccount()` 里除了清 controller 之外，还要重新调用 `load()`（见 `model_list_page`、`task_queue_page`、`project_files_page`、`mcp_admin_page`、`dynamic_provider_page`、`provider_settings_page`）；漏掉重载会让列表在切账号或改 baseUrl 后一直为空（`virtual_girl_page` 曾遗漏角色列表重载）。
+
+### Agent 断连与恢复契约
+- Date: 2026-09-18
+- Context: Agent 在核对聊天/Agent 流「断网中断」恢复语义时发现
+- Category: 工作流与协作
+- Instructions:
+  - SSE 开流失败（后端非 200，例如 `POST /api/v1/agent/orchestrate/stream` 在恢复时返回 409「任务已结束或当前进程无可重连任务」/「任务仍有订阅连接」）必须在**打开阶段**抛出，不能只交给流的 `onError`：`AgentStreamClient` 提供 `open()` 返回已解码的事件流并在非 200 时抛 `AgentStreamException(statusCode)`，`generate()` 仅委托 `await open()` 以保持旧 API。
+  - `WorkbenchController.startGeneration()` 先 await `open()`；失败时若仍是当前代则把任务置 `disconnected` 后 `rethrow`，被替代的尝试静默返回。调用方据此反馈：`agent_history_page.reconnect()` 捕获后显示「恢复未成功，请刷新详情后重试」，`workbench_page._startGeneration()` 捕获后忽略（controller 已记录断连），避免未处理的异步异常。
+  - 后端 `_session_payload.reconnectable = 仅当前进程存活、未结束、且当前无订阅连接`；恢复只重放未消费事件，已消费事件/决策不可重放。工作台断连文案必须指向「会话历史 → 恢复 SSE 连接」，不要写成「恢复尚未接入」。
+### 流式响应超时契约
+- Date: 2026-09-18
+- Context: Agent 在核对聊天/Agent 流「断网中断」语义时发现
+- Category: 工作流与协作
+- Instructions:
+  - 流式响应的空闲超时必须和普通请求超时分离：`AuthenticatedClient.sendJsonStream` 走独立的 `streamTimeout`（默认 5 分钟，逐事件重置），不能复用 `auth.timeout`（20s）。否则 `POST /api/v1/chat` 在服务端准备上下文或等待首个 token 静默 >20s 时会被 `_checked` 误判为「响应连接中断，请确认任务状态后手动恢复」。
+  - 测试坑：`Stream.timeout` 在底层是「`async*` 生成器阻塞在永不完成的 await、且从未 yield」时不会触发（纯 `dart run` 可复现）；流超时测试必须用真实 `StreamController` 作为响应体，否则表现为测试永久挂起。
+  - 区分度测试（`git stash push -- <源码>` 回退后仍要通过/失败的那条）应只使用默认参数构造被测对象；若用了新增命名参数（如 `streamTimeout`），旧代码会编译失败而不是干净地失败，掩盖真实断言。
 ### 多语言 Profile 项目验证
 - Date: 2026-09-04
 - Context: Agent 在补齐 Core 多语言生成成功门禁时发现
@@ -304,3 +323,12 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 声明式 `FrameworkProfile` 的 `build_command`、`test_command` 和 `validation_steps` 是项目级验证的统一来源。
   - Go `stdlib` Profile 使用 `go build ./...` 与 `go test ./...` 作为生成成功门禁。
   - 运行 Profile 验证前需确认生成目录可作为命令工作目录，并保留命令输出用于诊断。
+
+### 编排请求生成开关契约
+- Date: 2026-09-18
+- Context: Agent 在实现 Flutter 工作台生成开关面板时发现
+- Category: 工作流与协作
+- Instructions:
+  - `POST /api/v1/agent/orchestrate/stream` 的请求体含七个布尔生成开关，默认全为 `true`：`enable_review`、`enable_validation`、`enable_error_recovery`、`enable_memory`、`enable_skills`、`spec_first`、`dependency_graph`（契约见 `app/api/v1/ai_agent/schemas.py` 的 `OrchestratorRequest`）。客户端此前硬编码前六个且从不发送 `enable_skills`；核对编排请求体时必须包含全部七项。
+  - 开关在生成开始时取值写入请求体，生成进行中修改不影响本次请求；客户端按 `<baseUrl>|<username>` 作用域持久化，账号切换载入对应作用域。
+  - Flutter 工作台已改为能力注册表外壳：模块入口来自 `lib/application/capability_registry.dart`，不再是 `workbench_page` 的弹出菜单；组件测试打开模块用 `capabilityNav_<id>` 键（窄屏先点 `Icons.menu` 打开抽屉）。
