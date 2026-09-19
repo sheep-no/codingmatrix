@@ -13,6 +13,15 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.main import app
+from app.utils.security import verify_token
+
+
+@pytest.fixture
+def auth_override():
+    """/health/detailed 与 /health/metrics 需要鉴权，测试直接覆盖依赖。"""
+    app.dependency_overrides[verify_token] = lambda: {"sub": "1"}
+    yield
+    app.dependency_overrides.clear()
 
 
 class TestHealthEndpoints:
@@ -48,14 +57,14 @@ class TestHealthEndpoints:
             assert data.get("status") == "alive"
 
     @pytest.mark.asyncio
-    async def test_health_detailed_exists(self):
+    async def test_health_detailed_exists(self, auth_override):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/v1/health/detailed")
             assert response.status_code in [200, 500, 503]
 
     @pytest.mark.asyncio
-    async def test_health_metrics_exists(self):
+    async def test_health_metrics_exists(self, auth_override):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/v1/health/metrics")
