@@ -138,19 +138,32 @@ class FileOperator:
                     raise PathSecurityError(f"禁止访问系统路径: {path}")
 
             for protected_file in self.PROTECTED_FILES:
-                if protected_file.lower() in abs_path_str:
+                if self._is_protected_file(target, abs_path_str, protected_file):
                     raise PathSecurityError(f"禁止访问敏感文件: {path}")
 
         if check_extension:
             ext = target.suffix.lower()
             if ext and ext not in self.safe_extensions:
-                if ".env" not in abs_path_str:
+                if target.name.lower() not in self.safe_extensions:
                     raise PathSecurityError(f"不支持的文件扩展名: {ext}")
 
         if must_exist and not target.exists():
             raise FileNotFoundError(f"路径不存在: {path}")
 
         return target
+
+    @staticmethod
+    def _is_protected_file(target: Path, abs_path_str: str, protected_file: str) -> bool:
+        """判断路径是否命中敏感文件规则。
+
+        PROTECTED_FILES 条目为文件名或相对路径：含 "/" 的按路径尾段匹配，
+        其余按文件全名精确匹配。避免 ".env" 子串把 ".env.example" 等
+        SAFE_EXTENSIONS 明确允许的模板文件一并误伤。
+        """
+        protected_file = protected_file.lower()
+        if "/" in protected_file:
+            return abs_path_str.endswith("/" + protected_file)
+        return target.name.lower() == protected_file
 
     def _collect_files(self, base_dir: Path) -> List[Path]:
         """收集目录下所有文件"""
