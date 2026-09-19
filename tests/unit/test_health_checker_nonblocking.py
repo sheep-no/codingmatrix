@@ -11,7 +11,11 @@ import types
 
 import pytest
 
-from app.services.health_checker import HealthChecker, HealthCheckResult
+from app.services.health_checker import (
+    HealthChecker,
+    HealthCheckResult,
+    get_health_checker,
+)
 
 
 class _BlockingInspect:
@@ -109,3 +113,50 @@ async def test_check_all_runs_checks_in_parallel(monkeypatch):
     }
     # 串行执行需 6*delay=1.2s，并行应接近单次 delay
     assert elapsed < delay * 3
+
+
+@pytest.mark.asyncio
+async def test_check_ready_runs_checks_in_parallel(monkeypatch):
+    checker = HealthChecker()
+    delay = 0.2
+
+    async def slow_result(*args, **kwargs):
+        await asyncio.sleep(delay)
+        return HealthCheckResult(status="healthy", details={})
+
+    for name in ("check_database", "check_redis", "check_system"):
+        monkeypatch.setattr(checker, name, slow_result)
+
+    start = time.perf_counter()
+    result = await checker.check_ready()
+    elapsed = time.perf_counter() - start
+
+    assert result["status"] == "ready"
+    assert set(result["checks"]) == {"database", "redis", "system"}
+    # 串行执行需 3*delay=0.6s，并行应接近单次 delay
+    assert elapsed < delay * 2.5
+
+
+@pytest.mark.asyncio
+async def test_check_websocket_uses_public_max_connections(monkeypatch):
+    """check_websocket 不应触碰 ws_manager 私有属性。"""
+    from app.services import websocket_manager
+
+    class _StubManager:
+        def get_connection_count(self):
+            return 2
+
+        @property
+        def max_connections(self):
+            return 11
+
+    monkeypatch.setattr(websocket_manager, "get_ws_manager", lambda: _StubManager())
+
+    result = await HealthChecker().check_websocket()
+
+    assert result.status == "healthy"
+    assert result.details == {"current": 2, "max": 11, "available": 9}
+
+
+def test_get_health_checker_returns_singleton():
+    assert get_health_checker() is get_health_checker()
