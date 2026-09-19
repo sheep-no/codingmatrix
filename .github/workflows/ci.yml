@@ -70,7 +70,7 @@ jobs:
 
     - name: Run pytest tests
       run: |
-          PYTHONPATH=/workspace:$PYTHONPATH pytest \
+          PYTHONPATH=$PWD:$PYTHONPATH pytest \
           -v \
           --tb=short \
           --maxfail=5 \
@@ -78,6 +78,7 @@ jobs:
           -o log_cli_level=INFO \
           --cov=app \
           --cov=src \
+          --cov-config=pyproject.toml \
           --cov-report=xml \
           --cov-report=html \
           --cov-report=term-missing \

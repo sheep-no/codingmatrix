@@ -233,8 +233,10 @@ async def reload_prompts():
     import subprocess
     
     try:
+        from app.core.config import BASE_DIR
+        extract_script = BASE_DIR / ".claude" / "skills" / "prompts-extractor" / "extract.py"
         result = subprocess.run(
-            ['python3', '/workspace/.claude/skills/prompts-extractor/extract.py'],
+            ['python3', str(extract_script)],
             capture_output=True,
             text=True,
             timeout=60

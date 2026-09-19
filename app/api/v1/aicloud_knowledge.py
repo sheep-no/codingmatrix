@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
 from app.db.database import get_db
+from app.core.config import BASE_DIR
 from app.utils.security import verify_token
 from app.utils.aicloud.permission import check_aicloud_permission
 from app.utils.aicloud.knowledge_processor import (
@@ -44,9 +45,8 @@ class KnowledgeSearchRequest(BaseModel):
     collection: Optional[str] = "default"
     top_k: int = 5
 
-# 知识库存储路径
-KNOWLEDGE_STORAGE_PATH = "/workspace/data/knowledge"
-os.makedirs(KNOWLEDGE_STORAGE_PATH, exist_ok=True)
+# 知识库存储路径，基于项目根目录解析，避免依赖外部固定路径
+KNOWLEDGE_STORAGE_PATH = str(BASE_DIR / "data" / "knowledge")
 
 # 单文档上传上限，避免超大文件读入内存并阻塞解析
 MAX_DOCUMENT_SIZE = 20 * 1024 * 1024
@@ -104,6 +104,7 @@ async def upload_document(
     
     # 生成文档 ID
     doc_id = str(uuid.uuid4())
+    os.makedirs(KNOWLEDGE_STORAGE_PATH, exist_ok=True)
     file_path = os.path.join(KNOWLEDGE_STORAGE_PATH, f"{user_id}_{doc_id}{file_ext}")
     
     # 保存文件
