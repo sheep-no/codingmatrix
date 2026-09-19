@@ -20,6 +20,17 @@ logger = logging.getLogger(__name__)
 _allowed_file_paths: Optional[set] = None
 
 
+def _resource_limits(timeout: int, *, limit_address_space: bool = False):
+    """复用 AICloud 执行器的进程级资源上限，避免沙箱无内存/CPU 约束。
+
+    仅限制 CPU 与（可选的）虚拟地址空间；Node/Go 运行时会预留大量虚拟内存，
+    限制地址空间会导致无法启动，因此默认不限制。
+    """
+    from app.utils.aicloud.code_executor import CodeExecutor
+
+    return CodeExecutor._child_limits(timeout, limit_address_space=limit_address_space)
+
+
 def set_allowed_file_paths(paths: set):
     """设置允许写入的文件路径集合（由依赖图提供）"""
     global _allowed_file_paths
@@ -557,7 +568,8 @@ def _execute_python_sandbox(code: str, timeout: int) -> Dict:
             ['python3', tmp_path],
             capture_output=True, text=True, timeout=timeout,
             cwd='/tmp',
-            env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/tmp'}
+            env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/tmp'},
+            preexec_fn=_resource_limits(timeout, limit_address_space=True),
         )
         return {
             "success": result.returncode == 0,
@@ -599,10 +611,13 @@ def _execute_js_sandbox(code: str, timeout: int) -> Dict:
             tmp_path = f.name
 
         try:
+            from app.utils.aicloud.code_executor import CodeExecutor
+
             result = subprocess.run(
-                ['node', tmp_path],
+                ['node', f"--max-old-space-size={CodeExecutor.MAX_MEMORY_MB}", tmp_path],
                 capture_output=True, text=True, timeout=timeout,
-                cwd='/tmp'
+                cwd='/tmp',
+                preexec_fn=_resource_limits(timeout),
             )
         finally:
             import os
@@ -726,6 +741,7 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
                 'PYTHONUNBUFFERED': '1',
             },
             start_new_session=True,  # 独立进程组，超时时可整体杀死
+            preexec_fn=_resource_limits(timeout),
         )
         try:
             proc.communicate(timeout=timeout)

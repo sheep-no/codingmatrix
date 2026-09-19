@@ -15,6 +15,7 @@
 """
 
 import os
+import subprocess
 import tempfile
 import pytest
 from pathlib import Path
@@ -34,9 +35,11 @@ from app.agent.tools import (
     _SYMBOL_PATTERNS,
     _EXT_BY_LANG,
     _execute_python_sandbox,
+    _execute_js_sandbox,
     _tool_run_command,
     _tool_delete_files_by_pattern,
 )
+from app.utils.aicloud.code_executor import CodeExecutor
 
 
 @pytest.fixture
@@ -120,6 +123,46 @@ class TestSandboxAndCommand:
         result = _execute_python_sandbox("print('ok')", timeout=5)
         assert result["success"] is True
         assert result["output"].strip() == "ok"
+
+    def test_python_sandbox_caps_cpu_and_address_space(self):
+        """沙箱子进程必须真正带上 CPU 与地址空间上限，而不只是调用参数。"""
+        code = (
+            "import resource\n"
+            "print(resource.getrlimit(resource.RLIMIT_CPU)[0])\n"
+            "print(resource.getrlimit(resource.RLIMIT_AS)[0])\n"
+        )
+
+        result = _execute_python_sandbox(code, timeout=7)
+
+        assert result["success"] is True, result
+        cpu_limit, address_space_limit = result["output"].split()
+        assert int(cpu_limit) == 7
+        assert int(address_space_limit) == CodeExecutor.MAX_MEMORY_MB * 1024 * 1024
+
+    def test_js_sandbox_caps_node_heap(self, monkeypatch):
+        """Node 不能限制虚拟地址空间，改用 --max-old-space-size 约束堆。"""
+        captured = {}
+
+        def fake_run(argv, **kwargs):
+            captured["argv"] = argv
+            captured["kwargs"] = kwargs
+            raise FileNotFoundError("node")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = _execute_js_sandbox("console.log(1)", timeout=5)
+
+        assert result["success"] is False
+        assert f"--max-old-space-size={CodeExecutor.MAX_MEMORY_MB}" in captured["argv"]
+        assert captured["kwargs"]["preexec_fn"] is not None
+
+    def test_run_command_caps_cpu(self, project_dir):
+        script = "import resource\nprint(resource.getrlimit(resource.RLIMIT_CPU)[0])"
+
+        result = _tool_run_command(project_dir, f'python3 -c "{script}"', timeout=9)
+
+        assert result["success"] is True, result
+        assert int(result["output"].strip()) == 9
 
     def test_command_cwd_rejects_prefix_collision(self, project_dir):
         sibling = f"{project_dir}_evil"
