@@ -13,6 +13,7 @@ from typing import Any, Dict, Mapping, Optional, Protocol, Sequence, Tuple
 from .generation_scheduler import FileGenerationContext, GeneratedContent, TestGenerationContract
 from .models import OrchestrationState
 from .plan import GenerationPlan, build_file_plan, normalize_plan_path
+from .ports import GenerationAgentPort, LegacyAgentGenerationPort
 from app.agent.generation_plan import GenerationPlan as ProjectGenerationPlan, add_profile_components
 from app.agent.contract_index import ContractIndex
 from app.agent.change_plan import ChangePlan, collapse_change_items, expand_change_plan_for_missing_exports
@@ -149,6 +150,8 @@ class GenerationModeAdapter(Protocol):
 
     async def finalize(self, state: OrchestrationState) -> AdapterResult: ...
 
+    def bind_shared_context(self, context: Any) -> None: ...
+
 
 def _context_contract_payload(
     context: FileGenerationContext,
@@ -194,8 +197,12 @@ class TraditionalAdapter:
 
     engine_version = "traditional-adapter-v1"
 
-    def __init__(self, agent: Any) -> None:
-        self.agent = agent
+    def __init__(self, agent: GenerationAgentPort | Any) -> None:
+        self.agent: GenerationAgentPort = (
+            agent
+            if isinstance(agent, LegacyAgentGenerationPort)
+            else LegacyAgentGenerationPort(agent)
+        )
         self._architecture: Dict[str, Any] = {}
         self._requirement = ""
         self._project_context: Dict[str, Any] = {}
@@ -211,11 +218,11 @@ class TraditionalAdapter:
         self._requirement = request.requirement
         self._project_context = dict(request.metadata)
         self._project_context.setdefault("context_hash", request.metadata.get("context_hash"))
-        await self.agent._initialize_components(request.requirement)
+        await self.agent.initialize_components(request.requirement)
         self._architecture = await self.agent.architect.design_architecture(
             request.requirement,
             self.agent.complexity,
-            callback=getattr(self.agent, "callback", None),
+            callback=self.agent.callback,
         )
         self._architecture = {
             **self._architecture,
@@ -297,7 +304,7 @@ class TraditionalAdapter:
             "file_plan": list(self.project_plan.file_entries()),
         }
         dependency_graph.generation_plan = self.project_plan
-        self.agent.dependency_graph_obj = dependency_graph
+        self.agent.set_dependency_graph(dependency_graph)
 
         entries = list(self.project_plan.file_entries())
         frozen_paths = (
@@ -327,7 +334,7 @@ class TraditionalAdapter:
             **_context_contract_payload(context, self.contract_index),
             "target_file": context.file_path,
         }
-        result = await self.agent._generate_single_file(
+        result = await self.agent.generate_single_file(
             {
                 "path": file_info.path,
                 "description": file_info.role,
@@ -346,7 +353,7 @@ class TraditionalAdapter:
         self._generated_contents[context.file_path] = str(content)
         return GeneratedContent(
             content=str(content),
-            model_name=str(result.get("model") or self.agent._select_model_for_file(context.file_path)),
+            model_name=str(result.get("model") or self.agent.select_model_for_file(context.file_path)),
             validation_passed=bool(result.get("validation_passed", True)),
             diagnostics=tuple(str(item) for item in result.get("diagnostics", ())),
             contract_refs=tuple(
@@ -365,10 +372,10 @@ class TraditionalAdapter:
         files = [dict(manifest[path]) for path in sorted(manifest)]
         diagnostics = [str(item.get("message") or item) for item in state.diagnostics]
         planned_count = len(self._plan.files) if self._plan is not None else 0
-        complexity_level = getattr(getattr(self.agent, "complexity", None), "level", "unknown")
+        complexity_level = getattr(self.agent.complexity, "level", "unknown")
         if hasattr(complexity_level, "value"):
             complexity_level = complexity_level.value
-        assignment = getattr(self.agent, "model_assignment", None)
+        assignment = self.agent.model_assignment
         result = {
             "success": success,
             "output_dir": str(self.agent.output_dir),
@@ -395,15 +402,22 @@ class TraditionalAdapter:
         }
         return AdapterResult(success=success, result=result)
 
+    def bind_shared_context(self, context: Any) -> None:
+        self._shared_context = context
+
 
 class _PlannedAgentAdapter:
     """Shared production bridge for Core-owned scheduling and persistence."""
 
     engine_version = "planned-agent-adapter-v1"
 
-    def __init__(self, agent: Any) -> None:
-        self.agent = agent
-        self.output_dir = Path(agent.output_dir)
+    def __init__(self, agent: GenerationAgentPort | Any) -> None:
+        self.agent: GenerationAgentPort = (
+            agent
+            if isinstance(agent, LegacyAgentGenerationPort)
+            else LegacyAgentGenerationPort(agent)
+        )
+        self.output_dir = Path(self.agent.output_dir)
         self.project_plan: Optional[ProjectGenerationPlan] = None
         self.contract_index = ContractIndex.build(())
         self._plan: Optional[GenerationPlan] = None
@@ -419,6 +433,9 @@ class _PlannedAgentAdapter:
         self._started_at = 0.0
         self.preserved_paths: Tuple[str, ...] = ()
 
+    def bind_shared_context(self, context: Any) -> None:
+        self._shared_context = context
+
     @property
     def shared_context(self) -> Any:
         if self._shared_context is None:
@@ -428,7 +445,7 @@ class _PlannedAgentAdapter:
         return self._shared_context
 
     def _complexity_payload(self) -> Dict[str, Any]:
-        complexity = getattr(self.agent, "complexity", None)
+        complexity = self.agent.complexity
         if complexity is None:
             return {"level": "small", "estimated_files": 1}
         level = getattr(complexity, "level", "small")
@@ -442,7 +459,7 @@ class _PlannedAgentAdapter:
         }
 
     def _model_assignment_payload(self) -> Dict[str, str]:
-        assignment = getattr(self.agent, "model_assignment", None)
+        assignment = self.agent.model_assignment
         if assignment is None:
             return {}
         names = ("architect_model", "frontend_model", "backend_model", "reviewer_model", "fallback_model")
@@ -461,13 +478,13 @@ class _PlannedAgentAdapter:
         operation = "create" if action == "add" else "modify"
         description = str(file_info.get("description") or file_info.get("reason") or "")
         file_type = str(file_info.get("file_type") or "")
-        reporter = getattr(self.agent, "_report_file_event", None)
-        if callable(reporter):
-            reporter(file_path, content, description, file_type, operation=operation)
+        self.agent.report_file_event(
+            file_path, content, description, file_type, operation=operation,
+        )
         if original_content and original_content != content:
-            diff_reporter = getattr(self.agent, "_report_file_diff_event", None)
-            if callable(diff_reporter):
-                diff_reporter(file_path, original_content, content, operation=operation)
+            self.agent.report_file_diff_event(
+                file_path, original_content, content, operation=operation,
+            )
 
     def _freeze_plan(
         self,
@@ -668,8 +685,8 @@ class _PlannedAgentAdapter:
         }
         model_name = str(
             self.agent.model_assignment.backend_model
-            if typescript_backend and getattr(self.agent, "model_assignment", None)
-            else self.agent._select_model_for_file(context.file_path)
+            if typescript_backend and self.agent.model_assignment
+            else self.agent.select_model_for_file(context.file_path)
         )
 
         # Keep every file generation grounded in the same frozen contract. The
@@ -766,9 +783,9 @@ class _PlannedAgentAdapter:
                 "content": retry_candidate.content,
                 "model": "deterministic-contract-retry",
             }
-        elif hasattr(self.agent, "_generate_file_with_model") and self._dependency_graph is not None:
-            engineer = self.agent.backend_engineer if typescript_backend else self.agent._select_engineer(context.file_path)
-            content = await self.agent._generate_file_with_model(
+        elif self.agent.has_file_generation_with_model and self._dependency_graph is not None:
+            engineer = self.agent.backend_engineer if typescript_backend else self.agent.select_engineer(context.file_path)
+            content = await self.agent.generate_file_with_model(
                 context.file_path,
                 file_info,
                 engineer,
@@ -777,12 +794,12 @@ class _PlannedAgentAdapter:
                 upstream,
                 self._spec_generator,
                 self._dependency_graph,
-                getattr(self.agent, "callback", None),
+                self.agent.callback,
                 persist=False,
             )
             result: Mapping[str, Any] = {"success": bool(content), "content": content, "model": model_name}
         else:
-            result = await self.agent._generate_single_file(
+            result = await self.agent.generate_single_file(
                 file_info,
                 self._project_context,
                 len(self._plan.files),
@@ -844,8 +861,8 @@ class _PlannedAgentAdapter:
                 contract_diagnostics = contract_diagnostics + dropped
         if contract_diagnostics:
             validation_passed = False
-        if validation_passed and hasattr(self.agent, "_validate_content_syntax"):
-            validation_passed = bool(await self.agent._validate_content_syntax(context.file_path, content))
+        if validation_passed and self.agent.has_content_syntax_validation:
+            validation_passed = bool(await self.agent.validate_content_syntax(context.file_path, content))
         self._emit_generated_file_events(
             context.file_path, content, file_info, original_content,
         )
@@ -914,7 +931,7 @@ class SpecFirstAdapter(_PlannedAgentAdapter):
             for path in request.metadata.get("allowed_files", ())
         ))
 
-        await self.agent._initialize_components(request.requirement)
+        await self.agent.initialize_components(request.requirement)
         context = self.shared_context
         context.complexity = self._complexity_payload()
         context.model_assignment = self._model_assignment_payload()
@@ -936,18 +953,18 @@ class SpecFirstAdapter(_PlannedAgentAdapter):
             self._spec_generator = SpecFirstGenerator(
                 context,
                 language=language,
-                api_key_token=getattr(self.agent, "api_key_token", None),
+                api_key_token=self.agent.api_key_token,
             )
             if not await self._spec_generator.generate_all_specs(
                 request.requirement,
                 context.complexity,
-                getattr(self.agent, "callback", None),
+                self.agent.callback,
             ):
                 raise RuntimeError("Spec-First specification generation failed")
             architecture = await self.agent.architect.design_architecture(
                 request.requirement,
                 self.agent.complexity,
-                callback=getattr(self.agent, "callback", None),
+                callback=self.agent.callback,
             )
 
         architecture = {
@@ -1096,7 +1113,7 @@ class IncrementalAdapter(_PlannedAgentAdapter):
             elif key in architecture:
                 self._project_context[key] = architecture[key]
         self._project_context["architecture"] = architecture
-        await self.agent._initialize_components_fast(request.requirement)
+        await self.agent.initialize_components_fast(request.requirement)
 
         from app.agent.adapters.language_adapter import LanguageAdapterRegistry
         from app.agent.dependency_graph import DependencyGraph
@@ -1128,12 +1145,12 @@ class IncrementalAdapter(_PlannedAgentAdapter):
         }
         raw_changes = request.metadata.get("change_plan") or None
         if raw_changes is None:
-            summary = self.agent._build_project_summary_from_graph(graph)
-            raw_changes = await self.agent._analyze_changes_with_architect(
+            summary = self.agent.build_project_summary_from_graph(graph)
+            raw_changes = await self.agent.analyze_changes_with_architect(
                 request.requirement,
                 summary,
                 graph,
-                getattr(self.agent, "callback", None),
+                self.agent.callback,
             )
         changes = [dict(item) for item in raw_changes or ()]
         if allowed_files:
