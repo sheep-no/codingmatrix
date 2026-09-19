@@ -88,6 +88,7 @@ class KnowledgeEntry(Base):
     category = Column(String(50), default="general")  # 分类
     source = Column(String(20))  # 来源：user, agent, extracted
     importance = Column(Float, default=0.5)  # 重要性
+    tags = Column(JSON, default=list)  # 标签列表
     usage_count = Column(Integer, default=0)  # 使用次数
     last_used_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)

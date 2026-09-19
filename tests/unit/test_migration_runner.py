@@ -69,3 +69,23 @@ async def test_runtime_runner_upgrades_existing_tasks_outline_columns(tmp_path, 
         "quality_mode",
         "quality_report_artifact_id",
     } <= column_names
+
+
+@pytest.mark.asyncio
+async def test_runtime_runner_creates_unique_task_identity_index(tmp_path, monkeypatch):
+    database_path = Path(tmp_path) / "fresh-index.db"
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
+
+    await run_async_migrations()
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    async with engine.connect() as connection:
+        indexes = await connection.execute(text("PRAGMA index_list(tasks)"))
+        task_indexes = {row[1]: row for row in indexes}
+    await engine.dispose()
+
+    # PRAGMA index_list 返回列：seq, name, unique, origin, partial。
+    # 外键指向 tasks.task_id，缺少唯一索引会让 checkpoints/artifacts 的级联约束报
+    # "foreign key mismatch"。
+    assert "ix_tasks_task_id" in task_indexes
+    assert task_indexes["ix_tasks_task_id"][2] == 1

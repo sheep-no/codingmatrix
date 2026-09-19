@@ -40,7 +40,7 @@ async def add_knowledge(
         importance=knowledge.importance,
         usage_count=knowledge.usage_count,
         created_at=knowledge.created_at.isoformat() if knowledge.created_at else None,
-        tags=knowledge.tags if hasattr(knowledge, 'tags') else None
+        tags=knowledge.tags
     )
 
 
@@ -67,7 +67,7 @@ async def list_knowledge(
             importance=e.importance,
             usage_count=e.usage_count,
             created_at=e.created_at.isoformat() if e.created_at else None,
-            tags=getattr(e, 'tags', None)
+            tags=e.tags
         )
         for e in entries
     ]
@@ -97,7 +97,7 @@ async def search_knowledge(
             importance=e.importance,
             usage_count=e.usage_count,
             created_at=e.created_at.isoformat() if e.created_at else None,
-            tags=getattr(e, 'tags', None)
+            tags=e.tags
         )
         for e in entries
     ]
