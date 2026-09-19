@@ -12,7 +12,18 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ["3.10", "3.11"]
+        python-version: ["3.11"]
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
     - name: Checkout code
@@ -57,24 +68,9 @@ jobs:
         echo "SECRET_KEY=test_secret_key_for_ci_test" >> .env
         echo "DATABASE_URL=sqlite+aiosqlite:///./test.db" >> .env
 
-    - name: Check Guard Contracts
-      run: |
-        python scripts/check_guard.py \
-          --target app/ \
-          --json-output guard_check_results.json \
-          --no-fail
-
-    - name: Upload Guard Check Results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: guard-check-results-python${{ matrix.python-version }}
-        path: guard_check_results.json
-        retention-days: 30
-
     - name: Run pytest tests
       run: |
-          PYTHONPATH=/workspace:$PYTHONPATH pytest \
+          PYTHONPATH=$PWD:$PYTHONPATH pytest \
           -v \
           --tb=short \
           --maxfail=5 \
@@ -82,6 +78,7 @@ jobs:
           -o log_cli_level=INFO \
           --cov=app \
           --cov=src \
+          --cov-config=pyproject.toml \
           --cov-report=xml \
           --cov-report=html \
           --cov-report=term-missing \

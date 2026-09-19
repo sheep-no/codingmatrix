@@ -105,6 +105,9 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 需要真实 Redis 的集成测试可直接连 `127.0.0.1:6379` 的 `db=15`，fixture 前后 `flushdb()` 隔离，并用 `pytestmark = pytest.mark.skipif(not redis_available, ...)` 兜住无 Redis 环境。
   - `tests/unit/conftest.py` 的 `test_db` 用 `sqlite+aiosqlite:///:memory:` + `StaticPool`，同一连接在整轮 session 内复用：`setup_database` 每个用例都 `create_all`，但**不会清表**，上一用例写入的行会残留并撞主键。新增用例要么用唯一 ID，要么加一个依赖 `test_db` 的 autouse 夹具在用例前 `delete(模型)` 清表。
   - 测试 FastAPI 端点可直接调用被 `@router.get/post` 装饰的协程函数（装饰器原样返回函数），显式传入 `db`/`user_id` 并 `monkeypatch.setattr("app.api.v1.<模块>.check_xxx", async_noop)` 绕过鉴权，无需起 ASGI 客户端。
+  - CI 只有 `.github/workflows/ci.yml` 会在推送任意分支或 PR 时运行；`e2e.yml`、`backend-ci.yml`、`frontend-ci.yml` 的 `on.branches` 写的是 `main`，而仓库默认分支是 `master`，因此从不触发。CI 运行时固定为 Python 3.11（`configs/requirements.txt` 中 numpy/pandas/contourpy 均要求 >=3.11）。
+  - 覆盖率门槛在 `pyproject.toml` 的 `[tool.coverage.report].fail_under`，2026-09-19 起为 58（实测约 58.9%）。CI 的 pytest 带 `--cov=app --cov=src`，必须同时加 `--cov-config=pyproject.toml`，否则 coverage 子进程以 statement 模式运行，与主进程的 branch 数据合并时报 `DataError: Can't combine statement coverage data with branch data`。
+  - 本地全绿但 CI 失败时，按四类差异排查：①依赖清单缺项（本地已装、`configs/requirements*.txt` 未声明，如 aiofiles / APScheduler / PyJWT）；②硬编码绝对路径 `/workspace`（CI 检出目录不同，应改用 `app.core.config.BASE_DIR` 衍生）；③本地残留 `app.db` 掩盖建表缺失（把 `DATABASE_URL` 指向全新 sqlite 文件即可复现）；④本地已装的可选依赖（如 faiss）在 CI 不存在，测试应用 `pytest.importorskip`。
 
 ### 误报类修复的验证与回归流程
 - Date: 2026-09-15
@@ -117,7 +120,7 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 中间件/门禁类正则用单词黑名单（SQL 关键字 SELECT/CREATE/DELETE、JS 的 `eval(`、`document.`）会在业务文本上大量误报——本平台是 AI 代码生成平台，需求文本天然含这些词。校验口径应为组合特征（引号布尔注入、`UNION SELECT`、堆叠 DDL、注释符、`1=1`），安全白名单只应跳过内容扫描、保留 Content-Type 与请求体大小校验。
   - 端点限流规则表以路径前缀为键（`/api/v1/code` 等），查找必须按路径段边界做最长前缀匹配、端点桶 key 也归一为规则前缀；否则带路径参数的真实请求既不命中规则、又各自成桶（既限不住也泄漏 `_history`）。验证用 `RateLimiter()` 新实例 + 中间件确定性探针，不依赖运行中的服务。
   - 每处修复跑定向测试 + 全量 `pytest tests/unit -q`，并把 `FAILED` 集合与失败基线做 `diff`，只允许失败集合不变。
-  - 后端全量命令为 `python3 -m pytest -q -p no:randomly`（`testpaths` 覆盖 unit + integration）。截至 2026-09-17，`tests/unit` 无失败，`tests/integration/test_health_api.py` 的 `test_health_detailed_exists` 与 `test_health_metrics_exists` 恒因 `/api/v1/health/metrics` 返回 401 失败，属既有基线（master 72633a0 复现）；出现其他失败必须归因到本次改动。
+  - 后端全量命令为 `python3 -m pytest -q -p no:randomly`（`testpaths` 覆盖 unit + integration）。截至 2026-09-19，`tests/integration/test_health_api.py` 的 `test_health_detailed_exists` 与 `test_health_metrics_exists` 已由该文件的 `auth_override` 夹具修复（`/health/detailed`、`/health/metrics` 需 `verify_token`，属有意的产品鉴权设计）；CI 口径全量为 3823 passed / 4 skipped。出现新失败必须归因到本次改动。
 
 ### 服务端出站请求与 SSRF 防护
 - Date: 2026-09-17

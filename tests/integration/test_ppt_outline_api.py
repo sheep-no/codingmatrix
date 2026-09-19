@@ -22,7 +22,17 @@ async def test_template_registry_exposes_metadata_and_scenario_recommendations()
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get('/api/v1/pptx/templates')
             assert response.status_code == 200
-            assert response.json()["templates"] == TemplateManager().list_templates()
+            # sample 是随样张渲染结果变化的字段，比较模板元数据时两侧都剔除，
+            # 避免断言依赖渲染环境是否可用。
+            def _without_sample(templates):
+                return [
+                    {key: value for key, value in template.items() if key != "sample"}
+                    for template in templates
+                ]
+
+            assert _without_sample(response.json()["templates"]) == _without_sample(
+                TemplateManager().list_templates()
+            )
             business = next(t for t in response.json()["templates"] if t["id"] == "business_report")
             assert business["description"]
             assert "business" in business["scenarios"]

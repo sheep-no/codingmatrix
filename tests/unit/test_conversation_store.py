@@ -16,6 +16,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.agent.conversation_store import ConversationStore, _estimate_tokens
+from app.db.models import ConversationMessage  # noqa: F401  确保建表时该模型已注册
 
 
 class TestEstimateTokens:
@@ -98,7 +99,7 @@ class TestConversationStoreSync:
             pass
 
     @pytest.mark.asyncio
-    async def test_append_writes_both(self, store):
+    async def test_append_writes_both(self, store, test_db_setup):
         """测试 append_message 同时写入 Redis 和数据库"""
         await store.append_message("test_sync_1", "user_001", "user", "测试消息")
 
@@ -115,7 +116,7 @@ class TestConversationStoreSync:
         assert db_data[0]["content"] == "测试消息"
 
     @pytest.mark.asyncio
-    async def test_redis_miss_fallback_to_db(self, store):
+    async def test_redis_miss_fallback_to_db(self, store, test_db_setup):
         """测试 Redis miss 时从数据库加载"""
         # 先写入数据
         await store.append_message("test_sync_2", "user_001", "user", "消息1")

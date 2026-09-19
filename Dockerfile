@@ -20,7 +20,7 @@ RUN npm run build
 # -----------------------------------------------------------------------------
 # Stage 2: Backend Dependencies
 # -----------------------------------------------------------------------------
-FROM python:3.10-slim AS backend-deps
+FROM python:3.11-slim AS backend-deps
 
 WORKDIR /app
 
@@ -31,7 +31,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # -----------------------------------------------------------------------------
 # Stage 3: Production Runtime
 # -----------------------------------------------------------------------------
-FROM python:3.10-slim AS runtime
+FROM python:3.11-slim AS runtime
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -48,7 +48,7 @@ RUN apt-get update && \
     useradd -r -g appuser -d /app -s /sbin/nologin appuser
 
 # Copy backend dependencies from deps stage
-COPY --from=backend-deps /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=backend-deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=backend-deps /usr/local/bin /usr/local/bin
 
 # Copy backend source code

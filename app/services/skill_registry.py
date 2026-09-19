@@ -15,13 +15,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from app.agent.skill_catalog import SkillCatalog
+from app.core.config import BASE_DIR
 
 logger = logging.getLogger(__name__)
 
 # 自定义 Skill 存储目录
-CUSTOM_SKILLS_DIR = Path("/workspace/data/custom_skills")
+CUSTOM_SKILLS_DIR = BASE_DIR / "data" / "custom_skills"
 METADATA_FILE = CUSTOM_SKILLS_DIR / "_metadata.json"
-WORKSPACE_SKILLS_DIR = Path("/workspace/.claude/skills")
+WORKSPACE_SKILLS_DIR = BASE_DIR / ".claude" / "skills"
 
 
 @dataclass
