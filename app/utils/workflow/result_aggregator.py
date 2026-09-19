@@ -215,6 +215,14 @@ class ResultAggregator:
                 context[f"{dep_id}_result"] = None
                 context[f"{dep_id}_error"] = result.error
 
+            # 产出节点声明的 output_variable 也映射进上下文，否则 LLM 规划出的
+            # 语义变量名（如 llm_result）下游 input_variable 永远读不到
+            dep_node = self._node_map.get(dep_id)
+            if dep_node:
+                output_variable = (dep_node.params or {}).get("output_variable")
+                if output_variable and output_variable not in context:
+                    context[output_variable] = result.data if result.success else None
+
         return context
 
     def get_workflow_summary(self) -> Dict[str, Any]:

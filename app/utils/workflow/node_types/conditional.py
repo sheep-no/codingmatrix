@@ -154,19 +154,18 @@ class ConditionalNode(TaskNodeBase):
 
         只支持简单的布尔表达式，禁止危险操作
         """
-        # 替换上下文变量
-        expr = expression
-        for key, value in context.items():
-            if isinstance(value, str):
-                expr = expr.replace(f"{{{key}}}", f"'{value}'")
-            elif isinstance(value, (int, float, bool)):
-                expr = expr.replace(f"{{{key}}}", str(value))
-
-        # 安全检查
+        # 关键字检查针对表达式模板本身；若先替换变量，数据值里的普通文本
+        # （如路径 "os.path"）会被误判为危险关键字而拒绝
         forbidden = ["import", "exec", "eval", "open", "os.", "sys.", "__", "subprocess"]
         for word in forbidden:
-            if word in expr:
+            if word in expression:
                 raise ValueError(f"Forbidden keyword in expression: {word}")
+
+        # 用 repr 生成合法字面量，字符串值含引号/花括号时不会被破坏或注入
+        expr = expression
+        for key, value in context.items():
+            if isinstance(value, (str, int, float, bool)):
+                expr = expr.replace(f"{{{key}}}", repr(value))
 
         try:
             # 使用安全的 AST 求值替代 eval()

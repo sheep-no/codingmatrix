@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 # 8C8G 环境推荐模型
 DEFAULT_MODEL = DEFAULT_FAST_MODEL
-FALLBACK_MODEL = DEFAULT_FAST_MODEL
 
 
 class LLMCallNode(TaskNodeBase):

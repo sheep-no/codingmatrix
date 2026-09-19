@@ -1,7 +1,7 @@
 """
 Code Execution Node - 代码执行节点
 
-在安全环境中执行 Python/JS 代码
+在当前主机执行 Python/JS 代码
 """
 
 import logging
@@ -25,7 +25,8 @@ class CodeExecutionNode(TaskNodeBase):
     """
     代码执行节点
 
-    在 Docker 容器中安全执行代码
+    以子进程方式执行代码；不提供容器/沙箱隔离，进程拥有与后端服务相同的宿主机权限。
+    仅应执行可信代码，执行 LLM 生成代码前需由上层做权限与内容管控。
 
     参数:
         code: 要执行的代码

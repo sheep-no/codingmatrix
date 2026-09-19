@@ -7,6 +7,9 @@
 - DT1 merge 从节点 config 读变量而非上下文
 - LLM1 {{input}} 硬编码占位符
 - LLM3 call_llm 返回 OpenAI 结构时提取不到 content
+- CON2 表达式变量内插未转义，值含引号/花括号时语法异常
+- LLM2 产出节点 output_variable 未映射进上下文，下游 input_variable 读不到
+- LLM4 FALLBACK_MODEL 死常量
 - GV2 on_failure 取值未约束
 """
 
@@ -18,13 +21,16 @@ import time
 import pytest
 from pydantic import ValidationError
 
-from app.schema.workflow import TaskNode, TaskType
+from app.schema.workflow import TaskGraph, TaskNode, TaskType
 from app.utils.workflow.node_types import code_execution as code_module
 from app.utils.workflow.node_types import llm_call as llm_module
 from app.utils.workflow.node_types.code_execution import CodeExecutionNode
+from app.utils.workflow.node_types.conditional import ConditionalNode
 from app.utils.workflow.node_types.data_transform import DataTransformNode
 from app.utils.workflow.node_types.file_processing import FileProcessingNode
 from app.utils.workflow.node_types.llm_call import LLMCallNode
+from app.utils.workflow.node_types.base import NodeResult
+from app.utils.workflow.result_aggregator import ResultAggregator
 
 
 @pytest.mark.asyncio
@@ -187,3 +193,71 @@ def test_on_failure_normalization_falls_back_to_fail():
     assert _normalize_on_failure(None) == "fail"
     assert _normalize_on_failure("skip") == "skip"
     assert _normalize_on_failure("bogus") == "fail"
+
+
+def test_conditional_expression_handles_quote_in_value():
+    """CON2：字符串值含引号时不得拼出非法表达式。"""
+    node = ConditionalNode("c1", {"expression": "{name} != ''"})
+
+    assert node._evaluate_expression("{name} != ''", {"name": "O'Brien"}) is True
+
+
+def test_conditional_expression_keyword_in_data_is_not_rejected():
+    """CON2：关键字检查应对模板生效，数据值含 'os.' 不应误判。"""
+    node = ConditionalNode("c1", {"expression": "{path} != ''"})
+
+    assert node._evaluate_expression("{path} != ''", {"path": "os.path"}) is True
+
+
+def test_conditional_expression_rejects_forbidden_keyword_in_template():
+    node = ConditionalNode("c1", {"expression": "__import__('os')"})
+
+    with pytest.raises(ValueError):
+        node._evaluate_expression("__import__('os')", {})
+
+
+def _aggregator_with_llm_producer(output_variable="web_data"):
+    graph = TaskGraph(
+        workflow_id="agg",
+        nodes=[
+            TaskNode(
+                id="A",
+                type=TaskType.LLM_CALL,
+                params={"prompt": "hello", "output_variable": output_variable},
+                depends_on=[],
+            ),
+            TaskNode(
+                id="B",
+                type=TaskType.CODE_EXECUTION,
+                params={"code": "print(1)"},
+                depends_on=["A"],
+            ),
+        ],
+    )
+    return ResultAggregator("agg", graph)
+
+
+def test_context_exposes_producer_output_variable():
+    """LLM2：产出节点声明的 output_variable 应能被下游 input_variable 读到。"""
+    aggregator = _aggregator_with_llm_producer()
+    aggregator.record_result("A", NodeResult.success_result(data={"content": "hi"}))
+
+    context = aggregator.get_context("B")
+
+    assert context["web_data"] == {"content": "hi"}
+    assert context["A_result"] == {"content": "hi"}
+
+
+def test_context_output_variable_is_none_on_failure():
+    aggregator = _aggregator_with_llm_producer()
+    aggregator.record_result("A", NodeResult.error_result(error="boom"))
+
+    context = aggregator.get_context("B")
+
+    assert "web_data" in context
+    assert context["web_data"] is None
+
+
+def test_llm_call_has_no_dead_fallback_model_constant():
+    """LLM4：未被引用的 FALLBACK_MODEL 已删除。"""
+    assert not hasattr(llm_module, "FALLBACK_MODEL")
