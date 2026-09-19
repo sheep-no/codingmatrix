@@ -158,6 +158,7 @@ __all__ = [
     "InterfaceVisibility",
     "CORE_ENGINE",
     "CORE_ENGINE_VERSION",
+    "DEFAULT_ENGINE",
     "LEGACY_ENGINE",
     "LEGACY_ENGINE_VERSION",
     "engine_metadata",
