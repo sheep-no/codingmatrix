@@ -63,6 +63,10 @@
 - **RM2 已修复**：新增 `_UPLOAD_ID_RE` 白名单（`^[A-Za-z0-9_-]{1,64}$`），`_state_file` 对非法 `upload_id` 抛 `ValueError`，阻断 `../` 与绝对路径穿越。
 - **RM3 已修复**：`save_chunk_state` 用 `if chunk_index not in completed` 去重，同一分片重复上报不再重复追加。
 - **TD1 已消解**：`task_dispatcher.py` 已删除，注册表/分发双轨不复存在。
-- **TM3/TM4/TM6/TM9、RM4/RM5/RM6/RM7 仍存在**：Redis 故障降级双轨、同步查询恒 None、`task_type` 未参与分发、`REDIS_URL` 硬编码、MD5 完整性、async 内同步 I/O、状态文件残留、默认相对路径均未改动。TM9/RM7 需与全库 Redis/路径配置统一收敛时一并处理。
+- **TM9 已修**：`REDIS_URL` 改为 `os.getenv("REDIS_URL", "redis://localhost:6379/0")`，与 `app/celery_app.py` 既有模式对齐，多 worker 环境可通过环境变量配置。
+- **RM5 已修**：`resume_manager.py` 中 `save_chunk_state`/`get_resume_state`/`validate_completed_chunks`/`clear_state` 内的同步文件 I/O（`read_text`/`write_text`/`read_bytes`/`unlink`）统一改用 `asyncio.to_thread` 执行，新增 `_load_state` 辅助方法，不再阻塞事件循环。
+- **TM3 基本消解 / TM4 为死方法**：生产调用方只用 `get_task_info_async`（`aiGeneratorPptx.py:2813/:3934`），其内部走 `_get_task_from_redis`，Redis 失败时回退同一内存快照，读写路径一致；且已叠加 SQL 双写（`_persist_sql_create`/`_persist_sql_update`）与 `reconcile_task` 对账。同步 `get_task_info` 全库零调用（仅 `_tasks` 在 Redis 失败时填充，正常路径恒 None），属死方法，未删。
+- **TM6 非缺陷**：`create_task` 由调用方直接传入 `func` 执行，`task_type` 仅作元数据/落库字段，不存在需要按类型分发的注册表。
+- **RM4/RM6/RM7 未改**：RM4（MD5 → 强哈希）会与存量状态文件中的 hash 不兼容；RM6（中断上传残留 `.json`）需生命周期/清理策略设计；RM7（默认 `Path("uploads/.resume")` 相对路径）需与全库路径配置统一收敛，均待口径。
 
 新增回归测试 `tests/unit/test_task_scheduling_utils.py`（8 项）：回退源码后 `test_invalid_upload_id_rejected`、`test_duplicate_chunk_index_not_appended_twice`、`test_cleanup_uses_scan_and_removes_old_tasks` 三项失败。
