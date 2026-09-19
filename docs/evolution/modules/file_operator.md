@@ -73,3 +73,20 @@
 
 - **零单元测试**：tests/ 下无 FileOperator/PathSecurityError 引用（acloud 有集成测试引用但无单元覆盖）
 - FO1 .env 误伤、FO3 扩展名一致性、FO4 范围失控均无测试约束（修复建议：路径安全规则参数化测试——构造 .env.example/敏感路径/越界路径三态样本断言）
+
+## 7. 状态更新（2026-09-19 逐条核实）
+
+本轮按当前 master 源码复核。`file_operator.py` 位于 `app/utils/`，docstring 声明供 AIProject / Workflow / AICloud 复用，消费方含 Agent（agent_core/agent_executor/multi_model_agent）与非 Agent（workflow 节点、aicloud）——属共享基础层，非 Agent 子系统。以下改动限于共享规则，未触碰任何 Agent 代码。
+
+### 本轮修复
+
+- **FO1 PROTECTED_FILES 子串匹配误伤**——`_validate_path` 原以 `protected_file in abs_path_str` 子串匹配，`.env` 命中任意含该子串的路径，导致 `SAFE_EXTENSIONS` 明确允许的 `.env.example` 模板被拒、`.envrc`/`notes.env.bak` 等被误伤，且 :147 的 `.env` 豁免成为被前置拦截的死代码。修复：新增 `_is_protected_file`，含 `/` 的条目（`.git/config`）按路径尾段匹配，其余按文件全名精确匹配；扩展名豁免由全路径子串判断改为文件名白名单判断，消除矛盾。
+
+测试：新增 `tests/unit/test_file_operator.py`（7 项，覆盖 `.env` 拒绝、`.env.example` 放行、子串路径不误伤、`.git/config`/`id_rsa` 拒绝），回退源码后 4 项失败。
+
+### 仍开放（未改）
+
+- **FO2 `allow_protected_paths=True` 可完全关闭防护**——生产零调用传 True，维持现状；如需收敛可加日志告警或移除开关。
+- **FO3 扩展名白名单仅 create 生效**——write/delete/move 均 `check_extension=False`，且白名单本身超全，属安全语义不一致；统一需评估各消费方行为，暂缓。
+- **FO4 无 base_path 实例（multi_model_agent / workflow file_processing）可越界读写非系统路径**——强制 base_path 需改 Agent 消费方（multi_model_agent）与工作流节点语义，Agent 侧不碰，暂缓。
+- **FO5 read 全量 readlines、FO6 隐藏目录全跳、FO7 grep/search errors='ignore'**——性能/可见性/静默丢弃问题维持原判定，改造需专项口径。
