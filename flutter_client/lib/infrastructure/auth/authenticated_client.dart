@@ -8,9 +8,16 @@ import 'cloud_auth_client.dart';
 
 /// Only GET/HEAD can be replayed once. Mutations always require user recovery.
 class AuthenticatedClient extends http.BaseClient {
-  AuthenticatedClient(this.auth, this.transport);
+  AuthenticatedClient(
+    this.auth,
+    this.transport, {
+    this.streamTimeout = const Duration(minutes: 5),
+  });
   final CloudAuthClient auth;
   final http.Client transport;
+  // A streaming body can stay silent while the server prepares context or waits
+  // for the first token; the short request timeout would break those streams.
+  final Duration streamTimeout;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
@@ -20,8 +27,10 @@ class AuthenticatedClient extends http.BaseClient {
   Future<http.StreamedResponse> _send(
     http.BaseRequest request, {
     Duration? timeout,
+    Duration? streamTimeout,
   }) async {
     final limit = timeout ?? auth.timeout;
+    final streamLimit = streamTimeout ?? limit;
     final session = auth.session;
     if (session == null) throw CloudAuthException('请重新登录');
     final ref = session.accessTokenRef;
@@ -44,7 +53,9 @@ class AuthenticatedClient extends http.BaseClient {
         await response.stream.drain<void>().timeout(limit);
         throw CloudAuthException('认证上下文已切换');
       }
-      if (response.statusCode != 401) return await _checked(response, safe, limit);
+      if (response.statusCode != 401) {
+        return await _checked(response, safe, streamLimit);
+      }
       await response.stream.drain<void>().timeout(limit);
       if (auth.session?.accessTokenRef != ref) {
         throw CloudAuthException('认证上下文已切换');
@@ -65,7 +76,7 @@ class AuthenticatedClient extends http.BaseClient {
         await auth.logout();
         throw CloudAuthException('登录已失效，请重新登录', statusCode: 401);
       }
-      return await _checked(retried, safe, limit);
+      return await _checked(retried, safe, streamLimit);
     } on CloudAuthException {
       rethrow;
     } catch (_) {
@@ -130,7 +141,7 @@ class AuthenticatedClient extends http.BaseClient {
     request.headers['Accept'] = 'text/plain';
     request.headers['Content-Type'] = 'application/json';
     request.body = jsonEncode(body);
-    final response = await send(request);
+    final response = await _send(request, streamTimeout: streamTimeout);
     return response.stream;
   }
 

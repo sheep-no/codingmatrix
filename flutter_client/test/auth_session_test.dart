@@ -57,7 +57,10 @@ http.Response authResponse(String access, {bool login = true}) => http.Response(
 );
 
 class Fixture {
-  Fixture({MemoryStorage? storage}) : storage = storage ?? MemoryStorage() {
+  Fixture({
+    MemoryStorage? storage,
+    Duration timeout = const Duration(seconds: 20),
+  }) : storage = storage ?? MemoryStorage() {
     store = CredentialStore(storage: this.storage);
     transport = MockClient((request) async {
       requests.add(request);
@@ -94,6 +97,7 @@ class Fixture {
       baseUrl: 'https://one.example',
       httpClient: transport,
       credentialStore: store,
+      timeout: timeout,
     );
     api = AuthenticatedClient(auth, transport);
   }
