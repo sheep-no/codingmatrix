@@ -101,8 +101,11 @@ engine 选择字段，不再注册 `core_handler`，core 生成统一经 `/orche
 把它投影给 API。系统内部没有读取方，因此 IR 是「写出来给人看的」，
 没有参与调度决策或恢复，不构成约束。
 
-`capability_registry.py` 自身生产零引用，靠测试维持。它记录「哪些能力没接线」，
-这是一份清单，不是一种约束：登记为 `experimental` 的模块依旧可以在主链外继续增长。
+`capability_registry.py` 自身生产零引用，靠测试维持。它记录「哪些能力没接线」。
+原先只有单符号消费门禁，整模块零引用的能力可以绕过登记继续累积，因此
+`260919-chore-capability-inventory-gate` 补上整模块清单校验：扫描 `app/` 的
+导入与属性引用，任何零引用的 `app/agent` 模块都必须登记，否则测试失败。
+登记表由此从「清单」变成「约束」。
 
 `app/agent` 175 个模块（不含 `__init__`）中，13 个生产零引用：
 
@@ -115,6 +118,10 @@ app.agent.fix_pattern_cache           app.agent.evaluation_runner
 app.agent.capability_registry         app.agent.orchestration.ir_projection
 app.agent.framework_profiles.validation
 ```
+
+这 13 个模块逐个核对后确认均为刻意保留的实验性能力（多数来自 2026-09-05 /
+09-09 的特征提交），本轮不删除，已全部登记到 `capability_registry` 并纳入上述
+整模块清单门禁。
 
 `OrchestratorAgent` 用 6 个 mixin 拆成多文件，但拆的是文件而非职责：
 类仍是 210 个方法、约 10k 行的单一实体，`_PlannedAgentAdapter` 又把它 20 多个方法
