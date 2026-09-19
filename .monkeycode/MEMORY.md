@@ -332,3 +332,12 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - `POST /api/v1/agent/orchestrate/stream` 的请求体含七个布尔生成开关，默认全为 `true`：`enable_review`、`enable_validation`、`enable_error_recovery`、`enable_memory`、`enable_skills`、`spec_first`、`dependency_graph`（契约见 `app/api/v1/ai_agent/schemas.py` 的 `OrchestratorRequest`）。客户端此前硬编码前六个且从不发送 `enable_skills`；核对编排请求体时必须包含全部七项。
   - 开关在生成开始时取值写入请求体，生成进行中修改不影响本次请求；客户端按 `<baseUrl>|<username>` 作用域持久化，账号切换载入对应作用域。
   - Flutter 工作台已改为能力注册表外壳：模块入口来自 `lib/application/capability_registry.dart`，不再是 `workbench_page` 的弹出菜单；组件测试打开模块用 `capabilityNav_<id>` 键（窄屏先点 `Icons.menu` 打开抽屉）。
+
+### 提交拆分与尾注钩子
+- Date: 2026-09-19
+- Context: Agent 在把未推送的 Flutter 改动按主题拆分成本地提交时发现
+- Category: 工作流与协作
+- Instructions:
+  - 仓库的 `.git/hooks/prepare-commit-msg` 会为每个提交自动追加 `Co-authored-by: monkeycode-ai <monkeycode-ai@chaitin.com>`；手写同一条会重复，`git commit --amend` 和 `git rebase` 重放提交也会再追加一次，尾注去重要用 `git filter-branch --msg-filter` 归一（该步骤不经过钩子）。
+  - 拆分提交时，测试文件里对 UI 文案 / `Key` 的断言必须和引入该文案的源码改动放在同一个提交，否则中间提交测试失败、无法 bisect；逐个提交核对测试里的 `find.text` / `byKey` 字面量是否存在于该提交的 `lib/`。
+  - 中间提交还要检查导入不悬空：提交 A 引用的模块不能由提交 B 才新增。
