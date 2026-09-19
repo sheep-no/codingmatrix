@@ -40,3 +40,21 @@
 ## 四、测试状态
 
 零单元测试。死代码状态、静默降级、告警列表增长均无测试约束。修复建议：① 若接入——init_sentry 幂等性测试、capture_error 未初始化行为测试；② 若删除——清理文档引用；③ _alerts 裁剪测试（超 50 条断言）。
+
+## 五、状态更新（2026-09-19 逐条核实）
+
+本轮按当前 master 源码复核。两模块位于 `app/utils/`，非 Agent 范围。生产业务仍无调用方（`app/test/` 下 17 项测试为唯一消费），故本轮只修模块内缺陷，保留文件（删除需确认）。
+
+### 本轮修复
+
+- **SNT2 capture_* 未初始化时静默 return**——`capture_error` / `capture_message_sync` / `capture_message_async` / `set_user` / `set_tag` / `add_breadcrumb` 在未初始化时补 `logger.debug`，避免「调用方以为已上报、实际丢失」的静默失真；行为仍不抛错。
+- **SNT5 init_sentry 无锁**——初始化改为 `threading.Lock` 双检锁，消除并发首调的重复 init 竞态。
+- **STA2 `_max_alerts` 从未裁剪**——新增 `_remember`，append 后裁剪保留最近 50 条；`record_startup_success` / `record_startup_failure` / `send_recovery_alert` 三处 append 统一走该入口。
+- **STA5 get_startup_alert 单例无锁**——加 `threading.Lock` 双检锁；`StartupFailureAlert._lock` 由未使用的 `asyncio.Lock` 改为 `threading.Lock` 并实际用于告警列表写入。
+
+测试：新增 `tests/unit/test_startup_alert_and_sentry.py`（5 项），回退源码后 3 项失败。`app/test/test_sentry.py` + `test_startup_alert.py`（17 项）保持全绿。
+
+### 仍开放（未改）
+
+- **SNT1 / STA1 零业务消费**——错误追踪与启动告警机制仍未接入 main.py，属「接入或删除」的产品/运维决策，删除需确认，暂缓。
+- **SNT3 `_before_send` 过滤面窄、SNT4 `capture_message_async` 伪异步、STA4 每告警新建 httpx.AsyncClient**——维持原判定；SNT4 改 `to_thread` 会影响 sentry scope 上下文传播，需评估后再动。
