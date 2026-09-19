@@ -74,9 +74,12 @@
 - **GV3 已修**：`_check_node_id_uniqueness` 由 `node_ids.count(id)` 的 O(N^2) 改为 `Counter` 单次遍历（graph_validator.py:60-66）。行为不变，纯复杂度优化。新增 `tests/unit/test_workflow_graph_validator.py`（2 项）；因属行为保持的重构，回退源码后测试仍通过。
 - **GV1 已修（导入入口）**：`GraphValidator.validate` 新增 `check_semantics` 开关（默认 False，保持既有结构校验契约），开启时调用 `_check_node_params`——按 `TaskType` 延迟加载对应节点类并复用其 `validate_params()`，校验必填项与取值。`POST /workflow/import` 显式传入 `check_semantics=True`，外部 JSON 缺 `query`/`code`/`prompt` 等必填参数在导入即被拦截，不再放行到运行时报错。自然语言 `execute` 流程与 executor 逐节点校验保持原状，未改动其行为。新增 3 项回归测试（缺参数拦截、合法参数通过、默认关闭）。
 
+**GV4 已修**
+
+- **GV4 已修**：`GraphValidator` 新增 `MAX_NODES = 200` 类常量与 `_check_graph_size` 校验（`__init__(max_nodes=MAX_NODES)` 可覆盖），`validate` 首先检查节点总数，超大图在校验阶段即被拒绝，阻断 LLM 分解/外部导入超大图带来的资源耗尽。既有 `test_unique_node_ids_pass`（500 节点）关注唯一性而非规模，已显式传 `max_nodes=1000` 保留其构造意图。新增 3 项回归测试。
+
 **仍存在（需产品口径或较大改动）**
 
-- **WF1**：`_workflows`/`_session_workflows` 仍为进程内 dict，无 TTL/容量清理。
-- **WF5**：进程内存态在多 worker 部署下仍不可用、重启即丢失（与 WF1 同根）。
-- **STM2**：`check_node_timeout` 仍全库零调用，节点超时由 executor 侧 `asyncio.timeout` 承担，状态机侧方法为死代码。
-- **GV4**：仍无节点数/图规模上限。
+- **WF1 容量清理已存在 / TTL 仍缺**：经核实 `_workflows` 已有 `_MAX_WORKFLOWS = 500` 上限并在写入时淘汰最旧项（workflow.py:163-166），`_session_workflows` 亦有 `_MAX_SESSION_WORKFLOWS = 200` 上限与 `_remember_session_workflow` 按 `updated_at` 淘汰最旧会话（workflow.py:56-64），原条目「无容量清理、只靠用户 DELETE」已过时。仍缺的是**按 TTL 过期**（长跑进程内即使未超上限也会常驻），以及超限淘汰是 FIFO 而非 LRU，属优化项。
+- **WF5**：进程内存态在多 worker 部署下仍不可用、重启即丢失（与 WF1 同根）。修复需把工作流/会话状态落库（`WorkflowHistory` 已存在，但 status/continue 链路尚未改走 DB），属架构级改动。
+- **STM2**：`check_node_timeout` 仍全库零调用，节点超时由 executor 侧 `asyncio.timeout` 承担，状态机侧方法为死代码。删除涉及公共方法面，保留待确认。
