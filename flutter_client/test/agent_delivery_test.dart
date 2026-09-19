@@ -309,6 +309,55 @@ void main() {
     expect(find.text('提交决策'), findsNothing);
   });
 
+  testWidgets('默认值不在可选项内时仍能渲染并要求显式选择', (tester) async {
+    // The shipped `state_management` template announces default "Pinia" while
+    // its options only offer "Pinia/Vuex"; a dropdown value outside its items
+    // hits a Flutter assertion, so the page must not trust the default.
+    var submissions = 0;
+    final controller = WorkbenchController(
+      projectClient: AgentProjectClient(
+        DeliveryApi((_, __, ___) async {
+          submissions++;
+          return {'status': 'submitted'};
+        }),
+      ),
+    );
+    controller.bindTask(
+      const Task(taskId: 't', sessionId: 's', status: 'running'),
+    );
+    controller.ingestSseChunk(
+      event('critical_decisions', {
+        'decisions': [
+          {
+            'id': 'state_management',
+            'question': '状态管理方案',
+            'context': '复杂应用的状态管理方式。',
+            'options': [
+              {'label': 'Pinia/Vuex', 'description': '集中式状态管理'},
+              {'label': 'Redux', 'description': '严格单向数据流'},
+            ],
+            'default': 'Pinia',
+          },
+        ],
+      }),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          workbenchControllerProvider.overrideWith((_) => controller),
+        ],
+        child: const MaterialApp(home: AgentDecisionPage()),
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.text('Pinia'), findsNothing);
+
+    await tester.tap(find.text('提交决策'));
+    await tester.pumpAndSettle();
+    expect(submissions, 0);
+    expect(find.text('请为每个决策选择有效选项'), findsOneWidget);
+  });
+
   testWidgets('提交决策网络断开显示笼统错误', (tester) async {
     final controller = WorkbenchController(
       projectClient: AgentProjectClient(
