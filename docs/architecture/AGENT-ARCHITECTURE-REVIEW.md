@@ -74,6 +74,11 @@ async def run_core(_state):
 于是 `engine_router.route_generation` 与 `compare_shadow_results` 这套影子对比能力，
 在最大的一条生成入口上比较的是同一段逻辑。
 
+该直通已在 `260919-refactor-agent-engine-routing`（PR #56）移除：`/generate` 没有
+engine 选择字段，不再注册 `core_handler`，core 生成统一经 `/orchestrate` 进入；
+`route_generation` 与 `compare_shadow_results` 无生产消费方，已在
+`capability_registry` 登记为 `experimental`。
+
 ## 三、状态权威缺失
 
 同一次生成任务的状态分散在至少五处，且各自持久化：
@@ -147,14 +152,27 @@ app.api.v1.aiGeneratorPptx    <-> app.services.ppt_template_samples
 1. 反转依赖方向。为 core 定义生成端口接口，让适配器依赖端口，
    由旧 agent 去实现端口，消除 `adapters.py` 的 12 处私有调用与
    `runtime.py` 的私有字段写入。这是让新层真正成为架构边界的前提。
-2. 选定单一默认引擎并让 core 承担主路径，legacy 只保留兼容入口。
-   否则影子对比与引擎分流只会持续增加分支数量。
+   **已完成**：`260919-refactor-agent-orchestration-ports`（PR #55）引入
+   `GenerationAgentPort`，适配器改走端口，`agent -> api` 反向依赖清零。
+2. 选定单一默认引擎。**已决策**：legacy 为唯一受支持默认，core 保持
+   实验性 opt-in，并加门禁禁止 core 在通过评估矩阵前成为默认。
+   依据是固定 24 例矩阵的 `engineering/quality` 通过率为 0/24、
+   `target_met=false`；把默认改为 core 会让默认路径端到端通过率退化到 0。
+   门禁见 `tests/unit/test_orchestration_default_engine.py`，
+   默认值来源为 `routing.DEFAULT_ENGINE`。
+   因此本轮不把 core 抬为主路径：影子对比与引擎分流保留，但不再有
+   「默认随时可能切换」的隐含不确定性。
 3. 合并调度与状态。一个调度器、一份权威任务状态，
    其余载体退化为投影或缓存。
+   该目标依赖第 2 项的引擎收敛：两套调度器分别服务 legacy 与 core，
+   在默认引擎与主路径确定前没有可合并的目标，因此本轮未做。
 4. 收敛 agent 基类。`/generate` 与 `/orchestrate` 应共用同一 agent 抽象，
    消除「两个类都叫 agent」的分裂。
+   同上，依赖第 2 项的主路径决策。
 5. 消解 `agent -> api` 反向依赖。把 `PROJECTS_BASE_DIR`、
    `agent_host` 这类上层产物下沉到领域层，或在装配点注入。
+   **已完成**：`PROJECTS_BASE_DIR` 下沉到 `app/core/paths.py`，
+   Host 动作派发改为注册式，见 PR #55。
 
 ## 附录：复核命令
 
