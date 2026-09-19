@@ -109,28 +109,5 @@ class TaskNodeBase(ABC):
         """
         return {}
 
-    def merge_context(self, context: Dict[str, Any], upstream_results: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        合并上游节点输出到上下文
-
-        Args:
-            context: 当前上下文
-            upstream_results: 上游节点结果字典
-
-        Returns:
-            Dict[str, Any]: 合并后的上下文
-        """
-        merged = context.copy()
-
-        for node_id, result in upstream_results.items():
-            if result.success:
-                merged[f"{node_id}_result"] = result.data
-                merged[f"{node_id}_error"] = None
-            else:
-                merged[f"{node_id}_result"] = None
-                merged[f"{node_id}_error"] = result.error
-
-        return merged
-
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}(node_id={self.node_id}, type={self.task_type})>"

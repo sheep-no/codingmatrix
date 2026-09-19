@@ -69,3 +69,36 @@
 ## 四、测试状态
 
 零单元测试。CE1（无沙箱执行）、HRQ1/HRQ2（SSRF 绕过）、LLM3（dict 输出字符串化）、CON1（分支不生效）、HA1（恒自动拒绝）、LLM2（变量断裂）全部实码可证无任何用例保护。修复建议：① CE1 接入 docker_runner/process_guard 沙箱或至少进程组 + 资源限制 + 输出上限；② HRQ1/HRQ2 在 execute 阶段对替换后 URL 复查 SSRF（单一解析点，拒绝而非放行）；③ LLM3 按 `response["choices"][0]["message"]["content"]` 提取；④ LLM2/CON1/DT1 收敛「LLM 规划 → executor 兑现」数据流（executor 读 branch_path 动态调整调度、context 写入 output_variable 键、merge 改读 context）；⑤ HA1 API 层提供审批端点 + executor 传回调；⑥ BSE1 删除 merge_context 收敛到 aggregator；⑦ 下轮转 aicloud/ 子包（21 文件）。
+
+## 五、状态更新（2026-09-19 逐条核实）
+
+本轮按当前 master 源码逐条复核，文档原判定的多项缺陷已在此前修复（部分由 `tests/unit/test_workflow_node_type_fixes.py` 覆盖），本轮补齐 CON2/LLM2 并清理死代码。
+
+### 已修复（原判定已过时）
+
+- **CE2 子进程输出无界收集**——`code_execution.py` 新增 `_MAX_OUTPUT_BYTES=1_000_000` 与 `_read_limited`，读到 EOF 但只留前若干字节，避免管道写满阻塞。测试覆盖。
+- **CE3 超时不杀进程组**——`_run_command` 用 `start_new_session=True` + `os.killpg(SIGKILL)`，孙进程不再逃逸。测试覆盖。
+- **FP2 validate_params 缺键抛 KeyError**——`file_processing.py` 对 `path`/`source`/`destination` 均先做 `in` 判断再取值，缺键返回错误列表。测试覆盖。
+- **DT1 merge 从 config 读变量**——`data_transform.py:175-185` 改为先 `context.get(var_name)` 再回退 config。测试覆盖。
+- **LLM1 `{{input}}` 硬编码占位符**——`llm_call.py` 兼容 `{{input}}`/`{{ input }}`/`{input}`，且无任何占位符时追加输入，不再静默丢弃。测试覆盖。
+- **LLM3 OpenAI 兼容结构提取**——`llm_call.py:133-149` 按 `choices[0].message.content` 提取，取不到再退 `content`/`text`。测试覆盖。
+- **HRQ1 SSRF TOCTOU**——`http_request.py` 执行期对替换后 URL 用 `strict=True` 复查（DNS 失败即拒绝），不再「解析失败即放行」。
+- **HRQ2 变量替换绕过 SSRF**——`execute` 在 `_replace_variables` 之后重新调用 `_check_ssrf(url, strict=True)`。
+- **HRQ3 重定向跳内网**——改为 `follow_redirects=False` + `_request_with_redirects` 逐跳 `strict=True` 校验，超限拒绝。
+- **HRQ4 敏感响应头外泄**——`_SENSITIVE_HEADERS` 过滤 set-cookie/authorization 等后再进 result_data。
+
+### 本轮修复
+
+- **CON2 表达式变量内插未转义**——`conditional.py:_evaluate_expression` 原先对字符串值用 `'{value}'` 裸拼，值含引号/花括号即拼出非法表达式；改为先用 `repr()` 生成合法字面量。同时把危险关键字检查移到替换之前，针对模板而非数据值，避免数据里的 `os.`/`__` 被误判拒绝。
+- **LLM2 output_variable 数据流断裂**——`result_aggregator.py:_build_node_context` 除 `{dep_id}_result` 外，额外把产出节点 `params.output_variable` 映射进上下文（失败时为 None），使规划出的语义变量名（如 `llm_result`/`web_data`）能被下游节点 `input_variable` 读到，同时保留原键向后兼容。
+- **BSE1 `merge_context` 死方法**——全库零引用（与 aggregator `_build_node_context` 双轨），已从 `base.py` 删除，收敛到 aggregator。
+- **LLM4 `FALLBACK_MODEL` 死常量**——`llm_call.py` 中定义后从未引用，已删除（`DEFAULT_MODEL` 保留）。
+- **CE1 文档与实现矛盾（部分）**——`code_execution.py` 模块/类 docstring 原称「在安全环境 / Docker 容器中执行」，实际直接以子进程在宿主机运行，无隔离；已改为如实描述并标注权限等同后端服务、仅应执行可信代码。
+
+### 仍开放（未改，需产品/架构口径）
+
+- **CON1 条件分支不参与调度**——`executor._get_executable_nodes` 仍只判 `dep in completed`，不读 `branch_path`。让分支真正生效需先定分支语义（gating 规则、被跳过节点的状态机记账、summary/回调口径），属能力实现而非局部修复，暂缓。
+- **HA1 审批回调恒未注册**——`app/api/v1/workflow.py` 两处构造 `WorkflowExecutor` 仍未传 `approval_callback`（构造默认 None），HUMAN_APPROVAL 节点恒走 auto_reject。落地需新增审批端点 + 会话态审批存储 + 恢复执行，属功能开发，暂缓。
+- **CE1 无沙箱**——当前环境无 docker_runner，接入容器/进程隔离属能力建设，仅先纠正文档误导。
+- **CE4 / FP1 / FP3 / HRQ5 / HRQ6**——临时代码明文落 /tmp 无资源限额、`FileOperator()` 无 base_path、delete recursive 可删目录树、每请求新建 `httpx.AsyncClient`、`_replace_variables` 遍历全 context——均维持原判定，风险与改造成本需专项评估。
+- **DT2 / DT3 / CH1 / CH2 / CH3**——两套 `safe_eval`（ALLOWED_NODES 不一致）、`_extract_path` 列表展平产生 None、matplotlib 全局态与 `_temp_files`/字体锁——双轨与低危并发问题，暂缓。
