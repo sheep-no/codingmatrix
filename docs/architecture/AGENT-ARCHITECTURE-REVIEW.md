@@ -115,7 +115,7 @@ app.agent.framework_profiles.validation
 类仍是 210 个方法、约 10k 行的单一实体，`_PlannedAgentAdapter` 又把它 20 多个方法
 重新暴露一遍。继承被用来规避单文件长度，而不是建立稳定接口。
 
-模块级双向依赖 5 组：
+双向依赖 5 组（已用 `tests/unit/test_module_import_cycles.py` 静态核对导入期循环）：
 
 ```
 app.agent.dynamic_model_router <-> app.agent.models
@@ -124,6 +124,13 @@ app.agent.workflow_registry   <-> app.api.v1.agent_host
 app.api.v1.aiGeneratorPptx    <-> app.services.ppt_quality_orchestrator
 app.api.v1.aiGeneratorPptx    <-> app.services.ppt_template_samples
 ```
+
+其中只有 `framework_profiles <-> framework_profiles.workspace` 是导入期循环，
+靠 `__init__.py` 末尾 `# noqa: E402` 的延迟导入掩盖，已由
+`260919-refactor-drop-framework-profile-cycle` 修复（类型下沉到 `types.py`）。
+其余四组的反向边都在函数体内延迟导入，因此是分层倒置而非导入期循环：
+`models -> dynamic_model_router`、`workflow_registry -> agent_host`、
+`ppt_* -> aiGeneratorPptx` 都在函数内部导入。
 
 ## 五、这些结构造成的可观测后果
 
