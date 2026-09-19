@@ -155,7 +155,7 @@ async def test_traditional_finalize_projects_legacy_response_fields():
     adapter = TraditionalAdapter(agent)
     adapter._plan = SimpleNamespace(files=())
     adapter._started_at = 0.0
-    adapter._shared_context = SimpleNamespace(get_artifact_manifest=lambda: {})
+    adapter.bind_shared_context(SimpleNamespace(get_artifact_manifest=lambda: {}))
     state = SimpleNamespace(status=SimpleNamespace(value="completed"), diagnostics=())
 
     result = await adapter.finalize(state)

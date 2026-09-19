@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
 import logging
 
 from app.agent.adapters import legacy_result_to_delta
+from app.agent.host_action_dispatch import dispatch_state_actions
 from app.agent.state import CheckpointStore, State, StateDelta, StateGraph, StateGraphBuilder, StateReducer
 from app.agent.state.graph import END, NEXT_NODE_METADATA_KEY
 from app.agent.orchestration.routing import engine_metadata
@@ -187,13 +188,8 @@ async def run_workflow(
                 task_id,
             )
     if state.pending_actions:
-        try:
-            from app.api.v1.agent_host import enqueue_state_actions
-
-            enqueue_state_actions(session_id, state)
-        except KeyError:
-            # A workflow can run without a connected local Host.
-            pass
+        # A workflow can run without a connected local Host.
+        dispatch_state_actions(session_id, state)
     return state
 
 
@@ -227,12 +223,7 @@ async def resume_workflow_from_local_result(
         _active_workflows[(session_id, task_id)] = (definition, state)
     _checkpoint_store.save(state, _checkpoint_id(session_id, task_id))
     if state.pending_actions:
-        try:
-            from app.api.v1.agent_host import enqueue_state_actions
-
-            enqueue_state_actions(session_id, state)
-        except KeyError:
-            pass
+        dispatch_state_actions(session_id, state)
     return state
 
 

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.db.models import ProjectSession
+from app.agent.host_action_dispatch import register_state_action_dispatcher
 from app.utils.security import verify_token
 
 router = APIRouter()
@@ -115,6 +116,11 @@ def enqueue_state_actions(session_id: str, state: Any) -> int:
     if added:
         _session_store.save(session_id, session)
     return added
+
+
+# Register the Host dispatcher so the agent layer can forward pending actions
+# without importing this Web module.
+register_state_action_dispatcher(enqueue_state_actions)
 
 
 def _pending_action_capability(action: dict[str, Any]) -> str:
