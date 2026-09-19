@@ -45,10 +45,15 @@ class ImageGenerationClient {
     String prompt,
     String style,
   ) async {
+    // Unlike /text-to-image, the three shortcut routes (/avatar, /landscape,
+    // /icon) declare `prompt` and `style` as scalar parameters, so FastAPI
+    // reads them from the query string. Sending them as a JSON body leaves
+    // both missing and the request is rejected with 422.
     final result = await api.requestJson(
-      '/api/v1/kolors/$mode',
+      '/api/v1/kolors/$mode'
+      '?prompt=${Uri.encodeQueryComponent(prompt)}'
+      '&style=${Uri.encodeQueryComponent(style)}',
       method: 'POST',
-      body: {'prompt': prompt, 'style': style},
     );
     if (result is! Map || result['success'] != true) throw StateError('生成失败');
     final sources =

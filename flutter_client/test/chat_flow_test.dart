@@ -32,9 +32,12 @@ class UploadApi extends DeliveryApi {
       Stream.value(
         utf8.encode(
           jsonEncode({
-            'server_path': 'uploads/pubspec.yaml',
-            'name': 'pubspec.yaml',
-            'type': 'text/yaml',
+            'id': 7,
+            'filename': 'pubspec.yaml',
+            'file_size': 32,
+            'content_type': 'text/yaml',
+            'created_at': '2026-01-01T00:00:00',
+            'download_url': '/api/v1/files/7/download',
           }),
         ),
       ),
@@ -59,16 +62,19 @@ class ChatApi extends DeliveryApi {
   bool throwOnStream = false;
   Completer<Stream<List<int>>>? streamGate;
   Completer<Object?>? historyGate;
+  Map<String, dynamic>? syncReply;
 
   @override
   Future<Map<String, dynamic>> uploadFile(String path) async {
     uploadedPaths.add(path);
     return upload == null
         ? {
-            'server_path': 'uploads/document.txt',
-            'name': '服务端文件.txt',
-            'type': 'text/plain',
-            'ignored': true,
+            'id': 8,
+            'filename': 'document.txt',
+            'file_size': 12,
+            'content_type': 'text/plain',
+            'created_at': '2026-01-01T00:00:00',
+            'download_url': '/api/v1/files/8/download',
           }
         : await upload!(path);
   }
@@ -97,8 +103,7 @@ class ChatApi extends DeliveryApi {
         'items':
             conversationItems ??
             [
-              {'role': 'user', 'content': '问题'},
-              {'role': 'assistant', 'content': '你好'},
+              {'prompt': '问题', 'response': '你好'},
             ],
       };
     }
@@ -114,6 +119,7 @@ class ChatApi extends DeliveryApi {
             ],
       };
     }
+    if (path == '/api/v1/chat' && syncReply != null) return syncReply;
     return super.requestJson(
       path,
       method: method,
@@ -152,9 +158,10 @@ Future<void> flush() => Future<void>.delayed(Duration.zero);
 void main() {
   test('uploadFile 使用已挂载上传路由和 multipart file 字段', () async {
     final result = await UploadApi().uploadFile('pubspec.yaml');
-    expect(result['server_path'], 'uploads/pubspec.yaml');
-    expect(result['name'], 'pubspec.yaml');
-    expect(result['type'], 'text/yaml');
+    // Mirrors FileUploadResponse: the file path is never exposed, only filename.
+    expect(result['id'], 7);
+    expect(result['filename'], 'pubspec.yaml');
+    expect(result['content_type'], 'text/yaml');
   });
   test('后端 choices.delta.content 契约及结束后的会话 ID', () async {
     final events = await ChatClient.parseStream(
@@ -274,12 +281,26 @@ void main() {
     );
     expect(api.body!['stream'], false);
     expect((api.body!['files'] as List).last, {
-      'server_path': 'uploads/document.txt',
-      'name': '服务端文件.txt',
+      'server_path': 'document.txt',
+      'name': 'document.txt',
       'type': 'text/plain',
     });
     expect((api.body!['files'] as List), hasLength(2));
     expect(container.read(chatControllerProvider).messages.last.text, '同步回复');
+  });
+
+  test('同步响应携带后端错误时展示原文且不追加空回复', () async {
+    api.syncReply = {
+      'response': '',
+      'conversation_id': null,
+      'error': 'AI 生成响应为空，未保存历史记录',
+    };
+    await controller.send('问题');
+    final state = container.read(chatControllerProvider);
+    expect(state.error, 'AI 生成响应为空，未保存历史记录');
+    expect(state.loading, false);
+    expect(state.messages, hasLength(1));
+    expect(state.messages.single.fromUser, true);
   });
 
   test('流式请求上传映射、增量更新及会话续接', () async {
@@ -299,8 +320,8 @@ void main() {
     expect(api.body!['enable_search'], false);
     expect(api.uploadedPaths, ['/tmp/a.txt']);
     expect((api.body!['files'] as List).single, {
-      'server_path': 'uploads/document.txt',
-      'name': '服务端文件.txt',
+      'server_path': 'document.txt',
+      'name': 'document.txt',
       'type': 'text/plain',
     });
     api.chunks.add(utf8.encode('{"conversation_id":42}\n{"delta":"你好"}\n'));
@@ -317,10 +338,7 @@ void main() {
     api.upload = (_) async => {'name': 'a.txt'};
     await controller.send('分析', streaming: true, filePaths: ['/tmp/a.txt']);
     expect(api.body, isNull);
-    expect(
-      container.read(chatControllerProvider).error,
-      contains('server_path'),
-    );
+    expect(container.read(chatControllerProvider).error, contains('文件名'));
     expect(container.read(chatControllerProvider).loading, false);
     expect(container.read(chatControllerProvider).uploading, false);
     api.upload = (_) async => throw StateError('上传失败');
@@ -406,7 +424,11 @@ void main() {
     controller.cancel();
     await pending;
     controller.reset();
-    upload.complete({'server_path': 'uploads/a.txt'});
+    upload.complete({
+      'id': 9,
+      'filename': 'a.txt',
+      'content_type': 'text/plain',
+    });
     await pending;
     expect(api.body, isNull);
     expect(container.read(chatControllerProvider).messages, isEmpty);
@@ -432,8 +454,7 @@ void main() {
     expect(container.read(chatControllerProvider).messages.last.text, '旧回复');
 
     api.conversationItems = [
-      {'role': 'user', 'content': '另一会话'},
-      {'role': 'assistant', 'content': '历史回答'},
+      {'prompt': '另一会话', 'response': '历史回答'},
     ];
     await controller.loadConversation(
       const ChatHistoryItem(id: 99, title: '另一会话'),
@@ -460,8 +481,7 @@ void main() {
     container.dispose();
     final returning = ChatApi();
     returning.conversationItems = [
-      {'role': 'user', 'content': '问题'},
-      {'role': 'assistant', 'content': '你好'},
+      {'prompt': '问题', 'response': '你好'},
     ];
     container = ProviderContainer(
       overrides: [authenticatedClientProvider.overrideWithValue(returning)],
@@ -566,8 +586,7 @@ void main() {
       {'conversation_id': 99, 'prompt': '历史标题'},
     ];
     api.conversationItems = [
-      {'role': 'user', 'content': '历史用户'},
-      {'role': 'assistant', 'content': '历史回答'},
+      {'prompt': '历史用户', 'response': '历史回答'},
     ];
     await tester.tap(find.byKey(const Key('chatHistoryButton')));
     await tester.pumpAndSettle();
@@ -742,9 +761,9 @@ void main() {
     expect(find.text('离开聊天'), findsOneWidget);
 
     upload.complete({
-      'server_path': 'uploads/a.txt',
-      'name': 'a.txt',
-      'type': 'text/plain',
+      'id': 9,
+      'filename': 'a.txt',
+      'content_type': 'text/plain',
     });
     await tester.pump();
     api.chunks.add(utf8.encode('{"delta":"回答"}\n'));

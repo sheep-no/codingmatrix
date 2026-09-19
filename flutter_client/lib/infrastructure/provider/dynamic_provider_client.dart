@@ -1,5 +1,6 @@
 // ignore_for_file: curly_braces_in_flow_control_structures
 import '../auth/authenticated_client.dart';
+import 'rsa_encrypt.dart';
 
 class DynamicProvider {
   const DynamicProvider({
@@ -37,16 +38,24 @@ class DynamicProviderClient {
     required String baseUrl,
     required String protocol,
     required String apiKey,
-  }) async => api.requestJson(
-    '/api/v1/providers',
-    method: 'POST',
-    body: {
-      'name': name,
-      'base_url': baseUrl,
-      'protocol': protocol,
-      'api_key': apiKey,
-    },
-  );
+  }) async {
+    final key = await api.requestJson('/api/v1/agent/apikey/public-key');
+    final encrypted = encryptWithPublicKey(
+      apiKey,
+      (key as Map)['public_key'] as String,
+    );
+    await api.requestJson(
+      '/api/v1/providers',
+      method: 'POST',
+      body: {
+        'name': name,
+        'base_url': baseUrl,
+        'protocol': protocol,
+        'encrypted_api_key': encrypted,
+      },
+    );
+  }
+
   Future<void> toggle(String id) async =>
       api.requestJson('/api/v1/providers/$id/toggle', method: 'PUT');
   Future<void> sync(String id) async =>

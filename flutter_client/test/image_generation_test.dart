@@ -27,6 +27,20 @@ const key = ProviderKeySummary(
   enabled: true,
   expiresAt: null,
 );
+const openAiKey = ProviderKeySummary(
+  token: 'test-openai-ref',
+  provider: 'openai',
+  status: 'valid',
+  enabled: true,
+  expiresAt: null,
+);
+const disabledKey = ProviderKeySummary(
+  token: 'test-ref',
+  provider: 'siliconflow',
+  status: 'valid',
+  enabled: false,
+  expiresAt: null,
+);
 const pixel =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=';
 
@@ -136,6 +150,35 @@ void main() {
       throwsStateError,
     );
   });
+  test('快捷生成把 prompt 和 style 放在查询参数而不是请求体', () async {
+    final requests = <Uri>[];
+    final bodies = <Object?>[];
+    final client = ImageGenerationClient(
+      DeliveryApi((path, method, body) async {
+        expect(method, 'POST');
+        requests.add(Uri.parse(path));
+        bodies.add(body);
+        return {
+          'success': true,
+          'paths': ['generated_images/kolors_123.png'],
+        };
+      }),
+    );
+    for (final mode in ['avatar', 'landscape', 'icon']) {
+      final result = await client.shortcut(mode, '红色 头像', 'anime');
+      expect(result.sources.single, 'generated_images/kolors_123.png');
+    }
+    expect(requests.map((uri) => uri.path), [
+      '/api/v1/kolors/avatar',
+      '/api/v1/kolors/landscape',
+      '/api/v1/kolors/icon',
+    ]);
+    for (final uri in requests) {
+      expect(uri.queryParameters, {'prompt': '红色 头像', 'style': 'anime'});
+    }
+    expect(bodies, [null, null, null]);
+  });
+
   test('business failure and empty success are rejected', () async {
     for (final result in [
       {'success': false},
@@ -299,6 +342,55 @@ void main() {
     expect(controller.state.error, '局部重绘失败');
     expect(controller.state.busy, false);
     expect(controller.state.images, isEmpty);
+    controller.dispose();
+  });
+
+  test('图生图拒绝非 SiliconFlow 授权并提示', () async {
+    var requests = 0;
+    final controller = ImageGenerationController(
+      ImageGenerationClient(
+        DeliveryApi((_, __, ___) async {
+          requests++;
+          return null;
+        }),
+      ),
+    );
+    await controller.imageToImage('/tmp/ref.png', '山', openAiKey);
+    expect(requests, 0);
+    expect(controller.state.error, '请选择可用的 SiliconFlow 授权');
+    expect(controller.state.images, isEmpty);
+    controller.dispose();
+  });
+
+  test('局部重绘拒绝非 SiliconFlow 授权并提示', () async {
+    var requests = 0;
+    final controller = ImageGenerationController(
+      ImageGenerationClient(
+        DeliveryApi((_, __, ___) async {
+          requests++;
+          return null;
+        }),
+      ),
+    );
+    await controller.inpaint('/tmp/ref.png', '/tmp/mask.png', '山', openAiKey);
+    expect(requests, 0);
+    expect(controller.state.error, '请选择可用的 SiliconFlow 授权');
+    controller.dispose();
+  });
+
+  test('快捷生成遇到不可用授权会提示而不是静默无反馈', () async {
+    var requests = 0;
+    final controller = ImageGenerationController(
+      ImageGenerationClient(
+        DeliveryApi((_, __, ___) async {
+          requests++;
+          return null;
+        }),
+      ),
+    );
+    await controller.shortcut('avatar', '山', 'realistic', disabledKey);
+    expect(requests, 0);
+    expect(controller.state.error, '请选择可用的 SiliconFlow 授权');
     controller.dispose();
   });
 

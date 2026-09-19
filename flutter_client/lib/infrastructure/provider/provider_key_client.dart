@@ -1,12 +1,6 @@
-import 'dart:convert';
-import 'dart:math';
-import 'dart:typed_data';
-
-import 'package:pointycastle/export.dart';
-import 'package:pointycastle/asn1.dart';
-
 import '../../domain/models/provider_key.dart';
 import '../auth/authenticated_client.dart';
+import 'rsa_encrypt.dart';
 
 const supportedProviders = <String>[
   'siliconflow',
@@ -35,7 +29,7 @@ class ProviderKeyClient {
     if (!supportedProviders.contains(provider)) {
       throw StateError('不支持的 Provider');
     }
-    final encrypted = _encrypt(key, await publicKey());
+    final encrypted = encryptWithPublicKey(key, await publicKey());
     final data = await api.requestJson(
       '/api/v1/agent/apikey',
       method: 'POST',
@@ -78,41 +72,5 @@ class ProviderKeyClient {
 
   Future<void> delete(String token) async {
     await api.requestJson('/api/v1/agent/apikey/$token', method: 'DELETE');
-  }
-
-  String _encrypt(String value, String pem) {
-    final der = base64Decode(
-      pem
-          .split('\n')
-          .where((line) => !line.startsWith('-----'))
-          .join()
-          .replaceAll(RegExp(r'\s'), ''),
-    );
-    final spki = ASN1Parser(der).nextObject() as ASN1Sequence;
-    final bits = spki.elements![1] as ASN1BitString;
-    final rsa =
-        ASN1Parser(Uint8List.fromList(bits.stringValues!)).nextObject()
-            as ASN1Sequence;
-    final key = RSAPublicKey(
-      (rsa.elements![0] as ASN1Integer).integer!,
-      (rsa.elements![1] as ASN1Integer).integer!,
-    );
-    final random = Random.secure();
-    final cipher = OAEPEncoding.withSHA256(RSAEngine())
-      ..init(
-        true,
-        ParametersWithRandom(
-          PublicKeyParameter<RSAPublicKey>(key),
-          FortunaRandom()..seed(
-            KeyParameter(
-              Uint8List.fromList(
-                List<int>.generate(32, (_) => random.nextInt(256)),
-              ),
-            ),
-          ),
-        ),
-      );
-    final encrypted = cipher.process(Uint8List.fromList(utf8.encode(value)));
-    return base64Encode(encrypted);
   }
 }

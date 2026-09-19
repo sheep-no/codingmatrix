@@ -7,6 +7,7 @@ import 'package:codingmatrix_desktop/presentation/ppt_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 
 import 'agent_delivery_test.dart' show DeliveryApi;
 import 'auth_session_test.dart' show Fixture;
@@ -281,6 +282,24 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  test('PDF 下载走服务端按需转换的专用端点', () async {
+    final urls = <Uri>[];
+    final api = DeliveryApi(
+      (_, __, ___) async => fail('unexpected requestJson'),
+      sendHandle: (request) async {
+        urls.add(request.url);
+        return http.StreamedResponse(const Stream<List<int>>.empty(), 404);
+      },
+    );
+    await expectLater(
+      PptClient(api).download('p1', (_) {}, format: 'pdf'),
+      throwsA(isA<StateError>()),
+    );
+    expect(urls, hasLength(1));
+    expect(urls.single.path, '/api/v1/pptx/download/p1/pdf');
+    expect(urls.single.query, isEmpty);
+  });
+
   testWidgets('质量报告进行中无法再次触发并发请求', (tester) async {
     var reports = 0;
     final pending = Completer<Object?>();
@@ -493,7 +512,7 @@ void main() {
     await tester.pump();
     expect(historyCalls, 1);
     pending.complete({
-      'items': [
+      'records': [
         {'topic': '增长', 'status': 'completed', 'ppt_id': 'p1'},
       ],
     });
@@ -575,7 +594,7 @@ void main() {
     final api = DeliveryApi((path, method, body) async {
       if (path == '/api/v1/pptx/outlines') {
         expect(method, 'POST');
-        expect(body, {'prompt': '增长'});
+        expect(body, {'topic': '增长'});
         throw const SocketException('connection lost');
       }
       fail('unexpected $path');
@@ -684,6 +703,32 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('历史读取解析后端 records 字段', () async {
+    final api = DeliveryApi((path, method, _) async {
+      expect(path, '/api/v1/pptx/history');
+      expect(method, 'GET');
+      return {
+        'records': [
+          {'task_id': 'p1', 'title': '增长', 'status': 'completed'},
+        ],
+        'total': 1,
+      };
+    });
+    final items = await PptClient(api).history();
+    expect(items.single['task_id'], 'p1');
+  });
+
+  test('大纲创建提交 topic 字段而不是 prompt', () async {
+    final api = DeliveryApi((path, method, body) async {
+      expect(path, '/api/v1/pptx/outlines');
+      expect(method, 'POST');
+      expect(body, {'topic': '增长'});
+      return {'outline_id': 'o1'};
+    });
+    final result = await PptClient(api).createOutline('增长');
+    expect(result['outline_id'], 'o1');
   });
 
   test('按大纲生成网络断开会失败', () async {

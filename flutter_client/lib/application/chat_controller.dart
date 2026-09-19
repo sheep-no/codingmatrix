@@ -158,14 +158,23 @@ class ChatController extends Notifier<ChatState> {
           completion.future.then((_) => null),
         ]);
         if (operation != _operation || uploaded == null) return;
-        final serverPath = uploaded['server_path'];
+        // FileUploadResponse exposes the stored filename, never a server path:
+        // Aicode.verify_file_access resolves attachments by file_path and falls
+        // back to matching File.filename.
+        final serverPath = uploaded['server_path'] ?? uploaded['filename'];
         if (serverPath is! String || serverPath.trim().isEmpty) {
-          throw const FormatException('上传响应缺少 server_path，无法发送附件');
+          throw const FormatException('上传响应缺少文件名，无法发送附件');
         }
+        final name = uploaded['name'] ?? uploaded['filename'];
         attachments.add({
           'server_path': serverPath,
-          'name': uploaded['name'] ?? path.split(RegExp(r'[/\\]')).last,
-          'type': uploaded['type'] ?? 'application/octet-stream',
+          'name': name is String && name.trim().isNotEmpty
+              ? name
+              : path.split(RegExp(r'[/\\]')).last,
+          'type':
+              uploaded['type'] ??
+              uploaded['content_type'] ??
+              'application/octet-stream',
         });
       }
       if (operation != _operation) return;
@@ -230,12 +239,13 @@ class ChatController extends Notifier<ChatState> {
       ]);
       if (operation != _operation || reply == null) return;
       _completion = null;
+      final text = reply.text.trim();
       state = state.copyWith(
         loading: false,
-        messages: [
-          ...messages,
-          ChatMessage(text: reply.text, fromUser: false),
-        ],
+        error: reply.error,
+        messages: text.isEmpty
+            ? messages
+            : [...messages, ChatMessage(text: reply.text, fromUser: false)],
         conversationId: reply.conversationId ?? conversationId,
       );
     } catch (error) {

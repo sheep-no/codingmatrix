@@ -25,22 +25,32 @@ class ImageGenerationController extends StateNotifier<ImageGenerationState> {
   int _operation = 0;
   bool _active(int op) => mounted && op == _operation;
 
+  // Kolors only accepts SiliconFlow credentials, so a missing, unusable or
+  // foreign key is reported instead of silently ignoring the tap or sending
+  // another provider's token to Kolors. Returns the accepted key.
+  ProviderKeySummary? _usableKey(ProviderKeySummary? key) {
+    if (key != null && key.isUsable && key.provider == 'siliconflow') {
+      return key;
+    }
+    state = const ImageGenerationState(error: '请选择可用的 SiliconFlow 授权');
+    return null;
+  }
+
   Future<void> generate(
     ImageGenerationInput input,
     ProviderKeySummary? key,
   ) async {
     if (!mounted || state.busy || state.saving != null) return;
-    if (!input.valid ||
-        key == null ||
-        !key.isUsable ||
-        key.provider != 'siliconflow') {
+    if (!input.valid) {
       state = const ImageGenerationState(error: '请填写有效参数并选择可用的 SiliconFlow 授权');
       return;
     }
+    final usableKey = _usableKey(key);
+    if (usableKey == null) return;
     final op = ++_operation;
     state = const ImageGenerationState(busy: true);
     try {
-      final result = await client.generate(input, key.token);
+      final result = await client.generate(input, usableKey.token);
       if (!_active(op)) return;
       state = ImageGenerationState(
         busy: true,
@@ -65,12 +75,8 @@ class ImageGenerationController extends StateNotifier<ImageGenerationState> {
     String style,
     ProviderKeySummary? key,
   ) async {
-    if (!mounted ||
-        state.busy ||
-        key == null ||
-        !key.isUsable ||
-        key.provider != 'siliconflow')
-      return;
+    if (!mounted || state.busy) return;
+    if (_usableKey(key) == null) return;
     final op = ++_operation;
     state = const ImageGenerationState(busy: true);
     try {
@@ -112,19 +118,17 @@ class ImageGenerationController extends StateNotifier<ImageGenerationState> {
     String prompt,
     ProviderKeySummary? key,
   ) async {
-    if (!mounted ||
-        state.busy ||
-        key == null ||
-        !key.isUsable ||
-        prompt.trim().isEmpty)
-      return;
+    if (!mounted || state.busy) return;
+    final usableKey = _usableKey(key);
+    if (usableKey == null) return;
+    if (prompt.trim().isEmpty) return;
     final op = ++_operation;
     state = const ImageGenerationState(busy: true);
     try {
       final result = await client.imageToImage(
         imagePath: imagePath,
         prompt: prompt,
-        token: key.token,
+        token: usableKey.token,
       );
       if (!_active(op)) return;
       state = ImageGenerationState(
@@ -149,12 +153,10 @@ class ImageGenerationController extends StateNotifier<ImageGenerationState> {
     String prompt,
     ProviderKeySummary? key,
   ) async {
-    if (!mounted ||
-        state.busy ||
-        key == null ||
-        !key.isUsable ||
-        prompt.trim().isEmpty)
-      return;
+    if (!mounted || state.busy) return;
+    final usableKey = _usableKey(key);
+    if (usableKey == null) return;
+    if (prompt.trim().isEmpty) return;
     final op = ++_operation;
     state = const ImageGenerationState(busy: true);
     try {
@@ -162,7 +164,7 @@ class ImageGenerationController extends StateNotifier<ImageGenerationState> {
         imagePath: imagePath,
         maskPath: maskPath,
         prompt: prompt,
-        token: key.token,
+        token: usableKey.token,
       );
       if (!_active(op)) return;
       state = ImageGenerationState(

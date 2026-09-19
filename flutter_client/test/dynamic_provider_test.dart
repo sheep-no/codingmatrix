@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/infrastructure/provider/dynamic_provider_client.dart';
@@ -7,6 +10,8 @@ import 'package:codingmatrix_desktop/presentation/dynamic_provider_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pointycastle/asn1.dart';
+import 'package:pointycastle/export.dart';
 
 import 'agent_delivery_test.dart' show DeliveryApi;
 import 'auth_session_test.dart' show Fixture;
@@ -21,7 +26,80 @@ const providerItem = {
   'models': ['glm-4'],
 };
 
+late RSAPrivateKey testPrivateKey;
+late String testPublicPem;
+
+String decryptApiKey(String encrypted) {
+  final cipher = OAEPEncoding.withSHA256(RSAEngine())
+    ..init(false, PrivateKeyParameter<RSAPrivateKey>(testPrivateKey));
+  return utf8.decode(cipher.process(base64Decode(encrypted)));
+}
+
 void main() {
+  setUpAll(() {
+    final secure = Random.secure();
+    final random = FortunaRandom()
+      ..seed(
+        KeyParameter(
+          Uint8List.fromList(List.generate(32, (_) => secure.nextInt(256))),
+        ),
+      );
+    final generator = RSAKeyGenerator()
+      ..init(
+        ParametersWithRandom(
+          RSAKeyGeneratorParameters(BigInt.from(65537), 2048, 64),
+          random,
+        ),
+      );
+    final pair = generator.generateKeyPair();
+    final public = pair.publicKey as RSAPublicKey;
+    testPrivateKey = pair.privateKey as RSAPrivateKey;
+    final rsa = ASN1Sequence(
+      elements: [ASN1Integer(public.modulus), ASN1Integer(public.exponent)],
+    );
+    final spki = ASN1Sequence(
+      elements: [
+        ASN1Sequence(
+          elements: [
+            ASN1ObjectIdentifier.fromIdentifierString('1.2.840.113549.1.1.1'),
+            ASN1Null(),
+          ],
+        ),
+        ASN1BitString(stringValues: rsa.encode()),
+      ],
+    );
+    testPublicPem =
+        '-----BEGIN PUBLIC KEY-----\n${base64Encode(spki.encode())}\n-----END PUBLIC KEY-----';
+  });
+
+  test('添加供应商用服务端公钥加密 API Key 而不是发明文', () async {
+    final client = DynamicProviderClient(
+      DeliveryApi((path, method, body) async {
+        if (path == '/api/v1/agent/apikey/public-key') {
+          return {'public_key': testPublicPem};
+        }
+        expect(path, '/api/v1/providers');
+        expect(method, 'POST');
+        final payload = body as Map;
+        expect(payload['name'], 'custom');
+        expect(payload['base_url'], 'https://llm.example.com');
+        expect(payload['protocol'], 'openai');
+        expect(payload.containsKey('api_key'), isFalse);
+        expect(
+          decryptApiKey(payload['encrypted_api_key'] as String),
+          'sk-test',
+        );
+        return {};
+      }),
+    );
+    await client.add(
+      name: 'custom',
+      baseUrl: 'https://llm.example.com',
+      protocol: 'openai',
+      apiKey: 'sk-test',
+    );
+  });
+
   test('列出供应商解析数组响应', () async {
     final client = DynamicProviderClient(
       DeliveryApi((path, method, body) async {

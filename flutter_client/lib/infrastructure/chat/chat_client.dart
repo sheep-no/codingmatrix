@@ -227,12 +227,20 @@ class ChatClient {
               body: {'conversation_id': conversationId, 'limit': 50},
             )
             as Map;
-    return (result['items'] as List).map((item) {
+    // Each record pairs the user's prompt with the assistant's response, so
+    // expand it into two messages to keep the answer visible.
+    final messages = <ChatMessage>[];
+    for (final item in (result['items'] as List? ?? const [])) {
       final json = Map<String, dynamic>.from(item as Map);
-      return ChatMessage(
-        text: (json['prompt'] ?? json['content'] ?? '').toString(),
-        fromUser: (json['role'] ?? 'user') == 'user',
-      );
-    }).toList();
+      final prompt = (json['prompt'] ?? '').toString();
+      if (prompt.isNotEmpty) {
+        messages.add(ChatMessage(text: prompt, fromUser: true));
+      }
+      final response = (json['response'] ?? '').toString();
+      if (response.isNotEmpty) {
+        messages.add(ChatMessage(text: response, fromUser: false));
+      }
+    }
+    return messages;
   }
 }
