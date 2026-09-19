@@ -9,6 +9,10 @@
 
 新增可复用模块或导出符号时，要么让它被生产代码调用，要么在此登记为
 ``experimental`` 并写明原因，避免未接线能力继续静默累积。
+
+登记表同时是**整模块清单**：``tests/unit/test_capability_registry.py`` 会扫描
+``app/agent``，要求每个没有任何生产引用的模块都在本表中有条目（或属于豁免项），
+因此新增此类模块必须同步登记。
 """
 
 from dataclasses import dataclass
@@ -75,5 +79,73 @@ DECLARED_CAPABILITIES: tuple[DeclaredCapability, ...] = (
         module="app/agent/orchestration/budget.py",
         status="wired",
         rationale="四级预算已在调度层与网关中强制生效。",
+    ),
+    # 整模块无生产引用：以下模块没有任何生产代码导入或调用，仅由单测维持。
+    # 它们由 capability-consumer-gate 门禁纳入清单，接线后需改为 wired。
+    DeclaredCapability(
+        name="CloudLearningHub",
+        module="app/agent/cloud_learning_hub.py",
+        status="experimental",
+        rationale="云端模式学习中心整模块无生产引用，仅单测覆盖。",
+    ),
+    DeclaredCapability(
+        name="ConsistencyChecker",
+        module="app/agent/consistency_checker.py",
+        status="experimental",
+        rationale="跨文件 schema 漂移检查整模块无生产引用，仅单测覆盖。",
+    ),
+    DeclaredCapability(
+        name="FastApiCrudRenderer",
+        module="app/agent/constrained_generation.py",
+        status="experimental",
+        rationale="受约束的 FastAPI CRUD 渲染器整模块无生产引用，仅单测覆盖。",
+    ),
+    DeclaredCapability(
+        name="build_report_from_file",
+        module="app/agent/evaluation_runner.py",
+        status="experimental",
+        rationale="评估报告文件入口无生产引用，矩阵目前只经 tests/manual 运行。",
+    ),
+    DeclaredCapability(
+        name="FixPatternCache",
+        module="app/agent/fix_pattern_cache.py",
+        status="experimental",
+        rationale="修复模式缓存整模块无生产引用，仅单测覆盖。",
+    ),
+    DeclaredCapability(
+        name="validation_targets_for_workflow",
+        module="app/agent/framework_profiles/validation.py",
+        status="experimental",
+        rationale="工作流验证目标解析无生产引用，仅单测覆盖。",
+    ),
+    DeclaredCapability(
+        name="parse_multi_review_response",
+        module="app/agent/multi_angle_review.py",
+        status="experimental",
+        rationale="多角度审查解析整模块无生产引用，仅单测覆盖。",
+    ),
+    DeclaredCapability(
+        name="LanguageDependencyParser",
+        module="app/agent/multi_language_parser.py",
+        status="experimental",
+        rationale="多语言依赖解析整模块无生产引用，仅单测覆盖。",
+    ),
+    DeclaredCapability(
+        name="project_change_plan",
+        module="app/agent/orchestration/ir_projection.py",
+        status="experimental",
+        rationale="变更计划投影无生产引用，WorkflowIR 投影目前仍由 runtime 承担。",
+    ),
+    DeclaredCapability(
+        name="StrategyLearner",
+        module="app/agent/strategy_learner.py",
+        status="experimental",
+        rationale="策略学习器整模块无生产引用，仅单测覆盖。",
+    ),
+    DeclaredCapability(
+        name="UserPreferenceLearner",
+        module="app/agent/user_preference_learner.py",
+        status="experimental",
+        rationale="用户偏好学习器整模块无生产引用，仅单测覆盖。",
     ),
 )
