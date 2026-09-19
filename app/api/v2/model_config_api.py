@@ -255,12 +255,25 @@ async def delete_provider(
 ):
     """删除供应商"""
     manager = get_model_config_manager()
-    
+
+    if not manager.get_provider(provider_id):
+        raise HTTPException(status_code=404, detail=f"供应商 {provider_id} 不存在")
+
+    referencing = [
+        model.id for model in manager.get_all_models()
+        if model.provider == provider_id
+    ]
+    if referencing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"供应商仍被以下模型引用，无法删除: {', '.join(referencing)}"
+        )
+
     if manager.delete_provider(provider_id):
         logger.info(f"删除供应商成功 | 操作用户={current_user.get('sub')} | 供应商={provider_id}")
         return {"success": True, "message": f"供应商 {provider_id} 已删除"}
-    
-    raise HTTPException(status_code=404, detail=f"供应商 {provider_id} 不存在")
+
+    raise HTTPException(status_code=500, detail="删除失败")
 
 
 # ==================== Agent 配置 ====================

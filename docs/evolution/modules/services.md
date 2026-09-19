@@ -174,5 +174,7 @@ app/models（12 文件，含 agent_memory cascade 确认）/ app/db（12）/ app
 ### P3 部分核实（2026-09-18）
 
 - **MCM1 已修**：`app/utils/model_config_io.py` 的 `save_model_config` 改为「写同目录 `.tmp` + `os.replace` 原子替换」，杜绝写入中途崩溃留下半截 YAML。`ModelConfigManager._load_config` 解析失败时新增 `_backup_corrupt_config`，把损坏文件改名为 `<name>.corrupt.<时间戳>` 后再回退默认配置，避免后续 `save_config` 全量覆盖导致管理员配置永久丢失。新增 2 项回归测试；回退源码后损坏备份测试失败。
+- **MCM3 已修**：`update_model`/`update_provider` 的 `hasattr + setattr` 循环抽为 `_apply_updates`，显式忽略 `id` 键并告警，避免改写后字典键与对象 id 不一致。（API 层的 `UpdateModelRequest` 本就无 `id` 字段，此处为 manager 公共方法的防御加固。）
+- **MCM4 已修**：`ModelConfigManager.delete_provider` 在删除前检查是否有模型引用该供应商，有引用则告警并返回 False；`model_config_api.py` 的删除端点前置区分 404（供应商不存在）与 400（仍被模型引用），不再产生孤儿模型。
 - **CSK2/CSK3（custom_skill_manager）、SKR1/SKR2（skill_registry）暂缓**：属 Skill 系统，其是否计入 Agent 范围尚未确认（与 CSK1 同源），按「存疑先不动」处理。
-- **AKM2/AKM3/AKM4、WSM1、HC2、CPM1/CPM2/CPM5、MCM2/MCM3/MCM4/MCM5 未处理**：属 P3，待逐批推进。
+- **AKM2/AKM3/AKM4、WSM1、HC2、CPM1/CPM2/CPM5、MCM2/MCM5 未处理**：属 P3，待逐批推进。
