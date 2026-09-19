@@ -170,3 +170,9 @@ app/models（12 文件，含 agent_memory cascade 确认）/ app/db（12）/ app
 - **PM2 已修**：`app/utils/performance_monitor.py` 提供 `_resolve_metric_path`（:93-95）从 `request.scope["route"].path` 取路由模板，未匹配时回落 `"<unmatched>"`，不再把原始 URL 作为指标标签。
 - **CSK1 已修**：`app/api/v1/skills.py` 的 `author` 取自 token（`str(token.get("sub", ""))`，:77/:217），列表查询传入 `owner_user_id`（:101），归属校验已接入真实用户身份。
 - **HC1 已修**：`app/services/health_checker.py` 用 `asyncio.to_thread(self._inspect_celery, celery_app)` 包装同步 Celery control inspect（:135-137，`_inspect_celery` 定义于 :165-168），不再阻塞事件循环。
+
+### P3 部分核实（2026-09-18）
+
+- **MCM1 已修**：`app/utils/model_config_io.py` 的 `save_model_config` 改为「写同目录 `.tmp` + `os.replace` 原子替换」，杜绝写入中途崩溃留下半截 YAML。`ModelConfigManager._load_config` 解析失败时新增 `_backup_corrupt_config`，把损坏文件改名为 `<name>.corrupt.<时间戳>` 后再回退默认配置，避免后续 `save_config` 全量覆盖导致管理员配置永久丢失。新增 2 项回归测试；回退源码后损坏备份测试失败。
+- **CSK2/CSK3（custom_skill_manager）、SKR1/SKR2（skill_registry）暂缓**：属 Skill 系统，其是否计入 Agent 范围尚未确认（与 CSK1 同源），按「存疑先不动」处理。
+- **AKM2/AKM3/AKM4、WSM1、HC2、CPM1/CPM2/CPM5、MCM2/MCM3/MCM4/MCM5 未处理**：属 P3，待逐批推进。

@@ -12,6 +12,7 @@
 
 import os
 import logging
+from datetime import datetime
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -87,7 +88,23 @@ class ModelConfigManager:
                 self._init_default_config()
         except Exception as e:
             logger.error(f"加载配置失败: {e}")
+            # 文件损坏时先备份再回退默认配置，避免后续 save_config 全量覆盖
+            # 导致管理员此前的配置永久丢失
+            self._backup_corrupt_config()
             self._init_default_config()
+
+    def _backup_corrupt_config(self) -> None:
+        """将无法解析的配置文件改名备份，保留恢复可能"""
+        try:
+            if not self.config_path.exists():
+                return
+            backup_path = self.config_path.with_name(
+                f"{self.config_path.name}.corrupt.{datetime.now():%Y%m%d%H%M%S}"
+            )
+            self.config_path.replace(backup_path)
+            logger.warning(f"模型配置损坏，已备份至: {backup_path}")
+        except Exception as e:
+            logger.error(f"备份损坏配置失败: {e}")
     
     def _parse_config(self, data: Dict):
         """解析配置"""
