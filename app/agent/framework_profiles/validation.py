@@ -7,7 +7,7 @@ from typing import Any, Iterable, Mapping
 
 from app.agent.toolchain import CommandSpec, ToolchainAction, ToolchainRunner
 
-from . import FrameworkProfile, ValidationStage
+from .types import FrameworkProfile, ValidationStage
 
 
 def validation_targets_for_workflow(

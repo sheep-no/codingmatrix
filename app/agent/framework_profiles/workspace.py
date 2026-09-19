@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.agent.toolchain import CommandSpec, ToolchainAction, ToolchainRunner
 
-from . import FrameworkProfile, ProfileScope, ProfileStatus
+from .types import FrameworkProfile, ProfileScope, ProfileStatus
 
 
 PROFILE_SCHEMA_VERSION = 1
