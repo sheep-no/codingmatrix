@@ -175,7 +175,7 @@ class ModelConfigManager:
             data = {
                 "version": "5.0",
                 "description": "统一模型配置",
-                "last_updated": __import__('datetime').datetime.now().isoformat(),
+                "last_updated": datetime.now().isoformat(),
                 "providers": {
                     pid: {
                         "name": p.name,
@@ -216,15 +216,19 @@ class ModelConfigManager:
             logger.info(f"已保存模型配置: {self.config_path}")
             
             # 同步到 Agent 运行时读取的派生配置文件。
-            self._sync_to_agent_config(data)
+            # 同步失败会让管理面与运行面漂移（界面显示新配置、运行时仍用旧配置），
+            # 必须向上返回失败，不能仅记日志后继续报告保存成功。
+            if not self._sync_to_agent_config(data):
+                logger.error("Agent 运行面配置同步失败，管理面与运行面可能不一致")
+                return False
             self._refresh_runtime_config()
             return True
         except Exception as e:
             logger.error(f"保存配置失败: {e}")
             return False
     
-    def _sync_to_agent_config(self, unified_data: Dict):
-        """将管理面配置同步为 Agent 运行时配置。"""
+    def _sync_to_agent_config(self, unified_data: Dict) -> bool:
+        """将管理面配置同步为 Agent 运行时配置，返回是否成功。"""
         agent_config_path = self.config_path.parent / "agent_model_config.yaml"
         try:
             # 保留运行时专用字段，模型和角色字段以管理面配置为准。
@@ -267,8 +271,10 @@ class ModelConfigManager:
             save_model_config(agent_config_path, agent_config)
             
             logger.info(f"已同步 Agent 模型配置: {agent_config_path}")
+            return True
         except Exception as e:
             logger.error(f"同步 Agent 配置失败: {e}")
+            return False
 
     @staticmethod
     def _refresh_runtime_config():
@@ -431,9 +437,12 @@ class ModelConfigManager:
         return None
     
     def export_config(self) -> Dict:
-        """导出配置为字典"""
+        """导出配置为字典（api_key 脱敏，避免未来接线到响应时泄露明文）"""
         return {
-            "providers": {pid: vars(p) for pid, p in self._providers.items()},
+            "providers": {
+                pid: {**vars(p), "api_key": "***" if p.api_key else ""}
+                for pid, p in self._providers.items()
+            },
             "models": {mid: vars(m) for mid, m in self._models.items()},
             "agent": vars(self._agent_config)
         }
