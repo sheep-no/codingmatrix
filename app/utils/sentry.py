@@ -9,12 +9,14 @@ Sentry 错误追踪集成
 """
 import asyncio
 import logging
+import threading
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 _sentry_initialized = False
 _sentry_client = None
+_init_lock = threading.Lock()
 
 
 async def init_sentry(dsn: Optional[str] = None, environment: str = "production"):
@@ -30,44 +32,49 @@ async def init_sentry(dsn: Optional[str] = None, environment: str = "production"
     if _sentry_initialized:
         return
 
-    if not dsn:
-        from app.core.config import settings
-        dsn = getattr(settings, 'SENTRY_DSN', None)
+    # 并发首调时加锁双检，避免重复 init
+    with _init_lock:
+        if _sentry_initialized:
+            return
 
-    if not dsn:
-        logger.info("Sentry DSN 未配置，跳过 Sentry 初始化")
-        return
+        if not dsn:
+            from app.core.config import settings
+            dsn = getattr(settings, 'SENTRY_DSN', None)
 
-    try:
-        import sentry_sdk
-        from sentry_sdk import capture_message, capture_exception
-        from sentry_sdk.integrations import asyncio as sentry_asyncio
-        from sentry_sdk.integrations.fastapi import FastAPIIntegration
-        from sentry_sdk.integrations.starlette import StarletteIntegration
+        if not dsn:
+            logger.info("Sentry DSN 未配置，跳过 Sentry 初始化")
+            return
 
-        _sentry_client = sentry_sdk.init(
-            dsn=dsn,
-            environment=environment,
-            integrations=[
-                sentry_asyncio.AsyncioIntegration(),
-                FastAPIIntegration(auto_continue_trace=True),
-                StarletteIntegration(),
-            ],
-            traces_sample_rate=0.1,
-            profiles_sample_rate=0.1,
-            send_default_pii=False,
-            max_breadcrumbs=50,
-            attach_stacktrace=True,
-            before_send=lambda event, hint: _before_send(event, hint),
-        )
+        try:
+            import sentry_sdk
+            from sentry_sdk import capture_message, capture_exception
+            from sentry_sdk.integrations import asyncio as sentry_asyncio
+            from sentry_sdk.integrations.fastapi import FastAPIIntegration
+            from sentry_sdk.integrations.starlette import StarletteIntegration
 
-        _sentry_initialized = True
-        logger.info(f"Sentry 初始化完成 | environment={environment}")
+            _sentry_client = sentry_sdk.init(
+                dsn=dsn,
+                environment=environment,
+                integrations=[
+                    sentry_asyncio.AsyncioIntegration(),
+                    FastAPIIntegration(auto_continue_trace=True),
+                    StarletteIntegration(),
+                ],
+                traces_sample_rate=0.1,
+                profiles_sample_rate=0.1,
+                send_default_pii=False,
+                max_breadcrumbs=50,
+                attach_stacktrace=True,
+                before_send=lambda event, hint: _before_send(event, hint),
+            )
 
-    except ImportError:
-        logger.warning("sentry-sdk 未安装，跳过 Sentry 初始化")
-    except Exception as e:
-        logger.error(f"Sentry 初始化失败: {e}")
+            _sentry_initialized = True
+            logger.info(f"Sentry 初始化完成 | environment={environment}")
+
+        except ImportError:
+            logger.warning("sentry-sdk 未安装，跳过 Sentry 初始化")
+        except Exception as e:
+            logger.error(f"Sentry 初始化失败: {e}")
 
 
 def _before_send(event, hint):
@@ -102,6 +109,7 @@ def capture_error(error: Exception, **kwargs):
         **kwargs: 额外参数 (extra, tags, user_id 等)
     """
     if not _sentry_initialized:
+        logger.debug("Sentry 未初始化，capture_error 已跳过（错误未上报）")
         return
 
     try:
@@ -133,6 +141,7 @@ def capture_message_sync(message: str, level: str = "info", **kwargs):
         **kwargs: 额外参数
     """
     if not _sentry_initialized:
+        logger.debug("Sentry 未初始化，capture_message_sync 已跳过（消息未上报）")
         return
 
     try:
@@ -161,6 +170,7 @@ async def capture_message_async(message: str, level: str = "info", **kwargs):
         **kwargs: 额外参数
     """
     if not _sentry_initialized:
+        logger.debug("Sentry 未初始化，capture_message_async 已跳过（消息未上报）")
         return
 
     try:
@@ -191,6 +201,7 @@ def set_user(user_id: str, email: Optional[str] = None, username: Optional[str] 
         username: 用户名
     """
     if not _sentry_initialized:
+        logger.debug("Sentry 未初始化，set_user 已跳过")
         return
 
     try:
@@ -213,6 +224,7 @@ def set_tag(key: str, value: str):
         value: 标签值
     """
     if not _sentry_initialized:
+        logger.debug("Sentry 未初始化，set_tag 已跳过")
         return
 
     try:
@@ -233,6 +245,7 @@ def add_breadcrumb(message: str, category: str = "default", level: str = "info",
         **kwargs: 额外参数
     """
     if not _sentry_initialized:
+        logger.debug("Sentry 未初始化，add_breadcrumb 已跳过")
         return
 
     try:

@@ -5,6 +5,7 @@
 """
 import asyncio
 import logging
+import threading
 import time
 import traceback
 from typing import Callable, Dict, List, Optional, Any
@@ -50,7 +51,14 @@ class StartupFailureAlert:
         self._handlers: List[Callable] = []
         self._start_time: Optional[float] = None
         self._startup_successful = False
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
+
+    def _remember(self, alert: StartupAlert):
+        """记录告警并裁剪历史，保留最近 _max_alerts 条。"""
+        with self._lock:
+            self._alerts.append(alert)
+            if len(self._alerts) > self._max_alerts:
+                del self._alerts[: len(self._alerts) - self._max_alerts]
 
     def add_handler(self, handler: Callable):
         """
@@ -101,7 +109,7 @@ class StartupFailureAlert:
                 recovered=True,
                 recovered_at=time.time()
             )
-            self._alerts.append(alert)
+            self._remember(alert)
             await self.notify_handlers(alert)
 
     async def record_startup_failure(
@@ -133,7 +141,7 @@ class StartupFailureAlert:
                 **(details or {})
             }
         )
-        self._alerts.append(alert)
+        self._remember(alert)
 
         logger.error("=" * 60)
         logger.error(f"服务启动失败 | phase={phase} | error={error}")
@@ -154,7 +162,7 @@ class StartupFailureAlert:
             recovered=True,
             recovered_at=time.time()
         )
-        self._alerts.append(alert)
+        self._remember(alert)
         await self.notify_handlers(alert)
 
     def get_alerts(
@@ -241,11 +249,14 @@ class ConsoleAlertHandler:
 
 
 _startup_alert: Optional[StartupFailureAlert] = None
+_startup_alert_lock = threading.Lock()
 
 
 def get_startup_alert() -> StartupFailureAlert:
     """获取启动告警管理器单例"""
     global _startup_alert
     if _startup_alert is None:
-        _startup_alert = StartupFailureAlert()
+        with _startup_alert_lock:
+            if _startup_alert is None:
+                _startup_alert = StartupFailureAlert()
     return _startup_alert
