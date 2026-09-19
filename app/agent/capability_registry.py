@@ -65,6 +65,21 @@ DECLARED_CAPABILITIES: tuple[DeclaredCapability, ...] = (
         rationale="V0 模型操作校验为分层验证入口，无生产调用方。",
     ),
     DeclaredCapability(
+        name="route_generation",
+        module="app/agent/orchestration/engine_router.py",
+        status="experimental",
+        rationale=(
+            "旧/新引擎分流与影子对比入口无生产调用方；端点分流目前由 "
+            "build_legacy_workflow 的 core_handler 承担。"
+        ),
+    ),
+    DeclaredCapability(
+        name="compare_shadow_results",
+        module="app/agent/orchestration/engine_router.py",
+        status="experimental",
+        rationale="影子结果对比只被路由入口使用，路由入口本身未接线。",
+    ),
+    DeclaredCapability(
         name="ContextAssembler",
         module="app/agent/context_assembler.py",
         status="wired",

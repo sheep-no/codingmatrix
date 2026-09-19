@@ -90,14 +90,10 @@ async def generate_project(
                 cancel_event=cancel_event,
             )
 
-        async def run_core(_state):
-            # The core route keeps the established generator behind the new boundary
-            # until the dedicated Core generation adapter completes its acceptance.
-            return await run_generate(_state)
-
-        workflow = build_legacy_workflow(
-            "generate", "/generate", run_generate, core_handler=run_core
-        )
+        # This endpoint has no engine selector yet, so it must not publish a core
+        # handler that silently runs the legacy generator. Core generation is
+        # reached through /orchestrate until this endpoint gets its own adapter.
+        workflow = build_legacy_workflow("generate", "/generate", run_generate)
         state = await run_workflow(
             workflow,
             session_id=req.session_id or task_id,
