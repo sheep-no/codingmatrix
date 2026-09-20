@@ -177,7 +177,7 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest, user_id
     # 验证 TTL - 支持预设选项或自定义秒数
     from app.services.apikey_manager import resolve_ttl, MAX_CUSTOM_TTL
     try:
-        ttl_seconds = resolve_ttl(submit_request.ttl)
+        resolve_ttl(submit_request.ttl)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     

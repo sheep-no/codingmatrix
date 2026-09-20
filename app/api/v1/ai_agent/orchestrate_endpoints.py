@@ -2210,8 +2210,6 @@ async def get_token_usage_stats(
         )
         today_row = today_result.first()
         today_tokens = today_row.today_tokens or 0
-        today_prompt_tokens = today_row.today_prompt_tokens or 0
-        today_completion_tokens = today_row.today_completion_tokens or 0
         
         # 本月 token 使用量
         month_start = today_start.replace(day=1)
@@ -2227,8 +2225,6 @@ async def get_token_usage_stats(
         )
         month_row = month_result.first()
         this_month_tokens = month_row.month_tokens or 0
-        this_month_prompt_tokens = month_row.month_prompt_tokens or 0
-        this_month_completion_tokens = month_row.month_completion_tokens or 0
         
         # 按模型统计
         model_result = await db.execute(

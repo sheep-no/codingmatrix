@@ -241,7 +241,6 @@ class RateLimiter:
 
     def get_stats(self) -> Dict:
         """获取限流统计信息"""
-        current_time = time.time()
         with self._lock:
             return {
                 "enabled": self._config.enabled,

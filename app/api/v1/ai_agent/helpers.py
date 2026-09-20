@@ -419,7 +419,6 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
     Returns:
         清理的僵尸会话数量
     """
-    from app.utils.dynamic_concurrent import ConcurrentLimitManager
     from datetime import timedelta
     
     try:
@@ -438,7 +437,6 @@ async def _detect_and_clean_zombie_sessions(db: AsyncSession, user_id: str) -> i
         # 检查内存中是否有对应的 SessionState
         sm = await get_session_manager()
         zombie_count = 0
-        concurrent_mgr = ConcurrentLimitManager()
         
         # 7 天超时阈值（基于最后活动时间）
         timeout_threshold = datetime.now(timezone.utc) - timedelta(days=7)

@@ -248,7 +248,6 @@ class SkillRegistry:
                 file_path = CUSTOM_SKILLS_DIR / skill_info.get("file", "")
                 description = skill_info.get("description", "")
                 author = skill_info.get("author", "unknown")
-                version = skill_info.get("version", 1)
                 
                 if file_path.exists():
                     content = file_path.read_text(encoding="utf-8")

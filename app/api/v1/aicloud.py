@@ -204,7 +204,7 @@ async def chat(
 
     formatted_system_prompt = system_prompt.format(sandbox_path=sandbox_path)
 
-    # 组合完整提示
+    # TODO: 将知识库检索结果接入 execute_with_llm_loop，当前 full_prompt 未被使用
     full_prompt = f"{history_context}{knowledge_context}{formatted_system_prompt}{request.message}"
 
     user_message = AicloudMessage(

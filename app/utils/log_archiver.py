@@ -315,8 +315,6 @@ class LogRotationHandler(logging.Handler):
 
     def _do_rotate(self):
         """执行轮转"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
         for i in range(self.backup_count - 1, 0, -1):
             old_file = self.log_file.with_suffix(f".{i}")
             new_file = self.log_file.with_suffix(f".{i + 1}")

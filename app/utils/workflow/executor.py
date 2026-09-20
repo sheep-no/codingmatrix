@@ -319,7 +319,6 @@ class WorkflowExecutor:
         running: Set[str] = set()
 
         topological_order = self._compute_topological_order()
-        order_index = {node_id: i for i, node_id in enumerate(topological_order)}
 
         logger.info(f"[{workflow_id}] 开始执行 | 节点数: {len(topological_order)}")
 

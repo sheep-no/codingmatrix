@@ -681,7 +681,6 @@ async def generate_companion_turn(
 
     character = await _get_character(body.character_id, int(user_id), db)
     history_service = ChatHistoryService(db)
-    start_time = time.time()
     session_id = None
     reserved_turn_id = body.turn_id or f"girlai-turn-{uuid.uuid4()}"
     reservation_created = False

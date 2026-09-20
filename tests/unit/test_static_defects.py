@@ -12,10 +12,9 @@
 `tests/unit/test_orchestration_default_engine.py` 的教训是：缺陷可以在测试
 全绿时长期潜伏。这里用工具兜住这一类问题，避免靠逐个测试去发现。
 
-门禁分两档：
-
-- 全 `app` 目录强制 F821/F823/F811/F402（名字解析、重复导入、导入遮蔽）
-- `app/agent` 额外强制 F841（死代码/失效逻辑，该目录已清零）
+门禁覆盖全 `app` 目录的 F821/F823/F811/F402/F841。`app/api/v1/aicloud.py`
+的 `full_prompt` 是有据可查的例外：RAG 检索结果尚未接入调用链，删除它会连带
+移除已完成的知识库检索功能，因此保留并显式豁免（代码内已加 TODO）。
 """
 
 import subprocess
@@ -26,9 +25,9 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_DIR = REPO_ROOT / "app"
-AGENT_DIR = REPO_ROOT / "app" / "agent"
-APP_RULES = "F821,F823,F811,F402"
-AGENT_RULES = APP_RULES + ",F841"
+RULES = "F821,F823,F811,F402,F841"
+# 已知例外（格式 PATTERN:CODES），仅用于无法在不删除功能的前提下消除的告警。
+PER_FILE_IGNORES = ("app/api/v1/aicloud.py:F841",)
 
 
 def _ruff(*args: str) -> subprocess.CompletedProcess:
@@ -40,11 +39,11 @@ def _ruff(*args: str) -> subprocess.CompletedProcess:
     )
 
 
-def _assert_no_defects(target_dir: Path, rules: str):
+def _assert_no_defects(target_dir: Path, rules: str, per_file_ignores: tuple = ()):
     if _ruff("--version").returncode != 0:
         pytest.skip("ruff 未安装，跳过静态缺陷门禁")
 
-    result = _ruff(
+    args = [
         "check",
         str(target_dir),
         "--select",
@@ -52,7 +51,11 @@ def _assert_no_defects(target_dir: Path, rules: str):
         "--output-format",
         "concise",
         "--no-cache",
-    )
+    ]
+    for pattern in per_file_ignores:
+        args += ["--per-file-ignores", pattern]
+
+    result = _ruff(*args)
     assert result.returncode == 0, (
         f"{target_dir.relative_to(REPO_ROOT)} 存在静态缺陷（规则 {rules}）：\n"
         + result.stdout
@@ -61,8 +64,4 @@ def _assert_no_defects(target_dir: Path, rules: str):
 
 
 def test_app_has_no_high_confidence_static_defects():
-    _assert_no_defects(APP_DIR, APP_RULES)
-
-
-def test_agent_has_no_high_confidence_static_defects():
-    _assert_no_defects(AGENT_DIR, AGENT_RULES)
+    _assert_no_defects(APP_DIR, RULES, PER_FILE_IGNORES)

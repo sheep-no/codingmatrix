@@ -173,7 +173,7 @@ class FileModelRouter:
         from app.utils.model_config_io import load_model_config
         config_path = Path(__file__).parent.parent.parent / "data" / "agent_model_config.yaml"
         try:
-            with open(config_path, encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8"):
                 cfg = load_model_config(config_path)
             roles = cfg.get("roles", {})
             models = cfg.get("models", {})
@@ -629,7 +629,6 @@ class CodeValidator:
                 content = f.read()
 
             tree = ast.parse(content)
-            issues = []
             warnings = []
 
             # 检查危险函数调用
@@ -2395,29 +2394,6 @@ class ProjectGeneratorAgent(BaseModel):
         # 记录每个工具的执行结果
         for i, result in enumerate(results):
             logger.debug(f"工具 {i + 1} 执行结果: {result.content[:200] if hasattr(result, 'content') else result}")
-            # 判断是否为创建文件且成功的工具调用
-            try:
-                result_content = json.loads(result.content) if isinstance(result.content, str) else result.content
-                if isinstance(result_content, dict) and result_content.get("status") == "success":
-                    # 获取项目根目录（这里假设为output_dir，需要您从类上下文中传递或获取）
-                    # 您需要确保在执行此方法时能访问到项目根目录路径，例如 self.current_output_dir
-                    project_root = self.current_output_dir or Path(".").resolve()
-                    directory_snapshot = await list_directory(str(project_root))
-
-                    # 将目录快照构建为一条特殊的系统消息
-                    # 可以添加到 results 中作为一个新的"工具消息"，或者在外部处理
-                    snapshot_message = type('ToolMessage', (), {
-                        'tool_call_id': f"snapshot_{int(time.time())}",
-                        'content': json.dumps({
-                            "type": "directory_snapshot",
-                            "message": "文件创建成功，当前项目目录结构如下：",
-                            "snapshot": directory_snapshot
-                        })
-                    })()
-                    # 可以将此消息也加入到 results 列表中，后续统一处理
-                    # 更优的方案是在此方法外，根据 results 里的成功状态来添加快照消息到 messages
-            except Exception as e:
-                logger.debug(f"生成目录快照时忽略错误或非文件创建工具: {e}")
 
         logger.debug(f"所有工具任务完成")
         return results

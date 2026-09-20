@@ -2414,8 +2414,6 @@ async def generate_ppt_task(
                 material_file_ids = [int(x.strip()) for x in match.group(1).split(',')]
         except Exception: pass
 
-    ppt_id = str(uuid.uuid4())
-    
     async def run_ppt_generation(task_id: str, **kwargs):
         _register_ppt_owner(task_id, user_id)
         async def update_progress(progress: int = 0, message: str = "", status: str = None, result_data: str = None, **_kwargs):
@@ -2901,7 +2899,6 @@ async def update_ppt_task(
 - 返回完整的合并后 JSON 大纲（包含所有幻灯片）
 - 格式与已有大纲一致
 """
-            original_prompt = new_req.topic
             new_req.topic = incremental_prompt
 
             await update_progress(progress=20, message="正在生成增量内容...")
@@ -2915,7 +2912,6 @@ async def update_ppt_task(
 
             output_id = task_id
             filepath = output_dir / f"{output_id}.{new_req.output_format.value}"
-            slides_data = new_slides
 
             if new_req.output_format == OutputFormat.PPTX:
                 await update_progress(progress=50, message="正在渲染 PPTX...")
@@ -3592,8 +3588,6 @@ async def generate_ppt_from_file(
         output_format=output_format,
         api_key_token=api_key_token,
     )
-
-    ppt_id = str(uuid.uuid4())
 
     async def run_file_ppt_generation(task_id: str, **kwargs):
         _register_ppt_owner(task_id, user_id)

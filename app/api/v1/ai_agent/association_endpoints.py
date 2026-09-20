@@ -80,10 +80,8 @@ async def requirement_association_confirm(
     token: dict = Depends(verify_token),
 ):
     from app.agent.orchestrator_requirements import AssociationFeedbackTracker
-    from datetime import datetime
 
     tracker = AssociationFeedbackTracker()
-    session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     tracker.record_feedback(association_id, "accepted")
 
