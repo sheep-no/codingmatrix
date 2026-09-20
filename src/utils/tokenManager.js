@@ -8,6 +8,9 @@
 let accessToken = null
 let tokenExpiry = null
 
+// 进行中的刷新请求：并发调用共享同一次刷新，避免重复请求与竞态覆盖
+let inFlightRefresh = null
+
 // 初始化时尝试从 sessionStorage 恢复
 try {
   const savedToken = sessionStorage.getItem('_token')
@@ -114,7 +117,7 @@ export const useTokenManager = () => {
   /**
    * 刷新 access token
    */
-  async function refreshAccessToken() {
+  async function performRefresh() {
     try {
       // 首先获取 CSRF token
       let csrfToken = null
@@ -173,6 +176,18 @@ export const useTokenManager = () => {
       clearToken()
       return false
     }
+  }
+
+  /**
+   * 刷新 access token（并发调用共享同一次请求）
+   */
+  function refreshAccessToken() {
+    if (!inFlightRefresh) {
+      inFlightRefresh = performRefresh().finally(() => {
+        inFlightRefresh = null
+      })
+    }
+    return inFlightRefresh
   }
 
   return {
