@@ -196,6 +196,7 @@ export const useNavigationStore = defineStore(
     }
 
     const activeTool = computed(() => {
+      if (showProjectGenerator.value) return 'projectGenerator'
       if (showNginxConfig.value) return 'nginxConfig'
       if (showDockerConfig.value) return 'dockerConfig'
       if (showVirtualGirl.value) return 'virtualGirl'
