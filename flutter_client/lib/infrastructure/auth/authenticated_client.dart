@@ -145,6 +145,15 @@ class AuthenticatedClient extends http.BaseClient {
     return response.stream;
   }
 
+  // Raw text response (e.g. the SVG avatar endpoint). Kept on the authenticated
+  // client so callers inherit the retry, timeout and account-switch guards.
+  Future<String> requestText(String path) async {
+    final request = http.Request('GET', Uri.parse(auth.baseUrl).resolve(path));
+    request.headers['Accept'] = 'text/plain';
+    final response = await http.Response.fromStream(await _send(request));
+    return response.body;
+  }
+
   Future<Map<String, dynamic>> uploadFile(String path) async {
     final request = http.MultipartRequest(
       'POST',

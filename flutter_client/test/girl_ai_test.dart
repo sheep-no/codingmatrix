@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/application/girl_ai_controller.dart';
 import 'package:codingmatrix_desktop/domain/models/girl_companion.dart';
+import 'package:codingmatrix_desktop/infrastructure/girl/girl_ai_client.dart';
 import 'package:codingmatrix_desktop/presentation/virtual_girl_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1082,5 +1083,446 @@ void main() {
     expect(find.textContaining('connection lost'), findsOneWidget);
     expect(find.text('喜欢: 猫'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  test('头像地址指向角色头像端点', () {
+    expect(
+      GirlAiClient(api).avatarUrl('gentle'),
+      'https://example.com/api/v1/GirlAi/characters/gentle/avatar',
+    );
+  });
+
+  test('语音发送走后端转写接口并记录语音状态', () async {
+    final bodies = <Object?>[];
+    useApi(
+      GirlApi((path, method, body) async {
+        if (path == '/api/v1/GirlAi/characters') {
+          return {
+            'characters': [
+              {'id': 'gentle', 'name': '温柔'},
+            ],
+          };
+        }
+        if (path == '/api/v1/GirlAi/voice/transcriptions') {
+          expect(method, 'POST');
+          bodies.add(body);
+          return {
+            ...turnReply(text: '在呢'),
+            'voice_input': {'status': 'received'},
+          };
+        }
+        fail('unexpected $path');
+      }),
+    );
+    await container.read(girlAiControllerProvider.notifier).sendVoice('你好');
+    final state = container.read(girlAiControllerProvider);
+    expect(bodies.single, {
+      'transcript': '你好',
+      'character_id': 'gentle',
+      'voice_output': false,
+    });
+    expect(state.messages.map((message) => message.content), ['你好', '在呢']);
+    expect(state.voiceInput?.status, 'received');
+  });
+
+  testWidgets('打开语音模式后发送走转写接口', (tester) async {
+    var transcribed = 0;
+    useApi(
+      GirlApi((path, method, body) async {
+        if (path == '/api/v1/GirlAi/characters') {
+          return {
+            'characters': [
+              {'id': 'gentle', 'name': '温柔'},
+            ],
+          };
+        }
+        if (path == '/api/v1/GirlAi/voice/transcriptions') {
+          transcribed++;
+          return {
+            ...turnReply(text: '在呢'),
+            'voice_input': {'status': 'received'},
+          };
+        }
+        fail('unexpected $path');
+      }),
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('语音输入'));
+    await tester.pump();
+    expect(find.text('语音模式：发送将按语音转写处理'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '你好');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+    await tester.pump();
+    expect(transcribed, 1);
+    expect(find.text('在呢'), findsOneWidget);
+    expect(find.text('语音已识别'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('搜索历史使用 search 端点', () async {
+    String? requested;
+    useApi(
+      GirlApi((path, method, body) async {
+        if (path.startsWith('/api/v1/GirlAi/history/search')) {
+          requested = path;
+          return {
+            'records': [
+              {'id': 'h2', 'role': 'assistant', 'content': '猫'},
+            ],
+          };
+        }
+        fail('unexpected $path');
+      }),
+    );
+    await container
+        .read(girlAiControllerProvider.notifier)
+        .loadHistory(query: '猫');
+    expect(
+      requested,
+      '/api/v1/GirlAi/history/search?q=${Uri.encodeQueryComponent('猫')}',
+    );
+    expect(
+      container.read(girlAiControllerProvider).history.single.content,
+      '猫',
+    );
+  });
+
+  test('删除全部历史调用接口并清空列表', () async {
+    final calls = <String>[];
+    useApi(
+      GirlApi((path, method, body) async {
+        if (path == '/api/v1/GirlAi/history' && method == 'GET') {
+          return {
+            'records': [
+              {'id': 'h1', 'role': 'user', 'content': '记录'},
+            ],
+          };
+        }
+        if (path == '/api/v1/GirlAi/history?all=true' && method == 'DELETE') {
+          calls.add(path);
+          return {'status': 'deleted', 'count': 1};
+        }
+        fail('unexpected $path');
+      }),
+    );
+    final controller = container.read(girlAiControllerProvider.notifier);
+    await controller.loadHistory();
+    expect(container.read(girlAiControllerProvider).history, isNotEmpty);
+    await controller.deleteHistoryRecords(all: true);
+    expect(calls.single, '/api/v1/GirlAi/history?all=true');
+    expect(container.read(girlAiControllerProvider).history, isEmpty);
+  });
+
+  test('删除单条历史只移除命中的记录', () async {
+    final calls = <String>[];
+    useApi(
+      GirlApi((path, method, body) async {
+        if (path == '/api/v1/GirlAi/history' && method == 'GET') {
+          return {
+            'records': [
+              {'id': 'h1', 'role': 'user', 'content': '一'},
+              {'id': 'h2', 'role': 'assistant', 'content': '二'},
+            ],
+          };
+        }
+        if (path == '/api/v1/GirlAi/history?all=false&record_ids=h1' &&
+            method == 'DELETE') {
+          calls.add(path);
+          return {'status': 'deleted', 'count': 1};
+        }
+        fail('unexpected $path');
+      }),
+    );
+    final controller = container.read(girlAiControllerProvider.notifier);
+    await controller.loadHistory();
+    await controller.deleteHistoryRecords(ids: ['h1']);
+    expect(calls.single, '/api/v1/GirlAi/history?all=false&record_ids=h1');
+    expect(
+      container.read(girlAiControllerProvider).history.single.content,
+      '二',
+    );
+  });
+
+  test('加载并删除已保存记忆', () async {
+    final deleted = <String>[];
+    useApi(
+      GirlApi((path, method, body) async {
+        if (path.startsWith('/api/v1/GirlAi/memories?')) {
+          return {
+            'memories': [
+              {
+                'id': 'm9',
+                'key': '城市',
+                'value': '上海',
+                'confidence': 80,
+                'status': 'confirmed',
+              },
+            ],
+            'total': 1,
+            'limit': 20,
+            'offset': 0,
+          };
+        }
+        if (path == '/api/v1/GirlAi/memories/m9' && method == 'DELETE') {
+          deleted.add(path);
+          return {'status': 'deleted', 'id': 'm9'};
+        }
+        fail('unexpected $path');
+      }),
+    );
+    final controller = container.read(girlAiControllerProvider.notifier);
+    await controller.loadMemories();
+    expect(container.read(girlAiControllerProvider).memories.single.key, '城市');
+    await controller.removeMemory('m9');
+    expect(deleted.single, '/api/v1/GirlAi/memories/m9');
+    expect(container.read(girlAiControllerProvider).memories, isEmpty);
+  });
+
+  test('加载并删除偏好', () async {
+    final deleted = <String>[];
+    useApi(
+      GirlApi((path, method, body) async {
+        if (path == '/api/v1/GirlAi/preferences') {
+          return {
+            'preferences': [
+              {'id': 'p1', 'key': '语气', 'value': '轻松'},
+            ],
+          };
+        }
+        if (path == '/api/v1/GirlAi/preferences/p1' && method == 'DELETE') {
+          deleted.add(path);
+          return {'status': 'deleted', 'id': 'p1'};
+        }
+        fail('unexpected $path');
+      }),
+    );
+    final controller = container.read(girlAiControllerProvider.notifier);
+    await controller.loadPreferences();
+    expect(
+      container.read(girlAiControllerProvider).preferences.single.key,
+      '语气',
+    );
+    await controller.removePreference('p1');
+    expect(deleted.single, '/api/v1/GirlAi/preferences/p1');
+    expect(container.read(girlAiControllerProvider).preferences, isEmpty);
+  });
+
+  test('自定义角色加载加前缀且删除时去掉前缀', () async {
+    final deleted = <String>[];
+    useApi(
+      GirlApi((path, method, body) async {
+        if (path == '/api/v1/GirlAi/characters/custom/list') {
+          return {
+            'characters': [
+              {
+                'id': 'u1',
+                'name': '小助手',
+                'description': '自定义',
+                'tags': ['a'],
+                'avatar_color': '#667eea',
+              },
+            ],
+          };
+        }
+        if (path == '/api/v1/GirlAi/characters/custom/u1' &&
+            method == 'DELETE') {
+          deleted.add(path);
+          return {'status': 'deleted', 'id': 'u1'};
+        }
+        fail('unexpected $path');
+      }),
+    );
+    final controller = container.read(girlAiControllerProvider.notifier);
+    await controller.loadCustomCharacters();
+    final custom = container
+        .read(girlAiControllerProvider)
+        .customCharacters
+        .single;
+    expect(custom.id, 'custom_u1');
+    expect(custom.avatarColor, '#667eea');
+    await controller.deleteCharacter('custom_u1');
+    expect(deleted.single, '/api/v1/GirlAi/characters/custom/u1');
+    expect(container.read(girlAiControllerProvider).customCharacters, isEmpty);
+  });
+
+  test('创建角色提交字段并刷新自定义角色列表', () async {
+    Object? posted;
+    var listCalls = 0;
+    useApi(
+      GirlApi((path, method, body) async {
+        if (path == '/api/v1/GirlAi/characters/custom' && method == 'POST') {
+          posted = body;
+          return {'id': 'u2', 'name': '新角色'};
+        }
+        if (path == '/api/v1/GirlAi/characters/custom/list') {
+          listCalls++;
+          return {
+            'characters': [
+              {
+                'id': 'u2',
+                'name': '新角色',
+                'description': '',
+                'tags': [],
+                'avatar_color': '#ffffff',
+              },
+            ],
+          };
+        }
+        fail('unexpected $path');
+      }),
+    );
+    final ok = await container
+        .read(girlAiControllerProvider.notifier)
+        .createCharacter({'name': '新角色', 'speaking_style': '简洁'});
+    expect(ok, true);
+    expect(posted, {'name': '新角色', 'speaking_style': '简洁'});
+    expect(listCalls, 1);
+    expect(
+      container.read(girlAiControllerProvider).customCharacters.single.name,
+      '新角色',
+    );
+  });
+
+  testWidgets('打开记忆库显示已保存记忆和偏好', (tester) async {
+    useApi(
+      GirlApi((path, method, body) async {
+        if (path == '/api/v1/GirlAi/characters') return {'characters': []};
+        if (path.startsWith('/api/v1/GirlAi/memories?')) {
+          return {
+            'memories': [
+              {
+                'id': 'm9',
+                'key': '城市',
+                'value': '上海',
+                'confidence': 80,
+                'status': 'confirmed',
+              },
+            ],
+            'total': 1,
+            'limit': 20,
+            'offset': 0,
+          };
+        }
+        if (path == '/api/v1/GirlAi/preferences') {
+          return {
+            'preferences': [
+              {'id': 'p1', 'key': '语气', 'value': '轻松'},
+            ],
+          };
+        }
+        fail('unexpected $path');
+      }),
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('记忆库'));
+    await tester.pumpAndSettle();
+    expect(find.text('城市: 上海'), findsOneWidget);
+    expect(find.text('语气: 轻松'), findsOneWidget);
+    expect(find.text('暂无已保存记忆'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('打开角色库显示自定义角色并可选用', (tester) async {
+    useApi(
+      GirlApi((path, method, body) async {
+        if (path == '/api/v1/GirlAi/characters') {
+          return {
+            'characters': [
+              {'id': 'gentle', 'name': '温柔'},
+            ],
+          };
+        }
+        if (path == '/api/v1/GirlAi/characters/custom/list') {
+          return {
+            'characters': [
+              {
+                'id': 'u1',
+                'name': '小助手',
+                'description': '自定义',
+                'tags': [],
+                'avatar_color': '#667eea',
+              },
+            ],
+          };
+        }
+        if (path.endsWith('/api/v1/GirlAi/characters/gentle/avatar')) {
+          return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1">'
+              '<rect width="1" height="1" fill="#667eea"/></svg>';
+        }
+        fail('unexpected $path');
+      }),
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VirtualGirlPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byTooltip('角色库'));
+    await tester.pumpAndSettle();
+    expect(find.text('小助手'), findsOneWidget);
+    await tester.tap(find.text('使用').last);
+    await tester.pumpAndSettle();
+    expect(container.read(girlAiControllerProvider).character, 'custom_u1');
+    expect(tester.takeException(), isNull);
+  });
+
+  test('切账号后晚到的记忆库写入不会落到新账号', () async {
+    final fixture = Fixture();
+    final gate = Completer<http.Response>();
+    fixture.business = (request) async {
+      if (request.url.path == '/api/v1/GirlAi/memories') {
+        return gate.future;
+      }
+      return http.Response('{}', 200);
+    };
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        credentialStoreProvider.overrideWithValue(fixture.store),
+        httpClientProvider.overrideWithValue(fixture.transport),
+        cloudAuthClientProvider.overrideWithValue(fixture.auth),
+      ],
+    );
+    final auth = container.read(authControllerProvider.notifier);
+    await Future<void>.delayed(Duration.zero);
+    await auth.login(email: 'alice@example.com', password: 'test-password');
+    final pending = container
+        .read(girlAiControllerProvider.notifier)
+        .loadMemories();
+    await Future<void>.delayed(Duration.zero);
+    await auth.logout();
+    container.read(girlAiControllerProvider);
+    gate.complete(
+      http.Response.bytes(
+        utf8.encode(
+          jsonEncode({
+            'memories': [
+              {'id': 'm9', 'key': '城市', 'value': '上海', 'status': 'confirmed'},
+            ],
+          }),
+        ),
+        200,
+      ),
+    );
+    await pending;
+    expect(container.read(girlAiControllerProvider).memories, isEmpty);
   });
 }

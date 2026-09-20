@@ -44,6 +44,13 @@ class DeliveryApi extends AuthenticatedClient {
     Duration? timeout,
   }) => handle(path, method, body);
   @override
+  Future<String> requestText(String path) async {
+    final result = await handle(path, 'GET', null);
+    if (result is String) return result;
+    throw StateError('requestText expected a String for $path');
+  }
+
+  @override
   Future<http.StreamedResponse> send(http.BaseRequest request) {
     if (sendHandle != null) return sendHandle!(request);
     return Future.value(
