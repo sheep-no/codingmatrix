@@ -43,7 +43,7 @@
 - Instructions:
   - 每个 commit 单独切分支提交并推送，推完删除分支。
   - 推送用 `git push -u origin HEAD`；需要 MR 时加 `-o merge_request.create -o merge_request.title="..." -o merge_request.description="..."`。
-  - `.git/hooks/prepare-commit-msg` 会自动追加 `Co-authored-by: monkeycode-ai <monkeycode-ai@chaitin.com>`；手写同一条或 `--amend` / `rebase` 重放会重复，尾注归一用 `git filter-branch --msg-filter`（该步骤不经过钩子）。
+  - `.git/hooks/prepare-commit-msg` 会自动追加 `Co-authored-by: monkeycode-ai <monkeycode-ai@chaitin.com>`；手写同一条或 `--amend` / `rebase` 重放会重复。写提交信息时不要自带该 trailer（`-F` 的文件里只放正文），由钩子补一次即可；若已重复，用 `git commit --amend -F` 传一份去掉 trailer 的正文即可归一。
   - 拆分提交时，测试里对 UI 文案 / `Key` 的断言必须与引入该文案的源码同提交，否则中间提交失败、无法 bisect；中间提交也不能有悬空导入。
   - 未经用户明确要求不提交、不推送。
 
