@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import json
 import logging
+import secrets
 import time
 from typing import Optional
 
@@ -47,7 +48,11 @@ class CSRFTokenManager:
     async def create_token(self, user_id: Optional[str] = None) -> str:
         """生成 CSRF Token"""
         payload = json.dumps(
-            {"exp": int(time.time()) + self.TOKEN_TTL_SECONDS, "uid": user_id or ""},
+            {
+                "exp": int(time.time()) + self.TOKEN_TTL_SECONDS,
+                "uid": user_id or "",
+                "nonce": secrets.token_urlsafe(16),
+            },
             separators=(",", ":"),
         )
         encoded = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")

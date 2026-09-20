@@ -40,6 +40,13 @@ async def test_user_binding_mismatch_rejected():
     assert await csrf_manager.validate_token(token, "8") is False
 
 
+async def test_tokens_are_unique_within_same_second():
+    """nonce 保证同一秒内重复签发也不产生相同 token。"""
+    manager = CSRFTokenManager()
+    tokens = {await manager.create_token() for _ in range(5)}
+    assert len(tokens) == 5
+
+
 async def test_malformed_token_rejected():
     for bad in ("", "no-dot", "!!!.???", "YWJj.bad-signature"):
         assert await csrf_manager.validate_token(bad) is False
