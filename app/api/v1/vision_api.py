@@ -4,6 +4,7 @@
 import logging
 import tempfile
 import base64
+import binascii
 from pathlib import Path
 from typing import Optional
 
@@ -116,19 +117,24 @@ async def api_analyze_image(
             # 处理 base64 或 URL
             if image_url.startswith("data:"):
                 # base64 data URI
+                if "," not in image_url:
+                    raise HTTPException(status_code=400, detail="图片 data URI 缺少数据部分")
                 header, encoded = image_url.split(",", 1)
                 if len(encoded) > MAX_IMAGE_SIZE * 2:
                     raise HTTPException(
                         status_code=400,
                         detail="base64 图片数据过大"
                     )
-                image_data = base64.b64decode(encoded)
+                try:
+                    image_data = base64.b64decode(encoded, validate=True)
+                except (binascii.Error, ValueError):
+                    raise HTTPException(status_code=400, detail="图片 base64 数据无效")
                 if len(image_data) > MAX_IMAGE_SIZE:
                     raise HTTPException(
                         status_code=400,
                         detail=f"图片文件过大：{len(image_data) / 1024 / 1024:.2f}MB > 10MB"
                     )
-                mime = header.split(":")[1].split(";")[0]
+                mime = header.split(":", 1)[1].split(";", 1)[0].strip().lower()
                 ext_map = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp"}
                 ext = ext_map.get(mime, ".png")
                 with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
