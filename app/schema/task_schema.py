@@ -1,7 +1,7 @@
 """
 任务队列 Schema
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, Dict, Any, List
 from enum import Enum
 
@@ -43,6 +43,8 @@ class TaskCreateRequest(BaseModel):
 
 class TaskResponse(BaseModel):
     """任务响应"""
+    model_config = ConfigDict(from_attributes=True)
+
     task_id: str
     celery_task_id: Optional[str] = None
     task_type: str
@@ -58,9 +60,6 @@ class TaskResponse(BaseModel):
     created_at: str
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class TaskListResponse(BaseModel):

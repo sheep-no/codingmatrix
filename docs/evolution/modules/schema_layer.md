@@ -179,3 +179,16 @@ proc = await asyncio.create_subprocess_shell(restart_cmd, cwd=cwd, ...)
 - 死代码集中度显示 schema 层是「功能收敛后的遗留垃圾场」（3/13 文件含死符号或整文件死）——v1 收尾清点时应把 schema 层死符号清理与路由收敛合并执行
 - api_key_token 请求体传凭据家族的长期方向是统一到 Authorization header + Redis 短时票据（与 147 轮结论一致），schema 层字段删除是该演化的最后一步
 - workflow.py 的 TaskGraph/TaskNode 是工作流域「临时状态 vs DB 持久化」双轨（与 shared_context vs dependency_graph 同构）的契约侧体现，随工作流域收敛一并处理
+
+## 7. 状态更新（2026-09-20 核实）
+
+按当前代码逐条核实后的结论：
+
+- **SD2 [P3] 已修（本轮）**：`nginxConf.py` 三个 `@validator` 迁移为 `@field_validator` + `@classmethod`；`file_schema.py`、`task_schema.py` 的 `class Config: from_attributes` 迁移为 `model_config = ConfigDict(from_attributes=True)`。`python3 -W error::DeprecationWarning -c "import app.schema.*"` 无告警；`rg "class Config|@validator" app/schema/` 零命中。
+- **SD3 [P3] 已修（本轮）**：`file_schema.py` 删除 `FileDownloadResponse`/`FileCreate`/`FileResponse`/`validate_page`/`validate_page_size` 五符号与未使用的 `validator` 导入，文件 69→25 行。`rg` 确认这五个符号在 `app/` 与 `tests/`（非 archive）内零消费。
+- **SD6 [P3] 已修（本轮）**：`girl_request.py` 删除死符号 `HistoryQuery`（`rg "HistoryQuery" app/` 仅定义处命中）。
+- **SD1 [P2] 判定为「业务层已兜住」**：schema 层 `manageUser` 密码 `min_length=6` 宽于认证面 `min_length=8`，但管理面端点的创建/重置密码路径均调用 `app/utils/security.py:24 validate_password_strength`（≥8 位 + 大小写 + 数字 + 特殊字符 + 常见弱密码库）。原文「管理员可创建被登录端点锁死的弱密码账号」结论被高估；schema 层统一 Field 属契约收敛项，未改。
+- **SD4 [P3] 待确认**：`app/schema/ppxRequest.py` 整文件零生产消费，删除文件需用户确认后执行。
+- **SD5 [P3] 未改**：`RETRYING` 幻影状态与三枚举并存属契约收敛设计项，需产品口径确认收敛方向后处理。
+- **SD7 [P3] 未改**：`StartGuard.restart_cmd` 命令格式校验属安全加固专项，与 V2U1 提权链联合评估。
+- 回归：新增 `tests/unit/test_schema_pydantic_v2.py`（5 项）；回退四个 schema 源文件后 3 项失败（遗留 v1 API + 死符号仍在）。
