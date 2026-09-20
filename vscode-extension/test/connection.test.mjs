@@ -348,3 +348,171 @@ test("restores persisted results after a connection instance restarts", async ()
   assert.equal(await restarted.flushPendingResults(), 1);
   assert.deepEqual(await resultStore.listPending(), []);
 });
+
+function connected(fetchImpl) {
+  return new CloudConnection({
+    baseUrl: "https://codingmatrix.example",
+    accessToken: "access-token",
+    maxRetries: 0,
+    retryDelayMs: 0,
+    fetchImpl,
+  });
+}
+
+test("normalizes the conversation list", async () => {
+  const calls = [];
+  const connection = connected(async (url, init) => {
+    calls.push({ url, init });
+    return response({
+      items: [
+        { conversation_id: 12, title: "重构登录", prompt: "帮我把登录拆开", created_at: "2026-09-20T00:00:00Z", message_count: 4 },
+        { title: "缺少会话 ID" },
+      ],
+      total: 1,
+    });
+  });
+
+  assert.deepEqual(await connection.listConversations({ limit: 10, offset: 5 }), [
+    {
+      conversation_id: 12,
+      title: "重构登录",
+      prompt: "帮我把登录拆开",
+      created_at: "2026-09-20T00:00:00Z",
+      message_count: 4,
+    },
+  ]);
+  assert.equal(calls[0].url, "https://codingmatrix.example/api/v1/history");
+  assert.equal(calls[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { limit: 10, offset: 5 });
+});
+
+test("requires an items array from the conversation list", async () => {
+  const connection = connected(async () => response({ total: 0 }));
+  await assert.rejects(() => connection.listConversations(), { name: "ProtocolError" });
+});
+
+test("loads one conversation and forwards the paging cursor", async () => {
+  const calls = [];
+  const connection = connected(async (url, init) => {
+    calls.push({ url, init });
+    return response({
+      conversation_id: 12,
+      items: [
+        { id: 9, conversation_id: 12, prompt: "你好", response: "在的", thinking: "内部推理", title: "寒暄" },
+      ],
+    });
+  });
+
+  assert.deepEqual(await connection.fetchConversationHistory(12, { lastHistoryId: 30, limit: 20 }), [
+    { id: 9, conversation_id: 12, prompt: "你好", response: "在的", thinking: "内部推理", title: "寒暄", created_at: null },
+  ]);
+  assert.equal(calls[0].url, "https://codingmatrix.example/api/v1/conversation/history");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { conversation_id: 12, limit: 20, last_history_id: 30 });
+});
+
+test("rejects a non-positive conversation id", async () => {
+  const connection = connected(async () => response({ items: [] }));
+  await assert.rejects(() => connection.fetchConversationHistory(0), /conversation id must be a positive integer/);
+  await assert.rejects(() => connection.deleteConversation(0), /conversation id must be a positive integer/);
+});
+
+test("deletes a conversation and reports the deleted count", async () => {
+  const calls = [];
+  const connection = connected(async (url, init) => {
+    calls.push({ url, init });
+    return response({ status: "deleted", count: 3 });
+  });
+
+  assert.equal(await connection.deleteConversation(12), 3);
+  assert.equal(calls[0].url, "https://codingmatrix.example/api/v1/code/history?all=false&conversation_ids=12");
+  assert.equal(calls[0].init.method, "DELETE");
+});
+
+test("normalizes the agent model config and token usage", async () => {
+  const calls = [];
+  const connection = connected(async (url) => {
+    calls.push(url);
+    if (url.endsWith("/api/v1/models/agent-config")) {
+      return response({ version: 4, roles: { coder: { model: "claude" } }, models: ["claude"], fallback_chain: ["gpt"] });
+    }
+    return response({
+      total_tokens: 1200,
+      prompt_tokens: 700,
+      completion_tokens: 500,
+      total_messages: 8,
+      today_tokens: "300",
+      this_month_tokens: 900,
+      by_model: { claude: { tokens: 1200 } },
+    });
+  });
+
+  assert.deepEqual(await connection.fetchAgentModelConfig(), {
+    version: 4,
+    roles: { coder: { model: "claude" } },
+    models: ["claude"],
+    fallback_chain: ["gpt"],
+  });
+  assert.deepEqual(await connection.fetchTokenUsage(), {
+    total_tokens: 1200,
+    prompt_tokens: 700,
+    completion_tokens: 500,
+    total_messages: 8,
+    today_tokens: 300,
+    this_month_tokens: 900,
+    by_model: { claude: { tokens: 1200 } },
+  });
+  assert.deepEqual(calls, [
+    "https://codingmatrix.example/api/v1/models/agent-config",
+    "https://codingmatrix.example/api/v1/agent/token-usage",
+  ]);
+});
+
+test("lists snapshots, rolls back and diffs against the encoded session id", async () => {
+  const calls = [];
+  const connection = connected(async (url, init) => {
+    calls.push({ url, init });
+    if (url.includes("/snapshots/")) {
+      return response({ session_id: "s/1", snapshots: [{ tag: "v2", commit: "abc", message: "第二版" }, { commit: "缺少 tag" }] });
+    }
+    if (url.includes("/rollback/")) {
+      return response({ success: true, previous_tag: "v2", current_tag: "v1", files_restored: 3 });
+    }
+    return response({ session_id: "s/1", from: "v1", to: "v2", diff: "--- a\n+++ b" });
+  });
+
+  assert.deepEqual(await connection.listSnapshots("s/1"), [
+    { tag: "v2", commit: "abc", message: "第二版", timestamp: null },
+  ]);
+  assert.deepEqual(await connection.rollbackToSnapshot("s/1", "v1"), {
+    previousTag: "v2",
+    currentTag: "v1",
+    filesRestored: 3,
+  });
+  assert.equal(await connection.fetchSnapshotDiff("s/1", "v1", "v2"), "--- a\n+++ b");
+  assert.equal(calls[0].url, "https://codingmatrix.example/api/v1/agent/snapshots/s%2F1");
+  assert.equal(calls[1].url, "https://codingmatrix.example/api/v1/agent/rollback/s%2F1?target_tag=v1");
+  assert.equal(calls[1].init.method, "POST");
+  assert.equal(
+    calls[2].url,
+    "https://codingmatrix.example/api/v1/agent/snapshot/diff?session_id=s%2F1&from_tag=v1&to_tag=v2",
+  );
+});
+
+test("combines the performance metrics and trends endpoints", async () => {
+  const calls = [];
+  const connection = connected(async (url) => {
+    calls.push(url);
+    if (url.endsWith("/trends")) return response({ success: true, trends: { planner: { avg_time_ms: 12 } } });
+    return response({ success: true, metrics: { total_requests: 5 }, thresholds: { slow_ms: 1000 } });
+  });
+
+  assert.deepEqual(await connection.fetchPerformance(), {
+    metrics: { total_requests: 5 },
+    thresholds: { slow_ms: 1000 },
+    trends: { planner: { avg_time_ms: 12 } },
+  });
+  assert.deepEqual(calls.sort(), [
+    "https://codingmatrix.example/api/v1/agent/performance",
+    "https://codingmatrix.example/api/v1/agent/performance/trends",
+  ]);
+});

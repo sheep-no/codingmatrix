@@ -2,7 +2,11 @@ import * as vscode from "vscode";
 import { spawn } from "node:child_process";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { AgentHostSession } from "./agent-host.js";
-import { AgentWorkbenchController, AGENT_WORKBENCH_COMMAND, AGENT_WORKBENCH_VIEW_TYPE } from "./agent-workbench.js";
+import {
+  AgentWorkbenchController,
+  AGENT_WORKBENCH_COMMAND,
+  AGENT_WORKBENCH_VIEW_TYPE,
+} from "./agent-workbench.js";
 import { AgentHostRuntime } from "./agent-host-runtime.js";
 import { ApprovalBridge } from "./approval-bridge.js";
 import { ToolDispatcher } from "./tool-dispatcher.js";
@@ -11,6 +15,7 @@ import { WorkspaceAuthorization } from "./workspace-authorization.js";
 import { CloudConnection } from "./connection.js";
 import { discoverWorkspaceSkills, WorkspaceSkillRoot } from "./skill-discovery.js";
 import { ResultStore, ResultStorage } from "./result-store.js";
+import { dispatchWorkbenchRequest } from "./workbench-requests.js";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -72,6 +77,10 @@ const controller = new AgentWorkbenchController({
     } catch (error) {
       await controller.publishWorkbenchEvent({ type: "error", data: { error: error instanceof Error ? error.message : "会话控制失败" } });
     }
+  },
+  onRequest: async (request) => {
+    if (!cloudConnection) throw new Error("云端 Agent 尚未连接");
+    return dispatchWorkbenchRequest(cloudConnection, request);
   },
 });
 

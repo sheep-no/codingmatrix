@@ -64,6 +64,56 @@ export type QueuedResultResponse = {
   event_id: string;
 };
 
+// Shapes returned by the user-scoped v1 read APIs the workbench panels use.
+// They are normalized so the webview never has to guard against missing fields.
+export interface ConversationSummary {
+  conversation_id: number;
+  title: string;
+  prompt: string;
+  created_at: string | null;
+  message_count: number;
+}
+
+export interface ConversationMessage {
+  id: number | null;
+  conversation_id: number | null;
+  prompt: string;
+  response: string;
+  thinking: string;
+  title: string;
+  created_at: string | null;
+}
+
+export interface AgentModelConfig {
+  version: number | null;
+  roles: Record<string, unknown>;
+  models: unknown[];
+  fallback_chain: unknown[];
+}
+
+export interface TokenUsage {
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_messages: number;
+  today_tokens: number;
+  this_month_tokens: number;
+  by_model: Record<string, unknown>;
+}
+
+export interface SnapshotInfo {
+  tag: string;
+  commit: string;
+  message: string;
+  timestamp: string | null;
+}
+
+export interface PerformanceSnapshot {
+  metrics: Record<string, unknown>;
+  thresholds: Record<string, unknown>;
+  trends: Record<string, unknown>;
+}
+
 const DEFAULT_ACTIONS_PATH = "/api/v1/agent/local-validation/actions";
 const DEFAULT_RESULTS_PATH = "/api/v1/agent/local-validation/results";
 const DEFAULT_HANDSHAKE_PATH = "/api/v1/agent/host/handshake";
@@ -158,6 +208,163 @@ export class CloudConnection {
       body: JSON.stringify({ skills }),
     });
     return this.readJson(response);
+  }
+
+  async listConversations(options: { limit?: number; offset?: number } = {}): Promise<ConversationSummary[]> {
+    const response = await this.request("/api/v1/history", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ limit: options.limit ?? 20, offset: options.offset ?? 0 }),
+    });
+    const body = await this.readJson(response);
+    const items = this.requiredArray(body, "items", "history response must contain an items array");
+    return items.flatMap((item) => {
+      if (!this.isRecord(item)) return [];
+      const conversationId = this.optionalNumber(item.conversation_id);
+      if (conversationId === null) return [];
+      return [{
+        conversation_id: conversationId,
+        title: this.optionalString(item.title) ?? "",
+        prompt: this.optionalString(item.prompt) ?? "",
+        created_at: this.optionalString(item.created_at),
+        message_count: this.optionalNumber(item.message_count) ?? 0,
+      }];
+    });
+  }
+
+  async fetchConversationHistory(
+    conversationId: number,
+    options: { lastHistoryId?: number | null; limit?: number } = {},
+  ): Promise<ConversationMessage[]> {
+    if (!Number.isInteger(conversationId) || conversationId <= 0) {
+      throw new CloudConnectionError("request_failed", "conversation id must be a positive integer");
+    }
+    const payload: Record<string, unknown> = {
+      conversation_id: conversationId,
+      limit: options.limit ?? 50,
+    };
+    if (options.lastHistoryId !== undefined && options.lastHistoryId !== null) {
+      payload.last_history_id = options.lastHistoryId;
+    }
+    const response = await this.request("/api/v1/conversation/history", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await this.readJson(response);
+    const items = this.requiredArray(body, "items", "conversation history response must contain an items array");
+    return items.flatMap((item) => {
+      if (!this.isRecord(item)) return [];
+      return [{
+        id: this.optionalNumber(item.id),
+        conversation_id: this.optionalNumber(item.conversation_id),
+        prompt: this.optionalString(item.prompt) ?? "",
+        response: this.optionalString(item.response) ?? "",
+        thinking: this.optionalString(item.thinking) ?? "",
+        title: this.optionalString(item.title) ?? "",
+        created_at: this.optionalString(item.created_at),
+      }];
+    });
+  }
+
+  async deleteConversation(conversationId: number): Promise<number> {
+    if (!Number.isInteger(conversationId) || conversationId <= 0) {
+      throw new CloudConnectionError("request_failed", "conversation id must be a positive integer");
+    }
+    const response = await this.request(
+      `/api/v1/code/history?all=false&conversation_ids=${conversationId}`,
+      { method: "DELETE" },
+    );
+    const body = await this.readJson(response);
+    return this.isRecord(body) ? this.optionalNumber(body.count) ?? 0 : 0;
+  }
+
+  async fetchAgentModelConfig(): Promise<AgentModelConfig> {
+    const response = await this.request("/api/v1/models/agent-config", { method: "GET" });
+    const body = await this.readJson(response);
+    if (!this.isRecord(body)) {
+      throw new ProtocolError("invalid_payload", "agent model config response must be an object");
+    }
+    return {
+      version: this.optionalNumber(body.version),
+      roles: this.isRecord(body.roles) ? { ...body.roles } : {},
+      models: Array.isArray(body.models) ? [...body.models] : [],
+      fallback_chain: Array.isArray(body.fallback_chain) ? [...body.fallback_chain] : [],
+    };
+  }
+
+  async fetchTokenUsage(): Promise<TokenUsage> {
+    const response = await this.request("/api/v1/agent/token-usage", { method: "GET" });
+    const body = await this.readJson(response);
+    if (!this.isRecord(body)) {
+      throw new ProtocolError("invalid_payload", "token usage response must be an object");
+    }
+    return {
+      total_tokens: this.optionalNumber(body.total_tokens) ?? 0,
+      prompt_tokens: this.optionalNumber(body.prompt_tokens) ?? 0,
+      completion_tokens: this.optionalNumber(body.completion_tokens) ?? 0,
+      total_messages: this.optionalNumber(body.total_messages) ?? 0,
+      today_tokens: this.optionalNumber(body.today_tokens) ?? 0,
+      this_month_tokens: this.optionalNumber(body.this_month_tokens) ?? 0,
+      by_model: this.isRecord(body.by_model) ? { ...body.by_model } : {},
+    };
+  }
+
+  async listSnapshots(sessionId: string): Promise<SnapshotInfo[]> {
+    const response = await this.request(`/api/v1/agent/snapshots/${encodeURIComponent(sessionId)}`, { method: "GET" });
+    const body = await this.readJson(response);
+    const items = this.requiredArray(body, "snapshots", "snapshot response must contain a snapshots array");
+    return items.flatMap((item) => {
+      if (!this.isRecord(item)) return [];
+      const tag = this.optionalString(item.tag);
+      if (!tag) return [];
+      return [{
+        tag,
+        commit: this.optionalString(item.commit) ?? "",
+        message: this.optionalString(item.message) ?? "",
+        timestamp: this.optionalString(item.timestamp),
+      }];
+    });
+  }
+
+  async rollbackToSnapshot(
+    sessionId: string,
+    targetTag: string,
+  ): Promise<{ previousTag: string; currentTag: string; filesRestored: number }> {
+    const response = await this.request(
+      `/api/v1/agent/rollback/${encodeURIComponent(sessionId)}?target_tag=${encodeURIComponent(targetTag)}`,
+      { method: "POST" },
+    );
+    const body = await this.readJson(response);
+    if (!this.isRecord(body)) {
+      throw new ProtocolError("invalid_payload", "rollback response must be an object");
+    }
+    return {
+      previousTag: this.optionalString(body.previous_tag) ?? "",
+      currentTag: this.optionalString(body.current_tag) ?? "",
+      filesRestored: this.optionalNumber(body.files_restored) ?? 0,
+    };
+  }
+
+  async fetchSnapshotDiff(sessionId: string, fromTag: string, toTag: string): Promise<string> {
+    const query = `session_id=${encodeURIComponent(sessionId)}&from_tag=${encodeURIComponent(fromTag)}&to_tag=${encodeURIComponent(toTag)}`;
+    const response = await this.request(`/api/v1/agent/snapshot/diff?${query}`, { method: "GET" });
+    const body = await this.readJson(response);
+    return this.isRecord(body) ? this.optionalString(body.diff) ?? "" : "";
+  }
+
+  async fetchPerformance(): Promise<PerformanceSnapshot> {
+    const [metricsResponse, trendsResponse] = await Promise.all([
+      this.request("/api/v1/agent/performance", { method: "GET" }),
+      this.request("/api/v1/agent/performance/trends", { method: "GET" }),
+    ]);
+    const metricsBody = await this.readJson(metricsResponse);
+    const trendsBody = await this.readJson(trendsResponse);
+    return {
+      metrics: this.isRecord(metricsBody) && this.isRecord(metricsBody.metrics) ? { ...metricsBody.metrics } : {},
+      thresholds: this.isRecord(metricsBody) && this.isRecord(metricsBody.thresholds) ? { ...metricsBody.thresholds } : {},
+      trends: this.isRecord(trendsBody) && this.isRecord(trendsBody.trends) ? { ...trendsBody.trends } : {},
+    };
   }
 
   async streamAgentPrompt(
@@ -345,5 +552,22 @@ export class CloudConnection {
 
   private isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  private requiredArray(body: unknown, field: string, message: string): unknown[] {
+    if (this.isRecord(body) && Array.isArray(body[field])) return body[field] as unknown[];
+    throw new ProtocolError("invalid_payload", message);
+  }
+
+  private optionalString(value: unknown): string | null {
+    return typeof value === "string" ? value : null;
+  }
+
+  private optionalNumber(value: unknown): number | null {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) {
+      return Number(value);
+    }
+    return null;
   }
 }

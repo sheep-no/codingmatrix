@@ -4,6 +4,7 @@ import { AgentWorkbenchController, createAgentWorkbenchHtml } from "../dist/agen
 
 function createPanel() {
   const listeners = [];
+  const posted = [];
   return {
     webview: {
       html: "",
@@ -13,9 +14,11 @@ function createPanel() {
       },
       async postMessage(message) {
         this.lastMessage = message;
+        posted.push(message);
         return true;
       },
       lastMessage: undefined,
+      posted,
     },
     onDidDispose() { return { dispose() {} }; },
     reveal() { this.revealed = true; },
@@ -31,6 +34,94 @@ test("renders a CSP-protected approval workbench", () => {
   assert.match(html, /messages/);
   assert.match(html, /approval_request/);
   assert.match(html, /approval_decision/);
+});
+
+test("renders the history, model, version and performance panels", () => {
+  const html = createAgentWorkbenchHtml();
+  assert.match(html, /workbench_request/);
+  assert.match(html, /workbench_response/);
+  assert.match(html, /id="tab-history"/);
+  assert.match(html, /id="tab-models"/);
+  assert.match(html, /id="tab-versions"/);
+  assert.match(html, /id="tab-performance"/);
+  assert.match(html, /history_list/);
+  assert.match(html, /snapshot_rollback/);
+  assert.match(html, /performance/);
+});
+
+test("routes a workbench request and posts the response", async () => {
+  const requests = [];
+  const controller = new AgentWorkbenchController({
+    onRequest: (request) => {
+      requests.push(request);
+      return { items: [] };
+    },
+  });
+  const panel = createPanel();
+  controller.open(() => panel);
+  panel.receive({
+    type: "workbench_request",
+    request_id: "req-1",
+    resource: "history_list",
+    params: { limit: 20, offset: 0 },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].resource, "history_list");
+  assert.deepEqual(requests[0].params, { limit: 20, offset: 0 });
+  assert.deepEqual(panel.webview.posted, [
+    { type: "workbench_response", request_id: "req-1", ok: true, data: { items: [] } },
+  ]);
+});
+
+test("defaults missing request params to an empty object", async () => {
+  const requests = [];
+  const controller = new AgentWorkbenchController({ onRequest: (request) => requests.push(request) });
+  const panel = createPanel();
+  controller.open(() => panel);
+  panel.receive({ type: "workbench_request", request_id: "req-1", resource: "performance" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(requests[0].params, {});
+});
+
+test("reports a failed workbench request instead of throwing", async () => {
+  const controller = new AgentWorkbenchController({
+    onRequest: () => {
+      throw new Error("云端 Agent 尚未连接");
+    },
+  });
+  const panel = createPanel();
+  controller.open(() => panel);
+  panel.receive({ type: "workbench_request", request_id: "req-2", resource: "token_usage" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(panel.webview.posted, [
+    { type: "workbench_response", request_id: "req-2", ok: false, error: "云端 Agent 尚未连接" },
+  ]);
+});
+
+test("rejects an unknown resource or a malformed request", async () => {
+  let calls = 0;
+  const controller = new AgentWorkbenchController({ onRequest: () => { calls += 1; } });
+  const panel = createPanel();
+  controller.open(() => panel);
+  panel.receive({ type: "workbench_request", request_id: "req-3", resource: "delete_everything" });
+  panel.receive({ type: "workbench_request", resource: "performance" });
+  panel.receive({ type: "workbench_request", request_id: "req-4", resource: "performance", params: [] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 0);
+  assert.deepEqual(panel.webview.posted, []);
+});
+
+test("reports the missing data channel when no handler is registered", async () => {
+  const controller = new AgentWorkbenchController();
+  const panel = createPanel();
+  controller.open(() => panel);
+  panel.receive({ type: "workbench_request", request_id: "req-5", resource: "model_config" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(panel.webview.posted, [
+    { type: "workbench_response", request_id: "req-5", ok: false, error: "工作台数据通道尚未连接" },
+  ]);
 });
 
 test("forwards workbench prompts to the cloud handler", async () => {
