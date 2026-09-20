@@ -544,7 +544,6 @@ def _execute_python_sandbox(code: str, timeout: int) -> Dict:
     import os
     import subprocess
     import tempfile
-    import os
 
     dangerous_patterns = [
         r'\bimport\s+os\b', r'\bimport\s+sys\b', r'\bimport\s+subprocess\b',
@@ -680,7 +679,6 @@ def _tool_run_command(project_path: str, command: str, cwd: str = None, timeout:
     """执行终端命令（构建、安装依赖、运行脚本等）"""
     import subprocess
     import os
-    import shlex
 
     try:
         if not isinstance(command, str) or not command.strip():

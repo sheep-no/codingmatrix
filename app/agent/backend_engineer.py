@@ -413,7 +413,6 @@ class BackendEngineer(Specialist):
         file_actual_language = get_expected_language_for_file(file_path, project_language)
         if not file_actual_language:
             file_actual_language = project_language
-        lang_rules = LanguageDetector.get_language_specific_rules(project_language)
 
         # 从 project_spec 中提取当前文件的约束
         project_spec = architecture.get("project_spec", {})

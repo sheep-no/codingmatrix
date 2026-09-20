@@ -465,7 +465,6 @@ class IntegrityValidator:
     def _generate_index_content(self, index_path: str, generated_files: Dict[str, str]) -> str:
         """生成真实的 index.ts/js 内容：扫描同目录模块并 re-export"""
         parent = str(Path(index_path).parent)
-        ext = Path(index_path).suffix  # .ts or .js
         lines = [f'// Package {parent.replace("/", ".")}\n']
 
         # 扫描同目录下的其他 .ts/.js 文件

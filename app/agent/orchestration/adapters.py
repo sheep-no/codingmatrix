@@ -692,7 +692,6 @@ class _PlannedAgentAdapter:
         # Keep every file generation grounded in the same frozen contract. The
         # legacy generator can otherwise let each specialist invent a separate
         # domain model even when the plan already defines shared interfaces.
-        contract_index = getattr(context, "contract_index", self.contract_index)
         contract_context = {
             **_context_contract_payload(context, self.contract_index),
             "frozen_file_set": sorted(set(self._file_entries) | set(self.preserved_paths)),

@@ -96,7 +96,6 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
         # 有精确正则时：提取类签名 + 字段 + 方法签名
         if patterns:
             result_parts = []
-            current_class = None
             class_indent = 0
             collecting_class_body = False
 
@@ -110,8 +109,6 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
 
                 cls_match = patterns["class"].search(line)
                 if cls_match:
-                    name = next(g for g in cls_match.groups() if g is not None)
-                    current_class = name
                     class_indent = indent
                     collecting_class_body = True
                     result_parts.append(stripped[:200])
@@ -156,7 +153,6 @@ def extract_signatures(file_path: str, content: str) -> Optional[str]:
                 # 遇到新的顶层定义，退出类体收集模式
                 if collecting_class_body and indent <= class_indent:
                     collecting_class_body = False
-                    current_class = None
 
                 # 顶层函数
                 fn_match = patterns["function"].search(line)

@@ -545,19 +545,11 @@ class IncrementalModifyMixin:
         # 只处理 file_plan 中的文件
         plan_paths = set(file_plan_by_path.keys())
 
-        # P8: 并行度动态调整 — 根据模型并发限制创建信号量池
-        # 默认每个模型最多 2 个并发请求
-        model_semaphores: Dict[str, asyncio.Semaphore] = {}
-        MAX_CONCURRENT_PER_MODEL = 2
-
         async def generate_single_file(file_path: str, tracker=None) -> Optional[str]:
             """生成单个文件（P4: 根据复杂度选择模型，P8: 并发控制）"""
             nonlocal files_generated, files_failed
 
             file_info = file_plan_by_path.get(file_path, {})
-            action = file_info.get("action", "add")
-            description = file_info.get("description", f"生成 {file_path}")
-            original_content = file_info.get("original_content", "")
 
             engineer = self._select_engineer(file_path)
             model_name = self._select_model_for_file(file_path)

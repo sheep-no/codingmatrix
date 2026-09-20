@@ -66,7 +66,6 @@ def clean_code_block(content: str) -> str:
     先剥离 <think>...</think>` 标签，再提取代码块。
     如果没有代码块标记，返回原始内容（strip 后）。
     """
-    import asyncio
     if asyncio.iscoroutine(content):
         logger.warning("clean_code_block 收到协程对象，降级为 str")
         content = str(content)
@@ -134,7 +133,6 @@ async def extract_engineer_content(
     Returns:
         提取后的文件内容，失败返回 None
     """
-    import asyncio
     if asyncio.iscoroutine(content):
         logger.warning(f"extract_engineer_content 收到协程对象，降级为 str: {file_path}")
         content = str(content)
