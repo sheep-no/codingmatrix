@@ -167,7 +167,7 @@ npx --no-install playwright test tests/e2e/admin-panel-scenarios.spec.js --confi
 - PPT 任务 6 渲染与素材回归：完整 PPT 测试 `235 passed`；11 类页面视觉骨架、图片等比适配/回退、图表选择和来源占位规则通过。
 - `elegant` 董事会备忘录主题统一生成测试：`24 passed`；6 页 PPTX、PDF 和 PNG 样稿生成成功，证据页与路线页二轮视觉评分为 `9.0/10` 和 `8.5/10`。
 - 前端全量测试：`36 passed`；PPT 工作流测试覆盖大纲修改、新增、重排、删除、批准禁用，以及逐页质量分、问题、修复动作和人工复核标记展示；前端生产构建成功。
-- VS Code 扩展构建成功，Node 原生测试：`98 passed`。
+- VS Code 扩展构建成功，Node 原生测试：`100 passed`。
 - VS Code Extension Development Host E2E 成功，使用 VS Code `1.136.1` 覆盖扩展发现、激活、兼容性校验、Agent Workbench 命令和工作区加载。
 - 已生成 VSIX：`vscode-extension/codingmatrix-local-validation-0.1.0.vsix`。
 - 真实 Agent/PPT 验收已覆盖 HTML 产物生成、PPTX HTTP 下载、WebSocket 进度事件和错误格式请求返回 404。

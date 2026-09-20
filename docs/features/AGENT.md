@@ -198,6 +198,8 @@ Host 会话默认保存到 `data/agent_host_sessions`，使用临时文件替换
 
 `AgentWorkbenchController` 打开的 Webview 分为七个面板：对话、会话历史、模型、文件版本、性能、学习和设置。对话面板复用云端流式会话与本地审批；其余六个面板通过统一的 `workbench_request` / `workbench_response` 通道读取普通用户可用的 v1 接口，扩展侧在 `workbench-requests.ts` 校验参数后转发给 `CloudConnection`：
 
+对话面板在发送前可填写 `project_name`（`^[a-zA-Z0-9_-]{1,50}$`）、勾选「增量修改上次生成的项目」以及七个编排开关（`enable_review`、`enable_validation`、`enable_error_recovery`、`enable_memory`、`enable_skills`、`spec_first`、`dependency_graph`，默认全开）。增量选项只在最近一次运行以 `done` 事件结束且携带 `project_path` 时可用，此时请求附带 `incremental=true`、`engine=core` 和该 `project_path`；运行以 `error` 或 `cancelled` 结束后项目路径清空，增量选项回到不可用，并按全新生成处理。Webview 只发送布尔型开关值，非布尔值一律回退默认。
+
 | 面板 | resource | 接口 |
 | --- | --- | --- |
 | 会话历史 | `history_list`、`history_messages`、`history_delete` | `POST /api/v1/history`、`POST /api/v1/conversation/history`、`DELETE /api/v1/code/history` |

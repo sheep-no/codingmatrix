@@ -279,6 +279,8 @@ Core 同步响应增加 `repair_feedback`：`task_id` 关联检查点，`status`
 
 `cache_clear` 是唯一会改服务端状态的 resource：`mode` 只接受 `all`，其余取值一律按 `expired` 处理；`mode=all` 时 `extension.ts` 先弹原生警告框，用户取消即抛出「已取消清空缓存」，不发送请求。
 
+对话面板的 `workbench_prompt` 消息除 `prompt` 外还携带 `project_name`、`incremental` 和 `flags`（七个布尔开关）。控制器在 `parsePromptOptions` 中只接受布尔值开关，非布尔值回退默认；`extension.ts` 把开关平铺进 `OrchestratorRequest`，仅在 `incremental` 成立（最近一次 `done` 事件留下 `project_path`）时附加 `engine=core` 与 `project_path`，否则以全新生成发出并回发一条 `progress` 事件说明回退。
+
 工作台控制器订阅并转发已通过协议解析的 Webview Agent Host 消息；内置审批控件可生成 `approval_decision`，供运行时处理挂起的本地动作。
 
 `src/extension.ts` 在存在工作区时创建本地 `AgentHostSession`、`WorkspaceAuthorization`、`ValidationRunner`、`ToolDispatcher` 和 `ApprovalBridge`，并通过 `AgentWorkbenchController` 完成事件回传。
