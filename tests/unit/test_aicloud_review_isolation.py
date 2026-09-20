@@ -27,13 +27,18 @@ async def _allow(*args, **kwargs):
     return True
 
 
-def _review(review_id: str, requested_by: int, file_path: str = "/sandbox/1/workspace/a.txt"):
+def _review(
+    review_id: str,
+    requested_by: int,
+    file_path: str = "/sandbox/1/workspace/a.txt",
+    status_value: str = "pending",
+):
     return AicloudReview(
         id=review_id,
         operation_type="write",
         file_path=file_path,
         content="hello",
-        status="pending",
+        status=status_value,
         requested_by=requested_by,
         ai_filter_passed=True,
     )
@@ -115,3 +120,31 @@ async def test_approve_rejects_review_path_outside_sandbox(monkeypatch, test_db,
 
     assert exc_info.value.status_code == 403
     assert not outside.exists()
+
+
+async def test_approve_rejects_already_resolved_review(monkeypatch, test_db):
+    """GH5：已批准的审查不能再次批准。"""
+    monkeypatch.setattr(aicloud_api, "check_aicloud_permission", _allow)
+    test_db.add(_review("r1", requested_by=1, status_value="approved"))
+    await test_db.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await aicloud_api.approve_review_endpoint(
+            ReviewActionRequest(review_id="r1"), db=test_db, user_id=1
+        )
+
+    assert exc_info.value.status_code == 409
+
+
+async def test_reject_rejects_already_resolved_review(monkeypatch, test_db):
+    """GH5：已拒绝的审查不能再次拒绝。"""
+    monkeypatch.setattr(aicloud_api, "check_aicloud_permission", _allow)
+    test_db.add(_review("r1", requested_by=1, status_value="rejected"))
+    await test_db.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await aicloud_api.reject_review_endpoint(
+            ReviewActionRequest(review_id="r1"), db=test_db, user_id=1
+        )
+
+    assert exc_info.value.status_code == 409

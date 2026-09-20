@@ -692,6 +692,12 @@ async def approve_review_endpoint(
             detail="review belongs to another user"
         )
 
+    if review.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"review already {review.status}"
+        )
+
     review = await approve_review(db, review.id, user_id)
     if not review:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="review not found")
@@ -735,6 +741,12 @@ async def reject_review_endpoint(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="review belongs to another user"
+        )
+
+    if review.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"review already {review.status}"
         )
 
     review = await reject_review(db, review.id, user_id, request.reason)
