@@ -537,6 +537,12 @@
       return
     }
 
+    // 断网时先入队，网络恢复后由 flushQueue 按序重发
+    if (!options.fromQueue && !offlineQueue.isOnline.value) {
+      offlineQueue.queueMessage(messageData)
+      return
+    }
+
     isLoading.value = true
     isStreamActive.value = true
 
@@ -825,6 +831,15 @@
       }
     }
   }
+
+  // 离线队列接入实际发送链：恢复网络后按序重发队列消息
+  offlineQueue.setSendCallback(async messageData => {
+    if (isLoading.value) {
+      // 抛错让队列保留消息，等下一次 flush 再发送
+      throw new Error('正在生成回答，队列消息稍后重试')
+    }
+    await handleSendMessage(messageData, { fromQueue: true })
+  })
 
   const toggleThinking = message => {
     if (message) {

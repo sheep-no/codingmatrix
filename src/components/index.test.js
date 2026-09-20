@@ -2,11 +2,17 @@ import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const offlineQueue = vi.hoisted(() => ({
+  isOnline: { value: true },
+  queueMessage: vi.fn(),
+  setSendCallback: vi.fn()
+}))
+
 vi.mock('@/composables/useKeyboardShortcuts', () => ({
   useKeyboardShortcuts: () => ({ register: () => () => {} })
 }))
 vi.mock('@/composables/useOfflineQueue', () => ({
-  useOfflineQueue: () => ({ addToQueue: vi.fn() })
+  useOfflineQueue: () => offlineQueue
 }))
 vi.mock('@/utils/api/index', () => ({ api: { post: vi.fn(), stream: vi.fn() } }))
 
@@ -43,6 +49,9 @@ describe('首页工作台响应式导航', () => {
     setActivePinia(createPinia())
     api.post.mockClear()
     api.stream.mockClear()
+    offlineQueue.isOnline.value = true
+    offlineQueue.queueMessage.mockClear()
+    offlineQueue.setSendCallback.mockClear()
   })
 
   afterEach(() => {
@@ -75,6 +84,25 @@ describe('首页工作台响应式导航', () => {
     state.handleChatStream({ stage: 'answering', status: 'started', model: 'reasoning-model', sources: [] }, '1', 0, {})
     expect(state.conversationHistory[0].warnings).toEqual(['搜索暂不可用'])
     expect(state.conversationHistory[0].model).toBe('reasoning-model')
+  })
+
+  it('断网时消息进入离线队列且不发起请求（FESTATE-02）', async () => {
+    wrapper = mountHomeWorkspace()
+    const state = wrapper.vm.$.setupState
+    vi.spyOn(state.userStore, 'isLoggedIn', 'get').mockReturnValue(true)
+    vi.spyOn(state.apiKeyStore, 'hasSiliconflowKey', 'get').mockReturnValue(true)
+
+    offlineQueue.isOnline.value = false
+    await state.handleSendMessage({ prompt: 'offline-q' })
+
+    expect(offlineQueue.queueMessage).toHaveBeenCalledWith({ prompt: 'offline-q' })
+    expect(api.stream).not.toHaveBeenCalled()
+  })
+
+  it('挂载时把发送函数注册到离线队列（FESTATE-02）', () => {
+    wrapper = mountHomeWorkspace()
+
+    expect(offlineQueue.setSendCallback).toHaveBeenCalledWith(expect.any(Function))
   })
 
   it.each([undefined, 'chosen-model'])('传递联网模式并保持自动或显式选模：%s', async model => {

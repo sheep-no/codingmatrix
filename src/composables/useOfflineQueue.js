@@ -45,12 +45,13 @@ export function useOfflineQueue() {
     const messagesToSend = [...pendingMessages.value]
     pendingMessages.value = []
 
-    for (const message of messagesToSend) {
+    for (let i = 0; i < messagesToSend.length; i++) {
       try {
-        await sendCallback(message)
+        await sendCallback(messagesToSend[i])
       } catch (e) {
         console.warn('[useOfflineQueue] 发送失败，加入重试队列:', e.message)
-        pendingMessages.value.push(message)
+        // 失败消息及其后续消息按原顺序保留，避免被丢弃
+        pendingMessages.value.push(...messagesToSend.slice(i))
         break
       }
     }
@@ -71,7 +72,6 @@ export function useOfflineQueue() {
       const saved = localStorage.getItem(OFFLINE_QUEUE_KEY)
       if (saved) {
         pendingMessages.value = JSON.parse(saved)
-        localStorage.removeItem(OFFLINE_QUEUE_KEY)
       }
     } catch (e) {
       console.debug('[useOfflineQueue] 恢复队列失败（已损坏，重置）:', e.message)
@@ -89,9 +89,17 @@ export function useOfflineQueue() {
     window.addEventListener('offline', handleOffline)
     restoreQueue()
 
-    if (!isOnline.value && pendingMessages.value.length > 0) {
+    if (pendingMessages.value.length === 0) return
+
+    if (!isOnline.value) {
       showWarning(`有 ${pendingMessages.value.length} 条消息等待发送`)
+      return
     }
+
+    // 已在线的恢复队列不会收到 online 事件，等挂载流程结束后再补发
+    setTimeout(() => {
+      if (isOnline.value) flushQueue()
+    }, 0)
   })
 
   onUnmounted(() => {
