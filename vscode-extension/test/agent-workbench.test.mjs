@@ -52,6 +52,10 @@ test("renders the history, model, version, performance, learning and settings pa
   assert.match(html, /learning/);
   assert.match(html, /cache_clear/);
   assert.match(html, /concurrent_limits/);
+  assert.match(html, /id="project-name"/);
+  assert.match(html, /id="incremental"/);
+  assert.match(html, /data-flag="enable_skills"/);
+  assert.match(html, /data-flag="dependency_graph"/);
 });
 
 test("routes a workbench request and posts the response", async () => {
@@ -137,6 +141,63 @@ test("forwards workbench prompts to the cloud handler", async () => {
   panel.receive({ type: "workbench_prompt", prompt: "  分析当前项目  " });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(prompts, ["分析当前项目"]);
+});
+
+test("forwards the prompt options with the generation flags", async () => {
+  const received = [];
+  const controller = new AgentWorkbenchController({
+    onPrompt: (prompt, options) => received.push({ prompt, options }),
+  });
+  const panel = createPanel();
+  controller.open(() => panel);
+  panel.receive({
+    type: "workbench_prompt",
+    prompt: "  增加登录页  ",
+    project_name: "  my-app  ",
+    incremental: true,
+    flags: { enable_review: false, spec_first: false },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(received, [{
+    prompt: "增加登录页",
+    options: {
+      projectName: "my-app",
+      incremental: true,
+      flags: {
+        enable_review: false,
+        enable_validation: true,
+        enable_error_recovery: true,
+        enable_memory: true,
+        enable_skills: true,
+        spec_first: false,
+        dependency_graph: true,
+      },
+    },
+  }]);
+});
+
+test("ignores non-boolean flags and an empty project name", async () => {
+  const received = [];
+  const controller = new AgentWorkbenchController({
+    onPrompt: (prompt, options) => received.push(options),
+  });
+  const panel = createPanel();
+  controller.open(() => panel);
+  panel.receive({
+    type: "workbench_prompt",
+    prompt: "全新生成",
+    project_name: "   ",
+    incremental: "yes",
+    flags: { enable_review: "false", spec_first: 0 },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(received.length, 1);
+  assert.equal(received[0].projectName, undefined);
+  assert.equal(received[0].incremental, false);
+  assert.equal(received[0].flags.enable_review, true);
+  assert.equal(received[0].flags.spec_first, true);
 });
 
 test("forwards validated webview host messages to the controller", async () => {

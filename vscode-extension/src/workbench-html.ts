@@ -10,6 +10,12 @@ button.danger{background:var(--vscode-errorForeground);color:var(--vscode-editor
 button.secondary{background:var(--vscode-button-secondaryBackground,var(--vscode-button-background));color:var(--vscode-button-secondaryForeground,var(--vscode-button-foreground))}
 textarea,input[type=text]{display:block;width:100%;box-sizing:border-box;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);padding:6px}
 textarea{min-height:90px;margin:10px 0}
+label.field{display:block;color:var(--vscode-descriptionForeground);font-size:12px;margin-top:8px}
+.flags{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-top:6px}
+.flags label{font-size:12px;display:flex;align-items:center;gap:6px}
+.flags input,.inline-check input{width:auto;display:inline-block}
+.inline-check{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:13px}
+#project-name{margin-top:4px}
 #status{color:var(--vscode-descriptionForeground);margin:12px 0}
 .tabs{border-bottom:1px solid var(--vscode-panel-border);margin-bottom:12px}
 .tab-button{background:transparent;color:var(--vscode-foreground);border-bottom:2px solid transparent;border-radius:0;padding:8px 12px}
@@ -33,7 +39,7 @@ textarea{min-height:90px;margin:10px 0}
 // TypeScript template literal, so those sequences would be interpolated early.
 const WORKBENCH_SCRIPT = `
 const vscode=acquireVsCodeApi();
-let approval,sequence=0,activeSession;
+let approval,sequence=0,activeSession,lastProjectPath;
 const pending=new Map();
 const $=function(id){return document.getElementById(id);};
 const status=$('status'),messages=$('messages'),approve=$('approve'),reject=$('reject'),prompt=$('prompt'),send=$('send');
@@ -131,8 +137,16 @@ $('hello').addEventListener('click',function(){vscode.postMessage({type:'workben
 send.addEventListener('click',function(){
   const value=prompt.value.trim();
   if(!value)return;
+  const flags={};
+  document.querySelectorAll('[data-flag]').forEach(function(node){flags[node.getAttribute('data-flag')]=node.checked;});
   append('你：'+value);
-  vscode.postMessage({type:'workbench_prompt',prompt:value});
+  vscode.postMessage({
+    type:'workbench_prompt',
+    prompt:value,
+    project_name:$('project-name').value.trim(),
+    incremental:$('incremental').checked,
+    flags:flags
+  });
   prompt.value='';
   send.disabled=true;
   setStatus('Agent 正在处理');
@@ -353,10 +367,30 @@ window.addEventListener('message',function(event){
         const input=$('version-session');
         if(input&&!input.value)input.value=payload.session_id;
       }
+      const projectPath=typeof payload.project_path==='string'?payload.project_path:'';
+      const incrementalBox=$('incremental');
+      if(projectPath){
+        lastProjectPath=projectPath;
+        incrementalBox.disabled=false;
+        incrementalBox.title='基于上次生成的项目做增量修改';
+        $('incremental-hint').textContent='可增量修改：'+projectPath;
+      }else{
+        incrementalBox.checked=false;
+        incrementalBox.disabled=true;
+        $('incremental-hint').textContent='';
+      }
       setStatus('Agent 已完成');
       send.disabled=false;
     }
-    if(value.type==='error'){setStatus('Agent 执行失败');send.disabled=false;}
+    if(value.type==='error'||value.type==='cancelled'){
+      lastProjectPath=undefined;
+      const incrementalBox=$('incremental');
+      incrementalBox.checked=false;
+      incrementalBox.disabled=true;
+      $('incremental-hint').textContent='';
+      setStatus(value.type==='error'?'Agent 执行失败':'Agent 已取消');
+      send.disabled=false;
+    }
     const text=typeof payload==='string'?payload:payload.message||payload.error||value.type;
     if(text)append(value.type+'：'+text,value.type==='error');
     return;
@@ -390,7 +424,7 @@ export function createAgentWorkbenchHtml(): string {
 <button class="tab-button" data-tab="settings">设置</button>
 </nav>
 <section class="tab-panel" id="tab-chat">
-<div class="panel"><p>当前工作台共享 Web Agent 会话，可在这里继续对话、审批本地动作和查看验证结果。</p><textarea id="prompt" maxlength="5000" placeholder="输入 Agent 需求"></textarea><button id="send">发送需求</button><button id="hello">连接本地 Agent Host</button><button id="pause">暂停</button><button id="resume">恢复</button><button id="cancel">取消</button><button id="approve" hidden>批准当前动作</button><button id="reject" hidden>拒绝当前动作</button><div id="messages" aria-live="polite"></div></div>
+<div class="panel"><p>当前工作台共享 Web Agent 会话，可在这里继续对话、审批本地动作和查看验证结果。</p><textarea id="prompt" maxlength="5000" placeholder="输入 Agent 需求"></textarea><label class="field" for="project-name">项目名称（可选，字母、数字、下划线和连字符）</label><input type="text" id="project-name" maxlength="50" pattern="[A-Za-z0-9_-]*" placeholder="my-project"><label class="inline-check"><input type="checkbox" id="incremental" disabled>增量修改上次生成的项目</label><div id="incremental-hint" class="muted"></div><div class="flags"><label><input type="checkbox" data-flag="enable_review" checked>代码审查</label><label><input type="checkbox" data-flag="enable_validation" checked>代码验证</label><label><input type="checkbox" data-flag="enable_error_recovery" checked>错误恢复</label><label><input type="checkbox" data-flag="enable_memory" checked>记忆系统</label><label><input type="checkbox" data-flag="enable_skills" checked>Skill 上下文</label><label><input type="checkbox" data-flag="spec_first" checked>Spec-First</label><label><input type="checkbox" data-flag="dependency_graph" checked>依赖图分层</label></div><button id="send">发送需求</button><button id="hello">连接本地 Agent Host</button><button id="pause">暂停</button><button id="resume">恢复</button><button id="cancel">取消</button><button id="approve" hidden>批准当前动作</button><button id="reject" hidden>拒绝当前动作</button><div id="messages" aria-live="polite"></div></div>
 </section>
 <section class="tab-panel" id="tab-history">
 <div class="panel"><button id="history-refresh">刷新会话列表</button><div id="history-list"></div></div>

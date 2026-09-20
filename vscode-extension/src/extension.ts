@@ -33,22 +33,48 @@ let connectionDisposables: vscode.Disposable[] = [];
 let skillSyncTimer: ReturnType<typeof setTimeout> | undefined;
 let promptAbortController: AbortController | undefined;
 let extensionLifecycleId = 0;
+// Only a run that finished with a `done` event leaves a project behind, so the
+// chat panel may offer an incremental edit for that project and nothing else.
+let lastProjectPath: string | undefined;
 const controller = new AgentWorkbenchController({
   onMessage: async (message) => {
     if (runtime) await runtime.process(message);
   },
-  onPrompt: async (prompt) => {
+  onPrompt: async (prompt, options) => {
     if (!cloudConnection) {
       await controller.publishWorkbenchEvent({ type: "error", data: { error: "云端 Agent 尚未连接" } });
       return;
+    }
+    const incremental = options.incremental && lastProjectPath !== undefined;
+    if (options.incremental && !incremental) {
+      await controller.publishWorkbenchEvent({
+        type: "progress",
+        data: { message: "没有可增量修改的项目，已按全新生成处理" },
+      });
+    }
+    const request: Record<string, unknown> = {
+      requirement: prompt,
+      session_id: agentConversationId,
+      incremental,
+      ...options.flags,
+    };
+    if (options.projectName) request.project_name = options.projectName;
+    if (incremental) {
+      // The incremental adapter lives in the core engine; the legacy handler
+      // ignores the flag and would rebuild the whole project.
+      request.engine = "core";
+      request.project_path = lastProjectPath;
     }
     promptAbortController?.abort();
     const requestController = new AbortController();
     promptAbortController = requestController;
     try {
       await cloudConnection.streamAgentPrompt(
-        { requirement: prompt, session_id: agentConversationId },
-        (event) => controller.publishWorkbenchEvent(event),
+        request,
+        (event) => {
+          trackGenerationOutcome(event);
+          return controller.publishWorkbenchEvent(event);
+        },
         requestController.signal,
       );
     } catch (error) {
@@ -91,6 +117,20 @@ const controller = new AgentWorkbenchController({
     return dispatchWorkbenchRequest(cloudConnection, request);
   },
 });
+
+// A `done` event carries the generated project path; every other terminal event
+// leaves no project to edit incrementally, so the path is cleared.
+function trackGenerationOutcome(event: { type: string; data?: unknown }): void {
+  if (event.type === "done") {
+    const data = event.data;
+    const path = typeof data === "object" && data !== null
+      ? (data as { project_path?: unknown }).project_path
+      : undefined;
+    lastProjectPath = typeof path === "string" && path.trim() ? path : undefined;
+    return;
+  }
+  if (event.type === "error" || event.type === "cancelled") lastProjectPath = undefined;
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   const lifecycleId = ++extensionLifecycleId;

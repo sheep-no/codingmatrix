@@ -27,6 +27,38 @@ export const WORKBENCH_RESOURCES = [
 
 export type WorkbenchResource = (typeof WORKBENCH_RESOURCES)[number];
 
+// The orchestration switches the chat panel exposes before a run. Defaults
+// match OrchestratorRequest so an untouched panel keeps the server default.
+export const WORKBENCH_GENERATION_FLAGS = [
+  "enable_review",
+  "enable_validation",
+  "enable_error_recovery",
+  "enable_memory",
+  "enable_skills",
+  "spec_first",
+  "dependency_graph",
+] as const;
+
+export type WorkbenchGenerationFlag = (typeof WORKBENCH_GENERATION_FLAGS)[number];
+
+export type WorkbenchGenerationFlags = Record<WorkbenchGenerationFlag, boolean>;
+
+export const WORKBENCH_DEFAULT_GENERATION_FLAGS: WorkbenchGenerationFlags = {
+  enable_review: true,
+  enable_validation: true,
+  enable_error_recovery: true,
+  enable_memory: true,
+  enable_skills: true,
+  spec_first: true,
+  dependency_graph: true,
+};
+
+export interface WorkbenchPromptOptions {
+  projectName?: string;
+  incremental: boolean;
+  flags: WorkbenchGenerationFlags;
+}
+
 export interface WorkbenchRequest {
   request_id: string;
   resource: WorkbenchResource;
@@ -54,7 +86,7 @@ export interface WebviewPanelLike {
 
 export interface AgentWorkbenchControllerOptions {
   onMessage?: (message: AgentHostEnvelope) => void | Promise<void>;
-  onPrompt?: (prompt: string) => void | Promise<void>;
+  onPrompt?: (prompt: string, options: WorkbenchPromptOptions) => void | Promise<void>;
   onControl?: (action: "pause" | "resume" | "cancel") => void | Promise<void>;
   onRequest?: (request: WorkbenchRequest) => unknown | Promise<unknown>;
 }
@@ -63,7 +95,7 @@ export class AgentWorkbenchController {
   private panel?: WebviewPanelLike;
   private bridge?: WebviewBridge;
   private readonly onMessage?: (message: AgentHostEnvelope) => void | Promise<void>;
-  private readonly onPrompt?: (prompt: string) => void | Promise<void>;
+  private readonly onPrompt?: AgentWorkbenchControllerOptions["onPrompt"];
   private readonly onControl?: AgentWorkbenchControllerOptions["onControl"];
   private readonly onRequest?: AgentWorkbenchControllerOptions["onRequest"];
 
@@ -85,9 +117,16 @@ export class AgentWorkbenchController {
     this.bridge.subscribe((message) => { void this.onMessage?.(message); });
     panel.webview.onDidReceiveMessage((message) => {
       if (typeof message !== "object" || message === null) return;
-      const value = message as { type?: unknown; prompt?: unknown; action?: unknown };
+      const value = message as {
+        type?: unknown;
+        prompt?: unknown;
+        action?: unknown;
+        project_name?: unknown;
+        incremental?: unknown;
+        flags?: unknown;
+      };
       if (value.type === "workbench_prompt" && typeof value.prompt === "string" && value.prompt.trim()) {
-        void this.onPrompt?.(value.prompt.trim());
+        void this.onPrompt?.(value.prompt.trim(), this.parsePromptOptions(value));
       }
       if (value.type === "workbench_control" && (value.action === "pause" || value.action === "resume" || value.action === "cancel")) {
         void this.onControl?.(value.action);
@@ -157,6 +196,28 @@ export class AgentWorkbenchController {
     } catch {
       // A disposed panel cannot receive the response; the webview is gone.
     }
+  }
+
+  // Only a boolean flag the webview actually sent overrides the default, so a
+  // malformed message cannot disable a safety switch by sending a non-boolean.
+  private parsePromptOptions(value: {
+    project_name?: unknown;
+    incremental?: unknown;
+    flags?: unknown;
+  }): WorkbenchPromptOptions {
+    const flags: WorkbenchGenerationFlags = { ...WORKBENCH_DEFAULT_GENERATION_FLAGS };
+    if (typeof value.flags === "object" && value.flags !== null && !Array.isArray(value.flags)) {
+      const raw = value.flags as Record<string, unknown>;
+      for (const flag of WORKBENCH_GENERATION_FLAGS) {
+        if (typeof raw[flag] === "boolean") flags[flag] = raw[flag];
+      }
+    }
+    const projectName = typeof value.project_name === "string" ? value.project_name.trim() : "";
+    return {
+      ...(projectName ? { projectName } : {}),
+      incremental: value.incremental === true,
+      flags,
+    };
   }
 
   private transportFor(panel: WebviewPanelLike): WebviewTransport {
