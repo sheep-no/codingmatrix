@@ -106,7 +106,7 @@
 ### GirlAi.py（3 项）
 - **GIR2 [P3]** :511-512 response["choices"][0]... / response["usage"]["total_tokens"] 无 KeyError 防护（DB5 家族同款）
 - **GIR3 [P3]** :704 int(float(body.get("temperature"))) ValueError 未捕获 → 500；:703 自定义角色 model 无白名单（任意模型名）
-- **GIR4 [P3]** :377 ilike(f"%{q}%") LIKE 通配符注入；:400 total=len(records) 分页 total 失真（ND 家族）
+- **GIR4 [P3] 已修复**：原 `ilike(f"%{q}%")` 未转义通配符，输入 `%`/`_` 会匹配全部记录；`total=len(records)` 实为当前页条数。修复：新增 `_escape_like` 转义 `\`/`%`/`_` 并 `ilike(..., escape="\\")`；`total` 改用独立 `select(func.count())` 统计匹配总数。回归测试 `tests/unit/test_girl_history_search.py`
 - 已排除项：girl_request.py 有 character_id/temperature/max_tokens 字段，getattr 兜底对齐无害；:215-229 _clean_response 正则安全；:346-353 头像端点静态 SVG 无害
 
 ### kolors_api.py（5 项）
