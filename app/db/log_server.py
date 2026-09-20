@@ -7,12 +7,15 @@ from pathlib import Path
 import aiofiles
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.logging_config import LOG_DIR
+
 
 class LogService:
     """日志读取服务，支持实时流式推送和过滤"""
 
-    def __init__(self, log_dir: str = "logs"):
-        self.log_dir = Path(log_dir)
+    def __init__(self, log_dir: Optional[str] = None):
+        # 默认复用日志写入方的目录常量，避免两处硬编码相对路径漂移
+        self.log_dir = Path(log_dir) if log_dir else LOG_DIR
         self.log_files = {
             "app": self.log_dir / "app.log",
             "error": self.log_dir / "error.log",
@@ -80,10 +83,17 @@ class LogService:
             return
 
         position = log_file.stat().st_size
+        inode = log_file.stat().st_ino
+        error_count = 0
 
         while True:
             try:
                 if log_file.exists():
+                    stat = log_file.stat()
+                    if stat.st_ino != inode or stat.st_size < position:
+                        # 日志被轮转或截断（新文件更短/换 inode），从头部重新跟随
+                        position = 0
+                        inode = stat.st_ino
                     async with aiofiles.open(log_file, 'r', encoding='utf-8') as f:
                         await f.seek(position)
                         new_content = await f.read()
@@ -104,17 +114,22 @@ class LogService:
                                         if self._apply_filters(parsed, filters):
                                             yield json.dumps(parsed, ensure_ascii=False) + "\n"
 
+                error_count = 0
                 await asyncio.sleep(0.3)
 
             except asyncio.CancelledError:
                 break
             except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
-                yield json.dumps({
-                    "timestamp": datetime.now().isoformat(),
-                    "level": "ERROR",
-                    "message": f"日志流异常: {str(e)}",
-                    "error": str(e)
-                }, ensure_ascii=False) + "\n"
+                error_count += 1
+                # 首错与周期性心跳各推一次，避免每 0.3s 重复刷屏；退避上限 30s
+                if error_count == 1 or error_count % 10 == 0:
+                    yield json.dumps({
+                        "timestamp": datetime.now().isoformat(),
+                        "level": "ERROR",
+                        "message": f"日志流异常: {str(e)}",
+                        "error": str(e)
+                    }, ensure_ascii=False) + "\n"
+                await asyncio.sleep(min(0.3 * error_count, 30))
 
 
 class LogFilter:
