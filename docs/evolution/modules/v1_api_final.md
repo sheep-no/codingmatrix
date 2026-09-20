@@ -112,7 +112,7 @@
 ### kolors_api.py（5 项）
 - **KOL1 [P3]** :484-509/:666-706 参考图归属校验用 `File.file_path.contains(image_path)`，image_path 用户可控 → LIKE 通配符注入可绕过校验；下游 image_to_base64（image_generation.py:128-143）仅扩展名白名单 + 10MB 限制，无路径白名单 → 任意图片文件读取（泄露渠道间接：原图内容进生成图），定 P3
 - **KOL2 [P3]** :56-109 get_cached_image 缓存命中用 metadata_json.contains(f"image:{prompt}:{seed}") —— SQL LIKE 全表扫 + `%/` 通配符失配
-- **KOL3 [P3]** 内联 TextToImageRequest/ImageToImageRequest 参数无 ge/le 约束：num_images 无上界（成本放大器，config 宣称 max 4 但校验缺失）、width/height/num_inferences 同
+- **KOL3 [P3] 已修复**：内联 `TextToImageRequest`/`ImageToImageRequest` 参数补 ge/le —— `num_images` 1-4、`num_inferences`/`steps` 1-100、`width`/`height` 256-1280、`guidance_scale`/`cfg_scale` 1-20、`strength`/`denoising_strength` 0-1（含别名字段）。文生图下游 `text_to_image` 原本已有 clamp，图生图 `image_to_image` 无 clamp 故这次是真实收敛；multipart 路径同样构造这两个模型，故一并被约束。前端取值（512/768/1024、steps 25、cfg 7.5、denoising 0.7）均在范围内。回归测试 `tests/unit/test_kolors_request_bounds.py`
 - **KOL4 [P3]** :126-137 缓存写 History 自造 conversation_id=max+1（DB6 家族复现）；:150-158 图像缓存混入业务对话表
 - **KOL5 [P3]** :271 STYLE_PROMPTS 模块导入时求值一次，自定义 skill 风格改动需重启（热加载失效；/styles 端点 :865 用 get_style_prompts() 动态获取，两套读取并存）
 

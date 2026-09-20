@@ -296,17 +296,17 @@ class TextToImageRequest(BaseModel):
     """文生图请求"""
     prompt: str
     negative_prompt: str = ""
-    width: int = 1024
-    height: int = 1024
-    num_inferences: int = Field(50, description="推理步数 (20-100)")
-    guidance_scale: float = Field(7.5, description="引导系数 (1-20)")
-    num_images: int = 1
+    width: int = Field(1024, ge=256, le=1280, description="图像宽度 (256-1280)")
+    height: int = Field(1024, ge=256, le=1280, description="图像高度 (256-1280)")
+    num_inferences: int = Field(50, ge=1, le=100, description="推理步数 (1-100)")
+    guidance_scale: float = Field(7.5, ge=1, le=20, description="引导系数 (1-20)")
+    num_images: int = Field(1, ge=1, le=4, description="生成数量 (1-4)")
     seed: Optional[int] = None
     conversation_id: Optional[int] = Field(None, description="会话 ID（用于缓存和携带历史）")
     api_key_token: Optional[str] = Field(None, description="用户 API Key Token")
     # 前端兼容字段
-    steps: Optional[int] = Field(None, description="推理步数（别名，优先于 num_inferences）")
-    cfg_scale: Optional[float] = Field(None, description="引导系数（别名，优先于 guidance_scale）")
+    steps: Optional[int] = Field(None, ge=1, le=100, description="推理步数（别名，优先于 num_inferences）")
+    cfg_scale: Optional[float] = Field(None, ge=1, le=20, description="引导系数（别名，优先于 guidance_scale）")
     style: Optional[str] = Field(None, description="画面风格（写实/动漫/数字艺术等）")
 
     def get_num_inferences(self) -> int:
@@ -320,13 +320,13 @@ class ImageToImageRequest(BaseModel):
     """图生图请求"""
     prompt: str
     negative_prompt: str = ""
-    strength: float = 0.75
-    denoising_strength: Optional[float] = Field(None, description="降噪强度（别名，优先于 strength）")
-    width: Optional[int] = None
-    height: Optional[int] = None
-    num_inferences: int = 50
-    guidance_scale: float = 7.5
-    num_images: int = 1
+    strength: float = Field(0.75, ge=0, le=1, description="重绘强度 (0-1)")
+    denoising_strength: Optional[float] = Field(None, ge=0, le=1, description="降噪强度（别名，优先于 strength）")
+    width: Optional[int] = Field(None, ge=256, le=1280, description="输出宽度 (256-1280)")
+    height: Optional[int] = Field(None, ge=256, le=1280, description="输出高度 (256-1280)")
+    num_inferences: int = Field(50, ge=1, le=100, description="推理步数 (1-100)")
+    guidance_scale: float = Field(7.5, ge=1, le=20, description="引导系数 (1-20)")
+    num_images: int = Field(1, ge=1, le=4, description="生成数量 (1-4)")
     seed: Optional[int] = None
     image_path: Optional[str] = None  # 参考图片路径
     image_url: Optional[str] = Field(None, description="参考图片 URL（别名，优先于 image_path）")
@@ -335,8 +335,8 @@ class ImageToImageRequest(BaseModel):
     conversation_id: Optional[int] = Field(None, description="会话 ID")
     api_key_token: Optional[str] = Field(None, description="用户 API Key Token")
     # 前端兼容字段
-    steps: Optional[int] = Field(None, description="推理步数（别名，优先于 num_inferences）")
-    cfg_scale: Optional[float] = Field(None, description="引导系数（别名，优先于 guidance_scale）")
+    steps: Optional[int] = Field(None, ge=1, le=100, description="推理步数（别名，优先于 num_inferences）")
+    cfg_scale: Optional[float] = Field(None, ge=1, le=20, description="引导系数（别名，优先于 guidance_scale）")
     style: Optional[str] = Field(None, description="画面风格")
 
     def get_image_path(self) -> str:
