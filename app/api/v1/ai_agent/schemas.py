@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
-from pathlib import Path
 import re
 import json
 
@@ -101,7 +100,6 @@ class FileOperationRequest(BaseModel):
     @field_validator('path')
     @classmethod
     def validate_path(cls, v):
-        resolved = str(Path(v).resolve())
         if ".." in v or v.startswith("/"):
             raise ValueError("路径格式不正确")
         if "\\" in v:

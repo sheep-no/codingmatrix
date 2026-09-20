@@ -80,7 +80,6 @@ class LogService:
             return
 
         position = log_file.stat().st_size
-        logger_name = __name__  # 当前模块名
 
         while True:
             try:

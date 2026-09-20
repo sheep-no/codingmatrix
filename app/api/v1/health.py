@@ -165,7 +165,6 @@ async def prometheus_metrics(token: dict = Depends(verify_token)):
 
     gc_stats = gc.get_stats()
     if gc_stats:
-        collected = sum(s['collected'] for s in gc_stats)
         prometheus_metrics._registry.counter("python_gc_objects_collected", {"generation": "all"})
 
     text = generate_metrics_text()

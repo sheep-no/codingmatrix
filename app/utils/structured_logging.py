@@ -144,8 +144,6 @@ def log_with_context(logger_name: str = "app"):
         async def handler():
             logger.info("处理请求")
     """
-    logger = logging.getLogger(logger_name)
-
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):

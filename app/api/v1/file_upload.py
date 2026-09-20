@@ -355,7 +355,6 @@ async def upload_chunk(
     - 支持断点续传
     - 分片会自动保存到临时目录
     """
-    user_id = int(token.get("sub"))
     chunk_dir = CHUNKS_DIR / file_id
     chunk_dir.mkdir(parents=True, exist_ok=True)
 

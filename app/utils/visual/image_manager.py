@@ -480,24 +480,6 @@ class ImageManager:
         color: str = "#004296"
     ) -> Optional[str]:
         """生成图标（使用 emoji 或简单形状作为备选）"""
-        # 简单的 emoji 图标映射
-        icon_map = {
-            "warning": "[WARNING]",
-            "info": "[INFO]",
-            "check": "✓",
-            "cross": "✗",
-            "arrow": "→",
-            "star": "★",
-            "heart": "♥",
-            "book": "📖",
-            "people": "👥",
-            "chart": "[CHART]",
-            "lightbulb": "[TIP]",
-            "target": "[TARGET]",
-        }
-        
-        emoji = icon_map.get(icon_type.lower(), "●")
-        
         # 创建图标图片
         try:
             from PIL import Image, ImageDraw, ImageFont

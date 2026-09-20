@@ -158,7 +158,6 @@ class LayoutOptimizer:
 
         content_width = get_cfg('slide_width', 13.333) - 2 * get_cfg('slide_margin', 0.8)
         content_height = get_cfg('slide_height', 7.5) - 2 * get_cfg('slide_margin', 0.8)
-        margin = get_cfg('slide_margin', 0.8)
         available_width = content_width
         available_height = content_height
 
@@ -211,7 +210,6 @@ class LayoutOptimizer:
                 )
 
                 if estimated_height > available_height:
-                    height_diff = estimated_height - available_height
                     # 按比例缩小字号
                     scale_factor = available_height / estimated_height
                     body_font = max(
@@ -496,7 +494,6 @@ class LayoutOptimizer:
 
         # 图片区域
         if 'images' in optimized and isinstance(optimized['images'], list):
-            body_bottom = layout.get('body', {}).get('bottom', margin)
             image_count = len(optimized['images'])
             if image_count > 0:
                 layout['images'] = {
@@ -526,8 +523,6 @@ class LayoutOptimizer:
         num_images = len(images)
         if num_images == 0:
             return []
-
-        image_config = getattr(template_config, 'images', {})
 
         if num_images == 1:
             return [{

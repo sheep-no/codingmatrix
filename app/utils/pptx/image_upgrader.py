@@ -745,7 +745,7 @@ class UnsplashImageSearch:
                             time.sleep(self._RETRY_DELAY * (attempt + 1))
                             continue
                         break
-                    except httpx.RequestError as e:
+                    except httpx.RequestError:
                         if attempt < self._MAX_RETRIES - 1:
                             import time
                             time.sleep(self._RETRY_DELAY)

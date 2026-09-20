@@ -687,7 +687,6 @@ class LayoutDecider:
 
         items = element.properties.get("items", "")
         highlight_points = element.properties.get("highlight_points", [])
-        highlight_color = element.properties.get("highlight_color", "FF6600")
 
         # 获取样式属性
         props = element.properties
@@ -695,7 +694,6 @@ class LayoutDecider:
         font_size = props.get("font_size", 20)
         font_color = props.get("font_color", style.TEXT_DARK)
         bullet_style = props.get("bullet_style", "circle")
-        bullet_color = props.get("bullet_color", style.ACCENT_COLOR)
 
         if isinstance(items, str):
             items = [items]
