@@ -47,8 +47,12 @@ _PROVIDER_BASE_URLS = {
 _OPENAI_COMPAT_PROVIDERS = {"siliconflow", "openai", "bailian", "glm", "deepseek"}
 
 
-async def _sync_provider_models(provider: str, api_key: str):
-    """同步供应商模型列表到 CustomProviderManager（后台执行）"""
+async def _sync_provider_models(provider: str, api_key: str, user_id: str):
+    """同步供应商模型列表到 CustomProviderManager（后台执行）。
+
+    条目按用户隔离命名（`user_<user_id>_<provider>`），避免不同用户提交
+    同一供应商的 Key 时互相覆盖。
+    """
     try:
         from app.services.custom_provider_manager import get_custom_provider_manager
         cp_manager = get_custom_provider_manager()
@@ -58,11 +62,12 @@ async def _sync_provider_models(provider: str, api_key: str):
             return
         
         protocol = "anthropic" if provider == "anthropic" else "openai"
+        provider_name = f"user_{user_id}_{provider}"
         
         # 检查是否已有该供应商的条目（按 name 匹配）
         existing = None
         for p in cp_manager.providers.values():
-            if p.name == f"user_{provider}":
+            if p.name == provider_name:
                 existing = p
                 break
         
@@ -74,7 +79,7 @@ async def _sync_provider_models(provider: str, api_key: str):
         else:
             # 创建新条目
             cp = cp_manager.add_provider(
-                name=f"user_{provider}",
+                name=provider_name,
                 base_url=base_url,
                 protocol=protocol,
                 api_key=api_key,
@@ -204,7 +209,9 @@ async def submit_key(request: Request, submit_request: SubmitKeyRequest, user_id
         
         # 后台同步供应商模型列表（提取 context_length 等信息）
         if submit_request.provider in _OPENAI_COMPAT_PROVIDERS:
-            asyncio.create_task(_sync_provider_models(submit_request.provider, api_key.strip()))
+            asyncio.create_task(
+                _sync_provider_models(submit_request.provider, api_key.strip(), user_id)
+            )
         
         return SubmitKeyResponse(
             success=True,
