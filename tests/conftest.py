@@ -3,6 +3,7 @@ Pytest 通用配置和 Fixtures
 """
 
 import pytest
+import pytest_asyncio
 import os
 import sys
 from datetime import datetime
@@ -14,15 +15,6 @@ from app.db.database import engine, async_session
 from app.models.base import Base
 from app.models.user import User
 from app.models.Permission import Permission
-
-
-@pytest.fixture(scope="session")
-def event_loop():
- """创建事件循环"""
- import asyncio
- loop = asyncio.get_event_loop_policy().new_event_loop()
- yield loop
- loop.close()
 
 
 @pytest.fixture(scope="session")
@@ -113,14 +105,14 @@ def api_v2_base_url(api_base_url):
  return f"{api_base_url}/api/v2"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def db_session():
     """数据库会话"""
     async with async_session() as session:
         yield session
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_db_setup():
     """创建测试数据库表"""
     async with engine.begin() as conn:

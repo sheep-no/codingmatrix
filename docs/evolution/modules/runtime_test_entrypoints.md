@@ -143,3 +143,16 @@
 - 当前主线是“声明存在”向“运行可证”演化：RT1、RT2 和 RT6 分别对应健康结果、worker 执行和修复行为的证据不足。
 - 配置演化方向是统一收敛：`configs/pytest.ini` 与 `pyproject.toml` 应形成单一可审计入口，marker、asyncio、timeout、覆盖率策略需要在同一运行契约中呈现。
 - 生命周期演化方向是边界明确：ASGI 内存测试、真实 HTTP 服务、Celery worker 和依赖服务应按测试层级拆分，并为每层定义启动、执行、失败和清理证据。
+
+## 8. 状态更新（2026-09-20 核实）
+
+按当前代码逐条核实后的结论：
+
+- **RT1 [P2] 已修（本轮）**：实测确认 `/health`、`/health/ready`、`/health/detailed`、`/health/metrics` 四个端点在正常与依赖不可用两种情况下**均返回 200**，健康语义由 `body.status`（`healthy/unhealthy`、`ready/not_ready`）表达。原测试 `assert status_code in [200, 500, 503]` 会把「端点 500 崩溃」当作合法结果，永久失去故障发现能力。现收紧为严格 200 + body 语义断言：`/health` 断言 `status ∈ {healthy, unhealthy}` 且含 `timestamp`/`version`；`/health/ready` 断言 `status ∈ {ready, not_ready}` 且 `checks` 含 `database`/`redis`；`/health/detailed` 断言 200 且含 `status`/`checks`；`/health/metrics` 断言 200 且 `content-type` 为 `text/plain`。`/health/models` 依赖 Agent 动态路由（`dynamic_model_router`），配置缺失时可能 500，保留 `[200, 500]` 并在测试内注明原因。
+- **RT4 [P3] 已修（本轮）**：`tests/conftest.py` 的 `db_session`、`test_db_setup` 由 `@pytest.fixture` 改为 `@pytest_asyncio.fixture`，显式表达异步 fixture 契约，不再依赖 `asyncio_mode=auto` 的隐式处理。
+- **RT5 [P3] 已修（本轮）**：删除 `tests/conftest.py` 中自定义的 session 级 `event_loop` fixture。pytest-asyncio 1.3 已不再支持通过重定义 `event_loop` 管理事件循环，该 fixture 无任何测试依赖（`rg` 确认零消费），loop 生命周期统一交给 pytest-asyncio 配置。
+- **RT3 [P2] 已修（前轮核实）**：`pyproject.toml:18-37` 已含 `--strict-markers` 与 10 类 marker（api/asyncio/database/integration/guardian/logging/monitoring/security/smoke/unit），`selenium`/`slow` 仅存在于不被 `testpaths` 收集的 `tests/archive/`。
+- **RT2 [P2] 未改**：Celery worker 生命周期集成层需 broker/backend fixture 与投递-执行-重试-回收用例，属独立工程，未在本次改动。
+- **RT6 [P3] 未改**：将源码字符串断言改为 mock 行为断言需逐条重写 `test_bugfixes.py`，未在本次改动。
+- **RT7 [P3] 未改**：数据库 fixture 的测试库隔离需环境侧确认（当前 `conftest.py` 使用项目 `engine/async_session`），未在本次改动。
+- 验证：`pytest tests/integration/test_health_api.py` = 8 passed；`pytest tests/unit/test_task_queue.py` = 30 passed。

@@ -25,27 +25,35 @@ def auth_override():
 
 
 class TestHealthEndpoints:
-    """测试健康检查端点存在性"""
+    """健康检查端点契约
+
+    /health 与 /health/ready 在依赖故障时仍返回 200，健康状态由
+    body.status 表达（healthy/unhealthy、ready/not_ready）。因此状态码
+    必须严格断言 200，500/503 代表端点本身崩溃而非「依赖不健康」。
+    """
 
     @pytest.mark.asyncio
     async def test_health_check_exists(self):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/v1/health")
-            assert response.status_code in [200, 500, 503]
+            assert response.status_code == 200
             data = response.json()
-            assert "status" in data
+            assert data["status"] in {"healthy", "unhealthy"}
             assert "timestamp" in data
+            assert "version" in data
 
     @pytest.mark.asyncio
     async def test_health_ready_exists(self):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/v1/health/ready")
-            assert response.status_code in [200, 500, 503]
+            assert response.status_code == 200
             data = response.json()
-            assert "status" in data
+            assert data["status"] in {"ready", "not_ready"}
             assert "checks" in data
+            assert "database" in data["checks"]
+            assert "redis" in data["checks"]
 
     @pytest.mark.asyncio
     async def test_health_live_exists(self):
@@ -61,17 +69,22 @@ class TestHealthEndpoints:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/v1/health/detailed")
-            assert response.status_code in [200, 500, 503]
+            assert response.status_code == 200
+            data = response.json()
+            assert "status" in data
+            assert "checks" in data
 
     @pytest.mark.asyncio
     async def test_health_metrics_exists(self, auth_override):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/v1/health/metrics")
-            assert response.status_code in [200, 500]
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/plain")
 
     @pytest.mark.asyncio
     async def test_health_models_exists(self):
+        """模型健康端点依赖 Agent 动态路由，配置缺失时允许 500。"""
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/v1/health/models")
@@ -86,16 +99,16 @@ class TestHealthResponseStructure:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/v1/health")
+            assert response.status_code == 200
             data = response.json()
-            if "status" in data and data["status"] == "healthy":
-                assert "version" in data
+            assert "version" in data
 
     @pytest.mark.asyncio
     async def test_ready_checks_database_and_redis(self):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/v1/health/ready")
+            assert response.status_code == 200
             data = response.json()
-            if "checks" in data:
-                assert "database" in data["checks"]
-                assert "redis" in data["checks"]
+            assert "database" in data["checks"]
+            assert "redis" in data["checks"]
