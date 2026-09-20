@@ -21,14 +21,6 @@ class GirlResponse(BaseModel):
     tokens_used: int = Field(..., description="本次请求消耗的 token 数量")
 
 
-class HistoryQuery(BaseModel):
-    """历史记录查询参数"""
-    limit: Optional[int] = Field(20, ge=1, le=100, description="返回的最大记录数")
-    offset: Optional[int] = Field(0, ge=0, description="分页偏移量")
-    start_date: Optional[datetime] = Field(None, description="查询开始时间")
-    end_date: Optional[datetime] = Field(None, description="查询结束时间")
-
-
 class HistoryRecord(BaseModel):
     """单条历史记录"""
     id: str

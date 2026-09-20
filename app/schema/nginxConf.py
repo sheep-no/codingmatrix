@@ -1,7 +1,7 @@
 """
 Nginx 配置管理 Schema
 """
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 
 
@@ -46,20 +46,23 @@ class NginxGenerateRequest(BaseModel):
     # Nginx 安装路径
     nginx_path: Optional[str] = Field(None, description="Nginx 安装目录")
     
-    @validator('server_name')
+    @field_validator('server_name')
+    @classmethod
     def validate_server_name(cls, v):
         if not v or not v.strip():
             raise ValueError('服务器名称不能为空')
         return v
     
-    @validator('config_type')
+    @field_validator('config_type')
+    @classmethod
     def validate_config_type(cls, v):
         allowed = ['proxy', 'https', 'loadbalancer', 'static']
         if v not in allowed:
             raise ValueError(f'配置类型必须是：{", ".join(allowed)}')
         return v
     
-    @validator('platform')
+    @field_validator('platform')
+    @classmethod
     def validate_platform(cls, v):
         if v not in ['linux', 'windows']:
             raise ValueError('平台必须是 linux 或 windows')
