@@ -148,7 +148,9 @@ class RequestLoggingMiddleware:
             await self.app(scope, receive, send)
             return
 
-        request_id = generate_request_id()
+        # 外层中间件（如性能监控）可能已生成并写入上下文，复用之以保证
+        # 响应头 X-Request-ID 与日志 request_id 一致。
+        request_id = get_request_id() or generate_request_id()
         set_request_context(request_id)
 
         start_time = time.time()

@@ -57,6 +57,20 @@ class RateLimitConfig:
     def enabled(self) -> bool:
         return self._enabled
 
+    @property
+    def max_window(self) -> int:
+        """所有层级与端点规则中的最大窗口（秒）。
+
+        用于内存限流器清扫过期桶：超过该窗口的历史记录一定全部失效。
+        """
+        windows = [
+            self._global_limit.window,
+            self._ip_limit.window,
+            self._user_limit.window,
+        ]
+        windows.extend(rule.window for rule in self._endpoint_rules.values())
+        return max(windows)
+
     def resolve_endpoint_key(self, endpoint: str) -> Optional[str]:
         """返回匹配 endpoint 的最长前缀规则键（按路径段边界），无匹配返回 None。
 

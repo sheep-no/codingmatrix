@@ -9,10 +9,9 @@
 import asyncio
 import logging
 import time
-from datetime import datetime
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Dict, Optional
+
+from app.utils.logging import generate_request_id, set_request_context
 
 logger = logging.getLogger(__name__)
 
@@ -21,59 +20,53 @@ logger = logging.getLogger(__name__)
 SLOW_REQUEST_THRESHOLD = float(1.0)  # 1 秒
 
 
-class PerformanceMonitorMiddleware(BaseHTTPMiddleware):
-    """性能监控中间件"""
+class PerformanceMonitorMiddleware:
+    """性能监控中间件（纯 ASGI 实现）
+
+    为什么不用 BaseHTTPMiddleware（与 logging.py 的 RequestLoggingMiddleware 一致）:
+    - BaseHTTPMiddleware 用 anyio TaskGroup 包装 call_next，并缓冲响应体
+    - 流式响应（SSE 等）会被整体缓冲，失去流式效果
+    - 客户端断开时 cancel scope 会传播到下游 await，干扰 session 清理
+    """
 
     def __init__(self, app, slow_threshold: float = SLOW_REQUEST_THRESHOLD):
-        super().__init__(app)
+        self.app = app
         self.slow_threshold = slow_threshold
         self.stats: Dict[str, dict] = {}
         self._lock = asyncio.Lock()
-    
-    async def dispatch(self, request: Request, call_next) -> Response:
-        """处理请求并记录性能"""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         start_time = time.time()
-        
-        # 提取请求信息
-        path = request.url.path
-        method = request.method
-        client_ip = request.client.host if request.client else "unknown"
-        request_id = f"{datetime.utcnow().timestamp()}-{client_ip}-{path}"
-        
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+        # 与 RequestLoggingMiddleware 共用同一个 request_id：本中间件在最外层，
+        # 先生成并写入上下文，内层日志中间件复用之，避免响应头 X-Request-ID
+        # 与日志中的 request_id 对不上导致追踪断裂。
+        request_id = generate_request_id()
+        set_request_context(request_id)
+
+        status_code = 500
+
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                # 去掉下游（RequestLoggingMiddleware）已写入的同名头，避免重复
+                headers = [
+                    (k, v) for (k, v) in message.get("headers", [])
+                    if k.lower() not in (b"x-request-id", b"x-process-time")
+                ]
+                headers.append((b"x-process-time", str(round(time.time() - start_time, 4)).encode()))
+                headers.append((b"x-request-id", request_id.encode()))
+                message["headers"] = headers
+            await send(message)
+
         try:
-            # 执行请求
-            response = await call_next(request)
-            
-            # 计算耗时
-            process_time = time.time() - start_time
-
-            # 指标标签使用路由模板，带参路径会把 UUID/ID 带进 label 造成高基数
-            metric_path = self._metric_path(request)
-            
-            # 记录到响应头
-            response.headers["X-Process-Time"] = str(round(process_time, 4))
-            response.headers["X-Request-ID"] = request_id
-            
-            # 记录性能指标
-            await self._record_metric(metric_path, method, process_time, response.status_code)
-
-            # 记录到 Prometheus 指标
-            try:
-                from app.services.prometheus_metrics import prometheus_metrics
-                prometheus_metrics.record_request(method, metric_path, response.status_code, process_time)
-            except Exception:
-                pass
-            
-            # 慢请求告警
-            if process_time > self.slow_threshold:
-                logger.warning(
-                    f"慢请求 | method={method} | path={path} | "
-                    f"time={process_time:.3f}s | status={response.status_code} | "
-                    f"request_id={request_id}"
-                )
-            
-            return response
-            
+            await self.app(scope, receive, send_wrapper)
         except (ValueError, TypeError, RuntimeError, OSError, KeyError) as e:
             process_time = time.time() - start_time
             logger.error(
@@ -82,15 +75,38 @@ class PerformanceMonitorMiddleware(BaseHTTPMiddleware):
             )
             raise
 
+        process_time = time.time() - start_time
+
+        # 指标标签使用路由模板，带参路径会把 UUID/ID 带进 label 造成高基数
+        metric_path = self._metric_path(scope)
+
+        # 记录性能指标
+        await self._record_metric(metric_path, method, process_time, status_code)
+
+        # 记录到 Prometheus 指标
+        try:
+            from app.services.prometheus_metrics import prometheus_metrics
+            prometheus_metrics.record_request(method, metric_path, status_code, process_time)
+        except Exception:
+            pass
+
+        # 慢请求告警
+        if process_time > self.slow_threshold:
+            logger.warning(
+                f"慢请求 | method={method} | path={path} | "
+                f"time={process_time:.3f}s | status={status_code} | "
+                f"request_id={request_id}"
+            )
+
     @staticmethod
-    def _metric_path(request: Request) -> str:
+    def _metric_path(scope) -> str:
         """返回用于指标标签的路径。
 
         已匹配路由取路由模板（如 /items/{item_id}），使同一端点的不同参数
         归并到同一指标；未匹配路由统一归为 <unmatched>，避免被任意路径扫描
         撑爆指标基数。
         """
-        route = request.scope.get("route")
+        route = scope.get("route")
         route_path = getattr(route, "path", None)
         return route_path or "<unmatched>"
     
