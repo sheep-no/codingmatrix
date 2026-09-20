@@ -9,10 +9,9 @@
 - 用户限流
 - 端点限流
 """
-from fastapi import Request, HTTPException, status
+from fastapi import status
 from fastapi.responses import JSONResponse
 from collections import defaultdict
-from datetime import datetime, timedelta
 import time
 import json
 import threading
@@ -53,21 +52,7 @@ class RateLimiter:
         self._history: Dict[str, List[float]] = defaultdict(list)
         self._lock = threading.Lock()
         self._config = rate_limit_config
-
-        self.endpoint_limits = {
-            "/api/v1/login": (5, 60),
-            "/api/v1/register": (10, 60),
-            "/api/v1/refresh": (10, 60),
-            "/api/v1/files/upload": (20, 60),
-            "/api/v1/chat": (60, 60),
-            "/api/v1/code": (60, 60),
-            "/api/v1/generate": (60, 60),
-            "/api/v1/pptx": (60, 60),
-            "/api/v1/ai_agent": (10, 60),
-            "/api/v1/aicloud": (10, 60),
-            "/api/v1/workflow": (10, 60),
-            "default": (60, 60),
-        }
+        self._last_sweep = 0.0
 
     def _cleanup_old_records(self, key: str, window_start: float):
         """清理过期记录（需要持有锁）"""
@@ -78,38 +63,23 @@ class RateLimiter:
         if not self._history[key]:
             del self._history[key]
 
-    def _get_key_count(self, key: str, window_seconds: int) -> int:
-        """获取键在窗口内的请求数"""
-        current_time = time.time()
-        window_start = current_time - window_seconds
-        return len([ts for ts in self._history[key] if ts > window_start])
+    def _prune_stale_keys(self, current_time: float):
+        """清扫所有过期键（需要持有锁，最多每秒一次）。
 
-    def check_limit(
-        self,
-        key: str,
-        limit: int,
-        window_seconds: int
-    ) -> Tuple[bool, int, int]:
+        key 里带时间桶（如 ip:1.2.3.4:12345），窗口滚动后旧桶不再被访问，
+        只清理当前 key 会让旧桶无限累积。这里按最大窗口全量清扫，
+        删除记录已全部过期的 key，避免内存无界增长。
         """
-        检查限流（线程安全）
-
-        Returns:
-            Tuple[是否超限, 剩余请求数, 窗口秒数]
-        """
-        current_time = time.time()
-        window_start = current_time - window_seconds
-
-        with self._lock:
-            self._cleanup_old_records(key, window_start)
-
-            request_count = len(self._history[key])
-            remaining = max(0, limit - request_count)
-
-            if request_count >= limit:
-                return (True, 0, window_seconds)
-
-            self._history[key].append(current_time)
-            return (False, remaining - 1, window_seconds)
+        if current_time - self._last_sweep < 1.0:
+            return
+        self._last_sweep = current_time
+        cutoff = current_time - self._config.max_window
+        stale = [
+            key for key, records in self._history.items()
+            if not any(ts > cutoff for ts in records)
+        ]
+        for key in stale:
+            del self._history[key]
 
     def check_multi_tier(
         self,
@@ -142,6 +112,7 @@ class RateLimiter:
         endpoint_key = f"ep:{endpoint_bucket}:{int(current_time / endpoint_window)}"
 
         with self._lock:
+            self._prune_stale_keys(current_time)
             self._cleanup_old_records(global_key, current_time - global_window)
             self._cleanup_old_records(ip_key, current_time - ip_window)
             if user_key:
@@ -169,75 +140,6 @@ class RateLimiter:
             self._history[endpoint_key].append(current_time)
 
             return (False, "", 0, 0)
-
-    def is_rate_limited(self, client_id: str, endpoint: str) -> bool:
-        """
-        检查请求是否超过限制（线程安全，兼容旧接口）
-
-        Returns:
-            bool: 是否应该限制（True 表示超限）
-        """
-        current_time = time.time()
-
-        limit_config = self.endpoint_limits.get(
-            endpoint,
-            self.endpoint_limits["default"]
-        )
-        max_requests, window_seconds = limit_config
-
-        window_start = current_time - window_seconds
-
-        with self._lock:
-            self._cleanup_old_records(client_id, window_start)
-
-            request_count = len(self._history[client_id])
-            if request_count >= max_requests:
-                return True
-
-            self._history[client_id].append(current_time)
-            return False
-
-    def get_client_id(self, request: Request) -> str:
-        """
-        获取客户端唯一标识
-
-        优先级：用户 ID > IP 地址
-        """
-        client_ip = request.client.host
-
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            try:
-                token = auth_header[7:]
-                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-                user_id = payload.get("sub")
-                if user_id:
-                    return f"user:{user_id}"
-            except Exception:
-                pass
-
-        return f"ip:{client_ip}"
-
-    def get_client_identifiers(self, request: Request) -> Tuple[str, Optional[str]]:
-        """
-        获取客户端标识信息
-
-        Returns:
-            Tuple[IP, 用户ID或None]
-        """
-        client_ip = request.client.host
-        user_id = None
-
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            try:
-                token = auth_header[7:]
-                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-                user_id = payload.get("sub")
-            except Exception:
-                pass
-
-        return (client_ip, user_id)
 
     def get_stats(self) -> Dict:
         """获取限流统计信息"""
@@ -315,7 +217,9 @@ class RateLimitMiddleware:
             payload = {
                 "error": "请求过于频繁",
                 "detail": f"{tier_names.get(tier, tier)}限制：{limit}次/{window}秒",
-                "retry_after": window // 2,
+                # 与响应头 retry-after 保持一致：窗口内已超限，客户端应等待
+                # 一个完整窗口再重试，避免按更短的 body 值重试仍撞墙。
+                "retry_after": window,
                 "tier": tier,
             }
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -399,12 +303,17 @@ class LoginAttemptTracker:
                 ts for ts in self.failed_attempts[identifier]
                 if ts > window_start
             ]
-            return len(self.failed_attempts[identifier]) >= self.max_attempts
+            attempts = self.failed_attempts[identifier]
+            # 列表清空后删除键，避免为每个出现过的用户名/IP 永久保留空列表
+            if not attempts:
+                del self.failed_attempts[identifier]
+                return False
+            return len(attempts) >= self.max_attempts
 
     def clear_failed_attempts(self, identifier: str):
         """登录成功后清除失败记录（线程安全）"""
         with self._lock:
-            self.failed_attempts[identifier] = []
+            self.failed_attempts.pop(identifier, None)
 
 
 login_tracker = LoginAttemptTracker()

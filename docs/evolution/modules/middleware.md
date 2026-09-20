@@ -120,5 +120,15 @@ app/middleware/ 是 FastAPI 应用的**HTTP 中间件层**——请求进入路�
 - **RLM1 已修复**：`RateLimitConfig.get_endpoint_rule` 改最长前缀匹配（新增 `resolve_endpoint_key`，按路径段边界判断），中间件端点桶 key 由完整 raw path 归一为匹配到的规则前缀。六项 AI 主链路前缀规则恢复生效，带路径参数请求不再各自成桶。
 - **IV1 已部分修复**：SQL 正则从单词黑名单改为组合特征（引号布尔注入、`UNION SELECT`、堆叠 DDL、`--` 注释、`1=1`），消除 `create`/`delete`/`select`/`update` 日常文本误报；XSS 移除 `eval(`、`document.*` 等代码语义模式，保留标签/协议/事件属性 payload；`SKIP_SECURITY_CHECK_PATHS` 的空转范围收窄为「仅跳过内容扫描」，Content-Type 与请求体大小校验对 AI 主链路重新生效，并顺带用路径段边界匹配修掉 `startswith` 前缀碰撞。
 - **仍存权衡**：AI 主链路仍不做 SQL/XSS 内容扫描（代码生成场景下把代码文本当攻击 payload 拦截本身不成立，正确防护是输入侧提示词注入检测）；XSS 对 `<script>` 等标签仍会在非白名单端点拦截含字面标签的文本。
-- **仍未处理**：RLM2–RLM5、IV2、FSW1、SH1、SH2（P3）。
+- **仍未处理**：IV2、FSW1、SH1、SH2（P3）。
 - **测试**：新增 `tests/unit/test_middleware_hardening.py`(15)；回退源码后 8 项失败。
+
+## 九、状态更新（2026-09-20 核实）
+
+以当前代码为准逐条核实并修复：
+
+- **RLM2 已修复**：`RateLimiter` 新增 `_prune_stale_keys`，按 `rate_limit_config.max_window`（新增属性，取各层级与端点规则窗口最大值）每秒一次全量清扫，删除记录已全部过期的 key——窗口滚动后的旧时间桶不再永久残留。`LoginAttemptTracker.is_blocked` 在过滤后为空时 `del` 键，`clear_failed_attempts` 改 `pop` 而非置空列表，避免为每个出现过的用户名/IP 永久保留空列表。
+- **RLM4 已修复**：删除五个零消费符号 `is_rate_limited` / `endpoint_limits` / `get_client_id` / `get_client_identifiers` / `check_limit`（含 `endpoint_limits` 第三份硬编码限流规则表与各自的 JWT 解析重复实现）。限流规则单一来源收敛为 `services/rate_limit_config.py`。
+- **RLM5 已修复**：429 响应体 `retry_after` 由 `window // 2` 改为 `window`，与响应头 `retry-after` 一致，客户端按任一值等待都不会提前重试撞墙。
+- **RLM3 仍未处理**：反代部署 IP 桶失真与多 worker 内存态不共享依赖部署配置，留待运维口径。
+- **测试**：新增 `tests/unit/test_middleware_rlm_and_request_id.py`(7)；同步调整 `tests/unit/test_performance_monitor_metrics.py` 两处 `_metric_path` 调用签名。回退源码后 8 项失败。

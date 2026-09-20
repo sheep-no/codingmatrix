@@ -79,10 +79,10 @@ def test_unmatched_paths_collapse_into_single_series(client, registry):
 
 
 def test_metric_path_prefers_route_template():
-    request = SimpleNamespace(scope={"route": SimpleNamespace(path="/items/{item_id}")})
+    scope = {"route": SimpleNamespace(path="/items/{item_id}")}
 
-    assert PerformanceMonitorMiddleware._metric_path(request) == "/items/{item_id}"
+    assert PerformanceMonitorMiddleware._metric_path(scope) == "/items/{item_id}"
 
 
 def test_metric_path_falls_back_to_placeholder_when_unmatched():
-    assert PerformanceMonitorMiddleware._metric_path(SimpleNamespace(scope={})) == "<unmatched>"
+    assert PerformanceMonitorMiddleware._metric_path({}) == "<unmatched>"
