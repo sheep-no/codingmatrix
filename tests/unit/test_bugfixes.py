@@ -136,6 +136,41 @@ class TestChunkMetadataMerge:
                 assert saved_data["uploaded_chunks"] == [0, 1]
 
 
+class TestChunkUserIsolation:
+    """测试分片目录按用户隔离（FL1）"""
+
+    def test_scoped_chunk_dir_separates_users(self):
+        """不同用户的同名 file_id 落在不同目录"""
+        from app.api.v1.file_upload import _scoped_chunk_dir
+
+        dir_a = _scoped_chunk_dir(1, "same-id")
+        dir_b = _scoped_chunk_dir(2, "same-id")
+        assert dir_a != dir_b
+        assert dir_a.parent.name == "1"
+        assert dir_b.parent.name == "2"
+
+    def test_scoped_chunk_dir_rejects_traversal(self):
+        """file_id 含路径穿越字符时拒绝"""
+        from fastapi import HTTPException
+        from app.api.v1.file_upload import _scoped_chunk_dir
+
+        for bad in ("", "..", "a/b", "a\\b", "../x"):
+            with pytest.raises(HTTPException) as exc:
+                _scoped_chunk_dir(1, bad)
+            assert exc.value.status_code == 400
+
+    def test_chunk_metadata_explicit_base_dir(self):
+        """传入 base_dir 时元数据写入该目录，不落到全局 CHUNKS_DIR"""
+        from app.api.v1.file_upload import ChunkMetadata
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir) / "7"
+            meta = ChunkMetadata("fid", 1, [0], base_dir=base)
+            meta.save()
+            assert (base / "fid" / "metadata.json").exists()
+
+
 class TestImageGenerationFormat:
     """测试 image_generation.py 的 response_format"""
 

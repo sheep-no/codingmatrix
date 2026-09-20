@@ -39,25 +39,43 @@ _chunk_locks_lock = asyncio.Lock()
 
 class ChunkMetadata:
     """分片元数据"""
-    def __init__(self, file_id: str, total_chunks: int, uploaded_chunks: List[int]):
+    def __init__(
+        self,
+        file_id: str,
+        total_chunks: int,
+        uploaded_chunks: List[int],
+        base_dir: Optional[Path] = None,
+    ):
         self.file_id = file_id
         self.total_chunks = total_chunks
         self.uploaded_chunks = uploaded_chunks
-    
+        # 显式传入时固定；否则延迟到使用时读取模块级 CHUNKS_DIR（便于测试 patch）
+        self._base_dir = Path(base_dir) if base_dir is not None else None
+
+    def _meta_path(self) -> Path:
+        root = self._base_dir if self._base_dir is not None else CHUNKS_DIR
+        return root / self.file_id / "metadata.json"
+
     @classmethod
-    def load(cls, file_id: str, total_chunks: int) -> "ChunkMetadata":
+    def load(
+        cls,
+        file_id: str,
+        total_chunks: int,
+        base_dir: Optional[Path] = None,
+    ) -> "ChunkMetadata":
         """从文件加载元数据"""
-        meta_path = CHUNKS_DIR / file_id / "metadata.json"
+        root = Path(base_dir) if base_dir is not None else CHUNKS_DIR
+        meta_path = root / file_id / "metadata.json"
         uploaded = []
         if meta_path.exists():
             import json
             data = json.loads(meta_path.read_text())
             uploaded = data.get("uploaded_chunks", [])
-        return cls(file_id, total_chunks, uploaded)
+        return cls(file_id, total_chunks, uploaded, base_dir=base_dir)
     
     def save(self):
         """保存元数据"""
-        meta_path = CHUNKS_DIR / self.file_id / "metadata.json"
+        meta_path = self._meta_path()
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         import json
         meta_path.write_text(json.dumps({
@@ -85,6 +103,18 @@ async def _get_chunk_lock(file_id: str) -> asyncio.Lock:
         if file_id not in _chunk_locks:
             _chunk_locks[file_id] = asyncio.Lock()
         return _chunk_locks[file_id]
+
+
+def _scoped_chunk_dir(user_id: int, file_id: str) -> Path:
+    """分片目录按用户隔离，避免仅凭 file_id 越权操作他人分片（FL1）。
+
+    file_id 由客户端提供，同时拒绝路径穿越字符。
+    """
+    if not file_id or "/" in file_id or "\\" in file_id or ".." in file_id:
+        raise HTTPException(status_code=400, detail="非法的 file_id")
+    return CHUNKS_DIR / str(user_id) / file_id
+
+
 ALLOWED_EXTENSIONS = {
     # 代码文件
     '.py', '.js', '.ts', '.java', '.cpp', '.c', '.go', '.rs', '.rb',
@@ -322,8 +352,8 @@ async def init_chunked_upload(
     # 生成 file_id
     file_id = str(uuid.uuid4())
     
-    # 加载或创建分片元数据
-    meta_path = CHUNKS_DIR / file_id / "metadata.json"
+    # 加载或创建分片元数据（按用户隔离，避免越权）
+    meta_path = _scoped_chunk_dir(user_id, file_id) / "metadata.json"
     uploaded_chunks = []
     if meta_path.exists():
         import json
@@ -355,7 +385,8 @@ async def upload_chunk(
     - 支持断点续传
     - 分片会自动保存到临时目录
     """
-    chunk_dir = CHUNKS_DIR / file_id
+    user_id = int(token.get("sub"))
+    chunk_dir = _scoped_chunk_dir(user_id, file_id)
     chunk_dir.mkdir(parents=True, exist_ok=True)
 
     chunk_path = chunk_dir / f"chunk_{chunk_index}"
@@ -369,7 +400,7 @@ async def upload_chunk(
     # 更新元数据（需要锁保护并发访问）
     lock = await _get_chunk_lock(file_id)
     async with lock:
-        meta = ChunkMetadata.load(file_id, total_chunks)
+        meta = ChunkMetadata.load(file_id, total_chunks, base_dir=chunk_dir.parent)
         meta.add_chunk(chunk_index)
 
         return {
@@ -401,19 +432,19 @@ async def merge_chunks(
     user_id = int(token.get("sub"))
     logger.info(f"合并分片 | file_id={file_id} | filename={filename}")
 
-    chunk_dir = CHUNKS_DIR / file_id
+    chunk_dir = _scoped_chunk_dir(user_id, file_id)
 
     # 使用锁保护合并操作
     lock = await _get_chunk_lock(file_id)
     async with lock:
         # 从文件加载元数据（包含正确的 total_chunks）
-        meta_path = CHUNKS_DIR / file_id / "metadata.json"
+        meta_path = chunk_dir / "metadata.json"
         if not meta_path.exists():
             raise HTTPException(status_code=404, detail="分片元数据不存在")
         import json as _json
         meta_data = _json.loads(meta_path.read_text())
         total = meta_data.get("total_chunks", 0)
-        meta = ChunkMetadata.load(file_id, total)
+        meta = ChunkMetadata.load(file_id, total, base_dir=chunk_dir.parent)
 
         # 检查所有分片是否已上传
         if not meta.is_complete():
