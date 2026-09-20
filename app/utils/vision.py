@@ -136,7 +136,7 @@ async def _call_vision_model(
 async def analyze_image(
     image_path: str,
     prompt: str = "请详细描述这张图片的内容",
-    model: Optional[str] = VISION_MODEL,
+    model: Optional[str] = None,
     timeout: Timeout = Timeout(60.0, connect=10.0)
 ) -> Dict[str, Any]:
     """
@@ -144,13 +144,13 @@ async def analyze_image(
 
     降级顺序：
     1. Qwen/Qwen3.5-4B
-    2. deepseek-ai/DeepSeek-OCR
+    2. PaddlePaddle/PaddleOCR-VL-1.5
     3. deepseek-ai/DeepSeek-OCR
 
     Args:
         image_path: 图片文件路径
         prompt: 分析提示词
-        model: 使用的视觉模型（已废弃，仅作兼容）
+        model: 显式指定时仅使用该模型；省略或为 None 时启用自动降级
         timeout: 超时设置
 
     Returns:
