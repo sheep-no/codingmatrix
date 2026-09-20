@@ -3,6 +3,7 @@
 
 提供基于 Celery + Redis 的分布式任务队列功能。
 """
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta
@@ -84,6 +85,16 @@ def _merge_task_runtime_state(task_record, celery_state, celery_info):
     return status, progress, progress_message
 
 
+def _read_celery_result(celery_task_id: str):
+    """在后台线程读取 Celery 结果状态与详情。
+
+    `AsyncResult.state`/`.info` 的属性访问会触发同步结果后端 RPC，必须在
+    事件循环之外执行。
+    """
+    celery_result = celery_app.AsyncResult(celery_task_id)
+    return celery_result.state, celery_result.info
+
+
 @router.post("", response_model=TaskResponse, summary="创建任务")
 async def create_task(
     body: TaskCreateRequest,
@@ -130,12 +141,14 @@ async def create_task(
     await db.commit()
     await db.refresh(task_record)
 
-    result = celery_app.send_task(
+    # send_task 会同步连接 broker，放入线程池避免阻塞事件循环。
+    result = await asyncio.to_thread(
+        celery_app.send_task,
         celery_task_name,
         kwargs=_build_task_kwargs(task_type, task_record.task_id, user_id, body.params),
         task_id=task_record.task_id,
         priority=priority_value,
-        time_limit=timeout_value
+        time_limit=timeout_value,
     )
 
     task_record.celery_task_id = result.id
@@ -181,9 +194,9 @@ async def get_task(
     celery_state = None
     celery_info = None
     if task_record.celery_task_id:
-        celery_result = celery_app.AsyncResult(task_record.celery_task_id)
-        celery_state = celery_result.state
-        celery_info = celery_result.info
+        celery_state, celery_info = await asyncio.to_thread(
+            _read_celery_result, task_record.celery_task_id
+        )
 
     status, progress, progress_message = _merge_task_runtime_state(
         task_record, celery_state, celery_info
@@ -347,10 +360,12 @@ async def cancel_task(
         )
 
     if task_record.celery_task_id:
-        celery_app.control.revoke(
+        # control.revoke 是同步 control 消息 RPC，放入线程池。
+        await asyncio.to_thread(
+            celery_app.control.revoke,
             task_record.celery_task_id,
             terminate=True,
-            signal='SIGTERM'
+            signal="SIGTERM",
         )
 
     task_record.status = "cancelled"
@@ -395,13 +410,14 @@ async def retry_task(
     celery_task_name = TASK_NAMES.get(task_record.task_type)
     if celery_task_name:
         # 重试必须使用新的 Celery ID：复用旧 ID 会让结果后端与历史执行混淆。
-        result = celery_app.send_task(
+        result = await asyncio.to_thread(
+            celery_app.send_task,
             celery_task_name,
             kwargs=_build_task_kwargs(
                 task_record.task_type, task_record.task_id, user_id, task_record.params
             ),
             priority=task_record.priority,
-            time_limit=task_record.timeout
+            time_limit=task_record.timeout,
         )
         task_record.celery_task_id = result.id
 
@@ -444,7 +460,8 @@ async def recover_task(
         await append_task_event(db, task_id, user_id, "task.recovered", status="pending")
         celery_task_name = TASK_NAMES.get(task_record.task_type)
         if celery_task_name:
-            result = celery_app.send_task(
+            result = await asyncio.to_thread(
+                celery_app.send_task,
                 celery_task_name,
                 kwargs=_build_task_kwargs(
                     task_record.task_type, task_record.task_id, user_id, task_record.params
