@@ -18,7 +18,7 @@ from app.db.permission_service import *
 from app.models.Permission import Permission
 from app.models.user import User
 from app.models.history import History
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from app.utils.cache import invalidate_user_cache
 from app.utils.cache_decorator import cache_response, invalidate_cache_by_prefix
 from app.middleware.rate_limiter import check_login_rate_limit, record_login_failure, record_login_success
@@ -276,8 +276,18 @@ async def register(
         hashed_password=hash_password(body.password),
         created_at=datetime.now(timezone.utc)
     )
-    db.add(new_user)
-    await db.flush()
+    try:
+        db.add(new_user)
+        await db.flush()
+    except IntegrityError:
+        # check_email_exists 与 flush 之间存在 TOCTOU 窗口：并发注册同一邮箱时
+        # 唯一约束会在此触发，回滚并返回与预检一致的 400，而不是 500。
+        await db.rollback()
+        logger.warning(f"注册失败：邮箱并发冲突 | email={body.email}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="邮箱已存在"
+        )
     logger.debug(f"用户创建成功 | email={body.email} | user_id={new_user.id}")
 
     perm_service = PermissionService(db)
@@ -548,4 +558,4 @@ async def get_conversations(
         }
     except (ValueError, TypeError, RuntimeError, OSError, SQLAlchemyError) as e:
         logger.error(f"查询会话列表异常 | user_id={user_id} | error={str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="查询会话列表失败")
