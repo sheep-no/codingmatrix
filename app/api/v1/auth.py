@@ -22,7 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.utils.cache import invalidate_user_cache
 from app.utils.cache_decorator import cache_response, invalidate_cache_by_prefix
 from app.middleware.rate_limiter import check_login_rate_limit, record_login_failure, record_login_success
-from app.utils.csrf import get_csrf_token, csrf_protect, csrf_protect_optional
+from app.utils.csrf import get_csrf_token, csrf_protect
 from app.utils.encryption import get_public_key_for_client, decrypt_sensitive_data
 
 logger = logging.getLogger(__name__)

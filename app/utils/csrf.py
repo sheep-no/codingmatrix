@@ -3,13 +3,18 @@ CSRF Token 管理模块
 
 防止跨站请求伪造攻击
 """
-import asyncio
-import secrets
-from datetime import datetime, timedelta, timezone
-from typing import Optional
-from fastapi import Depends, HTTPException, Header, status
-from fastapi.requests import Request
+import base64
+import hashlib
+import hmac
+import json
 import logging
+import time
+from typing import Optional
+
+from fastapi import HTTPException, Header, status
+from fastapi.requests import Request
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -22,63 +27,60 @@ class CSRFTokenManager:
     1. Token 存储在 Cookie 中（HttpOnly=False，JavaScript 可读取）
     2. 请求时需要在 Header 中携带相同 Token
     3. 后端验证 Cookie 和 Header 中的 Token 是否一致
+
+    Token 本身是无状态的：由「过期时间 + 用户绑定」载荷与 HMAC-SHA256
+    签名组成，校验时重新计算签名即可。不依赖进程内状态，因此多 worker
+    或多实例部署下，任一进程签发的 token 都能在另一进程校验通过，进程
+    重启也不会使已签发 token 全部失效。
     """
 
-    def __init__(self):
-        self._tokens = {}
-        self._lock = asyncio.Lock()
-        self._cleanup_interval = 3600
-        self._last_cleanup = datetime.now(timezone.utc)
+    TOKEN_TTL_SECONDS = 3600
+
+    def _signature(self, payload: str) -> str:
+        """对载荷做 HMAC-SHA256，作为 token 的完整性凭证。"""
+        return hmac.new(
+            settings.SECRET_KEY.encode("utf-8"),
+            payload.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
 
     async def create_token(self, user_id: Optional[str] = None) -> str:
         """生成 CSRF Token"""
-        token = secrets.token_urlsafe(32)
-        expires = datetime.now(timezone.utc) + timedelta(hours=1)
-
-        async with self._lock:
-            self._tokens[token] = {
-                "user_id": user_id,
-                "expires": expires
-            }
-
-        await self._cleanup_if_needed()
-
-        return token
+        payload = json.dumps(
+            {"exp": int(time.time()) + self.TOKEN_TTL_SECONDS, "uid": user_id or ""},
+            separators=(",", ":"),
+        )
+        encoded = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
+        return f"{encoded}.{self._signature(payload)}"
 
     async def validate_token(self, token: str, user_id: Optional[str] = None) -> bool:
         """验证 CSRF Token"""
-        async with self._lock:
-            token_data = self._tokens.get(token)
+        try:
+            encoded, signature = token.split(".", 1)
+            payload = base64.urlsafe_b64decode(encoded.encode("ascii")).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return False
 
-            if not token_data:
-                return False
+        if not hmac.compare_digest(self._signature(payload), signature):
+            return False
 
-            if datetime.now(timezone.utc) > token_data["expires"]:
-                self._tokens.pop(token, None)
-                return False
+        try:
+            data = json.loads(payload)
+            expires = int(data["exp"])
+        except (ValueError, TypeError, KeyError):
+            return False
 
-            if user_id and token_data.get("user_id") != user_id:
-                return False
+        if time.time() > expires:
+            return False
 
-            return True
+        if user_id and data.get("uid") and data["uid"] != user_id:
+            return False
 
-    async def invalidate_token(self, token: str):
-        """使 Token 失效（logout 时调用）"""
-        async with self._lock:
-            self._tokens.pop(token, None)
+        return True
 
-    async def _cleanup_if_needed(self):
-        """清理过期 token"""
-        now = datetime.now(timezone.utc)
-        if (now - self._last_cleanup).total_seconds() > self._cleanup_interval:
-            async with self._lock:
-                expired = [
-                    token for token, data in self._tokens.items()
-                    if now > data["expires"]
-                ]
-                for token in expired:
-                    self._tokens.pop(token, None)
-                self._last_cleanup = now
+    async def invalidate_token(self, token: str) -> None:
+        """无状态 token 无法在服务端撤销，登出通过清除 Cookie 完成。"""
+        return None
 
 
 # 全局 CSRF 管理器实例
@@ -136,29 +138,5 @@ async def csrf_protect(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="CSRF Token 无效或已过期"
         )
-
-    return x_csrf_token
-
-
-async def csrf_protect_optional(
-    request: Request,
-    x_csrf_token: str = Header(None, alias="X-CSRF-Token")
-) -> Optional[str]:
-    """
-    可选的 CSRF 保护验证器
-
-    如果 CSRF 验证失败，返回 None 而不是抛出异常
-    适用于某些需要兼容性的场景
-    """
-    cookie_token = request.cookies.get("csrf_token")
-
-    if not x_csrf_token or not cookie_token:
-        return None
-
-    if x_csrf_token != cookie_token:
-        return None
-
-    if not await csrf_manager.validate_token(x_csrf_token):
-        return None
 
     return x_csrf_token

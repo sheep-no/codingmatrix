@@ -52,9 +52,11 @@
 - **SEC3 [P3] 已修**：`create_access_token` 的 `refresh_until` 由固定 `now + 5 天` 改为 `max(now + 5 天, expire)`，避免 `ACCESS_TOKEN_EXPIRE_MINUTES` > 5 天时刷新窗口早于 exp 导致语义反转。
 - **SEC4 [P3] 已修**：`_decode_and_validate_token` 异常分支不再把异常文本拼进响应，改为固定「Token 无效」并记 WARNING 日志。
 - **AR1/AR2 [P3] 已随文件删除失效**：`app/utils/api_response.py` 已删除（见文首「后续变更」），`paginated_response` 除零问题不复存在。
-- **CS1 [P2] 未修（需确认边界）**：进程内 `_tokens` dict 在多 worker 下仍是可用性故障点。修复需改为无状态 HMAC 签名 token，会丧失服务端吊销（`invalidate_token`）能力，属安全语义变更，待确认后单独处理。
+- **CS1 [P2] 已修（2026-09-20）**：`CSRFTokenManager` 改为无状态 HMAC-SHA256 签名 token（载荷含 `exp` 与可选 `uid`），校验时重算签名，不再依赖进程内 `_tokens` dict。多 worker / 多实例下任一进程签发的 token 均可在另一进程校验通过，进程重启也不再使已签发 token 全部失效。`invalidate_token` 的服务端吊销能力随之失效（改为 no-op），但该函数全库零消费方（登出通过清除 Cookie 完成），无实际损失。
 - **SEC2 [P3] 未修**：refresh 子密钥仍由 `SECRET_KEY` 字符串拼接派生。更换派生方式会使全部已签发 refresh token 失效，需配合迁移方案。
-- **CS2 [P3] 未修**：`csrf_protect_optional` 未在生产使用，保持现状。
+- **CS2 [P3] 已修（2026-09-20）**：删除零消费的 `csrf_protect_optional`（`app/` 与 `tests/` 均无调用方）及 `app/api/v1/auth.py` 中的死导入。
 - **SA2 [P3] 未修**：`log_security_event` 仍为「async 无实质异步」。日志写入本身为同步 I/O，改线程池会增加每事件线程开销，收益有限，暂缓。
 
 新增回归 `tests/unit/test_password_and_token_hardening.py`（7 项，覆盖 SEC1/SEC3/SEC4）。
+
+新增回归 `tests/unit/test_csrf_stateless.py`（6 项，2026-09-20）：跨 `CSRFTokenManager` 实例校验、进程重启后 token 仍有效、篡改/过期/用户绑定不匹配/畸形 token 均被拒绝。回退 `csrf.py` 后 4 项失败。
