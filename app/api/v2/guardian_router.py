@@ -1,13 +1,14 @@
 # router/guardian_router.py
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime
 from functools import lru_cache
 from typing import Optional, Dict, Any
 
-from fastapi import APIRouter, HTTPException, Depends, status
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Depends, status, Path as PathParam
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from app.utils.async_enhanced_guard import AsyncSmartGuardian
 from app.utils.service_config_manager import ServiceConfigManager
@@ -23,6 +24,10 @@ from app.db.database import async_session
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/Controller")
+
+# 允许通过管理接口写入的配置键，与 ServerConfig.DEFAULT_CONFIGS 保持单一来源。
+# 单点、批量与恢复端点共用，避免批量/恢复绕过键白名单。
+VALID_CONFIG_KEYS = frozenset(ServerConfig.DEFAULT_CONFIGS)
 
 
 # 单例模式 ====================
@@ -194,7 +199,10 @@ async def get_fuse_status(service_name: str, token: dict = Depends(require_admin
 
 # 检查服务健康状态
 @router.get("/health/{port}")
-async def check_health(port: int, token: dict = Depends(require_admin)):
+async def check_health(
+    port: int = PathParam(ge=1, le=65535),
+    token: dict = Depends(require_admin)
+):
     """检查服务健康状态"""
     guardian = get_guardian()
     is_open = await guardian.is_port_open(port)
@@ -274,16 +282,7 @@ async def update_config(
     """
     user_id = int(token.get("sub", 0))
 
-    valid_keys = {
-        "docker_max_memory", "docker_initial_memory", "docker_image",
-        "docker_max_containers", "feature_docker_enabled",
-        "feature_aicloud_enabled", "feature_project_enabled",
-        "feature_workflow_enabled",
-        "db_pool_size", "db_max_overflow", "db_pool_timeout",
-        "log_level", "log_retention_days", "log_to_file"
-    }
-
-    if key not in valid_keys:
+    if key not in VALID_CONFIG_KEYS:
         raise HTTPException(
             status_code=400,
             detail=f"不允许修改的配置项: {key}"
@@ -324,6 +323,13 @@ async def batch_update_configs(
         更新结果
     """
     user_id = int(token.get("sub", 0))
+
+    invalid_keys = [key for key in request.configs if key not in VALID_CONFIG_KEYS]
+    if invalid_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不允许修改的配置项: {', '.join(invalid_keys)}"
+        )
 
     success = await resource_config_service.batch_update_configs(
         request.configs, user_id
@@ -669,6 +675,10 @@ async def download_backup(timestamp: str, token: dict = Depends(require_admin)):
     from pathlib import Path
     import json
 
+    # 时间戳同时用于拼接文件名，限制格式避免路径穿越
+    if not re.fullmatch(r"\d{8}_\d{6}", timestamp):
+        raise HTTPException(status_code=400, detail="无效的备份时间戳")
+
     backup_file = Path(f"data/backups/config_backup_{timestamp}.json")
 
     if not backup_file.exists():
@@ -696,12 +706,20 @@ async def restore_backup(
     Args:
         backup_data: 备份数据（包含 configs 字典）
     """
+    configs = backup_data.get("configs", {})
+    invalid_keys = [key for key in configs if key not in VALID_CONFIG_KEYS]
+    if invalid_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"备份包含不允许恢复的配置项: {', '.join(invalid_keys)}"
+        )
+
     try:
         user_id = int(token.get("sub", 0))
         restored_count = 0
 
         async with async_session() as db:
-            for key, config_data in backup_data.get("configs", {}).items():
+            for key, config_data in configs.items():
                 result = await db.execute(
                     select(ServerConfig).where(ServerConfig.key == key)
                 )
@@ -762,14 +780,14 @@ async def delete_backup(filename: str, token: dict = Depends(require_superadmin)
 
 
 class RateLimitUpdate(BaseModel):
-    limit: int
-    window: int
+    limit: int = Field(ge=1, description="窗口内允许的请求数")
+    window: int = Field(ge=1, description="限流窗口（秒）")
 
 
 class EndpointRateLimitUpdate(BaseModel):
     endpoint: str
-    limit: int
-    window: int
+    limit: int = Field(ge=1, description="窗口内允许的请求数")
+    window: int = Field(ge=1, description="限流窗口（秒）")
 
 
 @router.get("/admin/rate-limit")
