@@ -1,6 +1,6 @@
-# app/services/scheduler.py
+# app/db/scheduler.py
+import asyncio
 import logging
-import os
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -25,6 +25,38 @@ from app.services.state_migration_service import (
 
 scheduler = AsyncIOScheduler()
 logger = logging.getLogger(__name__)
+
+UPLOAD_ROOT = Path("./uploads").resolve()
+
+
+def _delete_managed_path(raw_path: str) -> bool:
+    """删除受管上传目录内的文件或目录。
+
+    只允许删除 ``UPLOAD_ROOT`` 下的路径，避免 DB 脏数据或误配置把
+    ``shutil.rmtree`` 指向目录树外部。返回 True 表示已删除。
+    """
+    if not raw_path:
+        return False
+    try:
+        target = Path(raw_path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        logger.warning("文件路径无法解析，跳过删除 | path=%s", raw_path)
+        return False
+    if target == UPLOAD_ROOT or not target.is_relative_to(UPLOAD_ROOT):
+        logger.warning("文件路径不在上传目录内，跳过删除 | path=%s", raw_path)
+        return False
+    try:
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+        return True
+    except FileNotFoundError:
+        # 已不存在视为删除完成，避免 exists→remove 的 TOCTOU 误判
+        return False
+    except OSError as exc:
+        logger.error("删除物理文件失败 | path=%s | error=%s", raw_path, exc)
+        return False
 
 
 async def archive_task():
@@ -56,11 +88,7 @@ async def cleanup_files_task():
                     days_since_deleted = (datetime.utcnow() - file.updated_at).days
                     if days_since_deleted > 7:
                         # 删除物理文件
-                        if os.path.exists(file.file_path):
-                            if os.path.isfile(file.file_path):
-                                os.remove(file.file_path)
-                            elif os.path.isdir(file.file_path):
-                                shutil.rmtree(file.file_path)
+                        if await asyncio.to_thread(_delete_managed_path, file.file_path):
                             logger.info(f"删除物理文件：{file.file_path}")
                         
                         # 删除数据库记录
@@ -75,20 +103,20 @@ async def cleanup_files_task():
                 .where(File.created_at < orphaned_cutoff)
                 .where(File.is_deleted == 0)
             )).scalars().all()
-            
+
+            # 一次查询取回全部关联关系，替代逐文件 N+1 查询
+            orphaned_ids = [file.id for file in orphaned_files]
+            linked_ids: set = set()
+            if orphaned_ids:
+                linked_rows = (await db.execute(
+                    select(Task.input_file_id).where(Task.input_file_id.in_(orphaned_ids))
+                )).all()
+                linked_ids = {row[0] for row in linked_rows if row[0] is not None}
+
             for file in orphaned_files:
-                # 检查是否有关联的任务
-                tasks = (await db.execute(
-                    select(Task).where(Task.input_file_id == file.id)
-                )).scalars().all()
-                
-                if not tasks:
+                if file.id not in linked_ids:
                     # 删除物理文件
-                    if os.path.exists(file.file_path):
-                        if os.path.isfile(file.file_path):
-                            os.remove(file.file_path)
-                        elif os.path.isdir(file.file_path):
-                            shutil.rmtree(file.file_path)
+                    if await asyncio.to_thread(_delete_managed_path, file.file_path):
                         logger.info(f"删除孤立文件：{file.file_path}")
                     
                     await db.delete(file)
