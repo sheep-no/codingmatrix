@@ -96,11 +96,11 @@
 
 ### Aicode.py（6 项）
 - **AIC1 [P3]** :464-476 enable_search=True 与 None 行为相同——「允许搜索」按钮实际由关键词表决定
-- **AIC2 [P3]** 断点续传三断链：CodeRequest 无 resume_id 字段（:775 getattr 恒 None）+ 客户端断开分支 :590 yield 至断连不可达 + /code/resume 恢复 conversation_id=None 会话断裂；写入侧 :583 活跃
-- **AIC3 [P3]** :675 result["choices"][0]... 无 KeyError 防护，:635 except 元组 (ValueError/TypeError/RuntimeError/OSError/SQLAlchemyError) 缺 KeyError/IndexError → 500（DB5 家族）
+- **AIC2 [P3] 部分已修复**：`CodeRequest` 已补 `resume_id: Optional[str]` 字段，`/code` 流式分支改用 `resume_from=body.resume_id`（原 `getattr(body, 'resume_id', None)` 恒 None）。残留：客户端断开分支不可达、`/code/resume` 恢复 conversation_id=None 会话断裂
+- **AIC3 [P3] 已修复**：新增 `extract_response_text(result)`，用安全取值替代 `result["choices"][0]["message"]["content"]` 裸索引，结构异常（缺 choices/空 choices/缺 message/content 非 str）统一抛 `RuntimeError`，被调用方 `(…RuntimeError…)` 元组捕获为 500 友好提示。回归测试 `tests/unit/test_aicode_response_hardening.py`
 - **AIC4 [P3]** :360-367 非图片文件仅返回 "[文件：name]" 占位符，文本内容从未读出（docstring 承诺理解内容）
 - **AIC5 [P3]** :109-173 ai_decide_search「AI 自主判断」实为硬编码关键词表（子串误报 + 2024-2027 年份硬编码）；:204-218 select_model_for_prompt 同为关键词表（4 模型均在 ALLOWED_MODELS_LIST 白名单内，合法）
-- **AIC6 [P3]** :46-47 _partial_response_cache 模块级字典多 worker 不共享（RLM3 家族）；:543 resume_from 恢复不校验 user_id（端点层 :879 有校验）
+- **AIC6 [P3] 部分已修复**：恢复缓存改由 `_restore_partial_prefix(resume_from, user_id)` 处理，校验缓存 `user_id` 与当前用户一致，不一致则忽略，避免他人 resume_id 注入其部分响应。残留：`_partial_response_cache` 模块级字典多 worker 不共享（RLM3 家族）
 - 已排除项：verify_file_access 有 File.user_id == user_id 过滤（:402），跨用户文件访问嫌疑解除
 
 ### GirlAi.py（3 项）

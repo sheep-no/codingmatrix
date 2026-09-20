@@ -25,6 +25,7 @@ class CodeRequest(BaseModel):
     use_reasoning: Optional[bool] = Field(False, description="是否启用深度推理")
     conversation_id: Optional[int] = Field(None, description="会话 ID")
     api_key_token: Optional[str] = Field(None, description="用户 API Key Token（用于从 Redis 获取用户自定义 Key）")
+    resume_id: Optional[str] = Field(None, description="中断响应的 resume_id，用于续写")
 
     # 联网搜索的配置
     search_mode: Literal["auto", "on", "off"] = Field("auto", description="联网模式")
