@@ -25,19 +25,21 @@
 
 ## P1 发现
 
-### AUT1 [P1] 跨用户响应缓存泄露（auth.py:444-484）
+### AUT1 [P1] 跨用户响应缓存泄露（auth.py:444-484）（已修复）
 - `@cache_response(ttl=...)` 装饰三个端点：profile（:444-448，ttl=300）、history（:288-289，ttl=60）、conversations（:478-484，ttl=120）
 - 缓存 key 由 `cache_decorator.py:51 _generate_cache_key` 生成，kwargs 排除表为 `"request","db","token","current_user","user_id","background_tasks"`——**user 身份不入 key**
 - 三端点经 FastAPI `**values` 全 kwargs 传入，key 恒定 → 全站共享单条缓存
 - 影响：用户 A 请求 profile 后，用户 B 在 ttl 窗口内拿到 A 的 email/档案；history/conversations 同理（跨用户会话列表泄露）
 - 这是全库第 17 个 P1；修复方向：缓存 key 强制并入 token.sub，或对三端点摘除装饰器
+- **已修复**：`cache_decorator.py` 新增 `_extract_user_identity`，从 `token`/`current_user`/`user_id` 提取主体并拼进缓存键（`_generate_cache_key` :85-87）；`_serialize_cache_param` 同时补齐 dict/list/请求体序列化。回归测试 `tests/unit/test_cache_response_user_isolation.py`
 - Backlog：#1195
 
 ## P2 发现（7 项）
 
-### APY1 [P2] batch_import 恒败假功能（apikey.py:438-510）
+### APY1 [P2] batch_import 恒败假功能（apikey.py:438-510）（已修复）
 - 每条调用 `store_key(encrypted_key=key_data['encrypted_key'])`，而 `store_key` 签名为 `(user_id, provider, api_key, ttl, remark)`（apikey_manager.py:155-162），无 `encrypted_key` 参数且 `api_key` 必填
 - 恒 TypeError → 每条记 failed → 批量导入 100% 失败
+- **已修复**：现改为先 `key_manager.decrypt` 得到明文，再 `store_key(user_id=..., provider=..., api_key=..., ttl=..., remark=...)`，签名一致
 - Backlog：#1196
 
 ### APY2 [P2] provider 同步跨用户 Key 覆盖（apikey.py:50-88）
@@ -46,13 +48,15 @@
 - 与 PRV1 同族：custom provider 生态整体无用户隔离
 - Backlog：#1197
 
-### TQ2 [P2] task_id 用内存地址 id(body)（task_queue.py:67）
+### TQ2 [P2] task_id 用内存地址 id(body)（task_queue.py:67）（已修复）
 - `task_id = f"task_{user_id}_{id(body)}"` —— 对象回收后地址复用 → task_id 碰撞 → Celery AsyncResult 状态覆盖 + DB task_id 混淆
+- **已修复**：现用 `task_id=str(uuid.uuid4())` 生成，不再依赖对象地址
 - Backlog：#1198
 
-### TQ3 [P2] WebSocket 零认证（task_queue.py:338-353）
+### TQ3 [P2] WebSocket 零认证（task_queue.py:338-353）（已修复）
 - `/tasks/ws/{user_id}`：user_id 路径参数直连 ws_manager.connect，无 token 校验
 - 任意连接者可订阅任意用户任务推送（int 可枚举）
+- **已修复**：握手读取 `?token=`，经 `verify_token_ws` 校验，并要求 token 主体与路径 `user_id` 一致，否则 `close(1008)`；与 `/ws/ppt/{task_id}`、`/Controller/sys-status` 同模式。回归测试 `tests/unit/test_task_ws_auth.py`
 - Backlog：#1199
 
 ### GIR1 [P2] fire-and-forget 复用请求级 session（GirlAi.py:533-535）

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from app.db.database import get_db
-from app.utils.security import verify_token
+from app.utils.security import verify_token, verify_token_ws
 from app.schema.task_schema import (
     TaskCreateRequest,
     TaskResponse,
@@ -517,7 +517,24 @@ async def task_websocket(websocket: WebSocket, user_id: int):
     WebSocket 连接用于实时任务状态推送
 
     连接后会自动接收该用户所有任务的状态更新。
+
+    握手时需携带 `?token=<access_token>`，token 主体必须与路径 user_id 一致，
+    否则拒绝连接，避免任意连接者订阅他人任务推送。
     """
+    access_token = websocket.query_params.get("token", "")
+    valid, payload, close_code, reason = verify_token_ws(access_token)
+    if not valid or not payload:
+        await websocket.close(code=close_code or 1008, reason=reason or "未授权")
+        logger.warning(f"WebSocket 认证失败: user_id={user_id} | reason={reason}")
+        return
+
+    if str(payload.get("sub")) != str(user_id):
+        await websocket.close(code=1008, reason="无权订阅其他用户的任务")
+        logger.warning(
+            f"WebSocket 越权订阅被拒绝: path_user_id={user_id} | token_sub={payload.get('sub')}"
+        )
+        return
+
     await ws_manager.connect(user_id, websocket)
     try:
         while True:
