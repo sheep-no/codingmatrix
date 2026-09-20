@@ -156,7 +156,7 @@ async def test_search_uses_official_docs_when_serp_empty(monkeypatch):
     async def empty(*_args, **_kwargs):
         return []
 
-    monkeypatch.setattr(searcher, "_search_baidu", empty)
+    monkeypatch.setattr(searcher, "_search_bing", empty)
     monkeypatch.setattr(searcher, "_search_duckduckgo", empty)
     monkeypatch.setattr(searcher, "_search_wikipedia", empty)
     results = await searcher.search("Python 3.12 新特性", count=3)
@@ -185,7 +185,7 @@ async def test_search_discovers_school_employment_pages(monkeypatch):
             "'aHR0cCUzYSUyZiUyZnNmenkuZ3R4eS5jbiUyZnpqYyUyZg==')\">招生就业</a></html>"
         )
 
-    monkeypatch.setattr(searcher, "_search_baidu", fake_bing)
+    monkeypatch.setattr(searcher, "_search_bing", fake_bing)
     monkeypatch.setattr(searcher, "_search_duckduckgo", empty)
     monkeypatch.setattr(searcher, "_search_wikipedia", empty)
     monkeypatch.setattr(searcher, "_fetch_html", fake_fetch)
@@ -212,7 +212,7 @@ async def test_search_keeps_bulletin_from_query_variant(monkeypatch):
     async def empty(*_args, **_kwargs):
         return []
 
-    monkeypatch.setattr(searcher, "_search_baidu", fake_bing)
+    monkeypatch.setattr(searcher, "_search_bing", fake_bing)
     monkeypatch.setattr(searcher, "_search_duckduckgo", empty)
     monkeypatch.setattr(searcher, "_search_wikipedia", empty)
     results = await searcher.search("2025中国就业数据", count=5)
