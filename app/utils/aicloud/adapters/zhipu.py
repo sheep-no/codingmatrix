@@ -141,7 +141,7 @@ class ZhipuAdapter(BaseProviderAdapter):
                     f"{base_url}/embeddings",
                     headers=headers,
                     json=data,
-                    timeout=timeout,
+                    timeout=Timeout(self.timeout, connect=10.0),
                 )
             
             resp = await call_with_retry(request_func, max_retries=3)

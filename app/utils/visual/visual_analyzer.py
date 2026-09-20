@@ -504,19 +504,19 @@ class VisualAnalyzer:
         image_matches = re.findall(r'\{([^{}]*)\}', images_str)
         for img_str in image_matches:
             img_data = {}
-            for field in ["image_type", "description", "keywords", "position", "width_ratio", "is_decoration"]:
-                field_match = re.search(rf'"{field}"\s*:\s*([^,}}]+)', img_str)
+            for field_name in ["image_type", "description", "keywords", "position", "width_ratio", "is_decoration"]:
+                field_match = re.search(rf'"{field_name}"\s*:\s*([^,}}]+)', img_str)
                 if field_match:
                     val = field_match.group(1).strip()
-                    if field in ["width_ratio"]:
+                    if field_name in ["width_ratio"]:
                         try:
-                            img_data[field] = float(val)
+                            img_data[field_name] = float(val)
                         except:
-                            img_data[field] = 0.4
-                    elif field in ["is_decoration"]:
-                        img_data[field] = val.lower() == 'true'
+                            img_data[field_name] = 0.4
+                    elif field_name in ["is_decoration"]:
+                        img_data[field_name] = val.lower() == 'true'
                     else:
-                        img_data[field] = val.strip('"')
+                        img_data[field_name] = val.strip('"')
             if img_data:
                 images.append(img_data)
         return images
@@ -525,17 +525,17 @@ class VisualAnalyzer:
         """从字符串中提取样式数据"""
         import re
         style = {}
-        for field in ["font_family", "font_size", "font_color", "font_weight", "style", "color"]:
-            field_match = re.search(rf'"{field}"\s*:\s*([^,}}]+)', style_str)
+        for field_name in ["font_family", "font_size", "font_color", "font_weight", "style", "color"]:
+            field_match = re.search(rf'"{field_name}"\s*:\s*([^,}}]+)', style_str)
             if field_match:
                 val = field_match.group(1).strip()
-                if field in ["font_size", "width_ratio"]:
+                if field_name in ["font_size", "width_ratio"]:
                     try:
-                        style[field] = int(float(val))
+                        style[field_name] = int(float(val))
                     except:
-                        style[field] = 24
+                        style[field_name] = 24
                 else:
-                    style[field] = val.strip('"')
+                    style[field_name] = val.strip('"')
         return style
     
     def _build_visual_plan(

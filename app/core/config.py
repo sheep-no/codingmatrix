@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import TYPE_CHECKING
 import os
 
 from pydantic import Field, ConfigDict, field_validator
@@ -6,6 +7,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 BASE_DIR = Path(__file__).parent.parent.parent
+
+if TYPE_CHECKING:  # 仅用于类型注解，避免在核心配置中引入运行时依赖
+    from app.utils.aicloud.providers import ProviderRegistry
 
 
 class Settings(BaseSettings):

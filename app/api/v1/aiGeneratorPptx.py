@@ -11,6 +11,7 @@ PPT 生成 API - 统一增强版
 """
 import asyncio
 import html
+import ipaddress
 import json
 import logging
 import math

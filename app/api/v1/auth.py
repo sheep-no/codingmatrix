@@ -69,7 +69,6 @@ async def get_csrf_token_endpoint():
     用于前端在敏感操作前获取 CSRF Token
     同时在 Cookie 中设置 Token（双重提交模式）
     """
-    from fastapi import Response
     from app.core.config import settings
     
     token = await get_csrf_token()

@@ -9,6 +9,7 @@ v4.8.0 新增：
 """
 
 import logging
+import threading
 from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
@@ -42,12 +43,14 @@ class ConcurrentLimitManager:
     """
 
     _instance: Optional["ConcurrentLimitManager"] = None
-    _lock = threading.Lock() if False else None  # 延迟初始化见 __new__
+    _lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
         return cls._instance
 
     BASE_LIMITS = {

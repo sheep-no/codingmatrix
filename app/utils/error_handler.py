@@ -23,6 +23,11 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError, OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi import HTTPException
+from app.utils.aicloud.llm_caller import (
+    LLMCallError,
+    UserAPIKeyNotFoundError,
+    ProviderAPIKeyNotConfiguredError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,8 +178,6 @@ async def llm_call_error_handler(
     request: Request, exc: "LLMCallError"
 ) -> JSONResponse:
     """LLMCallError 统一处理：工具层不再抛 HTTPException"""
-    from app.utils.aicloud.llm_caller import LLMCallError, UserAPIKeyNotFoundError, ProviderAPIKeyNotConfiguredError
-
     code_map = {
         UserAPIKeyNotFoundError: "USER_API_KEY_NOT_FOUND",
         ProviderAPIKeyNotConfiguredError: "PROVIDER_API_KEY_NOT_CONFIGURED",

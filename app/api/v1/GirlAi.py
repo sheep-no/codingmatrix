@@ -444,7 +444,6 @@ async def search_history(
     if not user_id:
         raise HTTPException(status_code=401, detail="无效的用户令牌")
 
-    from sqlalchemy import select, and_
     from app.models.chat_history import ChatHistory
 
     stmt = (
@@ -522,7 +521,7 @@ async def generate_message(
             history_service = ChatHistoryService(db)
 
             logger.debug(f"加载对话上下文 | user_id={user_id} | max_messages={MAX_HISTORY_MESSAGES}")
-            recent_messages, _ = await history_service.get_lightweight_context(
+            recent_messages, history_summary = await history_service.get_lightweight_context(
                 user_id,
                 max_messages=MAX_HISTORY_MESSAGES
             )
@@ -610,8 +609,6 @@ async def generate_message(
                 assistant_content=ai_content,
                 model=character['model'],
                 tokens_used=tokens_used,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens
             )
             await append_conversation_turn(
                 db,
@@ -1087,7 +1084,6 @@ async def delete_custom_character(
     if not user_id:
         raise HTTPException(status_code=401, detail="无效的用户令牌")
 
-    from sqlalchemy import select, and_
     stmt = select(CustomCharacter).where(
         and_(
             CustomCharacter.id == character_id,
@@ -1249,7 +1245,6 @@ async def delete_user_preference(
     if not user_id:
         raise HTTPException(status_code=401, detail="无效的用户令牌")
 
-    from sqlalchemy import select, and_
     stmt = select(UserPreference).where(
         and_(
             UserPreference.id == preference_id,

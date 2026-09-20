@@ -230,7 +230,6 @@ class CodeExecutor:
 
     async def _execute_javascript(self, code: str, timeout: int) -> CodeExecutionResult:
         """执行 JavaScript/Node.js 代码"""
-        import time
         start_time = time.time()
 
         # 静态拦截 require/process/fetch 等逃逸与出网入口，避免依赖易绕过的子串匹配
@@ -287,7 +286,6 @@ class CodeExecutor:
 
     async def _execute_go(self, code: str, timeout: int) -> CodeExecutionResult:
         """执行 Go 代码"""
-        import time
         start_time = time.time()
 
         # 检查 package 和危险导入

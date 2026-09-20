@@ -520,6 +520,3 @@ def detect_project_services(project_path: Path) -> List[str]:
             pass
 
     return services
-
-
-import re
