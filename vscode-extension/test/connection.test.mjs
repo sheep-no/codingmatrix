@@ -516,3 +516,52 @@ test("combines the performance metrics and trends endpoints", async () => {
     "https://codingmatrix.example/api/v1/agent/performance/trends",
   ]);
 });
+
+test("normalizes the learning stats and their top errors", async () => {
+  const calls = [];
+  const connection = connected(async (url) => {
+    calls.push(url);
+    return response({
+      success: true,
+      learned_patterns: 3,
+      total_fixes_recorded: 12,
+      total_sessions: 5,
+      overall_success_rate: 0.8,
+      top_errors: [
+        {
+          error_type: "ImportError",
+          error_message: "No module named foo",
+          frequency: 4,
+          success_rate: 0.75,
+          fix_description: "安装缺失依赖",
+        },
+        "ignored",
+      ],
+    });
+  });
+
+  assert.deepEqual(await connection.fetchLearningStats(), {
+    learned_patterns: 3,
+    total_fixes_recorded: 12,
+    total_sessions: 5,
+    overall_success_rate: 0.8,
+    top_errors: [
+      {
+        error_type: "ImportError",
+        error_message: "No module named foo",
+        frequency: 4,
+        success_rate: 0.75,
+        fix_description: "安装缺失依赖",
+      },
+    ],
+  });
+  assert.deepEqual(calls, ["https://codingmatrix.example/api/v1/agent/learning/stats"]);
+});
+
+test("requires a top_errors array from the learning stats", async () => {
+  const connection = connected(async () => response({ success: true, learned_patterns: 1 }));
+  await assert.rejects(
+    () => connection.fetchLearningStats(),
+    /top_errors/,
+  );
+});

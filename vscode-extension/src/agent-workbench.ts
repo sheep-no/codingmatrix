@@ -19,6 +19,7 @@ export const WORKBENCH_RESOURCES = [
   "snapshot_rollback",
   "snapshot_diff",
   "performance",
+  "learning",
 ] as const;
 
 export type WorkbenchResource = (typeof WORKBENCH_RESOURCES)[number];

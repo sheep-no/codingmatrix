@@ -1,5 +1,5 @@
 // The workbench is a single self-contained webview. The chat panel keeps the
-// live Agent session; the other four panels read user-scoped v1 APIs through
+// live Agent session; the other five panels read user-scoped v1 APIs through
 // the `workbench_request` channel handled by AgentWorkbenchController.
 const WORKBENCH_STYLES = `
 body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:20px;max-width:960px;margin:auto}
@@ -58,6 +58,10 @@ const setCode=function(target,text){
   node.className='code';
   node.textContent=text;
   target.appendChild(node);
+};
+const percent=function(value){
+  const rate=Number(value||0);
+  return (Number.isFinite(rate)?rate*100:0).toFixed(1);
 };
 const button=function(label,onClick,className){
   const node=document.createElement('button');
@@ -274,6 +278,29 @@ const loadPerformance=function(){
   });
 };
 $('performance-refresh').addEventListener('click',function(){loadPerformance();});
+const loadLearning=function(){
+  setStatus('正在读取学习统计');
+  return runRequest('learning',{},function(data){
+    const stats=data||{};
+    const target=$('learning-body');
+    target.textContent='';
+    target.appendChild(row('已学习模式',String(stats.learned_patterns||0)));
+    target.appendChild(row('累计修复记录',String(stats.total_fixes_recorded||0)));
+    target.appendChild(row('累计会话',String(stats.total_sessions||0)));
+    target.appendChild(row('整体成功率',percent(stats.overall_success_rate)+'%'));
+    const patterns=stats.top_errors||[];
+    const errorTarget=$('learning-errors');
+    errorTarget.textContent='';
+    if(!patterns.length){empty(errorTarget,'暂无常见错误');}
+    patterns.forEach(function(item){
+      const meta=[item.error_message||'','频次 '+String(item.frequency||0),'成功率 '+percent(item.success_rate)+'%'];
+      if(item.fix_description)meta.push('修复：'+item.fix_description);
+      errorTarget.appendChild(listItem(item.error_type||'未知错误',meta.join(' · ')));
+    });
+    setStatus('学习统计已更新');
+  });
+};
+$('learning-refresh').addEventListener('click',function(){loadLearning();});
 window.addEventListener('message',function(event){
   const data=event.data;
   if(data&&data.type==='workbench_response'){
@@ -325,6 +352,7 @@ export function createAgentWorkbenchHtml(): string {
 <button class="tab-button" data-tab="models">模型</button>
 <button class="tab-button" data-tab="versions">文件版本</button>
 <button class="tab-button" data-tab="performance">性能</button>
+<button class="tab-button" data-tab="learning">学习</button>
 </nav>
 <section class="tab-panel" id="tab-chat">
 <div class="panel"><p>当前工作台共享 Web Agent 会话，可在这里继续对话、审批本地动作和查看验证结果。</p><textarea id="prompt" maxlength="5000" placeholder="输入 Agent 需求"></textarea><button id="send">发送需求</button><button id="hello">连接本地 Agent Host</button><button id="pause">暂停</button><button id="resume">恢复</button><button id="cancel">取消</button><button id="approve" hidden>批准当前动作</button><button id="reject" hidden>拒绝当前动作</button><div id="messages" aria-live="polite"></div></div>
@@ -341,6 +369,9 @@ export function createAgentWorkbenchHtml(): string {
 </section>
 <section class="tab-panel" id="tab-performance">
 <div class="panel"><button id="performance-refresh">刷新性能</button><div id="performance-body"></div><div id="performance-trends"></div></div>
+</section>
+<section class="tab-panel" id="tab-learning">
+<div class="panel"><button id="learning-refresh">刷新学习统计</button><div id="learning-body"></div><div id="learning-errors"></div></div>
 </section>
 <script nonce="codingmatrix-agent-host">${WORKBENCH_SCRIPT}
 </script></body></html>`;

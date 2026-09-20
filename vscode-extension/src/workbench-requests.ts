@@ -42,6 +42,8 @@ export async function dispatchWorkbenchRequest(
       );
     case "performance":
       return connection.fetchPerformance();
+    case "learning":
+      return connection.fetchLearningStats();
     default:
       throw new Error(`不支持的工作台请求：${request.resource satisfies never}`);
   }

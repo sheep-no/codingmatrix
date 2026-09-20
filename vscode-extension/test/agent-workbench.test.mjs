@@ -36,7 +36,7 @@ test("renders a CSP-protected approval workbench", () => {
   assert.match(html, /approval_decision/);
 });
 
-test("renders the history, model, version and performance panels", () => {
+test("renders the history, model, version, performance and learning panels", () => {
   const html = createAgentWorkbenchHtml();
   assert.match(html, /workbench_request/);
   assert.match(html, /workbench_response/);
@@ -44,9 +44,11 @@ test("renders the history, model, version and performance panels", () => {
   assert.match(html, /id="tab-models"/);
   assert.match(html, /id="tab-versions"/);
   assert.match(html, /id="tab-performance"/);
+  assert.match(html, /id="tab-learning"/);
   assert.match(html, /history_list/);
   assert.match(html, /snapshot_rollback/);
   assert.match(html, /performance/);
+  assert.match(html, /learning/);
 });
 
 test("routes a workbench request and posts the response", async () => {

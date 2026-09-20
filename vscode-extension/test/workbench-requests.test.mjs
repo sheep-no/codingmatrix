@@ -19,6 +19,7 @@ function stubConnection(handlers) {
     rollbackToSnapshot: record("rollbackToSnapshot"),
     fetchSnapshotDiff: record("fetchSnapshotDiff"),
     fetchPerformance: record("fetchPerformance"),
+    fetchLearningStats: record("fetchLearningStats"),
   };
 }
 
@@ -37,6 +38,7 @@ test("dispatches every supported resource to the matching connection method", as
     rollbackToSnapshot: (sessionId, tag) => ["rollback", sessionId, tag],
     fetchSnapshotDiff: (sessionId, from, to) => ["diff", sessionId, from, to],
     fetchPerformance: () => ["performance"],
+    fetchLearningStats: () => ["learning"],
   });
 
   assert.deepEqual(await dispatchWorkbenchRequest(connection, request("history_list", { limit: 10, offset: 20 })), ["list", { limit: 10, offset: 20 }]);
@@ -51,6 +53,7 @@ test("dispatches every supported resource to the matching connection method", as
     ["diff", "s-1", "v1", "v2"],
   );
   assert.deepEqual(await dispatchWorkbenchRequest(connection, request("performance")), ["performance"]);
+  assert.deepEqual(await dispatchWorkbenchRequest(connection, request("learning")), ["learning"]);
 });
 
 test("omits paging options the webview did not send", async () => {

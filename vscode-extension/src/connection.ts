@@ -114,6 +114,22 @@ export interface PerformanceSnapshot {
   trends: Record<string, unknown>;
 }
 
+export interface LearningErrorPattern {
+  error_type: string;
+  error_message: string;
+  frequency: number;
+  success_rate: number;
+  fix_description: string;
+}
+
+export interface LearningStats {
+  learned_patterns: number;
+  total_fixes_recorded: number;
+  total_sessions: number;
+  overall_success_rate: number;
+  top_errors: LearningErrorPattern[];
+}
+
 const DEFAULT_ACTIONS_PATH = "/api/v1/agent/local-validation/actions";
 const DEFAULT_RESULTS_PATH = "/api/v1/agent/local-validation/results";
 const DEFAULT_HANDSHAKE_PATH = "/api/v1/agent/host/handshake";
@@ -364,6 +380,29 @@ export class CloudConnection {
       metrics: this.isRecord(metricsBody) && this.isRecord(metricsBody.metrics) ? { ...metricsBody.metrics } : {},
       thresholds: this.isRecord(metricsBody) && this.isRecord(metricsBody.thresholds) ? { ...metricsBody.thresholds } : {},
       trends: this.isRecord(trendsBody) && this.isRecord(trendsBody.trends) ? { ...trendsBody.trends } : {},
+    };
+  }
+
+  async fetchLearningStats(): Promise<LearningStats> {
+    const response = await this.request("/api/v1/agent/learning/stats", { method: "GET" });
+    const body = await this.readJson(response);
+    const patterns = this.requiredArray(body, "top_errors", "learning stats response must contain a top_errors array");
+    const stats = this.isRecord(body) ? body : {};
+    return {
+      learned_patterns: this.optionalNumber(stats.learned_patterns) ?? 0,
+      total_fixes_recorded: this.optionalNumber(stats.total_fixes_recorded) ?? 0,
+      total_sessions: this.optionalNumber(stats.total_sessions) ?? 0,
+      overall_success_rate: this.optionalNumber(stats.overall_success_rate) ?? 0,
+      top_errors: patterns.flatMap((item) => {
+        if (!this.isRecord(item)) return [];
+        return [{
+          error_type: this.optionalString(item.error_type) ?? "",
+          error_message: this.optionalString(item.error_message) ?? "",
+          frequency: this.optionalNumber(item.frequency) ?? 0,
+          success_rate: this.optionalNumber(item.success_rate) ?? 0,
+          fix_description: this.optionalString(item.fix_description) ?? "",
+        }];
+      }),
     };
   }
 
