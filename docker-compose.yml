@@ -87,17 +87,14 @@ services:
     mem_limit: 128m
     cpus: 0.25
 
-networks:
-  ai-agent-net:
-    driver: bridge
-
   # =============================================================================
-  # OpenTelemetry / Jaeger（可选：设置 OTEL_ENABLED=1 启用）
+  # OpenTelemetry / Jaeger（可选：docker compose --profile observability up 启用）
   # 访问 http://localhost:16686 查看 Jaeger UI
   # =============================================================================
   jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: ai-agent-jaeger
+    profiles: ["observability"]
     restart: unless-stopped
     ports:
       - "127.0.0.1:16686:16686"   # Jaeger UI
@@ -109,3 +106,7 @@ networks:
       - ai-agent-net
     mem_limit: 256m
     cpus: 0.25
+
+networks:
+  ai-agent-net:
+    driver: bridge
