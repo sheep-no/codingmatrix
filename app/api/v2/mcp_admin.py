@@ -8,6 +8,7 @@ MCP Server 管理接口
 """
 
 import logging
+import threading
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Dict, Optional, List
@@ -18,6 +19,9 @@ from app.utils.security import require_superadmin
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mcp", tags=["MCP 管理"])
+
+# 同一进程内的配置写入串行化，配合原子替换避免并发写坏文件
+_config_lock = threading.Lock()
 
 
 # ==================== 请求模型 ====================
@@ -58,12 +62,21 @@ def _load_config() -> Dict:
 
 
 def _save_config(config: Dict) -> bool:
-    """保存 MCP 配置"""
-    import json, os
+    """保存 MCP 配置（加锁 + 原子替换，避免并发写坏文件）"""
+    import json, os, tempfile
     try:
-        os.makedirs(os.path.dirname(MCP_CONFIG_PATH), exist_ok=True)
-        with open(MCP_CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
+        config_dir = os.path.dirname(MCP_CONFIG_PATH)
+        os.makedirs(config_dir, exist_ok=True)
+        with _config_lock:
+            fd, tmp_path = tempfile.mkstemp(dir=config_dir, suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(config, f, ensure_ascii=False, indent=2)
+                os.replace(tmp_path, MCP_CONFIG_PATH)
+            except Exception:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+                raise
         return True
     except Exception as e:
         logger.error(f"保存 MCP 配置失败: {e}")

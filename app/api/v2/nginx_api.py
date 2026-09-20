@@ -27,8 +27,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from fastapi.responses import StreamingResponse, FileResponse
 
-from app.utils.security import verify_token
-from app.api.v2.guardian_router import require_superadmin
+from app.api.v2.guardian_router import require_admin, require_superadmin
 from app.utils.cache import get_cache
 from app.schema.nginxConf import (
     NginxConf, NginxCheck, NginxGenerateRequest, NginxGenerateResponse,
@@ -43,6 +42,16 @@ router = APIRouter(prefix="/nginx", tags=["Nginx 配置管理"])
 NGINX_CHECK_TIMEOUT = 30
 DEFAULT_AI_MODEL = DEFAULT_CODE_MODEL
 CACHE_TTL = 300  # 缓存 5 分钟
+ALLOWED_NGINX_PATHS = (Path("/etc/nginx"), Path("/usr/local/nginx/conf"))
+
+
+def _is_allowed_nginx_config_path(config_path: str) -> bool:
+    """判断路径是否位于允许的 Nginx 配置目录内（按路径段比较，避免前缀碰撞）。"""
+    try:
+        resolved = Path(config_path).resolve()
+    except (OSError, RuntimeError):
+        return False
+    return any(resolved.is_relative_to(base) for base in ALLOWED_NGINX_PATHS)
 
 
 # =============================================================================
@@ -170,7 +179,7 @@ def generate_nginx_config(req: NginxGenerateRequest) -> str:
 @router.post("/check", summary="检查 Nginx 配置")
 async def check_nginx(
     body: NginxCheck,
-    token: dict = Depends(verify_token)
+    token: dict = Depends(require_admin)
 ):
     """
     检查 Nginx 配置语法
@@ -256,7 +265,7 @@ async def check_nginx(
 @router.post("/generate", response_model=NginxGenerateResponse, summary="生成 Nginx 配置")
 async def generate_nginx(
     req: NginxGenerateRequest,
-    token: dict = Depends(verify_token)
+    token: dict = Depends(require_admin)
 ):
     """
     根据表单配置生成 Nginx 配置文件（带缓存）
@@ -356,10 +365,16 @@ async def deploy_nginx(
         )
         
         if result.returncode != 0:
-            # 测试失败，恢复备份
+            # 测试失败，恢复备份；无备份时删除刚写入的坏配置，避免残留
             if backup_path:
                 shutil.copy2(backup_path, config_path)
                 logger.warning(f"配置测试失败，已恢复备份 | backup={backup_path}")
+            else:
+                try:
+                    os.remove(config_path)
+                    logger.warning(f"配置测试失败，已删除坏配置 | path={config_path}")
+                except OSError as cleanup_error:
+                    logger.error(f"配置测试失败且无法清理坏配置 | path={config_path} | error={cleanup_error}")
             
             raise HTTPException(
                 status_code=400,
@@ -368,11 +383,20 @@ async def deploy_nginx(
         
         # 5. 重载 Nginx
         logger.info(f"重载 Nginx")
-        subprocess.run(
+        reload_result = subprocess.run(
             ["nginx", "-s", "reload"],
             capture_output=True,
+            text=True,
             timeout=10
         )
+        if reload_result.returncode != 0:
+            logger.error(
+                f"Nginx 重载失败 | returncode={reload_result.returncode} | stderr={reload_result.stderr.strip()}"
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Nginx 重载失败：{reload_result.stderr.strip() or reload_result.returncode}"
+            )
         
         logger.info(f"Nginx 配置部署成功 | path={config_path}")
         
@@ -383,6 +407,9 @@ async def deploy_nginx(
             config_path=config_path
         )
         
+    except HTTPException:
+        raise
+
     except subprocess.TimeoutExpired:
         logger.error(f"Nginx 操作超时")
         if backup_path:
@@ -399,23 +426,19 @@ async def deploy_nginx(
 @router.get("/config", summary="获取当前 Nginx 配置")
 async def get_nginx_config(
     config_path: str = Query(..., description="配置文件路径"),
-    token: dict = Depends(verify_token)
+    token: dict = Depends(require_admin)
 ):
     """
     获取指定的 Nginx 配置文件内容
     
     需要指定完整的配置文件路径
     """
-    from pathlib import Path
-    
-    ALLOWED_NGINX_PATHS = {"/etc/nginx", "/usr/local/nginx/conf"}
-    
     logger.info(f"获取 Nginx 配置 | admin={token.get('sub')} | path={config_path}")
     
-    # 路径安全校验
-    resolved = str(Path(config_path).resolve())
-    if not any(resolved.startswith(p) for p in ALLOWED_NGINX_PATHS):
+    # 路径安全校验（按路径段比较）
+    if not _is_allowed_nginx_config_path(config_path):
         raise HTTPException(status_code=403, detail="不允许访问该路径")
+    resolved = str(Path(config_path).resolve())
     if not resolved.endswith(".conf"):
         raise HTTPException(status_code=403, detail="仅允许读取 .conf 文件")
     
@@ -459,7 +482,7 @@ async def delete_backup(
     
     # 路径安全校验
     resolved_nginx = str(Path(nginx_path).resolve())
-    if not resolved_nginx.startswith("/etc/nginx"):
+    if not Path(resolved_nginx).is_relative_to(Path("/etc/nginx")):
         raise HTTPException(status_code=403, detail="不允许访问该路径")
     
     backup_path = f"{resolved_nginx}/conf.d/{backup_name}"
@@ -479,7 +502,7 @@ async def delete_backup(
 @router.get("/backups", summary="列出所有备份文件")
 async def list_backups(
     nginx_path: str = Query("/etc/nginx", description="Nginx 安装目录"),
-    token: dict = Depends(verify_token)
+    token: dict = Depends(require_admin)
 ):
     """
     列出所有 Nginx 配置备份文件
@@ -488,7 +511,7 @@ async def list_backups(
     
     # 路径安全校验
     resolved_nginx = str(Path(nginx_path).resolve())
-    if not resolved_nginx.startswith("/etc/nginx"):
+    if not Path(resolved_nginx).is_relative_to(Path("/etc/nginx")):
         raise HTTPException(status_code=403, detail="不允许访问该路径")
     
     backup_dir = f"{resolved_nginx}/conf.d"

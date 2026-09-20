@@ -89,3 +89,31 @@
 - app/api/v1/ 余下文件（aicloud.py/aicloud_knowledge.py/model_manager.py/vision_api.py/workflow.py/aiGeneratorPptx.py 仅消费方扫过）
 - app/services 16 文件（model_config_manager/resource_config/feature_switch/log_config/rate_limit_config/websocket_manager 等本轮依赖方）
 - app/schema 13、app/models 12、app/db 12、app/core/middleware 4、app/tasks 3
+
+## 状态更新（2026-09-20 核实）
+
+以当前代码为准逐条核实，本轮修复如下：
+
+- **V2U1 已修**：`user_manage._ensure_superadmin_scope` 对 create_user/update_user/delete_user/reset_password 统一生效，非 superadmin 不能创建、提升、修改或删除 superadmin（`tests/unit/test_v2_user_manage_privilege.py` 守护）。
+- **V2U2 已修**：`reset_password` 已调用 `validate_password_strength`；delete_user 的 Permission 删除、`_purge_user_owned_data` 与 `db.delete(user)` 同处一个 session/事务，`commit` 一次性提交，不存在「User 已删 Permission 残留」的半提交。
+- **V2N2 本次修复（部分）**：`/nginx/config` 由 `verify_token` 提升为 `require_admin`；路径校验改为 `_is_allowed_nginx_config_path`（`Path.is_relative_to` 按路径段比较），杜绝 `/etc/nginx-evil/x.conf` 前缀碰撞。仍保留「admin 可读配置」语义，是否进一步收敛为 superadmin 待产品口径。
+- **V2N3 本次修复**：`/nginx/check`、`/nginx/generate` 提升为 `require_admin`，避免任意登录用户免费调用 LLM。
+- **V2N4 本次修复**：`/nginx/deploy` 在 `backup=False` 且 `nginx -t` 失败时删除刚写入的坏配置；`nginx -s reload` 校验返回码，失败时返回 500（原为静默报成功）；`except HTTPException: raise` 避免 400 被通用 except 吞成 500。nginx_path 白名单仍未加（superadmin 专用面，且需兼容 Windows 路径）。
+- **V2N5 本次修复**：`/nginx/backups` 提升为 `require_admin`；DELETE `/nginx/backup/{name}` 与 `/nginx/backups` 的 nginx_path 校验改 `Path.is_relative_to`。
+- **V2M4 本次修复**：`model_config_api.update_model` 的 `request.dict()` 改 `request.model_dump()`（Pydantic v2）。
+- **V2M5 本次修复**：`mcp_admin._save_config` 加进程内锁 + `tempfile.mkstemp` + `os.replace` 原子替换，写失败清理临时文件，消除并发写半文件。
+- **V2G2 本次修复**：`/admin/config/batch` 复用模块级 `VALID_CONFIG_KEYS`（单一来源 `ServerConfig.DEFAULT_CONFIGS`）白名单。
+- **V2G4 本次修复**：`/admin/backup/restore` 恢复前校验 `configs` 键均在白名单内，拒绝任意键注入。
+- **V2G3 本次修复（部分）**：`/admin/backup/{timestamp}` 校验时间戳格式 `\d{8}_\d{6}`，杜绝路径穿越；require_admin 可读全量配置的权限口径未变。
+- **V2G5 本次修复**：`/health/{port}` 端口限制 `ge=1, le=65535`。
+- **V2G6 本次修复**：`RateLimitUpdate`/`EndpointRateLimitUpdate` 的 `limit`/`window` 加 `Field(ge=1)`，0/负值不再能关闭限流。
+- **V2C1 本次修复**：`/Controller/sys-status` 与 `/Controller/logs` 均改为先 `verify_token_ws` 再 `accept`，未认证连接不再先建立；token 仍经 query 传输（前端约束，未改）。
+
+未处理：
+
+- **V2N1 nginx_ai.py 未接入死文件**：仍未挂载（除 `tests/archive/legacy` 外全库零引用）。建议删除，待确认后执行。
+- **V2M1/V2M2/V2M3 仍存续**：model_admin 声明废弃仍挂载（双轨）、`/models/default` 改运行时全局、`fallback-chain` 的 `chain_name` 收而不用。均属设计收敛/配置结构决策，需架构口径。
+- **V2A1 仍存续**：`/sandbox-config` 改 `os.environ` 非持久、多 worker 不同步，属设计债。
+- **新发现（未修）**：`/admin/backup/list` 返回的 `download_url` 形如 `/admin/backup/download/{filename}`，与实际路由 `/admin/backup/{timestamp}` 不匹配；前端未消费该字段（自行拼接），暂记待办。
+
+测试：新增 `tests/unit/test_v2_api_hardening.py`(16)；回退五个源文件后 13 项失败。定向回归 `test_v2_api_hardening + test_v2_user_manage_privilege + test_mcp_admin_api + test_model_admin_api` = 68 passed。

@@ -160,7 +160,7 @@ async def update_model(
     if not manager.get_model(model_id):
         raise HTTPException(status_code=404, detail=f"模型 {model_id} 不存在")
     
-    updates = {k: v for k, v in request.dict().items() if v is not None}
+    updates = {k: v for k, v in request.model_dump().items() if v is not None}
     
     if manager.update_model(model_id, updates):
         logger.info(f"更新模型成功 | 操作用户={current_user.get('sub')} | 模型={model_id}")
