@@ -169,7 +169,7 @@ Agent Host 和本地验证修改后运行 `npm --prefix vscode-extension test`�
 
 ## 最近结果（2026-09-07）
 
-- VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `100 passed`。
+- VS Code 扩展：TypeScript 构建成功，`npm --prefix vscode-extension test` 为 `103 passed`。
 - VS Code Extension Development Host：VS Code `1.136.1` E2E 通过，已验证扩展激活、Agent Workbench 打开、兼容性握手和工作区能力。
 - 前端相关回归：`23 passed`，生产构建成功。
 - Web 任务反馈专项：`4 files passed, 36 tests passed`，覆盖归一化、增量合并、断线恢复、过期快照、终态保护、游标重置和组件操作派发；前端完整 Vitest 为 `25 files passed, 108 tests passed`。

@@ -208,8 +208,11 @@ Host 会话默认保存到 `data/agent_host_sessions`，使用临时文件替换
 | 性能 | `performance` | `GET /api/v1/agent/performance` 与 `/performance/trends` |
 | 学习 | `learning` | `GET /api/v1/agent/learning/stats` |
 | 设置 | `concurrent_limits`、`cache_stats`、`cache_clear` | `GET /api/v1/agent/concurrent-limits/recommended`、`GET /api/v1/agent/cache/stats`、`POST /api/v1/agent/cache/clear` |
+| 对话（架构决策） | `decision_submit` | `POST /api/v1/agent/session/{session_id}/decision` |
 
-文件版本面板默认使用最近一次 `done` 事件返回的 `session_id`，也可手动填写。设置面板中「清空全部缓存」由扩展侧弹原生确认框，取消则不发送请求；未指定 `mode` 的清理请求按 `expired` 处理。管理级模型接口（`/api/v2/models/*`、`/api/v2/model-config/*`）需要 superadmin，未纳入工作台。
+文件版本面板默认使用最近一次 `done` 事件返回的 `session_id`，也可手动填写。设置面板中「清空全部缓存」由扩展侧弹原生确认框，取消则不发送请求；未指定 `mode` 的清理请求按 `expired` 处理。
+
+对话面板接收 `critical_decisions` 事件并在运行中渲染架构决策表单：每项展示问题、上下文和全部选项，默认值仅在其确实出现在选项里时预选，提交前要求每项都选中有效选项，再以 `id → 选项标签` 的映射提交。服务端最多等待 120 秒，超时按默认方案继续；返回 `ignored` 表示决策等待已结束，面板据此提示查看任务进度。管理级模型接口（`/api/v2/models/*`、`/api/v2/model-config/*`）需要 superadmin，未纳入工作台。
 
 ## 沙箱运行控制
 

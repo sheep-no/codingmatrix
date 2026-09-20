@@ -275,9 +275,11 @@ Core 同步响应增加 `repair_feedback`：`task_id` 关联检查点，`status`
 
 `vscode-extension/src/agent-workbench.ts` 提供原生 Webview 工作台控制器，面板 HTML 由 `workbench-html.ts` 生成（对话、会话历史、模型、文件版本、性能、学习、设置七个面板）。`codingmatrix.openAgentWorkbench` 命令由 `src/extension.ts` 注册，打开单例 Agent 面板并通过 `WebviewBridge` 连接 Host 消息。
 
-工作台面板通过 `workbench_request`（`request_id`、`resource`、`params`）向扩展请求数据，控制器校验 `resource` 属于 `WORKBENCH_RESOURCES` 后交给 `workbench-requests.ts` 的 `dispatchWorkbenchRequest`，再把结果或错误包成 `workbench_response`（`ok`、`data` 或 `error`）回发；未知资源、非法参数和处理器异常都不会中断面板。当前 resource 覆盖 `history_list`、`history_messages`、`history_delete`、`model_config`、`token_usage`、`snapshot_list`、`snapshot_rollback`、`snapshot_diff`、`performance`、`learning`、`concurrent_limits`、`cache_stats` 和 `cache_clear`，对应 `connection.ts` 上同名语义的公开方法，全部使用普通用户 Bearer token。
+工作台面板通过 `workbench_request`（`request_id`、`resource`、`params`）向扩展请求数据，控制器校验 `resource` 属于 `WORKBENCH_RESOURCES` 后交给 `workbench-requests.ts` 的 `dispatchWorkbenchRequest`，再把结果或错误包成 `workbench_response`（`ok`、`data` 或 `error`）回发；未知资源、非法参数和处理器异常都不会中断面板。当前 resource 覆盖 `history_list`、`history_messages`、`history_delete`、`model_config`、`token_usage`、`snapshot_list`、`snapshot_rollback`、`snapshot_diff`、`performance`、`learning`、`concurrent_limits`、`cache_stats`、`cache_clear` 和 `decision_submit`，对应 `connection.ts` 上同名语义的公开方法，全部使用普通用户 Bearer token。
 
-`cache_clear` 是唯一会改服务端状态的 resource：`mode` 只接受 `all`，其余取值一律按 `expired` 处理；`mode=all` 时 `extension.ts` 先弹原生警告框，用户取消即抛出「已取消清空缓存」，不发送请求。
+会改服务端状态的 resource 只有 `cache_clear` 和 `decision_submit`：`cache_clear` 的 `mode` 只接受 `all`，其余取值一律按 `expired` 处理；`mode=all` 时 `extension.ts` 先弹原生警告框，用户取消即抛出「已取消清空缓存」，不发送请求。
+
+对话面板在收到 `critical_decisions` 事件后调用 `decision_submit`，以 `{session_id, decisions:{id: 选项标签}}` 提交；`workbench-requests.ts` 要求映射非空且每个标签为非空字符串。服务端返回 `submitted` 表示已入队，`ignored` 表示没有等待中的决策请求（流已结束或已超时），面板分别提示「决策已提交」与「决策等待已结束」。
 
 对话面板的 `workbench_prompt` 消息除 `prompt` 外还携带 `project_name`、`incremental` 和 `flags`（七个布尔开关）。控制器在 `parsePromptOptions` 中只接受布尔值开关，非布尔值回退默认；`extension.ts` 把开关平铺进 `OrchestratorRequest`，仅在 `incremental` 成立（最近一次 `done` 事件留下 `project_path`）时附加 `engine=core` 与 `project_path`，否则以全新生成发出并回发一条 `progress` 事件说明回退。
 
