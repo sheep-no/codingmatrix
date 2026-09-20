@@ -76,3 +76,13 @@
 - 本轮：P2 1 + P3 20 = 21 项，Backlog #1234-#1254
 - 累计：P1 17、P2 425、P3 758
 - `app/core/` 全包建档完成；正面点名 graceful_shutdown 与 SensitiveDataFilter 两处全链生效设施
+
+## 状态更新（2026-09-20 核实）
+
+- **FV1 [P2] 已修**：`app/core/file_validator.py`。原 `detect_mime_type` 对无魔数的源码/配置只能返回 `application/octet-stream`，而该值不在 `ALLOWED_MIME_TYPES`；以 `#` 开头的 `.py`/`.yaml` 又命中 `b'#'` 判为 `text/plain`，与 `EXTENSION_MIME_MAP` 里代码类扩展名的期望值不匹配。两条路径叠加导致白名单内的代码文件上传必被 400。修复：
+  - `detect_mime_type` 增加文本嗅探：前 2048 字节无 NUL 且可 UTF-8 解码则返回 `text/plain`，不再一律落到二进制流。
+  - `EXTENSION_MIME_MAP` 为全部文本/代码扩展名补上 `text/plain`，并补齐白名单里缺失的 `.c/.cpp/.go/.rs/.rb/.jsx/.tsx/.vue/.scss/.toml/.ini/.rst/.docx`。
+  - 二进制伪装仍被拦截：`.py` 内放 PNG 魔数判为 `image/png` 后与扩展名不匹配而拒，`.css` 内放 zip 同理；SVG 危险模式、`.doc`（无 OLE2 魔数支持）保持 fail-closed。
+- **连带修复（原文档未列）**：`generate_safe_filename` 的扩展名正则原为 `^\.[a-z0-9]{2,10}$`，单字符扩展名 `.c` 恒被拒——`file_upload.ALLOWED_EXTENSIONS` 明确允许 `.c`，属同一「白名单声称支持但深度校验必杀」家族。下限改为 1。
+- **未改（FV4 范围）**：`.tar` 魔数 `b'ustar'` 位置错误（tar magic 在 offset 257，前 16 字节是文件名）导致 `.tar` 恒判 `application/octet-stream` 被拒；`.doc` 无 OLE2 魔数与 MIME 映射。二者均为 fail-closed，独立于 FV1 的文本/代码路径，留待 FV4 专项处理。
+- 新增回归 `tests/unit/test_file_validator_uploads.py`（57 项）：26 种文本/代码扩展名在 `validate_file_content` 与 `validate_file_path` 双路径下均接受、二进制伪装拒绝、`.docx` zip 容器接受、含脚本 SVG 拒绝。回退 `file_validator.py` 后 46 项失败。
