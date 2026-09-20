@@ -75,6 +75,16 @@ async def get_current_user_id(token: dict = Depends(verify_token)) -> int:
     return int(user_id_str)
 
 
+def _compose_system_prompt(formatted_system_prompt: str, knowledge_context: str) -> str:
+    """把 RAG 命中的知识库内容注入系统提示词前缀。
+
+    未命中知识库时 knowledge_context 为空字符串，系统提示词保持不变。
+    """
+    if not knowledge_context:
+        return formatted_system_prompt
+    return f"{knowledge_context}{formatted_system_prompt}"
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
@@ -202,10 +212,11 @@ async def chat(
     except Exception as e:
         logger.warning(f"知识库检索失败: {e}")
 
-    formatted_system_prompt = system_prompt.format(sandbox_path=sandbox_path)
-
-    # TODO: 将知识库检索结果接入 execute_with_llm_loop，当前 full_prompt 未被使用
-    full_prompt = f"{history_context}{knowledge_context}{formatted_system_prompt}{request.message}"
+    # 将 RAG 命中的知识库内容注入系统提示词，使其参与模型推理
+    formatted_system_prompt = _compose_system_prompt(
+        system_prompt.format(sandbox_path=sandbox_path),
+        knowledge_context,
+    )
 
     user_message = AicloudMessage(
         session_id=session_id,

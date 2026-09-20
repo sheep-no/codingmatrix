@@ -113,7 +113,7 @@
 - **KHS1 [P3]** :56-59 total 用 len(all()) 全表加载计数（ND 家族 +1）；:48 等 token.get("sub") 未 int() 转换直进 ORM where（与全库 int(token["sub"]) 惯例不一）
 
 ### file_upload.py（5 项）
-- **FL1 [P3]** 分片链 file_id 无归属校验：upload_chunk/merge_chunks 仅凭 uuid file_id 操作，B 知 file_id 可把 A 的分片合并记到自己名下（uuid 不可枚举，降 P3）
+- **FL1 [P3] 已修复**：分片链 file_id 无归属校验——upload_chunk/merge_chunks 仅凭 uuid file_id 操作，B 知 file_id 可把 A 的分片合并记到自己名下。修复：新增 `_scoped_chunk_dir(user_id, file_id)` 将分片目录改为 `CHUNKS_DIR/<user_id>/<file_id>`（同时拒绝空值/`..`/`/`/`\` 穿越），init/upload/merge 三端点统一走该函数；`ChunkMetadata` 增可选 `base_dir` 参数。新增 `tests/unit/test_bugfixes.py::TestChunkUserIsolation`（3 项，覆盖用户隔离、穿越拒绝、元数据落盘路径）。
 - **FL2 [P3]** 安全双轨：单文件链有 validate_file_upload + validate_file_content 双层验证；分片链 merge 路径零验证（无扩展名/内容检查），可落盘任意后缀文件；:421 filename 未净化直接拼路径（uuid 前缀阻断 ".." 穿越——"uuid_.." 为字面目录名，实际可利用性低，记加固项）。已验证 uploads 无静态挂载（main.py:341-343 仅 /static），download 端点 attachment 头兜底
 - **FL3 [P3]** :355 chunk.read() 无单分片大小限制（约定 5MB 无强制）；chunk_index 任意 int；.chunks 孤儿分片永不过期清理 → 磁盘耗尽家族（VK1/CS3 同族）
 - **FL4 [P3]** :185 datetime.utcnow() vs :418 datetime.now() 同文件双时间语义（MD4 家族）+ 两种目录格式 %Y/%m/%d 与 %Y%m%d
