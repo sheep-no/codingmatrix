@@ -27,7 +27,7 @@ export function useAuth() {
 
   async function register(username, email, password) {
     try {
-      const response = await api.post('/auth/register', { username, email, password })
+      const response = await api.post('/register', { username, email, password })
 
       if (!response.ok) {
         const data = await response.json()
@@ -61,30 +61,11 @@ export function useAuth() {
     }
   }
 
-  async function updateProfile(updates) {
-    try {
-      const response = await api.put('/auth/profile', updates)
-
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.detail || '更新失败')
-      }
-
-      const data = await response.json()
-      userStore.setUser(data)
-      return { success: true }
-    } catch (err) {
-      showError(err.message || '更新失败，请稍后重试')
-      return { success: false, error: err.message }
-    }
-  }
-
   return {
     login,
     register,
     logout,
     refreshToken,
-    updateProfile,
     isLoggedIn: userStore.isLoggedIn,
     user: userStore,
     isRefreshing
