@@ -419,3 +419,13 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - 合并顺序：先合基础设施/CI 修复，再逐个合并功能 PR；每合一个，master 前进一次，后续 PR 的 merge ref 会自动包含它，不需要本地 rebase。
   - 判定 CI 是否通过要看目标 commit 的 check-runs（`GET /commits/{sha}/check-runs`），而不是只看 workflow runs 列表；`pull_request` 事件的 run 其 `head_sha` 是 PR 分支头，而实际被测的是 merge ref。
   - `git checkout master` 会带着工作树中跨分支的未提交改动一起切换；若目标分支也改了同一文件，git 会原子拒绝而不是覆盖，不要为此 stash/丢弃这些改动。
+
+### 静态缺陷门禁（ruff pyflakes 子集）
+- Date: 2026-09-20
+- Context: Agent 在清理 `app` 目录 F821/F811/F402/F841 时建立并扩展
+- Category: 构建与编译
+- Instructions:
+  - `tests/unit/test_static_defects.py` 是门禁：对全 `app` 强制 `F821,F823,F811,F402,F841`（pyflakes 子集，不含风格规则）。改动 `app` 后必须保持该测试通过；本地可先跑 `python3 -m ruff check app --select F821,F823,F811,F402,F841 --no-cache`。
+  - `ruff==0.16.8` 声明在 `configs/requirements-test.txt`，调用统一用 `python3 -m ruff`（`ruff` 可执行文件不一定在 PATH）。
+  - 唯一显式豁免（`--per-file-ignores`）：`app/api/v1/aicloud.py` 的 `full_prompt`。它是既有潜在缺陷——RAG 知识库检索结果从未接入 `execute_with_llm_loop`；删除会连带移除已完成检索功能，故保留并加 TODO。修复该缺陷时需同步移除豁免。
+  - 另有已知遗留待决策：`orchestrate_endpoints.get_token_usage_stats` 查询了今日/本月的 prompt/completion token 但响应模型无对应字段；`file_upload.upload_chunk` 解析了 `user_id` 却未做分片归属校验。
