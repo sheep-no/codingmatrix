@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_controller.dart';
 import '../infrastructure/ppt/ppt_client.dart';
 import 'account_overlays.dart';
+import 'saved_file_actions.dart';
 import 'shell_scaffold.dart';
 
 class PptPage extends ConsumerStatefulWidget {
@@ -18,6 +19,8 @@ class _PptPageState extends ConsumerState<PptPage> {
   bool busy = false;
   String? taskId;
   String? pptId;
+  String? savedPath;
+  String? pdfPath;
   String message = '';
 
   @override
@@ -37,6 +40,8 @@ class _PptPageState extends ConsumerState<PptPage> {
       busy = false;
       taskId = null;
       pptId = null;
+      savedPath = null;
+      pdfPath = null;
       message = '';
     });
   }
@@ -101,6 +106,7 @@ class _PptPageState extends ConsumerState<PptPage> {
       if (mounted && run == generation) {
         setState(() {
           busy = false;
+          savedPath = path;
           message = '已保存到：$path';
         });
       }
@@ -194,6 +200,7 @@ class _PptPageState extends ConsumerState<PptPage> {
       if (mounted && run == generation)
         setState(() {
           busy = false;
+          pdfPath = path;
           message = 'PDF 已保存到：$path';
         });
     } catch (e) {
@@ -326,6 +333,8 @@ class _PptPageState extends ConsumerState<PptPage> {
                 padding: const EdgeInsets.only(top: 16),
                 child: Text(message),
               ),
+            if (savedPath != null) SavedFileActions(path: savedPath!),
+            if (pdfPath != null) SavedFileActions(path: pdfPath!),
           ],
         ),
       ),

@@ -7,6 +7,7 @@ import '../application/image_generation_controller.dart';
 import '../application/provider_key_controller.dart';
 import '../domain/models/image_generation.dart';
 import 'provider_settings_page.dart';
+import 'saved_file_actions.dart';
 import 'shell_scaffold.dart';
 
 class ImageGenerationPage extends ConsumerStatefulWidget {
@@ -318,7 +319,17 @@ class _ImageGenerationPageState extends ConsumerState<ImageGenerationPage> {
                             ),
                           ),
                         if (state.images[i].savedPath != null)
-                          SelectableText('已保存：${state.images[i].savedPath}'),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SelectableText(
+                                '已保存：${state.images[i].savedPath}',
+                              ),
+                              SavedFileActions(
+                                path: state.images[i].savedPath!,
+                              ),
+                            ],
+                          ),
                       ],
                     ),
                   ),

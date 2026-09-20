@@ -9,6 +9,7 @@ import '../application/github_controller.dart';
 import '../infrastructure/github/github_client.dart';
 import '../domain/models/github_binding.dart';
 import 'github_settings_page.dart';
+import 'saved_file_actions.dart';
 
 final agentProjectClientProvider = Provider<AgentProjectClient>(
   (ref) => AgentProjectClient(ref.watch(authenticatedClientProvider)),
@@ -251,7 +252,10 @@ class _ProjectFilesPageState extends ConsumerState<ProjectFilesPage> {
                   icon: const Icon(Icons.download),
                   label: Text(downloading ? '已下载 $bytes 字节' : '下载 ZIP 到应用文档'),
                 ),
-                if (savedPath != null) SelectableText('已保存：$savedPath'),
+                if (savedPath != null) ...[
+                  SelectableText('已保存：$savedPath'),
+                  SavedFileActions(path: savedPath!),
+                ],
                 if (downloadError != null)
                   Text(
                     downloadError!,

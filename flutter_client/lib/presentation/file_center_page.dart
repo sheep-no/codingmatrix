@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../application/auth_controller.dart';
+import 'saved_file_actions.dart';
 import 'shell_scaffold.dart';
 
 class FileCenterPage extends ConsumerStatefulWidget {
@@ -16,6 +17,7 @@ class FileCenterPage extends ConsumerStatefulWidget {
 class _FileCenterPageState extends ConsumerState<FileCenterPage> {
   bool busy = false;
   String? message;
+  String? savedPath;
   final files = <Map<String, dynamic>>[];
   // Bumped on account change so a late upload/download result cannot land in
   // the next account's page state.
@@ -69,6 +71,7 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
     setState(() {
       files.clear();
       message = null;
+      savedPath = null;
       busy = false;
     });
   }
@@ -84,6 +87,7 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
     setState(() {
       busy = true;
       message = '下载中...';
+      savedPath = null;
     });
     try {
       final api = ref.read(authenticatedClientProvider);
@@ -102,7 +106,10 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
       final output = File('${folder.path}/$name');
       await output.writeAsBytes(await response.stream.toBytes(), flush: true);
       if (mounted && epoch == _epoch) {
-        setState(() => message = '已保存到：${output.path}');
+        setState(() {
+          savedPath = output.path;
+          message = '已保存到：${output.path}';
+        });
       }
     } catch (e) {
       if (mounted && epoch == _epoch) setState(() => message = '下载失败：$e');
@@ -129,6 +136,7 @@ class _FileCenterPageState extends ConsumerState<FileCenterPage> {
             label: Text(busy ? '上传中...' : '选择文件上传'),
           ),
           if (message != null) Text(message!),
+          if (savedPath != null) SavedFileActions(path: savedPath!),
           const Divider(),
           for (final file in files)
             ListTile(
