@@ -55,7 +55,7 @@ Dockerfile 的运行时镜像同时安装 Nginx 和 Uvicorn，并以 shell 启�
 | Redis | 宿主机 `127.0.0.1:6379` -> 容器 `6379`：`docker-compose.prod.yml:54-55` | `redis-cli ping`：`:61-66` | API 启动等待 Redis healthy：`:27-30` |
 | Celery | 基础和生产 Compose 均无宿主端口 | 生产 Compose 作为独立 worker 声明 | worker 消费状态待运行验证 |
 | Dockerfile runtime | 暴露 `80`、`8080` | `GET http://localhost:8080/api/v1/health` | 与独立 Nginx Compose 模型重复 |
-| Jaeger | `127.0.0.1:16686/14268/14250`：`docker-compose.yml:95-102` | 未声明 | 注释标为可选，配置中始终定义服务 |
+| Jaeger | `127.0.0.1:16686/14268/14250`：`docker-compose.yml:99-102` | 未声明 | 已加 `observability` profile，默认不启动 |
 
 基础 Compose 的 API/Celery/Nginx 仍主要依赖启动顺序；API 使用 `/app` 单 worker 并启用 scheduler，生产 Compose 使用独立 scheduler。基础 Compose 的 API/Celery bind mount 已统一到 `/app/app`、`/app/logs` 和 `/app/data`。
 
@@ -70,7 +70,7 @@ Dockerfile 的运行时镜像同时安装 Nginx 和 Uvicorn，并以 shell 启�
 ### 4.2 版本和镜像漂移
 
 - 前端构建使用 `node:20-alpine`，后端构建和运行使用 `python:3.10-slim`：`Dockerfile:8`、`:23`、`:34`。项目运行时 Python 版本与仓库记忆中 Python 3.11+ 测试约定存在版本漂移风险，需由依赖和测试矩阵确认兼容性。
-- 生产 Nginx 使用未固定 tag 的 `nginx:alpine`，基础 Compose 的 Jaeger 使用 `all-in-one:latest`：`docker-compose.prod.yml:80`、`docker-compose.yml:95-96`。镜像内容会随拉取时间变化，部署可复现性下降。
+- 生产 Nginx 使用未固定 tag 的 `nginx:alpine`，基础 Compose 的 Jaeger 使用 `all-in-one:latest`：`docker-compose.prod.yml:150`、`docker-compose.yml:74`、`docker-compose.yml:95`。镜像内容会随拉取时间变化，部署可复现性下降；具体版本锁定待可访问镜像仓库的部署环境完成（CR6）。
 - `configs/requirements-test.txt` 被复制到依赖构建阶段，但只执行生产 `requirements.txt` 安装：`Dockerfile:27-29`。测试依赖在最终镜像中是否存在无法由该 Dockerfile 保证。
 - 生产 Compose 使用 Compose `deploy.resources` 声明资源限制：`docker-compose.prod.yml:38-45`、`:67-74`、`:99-106`；实际是否生效取决于运行器是否支持该字段，需部署环境验证。
 
@@ -103,17 +103,20 @@ Dockerfile 的运行时镜像同时安装 Nginx 和 Uvicorn，并以 shell 启�
 - **当前状态**：基础 Compose 已将 `./app`、`./logs`、`./data` 挂载到 `/app/app`、`/app/logs`、`/app/data`，与镜像工作目录和源代码复制路径一致。
 - **运行验证**：仍需确认容器内 Uvicorn 实际加载的源代码、日志和数据路径。
 
-### CR5 [P3] 基础 Compose 将可选 Jaeger 作为无条件服务声明
+### CR5 [P3] 基础 Compose 将可选 Jaeger 作为无条件服务声明（已修复）
 
-- **现象**：注释写明 OTEL/Jaeger 可选并以环境变量启用，服务定义没有 `profiles` 或条件开关：`docker-compose.yml:91-108`。
-- **影响**：按该 Compose 文件启动时 Jaeger 会参与服务编排，占用端口和资源；`OTEL_ENABLED` 对服务是否创建没有配置层效果。
-- **建议**：使用 Compose profile 或拆分观测覆盖文件，并让启用条件与应用 OTEL 配置保持一致。
+- **修复前现象**：注释写明 OTEL/Jaeger 可选并以环境变量启用，服务定义没有 `profiles` 或条件开关。更严重的是 `jaeger:` 块被缩进到顶层 `networks:` 之下，`ai-agent-net` 因此挂上了 `image`、`ports` 等非法属性，Jaeger 实际并不在 `services` 里。
+- **根因**：注释与 `jaeger:` 服务定义被误插入 `networks:` 映射体内，Compose 顶层结构非法；同时缺少按需启动开关。
+- **影响**：YAML 结构非法会让 `docker compose config` 报错或静默忽略 Jaeger；`OTEL_ENABLED` 对服务是否创建没有配置层效果。
+- **当前修复**：把 `jaeger:` 移回 `services:` 下，并加 `profiles: ["observability"]`；默认 `docker compose up` 不再拉起 Jaeger，需要时用 `docker compose --profile observability up`。回归测试 `tests/unit/test_compose_structure.py` 守护服务/网络集合与 profile 语义。
+- **证据**：`docker-compose.yml:94-108`（修复后行号）。
 
 ### CR6 [P3] 关键镜像版本未锁定
 
-- **现象**：生产 Nginx 和 Jaeger 使用浮动 tag：`docker-compose.prod.yml:80`、`docker-compose.yml:95-96`。
+- **现象**：生产 Nginx 和 Jaeger 使用浮动 tag：`docker-compose.prod.yml:150`、`docker-compose.yml:74`、`docker-compose.yml:95`。
 - **影响**：同一提交在不同时间构建或拉取可能得到不同镜像内容，回滚和问题复现成本增加。
 - **建议**：锁定经过验证的具体版本，生产环境进一步记录 digest，并建立定期升级流程。
+- **未修复原因（2026-09-20）**：本环境没有 Docker daemon，且 Docker Hub 网络不可达（`curl` 返回 `http_code=000`），无法确认候选 tag 是否真实存在；锁定到未经验证的版本会让 `docker compose pull` 直接失败，风险高于保留浮动 tag。待具备镜像仓库访问能力的部署环境再锁定。
 
 ## 6. 未知点与验证项
 
@@ -132,8 +135,8 @@ Dockerfile 的运行时镜像同时安装 Nginx 和 Uvicorn，并以 shell 启�
 | 2 | P2 | 明确并接入一次性数据库迁移责任方 | 让 schema 版本随发布受控推进 | `docker-compose*.yml`、发布流程 | CR2 |
 | 3 | P2 | 收敛为独立代理或单容器运行模型 | 消除重复进程、健康检查和日志职责 | `Dockerfile:63-91`、`docker-compose.prod.yml:79-103` | CR3 |
 | 4 | P3 | 统一 `/app` 与 `/workspace/app` 路径 | 保证挂载代码与 Uvicorn 加载代码一致 | `Dockerfile:41-58`、`docker-compose.yml:23-26` | CR4：代码修复完成，容器验证待完成 |
-| 5 | P3 | 用 profile/覆盖文件管理 Jaeger | 使可选观测服务真正按需启动 | `docker-compose.yml:91-108` | CR5 |
-| 6 | P3 | 固定 Nginx、Jaeger 版本或 digest | 提高构建和回滚可复现性 | `docker-compose.yml:95-96`、`docker-compose.prod.yml:80` | CR6 |
+| 5 | P3 | 用 profile/覆盖文件管理 Jaeger | 使可选观测服务真正按需启动 | `docker-compose.yml:94-108` | CR5，已修复 |
+| 6 | P3 | 固定 Nginx、Jaeger 版本或 digest | 提高构建和回滚可复现性 | `docker-compose.yml:74`、`docker-compose.yml:95`、`docker-compose.prod.yml:150` | CR6，待部署环境验证 |
 
 ## 8. 演化方向关联
 
