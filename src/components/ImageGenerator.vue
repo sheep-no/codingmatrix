@@ -757,7 +757,6 @@
           size: ''
         }
         navStore.showImageGenerator = true
-        navStore.activeTool = 'imageGenerator'
         window.scrollTo({ top: 0, behavior: 'smooth' })
       }
 
