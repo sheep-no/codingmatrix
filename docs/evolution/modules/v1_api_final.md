@@ -82,8 +82,8 @@
 ### auth.py（4 项）
 - **AUT2 [P3]** :126 明文登录 email 全量进日志，加密模式 :115 打码 `email[:3]***`；生产入口 `main.py:100` 调用 `setup_logging()`，全局 `SensitiveDataFilter` 会对日志 record 做脱敏，现状属于过滤器兜底的日志 PII 防御纵深问题
 - **AUT3 [P3]** 无 /logout 端点，refresh token（7 天 JWT）无吊销机制
-- **AUT4 [P3]** :249-254 注册 check_email_exists TOCTOU → 并发双注册第二个 commit IntegrityError → 500
-- **AUT5 [P3]** :322-325/:354-357 except 返回 detail=str(e) 内部错误泄露（内部泄露家族）
+- **AUT4 [P3] 已修复**：`register` 中 `check_email_exists` 与 `db.flush()` 之间存在 TOCTOU，并发注册同一邮箱时 `User.email` 唯一约束触发 `IntegrityError` 逃逸为 500。修复：flush 包 try/except IntegrityError → rollback 并返回与预检一致的 400「邮箱已存在」。回归测试 `tests/unit/test_auth_register_and_error_leak.py`
+- **AUT5 [P3] 已修复**：实际泄露点在 `get_conversations` 异常分支 `detail=str(e)`（原文档 :322-325/:354-357 的 history/conversation 分支现已返回通用文案）。修复：改返回「查询会话列表失败」，内部错误仅进日志。回归测试 `tests/unit/test_auth_register_and_error_leak.py`
 
 ### apikey.py（2 项）
 - **APY3 [P3]** batch TTL 仅允许 TTL_OPTIONS 预设字符串，单条支持自定义 int —— 双语义不一致；batch_import 无 _sync_provider_models（单条有），行为不一致
