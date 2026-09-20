@@ -48,7 +48,7 @@ cd /workspace
 PYTHONPATH=/workspace python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-当前 Compose 的 Nginx 挂载源是 `./src/dist`，Dockerfile 也引用构建阶段的 `/app/src/dist`；这两处与 Vite 的实际输出目录 `/workspace/dist` 或构建容器内 `/app/dist` 不一致。使用 Nginx 或构建镜像前需要先统一产物路径。
+Compose 的 Nginx 挂载源 `./src/dist`、Dockerfile 引用的构建阶段产物 `/app/src/dist` 与 Vite 的输出目录在 2026-09-20 已统一为 `src/dist`（容器内 `/app/src/dist`）。
 
 ## Docker Compose
 

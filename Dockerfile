@@ -64,8 +64,8 @@ COPY --from=frontend-builder /app/src/dist ./src/dist
 RUN apt-get update && \
     apt-get install -y --no-install-recommends nginx && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /var/log/nginx /var/lib/nginx /etc/nginx/conf.d /workspace/src/dist /workspace/logs /workspace/data && \
-    ln -sf /app/src/dist /workspace/src/dist && \
+    mkdir -p /var/log/nginx /var/lib/nginx /etc/nginx/conf.d /workspace/src /workspace/logs /workspace/data && \
+    ln -sfn /app/src/dist /workspace/src/dist && \
     ln -sf /app/logs /workspace/logs && \
     ln -sf /app/data /workspace/data
 
