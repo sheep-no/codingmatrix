@@ -310,7 +310,7 @@ tasks = (await db.execute(select(Task).where(Task.input_file_id == file.id))).sc
 | 7 | P3 | 列表与计数统一「任一条命中」语义（关键词移入子查询） | 搜索召回与分页一致 | search_history.py:49-58/:121-135 | #1181 |
 | 8 | P3 | 删除 get_recent_context 或补 limit 后接线 | 消除第 38 处死代码 | chat_history_service.py:12-63 | #1182，已按删除方案处理 |
 | 9 | P3 | stream 循环检测 size < position 即重置 0 + 连续异常计数退避 + log_dir 走 settings | 轮转后流不失效 | log_server.py:69-118 | #1183 |
-| 10 | P3 | Permission 表加唯一约束（MD2 落地）+ create 改 upsert；修正文件头注释 | 竞态消除 + 路径一致 | permission_service.py + app/models/Permission.py | #1184 |
+| 10 | P3 | Permission 表加唯一约束（MD2 落地）+ create 改 upsert；修正文件头注释 | 竞态消除 + 路径一致 | permission_service.py + app/models/Permission.py | #1184，约束已在模型中，服务层补 IntegrityError 兜底，alembic 迁移仍缺 |
 | 11 | P3 | db/models 时间默认统一 aware UTC lambda；to_dict timestamp 改 `created_at.replace(tzinfo=timezone.utc).timestamp()` | 三态收敛一层 | db/models.py:62-63/:98/:127/:140 | #1185 |
 | 12 | P3 | schema 管理收敛 alembic 单轨（create_all 降级为 dev 开关）；init_workflow/clear 移 scripts/ 或删除 | 漂移可检测 | main.py:239/:280 + 两脚本 | #1186 |
 | 13 | P3 | cleanup 改批量 IN 查询 + 路径前缀白名单校验 + 批次上限 | N+1 消除 + 误删面收窄 | scheduler.py:27-96 | #1187，批量 IN 与路径校验已修，批次上限未做 |
@@ -330,11 +330,12 @@ tasks = (await db.execute(select(Task).where(Task.input_file_id == file.id))).sc
 - **DB3 [P2] 已修**：`connect_args` 增加 `timeout=30`，连接钩子增加 `PRAGMA journal_mode=WAL` 与 `PRAGMA busy_timeout=30000`。更正原文一处事实：Python `sqlite3.connect` 默认 `timeout=5.0s`（非 0），但主库此前从未设置显式超时，WAL 亦未开启；本次统一收敛到主库一处。
 - **DB2 [P2] 已缓解（非本次改动）**：`settings.ENABLE_SCHEDULER` 默认 `False`，`main.py:133` 据此 gate `start_scheduler()`，默认单进程部署不再双跑。若在多 worker 下显式开启，`AsyncIOScheduler` 仍会每 worker 一份，需独立调度进程/分布式锁，保留。
 - **DB5 [P3] 已失效**：`chat_archiver._generate_summary_with_ai` 现对 `choices`、`message`、`content` 逐层做空值防护（`choices[0].get("message") or {}`、`(message.get("content") or "").strip()`），`content=None` 不再抛 `AttributeError` 中止整轮归档。
-- **DB4/DB6/DB7/DB9/DB10/DB11/DB12 [P3] 未处理**：归档水位线、会话 id 唯一约束、搜索语义统一、日志流轮转感知、Permission 唯一约束、时间语义、schema 单轨等仍待专项；`clear.py`/`init_workflow.py` 两脚本删除需先确认。
+- **DB4/DB6/DB7/DB9/DB11/DB12 [P3] 未处理**：归档水位线、会话 id 唯一约束、搜索语义统一、日志流轮转感知、时间语义、schema 单轨等仍待专项；`clear.py`/`init_workflow.py` 两脚本删除需先确认。
 
 新增回归 `tests/unit/test_sqlite_engine_config.py`（2 项，覆盖 DB1/DB3）。同时 `.gitignore` 补充 `*.db-wal`/`*.db-shm`/`*.db-journal`，避免 WAL 边车文件误入版本库。
 
 ## 8. 状态更新（2026-09-20 核实）
 
 - **DB8 [P3] 已修（删除）**：`ChatHistoryService.get_recent_context` 全库零生产消费（仅测试引用），文档「接线即无界查询」的三天窗口查询已随方法整体删除，`List`/`Optional`/`Tuple` 类型仍在其它方法使用，`from datetime import datetime` 收窄移除未再使用的 `timedelta`/`timezone`；同步删除 `tests/unit/test_database_services.py::test_get_recent_context_with_summary`。
+- **DB10 [P3] 部分已修，原判定部分过时**：`app/models/Permission.py` 已含 `UniqueConstraint("user_id", name="uq_permission_user_id")`，「表无 user_id 唯一约束 → 双插重复行」的现象已不成立；仍存续的是服务层 TOCTOU——`create_permission_if_not_exists` 查空后插入，并发时后到的一方会因约束抛 `IntegrityError` 冒泡成登录 500。现捕获 `IntegrityError`、回滚后重查并返回已存在行，重查仍为空时原样抛出；`get_permission` 在唯一约束下不再有 `MultipleResultsFound` 风险。文件头注释 `app/services/permission_service.py` 更正为 `app/db/permission_service.py`。**仍未做**：`migrations/versions/` 中缺少 `uq_permission_user_id` 的 alembic 迁移（模型约束靠 `create_all` 补齐），归入 DB12 schema 双轨一并处理。新增回归 `tests/unit/test_permission_service_race.py`（3 项）。
 - **DB13 [P3] 已修**：`app/db/scheduler.py`（原文件头误写 `app/services/scheduler.py`，已更正）新增模块级 `UPLOAD_ROOT` 与 `_delete_managed_path()`。删除物理文件前用 `Path.resolve()` + `is_relative_to` 校验目标必须落在上传目录内，拒绝目录外路径、父目录逃逸与上传根本身；去掉 `os.path.exists` 前置检查，改由 `FileNotFoundError` 兜底，消除 exists→remove 的 TOCTOU 窗口；孤立文件关联查询由「每文件一次 `select(Task)`」收敛为一次 `Task.input_file_id.in_(...)` 批量查询；`shutil.rmtree`/`unlink` 经 `asyncio.to_thread` 移出事件循环，避免同步 I/O 阻塞。批次上限未做，保留。新增回归 `tests/unit/test_scheduler_file_cleanup.py`（8 项，覆盖路径白名单、逃逸拒绝、TOCTOU 空操作与单次批量查询）。

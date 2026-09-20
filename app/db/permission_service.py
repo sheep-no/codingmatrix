@@ -1,6 +1,7 @@
-# app/services/permission_service.py
+# app/db/permission_service.py
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.models.Permission import Permission
@@ -24,9 +25,19 @@ class PermissionService:
         result = await self.db.execute(stmt)
         permission = result.scalar_one_or_none()
 
-        if not permission:
-            permission = await self.create_permission(user_id, level)
-        return permission
+        if permission:
+            return permission
+
+        try:
+            return await self.create_permission(user_id, level)
+        except IntegrityError:
+            # 并发注册时唯一约束拦截了重复插入，回滚后返回已存在的那一行
+            await self.db.rollback()
+            result = await self.db.execute(stmt)
+            existing = result.scalar_one_or_none()
+            if existing is None:
+                raise
+            return existing
 
     async def get_permission(self, user_id: int) -> Permission | None:
         stmt = (
