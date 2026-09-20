@@ -203,3 +203,102 @@ def test_build_task_kwargs_covers_every_supported_type():
         "user_id": 1,
         "request_data": {"slide_count": 3},
     }
+
+
+@pytest.mark.asyncio
+async def test_create_task_offloads_send_task_off_event_loop_thread():
+    import threading
+
+    from app.api.v1 import task_queue
+    from app.schema.task_schema import TaskCreateRequest, TaskTypeEnum
+
+    loop_thread = threading.get_ident()
+    seen = {}
+
+    def fake_send_task(name, **options):
+        seen["thread"] = threading.get_ident()
+        return MagicMock(id="celery-created")
+
+    body = TaskCreateRequest(
+        task_type=TaskTypeEnum.CODE_GENERATE,
+        params={"prompt": "hello", "language": "go"},
+    )
+
+    with patch.object(task_queue.celery_app, "send_task", side_effect=fake_send_task):
+        await task_queue.create_task(body, {"sub": "7"}, _FakeDB())
+
+    assert seen["thread"] != loop_thread
+
+
+@pytest.mark.asyncio
+async def test_retry_task_offloads_send_task_off_event_loop_thread():
+    import threading
+
+    from app.api.v1 import task_queue
+
+    loop_thread = threading.get_ident()
+    seen = {}
+
+    def fake_send_task(name, **options):
+        seen["thread"] = threading.get_ident()
+        return MagicMock(id="celery-retried")
+
+    record = _record(task_type="code_generate", params={"prompt": "again"})
+
+    with patch.object(task_queue.celery_app, "send_task", side_effect=fake_send_task):
+        await task_queue.retry_task("biz-task-1", {"sub": "7"}, _FakeDB(record))
+
+    assert seen["thread"] != loop_thread
+
+
+@pytest.mark.asyncio
+async def test_get_task_offloads_celery_result_read_off_event_loop_thread():
+    import threading
+
+    from app.api.v1 import task_queue
+
+    loop_thread = threading.get_ident()
+    seen = {}
+
+    class _FakeAsyncResult:
+        state = "STARTED"
+        info = None
+
+    def fake_async_result(task_id):
+        seen["thread"] = threading.get_ident()
+        seen["task_id"] = task_id
+        return _FakeAsyncResult()
+
+    record = _record(
+        status="running", celery_task_id="celery-running", progress_message="",
+    )
+
+    with patch.object(task_queue, "get_owned_task", AsyncMock(return_value=record)), \
+            patch.object(task_queue.celery_app, "AsyncResult", side_effect=fake_async_result):
+        await task_queue.get_task("biz-task-1", {"sub": "7"}, _FakeDB(record))
+
+    assert seen["task_id"] == "celery-running"
+    assert seen["thread"] != loop_thread
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_offloads_revoke_off_event_loop_thread():
+    import threading
+
+    from app.api.v1 import task_queue
+
+    loop_thread = threading.get_ident()
+    seen = {}
+
+    def fake_revoke(*args, **kwargs):
+        seen["thread"] = threading.get_ident()
+        seen["args"] = args
+
+    record = _record(status="running", celery_task_id="celery-running")
+
+    with patch.object(task_queue, "append_task_event", AsyncMock()), \
+            patch.object(task_queue.celery_app.control, "revoke", side_effect=fake_revoke):
+        await task_queue.cancel_task("biz-task-1", {"sub": "7"}, _FakeDB(record))
+
+    assert seen["args"] == ("celery-running",)
+    assert seen["thread"] != loop_thread

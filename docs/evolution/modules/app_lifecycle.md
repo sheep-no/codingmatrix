@@ -34,6 +34,15 @@
 
 ## 3. 已探明问题
 
+### 状态更新（2026-09-20）
+
+- AL1 已修复：迁移、调度、供应商恢复已并入 `lifespan` 启动链，`on_event("startup")` 已移除；`lifespan` 退出时按 `scheduler_started` 调用 `stop_scheduler()`。
+- AL3 已修复：`HealthChecker.check_celery` 改为 `asyncio.to_thread(self._inspect_celery, celery_app)`；原文档路径 `app/utils/health_checker.py` 已迁至 `app/services/health_checker.py`。
+- AL4 部分修复：`lifespan` 现以 `settings.REDIS_URL` 为缓存来源，并在日志中输出实际 backend。
+- AL7 关闭端已修复：`stop_scheduler` 已接入 `lifespan` 退出；多 worker 领导者锁仍未实现。
+- AL6 本次修复：`task_queue.py` 中 `send_task`/`AsyncResult` 属性读取/`control.revoke` 三处同步 Celery RPC 全部移入 `asyncio.to_thread`，避免阻塞事件循环。
+- AL2/AL5/AL8/AL9 仍待处理：就绪探针是否纳入 Celery worker、任务提交失败补偿、迁移 runner 与 Alembic 契约统一、健康检查重复实现收敛，均属行为或架构级变更，需要产品口径后推进。
+
 ### P2
 
 #### AL1 [P2] `lifespan` 与 `on_event("startup")` 并存，迁移/调度/恢复启动链被绕过
