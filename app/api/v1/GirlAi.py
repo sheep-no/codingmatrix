@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 
 from app.db.database import async_session, get_db
 from app.schema.girl_request import GirlRequest, GirlResponse, HistoryRecord, HistoryResponse
@@ -431,6 +431,11 @@ async def get_character_avatar(character_id: str):
     return Response(content=svg, media_type="image/svg+xml")
 
 
+def _escape_like(value: str) -> str:
+    """转义 LIKE 通配符，避免用户输入的 % / _ 被当作通配符。"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @router.get("/GirlAi/history/search")
 async def search_history(
     q: str = Query(..., min_length=1, max_length=100, description="搜索关键词"),
@@ -446,15 +451,15 @@ async def search_history(
 
     from app.models.chat_history import ChatHistory
 
+    filters = and_(
+        ChatHistory.user_id == int(user_id),
+        ChatHistory.content.ilike(f"%{_escape_like(q)}%", escape="\\"),
+        ChatHistory.is_archived == False
+    )
+
     stmt = (
         select(ChatHistory)
-        .where(
-            and_(
-                ChatHistory.user_id == int(user_id),
-                ChatHistory.content.ilike(f"%{q}%"),
-                ChatHistory.is_archived == False
-            )
-        )
+        .where(filters)
         .order_by(ChatHistory.created_at.desc())
         .limit(limit)
         .offset(offset)
@@ -462,6 +467,10 @@ async def search_history(
 
     result = await db.execute(stmt)
     records = result.scalars().all()
+
+    total = await db.scalar(
+        select(func.count()).select_from(ChatHistory).where(filters)
+    )
 
     return {
         "records": [
@@ -474,7 +483,7 @@ async def search_history(
             }
             for r in records
         ],
-        "total": len(records),
+        "total": total or 0,
         "query": q
     }
 
