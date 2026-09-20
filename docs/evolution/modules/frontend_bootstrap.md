@@ -77,7 +77,7 @@ index.html
 
 - FEBOOT-01 已修复：`src/router/index.js` 的 `resolveRouteAccess` 对缺 token 的 `requiresAuth` 导航返回 `{ name: 'home', query: { redirect: to.fullPath } }`，不再放行。
 - FEBOOT-02 本次修复：`src/vite.config.js` 的 `build.outDir` 由 `../dist` 改为 `dist`（产物 `src/dist`）；`app/main.py` 的 `DIST_PATH` 同步为 `BASE_DIR_PATH/src/dist`；`Dockerfile` 的软链由 `ln -sf` 改为 `ln -sfn /app/src/dist /workspace/src/dist` 并只在 `/workspace/src` 建目录；`src/scripts/check-performance-budget.js` 的产物目录由 `../../dist` 改为 `../dist`。新增 `src/tests/build-output-contract.test.js` 锁定 Vite、Dockerfile、Compose、Nginx、start.sh、CI、性能预算脚本与后端静态目录的一致性；回退源码后 3 项断言失败。
-- FEBOOT-03 仍存在：`src/main.js:32`、`src/composables/useAuth.js:11-13`、`src/components/leftlist.vue:708` 三处调用 `restoreUser()`，而 `src/utils/tokenManager.js:117` 的 `refreshAccessToken` 无单飞保护，token 缺失或过期时会并发发多次 `/api/v1/refresh`。
+- FEBOOT-03 本次修复：`src/main.js:32`、`src/composables/useAuth.js:11-13`、`src/components/leftlist.vue:708` 三处启动路径都会调用 `restoreUser()`，原 `src/utils/tokenManager.js` 的 `refreshAccessToken` 每次调用都新发请求，token 缺失或过期时会并发触发多次 `/api/v1/refresh`。现改为单飞（single-flight）：进行中的刷新由模块级 `inFlightRefresh` 复用，完成后清空以便后续重新刷新。新增 `src/utils/tokenManager.test.js` 断言三个并发调用只发出一次 `/refresh`；回退源码后该断言得到 3 次请求而失败。
 - FEBOOT-04 仍属未接入面：`src/composables/useAuth.js` 的 `register`/`updateProfile` 路径错误，零生产消费方，按未接入代码处理。
 - FEBOOT-05 仍存在：`src/App.vue:52-53` 连续声明两条 `background`，第二条覆盖第一条，缺少变量缺失时的显式 fallback。
 
