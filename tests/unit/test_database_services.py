@@ -282,31 +282,6 @@ class TestChatHistoryService:
         assert len(recent_messages) <= 5
         assert summary is None or isinstance(summary, str)
 
-    @pytest.mark.asyncio
-    async def test_get_recent_context_with_summary(
-        self,
-        test_db: AsyncSession,
-        test_user: User
-    ):
-        """测试获取带摘要的近期上下文"""
-        history_service = ChatHistoryService(test_db)
-        
-        await history_service.save_conversation_turn(
-            user_id=test_user.id,
-            user_content="测试对话",
-            assistant_content="测试回复",
-            model="test_model",
-            tokens_used=50
-        )
-        
-        message_list, summary_text = await history_service.get_recent_context(
-            user_id=test_user.id
-        )
-        
-        assert isinstance(message_list, list)
-        assert summary_text is None or isinstance(summary_text, str)
-
-
 # =============================================================================
 # 历史记录服务测试
 # =============================================================================

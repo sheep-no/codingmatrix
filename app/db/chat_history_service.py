@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, delete
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from app.models.chat_history import ChatHistory, ChatSummary
 from typing import List, Optional, Tuple, Sequence
 
@@ -8,59 +8,6 @@ from typing import List, Optional, Tuple, Sequence
 class ChatHistoryService:
     def __init__(self, db: AsyncSession):
         self.db: AsyncSession = db
-
-    async def get_recent_context(self, user_id: str) -> Tuple[List[dict], Optional[str]]:
-        """获取标准对话上下文（基于时间）"""
-        # 获取最新摘要
-        summary_stmt = (
-            select(ChatSummary)
-            .where(ChatSummary.user_id == user_id)
-            .order_by(ChatSummary.end_date.desc())
-            .limit(1)
-        )
-        result = await self.db.execute(summary_stmt)
-        summary = result.scalar_one_or_none()
-        summary_text = summary.summary_text if summary else None
-
-        # 获取最近3天的对话
-        three_days_ago = datetime.now(timezone.utc) - timedelta(days=3)
-        recent_stmt = (
-            select(ChatHistory)
-            .where(
-                and_(
-                    ChatHistory.user_id == user_id,
-                    ChatHistory.created_at >= three_days_ago,
-                    ChatHistory.is_archived == False
-                )
-            )
-            .order_by(ChatHistory.created_at.desc())
-        )
-        result = await self.db.execute(recent_stmt)
-        recent_messages = result.scalars().all()
-
-        # 兜底：如果3天内无对话，加载最近10条
-        if not recent_messages:
-            fallback_stmt = (
-                select(ChatHistory)
-                .where(
-                    and_(
-                        ChatHistory.user_id == user_id,
-                        ChatHistory.is_archived == False
-                    )
-                )
-                .order_by(ChatHistory.created_at.desc())
-                .limit(10)
-            )
-            result = await self.db.execute(fallback_stmt)
-            fallback_messages = result.scalars().all()
-            fallback_messages.reverse()  # 反转回正序
-            recent_messages = fallback_messages
-
-        message_list = [
-            {"role": msg.role, "content": msg.content}
-            for msg in recent_messages
-        ]
-        return message_list, summary_text
 
     async def get_lightweight_context(
             self,
