@@ -79,6 +79,23 @@
 5. VPX4/VPX5：图片获取统一收敛到 pptx/image_search.ImageSearchManager（已有活跃实现），退役高品爬虫与死链 Unsplash 分支。
 6. 未接入面（generate_icon 等）：无消费方，随包退役一并移除，不单独修复。
 
+## 状态更新（2026-09-20 核实）
+
+以当前代码为准逐条核实：
+
+- **VPX1 已不存在（判定过时）**：`generate_pptx_file_enhanced` 现在只消费 `visual_analyzer.analyze_ppt_content`、`image_manager.get_image_for_slide` 与 `_render_slide_default`（aiGeneratorPptx.py:2054/:2079/:2095/:2107），`layout_decider` 已不在生产调用链（仅 `tests/unit/test_ppt_semantic_renderer.py` 直接引用）。原「对同步方法 await 必崩」已随该重构消失。
+- **VPX13 已修（判定过时）**：`VisualAnalyzer` 改用 `self.model_name`（visual_analyzer.py:229）与 `MULTIMODAL_MODELS`，默认 `Qwen/Qwen3.5-4B` 且有降级列表，`tests/unit/test_visual_model_routing.py` 守护。
+- **VPX9 已不存在（判定过时）**：`_parse_color`（layout_decider.py:742）对 6/3 位十六进制做长度判断，异常兜底返回深灰色，不再因非法 hex 崩溃。
+- **VPX11 本次修复**：`get_image_for_slide` 用 `used_placeholder` 标记降级到本地占位符的分支，占位符不再递增 `generated_count`，避免免费占位符提前耗尽 `max_generations_per_ppt` 导致后续真实图片获取被截断。
+- **VPX10 本次修复**：移除模块导入时的 `IMAGE_CACHE_DIR.mkdir()` 副作用，改为 `_ensure_cache_dir()` 在 `_download_image`/`_save_image_bytes`/`_create_placeholder`/`generate_icon` 内按需创建。
+
+仍存续（本轮未改，需设计与合规口径）：
+
+- **VPX3/VPX4/VPX5**：`IMAGE_CACHE_DIR` 无容量上限与清理；`_search_gaopin` 伪装 UA/Referer 爬第三方私有接口（合规风险）；`_search_unsplash` 仍依赖 2023 年停服的 `source.unsplash.com`（恒走占位符）。收敛方向见「修复建议 5」（退役高品爬虫与 Unsplash 死链，统一走 `pptx/image_search.ImageSearchManager`）。
+- **VPX6/VPX7/VPX8/VPX12/VPX14**：`LayoutDecider` 内嵌实例死代码、多图/装饰透明度未消费、`content_summary` 摘要截断、`generate_icon` 未绘制符号、`_fix_json_format` 全局 `replace('True','true')` 可能误伤字符串内容。
+
+测试：新增 `tests/unit/test_visual_image_manager.py`(3)；回退 `image_manager.py` 后 2 项失败。
+
 ## 下轮候选
 
 - app/api/v2/ 8 文件（Controller/guardian_router/mcp_admin/model_admin/model_config_api/nginx_ai/nginx_api/user_manage）
