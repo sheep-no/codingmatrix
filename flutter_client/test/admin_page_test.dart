@@ -993,4 +993,358 @@ void main() {
     expect(find.textContaining('connection lost'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('沙箱配置读取当前值后保存写入', (tester) async {
+    final writes = <Map<String, Object?>>[];
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            if (path == '/api/v2/admin/sandbox-config') {
+              if (method == 'PUT') {
+                writes.add(
+                  body is Map
+                      ? Map<String, Object?>.from(body)
+                      : const <String, Object?>{},
+                );
+                return {'success': true};
+              }
+              return {
+                'enable_code_sandbox': true,
+                'sandbox_languages': ['python', 'javascript'],
+              };
+            }
+            throw StateError('unexpected $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('沙箱配置'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(
+      tester
+          .widget<SwitchListTile>(find.byKey(const Key('sandboxEnabledSwitch')))
+          .value,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('sandboxLanguagesField')))
+          .controller
+          ?.text,
+      'python,javascript',
+    );
+
+    await tester.tap(find.byKey(const Key('sandboxEnabledSwitch')));
+    await tester.enterText(
+      find.byKey(const Key('sandboxLanguagesField')),
+      'python,go',
+    );
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(writes, [
+      {'enable_code_sandbox': false, 'sandbox_languages': 'python,go'},
+    ]);
+    expect(find.textContaining('沙箱配置已更新'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('沙箱配置写入失败显示失败原文', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path == '/api/v2/admin/sandbox-config') {
+              if (method == 'PUT') {
+                throw const SocketException('connection lost');
+              }
+              return {
+                'enable_code_sandbox': false,
+                'sandbox_languages': <String>[],
+              };
+            }
+            throw StateError('unexpected $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('沙箱配置'));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('沙箱配置更新失败'), findsOneWidget);
+    expect(find.textContaining('connection lost'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('沙箱配置读取失败不打开弹层', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi(
+            (_, __, ___) async =>
+                throw const SocketException('connection lost'),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('沙箱配置'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.textContaining('沙箱配置读取失败'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('取消沙箱配置不发出写请求', (tester) async {
+    var writes = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (method == 'PUT') writes++;
+            return {
+              'enable_code_sandbox': false,
+              'sandbox_languages': <String>[],
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('沙箱配置'));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('取消'));
+    await tester.pump();
+    expect(writes, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('日志配置选择级别后写入全局级别', (tester) async {
+    final writes = <String>[];
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (path == '/api/v2/Controller/admin/log-config') {
+              expect(method, 'GET');
+              return {'global_level': 'WARNING'};
+            }
+            if (path.startsWith(
+              '/api/v2/Controller/admin/log-config/global-level',
+            )) {
+              expect(method, 'PUT');
+              writes.add(path);
+              return {'status': 'success'};
+            }
+            throw StateError('unexpected $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('日志配置'));
+    await tester.pump();
+    await tester.pump();
+    expect(
+      tester
+          .widget<DropdownButton<String>>(
+            find.byKey(const Key('logLevelDropdown')),
+          )
+          .value,
+      'WARNING',
+    );
+
+    await tester.tap(find.byKey(const Key('logLevelDropdown')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('ERROR').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(writes, [
+      '/api/v2/Controller/admin/log-config/global-level?level=ERROR',
+    ]);
+    expect(find.textContaining('全局日志级别已更新为 ERROR'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('限流配置保存开关与三档规则', (tester) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final writes = <Map<String, Object?>>[];
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, body) async {
+            if (path == '/api/v2/Controller/admin/rate-limit') {
+              expect(method, 'GET');
+              return {
+                'enabled': true,
+                'total_keys': 3,
+                'config': {
+                  'enabled': true,
+                  'global': {'limit': 100, 'window': 60},
+                  'by_ip': {'limit': 20, 'window': 60},
+                  'by_user': {'limit': 10, 'window': 60},
+                },
+              };
+            }
+            if (method == 'PUT') {
+              writes.add({
+                'path': path,
+                ...body is Map
+                    ? Map<String, Object?>.from(body)
+                    : const <String, Object?>{},
+              });
+              return {'status': 'success'};
+            }
+            throw StateError('unexpected $path');
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('限流配置'));
+    await tester.pump();
+    await tester.pump();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('rateLimitGlobalLimit')))
+          .controller
+          ?.text,
+      '100',
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('rateLimitIpLimit')))
+          .controller
+          ?.text,
+      '20',
+    );
+
+    await tester.enterText(find.byKey(const Key('rateLimitIpLimit')), '25');
+    await tester.tap(find.byKey(const Key('rateLimitEnabledSwitch')));
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(writes.length, 4);
+    expect(writes.first['path'], contains('rate-limit/enabled?enabled=false'));
+    expect(writes[1], {
+      'path': '/api/v2/Controller/admin/rate-limit/global',
+      'limit': 100,
+      'window': 60,
+    });
+    expect(writes[2], {
+      'path': '/api/v2/Controller/admin/rate-limit/ip',
+      'limit': 25,
+      'window': 60,
+    });
+    expect(writes[3], {
+      'path': '/api/v2/Controller/admin/rate-limit/user',
+      'limit': 10,
+      'window': 60,
+    });
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('限流配置非正整数拒绝写入', (tester) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var writes = 0;
+    final container = ProviderContainer(
+      overrides: [
+        authenticatedClientProvider.overrideWithValue(
+          DeliveryApi((path, method, _) async {
+            if (method == 'PUT') writes++;
+            return {
+              'enabled': true,
+              'config': {
+                'enabled': true,
+                'global': {'limit': 100, 'window': 60},
+                'by_ip': {'limit': 20, 'window': 60},
+                'by_user': {'limit': 10, 'window': 60},
+              },
+            };
+          }),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AdminPage()),
+      ),
+    );
+    await tester.tap(find.text('限流配置'));
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byKey(const Key('rateLimitUserWindow')), '0');
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    await tester.pump();
+    expect(writes, 0);
+    expect(find.textContaining('必须为正整数'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

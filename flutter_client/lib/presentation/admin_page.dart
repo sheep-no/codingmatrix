@@ -306,6 +306,328 @@ class _AdminPageState extends ConsumerState<AdminPage> {
     });
   }
 
+  static const _logLevels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
+
+  Map<String, dynamic>? _asMap(Object? value) =>
+      value is Map ? Map<String, dynamic>.from(value) : null;
+
+  // Reads a config object first so the edit dialog can show current values.
+  // Returns null when the read failed or the account changed mid-flight.
+  Future<Map<String, dynamic>?> _fetchConfig(
+    String failure,
+    String path,
+  ) async {
+    final epoch = _epoch;
+    Map<String, dynamic>? loaded;
+    await run(failure, () async {
+      final value = await ref
+          .read(authenticatedClientProvider)
+          .requestJson(path);
+      if (mounted && epoch == _epoch) loaded = _asMap(value);
+    });
+    if (!mounted || epoch != _epoch) return null;
+    return loaded;
+  }
+
+  Widget _numberField(
+    String label,
+    TextEditingController controller, {
+    Key? key,
+  }) {
+    return Expanded(
+      child: TextField(
+        key: key,
+        controller: controller,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(labelText: label),
+      ),
+    );
+  }
+
+  static int? _positiveInt(TextEditingController controller) {
+    final value = int.tryParse(controller.text.trim());
+    return value != null && value > 0 ? value : null;
+  }
+
+  void _notify(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> editSandboxConfig() async {
+    final current = await _fetchConfig(
+      '沙箱配置读取失败',
+      '/api/v2/admin/sandbox-config',
+    );
+    if (!mounted || current == null) return;
+    final epoch = _epoch;
+    var enabled = current['enable_code_sandbox'] == true;
+    final languages = current['sandbox_languages'];
+    final languagesController = TextEditingController(
+      text: languages is List ? languages.map((e) => '$e').join(',') : '',
+    );
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('沙箱配置'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SwitchListTile(
+                key: const Key('sandboxEnabledSwitch'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('启用代码沙箱'),
+                value: enabled,
+                onChanged: (value) => setDialogState(() => enabled = value),
+              ),
+              TextField(
+                key: const Key('sandboxLanguagesField'),
+                controller: languagesController,
+                decoration: const InputDecoration(
+                  labelText: '支持语言（逗号分隔）',
+                  hintText: 'python,javascript',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final enabledValue = enabled;
+    final languagesValue = languagesController.text.trim();
+    languagesController.dispose();
+    if (saved != true || !mounted) return;
+    await run('沙箱配置更新失败', () async {
+      await ref
+          .read(authenticatedClientProvider)
+          .requestJson(
+            '/api/v2/admin/sandbox-config',
+            method: 'PUT',
+            body: {
+              'enable_code_sandbox': enabledValue,
+              'sandbox_languages': languagesValue,
+            },
+          );
+      if (mounted && epoch == _epoch) _notify('沙箱配置已更新，重启后生效');
+    });
+  }
+
+  Future<void> editLogConfig() async {
+    final current = await _fetchConfig(
+      '日志配置读取失败',
+      '/api/v2/Controller/admin/log-config',
+    );
+    if (!mounted || current == null) return;
+    final epoch = _epoch;
+    final reported = '${current['global_level'] ?? ''}'.toUpperCase();
+    var level = _logLevels.contains(reported) ? reported : 'INFO';
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('日志配置'),
+          content: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('全局日志级别'),
+              const SizedBox(width: 16),
+              DropdownButton<String>(
+                key: const Key('logLevelDropdown'),
+                value: level,
+                items: [
+                  for (final item in _logLevels)
+                    DropdownMenuItem(value: item, child: Text(item)),
+                ],
+                onChanged: (value) =>
+                    setDialogState(() => level = value ?? level),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final levelValue = level;
+    if (saved != true || !mounted) return;
+    await run('日志级别更新失败', () async {
+      await ref
+          .read(authenticatedClientProvider)
+          .requestJson(
+            '/api/v2/Controller/admin/log-config/global-level?level=$levelValue',
+            method: 'PUT',
+          );
+      if (mounted && epoch == _epoch) _notify('全局日志级别已更新为 $levelValue');
+    });
+  }
+
+  Future<void> editRateLimit() async {
+    final current = await _fetchConfig(
+      '限流配置读取失败',
+      '/api/v2/Controller/admin/rate-limit',
+    );
+    if (!mounted || current == null) return;
+    final stored = _asMap(current['config']) ?? current;
+    final epoch = _epoch;
+    var enabled = stored['enabled'] == true;
+    Map<String, dynamic> section(String key) => _asMap(stored[key]) ?? {};
+    final global = section('global');
+    final byIp = section('by_ip');
+    final byUser = section('by_user');
+    TextEditingController valueOf(Object? value) =>
+        TextEditingController(text: '${value ?? ''}');
+    final globalLimit = valueOf(global['limit']);
+    final globalWindow = valueOf(global['window']);
+    final ipLimit = valueOf(byIp['limit']);
+    final ipWindow = valueOf(byIp['window']);
+    final userLimit = valueOf(byUser['limit']);
+    final userWindow = valueOf(byUser['window']);
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('限流配置'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SwitchListTile(
+                  key: const Key('rateLimitEnabledSwitch'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('启用限流'),
+                  value: enabled,
+                  onChanged: (value) => setDialogState(() => enabled = value),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _numberField(
+                      '全局 limit',
+                      globalLimit,
+                      key: const Key('rateLimitGlobalLimit'),
+                    ),
+                    const SizedBox(width: 12),
+                    _numberField(
+                      'window(秒)',
+                      globalWindow,
+                      key: const Key('rateLimitGlobalWindow'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _numberField(
+                      'IP limit',
+                      ipLimit,
+                      key: const Key('rateLimitIpLimit'),
+                    ),
+                    const SizedBox(width: 12),
+                    _numberField(
+                      'window(秒)',
+                      ipWindow,
+                      key: const Key('rateLimitIpWindow'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _numberField(
+                      '用户 limit',
+                      userLimit,
+                      key: const Key('rateLimitUserLimit'),
+                    ),
+                    const SizedBox(width: 12),
+                    _numberField(
+                      'window(秒)',
+                      userWindow,
+                      key: const Key('rateLimitUserWindow'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    List<int?> pair(
+      TextEditingController limit,
+      TextEditingController window,
+    ) => [_positiveInt(limit), _positiveInt(window)];
+    final globalRule = pair(globalLimit, globalWindow);
+    final ipRule = pair(ipLimit, ipWindow);
+    final userRule = pair(userLimit, userWindow);
+    for (final controller in [
+      globalLimit,
+      globalWindow,
+      ipLimit,
+      ipWindow,
+      userLimit,
+      userWindow,
+    ]) {
+      controller.dispose();
+    }
+    if (saved != true || !mounted) return;
+    if (globalRule.contains(null) ||
+        ipRule.contains(null) ||
+        userRule.contains(null)) {
+      _notify('限流 limit 与 window 必须为正整数');
+      return;
+    }
+    final enabledValue = enabled;
+    await run('限流配置更新失败', () async {
+      final api = ref.read(authenticatedClientProvider);
+      await api.requestJson(
+        '/api/v2/Controller/admin/rate-limit/enabled?enabled=$enabledValue',
+        method: 'PUT',
+      );
+      for (final entry in {
+        'global': globalRule,
+        'ip': ipRule,
+        'user': userRule,
+      }.entries) {
+        await api.requestJson(
+          '/api/v2/Controller/admin/rate-limit/${entry.key}',
+          method: 'PUT',
+          body: {'limit': entry.value[0]!, 'window': entry.value[1]!},
+        );
+      }
+      if (mounted && epoch == _epoch) _notify('限流配置已更新');
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen(
@@ -354,10 +676,7 @@ class _AdminPageState extends ConsumerState<AdminPage> {
                 label: const Text('系统统计'),
               ),
               OutlinedButton.icon(
-                onPressed: loading
-                    ? null
-                    : () =>
-                          showEndpoint('沙箱配置', '/api/v2/admin/sandbox-config'),
+                onPressed: loading ? null : editSandboxConfig,
                 icon: const Icon(Icons.security),
                 label: const Text('沙箱配置'),
               ),
@@ -379,22 +698,12 @@ class _AdminPageState extends ConsumerState<AdminPage> {
                 label: const Text('内存状态'),
               ),
               OutlinedButton.icon(
-                onPressed: loading
-                    ? null
-                    : () => showEndpoint(
-                        '限流配置',
-                        '/api/v2/Controller/admin/rate-limit',
-                      ),
+                onPressed: loading ? null : editRateLimit,
                 icon: const Icon(Icons.speed),
                 label: const Text('限流配置'),
               ),
               OutlinedButton.icon(
-                onPressed: loading
-                    ? null
-                    : () => showEndpoint(
-                        '日志配置',
-                        '/api/v2/Controller/admin/log-config',
-                      ),
+                onPressed: loading ? null : editLogConfig,
                 icon: const Icon(Icons.article_outlined),
                 label: const Text('日志配置'),
               ),
