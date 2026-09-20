@@ -74,6 +74,9 @@
   - 账号切换竞态统一守卫是自增 epoch 快照：`NotifierProvider` 重建会复用 notifier 实例，`ref.onDispose` 里置位的一次性布尔会永久生效并静默屏蔽后续请求；`StateNotifierProvider` 重建会新建实例，用 `mounted` 判断即可。
   - 区分度测试只用默认参数构造被测对象；使用新增命名参数会让旧代码编译失败而非干净失败，掩盖真实断言。
   - 测试坑：`Stream.timeout` 在响应体阻塞于永不完成的 await 且从未 yield 时不触发；流超时测试必须用真实 `StreamController` 作为响应体，否则测试永久挂起。
+  - Android 打包受环境限制：`flutter build apk` 由 AGP 触发 NDK 下载（需 strip native 库），NDK 27 解压约 2.9G；本机根分区 20G 无法容纳，构建会把磁盘压到 0 可用并在中断时留下 `$ANDROID_SDK/.temp` 残留。移除 `jni`（例如 pin `path_provider_android: 2.2.20`）不能免除该需求，已回滚该覆盖。
+  - 不依赖 NDK 的 Android 验证用 `flutter build bundle --target-platform android-arm64`（验证 Android 目标 Dart 编译），产物在 `build/flutter_assets`。环境无 Android 设备或模拟器，真机联调不在此环境进行。
+  - Android SDK 不入库且 `/tmp` 会被清理：`android/local.properties` 的 `sdk.dir` 指向 `/tmp/opencode/android-sdk`，重建需 cmdline-tools 11076708 加 `sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"`，并设 `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64`。
 
 ### Flutter 与后端契约坑位
 - Date: 2026-09-06 ~ 2026-09-19
