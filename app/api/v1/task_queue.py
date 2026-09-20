@@ -142,14 +142,29 @@ async def create_task(
     await db.refresh(task_record)
 
     # send_task 会同步连接 broker，放入线程池避免阻塞事件循环。
-    result = await asyncio.to_thread(
-        celery_app.send_task,
-        celery_task_name,
-        kwargs=_build_task_kwargs(task_type, task_record.task_id, user_id, body.params),
-        task_id=task_record.task_id,
-        priority=priority_value,
-        time_limit=timeout_value,
-    )
+    try:
+        result = await asyncio.to_thread(
+            celery_app.send_task,
+            celery_task_name,
+            kwargs=_build_task_kwargs(task_type, task_record.task_id, user_id, body.params),
+            task_id=task_record.task_id,
+            priority=priority_value,
+            time_limit=timeout_value,
+        )
+    except Exception as error:
+        # 投递失败时不能遗留无 celery_task_id 的 pending 记录，原子标记为失败。
+        logger.error(
+            f"任务投递失败 | task_id={task_record.task_id} | error={type(error).__name__}"
+        )
+        await transition_task(
+            db,
+            task_record.task_id,
+            user_id,
+            "failed",
+            error_message="任务队列不可用，投递失败",
+        )
+        await db.commit()
+        raise HTTPException(status_code=503, detail="任务队列不可用，任务创建失败") from None
 
     task_record.celery_task_id = result.id
     await db.commit()

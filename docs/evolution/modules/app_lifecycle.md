@@ -41,7 +41,8 @@
 - AL4 部分修复：`lifespan` 现以 `settings.REDIS_URL` 为缓存来源，并在日志中输出实际 backend。
 - AL7 关闭端已修复：`stop_scheduler` 已接入 `lifespan` 退出；多 worker 领导者锁仍未实现。
 - AL6 本次修复：`task_queue.py` 中 `send_task`/`AsyncResult` 属性读取/`control.revoke` 三处同步 Celery RPC 全部移入 `asyncio.to_thread`，避免阻塞事件循环。
-- AL2/AL5/AL8/AL9 仍待处理：就绪探针是否纳入 Celery worker、任务提交失败补偿、迁移 runner 与 Alembic 契约统一、健康检查重复实现收敛，均属行为或架构级变更，需要产品口径后推进。
+- AL5 本次修复：`create_task` 的 `send_task` 包裹异常补偿，投递失败时通过 `transition_task` 原子标记记录为 `failed` 并写入 `error_message`，返回 503，不再遗留无 `celery_task_id` 的 `pending` 记录；原逻辑会把已提交的 pending 记录留在库中且 `retry_task` 无法修复。
+- AL2/AL8/AL9 仍待处理：就绪探针是否纳入 Celery worker、迁移 runner 与 Alembic 契约统一、健康检查重复实现收敛，均属行为或架构级变更，需要产品口径后推进。
 
 ### P2
 
