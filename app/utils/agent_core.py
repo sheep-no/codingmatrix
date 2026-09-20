@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, PrivateAttr, ConfigDict, create_model
 
 from app.schema.codeRequest import ToolDefinition, AgentConfig
 from app.utils import call_llm
-from app.utils.file_operator import FileOperator
+from app.utils.file_operator import FileOperator, PathSecurityError
 from app.adapter import ModelAdapter
 
 # 提示词加载器

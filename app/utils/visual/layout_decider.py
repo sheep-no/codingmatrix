@@ -23,6 +23,7 @@ from app.utils.visual.visual_analyzer import (
     PPTVisualPlan, 
     ImageType, 
     ImagePosition,
+    ImageDecision,
     VisualAnalyzer
 )
 from app.utils.visual.image_manager import ImageManager, ImageAsset

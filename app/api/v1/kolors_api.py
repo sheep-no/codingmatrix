@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional, List
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +33,7 @@ from app.utils.image_generation import (
     DEFAULT_CONFIG,
     KOLORS_MODEL,
     OUTPUT_DIR,
+    MAX_IMAGE_SIZE,
 )
 from app.services.image_resource_service import (
     build_image_resource_fingerprint,

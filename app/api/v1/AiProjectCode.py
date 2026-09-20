@@ -26,7 +26,6 @@ from app.models.agent_memory import AgentSession, ToolExecutionLog, ModelUsageSt
 from app.db.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func, and_
-from sqlalchemy.exc import SQLAlchemyError
 from app.utils.security import verify_token
 from app.utils.agent_core import ProjectGeneratorAgent, ProjectFileManager
 from app.utils.task_manager import task_manager
@@ -654,4 +653,3 @@ async def delete_user_upload(project_name: str, token: dict = Depends(verify_tok
     except Exception as e:
         logger.error(f"删除项目失败 | user_id={user_id} | error={e}")
         raise HTTPException(status_code=500, detail="删除失败，请稍后重试")
-

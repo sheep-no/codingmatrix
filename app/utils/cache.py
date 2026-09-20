@@ -331,7 +331,6 @@ def cached(ttl: int = 3600, prefix: str = ""):
         async def get_file_content(file_path: str):
             ...
     """
-    import hashlib
     from functools import wraps
 
     def decorator(func):

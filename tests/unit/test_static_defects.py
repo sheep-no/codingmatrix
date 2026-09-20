@@ -11,6 +11,11 @@
 
 `tests/unit/test_orchestration_default_engine.py` 的教训是：缺陷可以在测试
 全绿时长期潜伏。这里用工具兜住这一类问题，避免靠逐个测试去发现。
+
+门禁分两档：
+
+- 全 `app` 目录强制 F821/F823/F811/F402（名字解析、重复导入、导入遮蔽）
+- `app/agent` 额外强制 F841（死代码/失效逻辑，该目录已清零）
 """
 
 import subprocess
@@ -20,8 +25,10 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-TARGET_DIR = REPO_ROOT / "app" / "agent"
-RULES = "F821,F823,F811,F402,F841"
+APP_DIR = REPO_ROOT / "app"
+AGENT_DIR = REPO_ROOT / "app" / "agent"
+APP_RULES = "F821,F823,F811,F402"
+AGENT_RULES = APP_RULES + ",F841"
 
 
 def _ruff(*args: str) -> subprocess.CompletedProcess:
@@ -33,19 +40,29 @@ def _ruff(*args: str) -> subprocess.CompletedProcess:
     )
 
 
-def test_agent_has_no_high_confidence_static_defects():
+def _assert_no_defects(target_dir: Path, rules: str):
     if _ruff("--version").returncode != 0:
         pytest.skip("ruff 未安装，跳过静态缺陷门禁")
 
     result = _ruff(
         "check",
-        str(TARGET_DIR),
+        str(target_dir),
         "--select",
-        RULES,
+        rules,
         "--output-format",
         "concise",
         "--no-cache",
     )
     assert result.returncode == 0, (
-        "app/agent 存在静态缺陷（规则 " + RULES + "）：\n" + result.stdout + result.stderr
+        f"{target_dir.relative_to(REPO_ROOT)} 存在静态缺陷（规则 {rules}）：\n"
+        + result.stdout
+        + result.stderr
     )
+
+
+def test_app_has_no_high_confidence_static_defects():
+    _assert_no_defects(APP_DIR, APP_RULES)
+
+
+def test_agent_has_no_high_confidence_static_defects():
+    _assert_no_defects(AGENT_DIR, AGENT_RULES)

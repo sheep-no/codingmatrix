@@ -57,7 +57,7 @@ from app.models.aicloud import AicloudSession, AicloudMessage, AicloudReview, Ai
 from app.utils import call_llm
 from app.utils.aicloud.model_registry import get_model, get_default_model, get_available_models, get_provider_info
 from app.utils.aicloud.auto_executor import execute_with_llm_loop
-from app.utils.aicloud.sandbox import get_sandbox_workspace_path, ensure_user_sandbox
+from app.utils.aicloud.sandbox import get_sandbox_workspace_path
 from app.services.aicloud_state_adapter import append_legacy_message, ensure_session
 
 logger = logging.getLogger(__name__)

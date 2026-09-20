@@ -10,7 +10,7 @@ from typing import Optional, List
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.exc import SQLAlchemyError
@@ -22,7 +22,6 @@ from app.models.task import Task
 from app.utils.security import verify_token
 from app.schema.file_schema import FileUploadResponse, FileListResponse
 from app.core.file_validator import validate_file_path
-from typing import List
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/files", tags=["文件上传"])
