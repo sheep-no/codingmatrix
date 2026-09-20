@@ -14,6 +14,7 @@ from pathlib import Path
 
 from app.utils.system_load import system_load_monitor
 from app.utils.model_config_io import load_model_config, save_model_config
+from app.utils.aicloud.provider_router import ModelProvider
 from app.agent.models import (
     DEFAULT_ARCHITECT_MODEL,
     DEFAULT_CODE_MODEL,
@@ -44,7 +45,6 @@ _model_id_key_cache: Optional[Dict[str, str]] = None
 def _build_provider_map() -> Dict[str, "ModelProvider"]:
     """从 Agent 运行时配置构建 model_name -> provider 映射。"""
     global _provider_map_cache
-    from app.utils.aicloud.provider_router import ModelProvider
     try:
         config = load_model_config(Path(AGENT_MODEL_CONFIG_PATH))
         models = config.get("models", {})
@@ -229,7 +229,6 @@ class ModelPerformanceTracker:
             logger.debug(f"模型路由操作失败：{e}")
 
     async def record_call(self, model: str, task_type: str, success: bool, latency: float):
-        now = time.time()
         # 在线程池中执行，避免 threading.Lock 阻塞事件循环
         await asyncio.to_thread(self._record_call_sync, model, task_type, success, latency)
 
@@ -655,12 +654,12 @@ class DynamicModelRouter:
         """熔断降级：连续失败 ≥ 2 次的模型自动用 fallback_model 替代"""
         fallback = assignment.fallback_model
         circuit_broken = []
-        for field in ("architect_model", "frontend_model", "backend_model", "reviewer_model"):
-            model = getattr(assignment, field)
+        for role in ("architect_model", "frontend_model", "backend_model", "reviewer_model"):
+            model = getattr(assignment, role)
             metrics = self.get_or_create_metrics(model)
             if metrics.consecutive_failures >= 2 and model != fallback:
-                setattr(assignment, field, fallback)
-                circuit_broken.append(f"{field}: {model} -> {fallback}")
+                setattr(assignment, role, fallback)
+                circuit_broken.append(f"{role}: {model} -> {fallback}")
         if circuit_broken:
             logger.warning(f"熔断降级触发: {circuit_broken}")
         return assignment

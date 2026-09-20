@@ -1284,8 +1284,8 @@ class SpecFirstGenerateMixin:
             # 注意：extract_engineer_content 会检查工程师是否通过工具直接写入了文件
             # 即使 generate_file 返回空内容（LLM 用工具写文件后返回摘要），也能从磁盘读取
             raw_content = initial_content  # 保存原始内容用于恢复
-            architecture = project_context.get("architecture", {})
-            target_language = architecture.get("language", "")
+            current_architecture = project_context.get("architecture", {})
+            target_language = current_architecture.get("language", "")
             from app.agent.utils import get_expected_language_for_file
             file_expected_language = get_expected_language_for_file(file_path, target_language)
             logger.info(f"extract_engineer_content 调用: file_path={file_path}, target_language={target_language}, file_expected_language={file_expected_language}")
@@ -1318,7 +1318,7 @@ class SpecFirstGenerateMixin:
                     logger.error(f"所有重试均失败: {file_path}")
                     raise ValueError(f"文件生成失败: {file_path}（模型未能生成有效内容，请尝试更换模型或稍后重试）")
 
-            if _is_adapter_owned_file(file_path, file_type, architecture):
+            if _is_adapter_owned_file(file_path, file_type, current_architecture):
                 logger.info("适配器骨架文件跳过审查: %s", file_path)
                 result = _skipped_refinement(initial_content)
             elif cross_validator.is_critical_file(file_path, file_type, file_priority):
@@ -2307,7 +2307,6 @@ class SpecFirstGenerateMixin:
             error_hint = f"上次生成的内容无效：{reason}"
 
         # 构建精简 prompt：只包含生成单个文件所需的最小上下文
-        file_name = file_path.rsplit('/', 1)[-1] if '/' in file_path else file_path
         recovery_prompt = f"""请直接返回文件 {file_path} 的完整代码。
 
 {error_hint}

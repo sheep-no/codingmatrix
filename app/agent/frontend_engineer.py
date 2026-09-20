@@ -5,7 +5,6 @@ from typing import Dict, Optional, Any
 from app.agent.specialist_base import Specialist
 from app.utils.prompt_loader import load_frontend_engineer_prompt
 from app.agent.tracing import traced
-from app.agent.language_detector import LanguageDetector
 from app.agent.utils import compact_project_context_for_file
 
 logger = logging.getLogger(__name__)
@@ -108,7 +107,6 @@ class FrontendEngineer(Specialist):
         file_actual_language = get_expected_language_for_file(file_path, project_language)
         if not file_actual_language:
             file_actual_language = project_language
-        lang_rules = LanguageDetector.get_language_specific_rules(project_language)
 
         # 从 project_spec 中提取当前文件的约束
         project_spec = architecture.get("project_spec", {})

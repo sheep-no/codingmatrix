@@ -25,3 +25,6 @@ pytest-cov==4.1.0
 
 # 安全审计
 pip-audit==2.7.3
+
+# 静态缺陷门禁（tests/unit/test_static_defects.py）
+ruff==0.16.8

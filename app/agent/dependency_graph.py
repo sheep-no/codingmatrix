@@ -398,10 +398,10 @@ class DependencyGraph:
                     )
                 )
 
-            for field in ("imports", "dependencies"):
-                values = file_info.get(field)
+            for key in ("imports", "dependencies"):
+                values = file_info.get(key)
                 if isinstance(values, list):
-                    file_info[field] = [
+                    file_info[key] = [
                         value for value in values
                         if not references_model(value)
                     ]
