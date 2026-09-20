@@ -41,7 +41,7 @@ codingmatrix/
 │   ├── styles/
 │   ├── utils/                   # 前端工具；utils/api 下 19 个 API 客户端模块
 │   └── views/                   # 页面视图 (9 视图)
-├── vscode-extension/            # VS Code Agent Host 客户端 (19 个 TypeScript 文件)
+├── vscode-extension/            # VS Code Agent Host 客户端 (21 个 TypeScript 文件)
 ├── flutter_client/              # Flutter 桌面 Agent 工作台 (70 个 Dart 文件 / 12,217 行)
 ├── tests/                       # 单元、集成、前端和 E2E 测试
 │   ├── archive/                 # 归档的旧测试

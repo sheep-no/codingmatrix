@@ -14,7 +14,7 @@
 - 管理员面板位于 `/admin`：`admin` 与 `superadmin` 可访问系统监控、系统日志、用户管理、Nginx 配置、服务管理和资源配置；超级管理员额外可见模型管理与 `/admin/dashboard` 并发仪表板。工具集「管理员面板」仅超级用户可见，`admin` 可直接打开 `/admin`。菜单状态写入 `localStorage` 键 `adminMenuState`，挂载时按权限恢复。浏览器场景见 `tests/e2e/admin-panel-scenarios.spec.js`。
 - 能力中心位于 `/capabilities`，当前面板为视觉工具、知识库、代码沙箱、Skills 和 Agent Host。
 - 工具集「搜索历史」打开侧栏搜索框，调用 `POST /api/v1/history` 按 `prompt_keyword` 筛选当前用户会话。
-- 当前 Web 工作台的完整会话历史、模型选择、文件版本、性能面板等 UI 尚未完整迁移到 VS Code 原生 Webview。
+- VS Code 原生 Webview 已提供对话、会话历史、模型、文件版本和性能五个面板。对话复用云端流式会话；其余四个面板经 `workbench_request` 通道读取普通用户 v1 接口（`/api/v1/history`、`/api/v1/conversation/history`、`/api/v1/code/history`、`/api/v1/models/agent-config`、`/api/v1/agent/token-usage`、`/api/v1/agent/snapshots|rollback|snapshot/diff`、`/api/v1/agent/performance`）。管理级 `/api/v2/models/*` 与 `/api/v2/model-config/*` 需要 superadmin，未迁移。
 
 - [架构文档](ARCHITECTURE.md)：FastAPI、Vue、StateGraph、统一状态和部署拓扑。
 - [接口文档](INTERFACES.md)：认证、Agent、任务、Agent Host、State 和验证契约。

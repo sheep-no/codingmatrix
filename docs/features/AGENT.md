@@ -194,6 +194,19 @@ Host 会话默认保存到 `data/agent_host_sessions`，使用临时文件替换
 
 本地验证 operation 为 `syntax_check`、`dependency_install`、`dependency_check`、`build`、`unit_test`、`e2e_test` 和 `service_check`。Host policy 决定各 operation 是否可执行，扩展还会校验 workspace 授权和相对路径边界。
 
+### 工作台面板
+
+`AgentWorkbenchController` 打开的 Webview 分为五个面板：对话、会话历史、模型、文件版本和性能。对话面板复用云端流式会话与本地审批；其余四个面板通过统一的 `workbench_request` / `workbench_response` 通道读取普通用户可用的 v1 接口，扩展侧在 `workbench-requests.ts` 校验参数后转发给 `CloudConnection`：
+
+| 面板 | resource | 接口 |
+| --- | --- | --- |
+| 会话历史 | `history_list`、`history_messages`、`history_delete` | `POST /api/v1/history`、`POST /api/v1/conversation/history`、`DELETE /api/v1/code/history` |
+| 模型 | `model_config`、`token_usage` | `GET /api/v1/models/agent-config`、`GET /api/v1/agent/token-usage` |
+| 文件版本 | `snapshot_list`、`snapshot_rollback`、`snapshot_diff` | `GET /api/v1/agent/snapshots/{session_id}`、`POST /api/v1/agent/rollback/{session_id}`、`GET /api/v1/agent/snapshot/diff` |
+| 性能 | `performance` | `GET /api/v1/agent/performance` 与 `/performance/trends` |
+
+文件版本面板默认使用最近一次 `done` 事件返回的 `session_id`，也可手动填写。管理级模型接口（`/api/v2/models/*`、`/api/v2/model-config/*`）需要 superadmin，未纳入工作台。
+
 ## 沙箱运行控制
 
 代码沙箱默认启用，默认语言为 `python` 和 `javascript`。超级管理员可通过以下接口读取或更新配置：
