@@ -42,10 +42,11 @@
 - **已修复**：现改为先 `key_manager.decrypt` 得到明文，再 `store_key(user_id=..., provider=..., api_key=..., ttl=..., remark=...)`，签名一致
 - Backlog：#1196
 
-### APY2 [P2] provider 同步跨用户 Key 覆盖（apikey.py:50-88）
+### APY2 [P2] provider 同步跨用户 Key 覆盖（apikey.py:50-88）（已修复）
 - `_sync_provider_models` 用全局单例 CustomProviderManager，按 `user_{provider}` 命名（无 user 维度）
 - :71 `existing.api_key = api_key` —— 后提交者覆盖先提交者的 Key（同 provider 名），跨用户盗用/覆盖面
 - 与 PRV1 同族：custom provider 生态整体无用户隔离
+- **已修复**：条目改按 `user_<user_id>_<provider>` 命名，`_sync_provider_models` 接收 `user_id`；启动恢复 `_restore_user_providers` 由「按 provider 去重」改为按 `(user_id, provider)` 逐用户恢复，不再折叠多用户。回归测试 `tests/unit/test_apikey_provider_isolation.py`
 - Backlog：#1197
 
 ### TQ2 [P2] task_id 用内存地址 id(body)（task_queue.py:67）（已修复）

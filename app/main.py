@@ -272,18 +272,19 @@ async def _restore_user_providers():
         if not all_keys:
             return
         
-        # 按供应商分组，只取每个供应商最新的一个 Key
-        provider_keys = {}
+        # 按 (user_id, provider) 分组，逐用户恢复各自的供应商条目。
+        # 若只按 provider 去重，多用户会被折叠成一条并互相覆盖。
+        user_providers = {}
         for user_id, token, provider, api_key in all_keys:
-            if provider in _OPENAI_COMPAT_PROVIDERS and provider not in provider_keys:
-                provider_keys[provider] = api_key
-        
-        if not provider_keys:
+            if provider in _OPENAI_COMPAT_PROVIDERS:
+                user_providers.setdefault((user_id, provider), api_key)
+
+        if not user_providers:
             return
-        
-        logger.info(f"恢复 {len(provider_keys)} 个用户供应商模型列表...")
-        for provider, api_key in provider_keys.items():
-            await _sync_provider_models(provider, api_key)
+
+        logger.info(f"恢复 {len(user_providers)} 个用户供应商模型列表...")
+        for (user_id, provider), api_key in user_providers.items():
+            await _sync_provider_models(provider, api_key, user_id)
         
     except Exception as e:
         logger.warning(f"恢复用户供应商模型失败：{e}")
