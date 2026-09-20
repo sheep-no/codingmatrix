@@ -313,7 +313,7 @@ tasks = (await db.execute(select(Task).where(Task.input_file_id == file.id))).sc
 | 10 | P3 | Permission 表加唯一约束（MD2 落地）+ create 改 upsert；修正文件头注释 | 竞态消除 + 路径一致 | permission_service.py + app/models/Permission.py | #1184 |
 | 11 | P3 | db/models 时间默认统一 aware UTC lambda；to_dict timestamp 改 `created_at.replace(tzinfo=timezone.utc).timestamp()` | 三态收敛一层 | db/models.py:62-63/:98/:127/:140 | #1185 |
 | 12 | P3 | schema 管理收敛 alembic 单轨（create_all 降级为 dev 开关）；init_workflow/clear 移 scripts/ 或删除 | 漂移可检测 | main.py:239/:280 + 两脚本 | #1186 |
-| 13 | P3 | cleanup 改批量 IN 查询 + 路径前缀白名单校验 + 批次上限 | N+1 消除 + 误删面收窄 | scheduler.py:27-96 | #1187 |
+| 13 | P3 | cleanup 改批量 IN 查询 + 路径前缀白名单校验 + 批次上限 | N+1 消除 + 误删面收窄 | scheduler.py:27-96 | #1187，批量 IN 与路径校验已修，批次上限未做 |
 
 ## 6. 演化方向关联
 
@@ -330,6 +330,10 @@ tasks = (await db.execute(select(Task).where(Task.input_file_id == file.id))).sc
 - **DB3 [P2] 已修**：`connect_args` 增加 `timeout=30`，连接钩子增加 `PRAGMA journal_mode=WAL` 与 `PRAGMA busy_timeout=30000`。更正原文一处事实：Python `sqlite3.connect` 默认 `timeout=5.0s`（非 0），但主库此前从未设置显式超时，WAL 亦未开启；本次统一收敛到主库一处。
 - **DB2 [P2] 已缓解（非本次改动）**：`settings.ENABLE_SCHEDULER` 默认 `False`，`main.py:133` 据此 gate `start_scheduler()`，默认单进程部署不再双跑。若在多 worker 下显式开启，`AsyncIOScheduler` 仍会每 worker 一份，需独立调度进程/分布式锁，保留。
 - **DB5 [P3] 已失效**：`chat_archiver._generate_summary_with_ai` 现对 `choices`、`message`、`content` 逐层做空值防护（`choices[0].get("message") or {}`、`(message.get("content") or "").strip()`），`content=None` 不再抛 `AttributeError` 中止整轮归档。
-- **DB4/DB6/DB7/DB8/DB9/DB10/DB11/DB12/DB13 [P3] 未处理**：归档水位线、会话 id 唯一约束、搜索语义统一、`get_recent_context` 死方法、日志流轮转感知、Permission 唯一约束、时间语义、schema 单轨、cleanup N+1/路径校验等仍待专项；`clear.py`/`init_workflow.py` 两脚本删除需先确认。
+- **DB4/DB6/DB7/DB8/DB9/DB10/DB11/DB12 [P3] 未处理**：归档水位线、会话 id 唯一约束、搜索语义统一、`get_recent_context` 死方法、日志流轮转感知、Permission 唯一约束、时间语义、schema 单轨等仍待专项；`clear.py`/`init_workflow.py` 两脚本删除需先确认。
 
 新增回归 `tests/unit/test_sqlite_engine_config.py`（2 项，覆盖 DB1/DB3）。同时 `.gitignore` 补充 `*.db-wal`/`*.db-shm`/`*.db-journal`，避免 WAL 边车文件误入版本库。
+
+## 8. 状态更新（2026-09-20 核实）
+
+- **DB13 [P3] 已修**：`app/db/scheduler.py`（原文件头误写 `app/services/scheduler.py`，已更正）新增模块级 `UPLOAD_ROOT` 与 `_delete_managed_path()`。删除物理文件前用 `Path.resolve()` + `is_relative_to` 校验目标必须落在上传目录内，拒绝目录外路径、父目录逃逸与上传根本身；去掉 `os.path.exists` 前置检查，改由 `FileNotFoundError` 兜底，消除 exists→remove 的 TOCTOU 窗口；孤立文件关联查询由「每文件一次 `select(Task)`」收敛为一次 `Task.input_file_id.in_(...)` 批量查询；`shutil.rmtree`/`unlink` 经 `asyncio.to_thread` 移出事件循环，避免同步 I/O 阻塞。批次上限未做，保留。新增回归 `tests/unit/test_scheduler_file_cleanup.py`（8 项，覆盖路径白名单、逃逸拒绝、TOCTOU 空操作与单次批量查询）。
