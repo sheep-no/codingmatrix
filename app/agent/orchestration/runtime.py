@@ -84,8 +84,7 @@ async def execute_core_generation(
         request["toolchain_plan"] = detect_toolchain(output_dir).model_dump(mode="json")
     core_task_id = _checkpoint_task_id(task_id, mode)
     context = SharedContext(requirement, output_dir)
-    if hasattr(adapter, "_shared_context"):
-        adapter._shared_context = context
+    adapter.bind_shared_context(context)
     core = OrchestratorCore(
         OrchestrationCheckpointStore(Path(os.getenv(
             "AGENT_CORE_CHECKPOINT_DIR",

@@ -25,6 +25,9 @@ class Adapter:
         self._plan = plan
         self._shared_context = None
 
+    def bind_shared_context(self, context):
+        self._shared_context = context
+
     async def create_plan(self, request):
         return self._plan
 

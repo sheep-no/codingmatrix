@@ -1,4 +1,4 @@
-PROJECTS_BASE_DIR = "./projects"
+from app.core.paths import PROJECTS_BASE_DIR
 
 ALLOWED_PACKAGES = [
     "fastapi", "pydantic", "httpx", "sqlalchemy",
