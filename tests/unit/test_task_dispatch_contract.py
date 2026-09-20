@@ -231,6 +231,34 @@ async def test_create_task_offloads_send_task_off_event_loop_thread():
 
 
 @pytest.mark.asyncio
+async def test_create_task_marks_failed_when_dispatch_raises():
+    """AL5：投递失败时不能遗留无 celery_task_id 的 pending 记录。"""
+    from fastapi import HTTPException
+
+    from app.api.v1 import task_queue
+    from app.schema.task_schema import TaskCreateRequest, TaskTypeEnum
+
+    transition = AsyncMock()
+    body = TaskCreateRequest(
+        task_type=TaskTypeEnum.CODE_GENERATE,
+        params={"prompt": "hello"},
+    )
+    db = _FakeDB()
+
+    with patch.object(
+        task_queue.celery_app, "send_task", side_effect=RuntimeError("broker down")
+    ), patch.object(task_queue, "transition_task", transition):
+        with pytest.raises(HTTPException) as exc_info:
+            await task_queue.create_task(body, {"sub": "7"}, db)
+
+    assert exc_info.value.status_code == 503
+    transition.assert_awaited_once()
+    assert transition.await_args.args[3] == "failed"
+    assert transition.await_args.kwargs["error_message"]
+    assert db.commits == 2  # 初始 pending 记录 + 失败状态
+
+
+@pytest.mark.asyncio
 async def test_retry_task_offloads_send_task_off_event_loop_thread():
     import threading
 
