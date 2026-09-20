@@ -159,20 +159,6 @@ export function createAiCloudClient(client) {
       }
     },
 
-    async toggleReview(enabled) {
-      try {
-        const response = await client.post('/aicloud/reviews/toggle', {
-          enabled
-        })
-        if (response.ok) {
-          return await response.json()
-        }
-        return { success: false }
-      } catch (error) {
-        return { success: false }
-      }
-    },
-
     // ========== 模型列表 ==========
     async getModels() {
       try {
