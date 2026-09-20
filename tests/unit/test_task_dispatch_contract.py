@@ -155,6 +155,49 @@ async def test_recover_task_sends_kwargs_and_tracks_new_celery_id():
 
 
 @pytest.mark.asyncio
+async def test_retry_unknown_task_type_does_not_create_ghost_task():
+    """无 Celery 映射的任务不得改状态：否则出现 pending 但无派发的幽灵任务。"""
+    from fastapi import HTTPException
+
+    from app.api.v1 import task_queue
+
+    record = _record(task_type="legacy_unknown", status="failed")
+    db = _FakeDB(record)
+
+    with patch.object(task_queue, "get_owned_task", AsyncMock(return_value=record)), \
+            patch.object(task_queue.celery_app, "send_task") as send_task:
+        with pytest.raises(HTTPException) as exc:
+            await task_queue.retry_task("biz-task-1", {"sub": "7"}, db)
+
+    assert exc.value.status_code == 400
+    assert record.status == "failed"
+    send_task.assert_not_called()
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_recover_unknown_task_type_does_not_create_ghost_task():
+    from fastapi import HTTPException
+
+    from app.api.v1 import task_queue
+
+    record = _record(task_type="legacy_unknown", status="failed")
+    db = _FakeDB(record)
+
+    with patch.object(task_queue, "get_owned_task", AsyncMock(return_value=record)), \
+            patch.object(task_queue, "transition_task", AsyncMock()) as transition, \
+            patch.object(task_queue, "append_task_event", AsyncMock()) as append_event, \
+            patch.object(task_queue.celery_app, "send_task") as send_task:
+        with pytest.raises(HTTPException) as exc:
+            await task_queue.recover_task("biz-task-1", {"sub": "7"}, db)
+
+    assert exc.value.status_code == 400
+    transition.assert_not_called()
+    append_event.assert_not_called()
+    send_task.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_run_tests_awaits_isolated_runner_inside_event_loop():
     import app.tasks.code_tasks as code_tasks
 
