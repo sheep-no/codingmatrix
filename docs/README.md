@@ -1,6 +1,6 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-09-20 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：34 张表 | Alembic：15 个有效迁移文件 | Flutter：70 个 Dart 文件 / 11,863 行
+> 最后更新：2026-09-20 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：34 张表 | Alembic：15 个有效迁移文件 | Flutter：70 个 Dart 文件 / 12,217 行
 
 CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，覆盖智能对话、项目生成、多 Agent 协作、模型与供应商配置、PPT 生成、AI Cloud、GirlAI，以及 Web、Mobile、VS Code 和 Flutter 桌面多端 Agent 工作流。
 
@@ -99,7 +99,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 | Composables | 14 个 | `src/composables/` |
 | API Client JS | 19 个 | 前端 API client JavaScript 文件 |
 | 前端源码 | 约 62,953 行 | `src/` 源码静态清点 |
-| Flutter Dart | 70 个文件 / 11,863 行 | `flutter_client/lib/**/*.dart` |
+| Flutter Dart | 70 个文件 / 12,217 行 | `flutter_client/lib/**/*.dart` |
 | Flutter 页面 | 18 个 | `flutter_client/lib/presentation/*_page.dart` |
 | Flutter 测试 | 33 个文件 | `flutter_client/test/**/*_test.dart` |
 

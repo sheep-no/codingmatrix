@@ -103,7 +103,7 @@ PPTX 渲染优先消费结构化 `content_blocks`，兼容旧 `content` 与 `bul
 - `flutter_client/lib/application/`：页面状态与编排。
 - `flutter_client/lib/infrastructure/`：`AuthenticatedClient`、SSE、文件上传、GitHub/MCP/管理 API。
 - `flutter_client/lib/presentation/`：18 个页面，含工作台、对话、管理后台和 MCP 管理。
-- 2026-09-20 清点：70 个 `lib/**/*.dart` / 11,863 行。能力与边界见 [Flutter 桌面客户端](features/FLUTTER-CLIENT.md)。
+- 2026-09-20 清点：70 个 `lib/**/*.dart` / 12,217 行。能力与边界见 [Flutter 桌面客户端](features/FLUTTER-CLIENT.md)。
 
 ## 测试结构
 
