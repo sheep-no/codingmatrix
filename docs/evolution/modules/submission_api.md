@@ -27,6 +27,22 @@
 
 ## 二、缺陷清单
 
+### 状态更新（2026-09-20）
+
+`app/api/v1/github.py` 已重构，本文记录的多项缺陷在重构中消除：
+
+- GH1（project_name 路径穿越）已修复：`_save_to_github`/`_save_to_local_git` 先调用 `validate_project_name()`，仅允许 `[A-Za-z0-9._-]{1,100}` 单段名称；`_write_project_files` 对每个文件路径用 `Path.resolve()` 后要求 `is_relative_to(root)`。
+- GH2（git 子进程无 timeout）已修复：`_run_git()` 统一封装，带 `timeout=GIT_TIMEOUT(60)`，超时映射 504。
+- GH3（token 泄露）已修复：`github_https_remote()` 不再拼接凭据，token 通过 `http.extraHeader` 传递；`CalledProcessError` 不再回传 `str(e)`，统一 500 与固定文案。
+- GH4（startswith 前缀碰撞）已修复：改用 `Path.is_relative_to`。
+- GH7（`/github/config` 假存储）已修复：改用 `GithubUserConfig` + `app/services/github_config_service.py` 持久化。
+- GH8（`project_data` 无大小限制）已缓解：`json.loads` 失败/空对象/非对象均返回 400；中间件 `MAX_BODY_SIZE`（10MB）限制请求体。
+- GH9（空提交失败）已消解：`_write_project_files` 拒绝空对象，不会生成无变更仓库。
+- 本次修复：`validate_project_name` 原仅做 `_REPO_RE.fullmatch`，而 `.` 与 `..` 均匹配该正则，会作为目录名解析到自身或父级，导致后续 `FileExistsError`/`OSError` 而不是 422；现显式拒绝 `.` 与 `..`。新增参数化用例。
+
+仍属未处理：GH5/GH6/GH11/GH12（`app/api/v1/aicloud.py` 审批链）、GH10（三套 git 封装收敛，架构级）。`tests/unit/test_github_readonly_api.py` 现覆盖路径穿越、前缀同族、空对象、无凭据远端 URL 与名称校验。
+
+
 ### P2（7 项）
 
 - **GH1 [P2] `_save_to_local_git` project_name 路径穿越——任意目录/文件写入**——github.py:193 `project_path = projects_dir / request.project_name`——`project_name` 为请求字段无任何清洗——`project_name="../../../tmp/evil"` → `project_path.resolve()` = `/tmp/evil`（:210 的 startswith 校验对比的正是穿越后的基路径，**穿越本身不受拦截**）→ 文件写入 `/tmp/evil/` 任意位置、`project_path.rename` 备份（:199）移动任意目录——**任意用户可向服务器文件系统写任意内容**（进程权限内）。`_save_to_github` 同构（:108 `temp_dir / project_name`）但因 tempdir 深度使穿越范围受限（:117-119 校验同样仅对 tempdir 内生效）。**与 RQ1/SO2 同族：校验点在校验后行为，缺少「基路径本身受控」前置约束**。

@@ -207,6 +207,18 @@ def test_write_project_files_rejects_empty_object(tmp_path):
     assert exc.value.status_code == 400
 
 
+@pytest.mark.parametrize("name", [".", ".."])
+def test_validate_project_name_rejects_dot_segments(name):
+    with pytest.raises(HTTPException) as exc:
+        github_remote.validate_project_name(name)
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.parametrize("name", ["demo", "demo-1", "a.b_c"])
+def test_validate_project_name_accepts_regular_names(name):
+    assert github_remote.validate_project_name(name) == name
+
+
 @pytest.mark.asyncio
 async def test_resolve_save_credentials_uses_stored_token(monkeypatch):
     record = SimpleNamespace(username="alice", use_github=True, encrypted_token="envelope")

@@ -36,7 +36,8 @@ def validate_git_ref(value: str) -> None:
 
 def validate_project_name(name: str) -> str:
     name = (name or "").strip()
-    if not _REPO_RE.fullmatch(name):
+    # "." / ".." 也匹配 _REPO_RE，但作为目录名会解析到父级或自身，必须显式拒绝
+    if not _REPO_RE.fullmatch(name) or name in {".", ".."}:
         raise HTTPException(status_code=422, detail="项目名称无效")
     return name
 
