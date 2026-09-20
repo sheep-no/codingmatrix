@@ -6,6 +6,15 @@
 > 规划参照：[`AGENT-FRONTEND.md`](../AGENT-FRONTEND.md)；本文记录实际实现、调用关系与缺陷
 > 后续变更（2026-09-16）：文中引用的 `src/utils/request.ts`、`src/utils/taskNotification.js`、`src/utils/errorHandler.js` 已确认零生产引用并删除，正文保留扫描时的判定与行号。
 
+> 状态更新（2026-09-20）：
+> - FESURF-001 已修复：`src/utils/api/index.js:86` 显式创建 `ppt: createPptClient(baseClient)`，`api.ppt.*` 现已存在，PPT 相关调用不再 `TypeError`。
+> - FESURF-002 已修复：`src/utils/request.ts` 已删除；`src/api/apikey.js` 改用统一客户端 `api.request`，走 `/api` 代理与统一 token 存储。
+> - FESURF-003 本次修复：`WebSocketManager.connect()` 现保存 `_token` 供自动重连复用；`disconnect()` 设置 `_manualClose`，`onclose` 据此跳过重连，主动断开不再被自动拉回。新增 `src/utils/api/websocket.test.js`（重连复用 token、主动断开不再重连）。
+> - FESURF-004 已修复：`src/utils/api/admin.js` 的 `renameService`/`updateFuseConfig` 已接收 `processSignature` 三参并返回解析后 JSON，与 `ServiceManager.vue` 调用一致。
+> - FESURF-005 已修复：`downloadBackup` 现返回备份数据 JSON，`ResourceControl.vue` 按数据用途下载与恢复。
+> - FESURF-006 本次修复：`src/utils/api/aicloud.js` 的 `toggleReview` 调用后端未定义的 `/aicloud/reviews/toggle` 且全库零消费，按死方法删除。
+> - FESURF-007 已修复：`src/utils/api/base.js` 的 `request` 已合并调用方 `options.headers`。
+
 ## 1. 模块作用与功能
 
 ### 1.1 模块定位与三态判定

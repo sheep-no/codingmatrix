@@ -42,9 +42,16 @@ export class WebSocketManager {
     this.heartbeatTimer = null
     this.listeners = new Map()
     this.isConnected = false
+    // 认证 token 与手动关闭标记：重连需复用 token，主动断开不得再重连
+    this._token = null
+    this._manualClose = false
   }
 
   connect(token = null) {
+    this._manualClose = false
+    if (token) {
+      this._token = token
+    }
     return new Promise((resolve, reject) => {
       try {
         let fullUrl = this.url
@@ -88,7 +95,9 @@ export class WebSocketManager {
           this.stopHeartbeat()
           this.emit('close', event)
           if (this._onClose) this._onClose(event)
-          this.attemptReconnect()
+          if (!this._manualClose) {
+            this.attemptReconnect()
+          }
         }
       } catch (error) {
         reject(error)
@@ -97,6 +106,8 @@ export class WebSocketManager {
   }
 
   disconnect() {
+    // 标记为主动关闭，避免 close 事件触发自动重连
+    this._manualClose = true
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
@@ -162,7 +173,7 @@ export class WebSocketManager {
     this.emit('reconnecting', { attempts: this.reconnectAttempts })
 
     this.reconnectTimer = setTimeout(() => {
-      this.connect().catch(() => {
+      this.connect(this._token).catch(() => {
         // reconnect handled in onclose
       })
     }, this._reconnectDelay)
