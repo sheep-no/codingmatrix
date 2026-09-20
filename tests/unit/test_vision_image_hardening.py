@@ -29,7 +29,8 @@ def image_path(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_analyze_image_falls_back_on_non_http_exception(monkeypatch, image_path):
+@pytest.mark.parametrize("model_kwargs", [{}, {"model": None}])
+async def test_analyze_image_falls_back_on_non_http_exception(monkeypatch, image_path, model_kwargs):
     calls = []
 
     async def fake_call(image_base64, prompt, model, timeout):
@@ -40,11 +41,28 @@ async def test_analyze_image_falls_back_on_non_http_exception(monkeypatch, image
 
     monkeypatch.setattr(vision, "_call_vision_model", fake_call)
 
-    result = await analyze_image(image_path, model=None)
+    result = await analyze_image(image_path, **model_kwargs)
 
     assert len(calls) == 2
     assert result["description"] == "第二模型描述"
     assert result["model_used"] == vision.VISION_MODEL_FALLBACK[1]
+
+
+@pytest.mark.asyncio
+async def test_analyze_image_explicit_model_failure_stays_single_model(monkeypatch, image_path):
+    calls = []
+
+    async def fake_call(image_base64, prompt, model, timeout):
+        calls.append(model)
+        raise ValueError("指定模型调用失败")
+
+    monkeypatch.setattr(vision, "_call_vision_model", fake_call)
+
+    with pytest.raises(HTTPException) as excinfo:
+        await analyze_image(image_path, model=vision.VISION_MODEL)
+
+    assert excinfo.value.status_code == 503
+    assert calls == [vision.VISION_MODEL]
 
 
 @pytest.mark.asyncio

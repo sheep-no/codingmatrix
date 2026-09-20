@@ -18,6 +18,14 @@
 
 ## 二、缺陷清单
 
+### 状态更新（2026-09-20）
+
+- VS3：异常捕获已覆盖 `Exception`，但 `analyze_image` 默认参数仍为主模型，省略参数时仅尝试一次。本次将默认值改为 `None`，使附件解析默认走 `VISION_MODEL_FALLBACK`；显式指定模型仍仅调用该模型。同步修正降级顺序与参数说明。
+- VS5/VS7/VS8：当前已使用共享默认模型常量、响应结构校验与统一 `call_llm` 路径，原条目描述已过时。
+- VS4/VS9：当前优先解析结构化 JSON，并保留中英关键词兜底；该状态仅确认原实现已改变，关键词兜底仍有语义局限。
+- VS1：`vision_api.py` 从上传内容或 data URI 创建临时文件；`Aicode.get_or_parse_file` 先调用 `verify_file_access`。原文关于 API 直接接收任意本地路径的推断不成立；工具函数自身仍读取调用方传入的路径。
+- 回归测试覆盖省略模型参数、显式 `None` 与显式模型失败三个入口；回退源码时省略参数用例失败，恢复后视觉相关定向测试 24 项通过。
+
 ### P2（4 项）
 
 - **VS1 [P2] `image_to_base64` 任意文件读取——image_path 用户可控时文件内容 base64 外发 LLM**——vision.py:32-68——`Path(image_path)` 直接读——vision_api.py:140 `analyze_image(image_path, ...)` 若 image_path 来自请求参数 → **任意文件读取并编码发送给视觉模型**（内容外泄给第三方 LLM）——且仅检查扩展名（`../etc/passwd` 无法通过扩展名检查，但可传带合法扩展名的敏感文件，如 `.env`、`/etc/hosts.png` 不存在——符号链接可绕过）。修复方向：强制校验路径在受限 upload 目录内（resolve + is_relative_to）。
