@@ -226,10 +226,15 @@ async def upload_skill_file(
 
 
 @router.post("/reload", summary="重新扫描并更新提示词文档")
-async def reload_prompts():
+async def reload_prompts(token: dict = Depends(verify_token)):
     """
     重新扫描所有 skill（包括自定义 skill）并更新 PROMPTS.md 文档
+
+    该操作会执行提权脚本并改写全局提示词文档，仅管理员可调用。
     """
+    if token.get("permission_level") not in {"admin", "superadmin"}:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
     import subprocess
     
     try:

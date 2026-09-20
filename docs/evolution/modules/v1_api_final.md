@@ -60,14 +60,16 @@
 - **已修复**：握手读取 `?token=`，经 `verify_token_ws` 校验，并要求 token 主体与路径 `user_id` 一致，否则 `close(1008)`；与 `/ws/ppt/{task_id}`、`/Controller/sys-status` 同模式。回归测试 `tests/unit/test_task_ws_auth.py`
 - Backlog：#1199
 
-### GIR1 [P2] fire-and-forget 复用请求级 session（GirlAi.py:533-535）
+### GIR1 [P2] fire-and-forget 复用请求级 session（GirlAi.py:533-535）（已修复）
 - `asyncio.create_task(_extract_user_preferences(user_id, body.prompt, ai_content, db))` 把请求级 AsyncSession 传入后台任务
 - 响应返回后 get_db teardown 关闭 session → 任务内 execute 恒败（:316 except 吞掉）→ 偏好提取静默恒败；任务句柄未保存可被 GC
+- **已修复**：`_extract_user_preferences` 不再接收 `db`，内部 `async with async_session() as db` 自建会话，调用点同步去掉 `db` 实参。残留次要项：`create_task` 句柄仍未保存引用
 - Backlog：#1200
 
-### SKY1 [P2] skills 全端点零认证（skills.py 全文件）
+### SKY1 [P2] skills 全端点零认证（skills.py 全文件）（已修复）
 - upload/list/get/update/delete/upload-file/reload 全部无 verify_token，author 硬编码 "api_user"（:71 TODO 自认）
 - 自定义 skill 为全局共享库：任何人可改写 prompt skill，直接影响 kolors 自定义风格注入（kolors_api.py:228-267 `_load_custom_image_styles` 从同一 registry 读 Markdown）——未认证用户可改写全站生成行为
+- **已修复**：upload/list/get/update/delete/upload-file 均加 `Depends(verify_token)`，author 由硬编码 `"api_user"` 改为 `token.sub`，并传入 `owner_user_id` 做归属过滤；`migrate-legacy` 另有管理员校验。`/categories` 为静态分类表保持公开；`/reload` 见 SKY2
 - Backlog：#1201
 
 ### PRV1 [P2] 动态供应商全局共享无归属（providers.py 全文件）
@@ -125,7 +127,7 @@
 - **FL5 [P3]** :37 _chunk_locks 字典只增不减，file_id 锁永驻内存（慢泄漏）
 
 ### skills.py（1 项）
-- **SKY2 [P3]** :213-241 /reload 零认证可达 + subprocess 硬编码绝对路径 /workspace/.claude/skills/...（部署路径耦合）；SKY1 叠加面
+- **SKY2 [P3] 已修复**：:213-241 /reload 原零认证可达——任何人可触发提权脚本改写全局提示词文档。修复：加 `Depends(verify_token)` 与管理员校验（`permission_level in {admin, superadmin}`）。subprocess 脚本路径已用 `BASE_DIR / ".claude" / "skills" / ...` 相对根目录解析。回归测试 `tests/unit/test_skills_reload_auth.py`
 - 已排除项：name 路径穿越嫌疑解除——custom_skill_manager.py:78-82 `_validate_name` 正则 `^[a-zA-Z][a-zA-Z0-9_-]{0,63}$` 且 :118 强制调用（SkillUploadRequest Field description-only 声明但强制在 manager 层）
 
 ### providers.py（1 项）
