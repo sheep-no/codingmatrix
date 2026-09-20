@@ -408,3 +408,14 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
   - `app/db/database.py` 已为 SQLite 每个连接开启 `PRAGMA foreign_keys=ON`（并启用 WAL/busy_timeout），DB 级 `ondelete=CASCADE` 现已实际生效；改动涉及父实体删除的代码时不能再假定「SQLite 不校验外键」。
   - 删除 `User` 这类父实体前，凡是没有 ORM cascade 的关系（如 `User.histories`、`File.uploader`/`Task.user` 的 backref），SQLAlchemy 会把子表外键置空并触发 `NOT NULL constraint failed`；只有无 `ondelete` 外键的表会直接报 `FOREIGN KEY constraint failed`；`user_id` 为裸列的表会静默残留孤儿。需按依赖顺序显式清理，范式见 `app/api/v2/user_manage.py::_purge_user_owned_data`。
   - `ToolExecutionLog` 无 ORM 关系且 `session_id` 外键无 `ondelete`，删除 Agent 会话时会阻断删除用户；清理需按会话归属先删工具日志。
+
+### 批量 PR 的合并与 CI 复跑
+- Date: 2026-09-20
+- Context: Agent 在把 7 个架构/CI 分支逐个合并进 master 时总结
+- Category: 工作流与协作
+- Instructions:
+  - 仓库默认分支是 `master`，PR 一律 `base=master`。`gh` 未登录时用 GitHub REST API：`git credential fill` 取 token 写入临时文件（`chmod 600`，用完即删），请求头 `Authorization: token <token>`。
+  - 该仓库的 `POST /repos/{owner}/{repo}/pulls/{n}/update-branch` 返回 404，不可用。让已落后的 PR 分支基于最新 master 复跑 CI 的可行做法是「关闭再重新打开」：`PATCH /pulls/{n}` 依次 `state=closed`、`state=open`。重开后 GitHub 会重算 `merge_commit_sha`（即含最新 base 的 merge ref），并在该 ref 上触发 `pull_request` 事件的 CI，此时跑的是「本 PR + 所有已合并到 master 的改动」。
+  - 合并顺序：先合基础设施/CI 修复，再逐个合并功能 PR；每合一个，master 前进一次，后续 PR 的 merge ref 会自动包含它，不需要本地 rebase。
+  - 判定 CI 是否通过要看目标 commit 的 check-runs（`GET /commits/{sha}/check-runs`），而不是只看 workflow runs 列表；`pull_request` 事件的 run 其 `head_sha` 是 PR 分支头，而实际被测的是 merge ref。
+  - `git checkout master` 会带着工作树中跨分支的未提交改动一起切换；若目标分支也改了同一文件，git 会原子拒绝而不是覆盖，不要为此 stash/丢弃这些改动。
