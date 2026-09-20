@@ -417,24 +417,30 @@ async def retry_task(
             detail=f"任务状态为 {task_record.status}，无需重试"
         )
 
+    # 先确认存在 Celery 映射，避免状态已置 pending 却无任务派发的幽灵任务。
+    celery_task_name = TASK_NAMES.get(task_record.task_type)
+    if not celery_task_name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的任务类型：{task_record.task_type}"
+        )
+
     task_record.status = "pending"
     task_record.retry_count = 0
     task_record.error_message = None
     task_record.progress = 0
 
-    celery_task_name = TASK_NAMES.get(task_record.task_type)
-    if celery_task_name:
-        # 重试必须使用新的 Celery ID：复用旧 ID 会让结果后端与历史执行混淆。
-        result = await asyncio.to_thread(
-            celery_app.send_task,
-            celery_task_name,
-            kwargs=_build_task_kwargs(
-                task_record.task_type, task_record.task_id, user_id, task_record.params
-            ),
-            priority=task_record.priority,
-            time_limit=task_record.timeout,
-        )
-        task_record.celery_task_id = result.id
+    # 重试必须使用新的 Celery ID：复用旧 ID 会让结果后端与历史执行混淆。
+    result = await asyncio.to_thread(
+        celery_app.send_task,
+        celery_task_name,
+        kwargs=_build_task_kwargs(
+            task_record.task_type, task_record.task_id, user_id, task_record.params
+        ),
+        priority=task_record.priority,
+        time_limit=task_record.timeout,
+    )
+    task_record.celery_task_id = result.id
 
     await db.commit()
 
@@ -471,20 +477,25 @@ async def recover_task(
         task_record = await get_owned_task(db, task_id, user_id)
         if task_record.status not in {"failed", "cancelled"}:
             raise HTTPException(status_code=400, detail=f"任务状态为 {task_record.status}，无法恢复")
+        # 同样先确认 Celery 映射，避免只改状态不派发的幽灵任务。
+        celery_task_name = TASK_NAMES.get(task_record.task_type)
+        if not celery_task_name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"不支持的任务类型：{task_record.task_type}"
+            )
         await transition_task(db, task_id, user_id, "pending", progress=0, error_message=None, allow_recovery=True)
         await append_task_event(db, task_id, user_id, "task.recovered", status="pending")
-        celery_task_name = TASK_NAMES.get(task_record.task_type)
-        if celery_task_name:
-            result = await asyncio.to_thread(
-                celery_app.send_task,
-                celery_task_name,
-                kwargs=_build_task_kwargs(
-                    task_record.task_type, task_record.task_id, user_id, task_record.params
-                ),
-                priority=task_record.priority,
-                time_limit=task_record.timeout,
-            )
-            task_record.celery_task_id = result.id
+        result = await asyncio.to_thread(
+            celery_app.send_task,
+            celery_task_name,
+            kwargs=_build_task_kwargs(
+                task_record.task_type, task_record.task_id, user_id, task_record.params
+            ),
+            priority=task_record.priority,
+            time_limit=task_record.timeout,
+        )
+        task_record.celery_task_id = result.id
         await db.commit()
     except StateNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

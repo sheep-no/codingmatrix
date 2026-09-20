@@ -90,8 +90,8 @@
 - **APY4 [P3]** :331-353 update_context_lengths 值无校验；:368-400 fallback chain 元素为任意字符串（模型名无白名单）
 
 ### task_queue.py（3 项）
-- **TQ4 [P3]** :53-57 task_map 双向失配：TaskTypeEnum 4 值中 ppt_generate/file_process 无映射 → 400；modify_with_test 不在枚举 → 死分支；docstring 与实现不符
-- **TQ5 [P3]** :304-306 retry 复用同一 task_id 重发 Celery（覆盖旧结果）+ :303 celery_task_id 为空的失败任务跳过 send_task 但 status 已改 pending → 幽灵任务
+- **TQ4 [P3] 已修复（核实）**：`TASK_NAMES`（`app/api/v1/task_queue.py`）已覆盖 `TaskTypeEnum` 全部 4 值（project_generate/code_generate/modify_with_test/ppt_generate），create/retry/recover 共用同一映射源；未知类型在 create 中且仅在其中返回 400。`test_task_type_contract_matches_implemented_tasks` 与 `test_build_task_kwargs_covers_every_supported_type` 锁定该契约，docstring 与实现一致。
+- **TQ5 [P3] 已修复**：Celery ID 复用部分已在 PR #88 修复（retry/recover 均以 `result.id` 覆盖 `celery_task_id`）。本次修复幽灵任务：原实现先置 `status="pending"` 再判断 `celery_task_name`，无映射时状态已改却无派发。现改为在改状态/`transition_task`/写事件之前先校验映射，缺失则返回 400，状态保持不变。回归测试 `tests/unit/test_task_dispatch_contract.py` 新增 2 项（retry/recover 各一）
 - **TQ6 [P3]** :126 celery "failure" ≠ DB "failed" 状态语义漂移；:247 cancel 白名单含 retrying（DB 层无此值）——SD5 家族 API 层实证
 
 ### Aicode.py（6 项）
