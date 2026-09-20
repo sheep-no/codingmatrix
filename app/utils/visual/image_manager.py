@@ -26,7 +26,11 @@ logger = logging.getLogger(__name__)
 
 # 图片保存目录
 IMAGE_CACHE_DIR = Path("./pptx_output/image_cache")
-IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _ensure_cache_dir() -> None:
+    """按需创建缓存目录，避免 import 时的文件系统副作用。"""
+    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class ImageSource(Enum):
@@ -131,14 +135,18 @@ class ImageManager:
                 logger.warning(f"Unsplash 获取失败: {e}")
         
         # 最终降级：使用专业占位符
+        used_placeholder = False
         if not asset or asset.source == ImageSource.NONE:
             logger.info(f"所有图片获取策略失败，使用占位符 | errors={errors}")
             asset = self._create_placeholder(description, keywords)
-        
+            used_placeholder = True
+
         if asset and asset.source != ImageSource.NONE:
             asset.used_in_slide = slide_index
             self.cache[cache_key] = asset
-            self.generated_count += 1
+            # 占位符不消耗生成配额，否则会提前截断后续真实图片获取
+            if not used_placeholder:
+                self.generated_count += 1
         
         return asset
     
@@ -304,6 +312,7 @@ class ImageManager:
     
     async def _download_image(self, url: str, description: str) -> Optional[str]:
         """下载图片并保存到本地，自动转换 WEBP 格式"""
+        _ensure_cache_dir()
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 response = await client.get(url)
@@ -348,6 +357,7 @@ class ImageManager:
         keyword: str
     ) -> Optional[str]:
         """保存图片字节到本地"""
+        _ensure_cache_dir()
         try:
             filename = f"{keyword}_{uuid.uuid4().hex[:8]}.jpg"
             local_path = IMAGE_CACHE_DIR / filename
@@ -366,6 +376,7 @@ class ImageManager:
         keywords: List[str]
     ) -> ImageAsset:
         """创建专业的占位符图片"""
+        _ensure_cache_dir()
         try:
             from PIL import Image, ImageDraw, ImageFont
             
@@ -480,6 +491,7 @@ class ImageManager:
         color: str = "#004296"
     ) -> Optional[str]:
         """生成图标（使用 emoji 或简单形状作为备选）"""
+        _ensure_cache_dir()
         # 创建图标图片
         try:
             from PIL import Image, ImageDraw, ImageFont
