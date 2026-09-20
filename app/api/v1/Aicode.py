@@ -499,6 +499,31 @@ def format_tokens_usage(resp: Dict) -> Dict:
     }
 
 
+def extract_response_text(result: Any) -> str:
+    """从 LLM 响应中安全取出正文，结构异常时抛 RuntimeError（调用方已捕获）。"""
+    content = (
+        ((result or {}).get("choices") or [{}])[0]
+        .get("message", {})
+        .get("content")
+    )
+    if not isinstance(content, str):
+        raise RuntimeError("AI 服务返回了无效响应")
+    return content
+
+
+def _restore_partial_prefix(resume_from: Optional[str], user_id: Any) -> str:
+    """取出可续写的前缀文本；仅接受归属当前用户的恢复缓存。"""
+    if not resume_from or resume_from not in _partial_response_cache:
+        return ""
+    cache = _partial_response_cache.pop(resume_from)
+    if str(cache.get("user_id")) != str(user_id):
+        logger.warning(f"忽略非本人的部分响应恢复 | task_id={resume_from}")
+        return ""
+    prefix_text = cache.get("partial_response", "")
+    logger.info(f"从部分响应恢复 | task_id={resume_from} | prefix_len={len(prefix_text)}")
+    return prefix_text
+
+
 async def compress_conversation_history(
     db: AsyncSession,
     user_id: int,
@@ -975,11 +1000,7 @@ async def stream_response(
     cancel_event = asyncio.Event()
 
     # 恢复上下文：如果有部分响应，将其作为前缀
-    prefix_text = ""
-    if resume_from and resume_from in _partial_response_cache:
-        cache = _partial_response_cache.pop(resume_from)
-        prefix_text = cache.get("partial_response", "")
-        logger.info(f"从部分响应恢复 | task_id={resume_from} | prefix_len={len(prefix_text)}")
+    prefix_text = _restore_partial_prefix(resume_from, user_id)
 
     stage_events = asyncio.Queue()
 
@@ -1175,7 +1196,7 @@ async def generate_response(
         result = await call_llm(model=model, prompt=retry_prompt, stream=False,
                                 max_tokens=context_budget.max_output_tokens,
                                 api_key_token=api_key_token)
-    response = result["choices"][0]["message"]["content"]
+    response = extract_response_text(result)
     tokens_used = format_tokens_usage(result)
     
     # 检查响应是否为空，避免保存空记录
@@ -1298,7 +1319,7 @@ async def generate_code(
                     search_count=body.search_count or 5,
                     files_to_parse=files_to_parse if files_to_parse else None,
                     include_history=True,
-                    resume_from=getattr(body, 'resume_id', None),
+                    resume_from=body.resume_id,
                     api_key_token=body.api_key_token
                 ),
                 media_type="text/event-stream",
