@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from app.agent.orchestration.routing import (
+# 从包级出口导入：既验证默认引擎契约，也验证 orchestration 包确实导出了这些符号
+from app.agent.orchestration import (
     CORE_ENGINE,
     DEFAULT_ENGINE,
     LEGACY_ENGINE,
