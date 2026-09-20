@@ -53,3 +53,16 @@
 ## 四、测试状态
 
 零单元测试。安全机制 bypass、硬编码凭据漏检、callback 未 await、mtime 漏检均无测试约束。修复建议：① 若接入——DPM5 评估前置 + DPM1 启发式加固测试；② PV1 密钥模式清单扩展 + 真实凭据样本测试；③ HR1 async callback 测试；④ 死代码清理或补消费方文档。
+
+## 五、状态更新（2026-09-20 核实）
+
+按当前代码逐条核实后的结论：
+
+- **DPM5 [P2] 已修**：`filter_packages` 对既不在白名单也不在黑名单的包原为直接 `allowed.append`（fail-open）。现改为 `rejected.append`，并按 fail-closed 语义记日志；同步过滤无法完成 AI 评估，未评估包需经 `evaluate_and_install` 通过并加入动态白名单后才可放行。
+- **HR1 [P2] 已修**：新增 `ConfigWatcher._invoke_callback`，回调返回值若为 awaitable（如 async def）则 `await`，消除「注册 async 回调 → 协程被丢弃且不执行」。
+- **HR4 [P3] 已修（同上一并处理）**：回调调用改为逐 key 独立 try/except，单个回调抛错不再中断整个 reload 循环；`dotenv` 读取失败与外层循环失败已分离。
+- **HR8 [P3] 已修**：`HotReloadConfig.register_watcher` 现向 `ConfigWatcher` 注入 `on_change=self.record_change`，`_reload_config` 在触发回调前记录变更，`get_change_history` 不再恒为空。
+- **PV1/PV2/PV5/PV6/PV7/PV8 已随文件删除失效**：`app/utils/project_validator.py` 已于 2026-09-16 删除（同名 `ProjectValidator` 实际活跃于 `app/utils/agent_core.py`）。
+- **HR2 [P3] 判定不成立**：`ConfigWatcher._lock` 定义后从未被 `_poll` 或 `_reload_config` 使用，不存在「用 threading.Lock 保护 async 轮询」的情形；该字段为未使用字段，可在后续清理中移除。
+- **HR3/HR6/HR7、DPM1/DPM2/DPM4/DPM6/DPM7 未改**：均为已知设计取舍或零消费场景下的延后项（mtime 精度、相对路径、单例无锁、启发式评估强度、动态白名单无复审、正则只匹配无嵌套 JSON、持久化无锁），不属于「接线即崩」类，留待接入消费方时专项处理。
+- 新增回归 `tests/unit/test_hot_reload_and_package_filter.py`（4 项）：async 回调被 await、回调异常不中断后续、变更历史被记录、未评估包被拒绝。回退 `hot_reload.py` 与 `dynamic_package_manager.py` 后 4 项全部失败。
