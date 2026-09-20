@@ -20,6 +20,9 @@ function stubConnection(handlers) {
     fetchSnapshotDiff: record("fetchSnapshotDiff"),
     fetchPerformance: record("fetchPerformance"),
     fetchLearningStats: record("fetchLearningStats"),
+    fetchConcurrentLimits: record("fetchConcurrentLimits"),
+    fetchCacheStats: record("fetchCacheStats"),
+    clearAgentCache: record("clearAgentCache"),
   };
 }
 
@@ -39,6 +42,9 @@ test("dispatches every supported resource to the matching connection method", as
     fetchSnapshotDiff: (sessionId, from, to) => ["diff", sessionId, from, to],
     fetchPerformance: () => ["performance"],
     fetchLearningStats: () => ["learning"],
+    fetchConcurrentLimits: () => ["limits"],
+    fetchCacheStats: () => ["cache"],
+    clearAgentCache: (mode) => ["clear", mode],
   });
 
   assert.deepEqual(await dispatchWorkbenchRequest(connection, request("history_list", { limit: 10, offset: 20 })), ["list", { limit: 10, offset: 20 }]);
@@ -54,6 +60,9 @@ test("dispatches every supported resource to the matching connection method", as
   );
   assert.deepEqual(await dispatchWorkbenchRequest(connection, request("performance")), ["performance"]);
   assert.deepEqual(await dispatchWorkbenchRequest(connection, request("learning")), ["learning"]);
+  assert.deepEqual(await dispatchWorkbenchRequest(connection, request("concurrent_limits")), ["limits"]);
+  assert.deepEqual(await dispatchWorkbenchRequest(connection, request("cache_stats")), ["cache"]);
+  assert.deepEqual(await dispatchWorkbenchRequest(connection, request("cache_clear", { mode: "all" })), ["clear", "all"]);
 });
 
 test("omits paging options the webview did not send", async () => {
@@ -69,4 +78,11 @@ test("rejects invalid or missing parameters before reaching the connection", asy
   await assert.rejects(() => dispatchWorkbenchRequest(connection, request("snapshot_list", { session_id: "   " })), /缺少参数：session_id/);
   await assert.rejects(() => dispatchWorkbenchRequest(connection, request("snapshot_rollback", { session_id: "s-1" })), /缺少参数：target_tag/);
   assert.deepEqual(connection.calls, []);
+});
+
+test("falls back to the expired cache scope for an unknown mode", async () => {
+  const connection = stubConnection({ clearAgentCache: (mode) => mode });
+  assert.equal(await dispatchWorkbenchRequest(connection, request("cache_clear")), "expired");
+  assert.equal(await dispatchWorkbenchRequest(connection, request("cache_clear", { mode: "everything" })), "expired");
+  assert.equal(await dispatchWorkbenchRequest(connection, request("cache_clear", { mode: "all" })), "all");
 });

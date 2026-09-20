@@ -565,3 +565,58 @@ test("requires a top_errors array from the learning stats", async () => {
     /top_errors/,
   );
 });
+
+test("normalizes the concurrent limits and the cache stats", async () => {
+  const calls = [];
+  const connection = connected(async (url) => {
+    calls.push(url);
+    if (url.endsWith("/cache/stats")) {
+      return response({
+        total_requests: 40,
+        cache_hits: 30,
+        cache_misses: 10,
+        hit_rate: 0.75,
+        cached_entries: 6,
+        cache_size_mb: 1.5,
+        vector_index_size: 3,
+        tech_index_groups: 2,
+      });
+    }
+    return response({ recommendations: { orchestrator: 4, reviewer: 2 } });
+  });
+
+  assert.deepEqual(await connection.fetchConcurrentLimits(), { orchestrator: 4, reviewer: 2 });
+  assert.deepEqual(await connection.fetchCacheStats(), {
+    total_requests: 40,
+    cache_hits: 30,
+    cache_misses: 10,
+    hit_rate: 0.75,
+    cached_entries: 6,
+    cache_size_mb: 1.5,
+    vector_index_size: 3,
+    tech_index_groups: 2,
+  });
+  assert.deepEqual(calls.sort(), [
+    "https://codingmatrix.example/api/v1/agent/cache/stats",
+    "https://codingmatrix.example/api/v1/agent/concurrent-limits/recommended",
+  ]);
+});
+
+test("clears the cache with the requested mode", async () => {
+  const calls = [];
+  const connection = connected(async (url, init) => {
+    calls.push({ url, method: init.method });
+    return response({ success: true, cleared_count: 3, mode: "all" });
+  });
+
+  assert.deepEqual(await connection.clearAgentCache("all"), { clearedCount: 3, mode: "all" });
+  assert.deepEqual(calls, [{
+    url: "https://codingmatrix.example/api/v1/agent/cache/clear?mode=all",
+    method: "POST",
+  }]);
+});
+
+test("requires an object body from the cache stats", async () => {
+  const connection = connected(async () => response([]));
+  await assert.rejects(() => connection.fetchCacheStats(), /cache stats/);
+});

@@ -80,6 +80,14 @@ const controller = new AgentWorkbenchController({
   },
   onRequest: async (request) => {
     if (!cloudConnection) throw new Error("云端 Agent 尚未连接");
+    if (request.resource === "cache_clear" && request.params.mode === "all") {
+      const choice = await vscode.window.showWarningMessage(
+        "确认清空全部 Agent 缓存吗？",
+        { modal: true },
+        "清空",
+      );
+      if (choice !== "清空") throw new Error("已取消清空缓存");
+    }
     return dispatchWorkbenchRequest(cloudConnection, request);
   },
 });

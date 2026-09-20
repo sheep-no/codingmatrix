@@ -301,6 +301,40 @@ const loadLearning=function(){
   });
 };
 $('learning-refresh').addEventListener('click',function(){loadLearning();});
+const loadSettings=function(){
+  setStatus('正在读取缓存与并发配置');
+  return Promise.all([request('concurrent_limits',{}),request('cache_stats',{})]).then(function(results){
+    const limits=results[0]||{},cache=results[1]||{};
+    const limitsTarget=$('settings-limits');
+    limitsTarget.textContent='';
+    const limitKeys=Object.keys(limits);
+    if(!limitKeys.length){empty(limitsTarget,'暂无并发建议');}
+    limitKeys.forEach(function(key){
+      const value=limits[key];
+      limitsTarget.appendChild(row(key,typeof value==='object'?JSON.stringify(value):String(value)));
+    });
+    const cacheTarget=$('settings-cache');
+    cacheTarget.textContent='';
+    cacheTarget.appendChild(row('总请求',String(cache.total_requests||0)));
+    cacheTarget.appendChild(row('命中次数',String(cache.cache_hits||0)));
+    cacheTarget.appendChild(row('未命中次数',String(cache.cache_misses||0)));
+    cacheTarget.appendChild(row('命中率',percent(cache.hit_rate)+'%'));
+    cacheTarget.appendChild(row('缓存条目',String(cache.cached_entries||0)));
+    cacheTarget.appendChild(row('缓存大小',String(cache.cache_size_mb||0)+' MB'));
+    setStatus('缓存与并发配置已更新');
+  }).catch(function(error){setStatus(error&&error.message?error.message:'缓存与并发读取失败');});
+};
+const clearCache=function(mode){
+  setStatus(mode==='all'?'正在清空全部缓存':'正在清理过期缓存');
+  return runRequest('cache_clear',{mode:mode},function(result){
+    append('缓存清理完成：'+String(result?result.clearedCount:0)+' 项（'+String(result&&result.mode||mode)+'）');
+    setStatus('缓存已清理');
+    return loadSettings();
+  });
+};
+$('settings-refresh').addEventListener('click',function(){loadSettings();});
+$('cache-clear-expired').addEventListener('click',function(){clearCache('expired');});
+$('cache-clear-all').addEventListener('click',function(){clearCache('all');});
 window.addEventListener('message',function(event){
   const data=event.data;
   if(data&&data.type==='workbench_response'){
@@ -353,6 +387,7 @@ export function createAgentWorkbenchHtml(): string {
 <button class="tab-button" data-tab="versions">文件版本</button>
 <button class="tab-button" data-tab="performance">性能</button>
 <button class="tab-button" data-tab="learning">学习</button>
+<button class="tab-button" data-tab="settings">设置</button>
 </nav>
 <section class="tab-panel" id="tab-chat">
 <div class="panel"><p>当前工作台共享 Web Agent 会话，可在这里继续对话、审批本地动作和查看验证结果。</p><textarea id="prompt" maxlength="5000" placeholder="输入 Agent 需求"></textarea><button id="send">发送需求</button><button id="hello">连接本地 Agent Host</button><button id="pause">暂停</button><button id="resume">恢复</button><button id="cancel">取消</button><button id="approve" hidden>批准当前动作</button><button id="reject" hidden>拒绝当前动作</button><div id="messages" aria-live="polite"></div></div>
@@ -372,6 +407,9 @@ export function createAgentWorkbenchHtml(): string {
 </section>
 <section class="tab-panel" id="tab-learning">
 <div class="panel"><button id="learning-refresh">刷新学习统计</button><div id="learning-body"></div><div id="learning-errors"></div></div>
+</section>
+<section class="tab-panel" id="tab-settings">
+<div class="panel"><button id="settings-refresh">刷新缓存与并发</button><h2>并发建议</h2><div id="settings-limits"></div><h2>缓存统计</h2><div id="settings-cache"></div><div class="item-actions"><button id="cache-clear-expired">清理过期缓存</button><button class="danger" id="cache-clear-all">清空全部缓存</button></div></div>
 </section>
 <script nonce="codingmatrix-agent-host">${WORKBENCH_SCRIPT}
 </script></body></html>`;

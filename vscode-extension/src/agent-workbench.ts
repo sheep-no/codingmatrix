@@ -20,6 +20,9 @@ export const WORKBENCH_RESOURCES = [
   "snapshot_diff",
   "performance",
   "learning",
+  "concurrent_limits",
+  "cache_stats",
+  "cache_clear",
 ] as const;
 
 export type WorkbenchResource = (typeof WORKBENCH_RESOURCES)[number];

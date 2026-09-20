@@ -13,7 +13,10 @@ declare module "vscode" {
   export interface WorkspaceFolder { name: string; uri: { fsPath: string }; }
   export interface Webview { html: string; onDidReceiveMessage(listener: (message: unknown) => void): Disposable; postMessage(message: unknown): PromiseLike<boolean>; }
   export interface WebviewPanel { webview: Webview; onDidDispose(listener: () => void): Disposable; reveal(viewColumn?: ViewColumn): void; dispose(): void; }
-  export interface Window { createWebviewPanel(viewType: string, title: string, showOptions: ViewColumn, options?: { enableScripts?: boolean }): WebviewPanel; }
+  export interface Window {
+    createWebviewPanel(viewType: string, title: string, showOptions: ViewColumn, options?: { enableScripts?: boolean }): WebviewPanel;
+    showWarningMessage(message: string, options: { modal?: boolean }, ...items: string[]): PromiseLike<string | undefined>;
+  }
   export interface Diagnostic {
     message: string;
     severity: number;

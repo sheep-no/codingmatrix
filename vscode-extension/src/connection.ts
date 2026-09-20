@@ -130,6 +130,22 @@ export interface LearningStats {
   top_errors: LearningErrorPattern[];
 }
 
+export interface CacheStats {
+  total_requests: number;
+  cache_hits: number;
+  cache_misses: number;
+  hit_rate: number;
+  cached_entries: number;
+  cache_size_mb: number;
+  vector_index_size: number;
+  tech_index_groups: number;
+}
+
+export interface CacheClearResult {
+  clearedCount: number;
+  mode: string;
+}
+
 const DEFAULT_ACTIONS_PATH = "/api/v1/agent/local-validation/actions";
 const DEFAULT_RESULTS_PATH = "/api/v1/agent/local-validation/results";
 const DEFAULT_HANDSHAKE_PATH = "/api/v1/agent/host/handshake";
@@ -403,6 +419,42 @@ export class CloudConnection {
           fix_description: this.optionalString(item.fix_description) ?? "",
         }];
       }),
+    };
+  }
+
+  async fetchConcurrentLimits(): Promise<Record<string, unknown>> {
+    const response = await this.request("/api/v1/agent/concurrent-limits/recommended", { method: "GET" });
+    const body = await this.readJson(response);
+    return this.isRecord(body) && this.isRecord(body.recommendations) ? { ...body.recommendations } : {};
+  }
+
+  async fetchCacheStats(): Promise<CacheStats> {
+    const response = await this.request("/api/v1/agent/cache/stats", { method: "GET" });
+    const body = await this.readJson(response);
+    if (!this.isRecord(body)) {
+      throw new ProtocolError("invalid_payload", "cache stats response must be an object");
+    }
+    return {
+      total_requests: this.optionalNumber(body.total_requests) ?? 0,
+      cache_hits: this.optionalNumber(body.cache_hits) ?? 0,
+      cache_misses: this.optionalNumber(body.cache_misses) ?? 0,
+      hit_rate: this.optionalNumber(body.hit_rate) ?? 0,
+      cached_entries: this.optionalNumber(body.cached_entries) ?? 0,
+      cache_size_mb: this.optionalNumber(body.cache_size_mb) ?? 0,
+      vector_index_size: this.optionalNumber(body.vector_index_size) ?? 0,
+      tech_index_groups: this.optionalNumber(body.tech_index_groups) ?? 0,
+    };
+  }
+
+  async clearAgentCache(mode: "expired" | "all"): Promise<CacheClearResult> {
+    const response = await this.request(`/api/v1/agent/cache/clear?mode=${mode}`, { method: "POST" });
+    const body = await this.readJson(response);
+    if (!this.isRecord(body)) {
+      throw new ProtocolError("invalid_payload", "cache clear response must be an object");
+    }
+    return {
+      clearedCount: this.optionalNumber(body.cleared_count) ?? 0,
+      mode: this.optionalString(body.mode) ?? mode,
     };
   }
 

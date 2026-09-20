@@ -44,6 +44,12 @@ export async function dispatchWorkbenchRequest(
       return connection.fetchPerformance();
     case "learning":
       return connection.fetchLearningStats();
+    case "concurrent_limits":
+      return connection.fetchConcurrentLimits();
+    case "cache_stats":
+      return connection.fetchCacheStats();
+    case "cache_clear":
+      return connection.clearAgentCache(cacheClearMode(params.mode));
     default:
       throw new Error(`不支持的工作台请求：${request.resource satisfies never}`);
   }
@@ -66,4 +72,10 @@ function optionalIntegerParam(value: unknown, field: string, minimum: number): n
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isInteger(parsed) || parsed < minimum) throw new Error(`参数 ${field} 无效`);
   return parsed;
+}
+
+// Clearing the cache is the only mutating workbench request; an unknown mode
+// falls back to the safe "expired" scope instead of wiping every entry.
+function cacheClearMode(value: unknown): "expired" | "all" {
+  return value === "all" ? "all" : "expired";
 }
