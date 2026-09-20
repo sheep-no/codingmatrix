@@ -196,7 +196,7 @@ Host 会话默认保存到 `data/agent_host_sessions`，使用临时文件替换
 
 ### 工作台面板
 
-`AgentWorkbenchController` 打开的 Webview 分为六个面板：对话、会话历史、模型、文件版本、性能和学习。对话面板复用云端流式会话与本地审批；其余五个面板通过统一的 `workbench_request` / `workbench_response` 通道读取普通用户可用的 v1 接口，扩展侧在 `workbench-requests.ts` 校验参数后转发给 `CloudConnection`：
+`AgentWorkbenchController` 打开的 Webview 分为七个面板：对话、会话历史、模型、文件版本、性能、学习和设置。对话面板复用云端流式会话与本地审批；其余六个面板通过统一的 `workbench_request` / `workbench_response` 通道读取普通用户可用的 v1 接口，扩展侧在 `workbench-requests.ts` 校验参数后转发给 `CloudConnection`：
 
 | 面板 | resource | 接口 |
 | --- | --- | --- |
@@ -205,8 +205,9 @@ Host 会话默认保存到 `data/agent_host_sessions`，使用临时文件替换
 | 文件版本 | `snapshot_list`、`snapshot_rollback`、`snapshot_diff` | `GET /api/v1/agent/snapshots/{session_id}`、`POST /api/v1/agent/rollback/{session_id}`、`GET /api/v1/agent/snapshot/diff` |
 | 性能 | `performance` | `GET /api/v1/agent/performance` 与 `/performance/trends` |
 | 学习 | `learning` | `GET /api/v1/agent/learning/stats` |
+| 设置 | `concurrent_limits`、`cache_stats`、`cache_clear` | `GET /api/v1/agent/concurrent-limits/recommended`、`GET /api/v1/agent/cache/stats`、`POST /api/v1/agent/cache/clear` |
 
-文件版本面板默认使用最近一次 `done` 事件返回的 `session_id`，也可手动填写。管理级模型接口（`/api/v2/models/*`、`/api/v2/model-config/*`）需要 superadmin，未纳入工作台。
+文件版本面板默认使用最近一次 `done` 事件返回的 `session_id`，也可手动填写。设置面板中「清空全部缓存」由扩展侧弹原生确认框，取消则不发送请求；未指定 `mode` 的清理请求按 `expired` 处理。管理级模型接口（`/api/v2/models/*`、`/api/v2/model-config/*`）需要 superadmin，未纳入工作台。
 
 ## 沙箱运行控制
 

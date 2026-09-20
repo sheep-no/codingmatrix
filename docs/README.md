@@ -137,7 +137,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 | GirlAI | 5 个预设角色与用户自定义角色支持对话、历史、搜索、导出和偏好；legacy 历史与统一 session/message 同事务维护，归档摘要进入 checkpoint |
 | PPT 大纲与质量 | 大纲支持版本化编辑和批准门禁；生成按 `planning -> assets -> rendering -> rule_qa -> reflow -> vision_qa -> completed` 编排，提供质量报告、最多 2 次自动重排和单页重生成 |
 | Mobile Agent | 与 Web Agent 共用 `/agent`、API 和 Store；768px 以下提供单列布局、会话/文件抽屉、遮罩、焦点管理和移动工具栏 |
-| VS Code Agent Host | 协议版本 1 支持 workspace、file、terminal、diagnostics、validation 和 skill runtime，包含握手、动作队列、审批策略、Skill 同步及 pause/resume/cancel；工作台面板覆盖对话、会话历史、模型、文件版本、性能和学习 |
+| VS Code Agent Host | 协议版本 1 支持 workspace、file、terminal、diagnostics、validation 和 skill runtime，包含握手、动作队列、审批策略、Skill 同步及 pause/resume/cancel；工作台面板覆盖对话、会话历史、模型、文件版本、性能、学习和设置 |
 | Flutter 桌面客户端 | `flutter_client/` 已接入对话、GirlAI、PPT、图片、工作流、文件、模型、动态供应商、任务、Agent 历史、GitHub 配置/保存、管理后台和 MCP 管理；GitHub 深度操作仍受后端接口限制 |
 | 架构师超时回退 | Architect LLM 超时、空输出或解析失败时使用需求感知默认架构，生成不中断 |
 | 语言骨架 | 入口、README、依赖清单由 `app/agent/adapters/boilerplate.py` 确定性生成 |

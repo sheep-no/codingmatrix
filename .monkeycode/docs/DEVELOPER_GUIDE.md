@@ -167,7 +167,7 @@ npx --no-install playwright test tests/e2e/admin-panel-scenarios.spec.js --confi
 - PPT 任务 6 渲染与素材回归：完整 PPT 测试 `235 passed`；11 类页面视觉骨架、图片等比适配/回退、图表选择和来源占位规则通过。
 - `elegant` 董事会备忘录主题统一生成测试：`24 passed`；6 页 PPTX、PDF 和 PNG 样稿生成成功，证据页与路线页二轮视觉评分为 `9.0/10` 和 `8.5/10`。
 - 前端全量测试：`36 passed`；PPT 工作流测试覆盖大纲修改、新增、重排、删除、批准禁用，以及逐页质量分、问题、修复动作和人工复核标记展示；前端生产构建成功。
-- VS Code 扩展构建成功，Node 原生测试：`94 passed`。
+- VS Code 扩展构建成功，Node 原生测试：`98 passed`。
 - VS Code Extension Development Host E2E 成功，使用 VS Code `1.136.1` 覆盖扩展发现、激活、兼容性校验、Agent Workbench 命令和工作区加载。
 - 已生成 VSIX：`vscode-extension/codingmatrix-local-validation-0.1.0.vsix`。
 - 真实 Agent/PPT 验收已覆盖 HTML 产物生成、PPTX HTTP 下载、WebSocket 进度事件和错误格式请求返回 404。
@@ -320,7 +320,7 @@ git diff --check
 - `tool-dispatcher.ts` 负责将 Agent Host 动作路由到工作区文件、诊断和验证适配器；文件动作必须通过 `WorkspaceAuthorization`，验证动作必须通过 `ValidationRunner`，策略关闭时拒绝新的本地动作。
 - 终端 Agent Host 动作沿用 `PendingAction` 的操作白名单和工作区目录约束，并通过 `ValidationRunner` 执行；新增终端能力时保持参数数组和 `shell=false`。
 - `webview-bridge.ts` 和 `agent-host-runtime.ts` 组成 Webview 消息层与 Agent Host 动作运行层；两者保持 VS Code API 解耦，使用 `npm --prefix vscode-extension test` 验证请求关联、超时、会话门禁和结果事件。
-- `agent-workbench.ts`、`workbench-html.ts`、`workbench-requests.ts` 和 `extension.ts` 提供原生 Webview 六个面板、`workbench_request` 数据通道及 `codingmatrix.openAgentWorkbench` activation 命令；真实 Extension Host E2E 通过 `npm --prefix vscode-extension run e2e` 验证命令注册和面板打开。
+- `agent-workbench.ts`、`workbench-html.ts`、`workbench-requests.ts` 和 `extension.ts` 提供原生 Webview 七个面板、`workbench_request` 数据通道及 `codingmatrix.openAgentWorkbench` activation 命令；真实 Extension Host E2E 通过 `npm --prefix vscode-extension run e2e` 验证命令注册和面板打开。
 - `CloudConnection.streamAgentPrompt()` 调用 `/api/v1/agent/orchestrate/stream`；修改连接路径或流式协议时必须同步更新 `vscode-extension/test/connection.test.mjs`。
 - `approval-bridge.ts` 管理 Host 动作的审批请求和决定；`AgentHostRuntime` 通过会话策略的 `auto_approve` 开关控制动作暂停、批准继续和拒绝结果。
 - `AgentWorkbenchController` 通过 `onMessage` 回调接收已验证的 Webview 控制消息；审批请求在工作台中展示批准和拒绝操作，并按原 Envelope 回传决定。
