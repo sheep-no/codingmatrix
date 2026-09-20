@@ -56,6 +56,9 @@ test("renders the history, model, version, performance, learning and settings pa
   assert.match(html, /id="incremental"/);
   assert.match(html, /data-flag="enable_skills"/);
   assert.match(html, /data-flag="dependency_graph"/);
+  assert.match(html, /id="decisions"/);
+  assert.match(html, /critical_decisions/);
+  assert.match(html, /decision_submit/);
 });
 
 test("routes a workbench request and posts the response", async () => {

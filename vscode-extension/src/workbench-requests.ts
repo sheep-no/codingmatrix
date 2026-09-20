@@ -50,6 +50,11 @@ export async function dispatchWorkbenchRequest(
       return connection.fetchCacheStats();
     case "cache_clear":
       return connection.clearAgentCache(cacheClearMode(params.mode));
+    case "decision_submit":
+      return connection.submitDecisions(
+        requiredStringParam(params.session_id, "session_id"),
+        requiredChoiceParams(params.decisions),
+      );
     default:
       throw new Error(`不支持的工作台请求：${request.resource satisfies never}`);
   }
@@ -78,4 +83,22 @@ function optionalIntegerParam(value: unknown, field: string, minimum: number): n
 // falls back to the safe "expired" scope instead of wiping every entry.
 function cacheClearMode(value: unknown): "expired" | "all" {
   return value === "all" ? "all" : "expired";
+}
+
+// A decision is a closed id -> option-label map, so every entry has to be a
+// non-empty string. An empty map is rejected because the server answers
+// "ignored" and the stream would keep waiting without a real choice.
+function requiredChoiceParams(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("缺少参数：decisions");
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (!entries.length) throw new Error("缺少参数：decisions");
+  const choices: Record<string, string> = {};
+  for (const [id, label] of entries) {
+    if (!id.trim()) throw new Error("参数 decisions 含空标识");
+    if (typeof label !== "string" || !label.trim()) throw new Error(`决策 ${id} 未选择选项`);
+    choices[id] = label.trim();
+  }
+  return choices;
 }

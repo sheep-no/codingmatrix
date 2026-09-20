@@ -146,6 +146,11 @@ export interface CacheClearResult {
   mode: string;
 }
 
+export interface DecisionSubmitResult {
+  status: string;
+  sessionId: string;
+}
+
 const DEFAULT_ACTIONS_PATH = "/api/v1/agent/local-validation/actions";
 const DEFAULT_RESULTS_PATH = "/api/v1/agent/local-validation/results";
 const DEFAULT_HANDSHAKE_PATH = "/api/v1/agent/host/handshake";
@@ -455,6 +460,21 @@ export class CloudConnection {
     return {
       clearedCount: this.optionalNumber(body.cleared_count) ?? 0,
       mode: this.optionalString(body.mode) ?? mode,
+    };
+  }
+
+  async submitDecisions(sessionId: string, decisions: Record<string, string>): Promise<DecisionSubmitResult> {
+    const response = await this.request(
+      `/api/v1/agent/session/${encodeURIComponent(sessionId)}/decision`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(decisions) },
+    );
+    const body = await this.readJson(response);
+    if (!this.isRecord(body)) {
+      throw new ProtocolError("invalid_payload", "decision response must be an object");
+    }
+    return {
+      status: this.optionalString(body.status) ?? "",
+      sessionId: this.optionalString(body.session_id) ?? sessionId,
     };
   }
 

@@ -620,3 +620,29 @@ test("requires an object body from the cache stats", async () => {
   const connection = connected(async () => response([]));
   await assert.rejects(() => connection.fetchCacheStats(), /cache stats/);
 });
+
+test("submits architecture decisions as the request body", async () => {
+  const calls = [];
+  const connection = connected(async (url, init) => {
+    calls.push({ url, method: init.method, body: init.body });
+    return response({ status: "submitted", session_id: "s/1" });
+  });
+
+  assert.deepEqual(await connection.submitDecisions("s/1", { state_management: "Pinia" }), {
+    status: "submitted",
+    sessionId: "s/1",
+  });
+  assert.deepEqual(calls, [{
+    url: "https://codingmatrix.example/api/v1/agent/session/s%2F1/decision",
+    method: "POST",
+    body: JSON.stringify({ state_management: "Pinia" }),
+  }]);
+});
+
+test("reports the ignored decision status instead of throwing", async () => {
+  const connection = connected(async () => response({ status: "ignored", message: "没有等待的决策请求" }));
+  assert.deepEqual(await connection.submitDecisions("s-1", { a: "b" }), {
+    status: "ignored",
+    sessionId: "s-1",
+  });
+});

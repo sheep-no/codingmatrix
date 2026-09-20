@@ -33,6 +33,9 @@ label.field{display:block;color:var(--vscode-descriptionForeground);font-size:12
 .code{white-space:pre-wrap;word-break:break-all;background:var(--vscode-textCodeBlock-background);padding:10px;border-radius:4px;max-height:320px;overflow:auto}
 .message{white-space:pre-wrap;border-left:3px solid var(--vscode-textLink-foreground);padding:8px;margin:6px 0}
 .message.error{border-left-color:var(--vscode-errorForeground)}
+.decision{border:1px solid var(--vscode-panel-border);border-radius:4px;padding:10px;margin-top:8px}
+.decision select{display:block;width:100%;margin-top:6px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);padding:4px}
+.decision .option{color:var(--vscode-descriptionForeground);font-size:12px;word-break:break-all}
 `;
 
 // No template literals or `${` may appear below: this text is embedded in a
@@ -349,6 +352,67 @@ const clearCache=function(mode){
 $('settings-refresh').addEventListener('click',function(){loadSettings();});
 $('cache-clear-expired').addEventListener('click',function(){clearCache('expired');});
 $('cache-clear-all').addEventListener('click',function(){clearCache('all');});
+const selectable=function(question,label){
+  return (question.options||[]).some(function(option){return option.label===label;});
+};
+const renderDecisions=function(sessionId,questions){
+  const target=$('decisions');
+  target.textContent='';
+  if(!questions.length){setStatus('服务端未提供决策选项');return;}
+  questions.forEach(function(question){
+    const box=document.createElement('div');
+    box.className='decision';
+    const title=document.createElement('div');
+    title.className='item-title';
+    title.textContent=question.question||question.id;
+    box.appendChild(title);
+    if(question.context){
+      const context=document.createElement('div');
+      context.className='option';
+      context.textContent=question.context;
+      box.appendChild(context);
+    }
+    const select=document.createElement('select');
+    select.setAttribute('data-decision',question.id);
+    const placeholder=document.createElement('option');
+    placeholder.value='';
+    placeholder.textContent='请选择';
+    select.appendChild(placeholder);
+    (question.options||[]).forEach(function(option){
+      const entry=document.createElement('option');
+      entry.value=option.label;
+      entry.textContent=option.label;
+      select.appendChild(entry);
+    });
+    select.value=selectable(question,question.default)?question.default:'';
+    box.appendChild(select);
+    (question.options||[]).forEach(function(option){
+      const line=document.createElement('div');
+      line.className='option';
+      line.textContent=option.label+'：'+(option.description||'');
+      box.appendChild(line);
+    });
+    target.appendChild(box);
+  });
+  const submit=button('提交决策',function(){submitDecisions(sessionId);});
+  target.appendChild(submit);
+  setStatus('服务端等待架构决策，最多等待 120 秒');
+};
+const submitDecisions=function(sessionId){
+  const choices={};
+  let complete=true;
+  document.querySelectorAll('[data-decision]').forEach(function(node){
+    if(!node.value){complete=false;return;}
+    choices[node.getAttribute('data-decision')]=node.value;
+  });
+  if(!complete){setStatus('请为每个决策选择有效选项');return;}
+  return runRequest('decision_submit',{session_id:sessionId,decisions:choices},function(result){
+    if(!result||result.status!=='submitted'){setStatus('决策等待已结束，请查看任务进度');return;}
+    $('decisions').textContent='';
+    append('已提交架构决策');
+    setStatus('决策已提交，Agent 正在继续');
+  });
+};
 window.addEventListener('message',function(event){
   const data=event.data;
   if(data&&data.type==='workbench_response'){
@@ -361,6 +425,11 @@ window.addEventListener('message',function(event){
   }
   if(data&&data.type==='workbench_event'){
     const value=data.event||{},payload=value.data||{};
+    if(value.type==='critical_decisions'){
+      const questions=payload.decisions||[];
+      renderDecisions(payload.session_id||activeSession||'',Array.isArray(questions)?questions:[]);
+      return;
+    }
     if(value.type==='done'){
       if(typeof payload.session_id==='string'&&payload.session_id){
         activeSession=payload.session_id;
@@ -379,6 +448,7 @@ window.addEventListener('message',function(event){
         incrementalBox.disabled=true;
         $('incremental-hint').textContent='';
       }
+      $('decisions').textContent='';
       setStatus('Agent 已完成');
       send.disabled=false;
     }
@@ -388,6 +458,7 @@ window.addEventListener('message',function(event){
       incrementalBox.checked=false;
       incrementalBox.disabled=true;
       $('incremental-hint').textContent='';
+      $('decisions').textContent='';
       setStatus(value.type==='error'?'Agent 执行失败':'Agent 已取消');
       send.disabled=false;
     }
@@ -424,7 +495,7 @@ export function createAgentWorkbenchHtml(): string {
 <button class="tab-button" data-tab="settings">设置</button>
 </nav>
 <section class="tab-panel" id="tab-chat">
-<div class="panel"><p>当前工作台共享 Web Agent 会话，可在这里继续对话、审批本地动作和查看验证结果。</p><textarea id="prompt" maxlength="5000" placeholder="输入 Agent 需求"></textarea><label class="field" for="project-name">项目名称（可选，字母、数字、下划线和连字符）</label><input type="text" id="project-name" maxlength="50" pattern="[A-Za-z0-9_-]*" placeholder="my-project"><label class="inline-check"><input type="checkbox" id="incremental" disabled>增量修改上次生成的项目</label><div id="incremental-hint" class="muted"></div><div class="flags"><label><input type="checkbox" data-flag="enable_review" checked>代码审查</label><label><input type="checkbox" data-flag="enable_validation" checked>代码验证</label><label><input type="checkbox" data-flag="enable_error_recovery" checked>错误恢复</label><label><input type="checkbox" data-flag="enable_memory" checked>记忆系统</label><label><input type="checkbox" data-flag="enable_skills" checked>Skill 上下文</label><label><input type="checkbox" data-flag="spec_first" checked>Spec-First</label><label><input type="checkbox" data-flag="dependency_graph" checked>依赖图分层</label></div><button id="send">发送需求</button><button id="hello">连接本地 Agent Host</button><button id="pause">暂停</button><button id="resume">恢复</button><button id="cancel">取消</button><button id="approve" hidden>批准当前动作</button><button id="reject" hidden>拒绝当前动作</button><div id="messages" aria-live="polite"></div></div>
+<div class="panel"><p>当前工作台共享 Web Agent 会话，可在这里继续对话、审批本地动作和查看验证结果。</p><textarea id="prompt" maxlength="5000" placeholder="输入 Agent 需求"></textarea><label class="field" for="project-name">项目名称（可选，字母、数字、下划线和连字符）</label><input type="text" id="project-name" maxlength="50" pattern="[A-Za-z0-9_-]*" placeholder="my-project"><label class="inline-check"><input type="checkbox" id="incremental" disabled>增量修改上次生成的项目</label><div id="incremental-hint" class="muted"></div><div class="flags"><label><input type="checkbox" data-flag="enable_review" checked>代码审查</label><label><input type="checkbox" data-flag="enable_validation" checked>代码验证</label><label><input type="checkbox" data-flag="enable_error_recovery" checked>错误恢复</label><label><input type="checkbox" data-flag="enable_memory" checked>记忆系统</label><label><input type="checkbox" data-flag="enable_skills" checked>Skill 上下文</label><label><input type="checkbox" data-flag="spec_first" checked>Spec-First</label><label><input type="checkbox" data-flag="dependency_graph" checked>依赖图分层</label></div><button id="send">发送需求</button><button id="hello">连接本地 Agent Host</button><button id="pause">暂停</button><button id="resume">恢复</button><button id="cancel">取消</button><button id="approve" hidden>批准当前动作</button><button id="reject" hidden>拒绝当前动作</button><div id="decisions"></div><div id="messages" aria-live="polite"></div></div>
 </section>
 <section class="tab-panel" id="tab-history">
 <div class="panel"><button id="history-refresh">刷新会话列表</button><div id="history-list"></div></div>

@@ -23,6 +23,7 @@ function stubConnection(handlers) {
     fetchConcurrentLimits: record("fetchConcurrentLimits"),
     fetchCacheStats: record("fetchCacheStats"),
     clearAgentCache: record("clearAgentCache"),
+    submitDecisions: record("submitDecisions"),
   };
 }
 
@@ -45,6 +46,7 @@ test("dispatches every supported resource to the matching connection method", as
     fetchConcurrentLimits: () => ["limits"],
     fetchCacheStats: () => ["cache"],
     clearAgentCache: (mode) => ["clear", mode],
+    submitDecisions: (sessionId, decisions) => ["decisions", sessionId, decisions],
   });
 
   assert.deepEqual(await dispatchWorkbenchRequest(connection, request("history_list", { limit: 10, offset: 20 })), ["list", { limit: 10, offset: 20 }]);
@@ -63,6 +65,10 @@ test("dispatches every supported resource to the matching connection method", as
   assert.deepEqual(await dispatchWorkbenchRequest(connection, request("concurrent_limits")), ["limits"]);
   assert.deepEqual(await dispatchWorkbenchRequest(connection, request("cache_stats")), ["cache"]);
   assert.deepEqual(await dispatchWorkbenchRequest(connection, request("cache_clear", { mode: "all" })), ["clear", "all"]);
+  assert.deepEqual(
+    await dispatchWorkbenchRequest(connection, request("decision_submit", { session_id: "s-1", decisions: { state: "Pinia" } })),
+    ["decisions", "s-1", { state: "Pinia" }],
+  );
 });
 
 test("omits paging options the webview did not send", async () => {
@@ -85,4 +91,23 @@ test("falls back to the expired cache scope for an unknown mode", async () => {
   assert.equal(await dispatchWorkbenchRequest(connection, request("cache_clear")), "expired");
   assert.equal(await dispatchWorkbenchRequest(connection, request("cache_clear", { mode: "everything" })), "expired");
   assert.equal(await dispatchWorkbenchRequest(connection, request("cache_clear", { mode: "all" })), "all");
+});
+
+test("rejects an incomplete decision before it reaches the connection", async () => {
+  const connection = stubConnection({});
+  const base = { session_id: "s-1" };
+  await assert.rejects(() => dispatchWorkbenchRequest(connection, request("decision_submit", base)), /缺少参数：decisions/);
+  await assert.rejects(
+    () => dispatchWorkbenchRequest(connection, request("decision_submit", { ...base, decisions: {} })),
+    /缺少参数：decisions/,
+  );
+  await assert.rejects(
+    () => dispatchWorkbenchRequest(connection, request("decision_submit", { ...base, decisions: { state: "  " } })),
+    /决策 state 未选择选项/,
+  );
+  await assert.rejects(
+    () => dispatchWorkbenchRequest(connection, request("decision_submit", { decisions: { state: "Pinia" } })),
+    /缺少参数：session_id/,
+  );
+  assert.deepEqual(connection.calls, []);
 });

@@ -23,6 +23,7 @@ export const WORKBENCH_RESOURCES = [
   "concurrent_limits",
   "cache_stats",
   "cache_clear",
+  "decision_submit",
 ] as const;
 
 export type WorkbenchResource = (typeof WORKBENCH_RESOURCES)[number];
