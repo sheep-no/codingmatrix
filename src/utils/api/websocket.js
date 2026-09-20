@@ -10,7 +10,7 @@ const WS_CONFIG = {
 }
 
 // 后端真实 WS 端点（v1 + v2）：
-//   v1: /api/v1/tasks/ws/{user_id}                       - 任务状态推送（普通用户）
+//   v1: /api/v1/tasks/ws/{user_id}?token=xxx             - 任务状态推送（普通用户，需认证）
 //   v2: /api/v2/Controller/sys-status?token=xxx          - 系统状态推送（管理员）
 //   v2: /api/v2/Controller/logs?token=xxx                - 系统日志推送（管理员）
 //   v2: /api/v2/Controller/admin/ws-stats                - 管理员统计
