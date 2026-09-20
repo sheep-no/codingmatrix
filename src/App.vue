@@ -49,8 +49,7 @@
   .app-container {
     width: 100%;
     height: 100dvh;
-    background: var(--bg-secondary);
-    background: var(--gradient-bg);
+    background: var(--gradient-bg, var(--bg-secondary));
     overflow: hidden;
     display: flex;
     flex-direction: column;
