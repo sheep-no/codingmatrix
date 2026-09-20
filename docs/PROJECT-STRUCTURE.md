@@ -93,7 +93,7 @@ PPTX 渲染优先消费结构化 `content_blocks`，兼容旧 `content` 与 `bul
 - `agent-host-runtime.ts`、`tool-dispatcher.ts`、`approval-bridge.ts`：动作运行、能力分发和审批门禁。
 - `workspace-authorization.ts`、`validation-runner.ts`：多工作区授权、参数数组命令、`shell=false`、超时和取消。
 - `result-sanitizer.ts`、`result-store.ts`：结果脱敏、离线持久化与幂等回传。
-- `agent-workbench.ts`、`workbench-html.ts`、`workbench-requests.ts`：原生工作台控制器、五个面板的 Webview HTML、`workbench_request` 参数校验与云端分发。
+- `agent-workbench.ts`、`workbench-html.ts`、`workbench-requests.ts`：原生工作台控制器、六个面板的 Webview HTML、`workbench_request` 参数校验与云端分发。
 - `webview-bridge.ts`、`status-view.ts`：Webview 消息关联和状态快照。
 - `app/api/v1/agent_host.py`：认证握手、动作、事件、策略、Skills 和 session control 后端端点；队列与确认原子保存到 `data/agent_host_sessions/`。
 

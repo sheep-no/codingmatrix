@@ -273,9 +273,9 @@ Core 同步响应增加 `repair_feedback`：`task_id` 关联检查点，`status`
 
 `vscode-extension/src/webview-bridge.ts` 提供 Webview 与扩展 Host 的消息、请求响应关联、超时和释放处理。`vscode-extension/src/agent-host-runtime.ts` 校验会话与策略版本，将工具动作交给 `ToolDispatcher`，并把非验证结果包装为 `tool_result` 事件或将本地验证结果提交到云端连接层；控制消息可应用单调递增的策略更新并处理审批决定。运行时按 session/message 合并并发动作、允许失败动作重投并限制幂等缓存规模；连接 generation 隔离重连前的在途轮询和结果提交，会话取消、连接替换及插件停用会向活动本地动作传播取消信号。
 
-`vscode-extension/src/agent-workbench.ts` 提供原生 Webview 工作台控制器，面板 HTML 由 `workbench-html.ts` 生成（对话、会话历史、模型、文件版本、性能五个面板）。`codingmatrix.openAgentWorkbench` 命令由 `src/extension.ts` 注册，打开单例 Agent 面板并通过 `WebviewBridge` 连接 Host 消息。
+`vscode-extension/src/agent-workbench.ts` 提供原生 Webview 工作台控制器，面板 HTML 由 `workbench-html.ts` 生成（对话、会话历史、模型、文件版本、性能、学习六个面板）。`codingmatrix.openAgentWorkbench` 命令由 `src/extension.ts` 注册，打开单例 Agent 面板并通过 `WebviewBridge` 连接 Host 消息。
 
-工作台面板通过 `workbench_request`（`request_id`、`resource`、`params`）向扩展请求数据，控制器校验 `resource` 属于 `WORKBENCH_RESOURCES` 后交给 `workbench-requests.ts` 的 `dispatchWorkbenchRequest`，再把结果或错误包成 `workbench_response`（`ok`、`data` 或 `error`）回发；未知资源、非法参数和处理器异常都不会中断面板。当前 resource 覆盖 `history_list`、`history_messages`、`history_delete`、`model_config`、`token_usage`、`snapshot_list`、`snapshot_rollback`、`snapshot_diff` 和 `performance`，对应 `connection.ts` 上同名语义的公开方法，全部使用普通用户 Bearer token。
+工作台面板通过 `workbench_request`（`request_id`、`resource`、`params`）向扩展请求数据，控制器校验 `resource` 属于 `WORKBENCH_RESOURCES` 后交给 `workbench-requests.ts` 的 `dispatchWorkbenchRequest`，再把结果或错误包成 `workbench_response`（`ok`、`data` 或 `error`）回发；未知资源、非法参数和处理器异常都不会中断面板。当前 resource 覆盖 `history_list`、`history_messages`、`history_delete`、`model_config`、`token_usage`、`snapshot_list`、`snapshot_rollback`、`snapshot_diff`、`performance` 和 `learning`，对应 `connection.ts` 上同名语义的公开方法，全部使用普通用户 Bearer token。
 
 工作台控制器订阅并转发已通过协议解析的 Webview Agent Host 消息；内置审批控件可生成 `approval_decision`，供运行时处理挂起的本地动作。
 
