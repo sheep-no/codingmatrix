@@ -40,7 +40,14 @@
 - GH9（空提交失败）已消解：`_write_project_files` 拒绝空对象，不会生成无变更仓库。
 - 本次修复：`validate_project_name` 原仅做 `_REPO_RE.fullmatch`，而 `.` 与 `..` 均匹配该正则，会作为目录名解析到自身或父级，导致后续 `FileExistsError`/`OSError` 而不是 422；现显式拒绝 `.` 与 `..`。新增参数化用例。
 
-仍属未处理：GH5/GH6/GH11/GH12（`app/api/v1/aicloud.py` 审批链）、GH10（三套 git 封装收敛，架构级）。`tests/unit/test_github_readonly_api.py` 现覆盖路径穿越、前缀同族、空对象、无凭据远端 URL 与名称校验。
+`app/api/v1/aicloud.py` 审批链同样已收敛：
+
+- RQ1（跨用户查看/审批）已修复：`get_reviews` 按 `requested_by == user_id` 过滤；approve/reject 对非本人记录返回 403。
+- GH6（approve 裸 `open()` + symlink/TOCTOU）已修复：落盘改走 `SandboxFileOperator(review.requested_by).write_async()`，复用符号链接与越界校验。
+- GH12（write 缺保护路径检查）已修复：`write_file` 改走 `SandboxFileOperator.write_with_review()`，内部调用 `_validate_path`。
+- GH5 本次修复：`approve_review_endpoint`/`reject_review_endpoint` 此前不检查 `review.status`，已批准/已拒绝的记录可再次审批。现对非 `pending` 记录返回 409，不再覆盖既有结论。
+
+仍属未处理：GH11（read 类型审查批准无落盘动作，属设计性空转）、GH10（三套 git 封装收敛，架构级）。`tests/unit/test_github_readonly_api.py` 覆盖路径穿越、前缀同族、空对象、无凭据远端 URL 与名称校验；`tests/unit/test_aicloud_review_isolation.py` 覆盖归属隔离、沙箱越界与状态机守卫。
 
 
 ### P2（7 项）
