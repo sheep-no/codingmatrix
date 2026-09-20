@@ -8,7 +8,7 @@
 
 ```
 agent _tool_web_search / Aicode.py:480 / code_tasks.py:56 / workflow WebSearchNode
-  └─► FreeWebSearch.search ──► Bing（_search_baidu，verify 默认）
+  └─► FreeWebSearch.search ──► Bing（_search_bing，verify 默认）
                             └─► DuckDuckGo（verify=False ← 风险）
   └─► search_with_page_summaries ──► fetch_page_text（任意 URL）──► summarize_page_with_llm（call_llm 硬编码模型）
 ```
@@ -42,3 +42,13 @@ agent _tool_web_search / Aicode.py:480 / code_tasks.py:56 / workflow WebSearchNo
 ## 四、测试状态
 
 零单元测试。WS1 TLS 关闭、WS2 SSRF、WS3 prompt 注入、WSE1 死代码均无测试约束。修复建议：① fetch_page_text 内网 URL 拒绝测试（127.0.0.1/169.254.169.254/私有网段样本）；② URL 协议白名单测试；③ 摘要 prompt 注入样本测试；④ enhance_query 死代码覆盖断言。
+
+## 五、状态更新（2026-09-20 核实）
+
+按当前代码逐条核实后的结论：
+
+- **WS1/WS2/WS3/WS4/WS6/WS8 已修**：`_https_verify()` 已应用 `WEB_SEARCH_DISABLE_SSL_VERIFY`；`fetch_page_text` 逐跳调用 `check_outbound_url(..., fail_closed_on_dns_error=True)` 做协议与内网地址校验；`<untrusted_webpage>` 包裹外部网页并在 system_prompt 声明不执行其中指令；`_clean_url` 只保留 http/https；`max_concurrent_fetch=3` 搭配 `asyncio.Semaphore` 生效；`_MAX_PAGE_BYTES=2_000_000` + `_read_limited` 限制响应体。
+- **WS5 [P3] 已修（本轮）**：`_search_baidu` 重命名为 `_search_bing`（实现一直是 bing.com），同步更新 `search` 调用点与 `tests/unit/test_web_search_relevance.py` 三处 monkeypatch。
+- **WS7 [P3] 已修**：摘要模型改走 `app.agent.models.DEFAULT_REASONING_MODEL` 常量，不再硬编码模型名。
+- **WSE1/WSE2/WSE4 已修**：`web_search_enhancements.py` 现 265 行，`enhance_query` 的重复死代码与第二个 `_extract_school_name` 定义已删；年份改为 `datetime.now().year`；`SearchResult` 改为从 `app.utils.web_search` 导入，同名异构双轨消除。
+- 回归：`pytest tests/unit -k web_search` = 81 passed；回退 `web_search.py` 后 `test_web_search_relevance.py` 3 项失败（`_search_bing` 属性缺失），证明命名一致性已被测试约束。

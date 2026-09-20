@@ -587,7 +587,7 @@ class FreeWebSearch:
             fetch_count = max(count * 2, 8)
             bing_raw = []
             for variant in search_query_variants(query):
-                variant_hits = await self._search_baidu(variant, fetch_count, lang)
+                variant_hits = await self._search_bing(variant, fetch_count, lang)
                 bing_raw.extend(filter_relevant_results(variant_hits, variant))
             merged_bing = merge_results_by_url([bing_raw])
             bing_results = merged_bing
@@ -711,8 +711,8 @@ class FreeWebSearch:
             )
         return merge_results_by_url([discovered])
 
-    async def _search_baidu(self, query: str, count: int, lang: str = "zh-CN") -> List[SearchResult]:
-        """Bing 搜索（替代方案）"""
+    async def _search_bing(self, query: str, count: int, lang: str = "zh-CN") -> List[SearchResult]:
+        """Bing 搜索（主要搜索结果来源）"""
         try:
             url = "https://www.bing.com/search"
             use_zh = (lang or "zh-CN").lower().startswith("zh")
