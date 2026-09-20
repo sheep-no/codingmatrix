@@ -60,6 +60,7 @@ def temp_dir():
 class TestVectorIndexManager:
 
     def test_create_empty_index(self, temp_dir):
+        pytest.importorskip("faiss")
         from app.agent.vector_index import VectorIndexManager
         with patch.object(VectorIndexManager, '__init__', lambda self: None):
             vi = VectorIndexManager()

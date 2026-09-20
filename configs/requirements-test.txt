@@ -1,16 +1,17 @@
 # AI 平台 - 测试依赖
 
 # 测试框架
-pytest==7.4.3
+pytest==9.0.3
 pytest-html==4.1.1
 pytest-xdist==3.5.0  # 并行测试
 pytest-timeout==2.2.0
 
 # HTTP 测试
-requests==2.31.0
+requests==2.33.1
 
-# 加密测试
-cryptography==41.0.7
+# 加密与令牌测试
+cryptography==46.0.7
+PyJWT==2.13.0
 
 # Selenium
 selenium==4.16.0

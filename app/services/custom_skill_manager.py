@@ -10,8 +10,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from app.core.config import BASE_DIR
+
 # 自定义 skill 存储目录
-CUSTOM_SKILLS_DIR = Path("/workspace/data/custom_skills")
+CUSTOM_SKILLS_DIR = BASE_DIR / "data" / "custom_skills"
 METADATA_FILE = CUSTOM_SKILLS_DIR / "_metadata.json"
 
 # 支持的分类
