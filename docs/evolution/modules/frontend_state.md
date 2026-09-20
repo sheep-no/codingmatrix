@@ -6,6 +6,10 @@
 > 索引：`docs/evolution/TASKS.md`（本次未修改）
 > 后续变更（2026-09-16）：本文判定为「未接入/废弃」的 `src/stores/task.js`、`src/stores/agentWorkspace.js`、`src/composables/useClipboard.js`、`src/composables/useMarkdown.js`、`src/utils/taskNotification.js` 已确认零生产引用并删除，正文保留扫描时的判定与行号。
 
+> 状态更新（2026-09-20）：
+> - FESTATE-01 超出本轮修复范围：涉及 `src/composables/useAgentSession.js`、`src/views/AgentDashboard.vue`，属于 Agent 子系统，本轮不处理。
+> - FESTATE-03 本次修复：`src/components/SystemLogs.vue` 的自动保存 `watch` 改为引用 `toRefs(logsStore)` 得到的 refs，不再对 Pinia setup store 已解包属性误取 `.value`；新增 `src/components/SystemLogs.test.js`（新增日志后写入 localStorage）。回退修复后该用例失败。FESTATE-02 仍待处理。
+
 ## 扫描边界与证据标记
 
 - 本文只分析 `src/stores/` 全部 9 个文件、`src/composables/` 全部 13 个文件，并使用全库 `rg` 验证导入、实例化、方法调用和测试引用。

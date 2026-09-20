@@ -409,16 +409,18 @@
   })
 
   // 监听状态变化，自动保存到 localStorage
+  // 注意：logsStore 是 setup store，对外属性已自动解包，应监听 toRefs 得到的 refs，
+  // 直接写 logsStore.xxx.value 会恒为 undefined，watch 永不触发。
   watch(
     [
-      () => logsStore.systemLogs.value,
-      () => logsStore.logType.value,
-      () => logsStore.filterLevel.value,
-      () => logsStore.filterKeyword.value,
-      () => logsStore.enableDbMonitor.value,
-      () => logsStore.autoScroll.value,
-      () => logsStore.showHeader.value,
-      () => logsStore.showFilters.value
+      systemLogs,
+      logType,
+      filterLevel,
+      filterKeyword,
+      enableDbMonitor,
+      autoScroll,
+      showHeader,
+      showFilters
     ],
     () => {
       logsStore.saveLogsToStorage()
