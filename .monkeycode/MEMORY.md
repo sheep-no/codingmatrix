@@ -427,5 +427,5 @@ Agent 在执行任务过程中发现的条目应遵循以下格式：
 - Instructions:
   - `tests/unit/test_static_defects.py` 是门禁：对全 `app` 强制 `F821,F823,F811,F402,F841`（pyflakes 子集，不含风格规则）。改动 `app` 后必须保持该测试通过；本地可先跑 `python3 -m ruff check app --select F821,F823,F811,F402,F841 --no-cache`。
   - `ruff==0.16.8` 声明在 `configs/requirements-test.txt`，调用统一用 `python3 -m ruff`（`ruff` 可执行文件不一定在 PATH）。
-  - 唯一显式豁免（`--per-file-ignores`）：`app/api/v1/aicloud.py` 的 `full_prompt`。它是既有潜在缺陷——RAG 知识库检索结果从未接入 `execute_with_llm_loop`；删除会连带移除已完成检索功能，故保留并加 TODO。修复该缺陷时需同步移除豁免。
-  - 另有已知遗留待决策：`orchestrate_endpoints.get_token_usage_stats` 查询了今日/本月的 prompt/completion token 但响应模型无对应字段；`file_upload.upload_chunk` 解析了 `user_id` 却未做分片归属校验。
+  - 当前无 `--per-file-ignores` 豁免，全 `app` 全覆盖。曾豁免的 `app/api/v1/aicloud.py` `full_prompt`（RAG 检索结果未接入）已于 2026-09-20 修复：新增 `_compose_system_prompt` 把 `knowledge_context` 注入 `system_prompt`，豁免同步移除。
+  - 已知遗留待决策：`orchestrate_endpoints.get_token_usage_stats` 查询了今日/本月的 prompt/completion token 但响应模型无对应字段（前端仅消费 total/prompt/completion，结论为维持现状）。`file_upload` 分片链已按用户隔离（`_scoped_chunk_dir`），FL1 修复。
