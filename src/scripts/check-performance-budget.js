@@ -84,7 +84,8 @@ function collectPublicImages(directory, root = directory) {
 
 function run() {
   const scriptDirectory = dirname(fileURLToPath(import.meta.url))
-  const outputDirectory = resolve(scriptDirectory, '../../dist')
+  // 与 vite.config.js 的 outDir 保持一致：产物在 src/dist。
+  const outputDirectory = resolve(scriptDirectory, '../dist')
   const manifestPath = join(outputDirectory, '.vite/manifest.json')
   if (!existsSync(manifestPath)) throw new Error(`缺少构建 manifest: ${manifestPath}`)
 

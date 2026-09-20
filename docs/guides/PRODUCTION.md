@@ -8,8 +8,10 @@
 
 当前 Docker 生产链路存在以下关键阻塞，仓库内没有修复它们：
 
-1. Vite 从 `src/` 执行 `npm run build`，`src/vite.config.js` 的 `build.outDir` 是 `../dist`，因此输出目录为仓库根目录 `dist/`。
-2. `docker-compose.yml`、`docker-compose.prod.yml` 和 `configs/nginx.conf` 都使用 `src/dist`；`Dockerfile` 的前端阶段实际会生成 `/app/dist`，后续却执行 `COPY --from=frontend-builder /app/src/dist ./src/dist`。该路径冲突会使 Docker 镜像构建或静态文件装载失败。
+> 2026-09-20 更新：原第 1、2 条前端产物路径冲突已修复。`src/vite.config.js` 的 `build.outDir` 统一为 `dist`（即 `src/dist`），`app/main.py` 的 `DIST_PATH`、`Dockerfile` 的 COPY 与软链、两份 Compose、`configs/nginx.conf`、`scripts/start.sh`、`scripts/check-performance-budget.js` 与 CI 上传路径现在全部指向同一目录。其余阻塞仍然存在。
+
+1. ~~Vite 从 `src/` 执行 `npm run build`，`src/vite.config.js` 的 `build.outDir` 是 `../dist`，因此输出目录为仓库根目录 `dist/`。~~ 已修复：输出目录改为 `src/dist`。
+2. ~~`docker-compose.yml`、`docker-compose.prod.yml` 和 `configs/nginx.conf` 都使用 `src/dist`；`Dockerfile` 的前端阶段实际会生成 `/app/dist`，后续却执行 `COPY --from=frontend-builder /app/src/dist ./src/dist`。~~ 已修复：前端阶段产物即 `/app/src/dist`，COPY 与 `ln -sfn /app/src/dist /workspace/src/dist` 指向同一目录。
 3. `Dockerfile` 运行时只安装 `curl` 和 `nginx`，没有安装 `libreoffice-impress` 或 `poppler-utils`。PPT 转 PDF 调用 `libreoffice --headless --convert-to pdf`；仓库中没有可用的 LibreOffice/Poppler 运行时保障。
 4. 两份 Compose 都向 API 设置 `ENV=production`，但没有 `env_file` 或 `SECRET_KEY` 环境项。`app/core/config.py` 会在生产环境缺少 `SECRET_KEY` 时拒绝启动。
 5. 两份 Compose 都没有向 API 传递 `DATABASE_URL`。容器内 API 默认使用 `/app/app.db`，该路径没有挂载到持久化卷；生产 scheduler 默认使用 `/app/data/app.db`，因此 API 与 scheduler 会连接两个不同的 SQLite 文件。
@@ -51,12 +53,12 @@
 
 Dockerfile 将 `configs/alembic.ini` 复制为 `/app/alembic.ini`，同时将迁移脚本复制到 `/app/migrations`。配置内的 `script_location = %(here)s/../migrations` 在这个新位置会解析为 `/migrations`；镜像内也不存在 `/app/configs/alembic.ini`。因此要求的 `alembic -c configs/alembic.ini ...` 命令当前只能在仓库目录结构中使用，镜像内迁移路径需要部署实现修复。
 
-Dockerfile 的前端路径问题可用以下静态关系核验：
+Dockerfile 的前端路径关系（2026-09-20 修复后）可用以下静态关系核验：
 
 ```text
-src/vite.config.js: build.outDir = ../dist
+src/vite.config.js: build.outDir = dist
 Dockerfile frontend-builder WORKDIR = /app/src
-Vite 输出目录 = /app/dist
+Vite 输出目录 = /app/src/dist
 Dockerfile COPY 源 = /app/src/dist
 Compose/Nginx 静态目录 = src/dist / /workspace/src/dist
 ```
@@ -96,7 +98,7 @@ npm ci
 npm run build
 ```
 
-该命令按当前 Vite 配置生成仓库根目录 `dist/`。`app/main.py` 和当前 Nginx 配置分别使用 `/workspace/dist`、`/workspace/src/dist` 体系，路径不一致，静态前端访问仍属于已知阻塞。
+该命令按当前 Vite 配置生成 `src/dist`。`app/main.py` 的 `DIST_PATH`、Nginx 的 `/workspace/src/dist`、Compose 挂载与 CI 上传路径现已一致（2026-09-20 修复）。
 
 启动 API 的当前仓库命令：
 
@@ -218,11 +220,10 @@ TLS 终止、证书、外部防火墙和备份存储属于部署环境配置；�
 确认前端实际输出目录：
 
 ```bash
-test -f dist/index.html
 test -f src/dist/index.html
 ```
 
-按当前配置，构建成功后第一条应通过，第二条会失败。Dockerfile 构建日志若停在 `COPY --from=frontend-builder /app/src/dist ./src/dist`，对应同一目录冲突。
+按当前配置，构建成功后该检查应通过。
 
 核验 Compose 服务和 schema：
 
@@ -248,7 +249,7 @@ API 启动时报 `生产环境必须设置 SECRET_KEY` 时，核对 Compose 的�
 
 | 问题 | 证据 | 影响 |
 |---|---|---|
-| 前端输出目录冲突 | Vite 输出根 `dist/`；Compose、Nginx、Dockerfile 使用 `src/dist` | Docker 前端阶段复制失败或 Nginx 找不到静态文件 |
+| ~~前端输出目录冲突~~ | 2026-09-20 已修复：Vite、Dockerfile、Compose、Nginx、start.sh、CI 统一使用 `src/dist` | 已消除 |
 | 镜像缺少文档转换工具 | Dockerfile 运行时仅安装 `curl`、`nginx`；源码调用 LibreOffice | PPT 转 PDF 在镜像中不可用 |
 | Poppler 未纳入镜像 | `configs/requirements.txt` 和 Dockerfile 均未提供 Poppler | PDF 页面渲染相关能力没有镜像级保障 |
 | Compose Jaeger 状态不完整 | 基础文件的 `jaeger` 位于 `networks` 映射；生产文件没有 Jaeger | 当前 Compose 不会启动 Jaeger |

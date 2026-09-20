@@ -327,8 +327,8 @@ app.include_router(skillsRouter, prefix="/api/v1", tags=["skills"])
 app.include_router(healthRouter, prefix="/api/v1")
 
 # 静态文件服务（Vue前端）----------
-# 配置dist路径（与main.py同级的dist文件夹）
-DIST_PATH = rf"{BASE_DIR_PATH}/dist"
+# 配置dist路径（与前端构建输出 src/dist 保持一致）
+DIST_PATH = rf"{BASE_DIR_PATH}/src/dist"
 os.makedirs(DIST_PATH, exist_ok=True)
 # 挂载静态文件到/static路径（供Vue加载JS/CSS等资源）
 STATIC_PATH = os.path.join(DIST_PATH, "static")

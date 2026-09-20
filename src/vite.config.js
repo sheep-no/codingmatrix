@@ -82,7 +82,8 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: '../dist',
+    // 产物落在 src/dist，与 Dockerfile、compose、nginx、start.sh、CI 的产物路径一致。
+    outDir: 'dist',
     assetsDir: 'static',
     manifest: true,
     sourcemap: process.env.VITE_BUILD_SOURCEMAP === 'true',
