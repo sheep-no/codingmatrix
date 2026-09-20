@@ -1,6 +1,6 @@
 # 系统架构
 
-> 最后更新：2026-09-10 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载路由 / 约 279 个路由装饰器 | Agent：125 个 Python 文件 | 数据模型：34 张表 | Alembic：15 个有效迁移文件 | Flutter：58 个 Dart 文件 / 9,149 行
+> 最后更新：2026-09-20 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载路由 / 约 279 个路由装饰器 | Agent：125 个 Python 文件 | 数据模型：34 张表 | Alembic：15 个有效迁移文件 | Flutter：70 个 Dart 文件 / 11,863 行
 
 ---
 
@@ -12,7 +12,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │ Frontend (Vue 3) + Flutter Desktop                          │
 │ Vue: Vite 5 + Element Plus + Pinia + ECharts                 │
-│ Flutter: Riverpod 四层架构，16 个页面 / 58 个 Dart 文件         │
+│ Flutter: Riverpod 四层架构，18 个页面 / 70 个 Dart 文件         │
 └──────────────────────────┬──────────────────────────────────┘
                             │ HTTP / SSE / WebSocket
 ┌──────────────────────────┴──────────────────────────────────┐
@@ -167,7 +167,7 @@ SQL 权威状态由 `app/models/unified_state.py` 和 `app/services/unified_stat
 | Web Mobile Agent | `AgentDashboard.vue` 与 `agent-layout.css` 在 768px 以下切换单列布局，提供会话抽屉、文件抽屉、遮罩和焦点管理 |
 | VS Code Agent Host | `agent_host.py` 提供协议版本 1 的握手、动作队列、事件、审批、Skill 同步及 pause/resume/cancel；会话以内存为主，并原子持久化到 `data/agent_host_sessions/*.json` |
 | VS Code 扩展 | `vscode-extension/src/` 共 19 个 TypeScript 文件，流式生成使用 `/api/v1/agent/orchestrate/stream`，支持本地结果恢复 |
-| Flutter 桌面客户端 | `flutter_client/` 共 58 个 Dart 文件 / 9,149 行，16 个页面；经 `AuthenticatedClient` 调用现有 v1/v2 API，MCP 管理仅 superadmin |
+| Flutter 桌面客户端 | `flutter_client/` 共 70 个 Dart 文件 / 11,863 行，18 个页面；经 `AuthenticatedClient` 调用现有 v1/v2 API，MCP 管理仅 superadmin |
 
 ### 任务取消与恢复
 

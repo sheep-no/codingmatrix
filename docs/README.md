@@ -1,12 +1,12 @@
 # CodingMatrix 文档中心
 
-> 最后更新：2026-09-12 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：34 张表 | Alembic：15 个有效迁移文件 | Flutter：58 个 Dart 文件 / 9,149 行
+> 最后更新：2026-09-20 | 后端：423 个 Python 文件 / 117,655 行 | API：28 个挂载 Router / 275 条业务路由 | ORM：34 张表 | Alembic：15 个有效迁移文件 | Flutter：70 个 Dart 文件 / 11,863 行
 
 CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，覆盖智能对话、项目生成、多 Agent 协作、模型与供应商配置、PPT 生成、AI Cloud、GirlAI，以及 Web、Mobile、VS Code 和 Flutter 桌面多端 Agent 工作流。
 
 ## 文档时效范围
 
-- 本首页及 `architecture/`、`api/`、`features/`、`guides/`、`security/`、`testing/`、`observability/`、`prompts/`、`skills/` 和顶层结构文档描述 2026-09-12 当前项目状态。后端规模数字沿用 2026-09-03 清点；Flutter 客户端规模按 2026-09-10 源码清点。
+- 本首页及 `architecture/`、`api/`、`features/`、`guides/`、`security/`、`testing/`、`observability/`、`prompts/`、`skills/` 和顶层结构文档描述 2026-09-12 当前项目状态。后端规模数字沿用 2026-09-03 清点；Flutter 客户端规模按 2026-09-20 源码清点。
 - `evolution/`、`.monkeycode/specs/` 和 `versions/` 保存历史规划、功能规格与版本快照，按形成时的历史语义保留；其中的规模、接口和验收数字不代表当前基线。
 - 当前 API 数量采用实际挂载后的路由记录口径；测试数量采用静态测试定义口径。运行结果、依赖条件和验收日期以对应测试文档为准。
 
@@ -41,7 +41,7 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 ### Agent 与模型
 
 - [Agent 系统](features/AGENT.md) - Web/Mobile Agent、架构回退、骨架生成、模型上下文和 VS Code Host
-- [Flutter 桌面客户端](features/FLUTTER-CLIENT.md) - `flutter_client/` 分层、16 个页面、GitHub/MCP/管理边界
+- [Flutter 桌面客户端](features/FLUTTER-CLIENT.md) - `flutter_client/` 分层、18 个页面、GitHub/MCP/管理边界
 - [动态模型路由](features/DYNAMIC-MODEL-ROUTER.md) - 健康感知、熔断、角色分配和学习路由
 - [ReAct 工具调用](features/REACT-TOOL-CALLING.md) - 编排内自主循环、工具注册和事件输出
 - [会话生命周期](features/SESSION-LIFECYCLE.md) - 会话、托管项目回收、SSE 断线续跑和 checkpoint
@@ -99,9 +99,9 @@ CodingMatrix 是基于 FastAPI、Vue 3 和 SQLite 构建的 AI 开发平台，�
 | Composables | 14 个 | `src/composables/` |
 | API Client JS | 19 个 | 前端 API client JavaScript 文件 |
 | 前端源码 | 约 62,953 行 | `src/` 源码静态清点 |
-| Flutter Dart | 58 个文件 / 9,149 行 | `flutter_client/lib/**/*.dart` |
-| Flutter 页面 | 16 个 | `flutter_client/lib/presentation/*_page.dart` |
-| Flutter 测试 | 15 个文件 | `flutter_client/test/**/*_test.dart` |
+| Flutter Dart | 70 个文件 / 11,863 行 | `flutter_client/lib/**/*.dart` |
+| Flutter 页面 | 18 个 | `flutter_client/lib/presentation/*_page.dart` |
+| Flutter 测试 | 33 个文件 | `flutter_client/test/**/*_test.dart` |
 
 ### 测试规模
 
