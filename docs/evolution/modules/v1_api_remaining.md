@@ -117,3 +117,21 @@
 - app/services 16 文件（model_config_manager/resource_config/feature_switch/log_config/rate_limit_config/websocket_manager/audit_logger 等——本轮与 v2 轮的共同依赖方）
 - app/schema 13 / app/models 12 / app/db 12 / app/core/middleware 4 / app/tasks 3
 - v1 收尾清点（Aicode.py/GirlAi.py/kolors*/health/apikey/auth/file_upload/skills/task_queue/providers/github 已扫否需对照补扫清单）
+
+## 状态更新（2026-09-20 核实）
+
+以当前代码为准逐条核实：
+
+- **AJP1 已修**：`task_manager._execute_task` 通过 `terminal_statuses` 检查 `update_progress` 写入的 `failed`/`cancelled`，不再把 `run_*` 的正常返回一律标 `SUCCESS`；`aiGeneratorPptx` 的包装层已透传 `status`/`result_data`（如 `:2852` `status="failed"`）。
+- **AJP2 已修**：`list_ppt_history` 改为读 `PPT_OWNER_DIR/{ppt_id}.json` 归属并过滤；`delete_ppt_history` 与其余六个读写端点统一走 `_verify_ppt_owner`（全文件 9 处调用）。
+- **AJP3 已修**：HTML 导出对 title/content/ppt_id 走 `html.escape`；预览页 JS 对 slide 字段改用 `textContent`（`innerHTML` 仅用于静态模板）。
+- **AJP5 已修**：`OutputFormat.PDF` 分支调用 `_convert_pptx_to_pdf`，不再恒回退 PPTX。
+- **AJP7 已修**：download/preview/slides/update/modify/analyze 六端点均补 `_verify_ppt_owner`。
+- **AJP8 已修**：WS 端点校验 `token` 查询参数并走 `verify_token_ws`，未授权关闭连接。
+- **AJP12 本次修复**：删除零消费图片搜索/下载簇（`get_image_search_manager`/`search_image_url`/`download_image`/`get_image_for_slide`/`IMAGE_CACHE_DIR`/`_safe_download_image`/`_MAX_IMAGE_DOWNLOAD_BYTES`/`_image_search_manager`）与随之无用的 `ipaddress`/`socket`/`urlparse`/`ImageSearchManager` 导入；删除两处冗余 `import json as _json` 与 `list_ppt_history` 重复的 `output_dir.exists()` 检查。
+- **WFA1/WFA2/WFA3/WFA4 已修**：`_session_workflows` 改以 `(user_id, session_id)` 为键；`_workflows` 引入 `_workflows_lock` 与 `_MAX_WORKFLOWS` 上限，读取处校验 `user_id`。
+- **VK1/VK2 已修**：`parse_document`/`chunk_text` 走 `asyncio.to_thread`，上传分块累计并受 `MAX_DOCUMENT_SIZE`(20MB) 限制；`chunk_size`/`chunk_overlap` 校验为 `chunk_size > 0` 且 `0 <= chunk_overlap < chunk_size`。
+- **VA1 本次修复**：data URI 拆分前校验逗号、`base64.b64decode(validate=True)` 并对 `binascii.Error` 返回 400；原先 `split(",", 1)` 的 `ValueError` 与无效 base64 落入通用 except 变成 500（无效 base64 还会被静默解码为空图后调用视觉模型）。
+- **MM1 部分修复**：`free_only` 已在 `list_models` 生效；四端点仍未加认证（是否作为公开目录需产品口径）。
+- **未核实/未处理**：AJP4/AJP6/AJP9/AJP10/AJP11/AJP13/AJP14、VA2/VA3、MM2/MM3。
+- **测试**：新增 `tests/unit/test_ppt_dead_code_cleanup.py`(1) 与 `tests/unit/test_vision_api_data_uri.py`(4)；回退 `aiGeneratorPptx.py` 后 1 项失败，回退 `vision_api.py` 后 2 项失败。

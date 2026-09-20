@@ -11,20 +11,17 @@ PPT 生成 API - 统一增强版
 """
 import asyncio
 import html
-import ipaddress
 import json
 import logging
 import math
 import os
 import re
-import socket
 import uuid
 from datetime import datetime
 from enum import Enum
 from html import escape as html_escape
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File as FastAPIFile, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse, JSONResponse
@@ -97,7 +94,6 @@ from sqlalchemy import select
 from app.utils.pptx.text_processor import (
     prevent_text_overflow as prevent_text_overflow_v2,
 )
-from app.utils.pptx.image_search import ImageSearchManager
 from app.utils.pptx.ppt_style import PPTStyle, PPT_TEMPLATES, apply_design_tokens
 from app.agent.models import DEFAULT_PPT_MODEL
 
@@ -380,59 +376,6 @@ def _validate_ppt_id(ppt_id: str) -> str:
         raise HTTPException(status_code=400, detail="无效的 PPT ID 格式")
     return ppt_id
 
-
-# 最大下载大小：20MB
-_MAX_IMAGE_DOWNLOAD_BYTES = 20 * 1024 * 1024
-
-
-async def _safe_download_image(url: str, save_path: Path, max_bytes: int = _MAX_IMAGE_DOWNLOAD_BYTES) -> bool:
-    """安全下载图片：SSRF 防护 + 大小限制。
-
-    检查 URL 解析后的主机是否为内网地址，拒绝访问私有/回环/链路本地地址。
-    """
-    import aiohttp
-
-    try:
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https"):
-            return False
-
-        hostname = parsed.hostname
-        if not hostname:
-            return False
-
-        # DNS 解析检查内网地址
-        try:
-            addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
-            for family, _, _, _, sockaddr in addr_info:
-                ip = ipaddress.ip_address(sockaddr[0])
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                    logger.warning("SSRF 阻止：内网地址 %s (%s)", hostname, ip)
-                    return False
-        except (socket.gaierror, ValueError):
-            pass
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status != 200:
-                    return False
-                # 检查 Content-Length
-                content_length = resp.headers.get("Content-Length")
-                if content_length and int(content_length) > max_bytes:
-                    logger.warning("图片过大，跳过下载：%s (%s bytes)", url, content_length)
-                    return False
-                # 流式读取，限制大小
-                data = b""
-                async for chunk in resp.content.iter_chunked(8192):
-                    data += chunk
-                    if len(data) > max_bytes:
-                        logger.warning("图片下载超过大小限制：%s", url)
-                        return False
-                save_path.write_bytes(data)
-                return True
-    except Exception as e:
-        logger.warning("图片下载失败 %s: %s", url, e)
-        return False
 
 # =============================================================================
 # 模型定义
@@ -3153,9 +3096,6 @@ async def list_ppt_history(
     if not output_dir.exists():
         return {"records": [], "total": 0}
 
-    if not output_dir.exists():
-        return {"records": [], "total": 0}
-
     records = []
     for json_path in sorted(output_dir.glob("*_slides.json"), reverse=True):
         ppt_id = json_path.name.replace("_slides.json", "")
@@ -3305,71 +3245,6 @@ def prevent_text_overflow(
         logger.warning(layout.overflow_message)
     
     return layout.lines
-
-
-# =============================================================================
-# 自动搜图
-# =============================================================================
-
-# 图片搜索管理器 (延迟初始化)
-_image_search_manager: Optional[ImageSearchManager] = None
-_image_manager_lock: asyncio.Lock = asyncio.Lock()
-
-
-async def get_image_search_manager() -> ImageSearchManager:
-    """获取图片搜索管理器单例（异步安全）"""
-    global _image_search_manager
-    if _image_search_manager is None:
-        async with _image_manager_lock:
-            if _image_search_manager is None:
-                _image_search_manager = ImageSearchManager(
-                    bing_key=os.environ.get("BING_IMAGE_SEARCH_KEY"),
-                    unsplash_key=os.environ.get("UNSPLASH_ACCESS_KEY"),
-                    pexels_key=os.environ.get("PEXELS_API_KEY"),
-                )
-    return _image_search_manager
-
-
-async def search_image_url(keyword: str) -> Optional[str]:
-    """
-    搜索图片 URL
-    
-    使用多源聚合搜索:
-    1. Bing Image Search (需要 API Key)
-    2. Unsplash (需要 API Key)
-    3. Pexels (需要 API Key)
-    4. 占位图降级
-    """
-    manager = await get_image_search_manager()
-    return await manager.search_image(keyword)
-
-
-async def download_image(url: str, save_path: Path) -> bool:
-    """下载图片到本地（SSRF 防护 + 大小限制）"""
-    return await _safe_download_image(url, save_path)
-
-
-IMAGE_CACHE_DIR = Path("./static/images/cache")
-
-
-async def get_image_for_slide(keywords: List[str], slide_index: int) -> Optional[str]:
-    """获取幻灯片配图 (缓存优先)"""
-    manager = await get_image_search_manager()
-    
-    for kw in keywords[:2]:
-        # 检查缓存
-        cached = await manager.get_cached_image(kw)
-        if cached:
-            return str(cached)
-        
-        # 搜索并下载
-        url = await manager.search_image(kw)
-        if url:
-            path = await manager.download_and_cache(kw, url)
-            if path:
-                return str(path)
-    
-    return None
 
 
 # =============================================================================
@@ -3722,10 +3597,9 @@ async def upload_custom_template(
 
         # 保存配置
         config_path = template_dir / f"{template_id}.json"
-        import json as _json
         config_dict = config.to_dict()
         with open(config_path, 'w', encoding='utf-8') as f:
-            _json.dump(config_dict, f, ensure_ascii=False, indent=2)
+            json.dump(config_dict, f, ensure_ascii=False, indent=2)
 
         return {
             "template_id": template_id,
@@ -3760,9 +3634,8 @@ async def list_custom_templates(
     templates = []
     for json_file in template_dir.glob("*.json"):
         try:
-            import json as _json
             with open(json_file, 'r', encoding='utf-8') as f:
-                config = _json.load(f)
+                config = json.load(f)
             template_id = json_file.stem
             # 只返回当前用户的模板
             if f"custom_{user_id}_" in template_id:
