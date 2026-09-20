@@ -44,6 +44,7 @@ from app.models.chat_history import CustomCharacter, UserPreference
 from app.utils import call_llm
 from app.agent.models import DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL
 from app.utils.security import verify_token
+from app.utils.aicloud.model_registry import MODEL_REGISTRY
 from app.utils.aicloud.http_client import call_with_retry
 from app.services.girlai_companion_context import build_companion_context
 from app.services.girlai_companion_classifier import (
@@ -1056,6 +1057,25 @@ async def create_custom_character(
     if count_result.scalar() >= 10:
         raise HTTPException(status_code=400, detail="自定义角色数量已达上限（10个）")
 
+    # 输入校验：非法数值/未知模型返回 400，而不是在构造 ORM 时抛 500
+    try:
+        temperature = float(body.get("temperature", 0.8))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="temperature 必须为数字")
+    if not 0.0 <= temperature <= 2.0:
+        raise HTTPException(status_code=400, detail="temperature 需在 0.0-2.0 之间")
+
+    try:
+        max_tokens = int(body.get("max_tokens", 180))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="max_tokens 必须为整数")
+    if not 50 <= max_tokens <= 1000:
+        raise HTTPException(status_code=400, detail="max_tokens 需在 50-1000 之间")
+
+    model = body.get("model") or DEFAULT_MODEL
+    if model not in {info.model_key for info in MODEL_REGISTRY.values()}:
+        raise HTTPException(status_code=400, detail=f"不支持的模型：{model}")
+
     character = CustomCharacter(
         user_id=int(user_id),
         name=name,
@@ -1064,9 +1084,9 @@ async def create_custom_character(
         speaking_style=body.get("speaking_style", "")[:200],
         greetings=json.dumps(body.get("greetings", []), ensure_ascii=False),
         tags=json.dumps(body.get("tags", []), ensure_ascii=False),
-        model=body.get("model", DEFAULT_MODEL),
-        temperature=int(float(body.get("temperature", 0.8)) * 100),
-        max_tokens=int(body.get("max_tokens", 180)),
+        model=model,
+        temperature=int(temperature * 100),
+        max_tokens=max_tokens,
         avatar_color=body.get("avatar_color", "#667eea")[:20],
     )
 
