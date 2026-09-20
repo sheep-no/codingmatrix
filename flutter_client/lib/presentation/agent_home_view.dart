@@ -24,16 +24,19 @@ class AgentHomeView extends ConsumerStatefulWidget {
 
 class _AgentHomeViewState extends ConsumerState<AgentHomeView> {
   final _requirementController = TextEditingController();
+  final _projectNameController = TextEditingController();
 
   @override
   void dispose() {
     _requirementController.dispose();
+    _projectNameController.dispose();
     super.dispose();
   }
 
   void _resetAccount() {
     closeAccountOverlays(context);
     _requirementController.clear();
+    _projectNameController.clear();
   }
 
   Future<void> _startGeneration(AuthState auth) async {
@@ -44,13 +47,24 @@ class _AgentHomeViewState extends ConsumerState<AgentHomeView> {
     }
     // Take the switches now: a mid-generation change must not alter this run.
     final flags = ref.read(generationFlagsControllerProvider);
+    // A finished run left a project behind, so this requirement modifies it
+    // instead of starting from scratch. A cancelled run was cleaned up, so it
+    // must start over even though it still reports a project path.
+    final workbench = ref.read(workbenchControllerProvider);
+    final projectPath = workbench.task?.status == 'success'
+        ? workbench.projectPath
+        : null;
+    final projectName = _projectNameController.text.trim();
     try {
       await ref
           .read(workbenchControllerProvider.notifier)
           .startGeneration(
             accessTokenRef: tokenRef,
             requirement: requirement,
+            projectName: projectName.isEmpty ? null : projectName,
             providerKey: ref.read(providerKeyControllerProvider).selected,
+            incremental: projectPath != null,
+            projectPath: projectPath,
             flags: flags,
           );
     } catch (_) {
@@ -145,6 +159,7 @@ class _AgentHomeViewState extends ConsumerState<AgentHomeView> {
                   const SizedBox(height: 16),
                   _PromptCard(
                     controller: _requirementController,
+                    projectNameController: _projectNameController,
                     isRunning: isRunning,
                     onStart: () => _startGeneration(auth),
                     onStop: _confirmStop,
@@ -166,6 +181,7 @@ class _AgentHomeViewState extends ConsumerState<AgentHomeView> {
               const SizedBox(height: 16),
               _PromptCard(
                 controller: _requirementController,
+                projectNameController: _projectNameController,
                 isRunning: isRunning,
                 onStart: () => _startGeneration(auth),
                 onStop: _confirmStop,
@@ -193,12 +209,14 @@ class _AgentHomeViewState extends ConsumerState<AgentHomeView> {
 class _PromptCard extends StatelessWidget {
   const _PromptCard({
     required this.controller,
+    required this.projectNameController,
     required this.isRunning,
     required this.onStart,
     required this.onStop,
   });
 
   final TextEditingController controller;
+  final TextEditingController projectNameController;
   final bool isRunning;
   final VoidCallback onStart;
   final VoidCallback onStop;
@@ -242,6 +260,18 @@ class _PromptCard extends StatelessWidget {
                         label: const Text('开始'),
                       ),
               ],
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('projectNameField'),
+              controller: projectNameController,
+              maxLength: 50,
+              decoration: const InputDecoration(
+                labelText: '项目名称（可选，留空自动生成）',
+                hintText: '例如：my_flutter_app',
+                prefixIcon: Icon(Icons.folder_outlined),
+                counterText: '',
+              ),
             ),
             const SizedBox(height: 8),
             const _GenerationFlagsPanel(),

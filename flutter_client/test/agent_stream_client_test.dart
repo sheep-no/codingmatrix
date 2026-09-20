@@ -63,6 +63,63 @@ void main() {
     );
   });
 
+  test('sends the incremental engine and project path', () async {
+    final store = CredentialStore();
+    final tokenRef = store.storeAccessToken('secret-token');
+    final client = MockClient((request) async {
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(body['incremental'], true);
+      expect(body['engine'], 'core');
+      expect(body['project_path'], '1/1789218793436');
+      expect(body['is_resume'], false);
+      return http.Response(
+        'data: {"type":"done","data":{}}\n\n',
+        200,
+        headers: {'content-type': 'text/event-stream'},
+      );
+    });
+    final streamClient = AgentStreamClient(
+      baseUrl: 'http://127.0.0.1:8080',
+      httpClient: client,
+      credentialStore: store,
+    );
+
+    await streamClient
+        .generate(
+          accessTokenRef: tokenRef,
+          requirement: 'add a logout button',
+          incremental: true,
+          engine: 'core',
+          projectPath: '1/1789218793436',
+        )
+        .toList();
+  });
+
+  test('omits the incremental fields for a fresh run', () async {
+    final store = CredentialStore();
+    final tokenRef = store.storeAccessToken('secret-token');
+    final client = MockClient((request) async {
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(body['incremental'], false);
+      expect(body.containsKey('engine'), isFalse);
+      expect(body.containsKey('project_path'), isFalse);
+      return http.Response(
+        'data: {"type":"done","data":{}}\n\n',
+        200,
+        headers: {'content-type': 'text/event-stream'},
+      );
+    });
+    final streamClient = AgentStreamClient(
+      baseUrl: 'http://127.0.0.1:8080',
+      httpClient: client,
+      credentialStore: store,
+    );
+
+    await streamClient
+        .generate(accessTokenRef: tokenRef, requirement: 'build a dashboard')
+        .toList();
+  });
+
   test('generate 网络断开向上抛出', () async {
     final store = CredentialStore();
     final tokenRef = store.storeAccessToken('secret-token');
@@ -76,10 +133,7 @@ void main() {
 
     await expectLater(
       streamClient
-          .generate(
-            accessTokenRef: tokenRef,
-            requirement: 'build a dashboard',
-          )
+          .generate(accessTokenRef: tokenRef, requirement: 'build a dashboard')
           .toList(),
       throwsA(
         isA<SocketException>().having(
@@ -124,10 +178,7 @@ void main() {
     );
 
     await expectLater(
-      streamClient.stop(
-        accessTokenRef: tokenRef,
-        sessionId: 'desktop-session',
-      ),
+      streamClient.stop(accessTokenRef: tokenRef, sessionId: 'desktop-session'),
       throwsA(
         isA<SocketException>().having(
           (error) => error.message,

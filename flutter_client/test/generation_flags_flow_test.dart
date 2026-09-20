@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:codingmatrix_desktop/application/auth_controller.dart';
 import 'package:codingmatrix_desktop/application/workbench_controller.dart';
 import 'package:codingmatrix_desktop/domain/models/auth_session.dart';
+import 'package:codingmatrix_desktop/domain/models/unified_models.dart';
 import 'package:codingmatrix_desktop/infrastructure/agent/agent_stream_client.dart';
 import 'package:codingmatrix_desktop/infrastructure/auth/cloud_auth_client.dart';
 import 'package:codingmatrix_desktop/infrastructure/auth/credential_store.dart';
@@ -139,5 +140,180 @@ void main() {
 
     expect(bodies, hasLength(1));
     expect(bodies.single['enable_skills'], isTrue);
+  });
+
+  testWidgets('首次生成按新建请求发送', (tester) async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final bodies = <Map<String, dynamic>>[];
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient.streaming((request, bodyStream) async {
+          bodies.add(
+            jsonDecode(await bodyStream.bytesToString())
+                as Map<String, dynamic>,
+          );
+          return http.StreamedResponse(const Stream<List<int>>.empty(), 200);
+        }),
+        credentialStore: store,
+      ),
+    );
+    await tester.pumpWidget(
+      _app(
+        store: store,
+        tokenRef: token,
+        workbench: workbench,
+        preferences: MemoryCapabilityPreferences(),
+      ),
+    );
+    await tester.pump();
+
+    await tester.enterText(find.byKey(const Key('requirementField')), '做一个应用');
+    await tester.tap(find.byKey(const Key('startGenerationButton')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(bodies, hasLength(1));
+    expect(bodies.single['incremental'], isFalse);
+    expect(bodies.single.containsKey('engine'), isFalse);
+    expect(bodies.single.containsKey('project_path'), isFalse);
+  });
+
+  testWidgets('已有生成结果时改为发送增量修改请求', (tester) async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final bodies = <Map<String, dynamic>>[];
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient.streaming((request, bodyStream) async {
+          bodies.add(
+            jsonDecode(await bodyStream.bytesToString())
+                as Map<String, dynamic>,
+          );
+          return http.StreamedResponse(const Stream<List<int>>.empty(), 200);
+        }),
+        credentialStore: store,
+      ),
+    );
+    // A finished run left a project behind, so the next requirement modifies it.
+    workbench.bindTask(
+      const Task(
+        taskId: 'done-1',
+        status: 'success',
+        resultJson: <String, dynamic>{'project_path': '1/1789218793436'},
+      ),
+    );
+    await tester.pumpWidget(
+      _app(
+        store: store,
+        tokenRef: token,
+        workbench: workbench,
+        preferences: MemoryCapabilityPreferences(),
+      ),
+    );
+    await tester.pump();
+
+    await tester.enterText(
+      find.byKey(const Key('requirementField')),
+      '加一个退出按钮',
+    );
+    await tester.tap(find.byKey(const Key('startGenerationButton')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(bodies, hasLength(1));
+    expect(bodies.single['incremental'], isTrue);
+    expect(bodies.single['engine'], 'core');
+    expect(bodies.single['project_path'], '1/1789218793436');
+  });
+
+  testWidgets('输入项目名后随生成请求发送', (tester) async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final bodies = <Map<String, dynamic>>[];
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient.streaming((request, bodyStream) async {
+          bodies.add(
+            jsonDecode(await bodyStream.bytesToString())
+                as Map<String, dynamic>,
+          );
+          return http.StreamedResponse(const Stream<List<int>>.empty(), 200);
+        }),
+        credentialStore: store,
+      ),
+    );
+    await tester.pumpWidget(
+      _app(
+        store: store,
+        tokenRef: token,
+        workbench: workbench,
+        preferences: MemoryCapabilityPreferences(),
+      ),
+    );
+    await tester.pump();
+
+    await tester.enterText(find.byKey(const Key('requirementField')), '做一个应用');
+    await tester.enterText(
+      find.byKey(const Key('projectNameField')),
+      'my_flutter_app',
+    );
+    await tester.tap(find.byKey(const Key('startGenerationButton')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(bodies, hasLength(1));
+    expect(bodies.single['project_name'], 'my_flutter_app');
+  });
+
+  testWidgets('停止清理后的任务不再按增量修改发送', (tester) async {
+    final store = CredentialStore();
+    final token = store.storeAccessToken('test-access');
+    final bodies = <Map<String, dynamic>>[];
+    final workbench = WorkbenchController(
+      streamClient: AgentStreamClient(
+        baseUrl: 'https://example.com',
+        httpClient: MockClient.streaming((request, bodyStream) async {
+          bodies.add(
+            jsonDecode(await bodyStream.bytesToString())
+                as Map<String, dynamic>,
+          );
+          return http.StreamedResponse(const Stream<List<int>>.empty(), 200);
+        }),
+        credentialStore: store,
+      ),
+    );
+    // Stop and clean keeps the task, but the project files are gone.
+    workbench.bindTask(
+      const Task(
+        taskId: 'stopped-1',
+        status: 'cancelled',
+        resultJson: <String, dynamic>{'project_path': '1/1789218793436'},
+      ),
+    );
+    await tester.pumpWidget(
+      _app(
+        store: store,
+        tokenRef: token,
+        workbench: workbench,
+        preferences: MemoryCapabilityPreferences(),
+      ),
+    );
+    await tester.pump();
+
+    await tester.enterText(
+      find.byKey(const Key('requirementField')),
+      '重新做一个应用',
+    );
+    await tester.tap(find.byKey(const Key('startGenerationButton')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(bodies, hasLength(1));
+    expect(bodies.single['incremental'], isFalse);
+    expect(bodies.single.containsKey('project_path'), isFalse);
   });
 }

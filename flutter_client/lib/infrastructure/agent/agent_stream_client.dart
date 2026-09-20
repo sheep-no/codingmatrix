@@ -47,6 +47,8 @@ class AgentStreamClient {
     bool specFirst = true,
     bool dependencyGraph = true,
     bool incremental = false,
+    String? engine,
+    String? projectPath,
     String? apiKeyToken,
     String? providerId,
   }) async {
@@ -73,6 +75,8 @@ class AgentStreamClient {
         'spec_first': specFirst,
         'dependency_graph': dependencyGraph,
         'incremental': incremental,
+        if (engine != null) 'engine': engine,
+        if (projectPath != null) 'project_path': projectPath,
         if (apiKeyToken != null) 'api_key_token': apiKeyToken,
         if (providerId != null) 'provider_id': providerId,
       });
@@ -103,6 +107,8 @@ class AgentStreamClient {
     bool specFirst = true,
     bool dependencyGraph = true,
     bool incremental = false,
+    String? engine,
+    String? projectPath,
     String? apiKeyToken,
     String? providerId,
   }) async* {
@@ -120,6 +126,8 @@ class AgentStreamClient {
       specFirst: specFirst,
       dependencyGraph: dependencyGraph,
       incremental: incremental,
+      engine: engine,
+      projectPath: projectPath,
       apiKeyToken: apiKeyToken,
       providerId: providerId,
     );

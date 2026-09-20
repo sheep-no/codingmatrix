@@ -181,6 +181,8 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
     String? projectName,
     ProviderKeySummary? providerKey,
     String? resumeSessionId,
+    bool incremental = false,
+    String? projectPath,
     GenerationFlags flags = GenerationFlags.defaults,
   }) async {
     final client = _streamClient;
@@ -218,6 +220,11 @@ class WorkbenchController extends StateNotifier<WorkbenchState> {
         enableSkills: flags.enableSkills,
         specFirst: flags.specFirst,
         dependencyGraph: flags.dependencyGraph,
+        incremental: incremental,
+        // The core engine is what implements the incremental adapter; the
+        // legacy handler ignores the flag and would rebuild the whole project.
+        engine: incremental ? 'core' : null,
+        projectPath: projectPath,
         apiKeyToken: providerKey?.isUsable == true ? providerKey!.token : null,
         providerId: providerKey?.isUsable == true
             ? providerKey!.provider
