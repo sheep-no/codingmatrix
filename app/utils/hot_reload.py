@@ -4,6 +4,7 @@
 支持运行时动态修改配置，无需重启服务
 """
 import asyncio
+import inspect
 import logging
 import time
 from typing import Any, Callable, Dict, Optional, Set
@@ -30,11 +31,18 @@ class ConfigWatcher:
     监听配置文件变化，触发回调
     """
 
-    def __init__(self, config_file: str = ".env", poll_interval: float = 5.0):
+    def __init__(
+        self,
+        config_file: str = ".env",
+        poll_interval: float = 5.0,
+        on_change: Optional[Callable[[str, Any, Any], None]] = None,
+    ):
         self.config_file = Path(config_file)
         self.poll_interval = poll_interval
         self._last_mtime: float = 0
         self._callbacks: Dict[str, Callable] = {}
+        # 变更记录钩子，由 HotReloadConfig 注入 record_change
+        self._on_change = on_change
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._lock = threading.Lock()
@@ -81,18 +89,35 @@ class ConfigWatcher:
         try:
             from dotenv import dotenv_values
             new_config = dotenv_values(self.config_file)
-
-            for key, callback in self._callbacks.items():
-                if key in new_config:
-                    old_value = getattr(self._get_settings(), key, None)
-                    new_value = new_config[key]
-
-                    if str(old_value) != str(new_value):
-                        logger.info(f"配置变更 | key={key} | old={old_value} | new={new_value}")
-                        callback(key, old_value, new_value)
-
         except Exception as e:
             logger.error(f"配置重载失败: {e}")
+            return
+
+        for key, callback in self._callbacks.items():
+            if key not in new_config:
+                continue
+
+            old_value = getattr(self._get_settings(), key, None)
+            new_value = new_config[key]
+            if str(old_value) == str(new_value):
+                continue
+
+            logger.info(f"配置变更 | key={key} | old={old_value} | new={new_value}")
+            if self._on_change is not None:
+                try:
+                    self._on_change(key, old_value, new_value)
+                except Exception as e:
+                    logger.error(f"配置变更记录失败 | key={key} | error={e}")
+            await self._invoke_callback(key, callback, old_value, new_value)
+
+    async def _invoke_callback(self, key: str, callback: Callable, old_value: Any, new_value: Any):
+        """执行单个变更回调，隔离异常并兼容 async 回调"""
+        try:
+            result = callback(key, old_value, new_value)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as e:
+            logger.error(f"配置变更回调执行失败 | key={key} | error={e}")
 
     def _get_settings(self):
         """获取当前设置"""
@@ -142,7 +167,9 @@ class HotReloadConfig:
     def register_watcher(self, name: str, config_file: str = ".env", poll_interval: float = 5.0):
         """注册配置监听器"""
         if name not in self._watchers:
-            self._watchers[name] = ConfigWatcher(config_file, poll_interval)
+            self._watchers[name] = ConfigWatcher(
+                config_file, poll_interval, on_change=self.record_change
+            )
         return self._watchers[name]
 
     def get_watcher(self, name: str) -> Optional[ConfigWatcher]:

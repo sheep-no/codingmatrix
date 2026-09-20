@@ -447,7 +447,10 @@ class DynamicPackageManager:
             if self.is_in_whitelist(normalized):
                 allowed.append(pkg)
             else:
-                # 不在白名单也不在黑名单 → 需要评估（异步）
-                allowed.append(pkg)  # 先放入待评估列表
+                # 不在白名单也不在黑名单：同步过滤无法完成 AI 评估，
+                # 按 fail-closed 拒绝，需经 evaluate_and_install 评估通过后
+                # 加入动态白名单再安装。
+                logger.info(f"包未在名单中，需评估后再安装 | package={pkg}")
+                rejected.append(pkg)
 
         return allowed, rejected
