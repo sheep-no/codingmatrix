@@ -9,7 +9,8 @@
 > 状态更新（2026-09-20）：
 > - FESTATE-01 超出本轮修复范围：涉及 `src/composables/useAgentSession.js`、`src/views/AgentDashboard.vue`，属于 Agent 子系统，本轮不处理。
 > - FESTATE-04、FESTATE-05 超出本轮修复范围：涉及 `src/composables/useAgentStreaming.js`、`src/composables/useAgentBackend.js`，属于 Agent 子系统，本轮不处理。
-> - FESTATE-03 本次修复：`src/components/SystemLogs.vue` 的自动保存 `watch` 改为引用 `toRefs(logsStore)` 得到的 refs，不再对 Pinia setup store 已解包属性误取 `.value`；新增 `src/components/SystemLogs.test.js`（新增日志后写入 localStorage）。回退修复后该用例失败。FESTATE-02 仍待处理。
+> - FESTATE-02 本次修复：`src/components/index.vue` 把 `handleSendMessage` 注册为离线队列发送回调（`setSendCallback`），并在鉴权与 API Key 校验后、真正发起请求前判断 `isOnline`，断网时改为 `queueMessage` 入队。`src/composables/useOfflineQueue.js` 同步修正三处：`flushQueue` 失败时按原顺序保留失败消息及其后续消息（原实现会丢弃后续消息）、`restoreQueue` 不再在恢复时删除 localStorage 备份（保证未发送前的持久性）、挂载时若已在线则延后补发恢复队列。新增 `src/composables/useOfflineQueue.test.js`，并在 `src/components/index.test.js` 补断网入队与回调注册用例；回退源码后 4 个新用例全部失败。
+> - FESTATE-03 本次修复：`src/components/SystemLogs.vue` 的自动保存 `watch` 改为引用 `toRefs(logsStore)` 得到的 refs，不再对 Pinia setup store 已解包属性误取 `.value`；新增 `src/components/SystemLogs.test.js`（新增日志后写入 localStorage）。回退修复后该用例失败。
 > - FESTATE-06 本次修复：`src/stores/navigation.js` 的 `activeTool` 补上 `projectGenerator` 分支；同时删除 `src/components/ImageGenerator.vue` 中对只读 computed `activeTool` 的无效赋值（该赋值在开发态触发只读告警且不生效，`showImageGenerator = true` 已足以驱动 `activeTool`）。新增 `src/stores/navigation.test.js`，回退后 `projectGenerator` 用例失败。
 > - FESTATE-07 已修复：`src/stores/github.js` 现仅持久化 `githubUsername`/`useGithub`，`githubToken` 为内存 ref，且 `purgeStoredToken()` 清理历史遗留 token。原文描述已不成立。
 
