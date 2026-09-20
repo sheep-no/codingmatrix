@@ -30,23 +30,44 @@ ALLOWED_MIME_TYPES = {
 }
 
 # 文件扩展名与 MIME 类型映射
+# 说明：代码/配置文件没有稳定魔数，detect_mime_type 通常只能判为 text/plain，
+# 因此文本类扩展名一律允许 text/plain，避免深度校验把合法源码整体拒掉。
 EXTENSION_MIME_MAP = {
-    '.py': ['text/x-python', 'application/x-python-code'],
-    '.js': ['application/javascript', 'text/javascript'],
-    '.ts': ['application/typescript'],
-    '.java': ['text/x-java', 'application/java'],
-    '.json': ['application/json'],
-    '.yaml': ['application/x-yaml', 'text/yaml'],
-    '.yml': ['application/x-yaml', 'text/yaml'],
-    '.xml': ['application/xml', 'text/xml'],
-    '.html': ['text/html'],
-    '.css': ['text/css'],
+    # 代码
+    '.py': ['text/x-python', 'application/x-python-code', 'text/plain'],
+    '.js': ['application/javascript', 'application/x-javascript', 'text/javascript', 'text/plain'],
+    '.jsx': ['application/javascript', 'text/javascript', 'text/plain'],
+    '.ts': ['application/typescript', 'text/plain'],
+    '.tsx': ['application/typescript', 'text/plain'],
+    '.vue': ['text/plain', 'text/html'],
+    '.java': ['text/x-java', 'application/java', 'text/plain'],
+    '.c': ['text/plain'],
+    '.cpp': ['text/plain'],
+    '.go': ['text/plain'],
+    '.rs': ['text/plain'],
+    '.rb': ['text/plain'],
+    '.html': ['text/html', 'text/plain'],
+    '.css': ['text/css', 'text/plain'],
+    '.scss': ['text/css', 'text/plain'],
+    # 配置
+    '.json': ['application/json', 'text/plain'],
+    '.yaml': ['application/x-yaml', 'text/yaml', 'text/plain'],
+    '.yml': ['application/x-yaml', 'text/yaml', 'text/plain'],
+    '.toml': ['text/plain'],
+    '.ini': ['text/plain'],
+    '.xml': ['application/xml', 'text/xml', 'text/plain'],
+    # 文档
     '.md': ['text/markdown', 'text/plain'],
     '.txt': ['text/plain'],
+    '.rst': ['text/plain'],
     '.pdf': ['application/pdf'],
+    # .docx 是 zip 容器，魔数判为 application/zip
+    '.docx': ['application/zip', 'application/x-zip-compressed'],
+    # 压缩包
     '.zip': ['application/zip', 'application/x-zip-compressed'],
     '.tar': ['application/x-tar'],
     '.gz': ['application/x-gzip'],
+    # 图片
     '.jpg': ['image/jpeg'],
     '.jpeg': ['image/jpeg'],
     '.png': ['image/png'],
@@ -219,7 +240,17 @@ def detect_mime_type(content: bytes) -> str:
     
     if '<?xml' in sample:
         return 'application/xml'
-    
+
+    # 文本嗅探：可解码为 UTF-8 且不含 NUL 字节的内容按纯文本处理，
+    # 覆盖没有稳定魔数的源码/配置/说明文档（否则会误判为二进制流而拒收）
+    probe = content[:2048]
+    if b'\x00' not in probe:
+        try:
+            probe.decode('utf-8')
+            return 'text/plain'
+        except UnicodeDecodeError:
+            pass
+
     # 默认返回二进制流
     return 'application/octet-stream'
 
@@ -364,7 +395,8 @@ def generate_safe_filename(original_filename: str) -> str:
     ext = Path(original_filename).suffix.lower()
     
     # 验证扩展名
-    if ext and not re.match(r'^\.[a-z0-9]{2,10}$', ext):
+    # 下限为 1，兼容 .c/.h 等单字符扩展名（file_upload 白名单允许但 {2,10} 会拒）
+    if ext and not re.match(r'^\.[a-z0-9]{1,10}$', ext):
         raise ValueError(f"无效的扩展名：{ext}")
     
     # 生成 UUID 作为文件名
