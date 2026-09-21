@@ -166,8 +166,9 @@ def generate_metrics_text() -> str:
     lines.append("# TYPE http_requests_total counter")
     for key, info in data["counters"].items():
         if key.startswith("http_requests_total"):
-            labels_str = _format_labels(info["labels"])
-            lines.append(f'{key}{labels_str} {info["value"]}')
+            # key 已在 MetricsRegistry._make_key 中包含标签块，重复追加会写出
+            # http_requests_total{...}{...} 这类非法行。
+            lines.append(f'{key} {info["value"]}')
 
     lines.append("")
     lines.append("# HELP http_request_duration_seconds HTTP request duration")
