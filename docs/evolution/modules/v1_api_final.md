@@ -123,8 +123,8 @@
 - **FL1 [P3] 已修复**：分片链 file_id 无归属校验——upload_chunk/merge_chunks 仅凭 uuid file_id 操作，B 知 file_id 可把 A 的分片合并记到自己名下。修复：新增 `_scoped_chunk_dir(user_id, file_id)` 将分片目录改为 `CHUNKS_DIR/<user_id>/<file_id>`（同时拒绝空值/`..`/`/`/`\` 穿越），init/upload/merge 三端点统一走该函数；`ChunkMetadata` 增可选 `base_dir` 参数。新增 `tests/unit/test_bugfixes.py::TestChunkUserIsolation`（3 项，覆盖用户隔离、穿越拒绝、元数据落盘路径）。
 - **FL2 [P3]** 安全双轨：单文件链有 validate_file_upload + validate_file_content 双层验证；分片链 merge 路径零验证（无扩展名/内容检查），可落盘任意后缀文件；:421 filename 未净化直接拼路径（uuid 前缀阻断 ".." 穿越——"uuid_.." 为字面目录名，实际可利用性低，记加固项）。已验证 uploads 无静态挂载（main.py:341-343 仅 /static），download 端点 attachment 头兜底
 - **FL3 [P3]** :355 chunk.read() 无单分片大小限制（约定 5MB 无强制）；chunk_index 任意 int；.chunks 孤儿分片永不过期清理 → 磁盘耗尽家族（VK1/CS3 同族）
-- **FL4 [P3]** :185 datetime.utcnow() vs :418 datetime.now() 同文件双时间语义（MD4 家族）+ 两种目录格式 %Y/%m/%d 与 %Y%m%d
-- **FL5 [P3]** :37 _chunk_locks 字典只增不减，file_id 锁永驻内存（慢泄漏）
+- **FL4 [P3] 已修复**：原单文件上传用 `datetime.utcnow().strftime("%Y/%m/%d")`、分片合并用 `datetime.now().strftime("%Y%m%d")`，同文件两种时钟与两种目录格式。新增 `_storage_date_dir()` 统一为 `datetime.now().strftime("%Y%m%d")`（与仓库其余 8 处日期目录惯例一致），两条路径共用。已确认全库仅有本文件使用 `UPLOAD_DIR`，`Aicode.verify_file_access` 只按 `./uploads` 根做前缀校验、不解析日期层级，下载按 DB 存储路径读取，故已有文件路径不受影响。回归测试 `tests/unit/test_bugfixes.py::TestUploadStorageDateDir`
+- **FL5 [P3] 已修复**：原 `_chunk_locks` 以裸 `file_id` 为键、只增不减，锁对象随上传次数永驻内存；且未含 user 维度，不同用户传同一 file_id 会相互阻塞。改为 `_chunk_lock_scope(user_id, file_id)` 异步上下文管理器：键为 `(user_id, file_id)`，引用计数在最后一个使用者离开时回收锁与计数条目（全程在 `_chunk_locks_lock` 内增减，持有者/等待者均持引用，无回收竞态）。回归测试 `tests/unit/test_bugfixes.py::TestChunkLockRegistry`
 
 ### skills.py（1 项）
 - **SKY2 [P3] 已修复**：:213-241 /reload 原零认证可达——任何人可触发提权脚本改写全局提示词文档。修复：加 `Depends(verify_token)` 与管理员校验（`permission_level in {admin, superadmin}`）。subprocess 脚本路径已用 `BASE_DIR / ".claude" / "skills" / ...` 相对根目录解析。回归测试 `tests/unit/test_skills_reload_auth.py`

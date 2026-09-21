@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import uuid
+from contextlib import asynccontextmanager
 from typing import Optional, List
 from datetime import datetime
 from pathlib import Path
@@ -32,8 +33,10 @@ CHUNKS_DIR = UPLOAD_DIR / ".chunks"  # 断点续传分片目录
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 CHUNK_SIZE = 5 * 1024 * 1024  # 分片大小 5MB
 
-# 分片上传锁（保护并发上传同一文件）
-_chunk_locks: dict[str, asyncio.Lock] = {}
+# 分片上传锁（保护并发上传同一文件）；按 (user_id, file_id) 隔离，用引用计数在
+# 最后一个使用者离开后回收，避免锁表随上传次数无界增长（FL5）。
+_chunk_locks: dict[tuple[int, str], asyncio.Lock] = {}
+_chunk_lock_refs: dict[tuple[int, str], int] = {}
 _chunk_locks_lock = asyncio.Lock()
 
 
@@ -97,12 +100,32 @@ class ChunkMetadata:
                set(self.uploaded_chunks) == set(range(self.total_chunks))
 
 
-async def _get_chunk_lock(file_id: str) -> asyncio.Lock:
-    """获取文件分片锁（asyncio 安全，v4.8.0 改造）"""
+@asynccontextmanager
+async def _chunk_lock_scope(user_id: int, file_id: str):
+    """独占某用户某文件的分片操作，并在无人使用时回收入口。"""
+    key = (user_id, file_id)
     async with _chunk_locks_lock:
-        if file_id not in _chunk_locks:
-            _chunk_locks[file_id] = asyncio.Lock()
-        return _chunk_locks[file_id]
+        lock = _chunk_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _chunk_locks[key] = lock
+        _chunk_lock_refs[key] = _chunk_lock_refs.get(key, 0) + 1
+    try:
+        async with lock:
+            yield
+    finally:
+        async with _chunk_locks_lock:
+            remaining = _chunk_lock_refs.get(key, 1) - 1
+            if remaining > 0:
+                _chunk_lock_refs[key] = remaining
+            else:
+                _chunk_lock_refs.pop(key, None)
+                _chunk_locks.pop(key, None)
+
+
+def _storage_date_dir() -> Path:
+    """上传落盘的日期子目录；统一时钟与格式（原单文件用 utcnow %Y/%m/%d，合并用 now %Y%m%d）。"""
+    return UPLOAD_DIR / datetime.now().strftime("%Y%m%d")
 
 
 def _scoped_chunk_dir(user_id: int, file_id: str) -> Path:
@@ -222,7 +245,7 @@ async def upload_file(
         # 生成存储路径
         file_ext = Path(file.filename).suffix.lower()
         storage_filename = f"{uuid.uuid4().hex}{file_ext}"
-        storage_path = UPLOAD_DIR / datetime.utcnow().strftime("%Y/%m/%d") / storage_filename
+        storage_path = _storage_date_dir() / storage_filename
         
         # 创建目录
         storage_path.parent.mkdir(parents=True, exist_ok=True)
@@ -398,8 +421,7 @@ async def upload_chunk(
     logger.info(f"分片上传成功 | file_id={file_id} | chunk={chunk_index}/{total_chunks} | size={len(content)}")
 
     # 更新元数据（需要锁保护并发访问）
-    lock = await _get_chunk_lock(file_id)
-    async with lock:
+    async with _chunk_lock_scope(user_id, file_id):
         meta = ChunkMetadata.load(file_id, total_chunks, base_dir=chunk_dir.parent)
         meta.add_chunk(chunk_index)
 
@@ -435,8 +457,7 @@ async def merge_chunks(
     chunk_dir = _scoped_chunk_dir(user_id, file_id)
 
     # 使用锁保护合并操作
-    lock = await _get_chunk_lock(file_id)
-    async with lock:
+    async with _chunk_lock_scope(user_id, file_id):
         # 从文件加载元数据（包含正确的 total_chunks）
         meta_path = chunk_dir / "metadata.json"
         if not meta_path.exists():
@@ -455,7 +476,7 @@ async def merge_chunks(
             )
 
         # 合并文件
-        output_dir = UPLOAD_DIR / datetime.now().strftime("%Y%m%d")
+        output_dir = _storage_date_dir()
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # 清理文件名，防止路径穿越
