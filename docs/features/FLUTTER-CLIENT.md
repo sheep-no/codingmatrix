@@ -1,8 +1,8 @@
 # Flutter 桌面客户端
 
-> 最后更新：2026-09-20 | 源码：`flutter_client/` | Dart：70 个 `lib/**/*.dart` / 12,217 行 | 页面：18 | 测试：33 个文件
+> 最后更新：2026-09-21 | 源码：`flutter_client/` | Dart：70 个 `lib/**/*.dart` / 12,217 行 | 页面：18 | 测试：33 个文件
 
-`flutter_client` 是 CodingMatrix 的桌面 Agent 工作台，包名为 `codingmatrix_desktop`，版本 `1.0.0+1`，Dart SDK `^3.9.2`。客户端只调用现有 FastAPI 接口，使用 Cookie JWT、CSRF 和 RSA 加密登录，不单独实现业务引擎。
+`flutter_client` 是 CodingMatrix 的 Agent 工作台客户端，目标平台为 Android 与 Linux/Windows 桌面（`android/`、`linux/`、`windows/` 三个平台目录，无 iOS/macOS/Web），包名为 `codingmatrix_desktop`，版本 `1.0.0+1`，Dart SDK `^3.9.2`。客户端只调用现有 FastAPI 接口，使用 Cookie JWT、CSRF 和 RSA 加密登录，不单独实现业务引擎。Android 清单通过 `android:usesCleartextTraffic` 允许明文 HTTP，因为后端由用户自建、地址在登录页运行时填写。
 
 ## 分层
 
@@ -87,9 +87,22 @@ flutter test --no-pub --concurrency=1
 # 启动桌面端（需本机已配置 Flutter 桌面目标）
 flutter run -d windows
 flutter run -d linux
+
+# 启动 Android（需本机已配置 Android SDK；设备 id 先看 flutter devices）
+flutter devices
+flutter run -d <device-id>
+
+# 构建 Linux 桌面产物，输出在 build/linux/x64/debug/bundle/flutter_client
+flutter build linux --debug
+
+# 构建 APK，需要 NDK 27（AGP 需 strip native 库）
+flutter build apk --debug
+
+# 免 NDK 的 Android 目标编译校验，输出在 build/flutter_assets
+flutter build bundle --target-platform android-arm64
 ```
 
-测试文件位于 `flutter_client/test/`，共 33 个 `*_test.dart`。当前记录覆盖 Mock HTTP 与 widget 测试，不覆盖真实 Provider、GitHub、LLM 或 Android/Windows 真机。
+测试文件位于 `flutter_client/test/`，共 33 个 `*_test.dart`。当前记录覆盖 Mock HTTP 与 widget 测试，不覆盖真实 Provider、GitHub、LLM 或 Android/Windows 真机。Linux 桌面已在本环境实际构建并完成窗口启动冒烟验证；Android 仅验证 Dart 目标编译（APK 构建受 NDK 体积与本机磁盘限制）。
 
 ## 相关文档
 
