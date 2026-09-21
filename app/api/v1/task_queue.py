@@ -65,13 +65,29 @@ def _build_task_kwargs(task_type: str, task_id: str, user_id: int, params: dict)
     return kwargs
 
 
+# Celery 运行时状态与任务表词表取值不同（FAILURE/RETRY/REVOKED）。直接 lower()
+# 会返回 API 未声明的 "failure"/"retry"/"revoked"，前端无法识别（TQ6）。
+_CELERY_STATE_TO_STATUS = {
+    "pending": "pending",
+    "received": "pending",
+    "started": "running",
+    "retry": "retrying",
+    "success": "success",
+    "failure": "failed",
+    "revoked": "cancelled",
+}
+
+
 def _merge_task_runtime_state(task_record, celery_state, celery_info):
     """Merge SQL progress with Celery runtime metadata without losing persisted updates."""
     persisted_status = str(task_record.status or "pending").lower()
     if persisted_status in {"success", "failed", "cancelled"}:
         status = persisted_status
     else:
-        status = celery_state.lower() if celery_state else persisted_status
+        # 未识别的 Celery 状态保留 DB 口径，避免引入词表外的值
+        status = _CELERY_STATE_TO_STATUS.get(
+            str(celery_state or "").lower(), persisted_status
+        )
 
     progress = int(task_record.progress or 0)
     progress_message = task_record.progress_message or ""

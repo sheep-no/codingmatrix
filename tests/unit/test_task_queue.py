@@ -95,7 +95,7 @@ class TestTaskStatus:
         assert TaskPriority.MEDIUM.value == "medium"
         assert TaskPriority.LOW.value == "low"
 
-    def test_runtime_state_preserves_persisted_progress(self):
+    def test_runtime_state_normalizes_status_and_preserves_persisted_progress(self):
         from app.api.v1.task_queue import _merge_task_runtime_state
 
         task = type("TaskRecord", (), {
@@ -106,7 +106,8 @@ class TestTaskStatus:
 
         status, progress, message = _merge_task_runtime_state(task, "STARTED", None)
 
-        assert status == "started"
+        # Celery STARTED 归一化为任务表词表的 running（TQ6），进度/文案仍取持久值
+        assert status == "running"
         assert progress == 20
         assert message == "正在生成 PPT 大纲..."
 

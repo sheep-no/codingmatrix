@@ -49,6 +49,7 @@ def _record(**overrides):
         "retry_count": 1,
         "error_message": "boom",
         "progress": 10,
+        "progress_message": None,
         "priority": 5,
         "timeout": 300,
         "max_retries": 3,
@@ -246,6 +247,45 @@ def test_build_task_kwargs_covers_every_supported_type():
         "user_id": 1,
         "request_data": {"slide_count": 3},
     }
+
+
+@pytest.mark.parametrize(
+    "celery_state,expected",
+    [
+        ("PENDING", "pending"),
+        ("RECEIVED", "pending"),
+        ("STARTED", "running"),
+        ("RETRY", "retrying"),
+        ("SUCCESS", "success"),
+        ("FAILURE", "failed"),
+        ("REVOKED", "cancelled"),
+    ],
+)
+def test_merge_maps_celery_states_to_task_status_vocabulary(celery_state, expected):
+    """Celery 状态须归一化为任务表词表，不能透出 failure/retry/revoked（TQ6）。"""
+    from app.api.v1.task_queue import _merge_task_runtime_state
+
+    status, _, _ = _merge_task_runtime_state(_record(status="running"), celery_state, None)
+    assert status == expected
+
+
+def test_celery_state_map_only_produces_declared_statuses():
+    from app.api.v1.task_queue import _CELERY_STATE_TO_STATUS
+    from app.schema.task_schema import TaskStatusEnum
+
+    assert set(_CELERY_STATE_TO_STATUS.values()) <= {m.value for m in TaskStatusEnum}
+
+
+def test_merge_unknown_celery_state_keeps_persisted_status():
+    from app.api.v1.task_queue import _merge_task_runtime_state
+
+    assert _merge_task_runtime_state(_record(status="running"), "SOME_FUTURE_STATE", None)[0] == "running"
+
+
+def test_merge_terminal_persisted_status_wins():
+    from app.api.v1.task_queue import _merge_task_runtime_state
+
+    assert _merge_task_runtime_state(_record(status="failed"), "SUCCESS", None)[0] == "failed"
 
 
 @pytest.mark.asyncio
