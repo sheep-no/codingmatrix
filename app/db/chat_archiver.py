@@ -1,8 +1,9 @@
-# app/services/chat_archiver.py
+# app/db/chat_archiver.py
 """
 对话归档服务
-每 10 天执行一次，将 3-13 天前的对话提取摘要后硬删除
-摘要由 AI 生成，确保保留真正重要的信息
+每 10 天执行一次，将 3 天前的对话提取摘要后硬删除
+窗口下界取上一次归档的水位线（首次运行回看 13 天），摘要由 AI 生成，
+确保保留真正重要的信息
 
 优化点：
 - 批量处理 + 独立事务，防止单用户失败影响全局
@@ -56,16 +57,19 @@ class ChatArchiver:
         try:
             logger.info(f"开始归档任务 | 时间范围={days_ago_start}-{days_ago_end} 天前")
             
-            offset = 0
+            last_user_id = 0
             
             while True:
                 batch_start = time.time()
                 
                 # 分批获取用户 ID
+                # keyset 分页：归档会物理删除消息，被清空消息的用户会从
+                # distinct 集合中消失，offset 分页随即漂移并跳过后续用户。
                 user_stmt = (
                     select(distinct(ChatHistory.user_id))
+                    .where(ChatHistory.user_id > last_user_id)
+                    .order_by(ChatHistory.user_id)
                     .limit(batch_size)
-                    .offset(offset)
                 )
                 result = await self.db.execute(user_stmt)
                 user_ids = result.scalars().all()
@@ -74,7 +78,8 @@ class ChatArchiver:
                     logger.info(f"归档任务全部完成 | 总用户数={total_users} | 成功={success_count} | 失败={len(failed_users)}")
                     break
                 
-                logger.info(f"处理批次 | 偏移量={offset} | 本批用户数={len(user_ids)}")
+                last_user_id = user_ids[-1]
+                logger.info(f"处理批次 | 起始用户={user_ids[0]} | 本批用户数={len(user_ids)}")
                 
                 # 为每个用户创建独立会话
                 for user_id in user_ids:
@@ -97,8 +102,6 @@ class ChatArchiver:
                 total_users += len(user_ids)
                 batch_duration = time.time() - batch_start
                 logger.debug(f"批次处理完成 | 耗时={batch_duration:.2f}s")
-                
-                offset += batch_size
             
             if failed_users:
                 logger.warning(f"失败用户列表：{failed_users[:10]}{'...' if len(failed_users) > 10 else ''}")
@@ -120,7 +123,8 @@ class ChatArchiver:
         start_time = time.time()
         now = datetime.utcnow()
         start_date = now - timedelta(days=days_ago_start)
-        end_date = now - timedelta(days=days_ago_end)
+        # 冷启动（无历史摘要）时的回填上界
+        default_end_date = now - timedelta(days=days_ago_end)
         
         try:
             # 检查是否已在此周期内归档过
@@ -134,9 +138,12 @@ class ChatArchiver:
             result = await self.db.execute(last_summary_stmt)
             last_summary = result.scalar_one_or_none()
             
-            # 如果最近归档时间大于 end_date，说明已处理过，跳过
-            if last_summary and last_summary.end_date > end_date:
-                logger.debug(f"用户 {user_id} 已在此周期内归档过 (最后归档：{last_summary.end_date})，跳过处理")
+            # 以上一次归档的结束时间作为水位线下界：只要该时间之后仍有
+            # 早于 start_date 的消息就继续处理。固定窗口在调度错过一整轮
+            # 后，中间时间带会落在窗口之外而永久不被归档、永久不被删除。
+            end_date = last_summary.end_date if last_summary else default_end_date
+            if end_date >= start_date:
+                logger.debug(f"用户 {user_id} 暂无可归档新区间 (水位线：{end_date})，跳过处理")
                 return
             
             # 检查时间重叠
