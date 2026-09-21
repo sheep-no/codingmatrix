@@ -5,8 +5,6 @@
 """
 import logging
 import json
-from fastapi import Request
-from fastapi.responses import JSONResponse
 
 from app.services.feature_switch import feature_switch_service
 
@@ -30,16 +28,20 @@ class FeatureSwitchMiddleware:
         "/api/v1/workflow": "workflow",
     }
 
-    SKIP_PATHS = {
-        "/health",
-        "/ready",
-        "/docs",
-        "/openapi.json",
-        "/favicon.ico",
-    }
-
     def __init__(self, app):
         self.app = app
+
+    @classmethod
+    def _match_feature(cls, path: str) -> str:
+        """返回该路径归属的功能名，无归属时返回空串
+
+        按路径段边界匹配：/api/v1/agentfoo 不属于 /api/v1/agent 管辖范围，
+        不应因 agent 被关闭而收到 503。
+        """
+        for path_prefix, feature in cls.PATH_FEATURE_MAP.items():
+            if path == path_prefix or path.startswith(path_prefix + "/"):
+                return feature
+        return ""
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -47,47 +49,36 @@ class FeatureSwitchMiddleware:
             return
 
         path = scope.get("path", "")
+        feature = self._match_feature(path)
 
-        if path in self.SKIP_PATHS:
+        if not feature:
             await self.app(scope, receive, send)
             return
 
-        for path_prefix, feature in self.PATH_FEATURE_MAP.items():
-            if path.startswith(path_prefix):
-                is_enabled = await feature_switch_service.is_feature_enabled(feature)
+        if await feature_switch_service.is_feature_enabled(feature):
+            await self.app(scope, receive, send)
+            return
 
-                if not is_enabled:
-                    feature_name = {
-                        "aicloud": "AI Cloud 功能",
-                        "docker": "Docker 功能",
-                        "project": "项目生成功能",
-                        "workflow": "工作流功能",
-                    }.get(feature, feature)
+        # 功能名沿用服务侧单一来源，避免两处中文名漂移
+        feature_name = feature_switch_service.FEATURE_NAMES.get(feature, feature)
+        logger.warning(f"尝试访问已禁用的功能 | path={path} | feature={feature_name}")
 
-                    logger.warning(
-                        f"尝试访问已禁用的功能 | path={path} | feature={feature_name}"
-                    )
-
-                    payload = {
-                        "detail": f"{feature_name}已关闭，请联系管理员开启",
-                        "code": "FEATURE_DISABLED",
-                        "feature": feature,
-                    }
-                    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-                    await send({
-                        "type": "http.response.start",
-                        "status": 503,
-                        "headers": [
-                            (b"content-type", b"application/json; charset=utf-8"),
-                            (b"content-length", str(len(body)).encode()),
-                        ],
-                    })
-                    await send({
-                        "type": "http.response.body",
-                        "body": body,
-                        "more_body": False,
-                    })
-                    return
-                break
-
-        await self.app(scope, receive, send)
+        payload = {
+            "detail": f"{feature_name}已关闭，请联系管理员开启",
+            "code": "FEATURE_DISABLED",
+            "feature": feature,
+        }
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        await send({
+            "type": "http.response.start",
+            "status": 503,
+            "headers": [
+                (b"content-type", b"application/json; charset=utf-8"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": body,
+            "more_body": False,
+        })
