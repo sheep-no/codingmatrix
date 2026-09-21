@@ -1,4 +1,4 @@
-# migrations/async_runner.py
+# migrations/runner.py
 """
 完全独立的异步迁移运行器，支持 MySQL 和 SQLite
 """
@@ -183,4 +183,55 @@ async def run_async_migrations():
                     )
                     print(f"已升级 user_preferences 表字段: {column_name}")
 
+        # Permission.user_id 的唯一约束是后补的模型约束（2026-09-18），
+        # CreateTable 只对新库生效；既有库里已经有 permission 表，需要补建
+        # 唯一索引，否则同一用户可能出现多行权限，uselist=False 读取会抛
+        # MultipleResultsFound。存在重复数据时只告警不删除，留待人工清理。
+        if "permission" in existing_tables and not await _has_unique_user_id_index(
+            conn, db_type, parsed.path.strip("/")
+        ):
+            duplicates_result = await conn.execute(
+                text(
+                    "SELECT user_id FROM permission "
+                    "GROUP BY user_id HAVING COUNT(*) > 1 LIMIT 5"
+                )
+            )
+            duplicates = [row[0] for row in duplicates_result]
+            if duplicates:
+                print(f"⚠️ permission 表存在重复 user_id={duplicates}，跳过唯一索引创建")
+            else:
+                await conn.execute(
+                    text("CREATE UNIQUE INDEX uq_permission_user_id ON permission (user_id)")
+                )
+                print("已升级 permission 表唯一索引: uq_permission_user_id")
+
     await engine.dispose()
+
+
+async def _has_unique_user_id_index(conn, db_type: str, db_name: str) -> bool:
+    """判断 permission 表是否已有仅覆盖 user_id 的唯一约束/索引。"""
+    if db_type == "sqlite":
+        indexes_result = await conn.execute(text("PRAGMA index_list(permission)"))
+        for index_row in indexes_result:
+            index_name, is_unique = index_row[1], index_row[2]
+            if not is_unique:
+                continue
+            columns_result = await conn.execute(
+                text(f"PRAGMA index_info('{index_name}')")
+            )
+            if [row[2] for row in columns_result] == ["user_id"]:
+                return True
+        return False
+
+    columns_result = await conn.execute(
+        text(
+            "SELECT index_name, column_name FROM information_schema.statistics "
+            "WHERE table_schema = :db_name AND table_name = 'permission' "
+            "AND non_unique = 0 ORDER BY index_name, seq_in_index"
+        ),
+        {"db_name": db_name},
+    )
+    indexes: dict[str, list[str]] = {}
+    for index_name, column_name in columns_result:
+        indexes.setdefault(index_name, []).append(column_name)
+    return any(columns == ["user_id"] for columns in indexes.values())
