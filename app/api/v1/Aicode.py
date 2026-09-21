@@ -44,6 +44,7 @@ from app.services.chat_context import fit_context, is_context_length_error
 from app.models.unified_state import Message, Session, SessionEvent
 from app.services.unified_state_service import append_message, create_session
 from app.utils.aicloud.knowledge_processor import parse_document
+from app.utils import partial_response_store
 
 # 初始化日志
 logger = logging.getLogger(__name__)
@@ -55,10 +56,7 @@ CHAT_STREAM_HEADERS = {
     "Connection": "keep-alive",
 }
 
-# 部分响应缓存 {task_id: {"prompt": ..., "partial_response": ..., "model": ..., "timestamp": ...}}
-_partial_response_cache: Dict[str, dict] = {}
-_PARTIAL_TTL = 300  # 5 分钟过期
-_PARTIAL_CACHE_MAX_SIZE = 100  # 最大缓存条目数
+_PARTIAL_TTL = 300  # 部分响应缓存 5 分钟过期
 
 
 async def _append_shared_chat_messages(
@@ -104,33 +102,6 @@ async def _delete_shared_chat_data(db: AsyncSession, user_id: int, conversation_
     return len(session_ids)
 
 
-def _cleanup_partial_cache():
-    """清理过期的部分响应缓存"""
-    now = datetime.utcnow()
-    expired_keys = []
-    for task_id, data in _partial_response_cache.items():
-        try:
-            cached_time = datetime.fromisoformat(data.get("timestamp", ""))
-            if (now - cached_time).total_seconds() > _PARTIAL_TTL:
-                expired_keys.append(task_id)
-        except (ValueError, TypeError):
-            expired_keys.append(task_id)
-    
-    for task_id in expired_keys:
-        _partial_response_cache.pop(task_id, None)
-    
-    # 如果缓存仍然过大，删除最旧的条目
-    if len(_partial_response_cache) > _PARTIAL_CACHE_MAX_SIZE:
-        sorted_keys = sorted(
-            _partial_response_cache.keys(),
-            key=lambda k: _partial_response_cache[k].get("timestamp", "")
-        )
-        for k in sorted_keys[:len(_partial_response_cache) - _PARTIAL_CACHE_MAX_SIZE]:
-            _partial_response_cache.pop(k, None)
-    
-    return len(expired_keys)
-
-
 def _store_partial_response(
     prompt: str,
     partial_text: str,
@@ -142,20 +113,26 @@ def _store_partial_response(
 
     必须一并记录 conversation_id：恢复时要把续写结果写回原会话，否则会另起
     新会话导致上下文断裂（无原会话时为 None，由保存侧新建，属预期）。
+
+    写入跨 worker 共享的缓存（Redis，不可用则回退进程内），避免多 worker
+    下保存与恢复落到不同进程导致 resume_id 查不到。
     """
     if len(partial_text) <= 10:
         return None
-    _cleanup_partial_cache()
-    task_id = str(uuid.uuid4())
-    _partial_response_cache[task_id] = {
-        "prompt": prompt,
-        "partial_response": partial_text,
-        "model": model,
-        "user_id": user_id,
-        "conversation_id": conversation_id,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-    return task_id
+    resume_id = str(uuid.uuid4())
+    saved = partial_response_store.save_partial_response(
+        resume_id,
+        {
+            "prompt": prompt,
+            "partial_response": partial_text,
+            "model": model,
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+        _PARTIAL_TTL,
+    )
+    return resume_id if saved else None
 
 
 # 通用提示词模板
@@ -541,12 +518,16 @@ def extract_response_text(result: Any) -> str:
 
 def _restore_partial_prefix(resume_from: Optional[str], user_id: Any) -> str:
     """取出可续写的前缀文本；仅接受归属当前用户的恢复缓存。"""
-    if not resume_from or resume_from not in _partial_response_cache:
+    if not resume_from:
         return ""
-    cache = _partial_response_cache.pop(resume_from)
+    cache = partial_response_store.get_partial_response(resume_from)
+    if not cache:
+        return ""
     if str(cache.get("user_id")) != str(user_id):
         logger.warning(f"忽略非本人的部分响应恢复 | task_id={resume_from}")
+        # 不消费他人条目，避免误删（resume_id 不可猜测）
         return ""
+    partial_response_store.pop_partial_response(resume_from)
     prefix_text = cache.get("partial_response", "")
     logger.info(f"从部分响应恢复 | task_id={resume_from} | prefix_len={len(prefix_text)}")
     return prefix_text
@@ -1438,10 +1419,10 @@ async def resume_code_generation(
     user_id = token.get("sub")
     resume_id = body.get("resume_id")
 
-    if not resume_id or resume_id not in _partial_response_cache:
+    cache = partial_response_store.get_partial_response(resume_id) if resume_id else None
+    if not cache:
         raise HTTPException(status_code=404, detail="找不到可恢复的部分响应（可能已过期）")
 
-    cache = _partial_response_cache[resume_id]
     if cache.get("user_id") != user_id:
         raise HTTPException(status_code=403, detail="无权恢复此响应")
 
@@ -1490,10 +1471,10 @@ async def get_partial_response(
     """获取被中断的部分响应内容"""
     user_id = token.get("sub")
 
-    if resume_id not in _partial_response_cache:
+    cache = partial_response_store.get_partial_response(resume_id)
+    if not cache:
         raise HTTPException(status_code=404, detail="部分响应不存在或已过期")
 
-    cache = _partial_response_cache[resume_id]
     if cache.get("user_id") != user_id:
         raise HTTPException(status_code=403, detail="无权访问")
 
